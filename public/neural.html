@@ -1,0 +1,588 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Neural Pathways · Helena</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#000;overflow:hidden;font-family:'Inter',-apple-system,sans-serif}
+#wrap{width:100vw;height:100vh;position:relative}
+
+.lbl{
+  font:500 10px/1 'Inter',sans-serif;
+  letter-spacing:.11em;text-transform:uppercase;
+  pointer-events:none;white-space:nowrap;
+  padding:6px 0 0 0;
+  text-shadow:0 0 16px currentColor,0 0 32px currentColor;
+  opacity:0;transition:opacity 1.0s cubic-bezier(.16,1,.3,1);
+}
+.lbl.vis{opacity:1}
+.lbl.hub{font-size:14px;font-weight:700;letter-spacing:.07em}
+
+#tip{
+  position:fixed;display:none;z-index:200;
+  background:rgba(2,3,14,.96);
+  border:1px solid rgba(255,255,255,.07);
+  border-radius:14px;
+  padding:14px 18px 13px;
+  pointer-events:none;max-width:240px;
+  backdrop-filter:blur(24px);
+  box-shadow:0 16px 60px rgba(0,0,0,.65),inset 0 1px 0 rgba(255,255,255,.04);
+  transition:opacity .15s;
+}
+.tl{font:600 13px/1.3 'Inter';color:#fff;margin-bottom:6px}
+.td{font:400 11px/1.65 'Inter';color:rgba(255,255,255,.38)}
+.tf{margin-top:11px;display:flex;align-items:center;gap:8px}
+.tf-l{font:600 8px 'Inter';letter-spacing:.13em;color:rgba(255,255,255,.20);white-space:nowrap}
+.tf-t{flex:1;height:2px;background:rgba(255,255,255,.06);border-radius:1px;overflow:hidden}
+.tf-f{height:100%;border-radius:1px;transition:width .45s cubic-bezier(.16,1,.3,1)}
+.tf-p{font:600 9px 'Inter';color:rgba(255,255,255,.25);min-width:28px;text-align:right}
+
+#back{
+  position:fixed;top:20px;left:20px;z-index:300;
+  display:flex;align-items:center;gap:8px;
+  padding:8px 14px 8px 10px;border-radius:10px;
+  background:rgba(2,3,14,.90);
+  border:1px solid rgba(255,255,255,.07);
+  backdrop-filter:blur(20px);
+  color:rgba(255,255,255,.45);
+  font:500 11px 'Inter';letter-spacing:.04em;
+  text-decoration:none;
+  transition:border-color .2s,color .2s,box-shadow .2s;
+  box-shadow:0 4px 28px rgba(0,0,0,.45);
+}
+#back:hover{border-color:rgba(0,229,255,.30);color:#00E5FF;box-shadow:0 4px 28px rgba(0,229,255,.10)}
+
+#meta{
+  position:fixed;top:20px;right:20px;z-index:300;
+  text-align:right;pointer-events:none;
+}
+#meta .m-title{font:700 11px 'Inter';letter-spacing:.14em;color:rgba(255,255,255,.28)}
+#meta .m-sub{font:400 9px 'Inter';letter-spacing:.10em;color:rgba(255,255,255,.13);margin-top:3px}
+
+#hints{
+  position:fixed;bottom:26px;left:50%;transform:translateX(-50%);
+  font:400 9px 'Inter';letter-spacing:.14em;
+  color:rgba(255,255,255,.10);pointer-events:none;white-space:nowrap;
+}
+
+#vig{
+  position:fixed;inset:0;pointer-events:none;z-index:5;
+  background:radial-gradient(ellipse at 50% 50%,transparent 45%,rgba(0,0,0,.72) 100%);
+}
+
+#loader{
+  position:fixed;inset:0;z-index:600;
+  background:#000;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;
+  transition:opacity 1.0s cubic-bezier(.16,1,.3,1);
+}
+#loader.out{opacity:0;pointer-events:none}
+.ld-orb{
+  width:42px;height:42px;border-radius:50%;
+  border:1px solid rgba(0,229,255,.08);
+  border-top-color:rgba(0,229,255,.75);
+  box-shadow:0 0 20px rgba(0,229,255,.12);
+  animation:ldspin .85s linear infinite;
+}
+.ld-t{font:500 9px 'Inter';letter-spacing:.18em;color:rgba(255,255,255,.18)}
+@keyframes ldspin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+
+<div id="loader"><div class="ld-orb"></div><div class="ld-t">INITIALISING NEURAL MAP</div></div>
+<div id="wrap"></div>
+<div id="vig"></div>
+
+<div id="tip">
+  <div class="tl"></div>
+  <div class="td"></div>
+  <div class="tf">
+    <span class="tf-l">FRESHNESS</span>
+    <div class="tf-t"><div class="tf-f"></div></div>
+    <span class="tf-p"></span>
+  </div>
+</div>
+
+<a id="back" href="/dashboard">
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+  Dashboard
+</a>
+
+<div id="meta">
+  <div class="m-title">NEURAL PATHWAYS</div>
+  <div class="m-sub">HELENA · KNOWLEDGE GRAPH</div>
+</div>
+
+<div id="hints">DRAG TO ROTATE &nbsp;·&nbsp; SCROLL TO ZOOM &nbsp;·&nbsp; HOVER NODES</div>
+
+<script type="importmap">
+{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.174.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.174.0/examples/jsm/"}}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls }              from 'three/addons/controls/OrbitControls.js';
+import { EffectComposer }             from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass }                 from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass }            from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass }                 from 'three/addons/postprocessing/OutputPass.js';
+import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
+
+// ══ DATA ═══════════════════════════════════════════════════════════
+const MOCK = {
+  nodes:[
+    {id:'hub',      type:'hub',      parent:null,       label:'Helena',       color:'#00E5FF',freshness:1.00,detail:'Central AI — always learning and growing.'},
+    {id:'obsidian', type:'category', parent:null,       label:'Obsidian',     color:'#9D4EDD',freshness:0.88,detail:'2,847 notes indexed · synced 2 min ago.'},
+    {id:'web',      type:'category', parent:null,       label:'Web',          color:'#FF9500',freshness:0.72,detail:'Live search · Scout research pipelines active.'},
+    {id:'spotify',  type:'category', parent:null,       label:'Spotify',      color:'#1DB954',freshness:0.65,detail:'Listening history · 312 tracks · 14 playlists.'},
+    {id:'memory',   type:'category', parent:null,       label:'Memory',       color:'#FF375F',freshness:0.95,detail:'47 persistent facts, preferences & people.'},
+    {id:'calendar', type:'category', parent:null,       label:'Calendar',     color:'#0A84FF',freshness:0.55,detail:'3 events today · next in 38 min.'},
+    {id:'ob1',type:'leaf',parent:'obsidian',label:'Projects',   color:'#9D4EDD',freshness:0.90,detail:'42 active project notes'},
+    {id:'ob2',type:'leaf',parent:'obsidian',label:'Research',   color:'#9D4EDD',freshness:0.80,detail:'118 research documents'},
+    {id:'ob3',type:'leaf',parent:'obsidian',label:'Journal',    color:'#9D4EDD',freshness:0.75,detail:'Daily entries since 2022'},
+    {id:'ob4',type:'leaf',parent:'obsidian',label:'Ideas',      color:'#9D4EDD',freshness:0.60,detail:'Fleeting sparks & concepts'},
+    {id:'wb1',type:'leaf',parent:'web',     label:'Scout',      color:'#FF9500',freshness:0.70,detail:'Active research pipelines'},
+    {id:'wb2',type:'leaf',parent:'web',     label:'Bookmarks',  color:'#FF9500',freshness:0.50,detail:'89 saved links'},
+    {id:'wb3',type:'leaf',parent:'web',     label:'News Feed',  color:'#FF9500',freshness:0.85,detail:'Real-time digest stream'},
+    {id:'sp1',type:'leaf',parent:'spotify', label:'Artists',    color:'#1DB954',freshness:0.62,detail:'Last 30-day listening trends'},
+    {id:'sp2',type:'leaf',parent:'spotify', label:'Playlists',  color:'#1DB954',freshness:0.55,detail:'14 curated playlists'},
+    {id:'me1',type:'leaf',parent:'memory',  label:'Prefs',      color:'#FF375F',freshness:0.95,detail:'Morning briefings preferred'},
+    {id:'me2',type:'leaf',parent:'memory',  label:'People',     color:'#FF375F',freshness:0.80,detail:'12 contacts profiled'},
+    {id:'me3',type:'leaf',parent:'memory',  label:'Goals',      color:'#FF375F',freshness:0.70,detail:'Quarterly targets tracked'},
+    {id:'ca1',type:'leaf',parent:'calendar',label:'Today',      color:'#0A84FF',freshness:1.00,detail:'3 events · next in 38 min'},
+    {id:'ca2',type:'leaf',parent:'calendar',label:'This Week',  color:'#0A84FF',freshness:0.60,detail:'12 events scheduled'},
+  ],
+  edges:[
+    {s:'hub',t:'obsidian'},{s:'hub',t:'web'},{s:'hub',t:'spotify'},{s:'hub',t:'memory'},{s:'hub',t:'calendar'},
+    {s:'obsidian',t:'ob1'},{s:'obsidian',t:'ob2'},{s:'obsidian',t:'ob3'},{s:'obsidian',t:'ob4'},
+    {s:'web',t:'wb1'},{s:'web',t:'wb2'},{s:'web',t:'wb3'},
+    {s:'spotify',t:'sp1'},{s:'spotify',t:'sp2'},
+    {s:'memory',t:'me1'},{s:'memory',t:'me2'},{s:'memory',t:'me3'},
+    {s:'calendar',t:'ca1'},{s:'calendar',t:'ca2'},
+  ],
+};
+async function fetchData(){ return MOCK; }
+
+// ══ CONSTANTS ══════════════════════════════════════════════════════
+const HUB_R    = 0.85;
+const CAT_R    = 0.44;
+const LEAF_R   = 0.20;
+const CAT_DIST = 4.1;
+const LEAF_D   = 1.65;
+const ORBIT_W  = 0.088;
+const BEZ_N    = 20;   // bezier samples per edge
+const PPE      = 5;    // particles per edge
+
+// ══ SHADERS ════════════════════════════════════════════════════════
+const CORE_VS = `
+  uniform float uTime;
+  uniform float uFreshness;
+  uniform float uHub;
+  varying vec3 vN; varying vec3 vE; varying vec3 vP;
+  void main(){
+    vP = position; vN = normalize(normalMatrix * normal);
+    float spd = 0.5 + uFreshness * 1.5;
+    float breath = 1.0 + sin(uTime * spd) * 0.065 * uFreshness;
+    float plasma = uHub * sin(position.x*7.0+uTime*1.9) * sin(position.y*7.0+uTime*1.4) * sin(position.z*7.0+uTime*1.1) * 0.045;
+    vec4 mv = modelViewMatrix * vec4(position * (breath + plasma), 1.0);
+    vE = normalize(-mv.xyz);
+    gl_Position = projectionMatrix * mv;
+  }
+`;
+const CORE_FS = `
+  uniform vec3 uColor; uniform float uFreshness; uniform float uTime; uniform float uHub;
+  varying vec3 vN; varying vec3 vE; varying vec3 vP;
+  void main(){
+    float NdE = clamp(dot(normalize(vN),normalize(vE)),0.0,1.0);
+    float rim  = pow(1.0-NdE,2.8)*0.28;
+    float brt  = 0.82 + uFreshness * 0.32;
+    float sh   = uHub * sin(vP.x*9.0+uTime*2.2)*sin(vP.y*9.0+uTime*1.7)*0.12;
+    gl_FragColor = vec4((uColor+rim*0.28)*(brt+sh), 1.0);
+  }
+`;
+const HALO_VS = `
+  varying vec3 vN; varying vec3 vE;
+  void main(){
+    vN = normalize(normalMatrix*normal);
+    vec4 mv = modelViewMatrix*vec4(position,1.0);
+    vE = normalize(-mv.xyz); gl_Position = projectionMatrix*mv;
+  }
+`;
+const HALO_FS = `
+  uniform vec3 uColor; uniform float uFreshness;
+  varying vec3 vN; varying vec3 vE;
+  void main(){
+    float NdE  = clamp(dot(normalize(vN),normalize(vE)),0.0,1.0);
+    float fres = pow(1.0-NdE,4.0);
+    float alpha = fres * 0.55 * (0.28 + uFreshness*0.72);
+    gl_FragColor = vec4(uColor*fres*1.7, alpha);
+  }
+`;
+// Bezier edge with traveling triple-pulse
+const EDGE_VS = `
+  attribute float aT; varying float vT;
+  void main(){ vT=aT; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }
+`;
+const EDGE_FS = `
+  uniform vec3 uColor; uniform float uTime; uniform float uOff;
+  varying float vT;
+  void main(){
+    float fade = sin(vT*3.14159);
+    float spd  = 0.30;
+    float p1 = exp(-pow(vT-fract(uTime*spd+uOff+0.00),2.0)*80.0);
+    float p2 = exp(-pow(vT-fract(uTime*spd+uOff+0.34),2.0)*80.0)*0.65;
+    float p3 = exp(-pow(vT-fract(uTime*spd+uOff+0.67),2.0)*80.0)*0.42;
+    float pulse = p1+p2+p3;
+    gl_FragColor = vec4(uColor + pulse*0.40, fade*0.18 + pulse*0.60);
+  }
+`;
+
+// ══ RENDERER ═══════════════════════════════════════════════════════
+const wrap = document.getElementById('wrap');
+let W = wrap.clientWidth, H = wrap.clientHeight;
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 3));
+renderer.setSize(W, H);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
+wrap.appendChild(renderer.domElement);
+
+const labelRenderer = new CSS2DRenderer();
+labelRenderer.setSize(W, H);
+labelRenderer.domElement.style.cssText = 'position:absolute;top:0;left:0;pointer-events:none;overflow:hidden;';
+wrap.appendChild(labelRenderer.domElement);
+
+const scene  = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(52, W/H, 0.1, 500);
+camera.position.set(0, 3.0, 13.5);
+
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(new THREE.Vector2(W, H), 1.10, 0.22, 0.18);
+composer.addPass(bloom);
+composer.addPass(new OutputPass());
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true; controls.dampingFactor = 0.045;
+controls.autoRotate = true;   controls.autoRotateSpeed = 0.32;
+controls.minDistance = 0.8;   controls.maxDistance = 40;
+controls.enablePan = false;
+
+// ══ ENVIRONMENT ════════════════════════════════════════════════════
+
+// Stars — two size layers
+for (const [n,sz,op] of [[3200,0.14,0.60],[500,0.28,0.32]]) {
+  const pos = new Float32Array(n*3);
+  for (let i=0;i<n;i++){const v=new THREE.Vector3().randomDirection().multiplyScalar(100+Math.random()*130);pos[i*3]=v.x;pos[i*3+1]=v.y;pos[i*3+2]=v.z;}
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos,3));
+  scene.add(new THREE.Points(g, new THREE.PointsMaterial({color:0xffffff,size:sz,transparent:true,opacity:op,sizeAttenuation:true})));
+}
+
+// Nebula
+{
+  const mat = new THREE.ShaderMaterial({
+    uniforms:{},
+    vertexShader:  `varying vec3 vP;void main(){vP=position;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}`,
+    fragmentShader:`
+      varying vec3 vP;
+      void main(){
+        vec3 n=normalize(vP);
+        float ty=n.y*.5+.5,tx=n.x*.5+.5,tz=n.z*.5+.5;
+        vec3 a=vec3(.000,.032,.105)*ty;
+        vec3 b=vec3(.055,.000,.135)*(1.-ty)*tx;
+        vec3 c=vec3(.000,.040,.065)*(1.-ty)*(1.-tx);
+        vec3 d=vec3(.018,.000,.055)*tz*(1.-ty);
+        gl_FragColor=vec4(a+b+c+d,1.0);
+      }`,
+    side: THREE.BackSide,
+  });
+  scene.add(new THREE.Mesh(new THREE.SphereGeometry(200,32,32), mat));
+}
+
+// Ambient drift
+const DUST_N = 320;
+const dustBuf = new Float32Array(DUST_N*3);
+const dustPh  = new Float32Array(DUST_N*3);
+const dustSp  = new Float32Array(DUST_N*3);
+for (let i=0;i<DUST_N;i++){
+  const v=new THREE.Vector3().randomDirection().multiplyScalar(2+Math.random()*12);
+  dustBuf[i*3]=v.x;dustBuf[i*3+1]=v.y;dustBuf[i*3+2]=v.z;
+  for(let c=0;c<3;c++){dustPh[i*3+c]=Math.random()*Math.PI*2;dustSp[i*3+c]=0.14+Math.random()*0.24;}
+}
+const dustGeo  = new THREE.BufferGeometry();
+const dustAttr = new THREE.BufferAttribute(dustBuf, 3);
+dustAttr.setUsage(THREE.DynamicDrawUsage);
+dustGeo.setAttribute('position', dustAttr);
+scene.add(new THREE.Points(dustGeo, new THREE.PointsMaterial({color:0x0099cc,size:0.05,transparent:true,opacity:0.24,blending:THREE.AdditiveBlending,depthWrite:false,sizeAttenuation:true})));
+
+// ══ DATA + LAYOUT ══════════════════════════════════════════════════
+const DATA       = await fetchData();
+const nodeById   = new Map(DATA.nodes.map(n=>[n.id,n]));
+const categories = DATA.nodes.filter(n=>n.type==='category');
+const leaves     = DATA.nodes.filter(n=>n.type==='leaf');
+
+const catL = {};
+categories.forEach((c,i)=>{
+  catL[c.id]={ base:(i/categories.length)*Math.PI*2, tilt:Math.sin(i*1.618)*0.68 };
+});
+const leafL = {};
+leaves.forEach(lf=>{
+  const sib=leaves.filter(l=>l.parent===lf.parent);
+  const si=sib.indexOf(lf),sc=sib.length;
+  const phi=(si/Math.max(sc,1))*Math.PI*1.6+0.25;
+  const th=(si/Math.max(sc,1))*Math.PI*2;
+  leafL[lf.id]={ox:Math.sin(phi)*Math.cos(th)*LEAF_D,oy:(Math.cos(phi)-.5)*LEAF_D*.6,oz:Math.sin(phi)*Math.sin(th)*LEAF_D,ph:Math.random()*Math.PI*2,amp:.06+Math.random()*.10,spd:.18+Math.random()*.28};
+});
+
+function getCatP(id,t){
+  const cl=catL[id],a=cl.base+t*ORBIT_W;
+  return new THREE.Vector3(Math.cos(a)*CAT_DIST,Math.sin(cl.tilt+t*.05)*.90,Math.sin(a)*CAT_DIST);
+}
+function getLeafP(lf,t){
+  const ll=leafL[lf.id],cp=getCatP(lf.parent,t);
+  return new THREE.Vector3(cp.x+ll.ox+Math.sin(t*ll.spd+ll.ph)*ll.amp,cp.y+ll.oy+Math.sin(t*ll.spd*.68+ll.ph+1)*ll.amp*.55,cp.z+ll.oz+Math.cos(t*ll.spd*.85+ll.ph+2)*ll.amp);
+}
+function getNodeP(id,t){
+  const nd=nodeById.get(id);
+  if(!nd)return new THREE.Vector3();
+  if(nd.type==='hub')return new THREE.Vector3();
+  if(nd.type==='category')return getCatP(id,t);
+  return getLeafP(nd,t);
+}
+
+// Quadratic bezier — arcs outward from origin
+function bezP(p0,p1,u){
+  const mid=new THREE.Vector3().lerpVectors(p0,p1,.5);
+  const toMid=mid.clone().normalize();
+  const bend=Math.min(p0.distanceTo(p1)*.22,1.9);
+  const ctrl=mid.clone().addScaledVector(toMid,bend);
+  const mt=1-u;
+  return new THREE.Vector3(mt*mt*p0.x+2*mt*u*ctrl.x+u*u*p1.x,mt*mt*p0.y+2*mt*u*ctrl.y+u*u*p1.y,mt*mt*p0.z+2*mt*u*ctrl.z+u*u*p1.z);
+}
+
+// ══ NODE MESHES ════════════════════════════════════════════════════
+const nodeGroups = new Map();
+const coreMats   = [];
+const hitMeshes  = [];
+const labelDivs  = [];
+
+function makeNode(nd){
+  const isHub=nd.type==='hub', isCat=nd.type==='category';
+  const r=isHub?HUB_R:isCat?CAT_R:LEAF_R;
+  const col=new THREE.Color(nd.color);
+  const g=new THREE.Group();
+
+  const cMat=new THREE.ShaderMaterial({
+    uniforms:{uTime:{value:0},uColor:{value:col.clone()},uFreshness:{value:nd.freshness},uHub:{value:isHub?1.0:0.0}},
+    vertexShader:CORE_VS,fragmentShader:CORE_FS,
+  });
+  coreMats.push(cMat);
+  g.add(new THREE.Mesh(new THREE.SphereGeometry(r,isHub?48:32,isHub?48:32),cMat));
+
+  g.add(new THREE.Mesh(
+    new THREE.SphereGeometry(r*(isHub?3.6:2.9),24,24),
+    new THREE.ShaderMaterial({uniforms:{uColor:{value:col.clone()},uFreshness:{value:nd.freshness}},vertexShader:HALO_VS,fragmentShader:HALO_FS,transparent:true,depthWrite:false,blending:THREE.AdditiveBlending})
+  ));
+
+  const hit=new THREE.Mesh(new THREE.SphereGeometry(r*2.5,8,8),new THREE.MeshBasicMaterial({visible:false}));
+  hit.userData=nd; g.add(hit); hitMeshes.push(hit);
+
+  if(isHub||isCat){
+    const div=document.createElement('div');
+    div.className='lbl'+(isHub?' hub':'');
+    div.textContent=nd.label; div.style.color=nd.color;
+    const lbl=new CSS2DObject(div);
+    lbl.position.set(0,r*2.3+0.12,0);
+    g.add(lbl); labelDivs.push(div);
+  }
+  scene.add(g);
+  nodeGroups.set(nd.id,g);
+}
+DATA.nodes.forEach(makeNode);
+
+// Hub orbital rings
+const HUB_RINGS=[
+  {r:HUB_R*2.3,tube:.018,rx:Math.PI/2,ry:0,     spd_z: 0.50,op:.50},
+  {r:HUB_R*3.2,tube:.012,rx:Math.PI/3,ry:0,     spd_z:-0.30,op:.32},
+  {r:HUB_R*4.3,tube:.008,rx:Math.PI/6,ry:Math.PI/4,spd_z:0.18,op:.20},
+];
+const hubRingMeshes=[];
+const hubRingMats=[];
+HUB_RINGS.forEach(({r,tube,rx,ry})=>{
+  const mat=new THREE.MeshBasicMaterial({color:new THREE.Color(.00,.90,1.10),transparent:true,opacity:.45,blending:THREE.AdditiveBlending,depthWrite:false});
+  hubRingMats.push(mat);
+  const mesh=new THREE.Mesh(new THREE.TorusGeometry(r,tube,8,80),mat);
+  mesh.rotation.x=rx; mesh.rotation.y=ry;
+  scene.add(mesh); hubRingMeshes.push(mesh);
+});
+
+// Category accent rings
+const catRingMeshes=[];
+categories.forEach(cat=>{
+  const mat=new THREE.MeshBasicMaterial({color:new THREE.Color(cat.color),transparent:true,opacity:.40,blending:THREE.AdditiveBlending,depthWrite:false});
+  const mesh=new THREE.Mesh(new THREE.TorusGeometry(CAT_R*2.1,.010,8,48),mat);
+  scene.add(mesh);
+  catRingMeshes.push({mesh,mat,catId:cat.id});
+});
+
+// ══ BEZIER EDGE LINES ══════════════════════════════════════════════
+const edgeObjects=[];
+const edgeMats=[];
+// Static aT values reused per edge (we clone)
+const aTBase=new Float32Array(BEZ_N+1);
+for(let i=0;i<=BEZ_N;i++) aTBase[i]=i/BEZ_N;
+
+DATA.edges.forEach(edge=>{
+  const srcNd=nodeById.get(edge.s);
+  const col=new THREE.Color(srcNd?.color??'#fff');
+  const positions=new Float32Array((BEZ_N+1)*3);
+  const posBuf=new THREE.BufferAttribute(positions,3);
+  posBuf.setUsage(THREE.DynamicDrawUsage);
+  const geo=new THREE.BufferGeometry();
+  geo.setAttribute('position',posBuf);
+  geo.setAttribute('aT',new THREE.BufferAttribute(aTBase.slice(),1));
+  const mat=new THREE.ShaderMaterial({
+    uniforms:{uTime:{value:0},uColor:{value:col.clone()},uOff:{value:Math.random()}},
+    vertexShader:EDGE_VS,fragmentShader:EDGE_FS,
+    transparent:true,depthWrite:false,blending:THREE.AdditiveBlending,
+  });
+  edgeMats.push(mat);
+  const line=new THREE.Line(geo,mat);
+  scene.add(line);
+  edgeObjects.push({posBuf,edge});
+});
+
+// ══ PARTICLES ══════════════════════════════════════════════════════
+const TP=DATA.edges.length*PPE;
+const pPosBuf=new Float32Array(TP*3);
+const pColBuf=new Float32Array(TP*3);
+const pSpd=new Float32Array(TP);
+const pOff=new Float32Array(TP);
+DATA.edges.forEach((edge,ei)=>{
+  const c=new THREE.Color(nodeById.get(edge.s)?.color??'#fff');
+  for(let p=0;p<PPE;p++){
+    const pi=ei*PPE+p;
+    pSpd[pi]=.055+Math.random()*.13; pOff[pi]=p/PPE+Math.random()*.09;
+    pColBuf[pi*3]=c.r;pColBuf[pi*3+1]=c.g;pColBuf[pi*3+2]=c.b;
+  }
+});
+const pPosAttr=new THREE.BufferAttribute(pPosBuf,3);
+pPosAttr.setUsage(THREE.DynamicDrawUsage);
+const partGeo=new THREE.BufferGeometry();
+partGeo.setAttribute('position',pPosAttr);
+partGeo.setAttribute('color',new THREE.BufferAttribute(pColBuf,3));
+scene.add(new THREE.Points(partGeo,new THREE.PointsMaterial({size:.10,vertexColors:true,transparent:true,opacity:1.0,blending:THREE.AdditiveBlending,depthWrite:false,sizeAttenuation:true})));
+
+// ══ TOOLTIP ════════════════════════════════════════════════════════
+const raycaster=new THREE.Raycaster();
+const mouse=new THREE.Vector2(-9999,-9999);
+const tip=document.getElementById('tip');
+const tipL=tip.querySelector('.tl'),tipD=tip.querySelector('.td');
+const tipFill=tip.querySelector('.tf-f'),tipPct=tip.querySelector('.tf-p');
+let hovId=null;
+
+wrap.addEventListener('mousemove',e=>{
+  const rect=wrap.getBoundingClientRect();
+  mouse.x=((e.clientX-rect.left)/rect.width)*2-1;
+  mouse.y=-((e.clientY-rect.top)/rect.height)*2+1;
+  raycaster.setFromCamera(mouse,camera);
+  const hits=raycaster.intersectObjects(hitMeshes);
+  if(hits.length){
+    const nd=hits[0].object.userData;
+    if(nd.id!==hovId){
+      hovId=nd.id;
+      tipL.textContent=nd.label;tipL.style.color=nd.color;
+      tipD.textContent=nd.detail;
+      tipFill.style.width=(nd.freshness*100)+'%';
+      tipFill.style.background=nd.color;
+      tipPct.textContent=Math.round(nd.freshness*100)+'%';
+      tip.style.borderColor=nd.color+'35';
+      tip.style.display='block';
+      controls.autoRotate=false;
+    }
+    tip.style.left=(e.clientX+18)+'px';
+    tip.style.top=(e.clientY-42)+'px';
+  } else if(hovId){
+    hovId=null;tip.style.display='none';controls.autoRotate=true;
+  }
+});
+wrap.addEventListener('mouseleave',()=>{hovId=null;tip.style.display='none';controls.autoRotate=true;});
+
+// ══ ANIMATE ════════════════════════════════════════════════════════
+const clock=new THREE.Clock();
+let labelsShown=false;
+
+function animate(){
+  requestAnimationFrame(animate);
+  const t=clock.getElapsedTime();
+
+  if(!labelsShown&&t>1.2){labelsShown=true;labelDivs.forEach(d=>d.classList.add('vis'));}
+
+  coreMats.forEach(m=>{m.uniforms.uTime.value=t;});
+
+  DATA.nodes.forEach(nd=>{nodeGroups.get(nd.id)?.position.copy(getNodeP(nd.id,t));});
+
+  // Hub rings
+  hubRingMeshes.forEach((mesh,i)=>{
+    mesh.rotation.z=t*HUB_RINGS[i].spd_z;
+    hubRingMats[i].opacity=HUB_RINGS[i].op*(0.7+Math.sin(t*1.5+i)*0.30);
+  });
+
+  // Category accent rings follow their node
+  catRingMeshes.forEach(({mesh,mat,catId},i)=>{
+    mesh.position.copy(getCatP(catId,t));
+    mesh.rotation.x=t*0.38+i;
+    mesh.rotation.y=t*0.24+i*.8;
+    mat.opacity=.28+Math.sin(t*1.9+i*1.4)*.12;
+  });
+
+  // Dust drift
+  for(let i=0;i<DUST_N;i++){
+    dustBuf[i*3]  +=Math.sin(t*dustSp[i*3]  +dustPh[i*3]  )*.003;
+    dustBuf[i*3+1]+=.007;
+    dustBuf[i*3+2]+=Math.cos(t*dustSp[i*3+2]+dustPh[i*3+2])*.003;
+    if(dustBuf[i*3+1]>11)dustBuf[i*3+1]=-11;
+  }
+  dustAttr.needsUpdate=true;
+
+  // Bezier edges + particles
+  edgeObjects.forEach(({posBuf,edge},ei)=>{
+    const sp=getNodeP(edge.s,t),tp=getNodeP(edge.t,t);
+    for(let i=0;i<=BEZ_N;i++){const p=bezP(sp,tp,i/BEZ_N);posBuf.array[i*3]=p.x;posBuf.array[i*3+1]=p.y;posBuf.array[i*3+2]=p.z;}
+    posBuf.needsUpdate=true;
+    edgeMats[ei].uniforms.uTime.value=t;
+    for(let p=0;p<PPE;p++){
+      const pi=ei*PPE+p;
+      const u=(t*pSpd[pi]+pOff[pi])%1.0;
+      const pos=bezP(sp,tp,u);
+      pPosBuf[pi*3]=pos.x;pPosBuf[pi*3+1]=pos.y;pPosBuf[pi*3+2]=pos.z;
+    }
+  });
+  pPosAttr.needsUpdate=true;
+
+  controls.update();
+  composer.render();
+  labelRenderer.render(scene,camera);
+}
+animate();
+
+// Fade loader
+setTimeout(()=>document.getElementById('loader').classList.add('out'),700);
+
+// ══ RESIZE ═════════════════════════════════════════════════════════
+window.addEventListener('resize',()=>{
+  W=wrap.clientWidth;H=wrap.clientHeight;
+  camera.aspect=W/H;camera.updateProjectionMatrix();
+  renderer.setSize(W,H);composer.setSize(W,H);
+  bloom.setSize(W,H);labelRenderer.setSize(W,H);
+});
+</script>
+</body>
+</html>
