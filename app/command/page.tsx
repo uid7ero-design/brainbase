@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { HlnaOrb } from "@/components/brand/HlnaOrb";
 
 const FONT = 'var(--font-inter), "Inter", -apple-system, sans-serif';
 const BG = "#07080B";
@@ -48,6 +49,20 @@ const ALERTS = [
     metric: "64.2%", metricLabel: "diversion rate",
     description: "Overall diversion rate above the 60% monthly KPI target.",
     action: "View report", href: "/dashboard/waste",
+  },
+  {
+    id: "staff-shortage", status: "warning" as const,
+    title: "Driver shortage — Zone 3",
+    metric: "3 crews", metricLabel: "unrostered",
+    description: "Three scheduled drivers unavailable. Contractor cover arranged for afternoon shift.",
+    action: "View roster", href: "/dashboard/waste",
+  },
+  {
+    id: "transfer-station", status: "critical" as const,
+    title: "Transfer station at capacity",
+    metric: "96%", metricLabel: "capacity",
+    description: "Northern transfer station approaching overflow. Diversion to secondary site recommended.",
+    action: "Divert loads", href: "/dashboard/fleet",
   },
 ];
 
@@ -111,53 +126,6 @@ function Sparkline({ data, color }: { data: number[]; color: string }) {
 // ── ORB ──────────────────────────────────────────────────────────────────────
 
 type OrbState = "idle" | "thinking" | "alert";
-
-function HlnaOrb({ state }: { state: OrbState }) {
-  const isAlert    = state === "alert";
-  const isThinking = state === "thinking";
-  return (
-    <div style={{ position: "relative", width: 120, height: 120, flexShrink: 0 }}>
-      {/* Outer ambient glow */}
-      <div style={{
-        position: "absolute", inset: -14, borderRadius: "50%",
-        background: isAlert
-          ? "radial-gradient(circle, rgba(239,68,68,.28) 0%, transparent 70%)"
-          : "radial-gradient(circle, rgba(139,92,246,.22) 0%, transparent 70%)",
-        animation: isAlert ? "orb-alert-glow 1.1s ease-in-out infinite" : "orb-outer-pulse 4s ease-in-out infinite",
-        transition: "background .6s",
-      }} />
-      {/* Main sphere */}
-      <div style={{
-        width: 120, height: 120, borderRadius: "50%",
-        background: isAlert
-          ? "radial-gradient(circle at 35% 35%, rgba(239,68,68,.72) 0%, rgba(185,28,28,.45) 40%, rgba(127,29,29,.16) 100%)"
-          : isThinking
-          ? "radial-gradient(circle at 35% 35%, rgba(56,189,248,.66) 0%, rgba(99,102,241,.40) 42%, rgba(139,92,246,.12) 100%)"
-          : "radial-gradient(circle at 35% 35%, rgba(167,139,250,.60) 0%, rgba(99,102,241,.34) 42%, rgba(139,92,246,.10) 100%)",
-        border: isAlert
-          ? "1px solid rgba(239,68,68,.48)"
-          : isThinking
-          ? "1px solid rgba(56,189,248,.42)"
-          : "1px solid rgba(139,92,246,.40)",
-        animation: isThinking
-          ? "orb-thinking 2.2s linear infinite"
-          : isAlert
-          ? "orb-alert 1.1s ease-in-out infinite"
-          : "orb-idle 4s ease-in-out infinite",
-        transition: "background .7s, border-color .7s",
-      }} />
-      {/* Specular highlight */}
-      <div style={{
-        position: "absolute", top: 17, left: 19,
-        width: 28, height: 17, borderRadius: "50%",
-        background: "rgba(255,255,255,.22)",
-        transform: "rotate(-25deg)",
-        filter: "blur(3px)",
-        pointerEvents: "none",
-      }} />
-    </div>
-  );
-}
 
 // ── TYPING EFFECT ────────────────────────────────────────────────────────────
 
@@ -233,8 +201,16 @@ export default function CommandPage() {
   const [input, setInput]       = useState("");
   const [busy, setBusy]         = useState(false);
   const bottomRef               = useRef<HTMLDivElement>(null);
+  const initialMount            = useRef(true);
   const { shown, done }         = useTyping(HLNA_SUMMARY, 20);
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [msgs]);
+
+  // Force scroll to top on every page load
+  useEffect(() => { window.scrollTo(0, 0); }, []);
+
+  useEffect(() => {
+    if (initialMount.current) { initialMount.current = false; return; }
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [msgs]);
 
   async function send(text: string) {
     const t = text.trim();
@@ -267,15 +243,10 @@ export default function CommandPage() {
 
       {/* ── CSS ──────────────────────────────────────────────────── */}
       <style dangerouslySetInnerHTML={{ __html: `
-        @keyframes orb-idle        { 0%,100%{box-shadow:0 0 24px rgba(139,92,246,.26),inset 0 0 14px rgba(167,139,250,.06)} 50%{box-shadow:0 0 48px rgba(139,92,246,.52),inset 0 0 28px rgba(167,139,250,.16)} }
-        @keyframes orb-alert       { 0%,100%{box-shadow:0 0 24px rgba(239,68,68,.32)} 50%{box-shadow:0 0 56px rgba(239,68,68,.72)} }
-        @keyframes orb-thinking    { 0%{filter:hue-rotate(0deg) brightness(1)} 50%{filter:hue-rotate(50deg) brightness(1.12)} 100%{filter:hue-rotate(100deg) brightness(1)} }
-        @keyframes orb-outer-pulse { 0%,100%{opacity:.45;transform:scale(1)} 50%{opacity:1;transform:scale(1.07)} }
-        @keyframes orb-alert-glow  { 0%,100%{opacity:.45} 50%{opacity:1} }
-        @keyframes dot-bounce      { from{transform:translateY(0);opacity:.4} to{transform:translateY(-5px);opacity:1} }
-        @keyframes live-blink      { 0%,100%{opacity:1} 50%{opacity:.35} }
-        @keyframes cursor-blink    { 0%,49%{opacity:1} 50%,100%{opacity:0} }
-        @keyframes fade-in         { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:translateY(0)} }
+        @keyframes dot-bounce   { from{transform:translateY(0);opacity:.4} to{transform:translateY(-5px);opacity:1} }
+        @keyframes live-blink   { 0%,100%{opacity:1} 50%{opacity:.35} }
+        @keyframes cursor-blink { 0%,49%{opacity:1} 50%,100%{opacity:0} }
+        @keyframes fade-in      { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:translateY(0)} }
         * { box-sizing: border-box }
         ::-webkit-scrollbar { width: 3px }
         ::-webkit-scrollbar-track { background: transparent }
@@ -413,15 +384,20 @@ export default function CommandPage() {
             </div>
 
             {/* Orb + state label */}
-            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
-              <HlnaOrb state={orbState} />
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16 }}>
+              <HlnaOrb size={140} state={orbState === "alert" ? "idle" : orbState} />
               <div style={{ textAlign: "center" }}>
-                <div>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src="/assets/brand/hlna-wordmark.svg" alt="HLNA" style={{ height: 18, width: "auto", opacity: 0.85 }} />
+                <div style={{ fontSize: 16, fontWeight: 700, letterSpacing: ".20em", color: "#F5F7FA", textTransform: "uppercase" }}>
+                  HLN<span style={{ color: "#A78BFA" }}>Λ</span>
                 </div>
-                <div style={{ fontSize: 9, color: orbState === "thinking" ? "rgba(56,189,248,.75)" : orbState === "alert" ? "rgba(239,68,68,.75)" : "rgba(34,197,94,.70)", letterSpacing: ".06em", marginTop: 4, textTransform: "uppercase", transition: "color .4s" }}>
-                  {orbState === "thinking" ? "Processing…" : orbState === "alert" ? "Alert mode" : "Monitoring systems"}
+                <div style={{ fontSize: 8, fontWeight: 500, letterSpacing: ".18em", color: "rgba(196,181,253,.50)", textTransform: "uppercase", marginTop: 4 }}>
+                  Hyper Learning Neural Agent
+                </div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 5, marginTop: 8 }}>
+                  <div style={{ width: 5, height: 5, borderRadius: "50%", background: orbState === "thinking" ? "#38BDF8" : orbState === "alert" ? "#EF4444" : "#22C55E", boxShadow: `0 0 5px ${orbState === "thinking" ? "#38BDF8" : orbState === "alert" ? "#EF4444" : "#22C55E"}`, transition: "background .4s" }} />
+                  <span style={{ fontSize: 9, color: orbState === "thinking" ? "rgba(56,189,248,.80)" : orbState === "alert" ? "rgba(239,68,68,.80)" : "rgba(34,197,94,.75)", letterSpacing: ".06em", transition: "color .4s" }}>
+                    {orbState === "thinking" ? "Processing…" : orbState === "alert" ? "Alert mode" : "Monitoring systems"}
+                  </span>
                 </div>
               </div>
             </div>

@@ -608,12 +608,21 @@ export function BrainWidget() {
               {syncing ? (status?.status?.message || 'Syncing…') : `${status?.stats?.files ?? 0} files · ${status?.stats?.chunks ?? 0} chunks`}
             </div>
           </div>
-          <div style={{ display: "flex", gap: 5 }}>
+          <div style={{ display: "flex", gap: 5, marginBottom: 10 }}>
             <button onClick={syncNow} disabled={syncing} style={{ flex: 1, padding: "5px 0", borderRadius: 6, background: "rgba(180,130,255,.08)", border: "1px solid rgba(180,130,255,.20)", color: "rgba(180,130,255,.75)", fontSize: 10, fontWeight: 600, cursor: "pointer", opacity: syncing ? 0.5 : 1 }}>
               {syncing ? 'Syncing…' : 'Sync Now'}
             </button>
             <button onClick={() => { setInput(status?.vaultPath ?? ''); setEditing(true); }} style={{ padding: "5px 8px", borderRadius: 6, background: "none", border: "1px solid rgba(255,255,255,.08)", color: "rgba(255,255,255,.52)", fontSize: 10, cursor: "pointer" }}>✎</button>
             <button onClick={forget} style={{ padding: "5px 8px", borderRadius: 6, background: "none", border: "1px solid rgba(255,255,255,.08)", color: "rgba(255,255,255,.46)", fontSize: 10, cursor: "pointer" }} title="Disconnect vault">✕</button>
+          </div>
+
+          {/* Mini brain graph orb */}
+          <div style={{ height: 170, borderRadius: 8, overflow: "hidden", background: "#020408", border: "1px solid rgba(180,130,255,.10)", position: "relative" }}>
+            <InlineBrainGraph />
+          </div>
+          <div style={{ textAlign: "center", marginTop: 8 }}>
+            <div style={{ fontSize: 22, fontWeight: 700, color: "rgba(255,255,255,.88)", lineHeight: 1 }}>{status?.stats?.chunks ?? 0}</div>
+            <div style={{ fontSize: 9, color: "rgba(180,130,255,.55)", letterSpacing: ".08em", marginTop: 3 }}>notes connected</div>
           </div>
         </>
       )}
