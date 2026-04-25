@@ -10,9 +10,12 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.90.0",
+    "@neondatabase/serverless": "^1.1.0",
     "autoprefixer": "^10.5.0",
+    "bcryptjs": "^3.0.3",
     "chokidar": "^5.0.0",
     "html2canvas": "^1.4.1",
+    "jose": "^6.2.2",
     "jspdf": "^4.2.1",
     "lucide-react": "^1.8.0",
     "next": "16.2.4",
@@ -20,12 +23,14 @@
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "recharts": "^3.8.1",
+    "server-only": "^0.0.1",
     "three": "^0.184.0",
     "xlsx": "^0.18.5",
     "zustand": "^5.0.12"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@types/bcryptjs": "^2.4.6",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
