@@ -232,9 +232,11 @@ export default function CommandPage() {
   ]);
   const [input, setInput]       = useState("");
   const [busy, setBusy]         = useState(false);
+  const [userRole, setUserRole] = useState<string>("");
   const bottomRef               = useRef<HTMLDivElement>(null);
   const { shown, done }         = useTyping(HLNA_SUMMARY, 20);
 
+  useEffect(() => { fetch("/api/me").then(r => r.json()).then(d => setUserRole(d.role ?? "")); }, []);
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [msgs]);
 
   async function send(text: string) {
@@ -337,6 +339,14 @@ export default function CommandPage() {
             onMouseLeave={e => (e.currentTarget.style.color = "rgba(255,255,255,.40)")}>
             HLN<span style={{ color: "#A78BFA" }}>Λ</span>
           </Link>
+          {userRole === "super_admin" && (
+            <Link href="/admin/users"
+              style={{ fontSize: 13, color: "rgba(255,255,255,.40)", textDecoration: "none", fontWeight: 500, transition: "color .15s" }}
+              onMouseEnter={e => (e.currentTarget.style.color = "rgba(255,255,255,.80)")}
+              onMouseLeave={e => (e.currentTarget.style.color = "rgba(255,255,255,.40)")}>
+              Users
+            </Link>
+          )}
         </div>
       </nav>
 
