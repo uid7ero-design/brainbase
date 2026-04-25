@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono, Inter } from "next/font/google";
 import "./globals.css";
 import TopNav from "@/components/nav/TopNav";
+import { getSession } from "@/lib/session";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -24,18 +25,21 @@ export const metadata: Metadata = {
   description: "Voice-first AI command centre",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const session = await getSession();
+  const serverSession = session ? { role: session.role, name: session.name } : null;
+
   return (
     <html
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} ${inter.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
-        <TopNav />
+        <TopNav serverSession={serverSession} />
         {children}
       </body>
     </html>

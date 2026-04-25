@@ -8,6 +8,7 @@ type Session = { role: string; name: string } | null;
 const FONT = 'var(--font-inter), "Inter", -apple-system, sans-serif';
 
 function NavLink({ href, children, active }: { href: string; children: React.ReactNode; active?: boolean }) {
+
   return (
     <Link
       href={href}
@@ -25,8 +26,8 @@ function NavLink({ href, children, active }: { href: string; children: React.Rea
   );
 }
 
-export default function TopNav() {
-  const [session, setSession] = useState<Session>(null);
+export default function TopNav({ serverSession }: { serverSession?: Session }) {
+  const [session, setSession] = useState<Session>(serverSession ?? null);
   const pathname = usePathname();
 
   useEffect(() => {
