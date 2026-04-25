@@ -1,491 +1,392 @@
 import * as THREE from "three";
 
-// ── Constants ──────────────────────────────────────────────────────────────
-const BRAIN_R = 1.18;
-const NODE_N  = 84;
-
-// Rim-glow atmosphere shader (BackSide)
 const GV = `varying vec3 vN,vWP; void main(){ vN=normalize(normalMatrix*normal); vWP=(modelMatrix*vec4(position,1.0)).xyz; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`;
 const GF = `uniform float uStr,uPow; uniform vec3 uCol; varying vec3 vN,vWP; void main(){ float fr=pow(1.0-max(dot(vN,normalize(cameraPosition-vWP)),0.0),uPow); gl_FragColor=vec4(uCol,fr*uStr); }`;
 
-// Node point-sprite — no vertexColors flag (avoids Three.js attribute conflict)
-const NODE_VS = `
-attribute float size;
-attribute vec3  color;
-varying   vec3  vColor;
-void main(){
-  vColor = color;
-  vec4 mv = modelViewMatrix * vec4(position, 1.0);
-  gl_PointSize = size * (300.0 / -mv.z);
-  gl_Position  = projectionMatrix * mv;
-}`;
-const NODE_FS = `
-varying vec3 vColor;
-void main(){
-  float d     = length(gl_PointCoord - 0.5) * 2.0;
-  if (d > 1.0) discard;
-  float core  = pow(max(0.0, 1.0 - d * 1.1), 5.0);
-  float glow  = pow(max(0.0, 1.0 - d), 1.3) * 0.55;
-  float white = pow(max(0.0, 1.0 - d * 4.8), 8.0);
-  vec3  col   = mix(vColor, vec3(1.0,1.0,1.2), white);
-  gl_FragColor = vec4(col, core + glow);
-}`;
-
-// ── Helpers ────────────────────────────────────────────────────────────────
-function randomCluster(n, R) {
-  const pts = [];
-  for (let i = 0; i < n; i++) {
-    const r     = R * (0.28 + 0.72 * Math.pow(Math.random(), 0.5));
-    const theta = Math.random() * Math.PI * 2;
-    const phi   = Math.acos(2 * Math.random() - 1);
-    pts.push(new THREE.Vector3(
-      r * Math.sin(phi) * Math.cos(theta),
-      r * Math.cos(phi),
-      r * Math.sin(phi) * Math.sin(theta),
-    ));
-  }
-  return pts;
-}
-
-function proximityEdges(pts, maxDist, maxPerNode) {
-  const cnt = new Int32Array(pts.length);
-  const edges = [];
-  for (let i = 0; i < pts.length; i++) {
-    if (cnt[i] >= maxPerNode) continue;
-    for (let j = i + 1; j < pts.length; j++) {
-      if (cnt[i] >= maxPerNode || cnt[j] >= maxPerNode) continue;
-      if (pts[i].distanceTo(pts[j]) < maxDist) {
-        edges.push([i, j]);
-        cnt[i]++; cnt[j]++;
-      }
-    }
-  }
-  return edges;
-}
-
-function mkGlowMat(r, str, pw, col) {
+function mkGlowMat(str, pw, col) {
   return new THREE.ShaderMaterial({
-    vertexShader:GV, fragmentShader:GF,
-    uniforms:{ uStr:{value:str}, uPow:{value:pw}, uCol:{value:new THREE.Color(col)} },
+    vertexShader: GV, fragmentShader: GF,
+    uniforms: { uStr:{value:str}, uPow:{value:pw}, uCol:{value:new THREE.Color(col)} },
     transparent:true, side:THREE.BackSide, blending:THREE.AdditiveBlending, depthWrite:false,
   });
 }
 
-// ── Main ───────────────────────────────────────────────────────────────────
+// Pure dark backdrop — clean gradient with a single controlled purple spotlight
+function makeBackdrop() {
+  const SZ = 512, cv = document.createElement('canvas');
+  cv.width = cv.height = SZ;
+  const ctx = cv.getContext('2d');
+
+  // Very dark base — centre slightly warm, edges pure black
+  const g = ctx.createRadialGradient(SZ*.5, SZ*.5, 0, SZ*.5, SZ*.5, SZ*.78);
+  g.addColorStop(0.00, '#08080C');
+  g.addColorStop(0.40, '#050508');
+  g.addColorStop(0.80, '#020203');
+  g.addColorStop(1.00, '#000000');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, SZ, SZ);
+
+  // Purple spotlight — sits exactly behind where the speaker renders (y=50%)
+  // 10–15% opacity as specified
+  const sp = ctx.createRadialGradient(SZ*.5, SZ*.5, 0, SZ*.5, SZ*.5, SZ*.20);
+  sp.addColorStop(0.00, 'rgba(80,20,160,0.13)');
+  sp.addColorStop(0.60, 'rgba(60,10,120,0.04)');
+  sp.addColorStop(1.00, 'rgba(0,0,0,0)');
+  ctx.fillStyle = sp; ctx.fillRect(0, 0, SZ, SZ);
+
+  // Heavy corner vignette — draws attention to the centre
+  const v = ctx.createRadialGradient(SZ*.5, SZ*.5, 0, SZ*.5, SZ*.5, SZ*.70);
+  v.addColorStop(0.0,  'rgba(0,0,0,0)');
+  v.addColorStop(0.50, 'rgba(0,0,0,0.12)');
+  v.addColorStop(1.0,  'rgba(0,0,0,0.98)');
+  ctx.fillStyle = v; ctx.fillRect(0, 0, SZ, SZ);
+
+  return new THREE.CanvasTexture(cv);
+}
+
+// Centre cap: dark anodised metal, HLNΛ laser-etched mark
+function makeCapTexture() {
+  const SZ = 512, cv = document.createElement('canvas');
+  cv.width = cv.height = SZ;
+  const ctx = cv.getContext('2d');
+  const cx = SZ / 2;
+
+  // Dark anodised graphite — very slight centre highlight (dust-cap curvature)
+  const base = ctx.createRadialGradient(cx, cx - 24, 0, cx, cx, SZ * .52);
+  base.addColorStop(0.00, '#161220');
+  base.addColorStop(0.50, '#0D0A18');
+  base.addColorStop(1.00, '#070510');
+  ctx.fillStyle = base;
+  ctx.beginPath(); ctx.arc(cx, cx, SZ * .50, 0, Math.PI * 2); ctx.fill();
+
+  // Machined outer ring — hairline white catchlight
+  ctx.strokeStyle = 'rgba(255,255,255,0.12)'; ctx.lineWidth = 2.5;
+  ctx.beginPath(); ctx.arc(cx, cx, SZ * .48, 0, Math.PI * 2); ctx.stroke();
+  // Inner precision rings — subtle depth
+  ctx.strokeStyle = 'rgba(255,255,255,0.045)'; ctx.lineWidth = 1.0;
+  ctx.beginPath(); ctx.arc(cx, cx, SZ * .40, 0, Math.PI * 2); ctx.stroke();
+  ctx.strokeStyle = 'rgba(255,255,255,0.022)'; ctx.lineWidth = 0.7;
+  ctx.beginPath(); ctx.arc(cx, cx, SZ * .30, 0, Math.PI * 2); ctx.stroke();
+
+  // HLNΛ — wide-tracked, laser-etched into the metal
+  // Pass 1: engraving depth — dark offset shadow simulates recessed groove
+  ctx.save();
+  ctx.shadowColor    = 'rgba(0,0,0,1)';
+  ctx.shadowBlur     = 4;
+  ctx.shadowOffsetY  = 2;
+  ctx.fillStyle      = 'rgba(230,237,243,0.38)';
+  ctx.font           = '300 30px system-ui, -apple-system, Helvetica, sans-serif';
+  ctx.textAlign      = 'center';
+  ctx.textBaseline   = 'middle';
+  // Λ = Greek Capital Lambda (U+039B) — triangle, no crossbar
+  const LETTERS = ['H', 'L', 'N', 'Λ'];
+  const STEP    = 40;
+  const START   = cx - (LETTERS.length - 1) * STEP * .5;
+  LETTERS.forEach((l, i) => ctx.fillText(l, START + i * STEP, cx + 5));
+  ctx.restore();
+
+  // Pass 2: top-face highlight — tiny up-offset at lower opacity catches light
+  ctx.fillStyle    = 'rgba(255,255,255,0.10)';
+  ctx.font         = '300 30px system-ui, -apple-system, Helvetica, sans-serif';
+  ctx.textAlign    = 'center';
+  ctx.textBaseline = 'middle';
+  LETTERS.forEach((l, i) => ctx.fillText(l, START + i * STEP, cx + 3));
+
+  return new THREE.CanvasTexture(cv);
+}
+
 export function buildScene(el) {
   const W = window.innerWidth, H = window.innerHeight;
   let mouseX = 0, mouseY = 0;
-  const onMouse = e => { mouseX=(e.clientX/W-.5)*2; mouseY=(e.clientY/H-.5)*2; };
-  window.addEventListener("mousemove", onMouse);
+  const onMouse = e => { mouseX = (e.clientX/W - .5)*2; mouseY = (e.clientY/H - .5)*2; };
+  window.addEventListener('mousemove', onMouse);
 
-  const renderer = new THREE.WebGLRenderer({ antialias:true, alpha:true, powerPreference:"high-performance" });
-  renderer.setSize(W,H); renderer.setPixelRatio(Math.min(devicePixelRatio,2));
-  renderer.setClearColor(0x000000,0);
+  const renderer = new THREE.WebGLRenderer({ antialias:true, alpha:true, powerPreference:'high-performance' });
+  renderer.setSize(W, H);
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.setClearColor(0x000000, 0);
   renderer.toneMapping = THREE.NoToneMapping;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
-  renderer.domElement.style.cssText = "position:fixed;inset:0;width:100%;height:100%;pointer-events:none;";
+  renderer.domElement.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;pointer-events:none;';
   el.appendChild(renderer.domElement);
 
   const scene = new THREE.Scene();
   const cam   = new THREE.PerspectiveCamera(50, W/H, 0.1, 100);
-  cam.position.z = 6.5;
+  cam.position.z = 6;
 
-  const driftGroup = new THREE.Group();
-  scene.add(driftGroup);
+  // ── Pure dark backdrop ────────────────────────────────────────────────────
+  scene.add(new THREE.Mesh(
+    new THREE.PlaneGeometry(24, 15),
+    new THREE.MeshBasicMaterial({ map: makeBackdrop() })
+  ));
 
-  // ── Atmosphere glow — 3 layered halos ─────────────────────────────────────
-  function addGlow(r,str,pw,col) {
-    const mat = mkGlowMat(r,str,pw,col);
-    driftGroup.add(new THREE.Mesh(new THREE.SphereGeometry(r,48,48), mat));
-    return mat;
-  }
-  const innerGlow = addGlow(BRAIN_R*1.40, 0.24, 2.2, "#00CFEA");
-  const midGlow   = addGlow(BRAIN_R*1.95, 0.10, 1.5, "#0058BB");
-  const outerGlow = addGlow(BRAIN_R*2.90, 0.05, 1.0, "#001530");
+  const group = new THREE.Group();
+  scene.add(group);
+  let tOX = 0, cOX = 0;
 
-  // ── Equatorial ring ────────────────────────────────────────────────────────
-  const eqPts = Array.from({length:257},(_,i)=>{ const a=(i/256)*Math.PI*2; return new THREE.Vector3(Math.cos(a)*BRAIN_R*1.44,0,Math.sin(a)*BRAIN_R*1.44); });
-  const eqMat = new THREE.LineBasicMaterial({ color:"#00CFEA", transparent:true, opacity:0.55, blending:THREE.AdditiveBlending, depthWrite:false });
-  driftGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(eqPts), eqMat));
+  // Physical size of speaker on screen
+  const BASE_SCALE = 0.70;
 
-  function mkRing(r,rx,rz,col,op) {
-    const pts = Array.from({length:129},(_,i)=>{ const a=(i/128)*Math.PI*2; return new THREE.Vector3(Math.cos(a)*r,0,Math.sin(a)*r); });
-    const l = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({color:col,transparent:true,opacity:op,blending:THREE.AdditiveBlending,depthWrite:false}));
-    l.rotation.x=rx; l.rotation.z=rz; driftGroup.add(l); return l;
-  }
-  const ring2 = mkRing(BRAIN_R*1.65, Math.PI*.70, Math.PI*.10, "#80F0FF", 0.18);
-  const ring3 = mkRing(BRAIN_R*1.82, Math.PI*.30, Math.PI*.22, "#00CFEA", 0.08);
+  // ── Soft ambient disc — barely visible at idle, brightens when active ─────
+  const ambientDisc = new THREE.Mesh(
+    new THREE.CircleGeometry(2.4, 64),
+    new THREE.MeshBasicMaterial({
+      color: '#100520', transparent:true, opacity:0.10,
+      blending: THREE.AdditiveBlending, depthWrite:false,
+    })
+  );
+  ambientDisc.position.z = -0.12;
+  group.add(ambientDisc);
 
-  // ── Brain nodes ────────────────────────────────────────────────────────────
-  const brainGroup = new THREE.Group();
-  driftGroup.add(brainGroup);
-
-  let nodesMesh = null, edgesMesh = null;
-  let nodeColorBuf = null, nodeSizeBuf = null, nodePosBuf = null;
-  let nodeCount = 0, basePosArr = null, baseSizes = null;
-  const phases = [], nodeDrift = [];
-  let coronaFlash = null;
-
-  function buildBrainMesh(pts, edges) {
-    if (nodesMesh) { brainGroup.remove(nodesMesh); nodesMesh.geometry.dispose(); nodesMesh.material.dispose(); nodesMesh=null; }
-    if (edgesMesh) { brainGroup.remove(edgesMesh); edgesMesh.geometry.dispose(); edgesMesh.material.dispose(); edgesMesh=null; }
-    phases.length=0; nodeDrift.length=0;
-
-    const n = pts.length;
-    nodeCount = n;
-    const pos=new Float32Array(n*3), colors=new Float32Array(n*3), sizes=new Float32Array(n);
-
-    pts.forEach((p,i) => {
-      pos[i*3]=p.x; pos[i*3+1]=p.y; pos[i*3+2]=p.z;
-      const dist = p.length()/BRAIN_R;
-      sizes[i] = 1.4+(1.0-dist)*1.4+Math.random()*0.8;
-      colors[i*3]=0; colors[i*3+1]=0.55; colors[i*3+2]=1.0;
-      phases.push(Math.random()*Math.PI*2);
-      // Per-node drift params — small amplitude so edges stay plausible
-      nodeDrift.push({
-        ax:(Math.random()-.5)*0.055, ay:(Math.random()-.5)*0.055, az:(Math.random()-.5)*0.055,
-        fx:0.22+Math.random()*0.45,  fy:0.22+Math.random()*0.45,  fz:0.22+Math.random()*0.45,
-      });
+  // ── Ripple rings — radiate outward, fade out ──────────────────────────────
+  const RIPPLE_N   = 5;
+  const RIPPLE_MIN = 1.70;
+  const RIPPLE_MAX = 3.00;
+  const ripplePts  = Array.from({length:129}, (_,i) => {
+    const a = (i/128)*Math.PI*2;
+    return new THREE.Vector3(Math.cos(a), Math.sin(a), -0.05);
+  });
+  const rippleGeo = new THREE.BufferGeometry().setFromPoints(ripplePts);
+  const rippleRings = Array.from({length:RIPPLE_N}, (_, i) => {
+    const mat = new THREE.LineBasicMaterial({
+      color:'#7C3AED', transparent:true, opacity:0,
+      blending:THREE.AdditiveBlending, depthWrite:false,
     });
-    basePosArr = Float32Array.from(pos);
-    baseSizes  = Float32Array.from(sizes);
-    coronaFlash = new Float32Array(n);
-
-    nodePosBuf  = new THREE.BufferAttribute(pos,3);    nodePosBuf.setUsage(THREE.DynamicDrawUsage);
-    nodeColorBuf= new THREE.BufferAttribute(colors,3); nodeColorBuf.setUsage(THREE.DynamicDrawUsage);
-    nodeSizeBuf = new THREE.BufferAttribute(sizes,1);  nodeSizeBuf.setUsage(THREE.DynamicDrawUsage);
-
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', nodePosBuf);
-    geo.setAttribute('color',    nodeColorBuf);
-    geo.setAttribute('size',     nodeSizeBuf);
-    nodesMesh = new THREE.Points(geo, new THREE.ShaderMaterial({
-      vertexShader:NODE_VS, fragmentShader:NODE_FS,
-      transparent:true, depthWrite:false, blending:THREE.AdditiveBlending,
-    }));
-    brainGroup.add(nodesMesh);
-
-    const edgePos=[];
-    for (const [si,ti] of edges) {
-      if (si>=n||ti>=n) continue;
-      edgePos.push(pts[si].x,pts[si].y,pts[si].z, pts[ti].x,pts[ti].y,pts[ti].z);
-    }
-    if (edgePos.length) {
-      const eg=new THREE.BufferGeometry();
-      eg.setAttribute('position', new THREE.Float32BufferAttribute(edgePos,3));
-      edgesMesh = new THREE.LineSegments(eg, new THREE.LineBasicMaterial({color:0x00AADD,opacity:0.20,transparent:true,blending:THREE.AdditiveBlending,depthWrite:false}));
-      brainGroup.add(edgesMesh);
-    }
-  }
-
-  const demoPts   = randomCluster(NODE_N, BRAIN_R);
-  const demoEdges = proximityEdges(demoPts, 0.64, 5);
-  buildBrainMesh(demoPts, demoEdges);
-
-  fetch('/api/brain/graph').then(r=>r.json()).then(data => {
-    if (!data.nodes?.length) return;
-    const n=Math.min(data.nodes.length,120), pts=randomCluster(n,BRAIN_R);
-    const idxMap=new Map(data.nodes.slice(0,n).map((nd,i)=>[nd.id,i]));
-    const de=(data.links??[]).reduce((acc,lk)=>{ const si=idxMap.get(lk.source),ti=idxMap.get(lk.target); if(si!=null&&ti!=null)acc.push([si,ti]); return acc; },[]);
-    buildBrainMesh(pts,[...de,...proximityEdges(pts,0.55,3)]);
-  }).catch(()=>{});
-
-  // ── Celestial bodies — 4 distinct 3D types ────────────────────────────────
-  // tiltX = orbital inclination: 0=flat equatorial, π/2=polar
-  const CEL_CFG = [
-    { r:2.80, speed: 0.28, phase:0.00, tiltX:0.62, size:0.160, col:"#FF6600", col2:"#FF2200", type:'blackhole' },
-    { r:3.60, speed:-0.18, phase:2.09, tiltX:1.18, size:0.120, col:"#88EEFF", col2:"#ffffff", type:'pulsar'  },
-    { r:2.20, speed: 0.46, phase:4.19, tiltX:0.92, size:0.130, col:"#00AAFF", col2:"#00CFEA", type:'crystal' },
-    { r:4.15, speed: 0.11, phase:1.05, tiltX:0.38, size:0.095, col:"#60D8FF", col2:"#00CFEA", type:'nebula'  },
-  ];
-
-  const celestials = CEL_CFG.map(cfg => {
-    const body = new THREE.Group();
-    scene.add(body);
-
-    const extras = {}; // holds type-specific refs for animation
-
-    if (cfg.type === 'blackhole') {
-      // ── Black hole: dark event horizon + photon ring + accretion disk ────────
-      // Solid black sphere — actually occludes geometry behind it
-      body.add(new THREE.Mesh(
-        new THREE.SphereGeometry(cfg.size*0.80, 28, 28),
-        new THREE.MeshBasicMaterial({ color:0x000000 })
-      ));
-      // Tight photon ring — high-power rim glow, orange-white
-      const photonMat = mkGlowMat(cfg.size*0.88, 1.05, 9.0, "#FFCC44");
-      body.add(new THREE.Mesh(new THREE.SphereGeometry(cfg.size*0.88, 32, 32), photonMat));
-      // Broader orange corona
-      body.add(new THREE.Mesh(new THREE.SphereGeometry(cfg.size*1.35, 32, 32), mkGlowMat(cfg.size*1.35, 0.38, 3.2, "#FF4400")));
-      // Accretion disk — 5 concentric tori, innermost white-hot, outermost deep red
-      const DISKS = [
-        { r:1.05, w:0.07, col:'#FFFFFF', op:0.75, spd:2.4 },
-        { r:1.32, w:0.09, col:'#FFEE55', op:0.58, spd:1.7 },
-        { r:1.66, w:0.09, col:'#FF8811', op:0.42, spd:1.2 },
-        { r:2.02, w:0.08, col:'#FF3300', op:0.26, spd:0.9 },
-        { r:2.42, w:0.06, col:'#881100', op:0.14, spd:0.6 },
-      ];
-      const diskTilt = Math.PI*0.25;
-      const diskMeshes = DISKS.map(d => {
-        const m = new THREE.Mesh(
-          new THREE.TorusGeometry(cfg.size*d.r, cfg.size*d.w, 3, 80),
-          new THREE.MeshBasicMaterial({ color:d.col, transparent:true, opacity:d.op, side:THREE.DoubleSide, blending:THREE.AdditiveBlending, depthWrite:false })
-        );
-        m.rotation.x = diskTilt;
-        body.add(m);
-        return { mesh:m, speed:d.spd };
-      });
-      extras.diskMeshes = diskMeshes;
-      extras.photonMat  = photonMat;
-      extras.spinRate   = null;
-
-    } else if (cfg.type === 'pulsar') {
-      // ── Neutron star: sphere + two polar jet cones ────────────────────────
-      body.add(new THREE.Mesh(
-        new THREE.SphereGeometry(cfg.size,20,20),
-        new THREE.MeshBasicMaterial({color:'#ffffff',transparent:true,opacity:0.95})
-      ));
-      // Tight inner glow
-      body.add(new THREE.Mesh(
-        new THREE.SphereGeometry(cfg.size*0.55,16,16),
-        new THREE.MeshBasicMaterial({color:'#ffffff',transparent:true,opacity:0.80,blending:THREE.AdditiveBlending})
-      ));
-      const jetMat1 = new THREE.MeshBasicMaterial({color:cfg.col,transparent:true,opacity:0.28,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide});
-      const jetMat2 = jetMat1.clone();
-      const jGeo = new THREE.ConeGeometry(cfg.size*0.38, cfg.size*3.8, 8, 1, true);
-      const j1 = new THREE.Mesh(jGeo, jetMat1); j1.position.y =  cfg.size*1.9;
-      const j2 = new THREE.Mesh(jGeo, jetMat2); j2.rotation.z = Math.PI; j2.position.y = -cfg.size*1.9;
-      body.add(j1, j2);
-      extras.jetMat1 = jetMat1; extras.jetMat2 = jetMat2;
-      extras.spinRate = { y:3.2, z:0 };
-
-    } else if (cfg.type === 'crystal') {
-      // ── Crystalline icosahedron: wireframe shell + bright core ────────────
-      const icoGeo = new THREE.IcosahedronGeometry(cfg.size*1.15, 1);
-      body.add(new THREE.Mesh(icoGeo, new THREE.MeshBasicMaterial({
-        color:cfg.col, wireframe:true, transparent:true, opacity:0.50,
-        blending:THREE.AdditiveBlending, depthWrite:false,
-      })));
-      // Solid faces (very transparent)
-      body.add(new THREE.Mesh(icoGeo, new THREE.MeshBasicMaterial({
-        color:cfg.col, transparent:true, opacity:0.08,
-        blending:THREE.AdditiveBlending, depthWrite:false, side:THREE.DoubleSide,
-      })));
-      // White hot core
-      body.add(new THREE.Mesh(
-        new THREE.SphereGeometry(cfg.size*0.42,12,12),
-        new THREE.MeshBasicMaterial({color:'#ffffff',transparent:true,opacity:0.80,blending:THREE.AdditiveBlending})
-      ));
-      extras.spinRate = { y:0.38, z:0.22 };
-
-    } else if (cfg.type === 'nebula') {
-      // ── Nebula: soft sphere + orbiting particle torus ─────────────────────
-      body.add(new THREE.Mesh(
-        new THREE.SphereGeometry(cfg.size*0.55,14,14),
-        new THREE.MeshBasicMaterial({color:cfg.col,transparent:true,opacity:0.82})
-      ));
-      // Particle ring orbiting the body (as a child group that rotates)
-      const ringGroup = new THREE.Group();
-      const pCount = 80;
-      const pBuf = new Float32Array(pCount*3);
-      for (let i=0; i<pCount; i++) {
-        const a  = (i/pCount)*Math.PI*2 + (Math.random()-.5)*0.25;
-        const pr = cfg.size*1.65+(Math.random()-.5)*cfg.size*0.35;
-        const py = (Math.random()-.5)*cfg.size*0.28;
-        pBuf[i*3]=Math.cos(a)*pr; pBuf[i*3+1]=py; pBuf[i*3+2]=Math.sin(a)*pr;
-      }
-      const pGeo = new THREE.BufferGeometry();
-      pGeo.setAttribute('position', new THREE.BufferAttribute(pBuf,3));
-      ringGroup.add(new THREE.Points(pGeo, new THREE.PointsMaterial({
-        size:0.025, color:cfg.col, transparent:true, opacity:0.75,
-        blending:THREE.AdditiveBlending, depthWrite:false,
-      })));
-      ringGroup.rotation.x = 0.6;
-      body.add(ringGroup);
-      extras.particleRing = ringGroup;
-      extras.spinRate = { y:0.20, z:0 };
-    }
-
-    // Orbital path line (faint, in driftGroup so it drifts with brain)
-    const orbitPts = Array.from({length:129},(_,i)=>{
-      const a=(i/128)*Math.PI*2, ox=Math.cos(a)*cfg.r, oz=Math.sin(a)*cfg.r;
-      return new THREE.Vector3(ox, -oz*Math.sin(cfg.tiltX), oz*Math.cos(cfg.tiltX));
-    });
-    driftGroup.add(new THREE.Line(
-      new THREE.BufferGeometry().setFromPoints(orbitPts),
-      new THREE.LineBasicMaterial({color:cfg.col,transparent:true,opacity:0.06,blending:THREE.AdditiveBlending,depthWrite:false})
-    ));
-
-    // Connection line from celestial to brain center
-    const connAttr = new THREE.BufferAttribute(new Float32Array(6),3);
-    const connGeo  = new THREE.BufferGeometry();
-    connGeo.setAttribute('position', connAttr); connGeo.setDrawRange(0,2);
-    const conn = new THREE.Line(connGeo, new THREE.LineBasicMaterial({color:cfg.col,transparent:true,opacity:0.12,blending:THREE.AdditiveBlending,depthWrite:false}));
-    scene.add(conn);
-
-    return { body, connAttr, conn, ...cfg, ...extras };
+    const line = new THREE.Line(rippleGeo.clone(), mat);
+    group.add(line);
+    return { line, mat, phaseOff: i / RIPPLE_N };
   });
 
-  // ── Global starfield ───────────────────────────────────────────────────────
-  {
-    const buf=new Float32Array(1400*3);
-    for (let i=0;i<1400;i++){ const r=3.0+Math.random()*9,t=Math.random()*Math.PI*2,p=Math.acos(2*Math.random()-1); buf[i*3]=r*Math.sin(p)*Math.cos(t);buf[i*3+1]=r*Math.cos(p);buf[i*3+2]=r*Math.sin(p)*Math.sin(t); }
-    const geo=new THREE.BufferGeometry(); geo.setAttribute('position',new THREE.BufferAttribute(buf,3));
-    scene.add(new THREE.Points(geo,new THREE.PointsMaterial({size:0.025,color:"#00CFEA",transparent:true,opacity:0.18,blending:THREE.AdditiveBlending,depthWrite:false})));
+  // ── Speaker cone ──────────────────────────────────────────────────────────
+  const CONE_R  = 1.36;
+  const N_RINGS = 64;
+  const N_SEGS  = 128;
+  const TOTAL   = (N_RINGS + 1) * N_SEGS;
+
+  const conePos   = new Float32Array(TOTAL * 3);
+  const coneColor = new Float32Array(TOTAL * 3);
+  const coneRadii = new Float32Array(TOTAL);
+
+  for (let ring = 0; ring <= N_RINGS; ring++) {
+    const r = (ring / N_RINGS) * CONE_R;
+    // Realistic speaker shading: darker at centre (dust cap shadow),
+    // lighter graphite as cone surface catches ambient light toward the rim
+    const rimBright = 0.08 + (r / CONE_R) * 0.82;
+    for (let seg = 0; seg < N_SEGS; seg++) {
+      const vi = ring*N_SEGS + seg;
+      const a  = (seg/N_SEGS)*Math.PI*2;
+      conePos[vi*3]   = Math.cos(a) * r;
+      conePos[vi*3+1] = Math.sin(a) * r;
+      conePos[vi*3+2] = 0;
+      coneRadii[vi]   = r;
+      // Neutral graphite — very subtle cool-grey undertone
+      coneColor[vi*3]   = 0.052 * rimBright;
+      coneColor[vi*3+1] = 0.050 * rimBright;
+      coneColor[vi*3+2] = 0.058 * rimBright;
+    }
   }
 
-  // ── State machine ──────────────────────────────────────────────────────────
-  // Idle intentionally lively — breathAmp + pulseSpd are high to keep it animated
+  const fi = [];
+  for (let ring=0; ring<N_RINGS; ring++) for (let seg=0; seg<N_SEGS; seg++) {
+    const a=ring*N_SEGS+seg, b=ring*N_SEGS+(seg+1)%N_SEGS;
+    const c=(ring+1)*N_SEGS+seg, d=(ring+1)*N_SEGS+(seg+1)%N_SEGS;
+    fi.push(a,c,b, b,c,d);
+  }
+
+  const conePosA   = new THREE.BufferAttribute(conePos,   3); conePosA.setUsage(THREE.DynamicDrawUsage);
+  const coneColorA = new THREE.BufferAttribute(coneColor, 3); coneColorA.setUsage(THREE.DynamicDrawUsage);
+  const coneGeo    = new THREE.BufferGeometry();
+  coneGeo.setAttribute('position', conePosA);
+  coneGeo.setAttribute('color',    coneColorA);
+  coneGeo.setIndex(fi);
+  group.add(new THREE.Mesh(coneGeo, new THREE.MeshBasicMaterial({
+    vertexColors:true, side:THREE.DoubleSide, transparent:true, opacity:0.98,
+  })));
+
+  // Concentric grooves — 3 ribs give physical depth and define the cone shape
+  [0.40, 0.80, 1.18].forEach(r => {
+    const pts = Array.from({length:129}, (_,i) => {
+      const a=(i/128)*Math.PI*2;
+      return new THREE.Vector3(Math.cos(a)*r, Math.sin(a)*r, 0.0015);
+    });
+    group.add(new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints(pts),
+      new THREE.LineBasicMaterial({ color:'#0A0812', transparent:true, opacity:0.96 })
+    ));
+  });
+
+  // ── Frame rings — 4 rings, hardware-grade ────────────────────────────────
+
+  // 1. Outer graphite surround — thick matte ring
+  group.add(new THREE.Mesh(
+    new THREE.TorusGeometry(1.56, 0.056, 14, 240),
+    new THREE.MeshBasicMaterial({ color:'#0F0D18', transparent:true, opacity:0.98 })
+  ));
+
+  // 2. Chrome accent band — thin, slightly lighter (machined edge)
+  group.add(new THREE.Mesh(
+    new THREE.TorusGeometry(1.48, 0.012, 14, 240),
+    new THREE.MeshBasicMaterial({ color:'#201C2E', transparent:true, opacity:0.96 })
+  ));
+
+  // 3. Violet LED ring — the single brand-colour element
+  group.add(new THREE.Mesh(
+    new THREE.TorusGeometry(1.38, 0.024, 14, 240),
+    new THREE.MeshBasicMaterial({ color:'#7C3AED', transparent:true, opacity:0.95 })
+  ));
+  // LED glow halo — low base opacity, driven by state
+  const ledGlow = new THREE.MeshBasicMaterial({
+    color:'#7C3AED', transparent:true, opacity:0.08,
+    blending:THREE.AdditiveBlending, depthWrite:false,
+  });
+  group.add(new THREE.Mesh(new THREE.TorusGeometry(1.38, 0.024*5, 14, 240), ledGlow));
+
+  // 4. Inner lip ring — defines the transition from frame to cone
+  group.add(new THREE.Mesh(
+    new THREE.TorusGeometry(1.28, 0.014, 14, 240),
+    new THREE.MeshBasicMaterial({ color:'#0A0814', transparent:true, opacity:0.94 })
+  ));
+
+  // Key-light specular arc — top-left, simulates single overhead light source
+  const kArc = Array.from({length:50}, (_,i) => {
+    const a = Math.PI*.44 + (i/49)*Math.PI*.60;
+    return new THREE.Vector3(Math.cos(a)*1.56, Math.sin(a)*1.56, 0.002);
+  });
+  group.add(new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints(kArc),
+    new THREE.LineBasicMaterial({
+      color:'#7A6E90', transparent:true, opacity:0.22,
+      blending:THREE.AdditiveBlending, depthWrite:false,
+    })
+  ));
+
+  // Bottom shadow arc — opposite side, simulates floor shadow (realism)
+  const sArc = Array.from({length:36}, (_,i) => {
+    const a = Math.PI*1.55 + (i/35)*Math.PI*.90;
+    return new THREE.Vector3(Math.cos(a)*1.56, Math.sin(a)*1.56, 0.002);
+  });
+  group.add(new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints(sArc),
+    new THREE.LineBasicMaterial({
+      color:'#000000', transparent:true, opacity:0.55,
+      blending:THREE.NormalBlending, depthWrite:false,
+    })
+  ));
+
+  // ── Centre cap — dark anodised metal, HLNΛ engraved ──────────────────────
+  group.add(new THREE.Mesh(
+    new THREE.CircleGeometry(0.46, 64),
+    new THREE.MeshBasicMaterial({ map: makeCapTexture() })
+  ));
+
+  // ── Glow spheres — tight and controlled ──────────────────────────────────
+  const rimGlowMat  = mkGlowMat(0.55, 5.5, '#7C3AED');  // tight violet rim
+  const capGlowMat  = mkGlowMat(0.52, 3.8, '#6D28D9');  // violet behind cap
+  const auraGlowMat = mkGlowMat(0.06, 1.1, '#3B1480');  // barely visible outer aura
+  group.add(new THREE.Mesh(new THREE.SphereGeometry(1.62, 32, 32), rimGlowMat));
+  group.add(new THREE.Mesh(new THREE.SphereGeometry(0.50, 24, 24), capGlowMat));
+  group.add(new THREE.Mesh(new THREE.SphereGeometry(2.20, 20, 20), auraGlowMat));
+
+  // ── State machine ─────────────────────────────────────────────────────────
   const ST = {
-    idle:       { rotSpd:0.30, glowStr:0.28, satScale:1.05, eqOp:0.60, edgeOp:0.22, breathAmp:0.025, pulseSpd:1.00 },
-    listening:  { rotSpd:0.72, glowStr:0.58, satScale:1.38, eqOp:0.84, edgeOp:0.38, breathAmp:0.030, pulseSpd:1.55 },
-    processing: { rotSpd:1.55, glowStr:0.86, satScale:1.85, eqOp:1.00, edgeOp:0.56, breathAmp:0.048, pulseSpd:2.50 },
-    responding: { rotSpd:0.52, glowStr:0.68, satScale:1.58, eqOp:0.90, edgeOp:0.45, breathAmp:0.035, pulseSpd:2.00 },
+    idle:       { glowStr:0.12, ripAmp:0.005, ripSpd:1.3, ripFreq:4.8, ringSp:0.10, ringOp:0.08 },
+    listening:  { glowStr:0.55, ripAmp:0.048, ripSpd:3.2, ripFreq:7.2, ringSp:0.40, ringOp:0.42 },
+    processing: { glowStr:0.76, ripAmp:0.080, ripSpd:5.0, ripFreq:9.2, ringSp:0.62, ringOp:0.56 },
+    responding: { glowStr:0.60, ripAmp:0.062, ripSpd:4.0, ripFreq:7.8, ringSp:0.48, ringOp:0.46 },
   };
-  let cur={...ST.idle}, tgt={...ST.idle};
-  let speechLevel=0, tOX=-0.32, cOX=-0.32, simT=0;
+  let cur = {...ST.idle}, tgt = {...ST.idle};
+  let speechLevel = 0, simT = 0;
+  const LP = 0.026, lerp = (a,b,t) => a + (b-a)*t;
 
-  function setState(s)       { tgt={ ...ST[s]??ST.idle }; }
-  function setOffset(x)      { tOX=x; }
-  function setSpeechLevel(v) { speechLevel=Math.max(speechLevel,v); }
+  function setState(s)       { tgt = {...(ST[s] ?? ST.idle)}; }
+  function setOffset(x)      { tOX = x * 0.55; }
+  function setSpeechLevel(v) { speechLevel = Math.max(speechLevel, v); }
 
-  const LP=0.030, lerp=(a,b,t)=>a+(b-a)*t;
   let raf;
-  const clock=new THREE.Clock();
+  const clock = new THREE.Clock();
 
   function animate() {
-    raf=requestAnimationFrame(animate);
-    const dt=Math.min(clock.getDelta(),0.05);
-    speechLevel*=Math.pow(0.08,dt);
-    simT+=dt;
+    raf = requestAnimationFrame(animate);
+    const dt = Math.min(clock.getDelta(), 0.05);
+    speechLevel *= Math.pow(0.04, dt);
+    simT += dt;
 
-    cur.rotSpd    = lerp(cur.rotSpd,    tgt.rotSpd,                        LP);
-    cur.glowStr   = lerp(cur.glowStr,   tgt.glowStr + speechLevel*0.65,    LP*2);
-    cur.satScale  = lerp(cur.satScale,  tgt.satScale,                      LP);
-    cur.eqOp      = lerp(cur.eqOp,      tgt.eqOp,                          LP);
-    cur.edgeOp    = lerp(cur.edgeOp,    tgt.edgeOp,                        LP);
-    cur.breathAmp = lerp(cur.breathAmp, tgt.breathAmp,                     LP);
-    cur.pulseSpd  = lerp(cur.pulseSpd,  tgt.pulseSpd,                      LP);
-    cOX=lerp(cOX, tOX, 0.022);
+    cur.glowStr = lerp(cur.glowStr, tgt.glowStr + speechLevel*0.35, LP*2);
+    cur.ripAmp  = lerp(cur.ripAmp,  tgt.ripAmp  + speechLevel*0.05, LP);
+    cur.ripSpd  = lerp(cur.ripSpd,  tgt.ripSpd,                     LP);
+    cur.ripFreq = lerp(cur.ripFreq, tgt.ripFreq,                    LP);
+    cur.ringSp  = lerp(cur.ringSp,  tgt.ringSp  + speechLevel*0.11, LP);
+    cur.ringOp  = lerp(cur.ringOp,  tgt.ringOp  + speechLevel*0.20, LP*2);
 
-    // Drift + mouse parallax
-    const dX=cOX+Math.sin(simT*.11)*.55, dY=Math.sin(simT*.073)*.35;
-    driftGroup.position.x+=(dX-driftGroup.position.x)*.04;
-    driftGroup.position.y+=(dY-driftGroup.position.y)*.04;
-    driftGroup.rotation.y+=(mouseX*.20-driftGroup.rotation.y)*.055;
-    driftGroup.rotation.x+=(-mouseY*.14-driftGroup.rotation.x)*.055;
+    cOX = lerp(cOX, tOX, 0.025);
+    group.position.x = cOX;
+    // Subtle mouse parallax — gentle, not distracting
+    group.rotation.y += (mouseX*0.05 - group.rotation.y)*0.040;
+    group.rotation.x += (-mouseY*0.03 - group.rotation.x)*0.040;
 
-    // Brain multi-axis tumble (gives organic idle life)
-    brainGroup.rotation.y += dt*cur.rotSpd*0.13;
-    brainGroup.rotation.x  = Math.sin(simT*0.13)*0.22;
-    brainGroup.rotation.z  = Math.sin(simT*0.09)*0.14;
-
-    // Breathing — scale amplitude driven by state
-    const breathe = 1.0 + Math.sin(simT*0.85)*cur.breathAmp + Math.sin(simT*1.7)*cur.breathAmp*0.4 + speechLevel*0.08;
-    brainGroup.scale.setScalar(breathe);
-
-    // Atmosphere glow layers
-    innerGlow.uniforms.uStr.value = cur.glowStr;
-    midGlow.uniforms.uStr.value   = cur.glowStr*0.42;
-    outerGlow.uniforms.uStr.value = cur.glowStr*0.20;
-
-    // Rings
-    eqMat.opacity    = cur.eqOp + Math.sin(simT*1.1)*0.07;
-    ring2.rotation.y = simT*0.016;
-    ring3.rotation.y = simT*-0.022;
-
-    // ── Celestial bodies ────────────────────────────────────────────────────
-    celestials.forEach(cel => {
-      // Orbital position
-      const angle = simT*cel.speed + cel.phase;
-      const ox=Math.cos(angle)*cel.r, oz=Math.sin(angle)*cel.r;
-      const lx=ox, ly=-oz*Math.sin(cel.tiltX), lz=oz*Math.cos(cel.tiltX);
-      const wx=lx+driftGroup.position.x, wy=ly+driftGroup.position.y, wz=lz;
-      cel.body.position.set(wx,wy,wz);
-
-      // Bobbing scale
-      const bob = 0.88 + Math.sin(simT*1.4+cel.phase)*0.14;
-      cel.body.scale.setScalar(cur.satScale*bob);
-
-      // Self-rotation per type
-      if (cel.spinRate) {
-        cel.body.rotation.y += dt*cel.spinRate.y;
-        if (cel.spinRate.z) cel.body.rotation.z += dt*cel.spinRate.z;
-      }
-
-      // Pulsar jet opacity pulse
-      if (cel.jetMat1) {
-        const jp = 0.18+Math.sin(simT*9.0+cel.phase)*0.18+cur.glowStr*0.12;
-        cel.jetMat1.opacity = jp; cel.jetMat2.opacity = jp;
-      }
-
-      // Black hole: disk rotation (each ring spins at its own speed, faster when active)
-      if (cel.diskMeshes) {
-        cel.diskMeshes.forEach(({mesh, speed}) => {
-          mesh.rotation.z += dt * speed * (0.55 + cur.glowStr*0.80);
-        });
-      }
-      // Photon ring strobe
-      if (cel.photonMat) {
-        cel.photonMat.uniforms.uStr.value = 0.85 + Math.sin(simT*4.2+cel.phase)*0.16 + cur.glowStr*0.24;
-      }
-
-      // Nebula particle ring rotation
-      if (cel.particleRing) cel.particleRing.rotation.y += dt*0.55;
-
-      // Connection line
-      cel.connAttr.setXYZ(0, driftGroup.position.x, driftGroup.position.y, 0);
-      cel.connAttr.setXYZ(1, wx, wy, wz);
-      cel.connAttr.needsUpdate=true;
-      cel.conn.material.opacity = 0.08+cur.glowStr*0.14;
+    // ── Ripple rings ──────────────────────────────────────────────────────
+    rippleRings.forEach(r => {
+      const t = ((simT * cur.ringSp + r.phaseOff) % 1);
+      r.line.scale.setScalar(RIPPLE_MIN + t * (RIPPLE_MAX - RIPPLE_MIN));
+      r.mat.opacity = Math.pow(1 - t, 2.6) * cur.ringOp;
     });
 
-    // ── Node animation: drift + color pulse + corona flashes ───────────────
-    if (nodesMesh && nodeColorBuf && nodeCount>0) {
-      const pArr = nodePosBuf.array;
-      const col  = nodeColorBuf.array;
-      const sz   = nodeSizeBuf.array;
-      const spch = speechLevel;
-      const pspd = cur.pulseSpd;
-      const gstr = cur.glowStr;
+    // ── Cone displacement ─────────────────────────────────────────────────
+    const pa = conePosA.array;
+    const ca = coneColorA.array;
+    // Breathing: very slow, scale 1 → 1.015 → 1 as specified
+    const breath = BASE_SCALE * (1.0 + Math.sin(simT*0.72)*0.0075);
+    group.scale.setScalar(breath);
 
-      // Sparse corona flash trigger (~2–3 per second)
-      if (Math.random() < 0.04+spch*0.12) {
-        coronaFlash[Math.floor(Math.random()*nodeCount)] = 0.7+Math.random()*0.3;
-      }
+    for (let i = 0; i < TOTAL; i++) {
+      const r = coneRadii[i];
+      const wave =
+        Math.sin(r*cur.ripFreq       - simT*cur.ripSpd)       * cur.ripAmp +
+        Math.sin(r*cur.ripFreq*1.60  - simT*cur.ripSpd*0.66)  * cur.ripAmp*0.34 +
+        speechLevel * 0.048 * Math.sin(r*10.5 - simT*6.5);
+      pa[i*3+2] = wave;
 
-      for (let i=0; i<nodeCount; i++) {
-        // Per-node position drift — gentle float
-        const d=nodeDrift[i];
-        pArr[i*3]   = basePosArr[i*3]   + Math.sin(simT*d.fx + phases[i]  )*d.ax*(1+spch);
-        pArr[i*3+1] = basePosArr[i*3+1] + Math.sin(simT*d.fy + phases[i]+1)*d.ay*(1+spch);
-        pArr[i*3+2] = basePosArr[i*3+2] + Math.sin(simT*d.fz + phases[i]+2)*d.az*(1+spch);
+      // Realistic radial shading: darker centre, lighter outer cone
+      const rimBright = 0.08 + (r / CONE_R) * 0.82;
+      const baseR     = 0.052 * rimBright;
+      const baseG     = 0.050 * rimBright;
+      const baseB     = 0.058 * rimBright;
 
-        // Color pulse
-        const wave  = 0.58+Math.sin(simT*pspd + phases[i])*0.42*gstr;
-        const boost = 1.0+spch*(0.65+Math.sin(simT*3.5+phases[i]*1.3)*0.4);
-        const flash = coronaFlash[i];
-        col[i*3]   = flash*0.25;
-        col[i*3+1] = 0.52*wave + flash*0.25;
-        col[i*3+2] = 1.0*wave*boost + flash;
-        if (flash>0.001) coronaFlash[i]*=0.86;
+      // Displacement drives violet glow — multiplier 13 = shimmer, not neon
+      const disp   = Math.abs(wave);
+      const bright = 0.010 + disp*13.0 + speechLevel*0.07*(1 - r/CONE_R);
+      const c      = Math.min(1.0, bright);
 
-        // Size pulse
-        sz[i] = baseSizes[i]*(1.0+spch*0.45+Math.sin(simT*pspd*0.6+phases[i])*0.12*gstr + flash*0.4);
-      }
-      nodePosBuf.needsUpdate  = true;
-      nodeColorBuf.needsUpdate= true;
-      nodeSizeBuf.needsUpdate = true;
-      if (edgesMesh) edgesMesh.material.opacity = cur.edgeOp + Math.sin(simT*2.1)*0.04;
+      // #7C3AED = R:0.486 G:0.227 B:0.929
+      ca[i*3]   = baseR * (1-c) + c * 0.486;
+      ca[i*3+1] = baseG * (1-c) + c * 0.227;
+      ca[i*3+2] = baseB * (1-c) + c * 0.929;
     }
+    conePosA.needsUpdate   = true;
+    coneColorA.needsUpdate = true;
 
-    renderer.render(scene,cam);
+    // ── Glow — single breathing sine, all glow in lockstep ───────────────
+    const breathGlow = Math.sin(simT*0.72)*0.038;
+    rimGlowMat.uniforms.uStr.value   = (cur.glowStr + breathGlow) * 0.86;
+    capGlowMat.uniforms.uStr.value   = 0.30 + (cur.glowStr + breathGlow*.5) * 0.48;
+    auraGlowMat.uniforms.uStr.value  = cur.glowStr * 0.12;
+    ambientDisc.material.opacity     = 0.08 + cur.glowStr * 0.28;
+    ledGlow.opacity                  = 0.04 + cur.glowStr*0.24 + breathGlow*0.04;
+
+    renderer.render(scene, cam);
   }
   animate();
 
   return {
     setState, setOffset, setSpeechLevel,
-    resize() { const w=window.innerWidth,h=window.innerHeight; renderer.setSize(w,h); cam.aspect=w/h; cam.updateProjectionMatrix(); },
-    dispose() { cancelAnimationFrame(raf); renderer.dispose(); window.removeEventListener("mousemove",onMouse); if(el.contains(renderer.domElement))el.removeChild(renderer.domElement); },
+    resize() {
+      const w=window.innerWidth, h=window.innerHeight;
+      renderer.setSize(w,h); cam.aspect=w/h; cam.updateProjectionMatrix();
+    },
+    dispose() {
+      cancelAnimationFrame(raf);
+      renderer.dispose();
+      window.removeEventListener('mousemove', onMouse);
+      if (el.contains(renderer.domElement)) el.removeChild(renderer.domElement);
+    },
   };
 }

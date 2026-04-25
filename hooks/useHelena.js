@@ -7,381 +7,504 @@ import { parseCommand } from '../lib/actions/commandParser';
 import { executeCommand, executeStructuredAction } from '../lib/actions/dashboardActions';
 import { useAppStore } from '../lib/state/useAppStore';
 
-export function useHelena() {
-  const [messages, setMessages]             = useState([]);
-  const [responding, setResponding]         = useState(false);
-  const [listening, setListening]           = useState(false);
-  const [transcript, setTranscript]         = useState('');
-  const [wakeActive, setWakeActive]         = useState(false);
-  const [conversational, setConversational] = useState(false);
-  const [micError, setMicError]             = useState(null);
+// ─── Phase machine ────────────────────────────────────────────────
+// idle → listening → processing → speaking → idle
+// Only one phase active at a time. All state derives from phaseRef.
 
+export function useHelena() {
+  const [messages,      setMessages]      = useState([]);
+  const [listening,     setListening]     = useState(false);
+  const [responding,    setResponding]    = useState(false);
+  const [orbPhase,      setOrbPhase]      = useState('idle');
+  const [transcript,    setTranscript]    = useState('');
+  const [conversational,setConversational]= useState(false);
+  const [micError,      setMicError]      = useState(null);
+  const [wakeActive,    setWakeActive]    = useState(false);
+
+  // ── Core refs ────────────────────────────────────────────────────
+  const phaseRef          = useRef('idle');   // 'idle'|'listening'|'processing'|'speaking'
   const recogRef          = useRef(null);
   const wakeRecogRef      = useRef(null);
-  const acRef             = useRef(null);
-  const wakeEnabledRef    = useRef(false);
-  const conversationalRef = useRef(false);
-  const startListeningRef = useRef(null);
-  const speechPulseRef    = useRef(null);
-  const uttRef            = useRef(null);
+  const audioRef          = useRef(null);     // AudioContext source node
+  const acRef             = useRef(null);     // shared AudioContext
   const transcriptRef     = useRef('');
-  const spotifyContextRef = useRef('');
-  const spotifyControlRef = useRef(null);
-  const taskControlRef    = useRef(null);
+  const conversationalRef = useRef(false);
+  const wakeEnabledRef    = useRef(false);
+  const ttsReadyRef       = useRef(false);
 
-  function getAC() {
-    if (!acRef.current) acRef.current = new AudioContext();
-    return acRef.current;
-  }
-  function unlockAudio() {
-    const ac = getAC();
-    if (ac.state === 'suspended') ac.resume();
+  // ── Context refs (set by parent) ─────────────────────────────────
+  const speechPulseRef     = useRef(null);
+  const spotifyContextRef  = useRef('');
+  const spotifyControlRef  = useRef(null);
+  const taskControlRef     = useRef(null);
+  const calendarContextRef = useRef('');
+  const calendarControlRef = useRef(null);
+  const dashboardContextRef= useRef('');
+  const navRef             = useRef(null);  // set by parent: (target: string) => void
+
+  // Forward refs (break circular deps)
+  const startListeningRef = useRef(null);
+  const launchWakeRef     = useRef(null);
+  const sendMessageRef    = useRef(null);
+
+  // ── Phase helpers ─────────────────────────────────────────────────
+  function phase() { return phaseRef.current; }
+  function setPhase(p) {
+    phaseRef.current = p;
+    setListening(p === 'listening');
+    setResponding(p === 'processing' || p === 'speaking');
+    setOrbPhase(
+      p === 'listening'  ? 'listening'  :
+      p === 'processing' ? 'thinking'   :
+      p === 'speaking'   ? 'responding' : 'idle'
+    );
   }
 
   function showMicError(msg) {
     setMicError(msg);
-    setTimeout(() => setMicError(null), 3500);
+    setTimeout(() => setMicError(null), 4000);
   }
 
-  // ── TTS ──────────────────────────────────────────────────────────
-  // Prime speech synthesis (call synchronously inside a user gesture to keep Chrome happy)
-  function primeSpeech() {
+  // ── AudioContext ──────────────────────────────────────────────────
+  function getAC() {
+    if (!acRef.current) acRef.current = new AudioContext();
+    return acRef.current;
+  }
+  function unlockAC() {
+    const ac = getAC();
+    if (ac.state === 'suspended') ac.resume();
+  }
+
+  // ── Stop everything ───────────────────────────────────────────────
+  function stopAll() {
+    if (recogRef.current) {
+      try { recogRef.current.stop(); } catch {}
+      recogRef.current = null;
+    }
+    if (audioRef.current) {
+      try { audioRef.current.stop(0); } catch {}
+      audioRef.current = null;
+    }
+    speechSynthesis.cancel();
+    speechPulseRef.current?.(0);
+    setTranscript('');
+    transcriptRef.current = '';
+    setPhase('idle');
+  }
+
+  // ── TTS unlock (must be called in user gesture) ───────────────────
+  function primeTTS() {
+    unlockAC(); // AudioContext must be resumed inside a user gesture
+    if (ttsReadyRef.current) return;
     try {
-      const p = new SpeechSynthesisUtterance(' ');
-      p.volume = 0; p.rate = 10;
-      speechSynthesis.speak(p);
+      const u = new SpeechSynthesisUtterance('');
+      u.volume = 0; u.rate = 10;
+      speechSynthesis.speak(u);
+      ttsReadyRef.current = true;
     } catch {}
   }
 
-  const browserSpeak = useCallback((text) => {
-    if (!text) return;
-    function doSpeak() {
-      const voices = speechSynthesis.getVoices();
-      const voice  = voices.find(v => /sonia|libby|maisie/i.test(v.name))
-        ?? voices.find(v => /en[-_]GB/i.test(v.lang))
-        ?? voices.find(v => v.lang.startsWith('en'))
-        ?? voices[0] ?? null;
-      const utt = new SpeechSynthesisUtterance(text);
-      if (voice) utt.voice = voice;
-      utt.rate  = 0.92;
-      utt.pitch = 1.05;
-      utt.onerror    = e => console.error('[Helena TTS] error:', e.error);
-      utt.onboundary = (e) => { if (e.name === 'word') speechPulseRef.current?.(1.0); };
-      utt.onend      = () => {
-        uttRef.current = null;
-        speechPulseRef.current?.(0);
-        setResponding(false);
-        if (conversationalRef.current) startListeningRef.current?.();
-      };
-      uttRef.current = utt;
-      // Only cancel if something is actively playing — avoids Chrome stuck-queue bug
-      if (speechSynthesis.speaking) speechSynthesis.cancel();
-      setTimeout(() => { if (uttRef.current) speechSynthesis.speak(uttRef.current); }, 80);
+  // ── Speak ─────────────────────────────────────────────────────────
+  function onSpeakEnd() {
+    console.log('[Helena] onSpeakEnd — conversational:', conversationalRef.current);
+    audioRef.current = null;
+    speechPulseRef.current?.(0);
+    setPhase('idle');
+    if (conversationalRef.current) {
+      setTimeout(() => startListeningRef.current?.(), 300);
+    } else if (wakeEnabledRef.current) {
+      launchWakeRef.current?.();
     }
+  }
+
+  function doSpeakBrowser(text) {
     const voices = speechSynthesis.getVoices();
-    if (voices.length) doSpeak();
-    else speechSynthesis.addEventListener('voiceschanged', doSpeak, { once: true });
+    const voice  = voices.find(v => /sonia|libby|maisie|zira|samantha/i.test(v.name))
+      ?? voices.find(v => /en[-_]GB/i.test(v.lang))
+      ?? voices.find(v => v.lang?.startsWith('en'))
+      ?? voices[0] ?? null;
+    const utt = new SpeechSynthesisUtterance(text);
+    if (voice) utt.voice = voice;
+    utt.rate  = 0.92;
+    utt.pitch = 1.05;
+    utt.onboundary = (e) => { if (e.name === 'word') speechPulseRef.current?.(0.8); };
+    utt.onend   = () => onSpeakEnd();
+    utt.onerror = (e) => { if (e.error === 'interrupted') return; console.warn('[Helena TTS]', e.error); onSpeakEnd(); };
+    setTimeout(() => speechSynthesis.speak(utt), 60);
+  }
+
+  const speak = useCallback((text) => {
+    if (!text) return;
+    setPhase('speaking');
+    speechSynthesis.cancel();
+
+    (async () => {
+      try {
+        const res = await fetch('/api/speak', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ text }),
+          signal:  AbortSignal.timeout(12000),
+        });
+        if (!res.ok) throw new Error(`ElevenLabs ${res.status}`);
+
+        const arrayBuffer = await res.arrayBuffer();
+        const ac          = getAC();
+        if (ac.state === 'suspended') await ac.resume();
+
+        const decoded = await ac.decodeAudioData(arrayBuffer);
+        const source  = ac.createBufferSource();
+        source.buffer = decoded;
+        source.connect(ac.destination);
+
+        let rafId;
+        function pulse() {
+          if (audioRef.current !== source) return;
+          speechPulseRef.current?.(0.8);
+          rafId = requestAnimationFrame(pulse);
+        }
+
+        source.addEventListener('ended', () => {
+          cancelAnimationFrame(rafId);
+          if (audioRef.current === source) audioRef.current = null;
+          onSpeakEnd();
+        });
+
+        audioRef.current = source;
+        source.start(0);
+        rafId = requestAnimationFrame(pulse);
+
+      } catch (err) {
+        console.warn('[Helena speak] ElevenLabs failed, using browser TTS:', err.message);
+        const voices = speechSynthesis.getVoices();
+        if (voices.length) doSpeakBrowser(text);
+        else speechSynthesis.addEventListener('voiceschanged', () => doSpeakBrowser(text), { once: true });
+      }
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const speak = useCallback((text) => { if (text) browserSpeak(text); }, [browserSpeak]);
-
-  // ── CLEAR HISTORY — defined before sendMessage ────────────────────
+  // ── Clear history ─────────────────────────────────────────────────
   const clearHistory = useCallback(() => setMessages([]), []);
 
-  // ── CHAT ─────────────────────────────────────────────────────────
+  // ── Send message ──────────────────────────────────────────────────
   const sendMessage = useCallback(async (text) => {
-    if (!text.trim()) return;
+    if (!text?.trim()) { setPhase('idle'); return; }
 
-    // Fast path: intercept recognised dashboard/memory/task commands locally
+    // Fast-path: local command intercept
     const cmd = parseCommand(text);
     if (cmd) {
-      if (cmd.action === 'task_add') {
-        const t = cmd.match[1]?.trim();
-        taskControlRef.current?.add(t);
-        const msg = t ? `Task added: "${t}"` : 'What task should I add?';
+      let msg = null;
+      if (cmd.action === 'task_add')      { const t = cmd.match[1]?.trim(); taskControlRef.current?.add(t); msg = t ? `Task added: "${t}"` : 'What task?'; }
+      if (cmd.action === 'task_complete') { const t = cmd.match[1]?.trim(); taskControlRef.current?.completeByText(t); msg = t ? `Marked done: "${t}"` : 'Which task?'; }
+      if (cmd.action === 'task_clear')    { taskControlRef.current?.clearDone(); msg = 'Cleared completed tasks.'; }
+      if (cmd.action === 'task_list')     { msg = getTaskContext(); }
+      if (!msg) msg = executeCommand(cmd, clearHistory);
+      if (msg) {
         setMessages(prev => [...prev, { role: 'user', content: text }, { role: 'assistant', content: msg }]);
-        speak(msg); return;
-      }
-      if (cmd.action === 'task_complete') {
-        const t = cmd.match[1]?.trim();
-        taskControlRef.current?.completeByText(t);
-        const msg = t ? `Marked done: "${t}"` : 'Which task should I complete?';
-        setMessages(prev => [...prev, { role: 'user', content: text }, { role: 'assistant', content: msg }]);
-        speak(msg); return;
-      }
-      if (cmd.action === 'task_clear') {
-        taskControlRef.current?.clearDone();
-        const msg = 'Cleared completed tasks.';
-        setMessages(prev => [...prev, { role: 'user', content: text }, { role: 'assistant', content: msg }]);
-        speak(msg); return;
-      }
-      if (cmd.action === 'task_list') {
-        const ctx = getTaskContext();
-        setMessages(prev => [...prev, { role: 'user', content: text }, { role: 'assistant', content: ctx }]);
-        speak(ctx); return;
-      }
-      const localResponse = executeCommand(cmd, clearHistory);
-      if (localResponse) {
-        setMessages(prev => [
-          ...prev,
-          { role: 'user', content: text },
-          { role: 'assistant', content: localResponse },
-        ]);
-        speak(localResponse);
+        speak(msg);
         return;
       }
     }
 
-    // Prime speech synthesis NOW (inside user gesture, before any await)
-    primeSpeech();
-
-    const userMsg = { role: 'user', content: text };
-    const history = [...messages, userMsg];
-    setMessages(history);
-    setResponding(true);
-
-    const memCtx  = memoryManager.getContext();
-    const taskCtx = getTaskContext();
+    setMessages(prev => [...prev, { role: 'user', content: text }]);
+    setPhase('processing');
 
     try {
       const res = await fetch('/api/chat', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({
-          messages:       history.map(({ role, content }) => ({ role, content })),
-          memoryContext:  memCtx,
-          spotifyContext: spotifyContextRef.current,
-          taskContext:    taskCtx,
+        body: JSON.stringify({
+          messages:          [...messages, { role: 'user', content: text }].map(({ role, content }) => ({ role, content })),
+          memoryContext:     memoryManager.getContext(),
+          spotifyContext:    spotifyContextRef.current,
+          taskContext:       getTaskContext(),
+          calendarContext:   calendarContextRef.current,
+          dashboardContext:  dashboardContextRef.current,
         }),
       });
       const data = await res.json();
-      // data = { response, intent, action, target, memory_update, source }
 
       setMessages(prev => [...prev, {
-        role: 'assistant',
-        content: data.response,
+        role: 'assistant', content: data.response,
         meta: { intent: data.intent, action: data.action, source: data.source },
       }]);
 
       speak(data.response);
 
-      // Scout search — fire and forget, push results to activity feed
+      // ── Side effects (non-blocking) ───────────────────────────────
       if (data.action === 'scout_search' && data.target && data.target !== 'none') {
         (async () => {
           try {
-            const scoutRes = await fetch('/api/agents/scout', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+            const sr = await fetch('/api/agents/scout', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ query: data.target }),
             });
-            const scout = await scoutRes.json();
-            if (scout.error) throw new Error(scout.error);
+            const scout = await sr.json();
             const store = useAppStore.getState();
-            // Push each lead as an activity item
             if (scout.leads?.length) {
-              scout.leads.forEach((lead, i) => {
-                store.addItem({
-                  id:    Date.now() + i,
-                  type:  'scout',
-                  title: lead.company || 'Scout lead',
-                  sub:   lead.signal ?? '',
-                  time:  'now',
-                  action: lead.action ?? '',
-                });
-              });
+              scout.leads.forEach((lead, i) => store.addItem({ id: Date.now() + i, type: 'scout', title: lead.company || 'Scout lead', sub: lead.signal ?? '', time: 'now', action: lead.action ?? '' }));
             } else {
-              store.addItem({
-                id:    Date.now(),
-                type:  'scout',
-                title: scout.summary ?? 'Scout complete',
-                sub:   `${scout.resultCount ?? 0} sources reviewed`,
-                time:  'now',
-              });
+              store.addItem({ id: Date.now(), type: 'scout', title: scout.summary ?? 'Scout complete', sub: `${scout.resultCount ?? 0} sources reviewed`, time: 'now' });
             }
-          } catch (err) {
-            console.warn('[Scout] error:', err.message);
-            useAppStore.getState().addItem({
-              id:    Date.now(),
-              type:  'scout',
-              title: 'Scout search failed',
-              sub:   err.message,
-              time:  'now',
-            });
-          }
+          } catch (err) { console.warn('[Scout]', err.message); }
         })();
       }
 
-      // Execute any dashboard action Helena chose
-      if (data.action && data.action !== 'none' && data.action !== 'spotify_control' && data.action !== 'scout_search') {
+      if (data.action === 'note_create' && data.target && data.target !== 'none') {
+        const parts = data.target.split('|');
+        (async () => {
+          try {
+            const r = await fetch('/api/brain/note', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ title: parts[0]?.trim() || 'Untitled', folder: parts[1]?.trim() || '', body: parts.slice(2).join('|').trim() }),
+            });
+            const result = await r.json();
+            if (result.ok) useAppStore.getState().addItem({ id: Date.now(), type: 'memory', title: `Note saved: ${parts[0]?.trim()}`, sub: result.fileName, time: 'now' });
+          } catch (err) { console.warn('[Note]', err.message); }
+        })();
+      }
+
+      if (data.action && !['none','scout_search','note_create','spotify_control'].includes(data.action)) {
         executeStructuredAction(data.action, data.target, clearHistory);
+      }
+      if (data.action === 'navigate' && data.target && data.target !== 'none') {
+        navRef.current?.(data.target);
       }
       if (data.action === 'spotify_control') {
         const ctrl = spotifyControlRef.current;
         if (ctrl && data.target && typeof ctrl[data.target] === 'function') ctrl[data.target]();
       }
-      if (data.action === 'task_add' && data.target && data.target !== 'none') {
-        taskControlRef.current?.add(data.target);
+      if (data.action === 'task_add'      && data.target && data.target !== 'none') taskControlRef.current?.add(data.target);
+      if (data.action === 'task_complete' && data.target && data.target !== 'none') taskControlRef.current?.completeByText(data.target);
+      if (data.action === 'task_clear') taskControlRef.current?.clearDone();
+      if (data.action === 'calendar_create' && data.target && data.target !== 'none') {
+        const [title, date, time, dur] = data.target.split('|').map(s => s?.trim());
+        calendarControlRef.current?.create({ title, date, time, duration: dur ? Number(dur) : 60 });
       }
-      if (data.action === 'task_complete' && data.target && data.target !== 'none') {
-        taskControlRef.current?.completeByText(data.target);
-      }
-      if (data.action === 'task_clear') {
-        taskControlRef.current?.clearDone();
-      }
-
-      // Persist memory update if Helena flagged one
       if (data.memory_update?.fact) {
         const { type, key, fact } = data.memory_update;
         memoryManager.remember(fact, type === 'short' ? 'short' : 'long');
         if (type === 'preference' && key) memoryManager.setPreference(key, fact);
       }
-
-      // Track LLM source in store for UI indicator
       useAppStore.getState().setLlmSource(data.source ?? null);
-
       memoryManager.logExchange(text, data.response);
+
     } catch (err) {
       console.error('[Helena] sendMessage error:', err);
       setMessages(prev => [...prev, { role: 'assistant', content: "I'm having trouble connecting right now." }]);
-      setResponding(false);
+      setPhase('idle');
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages, speak, clearHistory]);
 
-  // ── WAKE WORD ────────────────────────────────────────────────────
-  const launchWakeRecog = useCallback(() => {
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR || !wakeEnabledRef.current) return;
+  useEffect(() => { sendMessageRef.current = sendMessage; }, [sendMessage]);
 
-    const recog          = new SR();
-    recog.lang           = 'en-GB';
-    recog.continuous     = true;
-    recog.interimResults = false;
-
-    recog.onstart = () => setWakeActive(true);
-    recog.onend   = () => {
-      if (wakeRecogRef.current === recog && wakeEnabledRef.current) {
-        try { recog.start(); } catch {}
-      } else { setWakeActive(false); }
-    };
-    recog.onerror = (e) => {
-      if (e.error === 'no-speech') return;
-      if (wakeRecogRef.current === recog && wakeEnabledRef.current) {
-        setTimeout(() => { try { recog.start(); } catch {} }, 800);
-      }
-    };
-    recog.onresult = (e) => {
-      const t = Array.from(e.results).map(r => r[0].transcript).join(' ').toLowerCase();
-      if (/hey\s*helen[ae]?|helena/i.test(t)) {
-        wakeRecogRef.current = null;
-        try { recog.stop(); } catch {}
-        setTimeout(() => startListeningRef.current?.(), 200);
-      }
-    };
-    wakeRecogRef.current = recog;
-    try { recog.start(); } catch {}
-  }, []);
-
-  // ── MAIN MIC ─────────────────────────────────────────────────────
+  // ── Main mic ──────────────────────────────────────────────────────
   const startListening = useCallback(() => {
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) { showMicError('Speech recognition not supported in this browser.'); return; }
-    unlockAudio();
+    console.log('[Helena] startListening — phase:', phase(), 'conversational:', conversationalRef.current);
+    if (phase() !== 'idle') return;
 
-    if (wakeRecogRef.current) {
-      const wr = wakeRecogRef.current;
-      wakeRecogRef.current = null;
-      try { wr.stop(); } catch {}
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) { showMicError('Speech recognition not supported.'); return; }
+
+    primeTTS();
+    setPhase('listening');
+    setTranscript('');
+    transcriptRef.current = '';
+
+    function restartOrWake() {
+      if (conversationalRef.current) {
+        setTimeout(() => {
+          if (conversationalRef.current && phase() === 'idle' && !recogRef.current) {
+            startListeningRef.current?.();
+          }
+        }, 300);
+      } else if (wakeEnabledRef.current) {
+        launchWakeRef.current?.();
+      }
     }
 
-    setTimeout(() => {
-      const recog          = new SR();
-      recog.lang           = 'en-GB';
-      recog.interimResults = true;
-      recog.continuous     = false;
+    function doStart() {
+      // Guard: if the user cancelled during the async wait, don't start
+      if (phase() !== 'listening') return;
 
-      recog.onstart  = () => { setListening(true); setMicError(null); };
-      recog.onend    = () => {
-        setListening(false);
+      const recog = new SR();
+      recog.lang           = 'en-GB';
+      recog.continuous     = false;
+      recog.interimResults = true;
+      recogRef.current     = recog;
+
+      recog.onresult = (e) => {
+        const interim = Array.from(e.results).map(r => r[0].transcript).join('');
+        setTranscript(interim);
+        transcriptRef.current = interim;
+      };
+
+      recog.onend = () => {
+        recogRef.current = null;
+        const text = transcriptRef.current.trim();
+        console.log('[Helena] recog.onend — text:', text || '(none)', 'phase:', phase());
         setTranscript('');
         transcriptRef.current = '';
-        if (!conversationalRef.current && wakeEnabledRef.current) launchWakeRecog();
+
+        if (phase() !== 'listening') return; // was cancelled
+
+        if (text) {
+          sendMessageRef.current?.(text);
+        } else {
+          setPhase('idle');
+          restartOrWake();
+        }
       };
-      recog.onerror  = (e) => {
-        if (e.error === 'no-speech') return;
+
+      recog.onerror = (e) => {
+        console.log('[Helena] recog.onerror —', e.error);
+        recogRef.current = null;
+        setTranscript('');
+        transcriptRef.current = '';
+
+        if (e.error === 'no-speech') {
+          setPhase('idle');
+          restartOrWake();
+          return;
+        }
+
         const errorMap = {
-          'not-allowed':   'Microphone access denied. Check browser permissions.',
+          'not-allowed':   'Microphone access denied.',
           'audio-capture': 'No microphone found.',
           'network':       'Network error during recognition.',
         };
         if (errorMap[e.error]) showMicError(errorMap[e.error]);
-        setListening(false);
-        setTranscript('');
-        transcriptRef.current = '';
-        if (!conversationalRef.current && wakeEnabledRef.current) launchWakeRecog();
-      };
-      recog.onresult = (e) => {
-        const t = Array.from(e.results).map(r => r[0].transcript).join('');
-        setTranscript(t);
-        transcriptRef.current = t;
-        if (e.results[e.results.length - 1].isFinal) {
-          recog.stop();
-          sendMessage(t);
-        }
+        setPhase('idle');
+        if (wakeEnabledRef.current) launchWakeRef.current?.();
       };
 
       try {
         recog.start();
-        recogRef.current = recog;
+        console.log('[Helena] recognizer started');
       } catch (err) {
-        console.error('[Helena mic] start failed:', err);
+        console.error('[Helena] recog.start() failed:', err.message);
+        recogRef.current = null;
+        setPhase('idle');
         showMicError('Could not start microphone.');
       }
-    }, 150);
-  }, [sendMessage, launchWakeRecog]);
+    }
+
+    // Chrome has one audio session at a time. The wake recognizer's session is
+    // still held until its onend fires — starting immediately causes "aborted".
+    // We wait for the wake recog's own onend before calling doStart.
+    if (wakeRecogRef.current) {
+      const prev = wakeRecogRef.current;
+      wakeRecogRef.current = null;
+      setWakeActive(false);
+      prev.onresult = null;
+      prev.onerror  = null;
+      prev.onend    = doStart; // Chrome releases the session before firing onend
+      try { prev.stop(); } catch { doStart(); }
+    } else {
+      doStart();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => { startListeningRef.current = startListening; }, [startListening]);
 
+  // ── Stop / push-to-talk send ──────────────────────────────────────
   const stopListening = useCallback(() => {
-    try { recogRef.current?.stop(); } catch {}
-    setListening(false);
+    if (recogRef.current) {
+      try { recogRef.current.stop(); } catch {}
+      recogRef.current = null;
+    }
+    setPhase('idle');
     setTranscript('');
     transcriptRef.current = '';
+    if (wakeEnabledRef.current) launchWakeRef.current?.();
   }, []);
 
-  // Push-to-talk: stop mic and send whatever was transcribed
   const stopAndSend = useCallback(() => {
-    const t = transcriptRef.current;
-    try { recogRef.current?.stop(); } catch {}
-    setListening(false);
+    const text = transcriptRef.current.trim();
+    if (recogRef.current) {
+      try { recogRef.current.stop(); } catch {}
+      recogRef.current = null;
+    }
     setTranscript('');
     transcriptRef.current = '';
-    if (t.trim()) sendMessage(t.trim());
-  }, [sendMessage]);
+    if (text) {
+      sendMessageRef.current?.(text);
+    } else {
+      setPhase('idle');
+    }
+  }, []);
 
-  // ── CONVERSATION MODE ────────────────────────────────────────────
+  // ── Wake word ─────────────────────────────────────────────────────
+  const launchWakeRecog = useCallback(() => {
+    if (!wakeEnabledRef.current || phase() !== 'idle') return;
+    if (wakeRecogRef.current) return; // already running
+
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) return;
+
+    const recog = new SR();
+    recog.lang           = 'en-GB';
+    recog.continuous     = true;
+    recog.interimResults = false;
+
+    recog.onstart  = () => setWakeActive(true);
+    recog.onend    = () => {
+      setWakeActive(false);
+      if (wakeRecogRef.current === recog) {
+        wakeRecogRef.current = null;
+        if (wakeEnabledRef.current && phase() === 'idle') {
+          setTimeout(() => launchWakeRef.current?.(), 400);
+        }
+      }
+    };
+    recog.onerror  = (e) => {
+      if (e.error === 'no-speech') return;
+      if (wakeRecogRef.current === recog) {
+        wakeRecogRef.current = null;
+        setWakeActive(false);
+        if (wakeEnabledRef.current && phase() === 'idle') {
+          setTimeout(() => launchWakeRef.current?.(), 800);
+        }
+      }
+    };
+    recog.onresult = (e) => {
+      const t = Array.from(e.results).map(r => r[0].transcript).join(' ');
+      if (/hey\s*helena?|hey helen/i.test(t)) {
+        // Enter conversation mode so Helena keeps listening after each response.
+        // Let startListening handle stopping the wake recog via its onend path
+        // (avoids the "aborted" race — doStart fires only after the session releases).
+        conversationalRef.current = true;
+        setConversational(true);
+        startListeningRef.current?.();
+      }
+    };
+
+    wakeRecogRef.current = recog;
+    try { recog.start(); } catch {}
+  }, []);
+
+  useEffect(() => { launchWakeRef.current = launchWakeRecog; }, [launchWakeRecog]);
+
+  // ── Conversation mode ─────────────────────────────────────────────
   const startConversation = useCallback(() => {
     conversationalRef.current = true;
     setConversational(true);
-    try {
-      const primer = new SpeechSynthesisUtterance(' ');
-      primer.volume = 0; primer.rate = 10;
-      speechSynthesis.speak(primer);
-    } catch {}
+    primeTTS();
     startListeningRef.current?.();
   }, []);
 
   const stopConversation = useCallback(() => {
     conversationalRef.current = false;
     setConversational(false);
-    speechSynthesis.cancel();
-    try { recogRef.current?.stop(); } catch {}
-    setListening(false);
-    setTranscript('');
-    transcriptRef.current = '';
-    if (wakeEnabledRef.current) launchWakeRecog();
-  }, [launchWakeRecog]);
+    stopAll();
+    if (wakeEnabledRef.current) setTimeout(() => launchWakeRef.current?.(), 300);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  // ── WAKE WORD TOGGLE ─────────────────────────────────────────────
+  // ── Wake word lifecycle ───────────────────────────────────────────
   const enableWakeWord = useCallback(() => {
     wakeEnabledRef.current = true;
     launchWakeRecog();
@@ -397,10 +520,10 @@ export function useHelena() {
   }, []);
 
   return {
-    messages, responding, listening, transcript, wakeActive, conversational, micError,
+    messages, listening, responding, orbPhase, transcript, conversational, micError, wakeActive,
     startListening, stopListening, stopAndSend, sendMessage, clearHistory, speak,
-    enableWakeWord, disableWakeWord,
-    startConversation, stopConversation,
+    enableWakeWord, disableWakeWord, startConversation, stopConversation,
     speechPulseRef, spotifyContextRef, spotifyControlRef, taskControlRef,
+    calendarContextRef, calendarControlRef, dashboardContextRef, navRef,
   };
 }

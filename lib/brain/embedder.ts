@@ -6,7 +6,7 @@ export async function embed(text: string): Promise<number[]> {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
     body:    JSON.stringify({ model: EMBED_MODEL, prompt: text }),
-    signal:  AbortSignal.timeout(4000),
+    signal:  AbortSignal.timeout(15000),
   });
   if (!res.ok) throw new Error(`Embed HTTP ${res.status}`);
   const data = await res.json();

@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 import { useState, useEffect, useCallback } from 'react';
 import { memoryManager } from '../../lib/memory/memoryManager';
 import { useAppStore } from '../../lib/state/useAppStore';
@@ -16,7 +16,7 @@ function relativeTime(ts) {
 
 function EmptyState({ label }) {
   return (
-    <div style={{ textAlign: 'center', padding: '32px 0', color: 'rgba(255,255,255,.18)', fontSize: 12 }}>
+    <div style={{ textAlign: 'center', padding: '32px 0', color: 'rgba(255,255,255,.38)', fontSize: 12 }}>
       {label}
     </div>
   );
@@ -32,11 +32,11 @@ function MemoryItem({ item, onDelete }) {
     >
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 12, color: 'rgba(255,255,255,.80)', lineHeight: 1.45 }}>{item.fact}</div>
-        <div style={{ fontSize: 10, color: 'rgba(255,255,255,.25)', marginTop: 3 }}>{relativeTime(item.ts)}</div>
+        <div style={{ fontSize: 10, color: 'rgba(255,255,255,.46)', marginTop: 3 }}>{relativeTime(item.ts)}</div>
       </div>
       <button
         onClick={() => onDelete(item.ts)}
-        style={{ flexShrink: 0, width: 22, height: 22, borderRadius: 5, border: '1px solid rgba(255,255,255,.08)', background: 'rgba(255,255,255,.04)', color: 'rgba(255,255,255,.30)', fontSize: 11, cursor: 'pointer', opacity: hover ? 1 : 0, transition: 'opacity .15s', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+        style={{ flexShrink: 0, width: 22, height: 22, borderRadius: 5, border: '1px solid rgba(255,255,255,.08)', background: 'rgba(255,255,255,.04)', color: 'rgba(255,255,255,.52)', fontSize: 11, cursor: 'pointer', opacity: hover ? 1 : 0, transition: 'opacity .15s', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
       >×</button>
     </div>
   );
@@ -45,11 +45,11 @@ function MemoryItem({ item, onDelete }) {
 function SectionHeader({ title, count, onClear }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, marginTop: 18 }}>
-      <span style={{ fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,.28)', letterSpacing: '.12em' }}>{title}</span>
-      <span style={{ fontSize: 9, padding: '1px 6px', borderRadius: 3, background: 'rgba(255,255,255,.06)', color: 'rgba(255,255,255,.30)' }}>{count}</span>
+      <span style={{ fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,.70)', letterSpacing: '.12em' }}>{title}</span>
+      <span style={{ fontSize: 9, padding: '1px 6px', borderRadius: 3, background: 'rgba(255,255,255,.06)', color: 'rgba(255,255,255,.52)' }}>{count}</span>
       <div style={{ flex: 1 }} />
       {count > 0 && (
-        <button onClick={onClear} style={{ fontSize: 9, padding: '2px 8px', borderRadius: 4, border: '1px solid rgba(255,255,255,.08)', background: 'transparent', color: 'rgba(255,255,255,.25)', cursor: 'pointer' }}>
+        <button onClick={onClear} style={{ fontSize: 9, padding: '2px 8px', borderRadius: 4, border: '1px solid rgba(255,255,255,.08)', background: 'transparent', color: 'rgba(255,255,255,.46)', cursor: 'pointer' }}>
           Clear
         </button>
       )}
@@ -88,7 +88,7 @@ function PrefsTab({ prefs, onDelete, onClear }) {
                 <div style={{ fontSize: 10, color: CYAN, letterSpacing: '.06em', fontWeight: 600, marginBottom: 2 }}>{key}</div>
                 <div style={{ fontSize: 12, color: 'rgba(255,255,255,.72)' }}>{String(value)}</div>
               </div>
-              <button onClick={() => onDelete(key)} style={{ flexShrink: 0, width: 22, height: 22, borderRadius: 5, border: '1px solid rgba(255,255,255,.08)', background: 'rgba(255,255,255,.04)', color: 'rgba(255,255,255,.30)', fontSize: 11, cursor: 'pointer' }}>×</button>
+              <button onClick={() => onDelete(key)} style={{ flexShrink: 0, width: 22, height: 22, borderRadius: 5, border: '1px solid rgba(255,255,255,.08)', background: 'rgba(255,255,255,.04)', color: 'rgba(255,255,255,.52)', fontSize: 11, cursor: 'pointer' }}>×</button>
             </div>
           ))
       }
@@ -100,11 +100,11 @@ function HistoryTab({ history }) {
   if (history.length === 0) return <EmptyState label="No conversation history yet." />;
   return (
     <div>
-      <div style={{ fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,.28)', letterSpacing: '.12em', marginBottom: 12 }}>RECENT EXCHANGES</div>
+      <div style={{ fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,.70)', letterSpacing: '.12em', marginBottom: 12 }}>RECENT EXCHANGES</div>
       {[...history].reverse().map((entry, i) => (
         <div key={i} style={{ marginBottom: 12, ...GLASS_LIGHT, borderRadius: 10, overflow: 'hidden' }}>
           <div style={{ padding: '9px 12px', borderBottom: '1px solid rgba(255,255,255,.05)' }}>
-            <div style={{ fontSize: 9, color: 'rgba(255,255,255,.28)', letterSpacing: '.08em', marginBottom: 3 }}>YOU · {relativeTime(entry.ts)}</div>
+            <div style={{ fontSize: 9, color: 'rgba(255,255,255,.70)', letterSpacing: '.08em', marginBottom: 3 }}>YOU · {relativeTime(entry.ts)}</div>
             <div style={{ fontSize: 11, color: 'rgba(255,255,255,.65)', lineHeight: 1.4 }}>{entry.user}</div>
           </div>
           <div style={{ padding: '9px 12px' }}>
@@ -163,7 +163,7 @@ export function MemoryPanel() {
         </button>
         <button
           onClick={() => setMemoryPanelOpen(false)}
-          style={{ width: 30, height: 30, borderRadius: 7, border: '1px solid rgba(255,255,255,.08)', background: 'rgba(255,255,255,.04)', color: 'rgba(255,255,255,.45)', fontSize: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          style={{ width: 30, height: 30, borderRadius: 7, border: '1px solid rgba(255,255,255,.08)', background: 'rgba(255,255,255,.04)', color: 'rgba(255,255,255,.66)', fontSize: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
         >×</button>
       </div>
 

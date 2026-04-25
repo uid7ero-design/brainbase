@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-label="Lambda — HLNA symbol">
+  <defs>
+    <linearGradient id="lg" gradientUnits="userSpaceOnUse" x1="16" y1="26.9" x2="16" y2="4.5">
+      <stop offset="0%" stop-color="#5B21B6"/>
+      <stop offset="50%" stop-color="#7C3AED"/>
+      <stop offset="100%" stop-color="#C084FC"/>
+    </linearGradient>
+  </defs>
+  <path d="M 6.1,26.9 L 16,4.5 L 25.9,26.9"
+        fill="none" stroke="url(#lg)" stroke-width="4.2"
+        stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

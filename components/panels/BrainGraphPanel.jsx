@@ -134,7 +134,7 @@ function buildScene(container, nodes, links, onSelect) {
   for (let i = 0; i < n; i++) {
     nodePos[i*3] = currPts[i].x; nodePos[i*3+1] = currPts[i].y; nodePos[i*3+2] = currPts[i].z;
     sizes[i] = Math.max(1.5, Math.min(3.5, 1.5 + (nodes[i]?.chunks ?? 1) * 0.22));
-    colors[i*3] = 0.25; colors[i*3+1] = 0.75; colors[i*3+2] = 1.0;
+    colors[i*3] = 0.60; colors[i*3+1] = 0.25; colors[i*3+2] = 0.97;
   }
 
   const nodeGeo    = new THREE.BufferGeometry();
@@ -165,7 +165,7 @@ function buildScene(container, nodes, links, onSelect) {
         if (d > 1.0) discard;
         float core  = pow(max(0.0, 1.0 - d), 1.6);
         float white = pow(max(0.0, 1.0 - d * 5.0), 3.0);
-        vec3  col   = mix(vColor, vec3(0.88, 0.96, 1.0), white);
+        vec3  col   = mix(vColor, vec3(0.92, 0.85, 1.0), white);
         gl_FragColor = vec4(col, core);
       }`,
     transparent: true, depthWrite: false, depthTest: false,
@@ -194,7 +194,7 @@ function buildScene(container, nodes, links, onSelect) {
         float d = length(gl_PointCoord - 0.5) * 2.0;
         if (d > 1.0) discard;
         float a = pow(max(0.0, 1.0 - d), 3.5) * 0.09;
-        gl_FragColor = vec4(0.1, 0.55, 1.0, a);
+        gl_FragColor = vec4(0.55, 0.18, 0.97, a);
       }`,
     transparent: true, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending,
   });
@@ -208,7 +208,7 @@ function buildScene(container, nodes, links, onSelect) {
   edgePosBuf.setUsage(THREE.DynamicDrawUsage);
   edgeGeo.setAttribute('position', edgePosBuf);
   const edgeMat = new THREE.LineBasicMaterial({
-    color: 0x0099ff, opacity: 0.28, transparent: true,
+    color: 0x8833ee, opacity: 0.28, transparent: true,
     blending: THREE.AdditiveBlending, depthWrite: false,
   });
   scene.add(new THREE.LineSegments(edgeGeo, edgeMat));
@@ -236,7 +236,7 @@ function buildScene(container, nodes, links, onSelect) {
         float d = length(gl_PointCoord - 0.5) * 2.0;
         if (d > 1.0) discard;
         float a = pow(max(0.0, 1.0 - d), 1.5);
-        gl_FragColor = vec4(0.7, 0.95, 1.0, a * 0.95);
+        gl_FragColor = vec4(0.88, 0.60, 1.0, a * 0.95);
       }`,
     transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
   });
@@ -265,7 +265,7 @@ function buildScene(container, nodes, links, onSelect) {
         float d = length(gl_PointCoord - 0.5) * 2.0;
         if (d > 1.0) discard;
         float a = pow(max(0.0, 1.0 - d), 2.0);
-        gl_FragColor = vec4(0.45, 0.90, 1.0, a * 0.88);
+        gl_FragColor = vec4(0.65, 0.28, 1.0, a * 0.88);
       }`,
     transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
   });
@@ -316,7 +316,7 @@ function buildScene(container, nodes, links, onSelect) {
         float rim  = 1.0 - abs(dot(vNorm, vec3(0,0,1)));
         float edge = pow(rim, 1.8) * 0.38;
         float band = pow(rim, 7.0) * 0.10;
-        gl_FragColor = vec4(0.0, 0.48, 0.88, edge + band);
+        gl_FragColor = vec4(0.45, 0.12, 0.88, edge + band);
       }`,
     transparent: true, side: THREE.BackSide, depthWrite: false, blending: THREE.AdditiveBlending,
   });
@@ -326,7 +326,7 @@ function buildScene(container, nodes, links, onSelect) {
   const innerMat = new THREE.ShaderMaterial({
     uniforms: {},
     vertexShader:   `varying vec3 vN; void main(){ vN=normalize(normalMatrix*normal); gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
-    fragmentShader: `varying vec3 vN; void main(){ float r=1.0-abs(dot(vN,vec3(0,0,1))); gl_FragColor=vec4(0.0,0.18,0.38,pow(r,5.0)*0.05); }`,
+    fragmentShader: `varying vec3 vN; void main(){ float r=1.0-abs(dot(vN,vec3(0,0,1))); gl_FragColor=vec4(0.22,0.05,0.38,pow(r,5.0)*0.05); }`,
     transparent: true, side: THREE.FrontSide, depthWrite: false, blending: THREE.AdditiveBlending,
   });
   scene.add(new THREE.Mesh(innerGeo, innerMat));
@@ -335,7 +335,7 @@ function buildScene(container, nodes, links, onSelect) {
   const labelObjects = nodes.map((node, i) => {
     const div = document.createElement('div');
     div.textContent = node.label.length > 22 ? node.label.slice(0, 21) + '…' : node.label;
-    div.style.cssText = `font:500 9px/1 'Inter',sans-serif;color:rgba(180,220,255,0);letter-spacing:.04em;text-shadow:0 0 8px rgba(0,180,255,.8);transition:color .25s;pointer-events:none;white-space:nowrap;padding:2px 0 0 6px;`;
+    div.style.cssText = `font:500 9px/1 'Inter',sans-serif;color:rgba(210,170,255,0);letter-spacing:.04em;text-shadow:0 0 8px rgba(168,85,247,.8);transition:color .25s;pointer-events:none;white-space:nowrap;padding:2px 0 0 6px;`;
     const obj = new CSS2DObject(div);
     obj.position.copy(currPts[i]);
     scene.add(obj);
@@ -344,10 +344,10 @@ function buildScene(container, nodes, links, onSelect) {
 
   function setLabelState(i, state) {
     const { div } = labelObjects[i];
-    if (state === 'hidden')   div.style.color = 'rgba(180,220,255,0)';
-    if (state === 'dim')      div.style.color = 'rgba(180,220,255,0.22)';
-    if (state === 'bright')   div.style.color = 'rgba(180,220,255,0.78)';
-    if (state === 'selected') div.style.color = 'rgba(200,160,255,1)';
+    if (state === 'hidden')   div.style.color = 'rgba(210,170,255,0)';
+    if (state === 'dim')      div.style.color = 'rgba(210,170,255,0.22)';
+    if (state === 'bright')   div.style.color = 'rgba(210,170,255,0.78)';
+    if (state === 'selected') div.style.color = 'rgba(220,160,255,1)';
   }
 
   const ringGeo  = new THREE.RingGeometry(0.22, 0.32, 32);
@@ -478,9 +478,9 @@ function buildScene(container, nodes, links, onSelect) {
     for (let i = 0; i < n; i++) {
       activation[i] *= 0.952;
       const a = Math.min(activation[i], 1);
-      colors[i*3]   = 0.25 + a * 0.50;
-      colors[i*3+1] = 0.72 + a * 0.25;
-      colors[i*3+2] = 1.0;
+      colors[i*3]   = 0.60 + a * 0.35;
+      colors[i*3+1] = 0.25 - a * 0.10;
+      colors[i*3+2] = 0.97 + a * 0.03;
     }
     colorBuf.needsUpdate = true;
 
@@ -612,7 +612,7 @@ export function InlineBrainGraph() {
             <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 3 }}>
               {selected.neighbours.slice(0, 3).map((nb, i) => (
                 <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                  <div style={{ width: 4, height: 4, borderRadius: '50%', background: `rgba(0,${Math.round(150 + nb.strength * 100)},255,0.7)`, flexShrink: 0 }} />
+                  <div style={{ width: 4, height: 4, borderRadius: '50%', background: `rgba(${Math.round(140 + nb.strength * 60)},${Math.round(60 + nb.strength * 40)},255,0.7)`, flexShrink: 0 }} />
                   <span style={{ fontSize: 9, color: 'rgba(255,255,255,.42)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nb.label}</span>
                   <span style={{ fontSize: 9, color: 'rgba(255,255,255,.18)' }}>{Math.round(nb.strength * 100)}%</span>
                 </div>
@@ -690,9 +690,9 @@ export function BrainGraphPanel() {
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="rgba(180,130,255,.8)" strokeWidth="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/><path d="M3 12c0 1.66 4.03 3 9 3s9-1.34 9-3"/></svg>
         <span style={{ fontSize: 12, fontWeight: 700, color: 'rgba(255,255,255,.80)', letterSpacing: '.04em' }}>BRAIN</span>
         {stats && <span style={{ fontSize: 10, color: 'rgba(255,255,255,.22)' }}>{stats.nodes} notes · {stats.links} connections</span>}
-        {loading && <span style={{ fontSize: 10, color: 'rgba(0,212,255,.5)' }}>Building graph…</span>}
+        {loading && <span style={{ fontSize: 10, color: 'rgba(168,85,247,.65)' }}>Building graph…</span>}
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
-          <button onClick={loadAndBuild} style={{ padding: '4px 10px', borderRadius: 6, background: 'rgba(0,212,255,.06)', border: '1px solid rgba(0,212,255,.18)', color: 'rgba(0,212,255,.65)', fontSize: 10, cursor: 'pointer' }}>Refresh</button>
+          <button onClick={loadAndBuild} style={{ padding: '4px 10px', borderRadius: 6, background: 'rgba(168,85,247,.06)', border: '1px solid rgba(168,85,247,.22)', color: 'rgba(168,85,247,.75)', fontSize: 10, cursor: 'pointer' }}>Refresh</button>
           <button onClick={() => setOpen(false)} style={{ padding: '4px 10px', borderRadius: 6, background: 'rgba(255,255,255,.03)', border: '1px solid rgba(255,255,255,.07)', color: 'rgba(255,255,255,.35)', fontSize: 10, cursor: 'pointer' }}>ESC</button>
         </div>
       </div>
@@ -725,7 +725,7 @@ export function BrainGraphPanel() {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
                   {selected.neighbours.map((nb, i) => (
                     <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                      <div style={{ width: 5, height: 5, borderRadius: '50%', background: `rgba(0,${Math.round(150 + nb.strength * 100)},255,0.8)`, flexShrink: 0 }} />
+                      <div style={{ width: 5, height: 5, borderRadius: '50%', background: `rgba(${Math.round(140 + nb.strength * 60)},${Math.round(60 + nb.strength * 40)},255,0.8)`, flexShrink: 0 }} />
                       <span style={{ fontSize: 10, color: 'rgba(255,255,255,.55)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nb.label}</span>
                       <span style={{ fontSize: 9, color: 'rgba(255,255,255,.22)', flexShrink: 0 }}>{Math.round(nb.strength * 100)}%</span>
                     </div>

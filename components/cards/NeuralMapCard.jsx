@@ -60,7 +60,7 @@ function buildMiniScene(container, nodes, links) {
   positions.forEach((p, i) => {
     nodePos[i*3] = p.x; nodePos[i*3+1] = p.y; nodePos[i*3+2] = p.z;
     sizes[i] = Math.max(2, Math.min(5, 2 + (sample[i]?.chunks ?? 1) * 0.3));
-    colors[i*3] = 0; colors[i*3+1] = 0.55; colors[i*3+2] = 1.0;
+    colors[i*3] = 0.60; colors[i*3+1] = 0.25; colors[i*3+2] = 0.97;
   });
 
   const nodeGeo = new THREE.BufferGeometry();
@@ -104,7 +104,7 @@ function buildMiniScene(container, nodes, links) {
     const eg = new THREE.BufferGeometry();
     eg.setAttribute('position', new THREE.Float32BufferAttribute(edgePos, 3));
     scene.add(new THREE.LineSegments(eg, new THREE.LineBasicMaterial({
-      color: 0x0099dd, opacity: 0.18, transparent: true,
+      color: 0x8833ee, opacity: 0.18, transparent: true,
       blending: THREE.AdditiveBlending, depthWrite: false,
     })));
   }
@@ -112,7 +112,7 @@ function buildMiniScene(container, nodes, links) {
   // Atmosphere
   const atmMat = new THREE.ShaderMaterial({
     vertexShader:   `varying vec3 vN; void main(){ vN=normalize(normalMatrix*normal); gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
-    fragmentShader: `varying vec3 vN; void main(){ float r=1.0-abs(dot(vN,vec3(0,0,1))); gl_FragColor=vec4(0.0,0.4,0.8,pow(r,2.5)*0.12); }`,
+    fragmentShader: `varying vec3 vN; void main(){ float r=1.0-abs(dot(vN,vec3(0,0,1))); gl_FragColor=vec4(0.45,0.12,0.88,pow(r,2.5)*0.12); }`,
     transparent: true, side: THREE.BackSide, depthWrite: false, blending: THREE.AdditiveBlending,
   });
   scene.add(new THREE.Mesh(new THREE.SphereGeometry(SPHERE_R * 1.08, 24, 24), atmMat));
@@ -135,7 +135,7 @@ function buildMiniScene(container, nodes, links) {
   };
 }
 
-export function NeuralMapCard() {
+export function NeuralMapCard({ style: styleProp } = {}) {
   const setBrainGraphOpen = useAppStore(s => s.setBrainGraphOpen);
   const mountRef = useRef(null);
   const sceneRef = useRef(null);
@@ -165,14 +165,15 @@ export function NeuralMapCard() {
     <div
       onClick={() => setBrainGraphOpen(true)}
       style={{
-        position: 'absolute', bottom: 108, right: 16,
-        width: 194, height: 152, zIndex: 15,
+        position: 'absolute', bottom: 108, right: 24,
+        width: 180, height: 140, zIndex: 15,
         borderRadius: 12, overflow: 'hidden', cursor: 'pointer',
         background: 'rgba(4,6,18,.72)',
         border: '1px solid rgba(180,130,255,.22)',
         backdropFilter: 'blur(12px)',
         boxShadow: '0 0 24px rgba(180,130,255,.08)',
         transition: 'border-color .25s, box-shadow .25s',
+        ...styleProp,
       }}
       onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(180,130,255,.50)'; e.currentTarget.style.boxShadow = '0 0 32px rgba(180,130,255,.18)'; }}
       onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(180,130,255,.22)'; e.currentTarget.style.boxShadow = '0 0 24px rgba(180,130,255,.08)'; }}

@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100" role="img" aria-label="HLNA — Hyper Learning Neural Agent">
+  <defs>
+    <linearGradient id="blobGrad" gradientUnits="userSpaceOnUse" x1="50" y1="80" x2="50" y2="20">
+      <stop offset="0%" stop-color="#C4B5FD"/>
+      <stop offset="55%" stop-color="#DDD6FE"/>
+      <stop offset="100%" stop-color="#EDE9FE"/>
+    </linearGradient>
+    <linearGradient id="lamGrad" gradientUnits="userSpaceOnUse" x1="50" y1="74" x2="50" y2="28">
+      <stop offset="0%" stop-color="#5B21B6"/>
+      <stop offset="100%" stop-color="#7C3AED"/>
+    </linearGradient>
+  </defs>
+  <path d="M 50,20
+    C 56,20 56,28 61,31
+    C 66,34 73,30 76,35
+    C 79,40 72,44 72,50
+    C 72,56 79,60 76,65
+    C 73,70 66,66 61,69
+    C 56,72 56,80 50,80
+    C 44,80 44,72 39,69
+    C 34,66 27,70 24,65
+    C 21,60 28,56 28,50
+    C 28,44 21,40 24,35
+    C 27,30 34,34 39,31
+    C 44,28 44,20 50,20 Z" fill="url(#blobGrad)"/>
+  <path d="M 39,31 C 43,23 47,21 50,21"
+        fill="none" stroke="rgba(255,255,255,0.22)" stroke-width="3" stroke-linecap="round"/>
+  <path d="M 29.6,74 L 50,28 L 70.4,74"
+        fill="none" stroke="url(#lamGrad)"
+        stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

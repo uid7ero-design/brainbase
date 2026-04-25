@@ -18,11 +18,13 @@ async function indexFile(filePath: string) {
     const mtime   = stat.mtimeMs;
     if (getMtime(filePath) === mtime) return; // unchanged
 
-    const content = fs.readFileSync(filePath, 'utf8');
-    const chunks  = chunkMarkdown(filePath, content);
-    const embedded = await Promise.all(
-      chunks.map(async c => ({ ...c, embedding: await embed(c.text), mtime }))
-    );
+    const content  = fs.readFileSync(filePath, 'utf8');
+    const chunks   = chunkMarkdown(filePath, content);
+    const embedded = [];
+    for (const c of chunks) {
+      const embedding = await embed(c.text);
+      embedded.push({ ...c, embedding, mtime });
+    }
     upsertChunks(embedded);
     status.indexed++;
   } catch (err) {

@@ -36,6 +36,9 @@ yarn-error.log*
 # vercel
 .vercel
 
+# local brain data — tokens and vectors must not be committed
+.brainbase/*.json
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

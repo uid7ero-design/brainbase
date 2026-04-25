@@ -1,750 +1,470 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
+
+const FONT = 'var(--font-inter), "Inter", -apple-system, sans-serif';
+const BG   = '#08090C';
+
+const CAPABILITIES = [
+  {
+    color: '#38BDF8',
+    title: 'Voice-First AI',
+    description: 'Talk to HLNΛ in plain language. Ask about your data, request reports, or navigate between dashboards without touching a keyboard.',
+    icon: (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
+        <rect x="9" y="2" width="6" height="12" rx="3"/>
+        <path d="M5 10a7 7 0 0 0 14 0"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="8" y1="22" x2="16" y2="22"/>
+      </svg>
+    ),
+  },
+  {
+    color: '#A78BFA',
+    title: '12 Intelligence Modules',
+    description: 'Fleet, waste, water, roads, parks, labour, facilities, logistics, supply, depot, construction, and environment — all in one platform.',
+    icon: (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
+        <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/>
+        <rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>
+      </svg>
+    ),
+  },
+  {
+    color: '#10B981',
+    title: 'Real Data, Real Answers',
+    description: 'Upload your operational data and HLNΛ reads it instantly — answering questions about cost, compliance, performance, and risk.',
+    icon: (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+        <polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+      </svg>
+    ),
+  },
+  {
+    color: '#F59E0B',
+    title: 'Smart Memory',
+    description: 'HLNΛ remembers your preferences, past queries, and operational context. Every session gets smarter.',
+    icon: (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
+        <path d="M12 2a10 10 0 1 0 0 20A10 10 0 0 0 12 2z"/>
+        <path d="M12 6v6l4 2"/>
+      </svg>
+    ),
+  },
+  {
+    color: '#EC4899',
+    title: 'Navigate by Voice',
+    description: '"Take me to fleet." "Open waste management." HLNΛ routes you instantly across all dashboards with a single spoken command.',
+    icon: (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
+        <polygon points="3 11 22 2 13 21 11 13 3 11"/>
+      </svg>
+    ),
+  },
+  {
+    color: '#06B6D4',
+    title: 'Integrated Operations',
+    description: 'Connect Google Calendar, Gmail, and Spotify. HLNΛ pulls in context from your whole day — not just your dashboards.',
+    icon: (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
+        <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
+        <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+      </svg>
+    ),
+  },
+];
+
+const DASHBOARDS = [
+  { title: 'Fleet Management',      color: '#3B82F6', category: 'Operations',    href: '/dashboard/fleet',        icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><rect x="1" y="3" width="15" height="13" rx="2"/><path d="M16 8h4l3 3v5h-7V8z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg> },
+  { title: 'Waste & Recycling',     color: '#10B981', category: 'Operations',    href: '/dashboard/waste',        icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg> },
+  { title: 'Water & Utilities',     color: '#06B6D4', category: 'Infrastructure', href: '/dashboard/water',        icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M12 2C6 8 4 12 4 16a8 8 0 0 0 16 0c0-4-2-8-8-14z"/></svg> },
+  { title: 'Roads & Infrastructure', color: '#64748B', category: 'Infrastructure', href: '/dashboard/roads',        icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M3 17l3-10 3 4 3-8 3 4 3-8"/><path d="M3 21h18"/></svg> },
+  { title: 'Parks & Open Spaces',   color: '#22C55E', category: 'Environment',   href: '/dashboard/parks',        icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M12 22V12"/><path d="M5 9l7-7 7 7"/><path d="M5 22h14"/><path d="M5 16l7-4 7 4"/></svg> },
+  { title: 'Environmental & ESG',   color: '#16A34A', category: 'Environment',   href: '/dashboard/environment',  icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg> },
+  { title: 'Labour & Workforce',    color: '#A855F7', category: 'People',        href: '/dashboard/labour',       icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg> },
+  { title: 'Facilities Management', color: '#8B5CF6', category: 'Operations',    href: '/dashboard/facilities',   icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/><path d="M3 9h6"/><path d="M3 15h6"/></svg> },
+  { title: 'Construction Projects', color: '#F97316', category: 'Capital Works',  href: '/dashboard/construction', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M3 21h18"/><path d="M9 21V7l3-4 3 4v14"/><path d="M9 11h6"/><rect x="2" y="14" width="5" height="7"/><rect x="17" y="14" width="5" height="7"/></svg> },
+  { title: 'Supply Chain',          color: '#0EA5E9', category: 'Logistics',     href: '/dashboard/supply',       icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><circle cx="5" cy="6" r="3"/><circle cx="19" cy="6" r="3"/><circle cx="12" cy="18" r="3"/><path d="M5 9v3l7 4 7-4V9"/><path d="M12 13V7"/></svg> },
+  { title: 'Logistics & Freight',   color: '#F59E0B', category: 'Logistics',     href: '/dashboard/logistics',    icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M21 10V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14"/><path d="M3 20h18"/><circle cx="17" cy="17" r="3"/></svg> },
+  { title: 'Depot Operations',      color: '#EC4899', category: 'Logistics',     href: '/dashboard/depot',        icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><rect x="2" y="7" width="20" height="15" rx="1"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/></svg> },
+];
+
+const STEPS = [
+  { n: '01', title: 'Connect your data', body: 'Upload Excel files, link your calendar, email, and operational systems. BrainBase structures it automatically.' },
+  { n: '02', title: 'Ask HLNΛ anything', body: 'Speak or type. "Which zone has the highest contamination?" "Show me overdue fleet services." Helena answers from your data.' },
+  { n: '03', title: 'Operate with clarity', body: 'Navigate 12 service dashboards by voice. Get insights, spot risks, and brief your team — in seconds, not hours.' },
+];
 
 export default function Home() {
-  const [website, setWebsite] = useState("");
-  const [isScanning, setIsScanning] = useState(false);
-  const [hasScanned, setHasScanned] = useState(false);
-  const [showDemo, setShowDemo] = useState(false);
-  const [activeTab, setActiveTab] = useState("Overview");
-
-  const steps = [
-    {
-      title: "Connect your business",
-      text: "Add your website, documents, emails, and tools.",
-      icon: "01",
-    },
-    {
-      title: "Build your brain",
-      text: "BrainBase structures your knowledge into one intelligent system.",
-      icon: "02",
-    },
-    {
-      title: "Put it to work",
-      text: "Ask questions, generate work, track activity, and automate tasks.",
-      icon: "03",
-    },
-  ];
-
-  const features = [
-    {
-      title: "AI Brain",
-      text: "Understands your business, services, documents, and workflows.",
-    },
-    {
-      title: "Smart Memory",
-      text: "Retains context so your assistant improves over time.",
-    },
-    {
-      title: "Dashboards",
-      text: "See operations, tasks, insights, and business health at a glance.",
-    },
-    {
-      title: "Automations",
-      text: "Turn repeated work into repeatable systems.",
-    },
-    {
-      title: "Integrations",
-      text: "Connect email, docs, calendars, and internal tools.",
-    },
-    {
-      title: "Insights",
-      text: "Surface what matters and what to do next.",
-    },
-  ];
-
-  const dashboardTabs = ["Overview", "Tasks", "Insights", "Assistant"];
-
-  const handleScan = () => {
-    if (!website.trim()) return;
-
-    setIsScanning(true);
-    setHasScanned(false);
-
-    setTimeout(() => {
-      setIsScanning(false);
-      setHasScanned(true);
-    }, 2200);
-  };
+  const [hoveredDash, setHoveredDash] = useState<string | null>(null);
+  const [hoveredCap,  setHoveredCap]  = useState<number | null>(null);
 
   return (
-    <main className="min-h-screen bg-white text-slate-900">
-      <div className="pointer-events-none fixed inset-0 -z-10 bg-[radial-gradient(circle_at_top,rgba(99,102,241,0.10),transparent_35%),radial-gradient(circle_at_80%_20%,rgba(14,165,233,0.10),transparent_28%)]" />
+    <main style={{ minHeight: '100vh', background: BG, color: '#F5F7FA', fontFamily: FONT }}>
 
-      <section className="mx-auto max-w-7xl px-6 pt-6">
-        <header className="sticky top-4 z-40 flex items-center justify-between rounded-full border border-slate-200/80 bg-white/90 px-5 py-3 shadow-sm backdrop-blur">
-          <div className="text-lg font-semibold tracking-tight">BrainBase</div>
+      {/* ── Ambient backdrop ──────────────────────────────────────────── */}
+      <div style={{
+        position: 'fixed', inset: 0, zIndex: 0, pointerEvents: 'none',
+        background: 'radial-gradient(ellipse 60% 40% at 50% 0%, rgba(139,92,246,.10) 0%, transparent 60%)',
+      }} />
 
-          <nav className="hidden gap-8 text-sm text-slate-600 md:flex">
-            <a href="#how-it-works" className="transition hover:text-slate-900">
-              How it works
-            </a>
-            <a href="#dashboard" className="transition hover:text-slate-900">
-              Dashboard
-            </a>
-            <a href="#features" className="transition hover:text-slate-900">
-              Features
-            </a>
-            <a href="#pricing" className="transition hover:text-slate-900">
-              Pricing
-            </a>
-          </nav>
+      {/* ── Nav ───────────────────────────────────────────────────────── */}
+      <nav style={{
+        height: 52, display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        padding: '0 32px', borderBottom: '1px solid rgba(255,255,255,.06)',
+        background: 'rgba(8,9,12,.92)', backdropFilter: 'blur(12px)',
+        position: 'sticky', top: 0, zIndex: 50,
+      }}>
+        <span style={{ fontWeight: 700, fontSize: 14, color: '#F5F7FA', letterSpacing: '.04em' }}>
+          BR<span style={{ color: '#A78BFA' }}>Λ</span>INBASE
+        </span>
 
-          <button className="rounded-full bg-slate-900 px-4 py-2 text-sm font-medium text-white shadow-sm transition duration-300 hover:opacity-90">
-            Start Free
-          </button>
-        </header>
-      </section>
-
-      <section className="mx-auto grid max-w-7xl items-center gap-16 px-6 pb-28 pt-20 lg:grid-cols-2 lg:pt-28">
-        <div>
-          <div className="mb-4 inline-flex rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-sm font-medium text-indigo-700">
-            Your business’s Jarvis
-          </div>
-
-          <h1 className="max-w-3xl text-5xl font-semibold tracking-tight text-slate-950 sm:text-6xl lg:text-7xl">
-            Build your business a brain.
-          </h1>
-
-          <p className="mt-6 max-w-2xl text-xl leading-8 text-slate-600">
-            Knows your business. Tracks your work. Tells you what to do next.
-          </p>
-
-          <p className="mt-5 max-w-2xl text-base leading-7 text-slate-500">
-            BrainBase combines an AI assistant, executive dashboards, memory,
-            and workflows into one system built to understand and run your
-            business.
-          </p>
-
-          <div className="mt-8 flex flex-wrap gap-4">
-            <button className="rounded-xl bg-slate-900 px-6 py-3 font-medium text-white shadow-lg shadow-slate-900/10 transition duration-300 hover:-translate-y-0.5 hover:shadow-xl hover:opacity-95">
-              Start Free
-            </button>
-
-            <button
-              onClick={() => setShowDemo(true)}
-              className="rounded-xl border border-slate-200 bg-white px-6 py-3 font-medium text-slate-700 shadow-sm transition duration-300 hover:bg-slate-50"
-            >
-              See Demo
-            </button>
-          </div>
-
-          <div className="mt-8 max-w-2xl rounded-3xl border border-slate-200 bg-white p-4 shadow-lg shadow-slate-200/60">
-            <label className="mb-3 block text-sm font-medium text-slate-700">
-              Scan your business website
-            </label>
-
-            <div className="flex flex-col gap-3 sm:flex-row">
-              <input
-                type="text"
-                placeholder="Enter your website URL"
-                value={website}
-                onChange={(e) => setWebsite(e.target.value)}
-                className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
-              />
-              <button
-                onClick={handleScan}
-                className="rounded-2xl bg-slate-900 px-5 py-3 text-sm font-medium text-white transition duration-300 hover:opacity-95"
-              >
-                Scan Business
-              </button>
-            </div>
-
-            {!isScanning && !hasScanned && (
-              <p className="mt-3 text-sm text-slate-500">
-                Try: yourbusiness.com
-              </p>
-            )}
-
-            {isScanning && (
-              <div className="mt-4 rounded-2xl bg-slate-50 p-4">
-                <div className="flex items-center gap-2">
-                  <div className="h-2.5 w-2.5 animate-pulse rounded-full bg-indigo-500" />
-                  <div className="h-2.5 w-2.5 animate-pulse rounded-full bg-sky-500 [animation-delay:150ms]" />
-                  <div className="h-2.5 w-2.5 animate-pulse rounded-full bg-slate-500 [animation-delay:300ms]" />
-                </div>
-                <p className="mt-3 text-sm text-slate-600">
-                  Scanning site structure, business content, and AI readiness...
-                </p>
-              </div>
-            )}
-
-            {hasScanned && !isScanning && (
-              <div className="mt-6 space-y-4">
-                <div className="grid gap-3 md:grid-cols-3">
-                  <div className="rounded-2xl bg-slate-50 p-4">
-                    <div className="text-sm text-slate-500">AI Readiness</div>
-                    <div className="mt-1 text-3xl font-semibold">78%</div>
-                  </div>
-
-                  <div className="rounded-2xl bg-slate-50 p-4">
-                    <div className="text-sm text-slate-500">Business Clarity</div>
-                    <div className="mt-1 text-3xl font-semibold">64%</div>
-                  </div>
-
-                  <div className="rounded-2xl bg-slate-50 p-4">
-                    <div className="text-sm text-slate-500">Automation Potential</div>
-                    <div className="mt-1 text-3xl font-semibold">High</div>
-                  </div>
-                </div>
-
-                <div className="rounded-2xl border border-slate-200 p-4">
-                  <div className="text-sm text-slate-500">Business Summary</div>
-                  <p className="mt-2 text-sm leading-7 text-slate-700">
-                    Your website presents core services but lacks structured
-                    information for AI systems. Key business processes appear
-                    manual and not fully systemised.
-                  </p>
-                </div>
-
-                <div className="rounded-2xl border border-slate-200 p-4">
-                  <div className="text-sm text-slate-500">Key Gaps Identified</div>
-                  <ul className="mt-3 space-y-2 text-sm text-slate-700">
-                    <li className="rounded-xl bg-slate-50 p-3">
-                      Missing structured service descriptions
-                    </li>
-                    <li className="rounded-xl bg-slate-50 p-3">
-                      No clear FAQ or knowledge base
-                    </li>
-                    <li className="rounded-xl bg-slate-50 p-3">
-                      Limited automation across workflows
-                    </li>
-                    <li className="rounded-xl bg-slate-50 p-3">
-                      No connected business systems detected
-                    </li>
-                  </ul>
-                </div>
-
-                <div className="rounded-2xl border border-slate-200 p-4">
-                  <div className="text-sm text-slate-500">Opportunities</div>
-                  <ul className="mt-3 space-y-2 text-sm text-slate-700">
-                    <li className="rounded-xl bg-indigo-50 p-3 text-indigo-900">
-                      Build a central business knowledge base
-                    </li>
-                    <li className="rounded-xl bg-indigo-50 p-3 text-indigo-900">
-                      Automate recurring reporting and admin tasks
-                    </li>
-                    <li className="rounded-xl bg-indigo-50 p-3 text-indigo-900">
-                      Implement AI-driven customer response workflows
-                    </li>
-                  </ul>
-                </div>
-
-                <div className="rounded-2xl bg-slate-900 p-4 text-white">
-                  <div className="text-sm opacity-70">Recommended next step</div>
-                  <div className="mt-2 text-sm">
-                    Connect your email, documents, and workflows to build your
-                    full BrainBase system.
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-
-          <div className="mt-10 grid max-w-xl grid-cols-3 gap-4">
-            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-              <div className="text-2xl font-semibold">78%</div>
-              <div className="mt-1 text-sm text-slate-500">AI readiness</div>
-            </div>
-            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-              <div className="text-2xl font-semibold">42</div>
-              <div className="mt-1 text-sm text-slate-500">Active tasks</div>
-            </div>
-            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-              <div className="text-2xl font-semibold">6</div>
-              <div className="mt-1 text-sm text-slate-500">Key alerts</div>
-            </div>
-          </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 24 }}>
+          <Link href="/dashboards" style={{ fontSize: 13, color: 'rgba(255,255,255,.45)', textDecoration: 'none', fontWeight: 500, transition: 'color .15s' }}
+            onMouseEnter={e => (e.currentTarget.style.color = 'rgba(255,255,255,.80)')}
+            onMouseLeave={e => (e.currentTarget.style.color = 'rgba(255,255,255,.45)')}>
+            Dashboards
+          </Link>
+          <Link href="/dashboard" style={{ fontSize: 13, color: 'rgba(255,255,255,.45)', textDecoration: 'none', fontWeight: 500, transition: 'color .15s' }}
+            onMouseEnter={e => (e.currentTarget.style.color = 'rgba(255,255,255,.80)')}
+            onMouseLeave={e => (e.currentTarget.style.color = 'rgba(255,255,255,.45)')}>
+            HLNΛ
+          </Link>
+          <Link href="/dashboard" style={{
+            padding: '6px 16px', borderRadius: 7, fontSize: 12, fontWeight: 600,
+            background: 'rgba(139,92,246,.18)', border: '1px solid rgba(139,92,246,.40)',
+            color: '#C4B5FD', textDecoration: 'none', letterSpacing: '.02em',
+            transition: 'background .15s',
+          }}
+            onMouseEnter={e => (e.currentTarget.style.background = 'rgba(139,92,246,.28)')}
+            onMouseLeave={e => (e.currentTarget.style.background = 'rgba(139,92,246,.18)')}>
+            Open Command Centre
+          </Link>
         </div>
+      </nav>
 
-        <div id="dashboard" className="relative">
-          <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-2xl shadow-slate-200/70">
-            <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <div className="text-sm font-medium text-slate-500">
-                  BrainBase Overview
-                </div>
-                <div className="text-xl font-semibold">Executive Dashboard</div>
-              </div>
+      <div style={{ maxWidth: 1200, margin: '0 auto', padding: '0 32px 96px', position: 'relative', zIndex: 1 }}>
 
-              <div className="rounded-full bg-emerald-50 px-3 py-1 text-sm font-medium text-emerald-700">
-                System healthy
-              </div>
+        {/* ── Hero ──────────────────────────────────────────────────────── */}
+        <section style={{ padding: '80px 0 72px', display: 'flex', alignItems: 'center', gap: 48, flexWrap: 'wrap' }}>
+          <div style={{ flex: '1 1 480px', maxWidth: 600 }}>
+            <div style={{
+              display: 'inline-flex', alignItems: 'center', gap: 8,
+              padding: '5px 12px', borderRadius: 20, marginBottom: 24,
+              background: 'rgba(139,92,246,.10)', border: '1px solid rgba(139,92,246,.25)',
+            }}>
+              <div style={{ width: 5, height: 5, borderRadius: '50%', background: '#22C55E', boxShadow: '0 0 6px #22C55E' }} />
+              <span style={{ fontSize: 11, fontWeight: 600, color: 'rgba(167,139,250,.90)', letterSpacing: '.08em', textTransform: 'uppercase' }}>
+                HLNΛ · Operational Intelligence
+              </span>
             </div>
 
-            <div className="mb-4 flex flex-wrap gap-2">
-              {dashboardTabs.map((tab) => (
-                <button
-                  key={tab}
-                  onClick={() => setActiveTab(tab)}
-                  className={`rounded-full px-4 py-2 text-sm font-medium transition duration-300 ${
-                    activeTab === tab
-                      ? "bg-slate-900 text-white"
-                      : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                  }`}
-                >
-                  {tab}
-                </button>
-              ))}
-            </div>
+            <h1 style={{
+              fontSize: 'clamp(36px, 5vw, 60px)', fontWeight: 700,
+              letterSpacing: '-.03em', lineHeight: 1.1,
+              color: '#F5F7FA', margin: '0 0 20px',
+            }}>
+              Your operations,<br />
+              <span style={{ color: '#A78BFA' }}>unified.</span>
+            </h1>
 
-            {activeTab === "Overview" && (
-              <>
-                <div className="grid gap-4 md:grid-cols-3">
-                  <div className="rounded-2xl bg-slate-50 p-4">
-                    <div className="text-sm text-slate-500">Business health</div>
-                    <div className="mt-2 text-3xl font-semibold">91</div>
-                    <div className="mt-2 h-2 rounded-full bg-slate-200">
-                      <div className="h-2 w-[91%] rounded-full bg-slate-900" />
-                    </div>
-                  </div>
+            <p style={{ fontSize: 17, color: 'rgba(230,237,243,.55)', lineHeight: 1.7, margin: '0 0 12px', maxWidth: 480 }}>
+              BrainBase connects every service — fleet, waste, water, roads, parks, and more — into one intelligent command centre.
+            </p>
+            <p style={{ fontSize: 15, color: 'rgba(230,237,243,.38)', lineHeight: 1.7, margin: '0 0 36px', maxWidth: 480 }}>
+              Powered by HLNΛ, your AI operations analyst. Ask questions in plain English, navigate by voice, and get instant answers from your live data.
+            </p>
 
-                  <div className="rounded-2xl bg-slate-50 p-4">
-                    <div className="text-sm text-slate-500">Open workflows</div>
-                    <div className="mt-2 text-3xl font-semibold">14</div>
-                    <div className="mt-2 text-sm text-amber-600">
-                      3 need attention today
-                    </div>
-                  </div>
-
-                  <div className="rounded-2xl bg-slate-50 p-4">
-                    <div className="text-sm text-slate-500">AI actions today</div>
-                    <div className="mt-2 text-3xl font-semibold">127</div>
-                    <div className="mt-2 text-sm text-emerald-600">
-                      +18% from yesterday
-                    </div>
-                  </div>
-                </div>
-
-                <div className="mt-4 grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
-                  <div className="rounded-2xl border border-slate-200 p-4">
-                    <div className="mb-4 flex items-center justify-between">
-                      <div>
-                        <div className="text-sm text-slate-500">Performance</div>
-                        <div className="font-semibold">
-                          Task and workflow trend
-                        </div>
-                      </div>
-                      <div className="text-sm text-slate-400">Last 30 days</div>
-                    </div>
-
-                    <div className="flex h-48 items-end gap-3">
-                      {[48, 62, 55, 74, 68, 86, 78, 92, 88, 96, 84, 99].map(
-                        (h, i) => (
-                          <div
-                            key={i}
-                            className="flex flex-1 flex-col justify-end"
-                          >
-                            <div
-                              className="rounded-t-xl bg-gradient-to-t from-slate-900 to-indigo-500"
-                              style={{ height: `${h}%` }}
-                            />
-                          </div>
-                        )
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="rounded-2xl border border-slate-200 p-4">
-                    <div className="text-sm text-slate-500">Snapshot</div>
-                    <div className="mt-1 font-semibold">Current priorities</div>
-
-                    <div className="mt-4 space-y-3">
-                      <div className="rounded-2xl bg-slate-100 p-3 text-sm text-slate-700">
-                        Weekly reporting can be automated.
-                      </div>
-                      <div className="rounded-2xl bg-indigo-50 p-3 text-sm text-indigo-900">
-                        Customer response times need review.
-                      </div>
-                      <div className="rounded-2xl bg-slate-100 p-3 text-sm text-slate-700">
-                        Document gaps found in onboarding and FAQ content.
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </>
-            )}
-
-            {activeTab === "Tasks" && (
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="rounded-2xl border border-slate-200 p-4">
-                  <div className="text-sm text-slate-500">Open tasks</div>
-                  <div className="mt-3 space-y-3">
-                    {[
-                      "Approve weekly operations report",
-                      "Follow up with 2 overdue clients",
-                      "Review automation setup",
-                      "Update FAQ content",
-                    ].map((task) => (
-                      <div
-                        key={task}
-                        className="rounded-xl bg-slate-50 p-3 text-sm text-slate-700"
-                      >
-                        {task}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="rounded-2xl border border-slate-200 p-4">
-                  <div className="text-sm text-slate-500">Task summary</div>
-                  <div className="mt-4 grid grid-cols-2 gap-3">
-                    <div className="rounded-xl bg-slate-50 p-4">
-                      <div className="text-2xl font-semibold">42</div>
-                      <div className="text-sm text-slate-500">Active</div>
-                    </div>
-                    <div className="rounded-xl bg-slate-50 p-4">
-                      <div className="text-2xl font-semibold">8</div>
-                      <div className="text-sm text-slate-500">Overdue</div>
-                    </div>
-                    <div className="rounded-xl bg-slate-50 p-4">
-                      <div className="text-2xl font-semibold">11</div>
-                      <div className="text-sm text-slate-500">Automatable</div>
-                    </div>
-                    <div className="rounded-xl bg-slate-50 p-4">
-                      <div className="text-2xl font-semibold">23</div>
-                      <div className="text-sm text-slate-500">Done today</div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {activeTab === "Insights" && (
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="rounded-2xl border border-slate-200 p-4">
-                  <div className="text-sm text-slate-500">Top insights</div>
-                  <ul className="mt-3 space-y-3 text-sm text-slate-700">
-                    <li className="rounded-xl bg-slate-50 p-3">
-                      Repeated manual reporting detected across 4 teams.
-                    </li>
-                    <li className="rounded-xl bg-slate-50 p-3">
-                      Customer response times slipped 12% this week.
-                    </li>
-                    <li className="rounded-xl bg-slate-50 p-3">
-                      Knowledge gaps found in onboarding documents.
-                    </li>
-                  </ul>
-                </div>
-
-                <div className="rounded-2xl border border-slate-200 p-4">
-                  <div className="text-sm text-slate-500">
-                    Recommended actions
-                  </div>
-                  <ul className="mt-3 space-y-3 text-sm text-slate-700">
-                    <li className="rounded-xl bg-indigo-50 p-3 text-indigo-900">
-                      Automate weekly status reports.
-                    </li>
-                    <li className="rounded-xl bg-indigo-50 p-3 text-indigo-900">
-                      Create a standard reply workflow for common enquiries.
-                    </li>
-                    <li className="rounded-xl bg-indigo-50 p-3 text-indigo-900">
-                      Expand service FAQs on your website.
-                    </li>
-                  </ul>
-                </div>
-              </div>
-            )}
-
-            {activeTab === "Assistant" && (
-              <div className="rounded-2xl border border-slate-200 p-4">
-                <div className="text-sm text-slate-500">AI assistant</div>
-                <div className="mt-1 font-semibold">
-                  What should I focus on?
-                </div>
-
-                <div className="mt-4 space-y-3">
-                  <div className="max-w-[85%] rounded-2xl bg-slate-100 p-3 text-sm text-slate-700">
-                    What are my biggest issues today?
-                  </div>
-                  <div className="ml-auto max-w-[85%] rounded-2xl bg-indigo-50 p-3 text-sm text-indigo-900">
-                    You have 3 overdue tasks, 2 missing follow-ups, and one
-                    repeated reporting process that should be automated.
-                  </div>
-                  <div className="max-w-[85%] rounded-2xl bg-slate-100 p-3 text-sm text-slate-700">
-                    Can you help with that?
-                  </div>
-                  <div className="ml-auto max-w-[85%] rounded-2xl bg-indigo-50 p-3 text-sm text-indigo-900">
-                    Yes. I can draft updates, assign tasks, and prepare an
-                    automation workflow.
-                  </div>
-                </div>
-              </div>
-            )}
-
-            <div className="mt-4 grid gap-4 md:grid-cols-2">
-              <div className="rounded-2xl border border-slate-200 p-4">
-                <div className="text-sm text-slate-500">Connected systems</div>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {["Gmail", "Drive", "Calendar", "Slack", "CRM", "Docs"].map(
-                    (tool) => (
-                      <span
-                        key={tool}
-                        className="rounded-full border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700"
-                      >
-                        {tool}
-                      </span>
-                    )
-                  )}
-                </div>
-              </div>
-
-              <div className="rounded-2xl border border-slate-200 p-4">
-                <div className="text-sm text-slate-500">System note</div>
-                <div className="mt-3 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-800">
-                  6 integrations active and ready for automation.
-                </div>
-              </div>
+            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+              <Link href="/dashboard" style={{
+                padding: '12px 24px', borderRadius: 9, fontSize: 14, fontWeight: 600,
+                background: 'rgba(139,92,246,.22)', border: '1px solid rgba(139,92,246,.45)',
+                color: '#F5F7FA', textDecoration: 'none', letterSpacing: '.02em',
+                transition: 'background .15s',
+              }}
+                onMouseEnter={e => (e.currentTarget.style.background = 'rgba(139,92,246,.34)')}
+                onMouseLeave={e => (e.currentTarget.style.background = 'rgba(139,92,246,.22)')}>
+                Open HLNΛ
+              </Link>
+              <Link href="/dashboards" style={{
+                padding: '12px 24px', borderRadius: 9, fontSize: 14, fontWeight: 600,
+                background: 'rgba(255,255,255,.05)', border: '1px solid rgba(255,255,255,.10)',
+                color: 'rgba(230,237,243,.75)', textDecoration: 'none', letterSpacing: '.02em',
+                transition: 'background .15s',
+              }}
+                onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,.09)')}
+                onMouseLeave={e => (e.currentTarget.style.background = 'rgba(255,255,255,.05)')}>
+                Browse Dashboards →
+              </Link>
             </div>
           </div>
 
-          <div className="absolute -left-6 top-10 hidden rounded-2xl border border-slate-200 bg-white p-4 shadow-xl lg:block">
-            <div className="text-sm text-slate-500">AI readiness</div>
-            <div className="text-2xl font-semibold">78%</div>
-          </div>
+          {/* Hero visual — voice conversation preview */}
+          <div style={{ flex: '1 1 320px', maxWidth: 440 }}>
+            <div style={{
+              borderRadius: 16, overflow: 'hidden',
+              background: 'rgba(255,255,255,.03)', border: '1px solid rgba(255,255,255,.08)',
+            }}>
+              {/* Panel header */}
+              <div style={{
+                padding: '10px 14px', borderBottom: '1px solid rgba(255,255,255,.05)',
+                background: 'rgba(99,102,241,.05)', display: 'flex', alignItems: 'center', gap: 8,
+              }}>
+                <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#00CFEA', boxShadow: '0 0 8px #00CFEA', animation: 'pulse 2s infinite' }} />
+                <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.12em', color: 'rgba(255,255,255,.55)', textTransform: 'uppercase' }}>HLNA</span>
+                <span style={{ fontSize: 9, color: 'rgba(255,255,255,.22)', letterSpacing: '.06em', textTransform: 'uppercase' }}>· Hyper Learning Neural Agent</span>
+              </div>
 
-          <div className="absolute -bottom-6 right-8 hidden rounded-2xl border border-slate-200 bg-white p-4 shadow-xl lg:block">
-            <div className="text-sm text-slate-500">Next recommendation</div>
-            <div className="text-sm font-medium">
-              Automate weekly reporting
+              {/* Conversation */}
+              <div style={{ padding: '16px 14px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {[
+                  { role: 'user',      text: 'Which zone has the highest contamination rate?' },
+                  { role: 'assistant', text: 'Zone 8 Industrial is at 22.4% — the highest across all zones, with 12 education actions logged and a slight upward trend of +1.2%.' },
+                  { role: 'user',      text: 'Take me to fleet.' },
+                  { role: 'assistant', text: 'Opening Fleet Management now.' },
+                ].map((m, i) => (
+                  <div key={i} style={{ display: 'flex', justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start' }}>
+                    <div style={{
+                      maxWidth: '82%', padding: '9px 12px', borderRadius: 8, fontSize: 12, lineHeight: 1.6,
+                      background: m.role === 'user' ? 'rgba(255,255,255,.05)' : 'rgba(99,102,241,.18)',
+                      border: m.role === 'user' ? '1px solid rgba(255,255,255,.07)' : '1px solid rgba(99,102,241,.28)',
+                      color: 'rgba(255,255,255,.85)',
+                    }}>
+                      {m.text}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Mic bar hint */}
+              <div style={{
+                padding: '10px 14px', borderTop: '1px solid rgba(255,255,255,.05)',
+                background: 'rgba(255,255,255,.02)', display: 'flex', alignItems: 'center', gap: 10,
+              }}>
+                <div style={{
+                  width: 32, height: 32, borderRadius: 7,
+                  background: 'rgba(124,58,237,.10)', border: '1px solid rgba(124,58,237,.28)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#A78BFA" strokeWidth="1.8" strokeLinecap="round">
+                    <rect x="9" y="2" width="6" height="12" rx="3"/>
+                    <path d="M5 10a7 7 0 0 0 14 0"/><line x1="12" y1="19" x2="12" y2="22"/>
+                  </svg>
+                </div>
+                <span style={{ fontSize: 11, color: 'rgba(255,255,255,.30)', letterSpacing: '.04em' }}>Hold Space or say "Hey Helena"</span>
+              </div>
             </div>
           </div>
-        </div>
-      </section>
+        </section>
 
-      <section id="how-it-works" className="mx-auto max-w-7xl px-6 py-28">
-        <div className="mx-auto max-w-2xl text-center">
-          <div className="text-sm font-semibold uppercase tracking-[0.2em] text-indigo-600">
-            How it works
-          </div>
-          <h2 className="mt-3 text-4xl font-semibold tracking-tight text-slate-950">
-            Build your business brain in three steps.
-          </h2>
-          <p className="mt-4 text-lg text-slate-600">
-            Connect your systems, structure your knowledge, and let BrainBase
-            guide your next move.
-          </p>
-        </div>
-
-        <div className="mt-14 grid gap-6 md:grid-cols-3">
-          {steps.map((step) => (
-            <div
-              key={step.title}
-              className="rounded-3xl border border-slate-200 bg-white p-8 shadow-sm transition duration-300 hover:-translate-y-1.5 hover:shadow-xl"
-            >
-              <div className="mb-6 flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-900 text-lg font-semibold text-white">
-                {step.icon}
-              </div>
-              <h3 className="text-xl font-semibold">{step.title}</h3>
-              <p className="mt-3 leading-7 text-slate-600">{step.text}</p>
+        {/* ── Stats bar ─────────────────────────────────────────────────── */}
+        <div style={{
+          display: 'flex', gap: 0,
+          borderRadius: 12, overflow: 'hidden',
+          border: '1px solid rgba(255,255,255,.07)',
+          marginBottom: 72,
+        }}>
+          {[
+            { value: '12', label: 'Intelligence modules' },
+            { value: 'HLNΛ', label: 'Voice AI assistant' },
+            { value: '3', label: 'Wake modes (voice, space, chat)' },
+            { value: 'Live', label: 'Real-time data analysis' },
+          ].map((s, i) => (
+            <div key={i} style={{
+              flex: 1, padding: '20px 24px', textAlign: 'center',
+              borderRight: i < 3 ? '1px solid rgba(255,255,255,.07)' : 'none',
+              background: 'rgba(255,255,255,.02)',
+            }}>
+              <div style={{ fontSize: 22, fontWeight: 700, color: '#F5F7FA', letterSpacing: '-.02em', marginBottom: 4 }}>{s.value}</div>
+              <div style={{ fontSize: 11, color: 'rgba(255,255,255,.30)', letterSpacing: '.04em' }}>{s.label}</div>
             </div>
           ))}
         </div>
-      </section>
 
-      <section id="features" className="mx-auto max-w-7xl px-6 py-28">
-        <div className="mx-auto max-w-2xl text-center">
-          <div className="text-sm font-semibold uppercase tracking-[0.2em] text-indigo-600">
-            Features
-          </div>
-          <h2 className="mt-3 text-4xl font-semibold tracking-tight">
-            A complete operating layer for modern businesses.
-          </h2>
-          <p className="mt-4 text-lg text-slate-600">
-            More than a chatbot. BrainBase combines memory, dashboards, AI
-            assistance, and workflows in one premium system.
-          </p>
-        </div>
-
-        <div className="mt-14 grid gap-6 md:grid-cols-2 xl:grid-cols-3">
-          {features.map((feature, index) => (
-            <div
-              key={feature.title}
-              className="rounded-3xl border border-slate-200 bg-white p-8 shadow-sm transition duration-300 hover:-translate-y-1.5 hover:shadow-xl"
-            >
-              <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 to-sky-400 text-sm font-semibold text-white">
-                {index + 1}
-              </div>
-              <h3 className="text-xl font-semibold">{feature.title}</h3>
-              <p className="mt-3 leading-7 text-slate-600">{feature.text}</p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section id="pricing" className="mx-auto max-w-7xl px-6 py-28">
-        <div className="mx-auto max-w-2xl text-center">
-          <div className="text-sm font-semibold uppercase tracking-[0.2em] text-indigo-600">
-            Pricing
-          </div>
-          <h2 className="mt-3 text-4xl font-semibold tracking-tight text-slate-950">
-            Simple pricing for growing businesses.
-          </h2>
-          <p className="mt-4 text-lg text-slate-600">
-            Start free, then scale into a full business brain with dashboards,
-            memory, and automation.
-          </p>
-        </div>
-
-        <div className="mt-14 grid gap-6 lg:grid-cols-3">
-          <div className="rounded-3xl border border-slate-200 bg-white p-8 shadow-sm">
-            <div className="text-sm font-medium text-slate-500">Free</div>
-            <div className="mt-3 text-4xl font-semibold">$0</div>
-            <div className="mt-2 text-slate-500">
-              Perfect for exploring BrainBase
-            </div>
-            <ul className="mt-6 space-y-3 text-sm text-slate-600">
-              <li>1 business scan</li>
-              <li>Dashboard preview</li>
-              <li>Basic assistant demo</li>
-              <li>Limited insights</li>
-            </ul>
-            <button className="mt-8 w-full rounded-xl border border-slate-200 px-5 py-3 font-medium text-slate-700 transition duration-300 hover:bg-slate-50">
-              Start Free
-            </button>
-          </div>
-
-          <div className="relative rounded-3xl border border-slate-900 bg-slate-900 p-8 text-white shadow-xl">
-            <div className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-indigo-500 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-white">
-              Most Popular
-            </div>
-            <div className="text-sm font-medium text-slate-300">Pro</div>
-            <div className="mt-3 text-4xl font-semibold">$79</div>
-            <div className="mt-2 text-slate-300">per month</div>
-            <ul className="mt-6 space-y-3 text-sm text-slate-200">
-              <li>Full business brain</li>
-              <li>Executive dashboards</li>
-              <li>Smart memory</li>
-              <li>Workflow automations</li>
-              <li>Integrations</li>
-              <li>AI recommendations</li>
-            </ul>
-            <button className="mt-8 w-full rounded-xl bg-white px-5 py-3 font-medium text-slate-900 transition duration-300 hover:bg-slate-100">
-              Start Pro
-            </button>
-          </div>
-
-          <div className="rounded-3xl border border-slate-200 bg-white p-8 shadow-sm">
-            <div className="text-sm font-medium text-slate-500">Enterprise</div>
-            <div className="mt-3 text-4xl font-semibold">Custom</div>
-            <div className="mt-2 text-slate-500">
-              For teams and complex operations
-            </div>
-            <ul className="mt-6 space-y-3 text-sm text-slate-600">
-              <li>Multi-team setup</li>
-              <li>Custom dashboards</li>
-              <li>Advanced automations</li>
-              <li>Priority support</li>
-              <li>Implementation assistance</li>
-            </ul>
-            <button className="mt-8 w-full rounded-xl border border-slate-200 px-5 py-3 font-medium text-slate-700 transition duration-300 hover:bg-slate-50">
-              Contact Sales
-            </button>
-          </div>
-        </div>
-      </section>
-
-      <section className="mx-auto max-w-7xl px-6 pb-24">
-        <div className="rounded-[32px] bg-slate-900 px-8 py-16 text-center text-white shadow-2xl shadow-slate-300 sm:px-12">
-          <div className="mx-auto max-w-3xl">
-            <h2 className="text-4xl font-semibold tracking-tight sm:text-5xl">
-              Turn your business into an AI-powered system.
+        {/* ── How it works ──────────────────────────────────────────────── */}
+        <section style={{ marginBottom: 72 }}>
+          <div style={{ marginBottom: 32 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '.12em', color: 'rgba(139,92,246,.70)', textTransform: 'uppercase', marginBottom: 8 }}>How it works</div>
+            <h2 style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-.03em', color: '#F5F7FA', margin: 0 }}>
+              From data to decision in three steps.
             </h2>
-            <p className="mt-5 text-lg leading-8 text-slate-300">
-              Build a brain for your business with dashboards, memory, and an
-              assistant that helps you stay ahead.
-            </p>
+          </div>
 
-            <div className="mt-8 flex flex-wrap justify-center gap-4">
-              <button className="rounded-xl bg-white px-6 py-3 font-medium text-slate-900 transition duration-300 hover:bg-slate-100">
-                Start Free
-              </button>
-              <button
-                onClick={() => setShowDemo(true)}
-                className="rounded-xl border border-slate-700 px-6 py-3 font-medium text-white transition duration-300 hover:bg-slate-800"
-              >
-                See Demo
-              </button>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 16 }}>
+            {STEPS.map((step, i) => (
+              <div key={i} style={{
+                padding: '24px', borderRadius: 14,
+                background: 'rgba(255,255,255,.03)', border: '1px solid rgba(255,255,255,.07)',
+                position: 'relative', overflow: 'hidden',
+              }}>
+                <div style={{
+                  position: 'absolute', top: 0, left: 0, right: 0, height: 2,
+                  background: `linear-gradient(90deg, rgba(139,92,246,.50), transparent)`,
+                  borderRadius: '14px 14px 0 0',
+                }} />
+                <div style={{
+                  width: 36, height: 36, borderRadius: 9, marginBottom: 16,
+                  background: 'rgba(139,92,246,.12)', border: '1px solid rgba(139,92,246,.22)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 13, fontWeight: 700, color: '#C4B5FD', letterSpacing: '.04em',
+                }}>
+                  {step.n}
+                </div>
+                <h3 style={{ fontSize: 15, fontWeight: 700, color: '#F5F7FA', margin: '0 0 8px', letterSpacing: '-.01em' }}>{step.title}</h3>
+                <p style={{ fontSize: 13, color: 'rgba(230,237,243,.45)', lineHeight: 1.6, margin: 0 }}>{step.body}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* ── Capabilities ──────────────────────────────────────────────── */}
+        <section style={{ marginBottom: 72 }}>
+          <div style={{ marginBottom: 32 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '.12em', color: 'rgba(139,92,246,.70)', textTransform: 'uppercase', marginBottom: 8 }}>Capabilities</div>
+            <h2 style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-.03em', color: '#F5F7FA', margin: 0 }}>
+              Everything you need to run operations.
+            </h2>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 16 }}>
+            {CAPABILITIES.map((cap, i) => {
+              const isHov = hoveredCap === i;
+              return (
+                <div
+                  key={i}
+                  onMouseEnter={() => setHoveredCap(i)}
+                  onMouseLeave={() => setHoveredCap(null)}
+                  style={{
+                    padding: '22px', borderRadius: 14, cursor: 'default',
+                    background: isHov ? 'rgba(255,255,255,.05)' : 'rgba(255,255,255,.03)',
+                    border: isHov ? '1px solid rgba(255,255,255,.14)' : '1px solid rgba(255,255,255,.07)',
+                    transform: isHov ? 'translateY(-2px)' : 'translateY(0)',
+                    transition: 'all .18s', position: 'relative', overflow: 'hidden',
+                  }}>
+                  <div style={{
+                    position: 'absolute', top: 0, left: 0, right: 0, height: 2,
+                    background: isHov ? `linear-gradient(90deg, ${cap.color}80, rgba(139,92,246,.50))` : 'transparent',
+                    transition: 'background .18s', borderRadius: '14px 14px 0 0',
+                  }} />
+                  <div style={{
+                    width: 38, height: 38, borderRadius: 9, marginBottom: 14,
+                    background: `${cap.color}14`, border: `1px solid ${cap.color}28`,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    color: cap.color,
+                  }}>
+                    {cap.icon}
+                  </div>
+                  <h3 style={{ fontSize: 15, fontWeight: 700, color: '#F5F7FA', margin: '0 0 8px', letterSpacing: '-.01em' }}>{cap.title}</h3>
+                  <p style={{ fontSize: 13, color: 'rgba(230,237,243,.42)', lineHeight: 1.6, margin: 0 }}>{cap.description}</p>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+
+        {/* ── Intelligence Modules ──────────────────────────────────────── */}
+        <section style={{ marginBottom: 72 }}>
+          <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 32, flexWrap: 'wrap', gap: 16 }}>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '.12em', color: 'rgba(139,92,246,.70)', textTransform: 'uppercase', marginBottom: 8 }}>Intelligence Modules</div>
+              <h2 style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-.03em', color: '#F5F7FA', margin: 0 }}>
+                12 dashboards. One command centre.
+              </h2>
             </div>
+            <Link href="/dashboards" style={{
+              padding: '8px 18px', borderRadius: 8, fontSize: 12, fontWeight: 600,
+              background: 'rgba(255,255,255,.05)', border: '1px solid rgba(255,255,255,.10)',
+              color: 'rgba(230,237,243,.60)', textDecoration: 'none', whiteSpace: 'nowrap',
+            }}>
+              View all →
+            </Link>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 10 }}>
+            {DASHBOARDS.map((d) => {
+              const isHov = hoveredDash === d.title;
+              return (
+                <Link
+                  key={d.title}
+                  href={d.href}
+                  style={{ textDecoration: 'none' }}
+                  onMouseEnter={() => setHoveredDash(d.title)}
+                  onMouseLeave={() => setHoveredDash(null)}
+                >
+                  <div style={{
+                    padding: '14px 16px', borderRadius: 10, display: 'flex', alignItems: 'center', gap: 12,
+                    background: isHov ? 'rgba(255,255,255,.05)' : 'rgba(255,255,255,.03)',
+                    border: isHov ? '1px solid rgba(255,255,255,.14)' : '1px solid rgba(255,255,255,.07)',
+                    transform: isHov ? 'translateY(-1px)' : 'translateY(0)',
+                    transition: 'all .15s', cursor: 'pointer',
+                  }}>
+                    <div style={{
+                      width: 32, height: 32, borderRadius: 7, flexShrink: 0,
+                      background: `${d.color}14`, border: `1px solid ${d.color}28`,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      color: d.color,
+                    }}>
+                      {d.icon}
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: '#F5F7FA', lineHeight: 1.3 }}>{d.title}</div>
+                      <div style={{ fontSize: 10, color: 'rgba(255,255,255,.28)', letterSpacing: '.04em', marginTop: 2 }}>{d.category}</div>
+                    </div>
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+        </section>
+
+        {/* ── CTA banner ────────────────────────────────────────────────── */}
+        <div style={{
+          padding: '40px', borderRadius: 16,
+          background: 'rgba(139,92,246,.08)', border: '1px solid rgba(139,92,246,.20)',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          flexWrap: 'wrap', gap: 24, position: 'relative', overflow: 'hidden',
+        }}>
+          <div style={{
+            position: 'absolute', right: -60, top: -60,
+            width: 240, height: 240, borderRadius: '50%',
+            background: 'radial-gradient(circle, rgba(139,92,246,.12) 0%, transparent 70%)',
+            pointerEvents: 'none',
+          }} />
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '.12em', color: 'rgba(167,139,250,.70)', textTransform: 'uppercase', marginBottom: 8 }}>
+              Ready to begin
+            </div>
+            <h2 style={{ fontSize: 24, fontWeight: 700, color: '#F5F7FA', letterSpacing: '-.02em', margin: '0 0 8px' }}>
+              Open your command centre.
+            </h2>
+            <p style={{ fontSize: 14, color: 'rgba(230,237,243,.45)', margin: 0, maxWidth: 440, lineHeight: 1.5 }}>
+              HLNΛ is ready. Say "Hey Helena" or press Space to start. All 12 modules are live.
+            </p>
+          </div>
+          <div style={{ display: 'flex', gap: 10, flexShrink: 0 }}>
+            <Link href="/dashboard" style={{
+              padding: '12px 24px', borderRadius: 9, fontWeight: 600, fontSize: 14,
+              background: 'rgba(139,92,246,.28)', border: '1px solid rgba(139,92,246,.50)',
+              color: '#F5F7FA', textDecoration: 'none', letterSpacing: '.02em',
+              transition: 'background .15s',
+            }}
+              onMouseEnter={e => (e.currentTarget.style.background = 'rgba(139,92,246,.40)')}
+              onMouseLeave={e => (e.currentTarget.style.background = 'rgba(139,92,246,.28)')}>
+              Open HLNΛ
+            </Link>
+            <Link href="/dashboards" style={{
+              padding: '12px 24px', borderRadius: 9, fontWeight: 600, fontSize: 14,
+              background: 'rgba(255,255,255,.06)', border: '1px solid rgba(255,255,255,.10)',
+              color: 'rgba(230,237,243,.75)', textDecoration: 'none', letterSpacing: '.02em',
+              transition: 'background .15s',
+            }}
+              onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,.10)')}
+              onMouseLeave={e => (e.currentTarget.style.background = 'rgba(255,255,255,.06)')}>
+              Browse Modules
+            </Link>
           </div>
         </div>
-      </section>
-
-      {showDemo && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 backdrop-blur-sm">
-          <div className="relative w-full max-w-3xl rounded-3xl bg-white p-6 shadow-2xl">
-            <button
-              onClick={() => setShowDemo(false)}
-              className="absolute right-4 top-4 text-slate-400 transition hover:text-slate-700"
-            >
-              ✕
-            </button>
-
-            <h2 className="mb-2 text-2xl font-semibold">BrainBase Demo</h2>
-            <p className="mb-6 text-sm text-slate-500">
-              A preview of how BrainBase understands your business and helps
-              take action.
-            </p>
-
-            <div className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
-              <div className="rounded-2xl border border-slate-200 p-4">
-                <div className="text-sm text-slate-500">Live business summary</div>
-                <div className="mt-4 grid grid-cols-2 gap-3">
-                  <div className="rounded-xl bg-slate-50 p-4">
-                    <div className="text-2xl font-semibold">78%</div>
-                    <div className="text-sm text-slate-500">AI readiness</div>
-                  </div>
-                  <div className="rounded-xl bg-slate-50 p-4">
-                    <div className="text-2xl font-semibold">4</div>
-                    <div className="text-sm text-slate-500">Key gaps</div>
-                  </div>
-                  <div className="rounded-xl bg-slate-50 p-4">
-                    <div className="text-2xl font-semibold">42</div>
-                    <div className="text-sm text-slate-500">Active tasks</div>
-                  </div>
-                  <div className="rounded-xl bg-slate-50 p-4">
-                    <div className="text-2xl font-semibold">6</div>
-                    <div className="text-sm text-slate-500">Alerts</div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="rounded-2xl border border-slate-200 p-4">
-                <div className="text-sm text-slate-500">AI Assistant</div>
-                <div className="mt-3 space-y-3 text-sm">
-                  <div className="max-w-[85%] rounded-xl bg-slate-100 p-3 text-slate-700">
-                    What should I focus on today?
-                  </div>
-                  <div className="ml-auto max-w-[85%] rounded-xl bg-indigo-50 p-3 text-indigo-900">
-                    You have 3 overdue tasks, 2 missing follow-ups, and a
-                    reporting process that should be automated.
-                  </div>
-                  <div className="max-w-[85%] rounded-xl bg-slate-100 p-3 text-slate-700">
-                    Can you help fix that?
-                  </div>
-                  <div className="ml-auto max-w-[85%] rounded-xl bg-indigo-50 p-3 text-indigo-900">
-                    Yes. I can assign tasks, draft responses, and automate
-                    reporting workflows.
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-6 flex flex-wrap gap-3">
-              <button className="rounded-xl bg-slate-900 px-5 py-3 text-sm font-medium text-white transition duration-300 hover:opacity-95">
-                Start Free
-              </button>
-              <button
-                onClick={() => setShowDemo(false)}
-                className="rounded-xl border border-slate-200 px-5 py-3 text-sm font-medium text-slate-700 transition duration-300 hover:bg-slate-50"
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      </div>
     </main>
   );
 }
