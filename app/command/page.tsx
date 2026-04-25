@@ -334,10 +334,11 @@ export default function CommandPage() {
             Dashboards
           </Link>
           <Link href="/dashboard"
-            style={{ fontSize: 13, color: "rgba(255,255,255,.40)", textDecoration: "none", fontWeight: 500, transition: "color .15s" }}
-            onMouseEnter={e => (e.currentTarget.style.color = "rgba(255,255,255,.80)")}
-            onMouseLeave={e => (e.currentTarget.style.color = "rgba(255,255,255,.40)")}>
-            HLN<span style={{ color: "#A78BFA" }}>Λ</span>
+            style={{ opacity: 0.45, textDecoration: "none", transition: "opacity .15s", display: "flex", alignItems: "center" }}
+            onMouseEnter={e => (e.currentTarget.style.opacity = "0.9")}
+            onMouseLeave={e => (e.currentTarget.style.opacity = "0.45")}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/assets/brand/hlna-wordmark.svg" alt="HLNA" style={{ height: 16, width: "auto" }} />
           </Link>
           {userRole === "super_admin" && (
             <Link href="/admin/users"
@@ -347,6 +348,14 @@ export default function CommandPage() {
               Users
             </Link>
           )}
+          <form action="/api/auth/logout" method="POST" style={{ margin: 0 }}>
+            <button type="button" onClick={async () => { const { logout } = await import("@/app/actions/auth"); await logout(); }}
+              style={{ background: "none", border: "none", fontSize: 13, color: "rgba(255,255,255,.30)", cursor: "pointer", fontFamily: "inherit", fontWeight: 500, padding: 0, transition: "color .15s" }}
+              onMouseEnter={e => (e.currentTarget.style.color = "rgba(255,255,255,.70)")}
+              onMouseLeave={e => (e.currentTarget.style.color = "rgba(255,255,255,.30)")}>
+              Sign out
+            </button>
+          </form>
         </div>
       </nav>
 
@@ -414,8 +423,10 @@ export default function CommandPage() {
                 background: "rgba(139,92,246,.12)", border: "1px solid rgba(139,92,246,.28)",
               }}>
                 <div style={{ width: 5, height: 5, borderRadius: "50%", background: "#22C55E", boxShadow: "0 0 6px #22C55E", animation: "live-blink 2.4s ease-in-out infinite" }} />
-                <span style={{ fontSize: 10, fontWeight: 700, color: "rgba(167,139,250,.90)", letterSpacing: ".10em", textTransform: "uppercase" }}>
-                  HLNΛ · Live Analysis
+                <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src="/assets/brand/hlna-wordmark.svg" alt="HLNA" style={{ height: 12, width: "auto", opacity: 0.9 }} />
+                  <span style={{ fontSize: 10, fontWeight: 700, color: "rgba(167,139,250,.90)", letterSpacing: ".10em", textTransform: "uppercase" }}>· Live Analysis</span>
                 </span>
               </div>
 
@@ -454,8 +465,9 @@ export default function CommandPage() {
             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
               <HlnaOrb state={orbState} />
               <div style={{ textAlign: "center" }}>
-                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".14em", color: "rgba(167,139,250,.85)", textTransform: "uppercase" }}>
-                  HLN<span style={{ color: "#A78BFA" }}>Λ</span>
+                <div>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src="/assets/brand/hlna-wordmark.svg" alt="HLNA" style={{ height: 18, width: "auto", opacity: 0.85 }} />
                 </div>
                 <div style={{ fontSize: 9, color: orbState === "thinking" ? "rgba(56,189,248,.75)" : orbState === "alert" ? "rgba(239,68,68,.75)" : "rgba(34,197,94,.70)", letterSpacing: ".06em", marginTop: 4, textTransform: "uppercase", transition: "color .4s" }}>
                   {orbState === "thinking" ? "Processing…" : orbState === "alert" ? "Alert mode" : "Monitoring systems"}

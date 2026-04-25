@@ -125,10 +125,11 @@ export default function Home() {
             onMouseLeave={e => (e.currentTarget.style.color = 'rgba(255,255,255,.45)')}>
             Dashboards
           </Link>
-          <Link href="/dashboard" style={{ fontSize: 13, color: 'rgba(255,255,255,.45)', textDecoration: 'none', fontWeight: 500, transition: 'color .15s' }}
-            onMouseEnter={e => (e.currentTarget.style.color = 'rgba(255,255,255,.80)')}
-            onMouseLeave={e => (e.currentTarget.style.color = 'rgba(255,255,255,.45)')}>
-            HLNΛ
+          <Link href="/dashboard" style={{ opacity: 0.45, textDecoration: 'none', transition: 'opacity .15s', display: 'flex', alignItems: 'center' }}
+            onMouseEnter={e => (e.currentTarget.style.opacity = '0.9')}
+            onMouseLeave={e => (e.currentTarget.style.opacity = '0.45')}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/assets/brand/hlna-wordmark.svg" alt="HLNA" style={{ height: 16, width: 'auto' }} />
           </Link>
           <Link href="/command" style={{
             padding: '6px 16px', borderRadius: 7, fontSize: 12, fontWeight: 600,
@@ -154,8 +155,10 @@ export default function Home() {
               background: 'rgba(139,92,246,.10)', border: '1px solid rgba(139,92,246,.25)',
             }}>
               <div style={{ width: 5, height: 5, borderRadius: '50%', background: '#22C55E', boxShadow: '0 0 6px #22C55E' }} />
-              <span style={{ fontSize: 11, fontWeight: 600, color: 'rgba(167,139,250,.90)', letterSpacing: '.08em', textTransform: 'uppercase' }}>
-                HLNΛ · Operational Intelligence
+              <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src="/assets/brand/hlna-wordmark.svg" alt="HLNA" style={{ height: 12, width: 'auto', opacity: 0.9 }} />
+                <span style={{ fontSize: 11, fontWeight: 600, color: 'rgba(167,139,250,.90)', letterSpacing: '.08em', textTransform: 'uppercase' }}>· Operational Intelligence</span>
               </span>
             </div>
 

@@ -229,10 +229,11 @@ export default function DashboardsPage() {
           <span style={{ fontSize: 13, fontWeight: 600, color: '#C4B5FD', borderBottom: '1px solid rgba(167,139,250,.40)', paddingBottom: 2 }}>
             Ops Hub
           </span>
-          <Link href="/dashboard" style={{ fontSize: 13, color: 'rgba(255,255,255,.45)', textDecoration: 'none', fontWeight: 500, transition: 'color .15s' }}
-            onMouseEnter={e => (e.currentTarget.style.color = 'rgba(255,255,255,.80)')}
-            onMouseLeave={e => (e.currentTarget.style.color = 'rgba(255,255,255,.45)')}>
-            HLNΛ
+          <Link href="/dashboard" style={{ opacity: 0.45, textDecoration: 'none', transition: 'opacity .15s', display: 'flex', alignItems: 'center' }}
+            onMouseEnter={e => (e.currentTarget.style.opacity = '0.9')}
+            onMouseLeave={e => (e.currentTarget.style.opacity = '0.45')}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/assets/brand/hlna-wordmark.svg" alt="HLNA" style={{ height: 16, width: 'auto' }} />
           </Link>
           <Link href="/command" style={{
             padding: '6px 16px', borderRadius: 7, fontSize: 12, fontWeight: 600,
