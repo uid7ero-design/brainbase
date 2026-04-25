@@ -260,8 +260,24 @@ export default function FleetDashboard() {
   const [dept,    setDept]    = useState('All');
 
   useEffect(() => {
-    const s = localStorage.getItem('fleetAll');
-    if (s) { const d = JSON.parse(s); setAssets(d.assets||[]); setSvc(d.svc||[]); setHr(d.hr||[]); setDt(d.dt||[]); setUtil(d.util||[]); setTrips(d.trips||[]); setStops(d.stops||[]); setColoc(d.coloc||[]); }
+    const saved = localStorage.getItem('fleetAll');
+    if (saved) {
+      const d = JSON.parse(saved);
+      setAssets(d.assets||[]); setSvc(d.svc||[]); setHr(d.hr||[]); setDt(d.dt||[]);
+      setUtil(d.util||[]); setTrips(d.trips||[]); setStops(d.stops||[]); setColoc(d.coloc||[]);
+      return;
+    }
+    // Auto-load bundled dummy data on first visit
+    fetch('/fleet-dummy-data.xlsx')
+      .then(r => r.arrayBuffer())
+      .then(buf => {
+        const wb = XLSX.read(buf, { type: 'array' });
+        const sheet = (name: string) => { const s = wb.Sheets[name]; return s ? R(XLSX.utils.sheet_to_json(s) as Record<string,unknown>[]) : []; };
+        const d = { assets:parseAssets(sheet('Fleet Data')), svc:parseSvc(sheet('Servicing')), hr:parseHR(sheet('HR')), dt:parseDt(sheet('Downtime')), util:parseUtil(sheet('Utilisation')), trips:parseTrips(sheet('Trip Log')), stops:parseStops(sheet('Stop Log')), coloc:parseColoc(sheet('Co-location')) };
+        setAssets(d.assets); setSvc(d.svc); setHr(d.hr); setDt(d.dt); setUtil(d.util); setTrips(d.trips); setStops(d.stops); setColoc(d.coloc);
+        localStorage.setItem('fleetAll', JSON.stringify(d));
+      })
+      .catch(() => { /* no dummy file — stays empty */ });
   }, []);
 
   const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
