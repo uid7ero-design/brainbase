@@ -141,6 +141,12 @@ export default function Home() {
             onMouseLeave={e => (e.currentTarget.style.background = 'rgba(139,92,246,.18)')}>
             Command Centre
           </Link>
+          <button onClick={async () => { const { logout } = await import('@/app/actions/auth'); await logout(); }}
+            style={{ background: 'none', border: 'none', fontSize: 13, color: 'rgba(255,255,255,.28)', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 500, padding: 0, transition: 'color .15s' }}
+            onMouseEnter={e => (e.currentTarget.style.color = 'rgba(255,255,255,.70)')}
+            onMouseLeave={e => (e.currentTarget.style.color = 'rgba(255,255,255,.28)')}>
+            Sign out
+          </button>
         </div>
       </nav>
 

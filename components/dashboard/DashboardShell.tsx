@@ -454,6 +454,12 @@ export default function DashboardShell({
           <a href="/" style={{ color: 'inherit', textDecoration: 'none' }}>Brainbase</a>
           {' › '}<a href="/dashboards" style={{ color: 'inherit', textDecoration: 'none' }}>Dashboards</a>
           {' › '}<span style={{ color: accentColor }}>{breadcrumbLabel}</span>
+          <button onClick={async () => { const { logout } = await import('@/app/actions/auth'); await logout(); }}
+            style={{ float: 'right', background: 'none', border: 'none', fontSize: 11, color: 'rgba(255,255,255,.30)', cursor: 'pointer', fontFamily: 'inherit', padding: 0, transition: 'color .15s' }}
+            onMouseEnter={e => (e.currentTarget.style.color = 'rgba(255,255,255,.70)')}
+            onMouseLeave={e => (e.currentTarget.style.color = 'rgba(255,255,255,.30)')}>
+            Sign out
+          </button>
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: 10 }}>
           <div>

@@ -18,10 +18,15 @@ export async function middleware(req: NextRequest) {
     return NextResponse.redirect(url);
   }
 
+  // /admin — super_admin only
   if (pathname.startsWith('/admin') && session.role !== 'super_admin') {
-    const url = req.nextUrl.clone();
-    url.pathname = '/';
-    return NextResponse.redirect(url);
+    return NextResponse.redirect(new URL('/', req.url));
+  }
+
+  // /command — manager, admin, super_admin only (not viewer)
+  const COMMAND_ROLES = ['manager', 'admin', 'super_admin'];
+  if (pathname.startsWith('/command') && !COMMAND_ROLES.includes(session.role)) {
+    return NextResponse.redirect(new URL('/dashboards', req.url));
   }
 
   return NextResponse.next();

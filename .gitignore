@@ -36,8 +36,10 @@ yarn-error.log*
 # vercel
 .vercel
 
-# local brain data — tokens and vectors must not be committed
+# local brain data — tokens, vectors, and personal vault must not be committed
 .brainbase/*.json
+Dr Soong/
+CONTEXT.md
 
 # typescript
 *.tsbuildinfo

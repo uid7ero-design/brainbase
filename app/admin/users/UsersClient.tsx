@@ -45,9 +45,16 @@ export default function UsersClient({ users, currentUserId }: { users: User[]; c
 
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 32, maxWidth: 900, margin: '0 auto 32px' }}>
-        <div>
-          <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em', margin: 0 }}>User Management</h1>
-          <p style={{ color: '#6b7280', fontSize: 13, marginTop: 4 }}>{users.length} user{users.length !== 1 ? 's' : ''}</p>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+          <a href="/" style={{ color: '#6b7280', fontSize: 13, textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 5 }}
+            onMouseEnter={e => (e.currentTarget.style.color = '#9ca3af')}
+            onMouseLeave={e => (e.currentTarget.style.color = '#6b7280')}>
+            ← Home
+          </a>
+          <div>
+            <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em', margin: 0 }}>User Management</h1>
+            <p style={{ color: '#6b7280', fontSize: 13, marginTop: 4 }}>{users.length} user{users.length !== 1 ? 's' : ''}</p>
+          </div>
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
           <button onClick={() => setShowAdd(true)} style={btnStyle('#1a6aff')}>+ Add User</button>

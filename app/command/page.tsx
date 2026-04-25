@@ -345,17 +345,21 @@ export default function CommandPage() {
               style={{ fontSize: 13, color: "rgba(255,255,255,.40)", textDecoration: "none", fontWeight: 500, transition: "color .15s" }}
               onMouseEnter={e => (e.currentTarget.style.color = "rgba(255,255,255,.80)")}
               onMouseLeave={e => (e.currentTarget.style.color = "rgba(255,255,255,.40)")}>
-              Users
+              Admin
             </Link>
           )}
-          <form action="/api/auth/logout" method="POST" style={{ margin: 0 }}>
-            <button type="button" onClick={async () => { const { logout } = await import("@/app/actions/auth"); await logout(); }}
-              style={{ background: "none", border: "none", fontSize: 13, color: "rgba(255,255,255,.30)", cursor: "pointer", fontFamily: "inherit", fontWeight: 500, padding: 0, transition: "color .15s" }}
-              onMouseEnter={e => (e.currentTarget.style.color = "rgba(255,255,255,.70)")}
-              onMouseLeave={e => (e.currentTarget.style.color = "rgba(255,255,255,.30)")}>
-              Sign out
-            </button>
-          </form>
+          <Link href="/profile"
+            style={{ fontSize: 13, color: "rgba(255,255,255,.30)", textDecoration: "none", fontWeight: 500, transition: "color .15s" }}
+            onMouseEnter={e => (e.currentTarget.style.color = "rgba(255,255,255,.70)")}
+            onMouseLeave={e => (e.currentTarget.style.color = "rgba(255,255,255,.30)")}>
+            Profile
+          </Link>
+          <button type="button" onClick={async () => { const { logout } = await import("@/app/actions/auth"); await logout(); }}
+            style={{ background: "none", border: "none", fontSize: 13, color: "rgba(255,255,255,.30)", cursor: "pointer", fontFamily: "inherit", fontWeight: 500, padding: 0, transition: "color .15s" }}
+            onMouseEnter={e => (e.currentTarget.style.color = "rgba(255,255,255,.70)")}
+            onMouseLeave={e => (e.currentTarget.style.color = "rgba(255,255,255,.30)")}>
+            Sign out
+          </button>
         </div>
       </nav>
 
