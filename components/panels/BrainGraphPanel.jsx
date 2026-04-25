@@ -684,7 +684,7 @@ export function BrainGraphPanel() {
   if (!open) return null;
 
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 90, background: '#020408', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ position: 'fixed', top: 52, left: 0, right: 0, bottom: 0, zIndex: 90, background: '#020408', display: 'flex', flexDirection: 'column' }}>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 18px', borderBottom: '1px solid rgba(255,255,255,.05)', flexShrink: 0, background: 'rgba(2,4,8,.94)', backdropFilter: 'blur(12px)' }}>
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="rgba(180,130,255,.8)" strokeWidth="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/><path d="M3 12c0 1.66 4.03 3 9 3s9-1.34 9-3"/></svg>
