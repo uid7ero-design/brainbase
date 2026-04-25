@@ -226,17 +226,15 @@ export default function DashboardsPage() {
         </Link>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 24 }}>
-          <Link href="/" style={{ fontSize: 13, color: 'rgba(255,255,255,.45)', textDecoration: 'none', fontWeight: 500, transition: 'color .15s' }}
-            onMouseEnter={e => (e.currentTarget.style.color = 'rgba(255,255,255,.80)')}
-            onMouseLeave={e => (e.currentTarget.style.color = 'rgba(255,255,255,.45)')}>
-            Home
-          </Link>
+          <span style={{ fontSize: 13, fontWeight: 600, color: '#C4B5FD', borderBottom: '1px solid rgba(167,139,250,.40)', paddingBottom: 2 }}>
+            Ops Hub
+          </span>
           <Link href="/dashboard" style={{ fontSize: 13, color: 'rgba(255,255,255,.45)', textDecoration: 'none', fontWeight: 500, transition: 'color .15s' }}
             onMouseEnter={e => (e.currentTarget.style.color = 'rgba(255,255,255,.80)')}
             onMouseLeave={e => (e.currentTarget.style.color = 'rgba(255,255,255,.45)')}>
             HLNΛ
           </Link>
-          <Link href="/dashboard" style={{
+          <Link href="/command" style={{
             padding: '6px 16px', borderRadius: 7, fontSize: 12, fontWeight: 600,
             background: 'rgba(139,92,246,.18)', border: '1px solid rgba(139,92,246,.40)',
             color: '#C4B5FD', textDecoration: 'none', letterSpacing: '.02em',
@@ -244,7 +242,7 @@ export default function DashboardsPage() {
           }}
             onMouseEnter={e => (e.currentTarget.style.background = 'rgba(139,92,246,.28)')}
             onMouseLeave={e => (e.currentTarget.style.background = 'rgba(139,92,246,.18)')}>
-            Open Command Centre
+            Command Centre
           </Link>
         </div>
       </nav>
@@ -412,14 +410,14 @@ export default function DashboardsPage() {
               Ready to begin
             </div>
             <h2 style={{ fontSize: 24, fontWeight: 700, color: '#F5F7FA', letterSpacing: '-.02em', margin: '0 0 8px' }}>
-              Open your command centre.
+              Ready for your shift?
             </h2>
             <p style={{ fontSize: 14, color: 'rgba(230,237,243,.45)', margin: 0, maxWidth: 440, lineHeight: 1.5 }}>
               HLNΛ is ready. Say "Hey Helena" or press Space to start. All 12 modules are live.
             </p>
           </div>
           <div style={{ display: 'flex', gap: 10, flexShrink: 0 }}>
-            <Link href="/dashboard" style={{
+            <Link href="/command" style={{
               padding: '12px 24px', borderRadius: 9, fontWeight: 600, fontSize: 14,
               background: 'rgba(139,92,246,.28)', border: '1px solid rgba(139,92,246,.50)',
               color: '#F5F7FA', textDecoration: 'none', letterSpacing: '.02em',
@@ -427,7 +425,7 @@ export default function DashboardsPage() {
             }}
               onMouseEnter={e => (e.currentTarget.style.background = 'rgba(139,92,246,.40)')}
               onMouseLeave={e => (e.currentTarget.style.background = 'rgba(139,92,246,.28)')}>
-              Open HLNΛ
+              Open Command Centre
             </Link>
             <Link href="/" style={{
               padding: '12px 24px', borderRadius: 9, fontWeight: 600, fontSize: 14,

@@ -130,7 +130,7 @@ export default function Home() {
             onMouseLeave={e => (e.currentTarget.style.color = 'rgba(255,255,255,.45)')}>
             HLNΛ
           </Link>
-          <Link href="/dashboard" style={{
+          <Link href="/command" style={{
             padding: '6px 16px', borderRadius: 7, fontSize: 12, fontWeight: 600,
             background: 'rgba(139,92,246,.18)', border: '1px solid rgba(139,92,246,.40)',
             color: '#C4B5FD', textDecoration: 'none', letterSpacing: '.02em',
@@ -138,7 +138,7 @@ export default function Home() {
           }}
             onMouseEnter={e => (e.currentTarget.style.background = 'rgba(139,92,246,.28)')}
             onMouseLeave={e => (e.currentTarget.style.background = 'rgba(139,92,246,.18)')}>
-            Open Command Centre
+            Command Centre
           </Link>
         </div>
       </nav>
@@ -176,7 +176,7 @@ export default function Home() {
             </p>
 
             <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-              <Link href="/dashboard" style={{
+              <Link href="/command" style={{
                 padding: '12px 24px', borderRadius: 9, fontSize: 14, fontWeight: 600,
                 background: 'rgba(139,92,246,.22)', border: '1px solid rgba(139,92,246,.45)',
                 color: '#F5F7FA', textDecoration: 'none', letterSpacing: '.02em',
@@ -184,7 +184,7 @@ export default function Home() {
               }}
                 onMouseEnter={e => (e.currentTarget.style.background = 'rgba(139,92,246,.34)')}
                 onMouseLeave={e => (e.currentTarget.style.background = 'rgba(139,92,246,.22)')}>
-                Open HLNΛ
+                Open Command Centre
               </Link>
               <Link href="/dashboards" style={{
                 padding: '12px 24px', borderRadius: 9, fontSize: 14, fontWeight: 600,
@@ -442,7 +442,7 @@ export default function Home() {
             </p>
           </div>
           <div style={{ display: 'flex', gap: 10, flexShrink: 0 }}>
-            <Link href="/dashboard" style={{
+            <Link href="/command" style={{
               padding: '12px 24px', borderRadius: 9, fontWeight: 600, fontSize: 14,
               background: 'rgba(139,92,246,.28)', border: '1px solid rgba(139,92,246,.50)',
               color: '#F5F7FA', textDecoration: 'none', letterSpacing: '.02em',
@@ -450,7 +450,7 @@ export default function Home() {
             }}
               onMouseEnter={e => (e.currentTarget.style.background = 'rgba(139,92,246,.40)')}
               onMouseLeave={e => (e.currentTarget.style.background = 'rgba(139,92,246,.28)')}>
-              Open HLNΛ
+              Open Command Centre
             </Link>
             <Link href="/dashboards" style={{
               padding: '12px 24px', borderRadius: 9, fontWeight: 600, fontSize: 14,

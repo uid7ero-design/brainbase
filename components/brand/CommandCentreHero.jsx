@@ -36,7 +36,7 @@ export function CommandCentreHero({ insights = INSIGHTS, onReport = () => {}, on
           fontSize: 10, fontWeight: 600, letterSpacing: '.14em',
           color: 'rgba(139,92,246,.70)', textTransform: 'uppercase', marginBottom: 8,
         }}>
-          Command Centre
+          Ops Hub
         </div>
 
         <h2 style={{
@@ -47,7 +47,7 @@ export function CommandCentreHero({ insights = INSIGHTS, onReport = () => {}, on
           margin: '0 0 4px',
           lineHeight: 1.2,
         }}>
-          Operational intelligence,<br />unified.
+          All dashboards,<br />one place.
         </h2>
         <p style={{
           fontSize: 13,
@@ -55,7 +55,7 @@ export function CommandCentreHero({ insights = INSIGHTS, onReport = () => {}, on
           margin: '0 0 24px',
           lineHeight: 1.5,
         }}>
-          Powered by HLNΛ — monitoring all systems
+          Browse and drill into any intelligence module. Powered by HLNΛ.
         </p>
 
         {/* Insights */}
