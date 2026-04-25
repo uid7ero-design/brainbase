@@ -11,9 +11,11 @@ export default function LoginPage() {
 
         {/* Logo / wordmark */}
         <div style={{ textAlign: 'center', marginBottom: 40 }}>
-          <div style={{ width: 48, height: 48, borderRadius: '50%', background: 'radial-gradient(circle at 40% 40%, #6ee7f7, #1a6aff 60%, #0a0f2e)', margin: '0 auto 16px', boxShadow: '0 0 32px rgba(110,231,247,0.3)' }} />
-          <h1 style={{ color: '#fff', fontSize: 22, fontWeight: 600, letterSpacing: '-0.02em', margin: 0 }}>Brainbase</h1>
-          <p style={{ color: '#4a5568', fontSize: 13, marginTop: 6 }}>Sign in to continue</p>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/assets/brand/lambda-icon-64.svg" alt="" width={52} height={52} style={{ margin: '0 auto 14px', display: 'block' }} />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/assets/brand/brainbase-wordmark.svg" alt="BRAINBASE" style={{ height: 28, width: 'auto', display: 'block', margin: '0 auto 10px' }} />
+          <p style={{ color: '#4a5568', fontSize: 13, marginTop: 0 }}>Sign in to continue</p>
         </div>
 
         <form action={action} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
