@@ -385,7 +385,7 @@ export default function CommandPage() {
 
             {/* Orb + state label */}
             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16 }}>
-              <HlnaOrb size={140} state={orbState === "alert" ? "idle" : orbState} />
+              <HlnaOrb size={140} state={orbState === "alert" ? "idle" : orbState} speechRef={undefined} style={undefined} />
               <div style={{ textAlign: "center" }}>
                 <div style={{ fontSize: 16, fontWeight: 700, letterSpacing: ".20em", color: "#F5F7FA", textTransform: "uppercase" }}>
                   HLN<span style={{ color: "#A78BFA" }}>Λ</span>
