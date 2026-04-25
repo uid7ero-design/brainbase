@@ -1,6 +1,6 @@
 'use client';
 import { useActionState, useState, useTransition } from 'react';
-import { createUser, updateUserRole, deleteUser, resetUserPassword } from '@/app/actions/users';
+import { createUser, updateUserRole, deleteUser, resetUserPassword, updateUserDetails } from '@/app/actions/users';
 import { logout } from '@/app/actions/auth';
 import type { Role } from '@/lib/session';
 
@@ -25,10 +25,12 @@ type User = { id: string; username: string; name: string; role: string; created_
 
 export default function UsersClient({ users, currentUserId }: { users: User[]; currentUserId: string }) {
   const [showAdd, setShowAdd] = useState(false);
+  const [editTarget, setEditTarget] = useState<User | null>(null);
   const [resetTarget, setResetTarget] = useState<User | null>(null);
   const [isPending, startTransition] = useTransition();
 
   const [createState, createAction, createPending] = useActionState(createUser, undefined);
+  const [editState, editAction, editPending] = useActionState(updateUserDetails, undefined);
   const [resetState, resetAction, resetPending] = useActionState(resetUserPassword, undefined);
 
   function handleRoleChange(userId: string, role: Role) {
@@ -95,6 +97,7 @@ export default function UsersClient({ users, currentUserId }: { users: User[]; c
                 </td>
                 <td style={{ padding: '14px 16px' }}>
                   <div style={{ display: 'flex', gap: 8 }}>
+                    <button onClick={() => setEditTarget(u)} style={smallBtn('#1f2937', '#d1d5db')}>Edit</button>
                     <button onClick={() => setResetTarget(u)} style={smallBtn('#1f2937', '#d1d5db')}>Reset PW</button>
                     {u.id !== currentUserId && (
                       <button onClick={() => handleDelete(u)} style={smallBtn('rgba(239,68,68,0.1)', '#f87171')}>Delete</button>
@@ -123,6 +126,20 @@ export default function UsersClient({ users, currentUserId }: { users: User[]; c
             {createState?.error && <p style={errorStyle}>{createState.error}</p>}
             {createState?.success && <p style={successStyle}>{createState.success}</p>}
             <button type="submit" disabled={createPending} style={btnStyle('#1a6aff')}>{createPending ? 'Creating…' : 'Create User'}</button>
+          </form>
+        </Modal>
+      )}
+
+      {/* Edit User Modal */}
+      {editTarget && (
+        <Modal title={`Edit — ${editTarget.name}`} onClose={() => setEditTarget(null)}>
+          <form action={async (fd) => { await editAction(fd); if (!editState?.error) setEditTarget(null); }} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <input type="hidden" name="userId" value={editTarget.id} />
+            <Field label="Full Name" name="name" defaultValue={editTarget.name} />
+            <Field label="Username" name="username" defaultValue={editTarget.username} />
+            {editState?.error && <p style={errorStyle}>{editState.error}</p>}
+            {editState?.success && <p style={successStyle}>{editState.success}</p>}
+            <button type="submit" disabled={editPending} style={btnStyle('#1a6aff')}>{editPending ? 'Saving…' : 'Save changes'}</button>
           </form>
         </Modal>
       )}
@@ -157,11 +174,11 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
   );
 }
 
-function Field({ label, name, type = 'text' }: { label: string; name: string; type?: string }) {
+function Field({ label, name, type = 'text', defaultValue }: { label: string; name: string; type?: string; defaultValue?: string }) {
   return (
     <div>
       <label style={labelStyle}>{label}</label>
-      <input name={name} type={type} required style={{ width: '100%', padding: '10px 12px', background: '#111318', border: '1px solid #1a1d24', borderRadius: 8, color: '#f9fafb', fontSize: 14, outline: 'none', boxSizing: 'border-box' }} />
+      <input name={name} type={type} required defaultValue={defaultValue} style={{ width: '100%', padding: '10px 12px', background: '#111318', border: '1px solid #1a1d24', borderRadius: 8, color: '#f9fafb', fontSize: 14, outline: 'none', boxSizing: 'border-box' }} />
     </div>
   );
 }

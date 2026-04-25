@@ -108,47 +108,6 @@ export default function Home() {
         background: 'radial-gradient(ellipse 60% 40% at 50% 0%, rgba(139,92,246,.10) 0%, transparent 60%)',
       }} />
 
-      {/* ── Nav ───────────────────────────────────────────────────────── */}
-      <nav style={{
-        height: 52, display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '0 32px', borderBottom: '1px solid rgba(255,255,255,.06)',
-        background: 'rgba(8,9,12,.92)', backdropFilter: 'blur(12px)',
-        position: 'sticky', top: 0, zIndex: 50,
-      }}>
-        <span style={{ fontWeight: 700, fontSize: 14, color: '#F5F7FA', letterSpacing: '.04em' }}>
-          BR<span style={{ color: '#A78BFA' }}>Λ</span>INBASE
-        </span>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: 24 }}>
-          <Link href="/dashboards" style={{ fontSize: 13, color: 'rgba(255,255,255,.45)', textDecoration: 'none', fontWeight: 500, transition: 'color .15s' }}
-            onMouseEnter={e => (e.currentTarget.style.color = 'rgba(255,255,255,.80)')}
-            onMouseLeave={e => (e.currentTarget.style.color = 'rgba(255,255,255,.45)')}>
-            Dashboards
-          </Link>
-          <Link href="/dashboard" style={{ opacity: 0.45, textDecoration: 'none', transition: 'opacity .15s', display: 'flex', alignItems: 'center' }}
-            onMouseEnter={e => (e.currentTarget.style.opacity = '0.9')}
-            onMouseLeave={e => (e.currentTarget.style.opacity = '0.45')}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/assets/brand/hlna-wordmark.svg" alt="HLNA" style={{ height: 16, width: 'auto' }} />
-          </Link>
-          <Link href="/command" style={{
-            padding: '6px 16px', borderRadius: 7, fontSize: 12, fontWeight: 600,
-            background: 'rgba(139,92,246,.18)', border: '1px solid rgba(139,92,246,.40)',
-            color: '#C4B5FD', textDecoration: 'none', letterSpacing: '.02em',
-            transition: 'background .15s',
-          }}
-            onMouseEnter={e => (e.currentTarget.style.background = 'rgba(139,92,246,.28)')}
-            onMouseLeave={e => (e.currentTarget.style.background = 'rgba(139,92,246,.18)')}>
-            Command Centre
-          </Link>
-          <button onClick={async () => { const { logout } = await import('@/app/actions/auth'); await logout(); }}
-            style={{ background: 'none', border: 'none', fontSize: 13, color: 'rgba(255,255,255,.28)', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 500, padding: 0, transition: 'color .15s' }}
-            onMouseEnter={e => (e.currentTarget.style.color = 'rgba(255,255,255,.70)')}
-            onMouseLeave={e => (e.currentTarget.style.color = 'rgba(255,255,255,.28)')}>
-            Sign out
-          </button>
-        </div>
-      </nav>
 
       <div style={{ maxWidth: 1200, margin: '0 auto', padding: '0 32px 96px', position: 'relative', zIndex: 1 }}>
 

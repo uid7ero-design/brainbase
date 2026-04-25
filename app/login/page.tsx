@@ -11,11 +11,20 @@ export default function LoginPage() {
 
         {/* Logo / wordmark */}
         <div style={{ textAlign: 'center', marginBottom: 40 }}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/assets/brand/lambda-icon-64.svg" alt="" width={52} height={52} style={{ margin: '0 auto 14px', display: 'block' }} />
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/assets/brand/brainbase-wordmark.svg" alt="BRAINBASE" style={{ height: 28, width: 'auto', display: 'block', margin: '0 auto 10px' }} />
-          <p style={{ color: '#4a5568', fontSize: 13, marginTop: 0 }}>Sign in to continue</p>
+          <svg width="52" height="52" viewBox="0 0 64 64" style={{ display: 'block', margin: '0 auto 16px' }} aria-hidden="true">
+            <defs>
+              <linearGradient id="login-lambda" gradientUnits="userSpaceOnUse" x1="32" y1="53.8" x2="32" y2="9">
+                <stop offset="0%" stopColor="#5B21B6"/>
+                <stop offset="50%" stopColor="#7C3AED"/>
+                <stop offset="100%" stopColor="#C084FC"/>
+              </linearGradient>
+            </defs>
+            <path d="M 12.2,53.8 L 32,9 L 51.8,53.8" fill="none" stroke="url(#login-lambda)" strokeWidth="8.3" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+          <div style={{ fontSize: 22, fontWeight: 700, letterSpacing: '.04em', color: '#F5F7FA', marginBottom: 8 }}>
+            BR<span style={{ color: '#A78BFA' }}>Λ</span>INBASE
+          </div>
+          <p style={{ color: '#4a5568', fontSize: 13, margin: 0 }}>Sign in to continue</p>
         </div>
 
         <form action={action} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>

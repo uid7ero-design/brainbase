@@ -54,6 +54,21 @@ export async function resetUserPassword(prevState: UserFormState, formData: Form
   return { success: 'Password updated.' };
 }
 
+export async function updateUserDetails(prevState: UserFormState, formData: FormData): Promise<UserFormState> {
+  await requireSuperAdmin();
+  const userId = formData.get('userId') as string;
+  const name = (formData.get('name') as string)?.trim();
+  const username = (formData.get('username') as string)?.trim().toLowerCase();
+  if (!userId || !name || !username) return { error: 'All fields required.' };
+
+  const existing = await sql`SELECT id FROM users WHERE username = ${username} AND id != ${userId} LIMIT 1`;
+  if (existing.length > 0) return { error: 'Username already taken.' };
+
+  await sql`UPDATE users SET name = ${name}, username = ${username}, updated_at = NOW() WHERE id = ${userId}`;
+  revalidatePath('/admin/users');
+  return { success: 'User updated.' };
+}
+
 export async function deleteUser(userId: string) {
   await requireSuperAdmin();
   const session = await getSession();

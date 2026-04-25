@@ -232,11 +232,8 @@ export default function CommandPage() {
   ]);
   const [input, setInput]       = useState("");
   const [busy, setBusy]         = useState(false);
-  const [userRole, setUserRole] = useState<string>("");
   const bottomRef               = useRef<HTMLDivElement>(null);
   const { shown, done }         = useTyping(HLNA_SUMMARY, 20);
-
-  useEffect(() => { fetch("/api/me").then(r => r.json()).then(d => setUserRole(d.role ?? "")); }, []);
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [msgs]);
 
   async function send(text: string) {
@@ -297,71 +294,21 @@ export default function CommandPage() {
         background: "radial-gradient(ellipse 70% 55% at 50% -5%,rgba(139,92,246,.18) 0%,transparent 65%)",
       }} />
 
-      {/* ── NAV ─────────────────────────────────────────────────── */}
-      <nav style={{
-        height: 52, display: "flex", alignItems: "center", justifyContent: "space-between",
-        padding: "0 32px", borderBottom: "1px solid rgba(255,255,255,.06)",
-        background: "rgba(7,8,11,.88)", backdropFilter: "blur(16px)",
-        position: "sticky", top: 0, zIndex: 50,
+      {/* ── Breadcrumb sub-bar ───────────────────────────────────── */}
+      <div style={{
+        height: 36, display: "flex", alignItems: "center", justifyContent: "space-between",
+        padding: "0 32px", borderBottom: "1px solid rgba(255,255,255,.04)",
+        background: "rgba(7,8,11,.60)",
       }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
-          <Link href="/" style={{ fontWeight: 700, fontSize: 14, color: "#F5F7FA", textDecoration: "none", letterSpacing: ".04em" }}>
-            BR<span style={{ color: "#A78BFA" }}>Λ</span>INBASE
-          </Link>
-          {/* Breadcrumb */}
-          <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "rgba(255,255,255,.22)", letterSpacing: ".03em" }}>
-            <span>Command Centre</span>
-            <span>/</span>
-            <span>Operations</span>
-            <span>/</span>
-            <span style={{ color: "rgba(167,139,250,.70)" }}>Today</span>
-          </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "rgba(255,255,255,.22)", letterSpacing: ".03em" }}>
+          <span>Command Centre</span><span>/</span><span>Operations</span><span>/</span>
+          <span style={{ color: "rgba(167,139,250,.70)" }}>Today</span>
         </div>
-
-        <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
-          <div style={{
-            display: "flex", alignItems: "center", gap: 6,
-            padding: "3px 10px", borderRadius: 20,
-            background: "rgba(139,92,246,.14)", border: "1px solid rgba(139,92,246,.30)",
-          }}>
-            <div style={{ width: 5, height: 5, borderRadius: "50%", background: "#22C55E", boxShadow: "0 0 5px #22C55E", animation: "live-blink 2.4s ease-in-out infinite" }} />
-            <span style={{ fontSize: 11, fontWeight: 600, color: "#C4B5FD", letterSpacing: ".03em" }}>Command Centre</span>
-          </div>
-          <Link href="/dashboards"
-            style={{ fontSize: 13, color: "rgba(255,255,255,.40)", textDecoration: "none", fontWeight: 500, transition: "color .15s" }}
-            onMouseEnter={e => (e.currentTarget.style.color = "rgba(255,255,255,.80)")}
-            onMouseLeave={e => (e.currentTarget.style.color = "rgba(255,255,255,.40)")}>
-            Dashboards
-          </Link>
-          <Link href="/dashboard"
-            style={{ opacity: 0.45, textDecoration: "none", transition: "opacity .15s", display: "flex", alignItems: "center" }}
-            onMouseEnter={e => (e.currentTarget.style.opacity = "0.9")}
-            onMouseLeave={e => (e.currentTarget.style.opacity = "0.45")}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/assets/brand/hlna-wordmark.svg" alt="HLNA" style={{ height: 16, width: "auto" }} />
-          </Link>
-          {userRole === "super_admin" && (
-            <Link href="/admin/users"
-              style={{ fontSize: 13, color: "rgba(255,255,255,.40)", textDecoration: "none", fontWeight: 500, transition: "color .15s" }}
-              onMouseEnter={e => (e.currentTarget.style.color = "rgba(255,255,255,.80)")}
-              onMouseLeave={e => (e.currentTarget.style.color = "rgba(255,255,255,.40)")}>
-              Admin
-            </Link>
-          )}
-          <Link href="/profile"
-            style={{ fontSize: 13, color: "rgba(255,255,255,.30)", textDecoration: "none", fontWeight: 500, transition: "color .15s" }}
-            onMouseEnter={e => (e.currentTarget.style.color = "rgba(255,255,255,.70)")}
-            onMouseLeave={e => (e.currentTarget.style.color = "rgba(255,255,255,.30)")}>
-            Profile
-          </Link>
-          <button type="button" onClick={async () => { const { logout } = await import("@/app/actions/auth"); await logout(); }}
-            style={{ background: "none", border: "none", fontSize: 13, color: "rgba(255,255,255,.30)", cursor: "pointer", fontFamily: "inherit", fontWeight: 500, padding: 0, transition: "color .15s" }}
-            onMouseEnter={e => (e.currentTarget.style.color = "rgba(255,255,255,.70)")}
-            onMouseLeave={e => (e.currentTarget.style.color = "rgba(255,255,255,.30)")}>
-            Sign out
-          </button>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "2px 10px", borderRadius: 20, background: "rgba(139,92,246,.12)", border: "1px solid rgba(139,92,246,.28)" }}>
+          <div style={{ width: 5, height: 5, borderRadius: "50%", background: "#22C55E", boxShadow: "0 0 5px #22C55E", animation: "live-blink 2.4s ease-in-out infinite" }} />
+          <span style={{ fontSize: 10, fontWeight: 600, color: "#C4B5FD", letterSpacing: ".03em" }}>Live</span>
         </div>
-      </nav>
+      </div>
 
       <div style={{ maxWidth: 1280, margin: "0 auto", padding: "22px 32px 96px", position: "relative", zIndex: 1 }}>
 

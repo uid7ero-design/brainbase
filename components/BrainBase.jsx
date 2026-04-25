@@ -262,12 +262,6 @@ export default function BrainBase() {
               <path d="M5 12h14M12 5l7 7-7 7"/>
             </svg>
           </Link>
-          <button onClick={async () => { const { logout } = await import("@/app/actions/auth"); await logout(); }}
-            style={{ background: "none", border: "none", fontSize: 12, color: "rgba(255,255,255,.28)", cursor: "pointer", fontFamily: "inherit", fontWeight: 500, padding: 0, transition: "color .15s" }}
-            onMouseEnter={e => (e.currentTarget.style.color = "rgba(255,255,255,.70)")}
-            onMouseLeave={e => (e.currentTarget.style.color = "rgba(255,255,255,.28)")}>
-            Sign out
-          </button>
         </div>
       </header>
 
