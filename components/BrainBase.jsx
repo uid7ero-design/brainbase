@@ -40,7 +40,7 @@ export default function BrainBase() {
     chatOpen,    setChatOpen, toggleChat,
     items,       latestId,
     cards,       addCard,    removeCard,
-    llmSource,
+    llmSource,   toggleBrainGraph,
   } = useAppStore();
 
   // ── Speech amplitude → orb glow sync ────────────────────────────────
@@ -246,22 +246,22 @@ export default function BrainBase() {
             </span>
           </div>
 
-          {/* Open Command Centre */}
-          <Link
-            href="/dashboards"
+          {/* Brain Graph toggle */}
+          <button
+            onClick={toggleBrainGraph}
             style={{
               display: "flex", alignItems: "center", gap: 6,
               padding: "6px 14px", borderRadius: 8, fontSize: 12, fontWeight: 600,
               background: "rgba(139,92,246,.14)", border: "1px solid rgba(139,92,246,.30)",
-              color: "#C4B5FD", textDecoration: "none", letterSpacing: ".02em",
-              transition: "background .15s",
+              color: "#C4B5FD", cursor: "pointer", letterSpacing: ".02em",
+              transition: "background .15s", fontFamily: FONT,
             }}
           >
-            Open Command Centre
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
-              <path d="M5 12h14M12 5l7 7-7 7"/>
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/><path d="M3 12c0 1.66 4.03 3 9 3s9-1.34 9-3"/>
             </svg>
-          </Link>
+            Brain Graph
+          </button>
         </div>
       </header>
 

@@ -697,7 +697,7 @@ function CalendarWidget() {
 // ── Main sidebar ─────────────────────────────────────────────────────────────
 export function LeftSidebar({ open, onToggle }) {
   const [activeTab, setActiveTab] = useState('nav');
-  const { activeNav, setActiveNav, setMemoryPanelOpen, setNewsOpen, setIntegrationsOpen } = useAppStore();
+  const { activeNav, setActiveNav, setMemoryPanelOpen, setNewsOpen, setIntegrationsOpen, setBrainGraphOpen } = useAppStore();
 
   const sidebarWidth = open ? (activeTab === 'brain' ? 360 : 220) : 48;
 
@@ -799,8 +799,19 @@ export function LeftSidebar({ open, onToggle }) {
           )}
 
           {activeTab === 'brain' && (
-            <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "#020408" }}>
-              <InlineBrainGraph />
+            <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden", background: "#020408" }}>
+              <div style={{ flexShrink: 0, padding: "8px 10px", borderBottom: "1px solid rgba(255,255,255,.05)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <span style={{ fontSize: 9, fontWeight: 700, color: "rgba(180,130,255,.70)", letterSpacing: ".10em" }}>BRAIN GRAPH</span>
+                <button
+                  onClick={() => setBrainGraphOpen(true)}
+                  style={{ display: "flex", alignItems: "center", gap: 4, padding: "3px 8px", borderRadius: 5, background: "rgba(180,130,255,.08)", border: "1px solid rgba(180,130,255,.20)", color: "rgba(180,130,255,.75)", fontSize: 9, fontWeight: 600, cursor: "pointer", letterSpacing: ".04em" }}
+                >
+                  Fullscreen ↗
+                </button>
+              </div>
+              <div style={{ flex: 1, minHeight: 0 }}>
+                <InlineBrainGraph />
+              </div>
             </div>
           )}
         </>

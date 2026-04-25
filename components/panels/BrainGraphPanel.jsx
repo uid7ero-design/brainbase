@@ -691,9 +691,11 @@ export function BrainGraphPanel() {
         <span style={{ fontSize: 12, fontWeight: 700, color: 'rgba(255,255,255,.80)', letterSpacing: '.04em' }}>BRAIN</span>
         {stats && <span style={{ fontSize: 10, color: 'rgba(255,255,255,.22)' }}>{stats.nodes} notes · {stats.links} connections</span>}
         {loading && <span style={{ fontSize: 10, color: 'rgba(168,85,247,.65)' }}>Building graph…</span>}
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
           <button onClick={loadAndBuild} style={{ padding: '4px 10px', borderRadius: 6, background: 'rgba(168,85,247,.06)', border: '1px solid rgba(168,85,247,.22)', color: 'rgba(168,85,247,.75)', fontSize: 10, cursor: 'pointer' }}>Refresh</button>
-          <button onClick={() => setOpen(false)} style={{ padding: '4px 10px', borderRadius: 6, background: 'rgba(255,255,255,.03)', border: '1px solid rgba(255,255,255,.07)', color: 'rgba(255,255,255,.35)', fontSize: 10, cursor: 'pointer' }}>ESC</button>
+          <button onClick={() => setOpen(false)} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 16px', borderRadius: 8, background: 'rgba(255,255,255,.07)', border: '1px solid rgba(255,255,255,.16)', color: 'rgba(255,255,255,.80)', fontSize: 12, fontWeight: 600, cursor: 'pointer', letterSpacing: '.01em' }}>
+            ← Back to HLNA
+          </button>
         </div>
       </div>
 

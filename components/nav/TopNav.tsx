@@ -57,7 +57,9 @@ export default function TopNav() {
 
       {/* Links */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 22 }}>
-        <NavLink href="/dashboards" active={pathname.startsWith('/dashboards')}>Dashboards</NavLink>
+        {isManager && (
+          <NavLink href="/command" active={pathname.startsWith('/command')}>Command Centre</NavLink>
+        )}
 
         <NavLink href="/dashboard" active={pathname === '/dashboard'}>
           <svg width="46" height="14" viewBox="0 0 211 62" style={{ display: 'block' }} aria-label="HLNA">
@@ -76,9 +78,7 @@ export default function TopNav() {
           </svg>
         </NavLink>
 
-        {isManager && (
-          <NavLink href="/command" active={pathname.startsWith('/command')}>Command Centre</NavLink>
-        )}
+        <NavLink href="/dashboards" active={pathname.startsWith('/dashboards')}>Dashboards</NavLink>
 
         {isSuperAdmin && (
           <NavLink href="/admin/users" active={pathname.startsWith('/admin')}>Admin</NavLink>
