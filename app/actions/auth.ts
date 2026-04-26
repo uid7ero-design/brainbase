@@ -12,14 +12,22 @@ export async function login(prevState: LoginState, formData: FormData): Promise<
 
   if (!username || !password) return { error: 'Username and password required.' };
 
-  const rows = await sql`SELECT * FROM users WHERE username = ${username} LIMIT 1`;
+  const rows = await sql`
+    SELECT * FROM users
+    WHERE username = ${username}
+    LIMIT 1
+  `;
   const user = rows[0];
 
   if (!user || !(await bcrypt.compare(password, user.password_hash))) {
     return { error: 'Invalid username or password.' };
   }
 
-  await createSession(user.id, user.role as Role, user.name);
+  if (!user.organisation_id) {
+    return { error: 'Your account is not linked to an organisation. Contact your administrator.' };
+  }
+
+  await createSession(user.id, user.organisation_id, user.role as Role, user.name);
   redirect('/');
 }
 

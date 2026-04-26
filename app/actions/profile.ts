@@ -14,7 +14,7 @@ export async function updateProfile(prevState: ProfileState, formData: FormData)
   if (!name) return { error: 'Name is required.' };
 
   await sql`UPDATE users SET name = ${name}, updated_at = NOW() WHERE id = ${session.userId}`;
-  await createSession(session.userId, session.role as Role, name);
+  await createSession(session.userId, session.organisationId, session.role as Role, name);
   revalidatePath('/profile');
   return { success: 'Name updated.' };
 }

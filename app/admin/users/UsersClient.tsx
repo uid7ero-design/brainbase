@@ -1,10 +1,8 @@
 'use client';
 import { useActionState, useState, useTransition } from 'react';
 import { createUser, updateUserRole, deleteUser, resetUserPassword, updateUserDetails } from '@/app/actions/users';
-import { logout } from '@/app/actions/auth';
 import type { Role } from '@/lib/session';
 
-const BG = '#07080B';
 const CARD = '#0e1014';
 const BORDER = '#1a1d24';
 const ROLES: Role[] = ['super_admin', 'admin', 'manager', 'viewer'];
@@ -21,9 +19,10 @@ const ROLE_LABELS: Record<Role, string> = {
   viewer: 'Viewer',
 };
 
-type User = { id: string; username: string; name: string; role: string; created_at: string };
+type User = { id: string; username: string; name: string; role: string; created_at: string; organisation_id: string | null; organisation_name: string | null };
+type Org = { id: string; name: string; slug: string };
 
-export default function UsersClient({ users, currentUserId }: { users: User[]; currentUserId: string }) {
+export default function UsersClient({ users, orgs, currentUserId }: { users: User[]; orgs: Org[]; currentUserId: string }) {
   const [showAdd, setShowAdd] = useState(false);
   const [editTarget, setEditTarget] = useState<User | null>(null);
   const [resetTarget, setResetTarget] = useState<User | null>(null);
@@ -43,34 +42,23 @@ export default function UsersClient({ users, currentUserId }: { users: User[]; c
   }
 
   return (
-    <div style={{ background: BG, minHeight: '100vh', fontFamily: 'var(--font-inter), Inter, sans-serif', color: '#f9fafb', padding: '40px 32px' }}>
-
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 32, maxWidth: 900, margin: '0 auto 32px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          <a href="/" style={{ color: '#6b7280', fontSize: 13, textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 5 }}
-            onMouseEnter={e => (e.currentTarget.style.color = '#9ca3af')}
-            onMouseLeave={e => (e.currentTarget.style.color = '#6b7280')}>
-            ← Home
-          </a>
-          <div>
-            <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em', margin: 0 }}>User Management</h1>
-            <p style={{ color: '#6b7280', fontSize: 13, marginTop: 4 }}>{users.length} user{users.length !== 1 ? 's' : ''}</p>
-          </div>
+    <div style={{ maxWidth: 960 }}>
+      {/* Page header */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 28 }}>
+        <div>
+          <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em', margin: 0 }}>Users</h1>
+          <p style={{ color: '#6b7280', fontSize: 13, marginTop: 4, marginBottom: 0 }}>{users.length} user{users.length !== 1 ? 's' : ''}</p>
         </div>
-        <div style={{ display: 'flex', gap: 10 }}>
-          <button onClick={() => setShowAdd(true)} style={btnStyle('#1a6aff')}>+ Add User</button>
-          <form action={logout}><button type="submit" style={btnStyle('#1a1d24')}>Sign out</button></form>
-        </div>
+        <button onClick={() => setShowAdd(true)} style={btnStyle('#1a6aff')}>+ Add User</button>
       </div>
 
-      {/* Users table */}
-      <div style={{ maxWidth: 900, margin: '0 auto', background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, overflow: 'hidden' }}>
+      {/* Table */}
+      <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, overflow: 'hidden' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ borderBottom: `1px solid ${BORDER}` }}>
-              {['Name', 'Username', 'Role', 'Actions'].map(h => (
-                <th key={h} style={{ padding: '12px 16px', textAlign: 'left', color: '#6b7280', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{h}</th>
+              {['Name', 'Username', 'Organisation', 'Role', 'Actions'].map(h => (
+                <th key={h} style={thStyle}>{h}</th>
               ))}
             </tr>
           </thead>
@@ -82,15 +70,17 @@ export default function UsersClient({ users, currentUserId }: { users: User[]; c
                   {u.id === currentUserId && <span style={{ marginLeft: 8, fontSize: 10, color: '#6b7280', background: '#1a1d24', padding: '2px 6px', borderRadius: 4 }}>you</span>}
                 </td>
                 <td style={{ padding: '14px 16px', fontSize: 13, color: '#9ca3af' }}>{u.username}</td>
+                <td style={{ padding: '14px 16px', fontSize: 13, color: '#6b7280' }}>
+                  {u.organisation_name
+                    ? <a href={`/admin/orgs`} style={{ color: '#9ca3af', textDecoration: 'none' }}>{u.organisation_name}</a>
+                    : <span style={{ color: '#4b5563', fontStyle: 'italic' }}>None</span>}
+                </td>
                 <td style={{ padding: '14px 16px' }}>
                   <select
                     value={u.role}
                     disabled={u.id === currentUserId}
                     onChange={e => handleRoleChange(u.id, e.target.value as Role)}
-                    style={{
-                      background: '#111318', border: `1px solid ${BORDER}`, borderRadius: 6,
-                      color: ROLE_COLORS[u.role as Role] ?? '#9ca3af', fontSize: 12, padding: '4px 8px', cursor: 'pointer',
-                    }}
+                    style={{ background: '#111318', border: `1px solid ${BORDER}`, borderRadius: 6, color: ROLE_COLORS[u.role as Role] ?? '#9ca3af', fontSize: 12, padding: '4px 8px', cursor: 'pointer' }}
                   >
                     {ROLES.map(r => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
                   </select>
@@ -118,8 +108,15 @@ export default function UsersClient({ users, currentUserId }: { users: User[]; c
             <Field label="Username" name="username" />
             <Field label="Password" name="password" type="password" />
             <div>
+              <label style={labelStyle}>Organisation</label>
+              <select name="orgId" required style={selectStyle}>
+                <option value="">— Select organisation —</option>
+                {orgs.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
+              </select>
+            </div>
+            <div>
               <label style={labelStyle}>Role</label>
-              <select name="role" defaultValue="viewer" style={{ width: '100%', padding: '10px 12px', background: '#111318', border: `1px solid ${BORDER}`, borderRadius: 8, color: '#f9fafb', fontSize: 14 }}>
+              <select name="role" defaultValue="viewer" style={selectStyle}>
                 {ROLES.map(r => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
               </select>
             </div>
@@ -178,12 +175,15 @@ function Field({ label, name, type = 'text', defaultValue }: { label: string; na
   return (
     <div>
       <label style={labelStyle}>{label}</label>
-      <input name={name} type={type} required defaultValue={defaultValue} style={{ width: '100%', padding: '10px 12px', background: '#111318', border: '1px solid #1a1d24', borderRadius: 8, color: '#f9fafb', fontSize: 14, outline: 'none', boxSizing: 'border-box' }} />
+      <input name={name} type={type} required defaultValue={defaultValue}
+        style={{ width: '100%', padding: '10px 12px', background: '#111318', border: '1px solid #1a1d24', borderRadius: 8, color: '#f9fafb', fontSize: 14, outline: 'none', boxSizing: 'border-box' }} />
     </div>
   );
 }
 
+const thStyle: React.CSSProperties = { padding: '12px 16px', textAlign: 'left', color: '#6b7280', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' };
 const labelStyle: React.CSSProperties = { display: 'block', color: '#9ca3af', fontSize: 11, fontWeight: 600, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' };
+const selectStyle: React.CSSProperties = { width: '100%', padding: '10px 12px', background: '#111318', border: '1px solid #1a1d24', borderRadius: 8, color: '#f9fafb', fontSize: 14 };
 const errorStyle: React.CSSProperties = { color: '#f87171', fontSize: 13, background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.2)', borderRadius: 6, padding: '8px 12px', margin: 0 };
 const successStyle: React.CSSProperties = { color: '#34d399', fontSize: 13, background: 'rgba(52,211,153,0.08)', border: '1px solid rgba(52,211,153,0.2)', borderRadius: 6, padding: '8px 12px', margin: 0 };
 function btnStyle(bg: string): React.CSSProperties { return { padding: '9px 18px', background: bg, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }; }

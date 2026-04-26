@@ -6,6 +6,7 @@ export type Role = 'super_admin' | 'admin' | 'manager' | 'viewer';
 
 export type SessionPayload = {
   userId: string;
+  organisationId: string;
   role: Role;
   name: string;
   expiresAt: string;
@@ -31,9 +32,9 @@ export async function decrypt(token: string | undefined = ''): Promise<SessionPa
   }
 }
 
-export async function createSession(userId: string, role: Role, name: string) {
+export async function createSession(userId: string, organisationId: string, role: Role, name: string) {
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-  const token = await encrypt({ userId, role, name, expiresAt: expiresAt.toISOString() });
+  const token = await encrypt({ userId, organisationId, role, name, expiresAt: expiresAt.toISOString() });
   const cookieStore = await cookies();
   cookieStore.set('session', token, {
     httpOnly: true,

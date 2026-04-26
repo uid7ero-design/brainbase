@@ -18,9 +18,10 @@ export async function createUser(prevState: UserFormState, formData: FormData): 
   const username = (formData.get('username') as string)?.trim().toLowerCase();
   const password = formData.get('password') as string;
   const role = formData.get('role') as Role;
+  const orgId = formData.get('orgId') as string;
 
   const validRoles: Role[] = ['super_admin', 'admin', 'manager', 'viewer'];
-  if (!name || !username || !password || !validRoles.includes(role)) {
+  if (!name || !username || !password || !validRoles.includes(role) || !orgId) {
     return { error: 'All fields required and role must be valid.' };
   }
   if (password.length < 8) return { error: 'Password must be at least 8 characters.' };
@@ -29,7 +30,7 @@ export async function createUser(prevState: UserFormState, formData: FormData): 
   if (existing.length > 0) return { error: 'Username already taken.' };
 
   const passwordHash = await bcrypt.hash(password, 12);
-  await sql`INSERT INTO users (username, password_hash, name, role) VALUES (${username}, ${passwordHash}, ${name}, ${role})`;
+  await sql`INSERT INTO users (username, password_hash, name, role, organisation_id) VALUES (${username}, ${passwordHash}, ${name}, ${role}, ${orgId})`;
 
   revalidatePath('/admin/users');
   return { success: `User "${name}" created.` };

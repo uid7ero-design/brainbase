@@ -59,7 +59,7 @@ export default function TopNav({ serverSession }: { serverSession?: Session }) {
       {/* Links */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 22 }}>
         {isManager && (
-          <NavLink href="/command" active={pathname.startsWith('/command')}>Command Centre</NavLink>
+          <NavLink href="/command" active={pathname.startsWith('/command')}>Command</NavLink>
         )}
 
         <NavLink href="/dashboard" active={pathname === '/dashboard'}>
@@ -79,10 +79,22 @@ export default function TopNav({ serverSession }: { serverSession?: Session }) {
           </svg>
         </NavLink>
 
+        {isManager && (
+          <NavLink href="/crm" active={pathname.startsWith('/crm')}>CRM</NavLink>
+        )}
+
         <NavLink href="/dashboards" active={pathname.startsWith('/dashboards')}>Dashboards</NavLink>
 
+        {isManager && (
+          <NavLink href="/reports" active={pathname.startsWith('/reports')}>Reports</NavLink>
+        )}
+
+        {isManager && (
+          <NavLink href="/data" active={pathname.startsWith('/data')}>Data</NavLink>
+        )}
+
         {isSuperAdmin && (
-          <NavLink href="/admin/users" active={pathname.startsWith('/admin')}>Admin</NavLink>
+          <NavLink href="/admin/orgs" active={pathname.startsWith('/admin')}>Admin</NavLink>
         )}
 
         <div style={{ width: 1, height: 16, background: 'rgba(255,255,255,.10)' }} />

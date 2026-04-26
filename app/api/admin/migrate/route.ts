@@ -1,0 +1,88 @@
+import { NextResponse } from 'next/server';
+import sql from '@/lib/db';
+import { getSession } from '@/lib/session';
+
+/**
+ * POST /api/admin/migrate
+ * Idempotent — safe to call multiple times. Creates all multi-tenant tables
+ * and adds any missing columns to the existing users table.
+ * Requires super_admin session.
+ */
+export async function POST() {
+  const session = await getSession();
+  if (!session || session.role !== 'super_admin') {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
+
+  // 1. organisations
+  await sql`
+    CREATE TABLE IF NOT EXISTS organisations (
+      id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      name       TEXT NOT NULL,
+      slug       TEXT UNIQUE NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `;
+
+  // 2. Extend users: add organisation_id and email if they don't exist
+  await sql`
+    ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS organisation_id UUID REFERENCES organisations(id),
+      ADD COLUMN IF NOT EXISTS email TEXT
+  `;
+
+  // 3. uploaded_files
+  await sql`
+    CREATE TABLE IF NOT EXISTS uploaded_files (
+      id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      organisation_id UUID NOT NULL REFERENCES organisations(id),
+      uploaded_by     UUID NOT NULL REFERENCES users(id),
+      file_name       TEXT NOT NULL,
+      file_url        TEXT NOT NULL DEFAULT '',
+      file_type       TEXT NOT NULL DEFAULT 'xlsx',
+      upload_status   TEXT NOT NULL DEFAULT 'processing'
+        CHECK (upload_status IN ('processing', 'complete', 'error')),
+      created_at      TIMESTAMPTZ DEFAULT NOW()
+    )
+  `;
+
+  // 4. waste_records
+  await sql`
+    CREATE TABLE IF NOT EXISTS waste_records (
+      id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      organisation_id    UUID NOT NULL REFERENCES organisations(id),
+      uploaded_file_id   UUID REFERENCES uploaded_files(id),
+      service_type       TEXT,
+      suburb             TEXT,
+      month              TEXT,
+      financial_year     TEXT,
+      tonnes             NUMERIC,
+      collections        INTEGER,
+      contamination_rate NUMERIC,
+      cost               NUMERIC,
+      created_at         TIMESTAMPTZ DEFAULT NOW()
+    )
+  `;
+
+  // 5. reports
+  await sql`
+    CREATE TABLE IF NOT EXISTS reports (
+      id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      organisation_id  UUID NOT NULL REFERENCES organisations(id),
+      created_by       UUID NOT NULL REFERENCES users(id),
+      report_type      TEXT NOT NULL,
+      report_title     TEXT NOT NULL,
+      report_content   TEXT NOT NULL,
+      source_file_id   UUID REFERENCES uploaded_files(id),
+      created_at       TIMESTAMPTZ DEFAULT NOW()
+    )
+  `;
+
+  // Indexes for fast org-scoped lookups
+  await sql`CREATE INDEX IF NOT EXISTS idx_uploaded_files_org    ON uploaded_files(organisation_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_waste_records_org     ON waste_records(organisation_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_waste_records_file    ON waste_records(uploaded_file_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_reports_org           ON reports(organisation_id)`;
+
+  return NextResponse.json({ success: true, message: 'Migration complete.' });
+}
