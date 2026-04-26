@@ -10,7 +10,7 @@ const STAGES = [
   { value: 'closed_lost', label: 'Lost' },
 ];
 
-type Deal = { id?: string; title?: string; value?: number | null; stage?: string; probability?: number; expected_close?: string | null; company_id?: string; contact_id?: string; assigned_to?: string | null; notes?: string };
+type Deal = { id?: string; title?: string; value?: number | null; stage?: string; probability?: number; expected_close?: string | null; company_id?: string | null; contact_id?: string | null; assigned_to?: string | null; notes?: string | null };
 type Opt = { id: string; name: string };
 
 export default function DealForm({ initial, onSaved, onDelete }: { initial?: Deal; onSaved: (d: Deal) => void; onDelete?: () => void }) {

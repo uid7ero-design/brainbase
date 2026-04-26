@@ -1,7 +1,7 @@
 'use client';
 import { useState } from 'react';
 
-type Company = { id?: string; name?: string; website?: string; industry?: string; company_size?: string; phone?: string; address?: string; notes?: string };
+type Company = { id?: string; name?: string; website?: string | null; industry?: string | null; company_size?: string | null; phone?: string | null; address?: string | null; notes?: string | null };
 
 const INDUSTRIES = ['Agriculture','Construction','Education','Energy','Finance','Government','Healthcare','Hospitality','Legal','Manufacturing','Media','Non-profit','Real Estate','Retail','Technology','Transport','Utilities','Waste Management','Other'];
 const SIZES = ['1–10','11–50','51–200','201–500','500+'];

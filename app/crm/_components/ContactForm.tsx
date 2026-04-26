@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 
-type Contact = { id?: string; first_name?: string; last_name?: string; email?: string; phone?: string; job_title?: string; company_id?: string; notes?: string };
+type Contact = { id?: string; first_name?: string; last_name?: string; email?: string | null; phone?: string | null; job_title?: string | null; company_id?: string | null; notes?: string | null };
 type Company = { id: string; name: string };
 
 export default function ContactForm({ initial, onSaved }: { initial?: Contact; onSaved: (c: Contact) => void }) {
