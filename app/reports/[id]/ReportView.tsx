@@ -84,13 +84,14 @@ export default function ReportView({ id, title, reportType, content, createdByNa
   async function handlePdfExport() {
     setExportingPdf(true);
     try {
-      const [{ jsPDF }, res] = await Promise.all([
+      const [jspdfMod, res] = await Promise.all([
         import('jspdf'),
         fetch(`/api/reports/${id}?format=pdf`),
       ]);
       const { pdf } = await res.json();
+      const JsPDF = jspdfMod.jsPDF ?? jspdfMod.default;
 
-      const doc = new jsPDF.jsPDF({ unit: 'mm', format: 'a4' });
+      const doc = new JsPDF({ unit: 'mm', format: 'a4' });
       const pageW = doc.internal.pageSize.getWidth();
       const margin = 18;
       const usable = pageW - margin * 2;
