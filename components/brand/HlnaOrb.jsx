@@ -166,7 +166,7 @@ function randomGlance(last) {
   return { ry, rx };
 }
 
-export function HlnaOrb({ size = 80, state = 'idle', speechRef, style }) {
+export function HlnaOrb({ size = 80, state = 'idle', speechRef = null, style = {} }) {
   const s          = STATE[state] ?? STATE.idle;
   const imgRef     = useRef(null);
   const glanceRef  = useRef(null);
