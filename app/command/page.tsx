@@ -201,14 +201,15 @@ export default function CommandPage() {
   const [input, setInput]       = useState("");
   const [busy, setBusy]         = useState(false);
   const bottomRef               = useRef<HTMLDivElement>(null);
-  const initialMount            = useRef(true);
+  const prevMsgCount            = useRef(msgs.length);
   const { shown, done }         = useTyping(HLNA_SUMMARY, 20);
 
   // Force scroll to top on every page load
   useEffect(() => { window.scrollTo(0, 0); }, []);
 
   useEffect(() => {
-    if (initialMount.current) { initialMount.current = false; return; }
+    if (msgs.length <= prevMsgCount.current) { prevMsgCount.current = msgs.length; return; }
+    prevMsgCount.current = msgs.length;
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [msgs]);
 

@@ -12,6 +12,9 @@ import InsightCardCmp      from './ui/InsightCard';
 import ExecutivePanel      from './ui/ExecutivePanel';
 import Section             from './ui/Section';
 import DashboardGrid       from './ui/DashboardGrid';
+import { useAppStore }     from '../../lib/state/useAppStore';
+import { useRouter, usePathname } from 'next/navigation';
+import { DASHBOARDS }      from '../../lib/dashboard/registry';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -250,6 +253,8 @@ export default function DashboardShell({
     budgetLine:'rgba(255,255,255,0.3)',
   };
 
+  const router   = useRouter();
+  const pathname = usePathname();
   const storageKey = `bb_${title.replace(/\W+/g, '_').toLowerCase()}`;
 
   // ── State ──
@@ -287,6 +292,13 @@ export default function DashboardShell({
       localStorage.setItem(storageKey, JSON.stringify({ store: dataStore, activeFY, activeDatasetId }));
     } catch { /* storage quota exceeded */ }
   }, [dataStore, activeFY, activeDatasetId, storageKey]);
+
+  // Publish this dashboard's AI context to Helena whenever it changes
+  useEffect(() => {
+    if (!aiContext) return;
+    useAppStore.getState().setDashboardAiContext(aiContext);
+    return () => useAppStore.getState().setDashboardAiContext('');
+  }, [aiContext]);
 
   // ── Derived data ──
   const fyDatasets    = dataStore[activeFY] ?? [];
@@ -457,8 +469,26 @@ export default function DashboardShell({
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: 10 }}>
           <div>
-            <h1 style={{ margin: 0, fontSize: 21, fontWeight: 700 }}>{title}</h1>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <h1 style={{ margin: 0, fontSize: 21, fontWeight: 700 }}>{title}</h1>
+              <select
+                value={pathname ?? ''}
+                onChange={e => { if (e.target.value) router.push(e.target.value); }}
+                style={{ padding: '4px 10px', background: 'rgba(0,0,0,0.3)', border: `1px solid ${accentColor}50`, borderRadius: 20, color: '#e5e7eb', fontSize: 12, cursor: 'pointer', fontWeight: 600 }}
+              >
+                {Object.values(DASHBOARDS).map(d => (
+                  <option key={d.route} value={d.route}>{d.name}</option>
+                ))}
+              </select>
+            </div>
             <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.6)', marginTop: 2 }}>{subtitle}</div>
+            <button
+              onClick={() => useAppStore.getState().fireHelena(`Explain this ${title} dashboard to me — cover the key metrics, any risks or issues, and what I should focus on.`)}
+              style={{ marginTop: 6, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600, cursor: 'pointer', background: 'rgba(0,0,0,0.25)', border: `1px solid ${accentColor}60`, color: 'rgba(255,255,255,0.75)', letterSpacing: '.03em' }}
+            >
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 2a10 10 0 1 1 0 20A10 10 0 0 1 12 2zm0 6v4m0 4h.01"/></svg>
+              Ask HLNA to explain
+            </button>
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             <select

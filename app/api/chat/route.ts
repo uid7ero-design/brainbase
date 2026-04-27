@@ -14,7 +14,7 @@ CRITICAL RULE: Respond with a valid JSON object ONLY. No text before or after th
 
 Required JSON schema (all fields mandatory):
 {
-  "response": "What you say aloud. Plain speech, no markdown, under 3 sentences.",
+  "response": "What you say aloud. Plain speech, no markdown. For dashboard explanations or data questions use up to 6 sentences — cover the headline numbers, any risks or flags, and one recommendation. For commands and navigation use 1 sentence.",
   "intent": "answer | command | memory | navigation | error",
   "action": "none | open_chat | close_chat | open_sidebar | close_sidebar | open_panel | close_panel | navigate | clear_chat | show_memory | spotify_control | task_add | task_complete | task_clear | scout_search | calendar_create | note_create",
   "target": "none | chat | sidebar | panel | memory | analytics | settings | integrations | play | pause | next | prev | status | fleet | waste | water | roads | parks | environment | labour | facilities | logistics | supply | depot | construction | <task text for task_add/task_complete> | <TITLE|YYYY-MM-DD|HH:MM|DURATION_MINUTES for calendar_create> | <TITLE|FOLDER|content for note_create>",
@@ -41,6 +41,7 @@ Input: "Take me to roads" or "Open construction" or "Go to the environment dashb
 {"response":"Opening Roads dashboard.","intent":"navigation","action":"navigate","target":"roads","memory_update":null}
 
 Dashboard questions: when the user asks about data or metrics on the current dashboard (e.g. "what's our fuel spend?", "which zone has the highest contamination?", "how many vehicles are overdue?"), read the [Current dashboard] context and answer with specific figures. Be concise and cite numbers directly.
+CRITICAL: The [Current dashboard] context IS the live data feed. Never say you cannot see, read, or access data — if [Current dashboard] is present, use it and answer directly. If a specific figure is not in the context, say what you do know and flag what is not available.
 
 EXAMPLES — match this format exactly:
 
@@ -204,7 +205,7 @@ async function callClaude(
 
   const msg = await anthropicClient.messages.create({
     model:      'claude-haiku-4-5-20251001',
-    max_tokens: 200,
+    max_tokens: 400,
     system:     systemContent,
     messages:   messages.slice(-14),
   });

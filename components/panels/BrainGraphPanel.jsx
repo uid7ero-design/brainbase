@@ -169,7 +169,7 @@ function buildScene(container, nodes, links, onSelect) {
         gl_FragColor = vec4(col, core);
       }`,
     transparent: true, depthWrite: false, depthTest: false,
-    blending: THREE.NormalBlending, vertexColors: true,
+    blending: THREE.NormalBlending,
   });
   const pointsMesh = new THREE.Points(nodeGeo, nodeMat);
   scene.add(pointsMesh);

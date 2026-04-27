@@ -12,7 +12,7 @@ import { getContextForPath, resolveRoute } from '../../lib/dashboard/registry';
 function HelenaLayer({ pathname }) {
   const router = useRouter();
   const helena = useHelena();
-  const { chatOpen, setChatOpen, toggleChat, llmSource } = useAppStore();
+  const { chatOpen, setChatOpen, toggleChat, llmSource, dashboardAiContext, helenaTrigger, clearHelenaTrigger } = useAppStore();
 
   // Wire navigation: called when Helena returns action "navigate"
   useEffect(() => {
@@ -23,11 +23,19 @@ function HelenaLayer({ pathname }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Keep dashboard context in sync with current route
+  // Keep dashboard context in sync: prefer live page context over static registry
   useEffect(() => {
-    helena.dashboardContextRef.current = getContextForPath(pathname);
+    helena.dashboardContextRef.current = dashboardAiContext || getContextForPath(pathname);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pathname]);
+  }, [pathname, dashboardAiContext]);
+
+  // Fire a message into Helena from outside the hook (e.g. Explain button)
+  useEffect(() => {
+    if (!helenaTrigger) return;
+    clearHelenaTrigger();
+    helena.sendMessage(helenaTrigger);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [helenaTrigger]);
 
   // Wake word: "Hey Helena"
   useEffect(() => {

@@ -6,6 +6,7 @@ import { getTaskContext } from './useTasks';
 import { parseCommand } from '../lib/actions/commandParser';
 import { executeCommand, executeStructuredAction } from '../lib/actions/dashboardActions';
 import { useAppStore } from '../lib/state/useAppStore';
+import { getContextForPath } from '../lib/dashboard/registry';
 
 // ─── Phase machine ────────────────────────────────────────────────
 // idle → listening → processing → speaking → idle
@@ -31,6 +32,7 @@ export function useHelena() {
   const conversationalRef = useRef(false);
   const wakeEnabledRef    = useRef(false);
   const ttsReadyRef       = useRef(false);
+  const silenceCountRef   = useRef(0); // consecutive no-speech cycles in convo mode
 
   // ── Context refs (set by parent) ─────────────────────────────────
   const speechPulseRef     = useRef(null);
@@ -136,6 +138,7 @@ export function useHelena() {
   const speak = useCallback((text) => {
     if (!text) return;
     setPhase('speaking');
+    silenceCountRef.current = 0; // Helena responded — reset silence clock
     speechSynthesis.cancel();
 
     (async () => {
@@ -220,7 +223,9 @@ export function useHelena() {
           spotifyContext:    spotifyContextRef.current,
           taskContext:       getTaskContext(),
           calendarContext:   calendarContextRef.current,
-          dashboardContext:  dashboardContextRef.current,
+          dashboardContext:  useAppStore.getState().dashboardAiContext
+                             || dashboardContextRef.current
+                             || (typeof window !== 'undefined' ? getContextForPath(window.location.pathname) : ''),
         }),
       });
       const data = await res.json();
@@ -306,15 +311,24 @@ export function useHelena() {
     if (phase() !== 'idle') return;
 
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) { showMicError('Speech recognition not supported.'); return; }
+    if (!SR) return;
 
     primeTTS();
     setPhase('listening');
     setTranscript('');
     transcriptRef.current = '';
 
-    function restartOrWake() {
+    function restartOrWake(noSpeech = false) {
       if (conversationalRef.current) {
+        if (noSpeech) silenceCountRef.current += 1;
+        // Drop out of conversation after 2 consecutive silent cycles (~14s)
+        if (silenceCountRef.current >= 2) {
+          silenceCountRef.current = 0;
+          conversationalRef.current = false;
+          setConversational(false);
+          if (wakeEnabledRef.current) setTimeout(() => launchWakeRef.current?.(), 300);
+          return;
+        }
         setTimeout(() => {
           if (conversationalRef.current && phase() === 'idle' && !recogRef.current) {
             startListeningRef.current?.();
@@ -336,6 +350,7 @@ export function useHelena() {
       recogRef.current     = recog;
 
       recog.onresult = (e) => {
+        silenceCountRef.current = 0; // speech detected — reset silence counter
         const interim = Array.from(e.results).map(r => r[0].transcript).join('');
         setTranscript(interim);
         transcriptRef.current = interim;
@@ -366,7 +381,7 @@ export function useHelena() {
 
         if (e.error === 'no-speech') {
           setPhase('idle');
-          restartOrWake();
+          restartOrWake(true); // pass noSpeech=true to increment silence counter
           return;
         }
 
@@ -472,7 +487,7 @@ export function useHelena() {
     };
     recog.onresult = (e) => {
       const t = Array.from(e.results).map(r => r[0].transcript).join(' ');
-      if (/hey\s*helena?|hey helen/i.test(t)) {
+      if (/hey\s*(helena?|helen\b|hlna|h[\s.]*l[\s.]*n[\s.]*a\b)/i.test(t)) {
         // Enter conversation mode so Helena keeps listening after each response.
         // Let startListening handle stopping the wake recog via its onend path
         // (avoids the "aborted" race — doStart fires only after the session releases).
@@ -490,6 +505,11 @@ export function useHelena() {
 
   // ── Conversation mode ─────────────────────────────────────────────
   const startConversation = useCallback(() => {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) {
+      useAppStore.getState().setChatOpen(true);
+      return;
+    }
     conversationalRef.current = true;
     setConversational(true);
     primeTTS();

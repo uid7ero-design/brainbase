@@ -1,9 +1,10 @@
-﻿"use client";
+"use client";
 
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend,
   CartesianGrid, LineChart, Line, Cell,
 } from "recharts";
+import { KpiCard, Insight, SectionHeader, T1, T2, T3, BORDER, ROW_BDR, ROW_HEAD, GRID, TICK, DTT, DC, PAGE } from "../_dark";
 
 const CATEGORIES = [
   { category: "Missed Collection",     count: 156, resolved: 148, avgDays: 1.2, color: "#ef4444" },
@@ -49,17 +50,17 @@ export default function ComplaintsPage() {
   const today = new Date().toLocaleDateString("en-AU", { day: "numeric", month: "long", year: "numeric" });
 
   return (
-    <div className="max-w-7xl mx-auto px-8 py-6 space-y-6">
-      <p className="text-slate-500 text-sm">Period: {today}</p>
+    <div style={PAGE}>
+      <p style={{ fontSize: 13, color: T3, margin: 0 }}>Period: {today}</p>
 
-      <div className="grid grid-cols-4 gap-5">
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 20 }}>
         <KpiCard label="Total Service Requests" value={totalRequests.toLocaleString()}    sub="All types this period"                    accent="#3b82f6" />
         <KpiCard label="Requests per 1,000 HH"  value={per1000hh}                         sub="Target ≤ 10 per 1,000 HH"                 accent={per1000hh <= 10 ? "#10b981" : "#ef4444"} />
         <KpiCard label="Open / Unresolved"       value={totalOpen}                         sub={`${totalResolved} resolved (${Math.round(totalResolved/totalRequests*100)}%)`} accent={totalOpen > 20 ? "#ef4444" : "#10b981"} />
         <KpiCard label="Avg Resolution Time"     value={`${avgResolution} days`}           sub="Target ≤ 3 days"                          accent={avgResolution <= 3 ? "#10b981" : "#f59e0b"} />
       </div>
 
-      <div className="grid grid-cols-3 gap-5">
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 20 }}>
         <Insight icon="📋" color="red"
           title={`Missed collections = ${Math.round(156/totalRequests*100)}% of all requests`}
           body={`156 missed collection reports this period. The majority (${ZONE_COMPLAINTS.filter(z => z.missed > 15).map(z => z.zone).join(", ")}) are concentrated in high-density zones — review route capacity.`}
@@ -74,31 +75,31 @@ export default function ComplaintsPage() {
         />
       </div>
 
-      <div className="grid grid-cols-2 gap-5">
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
+        <div style={DC}>
           <SectionHeader title="Requests by Type" sub="Volume and resolution rate this period" />
           <ResponsiveContainer width="100%" height={280}>
             <BarChart data={CATEGORIES} layout="vertical" margin={{ left: 12 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
-              <XAxis type="number" tick={{ fill: "#94a3b8", fontSize: 11 }} axisLine={false} tickLine={false} />
-              <YAxis type="category" dataKey="category" width={145} tick={{ fill: "#64748b", fontSize: 11 }} axisLine={false} tickLine={false} />
-              <Tooltip contentStyle={{ borderRadius: 8, fontSize: 12 }} />
-              <Legend wrapperStyle={{ fontSize: 12 }} />
+              <CartesianGrid strokeDasharray="3 3" stroke={GRID} horizontal={false} />
+              <XAxis type="number" tick={{ fill: TICK, fontSize: 11 }} axisLine={false} tickLine={false} />
+              <YAxis type="category" dataKey="category" width={145} tick={{ fill: TICK, fontSize: 11 }} axisLine={false} tickLine={false} />
+              <Tooltip contentStyle={DTT} />
+              <Legend wrapperStyle={{ fontSize: 12, color: T2 }} />
               <Bar dataKey="resolved" name="Resolved" stackId="a" fill="#10b981" radius={[0,0,0,0]} />
               <Bar dataKey="open"     name="Open"     stackId="a" fill="#ef4444" radius={[0,4,4,0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
 
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
+        <div style={DC}>
           <SectionHeader title="Monthly Request Volume" sub="Total received vs resolved Oct 2025 – Mar 2026" />
           <ResponsiveContainer width="100%" height={280}>
             <LineChart data={MONTHLY}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-              <XAxis dataKey="month" tick={{ fill: "#64748b", fontSize: 11 }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fill: "#94a3b8", fontSize: 11 }} axisLine={false} tickLine={false} />
-              <Tooltip contentStyle={{ borderRadius: 8, fontSize: 12 }} />
-              <Legend wrapperStyle={{ fontSize: 12 }} />
+              <CartesianGrid strokeDasharray="3 3" stroke={GRID} />
+              <XAxis dataKey="month" tick={{ fill: TICK, fontSize: 11 }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fill: TICK, fontSize: 11 }} axisLine={false} tickLine={false} />
+              <Tooltip contentStyle={DTT} />
+              <Legend wrapperStyle={{ fontSize: 12, color: T2 }} />
               <Line type="monotone" dataKey="requests" name="Received" stroke="#ef4444" strokeWidth={2} dot={{ r: 4 }} />
               <Line type="monotone" dataKey="resolved" name="Resolved" stroke="#10b981" strokeWidth={2} dot={{ r: 4 }} />
             </LineChart>
@@ -106,70 +107,63 @@ export default function ComplaintsPage() {
         </div>
       </div>
 
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
+      <div style={DC}>
         <SectionHeader title="Complaints by Zone" sub="Missed collections, bin damage and other — per 1,000 households" />
         <ResponsiveContainer width="100%" height={260}>
           <BarChart data={ZONE_COMPLAINTS} barCategoryGap="20%">
-            <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-            <XAxis dataKey="zone" tick={{ fill: "#64748b", fontSize: 11 }} axisLine={false} tickLine={false} />
-            <YAxis tick={{ fill: "#94a3b8", fontSize: 11 }} axisLine={false} tickLine={false} />
-            <Tooltip contentStyle={{ borderRadius: 8, fontSize: 12 }} />
-            <Legend wrapperStyle={{ fontSize: 12 }} />
+            <CartesianGrid strokeDasharray="3 3" stroke={GRID} vertical={false} />
+            <XAxis dataKey="zone" tick={{ fill: TICK, fontSize: 11 }} axisLine={false} tickLine={false} />
+            <YAxis tick={{ fill: TICK, fontSize: 11 }} axisLine={false} tickLine={false} />
+            <Tooltip contentStyle={DTT} />
+            <Legend wrapperStyle={{ fontSize: 12, color: T2 }} />
             <Bar dataKey="missed" name="Missed Collection" stackId="a" fill="#ef4444" />
             <Bar dataKey="damage" name="Bin Damage"        stackId="a" fill="#f59e0b" />
-            <Bar dataKey="other"  name="Other"             stackId="a" fill="#94a3b8" radius={[3,3,0,0]} />
+            <Bar dataKey="other"  name="Other"             stackId="a" fill="rgba(255,255,255,0.25)" radius={[3,3,0,0]} />
           </BarChart>
         </ResponsiveContainer>
       </div>
 
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-100"><SectionHeader title="Request Category Summary" /></div>
-        <table className="w-full text-sm">
+      <div style={{ ...DC, padding: 0, overflow: "hidden" }}>
+        <div style={{ padding: "16px 20px", borderBottom: `1px solid ${BORDER}` }}>
+          <SectionHeader title="Request Category Summary" />
+        </div>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
           <thead>
-            <tr className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wide">
-              {["Category","Received","Resolved","Open","Resolution Rate","Avg Days to Resolve"].map(h => (
-                <th key={h} className={`py-3 font-medium ${h === "Category" ? "text-left px-6" : "text-right px-4"}`}>{h}</th>
+            <tr style={{ background: ROW_HEAD }}>
+              {["Category","Received","Resolved","Open","Resolution Rate","Avg Days to Resolve"].map((h, i) => (
+                <th key={h} style={{ padding: "10px 14px", fontWeight: 600, fontSize: 10, color: T3, textTransform: "uppercase", letterSpacing: ".06em", textAlign: i === 0 ? "left" : "right" }}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {CATEGORIES.map((r, i) => (
-              <tr key={i} className="border-t border-slate-50 hover:bg-slate-50 transition">
-                <td className="px-6 py-3 font-medium text-slate-800 flex items-center gap-2">
-                  <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: r.color }} />
-                  {r.category}
+              <tr key={i} style={{ borderTop: `1px solid ${ROW_BDR}` }}>
+                <td style={{ padding: "10px 14px", color: T1, fontWeight: 500 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <div style={{ width: 8, height: 8, borderRadius: "50%", background: r.color, flexShrink: 0 }} />
+                    {r.category}
+                  </div>
                 </td>
-                <td className="px-4 py-3 text-right text-slate-600">{r.count}</td>
-                <td className="px-4 py-3 text-right text-emerald-600">{r.resolved}</td>
-                <td className="px-4 py-3 text-right"><span className={r.open > 5 ? "text-red-500 font-semibold" : "text-slate-600"}>{r.open}</span></td>
-                <td className="px-4 py-3 text-right"><span className={r.resolutionRate >= 90 ? "text-emerald-600 font-semibold" : "text-amber-500 font-semibold"}>{r.resolutionRate}%</span></td>
-                <td className="px-4 py-3 text-right"><span className={r.avgDays <= 3 ? "text-emerald-600" : "text-amber-500"}>{r.avgDays} days</span></td>
+                <td style={{ padding: "10px 14px", textAlign: "right", color: T2 }}>{r.count}</td>
+                <td style={{ padding: "10px 14px", textAlign: "right", color: "#4ade80" }}>{r.resolved}</td>
+                <td style={{ padding: "10px 14px", textAlign: "right" }}><span style={{ color: r.open > 5 ? "#f87171" : T2, fontWeight: r.open > 5 ? 600 : 400 }}>{r.open}</span></td>
+                <td style={{ padding: "10px 14px", textAlign: "right" }}><span style={{ fontWeight: 600, color: r.resolutionRate >= 90 ? "#4ade80" : "#f59e0b" }}>{r.resolutionRate}%</span></td>
+                <td style={{ padding: "10px 14px", textAlign: "right" }}><span style={{ color: r.avgDays <= 3 ? "#4ade80" : "#f59e0b" }}>{r.avgDays} days</span></td>
               </tr>
             ))}
           </tbody>
           <tfoot>
-            <tr className="bg-slate-50 border-t-2 border-slate-200 font-semibold text-slate-800 text-sm">
-              <td className="px-6 py-3">Total</td>
-              <td className="px-4 py-3 text-right">{totalRequests}</td>
-              <td className="px-4 py-3 text-right text-emerald-600">{totalResolved}</td>
-              <td className="px-4 py-3 text-right text-red-500">{totalOpen}</td>
-              <td className="px-4 py-3 text-right">{Math.round(totalResolved/totalRequests*100)}%</td>
-              <td className="px-4 py-3 text-right">{avgResolution} days</td>
+            <tr style={{ background: ROW_HEAD, borderTop: `2px solid rgba(255,255,255,0.1)` }}>
+              <td style={{ padding: "10px 14px", color: T1, fontWeight: 600 }}>Total</td>
+              <td style={{ padding: "10px 14px", textAlign: "right", color: T1, fontWeight: 600 }}>{totalRequests}</td>
+              <td style={{ padding: "10px 14px", textAlign: "right", color: "#4ade80", fontWeight: 600 }}>{totalResolved}</td>
+              <td style={{ padding: "10px 14px", textAlign: "right", color: "#f87171", fontWeight: 600 }}>{totalOpen}</td>
+              <td style={{ padding: "10px 14px", textAlign: "right", color: T1, fontWeight: 600 }}>{Math.round(totalResolved/totalRequests*100)}%</td>
+              <td style={{ padding: "10px 14px", textAlign: "right", color: T2 }}>{avgResolution} days</td>
             </tr>
           </tfoot>
         </table>
       </div>
     </div>
   );
-}
-
-function KpiCard({ label, value, sub, accent }: any) {
-  return <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5" style={{ borderLeft: `4px solid ${accent}` }}><p className="text-xs text-slate-500 font-medium uppercase tracking-wide mb-2">{label}</p><p className="text-2xl font-bold text-slate-900 mb-1">{value}</p><p className="text-xs text-slate-400">{sub}</p></div>;
-}
-function Insight({ icon, color, title, body }: any) {
-  const p = (({ red: ["bg-red-50","border-red-100","text-red-500"], amber: ["bg-amber-50","border-amber-100","text-amber-500"], green: ["bg-emerald-50","border-emerald-100","text-emerald-600"] }) as Record<string,string[]>)[color];
-  return <div className={`rounded-2xl border p-5 ${p[0]} ${p[1]}`}><div className="flex items-start gap-3"><span className={`text-xl ${p[2]}`}>{icon}</span><div><p className="text-sm font-semibold text-slate-800 mb-1">{title}</p><p className="text-xs text-slate-600 leading-relaxed">{body}</p></div></div></div>;
-}
-function SectionHeader({ title, sub }: { title: string; sub?: string }) {
-  return <div className="mb-4"><h2 className="text-base font-semibold text-slate-800">{title}</h2>{sub && <p className="text-xs text-slate-400 mt-0.5">{sub}</p>}</div>;
 }

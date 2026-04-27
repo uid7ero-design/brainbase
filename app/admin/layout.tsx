@@ -8,7 +8,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh', background: '#07080B', fontFamily: 'var(--font-inter), Inter, sans-serif', color: '#f9fafb' }}>
-      <aside style={{ width: 220, borderRight: '1px solid #1a1d24', padding: '32px 0', display: 'flex', flexDirection: 'column', flexShrink: 0, position: 'sticky', top: 0, height: '100vh' }}>
+      <aside style={{ width: 220, borderRight: '1px solid #1a1d24', padding: '32px 0', display: 'flex', flexDirection: 'column', flexShrink: 0, position: 'sticky', top: 52, height: 'calc(100vh - 52px)' }}>
         <div style={{ padding: '0 20px 28px' }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: '#4b5563', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 4 }}>Admin Panel</div>
           <div style={{ fontSize: 13, color: '#6b7280' }}>{session.name}</div>

@@ -44,6 +44,58 @@ function sortedMonthKeys(keys: string[]): string[] {
   });
 }
 
+// ─── Dummy data (shown when no records have been uploaded yet) ────────────────
+
+const DUMMY_SERVICE_TYPES = ['General Waste', 'Recycling', 'Organics', 'Hard Waste'];
+const DUMMY_FINANCIAL_YEARS = ['2025-26'];
+
+const DUMMY_ZONES: ZoneRow[] = [
+  { suburb: 'Norwood',          total_cost: 342_180, total_tonnes: 2_310, total_collections: 9_240, avg_contamination:  7.2, cost_per_tonne: 148.13, service_costs: { 'General Waste': 178_400, 'Recycling': 96_800, 'Organics': 58_980, 'Hard Waste': 8_000 } },
+  { suburb: 'Payneham',         total_cost: 298_540, total_tonnes: 1_980, total_collections: 7_920, avg_contamination:  9.8, cost_per_tonne: 150.78, service_costs: { 'General Waste': 152_600, 'Recycling': 84_200, 'Organics': 52_740, 'Hard Waste': 9_000 } },
+  { suburb: 'Marden',           total_cost: 261_300, total_tonnes: 1_740, total_collections: 6_960, avg_contamination: 11.4, cost_per_tonne: 150.17, service_costs: { 'General Waste': 134_800, 'Recycling': 72_400, 'Organics': 46_100, 'Hard Waste': 8_000 } },
+  { suburb: 'Glynde',           total_cost: 152_400, total_tonnes: 1_080, total_collections: 4_320, avg_contamination:  8.1, cost_per_tonne: 141.11, service_costs: { 'General Waste':  76_200, 'Recycling': 43_100, 'Organics': 28_100, 'Hard Waste': 5_000 } },
+  { suburb: 'Royston Park',     total_cost: 198_720, total_tonnes: 1_420, total_collections: 5_680, avg_contamination:  6.5, cost_per_tonne: 139.94, service_costs: { 'General Waste':  98_500, 'Recycling': 56_400, 'Organics': 36_820, 'Hard Waste': 7_000 } },
+  { suburb: 'Heathpool',        total_cost: 137_860, total_tonnes:   940, total_collections: 3_760, avg_contamination: 13.7, cost_per_tonne: 146.66, service_costs: { 'General Waste':  68_900, 'Recycling': 38_960, 'Organics': 26_000, 'Hard Waste': 4_000 } },
+  { suburb: 'Trinity Gardens',  total_cost: 226_140, total_tonnes: 1_580, total_collections: 6_320, avg_contamination:  7.9, cost_per_tonne: 143.13, service_costs: { 'General Waste': 114_400, 'Recycling': 63_540, 'Organics': 41_200, 'Hard Waste': 7_000 } },
+  { suburb: 'Evandale',         total_cost: 184_660, total_tonnes: 1_260, total_collections: 5_040, avg_contamination: 10.2, cost_per_tonne: 146.56, service_costs: { 'General Waste':  93_200, 'Recycling': 51_600, 'Organics': 34_860, 'Hard Waste': 5_000 } },
+];
+
+const DUMMY_MONTHLY: MonthlyRow[] = [
+  { month: 'Oct', actual: 268_400 },
+  { month: 'Nov', actual: 287_600 },
+  { month: 'Dec', actual: 325_200 },
+  { month: 'Jan', actual: 341_800 },
+  { month: 'Feb', actual: 318_500 },
+  { month: 'Mar', actual: 260_300 },
+];
+
+const DUMMY_MONTHLY_BY_TYPE: MonthlyByTypeRow[] = [
+  { month: 'Oct', 'General Waste': 122_800, 'Recycling': 73_400, 'Organics': 62_200, 'Hard Waste': 10_000 },
+  { month: 'Nov', 'General Waste': 130_600, 'Recycling': 78_200, 'Organics': 68_800, 'Hard Waste': 10_000 },
+  { month: 'Dec', 'General Waste': 148_400, 'Recycling': 89_200, 'Organics': 75_600, 'Hard Waste': 12_000 },
+  { month: 'Jan', 'General Waste': 157_200, 'Recycling': 93_800, 'Organics': 78_800, 'Hard Waste': 12_000 },
+  { month: 'Feb', 'General Waste': 145_400, 'Recycling': 87_200, 'Organics': 73_900, 'Hard Waste': 12_000 },
+  { month: 'Mar', 'General Waste': 113_600, 'Recycling': 85_400, 'Organics': 51_300, 'Hard Waste': 10_000 },
+];
+
+const DUMMY_CONTAMINATION: ContaminationRow[] = [
+  { suburb: 'Heathpool',       rate: 13.7 },
+  { suburb: 'Marden',          rate: 11.4 },
+  { suburb: 'Evandale',        rate: 10.2 },
+  { suburb: 'Payneham',        rate:  9.8 },
+  { suburb: 'Trinity Gardens', rate:  7.9 },
+  { suburb: 'Glynde',          rate:  8.1 },
+  { suburb: 'Norwood',         rate:  7.2 },
+  { suburb: 'Royston Park',    rate:  6.5 },
+];
+
+const DUMMY_COMPOSITION = [
+  { name: 'General Waste', value: 918_100 },
+  { name: 'Recycling',     value: 507_000 },
+  { name: 'Organics',      value: 324_800 },
+  { name: 'Hard Waste',    value:  52_000 },
+];
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default async function WastePage() {
@@ -67,10 +119,14 @@ export default async function WastePage() {
   if (rawRecords.length === 0) {
     return (
       <WasteClient
-        hasData={false}
-        zones={[]} monthly={[]} monthlyByType={[]}
-        contamination={[]} composition={[]}
-        serviceTypes={[]} financialYears={[]}
+        hasData
+        zones={DUMMY_ZONES}
+        monthly={DUMMY_MONTHLY}
+        monthlyByType={DUMMY_MONTHLY_BY_TYPE}
+        contamination={DUMMY_CONTAMINATION}
+        composition={DUMMY_COMPOSITION}
+        serviceTypes={DUMMY_SERVICE_TYPES}
+        financialYears={DUMMY_FINANCIAL_YEARS}
       />
     );
   }

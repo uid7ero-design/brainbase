@@ -80,11 +80,11 @@ function ServicingTab({data}:{data:SvcRecord[]}) {
       <KPI2 icon={<Wrench size={16}/>} label="Next Service" value={next?.asset??'—'} sub={next?.nextDue} accent="violet"/>
     </div>
     <div className="grid grid-cols-3 gap-5 mb-5">
-      <div className="col-span-2 bg-white rounded-2xl border border-slate-100 shadow-sm p-6"><SecTitle>Service Cost by Asset</SecTitle><ResponsiveContainer width="100%" height={220}><BarChart data={costChart} barSize={28}><XAxis dataKey="id" tick={{fontSize:10,fill:'#94a3b8'}} axisLine={false} tickLine={false}/><YAxis tick={{fontSize:10,fill:'#94a3b8'}} axisLine={false} tickLine={false} tickFormatter={v=>`$${v}`}/><Tooltip formatter={(v:unknown)=>fmt(Number(v))} contentStyle={TT}/><Bar dataKey="cost" name="Service Cost" radius={[4,4,0,0]} fill="#3b82f6"/></BarChart></ResponsiveContainer></div>
-      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6"><SecTitle>By Service Type</SecTitle><ResponsiveContainer width="100%" height={180}><PieChart><Pie data={byType} cx="50%" cy="50%" innerRadius={48} outerRadius={76} dataKey="value" paddingAngle={2}>{byType.map((_,i)=><Cell key={i} fill={['#3b82f6','#f59e0b','#10b981'][i%3]}/>)}</Pie><Tooltip formatter={(v:unknown)=>fmt(Number(v))} contentStyle={TT}/></PieChart></ResponsiveContainer><div className="space-y-2 mt-2">{byType.map((d,i)=>(<div key={d.name} className="flex justify-between text-xs"><span className="flex items-center gap-2 text-slate-600"><span className="w-2 h-2 rounded-full" style={{background:['#3b82f6','#f59e0b','#10b981'][i%3]}}/>{d.name}</span><span className="font-semibold">{fmt(d.value)}</span></div>))}</div></div>
+      <div className="col-span-2" style={DARK_CARD}><SecTitle>Service Cost by Asset</SecTitle><ResponsiveContainer width="100%" height={220}><BarChart data={costChart} barSize={28}><XAxis dataKey="id" tick={{fontSize:10,fill:'#94a3b8'}} axisLine={false} tickLine={false}/><YAxis tick={{fontSize:10,fill:'#94a3b8'}} axisLine={false} tickLine={false} tickFormatter={v=>`$${v}`}/><Tooltip formatter={(v:unknown)=>fmt(Number(v))} contentStyle={TT}/><Bar dataKey="cost" name="Service Cost" radius={[4,4,0,0]} fill="#3b82f6"/></BarChart></ResponsiveContainer></div>
+      <div style={DARK_CARD}><SecTitle>By Service Type</SecTitle><ResponsiveContainer width="100%" height={180}><PieChart><Pie data={byType} cx="50%" cy="50%" innerRadius={48} outerRadius={76} dataKey="value" paddingAngle={2}>{byType.map((_,i)=><Cell key={i} fill={['#3b82f6','#f59e0b','#10b981'][i%3]}/>)}</Pie><Tooltip formatter={(v:unknown)=>fmt(Number(v))} contentStyle={TT}/></PieChart></ResponsiveContainer><div className="space-y-2 mt-2">{byType.map((d,i)=>(<div key={d.name} className="flex justify-between text-xs"><span style={{display:'flex',alignItems:'center',gap:8,color:'rgba(230,237,243,0.55)'}}><span className="w-2 h-2 rounded-full" style={{background:['#3b82f6','#f59e0b','#10b981'][i%3]}}/>{d.name}</span><span className="font-semibold">{fmt(d.value)}</span></div>))}</div></div>
     </div>
-    <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden"><div className="px-6 py-4 border-b border-slate-100"><SecTitle>Service Register</SecTitle></div>
-      <table className="w-full text-sm"><THead cols={['Asset','Make','Service Type','Last Service','Next Due','Odometer','Cost','Notes','Status']}/><tbody>{data.map((r,i)=>(<TR key={i} i={i}><td className="px-5 py-3 font-semibold text-slate-800">{r.asset}</td><TD>{r.make}</TD><TD>{r.serviceType}</TD><TD>{r.lastService}</TD><TD>{r.nextDue}</TD><TD>{r.odometer.toLocaleString()} km</TD><TD>{fmt(r.cost)}</TD><td className="px-5 py-3 text-slate-400 text-xs max-w-xs truncate">{r.notes||'—'}</td><td className="px-5 py-3"><Badge label={r.status} color={STATUS_C[r.status]||'#94a3b8'}/></td></TR>))}</tbody></table>
+    <div style={{...DARK_CARD,padding:0,overflow:'hidden'}}><div style={{padding:'16px 20px',borderBottom:'1px solid rgba(255,255,255,0.07)'}}><SecTitle>Service Register</SecTitle></div>
+      <table className="w-full text-sm"><THead cols={['Asset','Make','Service Type','Last Service','Next Due','Odometer','Cost','Notes','Status']}/><tbody>{data.map((r,i)=>(<TR key={i} i={i}><td style={{padding:'10px 16px',fontWeight:600,color:'#F5F7FA'}}>{r.asset}</td><TD>{r.make}</TD><TD>{r.serviceType}</TD><TD>{r.lastService}</TD><TD>{r.nextDue}</TD><TD>{r.odometer.toLocaleString()} km</TD><TD>{fmt(r.cost)}</TD><td style={{padding:'10px 16px',color:'rgba(230,237,243,0.35)',fontSize:12}} className="max-w-xs truncate">{r.notes||'—'}</td><td className="px-5 py-3"><Badge label={r.status} color={STATUS_C[r.status]||'#94a3b8'}/></td></TR>))}</tbody></table>
     </div></>
   );
 }
@@ -105,11 +105,11 @@ function HRTab({data}:{data:HRRecord[]}) {
       <KPI2 icon={<Users size={16}/>} label="Absent Days" value={String(totalAbsent)} sub={`across ${data.length} drivers`} accent="red"/>
     </div>
     <div className="grid grid-cols-3 gap-5 mb-5">
-      <div className="col-span-2 bg-white rounded-2xl border border-slate-100 shadow-sm p-6"><SecTitle>Scheduled vs Worked vs OT</SecTitle><ResponsiveContainer width="100%" height={240}><BarChart data={hoursChart} barSize={16}><XAxis dataKey="driver" tick={{fontSize:10,fill:'#94a3b8'}} axisLine={false} tickLine={false}/><YAxis tick={{fontSize:10,fill:'#94a3b8'}} axisLine={false} tickLine={false}/><Tooltip contentStyle={TT}/><Legend wrapperStyle={{fontSize:11}}/><Bar dataKey="scheduled" fill="#cbd5e1" name="Scheduled" radius={[4,4,0,0]}/><Bar dataKey="worked" fill="#3b82f6" name="Worked" radius={[4,4,0,0]}/><Bar dataKey="overtime" fill="#f59e0b" name="Overtime" radius={[4,4,0,0]}/></BarChart></ResponsiveContainer></div>
-      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6"><SecTitle>Hours Split</SecTitle><ResponsiveContainer width="100%" height={180}><PieChart><Pie data={pie} cx="50%" cy="50%" innerRadius={50} outerRadius={78} dataKey="value" paddingAngle={2}><Cell fill="#3b82f6"/><Cell fill="#f59e0b"/></Pie><Tooltip formatter={(v:unknown)=>fmtH(Number(v))} contentStyle={TT}/></PieChart></ResponsiveContainer><div className="space-y-2 mt-2">{pie.map((d,i)=>(<div key={d.name} className="flex justify-between text-xs"><span className="flex items-center gap-2 text-slate-600"><span className="w-2 h-2 rounded-full" style={{background:i===0?'#3b82f6':'#f59e0b'}}/>{d.name}</span><span className="font-semibold">{((d.value/totalWorked)*100).toFixed(1)}%</span></div>))}</div></div>
+      <div className="col-span-2" style={DARK_CARD}><SecTitle>Scheduled vs Worked vs OT</SecTitle><ResponsiveContainer width="100%" height={240}><BarChart data={hoursChart} barSize={16}><XAxis dataKey="driver" tick={{fontSize:10,fill:'#94a3b8'}} axisLine={false} tickLine={false}/><YAxis tick={{fontSize:10,fill:'#94a3b8'}} axisLine={false} tickLine={false}/><Tooltip contentStyle={TT}/><Legend wrapperStyle={{fontSize:11}}/><Bar dataKey="scheduled" fill="#cbd5e1" name="Scheduled" radius={[4,4,0,0]}/><Bar dataKey="worked" fill="#3b82f6" name="Worked" radius={[4,4,0,0]}/><Bar dataKey="overtime" fill="#f59e0b" name="Overtime" radius={[4,4,0,0]}/></BarChart></ResponsiveContainer></div>
+      <div style={DARK_CARD}><SecTitle>Hours Split</SecTitle><ResponsiveContainer width="100%" height={180}><PieChart><Pie data={pie} cx="50%" cy="50%" innerRadius={50} outerRadius={78} dataKey="value" paddingAngle={2}><Cell fill="#3b82f6"/><Cell fill="#f59e0b"/></Pie><Tooltip formatter={(v:unknown)=>fmtH(Number(v))} contentStyle={TT}/></PieChart></ResponsiveContainer><div className="space-y-2 mt-2">{pie.map((d,i)=>(<div key={d.name} className="flex justify-between text-xs"><span style={{display:'flex',alignItems:'center',gap:8,color:'rgba(230,237,243,0.55)'}}><span className="w-2 h-2 rounded-full" style={{background:i===0?'#3b82f6':'#f59e0b'}}/>{d.name}</span><span className="font-semibold">{((d.value/totalWorked)*100).toFixed(1)}%</span></div>))}</div></div>
     </div>
-    <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden"><div className="px-6 py-4 border-b border-slate-100"><SecTitle>Labour Register</SecTitle></div>
-      <table className="w-full text-sm"><THead cols={['Asset','Driver','Department','Sched. Hrs','Worked Hrs','Overtime','Absent Days','Rate/hr','Total Labour']}/><tbody>{data.map((r,i)=>(<TR key={i} i={i}><td className="px-5 py-3 font-semibold text-slate-800">{r.asset}</td><td className="px-5 py-3 text-slate-600">{r.driver}</td><TD>{r.department}</TD><TD>{r.scheduledHours}</TD><TD>{r.workedHours}</TD><td className={`px-5 py-3 font-medium ${r.overtime>20?'text-amber-500':'text-slate-500'}`}>{r.overtime} hrs</td><td className={`px-5 py-3 font-medium ${r.absentDays>5?'text-red-500':'text-slate-500'}`}>{r.absentDays}</td><TD>${r.hourlyRate}/hr</TD><td className="px-5 py-3 font-bold text-slate-900">{fmt(r.totalLabour)}</td></TR>))}</tbody><tfoot><tr className="bg-slate-900 text-white"><td className="px-5 py-3 font-bold text-xs uppercase" colSpan={3}>Total</td><td className="px-5 py-3 text-slate-300">{data.reduce((s,r)=>s+r.scheduledHours,0)}</td><td className="px-5 py-3 text-slate-300">{data.reduce((s,r)=>s+r.workedHours,0)}</td><td className="px-5 py-3 text-slate-300">{totalOT} hrs</td><td className="px-5 py-3 text-slate-300">{totalAbsent}</td><td className="px-5 py-3">—</td><td className="px-5 py-3 font-bold">{fmt(totalLabour)}</td></tr></tfoot></table>
+    <div style={{...DARK_CARD,padding:0,overflow:'hidden'}}><div style={{padding:'16px 20px',borderBottom:'1px solid rgba(255,255,255,0.07)'}}><SecTitle>Labour Register</SecTitle></div>
+      <table className="w-full text-sm"><THead cols={['Asset','Driver','Department','Sched. Hrs','Worked Hrs','Overtime','Absent Days','Rate/hr','Total Labour']}/><tbody>{data.map((r,i)=>(<TR key={i} i={i}><td style={{padding:'10px 16px',fontWeight:600,color:'#F5F7FA'}}>{r.asset}</td><td style={{padding:'10px 16px',color:'rgba(230,237,243,0.55)'}}>{r.driver}</td><TD>{r.department}</TD><TD>{r.scheduledHours}</TD><TD>{r.workedHours}</TD><td style={{padding:'10px 16px',fontWeight:500,color:r.overtime>20?'#f59e0b':'rgba(230,237,243,0.45)'}}>{r.overtime} hrs</td><td style={{padding:'10px 16px',fontWeight:500,color:r.absentDays>5?'#f87171':'rgba(230,237,243,0.45)'}}>{r.absentDays}</td><TD>${r.hourlyRate}/hr</TD><td style={{padding:'10px 16px',fontWeight:700,color:'#F5F7FA'}}>{fmt(r.totalLabour)}</td></TR>))}</tbody><tfoot><tr style={{background:'rgba(255,255,255,0.04)',borderTop:'2px solid rgba(255,255,255,0.1)'}}><td style={{padding:'10px 16px',fontWeight:700,fontSize:10,textTransform:'uppercase',letterSpacing:'.08em',color:'#F5F7FA'}} colSpan={3}>Total</td><td style={{padding:'10px 16px',color:'rgba(230,237,243,0.55)'}}>{data.reduce((s,r)=>s+r.scheduledHours,0)}</td><td style={{padding:'10px 16px',color:'rgba(230,237,243,0.55)'}}>{data.reduce((s,r)=>s+r.workedHours,0)}</td><td style={{padding:'10px 16px',color:'rgba(230,237,243,0.55)'}}>{totalOT} hrs</td><td style={{padding:'10px 16px',color:'rgba(230,237,243,0.55)'}}>{totalAbsent}</td><td style={{padding:'10px 16px',color:'rgba(230,237,243,0.35)'}}>—</td><td style={{padding:'10px 16px',fontWeight:700,color:'#F5F7FA'}}>{fmt(totalLabour)}</td></tr></tfoot></table>
     </div></>
   );
 }
@@ -129,11 +129,11 @@ function DowntimeTab({data}:{data:DtRecord[]}) {
       <KPI2 icon={<Shield size={16}/>} label="Open / Unresolved" value={String(unresolved)} accent="red"/>
     </div>
     <div className="grid grid-cols-3 gap-5 mb-5">
-      <div className="col-span-2 bg-white rounded-2xl border border-slate-100 shadow-sm p-6"><SecTitle>Downtime Hours by Asset</SecTitle><ResponsiveContainer width="100%" height={220}><BarChart data={byAsset} barSize={28}><XAxis dataKey="id" tick={{fontSize:10,fill:'#94a3b8'}} axisLine={false} tickLine={false}/><YAxis tick={{fontSize:10,fill:'#94a3b8'}} axisLine={false} tickLine={false} tickFormatter={v=>`${v}h`}/><Tooltip formatter={(v:unknown)=>[`${v} hrs`,'Downtime']} contentStyle={TT}/><Bar dataKey="hours" name="Downtime Hrs" radius={[4,4,0,0]}>{byAsset.map((_,i)=><Cell key={i} fill={i===0?'#ef4444':'#f59e0b'}/>)}</Bar></BarChart></ResponsiveContainer></div>
-      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6"><SecTitle>By Category</SecTitle><ResponsiveContainer width="100%" height={180}><PieChart><Pie data={byCat} cx="50%" cy="50%" innerRadius={48} outerRadius={76} dataKey="value" paddingAngle={2}>{byCat.map((d,i)=><Cell key={i} fill={CAT_C[d.name]||'#94a3b8'}/>)}</Pie><Tooltip formatter={(v:unknown)=>[`${v} hrs`]} contentStyle={TT}/></PieChart></ResponsiveContainer><div className="space-y-2 mt-2">{byCat.map(d=>(<div key={d.name} className="flex justify-between text-xs"><span className="flex items-center gap-2 text-slate-600"><span className="w-2 h-2 rounded-full" style={{background:CAT_C[d.name]||'#94a3b8'}}/>{d.name}</span><span className="font-semibold">{d.value} hrs</span></div>))}</div></div>
+      <div className="col-span-2" style={DARK_CARD}><SecTitle>Downtime Hours by Asset</SecTitle><ResponsiveContainer width="100%" height={220}><BarChart data={byAsset} barSize={28}><XAxis dataKey="id" tick={{fontSize:10,fill:'#94a3b8'}} axisLine={false} tickLine={false}/><YAxis tick={{fontSize:10,fill:'#94a3b8'}} axisLine={false} tickLine={false} tickFormatter={v=>`${v}h`}/><Tooltip formatter={(v:unknown)=>[`${v} hrs`,'Downtime']} contentStyle={TT}/><Bar dataKey="hours" name="Downtime Hrs" radius={[4,4,0,0]}>{byAsset.map((_,i)=><Cell key={i} fill={i===0?'#ef4444':'#f59e0b'}/>)}</Bar></BarChart></ResponsiveContainer></div>
+      <div style={DARK_CARD}><SecTitle>By Category</SecTitle><ResponsiveContainer width="100%" height={180}><PieChart><Pie data={byCat} cx="50%" cy="50%" innerRadius={48} outerRadius={76} dataKey="value" paddingAngle={2}>{byCat.map((d,i)=><Cell key={i} fill={CAT_C[d.name]||'#94a3b8'}/>)}</Pie><Tooltip formatter={(v:unknown)=>[`${v} hrs`]} contentStyle={TT}/></PieChart></ResponsiveContainer><div className="space-y-2 mt-2">{byCat.map(d=>(<div key={d.name} className="flex justify-between text-xs"><span style={{display:'flex',alignItems:'center',gap:8,color:'rgba(230,237,243,0.55)'}}><span className="w-2 h-2 rounded-full" style={{background:CAT_C[d.name]||'#94a3b8'}}/>{d.name}</span><span className="font-semibold">{d.value} hrs</span></div>))}</div></div>
     </div>
-    <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden"><div className="px-6 py-4 border-b border-slate-100"><SecTitle>Incident Log</SecTitle></div>
-      <table className="w-full text-sm"><THead cols={['Asset','Date','Category','Reason','Duration','Cost','Status']}/><tbody>{data.map((r,i)=>(<TR key={i} i={i}><td className="px-5 py-3 font-semibold text-slate-800">{r.asset}</td><TD>{r.date}</TD><td className="px-5 py-3"><Badge label={r.category} color={CAT_C[r.category]||'#94a3b8'}/></td><td className="px-5 py-3 text-slate-600">{r.reason}</td><TD>{r.hours} hrs</TD><TD>{fmt(r.cost)}</TD><td className="px-5 py-3"><span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${r.resolved?'bg-emerald-50 text-emerald-600':'bg-red-50 text-red-500'}`}>{r.resolved?'Resolved':'Open'}</span></td></TR>))}</tbody></table>
+    <div style={{...DARK_CARD,padding:0,overflow:'hidden'}}><div style={{padding:'16px 20px',borderBottom:'1px solid rgba(255,255,255,0.07)'}}><SecTitle>Incident Log</SecTitle></div>
+      <table className="w-full text-sm"><THead cols={['Asset','Date','Category','Reason','Duration','Cost','Status']}/><tbody>{data.map((r,i)=>(<TR key={i} i={i}><td style={{padding:'10px 16px',fontWeight:600,color:'#F5F7FA'}}>{r.asset}</td><TD>{r.date}</TD><td className="px-5 py-3"><Badge label={r.category} color={CAT_C[r.category]||'#94a3b8'}/></td><td style={{padding:'10px 16px',color:'rgba(230,237,243,0.55)'}}>{r.reason}</td><TD>{r.hours} hrs</TD><TD>{fmt(r.cost)}</TD><td className="px-5 py-3"><span style={{padding:'2px 8px',borderRadius:999,fontSize:11,fontWeight:600,background:r.resolved?'rgba(74,222,128,0.12)':'rgba(239,68,68,0.12)',color:r.resolved?'#4ade80':'#f87171'}}>{r.resolved?'Resolved':'Open'}</span></td></TR>))}</tbody></table>
     </div></>
   );
 }
@@ -153,11 +153,11 @@ function UtilisationTab({data}:{data:UtilRecord[]}) {
       <KPI2 icon={<Truck size={16}/>} label="Best Utilised" value={best?.asset??'—'} sub={best?`${best.utilisationPct}%`:undefined} accent="emerald"/>
     </div>
     <div className="grid grid-cols-2 gap-5 mb-5">
-      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6"><SecTitle>Operating vs Idle Hours</SecTitle><ResponsiveContainer width="100%" height={240}><BarChart data={chart} barSize={22}><XAxis dataKey="id" tick={{fontSize:10,fill:'#94a3b8'}} axisLine={false} tickLine={false}/><YAxis tick={{fontSize:10,fill:'#94a3b8'}} axisLine={false} tickLine={false} tickFormatter={v=>`${v}h`}/><Tooltip contentStyle={TT}/><Legend wrapperStyle={{fontSize:11}}/><Bar dataKey="operating" stackId="a" fill="#10b981" name="Operating"/><Bar dataKey="idle" stackId="a" fill="#f59e0b" name="Idle" radius={[4,4,0,0]}/></BarChart></ResponsiveContainer></div>
-      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6"><SecTitle>Utilisation % by Asset</SecTitle><ResponsiveContainer width="100%" height={240}><BarChart data={chart} barSize={22}><XAxis dataKey="id" tick={{fontSize:10,fill:'#94a3b8'}} axisLine={false} tickLine={false}/><YAxis domain={[0,100]} tick={{fontSize:10,fill:'#94a3b8'}} axisLine={false} tickLine={false} tickFormatter={v=>`${v}%`}/><Tooltip formatter={(v:unknown)=>[`${v}%`,'Utilisation']} contentStyle={TT}/><ReferenceLine y={+avgUtil.toFixed(1)} stroke="#94a3b8" strokeDasharray="4 4"/><Bar dataKey="pct" name="Utilisation %" radius={[4,4,0,0]}>{chart.map((d,i)=><Cell key={i} fill={d.pct<avgUtil-5?'#ef4444':d.pct>avgUtil+5?'#10b981':'#3b82f6'}/>)}</Bar></BarChart></ResponsiveContainer></div>
+      <div style={DARK_CARD}><SecTitle>Operating vs Idle Hours</SecTitle><ResponsiveContainer width="100%" height={240}><BarChart data={chart} barSize={22}><XAxis dataKey="id" tick={{fontSize:10,fill:'#94a3b8'}} axisLine={false} tickLine={false}/><YAxis tick={{fontSize:10,fill:'#94a3b8'}} axisLine={false} tickLine={false} tickFormatter={v=>`${v}h`}/><Tooltip contentStyle={TT}/><Legend wrapperStyle={{fontSize:11}}/><Bar dataKey="operating" stackId="a" fill="#10b981" name="Operating"/><Bar dataKey="idle" stackId="a" fill="#f59e0b" name="Idle" radius={[4,4,0,0]}/></BarChart></ResponsiveContainer></div>
+      <div style={DARK_CARD}><SecTitle>Utilisation % by Asset</SecTitle><ResponsiveContainer width="100%" height={240}><BarChart data={chart} barSize={22}><XAxis dataKey="id" tick={{fontSize:10,fill:'#94a3b8'}} axisLine={false} tickLine={false}/><YAxis domain={[0,100]} tick={{fontSize:10,fill:'#94a3b8'}} axisLine={false} tickLine={false} tickFormatter={v=>`${v}%`}/><Tooltip formatter={(v:unknown)=>[`${v}%`,'Utilisation']} contentStyle={TT}/><ReferenceLine y={+avgUtil.toFixed(1)} stroke="#94a3b8" strokeDasharray="4 4"/><Bar dataKey="pct" name="Utilisation %" radius={[4,4,0,0]}>{chart.map((d,i)=><Cell key={i} fill={d.pct<avgUtil-5?'#ef4444':d.pct>avgUtil+5?'#10b981':'#3b82f6'}/>)}</Bar></BarChart></ResponsiveContainer></div>
     </div>
-    <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden"><div className="px-6 py-4 border-b border-slate-100"><SecTitle>Utilisation Register</SecTitle></div>
-      <table className="w-full text-sm"><THead cols={['Asset','Type','Sched. Hrs','Operating Hrs','Idle Hrs','Utilisation','Idle Cost']}/><tbody>{data.map((r,i)=>(<TR key={i} i={i}><td className="px-5 py-3 font-semibold text-slate-800">{r.asset}</td><TD>{r.type}</TD><TD>{r.scheduledHours}</TD><TD>{r.operatingHours}</TD><TD>{r.idleHours}</TD><td className="px-5 py-3"><div className="flex items-center gap-2"><div className="w-20 bg-slate-100 rounded-full h-1.5"><div className="h-1.5 rounded-full" style={{width:`${r.utilisationPct}%`,background:r.utilisationPct<avgUtil-5?'#ef4444':r.utilisationPct>avgUtil+5?'#10b981':'#3b82f6'}}/></div><span className={`font-semibold text-xs ${r.utilisationPct<avgUtil-5?'text-red-500':r.utilisationPct>avgUtil+5?'text-emerald-500':'text-blue-500'}`}>{r.utilisationPct}%</span></div></td><td className="px-5 py-3 font-medium text-amber-600">{fmt(r.idleCost)}</td></TR>))}</tbody></table>
+    <div style={{...DARK_CARD,padding:0,overflow:'hidden'}}><div style={{padding:'16px 20px',borderBottom:'1px solid rgba(255,255,255,0.07)'}}><SecTitle>Utilisation Register</SecTitle></div>
+      <table className="w-full text-sm"><THead cols={['Asset','Type','Sched. Hrs','Operating Hrs','Idle Hrs','Utilisation','Idle Cost']}/><tbody>{data.map((r,i)=>(<TR key={i} i={i}><td style={{padding:'10px 16px',fontWeight:600,color:'#F5F7FA'}}>{r.asset}</td><TD>{r.type}</TD><TD>{r.scheduledHours}</TD><TD>{r.operatingHours}</TD><TD>{r.idleHours}</TD><td style={{padding:'10px 16px'}}><div style={{display:'flex',alignItems:'center',gap:8}}><div style={{width:80,height:6,background:'rgba(255,255,255,0.08)',borderRadius:999,overflow:'hidden'}}><div style={{height:'100%',borderRadius:999,width:`${r.utilisationPct}%`,background:r.utilisationPct<avgUtil-5?'#ef4444':r.utilisationPct>avgUtil+5?'#10b981':'#3b82f6'}}/></div><span style={{fontSize:12,fontWeight:600,color:r.utilisationPct<avgUtil-5?'#f87171':r.utilisationPct>avgUtil+5?'#4ade80':'#60a5fa'}}>{r.utilisationPct}%</span></div></td><td style={{padding:'10px 16px',fontWeight:500,color:'#f59e0b'}}>{fmt(r.idleCost)}</td></TR>))}</tbody></table>
     </div></>
   );
 }
@@ -185,20 +185,20 @@ function GeofenceTab({trips,stops,coloc}:{trips:TripRecord[];stops:StopRecord[];
       <KPI2 icon={<MapPin size={16}/>} label="Total Stops" value={String(totalStops)} accent="violet"/>
       <KPI2 icon={<Users size={16}/>} label="Co-location Events" value={String(colocEvents)} accent="amber"/>
     </div>
-    <div className="flex gap-6 mb-6">
-      <div className="flex gap-2 flex-wrap"><span className="text-xs text-slate-400 uppercase tracking-wide self-center mr-1">Asset</span>{assets.map(a=>(<button key={a} onClick={()=>setAssetFilter(a)} className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${assetFilter===a?'bg-slate-900 text-white':'bg-white border border-slate-200 text-slate-600 hover:border-slate-400'}`}>{a}</button>))}</div>
-      <div className="flex gap-2 flex-wrap"><span className="text-xs text-slate-400 uppercase tracking-wide self-center mr-1">Day</span>{dates.map(d=>(<button key={d} onClick={()=>setDateFilter(d)} className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${dateFilter===d?'bg-slate-900 text-white':'bg-white border border-slate-200 text-slate-600 hover:border-slate-400'}`}>{d}</button>))}</div>
+    <div style={{display:'flex',gap:24,marginBottom:24,flexWrap:'wrap'}}>
+      <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}><span style={{fontSize:11,color:'rgba(230,237,243,0.35)',textTransform:'uppercase',letterSpacing:'.06em',marginRight:4}}>Asset</span>{assets.map(a=>(<button key={a} onClick={()=>setAssetFilter(a)} style={{padding:'4px 12px',borderRadius:8,fontSize:12,fontWeight:500,cursor:'pointer',border:'1px solid',borderColor:assetFilter===a?'rgba(255,255,255,0.2)':'rgba(255,255,255,0.07)',background:assetFilter===a?'rgba(255,255,255,0.12)':'rgba(255,255,255,0.03)',color:assetFilter===a?'#F5F7FA':'rgba(230,237,243,0.55)'}}>{a}</button>))}</div>
+      <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}><span style={{fontSize:11,color:'rgba(230,237,243,0.35)',textTransform:'uppercase',letterSpacing:'.06em',marginRight:4}}>Day</span>{dates.map(d=>(<button key={d} onClick={()=>setDateFilter(d)} style={{padding:'4px 12px',borderRadius:8,fontSize:12,fontWeight:500,cursor:'pointer',border:'1px solid',borderColor:dateFilter===d?'rgba(255,255,255,0.2)':'rgba(255,255,255,0.07)',background:dateFilter===d?'rgba(255,255,255,0.12)':'rgba(255,255,255,0.03)',color:dateFilter===d?'#F5F7FA':'rgba(230,237,243,0.55)'}}>{d}</button>))}</div>
     </div>
     <div className="grid grid-cols-2 gap-5 mb-5">
-      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6"><SecTitle>Avg Hours Out of Yard per Asset</SecTitle><ResponsiveContainer width="100%" height={220}><BarChart data={hoursChart} barSize={22}><XAxis dataKey="id" tick={{fontSize:10,fill:'#94a3b8'}} axisLine={false} tickLine={false}/><YAxis tick={{fontSize:10,fill:'#94a3b8'}} axisLine={false} tickLine={false} tickFormatter={v=>`${v}h`}/><Tooltip formatter={(v:unknown)=>[`${v} hrs avg`,'Hours Out']} contentStyle={TT}/><ReferenceLine y={avgHoursOut} stroke="#94a3b8" strokeDasharray="4 4"/><Bar dataKey="avgHrs" name="Avg Hrs Out" radius={[4,4,0,0]} fill="#3b82f6"/></BarChart></ResponsiveContainer></div>
-      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6"><SecTitle>Dwell Time by Zone (hrs)</SecTitle><ResponsiveContainer width="100%" height={220}><BarChart data={dwellChart} layout="vertical" barSize={16} margin={{left:120,right:20}}><XAxis type="number" tick={{fontSize:10,fill:'#94a3b8'}} axisLine={false} tickLine={false} tickFormatter={v=>`${v}h`}/><YAxis type="category" dataKey="area" tick={{fontSize:10,fill:'#475569'}} axisLine={false} tickLine={false} width={120}/><Tooltip formatter={(v:unknown)=>[`${v} hrs`,'Dwell Time']} contentStyle={TT}/><Bar dataKey="hrs" name="Hrs" radius={[0,4,4,0]}>{dwellChart.map((_,i)=><Cell key={i} fill={['#3b82f6','#10b981','#f59e0b','#8b5cf6','#ef4444','#06b6d4','#f97316','#94a3b8'][i%8]}/>)}</Bar></BarChart></ResponsiveContainer></div>
+      <div style={DARK_CARD}><SecTitle>Avg Hours Out of Yard per Asset</SecTitle><ResponsiveContainer width="100%" height={220}><BarChart data={hoursChart} barSize={22}><XAxis dataKey="id" tick={{fontSize:10,fill:'#94a3b8'}} axisLine={false} tickLine={false}/><YAxis tick={{fontSize:10,fill:'#94a3b8'}} axisLine={false} tickLine={false} tickFormatter={v=>`${v}h`}/><Tooltip formatter={(v:unknown)=>[`${v} hrs avg`,'Hours Out']} contentStyle={TT}/><ReferenceLine y={avgHoursOut} stroke="#94a3b8" strokeDasharray="4 4"/><Bar dataKey="avgHrs" name="Avg Hrs Out" radius={[4,4,0,0]} fill="#3b82f6"/></BarChart></ResponsiveContainer></div>
+      <div style={DARK_CARD}><SecTitle>Dwell Time by Zone (hrs)</SecTitle><ResponsiveContainer width="100%" height={220}><BarChart data={dwellChart} layout="vertical" barSize={16} margin={{left:120,right:20}}><XAxis type="number" tick={{fontSize:10,fill:'#94a3b8'}} axisLine={false} tickLine={false} tickFormatter={v=>`${v}h`}/><YAxis type="category" dataKey="area" tick={{fontSize:10,fill:'#475569'}} axisLine={false} tickLine={false} width={120}/><Tooltip formatter={(v:unknown)=>[`${v} hrs`,'Dwell Time']} contentStyle={TT}/><Bar dataKey="hrs" name="Hrs" radius={[0,4,4,0]}>{dwellChart.map((_,i)=><Cell key={i} fill={['#3b82f6','#10b981','#f59e0b','#8b5cf6','#ef4444','#06b6d4','#f97316','#94a3b8'][i%8]}/>)}</Bar></BarChart></ResponsiveContainer></div>
     </div>
     <div className="grid grid-cols-3 gap-5 mb-5">
-      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6"><SecTitle>Stop Time by Type</SecTitle><ResponsiveContainer width="100%" height={180}><PieChart><Pie data={stopTypePie} cx="50%" cy="50%" innerRadius={48} outerRadius={76} dataKey="value" paddingAngle={2}>{stopTypePie.map((d,i)=><Cell key={i} fill={STOP_C[d.name]||'#94a3b8'}/>)}</Pie><Tooltip formatter={(v:unknown)=>[`${v} mins`,'Dwell']} contentStyle={TT}/></PieChart></ResponsiveContainer><div className="space-y-1.5 mt-2">{stopTypePie.slice(0,6).map(d=>(<div key={d.name} className="flex justify-between text-xs"><span className="flex items-center gap-1.5 text-slate-600"><span className="w-2 h-2 rounded-full flex-shrink-0" style={{background:STOP_C[d.name]||'#94a3b8'}}/>{d.name}</span><span className="font-semibold text-slate-700">{d.value} min</span></div>))}</div></div>
-      <div className="col-span-2 bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden"><div className="px-6 py-4 border-b border-slate-100 flex items-center gap-2"><Users size={14} className="text-slate-400"/><SecTitle>Vehicle Co-location Events</SecTitle></div><table className="w-full text-sm"><THead cols={['Date','Area','Vehicles Present','Start','Duration','Notes']}/><tbody>{filtColoc.map((r,i)=>(<TR key={i} i={i}><td className="px-5 py-2.5 text-slate-500 text-xs">{r.date}</td><td className="px-5 py-2.5 font-medium text-slate-700">{r.area}</td><td className="px-5 py-2.5 text-slate-600 text-xs">{r.vehicles}</td><td className="px-5 py-2.5 text-slate-500 text-xs">{r.startTime}</td><td className="px-5 py-2.5 text-slate-500 text-xs">{r.durationMins} min</td><td className="px-5 py-2.5 text-slate-400 text-xs">{r.notes||'—'}</td></TR>))}</tbody></table></div>
+      <div style={DARK_CARD}><SecTitle>Stop Time by Type</SecTitle><ResponsiveContainer width="100%" height={180}><PieChart><Pie data={stopTypePie} cx="50%" cy="50%" innerRadius={48} outerRadius={76} dataKey="value" paddingAngle={2}>{stopTypePie.map((d,i)=><Cell key={i} fill={STOP_C[d.name]||'#94a3b8'}/>)}</Pie><Tooltip formatter={(v:unknown)=>[`${v} mins`,'Dwell']} contentStyle={TT}/></PieChart></ResponsiveContainer><div className="space-y-1.5 mt-2">{stopTypePie.slice(0,6).map(d=>(<div key={d.name} className="flex justify-between text-xs"><span style={{display:'flex',alignItems:'center',gap:6,color:'rgba(230,237,243,0.55)'}}><span className="w-2 h-2 rounded-full flex-shrink-0" style={{background:STOP_C[d.name]||'#94a3b8'}}/>{d.name}</span><span style={{fontWeight:600,color:'rgba(230,237,243,0.55)'}}>{d.value} min</span></div>))}</div></div>
+      <div className="col-span-2" style={{...DARK_CARD,padding:0,overflow:'hidden'}}><div style={{padding:'16px 20px',borderBottom:'1px solid rgba(255,255,255,0.07)',display:'flex',alignItems:'center',gap:8}}><Users size={14} style={{color:'rgba(230,237,243,0.35)'}}/><SecTitle>Vehicle Co-location Events</SecTitle></div><table className="w-full text-sm"><THead cols={['Date','Area','Vehicles Present','Start','Duration','Notes']}/><tbody>{filtColoc.map((r,i)=>(<TR key={i} i={i}><td style={{padding:'8px 16px',fontSize:12,color:'rgba(230,237,243,0.45)'}}>{r.date}</td><td style={{padding:'8px 16px',fontWeight:500,color:'#F5F7FA'}}>{r.area}</td><td style={{padding:'8px 16px',fontSize:12,color:'rgba(230,237,243,0.55)'}}>{r.vehicles}</td><td style={{padding:'8px 16px',fontSize:12,color:'rgba(230,237,243,0.45)'}}>{r.startTime}</td><td style={{padding:'8px 16px',fontSize:12,color:'rgba(230,237,243,0.45)'}}>{r.durationMins} min</td><td style={{padding:'8px 16px',fontSize:12,color:'rgba(230,237,243,0.35)'}}>{r.notes||'—'}</td></TR>))}</tbody></table></div>
     </div>
-    <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden mb-5"><div className="px-6 py-4 border-b border-slate-100"><SecTitle>Daily Trip Log</SecTitle></div><div className="overflow-x-auto"><table className="w-full text-sm whitespace-nowrap"><THead cols={['Asset','Driver','Date','Yard Dep.','Yard Ret.','Hours Out','Stops','Areas Visited']}/><tbody>{filteredTrips.map((r,i)=>(<TR key={i} i={i}><td className="px-5 py-3 font-semibold text-slate-800">{r.asset}</td><td className="px-5 py-3 text-slate-600">{r.driver}</td><TD>{r.date}</TD><td className="px-5 py-3 font-medium text-emerald-600">{r.yardDep}</td><td className="px-5 py-3 font-medium text-blue-600">{r.yardRet}</td><TD>{r.hoursOut} hrs</TD><td className="px-5 py-3 text-center text-slate-500">{r.stopsMade}</td><td className="px-5 py-3 text-slate-400 text-xs">{r.areasVisited}</td></TR>))}</tbody></table></div></div>
-    <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden"><div className="px-6 py-4 border-b border-slate-100"><SecTitle>Stop Event Log</SecTitle></div><div className="overflow-x-auto max-h-96 overflow-y-auto"><table className="w-full text-sm whitespace-nowrap"><THead cols={['Asset','Driver','Date','Area / Location','Arrival','Departure','Duration','Stop Type']}/><tbody>{filteredStops.map((r,i)=>(<TR key={i} i={i}><td className="px-5 py-2.5 font-semibold text-slate-800">{r.asset}</td><td className="px-5 py-2.5 text-slate-600">{r.driver}</td><TD>{r.date}</TD><TD>{r.area}</TD><td className="px-5 py-2.5 text-slate-500">{r.arrival}</td><td className="px-5 py-2.5 text-slate-500">{r.departure}</td><td className="px-5 py-2.5 font-medium text-slate-700">{r.durationMins} min</td><td className="px-5 py-2.5"><span className="px-2 py-0.5 rounded-full text-xs font-medium" style={{background:(STOP_C[r.stopType]||'#94a3b8')+'20',color:STOP_C[r.stopType]||'#64748b'}}>{r.stopType}</span></td></TR>))}</tbody></table></div></div></>
+    <div style={{...DARK_CARD,padding:0,overflow:'hidden',marginBottom:20}}><div style={{padding:'16px 20px',borderBottom:'1px solid rgba(255,255,255,0.07)'}}><SecTitle>Daily Trip Log</SecTitle></div><div className="overflow-x-auto"><table className="w-full text-sm whitespace-nowrap"><THead cols={['Asset','Driver','Date','Yard Dep.','Yard Ret.','Hours Out','Stops','Areas Visited']}/><tbody>{filteredTrips.map((r,i)=>(<TR key={i} i={i}><td style={{padding:'10px 16px',fontWeight:600,color:'#F5F7FA'}}>{r.asset}</td><td style={{padding:'10px 16px',color:'rgba(230,237,243,0.55)'}}>{r.driver}</td><TD>{r.date}</TD><td style={{padding:'10px 16px',fontWeight:500,color:'#34d399'}}>{r.yardDep}</td><td style={{padding:'10px 16px',fontWeight:500,color:'#60a5fa'}}>{r.yardRet}</td><TD>{r.hoursOut} hrs</TD><td style={{padding:'10px 16px',textAlign:'center',color:'rgba(230,237,243,0.55)'}}>{r.stopsMade}</td><td style={{padding:'10px 16px',fontSize:12,color:'rgba(230,237,243,0.35)'}}>{r.areasVisited}</td></TR>))}</tbody></table></div></div>
+    <div style={{...DARK_CARD,padding:0,overflow:'hidden'}}><div style={{padding:'16px 20px',borderBottom:'1px solid rgba(255,255,255,0.07)'}}><SecTitle>Stop Event Log</SecTitle></div><div className="overflow-x-auto max-h-96 overflow-y-auto"><table className="w-full text-sm whitespace-nowrap"><THead cols={['Asset','Driver','Date','Area / Location','Arrival','Departure','Duration','Stop Type']}/><tbody>{filteredStops.map((r,i)=>(<TR key={i} i={i}><td style={{padding:'8px 16px',fontWeight:600,color:'#F5F7FA'}}>{r.asset}</td><td style={{padding:'8px 16px',color:'rgba(230,237,243,0.55)'}}>{r.driver}</td><TD>{r.date}</TD><TD>{r.area}</TD><td style={{padding:'8px 16px',color:'rgba(230,237,243,0.45)'}}>{r.arrival}</td><td style={{padding:'8px 16px',color:'rgba(230,237,243,0.45)'}}>{r.departure}</td><td style={{padding:'8px 16px',fontWeight:500,color:'rgba(230,237,243,0.55)'}}>{r.durationMins} min</td><td className="px-5 py-2.5"><span className="px-2 py-0.5 rounded-full text-xs font-medium" style={{background:(STOP_C[r.stopType]||'#94a3b8')+'20',color:STOP_C[r.stopType]||'#64748b'}}>{r.stopType}</span></td></TR>))}</tbody></table></div></div></>
   );
 }
 
@@ -317,17 +317,17 @@ export default function FleetDashboard() {
 
   // ── Overview content ──────────────────────────────────────────────────────
 
-  const P = { bg:'#F7F8FA', card:'#FFFFFF', indigo:'#1E1B4B', purple:'#7C3AED', cyan:'#22D3EE' };
-  const NEW_C = ['#7C3AED','#22D3EE','#F59E0B','#EF4444','#10B981','#CBD5E1'];
-  const TT2 = { borderRadius:14, border:'none', boxShadow:'0 8px 30px rgba(0,0,0,0.12)', fontSize:12 };
-  const card: React.CSSProperties = { background:P.card, borderRadius:16, border:'1px solid #F1F5F9', boxShadow:'0 8px 24px rgba(0,0,0,0.06)', padding:24 };
+  const P = { bg:'#07080B', card:'rgba(255,255,255,0.04)', indigo:'#818cf8', purple:'#a78bfa', cyan:'#22D3EE' };
+  const NEW_C = ['#818cf8','#22D3EE','#F59E0B','#EF4444','#10B981','rgba(255,255,255,0.2)'];
+  const TT2 = { borderRadius:14, border:'1px solid rgba(255,255,255,0.08)', boxShadow:'0 8px 30px rgba(0,0,0,0.5)', fontSize:12, background:'#0d0f14' };
+  const card: React.CSSProperties = { background:'rgba(255,255,255,0.04)', borderRadius:16, border:'1px solid rgba(255,255,255,0.07)', padding:24 };
 
   const overviewContent = assets.length === 0 ? (
     <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:'80px 0', textAlign:'center' }}>
-      <div style={{ background:'#F1F5F9', padding:20, borderRadius:20, marginBottom:16 }}><Truck size={32} color="#94A3B8"/></div>
-      <h2 style={{ fontSize:18, fontWeight:700, color:'#1E293B', marginBottom:8 }}>No Fleet Data Loaded</h2>
-      <p style={{ fontSize:13, color:'#94A3B8', marginBottom:20 }}>Upload your multi-sheet Excel file to activate live analytics.</p>
-      <label style={{ background:P.indigo, color:'#fff', padding:'10px 20px', borderRadius:10, fontSize:13, fontWeight:600, cursor:'pointer', display:'flex', alignItems:'center', gap:8 }}>
+      <div style={{ background:'rgba(255,255,255,0.06)', padding:20, borderRadius:20, marginBottom:16 }}><Truck size={32} color="rgba(255,255,255,0.3)"/></div>
+      <h2 style={{ fontSize:18, fontWeight:700, color:'#F5F7FA', marginBottom:8 }}>No Fleet Data Loaded</h2>
+      <p style={{ fontSize:13, color:'rgba(230,237,243,0.45)', marginBottom:20 }}>Upload your multi-sheet Excel file to activate live analytics.</p>
+      <label style={{ background:'rgba(129,140,248,0.15)', border:'1px solid rgba(129,140,248,0.3)', color:'#F5F7FA', padding:'10px 20px', borderRadius:10, fontSize:13, fontWeight:600, cursor:'pointer', display:'flex', alignItems:'center', gap:8 }}>
         <Upload size={14}/> Upload Fleet Data <input type="file" hidden accept=".xlsx,.xls" onChange={handleUpload}/>
       </label>
     </div>
@@ -338,10 +338,10 @@ export default function FleetDashboard() {
         {depts.map(d => (
           <button key={d} onClick={() => setDept(d)} style={{
             padding:'6px 16px', borderRadius:999, fontSize:12, fontWeight:600, cursor:'pointer',
-            border: dept===d ? 'none' : '1.5px solid #E5E7EB',
-            background: dept===d ? P.indigo : '#fff',
-            color: dept===d ? '#fff' : '#6B7280',
-            boxShadow: dept===d ? `0 4px 12px ${P.indigo}40` : 'none',
+            border: dept===d ? '1px solid rgba(129,140,248,0.4)' : '1px solid rgba(255,255,255,0.08)',
+            background: dept===d ? 'rgba(129,140,248,0.2)' : 'rgba(255,255,255,0.03)',
+            color: dept===d ? '#F5F7FA' : 'rgba(230,237,243,0.55)',
+            boxShadow: dept===d ? '0 4px 12px rgba(129,140,248,0.2)' : 'none',
             transition:'all 0.15s ease',
           }}>{d}</button>
         ))}
@@ -353,8 +353,8 @@ export default function FleetDashboard() {
         <div style={card}>
           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:16 }}>
             <div>
-              <p style={{ fontSize:11, fontWeight:700, color:'#94A3B8', textTransform:'uppercase', letterSpacing:'0.08em', margin:0 }}>Operational Cost by Asset</p>
-              <p style={{ fontSize:11, color:'#CBD5E1', margin:'3px 0 0' }}>{dept==='All'?'All departments':dept} · stacked by category</p>
+              <p style={{ fontSize:11, fontWeight:700, color:'rgba(230,237,243,0.4)', textTransform:'uppercase', letterSpacing:'0.08em', margin:0 }}>Operational Cost by Asset</p>
+              <p style={{ fontSize:11, color:'rgba(230,237,243,0.3)', margin:'3px 0 0' }}>{dept==='All'?'All departments':dept} · stacked by category</p>
             </div>
             <span style={{ fontSize:13, fontWeight:800, color:P.purple }}>{fmt(total)}</span>
           </div>
@@ -376,7 +376,7 @@ export default function FleetDashboard() {
 
         {/* Donut */}
         <div style={{...card, display:'flex', flexDirection:'column'}}>
-          <p style={{ fontSize:11, fontWeight:700, color:'#94A3B8', textTransform:'uppercase', letterSpacing:'0.08em', margin:'0 0 4px' }}>Cost Category Split</p>
+          <p style={{ fontSize:11, fontWeight:700, color:'rgba(230,237,243,0.4)', textTransform:'uppercase', letterSpacing:'0.08em', margin:'0 0 4px' }}>Cost Category Split</p>
           <div style={{ position:'relative' }}>
             <ResponsiveContainer width="100%" height={190}>
               <PieChart>
@@ -387,20 +387,20 @@ export default function FleetDashboard() {
               </PieChart>
             </ResponsiveContainer>
             <div style={{ position:'absolute', top:'50%', left:'50%', transform:'translate(-50%,-50%)', textAlign:'center', pointerEvents:'none' }}>
-              <div style={{ fontSize:13, fontWeight:800, color:P.indigo, lineHeight:1.1 }}>{fmt(total)}</div>
-              <div style={{ fontSize:9, color:'#94A3B8', fontWeight:700, letterSpacing:'0.06em' }}>TOTAL</div>
+              <div style={{ fontSize:13, fontWeight:800, color:'#F5F7FA', lineHeight:1.1 }}>{fmt(total)}</div>
+              <div style={{ fontSize:9, color:'rgba(230,237,243,0.4)', fontWeight:700, letterSpacing:'0.06em' }}>TOTAL</div>
             </div>
           </div>
           <div style={{ display:'flex', flexDirection:'column', gap:7, marginTop:'auto' }}>
             {[...pieData].sort((a,b)=>b.value-a.value).map((d,i)=>(
               <div key={d.name} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', fontSize:11 }}>
-                <span style={{ display:'flex', alignItems:'center', gap:7, color:'#475569' }}>
+                <span style={{ display:'flex', alignItems:'center', gap:7, color:'rgba(230,237,243,0.55)' }}>
                   <span style={{ width:8, height:8, borderRadius:'50%', background:NEW_C[i%6], flexShrink:0 }}/>
                   {d.name}
                 </span>
                 <div style={{ textAlign:'right' }}>
-                  <span style={{ fontWeight:700, color:'#1E293B' }}>{((d.value/total)*100).toFixed(1)}%</span>
-                  <span style={{ fontSize:10, color:'#CBD5E1', marginLeft:6 }}>{fmt(d.value)}</span>
+                  <span style={{ fontWeight:700, color:'#F5F7FA' }}>{((d.value/total)*100).toFixed(1)}%</span>
+                  <span style={{ fontSize:10, color:'rgba(230,237,243,0.35)', marginLeft:6 }}>{fmt(d.value)}</span>
                 </div>
               </div>
             ))}
@@ -412,7 +412,7 @@ export default function FleetDashboard() {
       <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:16, marginBottom:16 }}>
         {/* Cost by department */}
         <div style={card}>
-          <p style={{ fontSize:11, fontWeight:700, color:'#94A3B8', textTransform:'uppercase', letterSpacing:'0.08em', margin:'0 0 14px' }}>Cost by Department</p>
+          <p style={{ fontSize:11, fontWeight:700, color:'rgba(230,237,243,0.4)', textTransform:'uppercase', letterSpacing:'0.08em', margin:'0 0 14px' }}>Cost by Department</p>
           <ResponsiveContainer width="100%" height={200}>
             <BarChart data={deptData} layout="vertical" barSize={14} margin={{left:100,right:20}}>
               <XAxis type="number" tick={{fontSize:10,fill:'#94a3b8'}} axisLine={false} tickLine={false} tickFormatter={v=>`$${(v/1000).toFixed(0)}k`}/>
@@ -428,25 +428,25 @@ export default function FleetDashboard() {
         {/* Assets to watch */}
         <div style={card}>
           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:14 }}>
-            <p style={{ fontSize:11, fontWeight:700, color:'#94A3B8', textTransform:'uppercase', letterSpacing:'0.08em', margin:0 }}>Assets to Watch</p>
-            <span style={{ fontSize:10, padding:'2px 10px', borderRadius:20, background:'#FEF2F2', color:'#EF4444', fontWeight:700, border:'1px solid #FECACA' }}>
+            <p style={{ fontSize:11, fontWeight:700, color:'rgba(230,237,243,0.4)', textTransform:'uppercase', letterSpacing:'0.08em', margin:0 }}>Assets to Watch</p>
+            <span style={{ fontSize:10, padding:'2px 10px', borderRadius:20, background:'rgba(239,68,68,0.12)', color:'#f87171', fontWeight:700, border:'1px solid rgba(239,68,68,0.2)' }}>
               {effData.filter(d=>d.cpk>avgCpk*1.1).length} over threshold
             </span>
           </div>
           {[...view].sort((a,b)=>b.costPerKm-a.costPerKm).slice(0,5).map((a,i)=>(
-            <div key={a.id} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'9px 0', borderBottom: i<4?'1px solid #F8FAFC':'none' }}>
+            <div key={a.id} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'9px 0', borderBottom: i<4?'1px solid rgba(255,255,255,0.05)':'none' }}>
               <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-                <div style={{ width:34, height:34, borderRadius:10, background:a.costPerKm>avgCpk*1.1?'#FEF2F2':a.costPerKm>avgCpk?'#FFFBEB':'#F0FDF4', display:'flex', alignItems:'center', justifyContent:'center', fontSize:16, flexShrink:0 }}>
+                <div style={{ width:34, height:34, borderRadius:10, background:a.costPerKm>avgCpk*1.1?'rgba(239,68,68,0.1)':a.costPerKm>avgCpk?'rgba(245,158,11,0.08)':'rgba(16,185,129,0.08)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:16, flexShrink:0 }}>
                   {a.costPerKm>avgCpk*1.1?'⚠️':a.costPerKm>avgCpk?'⏱':'✅'}
                 </div>
                 <div>
-                  <div style={{ fontSize:12, fontWeight:700, color:'#1E293B' }}>{a.id} <span style={{ fontSize:10, color:'#94A3B8', fontWeight:400 }}>{a.make}</span></div>
-                  <div style={{ fontSize:10, color:'#94A3B8' }}>{a.department} · {a.year}</div>
+                  <div style={{ fontSize:12, fontWeight:700, color:'#F5F7FA' }}>{a.id} <span style={{ fontSize:10, color:'rgba(230,237,243,0.4)', fontWeight:400 }}>{a.make}</span></div>
+                  <div style={{ fontSize:10, color:'rgba(230,237,243,0.4)' }}>{a.department} · {a.year}</div>
                 </div>
               </div>
               <div style={{ textAlign:'right' }}>
-                <div style={{ fontSize:13, fontWeight:800, color:a.costPerKm>avgCpk*1.1?'#EF4444':a.costPerKm>avgCpk?'#F59E0B':'#10B981' }}>${a.costPerKm.toFixed(2)}/km</div>
-                <div style={{ fontSize:9, color:'#CBD5E1' }}>fleet avg ${avgCpk.toFixed(2)}</div>
+                <div style={{ fontSize:13, fontWeight:800, color:a.costPerKm>avgCpk*1.1?'#f87171':a.costPerKm>avgCpk?'#fbbf24':'#4ade80' }}>${a.costPerKm.toFixed(2)}/km</div>
+                <div style={{ fontSize:9, color:'rgba(230,237,243,0.35)' }}>fleet avg ${avgCpk.toFixed(2)}</div>
               </div>
             </div>
           ))}
@@ -457,8 +457,8 @@ export default function FleetDashboard() {
       <div style={{...card, marginBottom:16}}>
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
           <div>
-            <p style={{ fontSize:11, fontWeight:700, color:'#94A3B8', textTransform:'uppercase', letterSpacing:'0.08em', margin:0 }}>Cost per KM by Asset</p>
-            <p style={{ fontSize:11, color:'#CBD5E1', margin:'3px 0 0' }}>Dashed line = fleet average ${avgCpk.toFixed(2)}/km</p>
+            <p style={{ fontSize:11, fontWeight:700, color:'rgba(230,237,243,0.4)', textTransform:'uppercase', letterSpacing:'0.08em', margin:0 }}>Cost per KM by Asset</p>
+            <p style={{ fontSize:11, color:'rgba(230,237,243,0.3)', margin:'3px 0 0' }}>Dashed line = fleet average ${avgCpk.toFixed(2)}/km</p>
           </div>
           <span style={{ fontSize:11, padding:'3px 10px', borderRadius:20, background:`${P.purple}12`, color:P.purple, fontWeight:700, border:`1px solid ${P.purple}30` }}>
             {effData.filter(d=>d.cpk>avgCpk*1.1).length} assets above threshold
@@ -478,7 +478,7 @@ export default function FleetDashboard() {
       </div>
 
       {/* ── Executive summary bar ── */}
-      <div style={{ background:`linear-gradient(135deg, ${P.indigo} 0%, #312E81 100%)`, color:'#fff', borderRadius:16, padding:'20px 28px', marginBottom:16, display:'flex', alignItems:'center', justifyContent:'space-between', gap:24 }}>
+      <div style={{ background:'linear-gradient(135deg, #1e1b4b 0%, #312E81 100%)', color:'#fff', borderRadius:16, padding:'20px 28px', marginBottom:16, display:'flex', alignItems:'center', justifyContent:'space-between', gap:24 }}>
         <div>
           <p style={{ fontSize:10, color:'rgba(255,255,255,0.45)', textTransform:'uppercase', letterSpacing:'0.1em', fontWeight:700, margin:'0 0 6px' }}>Fleet Summary · FY2025-26</p>
           <p style={{ fontSize:13, color:'rgba(255,255,255,0.88)', lineHeight:1.6, margin:0, maxWidth:800 }}>
@@ -499,13 +499,13 @@ export default function FleetDashboard() {
 
       {/* ── Full asset register ── */}
       <div style={{...card, padding:0, overflow:'hidden'}}>
-        <div style={{ padding:'16px 24px', borderBottom:'1px solid #F1F5F9', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+        <div style={{ padding:'16px 24px', borderBottom:'1px solid rgba(255,255,255,0.07)', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
           <div>
-            <p style={{ fontSize:11, fontWeight:700, color:'#94A3B8', textTransform:'uppercase', letterSpacing:'0.08em', margin:0 }}>Asset Register</p>
-            <p style={{ fontSize:11, color:'#CBD5E1', margin:'2px 0 0' }}>{view.length} assets · {dept==='All'?'all departments':dept}</p>
+            <p style={{ fontSize:11, fontWeight:700, color:'rgba(230,237,243,0.4)', textTransform:'uppercase', letterSpacing:'0.08em', margin:0 }}>Asset Register</p>
+            <p style={{ fontSize:11, color:'rgba(230,237,243,0.3)', margin:'2px 0 0' }}>{view.length} assets · {dept==='All'?'all departments':dept}</p>
           </div>
           <input
-            style={{ fontSize:12, border:'1.5px solid #E5E7EB', borderRadius:9, padding:'7px 13px', outline:'none', color:'#1E293B', background:'#F8FAFC', width:220 }}
+            style={{ fontSize:12, border:'1px solid rgba(255,255,255,0.1)', borderRadius:9, padding:'7px 13px', outline:'none', color:'#F5F7FA', background:'rgba(255,255,255,0.05)', width:220 }}
             placeholder="Search asset or driver…"
             value={search}
             onChange={e=>setSearch(e.target.value)}
@@ -514,37 +514,37 @@ export default function FleetDashboard() {
         <div style={{ overflowX:'auto' }}>
           <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12, whiteSpace:'nowrap' }}>
             <thead>
-              <tr style={{ background:'#F8FAFC', borderBottom:'1px solid #F1F5F9' }}>
+              <tr style={{ background:'rgba(255,255,255,0.04)', borderBottom:'1px solid rgba(255,255,255,0.06)' }}>
                 {['Asset','Type','Make','Yr','Department','Driver','KM','Wages','Fuel','Maint.','Repairs','Insur.','Rego','Svcs','Defects','$/km','Total'].map(h=>(
-                  <th key={h} style={{ padding:'10px 14px', textAlign:'left', fontSize:10, color:'#94A3B8', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.06em' }}>{h}</th>
+                  <th key={h} style={{ padding:'10px 14px', textAlign:'left', fontSize:10, color:'rgba(255,255,255,0.35)', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.06em' }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {view.map((a,i)=>(
-                <tr key={a.id} style={{ borderBottom:'1px solid #F8FAFC', background:i%2===1?'#FAFBFC':'#fff', transition:'background 0.1s' }}>
-                  <td style={{ padding:'10px 14px', fontWeight:700, color:P.indigo }}>{a.id}</td>
-                  <td style={{ padding:'10px 14px', color:'#64748B' }}>{a.type}</td>
-                  <td style={{ padding:'10px 14px', color:'#64748B' }}>{a.make}</td>
-                  <td style={{ padding:'10px 14px', color:'#64748B' }}>{a.year}</td>
-                  <td style={{ padding:'10px 14px' }}><span style={{ padding:'2px 8px', borderRadius:20, fontSize:10, fontWeight:600, background:(DEPT_C[a.department]||'#94a3b8')+'20', color:DEPT_C[a.department]||'#64748b' }}>{a.department}</span></td>
-                  <td style={{ padding:'10px 14px', color:'#475569' }}>{a.driver}</td>
-                  <td style={{ padding:'10px 14px', color:'#64748B' }}>{a.km.toLocaleString()}</td>
-                  <td style={{ padding:'10px 14px', color:'#64748B' }}>{fmt(a.wages)}</td>
-                  <td style={{ padding:'10px 14px', color:'#64748B' }}>{fmt(a.fuel)}</td>
-                  <td style={{ padding:'10px 14px', color:'#64748B' }}>{fmt(a.maintenance)}</td>
-                  <td style={{ padding:'10px 14px', color:'#64748B' }}>{fmt(a.repairs)}</td>
-                  <td style={{ padding:'10px 14px', color:'#64748B' }}>{fmt(a.insurance)}</td>
-                  <td style={{ padding:'10px 14px', color:'#64748B' }}>{fmt(a.rego)}</td>
-                  <td style={{ padding:'10px 14px', textAlign:'center', color:'#64748B' }}>{a.services}</td>
-                  <td style={{ padding:'10px 14px', textAlign:'center', fontWeight:700, color:a.defects>2?'#EF4444':a.defects>0?'#F59E0B':'#10B981' }}>{a.defects}</td>
-                  <td style={{ padding:'10px 14px', fontWeight:700, color:a.costPerKm>avgCpk*1.1?'#EF4444':a.costPerKm<avgCpk*0.9?'#10B981':'#475569' }}>${a.costPerKm.toFixed(2)}</td>
-                  <td style={{ padding:'10px 14px', fontWeight:800, color:P.indigo }}>{fmt(a.total)}</td>
+                <tr key={a.id} style={{ borderBottom:'1px solid rgba(255,255,255,0.04)', background:i%2===1?'rgba(255,255,255,0.015)':'transparent', transition:'background 0.1s' }}>
+                  <td style={{ padding:'10px 14px', fontWeight:700, color:'#818cf8' }}>{a.id}</td>
+                  <td style={{ padding:'10px 14px', color:'rgba(230,237,243,0.55)' }}>{a.type}</td>
+                  <td style={{ padding:'10px 14px', color:'rgba(230,237,243,0.55)' }}>{a.make}</td>
+                  <td style={{ padding:'10px 14px', color:'rgba(230,237,243,0.55)' }}>{a.year}</td>
+                  <td style={{ padding:'10px 14px' }}><span style={{ padding:'2px 8px', borderRadius:20, fontSize:10, fontWeight:600, background:(DEPT_C[a.department]||'#94a3b8')+'20', color:DEPT_C[a.department]||'rgba(230,237,243,0.55)' }}>{a.department}</span></td>
+                  <td style={{ padding:'10px 14px', color:'rgba(230,237,243,0.7)' }}>{a.driver}</td>
+                  <td style={{ padding:'10px 14px', color:'rgba(230,237,243,0.55)' }}>{a.km.toLocaleString()}</td>
+                  <td style={{ padding:'10px 14px', color:'rgba(230,237,243,0.55)' }}>{fmt(a.wages)}</td>
+                  <td style={{ padding:'10px 14px', color:'rgba(230,237,243,0.55)' }}>{fmt(a.fuel)}</td>
+                  <td style={{ padding:'10px 14px', color:'rgba(230,237,243,0.55)' }}>{fmt(a.maintenance)}</td>
+                  <td style={{ padding:'10px 14px', color:'rgba(230,237,243,0.55)' }}>{fmt(a.repairs)}</td>
+                  <td style={{ padding:'10px 14px', color:'rgba(230,237,243,0.55)' }}>{fmt(a.insurance)}</td>
+                  <td style={{ padding:'10px 14px', color:'rgba(230,237,243,0.55)' }}>{fmt(a.rego)}</td>
+                  <td style={{ padding:'10px 14px', textAlign:'center', color:'rgba(230,237,243,0.55)' }}>{a.services}</td>
+                  <td style={{ padding:'10px 14px', textAlign:'center', fontWeight:700, color:a.defects>2?'#f87171':a.defects>0?'#fbbf24':'#4ade80' }}>{a.defects}</td>
+                  <td style={{ padding:'10px 14px', fontWeight:700, color:a.costPerKm>avgCpk*1.1?'#f87171':a.costPerKm<avgCpk*0.9?'#4ade80':'rgba(230,237,243,0.55)' }}>${a.costPerKm.toFixed(2)}</td>
+                  <td style={{ padding:'10px 14px', fontWeight:800, color:'#F5F7FA' }}>{fmt(a.total)}</td>
                 </tr>
               ))}
             </tbody>
             <tfoot>
-              <tr style={{ background:P.indigo }}>
+              <tr style={{ background:'rgba(255,255,255,0.06)', borderTop:'2px solid rgba(255,255,255,0.08)' }}>
                 <td style={{ padding:'10px 14px', fontWeight:700, fontSize:10, textTransform:'uppercase', color:'rgba(255,255,255,0.5)', letterSpacing:'0.06em' }} colSpan={6}>Total</td>
                 <td style={{ padding:'10px 14px', color:'rgba(255,255,255,0.7)', fontSize:11 }}>{totalKm.toLocaleString()}</td>
                 {(['wages','fuel','maintenance','repairs','insurance','rego'] as const).map(k=>(

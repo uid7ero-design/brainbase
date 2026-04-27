@@ -1,12 +1,13 @@
-﻿"use client";
+"use client";
 
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend,
   CartesianGrid, LineChart, Line, ReferenceLine,
 } from "recharts";
+import { KpiCard, Insight, SectionHeader, T1, T2, T3, BORDER, ROW_BDR, ROW_HEAD, GRID, TICK, DTT, DC, PAGE } from "../_dark";
 
 const ANNUAL_BUDGET = 3_535_000;
-const YTD_MONTHS = 6; // Oct 25 – Mar 26
+const YTD_MONTHS = 6;
 const YTD_BUDGET = Math.round(ANNUAL_BUDGET / 12 * YTD_MONTHS);
 
 const CATEGORY_DATA = [
@@ -68,23 +69,18 @@ export default function BudgetingPage() {
   const fmt = (v: number) => v >= 0 ? `+$${v.toLocaleString()}` : `-$${Math.abs(v).toLocaleString()}`;
 
   return (
-    <div className="max-w-7xl mx-auto px-8 py-6 space-y-6">
+    <div style={PAGE}>
 
-      {/* Toolbar */}
-      <div className="flex justify-between items-center">
-        <p className="text-slate-500 text-sm">Financial Year 2025–26 &nbsp;·&nbsp; YTD: Oct 2025 – Mar 2026 &nbsp;·&nbsp; <span className="text-slate-400">As at {today}</span></p>
-      </div>
+      <p style={{ fontSize: 13, color: T3, margin: 0 }}>Financial Year 2025–26 &nbsp;·&nbsp; YTD: Oct 2025 – Mar 2026 &nbsp;·&nbsp; As at {today}</p>
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-4 gap-5">
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 20 }}>
         <KpiCard label="Annual Budget"       value={`$${ANNUAL_BUDGET.toLocaleString()}`}               sub="FY 2025–26 approved budget"              accent="#3b82f6" />
         <KpiCard label="YTD Actual"          value={`$${ytdActual.toLocaleString()}`}                   sub={`${YTD_MONTHS} months (Oct 25 – Mar 26)`} accent="#8b5cf6" />
         <KpiCard label="YTD Variance"        value={fmt(ytdVariance)}                                   sub={ytdVariance > 0 ? "Over YTD budget" : "Under YTD budget"} accent={ytdVariance > 0 ? "#ef4444" : "#10b981"} />
         <KpiCard label="Full-Year Forecast"  value={`$${Math.round(annualForecast).toLocaleString()}`}  sub={`${fmt(Math.round(forecastVar))} vs budget`} accent={forecastVar > 0 ? "#ef4444" : "#10b981"} />
       </div>
 
-      {/* Insights */}
-      <div className="grid grid-cols-3 gap-5">
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 20 }}>
         <Insight icon="📈" color={ytdVariance > 0 ? "red" : "green"}
           title={`YTD spend ${ytdVariance > 0 ? "over" : "under"} by $${Math.abs(ytdVariance).toLocaleString()}`}
           body={`${pctUsed}% of annual budget consumed in ${YTD_MONTHS} months (${(100/12*YTD_MONTHS).toFixed(0)}% of year elapsed). Summer peaks in Jan–Feb drove the overspend.`}
@@ -99,19 +95,16 @@ export default function BudgetingPage() {
         />
       </div>
 
-      {/* Monthly trend + YTD by category */}
-      <div className="grid grid-cols-2 gap-5">
-
-        {/* Monthly spend trend */}
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
+        <div style={DC}>
           <SectionHeader title="Monthly Spend vs Budget" sub="Actual Oct 25 – Mar 26 + forecast to Sep 26 (lighter bars)" />
           <ResponsiveContainer width="100%" height={280}>
             <BarChart data={FULL_YEAR} barCategoryGap="25%">
-              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-              <XAxis dataKey="month" tick={{ fill: "#64748b", fontSize: 10 }} axisLine={false} tickLine={false} />
-              <YAxis tickFormatter={v => `$${(v/1000).toFixed(0)}k`} tick={{ fill: "#94a3b8", fontSize: 11 }} axisLine={false} tickLine={false} />
-              <Tooltip formatter={v => `$${Number(v).toLocaleString()}`} contentStyle={{ borderRadius: 8, fontSize: 12 }} />
-              <Legend wrapperStyle={{ fontSize: 12 }} />
+              <CartesianGrid strokeDasharray="3 3" stroke={GRID} vertical={false} />
+              <XAxis dataKey="month" tick={{ fill: TICK, fontSize: 10 }} axisLine={false} tickLine={false} />
+              <YAxis tickFormatter={v => `$${(v/1000).toFixed(0)}k`} tick={{ fill: TICK, fontSize: 11 }} axisLine={false} tickLine={false} />
+              <Tooltip formatter={v => `$${Number(v).toLocaleString()}`} contentStyle={DTT} />
+              <Legend wrapperStyle={{ fontSize: 12, color: T2 }} />
               <Bar dataKey="actual"   name="Actual"   fill="#3b82f6" fillOpacity={1}   radius={[3,3,0,0]} />
               <Bar dataKey="forecast" name="Forecast" fill="#3b82f6" fillOpacity={0.35} radius={[3,3,0,0]} />
               <Bar dataKey="budget"   name="Budget"   fill="#f59e0b" fillOpacity={0.5}  radius={[3,3,0,0]} />
@@ -119,34 +112,32 @@ export default function BudgetingPage() {
           </ResponsiveContainer>
         </div>
 
-        {/* Budget vs Actual by category */}
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
+        <div style={DC}>
           <SectionHeader title="YTD Budget vs Actual by Category" sub="Oct 2025 – Mar 2026" />
           <ResponsiveContainer width="100%" height={280}>
             <BarChart data={CATEGORY_DATA} barCategoryGap="25%">
-              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-              <XAxis dataKey="category" tick={{ fill: "#64748b", fontSize: 12 }} axisLine={false} tickLine={false} />
-              <YAxis tickFormatter={v => `$${(v/1000).toFixed(0)}k`} tick={{ fill: "#94a3b8", fontSize: 11 }} axisLine={false} tickLine={false} />
-              <Tooltip formatter={v => `$${Number(v).toLocaleString()}`} contentStyle={{ borderRadius: 8, fontSize: 12 }} />
-              <Legend wrapperStyle={{ fontSize: 12 }} />
-              <Bar dataKey="ytdBudget" name="YTD Budget" fill="#94a3b8" radius={[3,3,0,0]} />
+              <CartesianGrid strokeDasharray="3 3" stroke={GRID} vertical={false} />
+              <XAxis dataKey="category" tick={{ fill: TICK, fontSize: 12 }} axisLine={false} tickLine={false} />
+              <YAxis tickFormatter={v => `$${(v/1000).toFixed(0)}k`} tick={{ fill: TICK, fontSize: 11 }} axisLine={false} tickLine={false} />
+              <Tooltip formatter={v => `$${Number(v).toLocaleString()}`} contentStyle={DTT} />
+              <Legend wrapperStyle={{ fontSize: 12, color: T2 }} />
+              <Bar dataKey="ytdBudget" name="YTD Budget" fill="rgba(255,255,255,0.2)" radius={[3,3,0,0]} />
               <Bar dataKey="ytdActual" name="YTD Actual" fill="#3b82f6" radius={[3,3,0,0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
       </div>
 
-      {/* Zone budget vs actual */}
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
+      <div style={DC}>
         <SectionHeader title="Budget vs Actual by Zone (This Period)" sub="Red = over budget · Green = under budget" />
         <ResponsiveContainer width="100%" height={270}>
           <BarChart data={ZONE_BUDGET_DATA} barCategoryGap="20%">
-            <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-            <XAxis dataKey="shortId" tick={{ fill: "#64748b", fontSize: 11 }} axisLine={false} tickLine={false} />
-            <YAxis tickFormatter={v => `$${(v/1000).toFixed(0)}k`} tick={{ fill: "#94a3b8", fontSize: 11 }} axisLine={false} tickLine={false} />
-            <Tooltip formatter={v => `$${Number(v).toLocaleString()}`} contentStyle={{ borderRadius: 8, fontSize: 12 }} />
-            <Legend wrapperStyle={{ fontSize: 12 }} />
-            <Bar dataKey="budget" name="Budget" fill="#94a3b8" radius={[3,3,0,0]} />
+            <CartesianGrid strokeDasharray="3 3" stroke={GRID} vertical={false} />
+            <XAxis dataKey="shortId" tick={{ fill: TICK, fontSize: 11 }} axisLine={false} tickLine={false} />
+            <YAxis tickFormatter={v => `$${(v/1000).toFixed(0)}k`} tick={{ fill: TICK, fontSize: 11 }} axisLine={false} tickLine={false} />
+            <Tooltip formatter={v => `$${Number(v).toLocaleString()}`} contentStyle={DTT} />
+            <Legend wrapperStyle={{ fontSize: 12, color: T2 }} />
+            <Bar dataKey="budget" name="Budget" fill="rgba(255,255,255,0.2)" radius={[3,3,0,0]} />
             <Bar dataKey="actual" name="Actual" radius={[3,3,0,0]}>
               {ZONE_BUDGET_DATA.map((r, i) => (
                 <rect key={i} fill={r.variance > 0 ? "#ef4444" : "#10b981"} />
@@ -156,77 +147,75 @@ export default function BudgetingPage() {
         </ResponsiveContainer>
       </div>
 
-      {/* Category summary table */}
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-100">
+      <div style={{ ...DC, padding: 0, overflow: "hidden" }}>
+        <div style={{ padding: "16px 20px", borderBottom: `1px solid ${BORDER}` }}>
           <SectionHeader title="Category Budget Summary" sub="FY 2025–26 annual budget and YTD performance" />
         </div>
-        <table className="w-full text-sm">
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
           <thead>
-            <tr className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wide">
-              {["Category","Annual Budget","YTD Budget","YTD Actual","Variance","% Used","Remaining"].map(h => (
-                <th key={h} className={`py-3 font-medium ${h === "Category" ? "text-left px-6" : "text-right px-4"}`}>{h}</th>
+            <tr style={{ background: ROW_HEAD }}>
+              {["Category","Annual Budget","YTD Budget","YTD Actual","Variance","% Used","Remaining"].map((h, i) => (
+                <th key={h} style={{ padding: "10px 14px", fontWeight: 600, fontSize: 10, color: T3, textTransform: "uppercase", letterSpacing: ".06em", textAlign: i === 0 ? "left" : "right" }}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {CATEGORY_DATA.map((row, i) => (
-              <tr key={i} className="border-t border-slate-50 hover:bg-slate-50 transition">
-                <td className="px-6 py-3 font-medium text-slate-800">{row.category}</td>
-                <td className="px-4 py-3 text-right text-slate-600">${row.annual.toLocaleString()}</td>
-                <td className="px-4 py-3 text-right text-slate-600">${row.ytdBudget.toLocaleString()}</td>
-                <td className="px-4 py-3 text-right font-semibold text-slate-800">${row.ytdActual.toLocaleString()}</td>
-                <td className="px-4 py-3 text-right">
-                  <span className={`font-semibold ${row.variance > 0 ? "text-red-500" : "text-emerald-600"}`}>{fmt(row.variance)}</span>
+              <tr key={i} style={{ borderTop: `1px solid ${ROW_BDR}` }}>
+                <td style={{ padding: "10px 14px", color: T1, fontWeight: 500 }}>{row.category}</td>
+                <td style={{ padding: "10px 14px", textAlign: "right", color: T2 }}>${row.annual.toLocaleString()}</td>
+                <td style={{ padding: "10px 14px", textAlign: "right", color: T2 }}>${row.ytdBudget.toLocaleString()}</td>
+                <td style={{ padding: "10px 14px", textAlign: "right", color: T1, fontWeight: 600 }}>${row.ytdActual.toLocaleString()}</td>
+                <td style={{ padding: "10px 14px", textAlign: "right" }}>
+                  <span style={{ fontWeight: 600, color: row.variance > 0 ? "#f87171" : "#4ade80" }}>{fmt(row.variance)}</span>
                 </td>
-                <td className="px-4 py-3 text-right">
-                  <div className="flex items-center justify-end gap-2">
-                    <div className="w-16 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                      <div className="h-full rounded-full" style={{ width: `${Math.min(row.pctUsed, 100)}%`, background: row.pctUsed > 55 ? "#ef4444" : "#10b981" }} />
+                <td style={{ padding: "10px 14px", textAlign: "right" }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8 }}>
+                    <div style={{ width: 64, height: 6, background: "rgba(255,255,255,0.08)", borderRadius: 999, overflow: "hidden" }}>
+                      <div style={{ height: "100%", borderRadius: 999, width: `${Math.min(row.pctUsed, 100)}%`, background: row.pctUsed > 55 ? "#ef4444" : "#10b981" }} />
                     </div>
-                    <span className={`font-medium ${row.pctUsed > 55 ? "text-red-500" : "text-emerald-600"}`}>{row.pctUsed}%</span>
+                    <span style={{ fontWeight: 500, color: row.pctUsed > 55 ? "#f87171" : "#4ade80" }}>{row.pctUsed}%</span>
                   </div>
                 </td>
-                <td className="px-4 py-3 text-right text-slate-600">${row.remaining.toLocaleString()}</td>
+                <td style={{ padding: "10px 14px", textAlign: "right", color: T2 }}>${row.remaining.toLocaleString()}</td>
               </tr>
             ))}
           </tbody>
           <tfoot>
-            <tr className="bg-slate-50 border-t-2 border-slate-200 font-semibold text-slate-800 text-sm">
-              <td className="px-6 py-3">Total</td>
-              <td className="px-4 py-3 text-right">${ANNUAL_BUDGET.toLocaleString()}</td>
-              <td className="px-4 py-3 text-right">${YTD_BUDGET.toLocaleString()}</td>
-              <td className="px-4 py-3 text-right">${ytdActual.toLocaleString()}</td>
-              <td className="px-4 py-3 text-right"><span className={`font-semibold ${ytdVariance > 0 ? "text-red-500" : "text-emerald-600"}`}>{fmt(ytdVariance)}</span></td>
-              <td className="px-4 py-3 text-right"><span className={pctUsed > 55 ? "text-red-500" : "text-emerald-600"}>{pctUsed}%</span></td>
-              <td className="px-4 py-3 text-right">${(ANNUAL_BUDGET - ytdActual).toLocaleString()}</td>
+            <tr style={{ background: ROW_HEAD, borderTop: `2px solid rgba(255,255,255,0.1)` }}>
+              <td style={{ padding: "10px 14px", color: T1, fontWeight: 600 }}>Total</td>
+              <td style={{ padding: "10px 14px", textAlign: "right", color: T1, fontWeight: 600 }}>${ANNUAL_BUDGET.toLocaleString()}</td>
+              <td style={{ padding: "10px 14px", textAlign: "right", color: T1, fontWeight: 600 }}>${YTD_BUDGET.toLocaleString()}</td>
+              <td style={{ padding: "10px 14px", textAlign: "right", color: T1, fontWeight: 600 }}>${ytdActual.toLocaleString()}</td>
+              <td style={{ padding: "10px 14px", textAlign: "right" }}><span style={{ fontWeight: 600, color: ytdVariance > 0 ? "#f87171" : "#4ade80" }}>{fmt(ytdVariance)}</span></td>
+              <td style={{ padding: "10px 14px", textAlign: "right" }}><span style={{ color: pctUsed > 55 ? "#f87171" : "#4ade80" }}>{pctUsed}%</span></td>
+              <td style={{ padding: "10px 14px", textAlign: "right", color: T1, fontWeight: 600 }}>${(ANNUAL_BUDGET - ytdActual).toLocaleString()}</td>
             </tr>
           </tfoot>
         </table>
       </div>
 
-      {/* Zone budget table */}
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-100">
+      <div style={{ ...DC, padding: 0, overflow: "hidden" }}>
+        <div style={{ padding: "16px 20px", borderBottom: `1px solid ${BORDER}` }}>
           <SectionHeader title="Zone Budget vs Actual (This Period)" />
         </div>
-        <table className="w-full text-sm">
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
           <thead>
-            <tr className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wide">
-              {["Zone","Budget","Actual","Variance","Status"].map(h => (
-                <th key={h} className={`py-3 font-medium ${h === "Zone" ? "text-left px-6" : "text-right px-4"}`}>{h}</th>
+            <tr style={{ background: ROW_HEAD }}>
+              {["Zone","Budget","Actual","Variance","Status"].map((h, i) => (
+                <th key={h} style={{ padding: "10px 14px", fontWeight: 600, fontSize: 10, color: T3, textTransform: "uppercase", letterSpacing: ".06em", textAlign: i === 0 ? "left" : "right" }}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {ZONE_BUDGET_DATA.map((row, i) => (
-              <tr key={i} className={`border-t border-slate-50 hover:bg-slate-50 transition ${row.variance > 0 ? "bg-red-50" : ""}`}>
-                <td className="px-6 py-3 font-medium text-slate-800">{row.zone}</td>
-                <td className="px-4 py-3 text-right text-slate-600">${row.budget.toLocaleString()}</td>
-                <td className="px-4 py-3 text-right font-semibold text-slate-800">${row.actual.toLocaleString()}</td>
-                <td className="px-4 py-3 text-right"><span className={`font-semibold ${row.variance > 0 ? "text-red-500" : "text-emerald-600"}`}>{fmt(row.variance)}</span></td>
-                <td className="px-4 py-3 text-right">
-                  <span className={`text-xs font-semibold px-2 py-1 rounded-full ${row.variance > 0 ? "bg-red-100 text-red-600" : "bg-emerald-100 text-emerald-700"}`}>
+              <tr key={i} style={{ borderTop: `1px solid ${ROW_BDR}`, background: row.variance > 0 ? "rgba(239,68,68,0.06)" : "transparent" }}>
+                <td style={{ padding: "10px 14px", color: T1, fontWeight: 500 }}>{row.zone}</td>
+                <td style={{ padding: "10px 14px", textAlign: "right", color: T2 }}>${row.budget.toLocaleString()}</td>
+                <td style={{ padding: "10px 14px", textAlign: "right", color: T1, fontWeight: 600 }}>${row.actual.toLocaleString()}</td>
+                <td style={{ padding: "10px 14px", textAlign: "right" }}><span style={{ fontWeight: 600, color: row.variance > 0 ? "#f87171" : "#4ade80" }}>{fmt(row.variance)}</span></td>
+                <td style={{ padding: "10px 14px", textAlign: "right" }}>
+                  <span style={{ fontSize: 11, fontWeight: 600, padding: "3px 10px", borderRadius: 999, background: row.variance > 0 ? "rgba(239,68,68,0.12)" : "rgba(74,222,128,0.12)", color: row.variance > 0 ? "#f87171" : "#4ade80", border: `1px solid ${row.variance > 0 ? "rgba(239,68,68,0.25)" : "rgba(74,222,128,0.25)"}` }}>
                     {row.variance > 0 ? "Over Budget" : "On Budget"}
                   </span>
                 </td>
@@ -235,42 +224,6 @@ export default function BudgetingPage() {
           </tbody>
         </table>
       </div>
-    </div>
-  );
-}
-
-function KpiCard({ label, value, sub, accent }: any) {
-  return (
-    <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5" style={{ borderLeft: `4px solid ${accent}` }}>
-      <p className="text-xs text-slate-500 font-medium uppercase tracking-wide mb-2">{label}</p>
-      <p className="text-2xl font-bold text-slate-900 mb-1">{value}</p>
-      <p className="text-xs text-slate-400">{sub}</p>
-    </div>
-  );
-}
-
-function Insight({ icon, color, title, body }: any) {
-  const p = (({
-    red:   ["bg-red-50",     "border-red-100",     "text-red-500"    ],
-    amber: ["bg-amber-50",   "border-amber-100",   "text-amber-500"  ],
-    green: ["bg-emerald-50", "border-emerald-100", "text-emerald-600"],
-    blue:  ["bg-blue-50",    "border-blue-100",    "text-blue-500"   ],
-  }) as Record<string,string[]>)[color];
-  return (
-    <div className={`rounded-2xl border p-5 ${p[0]} ${p[1]}`}>
-      <div className="flex items-start gap-3">
-        <span className={`text-xl ${p[2]}`}>{icon}</span>
-        <div><p className="text-sm font-semibold text-slate-800 mb-1">{title}</p><p className="text-xs text-slate-600 leading-relaxed">{body}</p></div>
-      </div>
-    </div>
-  );
-}
-
-function SectionHeader({ title, sub }: { title: string; sub?: string }) {
-  return (
-    <div className="mb-4">
-      <h2 className="text-base font-semibold text-slate-800">{title}</h2>
-      {sub && <p className="text-xs text-slate-400 mt-0.5">{sub}</p>}
     </div>
   );
 }

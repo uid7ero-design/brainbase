@@ -27,14 +27,16 @@ function NavLink({ href, children, active }: { href: string; children: React.Rea
 }
 
 export default function TopNav({ serverSession }: { serverSession?: Session }) {
-  const [session, setSession] = useState<Session>(serverSession ?? null);
+  const [fetchedSession, setFetchedSession] = useState<Session>(null);
   const pathname = usePathname();
 
   useEffect(() => {
     fetch('/api/me').then(r => r.ok ? r.json() : null).then(d => {
-      if (d?.role) setSession(d);
+      if (d?.role) setFetchedSession(d);
     });
   }, []);
+
+  const session = serverSession ?? fetchedSession;
 
   if (!session) return null;
 
@@ -79,11 +81,11 @@ export default function TopNav({ serverSession }: { serverSession?: Session }) {
           </svg>
         </NavLink>
 
+        <NavLink href="/dashboards" active={pathname.startsWith('/dashboards')}>Dashboards</NavLink>
+
         {isManager && (
           <NavLink href="/crm" active={pathname.startsWith('/crm')}>CRM</NavLink>
         )}
-
-        <NavLink href="/dashboards" active={pathname.startsWith('/dashboards')}>Dashboards</NavLink>
 
         {isManager && (
           <NavLink href="/reports" active={pathname.startsWith('/reports')}>Reports</NavLink>
@@ -99,9 +101,42 @@ export default function TopNav({ serverSession }: { serverSession?: Session }) {
 
         <div style={{ width: 1, height: 16, background: 'rgba(255,255,255,.10)' }} />
 
-        <NavLink href="/profile" active={pathname === '/profile'}>
-          <span style={{ color: 'rgba(255,255,255,.50)', fontSize: 13 }}>{firstName}</span>
-        </NavLink>
+        <Link
+          href="/profile"
+          style={{
+            display: 'flex', alignItems: 'center', gap: 8,
+            textDecoration: 'none', padding: '4px 8px 4px 4px',
+            borderRadius: 20, transition: 'background .15s',
+            background: pathname === '/profile' ? 'rgba(167,139,250,.12)' : 'transparent',
+            border: '1px solid',
+            borderColor: pathname === '/profile' ? 'rgba(167,139,250,.25)' : 'transparent',
+          }}
+          onMouseEnter={e => {
+            if (pathname !== '/profile') {
+              e.currentTarget.style.background = 'rgba(255,255,255,.06)';
+              e.currentTarget.style.borderColor = 'rgba(255,255,255,.08)';
+            }
+          }}
+          onMouseLeave={e => {
+            if (pathname !== '/profile') {
+              e.currentTarget.style.background = 'transparent';
+              e.currentTarget.style.borderColor = 'transparent';
+            }
+          }}
+        >
+          <div style={{
+            width: 26, height: 26, borderRadius: '50%',
+            background: 'linear-gradient(135deg, #6D28D9, #A78BFA)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 11, fontWeight: 700, color: '#fff', flexShrink: 0,
+            letterSpacing: '.02em',
+          }}>
+            {name.split(' ').map((p: string) => p[0]).join('').slice(0, 2).toUpperCase()}
+          </div>
+          <span style={{ fontSize: 13, fontWeight: 500, color: 'rgba(245,247,250,.75)' }}>
+            {firstName}
+          </span>
+        </Link>
 
         <button
           onClick={async () => { const { logout } = await import('@/app/actions/auth'); await logout(); }}

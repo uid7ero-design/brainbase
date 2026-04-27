@@ -1,9 +1,10 @@
-﻿"use client";
+"use client";
 
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend,
   CartesianGrid, Cell, ReferenceLine,
 } from "recharts";
+import { KpiCard, Insight, SectionHeader, T1, T2, T3, BORDER, ROW_BDR, ROW_HEAD, GRID, TICK, DTT, DC, PAGE } from "../_dark";
 
 const DATA = [
   { zone: "Zone 1 – Northern",   planned: 11360, completed: 11248, missed: 112, contamination: 8.2,  gwLifts: 5680, recLifts: 2840, gwLifts2: 2840 },
@@ -47,24 +48,19 @@ export default function BinLiftsPage() {
   const today = new Date().toLocaleDateString("en-AU", { day: "numeric", month: "long", year: "numeric" });
 
   return (
-    <div className="max-w-7xl mx-auto px-8 py-6 space-y-6">
+    <div style={PAGE}>
 
-      {/* Toolbar */}
-      <div className="flex justify-between items-center">
-        <p className="text-slate-500 text-sm">Period: {today} &nbsp;·&nbsp; <span className="text-slate-400">All waste streams</span></p>
+      <p style={{ fontSize: 13, color: T3, margin: 0 }}>Period: {today} &nbsp;·&nbsp; All waste streams</p>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 16 }}>
+        <KpiCard label="Total Planned Lifts"  value={totalPlanned.toLocaleString()}   sub="This period"          accent="#3b82f6" />
+        <KpiCard label="Completed Lifts"      value={totalCompleted.toLocaleString()}  sub="Across all zones"     accent="#10b981" />
+        <KpiCard label="Missed Lifts"         value={totalMissed.toLocaleString()}     sub="Requiring follow-up"  accent="#ef4444" />
+        <KpiCard label="Completion Rate"      value={`${completionRate}%`}             sub="Target ≥ 98.5%"       accent={+completionRate >= 98.5 ? "#10b981" : "#f59e0b"} />
+        <KpiCard label="Avg Contamination"    value={`${avgContam}%`}                  sub="Target ≤ 8.0%"        accent={+avgContam <= 8.0 ? "#10b981" : "#ef4444"} />
       </div>
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-5 gap-4">
-        <KpiCard label="Total Planned Lifts"  value={totalPlanned.toLocaleString()}  sub="This period"             accent="#3b82f6" />
-        <KpiCard label="Completed Lifts"      value={totalCompleted.toLocaleString()} sub="Across all zones"       accent="#10b981" />
-        <KpiCard label="Missed Lifts"         value={totalMissed.toLocaleString()}    sub="Requiring follow-up"    accent="#ef4444" />
-        <KpiCard label="Completion Rate"      value={`${completionRate}%`}            sub="Target ≥ 98.5%"         accent={+completionRate >= 98.5 ? "#10b981" : "#f59e0b"} />
-        <KpiCard label="Avg Contamination"    value={`${avgContam}%`}                 sub="Target ≤ 8.0%"          accent={+avgContam <= 8.0 ? "#10b981" : "#ef4444"} />
-      </div>
-
-      {/* Insights */}
-      <div className="grid grid-cols-3 gap-5">
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 20 }}>
         <Insight icon="✗" color="red"
           title={`${mostMissed.shortId} has most missed lifts`}
           body={`${mostMissed.missed} missed lifts (${(100 - mostMissed.completionRate).toFixed(1)}% miss rate). Investigate route capacity and crew availability for this zone.`}
@@ -79,35 +75,31 @@ export default function BinLiftsPage() {
         />
       </div>
 
-      {/* Charts row */}
-      <div className="grid grid-cols-2 gap-5">
-
-        {/* Completed vs Missed */}
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
+        <div style={DC}>
           <SectionHeader title="Completed vs Missed Lifts by Zone" sub="Monthly totals per collection zone" />
           <ResponsiveContainer width="100%" height={280}>
             <BarChart data={DATA} barCategoryGap="25%">
-              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-              <XAxis dataKey="shortId" tick={{ fill: "#64748b", fontSize: 11 }} axisLine={false} tickLine={false} />
-              <YAxis tickFormatter={v => v.toLocaleString()} tick={{ fill: "#94a3b8", fontSize: 11 }} axisLine={false} tickLine={false} />
-              <Tooltip contentStyle={{ borderRadius: 8, fontSize: 12 }} />
-              <Legend wrapperStyle={{ fontSize: 12 }} />
+              <CartesianGrid strokeDasharray="3 3" stroke={GRID} vertical={false} />
+              <XAxis dataKey="shortId" tick={{ fill: TICK, fontSize: 11 }} axisLine={false} tickLine={false} />
+              <YAxis tickFormatter={v => v.toLocaleString()} tick={{ fill: TICK, fontSize: 11 }} axisLine={false} tickLine={false} />
+              <Tooltip contentStyle={DTT} />
+              <Legend wrapperStyle={{ fontSize: 12, color: T2 }} />
               <Bar dataKey="completed" name="Completed" fill="#10b981" radius={[3,3,0,0]} />
               <Bar dataKey="missed"    name="Missed"    fill="#ef4444" radius={[3,3,0,0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
 
-        {/* Contamination Rate */}
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
+        <div style={DC}>
           <SectionHeader title="Recycling Contamination Rate by Zone" sub="% of recycling bins containing non-recyclable material" />
           <ResponsiveContainer width="100%" height={280}>
             <BarChart data={DATA} barCategoryGap="30%">
-              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-              <XAxis dataKey="shortId" tick={{ fill: "#64748b", fontSize: 11 }} axisLine={false} tickLine={false} />
-              <YAxis tickFormatter={v => `${v}%`} tick={{ fill: "#94a3b8", fontSize: 11 }} axisLine={false} tickLine={false} domain={[0, 14]} />
+              <CartesianGrid strokeDasharray="3 3" stroke={GRID} vertical={false} />
+              <XAxis dataKey="shortId" tick={{ fill: TICK, fontSize: 11 }} axisLine={false} tickLine={false} />
+              <YAxis tickFormatter={v => `${v}%`} tick={{ fill: TICK, fontSize: 11 }} axisLine={false} tickLine={false} domain={[0, 14]} />
               <ReferenceLine y={8} stroke="#f59e0b" strokeDasharray="5 5" label={{ value: "8% Target", position: "insideTopRight", fill: "#f59e0b", fontSize: 11 }} />
-              <Tooltip formatter={v => [`${v}%`, "Contamination"]} contentStyle={{ borderRadius: 8, fontSize: 12 }} />
+              <Tooltip formatter={v => [`${v}%`, "Contamination"]} contentStyle={DTT} />
               <Bar dataKey="contamination" name="Contamination %" radius={[3,3,0,0]}>
                 {DATA.map((r, i) => <Cell key={i} fill={r.contamination > 8 ? "#ef4444" : "#10b981"} />)}
               </Bar>
@@ -116,43 +108,38 @@ export default function BinLiftsPage() {
         </div>
       </div>
 
-      {/* Lift stream breakdown + weekly trend */}
-      <div className="grid grid-cols-3 gap-5">
-        {/* Stream split */}
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 20 }}>
+        <div style={DC}>
           <SectionHeader title="Lifts by Stream" sub="Total lifts per waste stream this period" />
-          <div className="space-y-4 mt-6">
+          <div style={{ display: "flex", flexDirection: "column", gap: 16, marginTop: 16 }}>
             {STREAM_DATA.map(s => (
               <div key={s.stream}>
-                <div className="flex justify-between text-sm mb-1">
-                  <span className="text-slate-700 font-medium">{s.stream}</span>
-                  <span className="text-slate-500">{s.lifts.toLocaleString()}</span>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 6 }}>
+                  <span style={{ color: T1, fontWeight: 500 }}>{s.stream}</span>
+                  <span style={{ color: T2 }}>{s.lifts.toLocaleString()}</span>
                 </div>
-                <div className="h-2.5 bg-slate-100 rounded-full overflow-hidden">
-                  <div className="h-full rounded-full" style={{ width: `${(s.lifts / STREAM_DATA[0].lifts) * 100}%`, background: s.color }} />
+                <div style={{ height: 8, background: "rgba(255,255,255,0.08)", borderRadius: 999, overflow: "hidden" }}>
+                  <div style={{ height: "100%", borderRadius: 999, width: `${(s.lifts / STREAM_DATA[0].lifts) * 100}%`, background: s.color }} />
                 </div>
               </div>
             ))}
           </div>
-          <div className="mt-6 border-t border-slate-100 pt-4 text-sm">
-            <div className="flex justify-between text-slate-600">
-              <span>Total lifts</span>
-              <span className="font-semibold text-slate-800">{STREAM_DATA.reduce((s, r) => s + r.lifts, 0).toLocaleString()}</span>
-            </div>
+          <div style={{ marginTop: 20, paddingTop: 16, borderTop: `1px solid ${BORDER}`, display: "flex", justifyContent: "space-between", fontSize: 13 }}>
+            <span style={{ color: T2 }}>Total lifts</span>
+            <span style={{ color: T1, fontWeight: 600 }}>{STREAM_DATA.reduce((s, r) => s + r.lifts, 0).toLocaleString()}</span>
           </div>
         </div>
 
-        {/* Weekly trend */}
-        <div className="col-span-2 bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
+        <div style={DC}>
           <SectionHeader title="Weekly Lift Performance" sub="Completed lifts and missed lifts over the current period" />
           <ResponsiveContainer width="100%" height={220}>
             <BarChart data={WEEKLY_TREND} barCategoryGap="35%">
-              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-              <XAxis dataKey="week" tick={{ fill: "#64748b", fontSize: 12 }} axisLine={false} tickLine={false} />
-              <YAxis yAxisId="left"  tick={{ fill: "#94a3b8", fontSize: 11 }} axisLine={false} tickLine={false} />
-              <YAxis yAxisId="right" orientation="right" tickFormatter={v => `${v}%`} tick={{ fill: "#94a3b8", fontSize: 11 }} axisLine={false} tickLine={false} />
-              <Tooltip contentStyle={{ borderRadius: 8, fontSize: 12 }} />
-              <Legend wrapperStyle={{ fontSize: 12 }} />
+              <CartesianGrid strokeDasharray="3 3" stroke={GRID} vertical={false} />
+              <XAxis dataKey="week" tick={{ fill: TICK, fontSize: 12 }} axisLine={false} tickLine={false} />
+              <YAxis yAxisId="left"  tick={{ fill: TICK, fontSize: 11 }} axisLine={false} tickLine={false} />
+              <YAxis yAxisId="right" orientation="right" tickFormatter={v => `${v}%`} tick={{ fill: TICK, fontSize: 11 }} axisLine={false} tickLine={false} />
+              <Tooltip contentStyle={DTT} />
+              <Legend wrapperStyle={{ fontSize: 12, color: T2 }} />
               <Bar yAxisId="left" dataKey="completed" name="Completed" fill="#3b82f6" radius={[3,3,0,0]} />
               <Bar yAxisId="left" dataKey="missed"    name="Missed"    fill="#ef4444" radius={[3,3,0,0]} />
             </BarChart>
@@ -160,16 +147,15 @@ export default function BinLiftsPage() {
         </div>
       </div>
 
-      {/* Table */}
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-100">
+      <div style={{ ...DC, padding: 0, overflow: "hidden" }}>
+        <div style={{ padding: "16px 20px", borderBottom: `1px solid ${BORDER}` }}>
           <SectionHeader title="Zone Lift Summary" sub="Planned, completed, missed and contamination rate per zone" />
         </div>
-        <table className="w-full text-sm">
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
           <thead>
-            <tr className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wide">
-              {["Zone","Planned","Completed","Missed","Completion Rate","Contamination","Status"].map(h => (
-                <th key={h} className={`py-3 font-medium ${h === "Zone" ? "text-left px-6" : "text-right px-4"}`}>{h}</th>
+            <tr style={{ background: ROW_HEAD }}>
+              {["Zone","Planned","Completed","Missed","Completion Rate","Contamination","Status"].map((h, i) => (
+                <th key={h} style={{ padding: "10px 14px", fontWeight: 600, fontSize: 10, color: T3, textTransform: "uppercase", letterSpacing: ".06em", textAlign: i === 0 ? "left" : "right" }}>{h}</th>
               ))}
             </tr>
           </thead>
@@ -177,19 +163,19 @@ export default function BinLiftsPage() {
             {DATA.map((row, i) => {
               const ok = row.completionRate >= 98.5 && row.contamination <= 8;
               return (
-                <tr key={i} className="border-t border-slate-50 hover:bg-slate-50 transition">
-                  <td className="px-6 py-3 font-medium text-slate-800">{row.zone}</td>
-                  <td className="px-4 py-3 text-right text-slate-600">{row.planned.toLocaleString()}</td>
-                  <td className="px-4 py-3 text-right text-slate-600">{row.completed.toLocaleString()}</td>
-                  <td className="px-4 py-3 text-right text-red-500 font-medium">{row.missed}</td>
-                  <td className="px-4 py-3 text-right">
-                    <span className={`font-medium ${row.completionRate >= 98.5 ? "text-emerald-600" : "text-amber-500"}`}>{row.completionRate}%</span>
+                <tr key={i} style={{ borderTop: `1px solid ${ROW_BDR}` }}>
+                  <td style={{ padding: "10px 14px", color: T1, fontWeight: 500 }}>{row.zone}</td>
+                  <td style={{ padding: "10px 14px", textAlign: "right", color: T2 }}>{row.planned.toLocaleString()}</td>
+                  <td style={{ padding: "10px 14px", textAlign: "right", color: T2 }}>{row.completed.toLocaleString()}</td>
+                  <td style={{ padding: "10px 14px", textAlign: "right", color: "#f87171", fontWeight: 600 }}>{row.missed}</td>
+                  <td style={{ padding: "10px 14px", textAlign: "right" }}>
+                    <span style={{ fontWeight: 600, color: row.completionRate >= 98.5 ? "#4ade80" : "#f59e0b" }}>{row.completionRate}%</span>
                   </td>
-                  <td className="px-4 py-3 text-right">
-                    <span className={`font-medium ${row.contamination <= 8 ? "text-emerald-600" : "text-red-500"}`}>{row.contamination}%</span>
+                  <td style={{ padding: "10px 14px", textAlign: "right" }}>
+                    <span style={{ fontWeight: 600, color: row.contamination <= 8 ? "#4ade80" : "#f87171" }}>{row.contamination}%</span>
                   </td>
-                  <td className="px-4 py-3 text-right">
-                    <span className={`text-xs font-semibold px-2 py-1 rounded-full ${ok ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-600"}`}>
+                  <td style={{ padding: "10px 14px", textAlign: "right" }}>
+                    <span style={{ fontSize: 11, fontWeight: 600, padding: "3px 10px", borderRadius: 999, background: ok ? "rgba(74,222,128,0.12)" : "rgba(239,68,68,0.12)", color: ok ? "#4ade80" : "#f87171", border: `1px solid ${ok ? "rgba(74,222,128,0.25)" : "rgba(239,68,68,0.25)"}` }}>
                       {ok ? "On Target" : "Needs Review"}
                     </span>
                   </td>
@@ -199,37 +185,6 @@ export default function BinLiftsPage() {
           </tbody>
         </table>
       </div>
-    </div>
-  );
-}
-
-function KpiCard({ label, value, sub, accent }: any) {
-  return (
-    <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5" style={{ borderLeft: `4px solid ${accent}` }}>
-      <p className="text-xs text-slate-500 font-medium uppercase tracking-wide mb-2">{label}</p>
-      <p className="text-2xl font-bold text-slate-900 mb-1">{value}</p>
-      <p className="text-xs text-slate-400">{sub}</p>
-    </div>
-  );
-}
-
-function Insight({ icon, color, title, body }: any) {
-  const p = (({ red: ["bg-red-50","border-red-100","text-red-500"], amber: ["bg-amber-50","border-amber-100","text-amber-500"], green: ["bg-emerald-50","border-emerald-100","text-emerald-600"] }) as Record<string,string[]>)[color];
-  return (
-    <div className={`rounded-2xl border p-5 ${p[0]} ${p[1]}`}>
-      <div className="flex items-start gap-3">
-        <span className={`text-xl ${p[2]}`}>{icon}</span>
-        <div><p className="text-sm font-semibold text-slate-800 mb-1">{title}</p><p className="text-xs text-slate-600 leading-relaxed">{body}</p></div>
-      </div>
-    </div>
-  );
-}
-
-function SectionHeader({ title, sub }: { title: string; sub?: string }) {
-  return (
-    <div className="mb-4">
-      <h2 className="text-base font-semibold text-slate-800">{title}</h2>
-      {sub && <p className="text-xs text-slate-400 mt-0.5">{sub}</p>}
     </div>
   );
 }

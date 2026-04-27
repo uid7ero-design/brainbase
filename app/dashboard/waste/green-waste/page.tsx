@@ -1,9 +1,10 @@
-﻿"use client";
+"use client";
 
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend,
   CartesianGrid, LineChart, Line, Cell, AreaChart, Area,
 } from "recharts";
+import { KpiCard, Insight, SectionHeader, T1, T2, T3, BORDER, ROW_BDR, ROW_HEAD, GRID, TICK, DTT, DC, PAGE } from "../_dark";
 
 const ZONE_DATA = [
   { zone: "Zone 1 – Northern",   collected: 23, composted: 20, contamination: 5.1, households: 2840 },
@@ -47,24 +48,24 @@ export default function GreenWastePage() {
   const today = new Date().toLocaleDateString("en-AU", { day: "numeric", month: "long", year: "numeric" });
 
   return (
-    <div className="max-w-7xl mx-auto px-8 py-6 space-y-6">
-      <p className="text-slate-500 text-sm">Period: {today} &nbsp;·&nbsp; <span className="text-slate-400">Fortnightly collection — all zones</span></p>
+    <div style={PAGE}>
+      <p style={{ fontSize: 13, color: T3, margin: 0 }}>Period: {today} &nbsp;·&nbsp; Fortnightly collection — all zones</p>
 
-      <div className="grid grid-cols-5 gap-4">
-        <KpiCard label="Total Collected"       value={`${totalCollected} t`}                   sub="All zones this period"               accent="#10b981" />
-        <KpiCard label="Total Composted"        value={`${totalComposted} t`}                   sub={`${yieldRate}% compost yield`}       accent="#22c55e" />
-        <KpiCard label="Rejected / Contaminated"value={`${totalRejected} t`}                   sub="Diverted to landfill — avoidable"    accent="#ef4444" />
-        <KpiCard label="Avg Contamination Rate" value={`${avgContam}%`}                         sub={`Target ≤ ${TARGET_CONTAM}%`}        accent={avgContam <= TARGET_CONTAM ? "#10b981" : "#f59e0b"} />
-        <KpiCard label="Compost Revenue"        value={`$${compostRevenue.toLocaleString()}`}   sub={`$${COMPOST_PRICE_PER_T}/t to local market`} accent="#3b82f6" />
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 16 }}>
+        <KpiCard label="Total Collected"        value={`${totalCollected} t`}                   sub="All zones this period"               accent="#10b981" />
+        <KpiCard label="Total Composted"         value={`${totalComposted} t`}                   sub={`${yieldRate}% compost yield`}       accent="#22c55e" />
+        <KpiCard label="Rejected / Contaminated" value={`${totalRejected} t`}                   sub="Diverted to landfill — avoidable"    accent="#ef4444" />
+        <KpiCard label="Avg Contamination Rate"  value={`${avgContam}%`}                         sub={`Target ≤ ${TARGET_CONTAM}%`}        accent={avgContam <= TARGET_CONTAM ? "#10b981" : "#f59e0b"} />
+        <KpiCard label="Compost Revenue"         value={`$${compostRevenue.toLocaleString()}`}   sub={`$${COMPOST_PRICE_PER_T}/t to local market`} accent="#3b82f6" />
       </div>
 
-      <div className="grid grid-cols-3 gap-5">
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 20 }}>
         <Insight icon="⚠" color={avgContam > TARGET_CONTAM ? "amber" : "green"}
           title={`Contamination averaging ${avgContam}% — target ${TARGET_CONTAM}%`}
           body={`${totalRejected} tonnes rejected and sent to landfill this period. Reducing contamination to ${TARGET_CONTAM}% would recover ~${Math.round(totalRejected * 0.5)} additional tonnes and save ~$${Math.round(totalRejected * 0.5 * 148.5).toLocaleString()} in levy.`}
         />
         <Insight icon="🌱" color="green"
-          title={`${compostRevenue.toLocaleString()} in compost revenue this period`}
+          title={`$${compostRevenue.toLocaleString()} in compost revenue this period`}
           body={`${totalComposted} tonnes processed into compost at $${COMPOST_PRICE_PER_T}/t. Revenue flows back to offset collection costs. Improving yield from ${yieldRate}% to 92% would add ~$${Math.round((totalCollected * 0.92 - totalComposted) * COMPOST_PRICE_PER_T).toLocaleString()}.`}
         />
         <Insight icon="⚠" color="red"
@@ -73,30 +74,30 @@ export default function GreenWastePage() {
         />
       </div>
 
-      <div className="grid grid-cols-2 gap-5">
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
+        <div style={DC}>
           <SectionHeader title="Green Waste Collected vs Composted by Zone" sub="Composted yield and rejected material (contaminated)" />
           <ResponsiveContainer width="100%" height={280}>
             <BarChart data={ZONE_DATA} barCategoryGap="20%">
-              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-              <XAxis dataKey="shortId" tick={{ fill: "#64748b", fontSize: 11 }} axisLine={false} tickLine={false} />
-              <YAxis tickFormatter={v => `${v}t`} tick={{ fill: "#94a3b8", fontSize: 11 }} axisLine={false} tickLine={false} />
-              <Tooltip formatter={v => `${v} t`} contentStyle={{ borderRadius: 8, fontSize: 12 }} />
-              <Legend wrapperStyle={{ fontSize: 12 }} />
+              <CartesianGrid strokeDasharray="3 3" stroke={GRID} vertical={false} />
+              <XAxis dataKey="shortId" tick={{ fill: TICK, fontSize: 11 }} axisLine={false} tickLine={false} />
+              <YAxis tickFormatter={v => `${v}t`} tick={{ fill: TICK, fontSize: 11 }} axisLine={false} tickLine={false} />
+              <Tooltip formatter={v => `${v} t`} contentStyle={DTT} />
+              <Legend wrapperStyle={{ fontSize: 12, color: T2 }} />
               <Bar dataKey="composted" name="Composted" stackId="a" fill="#10b981" />
               <Bar dataKey="rejected"  name="Rejected"  stackId="a" fill="#ef4444" radius={[3,3,0,0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
 
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
+        <div style={DC}>
           <SectionHeader title="Contamination Rate by Zone" sub={`% contaminated — target ≤ ${TARGET_CONTAM}%`} />
           <ResponsiveContainer width="100%" height={280}>
             <BarChart data={ZONE_DATA} barCategoryGap="30%">
-              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-              <XAxis dataKey="shortId" tick={{ fill: "#64748b", fontSize: 11 }} axisLine={false} tickLine={false} />
-              <YAxis tickFormatter={v => `${v}%`} tick={{ fill: "#94a3b8", fontSize: 11 }} axisLine={false} tickLine={false} domain={[0, 12]} />
-              <Tooltip formatter={v => `${v}%`} contentStyle={{ borderRadius: 8, fontSize: 12 }} />
+              <CartesianGrid strokeDasharray="3 3" stroke={GRID} vertical={false} />
+              <XAxis dataKey="shortId" tick={{ fill: TICK, fontSize: 11 }} axisLine={false} tickLine={false} />
+              <YAxis tickFormatter={v => `${v}%`} tick={{ fill: TICK, fontSize: 11 }} axisLine={false} tickLine={false} domain={[0, 12]} />
+              <Tooltip formatter={v => `${v}%`} contentStyle={DTT} />
               <Bar dataKey="contamination" name="Contamination %" radius={[3,3,0,0]}>
                 {ZONE_DATA.map((r, i) => <Cell key={i} fill={r.contamination > TARGET_CONTAM ? "#ef4444" : "#10b981"} />)}
               </Bar>
@@ -105,72 +106,63 @@ export default function GreenWastePage() {
         </div>
       </div>
 
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
+      <div style={DC}>
         <SectionHeader title="Monthly Green Waste Trend" sub="Collected, composted and compost revenue Oct 2025 – Mar 2026" />
         <ResponsiveContainer width="100%" height={260}>
           <AreaChart data={MONTHLY}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-            <XAxis dataKey="month" tick={{ fill: "#64748b", fontSize: 11 }} axisLine={false} tickLine={false} />
-            <YAxis yAxisId="left"  tickFormatter={v => `${v}t`} tick={{ fill: "#94a3b8", fontSize: 11 }} axisLine={false} tickLine={false} />
-            <YAxis yAxisId="right" orientation="right" tickFormatter={v => `$${(v/1000).toFixed(0)}k`} tick={{ fill: "#94a3b8", fontSize: 11 }} axisLine={false} tickLine={false} />
-            <Tooltip contentStyle={{ borderRadius: 8, fontSize: 12 }} />
-            <Legend wrapperStyle={{ fontSize: 12 }} />
-            <Area yAxisId="left"  type="monotone" dataKey="collected" name="Collected (t)"  stroke="#64748b" fill="#f1f5f9" strokeWidth={1.5} />
-            <Area yAxisId="left"  type="monotone" dataKey="composted" name="Composted (t)"  stroke="#10b981" fill="#d1fae5" strokeWidth={2} />
+            <CartesianGrid strokeDasharray="3 3" stroke={GRID} />
+            <XAxis dataKey="month" tick={{ fill: TICK, fontSize: 11 }} axisLine={false} tickLine={false} />
+            <YAxis yAxisId="left"  tickFormatter={v => `${v}t`} tick={{ fill: TICK, fontSize: 11 }} axisLine={false} tickLine={false} />
+            <YAxis yAxisId="right" orientation="right" tickFormatter={v => `$${(v/1000).toFixed(0)}k`} tick={{ fill: TICK, fontSize: 11 }} axisLine={false} tickLine={false} />
+            <Tooltip contentStyle={DTT} />
+            <Legend wrapperStyle={{ fontSize: 12, color: T2 }} />
+            <Area yAxisId="left"  type="monotone" dataKey="collected" name="Collected (t)"  stroke="rgba(255,255,255,0.3)" fill="rgba(255,255,255,0.05)" strokeWidth={1.5} />
+            <Area yAxisId="left"  type="monotone" dataKey="composted" name="Composted (t)"  stroke="#10b981" fill="rgba(16,185,129,0.15)" strokeWidth={2} />
             <Line yAxisId="right" type="monotone" dataKey="compostValue" name="Compost Revenue" stroke="#3b82f6" strokeWidth={1.5} strokeDasharray="5 5" dot={false} />
           </AreaChart>
         </ResponsiveContainer>
       </div>
 
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-100"><SectionHeader title="Zone Green Waste Summary" /></div>
-        <table className="w-full text-sm">
+      <div style={{ ...DC, padding: 0, overflow: "hidden" }}>
+        <div style={{ padding: "16px 20px", borderBottom: `1px solid ${BORDER}` }}>
+          <SectionHeader title="Zone Green Waste Summary" />
+        </div>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
           <thead>
-            <tr className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wide">
-              {["Zone","Collected (t)","Composted (t)","Rejected (t)","Yield %","Contamination","kg / HH","Compost Revenue"].map(h => (
-                <th key={h} className={`py-3 font-medium ${h === "Zone" ? "text-left px-6" : "text-right px-4"}`}>{h}</th>
+            <tr style={{ background: ROW_HEAD }}>
+              {["Zone","Collected (t)","Composted (t)","Rejected (t)","Yield %","Contamination","kg / HH","Compost Revenue"].map((h, i) => (
+                <th key={h} style={{ padding: "10px 14px", fontWeight: 600, fontSize: 10, color: T3, textTransform: "uppercase", letterSpacing: ".06em", textAlign: i === 0 ? "left" : "right" }}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {ZONE_DATA.map((r, i) => (
-              <tr key={i} className="border-t border-slate-50 hover:bg-slate-50 transition">
-                <td className="px-6 py-3 font-medium text-slate-800">{r.zone}</td>
-                <td className="px-4 py-3 text-right text-slate-600">{r.collected}</td>
-                <td className="px-4 py-3 text-right text-emerald-600 font-medium">{r.composted}</td>
-                <td className="px-4 py-3 text-right text-red-500">{r.rejected}</td>
-                <td className="px-4 py-3 text-right text-slate-600">{((r.composted/r.collected)*100).toFixed(0)}%</td>
-                <td className="px-4 py-3 text-right"><span className={r.contamination > TARGET_CONTAM ? "text-red-500 font-semibold" : "text-emerald-600 font-semibold"}>{r.contamination}%</span></td>
-                <td className="px-4 py-3 text-right text-slate-500">{r.kgPerHH}</td>
-                <td className="px-4 py-3 text-right text-blue-600 font-medium">${Math.round(r.composted * COMPOST_PRICE_PER_T).toLocaleString()}</td>
+              <tr key={i} style={{ borderTop: `1px solid ${ROW_BDR}` }}>
+                <td style={{ padding: "10px 14px", color: T1, fontWeight: 500 }}>{r.zone}</td>
+                <td style={{ padding: "10px 14px", textAlign: "right", color: T2 }}>{r.collected}</td>
+                <td style={{ padding: "10px 14px", textAlign: "right", color: "#4ade80", fontWeight: 500 }}>{r.composted}</td>
+                <td style={{ padding: "10px 14px", textAlign: "right", color: "#f87171" }}>{r.rejected}</td>
+                <td style={{ padding: "10px 14px", textAlign: "right", color: T2 }}>{((r.composted/r.collected)*100).toFixed(0)}%</td>
+                <td style={{ padding: "10px 14px", textAlign: "right" }}><span style={{ fontWeight: 600, color: r.contamination > TARGET_CONTAM ? "#f87171" : "#4ade80" }}>{r.contamination}%</span></td>
+                <td style={{ padding: "10px 14px", textAlign: "right", color: T3 }}>{r.kgPerHH}</td>
+                <td style={{ padding: "10px 14px", textAlign: "right", color: "#60a5fa", fontWeight: 500 }}>${Math.round(r.composted * COMPOST_PRICE_PER_T).toLocaleString()}</td>
               </tr>
             ))}
           </tbody>
           <tfoot>
-            <tr className="bg-slate-50 border-t-2 border-slate-200 font-semibold text-slate-800 text-sm">
-              <td className="px-6 py-3">Total</td>
-              <td className="px-4 py-3 text-right">{totalCollected}</td>
-              <td className="px-4 py-3 text-right text-emerald-600">{totalComposted}</td>
-              <td className="px-4 py-3 text-right text-red-500">{totalRejected}</td>
-              <td className="px-4 py-3 text-right">{yieldRate}%</td>
-              <td className="px-4 py-3 text-right"><span className={avgContam > TARGET_CONTAM ? "text-red-500" : "text-emerald-600"}>{avgContam}%</span></td>
-              <td className="px-4 py-3 text-right">—</td>
-              <td className="px-4 py-3 text-right text-blue-600">${compostRevenue.toLocaleString()}</td>
+            <tr style={{ background: ROW_HEAD, borderTop: `2px solid rgba(255,255,255,0.1)` }}>
+              <td style={{ padding: "10px 14px", color: T1, fontWeight: 600 }}>Total</td>
+              <td style={{ padding: "10px 14px", textAlign: "right", color: T1, fontWeight: 600 }}>{totalCollected}</td>
+              <td style={{ padding: "10px 14px", textAlign: "right", color: "#4ade80", fontWeight: 600 }}>{totalComposted}</td>
+              <td style={{ padding: "10px 14px", textAlign: "right", color: "#f87171", fontWeight: 600 }}>{totalRejected}</td>
+              <td style={{ padding: "10px 14px", textAlign: "right", color: T1, fontWeight: 600 }}>{yieldRate}%</td>
+              <td style={{ padding: "10px 14px", textAlign: "right" }}><span style={{ fontWeight: 600, color: avgContam > TARGET_CONTAM ? "#f87171" : "#4ade80" }}>{avgContam}%</span></td>
+              <td style={{ padding: "10px 14px", textAlign: "right", color: T3 }}>—</td>
+              <td style={{ padding: "10px 14px", textAlign: "right", color: "#60a5fa", fontWeight: 600 }}>${compostRevenue.toLocaleString()}</td>
             </tr>
           </tfoot>
         </table>
       </div>
     </div>
   );
-}
-
-function KpiCard({ label, value, sub, accent }: any) {
-  return <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5" style={{ borderLeft: `4px solid ${accent}` }}><p className="text-xs text-slate-500 font-medium uppercase tracking-wide mb-2">{label}</p><p className="text-2xl font-bold text-slate-900 mb-1">{value}</p><p className="text-xs text-slate-400">{sub}</p></div>;
-}
-function Insight({ icon, color, title, body }: any) {
-  const p = (({ red: ["bg-red-50","border-red-100","text-red-500"], amber: ["bg-amber-50","border-amber-100","text-amber-500"], green: ["bg-emerald-50","border-emerald-100","text-emerald-600"] }) as Record<string,string[]>)[color];
-  return <div className={`rounded-2xl border p-5 ${p[0]} ${p[1]}`}><div className="flex items-start gap-3"><span className={`text-xl ${p[2]}`}>{icon}</span><div><p className="text-sm font-semibold text-slate-800 mb-1">{title}</p><p className="text-xs text-slate-600 leading-relaxed">{body}</p></div></div></div>;
-}
-function SectionHeader({ title, sub }: { title: string; sub?: string }) {
-  return <div className="mb-4"><h2 className="text-base font-semibold text-slate-800">{title}</h2>{sub && <p className="text-xs text-slate-400 mt-0.5">{sub}</p>}</div>;
 }

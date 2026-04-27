@@ -6,6 +6,12 @@ import Link from "next/link";
 const FONT = 'var(--font-inter), "Inter", -apple-system, sans-serif';
 const BG   = '#08090C';
 
+const KEYFRAMES = `
+  @keyframes orbFloat   { 0%, 100% { transform: translateY(0px) scale(1); }       50% { transform: translateY(-12px) scale(1.022); } }
+  @keyframes heroGlow   { 0%, 100% { opacity: .55; }              50% { opacity: 1; }              }
+  @keyframes pulse      { 0%, 100% { opacity: 1; }                50% { opacity: .4; }             }
+`;
+
 const CAPABILITIES = [
   {
     color: '#38BDF8',
@@ -101,126 +107,101 @@ export default function Home() {
 
   return (
     <main style={{ minHeight: '100vh', background: BG, color: '#F5F7FA', fontFamily: FONT }}>
+      <style>{KEYFRAMES}</style>
 
       {/* ── Ambient backdrop ──────────────────────────────────────────── */}
       <div style={{
         position: 'fixed', inset: 0, zIndex: 0, pointerEvents: 'none',
-        background: 'radial-gradient(ellipse 60% 40% at 50% 0%, rgba(139,92,246,.10) 0%, transparent 60%)',
+        background: 'radial-gradient(ellipse 70% 50% at 50% 0%, rgba(79,70,229,.12) 0%, transparent 65%)',
       }} />
-
 
       <div style={{ maxWidth: 1200, margin: '0 auto', padding: '0 32px 96px', position: 'relative', zIndex: 1 }}>
 
         {/* ── Hero ──────────────────────────────────────────────────────── */}
-        <section style={{ padding: '80px 0 72px', display: 'flex', alignItems: 'center', gap: 48, flexWrap: 'wrap' }}>
-          <div style={{ flex: '1 1 480px', maxWidth: 600 }}>
+        <section style={{ padding: '96px 0 80px', display: 'flex', alignItems: 'center', gap: 72, flexWrap: 'wrap' }}>
+
+          {/* Left — text */}
+          <div style={{ flex: '1 1 400px', maxWidth: 560 }}>
+
             <div style={{
               display: 'inline-flex', alignItems: 'center', gap: 8,
-              padding: '5px 12px', borderRadius: 20, marginBottom: 24,
-              background: 'rgba(139,92,246,.10)', border: '1px solid rgba(139,92,246,.25)',
+              padding: '4px 12px', borderRadius: 20, marginBottom: 28,
+              background: 'rgba(99,102,241,.08)', border: '1px solid rgba(99,102,241,.18)',
             }}>
-              <div style={{ width: 5, height: 5, borderRadius: '50%', background: '#22C55E', boxShadow: '0 0 6px #22C55E' }} />
-              <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src="/assets/brand/hlna-wordmark.svg" alt="HLNA" style={{ height: 12, width: 'auto', opacity: 0.9 }} />
-                <span style={{ fontSize: 11, fontWeight: 600, color: 'rgba(167,139,250,.90)', letterSpacing: '.08em', textTransform: 'uppercase' }}>· Operational Intelligence</span>
-              </span>
+              <div style={{ width: 5, height: 5, borderRadius: '50%', background: '#22C55E', boxShadow: '0 0 6px #22C55E', animation: 'pulse 2.5s ease-in-out infinite' }} />
+              <span style={{ fontSize: 11, fontWeight: 600, color: 'rgba(167,139,250,.82)', letterSpacing: '.08em', textTransform: 'uppercase' }}>Operational Intelligence</span>
             </div>
 
             <h1 style={{
-              fontSize: 'clamp(36px, 5vw, 60px)', fontWeight: 700,
-              letterSpacing: '-.03em', lineHeight: 1.1,
-              color: '#F5F7FA', margin: '0 0 20px',
+              fontSize: 'clamp(40px, 5vw, 62px)', fontWeight: 700,
+              letterSpacing: '-.03em', lineHeight: 1.06,
+              color: '#F1F5F9', margin: '0 0 22px',
             }}>
               Your operations,<br />
-              <span style={{ color: '#A78BFA' }}>unified.</span>
+              <span style={{
+                background: 'linear-gradient(135deg, #818CF8 0%, #A78BFA 55%, #C084FC 100%)',
+                WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text',
+              }}>unified.</span>
             </h1>
 
-            <p style={{ fontSize: 17, color: 'rgba(230,237,243,.55)', lineHeight: 1.7, margin: '0 0 12px', maxWidth: 480 }}>
-              BrainBase connects every service — fleet, waste, water, roads, parks, and more — into one intelligent command centre.
-            </p>
-            <p style={{ fontSize: 15, color: 'rgba(230,237,243,.38)', lineHeight: 1.7, margin: '0 0 36px', maxWidth: 480 }}>
-              Powered by HLNΛ, your AI operations analyst. Ask questions in plain English, navigate by voice, and get instant answers from your live data.
+            <p style={{
+              fontSize: 17, lineHeight: 1.75, margin: '0 0 36px',
+              color: 'rgba(226,232,240,.72)', maxWidth: 460,
+            }}>
+              One intelligent platform for every council service — fleet, waste, water, roads, parks, and more.
+              Ask HLNΛ in plain English and get answers from your live operational data in seconds.
             </p>
 
             <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
               <Link href="/command" style={{
-                padding: '12px 24px', borderRadius: 9, fontSize: 14, fontWeight: 600,
-                background: 'rgba(139,92,246,.22)', border: '1px solid rgba(139,92,246,.45)',
-                color: '#F5F7FA', textDecoration: 'none', letterSpacing: '.02em',
-                transition: 'background .15s',
+                padding: '11px 24px', borderRadius: 8, fontSize: 14, fontWeight: 600,
+                background: 'rgba(99,102,241,.18)', border: '1px solid rgba(99,102,241,.38)',
+                color: '#F1F5F9', textDecoration: 'none', letterSpacing: '.01em',
+                boxShadow: 'inset 0 1px 0 rgba(255,255,255,.06)',
+                transition: 'border-color .15s, background .15s',
               }}
-                onMouseEnter={e => (e.currentTarget.style.background = 'rgba(139,92,246,.34)')}
-                onMouseLeave={e => (e.currentTarget.style.background = 'rgba(139,92,246,.22)')}>
+                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(99,102,241,.28)'; e.currentTarget.style.borderColor = 'rgba(99,102,241,.55)'; }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'rgba(99,102,241,.18)'; e.currentTarget.style.borderColor = 'rgba(99,102,241,.38)'; }}>
                 Open Command Centre
               </Link>
               <Link href="/dashboards" style={{
-                padding: '12px 24px', borderRadius: 9, fontSize: 14, fontWeight: 600,
-                background: 'rgba(255,255,255,.05)', border: '1px solid rgba(255,255,255,.10)',
-                color: 'rgba(230,237,243,.75)', textDecoration: 'none', letterSpacing: '.02em',
-                transition: 'background .15s',
+                padding: '11px 24px', borderRadius: 8, fontSize: 14, fontWeight: 600,
+                background: 'transparent', border: '1px solid rgba(255,255,255,.11)',
+                color: 'rgba(226,232,240,.62)', textDecoration: 'none', letterSpacing: '.01em',
+                transition: 'color .15s, border-color .15s',
               }}
-                onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,.09)')}
-                onMouseLeave={e => (e.currentTarget.style.background = 'rgba(255,255,255,.05)')}>
+                onMouseEnter={e => { e.currentTarget.style.color = 'rgba(226,232,240,.88)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,.22)'; }}
+                onMouseLeave={e => { e.currentTarget.style.color = 'rgba(226,232,240,.62)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,.11)'; }}>
                 Browse Dashboards →
               </Link>
             </div>
           </div>
 
-          {/* Hero visual — voice conversation preview */}
-          <div style={{ flex: '1 1 320px', maxWidth: 440 }}>
+          {/* Right — orb */}
+          <div style={{ flex: '0 1 580px', minWidth: 320, display: 'flex', justifyContent: 'center', alignItems: 'center', position: 'relative' }}>
+
+            {/* Atmospheric bloom behind orb */}
             <div style={{
-              borderRadius: 16, overflow: 'hidden',
-              background: 'rgba(255,255,255,.03)', border: '1px solid rgba(255,255,255,.08)',
-            }}>
-              {/* Panel header */}
-              <div style={{
-                padding: '10px 14px', borderBottom: '1px solid rgba(255,255,255,.05)',
-                background: 'rgba(99,102,241,.05)', display: 'flex', alignItems: 'center', gap: 8,
-              }}>
-                <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#00CFEA', boxShadow: '0 0 8px #00CFEA', animation: 'pulse 2s infinite' }} />
-                <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.12em', color: 'rgba(255,255,255,.55)', textTransform: 'uppercase' }}>HLNA</span>
-                <span style={{ fontSize: 9, color: 'rgba(255,255,255,.22)', letterSpacing: '.06em', textTransform: 'uppercase' }}>· Hyper Learning Neural Agent</span>
-              </div>
+              position: 'absolute', inset: -60,
+              background: 'radial-gradient(circle at 50% 48%, rgba(79,70,229,.22) 0%, rgba(99,102,241,.10) 45%, transparent 70%)',
+              filter: 'blur(40px)',
+              animation: 'heroGlow 7s ease-in-out infinite',
+              pointerEvents: 'none',
+            }} />
 
-              {/* Conversation */}
-              <div style={{ padding: '16px 14px', display: 'flex', flexDirection: 'column', gap: 12 }}>
-                {[
-                  { role: 'user',      text: 'Which zone has the highest contamination rate?' },
-                  { role: 'assistant', text: 'Zone 8 Industrial is at 22.4% — the highest across all zones, with 12 education actions logged and a slight upward trend of +1.2%.' },
-                  { role: 'user',      text: 'Take me to fleet.' },
-                  { role: 'assistant', text: 'Opening Fleet Management now.' },
-                ].map((m, i) => (
-                  <div key={i} style={{ display: 'flex', justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start' }}>
-                    <div style={{
-                      maxWidth: '82%', padding: '9px 12px', borderRadius: 8, fontSize: 12, lineHeight: 1.6,
-                      background: m.role === 'user' ? 'rgba(255,255,255,.05)' : 'rgba(99,102,241,.18)',
-                      border: m.role === 'user' ? '1px solid rgba(255,255,255,.07)' : '1px solid rgba(99,102,241,.28)',
-                      color: 'rgba(255,255,255,.85)',
-                    }}>
-                      {m.text}
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              {/* Mic bar hint */}
-              <div style={{
-                padding: '10px 14px', borderTop: '1px solid rgba(255,255,255,.05)',
-                background: 'rgba(255,255,255,.02)', display: 'flex', alignItems: 'center', gap: 10,
-              }}>
-                <div style={{
-                  width: 32, height: 32, borderRadius: 7,
-                  background: 'rgba(124,58,237,.10)', border: '1px solid rgba(124,58,237,.28)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                }}>
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#A78BFA" strokeWidth="1.8" strokeLinecap="round">
-                    <rect x="9" y="2" width="6" height="12" rx="3"/>
-                    <path d="M5 10a7 7 0 0 0 14 0"/><line x1="12" y1="19" x2="12" y2="22"/>
-                  </svg>
-                </div>
-                <span style={{ fontSize: 11, color: 'rgba(255,255,255,.30)', letterSpacing: '.04em' }}>Hold Space or say "Hey Helena"</span>
-              </div>
+            {/* Orb — transparent asset, floats on page background */}
+            <div style={{ position: 'relative', width: '100%', maxWidth: 520 }}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/hlna-orb-only.webp"
+                alt="HLNA"
+                style={{
+                  width: '100%', display: 'block',
+                  objectFit: 'contain',
+                  animation: 'orbFloat 6s ease-in-out infinite',
+                  filter: 'drop-shadow(0 0 40px rgba(120,80,255,.65)) drop-shadow(0 0 100px rgba(80,120,255,.45))',
+                }}
+              />
             </div>
           </div>
         </section>
@@ -279,7 +260,7 @@ export default function Home() {
                   {step.n}
                 </div>
                 <h3 style={{ fontSize: 15, fontWeight: 700, color: '#F5F7FA', margin: '0 0 8px', letterSpacing: '-.01em' }}>{step.title}</h3>
-                <p style={{ fontSize: 13, color: 'rgba(230,237,243,.45)', lineHeight: 1.6, margin: 0 }}>{step.body}</p>
+                <p style={{ fontSize: 13, color: 'rgba(226,232,240,.64)', lineHeight: 1.65, margin: 0 }}>{step.body}</p>
               </div>
             ))}
           </div>
@@ -323,7 +304,7 @@ export default function Home() {
                     {cap.icon}
                   </div>
                   <h3 style={{ fontSize: 15, fontWeight: 700, color: '#F5F7FA', margin: '0 0 8px', letterSpacing: '-.01em' }}>{cap.title}</h3>
-                  <p style={{ fontSize: 13, color: 'rgba(230,237,243,.42)', lineHeight: 1.6, margin: 0 }}>{cap.description}</p>
+                  <p style={{ fontSize: 13, color: 'rgba(226,232,240,.64)', lineHeight: 1.65, margin: 0 }}>{cap.description}</p>
                 </div>
               );
             })}

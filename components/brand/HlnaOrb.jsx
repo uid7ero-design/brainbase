@@ -1,265 +1,373 @@
 'use client';
 
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useMemo } from 'react';
 
-const KEYFRAMES = `
-  /* Idle — slow breathing: 1 → 1.03 → 1, slight opacity drift */
-  @keyframes orbBreath {
-    0%, 100% { transform: scale(1);    opacity: 1;   }
-    50%       { transform: scale(1.03); opacity: .95; }
+const ORB_SRC = '/hlna-orb-only.webp';
+
+// Per-keyframe timing functions replicate true sinusoidal velocity:
+//   ease-out at the zero-crossing (fast start, slowing to peak)
+//   ease-in  at the peak          (slow start, accelerating away)
+// This avoids the stop-start jerk that happens when one timing function
+// covers the whole animation cycle.
+const BASE_KEYFRAMES = `
+  @keyframes orbFloat {
+    0%   { animation-timing-function: ease-out; transform: translateY(0px)   scale(1);     }
+    50%  { animation-timing-function: ease-in;  transform: translateY(-10px) scale(1.022); }
+    100% {                                       transform: translateY(0px)   scale(1);     }
   }
-
-  /* Listening — reduced breathing (attention is on the ring/ripple) */
-  @keyframes orbListenBreath {
-    0%, 100% { transform: scale(1);     opacity: 1;   }
-    50%       { transform: scale(1.015); opacity: .97; }
-  }
-
-  /* Thinking — irregular, uneven internal movement */
   @keyframes orbThink {
-    0%, 100% { transform: scale(1);     opacity: 1;   }
-    33%       { transform: scale(1.016); opacity: .93; }
-    66%       { transform: scale(1.006); opacity: .97; }
+    0%   { animation-timing-function: ease-in-out; transform: translate(0px,  0px)  scale(1);     }
+    18%  { animation-timing-function: ease-in-out; transform: translate(3px, -6px)  scale(1.018); }
+    35%  { animation-timing-function: ease-in-out; transform: translate(5px, -9px)  scale(1.024); }
+    50%  { animation-timing-function: ease-in-out; transform: translate(2px, -5px)  scale(1.014); }
+    65%  { animation-timing-function: ease-in-out; transform: translate(-4px,-8px)  scale(1.022); }
+    82%  { animation-timing-function: ease-in-out; transform: translate(-3px,-3px)  scale(1.010); }
+    100% {                                          transform: translate(0px,  0px)  scale(1);     }
   }
-
-  /* Responding — rhythmic two-beat pulse */
   @keyframes orbPulse {
-    0%   { transform: scale(1);     }
-    30%  { transform: scale(1.042); }
-    60%  { transform: scale(1.016); }
-    100% { transform: scale(1);     }
+    0%   { animation-timing-function: ease-out; transform: translateY(0px)  scale(1);     }
+    40%  { animation-timing-function: ease-in;  transform: translateY(-7px) scale(1.055); }
+    100% {                                       transform: translateY(0px)  scale(1);     }
   }
-
-  /* Ring orbit */
-  @keyframes orbRing {
-    from { transform: rotate(0deg); }
-    to   { transform: rotate(360deg); }
+  @keyframes orbSpeak {
+    0%   { animation-timing-function: ease-out; transform: translateY(0px)   scale(1);     }
+    16%  { animation-timing-function: ease-in;  transform: translateY(-16px) scale(1.062); }
+    30%  { animation-timing-function: ease-out; transform: translateY(0px)   scale(1);     }
+    48%  { animation-timing-function: ease-in;  transform: translateY(-12px) scale(1.048); }
+    62%  { animation-timing-function: ease-out; transform: translateY(0px)   scale(1);     }
+    80%  { animation-timing-function: ease-in;  transform: translateY(-14px) scale(1.056); }
+    100% {                                       transform: translateY(0px)   scale(1);     }
   }
-
-  /* Listening ripple — expands outward from orb edge */
   @keyframes orbRipple {
     0%   { transform: scale(1);    opacity: .38; }
-    100% { transform: scale(1.62); opacity: 0;   }
+    100% { transform: scale(1.85); opacity: 0;   }
   }
-
-  /* Thinking inner pulse overlay */
-  @keyframes orbThinkPulse {
-    0%, 100% { opacity: .22; }
-    50%       { opacity: .60; }
+  @keyframes glowSpin {
+    from { transform: rotate(0deg)   scale(1);    }
+    50%  { transform: rotate(180deg) scale(1.12); }
+    to   { transform: rotate(360deg) scale(1);    }
   }
-
-  /* Internal gradient drift — creates subtle gradient movement */
-  @keyframes orbGradDrift {
-    from { transform: rotate(0deg); }
-    to   { transform: rotate(360deg); }
+  @keyframes glowPulse {
+    0%, 100% { opacity: .6;  transform: scale(1);    }
+    50%       { opacity: 1;  transform: scale(1.15); }
   }
-
-  /* Satellite alive pulse — subtle scale breathe */
-  @keyframes orbSatPulse {
-    0%, 100% { transform: translateX(-50%) scale(1);    opacity: 1;   }
-    50%       { transform: translateX(-50%) scale(1.20); opacity: .65; }
+  @keyframes glowPulseFast {
+    0%, 100% { opacity: .82; transform: scale(1);    }
+    50%       { opacity: 1;  transform: scale(1.20); }
+  }
+  @keyframes speechBurst {
+    0%   { transform: scale(0.95); opacity: .70; }
+    100% { transform: scale(1.80); opacity: 0;   }
+  }
+  @keyframes speechBurst2 {
+    0%   { transform: scale(1.00); opacity: .45; }
+    100% { transform: scale(2.10); opacity: 0;   }
+  }
+  @keyframes speechBurst3 {
+    0%   { transform: scale(0.90); opacity: .35; }
+    100% { transform: scale(2.50); opacity: 0;   }
+  }
+  @keyframes satCore {
+    0%, 100% { opacity: .60; transform: scale(1);    }
+    50%       { opacity: 1;  transform: scale(1.35); }
   }
 `;
 
-/* Per-state config ─────────────────────────────────────────────────────── */
+const SATS = [
+  { baseSpeed: 4.5,  rr: 1.10, ellipseY: 0.30, tiltDeg:  35, initAngle:  20, color: '#38BDF8', glow: '56,189,248',  size: 7, dir:  1 },
+  { baseSpeed: 7.5,  rr: 1.24, ellipseY: 0.25, tiltDeg: -22, initAngle: 145, color: '#A78BFA', glow: '167,139,250', size: 6, dir: -1 },
+  { baseSpeed: 3.2,  rr: 1.02, ellipseY: 0.38, tiltDeg:  60, initAngle: 255, color: '#BFDBFE', glow: '191,219,254', size: 5, dir:  1 },
+  { baseSpeed: 11.0, rr: 1.37, ellipseY: 0.22, tiltDeg: -48, initAngle:  72, color: '#818CF8', glow: '129,140,248', size: 4, dir: -1 },
+];
+
+function buildSatKeyframes(size) {
+  return SATS.map((sat, i) => {
+    const R = size * sat.rr / 2;
+    const e = sat.ellipseY;
+    const α = sat.tiltDeg  * Math.PI / 180;
+    const φ = sat.initAngle * Math.PI / 180;
+    const N = 28;
+    let kf = `@keyframes hlnaSat${i}{`;
+    for (let j = 0; j <= N; j++) {
+      const θ  = φ + (j / N) * Math.PI * 2 * sat.dir;
+      const cx = R * Math.cos(θ);
+      const cy = R * e * Math.sin(θ);
+      const x  = (cx * Math.cos(α) - cy * Math.sin(α)).toFixed(1);
+      const y  = (cx * Math.sin(α) + cy * Math.cos(α)).toFixed(1);
+      kf += `${Math.round((j / N) * 100)}%{transform:translate(calc(-50% + ${x}px),calc(-50% + ${y}px));}`;
+    }
+    return kf + '}';
+  }).join('');
+}
+
 const STATE = {
   idle: {
-    coreAnim:     'orbBreath 5.2s ease-in-out infinite',
-    baseShadow:   '0 0 20px 6px rgba(139,92,246,.16), 0 2px 10px rgba(0,0,0,.45)',
-    ringSpeed:    '28s',     // very slow — barely noticeable
-    ringOpacity:  0.52,
-    ripple:       false,
-    thinking:     false,
-    driftSpeed:   '18s',
-    driftOpacity: 0.50,
+    coreAnim:    'orbFloat 6s linear infinite',
+    glowColor:   'rgba(79,70,229,.42)',
+    glowColor2:  'rgba(99,102,241,.18)',
+    glowAnim:    'glowSpin 18s linear infinite',
+    glowOpacity: 0.65,
+    ripple:      false,
+    dropShadow:  'drop-shadow(0 0 30px rgba(79,70,229,.55)) drop-shadow(0 0 60px rgba(55,48,196,.30))',
+    satOpacity:  0.15,
+    satSpeedMul: 1.0,
   },
   listening: {
-    coreAnim:     'orbListenBreath 3.0s ease-in-out infinite',
-    baseShadow:   '0 0 26px 8px rgba(56,189,248,.20), 0 0 10px 2px rgba(139,92,246,.14), 0 2px 10px rgba(0,0,0,.45)',
-    ringSpeed:    '16s',     // moderate — attention-drawing but not frantic
-    ringOpacity:  0.88,
-    ripple:       true,
-    thinking:     false,
-    driftSpeed:   '10s',
-    driftOpacity: 0.40,
+    coreAnim:    'orbPulse 1.4s linear infinite',
+    glowColor:   'rgba(6,182,212,.50)',
+    glowColor2:  'rgba(56,189,248,.22)',
+    glowAnim:    'glowPulse 1.4s linear infinite',
+    glowOpacity: 0.90,
+    ripple:      true,
+    dropShadow:  'drop-shadow(0 0 36px rgba(6,182,212,.70)) drop-shadow(0 0 70px rgba(56,189,248,.40))',
+    satOpacity:  0.42,
+    satSpeedMul: 1.4,
   },
   thinking: {
-    coreAnim:     'orbThink 2.4s ease-in-out infinite',
-    baseShadow:   '0 0 22px 6px rgba(139,92,246,.20), 0 0 8px 2px rgba(236,72,153,.12), 0 2px 10px rgba(0,0,0,.45)',
-    ringSpeed:    '12s',     // "slowly" as specified — distinct from listening
-    ringOpacity:  0.80,
-    ripple:       false,
-    thinking:     true,
-    driftSpeed:   '5s',      // "shifts more dynamically"
-    driftOpacity: 0.80,
+    coreAnim:    'orbThink 6s linear infinite',
+    glowColor:   'rgba(99,102,241,.50)',
+    glowColor2:  'rgba(139,92,246,.25)',
+    glowAnim:    'glowSpin 6s linear infinite',
+    glowOpacity: 0.95,
+    ripple:      false,
+    dropShadow:  'drop-shadow(0 0 36px rgba(99,102,241,.70)) drop-shadow(0 0 70px rgba(139,92,246,.40))',
+    satOpacity:  0.55,
+    satSpeedMul: 1.8,
   },
   responding: {
-    coreAnim:     'orbPulse 1.2s ease-in-out infinite',
-    baseShadow:   '0 0 28px 10px rgba(139,92,246,.24), 0 0 12px 3px rgba(56,189,248,.16), 0 2px 10px rgba(0,0,0,.45)',
-    ringSpeed:    '10s',
-    ringOpacity:  0.90,
-    ripple:       false,
-    thinking:     false,
-    driftSpeed:   '8s',
-    driftOpacity: 0.55,
+    coreAnim:    'orbSpeak 3s linear infinite',
+    glowColor:   'rgba(139,92,246,.65)',
+    glowColor2:  'rgba(99,102,241,.35)',
+    glowAnim:    'glowPulseFast 1.4s linear infinite',
+    glowOpacity: 1.0,
+    ripple:      false,
+    dropShadow:  'drop-shadow(0 0 50px rgba(139,92,246,.90)) drop-shadow(0 0 110px rgba(99,102,241,.55))',
+    satOpacity:  0.92,
+    satSpeedMul: 2.8,
   },
 };
 
-export function HlnaOrb({ size = 80, state = 'idle', speechRef, style }) {
-  const s        = STATE[state] ?? STATE.idle;
-  const coreRef  = useRef(null);
-  const ringSize = Math.round(size * 1.30);
-  const offset   = Math.round((ringSize - size) / 2);
-  const satSize  = Math.max(5, Math.round(size * 0.10));
-  const gradId   = `hlnaRingGrad-${size}`;
+// Returns a random glance direction across the full visible hemisphere.
+// ry: horizontal turn (±26°), rx: vertical tilt (±18°, slight upward bias).
+// lastGlanceRef is used to guarantee the new direction is far enough away.
+function randomGlance(last) {
+  let ry, rx;
+  let attempts = 0;
+  do {
+    ry = Math.round((Math.random() * 2 - 1) * 26);
+    rx = Math.round((Math.random() * 2 - 1) * 18 - 2);
+    attempts++;
+  } while (
+    attempts < 8 &&
+    last &&
+    Math.abs(ry - last.ry) < 8 &&
+    Math.abs(rx - last.rx) < 6
+  );
+  return { ry, rx };
+}
 
-  // ── Speech amplitude → live shadow intensity on core ──────────────────
+export function HlnaOrb({ size = 80, state = 'idle', speechRef, style }) {
+  const s          = STATE[state] ?? STATE.idle;
+  const imgRef     = useRef(null);
+  const glanceRef  = useRef(null);
+  const ring1Ref   = useRef(null);
+  const ring2Ref   = useRef(null);
+  const ring3Ref   = useRef(null);
+  const lastBurst  = useRef(0);
+  const stateRef   = useRef(state);
+  const glowExt    = Math.round(size * 0.45);
+  const blurPx     = Math.max(12, Math.round(size * 0.32));
+  const perspPx    = Math.round(size * 2); // perspective distance — gives convincing sphere foreshortening
+  const neutralXfm = `perspective(${perspPx}px) rotateY(0deg) rotateX(0deg)`;
+
+  const satKeyframes = useMemo(() => buildSatKeyframes(size), [size]);
+
+  // Keep stateRef in sync without re-running the glance scheduler
+  useEffect(() => { stateRef.current = state; }, [state]);
+
+  // ── Eye-glance scheduler ────────────────────────────────────────────
+  // Rotates the orb wrapper with perspective so it foreshortens like a
+  // real sphere turning. Fast snap toward target, slow ease back.
+  useEffect(() => {
+    let timerId;
+    let lastGlance = null;
+    function scheduleNext() {
+      timerId = setTimeout(() => {
+        if (stateRef.current === 'idle' && glanceRef.current) {
+          const g = randomGlance(lastGlance);
+          lastGlance = g;
+          // Saccade-fast snap to look direction
+          glanceRef.current.style.transition = `transform 0.22s cubic-bezier(0.4, 0, 0.2, 1)`;
+          glanceRef.current.style.transform  =
+            `perspective(${perspPx}px) rotateY(${g.ry}deg) rotateX(${g.rx}deg)`;
+          // Hold, then ease smoothly back to neutral
+          timerId = setTimeout(() => {
+            if (glanceRef.current) {
+              glanceRef.current.style.transition = `transform 0.55s cubic-bezier(0.25, 0.46, 0.45, 0.94)`;
+              glanceRef.current.style.transform  = neutralXfm;
+            }
+            scheduleNext();
+          }, 600 + Math.random() * 1000);
+        } else {
+          scheduleNext();
+        }
+      }, 4000 + Math.random() * 7000);
+    }
+    scheduleNext();
+    return () => clearTimeout(timerId);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [perspPx, neutralXfm]);
+
+  // Snap back to neutral when entering an active state
+  useEffect(() => {
+    if (state !== 'idle' && glanceRef.current) {
+      glanceRef.current.style.transition = `transform 0.35s ease-out`;
+      glanceRef.current.style.transform  = neutralXfm;
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state]);
+
+  // ── Speech-pulse handler ─────────────────────────────────────────────
   useEffect(() => {
     if (!speechRef) return;
     speechRef.current = (level) => {
-      if (!coreRef.current || state !== 'responding') return;
-      const boost = level * 12;
-      const alpha = (0.24 + level * 0.10).toFixed(2);
-      coreRef.current.style.boxShadow =
-        `0 0 ${28 + boost}px ${10 + level * 4}px rgba(139,92,246,${alpha}), 0 2px 10px rgba(0,0,0,.45)`;
+      if (state !== 'responding') return;
+      if (imgRef.current) {
+        const a = (0.62 + level * 0.28).toFixed(2);
+        imgRef.current.style.filter =
+          `drop-shadow(0 0 58px rgba(139,92,246,${a})) drop-shadow(0 0 110px rgba(99,102,241,.55))`;
+      }
+      const now = Date.now();
+      if (now - lastBurst.current > 250) {
+        lastBurst.current = now;
+        [ring1Ref, ring2Ref, ring3Ref].forEach((ref, i) => {
+          if (!ref.current) return;
+          const el = ref.current;
+          el.style.animation = 'none';
+          // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+          el.offsetHeight;
+          el.style.animation = i === 0
+            ? 'speechBurst  0.55s ease-out forwards'
+            : i === 1
+            ? 'speechBurst2 0.72s ease-out forwards'
+            : 'speechBurst3 0.92s ease-out forwards';
+        });
+      }
     };
     return () => { if (speechRef.current) speechRef.current = null; };
   }, [state, speechRef]);
 
-  // Reset box-shadow when leaving responding state
   useEffect(() => {
-    if (coreRef.current && state !== 'responding') {
-      coreRef.current.style.boxShadow = '';
-    }
+    if (imgRef.current && state !== 'responding') imgRef.current.style.filter = '';
   }, [state]);
 
   return (
     <>
-      <style>{KEYFRAMES}</style>
+      <style>{BASE_KEYFRAMES + satKeyframes}</style>
 
       <div style={{ position: 'relative', width: size, height: size, flexShrink: 0, ...style }}>
 
-        {/* ── Listening ripples — two offset rings expanding outward ─── */}
-        {[0, 850].map((delay, i) => (
+        {/* ── GLOW LAYER ────────────────────────────────────────────── */}
+        <div style={{
+          position: 'absolute',
+          inset: -glowExt,
+          borderRadius: '50%',
+          background: `radial-gradient(circle at 50% 50%, ${s.glowColor} 0%, ${s.glowColor2} 40%, transparent 68%)`,
+          filter: `blur(${blurPx}px)`,
+          opacity: s.glowOpacity,
+          animation: s.glowAnim,
+          transition: 'opacity 0.7s ease, background 0.7s ease',
+          pointerEvents: 'none',
+        }} />
+
+        {/* Listening ripples */}
+        {[0, 780].map((delay, i) => (
           <div key={i} style={{
-            position: 'absolute', inset: 0,
-            borderRadius: '50%',
-            border: '1px solid rgba(56,189,248,.35)',
+            position: 'absolute', inset: -(size * 0.04), borderRadius: '50%',
+            boxShadow: '0 0 0 1.5px rgba(56,189,248,.28)',
             opacity: s.ripple ? 1 : 0,
-            transition: 'opacity 0.5s ease-in-out',
-            animation: 'orbRipple 1.8s ease-out infinite',
+            transition: 'opacity 0.5s ease',
+            animation: 'orbRipple 2s ease-out infinite',
             animationDelay: `${delay}ms`,
             animationPlayState: s.ripple ? 'running' : 'paused',
             pointerEvents: 'none',
-            zIndex: 0,
           }} />
         ))}
 
-        {/* ── Rotating ring + satellite ─────────────────────────────── */}
-        <div style={{
-          position: 'absolute',
-          top: -offset, left: -offset,
-          width: ringSize, height: ringSize,
-          animation: `orbRing ${s.ringSpeed} linear infinite`,
-          pointerEvents: 'none',
-          opacity: s.ringOpacity,
-          transition: 'opacity 0.6s ease-in-out',
-        }}>
-          <svg
-            width={ringSize} height={ringSize}
-            viewBox={`0 0 ${ringSize} ${ringSize}`}
-            fill="none"
-            style={{ position: 'absolute', inset: 0 }}
-          >
-            <defs>
-              <linearGradient id={gradId} x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%"   stopColor="#38BDF8" />
-                <stop offset="50%"  stopColor="#8B5CF6" />
-                <stop offset="100%" stopColor="#EC4899" />
-              </linearGradient>
-            </defs>
-            <circle
-              cx={ringSize / 2} cy={ringSize / 2}
-              r={ringSize / 2 - 1}
-              stroke={`url(#${gradId})`}
-              strokeWidth="1.8"
-              strokeDasharray={`${Math.round(Math.PI * ringSize * 0.75)} ${Math.round(Math.PI * ringSize * 0.25)}`}
-              strokeLinecap="round"
-            />
-          </svg>
+        {/* ── ORBITING SATELLITES ──────────────────────────────────── */}
+        {SATS.map((sat, i) => {
+          const speed = (sat.baseSpeed / s.satSpeedMul).toFixed(2);
+          return (
+            <div key={i} style={{
+              position: 'absolute',
+              top: '50%', left: '50%',
+              width: sat.size, height: sat.size,
+              animation: `hlnaSat${i} ${speed}s linear infinite`,
+              opacity: s.satOpacity,
+              transition: 'opacity 0.9s ease',
+              pointerEvents: 'none',
+              zIndex: 3,
+            }}>
+              <div style={{
+                width: '100%', height: '100%',
+                borderRadius: '50%',
+                background: `radial-gradient(circle, white 0%, rgba(${sat.glow},.92) 50%, rgba(${sat.glow},0) 100%)`,
+                boxShadow: `0 0 ${sat.size * 2}px rgba(${sat.glow},1), 0 0 ${sat.size * 5}px rgba(${sat.glow},.42)`,
+              }}>
+                <div style={{
+                  position: 'absolute', inset: '20%',
+                  borderRadius: '50%',
+                  background: 'white',
+                  animation: `satCore ${(sat.baseSpeed * 0.55).toFixed(1)}s ease-in-out infinite`,
+                }} />
+              </div>
+            </div>
+          );
+        })}
 
-          {/* Satellite node */}
-          <div style={{
-            position: 'absolute',
-            top: -Math.round(satSize / 2), left: '50%',
-            width: satSize, height: satSize,
-            borderRadius: '50%',
-            background: 'radial-gradient(circle at 30% 30%, #38BDF8, #8B5CF6)',
-            boxShadow: '0 0 4px 1px rgba(56,189,248,.45)',
-            animation: `orbSatPulse ${s.ringSpeed} ease-in-out infinite`,
-          }} />
-        </div>
+        {/* Speech burst rings */}
+        <div ref={ring1Ref} style={{
+          position: 'absolute', inset: 0, borderRadius: '50%',
+          boxShadow: '0 0 0 2px rgba(139,92,246,.65)',
+          opacity: 0, pointerEvents: 'none',
+        }} />
+        <div ref={ring2Ref} style={{
+          position: 'absolute', inset: 0, borderRadius: '50%',
+          boxShadow: '0 0 0 1.5px rgba(99,102,241,.45)',
+          opacity: 0, pointerEvents: 'none',
+        }} />
+        <div ref={ring3Ref} style={{
+          position: 'absolute', inset: 0, borderRadius: '50%',
+          boxShadow: '0 0 0 1px rgba(167,139,250,.35)',
+          opacity: 0, pointerEvents: 'none',
+        }} />
 
-        {/* ── Core sphere ───────────────────────────────────────────── */}
+        {/* ── ORB IMAGE ─────────────────────────────────────────────── */}
+        {/* glanceRef wrapper moves the orb off-centre for the "eye look" */}
         <div
-          ref={coreRef}
+          ref={glanceRef}
           style={{
-            position: 'relative', zIndex: 1,
-            width: size, height: size,
-            borderRadius: '50%',
-            background: 'radial-gradient(circle at 32% 32%, #38BDF8 0%, #8B5CF6 52%, #EC4899 100%)',
-            boxShadow: s.baseShadow,
-            animation: s.coreAnim,
-            overflow: 'hidden',
-            transition: 'box-shadow 0.5s ease-in-out',
+            position: 'relative', zIndex: 2,
+            width: '100%', height: '100%',
+            transform: neutralXfm,
+            transition: 'transform 0.55s cubic-bezier(.25,.46,.45,.94)',
           }}
         >
-          {/* Gradient drift — slow conic rotation creates internal movement */}
-          <div style={{
-            position: 'absolute', inset: 0, borderRadius: '50%',
-            background: 'conic-gradient(from 0deg at 50% 50%, transparent 0%, rgba(56,189,248,.10) 25%, transparent 50%, rgba(139,92,246,.10) 75%, transparent 100%)',
-            animation: `orbGradDrift ${s.driftSpeed} linear infinite`,
-            opacity: s.driftOpacity,
-            transition: 'opacity 0.5s ease-in-out',
-            pointerEvents: 'none',
-          }} />
-
-          {/* Thinking overlay — slow internal pulse, visible only in thinking */}
-          <div style={{
-            position: 'absolute', inset: 0, borderRadius: '50%',
-            background: 'radial-gradient(circle at 50% 50%, rgba(139,92,246,.28) 0%, transparent 65%)',
-            opacity: s.thinking ? 1 : 0,
-            transition: 'opacity 0.5s ease-in-out',
-            animation: s.thinking ? 'orbThinkPulse 2.4s ease-in-out infinite' : 'none',
-            pointerEvents: 'none',
-          }} />
-
-          {/* Inner shadow — bottom-right depth */}
-          <div style={{
-            position: 'absolute', inset: 0, borderRadius: '50%',
-            background: 'radial-gradient(circle at 70% 72%, rgba(0,0,0,.44) 0%, transparent 60%)',
-            pointerEvents: 'none',
-          }} />
-
-          {/* Primary specular — top-left soft catch */}
-          <div style={{
-            position: 'absolute',
-            top: '9%', left: '11%',
-            width: '36%', height: '24%',
-            borderRadius: '50%',
-            background: 'radial-gradient(ellipse, rgba(255,255,255,.58) 0%, rgba(255,255,255,.14) 50%, transparent 70%)',
-            pointerEvents: 'none',
-          }} />
-
-          {/* Secondary specular — sharp bright point */}
-          <div style={{
-            position: 'absolute',
-            top: '13%', left: '16%',
-            width: '15%', height: '11%',
-            borderRadius: '50%',
-            background: 'radial-gradient(ellipse, rgba(255,255,255,.82) 0%, transparent 70%)',
-            pointerEvents: 'none',
-          }} />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            ref={imgRef}
+            src={ORB_SRC}
+            alt=""
+            draggable={false}
+            style={{
+              width: '100%', height: '100%',
+              objectFit: 'contain',
+              animation: s.coreAnim,
+              filter: s.dropShadow,
+              transition: 'filter 0.7s ease',
+              pointerEvents: 'none',
+            }}
+          />
         </div>
 
       </div>

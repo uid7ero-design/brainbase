@@ -277,19 +277,19 @@ export default function BrainBase() {
             {cards.slice(-2).map(c => <FloatingCard key={c.id} card={c} onDismiss={() => removeCard(c.id)} />)}
           </div>
 
-          {/* Orb anchor — two-layer radial ground plane */}
+          {/* Orb anchor — ambient ground-plane glow */}
           <div style={{
             position: "absolute",
-            width: 520, height: 520,
+            width: 700, height: 700,
             borderRadius: "50%",
-            background: "radial-gradient(circle, rgba(80,44,200,.10) 0%, rgba(55,30,160,.04) 40%, transparent 68%)",
+            background: "radial-gradient(circle, rgba(80,44,200,.12) 0%, rgba(55,30,160,.05) 42%, transparent 68%)",
             pointerEvents: "none",
             zIndex: 0,
           }} />
 
           {/* Orb + identity */}
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 18, position: "relative", zIndex: 1 }}>
-            <HlnaOrb size={200} state={orbState} speechRef={orbSpeechRef} />
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 20, position: "relative", zIndex: 1 }}>
+            <HlnaOrb size={380} state={orbState} speechRef={orbSpeechRef} />
 
             {/* Identity block */}
             <div style={{ textAlign: "center", pointerEvents: "none", display: "flex", flexDirection: "column", alignItems: "center", gap: 5 }}>

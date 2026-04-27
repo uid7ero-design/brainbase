@@ -1,9 +1,10 @@
-﻿"use client";
+"use client";
 
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend,
   CartesianGrid, LineChart, Line, Cell,
 } from "recharts";
+import { KpiCard, Insight, SectionHeader, T1, T2, T3, BORDER, ROW_BDR, ROW_HEAD, GRID, TICK, DTT, DC, PAGE } from "../_dark";
 
 const SATISFACTION = [
   { service: "General Waste",  score: 4.1, responses: 312 },
@@ -28,11 +29,11 @@ const BIN_AUDIT = [
 ];
 
 const CAMPAIGNS = [
-  { name: "Spring Clean Leaflet Drop",    reach: 28200, type: "Letterbox", outcome: "8.2% contamination reduction" },
+  { name: "Spring Clean Leaflet Drop",    reach: 28200, type: "Letterbox",   outcome: "8.2% contamination reduction" },
   { name: "What Goes in Your Bin?",       reach: 14800, type: "Social Media", outcome: "3,200 engagements" },
-  { name: "School Education Program",     reach: 2400,  type: "In-Person", outcome: "12 schools, 2,400 students" },
-  { name: "New Resident Welcome Kit",     reach: 1840,  type: "Letterbox", outcome: "184 new properties" },
-  { name: "Green Waste No Plastics Drive",reach: 28200, type: "Letterbox", outcome: "4.1% green waste contamination reduction" },
+  { name: "School Education Program",     reach: 2400,  type: "In-Person",   outcome: "12 schools, 2,400 students" },
+  { name: "New Resident Welcome Kit",     reach: 1840,  type: "Letterbox",   outcome: "184 new properties" },
+  { name: "Green Waste No Plastics Drive",reach: 28200, type: "Letterbox",   outcome: "4.1% green waste contamination reduction" },
 ];
 
 const HOTLINE = [
@@ -45,34 +46,33 @@ const HOTLINE = [
 ];
 
 const EVENTS = [
-  { event: "E-Waste Drop-Off Day",       date: "15 Mar 2026", attendees: 684,  tonnes: 8.2  },
-  { event: "Household Hazardous Waste",  date: "22 Feb 2026", attendees: 412,  tonnes: 3.1  },
-  { event: "Bulk Hard Waste Collection", date: "8 Feb 2026",  attendees: 1240, tonnes: 42.6 },
-  { event: "Green Waste Mulch Day",      date: "1 Feb 2026",  attendees: 328,  tonnes: 18.4 },
-  { event: "Community Composting Workshop",date:"25 Jan 2026",attendees: 94,   tonnes: 0    },
+  { event: "E-Waste Drop-Off Day",         date: "15 Mar 2026", attendees: 684,  tonnes: 8.2  },
+  { event: "Household Hazardous Waste",    date: "22 Feb 2026", attendees: 412,  tonnes: 3.1  },
+  { event: "Bulk Hard Waste Collection",   date: "8 Feb 2026",  attendees: 1240, tonnes: 42.6 },
+  { event: "Green Waste Mulch Day",        date: "1 Feb 2026",  attendees: 328,  tonnes: 18.4 },
+  { event: "Community Composting Workshop",date: "25 Jan 2026", attendees: 94,   tonnes: 0    },
 ];
 
 export default function CommunityPage() {
-  const overallScore    = SATISFACTION.find(s => s.service === "Overall")!.score;
-  const totalAuditZones = BIN_AUDIT.length;
-  const avgRecyclePass  = Math.round(BIN_AUDIT.reduce((s, r) => s + r.recyclePassed, 0) / BIN_AUDIT.length);
+  const overallScore       = SATISFACTION.find(s => s.service === "Overall")!.score;
+  const avgRecyclePass     = Math.round(BIN_AUDIT.reduce((s, r) => s + r.recyclePassed, 0) / BIN_AUDIT.length);
   const totalCampaignReach = CAMPAIGNS.reduce((s, r) => s + r.reach, 0);
-  const totalEventTonnes = +EVENTS.reduce((s, r) => s + r.tonnes, 0).toFixed(1);
+  const totalEventTonnes   = +EVENTS.reduce((s, r) => s + r.tonnes, 0).toFixed(1);
 
   const today = new Date().toLocaleDateString("en-AU", { day: "numeric", month: "long", year: "numeric" });
 
   return (
-    <div className="max-w-7xl mx-auto px-8 py-6 space-y-6">
-      <p className="text-slate-500 text-sm">Period: {today}</p>
+    <div style={PAGE}>
+      <p style={{ fontSize: 13, color: T3, margin: 0 }}>Period: {today}</p>
 
-      <div className="grid grid-cols-4 gap-5">
-        <KpiCard label="Overall Satisfaction"   value={`${overallScore}/5.0`}                 sub="480 survey responses this period"            accent={overallScore >= 4 ? "#10b981" : "#f59e0b"} />
-        <KpiCard label="Recycling Bin Pass Rate" value={`${avgRecyclePass}%`}                  sub="Correct materials, no contamination"          accent={avgRecyclePass >= 90 ? "#10b981" : "#f59e0b"} />
-        <KpiCard label="Campaign Reach"          value={totalCampaignReach.toLocaleString()}   sub={`${CAMPAIGNS.length} campaigns this period`}  accent="#3b82f6" />
-        <KpiCard label="Event Waste Diverted"    value={`${totalEventTonnes} t`}               sub={`${EVENTS.length} community events`}          accent="#8b5cf6" />
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 20 }}>
+        <KpiCard label="Overall Satisfaction"    value={`${overallScore}/5.0`}                sub="480 survey responses this period"            accent={overallScore >= 4 ? "#10b981" : "#f59e0b"} />
+        <KpiCard label="Recycling Bin Pass Rate" value={`${avgRecyclePass}%`}                 sub="Correct materials, no contamination"          accent={avgRecyclePass >= 90 ? "#10b981" : "#f59e0b"} />
+        <KpiCard label="Campaign Reach"          value={totalCampaignReach.toLocaleString()}  sub={`${CAMPAIGNS.length} campaigns this period`}  accent="#3b82f6" />
+        <KpiCard label="Event Waste Diverted"    value={`${totalEventTonnes} t`}              sub={`${EVENTS.length} community events`}          accent="#8b5cf6" />
       </div>
 
-      <div className="grid grid-cols-3 gap-5">
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 20 }}>
         <Insight icon="⭐" color={overallScore >= 4 ? "green" : "amber"}
           title={`Satisfaction score ${overallScore}/5 — ${overallScore >= 4 ? "strong" : "needs attention"}`}
           body={`E-waste events lead at 4.5/5. Recycling service at 3.8/5 is the lowest — correlates with contamination confusion. Targeted bin guide could lift this score.`}
@@ -87,42 +87,40 @@ export default function CommunityPage() {
         />
       </div>
 
-      <div className="grid grid-cols-2 gap-5">
-        {/* Satisfaction scores */}
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
+        <div style={DC}>
           <SectionHeader title="Community Satisfaction by Service" sub="Survey responses — 1 to 5 scale" />
-          <div className="space-y-4 mt-2">
+          <div style={{ display: "flex", flexDirection: "column", gap: 16, marginTop: 8 }}>
             {SATISFACTION.filter(s => s.service !== "Overall").map(s => (
               <div key={s.service}>
-                <div className="flex justify-between text-sm mb-1.5">
-                  <span className="text-slate-700 font-medium">{s.service}</span>
-                  <div className="flex items-center gap-3">
-                    <span className="text-xs text-slate-400">{s.responses} responses</span>
-                    <span className={`font-bold text-base ${s.score >= 4.2 ? "text-emerald-600" : s.score >= 3.9 ? "text-blue-600" : "text-amber-500"}`}>{s.score}/5</span>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                  <span style={{ fontSize: 13, color: T1, fontWeight: 500 }}>{s.service}</span>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <span style={{ fontSize: 12, color: T3 }}>{s.responses} responses</span>
+                    <span style={{ fontSize: 15, fontWeight: 700, color: s.score >= 4.2 ? "#4ade80" : s.score >= 3.9 ? "#60a5fa" : "#f59e0b" }}>{s.score}/5</span>
                   </div>
                 </div>
-                <div className="h-3 bg-slate-100 rounded-full overflow-hidden">
-                  <div className="h-full rounded-full transition-all" style={{ width: `${(s.score / 5) * 100}%`, background: s.score >= 4.2 ? "#10b981" : s.score >= 3.9 ? "#3b82f6" : "#f59e0b" }} />
+                <div style={{ height: 10, background: "rgba(255,255,255,0.08)", borderRadius: 999, overflow: "hidden" }}>
+                  <div style={{ height: "100%", borderRadius: 999, width: `${(s.score / 5) * 100}%`, background: s.score >= 4.2 ? "#10b981" : s.score >= 3.9 ? "#3b82f6" : "#f59e0b" }} />
                 </div>
               </div>
             ))}
-            <div className="border-t border-slate-100 pt-3 flex justify-between items-center">
-              <span className="text-sm font-semibold text-slate-700">Overall Score</span>
-              <span className="text-2xl font-bold text-emerald-600">{overallScore} / 5.0</span>
+            <div style={{ paddingTop: 12, borderTop: `1px solid ${BORDER}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span style={{ fontSize: 13, fontWeight: 600, color: T1 }}>Overall Score</span>
+              <span style={{ fontSize: 22, fontWeight: 700, color: "#4ade80" }}>{overallScore} / 5.0</span>
             </div>
           </div>
         </div>
 
-        {/* Contact centre trend */}
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
+        <div style={DC}>
           <SectionHeader title="Customer Contact Volume" sub="Phone calls and digital requests Oct 2025 – Mar 2026" />
           <ResponsiveContainer width="100%" height={280}>
             <BarChart data={HOTLINE} barCategoryGap="25%">
-              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-              <XAxis dataKey="month" tick={{ fill: "#64748b", fontSize: 11 }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fill: "#94a3b8", fontSize: 11 }} axisLine={false} tickLine={false} />
-              <Tooltip contentStyle={{ borderRadius: 8, fontSize: 12 }} />
-              <Legend wrapperStyle={{ fontSize: 12 }} />
+              <CartesianGrid strokeDasharray="3 3" stroke={GRID} vertical={false} />
+              <XAxis dataKey="month" tick={{ fill: TICK, fontSize: 11 }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fill: TICK, fontSize: 11 }} axisLine={false} tickLine={false} />
+              <Tooltip contentStyle={DTT} />
+              <Legend wrapperStyle={{ fontSize: 12, color: T2 }} />
               <Bar dataKey="calls"   name="Phone"   stackId="a" fill="#3b82f6" />
               <Bar dataKey="digital" name="Digital" stackId="a" fill="#10b981" radius={[3,3,0,0]} />
             </BarChart>
@@ -130,66 +128,68 @@ export default function CommunityPage() {
         </div>
       </div>
 
-      {/* Bin audit */}
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
+      <div style={DC}>
         <SectionHeader title="Bin Audit Results by Zone" sub="% of audited bins correctly sorted (pass) — target ≥ 90%" />
         <ResponsiveContainer width="100%" height={260}>
           <BarChart data={BIN_AUDIT} barCategoryGap="20%">
-            <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-            <XAxis dataKey="zone" tick={{ fill: "#64748b", fontSize: 11 }} axisLine={false} tickLine={false} />
-            <YAxis tickFormatter={v => `${v}%`} tick={{ fill: "#94a3b8", fontSize: 11 }} axisLine={false} tickLine={false} domain={[70, 100]} />
-            <Tooltip formatter={v => `${v}%`} contentStyle={{ borderRadius: 8, fontSize: 12 }} />
-            <Legend wrapperStyle={{ fontSize: 12 }} />
+            <CartesianGrid strokeDasharray="3 3" stroke={GRID} vertical={false} />
+            <XAxis dataKey="zone" tick={{ fill: TICK, fontSize: 11 }} axisLine={false} tickLine={false} />
+            <YAxis tickFormatter={v => `${v}%`} tick={{ fill: TICK, fontSize: 11 }} axisLine={false} tickLine={false} domain={[70, 100]} />
+            <Tooltip formatter={v => `${v}%`} contentStyle={DTT} />
+            <Legend wrapperStyle={{ fontSize: 12, color: T2 }} />
             <Bar dataKey="recyclePassed" name="Recycling Pass %" fill="#3b82f6" radius={[3,3,0,0]} />
             <Bar dataKey="greenPassed"   name="Green Waste Pass %" fill="#10b981" radius={[3,3,0,0]} />
           </BarChart>
         </ResponsiveContainer>
       </div>
 
-      {/* Campaigns table */}
-      <div className="grid grid-cols-2 gap-5">
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-          <div className="px-6 py-4 border-b border-slate-100"><SectionHeader title="Education Campaigns" /></div>
-          <table className="w-full text-sm">
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
+        <div style={{ ...DC, padding: 0, overflow: "hidden" }}>
+          <div style={{ padding: "16px 20px", borderBottom: `1px solid ${BORDER}` }}>
+            <SectionHeader title="Education Campaigns" />
+          </div>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
             <thead>
-              <tr className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wide">
-                <th className="text-left px-6 py-3 font-medium">Campaign</th>
-                <th className="text-center px-4 py-3 font-medium">Type</th>
-                <th className="text-right px-4 py-3 font-medium">Reach</th>
-                <th className="text-left px-4 py-3 font-medium">Outcome</th>
+              <tr style={{ background: ROW_HEAD }}>
+                {["Campaign","Type","Reach","Outcome"].map((h, i) => (
+                  <th key={h} style={{ padding: "10px 14px", fontWeight: 600, fontSize: 10, color: T3, textTransform: "uppercase", letterSpacing: ".06em", textAlign: i === 2 ? "right" : "left" }}>{h}</th>
+                ))}
               </tr>
             </thead>
             <tbody>
               {CAMPAIGNS.map((r, i) => (
-                <tr key={i} className="border-t border-slate-50 hover:bg-slate-50 transition">
-                  <td className="px-6 py-3 font-medium text-slate-800">{r.name}</td>
-                  <td className="px-4 py-3 text-center"><span className="text-xs bg-slate-100 text-slate-600 px-2 py-1 rounded-full">{r.type}</span></td>
-                  <td className="px-4 py-3 text-right text-slate-600">{r.reach.toLocaleString()}</td>
-                  <td className="px-4 py-3 text-slate-500 text-xs">{r.outcome}</td>
+                <tr key={i} style={{ borderTop: `1px solid ${ROW_BDR}` }}>
+                  <td style={{ padding: "10px 14px", color: T1, fontWeight: 500 }}>{r.name}</td>
+                  <td style={{ padding: "10px 14px" }}>
+                    <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 999, background: "rgba(255,255,255,0.08)", color: T2 }}>{r.type}</span>
+                  </td>
+                  <td style={{ padding: "10px 14px", textAlign: "right", color: T2 }}>{r.reach.toLocaleString()}</td>
+                  <td style={{ padding: "10px 14px", color: T3, fontSize: 12 }}>{r.outcome}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
 
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-          <div className="px-6 py-4 border-b border-slate-100"><SectionHeader title="Community Events" /></div>
-          <table className="w-full text-sm">
+        <div style={{ ...DC, padding: 0, overflow: "hidden" }}>
+          <div style={{ padding: "16px 20px", borderBottom: `1px solid ${BORDER}` }}>
+            <SectionHeader title="Community Events" />
+          </div>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
             <thead>
-              <tr className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wide">
-                <th className="text-left px-6 py-3 font-medium">Event</th>
-                <th className="text-right px-4 py-3 font-medium">Date</th>
-                <th className="text-right px-4 py-3 font-medium">Attendees</th>
-                <th className="text-right px-4 py-3 font-medium">Tonnes</th>
+              <tr style={{ background: ROW_HEAD }}>
+                {["Event","Date","Attendees","Tonnes"].map((h, i) => (
+                  <th key={h} style={{ padding: "10px 14px", fontWeight: 600, fontSize: 10, color: T3, textTransform: "uppercase", letterSpacing: ".06em", textAlign: i === 0 ? "left" : "right" }}>{h}</th>
+                ))}
               </tr>
             </thead>
             <tbody>
               {EVENTS.map((r, i) => (
-                <tr key={i} className="border-t border-slate-50 hover:bg-slate-50 transition">
-                  <td className="px-6 py-3 font-medium text-slate-800">{r.event}</td>
-                  <td className="px-4 py-3 text-right text-slate-500 text-xs">{r.date}</td>
-                  <td className="px-4 py-3 text-right text-slate-600">{r.attendees.toLocaleString()}</td>
-                  <td className="px-4 py-3 text-right text-emerald-600 font-medium">{r.tonnes > 0 ? `${r.tonnes} t` : "—"}</td>
+                <tr key={i} style={{ borderTop: `1px solid ${ROW_BDR}` }}>
+                  <td style={{ padding: "10px 14px", color: T1, fontWeight: 500 }}>{r.event}</td>
+                  <td style={{ padding: "10px 14px", textAlign: "right", color: T3, fontSize: 12 }}>{r.date}</td>
+                  <td style={{ padding: "10px 14px", textAlign: "right", color: T2 }}>{r.attendees.toLocaleString()}</td>
+                  <td style={{ padding: "10px 14px", textAlign: "right", color: "#4ade80", fontWeight: 500 }}>{r.tonnes > 0 ? `${r.tonnes} t` : "—"}</td>
                 </tr>
               ))}
             </tbody>
@@ -198,15 +198,4 @@ export default function CommunityPage() {
       </div>
     </div>
   );
-}
-
-function KpiCard({ label, value, sub, accent }: any) {
-  return <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5" style={{ borderLeft: `4px solid ${accent}` }}><p className="text-xs text-slate-500 font-medium uppercase tracking-wide mb-2">{label}</p><p className="text-2xl font-bold text-slate-900 mb-1">{value}</p><p className="text-xs text-slate-400">{sub}</p></div>;
-}
-function Insight({ icon, color, title, body }: any) {
-  const p = (({ red: ["bg-red-50","border-red-100","text-red-500"], amber: ["bg-amber-50","border-amber-100","text-amber-500"], green: ["bg-emerald-50","border-emerald-100","text-emerald-600"], blue: ["bg-blue-50","border-blue-100","text-blue-500"] }) as Record<string,string[]>)[color];
-  return <div className={`rounded-2xl border p-5 ${p[0]} ${p[1]}`}><div className="flex items-start gap-3"><span className={`text-xl ${p[2]}`}>{icon}</span><div><p className="text-sm font-semibold text-slate-800 mb-1">{title}</p><p className="text-xs text-slate-600 leading-relaxed">{body}</p></div></div></div>;
-}
-function SectionHeader({ title, sub }: { title: string; sub?: string }) {
-  return <div className="mb-4"><h2 className="text-base font-semibold text-slate-800">{title}</h2>{sub && <p className="text-xs text-slate-400 mt-0.5">{sub}</p>}</div>;
 }
