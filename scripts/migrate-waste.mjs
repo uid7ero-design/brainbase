@@ -1,6 +1,6 @@
 import { neon } from '@neondatabase/serverless';
 
-const sql = neon('postgresql://neondb_owner:REDACTED@ep-bitter-field-a7t5kwxy.ap-southeast-2.aws.neon.tech/neondb?sslmode=require');
+const sql = neon(process.env.DATABASE_URL);
 
 await sql.query(`
   CREATE TABLE IF NOT EXISTS uploaded_files (
