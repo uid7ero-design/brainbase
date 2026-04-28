@@ -40,11 +40,13 @@ export async function POST() {
       file_name       TEXT NOT NULL,
       file_url        TEXT NOT NULL DEFAULT '',
       file_type       TEXT NOT NULL DEFAULT 'xlsx',
+      service_type    TEXT NOT NULL DEFAULT 'waste',
       upload_status   TEXT NOT NULL DEFAULT 'processing'
         CHECK (upload_status IN ('processing', 'complete', 'error')),
       created_at      TIMESTAMPTZ DEFAULT NOW()
     )
   `;
+  await sql`ALTER TABLE uploaded_files ADD COLUMN IF NOT EXISTS service_type TEXT NOT NULL DEFAULT 'waste'`;
 
   // 4. waste_records
   await sql`
@@ -64,7 +66,54 @@ export async function POST() {
     )
   `;
 
-  // 5. reports
+  // 5. fleet_metrics
+  await sql`
+    CREATE TABLE IF NOT EXISTS fleet_metrics (
+      id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      organisation_id  UUID NOT NULL REFERENCES organisations(id),
+      uploaded_file_id UUID REFERENCES uploaded_files(id),
+      vehicle_id       TEXT,
+      vehicle_type     TEXT,
+      make             TEXT,
+      year             INTEGER,
+      department       TEXT,
+      driver           TEXT,
+      km               NUMERIC,
+      wages            NUMERIC,
+      fuel             NUMERIC,
+      maintenance      NUMERIC,
+      rego             NUMERIC,
+      repairs          NUMERIC,
+      insurance        NUMERIC,
+      depreciation     NUMERIC,
+      services         INTEGER,
+      defects          INTEGER,
+      month            TEXT,
+      financial_year   TEXT,
+      created_at       TIMESTAMPTZ DEFAULT NOW()
+    )
+  `;
+
+  // 6. service_requests
+  await sql`
+    CREATE TABLE IF NOT EXISTS service_requests (
+      id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      organisation_id  UUID NOT NULL REFERENCES organisations(id),
+      uploaded_file_id UUID REFERENCES uploaded_files(id),
+      request_id       TEXT,
+      service_type     TEXT,
+      suburb           TEXT,
+      month            TEXT,
+      financial_year   TEXT,
+      status           TEXT,
+      priority         TEXT,
+      days_open        INTEGER,
+      cost             NUMERIC,
+      created_at       TIMESTAMPTZ DEFAULT NOW()
+    )
+  `;
+
+  // 7. reports
   await sql`
     CREATE TABLE IF NOT EXISTS reports (
       id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -82,6 +131,9 @@ export async function POST() {
   await sql`CREATE INDEX IF NOT EXISTS idx_uploaded_files_org    ON uploaded_files(organisation_id)`;
   await sql`CREATE INDEX IF NOT EXISTS idx_waste_records_org     ON waste_records(organisation_id)`;
   await sql`CREATE INDEX IF NOT EXISTS idx_waste_records_file    ON waste_records(uploaded_file_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_fleet_metrics_org     ON fleet_metrics(organisation_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_fleet_metrics_file    ON fleet_metrics(uploaded_file_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_service_requests_org  ON service_requests(organisation_id)`;
   await sql`CREATE INDEX IF NOT EXISTS idx_reports_org           ON reports(organisation_id)`;
 
   return NextResponse.json({ success: true, message: 'Migration complete.' });

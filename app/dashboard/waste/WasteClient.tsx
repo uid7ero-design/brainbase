@@ -412,6 +412,7 @@ export default function WasteClient({
       slaTargets={[]}
       defaultActions={[]}
       aiContext={`Waste dashboard: ${zones.length} suburbs, $${totalCost.toLocaleString()} total cost, $${avgCPT.toFixed(2)}/t avg. Service types: ${serviceTypes.join(', ')}. Top contamination: ${contamTop ? `${contamTop.suburb} ${contamTop.rate.toFixed(1)}%` : 'N/A'}.`}
+      uploadServiceType="waste"
       executiveSummary={executiveSummary}
       snapshotPanel={{
         topCostDriver: `${peakZone.suburb} — $${peakZone.total_cost.toLocaleString()}`,

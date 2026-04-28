@@ -90,6 +90,7 @@ export interface DashboardShellProps {
   theme?: 'light' | 'dark';
   executiveSummary?: string;
   snapshotPanel?: SnapshotPanel;
+  uploadServiceType?: string;
 }
 
 // ─── Data Context ─────────────────────────────────────────────────────────────
@@ -209,7 +210,7 @@ export default function DashboardShell({
   kpis = [], recommendedActions = [], insightCards = [], overviewContent, industryTabs = [], sampleData = {},
   monthlyTrend = [], costAccounts = [], slaTargets = [],
   defaultActions = [], aiContext = '', theme = 'dark',
-  executiveSummary, snapshotPanel,
+  executiveSummary, snapshotPanel, uploadServiceType,
 }: DashboardShellProps) {
 
   const L = theme === 'light';
@@ -385,6 +386,16 @@ export default function DashboardShell({
       };
       setDataStore(prev => ({ ...prev, [activeFY]: [...(prev[activeFY] ?? []), ds] }));
       setActiveDatasetId(ds.id);
+
+      // Persist to DB and refresh server data when a serviceType is configured
+      if (uploadServiceType) {
+        const form = new FormData();
+        form.append('file', file);
+        form.append('serviceType', uploadServiceType);
+        fetch('/api/upload', { method: 'POST', body: form })
+          .then(() => router.refresh())
+          .catch(() => {});
+      }
     }
     e.target.value = '';
   }
