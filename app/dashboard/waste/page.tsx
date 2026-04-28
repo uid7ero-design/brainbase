@@ -3,7 +3,7 @@ import { getSession } from '@/lib/session';
 import sql from '@/lib/db';
 import WasteClient from './WasteClient';
 
-// ─── Types (re-exported so WasteClient can import them) ───────────────────────
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 export type ZoneRow = {
   suburb: string;
@@ -18,6 +18,13 @@ export type ZoneRow = {
 export type MonthlyRow        = { month: string; actual: number };
 export type MonthlyByTypeRow  = { month: string; [serviceType: string]: string | number };
 export type ContaminationRow  = { suburb: string; rate: number };
+
+export type UploadMeta = {
+  fileName: string;
+  uploadedAt: string;
+  recordCount: number;
+  serviceType: string;
+};
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -44,23 +51,23 @@ function sortedMonthKeys(keys: string[]): string[] {
   });
 }
 
-// ─── Dummy data (shown when no records have been uploaded yet) ────────────────
+// ─── Demo data (shown when no records have been uploaded yet) ─────────────────
 
-const DUMMY_SERVICE_TYPES = ['General Waste', 'Recycling', 'Organics', 'Hard Waste'];
-const DUMMY_FINANCIAL_YEARS = ['2025-26'];
+const DEMO_SERVICE_TYPES   = ['General Waste', 'Recycling', 'Organics', 'Hard Waste'];
+const DEMO_FINANCIAL_YEARS = ['2025-26'];
 
-const DUMMY_ZONES: ZoneRow[] = [
-  { suburb: 'Norwood',          total_cost: 342_180, total_tonnes: 2_310, total_collections: 9_240, avg_contamination:  7.2, cost_per_tonne: 148.13, service_costs: { 'General Waste': 178_400, 'Recycling': 96_800, 'Organics': 58_980, 'Hard Waste': 8_000 } },
-  { suburb: 'Payneham',         total_cost: 298_540, total_tonnes: 1_980, total_collections: 7_920, avg_contamination:  9.8, cost_per_tonne: 150.78, service_costs: { 'General Waste': 152_600, 'Recycling': 84_200, 'Organics': 52_740, 'Hard Waste': 9_000 } },
-  { suburb: 'Marden',           total_cost: 261_300, total_tonnes: 1_740, total_collections: 6_960, avg_contamination: 11.4, cost_per_tonne: 150.17, service_costs: { 'General Waste': 134_800, 'Recycling': 72_400, 'Organics': 46_100, 'Hard Waste': 8_000 } },
-  { suburb: 'Glynde',           total_cost: 152_400, total_tonnes: 1_080, total_collections: 4_320, avg_contamination:  8.1, cost_per_tonne: 141.11, service_costs: { 'General Waste':  76_200, 'Recycling': 43_100, 'Organics': 28_100, 'Hard Waste': 5_000 } },
-  { suburb: 'Royston Park',     total_cost: 198_720, total_tonnes: 1_420, total_collections: 5_680, avg_contamination:  6.5, cost_per_tonne: 139.94, service_costs: { 'General Waste':  98_500, 'Recycling': 56_400, 'Organics': 36_820, 'Hard Waste': 7_000 } },
-  { suburb: 'Heathpool',        total_cost: 137_860, total_tonnes:   940, total_collections: 3_760, avg_contamination: 13.7, cost_per_tonne: 146.66, service_costs: { 'General Waste':  68_900, 'Recycling': 38_960, 'Organics': 26_000, 'Hard Waste': 4_000 } },
-  { suburb: 'Trinity Gardens',  total_cost: 226_140, total_tonnes: 1_580, total_collections: 6_320, avg_contamination:  7.9, cost_per_tonne: 143.13, service_costs: { 'General Waste': 114_400, 'Recycling': 63_540, 'Organics': 41_200, 'Hard Waste': 7_000 } },
-  { suburb: 'Evandale',         total_cost: 184_660, total_tonnes: 1_260, total_collections: 5_040, avg_contamination: 10.2, cost_per_tonne: 146.56, service_costs: { 'General Waste':  93_200, 'Recycling': 51_600, 'Organics': 34_860, 'Hard Waste': 5_000 } },
+const DEMO_ZONES: ZoneRow[] = [
+  { suburb: 'Norwood',         total_cost: 342_180, total_tonnes: 2_310, total_collections: 9_240, avg_contamination:  7.2, cost_per_tonne: 148.13, service_costs: { 'General Waste': 178_400, 'Recycling': 96_800, 'Organics': 58_980, 'Hard Waste': 8_000 } },
+  { suburb: 'Payneham',        total_cost: 298_540, total_tonnes: 1_980, total_collections: 7_920, avg_contamination:  9.8, cost_per_tonne: 150.78, service_costs: { 'General Waste': 152_600, 'Recycling': 84_200, 'Organics': 52_740, 'Hard Waste': 9_000 } },
+  { suburb: 'Marden',          total_cost: 261_300, total_tonnes: 1_740, total_collections: 6_960, avg_contamination: 11.4, cost_per_tonne: 150.17, service_costs: { 'General Waste': 134_800, 'Recycling': 72_400, 'Organics': 46_100, 'Hard Waste': 8_000 } },
+  { suburb: 'Glynde',          total_cost: 152_400, total_tonnes: 1_080, total_collections: 4_320, avg_contamination:  8.1, cost_per_tonne: 141.11, service_costs: { 'General Waste':  76_200, 'Recycling': 43_100, 'Organics': 28_100, 'Hard Waste': 5_000 } },
+  { suburb: 'Royston Park',    total_cost: 198_720, total_tonnes: 1_420, total_collections: 5_680, avg_contamination:  6.5, cost_per_tonne: 139.94, service_costs: { 'General Waste':  98_500, 'Recycling': 56_400, 'Organics': 36_820, 'Hard Waste': 7_000 } },
+  { suburb: 'Heathpool',       total_cost: 137_860, total_tonnes:   940, total_collections: 3_760, avg_contamination: 13.7, cost_per_tonne: 146.66, service_costs: { 'General Waste':  68_900, 'Recycling': 38_960, 'Organics': 26_000, 'Hard Waste': 4_000 } },
+  { suburb: 'Trinity Gardens', total_cost: 226_140, total_tonnes: 1_580, total_collections: 6_320, avg_contamination:  7.9, cost_per_tonne: 143.13, service_costs: { 'General Waste': 114_400, 'Recycling': 63_540, 'Organics': 41_200, 'Hard Waste': 7_000 } },
+  { suburb: 'Evandale',        total_cost: 184_660, total_tonnes: 1_260, total_collections: 5_040, avg_contamination: 10.2, cost_per_tonne: 146.56, service_costs: { 'General Waste':  93_200, 'Recycling': 51_600, 'Organics': 34_860, 'Hard Waste': 5_000 } },
 ];
 
-const DUMMY_MONTHLY: MonthlyRow[] = [
+const DEMO_MONTHLY: MonthlyRow[] = [
   { month: 'Oct', actual: 268_400 },
   { month: 'Nov', actual: 287_600 },
   { month: 'Dec', actual: 325_200 },
@@ -69,7 +76,7 @@ const DUMMY_MONTHLY: MonthlyRow[] = [
   { month: 'Mar', actual: 260_300 },
 ];
 
-const DUMMY_MONTHLY_BY_TYPE: MonthlyByTypeRow[] = [
+const DEMO_MONTHLY_BY_TYPE: MonthlyByTypeRow[] = [
   { month: 'Oct', 'General Waste': 122_800, 'Recycling': 73_400, 'Organics': 62_200, 'Hard Waste': 10_000 },
   { month: 'Nov', 'General Waste': 130_600, 'Recycling': 78_200, 'Organics': 68_800, 'Hard Waste': 10_000 },
   { month: 'Dec', 'General Waste': 148_400, 'Recycling': 89_200, 'Organics': 75_600, 'Hard Waste': 12_000 },
@@ -78,7 +85,7 @@ const DUMMY_MONTHLY_BY_TYPE: MonthlyByTypeRow[] = [
   { month: 'Mar', 'General Waste': 113_600, 'Recycling': 85_400, 'Organics': 51_300, 'Hard Waste': 10_000 },
 ];
 
-const DUMMY_CONTAMINATION: ContaminationRow[] = [
+const DEMO_CONTAMINATION: ContaminationRow[] = [
   { suburb: 'Heathpool',       rate: 13.7 },
   { suburb: 'Marden',          rate: 11.4 },
   { suburb: 'Evandale',        rate: 10.2 },
@@ -89,7 +96,7 @@ const DUMMY_CONTAMINATION: ContaminationRow[] = [
   { suburb: 'Royston Park',    rate:  6.5 },
 ];
 
-const DUMMY_COMPOSITION = [
+const DEMO_COMPOSITION = [
   { name: 'General Waste', value: 918_100 },
   { name: 'Recycling',     value: 507_000 },
   { name: 'Organics',      value: 324_800 },
@@ -102,7 +109,29 @@ export default async function WastePage() {
   const session = await getSession();
   if (!session?.organisationId) redirect('/login');
 
-  // Graceful fallback if the migration hasn't run yet
+  // Latest upload metadata (file name, row count, timestamp)
+  let uploadMeta: UploadMeta | null = null;
+  try {
+    const fileRows = await sql`
+      SELECT f.file_name, f.service_type, f.created_at,
+             (SELECT COUNT(*) FROM waste_records wr WHERE wr.uploaded_file_id = f.id)::int AS record_count
+      FROM uploaded_files f
+      WHERE f.organisation_id = ${session.organisationId}
+        AND f.upload_status = 'complete'
+      ORDER BY f.created_at DESC
+      LIMIT 1
+    `;
+    if (fileRows.length > 0) {
+      uploadMeta = {
+        fileName:    fileRows[0].file_name    as string,
+        uploadedAt:  fileRows[0].created_at   as string,
+        recordCount: Number(fileRows[0].record_count),
+        serviceType: (fileRows[0].service_type as string | null) ?? 'waste',
+      };
+    }
+  } catch { /* tables not yet created */ }
+
+  // Waste records
   let rawRecords: Record<string, unknown>[] = [];
   try {
     rawRecords = await sql`
@@ -112,21 +141,21 @@ export default async function WastePage() {
       WHERE organisation_id = ${session.organisationId}
       LIMIT 5000
     `;
-  } catch {
-    // waste_records table doesn't exist yet
-  }
+  } catch { /* table not yet created */ }
 
+  // No real data — render demo view
   if (rawRecords.length === 0) {
     return (
       <WasteClient
-        hasData
-        zones={DUMMY_ZONES}
-        monthly={DUMMY_MONTHLY}
-        monthlyByType={DUMMY_MONTHLY_BY_TYPE}
-        contamination={DUMMY_CONTAMINATION}
-        composition={DUMMY_COMPOSITION}
-        serviceTypes={DUMMY_SERVICE_TYPES}
-        financialYears={DUMMY_FINANCIAL_YEARS}
+        isDemo
+        uploadMeta={null}
+        zones={DEMO_ZONES}
+        monthly={DEMO_MONTHLY}
+        monthlyByType={DEMO_MONTHLY_BY_TYPE}
+        contamination={DEMO_CONTAMINATION}
+        composition={DEMO_COMPOSITION}
+        serviceTypes={DEMO_SERVICE_TYPES}
+        financialYears={DEMO_FINANCIAL_YEARS}
       />
     );
   }
@@ -143,10 +172,10 @@ export default async function WastePage() {
     cost:              Number(r.cost ?? 0),
   }));
 
-  const serviceTypes  = [...new Set(records.map(r => r.serviceType))].filter(Boolean);
+  const serviceTypes   = [...new Set(records.map(r => r.serviceType))].filter(Boolean);
   const financialYears = [...new Set(records.map(r => r.financialYear))].filter(Boolean);
 
-  // ─── Zones: group by suburb ───────────────────────────────────────────────
+  // Zones: group by suburb
   const bySuburb = new Map<string, typeof records>();
   for (const r of records) {
     const rows = bySuburb.get(r.suburb) ?? [];
@@ -162,24 +191,12 @@ export default async function WastePage() {
     const avgContam        = contamRows.length
       ? contamRows.reduce((s, r) => s + r.contaminationRate!, 0) / contamRows.length
       : null;
-
     const serviceCosts: Record<string, number> = {};
-    for (const r of rows) {
-      serviceCosts[r.serviceType] = (serviceCosts[r.serviceType] ?? 0) + r.cost;
-    }
-
-    return {
-      suburb,
-      total_cost:        totalCost,
-      total_tonnes:      totalTonnes,
-      total_collections: totalCollections,
-      avg_contamination: avgContam,
-      cost_per_tonne:    totalTonnes > 0 ? totalCost / totalTonnes : 0,
-      service_costs:     serviceCosts,
-    };
+    for (const r of rows) serviceCosts[r.serviceType] = (serviceCosts[r.serviceType] ?? 0) + r.cost;
+    return { suburb, total_cost: totalCost, total_tonnes: totalTonnes, total_collections: totalCollections, avg_contamination: avgContam, cost_per_tonne: totalTonnes > 0 ? totalCost / totalTonnes : 0, service_costs: serviceCosts };
   });
 
-  // ─── Monthly: group by month ──────────────────────────────────────────────
+  // Monthly: group by month
   const byMonth = new Map<string, { cost: number; byType: Record<string, number> }>();
   for (const r of records) {
     if (!r.month) continue;
@@ -188,12 +205,11 @@ export default async function WastePage() {
     e.byType[r.serviceType] = (e.byType[r.serviceType] ?? 0) + r.cost;
     byMonth.set(r.month, e);
   }
-
-  const months       = sortedMonthKeys([...byMonth.keys()]);
-  const monthly      = months.map(m => ({ month: m, actual: byMonth.get(m)!.cost }));
+  const months        = sortedMonthKeys([...byMonth.keys()]);
+  const monthly       = months.map(m => ({ month: m, actual: byMonth.get(m)!.cost }));
   const monthlyByType = months.map(m => ({ month: m, ...byMonth.get(m)!.byType }));
 
-  // ─── Contamination: group by suburb ──────────────────────────────────────
+  // Contamination: group by suburb
   const contamination: ContaminationRow[] = Array.from(bySuburb.entries())
     .flatMap(([suburb, rows]) => {
       const cr = rows.filter(r => r.contaminationRate != null && r.contaminationRate > 0);
@@ -202,7 +218,7 @@ export default async function WastePage() {
     })
     .sort((a, b) => b.rate - a.rate);
 
-  // ─── Composition: cost by service type ───────────────────────────────────
+  // Composition: cost by service type
   const bySvc = new Map<string, number>();
   for (const r of records) bySvc.set(r.serviceType, (bySvc.get(r.serviceType) ?? 0) + r.cost);
   const composition = [...bySvc.entries()]
@@ -211,7 +227,8 @@ export default async function WastePage() {
 
   return (
     <WasteClient
-      hasData
+      isDemo={false}
+      uploadMeta={uploadMeta}
       zones={zones}
       monthly={monthly}
       monthlyByType={monthlyByType}
