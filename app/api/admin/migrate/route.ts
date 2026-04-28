@@ -127,6 +127,48 @@ export async function POST() {
     )
   `;
 
+  // 8. import_mappings — user-configurable column-to-field mappings per service type
+  await sql`
+    CREATE TABLE IF NOT EXISTS import_mappings (
+      id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      organisation_id UUID NOT NULL REFERENCES organisations(id),
+      service_type    TEXT NOT NULL,
+      raw_column      TEXT NOT NULL,
+      mapped_field    TEXT NOT NULL,
+      created_by      UUID REFERENCES users(id),
+      created_at      TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE (organisation_id, service_type, raw_column)
+    )
+  `;
+
+  // 9. kpi_rules — configurable metric thresholds per org
+  await sql`
+    CREATE TABLE IF NOT EXISTS kpi_rules (
+      id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      organisation_id UUID NOT NULL REFERENCES organisations(id),
+      metric          TEXT NOT NULL,
+      operator        TEXT NOT NULL,
+      threshold       NUMERIC NOT NULL,
+      severity        TEXT NOT NULL DEFAULT 'warning',
+      created_at      TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE (organisation_id, metric)
+    )
+  `;
+
+  // 10. audit_logs — immutable action trail
+  await sql`
+    CREATE TABLE IF NOT EXISTS audit_logs (
+      id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      organisation_id UUID NOT NULL REFERENCES organisations(id),
+      user_id         UUID REFERENCES users(id),
+      action          TEXT NOT NULL,
+      resource_type   TEXT,
+      resource_id     UUID,
+      detail          JSONB,
+      created_at      TIMESTAMPTZ DEFAULT NOW()
+    )
+  `;
+
   // Indexes for fast org-scoped lookups
   await sql`CREATE INDEX IF NOT EXISTS idx_uploaded_files_org    ON uploaded_files(organisation_id)`;
   await sql`CREATE INDEX IF NOT EXISTS idx_waste_records_org     ON waste_records(organisation_id)`;
@@ -135,6 +177,10 @@ export async function POST() {
   await sql`CREATE INDEX IF NOT EXISTS idx_fleet_metrics_file    ON fleet_metrics(uploaded_file_id)`;
   await sql`CREATE INDEX IF NOT EXISTS idx_service_requests_org  ON service_requests(organisation_id)`;
   await sql`CREATE INDEX IF NOT EXISTS idx_reports_org           ON reports(organisation_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_import_mappings_org   ON import_mappings(organisation_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_kpi_rules_org         ON kpi_rules(organisation_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_audit_logs_org        ON audit_logs(organisation_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_audit_logs_user       ON audit_logs(user_id)`;
 
   return NextResponse.json({ success: true, message: 'Migration complete.' });
 }
