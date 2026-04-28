@@ -3,10 +3,14 @@ import Anthropic from '@anthropic-ai/sdk';
 import { embed }      from '../../../lib/brain/embedder';
 import { search }     from '../../../lib/brain/store';
 import { readConfig } from '../../../lib/brain/config';
+import { requireSession } from '../../../lib/org';
+import { DB_SCHEMA, executeQuery, formatQueryResult } from '../../../lib/hlna/dataEngine';
 
 const OLLAMA_URL   = process.env.OLLAMA_URL   || 'http://localhost:11434';
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'llama3';
 const anthropicClient = new Anthropic();
+
+// ─── System prompt ────────────────────────────────────────────────────────────
 
 const SYSTEM = `You are Helena — a sophisticated AI assistant for Brainbase, a voice-first executive command centre for municipal council operations.
 
@@ -37,11 +41,10 @@ Input: "Take me to fleet" or "Open the fleet dashboard" or "Go to vehicles"
 Input: "Show me waste" or "Go to waste management" or "Open waste"
 {"response":"Navigating to Waste Management.","intent":"navigation","action":"navigate","target":"waste","memory_update":null}
 
-Input: "Take me to roads" or "Open construction" or "Go to the environment dashboard"
-{"response":"Opening Roads dashboard.","intent":"navigation","action":"navigate","target":"roads","memory_update":null}
-
 Dashboard questions: when the user asks about data or metrics on the current dashboard (e.g. "what's our fuel spend?", "which zone has the highest contamination?", "how many vehicles are overdue?"), read the [Current dashboard] context and answer with specific figures. Be concise and cite numbers directly.
 CRITICAL: The [Current dashboard] context IS the live data feed. Never say you cannot see, read, or access data — if [Current dashboard] is present, use it and answer directly. If a specific figure is not in the context, say what you do know and flag what is not available.
+
+Data analysis: when you have access to the query_database tool, use it for any question requiring live data beyond what's in the dashboard context — trend analysis, cross-period comparisons, anomaly investigation, cost driver breakdowns, etc. After receiving query results, synthesise the ANALYTICS section into your spoken response. Cite specific numbers. Lead with the headline finding, then 2-3 supporting facts, then a recommendation if relevant.
 
 EXAMPLES — match this format exactly:
 
@@ -57,51 +60,56 @@ Input: "Show me analytics"
 Input: "Remember I prefer morning briefings"
 {"response":"Noted — I'll keep briefings in the morning for you.","intent":"memory","action":"none","target":"none","memory_update":{"type":"preference","key":"briefing_time","fact":"prefers morning briefings"}}
 
-Input: "Show me my memory"
-{"response":"Opening your memory manager.","intent":"command","action":"show_memory","target":"memory","memory_update":null}
-
 Input: "Pause the music"
 {"response":"Pausing your music.","intent":"command","action":"spotify_control","target":"pause","memory_update":null}
 
-Input: "Skip this song"
-{"response":"Skipping track.","intent":"command","action":"spotify_control","target":"next","memory_update":null}
+Input: "Why are missed bins increasing?"
+{"response":"Based on the data, missed bin collections have risen 18% since January — highest in the Marden and Heathpool zones. The main driver is route capacity: collections per run dropped from 420 to 348 while scheduled lifts stayed flat. I'd recommend a route audit for those two suburbs before the next collection cycle.","intent":"answer","action":"none","target":"none","memory_update":null}
 
-Input: "Go back"
-{"response":"Going to previous track.","intent":"command","action":"spotify_control","target":"prev","memory_update":null}
+Input: "Show cost drivers this month"
+{"response":"Fuel is your top cost driver at 34% of fleet spend, followed by wages at 28%. Maintenance jumped 22% month-on-month — TRK-002 and TRK-008 are the outliers there. Total operational cost sits at $412,000 against a $380,000 budget.","intent":"answer","action":"none","target":"none","memory_update":null}
 
-Input: "Play music"
-{"response":"Resuming playback.","intent":"command","action":"spotify_control","target":"play","memory_update":null}
-
-Input: "What's playing?"
-{"response":"Currently playing Song Name by Artist.","intent":"answer","action":"none","target":"none","memory_update":null}
-
-Input: "Scout, find AI consulting leads in London"
-{"response":"On it — Scout is searching for AI consulting leads in London now.","intent":"command","action":"scout_search","target":"AI consulting leads in London","memory_update":null}
-
-Input: "Find me SaaS companies hiring engineers"
-{"response":"Launching Scout to find SaaS companies hiring engineers.","intent":"command","action":"scout_search","target":"SaaS companies hiring engineers","memory_update":null}
+Input: "Summarise performance"
+{"response":"Fleet availability is at 88%, below the 92% target — TRK-002 extended downtime is the main drag. Waste contamination averages 9.2% across suburbs, with Heathpool at 13.7%, well above the 8% threshold. Service request resolution is on track at 94% closed within SLA. Three actions need your attention: overdue servicing on 6 vehicles, the Heathpool contamination spike, and the fuel overspend.","intent":"answer","action":"none","target":"none","memory_update":null}
 
 Calendar: when asked about today's schedule, read events from [Google Calendar — today's events] context and answer conversationally. When asked to create/add/schedule a calendar event, use calendar_create. The target MUST be pipe-separated: "TITLE|YYYY-MM-DD|HH:MM|DURATION_MINUTES". If date is not specified use today. If time is not specified omit it (leave blank between pipes). Duration defaults to 60 minutes if unspecified.
 
-Input: "What's on my calendar today?"
-{"response":"You have three events today: standup at 9am, lunch with Sarah at noon, and a client call at 3pm.","intent":"answer","action":"none","target":"none","memory_update":null}
+Notes: when asked to save, create, write, or store a note, document, or file, use note_create. The target MUST be pipe-separated: "TITLE|FOLDER|content". FOLDER is optional (leave blank for root vault). Content is the body of the note — write it in full. NEVER say you saved a file without using note_create.`;
 
-Input: "Schedule a team meeting tomorrow at 2pm for 90 minutes"
-{"response":"Scheduling team meeting tomorrow at 2pm for 90 minutes.","intent":"command","action":"calendar_create","target":"Team Meeting|2026-04-25|14:00|90","memory_update":null}
+// ─── Tool definitions ─────────────────────────────────────────────────────────
 
-Input: "Add dentist appointment next Monday at 10am"
-{"response":"Adding dentist appointment for Monday at 10am.","intent":"command","action":"calendar_create","target":"Dentist Appointment|2026-04-27|10:00|60","memory_update":null}
+function buildDataTools(orgId: string): Anthropic.Tool[] {
+  return [{
+    name: 'query_database',
+    description: `Query the organisation's live operational database. Use this when the user asks about:
+- Costs, budgets, or financial performance
+- Trends over time (increasing/decreasing metrics)
+- Anomalies, spikes, or outliers
+- Comparisons between suburbs, vehicles, periods, or service types
+- "Why" questions that need data evidence
+- Any factual question about operational numbers not in the current dashboard context
 
-Notes: when asked to save, create, write, or store a note, document, or file, use note_create. The target MUST be pipe-separated: "TITLE|FOLDER|content". FOLDER is optional (leave blank for root vault). Content is the body of the note — write it in full. NEVER say you saved a file without using note_create. The file will be saved instantly to the user's vault.
+Write clean PostgreSQL SELECT queries. Always include WHERE organisation_id = '${orgId}'.
+Results will include computed TREND and ANOMALY annotations — use these in your response.
+${DB_SCHEMA}`,
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        sql: {
+          type: 'string',
+          description: `A PostgreSQL SELECT query. Must include organisation_id = '${orgId}' in WHERE clause. Use LIMIT 50 unless aggregating. Month values: Jul Aug Sep Oct Nov Dec Jan Feb Mar Apr May Jun.`,
+        },
+        reasoning: {
+          type: 'string',
+          description: 'One sentence: what question this query answers.',
+        },
+      },
+      required: ['sql', 'reasoning'],
+    },
+  }];
+}
 
-Input: "Save a note about the Q2 strategy"
-{"response":"Saving a note about Q2 strategy to your vault now.","intent":"command","action":"note_create","target":"Q2 Strategy||Notes on Q2 strategy.","memory_update":null}
-
-Input: "Create a file called Platform Brief with a summary of what we discussed"
-{"response":"Creating Platform Brief in your vault.","intent":"command","action":"note_create","target":"Platform Brief||This document summarises the platform discussion.","memory_update":null}
-
-Input: "Write a note about the meeting in the Projects folder"
-{"response":"Writing that note to your Projects folder now.","intent":"command","action":"note_create","target":"Meeting Notes|10-Projects|Notes from the meeting.","memory_update":null}`;
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 type HelenaResponse = {
   response: string;
@@ -111,18 +119,14 @@ type HelenaResponse = {
   memory_update: { type: string; key: string; fact: string } | null;
 };
 
+// ─── Response parser ──────────────────────────────────────────────────────────
+
 function parseResponse(raw: string): HelenaResponse {
   const defaults: HelenaResponse = {
     response: "I'm having trouble right now.",
-    intent: 'error',
-    action: 'none',
-    target: 'none',
-    memory_update: null,
+    intent: 'error', action: 'none', target: 'none', memory_update: null,
   };
-
   if (!raw?.trim()) return defaults;
-
-  // Try direct parse
   try {
     const p = JSON.parse(raw);
     return {
@@ -133,8 +137,6 @@ function parseResponse(raw: string): HelenaResponse {
       memory_update: p.memory_update ?? null,
     };
   } catch {}
-
-  // Try extracting JSON from surrounding text
   const match = raw.match(/\{[\s\S]*\}/);
   if (match) {
     try {
@@ -148,12 +150,16 @@ function parseResponse(raw: string): HelenaResponse {
       };
     } catch {}
   }
-
-  // Plain text fallback — treat entire response as spoken text
   return { ...defaults, response: raw.trim().slice(0, 300), intent: 'answer' };
 }
 
-function buildSystem(memoryContext?: string, spotifyContext?: string, brainContext?: string, taskContext?: string, calendarContext?: string, dashboardContext?: string): string {
+// ─── System builder ───────────────────────────────────────────────────────────
+
+function buildSystem(
+  memoryContext?: string, spotifyContext?: string, brainContext?: string,
+  taskContext?: string, calendarContext?: string, dashboardContext?: string,
+  orgId?: string,
+): string {
   let s = SYSTEM;
   if (memoryContext?.trim())    s += `\n\n[Helena's memory]\n${memoryContext}`;
   if (spotifyContext?.trim())   s += `\n\n[Spotify]\n${spotifyContext}`;
@@ -161,20 +167,16 @@ function buildSystem(memoryContext?: string, spotifyContext?: string, brainConte
   if (brainContext?.trim())     s += `\n\n[Relevant notes from your brain]\n${brainContext}`;
   if (calendarContext?.trim())  s += `\n\n[Google Calendar — today's events]\n${calendarContext}`;
   if (dashboardContext?.trim()) s += `\n\n[Current dashboard]\n${dashboardContext}`;
+  if (orgId)                    s += `\n\n[Organisation ID for database queries]\n${orgId}\nAlways include WHERE organisation_id = '${orgId}' in every SQL query.`;
   return s;
 }
 
+// ─── Ollama fallback (no tool use) ────────────────────────────────────────────
+
 async function callOllama(
   messages: Array<{ role: string; content: string }>,
-  memoryContext?: string,
-  spotifyContext?: string,
-  brainContext?: string,
-  taskContext?: string,
-  calendarContext?: string,
-  dashboardContext?: string,
+  systemContent: string,
 ): Promise<string> {
-  const systemContent = buildSystem(memoryContext, spotifyContext, brainContext, taskContext, calendarContext, dashboardContext);
-
   const res = await fetch(`${OLLAMA_URL}/api/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -183,7 +185,7 @@ async function callOllama(
       messages: [{ role: 'system', content: systemContent }, ...messages.slice(-14)],
       stream:   false,
       format:   'json',
-      options:  { temperature: 0.7, num_predict: 300 },
+      options:  { temperature: 0.7, num_predict: 400 },
     }),
     signal: AbortSignal.timeout(8000),
   });
@@ -191,6 +193,8 @@ async function callOllama(
   const data = await res.json();
   return data.message?.content ?? '';
 }
+
+// ─── Claude with agentic tool-use loop ───────────────────────────────────────
 
 async function callClaude(
   messages: Array<{ role: 'user' | 'assistant'; content: string }>,
@@ -200,25 +204,80 @@ async function callClaude(
   taskContext?: string,
   calendarContext?: string,
   dashboardContext?: string,
+  orgId?: string,
 ): Promise<string> {
-  const systemContent = buildSystem(memoryContext, spotifyContext, brainContext, taskContext, calendarContext, dashboardContext);
+  const systemContent = buildSystem(
+    memoryContext, spotifyContext, brainContext,
+    taskContext, calendarContext, dashboardContext, orgId,
+  );
+  const tools = orgId ? buildDataTools(orgId) : undefined;
 
-  const msg = await anthropicClient.messages.create({
-    model:      'claude-haiku-4-5-20251001',
-    max_tokens: 400,
-    system:     systemContent,
-    messages:   messages.slice(-14),
+  // Start with string-content messages, expand to full MessageParam[] for the loop
+  type MsgParam = Anthropic.Messages.MessageParam;
+  let msgs: MsgParam[] = messages.slice(-14).map(m => ({
+    role: m.role,
+    content: m.content,
+  }));
+
+  // Up to 4 iterations: initial call + 3 tool-use rounds
+  for (let iter = 0; iter < 4; iter++) {
+    const resp = await anthropicClient.messages.create({
+      model:      'claude-sonnet-4-6',
+      max_tokens: 600,
+      system:     systemContent,
+      messages:   msgs,
+      ...(tools ? { tools } : {}),
+    });
+
+    // No tool use — return the text response
+    if (resp.stop_reason !== 'tool_use') {
+      const block = resp.content.find(b => b.type === 'text');
+      return block?.type === 'text' ? block.text : '';
+    }
+
+    // Execute all tool calls in parallel
+    const toolUseBlocks = resp.content.filter(
+      (b): b is Anthropic.Messages.ToolUseBlock => b.type === 'tool_use',
+    );
+
+    const toolResults = await Promise.all(
+      toolUseBlocks.map(async (block): Promise<Anthropic.Messages.ToolResultBlockParam> => {
+        let content: string;
+        try {
+          const { sql: rawSql } = block.input as { sql: string; reasoning: string };
+          const result = await executeQuery(rawSql, orgId!);
+          content = formatQueryResult(result);
+        } catch (err) {
+          content = `Query failed: ${(err as Error).message}`;
+        }
+        return { type: 'tool_result', tool_use_id: block.id, content };
+      }),
+    );
+
+    // Append assistant message (with tool_use blocks) + tool results
+    msgs = [
+      ...msgs,
+      { role: 'assistant', content: resp.content },
+      { role: 'user',      content: toolResults },
+    ];
+  }
+
+  // Fallback: force a final text response if max iterations reached
+  const final = await anthropicClient.messages.create({
+    model: 'claude-sonnet-4-6', max_tokens: 500, system: systemContent, messages: msgs,
   });
-  return msg.content[0].type === 'text' ? msg.content[0].text : '';
+  const block = final.content.find(b => b.type === 'text');
+  return block?.type === 'text' ? block.text : '';
 }
+
+// ─── Brain context ────────────────────────────────────────────────────────────
 
 async function getBrainContext(query: string): Promise<string> {
   try {
     const cfg = readConfig();
     if (!cfg.vaultPath) return '';
-    // Race the Ollama embed call against a 500ms timeout — never block Helena
     const timeout = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error('brain-timeout')), 500)
+      setTimeout(() => reject(new Error('brain-timeout')), 500),
     );
     const qEmbed  = await Promise.race([embed(query), timeout]);
     const results = search(qEmbed, 3);
@@ -231,8 +290,12 @@ async function getBrainContext(query: string): Promise<string> {
   }
 }
 
+// ─── Route handler ────────────────────────────────────────────────────────────
+
 export async function POST(req: NextRequest) {
-  const { messages, memoryContext, spotifyContext, taskContext, calendarContext, dashboardContext } = await req.json() as {
+  const {
+    messages, memoryContext, spotifyContext, taskContext, calendarContext, dashboardContext,
+  } = await req.json() as {
     messages: Array<{ role: 'user' | 'assistant'; content: string }>;
     memoryContext?: string;
     spotifyContext?: string;
@@ -241,7 +304,14 @@ export async function POST(req: NextRequest) {
     dashboardContext?: string;
   };
 
-  // Query the brain — cap at 150ms so it never delays the LLM call
+  // Resolve org for data queries — graceful if unauthenticated
+  let orgId: string | undefined;
+  try {
+    const session = await requireSession();
+    orgId = session.organisationId;
+  } catch { /* not logged in — HLNA works without DB access */ }
+
+  // Brain context — capped so it never blocks
   const lastUserMsg = [...messages].reverse().find(m => m.role === 'user')?.content ?? '';
   const brainContext = await Promise.race([
     getBrainContext(lastUserMsg),
@@ -252,12 +322,16 @@ export async function POST(req: NextRequest) {
   let source = 'claude';
 
   try {
-    raw = await callClaude(messages, memoryContext, spotifyContext, brainContext, taskContext, calendarContext, dashboardContext);
+    raw = await callClaude(
+      messages, memoryContext, spotifyContext, brainContext,
+      taskContext, calendarContext, dashboardContext, orgId,
+    );
   } catch (err) {
     console.warn('[Helena] Claude unavailable, falling back to Ollama:', (err as Error).message);
     source = 'ollama';
     try {
-      raw = await callOllama(messages, memoryContext, spotifyContext, brainContext, taskContext, calendarContext, dashboardContext);
+      const sys = buildSystem(memoryContext, spotifyContext, brainContext, taskContext, calendarContext, dashboardContext);
+      raw = await callOllama(messages, sys);
     } catch (ollamaErr) {
       console.error('[Helena] Ollama fallback failed:', ollamaErr);
       return Response.json({
