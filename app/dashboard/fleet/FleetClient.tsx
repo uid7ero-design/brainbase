@@ -10,6 +10,7 @@ import {
 import { Upload, Truck, DollarSign, BarChart2, AlertCircle, Gauge, Activity, Shield, Clock, Users, MapPin, Wrench } from 'lucide-react';
 import DashboardShell, { KPI, MonthlyPoint, CostAccount, SLATarget, Action, InsightCard } from '@/components/dashboard/DashboardShell';
 import type { FleetUploadMeta } from './page';
+import { HlnaInsightBanner } from '@/components/hlna/InsightBanner';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -369,6 +370,7 @@ export default function FleetClient({ dbAssets = [], uploadMeta = null, isDemo =
     <>
       {!isDemo && uploadMeta && <FleetDataBanner meta={uploadMeta} />}
       {isDemo && <FleetDemoBanner />}
+      {!isDemo && <HlnaInsightBanner dashboardType="fleet" />}
       <div style={{ display:'flex', gap:6, marginBottom:20, flexWrap:'wrap' }}>
         {depts.map(d => (
           <button key={d} onClick={() => setDept(d)} style={{

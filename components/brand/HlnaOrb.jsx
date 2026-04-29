@@ -71,6 +71,16 @@ const BASE_KEYFRAMES = `
     0%, 100% { opacity: .60; transform: scale(1);    }
     50%       { opacity: 1;  transform: scale(1.35); }
   }
+  @keyframes orbAlert {
+    0%   { animation-timing-function: ease-out; transform: scale(1);     }
+    30%  { animation-timing-function: ease-in;  transform: scale(1.060); }
+    60%  { animation-timing-function: ease-out; transform: scale(0.975); }
+    100% {                                       transform: scale(1);     }
+  }
+  @keyframes glowAlertPulse {
+    0%, 100% { opacity: .55; transform: scale(1);    }
+    50%       { opacity: 1;  transform: scale(1.22); }
+  }
 `;
 
 const SATS = [
@@ -144,6 +154,17 @@ const STATE = {
     dropShadow:  'drop-shadow(0 0 50px rgba(139,92,246,.90)) drop-shadow(0 0 110px rgba(99,102,241,.55))',
     satOpacity:  0.92,
     satSpeedMul: 2.8,
+  },
+  alert: {
+    coreAnim:    'orbAlert 2.2s ease-in-out infinite',
+    glowColor:   'rgba(249,115,22,.48)',
+    glowColor2:  'rgba(239,68,68,.22)',
+    glowAnim:    'glowAlertPulse 2.2s ease-in-out infinite',
+    glowOpacity: 0.85,
+    ripple:      false,
+    dropShadow:  'drop-shadow(0 0 36px rgba(249,115,22,.65)) drop-shadow(0 0 70px rgba(239,68,68,.30))',
+    satOpacity:  0.30,
+    satSpeedMul: 0.6,
   },
 };
 

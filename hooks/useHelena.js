@@ -239,6 +239,7 @@ export function useHelena() {
 
       // ── Side effects (non-blocking) ───────────────────────────────
       if (data.action === 'scout_search' && data.target && data.target !== 'none') {
+        useAppStore.getState().addCard({ id: Date.now(), type: 'HLNΛ ACTION', title: 'Data Scan running…', sub: `Searching: "${data.target}"`, time: 'now' });
         (async () => {
           try {
             const sr = await fetch('/api/agents/scout', {
@@ -248,11 +249,11 @@ export function useHelena() {
             const scout = await sr.json();
             const store = useAppStore.getState();
             if (scout.leads?.length) {
-              scout.leads.forEach((lead, i) => store.addItem({ id: Date.now() + i, type: 'scout', title: lead.company || 'Scout lead', sub: lead.signal ?? '', time: 'now', action: lead.action ?? '' }));
+              scout.leads.forEach((lead, i) => store.addItem({ id: Date.now() + i, type: 'data_scan', title: lead.company || 'Data Scan result', sub: lead.signal ?? '', time: 'now', action: lead.action ?? '' }));
             } else {
-              store.addItem({ id: Date.now(), type: 'scout', title: scout.summary ?? 'Scout complete', sub: `${scout.resultCount ?? 0} sources reviewed`, time: 'now' });
+              store.addItem({ id: Date.now(), type: 'data_scan', title: scout.summary ?? 'Data Scan complete', sub: `${scout.resultCount ?? 0} sources reviewed`, time: 'now' });
             }
-          } catch (err) { console.warn('[Scout]', err.message); }
+          } catch (err) { console.warn('[DataScan]', err.message); }
         })();
       }
 
@@ -275,12 +276,18 @@ export function useHelena() {
       }
       if (data.action === 'navigate' && data.target && data.target !== 'none') {
         navRef.current?.(data.target);
+        const dashLabels = { waste:'Waste Dashboard', fleet:'Fleet Dashboard', 'service-requests':'Service Requests', overview:'Command Overview', analytics:'Analytics', settings:'Settings' };
+        const label = dashLabels[data.target] ?? data.target.replace(/-/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
+        useAppStore.getState().addCard({ id: Date.now(), type: 'HLNΛ ACTION', title: `Navigated to ${label}`, time: 'now' });
       }
       if (data.action === 'spotify_control') {
         const ctrl = spotifyControlRef.current;
         if (ctrl && data.target && typeof ctrl[data.target] === 'function') ctrl[data.target]();
       }
-      if (data.action === 'task_add'      && data.target && data.target !== 'none') taskControlRef.current?.add(data.target);
+      if (data.action === 'task_add' && data.target && data.target !== 'none') {
+        taskControlRef.current?.add(data.target);
+        useAppStore.getState().addCard({ id: Date.now(), type: 'HLNΛ ACTION', title: 'Task added', sub: data.target, time: 'now' });
+      }
       if (data.action === 'task_complete' && data.target && data.target !== 'none') taskControlRef.current?.completeByText(data.target);
       if (data.action === 'task_clear') taskControlRef.current?.clearDone();
       if (data.action === 'calendar_create' && data.target && data.target !== 'none') {

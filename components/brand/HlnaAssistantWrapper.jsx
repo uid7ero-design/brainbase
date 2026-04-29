@@ -6,13 +6,14 @@ import { useHelena } from '../../hooks/useHelena';
 import { useAppStore } from '../../lib/state/useAppStore';
 import { MicButton } from '../voice/MicButton';
 import { ChatPanel } from '../chat/ChatPanel';
+import { FloatingCard } from '../cards/FloatingCard';
 import { getContextForPath, resolveRoute } from '../../lib/dashboard/registry';
 
 // Only used on service dashboards — BrainBase.jsx handles its own Helena at /dashboard
 function HelenaLayer({ pathname }) {
   const router = useRouter();
   const helena = useHelena();
-  const { chatOpen, setChatOpen, toggleChat, llmSource, dashboardAiContext, helenaTrigger, clearHelenaTrigger } = useAppStore();
+  const { chatOpen, setChatOpen, toggleChat, llmSource, dashboardAiContext, helenaTrigger, clearHelenaTrigger, orbAlert, cards, removeCard } = useAppStore();
 
   // Wire navigation: called when Helena returns action "navigate"
   useEffect(() => {
@@ -85,11 +86,22 @@ function HelenaLayer({ pathname }) {
 
   return (
     <>
+      {/* Action feedback cards — bottom-left stack */}
+      {cards.length > 0 && (
+        <div style={{ position: 'fixed', bottom: 100, left: 24, zIndex: 70, display: 'flex', flexDirection: 'column-reverse', gap: 8, pointerEvents: 'none' }}>
+          {cards.slice(-3).map(c => (
+            <div key={c.id} style={{ pointerEvents: 'auto' }}>
+              <FloatingCard card={c} onDismiss={() => removeCard(c.id)} />
+            </div>
+          ))}
+        </div>
+      )}
       <MicButton
         helena={helena}
         chatOpen={chatOpen}
         onChatToggle={toggleChat}
         llmSource={llmSource}
+        orbAlert={orbAlert}
       />
       {chatOpen && (
         <ChatPanel

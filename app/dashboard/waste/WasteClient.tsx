@@ -9,6 +9,7 @@ import DashboardShell, {
   type RecommendedAction,
 } from '@/components/dashboard/DashboardShell';
 import type { ZoneRow, MonthlyRow, MonthlyByTypeRow, ContaminationRow, UploadMeta, KpiRule } from './page';
+import { HlnaInsightBanner } from '@/components/hlna/InsightBanner';
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
@@ -270,6 +271,9 @@ export default function WasteClient({
       {/* Data source banner */}
       {!isDemo && uploadMeta && <DataSourceBanner meta={uploadMeta} />}
       {isDemo && <DemoBanner />}
+
+      {/* HLNA proactive insight */}
+      {!isDemo && <HlnaInsightBanner dashboardType="waste" />}
 
       {/* KPI row — tonnes, collections, avg contamination, top suburb */}
       <div>

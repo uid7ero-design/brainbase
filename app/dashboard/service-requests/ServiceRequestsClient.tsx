@@ -7,6 +7,7 @@ import {
 } from 'recharts';
 import { useAppStore } from '@/lib/state/useAppStore';
 import type { SRRow, UploadMeta } from './page';
+import { HlnaInsightBanner } from '@/components/hlna/InsightBanner';
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 
@@ -199,6 +200,9 @@ export default function ServiceRequestsClient({ isDemo, uploadMeta, rows, monthO
 
       {/* ── Data source / demo banner ── */}
       {!isDemo && uploadMeta ? <DataSourceBanner meta={uploadMeta} /> : isDemo ? <DemoBanner /> : null}
+
+      {/* HLNA proactive insight */}
+      {!isDemo && <HlnaInsightBanner dashboardType="service_requests" />}
 
       {/* ── KPI strip ── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12, marginBottom: 22 }}>

@@ -3,7 +3,7 @@ import { useRef } from 'react';
 import { CYAN } from "../../lib/utils/constants";
 import { HlnaOrb } from "../brand/HlnaOrb";
 
-export function MicButton({ helena, chatOpen, onChatToggle, llmSource }) {
+export function MicButton({ helena, chatOpen, onChatToggle, llmSource, orbAlert = false }) {
   const { listening, responding, conversational, micError, wakeActive, orbPhase } = helena;
   const active = listening || conversational;
   const speechRef = useRef(null);
@@ -30,6 +30,7 @@ export function MicButton({ helena, chatOpen, onChatToggle, llmSource }) {
   const orbState = orbPhase ?? (
     responding ? 'responding'
     : listening ? 'listening'
+    : orbAlert  ? 'alert'
     : 'idle'
   );
 
