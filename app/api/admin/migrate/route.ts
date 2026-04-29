@@ -214,6 +214,23 @@ export async function POST() {
     )
   `;
 
+  // 14. Email verification columns on users
+  await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified    BOOLEAN    DEFAULT false`;
+  await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified_at TIMESTAMPTZ`;
+
+  // 15. email_tokens — password-reset and email-verification tokens
+  await sql`
+    CREATE TABLE IF NOT EXISTS email_tokens (
+      id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      token      TEXT NOT NULL UNIQUE,
+      type       TEXT NOT NULL CHECK (type IN ('verify', 'reset')),
+      expires_at TIMESTAMPTZ NOT NULL,
+      used_at    TIMESTAMPTZ,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `;
+
   // Indexes for fast org-scoped lookups
   await sql`CREATE INDEX IF NOT EXISTS idx_uploaded_files_org    ON uploaded_files(organisation_id)`;
   await sql`CREATE INDEX IF NOT EXISTS idx_waste_records_org     ON waste_records(organisation_id)`;
@@ -230,6 +247,8 @@ export async function POST() {
   await sql`CREATE INDEX IF NOT EXISTS idx_sync_jobs_integration ON sync_jobs(integration_id)`;
   await sql`CREATE INDEX IF NOT EXISTS idx_sync_jobs_org         ON sync_jobs(organisation_id)`;
   await sql`CREATE INDEX IF NOT EXISTS idx_snapshots_org_date    ON data_snapshots(organisation_id, snapshot_date)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_email_tokens_token    ON email_tokens(token)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_email_tokens_user     ON email_tokens(user_id)`;
 
   return NextResponse.json({ success: true, message: 'Migration complete.' });
 }

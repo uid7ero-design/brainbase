@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import sql from '@/lib/db';
-import { requireSession, unauthorized } from '@/lib/org';
+import { requireSession, requireRole, unauthorized, forbidden } from '@/lib/org';
 import { listConnectors } from '@/lib/integrations/registry';
 import type { ConnectorId, TargetTable } from '@/lib/integrations/types';
 
@@ -23,7 +23,11 @@ export async function GET() {
 /** POST /api/integrations — create a new integration */
 export async function POST(req: NextRequest) {
   let session;
-  try { session = await requireSession(); } catch { return unauthorized(); }
+  try { session = await requireRole('manager'); } catch (e) {
+    const msg = (e as Error).message;
+    if (msg === 'Forbidden') return forbidden();
+    return unauthorized();
+  }
 
   const body = await req.json().catch(() => null);
   if (!body) return NextResponse.json({ error: 'Invalid JSON.' }, { status: 400 });

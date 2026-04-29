@@ -1,11 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import sql from '@/lib/db';
-import { requireSession, unauthorized } from '@/lib/org';
+import { requireRole, unauthorized, forbidden } from '@/lib/org';
 
 /** PATCH /api/integrations/[id] — update name / config / enabled / schedule */
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   let session;
-  try { session = await requireSession(); } catch { return unauthorized(); }
+  try { session = await requireRole('manager'); } catch (e) {
+    const msg = (e as Error).message;
+    if (msg === 'Forbidden') return forbidden();
+    return unauthorized();
+  }
 
   const body = await req.json().catch(() => null);
   if (!body) return NextResponse.json({ error: 'Invalid JSON.' }, { status: 400 });
@@ -34,7 +38,11 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 /** DELETE /api/integrations/[id] */
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   let session;
-  try { session = await requireSession(); } catch { return unauthorized(); }
+  try { session = await requireRole('manager'); } catch (e) {
+    const msg = (e as Error).message;
+    if (msg === 'Forbidden') return forbidden();
+    return unauthorized();
+  }
 
   const { id } = await params;
   await sql`

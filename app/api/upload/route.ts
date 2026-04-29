@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import * as XLSX from 'xlsx';
 import sql from '@/lib/db';
-import { requireSession, unauthorized } from '@/lib/org';
+import { requireRole, unauthorized } from '@/lib/org';
 
 type ServiceType = 'waste' | 'fleet' | 'service_requests';
 
@@ -158,7 +158,11 @@ async function insertServiceRequests(records: Record<string, unknown>[], orgId: 
  */
 export async function POST(req: NextRequest) {
   let session;
-  try { session = await requireSession(); } catch { return unauthorized(); }
+  try { session = await requireRole('manager'); } catch (e) {
+    const msg = (e as Error).message;
+    if (msg === 'Forbidden') return Response.json({ error: 'Forbidden' }, { status: 403 });
+    return unauthorized();
+  }
 
   let formData: FormData;
   try { formData = await req.formData(); }

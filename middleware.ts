@@ -2,12 +2,23 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { decrypt } from '@/lib/session';
 
-const PUBLIC = ['/login', '/terms', '/privacy', '/'];
+const PUBLIC = [
+  '/login',
+  '/forgot-password',
+  '/reset-password',
+  '/verify-email',
+  '/terms',
+  '/privacy',
+  '/',
+  '/api/auth',   // all /api/auth/* routes are public
+];
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
-  if (PUBLIC.some(p => pathname.startsWith(p))) return NextResponse.next();
+  if (PUBLIC.some(p => pathname === p || pathname.startsWith(p + '/'))) {
+    return NextResponse.next();
+  }
 
   const token = req.cookies.get('session')?.value;
   const session = await decrypt(token);
@@ -20,13 +31,13 @@ export async function middleware(req: NextRequest) {
 
   // /admin — super_admin only
   if (pathname.startsWith('/admin') && session.role !== 'super_admin') {
-    return NextResponse.redirect(new URL('/', req.url));
+    return NextResponse.redirect(new URL('/dashboard/overview', req.url));
   }
 
   // /command — manager, admin, super_admin only (not viewer)
   const COMMAND_ROLES = ['manager', 'admin', 'super_admin'];
   if (pathname.startsWith('/command') && !COMMAND_ROLES.includes(session.role)) {
-    return NextResponse.redirect(new URL('/dashboards', req.url));
+    return NextResponse.redirect(new URL('/dashboard/overview', req.url));
   }
 
   return NextResponse.next();
