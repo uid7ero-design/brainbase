@@ -5,6 +5,7 @@ import { search }     from '../../../lib/brain/store';
 import { readConfig } from '../../../lib/brain/config';
 import { requireSession } from '../../../lib/org';
 import { DB_SCHEMA, executeQuery, formatQueryResult } from '../../../lib/hlna/dataEngine';
+import { buildModuleContext } from '../../../lib/hlna/modules';
 
 const OLLAMA_URL   = process.env.OLLAMA_URL   || 'http://localhost:11434';
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'llama3';
@@ -184,9 +185,13 @@ function parseResponse(raw: string): HelenaResponse {
 function buildSystem(
   memoryContext?: string, spotifyContext?: string, brainContext?: string,
   taskContext?: string, calendarContext?: string, dashboardContext?: string,
-  orgId?: string,
+  orgId?: string, moduleKey?: string,
 ): string {
   let s = SYSTEM;
+  if (moduleKey?.trim()) {
+    const ctx = buildModuleContext(moduleKey);
+    if (ctx) s += `\n\n${ctx}`;
+  }
   if (memoryContext?.trim())    s += `\n\n[Helena's memory]\n${memoryContext}`;
   if (spotifyContext?.trim())   s += `\n\n[Spotify]\n${spotifyContext}`;
   if (taskContext?.trim())      s += `\n\n[Tasks]\n${taskContext}`;
@@ -231,10 +236,11 @@ async function callClaude(
   calendarContext?: string,
   dashboardContext?: string,
   orgId?: string,
+  moduleKey?: string,
 ): Promise<{ text: string; analysis: QueryAnalysis | null }> {
   const systemContent = buildSystem(
     memoryContext, spotifyContext, brainContext,
-    taskContext, calendarContext, dashboardContext, orgId,
+    taskContext, calendarContext, dashboardContext, orgId, moduleKey,
   );
   const tools = orgId ? buildDataTools(orgId) : undefined;
 
@@ -350,7 +356,7 @@ async function getBrainContext(query: string): Promise<string> {
 
 export async function POST(req: NextRequest) {
   const {
-    messages, memoryContext, spotifyContext, taskContext, calendarContext, dashboardContext,
+    messages, memoryContext, spotifyContext, taskContext, calendarContext, dashboardContext, moduleKey,
   } = await req.json() as {
     messages: Array<{ role: 'user' | 'assistant'; content: string }>;
     memoryContext?: string;
@@ -358,6 +364,7 @@ export async function POST(req: NextRequest) {
     taskContext?: string;
     calendarContext?: string;
     dashboardContext?: string;
+    moduleKey?: string;
   };
 
   // Resolve org for data queries — graceful if unauthenticated
@@ -381,7 +388,7 @@ export async function POST(req: NextRequest) {
   try {
     const result = await callClaude(
       messages, memoryContext, spotifyContext, brainContext,
-      taskContext, calendarContext, dashboardContext, orgId,
+      taskContext, calendarContext, dashboardContext, orgId, moduleKey,
     );
     raw      = result.text;
     analysis = result.analysis;
@@ -389,7 +396,7 @@ export async function POST(req: NextRequest) {
     console.warn('[Helena] Claude unavailable, falling back to Ollama:', (err as Error).message);
     source = 'ollama';
     try {
-      const sys = buildSystem(memoryContext, spotifyContext, brainContext, taskContext, calendarContext, dashboardContext);
+      const sys = buildSystem(memoryContext, spotifyContext, brainContext, taskContext, calendarContext, dashboardContext, undefined, moduleKey);
       raw = await callOllama(messages, sys);
     } catch (ollamaErr) {
       console.error('[Helena] Ollama fallback failed:', ollamaErr);

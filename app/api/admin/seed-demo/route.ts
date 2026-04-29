@@ -218,6 +218,62 @@ export async function POST() {
     `;
   }
 
+  // ── 5. Enable default modules for this organisation ──────────────────────
+  // Ensure modules exist (seed-demo may run before migrate on a fresh instance)
+  const SEED_MODULES = [
+    { key: 'waste_recycling',  name: 'Waste & Recycling',   industry: 'Local Government',   description: 'Waste, collections, contamination and recycling operations' },
+    { key: 'fleet_management', name: 'Fleet Management',    industry: 'Operations',          description: 'Fleet availability, maintenance, defects and cost tracking' },
+    { key: 'service_requests', name: 'Service Requests',    industry: 'Customer Operations', description: 'Service request lifecycle, backlog and SLA performance' },
+    { key: 'logistics_freight',name: 'Logistics & Freight', industry: 'Transport',           description: 'Shipment, delivery, route and carrier performance' },
+    { key: 'utilities',        name: 'Utilities',           industry: 'Infrastructure',      description: 'Water, energy, faults and asset performance' },
+    { key: 'construction',     name: 'Construction',        industry: 'Project Delivery',    description: 'Project status, budgets, contractors and milestones' },
+  ];
+
+  // Create modules table if it doesn't exist yet (idempotent guard)
+  await sql`
+    CREATE TABLE IF NOT EXISTS modules (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      key TEXT UNIQUE NOT NULL,
+      name TEXT NOT NULL,
+      industry TEXT,
+      description TEXT,
+      status TEXT DEFAULT 'active',
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `;
+  await sql`
+    CREATE TABLE IF NOT EXISTS organisation_modules (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      organisation_id UUID NOT NULL REFERENCES organisations(id),
+      module_id UUID NOT NULL REFERENCES modules(id),
+      enabled BOOLEAN DEFAULT TRUE,
+      config JSONB DEFAULT '{}',
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE (organisation_id, module_id)
+    )
+  `;
+
+  for (const m of SEED_MODULES) {
+    await sql`
+      INSERT INTO modules (key, name, industry, description)
+      VALUES (${m.key}, ${m.name}, ${m.industry}, ${m.description})
+      ON CONFLICT (key) DO NOTHING
+    `;
+  }
+
+  // Enable waste, fleet, and service_requests for this org by default
+  const enabledKeys = ['waste_recycling', 'fleet_management', 'service_requests'];
+  for (const key of enabledKeys) {
+    const rows = await sql`SELECT id FROM modules WHERE key = ${key}`;
+    if (rows.length > 0) {
+      await sql`
+        INSERT INTO organisation_modules (organisation_id, module_id, enabled)
+        VALUES (${orgId}, ${rows[0].id as string}, true)
+        ON CONFLICT (organisation_id, module_id) DO NOTHING
+      `;
+    }
+  }
+
   return NextResponse.json({
     success: true,
     counts: {
@@ -225,6 +281,6 @@ export async function POST() {
       fleetMetrics:     VEHICLES.length * MONTHS.length,
       serviceRequests:  srSeq - 1,
     },
-    message: `Demo data seeded: ${wasteRows.length} waste records, ${VEHICLES.length * MONTHS.length} fleet records, ${srSeq - 1} service requests.`,
+    message: `Demo data seeded: ${wasteRows.length} waste records, ${VEHICLES.length * MONTHS.length} fleet records, ${srSeq - 1} service requests. Modules enabled: ${enabledKeys.join(', ')}.`,
   });
 }

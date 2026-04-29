@@ -56,6 +56,18 @@ service_requests
   priority     TEXT          -- 'High', 'Medium', 'Low'
   days_open    INTEGER
   cost         NUMERIC
+
+metric_snapshots              -- cross-module universal metric layer
+  module_key      TEXT       -- e.g. 'waste_recycling', 'fleet_management'
+  metric_key      TEXT       -- e.g. 'contamination_rate', 'fleet_availability'
+  metric_label    TEXT
+  value           NUMERIC
+  unit            TEXT       -- e.g. '%', '$', 'tonnes'
+  period_start    DATE
+  period_end      DATE
+  dimension       TEXT       -- optional grouping dimension e.g. 'suburb', 'vehicle_type'
+  dimension_value TEXT       -- value of that dimension
+  source_table    TEXT       -- originating table
 `.trim();
 
 // ─── Query execution ──────────────────────────────────────────────────────────

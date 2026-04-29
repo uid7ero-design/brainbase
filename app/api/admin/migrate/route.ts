@@ -231,24 +231,114 @@ export async function POST() {
     )
   `;
 
+  // 16. User profile fields
+  await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS first_name    TEXT`;
+  await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_name     TEXT`;
+  await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS display_name  TEXT`;
+  await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url    TEXT`;
+  await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS bio           TEXT`;
+  await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS job_title     TEXT`;
+  await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS department    TEXT`;
+  await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS phone         TEXT`;
+  await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS timezone      TEXT DEFAULT 'Australia/Adelaide'`;
+  await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS preferences   JSONB DEFAULT '{}'`;
+  await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen_at  TIMESTAMPTZ`;
+
+  // 17. Organisation profile fields
+  await sql`ALTER TABLE organisations ADD COLUMN IF NOT EXISTS logo_url       TEXT`;
+  await sql`ALTER TABLE organisations ADD COLUMN IF NOT EXISTS website        TEXT`;
+  await sql`ALTER TABLE organisations ADD COLUMN IF NOT EXISTS industry       TEXT`;
+  await sql`ALTER TABLE organisations ADD COLUMN IF NOT EXISTS size           TEXT`;
+  await sql`ALTER TABLE organisations ADD COLUMN IF NOT EXISTS address        TEXT`;
+  await sql`ALTER TABLE organisations ADD COLUMN IF NOT EXISTS contact_email  TEXT`;
+  await sql`ALTER TABLE organisations ADD COLUMN IF NOT EXISTS contact_phone  TEXT`;
+  await sql`ALTER TABLE organisations ADD COLUMN IF NOT EXISTS settings       JSONB DEFAULT '{}'`;
+
+  // 18. Module registry — platform-wide module definitions
+  await sql`
+    CREATE TABLE IF NOT EXISTS modules (
+      id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      key         TEXT UNIQUE NOT NULL,
+      name        TEXT NOT NULL,
+      industry    TEXT,
+      description TEXT,
+      status      TEXT DEFAULT 'active',
+      created_at  TIMESTAMPTZ DEFAULT NOW()
+    )
+  `;
+
+  // 19. Organisation modules — which modules each org has enabled
+  await sql`
+    CREATE TABLE IF NOT EXISTS organisation_modules (
+      id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      organisation_id UUID NOT NULL REFERENCES organisations(id),
+      module_id       UUID NOT NULL REFERENCES modules(id),
+      enabled         BOOLEAN DEFAULT TRUE,
+      config          JSONB DEFAULT '{}',
+      created_at      TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE (organisation_id, module_id)
+    )
+  `;
+
+  // 20. Metric snapshots — cross-module universal metric layer
+  await sql`
+    CREATE TABLE IF NOT EXISTS metric_snapshots (
+      id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      organisation_id UUID NOT NULL REFERENCES organisations(id),
+      module_key      TEXT NOT NULL,
+      metric_key      TEXT NOT NULL,
+      metric_label    TEXT,
+      value           NUMERIC,
+      unit            TEXT,
+      period_start    DATE,
+      period_end      DATE,
+      dimension       TEXT,
+      dimension_value TEXT,
+      source_table    TEXT,
+      created_at      TIMESTAMPTZ DEFAULT NOW()
+    )
+  `;
+
+  // 21. Extend import_mappings with module_key
+  await sql`ALTER TABLE import_mappings ADD COLUMN IF NOT EXISTS module_key TEXT`;
+
+  // 22. Extend kpi_rules with module_key
+  await sql`ALTER TABLE kpi_rules ADD COLUMN IF NOT EXISTS module_key TEXT`;
+
+  // Seed default modules
+  await sql`
+    INSERT INTO modules (key, name, industry, description) VALUES
+      ('waste_recycling',  'Waste & Recycling',   'Local Government',   'Waste, collections, contamination and recycling operations'),
+      ('fleet_management', 'Fleet Management',    'Operations',         'Fleet availability, maintenance, defects and cost tracking'),
+      ('service_requests', 'Service Requests',    'Customer Operations','Service request lifecycle, backlog and SLA performance'),
+      ('logistics_freight','Logistics & Freight', 'Transport',          'Shipment, delivery, route and carrier performance'),
+      ('utilities',        'Utilities',           'Infrastructure',     'Water, energy, faults and asset performance'),
+      ('construction',     'Construction',        'Project Delivery',   'Project status, budgets, contractors and milestones')
+    ON CONFLICT (key) DO NOTHING
+  `;
+
   // Indexes for fast org-scoped lookups
-  await sql`CREATE INDEX IF NOT EXISTS idx_uploaded_files_org    ON uploaded_files(organisation_id)`;
-  await sql`CREATE INDEX IF NOT EXISTS idx_waste_records_org     ON waste_records(organisation_id)`;
-  await sql`CREATE INDEX IF NOT EXISTS idx_waste_records_file    ON waste_records(uploaded_file_id)`;
-  await sql`CREATE INDEX IF NOT EXISTS idx_fleet_metrics_org     ON fleet_metrics(organisation_id)`;
-  await sql`CREATE INDEX IF NOT EXISTS idx_fleet_metrics_file    ON fleet_metrics(uploaded_file_id)`;
-  await sql`CREATE INDEX IF NOT EXISTS idx_service_requests_org  ON service_requests(organisation_id)`;
-  await sql`CREATE INDEX IF NOT EXISTS idx_reports_org           ON reports(organisation_id)`;
-  await sql`CREATE INDEX IF NOT EXISTS idx_import_mappings_org   ON import_mappings(organisation_id)`;
-  await sql`CREATE INDEX IF NOT EXISTS idx_kpi_rules_org         ON kpi_rules(organisation_id)`;
-  await sql`CREATE INDEX IF NOT EXISTS idx_audit_logs_org        ON audit_logs(organisation_id)`;
-  await sql`CREATE INDEX IF NOT EXISTS idx_audit_logs_user       ON audit_logs(user_id)`;
-  await sql`CREATE INDEX IF NOT EXISTS idx_integrations_org      ON integrations(organisation_id)`;
-  await sql`CREATE INDEX IF NOT EXISTS idx_sync_jobs_integration ON sync_jobs(integration_id)`;
-  await sql`CREATE INDEX IF NOT EXISTS idx_sync_jobs_org         ON sync_jobs(organisation_id)`;
-  await sql`CREATE INDEX IF NOT EXISTS idx_snapshots_org_date    ON data_snapshots(organisation_id, snapshot_date)`;
-  await sql`CREATE INDEX IF NOT EXISTS idx_email_tokens_token    ON email_tokens(token)`;
-  await sql`CREATE INDEX IF NOT EXISTS idx_email_tokens_user     ON email_tokens(user_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_uploaded_files_org         ON uploaded_files(organisation_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_waste_records_org          ON waste_records(organisation_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_waste_records_file         ON waste_records(uploaded_file_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_fleet_metrics_org          ON fleet_metrics(organisation_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_fleet_metrics_file         ON fleet_metrics(uploaded_file_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_service_requests_org       ON service_requests(organisation_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_reports_org                ON reports(organisation_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_import_mappings_org        ON import_mappings(organisation_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_kpi_rules_org              ON kpi_rules(organisation_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_audit_logs_org             ON audit_logs(organisation_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_audit_logs_user            ON audit_logs(user_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_integrations_org           ON integrations(organisation_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_sync_jobs_integration      ON sync_jobs(integration_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_sync_jobs_org              ON sync_jobs(organisation_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_snapshots_org_date         ON data_snapshots(organisation_id, snapshot_date)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_email_tokens_token         ON email_tokens(token)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_email_tokens_user          ON email_tokens(user_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_org_modules_org            ON organisation_modules(organisation_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_metric_snapshots_org       ON metric_snapshots(organisation_id, module_key)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_metric_snapshots_metric    ON metric_snapshots(metric_key)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_metric_snapshots_period    ON metric_snapshots(period_start, period_end)`;
 
   return NextResponse.json({ success: true, message: 'Migration complete.' });
 }
