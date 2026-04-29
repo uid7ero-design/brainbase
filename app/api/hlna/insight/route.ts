@@ -140,6 +140,7 @@ async function generateInsight(snapshot: string, dashboardType: string): Promise
   anomaly: string | null;
   recommendation: string;
   confidence: 'High' | 'Medium' | 'Low';
+  rowsAnalysed: number;
 }> {
   const contextLabels: Record<string, string> = {
     waste:            'waste management operations',
@@ -171,7 +172,8 @@ Return exactly this JSON structure:
   "trendPositive": boolean (true if the trend direction is positive/good, considering ${trendGoodDir[dashboardType] ?? 'lower is better'}),
   "anomaly": "Single sentence describing the most significant outlier or risk, or null if none",
   "recommendation": "One actionable recommendation for the council executive",
-  "confidence": "High" | "Medium" | "Low" (based on data completeness)
+  "confidence": "High" | "Medium" | "Low" (based on data completeness),
+  "rowsAnalysed": number (estimate of the number of data records this insight is based on — extract from the snapshot numbers if available, otherwise 0)
 }`,
     }],
   });

@@ -54,6 +54,7 @@ export default function BrainBase() {
     activeModule, setActiveModule,
     enabledModules, setEnabledModules,
     orbAlert,
+    viewMode,     setViewMode,
   } = useAppStore();
 
   // ── Load enabled modules on mount ───────────────────────────────────
@@ -267,6 +268,25 @@ export default function BrainBase() {
             </select>
           </div>
         )}
+
+        {/* Centre-right — Executive / Operational toggle */}
+        <div style={{ display: "flex", alignItems: "center", gap: 1, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8, padding: 2, flexShrink: 0 }}>
+          {['executive', 'operational'].map(mode => (
+            <button
+              key={mode}
+              onClick={() => setViewMode(mode)}
+              style={{
+                padding: "3px 10px", borderRadius: 6, fontSize: 10, fontWeight: 700,
+                letterSpacing: "0.05em", cursor: "pointer", border: "none",
+                background: viewMode === mode ? "rgba(124,58,237,0.28)" : "transparent",
+                color: viewMode === mode ? "#C4B5FD" : "rgba(255,255,255,0.30)",
+                transition: "all 0.18s", textTransform: "capitalize", fontFamily: FONT,
+              }}
+            >
+              {mode === 'executive' ? '◈ Exec' : '⚙ Ops'}
+            </button>
+          ))}
+        </div>
 
         {/* Right — HLNA status + graph toggle + profile */}
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>

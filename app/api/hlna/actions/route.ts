@@ -9,6 +9,8 @@ type RankedAction = {
   rank: number;
   title: string;
   impact: 'high' | 'medium' | 'low';
+  urgency: 'high' | 'medium' | 'low';
+  effort: 'high' | 'medium' | 'low';
   detail: string;
 };
 
@@ -92,16 +94,23 @@ Data:
 ${moduleContext || 'No detailed data available. Use general best practices.'}
 ${context ? `\nAdditional context: ${context}` : ''}
 
+Score each action on 3 dimensions:
+- impact: business impact if action is taken (high = major cost/risk reduction, medium = moderate improvement, low = minor)
+- urgency: how time-sensitive (high = act today, medium = this week, low = this month)
+- effort: resource required (high = major intervention, medium = moderate work, low = quick fix)
+
+Rank actions by: (impact × urgency) / effort — highest-priority quick wins first, then high-impact medium-effort, then strategic.
+
 Return valid JSON only:
 {
   "actions": [
-    {"rank": 1, "title": "Short action title (max 10 words)", "impact": "high", "detail": "One sentence: what to do and why"},
-    {"rank": 2, "title": "...", "impact": "medium", "detail": "..."},
-    {"rank": 3, "title": "...", "impact": "low", "detail": "..."}
+    {"rank": 1, "title": "Short action title (max 10 words)", "impact": "high", "urgency": "high", "effort": "low", "detail": "One sentence: what specifically to do, naming locations/assets where relevant, and why."},
+    {"rank": 2, "title": "...", "impact": "high", "urgency": "medium", "effort": "medium", "detail": "..."},
+    {"rank": 3, "title": "...", "impact": "medium", "urgency": "low", "effort": "low", "detail": "..."}
   ]
 }
 
-Rules: Be specific. Use real location/vehicle names from the data where available. Rank by operational impact. Plain language.`,
+Rules: Be specific. Use real suburb/vehicle/asset names from the data where available. Plain language. No jargon.`,
       }],
     });
 

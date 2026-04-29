@@ -111,7 +111,7 @@ export async function POST() {
   try {
     const resp = await anthropic.messages.create({
       model: 'claude-haiku-4-5-20251001',
-      max_tokens: 350,
+      max_tokens: 500,
       messages: [{
         role: 'user',
         content: `You are an executive briefing system for a local government council operations platform.
@@ -119,14 +119,19 @@ export async function POST() {
 Data snapshot:
 ${snapshots.join('\n')}
 
-Generate a concise executive briefing. Return valid JSON only (no markdown):
+Generate a structured executive briefing. EVERY briefing must follow this exact 4-part structure. Return valid JSON only (no markdown):
 {
-  "lines": ["3-4 plain-English insight lines. Each under 15 words. Be specific with numbers. Focus on what changed or what needs attention."],
-  "urgentCount": number (0-5, how many items need immediate attention based on thresholds breached or high-priority items),
-  "summary": "one sentence executive summary"
+  "lines": [
+    "WHAT CHANGED: [one sentence — the single most significant metric movement or status change. Be specific with numbers and direction.]",
+    "WHY: [one sentence — the most likely cause or driver of that change.]",
+    "RISK: [one sentence — what happens if nothing is done. Name the business consequence.]",
+    "ACTION: [one sentence — the single most important action to take right now. Be specific — name a location, vehicle, or team if relevant.]"
+  ],
+  "urgentCount": number (0-5, count items where a threshold is breached or high-priority work is overdue),
+  "summary": "one sentence plain-English executive summary of the overall operations status"
 }
 
-Rules: plain business language. No jargon. Lead with the most important finding. If a metric exceeds its target threshold, flag it.`,
+Rules: plain business language. No jargon. No hedging. Each line must be under 20 words. Use actual numbers from the data.`,
       }],
     });
 

@@ -11,6 +11,7 @@ type Insight = {
   anomaly: string | null;
   recommendation: string;
   confidence: 'High' | 'Medium' | 'Low';
+  rowsAnalysed?: number;
   hasData: boolean;
   timestamp: string;
 };
@@ -177,6 +178,11 @@ export function HlnaInsightBanner({ dashboardType }: { dashboardType: string }) 
         <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.26)', letterSpacing: '0.04em' }}>
           Range: <span style={{ color: 'rgba(255,255,255,0.40)' }}>{timeRange}</span>
         </span>
+        {insight.rowsAnalysed != null && insight.rowsAnalysed > 0 && (
+          <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.26)', letterSpacing: '0.04em' }}>
+            Rows: <span style={{ color: 'rgba(255,255,255,0.40)' }}>{insight.rowsAnalysed.toLocaleString()}</span>
+          </span>
+        )}
         <span style={{ fontSize: 9, letterSpacing: '0.04em' }}>
           Confidence: <span style={{ color: CONF_COLOR[insight.confidence], fontWeight: 700 }}>{insight.confidence}</span>
         </span>

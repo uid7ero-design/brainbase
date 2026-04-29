@@ -227,6 +227,7 @@ export function useHelena() {
                              || dashboardContextRef.current
                              || (typeof window !== 'undefined' ? getContextForPath(window.location.pathname) : ''),
           moduleKey:        useAppStore.getState().activeModule || undefined,
+          viewMode:         useAppStore.getState().viewMode || 'executive',
         }),
       });
       const data = await res.json();

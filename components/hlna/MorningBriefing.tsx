@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAppStore } from '@/lib/state/useAppStore';
 
 const FONT = "var(--font-inter), -apple-system, sans-serif";
@@ -19,7 +19,15 @@ type RankedAction = {
   rank: number;
   title: string;
   impact: 'high' | 'medium' | 'low';
+  urgency: 'high' | 'medium' | 'low';
+  effort: 'high' | 'medium' | 'low';
   detail: string;
+};
+
+type WhatChanged = {
+  bullets: string[];
+  summary: string;
+  hasData: boolean;
 };
 
 const IMPACT_COLOR = { high: '#F87171', medium: '#FBBF24', low: '#34D399' };
@@ -45,12 +53,16 @@ function Shimmer() {
 export function MorningBriefing() {
   const [briefing, setBriefing]   = useState<Briefing | null>(null);
   const [actions,  setActions]    = useState<RankedAction[]>([]);
+  const [changed,  setChanged]    = useState<WhatChanged | null>(null);
   const [loading,  setLoading]    = useState(true);
   const [loadingAct, setLoadingAct] = useState(false);
+  const [loadingChg, setLoadingChg] = useState(false);
   const [showAct,  setShowAct]    = useState(false);
+  const [showChg,  setShowChg]    = useState(false);
   const [elapsed,  setElapsed]    = useState('');
+  const lastUploadRef = useRef<string | null>(null);
 
-  const { fireHelena, setChatOpen, activeModule } = useAppStore();
+  const { fireHelena, setChatOpen, activeModule, lastUpload } = useAppStore();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -63,6 +75,14 @@ export function MorningBriefing() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  // Auto-refresh briefing after a new upload
+  useEffect(() => {
+    if (!lastUpload) return;
+    if (lastUpload === lastUploadRef.current) return;
+    lastUploadRef.current = lastUpload;
+    load();
+  }, [lastUpload, load]);
 
   // Relative timestamp
   useEffect(() => {
@@ -91,6 +111,17 @@ export function MorningBriefing() {
       setActions(data.actions ?? []);
     } catch { /* silent */ }
     finally  { setLoadingAct(false); }
+  }
+
+  async function loadChanges() {
+    setLoadingChg(true);
+    setShowChg(true);
+    try {
+      const res  = await fetch('/api/hlna/whatchanged', { method: 'POST' });
+      const data = await res.json() as WhatChanged;
+      setChanged(data);
+    } catch { /* silent */ }
+    finally  { setLoadingChg(false); }
   }
 
   function askHlna(q: string) {
@@ -149,6 +180,34 @@ export function MorningBriefing() {
         ))}
       </div>
 
+      {/* What Changed section */}
+      {showChg && (
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.10em', color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', marginBottom: 8 }}>
+            What Changed
+          </div>
+          {loadingChg ? (
+            <div style={{ height: 11, width: '50%', borderRadius: 4, background: 'rgba(255,255,255,0.05)' }} />
+          ) : changed?.hasData ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+              {changed.bullets.map((b, i) => {
+                const dir = b.startsWith('UP') ? 'up' : b.startsWith('DOWN') ? 'down' : 'stable';
+                const arrow = dir === 'up' ? '↑' : dir === 'down' ? '↓' : '→';
+                const color = dir === 'up' ? '#F87171' : dir === 'down' ? '#34D399' : '#9CA3AF';
+                return (
+                  <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                    <span style={{ fontSize: 11, color, flexShrink: 0, paddingTop: 1, fontWeight: 700 }}>{arrow}</span>
+                    <span style={{ fontSize: 11, color: 'rgba(230,237,243,0.70)', lineHeight: 1.4 }}>{b.replace(/^(UP|DOWN|STABLE)[:\s]*/i, '')}</span>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.30)' }}>Not enough data to compare periods yet.</span>
+          )}
+        </div>
+      )}
+
       {/* Actions section */}
       {showAct && (
         <div style={{ marginBottom: 12 }}>
@@ -174,13 +233,14 @@ export function MorningBriefing() {
                     {a.rank}
                   </span>
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: 'rgba(245,247,250,0.90)', marginBottom: 2 }}>{a.title}</div>
-                    <div style={{ fontSize: 11, color: 'rgba(230,237,243,0.55)', lineHeight: 1.4 }}>{a.detail}</div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: 'rgba(245,247,250,0.90)', marginBottom: 3 }}>{a.title}</div>
+                    <div style={{ fontSize: 11, color: 'rgba(230,237,243,0.55)', lineHeight: 1.4, marginBottom: 5 }}>{a.detail}</div>
+                    <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', padding: '1px 6px', borderRadius: 4, background: IMPACT_BG[a.impact], color: IMPACT_COLOR[a.impact], border: `1px solid ${IMPACT_BORDER[a.impact]}` }}>↑ {a.impact} impact</span>
+                      {a.urgency && <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', padding: '1px 6px', borderRadius: 4, background: 'rgba(56,189,248,0.08)', color: '#38BDF8', border: '1px solid rgba(56,189,248,0.20)' }}>⚡ {a.urgency} urgency</span>}
+                      {a.effort && <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', padding: '1px 6px', borderRadius: 4, background: 'rgba(255,255,255,0.04)', color: 'rgba(255,255,255,0.35)', border: '1px solid rgba(255,255,255,0.10)' }}>⚙ {a.effort} effort</span>}
+                    </div>
                   </div>
-                  <span style={{
-                    fontSize: 8, fontWeight: 800, letterSpacing: '0.07em', textTransform: 'uppercase',
-                    color: IMPACT_COLOR[a.impact], flexShrink: 0, paddingTop: 2,
-                  }}>{a.impact}</span>
                 </div>
               ))}
             </div>
@@ -201,6 +261,19 @@ export function MorningBriefing() {
             }}
           >
             What should I do?
+          </button>
+        )}
+        {!showChg && (
+          <button
+            onClick={loadChanges}
+            style={{
+              padding: '5px 13px', borderRadius: 7, fontSize: 10, fontWeight: 700,
+              background: 'rgba(56,189,248,0.08)', border: '1px solid rgba(56,189,248,0.22)',
+              color: '#7DD3FC', cursor: 'pointer', letterSpacing: '0.05em', transition: 'all 0.2s',
+              fontFamily: FONT,
+            }}
+          >
+            What changed?
           </button>
         )}
         <button

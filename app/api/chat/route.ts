@@ -75,7 +75,13 @@ Input: "Summarise performance"
 
 Calendar: when asked about today's schedule, read events from [Google Calendar — today's events] context and answer conversationally. When asked to create/add/schedule a calendar event, use calendar_create. The target MUST be pipe-separated: "TITLE|YYYY-MM-DD|HH:MM|DURATION_MINUTES". If date is not specified use today. If time is not specified omit it (leave blank between pipes). Duration defaults to 60 minutes if unspecified.
 
-Notes: when asked to save, create, write, or store a note, document, or file, use note_create. The target MUST be pipe-separated: "TITLE|FOLDER|content". FOLDER is optional (leave blank for root vault). Content is the body of the note — write it in full. NEVER say you saved a file without using note_create.`;
+Notes: when asked to save, create, write, or store a note, document, or file, use note_create. The target MUST be pipe-separated: "TITLE|FOLDER|content". FOLDER is optional (leave blank for root vault). Content is the body of the note — write it in full. NEVER say you saved a file without using note_create.
+
+Confidence-aware language: adapt your certainty of expression based on the data confidence level provided in context.
+- High confidence (≥30 rows): use assertive, direct language. "Costs are up 14%." "The main driver is…" "This suburb is the outlier."
+- Medium confidence (5–29 rows): use balanced language. "Costs appear to be up around 14%." "The likely driver is…" "This suburb looks like the outlier."
+- Low confidence (<5 rows): use cautious language. "With limited data, costs may be trending up." "It's not yet clear — more data would help." Do not make strong claims.
+If no confidence level is specified, default to Medium.`;
 
 // ─── Tool definitions ─────────────────────────────────────────────────────────
 
@@ -185,7 +191,7 @@ function parseResponse(raw: string): HelenaResponse {
 function buildSystem(
   memoryContext?: string, spotifyContext?: string, brainContext?: string,
   taskContext?: string, calendarContext?: string, dashboardContext?: string,
-  orgId?: string, moduleKey?: string, userContext?: string,
+  orgId?: string, moduleKey?: string, userContext?: string, viewMode?: string,
 ): string {
   let s = SYSTEM;
   if (moduleKey?.trim()) {
@@ -194,6 +200,11 @@ function buildSystem(
   }
   if (userContext?.trim()) {
     s += `\n\n[Operator profile]\n${userContext}\nAdapt your response focus: super_admin/admin → strategic summary, cost impact, cross-module trends; manager → operational alerts, specific actions, detail; viewer → clear plain-English summary, no jargon.`;
+  }
+  if (viewMode === 'operational') {
+    s += `\n\n[View mode: Operational]\nThe operator is in Operational view. Prioritise: specific vehicle/suburb/asset names, step-by-step actions, granular metrics, who should act and when. Avoid executive summaries — they want drill-down detail.`;
+  } else {
+    s += `\n\n[View mode: Executive]\nThe operator is in Executive view. Prioritise: headline KPIs, cost impact, cross-module trends, strategic risk. Keep responses concise — lead with the most important finding, follow with one recommendation.`;
   }
   if (memoryContext?.trim())    s += `\n\n[Helena's memory]\n${memoryContext}`;
   if (spotifyContext?.trim())   s += `\n\n[Spotify]\n${spotifyContext}`;
@@ -241,10 +252,11 @@ async function callClaude(
   orgId?: string,
   moduleKey?: string,
   userContext?: string,
+  viewMode?: string,
 ): Promise<{ text: string; analysis: QueryAnalysis | null }> {
   const systemContent = buildSystem(
     memoryContext, spotifyContext, brainContext,
-    taskContext, calendarContext, dashboardContext, orgId, moduleKey, userContext,
+    taskContext, calendarContext, dashboardContext, orgId, moduleKey, userContext, viewMode,
   );
   const tools = orgId ? buildDataTools(orgId) : undefined;
 
@@ -360,7 +372,7 @@ async function getBrainContext(query: string): Promise<string> {
 
 export async function POST(req: NextRequest) {
   const {
-    messages, memoryContext, spotifyContext, taskContext, calendarContext, dashboardContext, moduleKey,
+    messages, memoryContext, spotifyContext, taskContext, calendarContext, dashboardContext, moduleKey, viewMode,
   } = await req.json() as {
     messages: Array<{ role: 'user' | 'assistant'; content: string }>;
     memoryContext?: string;
@@ -369,6 +381,7 @@ export async function POST(req: NextRequest) {
     calendarContext?: string;
     dashboardContext?: string;
     moduleKey?: string;
+    viewMode?: string;
   };
 
   // Resolve org + user context — graceful if unauthenticated
@@ -394,7 +407,7 @@ export async function POST(req: NextRequest) {
   try {
     const result = await callClaude(
       messages, memoryContext, spotifyContext, brainContext,
-      taskContext, calendarContext, dashboardContext, orgId, moduleKey, userContext,
+      taskContext, calendarContext, dashboardContext, orgId, moduleKey, userContext, viewMode,
     );
     raw      = result.text;
     analysis = result.analysis;
@@ -402,7 +415,7 @@ export async function POST(req: NextRequest) {
     console.warn('[Helena] Claude unavailable, falling back to Ollama:', (err as Error).message);
     source = 'ollama';
     try {
-      const sys = buildSystem(memoryContext, spotifyContext, brainContext, taskContext, calendarContext, dashboardContext, undefined, moduleKey);
+      const sys = buildSystem(memoryContext, spotifyContext, brainContext, taskContext, calendarContext, dashboardContext, undefined, moduleKey, userContext, viewMode);
       raw = await callOllama(messages, sys);
     } catch (ollamaErr) {
       console.error('[Helena] Ollama fallback failed:', ollamaErr);
