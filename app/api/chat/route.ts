@@ -185,12 +185,15 @@ function parseResponse(raw: string): HelenaResponse {
 function buildSystem(
   memoryContext?: string, spotifyContext?: string, brainContext?: string,
   taskContext?: string, calendarContext?: string, dashboardContext?: string,
-  orgId?: string, moduleKey?: string,
+  orgId?: string, moduleKey?: string, userContext?: string,
 ): string {
   let s = SYSTEM;
   if (moduleKey?.trim()) {
     const ctx = buildModuleContext(moduleKey);
     if (ctx) s += `\n\n${ctx}`;
+  }
+  if (userContext?.trim()) {
+    s += `\n\n[Operator profile]\n${userContext}\nAdapt your response focus: super_admin/admin → strategic summary, cost impact, cross-module trends; manager → operational alerts, specific actions, detail; viewer → clear plain-English summary, no jargon.`;
   }
   if (memoryContext?.trim())    s += `\n\n[Helena's memory]\n${memoryContext}`;
   if (spotifyContext?.trim())   s += `\n\n[Spotify]\n${spotifyContext}`;
@@ -237,10 +240,11 @@ async function callClaude(
   dashboardContext?: string,
   orgId?: string,
   moduleKey?: string,
+  userContext?: string,
 ): Promise<{ text: string; analysis: QueryAnalysis | null }> {
   const systemContent = buildSystem(
     memoryContext, spotifyContext, brainContext,
-    taskContext, calendarContext, dashboardContext, orgId, moduleKey,
+    taskContext, calendarContext, dashboardContext, orgId, moduleKey, userContext,
   );
   const tools = orgId ? buildDataTools(orgId) : undefined;
 
@@ -367,11 +371,13 @@ export async function POST(req: NextRequest) {
     moduleKey?: string;
   };
 
-  // Resolve org for data queries — graceful if unauthenticated
+  // Resolve org + user context — graceful if unauthenticated
   let orgId: string | undefined;
+  let userContext: string | undefined;
   try {
     const session = await requireSession();
-    orgId = session.organisationId;
+    orgId       = session.organisationId;
+    userContext = `Role: ${session.role}, Name: ${session.name}`;
   } catch { /* not logged in — HLNA works without DB access */ }
 
   // Brain context — capped so it never blocks
@@ -388,7 +394,7 @@ export async function POST(req: NextRequest) {
   try {
     const result = await callClaude(
       messages, memoryContext, spotifyContext, brainContext,
-      taskContext, calendarContext, dashboardContext, orgId, moduleKey,
+      taskContext, calendarContext, dashboardContext, orgId, moduleKey, userContext,
     );
     raw      = result.text;
     analysis = result.analysis;

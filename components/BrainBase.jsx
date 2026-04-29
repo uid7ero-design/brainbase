@@ -2,7 +2,6 @@
 
 import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import { useHelena } from "../hooks/useHelena";
 import { resolveRoute } from "../lib/dashboard/registry";
 import { useSpotify } from "../hooks/useSpotify";
@@ -21,9 +20,20 @@ import { InboxPanel } from "./panels/InboxPanel";
 import { ContactsPanel } from "./panels/ContactsPanel";
 import { ChatPanel } from "./chat/ChatPanel";
 import { MicButton } from "./voice/MicButton";
+import { MorningBriefing } from "./hlna/MorningBriefing";
+import { SuggestedQuestions } from "./hlna/SuggestedQuestions";
 import { KEYFRAMES } from "../lib/utils/constants";
 
 const FONT = "var(--font-inter),-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif";
+
+const MODULE_COLORS = {
+  waste_recycling:   '#34D399',
+  fleet_management:  '#38BDF8',
+  service_requests:  '#FBBF24',
+  logistics_freight: '#F97316',
+  utilities:         '#818CF8',
+  construction:      '#FB7185',
+};
 
 export default function BrainBase() {
   const router   = useRouter();
@@ -35,13 +45,30 @@ export default function BrainBase() {
   const orbSpeechRef = useRef(null);
 
   const {
-    sidebarOpen, toggleSidebar,
-    panelOpen,   togglePanel,
-    chatOpen,    setChatOpen, toggleChat,
-    items,       latestId,
-    cards,       addCard,    removeCard,
-    llmSource,   toggleBrainGraph,
+    sidebarOpen,  toggleSidebar,
+    panelOpen,    togglePanel,
+    chatOpen,     setChatOpen, toggleChat,
+    items,        latestId,
+    cards,        addCard,    removeCard,
+    llmSource,    toggleBrainGraph,
+    activeModule, setActiveModule,
+    enabledModules, setEnabledModules,
+    orbAlert,
   } = useAppStore();
+
+  // ── Load enabled modules on mount ───────────────────────────────────
+  useEffect(() => {
+    fetch('/api/me')
+      .then(r => r.json())
+      .then(data => {
+        if (data.enabledModules?.length) {
+          setEnabledModules(data.enabledModules);
+          if (!activeModule) setActiveModule(data.enabledModules[0].key);
+        }
+      })
+      .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── Speech amplitude → orb glow sync ────────────────────────────────
   useEffect(() => {
@@ -151,7 +178,7 @@ export default function BrainBase() {
     let held = false;
     function onDown(e) {
       if (e.code !== 'Space' || held) return;
-      if (e.target.tagName.match(/INPUT|TEXTAREA/i)) return;
+      if (e.target.tagName.match(/INPUT|TEXTAREA|SELECT/i)) return;
       if (helena.conversational) return;
       e.preventDefault(); held = true; helena.startListening();
     }
@@ -165,15 +192,12 @@ export default function BrainBase() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [helena.conversational]);
 
-  const orbState = helena.orbPhase;
+  const orbState = orbAlert
+    ? 'alert'
+    : helena.orbPhase;
 
-  const STATUS = {
-    idle:      { label: 'HLNΛ READY',      color: 'rgba(230,237,243,.22)' },
-    listening: { label: 'HLNΛ LISTENING',  color: 'rgba(56,189,248,.90)'  },
-    thinking:  { label: 'HLNΛ THINKING',   color: 'rgba(167,139,250,.75)' },
-    responding:{ label: 'HLNΛ RESPONDING', color: 'rgba(167,139,250,.90)' },
-  };
-  const { label: statusLabel, color: statusColor } = STATUS[orbState] ?? STATUS.idle;
+  const activeModColor = activeModule ? (MODULE_COLORS[activeModule] ?? '#A78BFA') : '#A78BFA';
+  const activeModName  = enabledModules.find(m => m.key === activeModule)?.name ?? 'Select module';
 
   return (
     <div style={{
@@ -182,13 +206,13 @@ export default function BrainBase() {
       fontFamily: FONT, position: "relative", display: "flex", flexDirection: "column",
     }}>
 
-      {/* Vignette — dark edges draw focus to centre */}
+      {/* Vignette */}
       <div style={{
         position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none",
         background: "radial-gradient(ellipse 90% 90% at 50% 50%, transparent 38%, rgba(0,0,0,.55) 100%)",
       }} />
 
-      {/* Ambient backdrop glow — reacts to orb state */}
+      {/* Ambient glow */}
       <div style={{
         position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none",
         background: helena.listening
@@ -199,36 +223,56 @@ export default function BrainBase() {
         transition: "background 1.2s ease",
       }} />
 
-      {/* ── Header ─────────────────────────────────────────────────────── */}
+      {/* ── Header ──────────────────────────────────────────────────────── */}
       <header style={{
         height: 52, flexShrink: 0, zIndex: 30, position: "relative",
         display: "flex", alignItems: "center", justifyContent: "space-between",
-        padding: "0 20px",
+        padding: "0 16px",
         background: "rgba(6,5,12,.80)", backdropFilter: "blur(12px)",
         borderBottom: "1px solid rgba(255,255,255,.06)",
+        gap: 10,
       }}>
-        {/* Left — wordmark + sidebar toggle */}
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        {/* Left — wordmark */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
           <button
             onClick={toggleSidebar}
             style={{ background: "none", border: "none", cursor: "pointer", padding: 6, color: "rgba(255,255,255,.40)", lineHeight: 0 }}
-            aria-label="Toggle sidebar"
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
               <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
             </svg>
           </button>
-          <span style={{ fontSize: 14, fontWeight: 700, letterSpacing: ".04em", color: "#F5F7FA", userSelect: "none" }}>
+          <span style={{ fontSize: 14, fontWeight: 700, letterSpacing: ".04em", color: "#F5F7FA", userSelect: "none", whiteSpace: "nowrap" }}>
             BR<span style={{ color: "#A78BFA" }}>Λ</span>INBASE
           </span>
         </div>
 
-        {/* Right — status badge + command centre link */}
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          {/* HLNΛ Active badge */}
+        {/* Centre — module selector */}
+        {enabledModules.length > 0 && (
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <div style={{ width: 6, height: 6, borderRadius: "50%", background: activeModColor, boxShadow: `0 0 5px ${activeModColor}` }} />
+            <select
+              value={activeModule ?? ''}
+              onChange={e => setActiveModule(e.target.value)}
+              style={{
+                background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.10)",
+                borderRadius: 7, color: "#F5F7FA", fontSize: 12, fontWeight: 600,
+                padding: "4px 8px", cursor: "pointer", fontFamily: FONT,
+                outline: "none", letterSpacing: "-0.01em",
+              }}
+            >
+              {enabledModules.map(m => (
+                <option key={m.key} value={m.key} style={{ background: "#0D0D15" }}>{m.name}</option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        {/* Right — HLNA status + graph toggle + profile */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
           <div style={{
-            display: "flex", alignItems: "center", gap: 6,
-            padding: "4px 12px", borderRadius: 999,
+            display: "flex", alignItems: "center", gap: 5,
+            padding: "4px 10px", borderRadius: 999,
             background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.07)",
           }}>
             <div style={{
@@ -238,30 +282,41 @@ export default function BrainBase() {
               transition: "all .4s",
             }} />
             <span style={{
-              fontSize: 10, fontWeight: 600, letterSpacing: ".10em",
+              fontSize: 9, fontWeight: 600, letterSpacing: ".10em",
               color: helena.listening ? "#38BDF8" : helena.responding ? "#C4B5FD" : "rgba(255,255,255,.40)",
-              textTransform: "uppercase", transition: "color .4s",
+              textTransform: "uppercase",
             }}>
-              HLNΛ {helena.listening ? "LISTENING" : helena.responding ? "ACTIVE" : "ACTIVE"}
+              HLNΛ {helena.listening ? "LISTENING" : helena.responding ? "ACTIVE" : "READY"}
             </span>
           </div>
 
-          {/* Brain Graph toggle */}
           <button
             onClick={toggleBrainGraph}
+            title="Performance Graph"
             style={{
-              display: "flex", alignItems: "center", gap: 6,
-              padding: "6px 14px", borderRadius: 8, fontSize: 12, fontWeight: 600,
-              background: "rgba(139,92,246,.14)", border: "1px solid rgba(139,92,246,.30)",
-              color: "#C4B5FD", cursor: "pointer", letterSpacing: ".02em",
-              transition: "background .15s", fontFamily: FONT,
+              display: "flex", alignItems: "center", gap: 5,
+              padding: "5px 10px", borderRadius: 7, fontSize: 11, fontWeight: 600,
+              background: "rgba(139,92,246,.12)", border: "1px solid rgba(139,92,246,.28)",
+              color: "#C4B5FD", cursor: "pointer", fontFamily: FONT,
             }}
           >
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/><path d="M3 12c0 1.66 4.03 3 9 3s9-1.34 9-3"/>
+              <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
             </svg>
-            Brain Graph
+            Performance
           </button>
+
+          <a
+            href="/account/profile"
+            title="Profile"
+            style={{
+              width: 28, height: 28, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
+              background: "rgba(124,58,237,0.15)", border: "1px solid rgba(124,58,237,0.28)",
+              color: "#C4B5FD", textDecoration: "none", fontSize: 11, fontWeight: 700,
+            }}
+          >
+            ◎
+          </a>
         </div>
       </header>
 
@@ -269,57 +324,67 @@ export default function BrainBase() {
       <div style={{ flex: 1, display: "flex", overflow: "hidden", position: "relative", zIndex: 10 }}>
         <LeftSidebar open={sidebarOpen} onToggle={toggleSidebar} />
 
-        {/* Centre stage */}
-        <div style={{ flex: 1, position: "relative", overflow: "hidden", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
+        {/* ── Command Hub centre ─────────────────────────────────────────── */}
+        <div style={{ flex: 1, position: "relative", overflow: "hidden", display: "flex", flexDirection: "column" }}>
 
-          {/* Floating response cards — bottom-left */}
-          <div style={{ position: "absolute", bottom: 110, left: 16, display: "flex", flexDirection: "column-reverse", gap: 8, zIndex: 20 }}>
-            {cards.slice(-2).map(c => <FloatingCard key={c.id} card={c} onDismiss={() => removeCard(c.id)} />)}
-          </div>
-
-          {/* Orb anchor — ambient ground-plane glow */}
+          {/* Scrollable command hub content */}
           <div style={{
-            position: "absolute",
-            width: 700, height: 700,
-            borderRadius: "50%",
-            background: "radial-gradient(circle, rgba(80,44,200,.12) 0%, rgba(55,30,160,.05) 42%, transparent 68%)",
-            pointerEvents: "none",
-            zIndex: 0,
-          }} />
+            flex: 1, overflowY: "auto", overflowX: "hidden",
+            display: "flex", flexDirection: "column", alignItems: "center",
+            padding: "20px 20px 140px",
+            scrollbarWidth: "none",
+          }}>
+            <div style={{ width: "100%", maxWidth: 620, display: "flex", flexDirection: "column", gap: 16 }}>
 
-          {/* Orb + identity */}
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 20, position: "relative", zIndex: 1 }}>
-            <HlnaOrb size={380} state={orbState} speechRef={orbSpeechRef} />
+              {/* Morning Briefing */}
+              <MorningBriefing />
 
-            {/* Identity block */}
-            <div style={{ textAlign: "center", pointerEvents: "none", display: "flex", flexDirection: "column", alignItems: "center", gap: 5 }}>
-              {/* Primary — HLNΛ */}
-              <div style={{
-                fontSize: 15, fontWeight: 700, letterSpacing: ".24em",
-                color: "#F5F7FA", textTransform: "uppercase",
-              }}>
-                HLN<span style={{ color: "#A78BFA" }}>Λ</span>
+              {/* Orb + Identity */}
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10, paddingTop: 4 }}>
+                {/* Ground glow */}
+                <div style={{
+                  position: "relative", display: "flex", flexDirection: "column", alignItems: "center",
+                }}>
+                  <div style={{
+                    position: "absolute", width: 280, height: 280, borderRadius: "50%",
+                    background: "radial-gradient(circle, rgba(80,44,200,.10) 0%, transparent 70%)",
+                    pointerEvents: "none",
+                  }} />
+                  <HlnaOrb size={160} state={orbState} speechRef={orbSpeechRef} />
+                </div>
+
+                {/* Identity */}
+                <div style={{ textAlign: "center", pointerEvents: "none" }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, letterSpacing: ".24em", color: "#F5F7FA", textTransform: "uppercase" }}>
+                    HLN<span style={{ color: "#A78BFA" }}>Λ</span>
+                  </div>
+                  <div style={{ fontSize: 8, fontWeight: 400, letterSpacing: ".14em", color: "rgba(230,237,243,.18)", textTransform: "uppercase", marginTop: 2 }}>
+                    Operations Intelligence
+                  </div>
+                  {activeModule && (
+                    <div style={{ fontSize: 8, fontWeight: 600, letterSpacing: ".12em", color: activeModColor, textTransform: "uppercase", marginTop: 3, opacity: 0.8 }}>
+                      {activeModName}
+                    </div>
+                  )}
+                </div>
               </div>
-              {/* Secondary — subtitle */}
-              <div style={{
-                fontSize: 8.5, fontWeight: 400, letterSpacing: ".15em",
-                color: "rgba(230,237,243,.18)", textTransform: "uppercase",
-              }}>
-                Hyper Learning Neural Agent
-              </div>
-              {/* Tertiary — state */}
-              <div style={{
-                fontSize: 7.5, fontWeight: 500, letterSpacing: ".26em",
-                color: statusColor, textTransform: "uppercase",
-                transition: "color .6s", marginTop: 1,
-                opacity: helena.listening || helena.responding ? 1 : 0.5,
-              }}>
-                {statusLabel}
-              </div>
+
+              {/* Suggested questions */}
+              <SuggestedQuestions />
+
             </div>
           </div>
 
-          {/* Transcript overlay — above mic bar */}
+          {/* Floating response cards — bottom-left absolute */}
+          <div style={{ position: "absolute", bottom: 100, left: 16, display: "flex", flexDirection: "column-reverse", gap: 8, zIndex: 20, pointerEvents: "none" }}>
+            {cards.slice(-2).map(c => (
+              <div key={c.id} style={{ pointerEvents: "auto" }}>
+                <FloatingCard card={c} onDismiss={() => removeCard(c.id)} />
+              </div>
+            ))}
+          </div>
+
+          {/* Transcript overlay */}
           {helena.transcript && (
             <div style={{
               position: "absolute", bottom: 168, left: "50%", transform: "translateX(-50%)",
@@ -330,7 +395,7 @@ export default function BrainBase() {
                 background: "rgba(6,5,12,.80)", border: "1px solid rgba(255,255,255,.08)",
                 backdropFilter: "blur(12px)",
               }}>
-                <span style={{ fontSize: 11, color: "rgba(230,237,243,.65)", fontStyle: "italic", letterSpacing: ".01em" }}>
+                <span style={{ fontSize: 11, color: "rgba(230,237,243,.65)", fontStyle: "italic" }}>
                   {helena.transcript}
                 </span>
               </div>
@@ -361,7 +426,7 @@ export default function BrainBase() {
       <ContactsPanel />
 
       {/* ── Mic bar ─────────────────────────────────────────────────────── */}
-      <MicButton helena={helena} chatOpen={chatOpen} onChatToggle={toggleChat} llmSource={llmSource} />
+      <MicButton helena={helena} chatOpen={chatOpen} onChatToggle={toggleChat} llmSource={llmSource} orbAlert={orbAlert} />
 
       <style>{KEYFRAMES}</style>
     </div>

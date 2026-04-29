@@ -100,6 +100,21 @@ export function HlnaInsightBanner({ dashboardType }: { dashboardType: string }) 
     service_requests: 'Service Requests',
   };
 
+  const sourceMap: Record<string, string> = {
+    waste:            'waste_records',
+    fleet:            'fleet_metrics',
+    service_requests: 'service_requests',
+  };
+
+  const rangeMap: Record<string, string> = {
+    waste:            'Full financial year',
+    fleet:            'Full financial year',
+    service_requests: 'All records',
+  };
+
+  const sourceTable = sourceMap[dashboardType] ?? dashboardType;
+  const timeRange   = rangeMap[dashboardType] ?? 'Historical data';
+
   function askAbout(q: string) {
     fireHelena(q);
     useAppStore.getState().setChatOpen(true);
@@ -124,9 +139,6 @@ export function HlnaInsightBanner({ dashboardType }: { dashboardType: string }) 
         <span style={{ flex: 1 }} />
         <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.22)', letterSpacing: '0.05em' }}>
           Updated {elapsed}
-        </span>
-        <span style={{ fontSize: 9, fontWeight: 700, color: CONF_COLOR[insight.confidence], letterSpacing: '0.07em' }}>
-          {insight.confidence} confidence
         </span>
         <button
           onClick={load}
@@ -156,6 +168,19 @@ export function HlnaInsightBanner({ dashboardType }: { dashboardType: string }) 
           <span style={{ fontSize: 11, color: 'rgba(253,224,120,0.90)', lineHeight: 1.4 }}>{insight.anomaly}</span>
         </div>
       )}
+
+      {/* Trust metadata */}
+      <div style={{ display: 'flex', gap: 12, marginBottom: 8, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.26)', letterSpacing: '0.04em' }}>
+          Source: <span style={{ color: 'rgba(255,255,255,0.40)' }}>{sourceTable}</span>
+        </span>
+        <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.26)', letterSpacing: '0.04em' }}>
+          Range: <span style={{ color: 'rgba(255,255,255,0.40)' }}>{timeRange}</span>
+        </span>
+        <span style={{ fontSize: 9, letterSpacing: '0.04em' }}>
+          Confidence: <span style={{ color: CONF_COLOR[insight.confidence], fontWeight: 700 }}>{insight.confidence}</span>
+        </span>
+      </div>
 
       {/* Recommendation row */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
