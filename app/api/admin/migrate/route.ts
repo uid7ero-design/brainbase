@@ -169,6 +169,51 @@ export async function POST() {
     )
   `;
 
+  // 11. integrations — connector config per org
+  await sql`
+    CREATE TABLE IF NOT EXISTS integrations (
+      id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      organisation_id  UUID NOT NULL REFERENCES organisations(id),
+      connector_id     TEXT NOT NULL,
+      name             TEXT NOT NULL,
+      config           JSONB NOT NULL DEFAULT '{}',
+      target_table     TEXT NOT NULL,
+      schedule         TEXT NOT NULL DEFAULT '0 2 * * *',
+      enabled          BOOLEAN NOT NULL DEFAULT true,
+      last_synced_at   TIMESTAMPTZ,
+      last_sync_status TEXT,
+      last_sync_count  INTEGER,
+      created_at       TIMESTAMPTZ DEFAULT NOW()
+    )
+  `;
+
+  // 12. sync_jobs — per-run log
+  await sql`
+    CREATE TABLE IF NOT EXISTS sync_jobs (
+      id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      integration_id   UUID NOT NULL REFERENCES integrations(id),
+      organisation_id  UUID NOT NULL REFERENCES organisations(id),
+      started_at       TIMESTAMPTZ DEFAULT NOW(),
+      completed_at     TIMESTAMPTZ,
+      status           TEXT NOT NULL DEFAULT 'running',
+      records_synced   INTEGER DEFAULT 0,
+      error_message    TEXT
+    )
+  `;
+
+  // 13. data_snapshots — daily aggregated metrics for trend analysis
+  await sql`
+    CREATE TABLE IF NOT EXISTS data_snapshots (
+      id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      organisation_id  UUID NOT NULL REFERENCES organisations(id),
+      snapshot_date    DATE NOT NULL DEFAULT CURRENT_DATE,
+      data_type        TEXT NOT NULL,
+      metrics          JSONB NOT NULL,
+      created_at       TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE (organisation_id, snapshot_date, data_type)
+    )
+  `;
+
   // Indexes for fast org-scoped lookups
   await sql`CREATE INDEX IF NOT EXISTS idx_uploaded_files_org    ON uploaded_files(organisation_id)`;
   await sql`CREATE INDEX IF NOT EXISTS idx_waste_records_org     ON waste_records(organisation_id)`;
@@ -181,6 +226,10 @@ export async function POST() {
   await sql`CREATE INDEX IF NOT EXISTS idx_kpi_rules_org         ON kpi_rules(organisation_id)`;
   await sql`CREATE INDEX IF NOT EXISTS idx_audit_logs_org        ON audit_logs(organisation_id)`;
   await sql`CREATE INDEX IF NOT EXISTS idx_audit_logs_user       ON audit_logs(user_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_integrations_org      ON integrations(organisation_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_sync_jobs_integration ON sync_jobs(integration_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_sync_jobs_org         ON sync_jobs(organisation_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_snapshots_org_date    ON data_snapshots(organisation_id, snapshot_date)`;
 
   return NextResponse.json({ success: true, message: 'Migration complete.' });
 }
