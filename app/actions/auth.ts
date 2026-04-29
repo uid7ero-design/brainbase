@@ -1,8 +1,10 @@
 'use server';
 import { redirect } from 'next/navigation';
+import { headers } from 'next/headers';
 import bcrypt from 'bcryptjs';
 import sql from '@/lib/db';
 import { createSession, deleteSession, type Role } from '@/lib/session';
+import { checkRateLimit, resetRateLimit } from '@/lib/rateLimit';
 
 export type LoginState = { error?: string } | undefined;
 
@@ -12,23 +14,26 @@ export async function login(prevState: LoginState, formData: FormData): Promise<
 
   if (!username || !password) return { error: 'Username and password required.' };
 
-  const rows = await sql`
-    SELECT * FROM users
-    WHERE username = ${username}
-    LIMIT 1
-  `;
+  // Rate limit: 10 attempts per 15 min per IP
+  const ip = ((await headers()).get('x-forwarded-for') ?? 'unknown').split(',')[0].trim();
+  if (!checkRateLimit(`login:${ip}`, 10, 15 * 60_000)) {
+    return { error: 'Too many login attempts. Please wait 15 minutes and try again.' };
+  }
+
+  const rows = await sql`SELECT * FROM users WHERE username = ${username} LIMIT 1`;
   const user = rows[0];
 
-  if (!user || !(await bcrypt.compare(password, user.password_hash))) {
+  if (!user || !(await bcrypt.compare(password, user.password_hash as string))) {
     return { error: 'Invalid username or password.' };
   }
 
   if (!user.organisation_id) {
-    return { error: 'Your account is not linked to an organisation. Contact your administrator.' };
+    return { error: 'Account not linked to an organisation. Contact your administrator.' };
   }
 
-  await createSession(user.id, user.organisation_id, user.role as Role, user.name);
-  redirect('/');
+  resetRateLimit(`login:${ip}`);
+  await createSession(user.id as string, user.organisation_id as string, user.role as Role, user.name as string);
+  redirect('/dashboard/overview');
 }
 
 export async function logout() {

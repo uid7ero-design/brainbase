@@ -173,6 +173,10 @@ export async function POST(req: NextRequest) {
     ? rawType as ServiceType
     : 'waste';
 
+  const MAX_BYTES = 10 * 1024 * 1024; // 10 MB
+  if (file.size > MAX_BYTES)
+    return NextResponse.json({ error: 'File exceeds 10 MB limit.' }, { status: 413 });
+
   const fileName = file.name;
   const ext = fileName.split('.').pop()?.toLowerCase() ?? '';
   if (!['xlsx', 'xls', 'csv'].includes(ext))

@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { decrypt } from '@/lib/session';
 
-const PUBLIC = ['/login'];
+const PUBLIC = ['/login', '/terms', '/privacy', '/'];
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
