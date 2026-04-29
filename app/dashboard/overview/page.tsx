@@ -61,6 +61,18 @@ export default async function OverviewPage() {
     `, []),
   ]);
 
+  // Most recent upload per service type (for the summary strip)
+  const recentUploads = await q(sql`
+    SELECT DISTINCT ON (service_type)
+      file_name, service_type, created_at,
+      (SELECT COUNT(*) FROM waste_records   wr WHERE wr.uploaded_file_id = f.id)::int  AS waste_count,
+      (SELECT COUNT(*) FROM fleet_metrics   fm WHERE fm.uploaded_file_id = f.id)::int  AS fleet_count,
+      (SELECT COUNT(*) FROM service_requests sr WHERE sr.uploaded_file_id = f.id)::int AS sr_count
+    FROM uploaded_files f
+    WHERE organisation_id = ${oid} AND upload_status = 'complete'
+    ORDER BY service_type, created_at DESC
+  `, []);
+
   const fleetMonthlyCosts = await q(sql`
     SELECT
       month,
@@ -102,6 +114,20 @@ export default async function OverviewPage() {
   const wasteRow  = (waste  as Record<string,number>[])[0]  ?? {};
   const fleetRow  = (fleet  as Record<string,number>[])[0]  ?? {};
 
+  type UploadSummary = { fileName: string; serviceType: string; uploadedAt: string; recordCount: number };
+  const uploadSummary: UploadSummary[] = (recentUploads as Record<string,unknown>[]).map(r => {
+    const wasteCount = Number(r.waste_count ?? 0);
+    const fleetCount = Number(r.fleet_count ?? 0);
+    const srCount    = Number(r.sr_count    ?? 0);
+    const recordCount = wasteCount + fleetCount + srCount;
+    return {
+      fileName:    String(r.file_name    ?? ''),
+      serviceType: String(r.service_type ?? ''),
+      uploadedAt:  String(r.created_at   ?? ''),
+      recordCount,
+    };
+  }).filter(u => u.recordCount > 0);
+
   return (
     <OverviewClient
       waste={wasteRow}
@@ -109,6 +135,7 @@ export default async function OverviewPage() {
       serviceRequests={srByStatus as {status:string; count:number; avg_days:number}[]}
       trend={trend}
       alerts={alerts}
+      uploadSummary={uploadSummary}
     />
   );
 }

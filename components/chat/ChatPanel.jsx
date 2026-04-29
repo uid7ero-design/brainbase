@@ -4,6 +4,68 @@ import { CYAN } from "../../lib/utils/constants";
 
 const FONT = "var(--font-inter), -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
 
+const CONFIDENCE_COLOR = { High: '#34D399', Medium: '#FBBF24', Low: '#F87171' };
+
+function AnalysisCard({ analysis }) {
+  const { dataSources, rowsQueried, trend, anomaly, confidence, timestamp } = analysis;
+  const ts = new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  return (
+    <div style={{
+      maxWidth: "84%", borderRadius: 8, overflow: "hidden",
+      border: "1px solid rgba(56,189,248,0.18)",
+      background: "rgba(14,22,38,0.70)",
+      fontSize: 10, color: "rgba(255,255,255,0.60)",
+      marginTop: 2,
+    }}>
+      {/* header row */}
+      <div style={{
+        display: "flex", alignItems: "center", gap: 8,
+        padding: "5px 10px", borderBottom: "1px solid rgba(56,189,248,0.10)",
+        background: "rgba(56,189,248,0.05)",
+      }}>
+        <span style={{ color: "rgba(56,189,248,0.75)", fontWeight: 700, letterSpacing: "0.09em", fontSize: 8 }}>◈ ANALYSIS</span>
+        <span style={{ flex: 1 }} />
+        <span style={{ color: CONFIDENCE_COLOR[confidence], fontWeight: 700, letterSpacing: "0.06em", fontSize: 8 }}>
+          {confidence.toUpperCase()} CONFIDENCE
+        </span>
+        <span style={{ color: "rgba(255,255,255,0.20)", fontSize: 8 }}>{ts}</span>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 0 }}>
+        {/* data source */}
+        <div style={{ padding: "6px 10px", borderRight: "1px solid rgba(255,255,255,0.05)" }}>
+          <div style={{ color: "rgba(255,255,255,0.30)", letterSpacing: "0.07em", marginBottom: 2, fontSize: 8 }}>SOURCE</div>
+          <div style={{ color: "rgba(255,255,255,0.70)", lineHeight: 1.4 }}>
+            {dataSources.length ? dataSources.join(', ') : '—'}
+          </div>
+        </div>
+        {/* rows */}
+        <div style={{ padding: "6px 10px" }}>
+          <div style={{ color: "rgba(255,255,255,0.30)", letterSpacing: "0.07em", marginBottom: 2, fontSize: 8 }}>ROWS ANALYSED</div>
+          <div style={{ color: "rgba(255,255,255,0.70)" }}>{rowsQueried.toLocaleString()}</div>
+        </div>
+      </div>
+
+      {(trend || anomaly) && (
+        <div style={{ borderTop: "1px solid rgba(255,255,255,0.05)" }}>
+          {trend && (
+            <div style={{ padding: "6px 10px", display: "flex", gap: 6, alignItems: "flex-start", borderBottom: anomaly ? "1px solid rgba(255,255,255,0.05)" : undefined }}>
+              <span style={{ color: "#34D399", fontWeight: 700, fontSize: 8, letterSpacing: "0.07em", flexShrink: 0, paddingTop: 1 }}>TREND</span>
+              <span style={{ color: "rgba(255,255,255,0.65)", lineHeight: 1.4 }}>{trend}</span>
+            </div>
+          )}
+          {anomaly && (
+            <div style={{ padding: "6px 10px", display: "flex", gap: 6, alignItems: "flex-start" }}>
+              <span style={{ color: "#FBBF24", fontWeight: 700, fontSize: 8, letterSpacing: "0.07em", flexShrink: 0, paddingTop: 1 }}>ANOMALY</span>
+              <span style={{ color: "rgba(255,255,255,0.65)", lineHeight: 1.4 }}>{anomaly}</span>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function ChatPanel({ messages, responding, transcript, onSend, onClose }) {
   const [input, setInput] = useState('');
   const bottomRef = useRef(null);
@@ -111,6 +173,7 @@ export function ChatPanel({ messages, responding, transcript, onSend, onClose })
             }}>
               {m.content}
             </div>
+            {m.meta?.analysis && <AnalysisCard analysis={m.meta.analysis} />}
           </div>
         ))}
 

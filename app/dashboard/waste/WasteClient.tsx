@@ -8,7 +8,7 @@ import DashboardShell, {
   type KPI, type MonthlyPoint, type CostAccount, type InsightCard,
   type RecommendedAction,
 } from '@/components/dashboard/DashboardShell';
-import type { ZoneRow, MonthlyRow, MonthlyByTypeRow, ContaminationRow, UploadMeta } from './page';
+import type { ZoneRow, MonthlyRow, MonthlyByTypeRow, ContaminationRow, UploadMeta, KpiRule } from './page';
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
@@ -22,6 +22,7 @@ export type WasteClientProps = {
   composition: { name: string; value: number }[];
   serviceTypes: string[];
   financialYears: string[];
+  kpiRules?: KpiRule[];
 };
 
 // ─── Colours ──────────────────────────────────────────────────────────────────
@@ -101,13 +102,41 @@ function DemoBanner() {
   );
 }
 
+// ─── KPI rule evaluator ───────────────────────────────────────────────────────
+
+function evalMetric(metricBase: string, value: number, rules: KpiRule[]): 'critical' | 'warning' | null {
+  const relevant = rules.filter(r => r.metric.startsWith(metricBase + '.'));
+  let result: 'critical' | 'warning' | null = null;
+  for (const rule of relevant) {
+    const breached =
+      (rule.operator === 'gt'  && value >  rule.threshold) ||
+      (rule.operator === 'gte' && value >= rule.threshold) ||
+      (rule.operator === 'lt'  && value <  rule.threshold) ||
+      (rule.operator === 'lte' && value <= rule.threshold);
+    if (breached) {
+      if (rule.severity === 'critical') return 'critical';
+      result = 'warning';
+    }
+  }
+  return result;
+}
+
 // ─── KPI card ─────────────────────────────────────────────────────────────────
 
-function KpiCard({ label, value, sub, accent }: { label: string; value: string; sub: string; accent: string }) {
+function KpiCard({ label, value, sub, accent, breach }: { label: string; value: string; sub: string; accent: string; breach?: 'warning' | 'critical' | null }) {
+  const BREACH_COLORS = { warning: '#f59e0b', critical: '#ef4444' };
+  const bc = breach ? BREACH_COLORS[breach] : null;
   return (
-    <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 16, padding: 20, borderLeft: `3px solid ${accent}` }}>
-      <p style={{ fontSize: 10, color: T3, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.06em', margin: '0 0 8px' }}>{label}</p>
-      <p style={{ fontSize: 24, fontWeight: 700, color: T1, margin: '0 0 4px', lineHeight: 1 }}>{value}</p>
+    <div style={{ background: 'rgba(255,255,255,0.03)', border: `1px solid ${bc ? bc + '40' : 'rgba(255,255,255,0.07)'}`, borderRadius: 16, padding: 20, borderLeft: `3px solid ${bc ?? accent}`, position: 'relative' }}>
+      <p style={{ fontSize: 10, color: T3, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.06em', margin: '0 0 8px', display: 'flex', alignItems: 'center', gap: 6 }}>
+        {label}
+        {bc && (
+          <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: '.06em', background: bc + '22', color: bc, border: `1px solid ${bc}44`, borderRadius: 4, padding: '1px 5px', textTransform: 'uppercase' }}>
+            {breach === 'critical' ? 'CRITICAL' : 'WARNING'}
+          </span>
+        )}
+      </p>
+      <p style={{ fontSize: 24, fontWeight: 700, color: bc ?? T1, margin: '0 0 4px', lineHeight: 1 }}>{value}</p>
       <p style={{ fontSize: 11, color: T3, margin: 0 }}>{sub}</p>
     </div>
   );
@@ -141,7 +170,7 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 export default function WasteClient({
-  isDemo, uploadMeta, zones, monthly, monthlyByType, contamination, composition, serviceTypes,
+  isDemo, uploadMeta, zones, monthly, monthlyByType, contamination, composition, serviceTypes, kpiRules = [],
 }: WasteClientProps) {
 
   // ─── Aggregates ─────────────────────────────────────────────────────────────
@@ -165,12 +194,25 @@ export default function WasteClient({
   const peakPct   = Math.round(((peakZone.total_cost - avgTotal) / avgTotal) * 100);
   const contamTop = contamination[0];
 
+  // ─── KPI rule evaluation ────────────────────────────────────────────────────
+  const contamBreach = avgContamination != null ? evalMetric('contamination_rate', avgContamination, kpiRules) : null;
+  const cptBreach    = evalMetric('cost_per_tonne', avgCPT, kpiRules);
+
+  // Fall back to hard-coded thresholds when no rules are configured
+  const contamStatus: KPI['status'] = contamBreach === 'critical' ? 'risk'
+    : contamBreach === 'warning' ? 'watch'
+    : avgContamination != null && avgContamination > 10 ? 'risk'
+    : avgContamination != null && avgContamination > 7  ? 'watch'
+    : 'normal';
+
+  const cptStatus: KPI['status'] = cptBreach === 'critical' ? 'risk' : cptBreach === 'warning' ? 'watch' : 'normal';
+
   // ─── Shell KPIs (header strip) ──────────────────────────────────────────────
   const kpis: KPI[] = [
     { label: 'Total Tonnes',     value: `${totalTonnes.toLocaleString()} t`,  sub: `${totalCollections.toLocaleString()} collections`, icon: '🗑', status: 'normal' },
     { label: 'Total Cost',       value: `$${totalCost.toLocaleString()}`,       sub: `${zones.length} suburbs`,                          icon: '💰', status: 'normal' },
-    { label: 'Cost per Tonne',   value: `$${avgCPT.toFixed(2)}`,               sub: 'Fleet-wide average',                               icon: '📊', status: 'normal' },
-    { label: 'Avg Contamination',value: avgContamination != null ? `${avgContamination.toFixed(1)}%` : '—', sub: contamTop ? `${contamTop.suburb} worst at ${contamTop.rate.toFixed(1)}%` : 'No data', icon: '⚠', status: avgContamination != null && avgContamination > 10 ? 'risk' : avgContamination != null && avgContamination > 7 ? 'watch' : 'normal' },
+    { label: 'Cost per Tonne',   value: `$${avgCPT.toFixed(2)}`,               sub: 'Fleet-wide average',                               icon: '📊', status: cptStatus, alert: cptBreach != null },
+    { label: 'Avg Contamination',value: avgContamination != null ? `${avgContamination.toFixed(1)}%` : '—', sub: contamTop ? `${contamTop.suburb} worst at ${contamTop.rate.toFixed(1)}%` : 'No data', icon: '⚠', status: contamStatus, alert: contamBreach != null },
   ];
 
   // ─── Insight cards for shell ─────────────────────────────────────────────────
@@ -244,6 +286,7 @@ export default function WasteClient({
             value={avgContamination != null ? `${avgContamination.toFixed(1)}%` : '—'}
             sub={contamTop ? `${contamTop.suburb} worst (${contamTop.rate.toFixed(1)}%)` : 'No contamination data'}
             accent={avgContamination != null && avgContamination > 10 ? '#ef4444' : '#f59e0b'}
+            breach={contamBreach}
           />
           <KpiCard
             label="Top Cost Suburb"
@@ -256,6 +299,7 @@ export default function WasteClient({
             value={`$${avgCPT.toFixed(2)}`}
             sub={`${best?.suburb ?? '—'} best · ${worst?.suburb ?? '—'} worst`}
             accent="#8b5cf6"
+            breach={cptBreach}
           />
         </div>
       </div>

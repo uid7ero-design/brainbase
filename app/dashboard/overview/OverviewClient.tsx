@@ -9,6 +9,7 @@ import { useAppStore } from '@/lib/state/useAppStore';
 type Alert = { severity: 'HIGH' | 'MED' | 'LOW'; label: string; detail: string };
 type TrendPoint = { month: string; waste: number; fleet: number };
 type SRRow = { status: string; count: number; avg_days: number };
+type UploadSummary = { fileName: string; serviceType: string; uploadedAt: string; recordCount: number };
 
 interface Props {
   waste: Record<string, number>;
@@ -16,6 +17,7 @@ interface Props {
   serviceRequests: SRRow[];
   trend: TrendPoint[];
   alerts: Alert[];
+  uploadSummary?: UploadSummary[];
 }
 
 const FONT = "var(--font-inter), -apple-system, sans-serif";
@@ -60,7 +62,7 @@ function MetricCard({ label, value, sub, accent = '#A78BFA', icon, danger = fals
   );
 }
 
-export default function OverviewClient({ waste, fleet, serviceRequests, trend, alerts }: Props) {
+export default function OverviewClient({ waste, fleet, serviceRequests, trend, alerts, uploadSummary = [] }: Props) {
   const [activeLines, setActiveLines] = useState({ waste: true, fleet: true });
 
   const openCount    = serviceRequests.find(r => r.status === 'Open')?.count    ?? 0;
@@ -139,6 +141,32 @@ export default function OverviewClient({ waste, fleet, serviceRequests, trend, a
           Ask HLNΛ for briefing
         </button>
       </div>
+
+      {/* ── Upload summary strip ── */}
+      {uploadSummary.length > 0 && (
+        <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+          {uploadSummary.map((u, i) => {
+            const label = u.serviceType === 'fleet' ? '🚛 Fleet' : u.serviceType === 'service_requests' ? '📋 SRs' : '♻ Waste';
+            const date  = new Date(u.uploadedAt).toLocaleString('en-AU', { dateStyle: 'short', timeStyle: 'short' });
+            return (
+              <div key={i} style={{
+                display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px',
+                background: 'rgba(16,185,129,0.06)', border: '1px solid rgba(16,185,129,0.16)',
+                borderRadius: 8, fontSize: 11, color: 'rgba(230,237,243,0.55)',
+              }}>
+                <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#10b981', flexShrink: 0, display: 'inline-block' }} />
+                <span style={{ fontWeight: 700, color: 'rgba(230,237,243,0.80)' }}>{label}</span>
+                <span style={{ color: 'rgba(255,255,255,0.30)' }}>·</span>
+                <span>{u.recordCount.toLocaleString()} records</span>
+                <span style={{ color: 'rgba(255,255,255,0.30)' }}>·</span>
+                <span>{u.fileName}</span>
+                <span style={{ color: 'rgba(255,255,255,0.30)' }}>·</span>
+                <span style={{ color: 'rgba(255,255,255,0.35)' }}>{date}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {/* ── Metric Cards ── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10, marginBottom: 18 }}>

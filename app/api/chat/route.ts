@@ -119,6 +119,32 @@ type HelenaResponse = {
   memory_update: { type: string; key: string; fact: string } | null;
 };
 
+export type QueryAnalysis = {
+  dataSources: string[];
+  rowsQueried: number;
+  trend: string | null;
+  anomaly: string | null;
+  confidence: 'High' | 'Medium' | 'Low';
+  timestamp: string;
+};
+
+// ─── Analysis helpers ─────────────────────────────────────────────────────────
+
+function extractTables(rawSql: string): string[] {
+  const fromMatches = rawSql.match(/\bFROM\s+(\w+)/gi) ?? [];
+  const joinMatches = rawSql.match(/\bJOIN\s+(\w+)/gi)  ?? [];
+  const all = [...fromMatches, ...joinMatches].map(m => m.replace(/\b(FROM|JOIN)\s+/i, '').toLowerCase());
+  const skip = new Set(['users','organisations','uploaded_files','dual']);
+  return [...new Set(all.filter(t => !skip.has(t)))];
+}
+
+function extractAnalytics(content: string, rowCount: number): Pick<QueryAnalysis, 'trend' | 'anomaly' | 'confidence'> {
+  const trendLine   = content.match(/TREND: (.+)/)?.[1]?.trim()   ?? null;
+  const anomalyLine = content.match(/ANOMALY: (.+)/)?.[1]?.trim() ?? null;
+  const confidence  = rowCount >= 30 ? 'High' : rowCount >= 5 ? 'Medium' : 'Low';
+  return { trend: trendLine, anomaly: anomalyLine, confidence };
+}
+
 // ─── Response parser ──────────────────────────────────────────────────────────
 
 function parseResponse(raw: string): HelenaResponse {
@@ -205,19 +231,25 @@ async function callClaude(
   calendarContext?: string,
   dashboardContext?: string,
   orgId?: string,
-): Promise<string> {
+): Promise<{ text: string; analysis: QueryAnalysis | null }> {
   const systemContent = buildSystem(
     memoryContext, spotifyContext, brainContext,
     taskContext, calendarContext, dashboardContext, orgId,
   );
   const tools = orgId ? buildDataTools(orgId) : undefined;
 
-  // Start with string-content messages, expand to full MessageParam[] for the loop
   type MsgParam = Anthropic.Messages.MessageParam;
   let msgs: MsgParam[] = messages.slice(-14).map(m => ({
     role: m.role,
     content: m.content,
   }));
+
+  // Accumulate analysis across all tool calls
+  let allTables:   string[]  = [];
+  let totalRows    = 0;
+  let trendNote:   string | null = null;
+  let anomalyNote: string | null = null;
+  let usedTool     = false;
 
   // Up to 4 iterations: initial call + 3 tool-use rounds
   for (let iter = 0; iter < 4; iter++) {
@@ -232,7 +264,16 @@ async function callClaude(
     // No tool use — return the text response
     if (resp.stop_reason !== 'tool_use') {
       const block = resp.content.find(b => b.type === 'text');
-      return block?.type === 'text' ? block.text : '';
+      const text = block?.type === 'text' ? block.text : '';
+      const analysis: QueryAnalysis | null = usedTool ? {
+        dataSources: allTables,
+        rowsQueried: totalRows,
+        trend:       trendNote,
+        anomaly:     anomalyNote,
+        confidence:  totalRows >= 30 ? 'High' : totalRows >= 5 ? 'Medium' : 'Low',
+        timestamp:   new Date().toISOString(),
+      } : null;
+      return { text, analysis };
     }
 
     // Execute all tool calls in parallel
@@ -247,6 +288,13 @@ async function callClaude(
           const { sql: rawSql } = block.input as { sql: string; reasoning: string };
           const result = await executeQuery(rawSql, orgId!);
           content = formatQueryResult(result);
+          // Collect analysis data
+          usedTool = true;
+          allTables = [...new Set([...allTables, ...extractTables(rawSql)])];
+          totalRows += result.rowCount;
+          const a = extractAnalytics(content, result.rowCount);
+          if (a.trend    && !trendNote)   trendNote   = a.trend;
+          if (a.anomaly  && !anomalyNote) anomalyNote = a.anomaly;
         } catch (err) {
           content = `Query failed: ${(err as Error).message}`;
         }
@@ -254,7 +302,6 @@ async function callClaude(
       }),
     );
 
-    // Append assistant message (with tool_use blocks) + tool results
     msgs = [
       ...msgs,
       { role: 'assistant', content: resp.content },
@@ -267,7 +314,16 @@ async function callClaude(
     model: 'claude-sonnet-4-6', max_tokens: 500, system: systemContent, messages: msgs,
   });
   const block = final.content.find(b => b.type === 'text');
-  return block?.type === 'text' ? block.text : '';
+  const text = block?.type === 'text' ? block.text : '';
+  const analysis: QueryAnalysis | null = usedTool ? {
+    dataSources: allTables,
+    rowsQueried: totalRows,
+    trend:       trendNote,
+    anomaly:     anomalyNote,
+    confidence:  totalRows >= 30 ? 'High' : totalRows >= 5 ? 'Medium' : 'Low',
+    timestamp:   new Date().toISOString(),
+  } : null;
+  return { text, analysis };
 }
 
 // ─── Brain context ────────────────────────────────────────────────────────────
@@ -320,12 +376,15 @@ export async function POST(req: NextRequest) {
 
   let raw = '';
   let source = 'claude';
+  let analysis: QueryAnalysis | null = null;
 
   try {
-    raw = await callClaude(
+    const result = await callClaude(
       messages, memoryContext, spotifyContext, brainContext,
       taskContext, calendarContext, dashboardContext, orgId,
     );
+    raw      = result.text;
+    analysis = result.analysis;
   } catch (err) {
     console.warn('[Helena] Claude unavailable, falling back to Ollama:', (err as Error).message);
     source = 'ollama';
@@ -341,5 +400,5 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  return Response.json({ ...parseResponse(raw), source });
+  return Response.json({ ...parseResponse(raw), source, analysis });
 }

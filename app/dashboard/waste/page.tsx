@@ -26,6 +26,13 @@ export type UploadMeta = {
   serviceType: string;
 };
 
+export type KpiRule = {
+  metric: string;
+  operator: string;
+  threshold: number;
+  severity: 'warning' | 'critical';
+};
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const MONTH_ORDER = ['Jul','Aug','Sep','Oct','Nov','Dec','Jan','Feb','Mar','Apr','May','Jun'];
@@ -131,6 +138,22 @@ export default async function WastePage() {
     }
   } catch { /* tables not yet created */ }
 
+  // KPI rules
+  let kpiRules: KpiRule[] = [];
+  try {
+    const ruleRows = await sql`
+      SELECT metric, operator, threshold::float AS threshold, severity
+      FROM kpi_rules
+      WHERE organisation_id = ${session.organisationId}
+    `;
+    kpiRules = ruleRows.map(r => ({
+      metric:    String(r.metric),
+      operator:  String(r.operator),
+      threshold: Number(r.threshold),
+      severity:  (r.severity === 'critical' ? 'critical' : 'warning') as 'warning' | 'critical',
+    }));
+  } catch { /* table not yet created */ }
+
   // Waste records
   let rawRecords: Record<string, unknown>[] = [];
   try {
@@ -156,6 +179,7 @@ export default async function WastePage() {
         composition={DEMO_COMPOSITION}
         serviceTypes={DEMO_SERVICE_TYPES}
         financialYears={DEMO_FINANCIAL_YEARS}
+        kpiRules={kpiRules}
       />
     );
   }
@@ -236,6 +260,7 @@ export default async function WastePage() {
       composition={composition}
       serviceTypes={serviceTypes}
       financialYears={financialYears}
+      kpiRules={kpiRules}
     />
   );
 }

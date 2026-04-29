@@ -232,7 +232,7 @@ export function useHelena() {
 
       setMessages(prev => [...prev, {
         role: 'assistant', content: data.response,
-        meta: { intent: data.intent, action: data.action, source: data.source },
+        meta: { intent: data.intent, action: data.action, source: data.source, analysis: data.analysis ?? null },
       }]);
 
       speak(data.response);

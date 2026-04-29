@@ -9,6 +9,7 @@ import {
 } from 'recharts';
 import { Upload, Truck, DollarSign, BarChart2, AlertCircle, Gauge, Activity, Shield, Clock, Users, MapPin, Wrench } from 'lucide-react';
 import DashboardShell, { KPI, MonthlyPoint, CostAccount, SLATarget, Action, InsightCard } from '@/components/dashboard/DashboardShell';
+import type { FleetUploadMeta } from './page';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -64,6 +65,37 @@ function TR({children,i}:{children:React.ReactNode;i:number}){return<tr style={{
 function TD({children,bold}:{children:React.ReactNode;bold?:boolean}){return<td style={{padding:'10px 16px',fontWeight:bold?700:400,color:bold?'#F5F7FA':'rgba(255,255,255,0.55)',fontSize:13}}>{children}</td>;}
 function Badge({label,color}:{label:string;color:string}){return<span style={{padding:'2px 8px',borderRadius:20,fontSize:11,fontWeight:600,background:color+'20',color,border:`1px solid ${color}40`}}>{label}</span>;}
 function Empty(){return(<div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',padding:'120px 20px',textAlign:'center'}}><div style={{background:'rgba(255,255,255,0.06)',padding:20,borderRadius:16,marginBottom:16}}><Truck size={36} color="rgba(255,255,255,0.30)"/></div><h2 style={{fontSize:18,fontWeight:600,color:'rgba(255,255,255,0.70)',marginBottom:8}}>No Fleet Data Loaded</h2><p style={{color:'rgba(255,255,255,0.35)',fontSize:13,marginBottom:16}}>Upload the multi-sheet Excel file to get started.</p><a href="/fleet-dummy-data.xlsx" download style={{background:'rgba(255,255,255,0.08)',border:'1px solid rgba(255,255,255,0.12)',color:'#F5F7FA',padding:'10px 20px',borderRadius:8,fontSize:13,fontWeight:500,textDecoration:'none'}}>Download Sample Data</a></div>);}
+
+function FleetDataBanner({ meta }: { meta: FleetUploadMeta }) {
+  const date = new Date(meta.uploadedAt).toLocaleString('en-AU', { dateStyle: 'medium', timeStyle: 'short' });
+  return (
+    <div style={{ background: 'rgba(16,185,129,0.07)', border: '1px solid rgba(16,185,129,0.2)', borderRadius: 12, padding: '12px 20px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
+      <span style={{ background: '#10b981', color: '#fff', borderRadius: 6, padding: '2px 9px', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.07em', flexShrink: 0 }}>Live Data</span>
+      <span style={{ fontSize: 13, color: 'rgba(230,237,243,0.55)' }}>
+        <span style={{ color: '#F5F7FA', fontWeight: 600 }}>{meta.fileName}</span>
+        <span style={{ color: 'rgba(230,237,243,0.35)', margin: '0 8px' }}>·</span>
+        <span>{meta.recordCount.toLocaleString()} records imported</span>
+        <span style={{ color: 'rgba(230,237,243,0.35)', margin: '0 8px' }}>·</span>
+        <span>Last updated {date}</span>
+      </span>
+    </div>
+  );
+}
+
+function FleetDemoBanner() {
+  return (
+    <div style={{ background: 'rgba(245,158,11,0.07)', border: '1px solid rgba(245,158,11,0.25)', borderRadius: 12, padding: '14px 20px', display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+      <span style={{ background: '#f59e0b', color: '#000', borderRadius: 6, padding: '2px 9px', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.07em', flexShrink: 0 }}>Demo</span>
+      <div style={{ fontSize: 13, color: 'rgba(230,237,243,0.55)', lineHeight: 1.5 }}>
+        Sample data is shown below.{' '}
+        <span style={{ color: '#F5F7FA', fontWeight: 600 }}>Upload an Excel file to activate this dashboard with your real fleet data.</span>
+        <span style={{ display: 'block', marginTop: 2, fontSize: 12, color: 'rgba(230,237,243,0.35)' }}>
+          Go to <span style={{ fontFamily: 'monospace', color: 'rgba(230,237,243,0.55)' }}>Data → Upload</span> and select service type <span style={{ fontFamily: 'monospace', color: 'rgba(230,237,243,0.55)' }}>Fleet</span>.
+        </span>
+      </div>
+    </div>
+  );
+}
 
 function ServicingTab({data}:{data:SvcRecord[]}) {
   if (!data.length) return <Empty/>;
@@ -232,7 +264,7 @@ const DEFAULT_ACTIONS: Action[] = [
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
-export default function FleetClient({ dbAssets = [] }: { dbAssets?: Asset[] }) {
+export default function FleetClient({ dbAssets = [], uploadMeta = null, isDemo = false }: { dbAssets?: Asset[]; uploadMeta?: FleetUploadMeta | null; isDemo?: boolean }) {
   const router = useRouter();
   const [assets,  setAssets]  = useState<Asset[]>([]);
   const [svc,     setSvc]     = useState<SvcRecord[]>([]);
@@ -335,6 +367,8 @@ export default function FleetClient({ dbAssets = [] }: { dbAssets?: Asset[] }) {
     </div>
   ) : (
     <>
+      {!isDemo && uploadMeta && <FleetDataBanner meta={uploadMeta} />}
+      {isDemo && <FleetDemoBanner />}
       <div style={{ display:'flex', gap:6, marginBottom:20, flexWrap:'wrap' }}>
         {depts.map(d => (
           <button key={d} onClick={() => setDept(d)} style={{

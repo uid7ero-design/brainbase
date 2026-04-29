@@ -2,6 +2,12 @@ import sql from '@/lib/db';
 import { requireSession } from '@/lib/org';
 import FleetClient, { Asset } from './FleetClient';
 
+export type FleetUploadMeta = {
+  fileName: string;
+  uploadedAt: string;
+  recordCount: number;
+};
+
 type FleetMetricRow = {
   vehicle_id: string | null;
   vehicle_type: string | null;
@@ -56,8 +62,31 @@ function rowToAsset(r: FleetMetricRow): Asset {
 
 export default async function FleetPage() {
   let dbAssets: Asset[] = [];
+  let uploadMeta: FleetUploadMeta | null = null;
   try {
     const session = await requireSession();
+
+    // Upload metadata
+    try {
+      const fileRows = await sql`
+        SELECT f.file_name, f.created_at,
+               (SELECT COUNT(*) FROM fleet_metrics fm WHERE fm.uploaded_file_id = f.id)::int AS record_count
+        FROM uploaded_files f
+        WHERE f.organisation_id = ${session.organisationId}
+          AND f.upload_status = 'complete'
+          AND (f.service_type = 'fleet' OR f.file_name = 'demo-seed.csv')
+        ORDER BY f.created_at DESC
+        LIMIT 1
+      `;
+      if (fileRows.length > 0) {
+        uploadMeta = {
+          fileName:    fileRows[0].file_name  as string,
+          uploadedAt:  fileRows[0].created_at as string,
+          recordCount: Number(fileRows[0].record_count),
+        };
+      }
+    } catch { /* table not ready */ }
+
     const rows: FleetMetricRow[] = (await sql`
       SELECT vehicle_id, vehicle_type, make, year, department, driver,
              km, wages, fuel, maintenance, rego, repairs, insurance,
@@ -71,5 +100,5 @@ export default async function FleetPage() {
     // Not logged in or table doesn't exist yet — client falls back to localStorage/dummy
   }
 
-  return <FleetClient dbAssets={dbAssets} />;
+  return <FleetClient dbAssets={dbAssets} uploadMeta={uploadMeta} isDemo={dbAssets.length === 0} />;
 }
