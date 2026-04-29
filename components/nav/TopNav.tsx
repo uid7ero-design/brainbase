@@ -64,6 +64,8 @@ export default function TopNav({ serverSession }: { serverSession?: Session }) {
           <NavLink href="/command" active={pathname.startsWith('/command')}>Command</NavLink>
         )}
 
+        <NavLink href="/dashboard/overview" active={pathname === '/dashboard/overview'}>Overview</NavLink>
+
         <NavLink href="/dashboard" active={pathname === '/dashboard'}>
           <svg width="46" height="14" viewBox="0 0 211 62" style={{ display: 'block' }} aria-label="HLNA">
             <g fill="rgba(245,247,250,0.9)">

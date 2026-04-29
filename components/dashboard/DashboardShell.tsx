@@ -472,16 +472,16 @@ export default function DashboardShell({
     <div style={{ minHeight: '100vh', background: th.bg, color: th.t1, fontFamily: 'system-ui,sans-serif' }}>
 
       {/* ── Header ── */}
-      <div style={{ background: headerColor, padding: '14px 24px', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
-        <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', marginBottom: 6 }}>
+      <div style={{ background: headerColor, padding: '10px 20px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+        <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.42)', marginBottom: 5 }}>
           <a href="/" style={{ color: 'inherit', textDecoration: 'none' }}>Brainbase</a>
-          {' › '}<a href="/dashboards" style={{ color: 'inherit', textDecoration: 'none' }}>Dashboards</a>
+          {' › '}<a href="/dashboard/overview" style={{ color: 'inherit', textDecoration: 'none' }}>Overview</a>
           {' › '}<span style={{ color: accentColor }}>{breadcrumbLabel}</span>
         </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: 10 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: 8 }}>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <h1 style={{ margin: 0, fontSize: 21, fontWeight: 700 }}>{title}</h1>
+              <h1 style={{ margin: 0, fontSize: 18, fontWeight: 700, letterSpacing: '-0.01em' }}>{title}</h1>
               <select
                 value={pathname ?? ''}
                 onChange={e => { if (e.target.value) router.push(e.target.value); }}
@@ -492,10 +492,10 @@ export default function DashboardShell({
                 ))}
               </select>
             </div>
-            <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.6)', marginTop: 2 }}>{subtitle}</div>
+            <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.50)', marginTop: 1 }}>{subtitle}</div>
             <button
               onClick={() => useAppStore.getState().fireHelena(`Explain this ${title} dashboard to me — cover the key metrics, any risks or issues, and what I should focus on.`)}
-              style={{ marginTop: 6, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600, cursor: 'pointer', background: 'rgba(0,0,0,0.25)', border: `1px solid ${accentColor}60`, color: 'rgba(255,255,255,0.75)', letterSpacing: '.03em' }}
+              style={{ marginTop: 5, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 9px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', background: 'rgba(0,0,0,0.25)', border: `1px solid ${accentColor}50`, color: 'rgba(255,255,255,0.65)', letterSpacing: '.02em' }}
             >
               <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 2a10 10 0 1 1 0 20A10 10 0 0 1 12 2zm0 6v4m0 4h.01"/></svg>
               Ask HLNA to explain
@@ -531,13 +531,13 @@ export default function DashboardShell({
       </div>
 
       {/* ── Tab bar ── */}
-      <div style={{ borderBottom: `1px solid ${th.bdr}`, padding: '0 24px', display: 'flex', overflowX: 'auto', scrollbarWidth: 'none', background: th.bg }}>
+      <div style={{ borderBottom: `1px solid ${th.bdr}`, padding: '0 20px', display: 'flex', overflowX: 'auto', scrollbarWidth: 'none', background: th.bg }}>
         {GLOBAL_TABS.map(t => <button key={t} onClick={() => setActiveTab(t)} style={S.tab(t)}>{t}</button>)}
       </div>
 
       {/* ── KPI strip ── */}
       {kpis.length > 0 && (
-        <div style={{ padding: '10px 24px', display: 'flex', gap: 8, overflowX: 'auto', borderBottom: `1px solid ${th.bdr}`, scrollbarWidth: 'none', background: th.bg }}>
+        <div style={{ padding: '8px 20px', display: 'flex', gap: 8, overflowX: 'auto', borderBottom: `1px solid ${th.bdr}`, scrollbarWidth: 'none', background: th.bg }}>
           {kpis.map(k => (
             <KpiCard
               key={k.label}
