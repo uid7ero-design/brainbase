@@ -15,7 +15,7 @@ export async function POST(req: NextRequest) {
   let res: Response;
   try {
     res = await fetch(
-      `https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}`,
+      `https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}/stream`,
       {
         method: 'POST',
         headers: {
@@ -27,10 +27,10 @@ export async function POST(req: NextRequest) {
           text,
           model_id: 'eleven_turbo_v2_5',
           voice_settings: {
-            stability:        0.35,
-            similarity_boost: 0.85,
-            style:            0.40,
-            use_speaker_boost: true,
+            stability:         0.35,
+            similarity_boost:  0.85,
+            style:             0.40,
+            use_speaker_boost: false, // disabling reduces generation latency
           },
         }),
         signal: AbortSignal.timeout(15_000),
@@ -47,13 +47,11 @@ export async function POST(req: NextRequest) {
     return new Response(errBody || 'ElevenLabs error', { status: res.status });
   }
 
-  // Buffer the audio — streaming piped responses can silently drop on Vercel
-  const audio = await res.arrayBuffer();
-  return new Response(audio, {
+  // Pipe the stream directly — client starts receiving audio before generation is complete
+  return new Response(res.body, {
     headers: {
-      'Content-Type':   'audio/mpeg',
-      'Content-Length': String(audio.byteLength),
-      'Cache-Control':  'no-store',
+      'Content-Type':  'audio/mpeg',
+      'Cache-Control': 'no-store',
     },
   });
 }

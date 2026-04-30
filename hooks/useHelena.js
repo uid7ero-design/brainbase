@@ -34,6 +34,8 @@ export function useHelena() {
   const ttsReadyRef       = useRef(false);
   const speakAbortRef     = useRef(null); // cancels any in-flight ElevenLabs fetch
   const silenceCountRef   = useRef(0); // consecutive no-speech cycles in convo mode
+  const wakeWatchdogRef   = useRef(null); // interval that restarts dead wake recognizer
+  const wakeLastAliveRef  = useRef(Date.now()); // timestamp of last wake recog activity
 
   // ── Context refs (set by parent) ─────────────────────────────────
   const speechPulseRef     = useRef(null);
@@ -85,8 +87,16 @@ export function useHelena() {
       recogRef.current = null;
     }
     if (audioRef.current) {
-      try { audioRef.current.stop(0); } catch {}
+      const a = audioRef.current;
       audioRef.current = null;
+      try {
+        if (typeof a.stop === 'function') a.stop(0);          // AudioBufferSourceNode
+        else if (typeof a.pause === 'function') {              // Audio element (streaming path)
+          const url = a.src;
+          a.pause(); a.src = '';
+          if (url?.startsWith('blob:')) URL.revokeObjectURL(url);
+        }
+      } catch {}
     }
     speechSynthesis.cancel();
     speechPulseRef.current?.(0);
@@ -144,10 +154,18 @@ export function useHelena() {
     const controller = new AbortController();
     speakAbortRef.current = controller;
 
-    // Stop any currently-playing ElevenLabs audio immediately
+    // Stop any currently-playing audio immediately
     if (audioRef.current) {
-      try { audioRef.current.stop(0); } catch {}
+      const prev = audioRef.current;
       audioRef.current = null;
+      try {
+        if (typeof prev.stop === 'function') prev.stop(0);
+        else if (typeof prev.pause === 'function') {
+          const url = prev.src;
+          prev.pause(); prev.src = '';
+          if (url?.startsWith('blob:')) URL.revokeObjectURL(url);
+        }
+      } catch {}
     }
     speechSynthesis.cancel();
     speechPulseRef.current?.(0);
@@ -156,8 +174,9 @@ export function useHelena() {
     silenceCountRef.current = 0;
 
     (async () => {
-      const timer = setTimeout(() => controller.abort(), 12000);
+      let timer;
       try {
+        timer = setTimeout(() => controller.abort(), 12000);
         const res = await fetch('/api/speak', {
           method:  'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -166,36 +185,93 @@ export function useHelena() {
         });
         clearTimeout(timer);
         if (!res.ok) throw new Error(`ElevenLabs ${res.status}`);
-
-        const arrayBuffer = await res.arrayBuffer();
-
-        // A newer speak() superseded this one while we were fetching
         if (controller.signal.aborted) return;
 
-        const ac = getAC();
-        if (ac.state === 'suspended') await ac.resume();
+        // Streaming path: MediaSource plays audio as it arrives (Chrome/Edge)
+        if (res.body && typeof MediaSource !== 'undefined' && MediaSource.isTypeSupported('audio/mpeg')) {
+          const ms        = new MediaSource();
+          const audioEl   = new Audio();
+          const objectURL = URL.createObjectURL(ms);
+          audioEl.src     = objectURL;
+          audioRef.current = audioEl;
 
-        const decoded = await ac.decodeAudioData(arrayBuffer);
-        const source  = ac.createBufferSource();
-        source.buffer = decoded;
-        source.connect(ac.destination);
+          let rafId;
+          function pulse() {
+            if (audioRef.current !== audioEl) return;
+            speechPulseRef.current?.(0.8);
+            rafId = requestAnimationFrame(pulse);
+          }
 
-        let rafId;
-        function pulse() {
-          if (audioRef.current !== source) return;
-          speechPulseRef.current?.(0.8);
+          function streamCleanup() {
+            cancelAnimationFrame(rafId);
+            URL.revokeObjectURL(objectURL);
+            if (audioRef.current === audioEl) { audioRef.current = null; onSpeakEnd(); }
+          }
+
+          audioEl.addEventListener('ended', streamCleanup, { once: true });
+          audioEl.addEventListener('error', streamCleanup, { once: true });
+
+          ms.addEventListener('sourceopen', async () => {
+            const sb     = ms.addSourceBuffer('audio/mpeg');
+            const reader = res.body.getReader();
+            let started  = false;
+
+            const appendChunk = (chunk) => new Promise((resolve, reject) => {
+              const tryAppend = () => {
+                if (sb.updating) { sb.addEventListener('updateend', tryAppend, { once: true }); return; }
+                try { sb.appendBuffer(chunk); } catch (e) { reject(e); return; }
+                sb.addEventListener('updateend', resolve, { once: true });
+              };
+              tryAppend();
+            });
+
+            try {
+              while (true) {
+                if (controller.signal.aborted || audioRef.current !== audioEl) break;
+                const { done, value } = await reader.read();
+                if (done) break;
+                await appendChunk(value);
+                if (!started) { audioEl.play().catch(() => {}); pulse(); started = true; }
+              }
+            } catch { /* network or append error — fall through to endOfStream */ }
+
+            try { ms.endOfStream(); } catch {}
+
+            // If streaming failed before audio ever started, onSpeakEnd won't
+            // come from the 'ended' event — fire it now to unblock Helena.
+            if (!started) streamCleanup();
+          }, { once: true });
+
+        } else {
+          // Fallback: buffer entire audio (Firefox, older Safari)
+          const arrayBuffer = await res.arrayBuffer();
+          if (controller.signal.aborted) return;
+
+          const ac = getAC();
+          if (ac.state === 'suspended') await ac.resume();
+
+          const decoded = await ac.decodeAudioData(arrayBuffer);
+          const source  = ac.createBufferSource();
+          source.buffer = decoded;
+          source.connect(ac.destination);
+
+          let rafId;
+          function pulse() {
+            if (audioRef.current !== source) return;
+            speechPulseRef.current?.(0.8);
+            rafId = requestAnimationFrame(pulse);
+          }
+
+          source.addEventListener('ended', () => {
+            cancelAnimationFrame(rafId);
+            if (audioRef.current === source) audioRef.current = null;
+            onSpeakEnd();
+          });
+
+          audioRef.current = source;
+          source.start(0);
           rafId = requestAnimationFrame(pulse);
         }
-
-        source.addEventListener('ended', () => {
-          cancelAnimationFrame(rafId);
-          if (audioRef.current === source) audioRef.current = null;
-          onSpeakEnd();
-        });
-
-        audioRef.current = source;
-        source.start(0);
-        rafId = requestAnimationFrame(pulse);
 
       } catch (err) {
         clearTimeout(timer);
@@ -494,36 +570,50 @@ export function useHelena() {
     if (!SR) return;
 
     const recog = new SR();
-    recog.lang           = 'en-GB';
+    recog.lang           = 'en-US'; // broader support than en-GB
     recog.continuous     = true;
     recog.interimResults = false;
 
-    recog.onstart  = () => setWakeActive(true);
-    recog.onend    = () => {
+    recog.onstart = () => {
+      setWakeActive(true);
+      wakeLastAliveRef.current = Date.now();
+    };
+
+    recog.onend = () => {
       setWakeActive(false);
       if (wakeRecogRef.current === recog) {
         wakeRecogRef.current = null;
-        if (wakeEnabledRef.current && phase() === 'idle') {
-          setTimeout(() => launchWakeRef.current?.(), 400);
+        // Restart regardless of phase — watchdog will skip if not idle
+        if (wakeEnabledRef.current) {
+          setTimeout(() => {
+            if (phase() === 'idle') launchWakeRef.current?.();
+          }, 400);
         }
       }
     };
-    recog.onerror  = (e) => {
-      if (e.error === 'no-speech') return;
+
+    recog.onerror = (e) => {
+      if (e.error === 'no-speech') {
+        wakeLastAliveRef.current = Date.now(); // still alive, just quiet
+        return;
+      }
       if (wakeRecogRef.current === recog) {
         wakeRecogRef.current = null;
         setWakeActive(false);
-        if (wakeEnabledRef.current && phase() === 'idle') {
-          setTimeout(() => launchWakeRef.current?.(), 800);
+        if (wakeEnabledRef.current) {
+          setTimeout(() => {
+            if (phase() === 'idle') launchWakeRef.current?.();
+          }, 800);
         }
       }
     };
+
     recog.onresult = (e) => {
+      wakeLastAliveRef.current = Date.now();
+      // Accumulate all results (interim + final) into one string for matching
       const t = Array.from(e.results).map(r => r[0].transcript).join(' ');
-      if (/hey\s*(helena?|helen\b|hlna|h[\s.]*l[\s.]*n[\s.]*a\b)/i.test(t)) {
-        // Enter conversation mode so Helena keeps listening after each response.
-        // Let startListening handle stopping the wake recog via its onend path
-        // (avoids the "aborted" race — doStart fires only after the session releases).
+      // Broad pattern: catches misrecognitions like "hey Elena", "hey lena", "hi helena"
+      if (/(hey|hi)\s*,?\s*(helena?|helen\b|hlna|lena\b|elena\b|h[\s.]*l[\s.]*n[\s.]*a\b)/i.test(t)) {
         conversationalRef.current = true;
         setConversational(true);
         startListeningRef.current?.();
@@ -531,6 +621,7 @@ export function useHelena() {
     };
 
     wakeRecogRef.current = recog;
+    wakeLastAliveRef.current = Date.now();
     try { recog.start(); } catch {}
   }, []);
 
@@ -561,10 +652,32 @@ export function useHelena() {
   const enableWakeWord = useCallback(() => {
     wakeEnabledRef.current = true;
     launchWakeRecog();
+
+    // Watchdog: Chrome's continuous recognizer silently dies after ~60s.
+    // If no activity for 20s and we're idle, kill and restart it.
+    if (wakeWatchdogRef.current) clearInterval(wakeWatchdogRef.current);
+    wakeWatchdogRef.current = setInterval(() => {
+      if (!wakeEnabledRef.current) return;
+      if (phase() !== 'idle') { wakeLastAliveRef.current = Date.now(); return; }
+      const stale = Date.now() - wakeLastAliveRef.current > 20_000;
+      if (stale) {
+        console.log('[Helena] wake watchdog — restarting stale recognizer');
+        if (wakeRecogRef.current) {
+          try { wakeRecogRef.current.stop(); } catch {}
+          wakeRecogRef.current = null;
+        }
+        setWakeActive(false);
+        launchWakeRef.current?.();
+      }
+    }, 10_000);
   }, [launchWakeRecog]);
 
   const disableWakeWord = useCallback(() => {
     wakeEnabledRef.current = false;
+    if (wakeWatchdogRef.current) {
+      clearInterval(wakeWatchdogRef.current);
+      wakeWatchdogRef.current = null;
+    }
     if (wakeRecogRef.current) {
       try { wakeRecogRef.current.stop(); } catch {}
       wakeRecogRef.current = null;
