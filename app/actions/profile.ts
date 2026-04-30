@@ -4,6 +4,18 @@ import sql from '@/lib/db';
 import { getSession, createSession, type Role } from '@/lib/session';
 import { revalidatePath } from 'next/cache';
 
+export async function updateSecureMode(enabled: boolean): Promise<void> {
+  const session = await getSession();
+  if (!session) return;
+  await sql`
+    UPDATE users
+    SET preferences = preferences || ${JSON.stringify({ secure_mode: enabled })}::jsonb,
+        updated_at = NOW()
+    WHERE id = ${session.userId}
+  `;
+  revalidatePath('/profile');
+}
+
 export type ProfileState = { error?: string; success?: string } | undefined;
 
 export async function updateProfile(prevState: ProfileState, formData: FormData): Promise<ProfileState> {

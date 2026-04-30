@@ -32,6 +32,7 @@ export function useHelena() {
   const conversationalRef = useRef(false);
   const wakeEnabledRef    = useRef(false);
   const ttsReadyRef       = useRef(false);
+  const speakAbortRef     = useRef(null); // cancels any in-flight ElevenLabs fetch
   const silenceCountRef   = useRef(0); // consecutive no-speech cycles in convo mode
 
   // ── Context refs (set by parent) ─────────────────────────────────
@@ -137,22 +138,41 @@ export function useHelena() {
 
   const speak = useCallback((text) => {
     if (!text) return;
-    setPhase('speaking');
-    silenceCountRef.current = 0; // Helena responded — reset silence clock
+
+    // Cancel any in-flight fetch from a previous speak() call
+    speakAbortRef.current?.abort();
+    const controller = new AbortController();
+    speakAbortRef.current = controller;
+
+    // Stop any currently-playing ElevenLabs audio immediately
+    if (audioRef.current) {
+      try { audioRef.current.stop(0); } catch {}
+      audioRef.current = null;
+    }
     speechSynthesis.cancel();
+    speechPulseRef.current?.(0);
+
+    setPhase('speaking');
+    silenceCountRef.current = 0;
 
     (async () => {
+      const timer = setTimeout(() => controller.abort(), 12000);
       try {
         const res = await fetch('/api/speak', {
           method:  'POST',
           headers: { 'Content-Type': 'application/json' },
           body:    JSON.stringify({ text }),
-          signal:  AbortSignal.timeout(12000),
+          signal:  controller.signal,
         });
+        clearTimeout(timer);
         if (!res.ok) throw new Error(`ElevenLabs ${res.status}`);
 
         const arrayBuffer = await res.arrayBuffer();
-        const ac          = getAC();
+
+        // A newer speak() superseded this one while we were fetching
+        if (controller.signal.aborted) return;
+
+        const ac = getAC();
         if (ac.state === 'suspended') await ac.resume();
 
         const decoded = await ac.decodeAudioData(arrayBuffer);
@@ -178,6 +198,9 @@ export function useHelena() {
         rafId = requestAnimationFrame(pulse);
 
       } catch (err) {
+        clearTimeout(timer);
+        // Aborted intentionally (new speak() fired) — do not fall back to browser TTS
+        if (err.name === 'AbortError' || controller.signal.aborted) return;
         console.warn('[Helena speak] ElevenLabs failed, using browser TTS:', err.message);
         const voices = speechSynthesis.getVoices();
         if (voices.length) doSpeakBrowser(text);
@@ -228,6 +251,7 @@ export function useHelena() {
                              || (typeof window !== 'undefined' ? getContextForPath(window.location.pathname) : ''),
           moduleKey:        useAppStore.getState().activeModule || undefined,
           viewMode:         useAppStore.getState().viewMode || 'executive',
+          department:       useAppStore.getState().activeDepartment || 'waste',
         }),
       });
       const data = await res.json();

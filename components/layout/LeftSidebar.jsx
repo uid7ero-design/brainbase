@@ -1,5 +1,7 @@
 ﻿'use client';
 import { useState, useEffect, useRef } from 'react';
+import { usePathname, useRouter } from 'next/navigation';
+import { DEPARTMENT_LIST } from "../../lib/hlna/departmentConfigs";
 import { CYAN } from "../../lib/utils/constants";
 import { useWeather } from "../../hooks/useWeather";
 import { useSpotify } from "../../hooks/useSpotify";
@@ -704,126 +706,255 @@ function CalendarWidget() {
 }
 
 // ── Main sidebar ─────────────────────────────────────────────────────────────
+const SIDEBAR_NAV = [
+  {
+    key: 'hlna',  label: 'HLNA',  type: 'module', module: null,
+    icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M12 2C8.13 2 5 5.13 5 9c0 3.5 2.5 5.5 4.5 7.5L12 20l2.5-3.5C16.5 14.5 19 12.5 19 9c0-3.87-3.13-7-7-7z"/><circle cx="12" cy="9" r="2.5"/></svg>,
+  },
+  {
+    key: 'waste', label: 'Waste', type: 'module', module: 'waste_recycling',
+    icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg>,
+  },
+  {
+    key: 'fleet', label: 'Fleet', type: 'module', module: 'fleet_management',
+    icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><rect x="1" y="8" width="14" height="9" rx="1"/><path d="M15 13h3l3 3v4h-6v-7z"/><circle cx="5.5" cy="18.5" r="1.5"/><circle cx="18.5" cy="18.5" r="1.5"/></svg>,
+  },
+  null,
+  {
+    key: 'crm',     label: 'CRM',     type: 'link', href: '/crm',
+    icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>,
+  },
+  {
+    key: 'reports', label: 'Reports', type: 'link', href: '/reports',
+    icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>,
+  },
+  {
+    key: 'data',    label: 'Data',    type: 'link', href: '/data',
+    icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/><path d="M3 12c0 1.66 4.03 3 9 3s9-1.34 9-3"/></svg>,
+  },
+  {
+    key: 'admin',   label: 'Admin',   type: 'link', href: '/admin/orgs',
+    icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>,
+  },
+];
+
 export function LeftSidebar({ open, onToggle }) {
-  const [activeTab, setActiveTab] = useState('nav');
-  const { activeNav, setActiveNav, setMemoryPanelOpen, setNewsOpen, setIntegrationsOpen, setBrainGraphOpen } = useAppStore();
+  const { activeModule, setActiveModule, fireHelena, setChatOpen, activeDepartment, setActiveDepartment } = useAppStore();
+  const [workspaceOpen, setWorkspaceOpen] = useState(false);
+  const pathname = usePathname();
+  const router   = useRouter();
 
-  const sidebarWidth = open ? (activeTab === 'brain' ? 360 : 220) : 48;
+  const FONT   = "var(--font-inter), -apple-system, sans-serif";
+  const PURPLE = "#A78BFA";
 
-  function handleNav(item) {
-    setActiveNav(item.label);
-    if (item.label === 'Memory')       setMemoryPanelOpen(true);
-    if (item.label === 'Brain')        { setActiveTab('brain'); return; }
-    if (item.label === 'News')         setNewsOpen(true);
-    if (item.label === 'Integrations') setIntegrationsOpen(true);
+  function isNavActive(item) {
+    if (!item) return false;
+    if (item.type === 'module') return activeModule === item.module;
+    return pathname.startsWith(item.href);
+  }
+
+  function handleNavClick(item) {
+    if (!item) return;
+    if (item.type === 'module') {
+      setActiveModule(item.module);
+      if (!pathname.startsWith('/dashboard')) router.push('/dashboard');
+    } else {
+      router.push(item.href);
+    }
   }
 
   return (
-    <div style={{ width: sidebarWidth, flexShrink: 0, transition: "width 280ms cubic-bezier(0.16,1,0.3,1)", display: "flex", flexDirection: "column", overflow: "hidden", position: "relative", borderRight: "1px solid rgba(255,255,255,.10)", background: "rgba(6,9,18,.82)", backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)" }}>
+    <div style={{
+      width: open ? 240 : 48, flexShrink: 0,
+      transition: "width 280ms cubic-bezier(0.16,1,0.3,1)",
+      display: "flex", flexDirection: "column",
+      overflow: "hidden", position: "relative",
+      borderRight: "1px solid rgba(255,255,255,.07)",
+      background: "rgba(6,9,18,.85)",
+      backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)",
+      fontFamily: FONT,
+    }}>
 
-      <button onClick={onToggle} style={{ position: "absolute", top: 14, right: open ? 10 : 8, width: 20, height: 20, borderRadius: 5, border: "1px solid rgba(255,255,255,.07)", background: "rgba(255,255,255,.04)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2, transition: "right 280ms cubic-bezier(0.16,1,0.3,1)" }}>
+      {/* Toggle */}
+      <button onClick={onToggle} style={{
+        position: "absolute", top: 14,
+        right: open ? 10 : "50%",
+        transform: open ? "none" : "translateX(50%)",
+        width: 20, height: 20, borderRadius: 5,
+        border: "1px solid rgba(255,255,255,.07)",
+        background: "rgba(255,255,255,.04)", cursor: "pointer",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        zIndex: 2,
+        transition: "right 280ms cubic-bezier(0.16,1,0.3,1), transform 280ms",
+      }}>
         <svg width="8" height="8" viewBox="0 0 10 10" fill="none" stroke="rgba(255,255,255,.35)" strokeWidth="1.5">
           {open ? <path d="M7 2L3 5l4 3" /> : <path d="M3 2l4 3-4 3" />}
         </svg>
       </button>
 
+      {/* Collapsed: icon-only */}
+      {!open && (
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", paddingTop: 52, gap: 2 }}>
+          {SIDEBAR_NAV.filter(Boolean).map(item => {
+            const active = isNavActive(item);
+            return (
+              <button key={item.key} onClick={() => handleNavClick(item)} title={item.label} style={{
+                width: 32, height: 32, borderRadius: 8, border: "none",
+                background: active ? "rgba(124,58,237,.15)" : "transparent",
+                color: active ? PURPLE : "rgba(255,255,255,.30)",
+                cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+                transition: "all .15s",
+              }}>
+                {item.icon}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Expanded */}
       {open && (
-        <>
-          <div style={{ display: "flex", gap: 3, padding: "12px 10px 0", paddingRight: 36, flexShrink: 0 }}>
-            <button onClick={() => setActiveTab('nav')}
-              style={{ flex: 1, padding: "5px 0", borderRadius: 6, border: "none", cursor: "pointer", fontSize: 9, fontWeight: 700, letterSpacing: ".08em", transition: "all .2s",
-                background: activeTab === 'nav' ? "rgba(124,58,237,.10)" : "rgba(255,255,255,.03)",
-                color:      activeTab === 'nav' ? CYAN              : "rgba(255,255,255,.28)" }}>
-              NAV
-            </button>
-            <button onClick={() => setActiveTab('brain')}
-              style={{ flex: 1, padding: "5px 0", borderRadius: 6, border: "none", cursor: "pointer", fontSize: 9, fontWeight: 700, letterSpacing: ".08em", transition: "all .2s",
-                background: activeTab === 'brain' ? "rgba(180,130,255,.12)" : "rgba(255,255,255,.03)",
-                color:      activeTab === 'brain' ? "rgba(180,130,255,.9)" : "rgba(255,255,255,.28)" }}>
-              BRAIN
+        <div style={{ display: "flex", flexDirection: "column", overflow: "hidden", flex: 1, paddingTop: 44 }}>
+
+          {/* Primary nav */}
+          <div style={{ padding: "0 8px 4px", flexShrink: 0 }}>
+            <div style={{ fontSize: 8, fontWeight: 800, color: "rgba(255,255,255,.18)", letterSpacing: ".14em", padding: "0 6px 6px", textTransform: "uppercase" }}>Command</div>
+            {SIDEBAR_NAV.map((item, i) => {
+              if (!item) return (
+                <div key={`d${i}`} style={{ height: 1, background: "rgba(255,255,255,.05)", margin: "4px 4px 6px" }} />
+              );
+              const active = isNavActive(item);
+              return (
+                <button key={item.key} onClick={() => handleNavClick(item)} style={{
+                  width: "100%", display: "flex", alignItems: "center", gap: 8,
+                  padding: "7px 10px", borderRadius: 7, marginBottom: 2,
+                  background: active ? "rgba(124,58,237,.10)" : "transparent",
+                  border: active ? "1px solid rgba(124,58,237,.22)" : "1px solid transparent",
+                  borderLeft: active ? `2px solid ${PURPLE}` : "2px solid transparent",
+                  color: active ? PURPLE : "rgba(255,255,255,.45)",
+                  fontSize: 12, fontWeight: active ? 600 : 400,
+                  cursor: "pointer", textAlign: "left", transition: "all .15s",
+                }}
+                onMouseEnter={e => { if (!active) { e.currentTarget.style.background = "rgba(255,255,255,.04)"; e.currentTarget.style.color = "rgba(255,255,255,.70)"; } }}
+                onMouseLeave={e => { if (!active) { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "rgba(255,255,255,.45)"; } }}
+                >
+                  <span style={{ flexShrink: 0, opacity: active ? 1 : 0.65 }}>{item.icon}</span>
+                  {item.label}
+                </button>
+              );
+            })}
+          </div>
+
+          <div style={{ height: 1, background: "rgba(255,255,255,.05)", margin: "4px 8px 8px" }} />
+
+          {/* Context panel */}
+          <div style={{ padding: "0 10px 8px", flexShrink: 0 }}>
+            <div style={{ fontSize: 8, fontWeight: 800, color: "rgba(255,255,255,.18)", letterSpacing: ".14em", marginBottom: 6, textTransform: "uppercase" }}>Context</div>
+            <div style={{ padding: "7px 10px", borderRadius: 7, background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.05)" }}>
+              {/* Department selector */}
+              <div style={{ marginBottom: 6 }}>
+                <div style={{ fontSize: 9, color: "rgba(255,255,255,.28)", fontWeight: 500, marginBottom: 4 }}>Department</div>
+                <div style={{ position: "relative" }}>
+                  <select
+                    value={activeDepartment}
+                    onChange={e => setActiveDepartment(e.target.value)}
+                    style={{
+                      width: "100%", padding: "5px 24px 5px 8px", borderRadius: 6,
+                      background: "rgba(124,58,237,.10)", border: "1px solid rgba(124,58,237,.28)",
+                      color: PURPLE, fontSize: 10, fontWeight: 700,
+                      cursor: "pointer", outline: "none", fontFamily: FONT,
+                      appearance: "none", WebkitAppearance: "none",
+                    }}
+                  >
+                    {DEPARTMENT_LIST.map(dept => (
+                      <option key={dept.key} value={dept.key} style={{ background: "#0d0b1a", color: "rgba(255,255,255,.85)", fontWeight: 500 }}>
+                        {dept.label}
+                      </option>
+                    ))}
+                  </select>
+                  <svg width="8" height="5" viewBox="0 0 8 5" style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }} fill="rgba(167,139,250,.6)">
+                    <path d="M0 0l4 5 4-5z" />
+                  </svg>
+                </div>
+              </div>
+              {/* Static context rows */}
+              {[
+                { label: 'Org',       value: 'Demo Council'  },
+                { label: 'Timeframe', value: 'Last 90 days'  },
+              ].map(({ label, value }) => (
+                <div key={label} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 2 }}>
+                  <span style={{ fontSize: 9, color: "rgba(255,255,255,.28)", fontWeight: 500 }}>{label}</span>
+                  <span style={{ fontSize: 9, color: "rgba(255,255,255,.55)", fontWeight: 600 }}>{value}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ height: 1, background: "rgba(255,255,255,.05)", margin: "0 8px 8px" }} />
+
+          {/* Quick actions */}
+          <div style={{ padding: "0 8px 4px", flexShrink: 0 }}>
+            <div style={{ fontSize: 8, fontWeight: 800, color: "rgba(255,255,255,.18)", letterSpacing: ".14em", marginBottom: 6, paddingLeft: 2, textTransform: "uppercase" }}>Quick Actions</div>
+            {[
+              {
+                icon: '↑',  label: 'Upload Data',
+                onClick: () => router.push('/data'),
+              },
+              {
+                icon: '⚡', label: 'Run Analysis',
+                onClick: () => { fireHelena('Run a full waste operations analysis and produce today\'s performance briefing'); setChatOpen(true); },
+              },
+              {
+                icon: '📄', label: 'Generate Report',
+                onClick: () => { fireHelena('Generate a comprehensive waste operations report for this month including all KPIs, trends, and recommendations'); setChatOpen(true); },
+              },
+            ].map(action => (
+              <button key={action.label} onClick={action.onClick} style={{
+                width: "100%", display: "flex", alignItems: "center", gap: 8,
+                padding: "6px 10px", borderRadius: 7, marginBottom: 3,
+                background: "rgba(124,58,237,.06)", border: "1px solid rgba(124,58,237,.14)",
+                color: "rgba(167,139,250,.75)", fontSize: 11, fontWeight: 600,
+                cursor: "pointer", textAlign: "left", transition: "all .15s",
+              }}
+              onMouseEnter={e => { e.currentTarget.style.background = "rgba(124,58,237,.12)"; e.currentTarget.style.color = PURPLE; e.currentTarget.style.borderColor = "rgba(124,58,237,.28)"; }}
+              onMouseLeave={e => { e.currentTarget.style.background = "rgba(124,58,237,.06)"; e.currentTarget.style.color = "rgba(167,139,250,.75)"; e.currentTarget.style.borderColor = "rgba(124,58,237,.14)"; }}
+              >
+                <span style={{ fontSize: 12, width: 14, textAlign: "center", flexShrink: 0 }}>{action.icon}</span>
+                {action.label}
+              </button>
+            ))}
+          </div>
+
+          <div style={{ height: 1, background: "rgba(255,255,255,.05)", margin: "4px 8px 0" }} />
+
+          {/* Workspace (collapsible) */}
+          <div style={{ flexShrink: 0 }}>
+            <button onClick={() => setWorkspaceOpen(o => !o)} style={{
+              width: "100%", display: "flex", alignItems: "center", gap: 6,
+              padding: "7px 14px", background: "none", border: "none", cursor: "pointer",
+            }}>
+              <span style={{ fontSize: 8, fontWeight: 800, color: "rgba(255,255,255,.20)", letterSpacing: ".14em", flex: 1, textAlign: "left", textTransform: "uppercase" }}>
+                Workspace
+              </span>
+              <svg width="8" height="8" viewBox="0 0 10 10" fill="none" stroke="rgba(255,255,255,.25)" strokeWidth="1.5">
+                {workspaceOpen ? <path d="M2 6l3-3 3 3" /> : <path d="M2 4l3 3 3-3" />}
+              </svg>
             </button>
           </div>
 
-          <div style={{ height: 1, background: "rgba(255,255,255,.05)", margin: "10px 10px 0", flexShrink: 0 }} />
-
-          {activeTab === 'nav' && (
-            <>
-              <div style={{ padding: "10px 10px 6px", flexShrink: 0 }}>
-                {NAV_ITEMS.map(item => {
-                  const isActive = activeNav === item.label;
-                  return (
-                    <button key={item.label} onClick={() => handleNav(item)}
-                      style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "7px 8px", paddingLeft: isActive ? 10 : 8, borderRadius: 7, background: isActive ? "rgba(124,58,237,.10)" : "transparent", border: isActive ? "1px solid rgba(124,58,237,.20)" : "1px solid transparent", borderLeft: isActive ? `2px solid ${CYAN}` : "2px solid transparent", color: isActive ? CYAN : "rgba(255,255,255,.42)", fontSize: 11, fontWeight: isActive ? 600 : 400, cursor: "pointer", textAlign: "left", marginBottom: 2, transition: "all .2s", boxShadow: isActive ? "0 0 12px rgba(124,58,237,.08) inset" : "none" }}>
-                      <span style={{ flexShrink: 0 }}>{item.icon}</span>
-                      {item.label}
-                    </button>
-                  );
-                })}
-              </div>
-
-              <div style={{ flex: 1, overflowY: "auto", position: "relative" }}>
-                <div style={{ padding: "6px 14px 2px" }}>
-                  <span style={{ fontSize: 8, fontWeight: 700, color: "rgba(255,255,255,.28)", letterSpacing: ".12em" }}>PRODUCTIVITY</span>
-                </div>
-                <AgendaWidget />
-                <CalendarWidget />
-
-                <div style={{ padding: "6px 14px 2px", marginTop: 4 }}>
-                  <span style={{ fontSize: 8, fontWeight: 700, color: "rgba(255,255,255,.28)", letterSpacing: ".12em" }}>INTELLIGENCE</span>
-                </div>
-                <NewsWidget />
-                <MemoryWidget />
-
-                <div style={{ padding: "6px 14px 2px", marginTop: 4 }}>
-                  <span style={{ fontSize: 8, fontWeight: 700, color: "rgba(255,255,255,.28)", letterSpacing: ".12em" }}>ENVIRONMENT</span>
-                </div>
-                <WeatherWidget />
-                <ClocksWidget />
-                <MetricsWidget />
-
-                <div style={{ padding: "6px 14px 2px", marginTop: 4 }}>
-                  <span style={{ fontSize: 8, fontWeight: 700, color: "rgba(255,255,255,.28)", letterSpacing: ".12em" }}>INTEGRATIONS</span>
-                </div>
-                <SpotifyWidget />
-                <BrainWidget />
-
-                <div style={{ padding: "6px 14px 2px", marginTop: 4 }}>
-                  <span style={{ fontSize: 8, fontWeight: 700, color: "rgba(255,255,255,.38)", letterSpacing: ".12em" }}>SYSTEM</span>
-                </div>
-                <div style={{ margin: "4px 10px 8px", padding: "10px 12px", borderRadius: 8, background: "rgba(124,58,237,.04)", border: "1px solid rgba(124,58,237,.10)" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
-                    <div style={{ width: 5, height: 5, borderRadius: "50%", background: "rgba(124,58,237,.70)", boxShadow: "0 0 5px rgba(124,58,237,.5)" }} />
-                    <span style={{ fontSize: 9, fontWeight: 700, color: "rgba(124,58,237,.80)", letterSpacing: ".10em" }}>HLNA</span>
-                    <span style={{ fontSize: 8, color: "rgba(255,255,255,.28)", letterSpacing: ".06em" }}>Hyper Learning Neural Agent</span>
-                  </div>
-                  <p style={{ margin: 0, fontSize: 9, color: "rgba(255,255,255,.38)", lineHeight: 1.55 }}>
-                    An adaptive AI layer designed to analyse operational data, generate insights, and assist with decision-making across dashboards.
-                  </p>
-                </div>
-
-                {/* Scroll fade — hints there's more below */}
-                <div style={{ position: "sticky", bottom: 0, left: 0, right: 0, height: 28, background: "linear-gradient(to top, rgba(8,11,20,.70), transparent)", pointerEvents: "none" }} />
-              </div>
-            </>
-          )}
-
-          {activeTab === 'brain' && (
-            <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden", background: "#020408" }}>
-              <div style={{ flexShrink: 0, padding: "8px 10px", borderBottom: "1px solid rgba(255,255,255,.05)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <span style={{ fontSize: 9, fontWeight: 700, color: "rgba(180,130,255,.70)", letterSpacing: ".10em" }}>BRAIN GRAPH</span>
-                <button
-                  onClick={() => setBrainGraphOpen(true)}
-                  style={{ display: "flex", alignItems: "center", gap: 4, padding: "3px 8px", borderRadius: 5, background: "rgba(180,130,255,.08)", border: "1px solid rgba(180,130,255,.20)", color: "rgba(180,130,255,.75)", fontSize: 9, fontWeight: 600, cursor: "pointer", letterSpacing: ".04em" }}
-                >
-                  Fullscreen ↗
-                </button>
-              </div>
-              <div style={{ flex: 1, minHeight: 0 }}>
-                <InlineBrainGraph />
-              </div>
+          {workspaceOpen && (
+            <div style={{ flex: 1, overflowY: "auto", scrollbarWidth: "none" }}>
+              <CalendarWidget />
+              <AgendaWidget />
+              <MemoryWidget />
+              <BrainWidget />
+              <div style={{ height: 20 }} />
             </div>
           )}
-        </>
+
+          {!workspaceOpen && <div style={{ flex: 1 }} />}
+
+        </div>
       )}
     </div>
   );

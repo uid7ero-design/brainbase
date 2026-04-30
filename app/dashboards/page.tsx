@@ -192,6 +192,21 @@ const DASHBOARDS = [
       </svg>
     ),
   },
+  {
+    id: "wste",
+    title: "WSTe — Waste Service Tracking",
+    category: "Local Government",
+    description: "Multi-stream waste service verification. GPS evidence, bin lift detection, RFID scanning, hard waste, street sweeping, and FOGO — all with property-level intelligence and exception management.",
+    status: "live",
+    href: "/dashboard/wste",
+    color: "#2DD4BF",
+    metrics: ["Service verification", "GPS evidence", "Bin lifts & RFID", "Exception management"],
+    icon: (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
+        <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/>
+      </svg>
+    ),
+  },
 ];
 
 const FONT = 'var(--font-inter), "Inter", -apple-system, sans-serif';

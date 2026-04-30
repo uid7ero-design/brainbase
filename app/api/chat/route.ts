@@ -188,15 +188,35 @@ function parseResponse(raw: string): HelenaResponse {
 
 // ─── System builder ───────────────────────────────────────────────────────────
 
+// Department → primary table and WHERE filter for scoped queries
+const DEPT_QUERY_HINT: Record<string, string> = {
+  waste:            `Use table: waste_records (add WHERE department = 'Waste'). Key columns: service_type, suburb, month, tonnes, collections, contamination_rate, cost.`,
+  fleet:            `Use table: fleet_metrics. Key columns: vehicle_id, vehicle_type, km, fuel, maintenance, downtime_hours, defects, services, month.`,
+  customer_service: `Use table: service_requests. Key columns: request_id, service_type, suburb, status, priority, days_open, cost.`,
+  compliance:       `Use table: service_requests (filter service_type or status for compliance items). Also check waste_records and fleet_metrics as needed.`,
+  parks:            `Use table: waste_records (filter department = 'Parks & Gardens') or service_requests. Check available data first.`,
+  roads:            `Use table: service_requests (filter service_type = 'Roads' or similar). Check available data first.`,
+};
+
 function buildSystem(
   memoryContext?: string, spotifyContext?: string, brainContext?: string,
   taskContext?: string, calendarContext?: string, dashboardContext?: string,
   orgId?: string, moduleKey?: string, userContext?: string, viewMode?: string,
+  department?: string,
 ): string {
   let s = SYSTEM;
   if (moduleKey?.trim()) {
     const ctx = buildModuleContext(moduleKey);
     if (ctx) s += `\n\n${ctx}`;
+  }
+  if (department?.trim()) {
+    const deptKey = department.toLowerCase().replace(/[^a-z]/g, '_').replace(/_+/g, '_');
+    const queryHint = DEPT_QUERY_HINT[deptKey] ?? `Check available tables and filter by department = '${department}' where applicable.`;
+    s += `\n\n[Active department: ${department}]
+The operator is currently viewing the ${department} department dashboard.
+CRITICAL — when using query_database, only return data for the ${department} department unless the user explicitly asks for cross-department analysis.
+${queryHint}
+Do NOT surface metrics or data from other departments in this context (e.g. no contamination rates when viewing Fleet, no vehicle downtime when viewing Waste) unless directly asked.`;
   }
   if (userContext?.trim()) {
     s += `\n\n[Operator profile]\n${userContext}\nAdapt your response focus: super_admin/admin → strategic summary, cost impact, cross-module trends; manager → operational alerts, specific actions, detail; viewer → clear plain-English summary, no jargon.`;
@@ -253,10 +273,11 @@ async function callClaude(
   moduleKey?: string,
   userContext?: string,
   viewMode?: string,
+  department?: string,
 ): Promise<{ text: string; analysis: QueryAnalysis | null }> {
   const systemContent = buildSystem(
     memoryContext, spotifyContext, brainContext,
-    taskContext, calendarContext, dashboardContext, orgId, moduleKey, userContext, viewMode,
+    taskContext, calendarContext, dashboardContext, orgId, moduleKey, userContext, viewMode, department,
   );
   const tools = orgId ? buildDataTools(orgId) : undefined;
 
@@ -372,7 +393,7 @@ async function getBrainContext(query: string): Promise<string> {
 
 export async function POST(req: NextRequest) {
   const {
-    messages, memoryContext, spotifyContext, taskContext, calendarContext, dashboardContext, moduleKey, viewMode,
+    messages, memoryContext, spotifyContext, taskContext, calendarContext, dashboardContext, moduleKey, viewMode, department,
   } = await req.json() as {
     messages: Array<{ role: 'user' | 'assistant'; content: string }>;
     memoryContext?: string;
@@ -382,6 +403,7 @@ export async function POST(req: NextRequest) {
     dashboardContext?: string;
     moduleKey?: string;
     viewMode?: string;
+    department?: string;
   };
 
   // Resolve org + user context — graceful if unauthenticated
@@ -407,7 +429,7 @@ export async function POST(req: NextRequest) {
   try {
     const result = await callClaude(
       messages, memoryContext, spotifyContext, brainContext,
-      taskContext, calendarContext, dashboardContext, orgId, moduleKey, userContext, viewMode,
+      taskContext, calendarContext, dashboardContext, orgId, moduleKey, userContext, viewMode, department,
     );
     raw      = result.text;
     analysis = result.analysis;
@@ -415,7 +437,7 @@ export async function POST(req: NextRequest) {
     console.warn('[Helena] Claude unavailable, falling back to Ollama:', (err as Error).message);
     source = 'ollama';
     try {
-      const sys = buildSystem(memoryContext, spotifyContext, brainContext, taskContext, calendarContext, dashboardContext, undefined, moduleKey, userContext, viewMode);
+      const sys = buildSystem(memoryContext, spotifyContext, brainContext, taskContext, calendarContext, dashboardContext, undefined, moduleKey, userContext, viewMode, department);
       raw = await callOllama(messages, sys);
     } catch (ollamaErr) {
       console.error('[Helena] Ollama fallback failed:', ollamaErr);

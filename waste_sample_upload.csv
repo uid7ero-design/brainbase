@@ -1,0 +1,193 @@
+department,service_type,suburb,month,financial_year,tonnes,collections,contamination_rate,cost
+Waste,General Waste,Norwood,Oct 25,2025-26,184.46,738,7,27310
+Waste,General Waste,Norwood,Nov 25,2025-26,198.33,793,6.7,29363
+Waste,General Waste,Norwood,Dec 25,2025-26,221.57,886,6.9,32803
+Waste,General Waste,Norwood,Jan 26,2025-26,227.86,911,6.8,33735
+Waste,General Waste,Norwood,Feb 26,2025-26,208.37,833,6.7,30849
+Waste,General Waste,Norwood,Mar 26,2025-26,169.48,678,6.9,25092
+Waste,Recycling,Norwood,Oct 25,2025-26,102.07,408,7.8,14299
+Waste,Recycling,Norwood,Nov 25,2025-26,107.75,431,7.4,15095
+Waste,Recycling,Norwood,Dec 25,2025-26,121.36,486,7.9,17001
+Waste,Recycling,Norwood,Jan 26,2025-26,128.76,515,7.3,18037
+Waste,Recycling,Norwood,Feb 26,2025-26,122.37,490,7.9,17143
+Waste,Recycling,Norwood,Mar 26,2025-26,102.21,409,7.2,14318
+Waste,Organics,Norwood,Oct 25,2025-26,68.97,276,,8959
+Waste,Organics,Norwood,Nov 25,2025-26,72.62,290,,9434
+Waste,Organics,Norwood,Dec 25,2025-26,80.54,322,,10463
+Waste,Organics,Norwood,Jan 26,2025-26,83.69,335,,10873
+Waste,Organics,Norwood,Feb 26,2025-26,78.35,313,,10179
+Waste,Organics,Norwood,Mar 26,2025-26,65.31,261,,8485
+Waste,Hard Waste,Norwood,Oct 25,2025-26,10.13,10,,1158
+Waste,Hard Waste,Norwood,Nov 25,2025-26,10.9,11,,1245
+Waste,Hard Waste,Norwood,Dec 25,2025-26,12.52,13,,1430
+Waste,Hard Waste,Norwood,Jan 26,2025-26,13.42,13,,1534
+Waste,Hard Waste,Norwood,Feb 26,2025-26,12.71,13,,1452
+Waste,Hard Waste,Norwood,Mar 26,2025-26,10.45,10,,1194
+Waste,General Waste,Payneham,Oct 25,2025-26,157.47,630,9.4,23308
+Waste,General Waste,Payneham,Nov 25,2025-26,166.3,665,9.1,24614
+Waste,General Waste,Payneham,Dec 25,2025-26,184.21,737,9.3,27266
+Waste,General Waste,Payneham,Jan 26,2025-26,190.5,762,9.2,28197
+Waste,General Waste,Payneham,Feb 26,2025-26,177.27,709,9.1,26237
+Waste,General Waste,Payneham,Mar 26,2025-26,147.16,589,9.3,21781
+Waste,Recycling,Payneham,Oct 25,2025-26,87.11,349,10.6,12184
+Waste,Recycling,Payneham,Nov 25,2025-26,93.7,375,10.2,13106
+Waste,Recycling,Payneham,Dec 25,2025-26,107.64,431,10.7,15055
+Waste,Recycling,Payneham,Jan 26,2025-26,115.4,462,10.1,16140
+Waste,Recycling,Payneham,Feb 26,2025-26,109.27,437,10.7,15284
+Waste,Recycling,Payneham,Mar 26,2025-26,89.87,360,10,12570
+Waste,Organics,Payneham,Oct 25,2025-26,59.97,240,,7790
+Waste,Organics,Payneham,Nov 25,2025-26,63.31,253,,8224
+Waste,Organics,Payneham,Dec 25,2025-26,71.31,285,,9263
+Waste,Organics,Payneham,Jan 26,2025-26,75.65,303,,9827
+Waste,Organics,Payneham,Feb 26,2025-26,71.9,288,,9340
+Waste,Organics,Payneham,Mar 26,2025-26,60.05,240,,7801
+Waste,Hard Waste,Payneham,Oct 25,2025-26,11.36,11,,1311
+Waste,Hard Waste,Payneham,Nov 25,2025-26,12.43,12,,1434
+Waste,Hard Waste,Payneham,Dec 25,2025-26,14.35,14,,1656
+Waste,Hard Waste,Payneham,Jan 26,2025-26,15.25,15,,1759
+Waste,Hard Waste,Payneham,Feb 26,2025-26,14.18,14,,1636
+Waste,Hard Waste,Payneham,Mar 26,2025-26,11.44,11,,1321
+Waste,General Waste,Marden,Oct 25,2025-26,136.35,546,11,20176
+Waste,General Waste,Marden,Nov 25,2025-26,149.09,597,10.7,22061
+Waste,General Waste,Marden,Dec 25,2025-26,169.84,680,10.9,25131
+Waste,General Waste,Marden,Jan 26,2025-26,176.96,708,10.8,26185
+Waste,General Waste,Marden,Feb 26,2025-26,161.84,648,10.7,23948
+Waste,General Waste,Marden,Mar 26,2025-26,129.88,520,10.9,19218
+Waste,Recycling,Marden,Oct 25,2025-26,78.54,314,12.2,10998
+Waste,Recycling,Marden,Nov 25,2025-26,82.7,331,11.8,11581
+Waste,Recycling,Marden,Dec 25,2025-26,91.71,367,12.3,12844
+Waste,Recycling,Marden,Jan 26,2025-26,95.31,382,11.7,13347
+Waste,Recycling,Marden,Feb 26,2025-26,89.23,357,12.3,12495
+Waste,Recycling,Marden,Mar 26,2025-26,74.37,298,11.6,10415
+Waste,Organics,Marden,Oct 25,2025-26,54.31,218,,7073
+Waste,Organics,Marden,Nov 25,2025-26,58.06,233,,7561
+Waste,Organics,Marden,Dec 25,2025-26,64.59,259,,8412
+Waste,Organics,Marden,Jan 26,2025-26,66.4,266,,8646
+Waste,Organics,Marden,Feb 26,2025-26,60.94,244,,7935
+Waste,Organics,Marden,Mar 26,2025-26,49.86,200,,6493
+Waste,Hard Waste,Marden,Oct 25,2025-26,10.34,10,,1182
+Waste,Hard Waste,Marden,Nov 25,2025-26,10.92,11,,1248
+Waste,Hard Waste,Marden,Dec 25,2025-26,12.29,12,,1405
+Waste,Hard Waste,Marden,Jan 26,2025-26,13.04,13,,1491
+Waste,Hard Waste,Marden,Feb 26,2025-26,12.4,12,,1417
+Waste,Hard Waste,Marden,Mar 26,2025-26,10.35,10,,1183
+Waste,General Waste,Glynde,Oct 25,2025-26,77.08,308,7.8,11405
+Waste,General Waste,Glynde,Nov 25,2025-26,84.29,337,7.5,12471
+Waste,General Waste,Glynde,Dec 25,2025-26,96.01,384,7.7,14206
+Waste,General Waste,Glynde,Jan 26,2025-26,100.04,400,7.6,14802
+Waste,General Waste,Glynde,Feb 26,2025-26,91.49,366,7.5,13537
+Waste,General Waste,Glynde,Mar 26,2025-26,73.42,294,7.7,10864
+Waste,Recycling,Glynde,Oct 25,2025-26,46.79,187,8.8,6547
+Waste,Recycling,Glynde,Nov 25,2025-26,49.27,197,8.4,6894
+Waste,Recycling,Glynde,Dec 25,2025-26,54.64,219,8.9,7646
+Waste,Recycling,Glynde,Jan 26,2025-26,56.78,227,8.3,7945
+Waste,Recycling,Glynde,Feb 26,2025-26,53.16,213,8.9,7438
+Waste,Recycling,Glynde,Mar 26,2025-26,44.31,177,8.2,6200
+Waste,Organics,Glynde,Oct 25,2025-26,33.14,133,,4311
+Waste,Organics,Glynde,Nov 25,2025-26,35.43,142,,4609
+Waste,Organics,Glynde,Dec 25,2025-26,39.41,158,,5127
+Waste,Organics,Glynde,Jan 26,2025-26,40.51,162,,5270
+Waste,Organics,Glynde,Feb 26,2025-26,37.18,149,,4837
+Waste,Organics,Glynde,Mar 26,2025-26,30.42,122,,3958
+Waste,Hard Waste,Glynde,Oct 25,2025-26,6.35,6,,739
+Waste,Hard Waste,Glynde,Nov 25,2025-26,6.71,7,,780
+Waste,Hard Waste,Glynde,Dec 25,2025-26,7.55,8,,878
+Waste,Hard Waste,Glynde,Jan 26,2025-26,8.01,8,,932
+Waste,Hard Waste,Glynde,Feb 26,2025-26,7.62,8,,885
+Waste,Hard Waste,Glynde,Mar 26,2025-26,6.36,6,,740
+Waste,General Waste,Royston Park,Oct 25,2025-26,98.69,395,6.2,14618
+Waste,General Waste,Royston Park,Nov 25,2025-26,108.16,433,5.9,16021
+Waste,General Waste,Royston Park,Dec 25,2025-26,123.85,496,6.1,18344
+Waste,General Waste,Royston Park,Jan 26,2025-26,129.77,519,6,19221
+Waste,General Waste,Royston Park,Feb 26,2025-26,119.1,477,5.9,17642
+Waste,General Waste,Royston Park,Mar 26,2025-26,95.54,382,6.1,14152
+Waste,Recycling,Royston Park,Oct 25,2025-26,61.55,246,7.2,8615
+Waste,Recycling,Royston Park,Nov 25,2025-26,65,260,6.8,9097
+Waste,Recycling,Royston Park,Dec 25,2025-26,72.01,288,7.3,10077
+Waste,Recycling,Royston Park,Jan 26,2025-26,74.46,298,6.7,10421
+Waste,Recycling,Royston Park,Feb 26,2025-26,69.29,277,7.3,9697
+Waste,Recycling,Royston Park,Mar 26,2025-26,57.52,230,6.6,8050
+Waste,Organics,Royston Park,Oct 25,2025-26,43.32,173,,5636
+Waste,Organics,Royston Park,Nov 25,2025-26,46.58,186,,6060
+Waste,Organics,Royston Park,Dec 25,2025-26,52.04,208,,6770
+Waste,Organics,Royston Park,Jan 26,2025-26,53.51,214,,6963
+Waste,Organics,Royston Park,Feb 26,2025-26,48.94,196,,6367
+Waste,Organics,Royston Park,Mar 26,2025-26,39.8,159,,5179
+Waste,Hard Waste,Royston Park,Oct 25,2025-26,9.09,9,,1043
+Waste,Hard Waste,Royston Park,Nov 25,2025-26,9.57,10,,1098
+Waste,Hard Waste,Royston Park,Dec 25,2025-26,10.71,11,,1229
+Waste,Hard Waste,Royston Park,Jan 26,2025-26,11.3,11,,1297
+Waste,Hard Waste,Royston Park,Feb 26,2025-26,10.71,11,,1229
+Waste,Hard Waste,Royston Park,Mar 26,2025-26,8.96,9,,1028
+Waste,General Waste,Heathpool,Oct 25,2025-26,69.27,277,13,10263
+Waste,General Waste,Heathpool,Nov 25,2025-26,72.92,292,12.7,10805
+Waste,General Waste,Heathpool,Dec 25,2025-26,81.66,327,12.9,12100
+Waste,General Waste,Heathpool,Jan 26,2025-26,86.15,345,12.8,12764
+Waste,General Waste,Heathpool,Feb 26,2025-26,81.66,327,12.7,12099
+Waste,General Waste,Heathpool,Mar 26,2025-26,68.31,274,12.9,10121
+Waste,Recycling,Heathpool,Oct 25,2025-26,40.49,162,14.8,5674
+Waste,Recycling,Heathpool,Nov 25,2025-26,44.3,177,14.4,6209
+Waste,Recycling,Heathpool,Dec 25,2025-26,51.15,205,14.9,7168
+Waste,Recycling,Heathpool,Jan 26,2025-26,54.35,218,14.3,7616
+Waste,Recycling,Heathpool,Feb 26,2025-26,50.54,202,14.9,7082
+Waste,Recycling,Heathpool,Mar 26,2025-26,40.79,163,14.2,5716
+Waste,Organics,Heathpool,Oct 25,2025-26,28.94,116,,3762
+Waste,Organics,Heathpool,Nov 25,2025-26,31.13,125,,4047
+Waste,Organics,Heathpool,Dec 25,2025-26,35.76,143,,4649
+Waste,Organics,Heathpool,Jan 26,2025-26,38.34,153,,4984
+Waste,Organics,Heathpool,Feb 26,2025-26,36.3,145,,4719
+Waste,Organics,Heathpool,Mar 26,2025-26,29.86,119,,3882
+Waste,Hard Waste,Heathpool,Oct 25,2025-26,5.24,5,,599
+Waste,Hard Waste,Heathpool,Nov 25,2025-26,5.73,6,,655
+Waste,Hard Waste,Heathpool,Dec 25,2025-26,6.53,7,,746
+Waste,Hard Waste,Heathpool,Jan 26,2025-26,6.8,7,,777
+Waste,Hard Waste,Heathpool,Feb 26,2025-26,6.22,6,,711
+Waste,Hard Waste,Heathpool,Mar 26,2025-26,4.99,5,,570
+Waste,General Waste,Trinity Gardens,Oct 25,2025-26,116.11,464,7.6,17184
+Waste,General Waste,Trinity Gardens,Nov 25,2025-26,122.09,488,7.3,18069
+Waste,General Waste,Trinity Gardens,Dec 25,2025-26,136.07,544,7.5,20137
+Waste,General Waste,Trinity Gardens,Jan 26,2025-26,142.67,571,7.4,21114
+Waste,General Waste,Trinity Gardens,Feb 26,2025-26,134.68,539,7.3,19932
+Waste,General Waste,Trinity Gardens,Mar 26,2025-26,112.65,451,7.5,16671
+Waste,Recycling,Trinity Gardens,Oct 25,2025-26,65.81,263,8.6,9210
+Waste,Recycling,Trinity Gardens,Nov 25,2025-26,71.76,287,8.2,10043
+Waste,Recycling,Trinity Gardens,Dec 25,2025-26,82.9,331,8.7,11603
+Waste,Recycling,Trinity Gardens,Jan 26,2025-26,88.46,354,8.1,12381
+Waste,Recycling,Trinity Gardens,Feb 26,2025-26,82.74,331,8.7,11579
+Waste,Recycling,Trinity Gardens,Mar 26,2025-26,67.09,268,8,9389
+Waste,Organics,Trinity Gardens,Oct 25,2025-26,46.03,184,,5983
+Waste,Organics,Trinity Gardens,Nov 25,2025-26,49.22,197,,6397
+Waste,Organics,Trinity Gardens,Dec 25,2025-26,56.27,225,,7313
+Waste,Organics,Trinity Gardens,Jan 26,2025-26,60.26,241,,7832
+Waste,Organics,Trinity Gardens,Feb 26,2025-26,57.24,229,,7439
+Waste,Organics,Trinity Gardens,Mar 26,2025-26,47.33,189,,6152
+Waste,Hard Waste,Trinity Gardens,Oct 25,2025-26,9.05,9,,1039
+Waste,Hard Waste,Trinity Gardens,Nov 25,2025-26,9.92,10,,1139
+Waste,Hard Waste,Trinity Gardens,Dec 25,2025-26,11.36,11,,1304
+Waste,Hard Waste,Trinity Gardens,Jan 26,2025-26,11.9,12,,1366
+Waste,Hard Waste,Trinity Gardens,Feb 26,2025-26,10.93,11,,1254
+Waste,Hard Waste,Trinity Gardens,Mar 26,2025-26,8.76,9,,1006
+Waste,General Waste,Evandale,Oct 25,2025-26,96.23,385,9.8,14235
+Waste,General Waste,Evandale,Nov 25,2025-26,101.62,407,9.5,15033
+Waste,General Waste,Evandale,Dec 25,2025-26,112.57,450,9.7,16653
+Waste,General Waste,Evandale,Jan 26,2025-26,116.41,466,9.6,17221
+Waste,General Waste,Evandale,Feb 26,2025-26,108.32,433,9.5,16024
+Waste,General Waste,Evandale,Mar 26,2025-26,89.92,360,9.7,13303
+Waste,Recycling,Evandale,Oct 25,2025-26,53.4,214,11,7467
+Waste,Recycling,Evandale,Nov 25,2025-26,57.44,230,10.6,8032
+Waste,Recycling,Evandale,Dec 25,2025-26,65.98,264,11.1,9226
+Waste,Recycling,Evandale,Jan 26,2025-26,70.73,283,10.5,9891
+Waste,Recycling,Evandale,Feb 26,2025-26,66.98,268,11.1,9366
+Waste,Recycling,Evandale,Mar 26,2025-26,55.09,220,10.4,7703
+Waste,Organics,Evandale,Oct 25,2025-26,39.59,158,,5149
+Waste,Organics,Evandale,Nov 25,2025-26,41.79,167,,5436
+Waste,Organics,Evandale,Dec 25,2025-26,47.07,188,,6123
+Waste,Organics,Evandale,Jan 26,2025-26,49.94,200,,6496
+Waste,Organics,Evandale,Feb 26,2025-26,47.46,190,,6173
+Waste,Organics,Evandale,Mar 26,2025-26,39.64,159,,5156
+Waste,Hard Waste,Evandale,Oct 25,2025-26,6.26,6,,728
+Waste,Hard Waste,Evandale,Nov 25,2025-26,6.85,7,,797
+Waste,Hard Waste,Evandale,Dec 25,2025-26,7.91,8,,920
+Waste,Hard Waste,Evandale,Jan 26,2025-26,8.41,8,,977
+Waste,Hard Waste,Evandale,Feb 26,2025-26,7.82,8,,909
+Waste,Hard Waste,Evandale,Mar 26,2025-26,6.31,6,,734

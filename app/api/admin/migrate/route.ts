@@ -305,6 +305,110 @@ export async function POST() {
   // 22. Extend kpi_rules with module_key
   await sql`ALTER TABLE kpi_rules ADD COLUMN IF NOT EXISTS module_key TEXT`;
 
+  // 23. WSTe — GPS service verification engine
+  await sql`
+    CREATE TABLE IF NOT EXISTS wste_vehicles (
+      id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      organisation_id  UUID NOT NULL REFERENCES organisations(id),
+      registration     TEXT NOT NULL,
+      make             TEXT,
+      model            TEXT,
+      vehicle_type     TEXT,
+      depot            TEXT,
+      active           BOOLEAN DEFAULT TRUE,
+      created_at       TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE (organisation_id, registration)
+    )
+  `;
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS wste_runs (
+      id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      organisation_id  UUID NOT NULL REFERENCES organisations(id),
+      vehicle_id       UUID NOT NULL REFERENCES wste_vehicles(id),
+      run_date         DATE NOT NULL,
+      driver           TEXT,
+      route_name       TEXT,
+      suburb           TEXT,
+      gps_points       INTEGER DEFAULT 0,
+      tickets_matched  INTEGER DEFAULT 0,
+      exceptions_count INTEGER DEFAULT 0,
+      verified         BOOLEAN DEFAULT FALSE,
+      completion_pct   NUMERIC DEFAULT 0,
+      created_at       TIMESTAMPTZ DEFAULT NOW()
+    )
+  `;
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS wste_gps_points (
+      id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      organisation_id UUID NOT NULL REFERENCES organisations(id),
+      run_id          UUID NOT NULL REFERENCES wste_runs(id),
+      recorded_at     TIMESTAMPTZ NOT NULL,
+      lat             NUMERIC NOT NULL,
+      lng             NUMERIC NOT NULL,
+      speed_kmh       NUMERIC,
+      address         TEXT,
+      suburb          TEXT,
+      created_at      TIMESTAMPTZ DEFAULT NOW()
+    )
+  `;
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS wste_waste_tickets (
+      id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      organisation_id UUID NOT NULL REFERENCES organisations(id),
+      ticket_ref      TEXT,
+      service_date    DATE,
+      address         TEXT,
+      suburb          TEXT,
+      service_type    TEXT,
+      run_id          UUID REFERENCES wste_runs(id),
+      matched         BOOLEAN DEFAULT FALSE,
+      created_at      TIMESTAMPTZ DEFAULT NOW()
+    )
+  `;
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS wste_service_verifications (
+      id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      organisation_id UUID NOT NULL REFERENCES organisations(id),
+      address         TEXT NOT NULL,
+      suburb          TEXT,
+      verified_at     TIMESTAMPTZ DEFAULT NOW(),
+      gps_pass_count  INTEGER DEFAULT 0,
+      last_pass_at    TIMESTAMPTZ,
+      vehicle_id      UUID REFERENCES wste_vehicles(id),
+      run_id          UUID REFERENCES wste_runs(id),
+      result          TEXT NOT NULL DEFAULT 'verified' CHECK (result IN ('verified', 'not_found', 'partial'))
+    )
+  `;
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS wste_exceptions (
+      id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      organisation_id UUID NOT NULL REFERENCES organisations(id),
+      run_id          UUID NOT NULL REFERENCES wste_runs(id),
+      address         TEXT,
+      suburb          TEXT,
+      exception_type  TEXT NOT NULL,
+      severity        TEXT NOT NULL DEFAULT 'low' CHECK (severity IN ('low', 'medium', 'high')),
+      resolved        BOOLEAN DEFAULT FALSE,
+      resolved_at     TIMESTAMPTZ,
+      notes           TEXT,
+      created_at      TIMESTAMPTZ DEFAULT NOW()
+    )
+  `;
+
+  await sql`CREATE INDEX IF NOT EXISTS idx_wste_vehicles_org    ON wste_vehicles(organisation_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_wste_runs_org        ON wste_runs(organisation_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_wste_runs_date       ON wste_runs(run_date)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_wste_gps_org         ON wste_gps_points(organisation_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_wste_gps_run         ON wste_gps_points(run_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_wste_tickets_org     ON wste_waste_tickets(organisation_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_wste_exceptions_org  ON wste_exceptions(organisation_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_wste_exceptions_run  ON wste_exceptions(run_id)`;
+
   // Seed default modules
   await sql`
     INSERT INTO modules (key, name, industry, description) VALUES
@@ -313,9 +417,95 @@ export async function POST() {
       ('service_requests', 'Service Requests',    'Customer Operations','Service request lifecycle, backlog and SLA performance'),
       ('logistics_freight','Logistics & Freight', 'Transport',          'Shipment, delivery, route and carrier performance'),
       ('utilities',        'Utilities',           'Infrastructure',     'Water, energy, faults and asset performance'),
-      ('construction',     'Construction',        'Project Delivery',   'Project status, budgets, contractors and milestones')
+      ('construction',     'Construction',        'Project Delivery',   'Project status, budgets, contractors and milestones'),
+      ('wste',             'WSTe',                'Local Government',   'Multi-stream waste service verification — GPS, bin lifts, RFID, hard waste, FOGO and exception management')
     ON CONFLICT (key) DO NOTHING
   `;
+
+  // 24. WSTe platform expansion — assets, planned services, service events, evidence
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS wste_assets (
+      id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      organisation_id  UUID NOT NULL REFERENCES organisations(id),
+      property_id      TEXT,
+      asset_type       TEXT NOT NULL DEFAULT 'bin',
+      bin_type         TEXT,
+      serial_number    TEXT,
+      rfid             TEXT,
+      volume           TEXT,
+      colour           TEXT,
+      status           TEXT NOT NULL DEFAULT 'active'
+        CHECK (status IN ('active', 'damaged', 'missing', 'retired', 'pending_delivery')),
+      last_serviced_at TIMESTAMPTZ,
+      created_at       TIMESTAMPTZ DEFAULT NOW()
+    )
+  `;
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS wste_planned_services (
+      id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      organisation_id       UUID NOT NULL REFERENCES organisations(id),
+      property_id           TEXT NOT NULL,
+      service_type          TEXT NOT NULL,
+      schedule_name         TEXT,
+      run_name              TEXT,
+      planned_date          DATE NOT NULL,
+      planned_window_start  TIME,
+      planned_window_end    TIME,
+      status                TEXT NOT NULL DEFAULT 'scheduled'
+        CHECK (status IN ('scheduled', 'completed', 'missed', 'cancelled', 'rescheduled')),
+      created_at            TIMESTAMPTZ DEFAULT NOW()
+    )
+  `;
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS wste_service_events (
+      id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      organisation_id   UUID NOT NULL REFERENCES organisations(id),
+      service_type      TEXT NOT NULL,
+      property_id       TEXT,
+      ticket_id         TEXT,
+      run_id            UUID REFERENCES wste_runs(id),
+      vehicle_id        UUID REFERENCES wste_vehicles(id),
+      asset_id          UUID REFERENCES wste_assets(id),
+      occurred_at       TIMESTAMPTZ,
+      latitude          NUMERIC,
+      longitude         NUMERIC,
+      event_source      TEXT NOT NULL DEFAULT 'gps'
+        CHECK (event_source IN ('gps','rfid','lift_sensor','photo','video','driver_note','ticket','weighbridge','manual')),
+      event_type        TEXT NOT NULL,
+      verification_status TEXT NOT NULL DEFAULT 'no_evidence'
+        CHECK (verification_status IN ('verified','likely_completed','likely_missed','no_evidence','exception','not_applicable')),
+      confidence_score  NUMERIC,
+      evidence_summary  TEXT,
+      created_at        TIMESTAMPTZ DEFAULT NOW()
+    )
+  `;
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS wste_evidence_items (
+      id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      organisation_id  UUID NOT NULL REFERENCES organisations(id),
+      service_event_id UUID NOT NULL REFERENCES wste_service_events(id),
+      evidence_type    TEXT NOT NULL
+        CHECK (evidence_type IN ('gps','rfid','lift_sensor','photo','video','driver_note','ticket','weighbridge','manual')),
+      evidence_url     TEXT,
+      description      TEXT,
+      timestamp        TIMESTAMPTZ,
+      metadata         JSONB DEFAULT '{}',
+      created_at       TIMESTAMPTZ DEFAULT NOW()
+    )
+  `;
+
+  await sql`CREATE INDEX IF NOT EXISTS idx_wste_assets_org          ON wste_assets(organisation_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_wste_assets_property     ON wste_assets(property_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_wste_planned_org         ON wste_planned_services(organisation_id, planned_date)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_wste_planned_property    ON wste_planned_services(property_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_wste_events_org          ON wste_service_events(organisation_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_wste_events_property     ON wste_service_events(property_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_wste_events_occurred     ON wste_service_events(occurred_at)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_wste_evidence_event      ON wste_evidence_items(service_event_id)`;
 
   // Indexes for fast org-scoped lookups
   await sql`CREATE INDEX IF NOT EXISTS idx_uploaded_files_org         ON uploaded_files(organisation_id)`;
@@ -339,6 +529,33 @@ export async function POST() {
   await sql`CREATE INDEX IF NOT EXISTS idx_metric_snapshots_org       ON metric_snapshots(organisation_id, module_key)`;
   await sql`CREATE INDEX IF NOT EXISTS idx_metric_snapshots_metric    ON metric_snapshots(metric_key)`;
   await sql`CREATE INDEX IF NOT EXISTS idx_metric_snapshots_period    ON metric_snapshots(period_start, period_end)`;
+
+  // 25. Onboarding progress — stores multi-step wizard state per org
+  await sql`
+    CREATE TABLE IF NOT EXISTS onboarding_progress (
+      id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      organisation_id UUID NOT NULL REFERENCES organisations(id),
+      user_id         UUID REFERENCES users(id),
+      current_step    INTEGER NOT NULL DEFAULT 1,
+      data            JSONB NOT NULL DEFAULT '{}',
+      completed       BOOLEAN NOT NULL DEFAULT false,
+      completed_at    TIMESTAMPTZ,
+      created_at      TIMESTAMPTZ DEFAULT NOW(),
+      updated_at      TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE (organisation_id)
+    )
+  `;
+  await sql`CREATE INDEX IF NOT EXISTS idx_onboarding_org ON onboarding_progress(organisation_id)`;
+
+  // 26. Department scoping — tag every waste_records row with its source department
+  await sql`ALTER TABLE waste_records ADD COLUMN IF NOT EXISTS department TEXT DEFAULT 'Waste'`;
+
+  // 27. Fleet metrics — operational tracking columns
+  await sql`ALTER TABLE fleet_metrics ADD COLUMN IF NOT EXISTS downtime_hours NUMERIC`;
+  await sql`ALTER TABLE fleet_metrics ADD COLUMN IF NOT EXISTS route_minutes  NUMERIC`;
+
+  // Back-fill: existing waste_records rows that predate the department column
+  await sql`UPDATE waste_records SET department = 'Waste' WHERE department IS NULL`;
 
   return NextResponse.json({ success: true, message: 'Migration complete.' });
 }

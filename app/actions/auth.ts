@@ -45,7 +45,7 @@ export async function login(prevState: LoginState, formData: FormData): Promise<
     user.role as Role,
     user.name as string,
   );
-  redirect('/dashboard/overview');
+  redirect('/dashboard');
 }
 
 export async function logout() {

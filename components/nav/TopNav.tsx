@@ -8,7 +8,6 @@ type Session = { role: string; name: string; avatarUrl?: string } | null;
 const FONT = 'var(--font-inter), "Inter", -apple-system, sans-serif';
 
 function NavLink({ href, children, active }: { href: string; children: React.ReactNode; active?: boolean }) {
-
   return (
     <Link
       href={href}
@@ -26,20 +25,56 @@ function NavLink({ href, children, active }: { href: string; children: React.Rea
   );
 }
 
-export default function TopNav({ serverSession }: { serverSession?: Session }) {
-  const [fetchedSession, setFetchedSession] = useState<Session>(null);
-  const pathname = usePathname();
+// ─── Logo ────────────────────────────────────────────────────────────────────
+function Logo() {
+  return (
+    <Link href="/" style={{ fontWeight: 700, fontSize: 14, color: '#F5F7FA', textDecoration: 'none', letterSpacing: '.04em', flexShrink: 0 }}>
+      BR<span style={{ color: '#A78BFA' }}>Λ</span>INBASE
+    </Link>
+  );
+}
 
-  useEffect(() => {
-    fetch('/api/me').then(r => r.ok ? r.json() : null).then(d => {
-      if (d?.role) setFetchedSession({ role: d.role, name: d.name, avatarUrl: d.profile?.avatar_url ?? undefined });
-    });
-  }, []);
+// ─── Marketing nav (unauthenticated) ─────────────────────────────────────────
+function PublicNav({ pathname }: { pathname: string }) {
+  return (
+    <nav style={{
+      height: 52, display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      padding: '0 28px', borderBottom: '1px solid rgba(255,255,255,.06)',
+      background: 'rgba(7,8,11,.92)', backdropFilter: 'blur(16px)',
+      position: 'sticky', top: 0, zIndex: 100, fontFamily: FONT,
+      flexShrink: 0,
+    }}>
+      <Logo />
 
-  const session = serverSession ?? fetchedSession;
+      <div style={{ display: 'flex', alignItems: 'center', gap: 24 }}>
+        <NavLink href="/#product" active={false}>Product</NavLink>
+        <NavLink href="/pricing" active={pathname.startsWith('/pricing')}>Pricing</NavLink>
+        <NavLink href="/demo" active={pathname.startsWith('/demo')}>Demo</NavLink>
 
-  if (!session) return null;
+        <div style={{ width: 1, height: 16, background: 'rgba(255,255,255,.10)' }} />
 
+        <NavLink href="/login" active={pathname === '/login'}>Login</NavLink>
+
+        <Link
+          href="/login"
+          style={{
+            fontSize: 13, fontWeight: 600, textDecoration: 'none',
+            background: 'linear-gradient(135deg, #6D28D9, #A78BFA)',
+            color: '#fff', padding: '6px 14px', borderRadius: 8,
+            letterSpacing: '.01em', transition: 'opacity .15s',
+          }}
+          onMouseEnter={e => (e.currentTarget.style.opacity = '0.88')}
+          onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
+        >
+          Get Started
+        </Link>
+      </div>
+    </nav>
+  );
+}
+
+// ─── Authenticated nav ────────────────────────────────────────────────────────
+function AppNav({ session, pathname }: { session: NonNullable<Session>; pathname: string }) {
   const { role, name, avatarUrl } = session;
   const isManager = ['manager', 'admin', 'super_admin'].includes(role);
   const isSuperAdmin = role === 'super_admin';
@@ -53,12 +88,8 @@ export default function TopNav({ serverSession }: { serverSession?: Session }) {
       position: 'sticky', top: 0, zIndex: 100, fontFamily: FONT,
       flexShrink: 0,
     }}>
-      {/* Logo */}
-      <Link href="/" style={{ fontWeight: 700, fontSize: 14, color: '#F5F7FA', textDecoration: 'none', letterSpacing: '.04em', flexShrink: 0 }}>
-        BR<span style={{ color: '#A78BFA' }}>Λ</span>INBASE
-      </Link>
+      <Logo />
 
-      {/* Links */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 22 }}>
         {isManager && (
           <NavLink href="/command" active={pathname.startsWith('/command')}>Command</NavLink>
@@ -66,6 +97,7 @@ export default function TopNav({ serverSession }: { serverSession?: Session }) {
 
         <NavLink href="/dashboard/overview" active={pathname === '/dashboard/overview'}>Overview</NavLink>
 
+        {/* HLNA wordmark link */}
         <NavLink href="/dashboard" active={pathname === '/dashboard'}>
           <svg width="46" height="14" viewBox="0 0 211 62" style={{ display: 'block' }} aria-label="HLNA">
             <g fill="rgba(245,247,250,0.9)">
@@ -83,7 +115,11 @@ export default function TopNav({ serverSession }: { serverSession?: Session }) {
           </svg>
         </NavLink>
 
-        <NavLink href="/dashboards" active={pathname.startsWith('/dashboards')}>Dashboards</NavLink>
+        <NavLink href="/dashboards" active={pathname.startsWith('/dashboards') && !pathname.startsWith('/dashboard/')}>Dashboards</NavLink>
+
+        {isManager && (
+          <NavLink href="/dashboard/wste" active={pathname.startsWith('/dashboard/wste')}>WSTe</NavLink>
+        )}
 
         {isManager && (
           <NavLink href="/crm" active={pathname.startsWith('/crm')}>CRM</NavLink>
@@ -99,6 +135,10 @@ export default function TopNav({ serverSession }: { serverSession?: Session }) {
 
         {isSuperAdmin && (
           <NavLink href="/admin/orgs" active={pathname.startsWith('/admin')}>Admin</NavLink>
+        )}
+
+        {isSuperAdmin && (
+          <NavLink href="/onboarding" active={pathname.startsWith('/onboarding')}>Setup</NavLink>
         )}
 
         <div style={{ width: 1, height: 16, background: 'rgba(255,255,255,.10)' }} />
@@ -153,4 +193,30 @@ export default function TopNav({ serverSession }: { serverSession?: Session }) {
       </div>
     </nav>
   );
+}
+
+// ─── Root component ───────────────────────────────────────────────────────────
+export default function TopNav({ serverSession }: { serverSession?: Session }) {
+  const [fetchedSession, setFetchedSession] = useState<Session>(undefined as unknown as Session);
+  const pathname = usePathname();
+
+  useEffect(() => {
+    fetch('/api/me').then(r => r.ok ? r.json() : null).then(d => {
+      if (d?.role) {
+        setFetchedSession({ role: d.role, name: d.name, avatarUrl: d.profile?.avatar_url ?? undefined });
+      } else {
+        setFetchedSession(null);
+      }
+    }).catch(() => setFetchedSession(null));
+  }, []);
+
+  // Use serverSession when available (SSR), fall back to fetchedSession (CSR)
+  const session = serverSession !== undefined ? serverSession : fetchedSession;
+
+  // Still resolving — render nothing to avoid flash
+  if (session === undefined) return null;
+
+  if (!session) return <PublicNav pathname={pathname} />;
+
+  return <AppNav session={session} pathname={pathname} />;
 }

@@ -1,5 +1,7 @@
 'use client';
 import { useEffect, useRef, useState, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
+import { useAppStore } from '@/lib/state/useAppStore';
 
 const BG    = '#07080B';
 const CARD  = '#0e1014';
@@ -43,6 +45,8 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 export default function DataClient({ canDelete }: { canDelete: boolean }) {
+  const router = useRouter();
+  const setLastUpload = useAppStore(s => s.setLastUpload);
   const [files, setFiles]               = useState<UploadedFile[]>([]);
   const [selectedFile, setSelectedFile] = useState<UploadedFile | null>(null);
   const [records, setRecords]           = useState<WasteRecord[]>([]);
@@ -55,10 +59,12 @@ export default function DataClient({ canDelete }: { canDelete: boolean }) {
   const [customPrompt, setCustomPrompt] = useState('');
   const [generating, setGenerating]     = useState(false);
   const [reportMsg, setReportMsg]       = useState<{ text: string; ok: boolean } | null>(null);
+  const [sessionExpired, setSessionExpired] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const loadFiles = useCallback(async () => {
     const res = await fetch('/api/files');
+    if (res.status === 401) { setSessionExpired(true); return; }
     if (res.ok) {
       const data = await res.json();
       setFiles(data.files ?? []);
@@ -74,9 +80,11 @@ export default function DataClient({ canDelete }: { canDelete: boolean }) {
     fd.append('file', file);
     try {
       const res = await fetch('/api/files/upload', { method: 'POST', body: fd });
+      if (res.status === 401) { setSessionExpired(true); return; }
       const data = await res.json();
       if (res.ok) {
         setUploadMsg({ text: `Uploaded "${data.fileName}" — ${data.recordsInserted} records inserted.`, ok: true });
+        setLastUpload(Date.now());
         await loadFiles();
       } else {
         setUploadMsg({ text: data.error ?? 'Upload failed.', ok: false });
@@ -141,6 +149,29 @@ export default function DataClient({ canDelete }: { canDelete: boolean }) {
     setDragging(false);
     const file = e.dataTransfer.files[0];
     if (file) handleUpload(file);
+  }
+
+  if (sessionExpired) {
+    return (
+      <div style={{ background: BG, minHeight: 'calc(100vh - 52px)', fontFamily: FONT, color: '#f9fafb', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ textAlign: 'center', maxWidth: 360 }}>
+          <div style={{ fontSize: 32, marginBottom: 16 }}>🔒</div>
+          <h2 style={{ fontSize: 18, fontWeight: 700, margin: '0 0 8px' }}>Session expired</h2>
+          <p style={{ color: '#6b7280', fontSize: 14, margin: '0 0 24px', lineHeight: 1.6 }}>
+            Your session is no longer valid. Log out and back in to continue.
+          </p>
+          <button
+            onClick={async () => {
+              await fetch('/api/auth/logout', { method: 'POST' });
+              router.push('/login');
+            }}
+            style={{ padding: '10px 24px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}
+          >
+            Log out and back in
+          </button>
+        </div>
+      </div>
+    );
   }
 
   return (

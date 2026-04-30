@@ -17,6 +17,7 @@ export const DB_SCHEMA = `
 PostgreSQL tables — ALL scoped by organisation_id (UUID):
 
 waste_records
+  department   TEXT          -- source department: 'Waste', 'Customer Complaints', etc. Default 'Waste'.
   service_type TEXT          -- e.g. 'General Waste', 'Recycling', 'Organics', 'Hard Waste'
   suburb       TEXT
   month        TEXT          -- short name: 'Jul','Aug','Sep','Oct','Nov','Dec','Jan','Feb','Mar','Apr','May','Jun'
@@ -25,25 +26,28 @@ waste_records
   collections  INTEGER
   contamination_rate NUMERIC -- percentage, e.g. 8.5
   cost         NUMERIC
+FILTER RULE: Always add "AND department = 'Waste'" when answering Waste dashboard questions.
 
 fleet_metrics
-  vehicle_id   TEXT          -- e.g. 'TRK-001'
-  vehicle_type TEXT
-  make         TEXT
-  year         INTEGER
-  department   TEXT
-  driver       TEXT
-  km           NUMERIC
-  wages        NUMERIC
-  fuel         NUMERIC
-  maintenance  NUMERIC
-  rego         NUMERIC
-  repairs      NUMERIC
-  insurance    NUMERIC
-  depreciation NUMERIC
-  services     INTEGER       -- service count
-  defects      INTEGER
-  month        TEXT
+  vehicle_id     TEXT        -- e.g. 'TRK003'
+  vehicle_type   TEXT        -- e.g. 'Rear Loader', 'Side Loader', 'Hook Truck'
+  make           TEXT
+  year           INTEGER
+  department     TEXT        -- vehicle's home department
+  driver         TEXT
+  km             NUMERIC     -- distance driven (km)
+  wages          NUMERIC
+  fuel           NUMERIC     -- fuel cost ($)
+  maintenance    NUMERIC     -- maintenance cost ($)
+  rego           NUMERIC
+  repairs        NUMERIC
+  insurance      NUMERIC
+  depreciation   NUMERIC
+  services       INTEGER     -- service count
+  defects        INTEGER     -- defect count (breakdowns/faults)
+  downtime_hours NUMERIC     -- hours vehicle was out of service
+  route_minutes  NUMERIC     -- total route time (minutes)
+  month          TEXT
   financial_year TEXT
 
 service_requests

@@ -9,10 +9,10 @@ const anthropic = new Anthropic();
 
 async function wasteSnapshot(oid: string): Promise<string | null> {
   try {
-    const [t, contam] = await Promise.all([
+    const [totals, monthRows, suburbCost, suburbContam] = await Promise.all([
       sql`
         SELECT
-          ROUND(SUM(cost))::bigint AS total_cost,
+          ROUND(SUM(cost))::bigint            AS total_cost,
           ROUND(AVG(contamination_rate)::numeric,1)::float AS avg_contamination,
           ROUND(SUM(tonnes)::numeric,0)::bigint AS total_tonnes,
           COUNT(CASE WHEN contamination_rate > 8 THEN 1 END)::int AS suburbs_over_threshold
@@ -25,44 +25,110 @@ async function wasteSnapshot(oid: string): Promise<string | null> {
         ORDER BY ARRAY_POSITION(ARRAY['Jul','Aug','Sep','Oct','Nov','Dec','Jan','Feb','Mar','Apr','May','Jun'], month) DESC
         LIMIT 2
       `,
+      sql`
+        SELECT suburb, ROUND(SUM(cost))::bigint AS cost
+        FROM waste_records WHERE organisation_id = ${oid}
+        GROUP BY suburb ORDER BY cost DESC LIMIT 3
+      `,
+      sql`
+        SELECT suburb, ROUND(AVG(contamination_rate)::numeric,1)::float AS contamination
+        FROM waste_records WHERE organisation_id = ${oid}
+        GROUP BY suburb ORDER BY contamination DESC LIMIT 3
+      `,
     ]);
-    const totals = t[0] ?? {};
-    if (!Number(totals.total_cost)) return null;
-    const [latest, prev] = contam as {month:string; cost:number}[];
+
+    const t = totals[0] ?? {};
+    if (!Number(t.total_cost)) return null;
+
+    const [latest, prev] = monthRows as { month: string; cost: number }[];
     const trend = latest && prev && Number(prev.cost) > 0
       ? `${Number(latest.cost) > Number(prev.cost) ? '+' : ''}${(((Number(latest.cost) - Number(prev.cost)) / Number(prev.cost)) * 100).toFixed(1)}% cost vs prev month`
       : null;
-    return `Waste & Recycling: $${Number(totals.total_cost).toLocaleString()} total cost, ${totals.total_tonnes?.toLocaleString()} tonnes, avg contamination ${totals.avg_contamination ?? '?'}% (target ≤8%), ${totals.suburbs_over_threshold ?? 0} suburbs over threshold.${trend ? ` Trend: ${trend}.` : ''}`;
+
+    const topCostSuburbs = (suburbCost as { suburb: string; cost: number }[])
+      .map(r => `${r.suburb} ($${Number(r.cost).toLocaleString()})`)
+      .join(', ');
+
+    const overThreshold = (suburbContam as { suburb: string; contamination: number }[])
+      .filter(r => Number(r.contamination) > 8)
+      .map(r => `${r.suburb} (${r.contamination}%)`)
+      .join(', ');
+
+    return [
+      `Waste & Recycling: $${Number(t.total_cost).toLocaleString()} total cost, ${t.total_tonnes?.toLocaleString()} tonnes, avg contamination ${t.avg_contamination ?? '?'}% (target ≤8%), ${t.suburbs_over_threshold ?? 0} suburbs over threshold.${trend ? ` Trend: ${trend}.` : ''}`,
+      topCostSuburbs ? `Top 3 suburbs by cost: ${topCostSuburbs}.` : '',
+      overThreshold   ? `Suburbs exceeding contamination threshold (>8%): ${overThreshold}.` : '',
+    ].filter(Boolean).join(' ');
   } catch { return null; }
 }
 
 async function fleetSnapshot(oid: string): Promise<string | null> {
   try {
-    const [t] = await sql`
-      SELECT
-        ROUND(SUM(fuel + maintenance + wages + repairs))::bigint AS total_cost,
-        SUM(defects)::int AS total_defects,
-        COUNT(DISTINCT vehicle_id)::int AS vehicle_count,
-        COUNT(CASE WHEN defects > 0 THEN 1 END)::int AS vehicles_with_defects
-      FROM fleet_metrics WHERE organisation_id = ${oid}
-    `;
-    if (!Number(t?.total_cost)) return null;
-    return `Fleet Management: $${Number(t.total_cost).toLocaleString()} total cost, ${t.vehicle_count} vehicles, ${t.total_defects} defects recorded, ${t.vehicles_with_defects} vehicles with active defects.`;
+    const [totals, topVehicles] = await Promise.all([
+      sql`
+        SELECT
+          ROUND(SUM(fuel + maintenance + wages + repairs))::bigint AS total_cost,
+          SUM(defects)::int AS total_defects,
+          COUNT(DISTINCT vehicle_id)::int AS vehicle_count,
+          COUNT(CASE WHEN defects > 0 THEN 1 END)::int AS vehicles_with_defects
+        FROM fleet_metrics WHERE organisation_id = ${oid}
+      `,
+      sql`
+        SELECT vehicle_id,
+          SUM(defects)::int AS defects,
+          ROUND(SUM(fuel + maintenance + wages + repairs))::bigint AS cost
+        FROM fleet_metrics WHERE organisation_id = ${oid}
+        GROUP BY vehicle_id
+        ORDER BY defects DESC, cost DESC LIMIT 3
+      `,
+    ]);
+
+    const t = totals[0] ?? {};
+    if (!Number(t.total_cost)) return null;
+
+    const vehicleList = (topVehicles as { vehicle_id: string; defects: number; cost: number }[])
+      .filter(v => Number(v.defects) > 0)
+      .map(v => `${v.vehicle_id} (${v.defects} defects, $${Number(v.cost).toLocaleString()})`)
+      .join(', ');
+
+    return [
+      `Fleet Management: $${Number(t.total_cost).toLocaleString()} total cost, ${t.vehicle_count} vehicles, ${t.total_defects} defects recorded, ${t.vehicles_with_defects} vehicles with active defects.`,
+      vehicleList ? `Highest-defect vehicles: ${vehicleList}.` : '',
+    ].filter(Boolean).join(' ');
   } catch { return null; }
 }
 
 async function srSnapshot(oid: string): Promise<string | null> {
   try {
-    const [t] = await sql`
-      SELECT
-        COUNT(*)::int AS total,
-        COUNT(CASE WHEN status='Open' THEN 1 END)::int AS open_count,
-        COUNT(CASE WHEN priority='High' AND status='Open' THEN 1 END)::int AS high_open,
-        ROUND(AVG(CASE WHEN status='Open' THEN days_open END)::numeric,1)::float AS avg_days_open
-      FROM service_requests WHERE organisation_id = ${oid}
-    `;
-    if (!Number(t?.total)) return null;
-    return `Service Requests: ${t.open_count} open (${t.high_open} high priority), avg ${t.avg_days_open ?? '?'} days open (target ≤7 days), ${t.total} total.`;
+    const [totals, topAreas] = await Promise.all([
+      sql`
+        SELECT
+          COUNT(*)::int AS total,
+          COUNT(CASE WHEN status='Open' THEN 1 END)::int AS open_count,
+          COUNT(CASE WHEN priority='High' AND status='Open' THEN 1 END)::int AS high_open,
+          ROUND(AVG(CASE WHEN status='Open' THEN days_open END)::numeric,1)::float AS avg_days_open
+        FROM service_requests WHERE organisation_id = ${oid}
+      `,
+      sql`
+        SELECT suburb,
+          COUNT(*)::int AS total,
+          COUNT(CASE WHEN priority='High' THEN 1 END)::int AS high
+        FROM service_requests WHERE organisation_id = ${oid} AND status='Open'
+        GROUP BY suburb ORDER BY total DESC LIMIT 3
+      `,
+    ]);
+
+    const t = totals[0] ?? {};
+    if (!Number(t.total)) return null;
+
+    const areaList = (topAreas as { suburb: string; total: number; high: number }[])
+      .map(r => `${r.suburb} (${r.total} open, ${r.high} high-priority)`)
+      .join(', ');
+
+    return [
+      `Service Requests: ${t.open_count} open (${t.high_open} high priority), avg ${t.avg_days_open ?? '?'} days open (target ≤7 days), ${t.total} total.`,
+      areaList ? `Highest complaint areas: ${areaList}.` : '',
+    ].filter(Boolean).join(' ');
   } catch { return null; }
 }
 
@@ -80,7 +146,6 @@ export async function POST() {
 
   const oid = session.organisationId;
 
-  // Discover enabled modules
   let moduleKeys: string[] = [];
   try {
     const rows = await sql`
@@ -93,7 +158,6 @@ export async function POST() {
     moduleKeys = ['waste_recycling', 'fleet_management', 'service_requests'];
   }
 
-  // Gather all available snapshots in parallel
   const snapResults = await Promise.all(
     moduleKeys
       .filter(k => MODULE_SNAPSHOTS[k])
@@ -116,22 +180,26 @@ export async function POST() {
         role: 'user',
         content: `You are an executive briefing system for a local government council operations platform.
 
-Data snapshot:
-${snapshots.join('\n')}
+Live data:
+${snapshots.map(s => `• ${s}`).join('\n')}
 
-Generate a structured executive briefing. EVERY briefing must follow this exact 4-part structure. Return valid JSON only (no markdown):
+Generate a structured 4-part executive briefing. Return valid JSON only (no markdown):
 {
   "lines": [
-    "WHAT CHANGED: [one sentence — the single most significant metric movement or status change. Be specific with numbers and direction.]",
-    "WHY: [one sentence — the most likely cause or driver of that change.]",
-    "RISK: [one sentence — what happens if nothing is done. Name the business consequence.]",
-    "ACTION: [one sentence — the single most important action to take right now. Be specific — name a location, vehicle, or team if relevant.]"
+    "WHAT CHANGED: one sentence — name the specific suburb or vehicle with the biggest movement and its exact metric.",
+    "WHY: one sentence — explain the cause, referencing the named entity above.",
+    "RISK: one sentence — state the business consequence if this specific entity is not addressed.",
+    "ACTION: one sentence — name the exact suburb, vehicle ID, or team to act on and the specific action required."
   ],
-  "urgentCount": number (0-5, count items where a threshold is breached or high-priority work is overdue),
-  "summary": "one sentence plain-English executive summary of the overall operations status"
+  "urgentCount": number (0-5, count threshold breaches or overdue high-priority items),
+  "summary": "one sentence plain-English summary naming the single most critical entity"
 }
 
-Rules: plain business language. No jargon. No hedging. Each line must be under 20 words. Use actual numbers from the data.`,
+HARD RULES — output will be rejected if violated:
+• Every sentence MUST contain at least one specific name (suburb name, vehicle ID, or area name).
+• BANNED phrases: "overall", "across the region", "in general", "multiple areas", "several suburbs", "various locations", "generally speaking".
+• Use exact numbers from the data — no rounding to vague terms.
+• Each line must be under 20 words.`,
       }],
     });
 

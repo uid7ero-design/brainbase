@@ -117,6 +117,25 @@ export const HLNA_MODULES: Record<string, HlnaModule> = {
     ],
     actions: ['open_dashboard', 'highlight_metric', 'generate_report', 'navigate'],
   },
+
+  wste: {
+    key: 'wste',
+    name: 'WSTe',
+    industry: 'Local Government',
+    tables: ['wste_runs', 'wste_vehicles', 'wste_gps_points', 'wste_waste_tickets', 'wste_exceptions', 'wste_service_verifications', 'wste_service_events', 'wste_assets', 'wste_planned_services', 'wste_evidence_items'],
+    kpis: ['gps_points', 'vehicles_tracked', 'runs_analysed', 'tickets_matched', 'exceptions_count', 'verification_rate', 'completion_pct'],
+    vocabulary: ['GPS', 'route', 'run', 'truck pass', 'service verification', 'ticket match', 'exception', 'missed service', 'GPS gap', 'address lookup', 'vehicle', 'depot', 'driver', 'completion rate', 'suburb', 'bin lift', 'RFID', 'FOGO', 'organics', 'recycling', 'hard waste', 'street sweeping', 'bin maintenance', 'evidence', 'confidence score'],
+    questions: [
+      'How many exceptions are open today?',
+      'Which vehicle has the most missed services?',
+      'Verify service for this address',
+      'Summarise service verification performance this week',
+      'Which suburb has the highest exception rate?',
+      'Are all routes completing above 95%?',
+      'What evidence exists for this property?',
+    ],
+    actions: ['open_dashboard', 'highlight_metric', 'generate_report', 'navigate', 'address_lookup'],
+  },
 };
 
 export function getModule(key: string): HlnaModule | null {

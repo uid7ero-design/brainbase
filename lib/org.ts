@@ -34,7 +34,7 @@ export async function requireSession(): Promise<OrgSession> {
   if (!session?.organisationId) throw new Error('Unauthorized');
 
   const rows = await sql`
-    SELECT id, organisation_id, role, email_verified, email
+    SELECT id, organisation_id, role
     FROM users
     WHERE id = ${session.userId}
     LIMIT 1
