@@ -3,6 +3,7 @@ import { Geist, Geist_Mono, Inter } from "next/font/google";
 import "./globals.css";
 import TopNav from "@/components/nav/TopNav";
 import { getSession } from "@/lib/session";
+import sql from "@/lib/db";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -31,7 +32,15 @@ export default async function RootLayout({
   children: React.ReactNode;
 }>) {
   const session = await getSession();
-  const serverSession = session ? { role: session.role, name: session.name } : null;
+  let serverSession: { role: string; name: string; avatarUrl?: string } | null = null;
+  if (session) {
+    let avatarUrl: string | undefined;
+    try {
+      const [row] = await sql`SELECT avatar_url FROM users WHERE id = ${session.userId} LIMIT 1`;
+      avatarUrl = (row?.avatar_url as string) || undefined;
+    } catch { /* pre-migration — no column yet */ }
+    serverSession = { role: session.role, name: session.name, avatarUrl };
+  }
 
   return (
     <html

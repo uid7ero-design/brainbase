@@ -63,27 +63,25 @@ export async function PUT(req: NextRequest) {
     job_title, department, phone, timezone, preferences,
   } = updates as Partial<Record<typeof ALLOWED_FIELDS[number], unknown>>;
 
-  await sql`
-    UPDATE users SET
-      first_name   = COALESCE(${first_name as string ?? null}, first_name),
-      last_name    = COALESCE(${last_name as string ?? null}, last_name),
-      display_name = COALESCE(${display_name as string ?? null}, display_name),
-      avatar_url   = COALESCE(${avatar_url as string ?? null}, avatar_url),
-      bio          = COALESCE(${bio as string ?? null}, bio),
-      job_title    = COALESCE(${job_title as string ?? null}, job_title),
-      department   = COALESCE(${department as string ?? null}, department),
-      phone        = COALESCE(${phone as string ?? null}, phone),
-      timezone     = COALESCE(${timezone as string ?? null}, timezone),
-      preferences  = COALESCE(${preferences != null ? JSON.stringify(preferences) : null}::jsonb, preferences)
-    WHERE id = ${session.userId}
-  `;
-
-  const [updated] = await sql`
-    SELECT
-      first_name, last_name, display_name, avatar_url, bio,
-      job_title, department, phone, timezone, preferences
-    FROM users WHERE id = ${session.userId}
-  `;
-
-  return NextResponse.json({ success: true, user: updated });
+  try {
+    await sql`
+      UPDATE users SET
+        first_name   = COALESCE(${(first_name as string) ?? null}, first_name),
+        last_name    = COALESCE(${(last_name as string) ?? null}, last_name),
+        display_name = COALESCE(${(display_name as string) ?? null}, display_name),
+        avatar_url   = COALESCE(${(avatar_url as string) ?? null}, avatar_url),
+        bio          = COALESCE(${(bio as string) ?? null}, bio),
+        job_title    = COALESCE(${(job_title as string) ?? null}, job_title),
+        department   = COALESCE(${(department as string) ?? null}, department),
+        phone        = COALESCE(${(phone as string) ?? null}, phone),
+        timezone     = COALESCE(${(timezone as string) ?? null}, timezone),
+        preferences  = COALESCE(${preferences != null ? JSON.stringify(preferences) : null}::jsonb, preferences),
+        updated_at   = NOW()
+      WHERE id = ${session.userId}
+    `;
+    return NextResponse.json({ success: true });
+  } catch (err) {
+    console.error('[account/profile PUT]', err);
+    return NextResponse.json({ error: String((err as Error).message ?? 'Save failed') }, { status: 500 });
+  }
 }

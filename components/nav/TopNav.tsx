@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
-type Session = { role: string; name: string } | null;
+type Session = { role: string; name: string; avatarUrl?: string } | null;
 
 const FONT = 'var(--font-inter), "Inter", -apple-system, sans-serif';
 
@@ -32,7 +32,7 @@ export default function TopNav({ serverSession }: { serverSession?: Session }) {
 
   useEffect(() => {
     fetch('/api/me').then(r => r.ok ? r.json() : null).then(d => {
-      if (d?.role) setFetchedSession(d);
+      if (d?.role) setFetchedSession({ role: d.role, name: d.name, avatarUrl: d.profile?.avatar_url ?? undefined });
     });
   }, []);
 
@@ -40,10 +40,10 @@ export default function TopNav({ serverSession }: { serverSession?: Session }) {
 
   if (!session) return null;
 
-  const { role, name } = session;
+  const { role, name, avatarUrl } = session;
   const isManager = ['manager', 'admin', 'super_admin'].includes(role);
   const isSuperAdmin = role === 'super_admin';
-  const firstName = name.split(' ')[0];
+  const initials = name.split(' ').map((p: string) => p[0]).join('').slice(0, 2).toUpperCase();
 
   return (
     <nav style={{
@@ -104,23 +104,23 @@ export default function TopNav({ serverSession }: { serverSession?: Session }) {
         <div style={{ width: 1, height: 16, background: 'rgba(255,255,255,.10)' }} />
 
         <Link
-          href="/profile"
+          href="/account/profile"
           style={{
             display: 'flex', alignItems: 'center', gap: 8,
             textDecoration: 'none', padding: '4px 8px 4px 4px',
             borderRadius: 20, transition: 'background .15s',
-            background: pathname === '/profile' ? 'rgba(167,139,250,.12)' : 'transparent',
+            background: pathname.startsWith('/account/profile') ? 'rgba(167,139,250,.12)' : 'transparent',
             border: '1px solid',
-            borderColor: pathname === '/profile' ? 'rgba(167,139,250,.25)' : 'transparent',
+            borderColor: pathname.startsWith('/account/profile') ? 'rgba(167,139,250,.25)' : 'transparent',
           }}
           onMouseEnter={e => {
-            if (pathname !== '/profile') {
+            if (!pathname.startsWith('/account/profile')) {
               e.currentTarget.style.background = 'rgba(255,255,255,.06)';
               e.currentTarget.style.borderColor = 'rgba(255,255,255,.08)';
             }
           }}
           onMouseLeave={e => {
-            if (pathname !== '/profile') {
+            if (!pathname.startsWith('/account/profile')) {
               e.currentTarget.style.background = 'transparent';
               e.currentTarget.style.borderColor = 'transparent';
             }
@@ -128,15 +128,18 @@ export default function TopNav({ serverSession }: { serverSession?: Session }) {
         >
           <div style={{
             width: 26, height: 26, borderRadius: '50%',
-            background: 'linear-gradient(135deg, #6D28D9, #A78BFA)',
+            background: avatarUrl ? 'transparent' : 'linear-gradient(135deg, #6D28D9, #A78BFA)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             fontSize: 11, fontWeight: 700, color: '#fff', flexShrink: 0,
-            letterSpacing: '.02em',
+            letterSpacing: '.02em', overflow: 'hidden',
           }}>
-            {name.split(' ').map((p: string) => p[0]).join('').slice(0, 2).toUpperCase()}
+            {avatarUrl
+              // eslint-disable-next-line @next/next/no-img-element
+              ? <img src={avatarUrl} alt="avatar" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              : initials}
           </div>
           <span style={{ fontSize: 13, fontWeight: 500, color: 'rgba(245,247,250,.75)' }}>
-            {firstName}
+            Profile
           </span>
         </Link>
 
