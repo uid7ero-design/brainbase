@@ -132,10 +132,76 @@ async function srSnapshot(oid: string): Promise<string | null> {
   } catch { return null; }
 }
 
+async function tennisWeatherLine(): Promise<string> {
+  try {
+    const res = await fetch(
+      'https://api.open-meteo.com/v1/forecast?latitude=-34.93&longitude=138.60&daily=precipitation_probability_max&timezone=Australia%2FAdelaide&forecast_days=7',
+      { next: { revalidate: 3600 } },
+    );
+    const data = await res.json() as { daily: { time: string[]; precipitation_probability_max: number[] } };
+    const days = data.daily.time.map((d, i) => ({
+      label: i === 0 ? 'today' : i === 1 ? 'tomorrow' : new Date(d + 'T12:00:00').toLocaleDateString('en-AU', { weekday: 'short' }),
+      rain:  Math.round(data.daily.precipitation_probability_max[i] ?? 0),
+    }));
+    const rainDays  = days.filter(d => d.rain > 60);
+    const clearDays = days.filter(d => d.rain < 30);
+    if (rainDays.length > 0) {
+      return `Weather: ${rainDays.length} day${rainDays.length > 1 ? 's' : ''} with high rain risk this week (${rainDays.map(d => `${d.label} ${d.rain}%`).join(', ')}). ${clearDays.length} clear day${clearDays.length !== 1 ? 's' : ''} available for sessions.`;
+    }
+    return `Weather: Clear conditions all week — ${clearDays.length} of 7 days with <30% rain chance. Good opportunity to push bookings.`;
+  } catch {
+    return '';
+  }
+}
+
+async function tennisSnapshot(oid: string): Promise<string | null> {
+  try {
+    const [contactStats, attentionRows, leadsRows, weatherLine] = await Promise.all([
+      sql`
+        SELECT
+          COUNT(*)::int AS total,
+          COUNT(CASE WHEN status = 'active'   THEN 1 END)::int AS active_count,
+          COUNT(CASE WHEN status = 'lead'     THEN 1 END)::int AS lead_count,
+          COUNT(CASE WHEN status = 'inactive' THEN 1 END)::int AS inactive_count,
+          COUNT(CASE WHEN status != 'inactive' AND (last_contacted_at IS NULL OR last_contacted_at < NOW() - INTERVAL '7 days') THEN 1 END)::int AS needs_attention
+        FROM contacts WHERE organisation_id = ${oid}
+      `,
+      sql`
+        SELECT name, last_contacted_at
+        FROM contacts
+        WHERE organisation_id = ${oid}
+          AND status != 'inactive'
+          AND (last_contacted_at IS NULL OR last_contacted_at < NOW() - INTERVAL '7 days')
+        ORDER BY last_contacted_at ASC NULLS FIRST
+        LIMIT 3
+      `,
+      sql`
+        SELECT COUNT(*)::int AS pending FROM tennis_leads
+        WHERE organisation_id = ${oid} AND status = 'new'
+      `,
+      tennisWeatherLine(),
+    ]);
+
+    const t = contactStats[0] ?? {};
+    if (!Number(t.total)) return null;
+
+    const attention    = (attentionRows as { name: string; last_contacted_at: string | null }[]).map(r => r.name).join(', ');
+    const pendingLeads = Number((leadsRows[0] as { pending: number })?.pending ?? 0);
+
+    return [
+      `Tennis Contacts: ${t.total} total — ${t.active_count} active, ${t.lead_count} leads, ${t.inactive_count} inactive. ${t.needs_attention} contact${t.needs_attention !== 1 ? 's' : ''} need${t.needs_attention === 1 ? 's' : ''} attention (not contacted in 7+ days).`,
+      attention    ? `Overdue follow-ups: ${attention}.` : '',
+      pendingLeads > 0 ? `${pendingLeads} new lead${pendingLeads !== 1 ? 's' : ''} awaiting review.` : '',
+      weatherLine,
+    ].filter(Boolean).join(' ');
+  } catch { return null; }
+}
+
 const MODULE_SNAPSHOTS: Record<string, (oid: string) => Promise<string | null>> = {
-  waste_recycling:  wasteSnapshot,
-  fleet_management: fleetSnapshot,
-  service_requests: srSnapshot,
+  waste_recycling:   wasteSnapshot,
+  fleet_management:  fleetSnapshot,
+  service_requests:  srSnapshot,
+  ld_tennis:         tennisSnapshot,
 };
 
 // ─── Route handler ─────────────────────────────────────────────────────────────
@@ -147,15 +213,20 @@ export async function POST() {
   const oid = session.organisationId;
 
   let moduleKeys: string[] = [];
-  try {
-    const rows = await sql`
-      SELECT m.key FROM organisation_modules om
-      JOIN modules m ON m.id = om.module_id
-      WHERE om.organisation_id = ${oid} AND om.enabled = true
-    `;
-    moduleKeys = rows.map(r => r.key as string);
-  } catch {
-    moduleKeys = ['waste_recycling', 'fleet_management', 'service_requests'];
+  const ldTennisOrgId = process.env.LD_TENNIS_ORG_ID;
+  if (ldTennisOrgId && oid === ldTennisOrgId) {
+    moduleKeys = ['ld_tennis'];
+  } else {
+    try {
+      const rows = await sql`
+        SELECT m.key FROM organisation_modules om
+        JOIN modules m ON m.id = om.module_id
+        WHERE om.organisation_id = ${oid} AND om.enabled = true
+      `;
+      moduleKeys = rows.map(r => r.key as string);
+    } catch {
+      moduleKeys = ['waste_recycling', 'fleet_management', 'service_requests'];
+    }
   }
 
   const snapResults = await Promise.all(
@@ -173,12 +244,25 @@ export async function POST() {
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
 
   try {
+    const isTennis = moduleKeys.includes('ld_tennis');
+    const systemContext = isTennis
+      ? 'You are a coaching business briefing assistant for a tennis coach. Focus on client follow-ups, new leads, and session management.'
+      : 'You are an executive briefing system for a local government council operations platform.';
+
+    const actionGuide = isTennis
+      ? '"ACTION: one sentence — name the specific client or lead to contact and the exact next step (call, email, book session)."'
+      : '"ACTION: one sentence — name the exact suburb, vehicle ID, or team to act on and the specific action required."';
+
+    const whatChangedGuide = isTennis
+      ? '"WHAT CHANGED: one sentence — state the most pressing follow-up need with exact numbers (e.g. how many overdue, who is waiting)."'
+      : '"WHAT CHANGED: one sentence — name the specific suburb or vehicle with the biggest movement and its exact metric."';
+
     const resp = await anthropic.messages.create({
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 500,
       messages: [{
         role: 'user',
-        content: `You are an executive briefing system for a local government council operations platform.
+        content: `${systemContext}
 
 Live data:
 ${snapshots.map(s => `• ${s}`).join('\n')}
@@ -186,19 +270,18 @@ ${snapshots.map(s => `• ${s}`).join('\n')}
 Generate a structured 4-part executive briefing. Return valid JSON only (no markdown):
 {
   "lines": [
-    "WHAT CHANGED: one sentence — name the specific suburb or vehicle with the biggest movement and its exact metric.",
-    "WHY: one sentence — explain the cause, referencing the named entity above.",
-    "RISK: one sentence — state the business consequence if this specific entity is not addressed.",
-    "ACTION: one sentence — name the exact suburb, vehicle ID, or team to act on and the specific action required."
+    ${whatChangedGuide},
+    "WHY: one sentence — explain the cause or context.",
+    "RISK: one sentence — state the business consequence if not addressed.",
+    ${actionGuide}
   ],
-  "urgentCount": number (0-5, count threshold breaches or overdue high-priority items),
-  "summary": "one sentence plain-English summary naming the single most critical entity"
+  "urgentCount": number (0-5, count of overdue contacts or high-priority items),
+  "summary": "one sentence plain-English summary of the single most critical item"
 }
 
 HARD RULES — output will be rejected if violated:
-• Every sentence MUST contain at least one specific name (suburb name, vehicle ID, or area name).
-• BANNED phrases: "overall", "across the region", "in general", "multiple areas", "several suburbs", "various locations", "generally speaking".
 • Use exact numbers from the data — no rounding to vague terms.
+• BANNED phrases: "overall", "in general", "multiple areas", "several", "various", "generally speaking".
 • Each line must be under 20 words.`,
       }],
     });
