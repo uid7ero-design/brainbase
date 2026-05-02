@@ -6,12 +6,43 @@ import { readConfig } from '../../../lib/brain/config';
 import { requireSession } from '../../../lib/org';
 import { DB_SCHEMA, executeQuery, formatQueryResult } from '../../../lib/hlna/dataEngine';
 import { buildModuleContext } from '../../../lib/hlna/modules';
+import { route as routeToAgent } from '@/lib/agents/agentRouter';
+import * as insightAgent   from '@/lib/agents/insightAgent';
+import * as actionAgent    from '@/lib/agents/actionAgent';
+import * as briefingAgent  from '@/lib/agents/briefingAgent';
+import * as socialAgent    from '@/lib/agents/socialAgent';
+import type { AgentOutput } from '@/lib/agents/types';
+import sql from '@/lib/db';
 
 const OLLAMA_URL   = process.env.OLLAMA_URL   || 'http://localhost:11434';
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'llama3';
 const anthropicClient = new Anthropic();
 
-// ─── System prompt ────────────────────────────────────────────────────────────
+const LD_TENNIS_ORG_ID = process.env.LD_TENNIS_ORG_ID ?? '';
+
+// ─── System prompts ───────────────────────────────────────────────────────────
+
+const TENNIS_SYSTEM = `You are an AI assistant for a tennis coaching business.
+
+You ONLY work with:
+- leads
+- contacts
+- bookings
+
+You DO NOT reference:
+- waste data
+- fleet data
+- council operations
+
+Your job is to help the coach manage clients and grow their business.
+
+Examples of what you help with:
+- "How many new clients this week?"
+- "Who needs follow-up?"
+- "Show recent leads"
+- "Which session types are most popular?"
+
+Always base answers on available data. If data is missing, say so clearly.`;
 
 const SYSTEM = `You are Helena — a sophisticated AI assistant for Brainbase, a voice-first executive command centre for municipal council operations.
 
@@ -204,6 +235,16 @@ function buildSystem(
   orgId?: string, moduleKey?: string, userContext?: string, viewMode?: string,
   department?: string,
 ): string {
+  const isLDTennis = !!orgId && LD_TENNIS_ORG_ID && orgId === LD_TENNIS_ORG_ID;
+  console.log('HLNA orgId:', orgId);
+  console.log('Using prompt:', isLDTennis ? 'TENNIS' : 'DEFAULT');
+
+  if (isLDTennis) {
+    let s = TENNIS_SYSTEM;
+    if (memoryContext?.trim()) s += `\n\n[Memory]\n${memoryContext}`;
+    return s;
+  }
+
   let s = SYSTEM;
   if (moduleKey?.trim()) {
     const ctx = buildModuleContext(moduleKey);
@@ -279,7 +320,7 @@ async function callClaude(
     memoryContext, spotifyContext, brainContext,
     taskContext, calendarContext, dashboardContext, orgId, moduleKey, userContext, viewMode, department,
   );
-  const tools = orgId ? buildDataTools(orgId) : undefined;
+  const tools = (orgId && !(LD_TENNIS_ORG_ID && orgId === LD_TENNIS_ORG_ID)) ? buildDataTools(orgId) : undefined;
 
   type MsgParam = Anthropic.Messages.MessageParam;
   let msgs: MsgParam[] = messages.slice(-14).map(m => ({
@@ -389,6 +430,56 @@ async function getBrainContext(query: string): Promise<string> {
   }
 }
 
+// ─── Audit logging ────────────────────────────────────────────────────────────
+
+function logAgentRun(
+  organisationId: string,
+  userId: string | undefined,
+  agentName: string,
+  routeType: string,
+  inputQuery: string,
+  confidence: number,
+  sourceRows: number,
+): void {
+  sql`
+    INSERT INTO agent_runs (organisation_id, user_id, agent_name, route_type, input_query, confidence, source_rows)
+    VALUES (
+      ${organisationId}::uuid,
+      ${userId ?? null}::uuid,
+      ${agentName},
+      ${routeType},
+      ${inputQuery},
+      ${confidence},
+      ${sourceRows}
+    )
+  `.catch(err => console.warn('[AgentRun log]', (err as Error).message));
+}
+
+// ─── Specialist agent dispatch ────────────────────────────────────────────────
+
+function agentOutputToHelena(out: AgentOutput): string {
+  // Format AgentOutput as the JSON string Helena normally returns
+  const spokenSummary = [
+    out.summary,
+    out.findings.slice(0, 3).join(' '),
+    out.recommendedActions.length
+      ? `Recommended: ${out.recommendedActions[0]}`
+      : '',
+  ].filter(Boolean).join(' ');
+
+  return JSON.stringify({
+    response:      spokenSummary.slice(0, 600),
+    intent:        'answer',
+    action:        'none',
+    target:        'none',
+    memory_update: null,
+    agentName:     out.agentName,
+    confidence:    out.confidence,
+    findings:      out.findings,
+    warnings:      out.warnings,
+  });
+}
+
 // ─── Route handler ────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
@@ -408,10 +499,12 @@ export async function POST(req: NextRequest) {
 
   // Resolve org + user context — graceful if unauthenticated
   let orgId: string | undefined;
+  let userId: string | undefined;
   let userContext: string | undefined;
   try {
     const session = await requireSession();
     orgId       = session.organisationId;
+    userId      = session.userId;
     userContext = `Role: ${session.role}, Name: ${session.name}`;
   } catch { /* not logged in — HLNA works without DB access */ }
 
@@ -421,6 +514,38 @@ export async function POST(req: NextRequest) {
     getBrainContext(lastUserMsg),
     new Promise<string>(resolve => setTimeout(() => resolve(''), 150)),
   ]);
+
+  // Agent routing — dispatch to specialist agents for data-heavy queries (not for LD Tennis)
+  if (orgId && lastUserMsg && !(LD_TENNIS_ORG_ID && orgId === LD_TENNIS_ORG_ID)) {
+    try {
+      const routeResult = await routeToAgent({ organisationId: orgId, userId: '', query: lastUserMsg });
+      if (routeResult.agent !== 'chat') {
+        const agentInput = { organisationId: orgId, userId: '', department, query: lastUserMsg };
+        let agentOut: AgentOutput | null = null;
+        if (routeResult.agent === 'insight')  agentOut = await insightAgent.run(agentInput);
+        if (routeResult.agent === 'action')   agentOut = await actionAgent.run(agentInput);
+        if (routeResult.agent === 'briefing') agentOut = await briefingAgent.run(agentInput);
+        if (routeResult.agent === 'social')   agentOut = await socialAgent.run(agentInput);
+        if (agentOut) {
+          logAgentRun(orgId, userId, agentOut.agentName, routeResult.agent, lastUserMsg, agentOut.confidence, agentOut.sourceRows.length);
+          const agentRaw = agentOutputToHelena(agentOut);
+          return Response.json({
+            ...parseResponse(agentRaw),
+            source:     agentOut.agentName,
+            agentName:  agentOut.agentName,
+            routeType:  routeResult.agent,
+            confidence: agentOut.confidence,
+            findings:   agentOut.findings,
+            warnings:   agentOut.warnings,
+            evidence:   agentOut.evidence ?? null,
+            analysis:   null,
+          });
+        }
+      }
+    } catch (agentErr) {
+      console.warn('[Helena] Agent routing failed, falling back to Claude:', (agentErr as Error).message);
+    }
+  }
 
   let raw = '';
   let source = 'claude';

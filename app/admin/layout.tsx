@@ -17,6 +17,8 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         <nav style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 2, padding: '0 8px' }}>
           <a href="/admin/orgs" style={navLink}>Organisations</a>
           <a href="/admin/users" style={navLink}>Users</a>
+          <a href="/admin/agent-runs" style={navLink}>Agent Runs</a>
+          <a href="/admin/agent-test" style={navLink}>Agent Test</a>
         </nav>
 
         <div style={{ padding: '24px 20px 0', display: 'flex', flexDirection: 'column', gap: 10 }}>

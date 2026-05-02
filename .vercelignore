@@ -1,0 +1,11 @@
+node_modules
+.next
+.git
+Dr Soong
+Clients
+.brainbase
+public/avatars
+coverage
+*.log
+*.pem
+.env*

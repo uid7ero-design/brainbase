@@ -334,7 +334,18 @@ export function useHelena() {
 
       setMessages(prev => [...prev, {
         role: 'assistant', content: data.response,
-        meta: { intent: data.intent, action: data.action, source: data.source, analysis: data.analysis ?? null },
+        meta: {
+          intent:     data.intent,
+          action:     data.action,
+          source:     data.source,
+          analysis:   data.analysis   ?? null,
+          agentName:  data.agentName  ?? null,
+          routeType:  data.routeType  ?? null,
+          confidence: data.confidence ?? null,
+          findings:   data.findings   ?? [],
+          warnings:   data.warnings   ?? [],
+          evidence:   data.evidence   ?? null,
+        },
       }]);
 
       speak(data.response);

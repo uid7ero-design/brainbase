@@ -45,7 +45,12 @@ export async function login(prevState: LoginState, formData: FormData): Promise<
     user.role as Role,
     user.name as string,
   );
-  redirect('/dashboard');
+
+  const ldTennisOrgId = process.env.LD_TENNIS_ORG_ID ?? '';
+  const landingRoute = (ldTennisOrgId && user.organisation_id === ldTennisOrgId)
+    ? '/dashboard/leads'
+    : '/dashboard';
+  redirect(landingRoute);
 }
 
 export async function logout() {

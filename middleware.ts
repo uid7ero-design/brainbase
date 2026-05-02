@@ -12,7 +12,9 @@ const PUBLIC = [
   '/pricing',
   '/demo',
   '/',
+  '/tennis',
   '/api/auth',   // all /api/auth/* routes are public
+  '/api/lead',
 ];
 
 export async function middleware(req: NextRequest) {

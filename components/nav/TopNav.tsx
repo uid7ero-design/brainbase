@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
@@ -7,7 +7,7 @@ type Session = { role: string; name: string; avatarUrl?: string } | null;
 
 const FONT = 'var(--font-inter), "Inter", -apple-system, sans-serif';
 
-// ─── Shared pill nav item ─────────────────────────────────────────────────────
+// â”€â”€â”€ Shared pill nav item â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function NavItem({ href, label, active }: { href: string; label: string; active: boolean }) {
   return (
     <Link
@@ -38,7 +38,7 @@ function NavItem({ href, label, active }: { href: string; label: string; active:
   );
 }
 
-// ─── HLNA hero item ───────────────────────────────────────────────────────────
+// â”€â”€â”€ HLNA hero item â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function HlnaItem({ active }: { active: boolean }) {
   return (
     <Link
@@ -89,11 +89,102 @@ function HlnaItem({ active }: { active: boolean }) {
   );
 }
 
-// ─── Operations dropdown ──────────────────────────────────────────────────────
+// â”€â”€â”€ Operations dropdown â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+const TENNIS_ITEMS = [
+  { label: 'Leads',    href: '/dashboard/leads',    description: 'Booking requests from ldtennis.com.au' },
+  { label: 'Contacts', href: '/dashboard/contacts', description: 'Contact management & status tracking' },
+];
+
+function TennisDropdown({ pathname }: { pathname: string }) {
+  const [open, setOpen] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const isActive = TENNIS_ITEMS.some(item => pathname.startsWith(item.href));
+
+  function handleEnter() {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    setOpen(true);
+  }
+  function handleLeave() {
+    timerRef.current = setTimeout(() => setOpen(false), 140);
+  }
+
+  return (
+    <div style={{ position: 'relative' }} onMouseEnter={handleEnter} onMouseLeave={handleLeave}>
+      <button
+        style={{
+          display: 'flex', alignItems: 'center', gap: 5,
+          fontSize: 13, fontWeight: 500, letterSpacing: '-0.01em',
+          padding: '5px 10px', borderRadius: 7,
+          color: isActive ? '#C4B5FD' : open ? 'rgba(255,255,255,.85)' : 'rgba(255,255,255,.45)',
+          background: isActive ? 'rgba(139,92,246,.10)' : open ? 'rgba(255,255,255,.05)' : 'transparent',
+          border: `1px solid ${isActive ? 'rgba(139,92,246,.22)' : 'transparent'}`,
+          cursor: 'pointer', fontFamily: FONT,
+          transition: 'color .14s, background .14s',
+          whiteSpace: 'nowrap',
+        }}
+      >
+        Tennis
+        <svg
+          width="10" height="6" viewBox="0 0 10 6" fill="none"
+          style={{ opacity: 0.45, transform: open ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform .18s' }}
+        >
+          <path d="M1 1L5 5L9 1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
+      </button>
+
+      {open && (
+        <div style={{
+          position: 'absolute', top: 'calc(100% + 10px)', left: 0,
+          background: 'rgba(7,5,16,.98)',
+          border: '1px solid rgba(255,255,255,.09)',
+          borderRadius: 11, padding: 5, minWidth: 220,
+          boxShadow: '0 12px 40px rgba(0,0,0,.55), 0 0 0 1px rgba(255,255,255,.04)',
+          zIndex: 200,
+        }}>
+          <div style={{
+            position: 'absolute', top: -5, left: 18,
+            width: 8, height: 8,
+            background: 'rgba(7,5,16,.98)',
+            border: '1px solid rgba(255,255,255,.09)',
+            borderRight: 'none', borderBottom: 'none',
+            transform: 'rotate(45deg)',
+          }} />
+          {TENNIS_ITEMS.map(item => {
+            const itemActive = pathname.startsWith(item.href);
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                style={{
+                  display: 'flex', flexDirection: 'column', gap: 2,
+                  padding: '9px 13px', borderRadius: 8, textDecoration: 'none',
+                  background: itemActive ? 'rgba(139,92,246,.10)' : 'transparent',
+                  transition: 'background .12s',
+                }}
+                onMouseEnter={e => { if (!itemActive) e.currentTarget.style.background = 'rgba(255,255,255,.05)'; }}
+                onMouseLeave={e => { if (!itemActive) e.currentTarget.style.background = 'transparent'; }}
+              >
+                <span style={{ fontSize: 13, fontWeight: 500, letterSpacing: '-0.01em', color: itemActive ? '#C4B5FD' : 'rgba(255,255,255,.80)' }}>
+                  {item.label}
+                </span>
+                <span style={{ fontSize: 11, color: 'rgba(255,255,255,.30)', lineHeight: 1.4 }}>
+                  {item.description}
+                </span>
+              </Link>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 const OPS_ITEMS = [
-  { label: 'Waste',    href: '/dashboard/wste', description: 'Service verification & tracking' },
-  { label: 'Fleet',    href: '/dashboard/fleet', description: 'Asset lifecycle & cost analysis' },
-  { label: 'CRM',      href: '/crm',             description: 'Companies, contacts & deals' },
+  { label: 'Waste',    href: '/dashboard/wste',   description: 'Service verification & tracking' },
+  { label: 'Fleet',    href: '/dashboard/fleet',  description: 'Asset lifecycle & cost analysis' },
+  { label: 'Social',   href: '/dashboard/social', description: 'Instagram intelligence & sentiment' },
+  { label: 'CRM',      href: '/crm',              description: 'Companies, contacts & deals' },
 ];
 
 function OpsDropdown({ pathname }: { pathname: string }) {
@@ -187,7 +278,7 @@ function OpsDropdown({ pathname }: { pathname: string }) {
             );
           })}
 
-          {/* Footer — all dashboards */}
+          {/* Footer â€” all dashboards */}
           <div style={{ height: 1, background: 'rgba(255,255,255,.07)', margin: '4px 4px 3px' }} />
           <Link
             href="/dashboards"
@@ -202,7 +293,7 @@ function OpsDropdown({ pathname }: { pathname: string }) {
             <span style={{ fontSize: 12, fontWeight: 500, color: 'rgba(255,255,255,.38)', letterSpacing: '-0.01em' }}>
               All dashboards
             </span>
-            <span style={{ fontSize: 11, color: 'rgba(255,255,255,.22)' }}>→</span>
+            <span style={{ fontSize: 11, color: 'rgba(255,255,255,.22)' }}>â†’</span>
           </Link>
         </div>
       )}
@@ -210,7 +301,7 @@ function OpsDropdown({ pathname }: { pathname: string }) {
   );
 }
 
-// ─── Admin dropdown ──────────────────────────────────────────────────────────
+// â”€â”€â”€ Admin dropdown â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const ADMIN_ITEMS = [
   { label: 'Organisations', href: '/admin/orgs',  description: 'Manage accounts & modules' },
   { label: 'Users',         href: '/admin/users', description: 'Roles, access & invitations' },
@@ -303,24 +394,24 @@ function AdminDropdown({ pathname }: { pathname: string }) {
   );
 }
 
-// ─── Logo ─────────────────────────────────────────────────────────────────────
+// â”€â”€â”€ Logo â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function Logo() {
   return (
     <Link
       href="/"
       style={{ fontWeight: 700, fontSize: 14, color: '#F5F7FA', textDecoration: 'none', letterSpacing: '.04em', flexShrink: 0 }}
     >
-      BR<span style={{ color: '#A78BFA' }}>Λ</span>INBASE
+      BR<span style={{ color: '#A78BFA' }}>{'Λ'}</span>INBΛSE
     </Link>
   );
 }
 
-// ─── Divider ──────────────────────────────────────────────────────────────────
+// â”€â”€â”€ Divider â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function Divider() {
   return <div style={{ width: 1, height: 16, background: 'rgba(255,255,255,.08)', flexShrink: 0 }} />;
 }
 
-// ─── Marketing nav (unauthenticated) ─────────────────────────────────────────
+// â”€â”€â”€ Marketing nav (unauthenticated) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function PublicNav({ pathname }: { pathname: string }) {
   return (
     <nav style={{
@@ -358,7 +449,7 @@ function PublicNav({ pathname }: { pathname: string }) {
   );
 }
 
-// ─── Authenticated nav ────────────────────────────────────────────────────────
+// â”€â”€â”€ Authenticated nav â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function AppNav({ session, pathname }: { session: NonNullable<Session>; pathname: string }) {
   const { role, name, avatarUrl } = session;
   const isManager    = ['manager', 'admin', 'super_admin'].includes(role);
@@ -382,6 +473,8 @@ function AppNav({ session, pathname }: { session: NonNullable<Session>; pathname
 
         <HlnaItem active={pathname === '/dashboard'} />
 
+        <TennisDropdown pathname={pathname} />
+
         {isManager && (
           <OpsDropdown pathname={pathname} />
         )}
@@ -399,7 +492,7 @@ function AppNav({ session, pathname }: { session: NonNullable<Session>; pathname
         )}
       </div>
 
-      {/* Right — profile + sign out */}
+      {/* Right â€” profile + sign out */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <Link
           href="/account/profile"
@@ -458,7 +551,7 @@ function AppNav({ session, pathname }: { session: NonNullable<Session>; pathname
   );
 }
 
-// ─── Root ─────────────────────────────────────────────────────────────────────
+// â”€â”€â”€ Root â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 export default function TopNav({ serverSession }: { serverSession?: Session }) {
   const [fetchedSession, setFetchedSession] = useState<Session>(undefined as unknown as Session);
   const pathname = usePathname();
@@ -470,7 +563,9 @@ export default function TopNav({ serverSession }: { serverSession?: Session }) {
   }, []);
 
   const session = serverSession !== undefined ? serverSession : fetchedSession;
+  if (pathname?.startsWith(`/tennis`)) return null;
   if (session === undefined) return null;
   if (!session) return <PublicNav pathname={pathname} />;
   return <AppNav session={session} pathname={pathname} />;
 }
+
