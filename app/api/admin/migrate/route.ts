@@ -557,5 +557,175 @@ export async function POST() {
   // Back-fill: existing waste_records rows that predate the department column
   await sql`UPDATE waste_records SET department = 'Waste' WHERE department IS NULL`;
 
+  // agent_runs — audit log for every specialist agent invocation
+  await sql`
+    CREATE TABLE IF NOT EXISTS agent_runs (
+      id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      organisation_id UUID REFERENCES organisations(id),
+      user_id         UUID REFERENCES users(id),
+      agent_name      TEXT NOT NULL,
+      route_type      TEXT NOT NULL,
+      input_query     TEXT,
+      confidence      NUMERIC,
+      source_rows     INTEGER DEFAULT 0,
+      created_at      TIMESTAMPTZ DEFAULT NOW()
+    )
+  `;
+  await sql`CREATE INDEX IF NOT EXISTS idx_agent_runs_org       ON agent_runs(organisation_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_agent_runs_created   ON agent_runs(created_at DESC)`;
+
+  // Tennis vertical — leads captured from /tennis landing page
+  await sql`
+    CREATE TABLE IF NOT EXISTS tennis_leads (
+      id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      organisation_id  UUID NOT NULL REFERENCES organisations(id),
+      name             TEXT NOT NULL,
+      email            TEXT NOT NULL,
+      phone            TEXT,
+      session_type     TEXT,
+      message          TEXT,
+      status           TEXT NOT NULL DEFAULT 'new',
+      created_at       TIMESTAMPTZ DEFAULT NOW()
+    )
+  `;
+  await sql`CREATE INDEX IF NOT EXISTS idx_tennis_leads_org     ON tennis_leads(organisation_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_tennis_leads_created ON tennis_leads(created_at DESC)`;
+
+  // saved_briefings — persisted HLNA agent responses with evidence
+  await sql`
+    CREATE TABLE IF NOT EXISTS saved_briefings (
+      id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      organisation_id  UUID NOT NULL REFERENCES organisations(id),
+      user_id          UUID REFERENCES users(id),
+      title            TEXT NOT NULL,
+      briefing_type    TEXT,
+      agent_name       TEXT,
+      response_text    TEXT,
+      evidence_json    JSONB,
+      created_at       TIMESTAMPTZ DEFAULT NOW()
+    )
+  `;
+  await sql`CREATE INDEX IF NOT EXISTS idx_saved_briefings_org     ON saved_briefings(organisation_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_saved_briefings_created ON saved_briefings(created_at DESC)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_saved_briefings_user    ON saved_briefings(user_id)`;
+
+  // social_accounts — OAuth-connected social media accounts per org
+  await sql`
+    CREATE TABLE IF NOT EXISTS social_accounts (
+      id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      organisation_id      UUID NOT NULL REFERENCES organisations(id),
+      platform             TEXT NOT NULL DEFAULT 'instagram',
+      account_name         TEXT NOT NULL,
+      account_id           TEXT NOT NULL,
+      access_token_encrypted TEXT NOT NULL,
+      token_expires_at     TIMESTAMPTZ,
+      connected_at         TIMESTAMPTZ DEFAULT NOW(),
+      created_at           TIMESTAMPTZ DEFAULT NOW(),
+      updated_at           TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE (organisation_id, platform, account_id)
+    )
+  `;
+
+  // social_posts — synced posts from connected accounts
+  await sql`
+    CREATE TABLE IF NOT EXISTS social_posts (
+      id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      organisation_id   UUID NOT NULL REFERENCES organisations(id),
+      social_account_id UUID REFERENCES social_accounts(id),
+      platform          TEXT NOT NULL DEFAULT 'instagram',
+      platform_post_id  TEXT NOT NULL,
+      caption           TEXT,
+      media_url         TEXT,
+      thumbnail_url     TEXT,
+      permalink         TEXT,
+      media_type        TEXT,
+      likes_count       INTEGER NOT NULL DEFAULT 0,
+      comments_count    INTEGER NOT NULL DEFAULT 0,
+      engagement_score  INTEGER NOT NULL DEFAULT 0,
+      posted_at         TIMESTAMPTZ,
+      created_at        TIMESTAMPTZ DEFAULT NOW(),
+      updated_at        TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE (organisation_id, platform, platform_post_id)
+    )
+  `;
+
+  // social_comments — synced comments with HLNA-assigned sentiment
+  await sql`
+    CREATE TABLE IF NOT EXISTS social_comments (
+      id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      organisation_id     UUID NOT NULL REFERENCES organisations(id),
+      social_post_id      UUID REFERENCES social_posts(id),
+      platform_comment_id TEXT NOT NULL,
+      author_name         TEXT,
+      text                TEXT NOT NULL,
+      sentiment           TEXT DEFAULT 'neutral',
+      urgency             BOOLEAN DEFAULT false,
+      created_at          TIMESTAMPTZ DEFAULT NOW(),
+      updated_at          TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE (organisation_id, platform_comment_id)
+    )
+  `;
+
+  // social_insights — HLNA-generated analysis results
+  await sql`
+    CREATE TABLE IF NOT EXISTS social_insights (
+      id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      organisation_id   UUID NOT NULL REFERENCES organisations(id),
+      insight_type      TEXT,
+      title             TEXT NOT NULL,
+      summary           TEXT NOT NULL,
+      evidence_json     JSONB,
+      confidence        TEXT DEFAULT 'medium',
+      recommended_action TEXT,
+      created_at        TIMESTAMPTZ DEFAULT NOW()
+    )
+  `;
+
+  await sql`CREATE INDEX IF NOT EXISTS idx_social_accounts_org     ON social_accounts(organisation_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_social_posts_org        ON social_posts(organisation_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_social_posts_account    ON social_posts(social_account_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_social_posts_posted     ON social_posts(posted_at DESC)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_social_comments_org     ON social_comments(organisation_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_social_comments_post    ON social_comments(social_post_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_social_insights_org     ON social_insights(organisation_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_social_insights_created ON social_insights(created_at DESC)`;
+
+  // 28. Contacts — tennis coaching client CRM
+  await sql`
+    CREATE TABLE IF NOT EXISTS contacts (
+      id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      organisation_id   UUID NOT NULL REFERENCES organisations(id),
+      name              TEXT NOT NULL,
+      email             TEXT,
+      phone             TEXT,
+      status            TEXT NOT NULL DEFAULT 'lead'
+        CHECK (status IN ('lead', 'contacted', 'active', 'inactive')),
+      address           TEXT,
+      age               TEXT,
+      program           TEXT,
+      session_times     TEXT,
+      next_action       TEXT,
+      last_contacted_at TIMESTAMPTZ,
+      created_at        TIMESTAMPTZ DEFAULT NOW(),
+      updated_at        TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE (organisation_id, email)
+    )
+  `;
+  await sql`CREATE INDEX IF NOT EXISTS idx_contacts_org    ON contacts(organisation_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_contacts_status ON contacts(organisation_id, status)`;
+
+  // 29. Contact journal — session notes and interaction history
+  await sql`
+    CREATE TABLE IF NOT EXISTS contact_journal (
+      id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      contact_id      UUID NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+      organisation_id UUID NOT NULL REFERENCES organisations(id),
+      note            TEXT NOT NULL,
+      created_at      TIMESTAMPTZ DEFAULT NOW()
+    )
+  `;
+  await sql`CREATE INDEX IF NOT EXISTS idx_contact_journal_contact ON contact_journal(contact_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_contact_journal_org     ON contact_journal(organisation_id)`;
+
   return NextResponse.json({ success: true, message: 'Migration complete.' });
 }
