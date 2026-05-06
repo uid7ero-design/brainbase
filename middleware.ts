@@ -4,6 +4,7 @@ import { decrypt, encrypt, SESSION_LIFETIME_MS, REFRESH_THRESHOLD_MS, COOKIE_OPT
 
 const PUBLIC = [
   '/login',
+  '/signup',
   '/forgot-password',
   '/reset-password',
   '/verify-email',

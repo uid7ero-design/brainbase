@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
-import { getSession } from '@/lib/session';
+import { getAuthSession } from '@/lib/authSession';
 import sql from '@/lib/db';
 
 const anthropic = new Anthropic();
@@ -187,11 +187,15 @@ Return exactly this JSON structure:
 // ─── Route handler ────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
-  const session = await getSession();
-  if (!session?.organisationId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  let oid: string;
+  try {
+    const session = await getAuthSession();
+    oid = session.organisationId;
+  } catch {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
 
   const { dashboardType } = await req.json() as { dashboardType: string };
-  const oid = session.organisationId;
 
   try {
     let snapshot = '';

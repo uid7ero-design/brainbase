@@ -19,7 +19,7 @@ export async function login(prevState: LoginState, formData: FormData): Promise<
     return { error: 'Too many login attempts. Please wait 15 minutes and try again.' };
   }
 
-  const rows = await sql`SELECT * FROM users WHERE username = ${username} LIMIT 1`;
+  const rows = await sql`SELECT * FROM users WHERE username = ${username} OR email = ${username} LIMIT 1`;
   const user = rows[0];
 
   if (!user || !(await bcrypt.compare(password, user.password_hash as string))) {

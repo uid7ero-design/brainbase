@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
-import { getSession } from '@/lib/session';
+import { getAuthSession } from '@/lib/authSession';
 import sql from '@/lib/db';
 
 const anthropic = new Anthropic();
@@ -63,15 +63,18 @@ async function getModuleContext(moduleKey: string, oid: string): Promise<string>
 // ─── Route handler ─────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
-  const session = await getSession();
-  if (!session?.organisationId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  let oid: string;
+  try {
+    const session = await getAuthSession();
+    oid = session.organisationId;
+  } catch {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
 
   const { moduleKey = 'waste_recycling', context = '' } = await req.json() as {
     moduleKey?: string;
     context?: string;
   };
-
-  const oid = session.organisationId;
   const moduleContext = await getModuleContext(moduleKey, oid);
 
   const moduleLabels: Record<string, string> = {

@@ -109,8 +109,16 @@ export default function LoginPage() {
           </button>
         </form>
 
+        {/* ── Sign up CTA ───────────────────────────────────────────────── */}
+        <p style={{ marginTop: 24, textAlign: 'center', fontSize: 13, color: 'rgba(255,255,255,0.30)' }}>
+          No account?{' '}
+          <Link href="/signup" style={{ color: 'rgba(167,139,250,0.75)', textDecoration: 'none', fontWeight: 500 }}>
+            Start a free 14-day trial →
+          </Link>
+        </p>
+
         {/* ── Legal footer ─────────────────────────────────────────────── */}
-        <div style={{ marginTop: 28, textAlign: 'center', display: 'flex', gap: 16, justifyContent: 'center' }}>
+        <div style={{ marginTop: 16, textAlign: 'center', display: 'flex', gap: 16, justifyContent: 'center' }}>
           <Link href="/terms"   style={{ fontSize: 11, color: 'rgba(255,255,255,0.25)', textDecoration: 'none' }}>Terms</Link>
           <Link href="/privacy" style={{ fontSize: 11, color: 'rgba(255,255,255,0.25)', textDecoration: 'none' }}>Privacy</Link>
         </div>

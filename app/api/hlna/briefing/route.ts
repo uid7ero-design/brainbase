@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
-import { getSession } from '@/lib/session';
+import { getAuthSession } from '@/lib/authSession';
 import sql from '@/lib/db';
 
 const anthropic = new Anthropic();
@@ -207,10 +207,13 @@ const MODULE_SNAPSHOTS: Record<string, (oid: string) => Promise<string | null>> 
 // ─── Route handler ─────────────────────────────────────────────────────────────
 
 export async function POST() {
-  const session = await getSession();
-  if (!session?.organisationId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
-  const oid = session.organisationId;
+  let oid: string;
+  try {
+    const session = await getAuthSession();
+    oid = session.organisationId;
+  } catch {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
 
   let moduleKeys: string[] = [];
   const ldTennisOrgId = process.env.LD_TENNIS_ORG_ID;

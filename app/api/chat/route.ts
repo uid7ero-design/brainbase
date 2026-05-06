@@ -3,7 +3,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { embed }      from '../../../lib/brain/embedder';
 import { search }     from '../../../lib/brain/store';
 import { readConfig } from '../../../lib/brain/config';
-import { requireSession } from '../../../lib/org';
+import { getAuthSession } from '../../../lib/authSession';
 import { DB_SCHEMA, executeQuery, formatQueryResult } from '../../../lib/hlna/dataEngine';
 import { buildModuleContext } from '../../../lib/hlna/modules';
 import { route as routeToAgent } from '@/lib/agents/agentRouter';
@@ -112,7 +112,20 @@ Confidence-aware language: adapt your certainty of expression based on the data 
 - High confidence (≥30 rows): use assertive, direct language. "Costs are up 14%." "The main driver is…" "This suburb is the outlier."
 - Medium confidence (5–29 rows): use balanced language. "Costs appear to be up around 14%." "The likely driver is…" "This suburb looks like the outlier."
 - Low confidence (<5 rows): use cautious language. "With limited data, costs may be trending up." "It's not yet clear — more data would help." Do not make strong claims.
-If no confidence level is specified, default to Medium.`;
+If no confidence level is specified, default to Medium.
+
+DATA RESPONSE RULES — mandatory for all data, operations, and analytics questions:
+- NEVER output these phrases: "No data available", "Insufficient input", "No actionable findings", "I cannot access data", "I don't have access to"
+- If [Live operational data] is present: always derive specific insights from it — even for vague questions, infer what matters
+- If [Live operational data] contains NO_DATA: respond exactly "I don't see any uploaded data yet. Upload a dataset and I'll analyse it immediately."
+- Active voice always: "I analysed...", "I found...", "I recommend..." — never passive constructions
+
+Data question response structure (write as flowing speech, no literal section headers):
+1. Name the specific entity (suburb name, vehicle ID, service type) and its exact metric
+2. Explain the operational implication in one sentence
+3. State the risk if unaddressed in one sentence
+4. Give a concrete action naming the exact entity
+Always reference at least 2 specific named entities from the data. Banned phrases: "multiple areas", "several suburbs", "various locations", "generally speaking", "overall trend".`;
 
 // ─── Tool definitions ─────────────────────────────────────────────────────────
 
@@ -219,7 +232,6 @@ function parseResponse(raw: string): HelenaResponse {
 
 // ─── System builder ───────────────────────────────────────────────────────────
 
-// Department → primary table and WHERE filter for scoped queries
 const DEPT_QUERY_HINT: Record<string, string> = {
   waste:            `Use table: waste_records (add WHERE department = 'Waste'). Key columns: service_type, suburb, month, tonnes, collections, contamination_rate, cost.`,
   fleet:            `Use table: fleet_metrics. Key columns: vehicle_id, vehicle_type, km, fuel, maintenance, downtime_hours, defects, services, month.`,
@@ -232,6 +244,7 @@ const DEPT_QUERY_HINT: Record<string, string> = {
 function buildSystem(
   memoryContext?: string, spotifyContext?: string, brainContext?: string,
   taskContext?: string, calendarContext?: string, dashboardContext?: string,
+  liveDataContext?: string,
   orgId?: string, moduleKey?: string, userContext?: string, viewMode?: string,
   department?: string,
 ): string {
@@ -273,7 +286,17 @@ Do NOT surface metrics or data from other departments in this context (e.g. no c
   if (brainContext?.trim())     s += `\n\n[Relevant notes from your brain]\n${brainContext}`;
   if (calendarContext?.trim())  s += `\n\n[Google Calendar — today's events]\n${calendarContext}`;
   if (dashboardContext?.trim()) s += `\n\n[Current dashboard]\n${dashboardContext}`;
-  if (orgId)                    s += `\n\n[Organisation ID for database queries]\n${orgId}\nAlways include WHERE organisation_id = '${orgId}' in every SQL query.`;
+
+  // Live operational data — always injected from DB, takes precedence for data questions
+  if (liveDataContext?.trim()) {
+    if (liveDataContext.startsWith('NO_DATA:')) {
+      s += `\n\n[Live operational data]\nNO DATA uploaded yet for this organisation. For any question about metrics, costs, performance, or operations, respond exactly: "I don't see any uploaded data yet. Upload a dataset and I'll analyse it immediately."`;
+    } else {
+      s += `\n\n[Live operational data — answer data questions directly from this]\n${liveDataContext}`;
+    }
+  }
+
+  if (orgId) s += `\n\n[Organisation ID for database queries]\n${orgId}\nAlways include WHERE organisation_id = '${orgId}' in every SQL query.`;
   return s;
 }
 
@@ -310,6 +333,7 @@ async function callClaude(
   taskContext?: string,
   calendarContext?: string,
   dashboardContext?: string,
+  liveDataContext?: string,
   orgId?: string,
   moduleKey?: string,
   userContext?: string,
@@ -318,7 +342,8 @@ async function callClaude(
 ): Promise<{ text: string; analysis: QueryAnalysis | null }> {
   const systemContent = buildSystem(
     memoryContext, spotifyContext, brainContext,
-    taskContext, calendarContext, dashboardContext, orgId, moduleKey, userContext, viewMode, department,
+    taskContext, calendarContext, dashboardContext, liveDataContext,
+    orgId, moduleKey, userContext, viewMode, department,
   );
   const tools = (orgId && !(LD_TENNIS_ORG_ID && orgId === LD_TENNIS_ORG_ID)) ? buildDataTools(orgId) : undefined;
 
@@ -328,14 +353,12 @@ async function callClaude(
     content: m.content,
   }));
 
-  // Accumulate analysis across all tool calls
   let allTables:   string[]  = [];
   let totalRows    = 0;
   let trendNote:   string | null = null;
   let anomalyNote: string | null = null;
   let usedTool     = false;
 
-  // Up to 4 iterations: initial call + 3 tool-use rounds
   for (let iter = 0; iter < 4; iter++) {
     const resp = await anthropicClient.messages.create({
       model:      'claude-sonnet-4-6',
@@ -345,7 +368,6 @@ async function callClaude(
       ...(tools ? { tools } : {}),
     });
 
-    // No tool use — return the text response
     if (resp.stop_reason !== 'tool_use') {
       const block = resp.content.find(b => b.type === 'text');
       const text = block?.type === 'text' ? block.text : '';
@@ -360,7 +382,6 @@ async function callClaude(
       return { text, analysis };
     }
 
-    // Execute all tool calls in parallel
     const toolUseBlocks = resp.content.filter(
       (b): b is Anthropic.Messages.ToolUseBlock => b.type === 'tool_use',
     );
@@ -372,7 +393,6 @@ async function callClaude(
           const { sql: rawSql } = block.input as { sql: string; reasoning: string };
           const result = await executeQuery(rawSql, orgId!);
           content = formatQueryResult(result);
-          // Collect analysis data
           usedTool = true;
           allTables = [...new Set([...allTables, ...extractTables(rawSql)])];
           totalRows += result.rowCount;
@@ -393,7 +413,6 @@ async function callClaude(
     ];
   }
 
-  // Fallback: force a final text response if max iterations reached
   const final = await anthropicClient.messages.create({
     model: 'claude-sonnet-4-6', max_tokens: 500, system: systemContent, messages: msgs,
   });
@@ -430,6 +449,108 @@ async function getBrainContext(query: string): Promise<string> {
   }
 }
 
+// ─── Proactive data preload ───────────────────────────────────────────────────
+
+async function preloadOrgData(orgId: string): Promise<string> {
+  try {
+    const [wasteAgg, wasteSuburbs, fleetAgg, fleetVehicles, srAgg, srAreas] = await Promise.all([
+      sql`
+        SELECT COUNT(*)::int AS n,
+               ROUND(SUM(cost))::bigint AS total_cost,
+               ROUND(SUM(tonnes)::numeric,0)::bigint AS total_tonnes,
+               ROUND(AVG(contamination_rate)::numeric,1)::float AS avg_contamination
+        FROM waste_records WHERE organisation_id = ${orgId}
+      `,
+      sql`
+        SELECT suburb,
+               ROUND(SUM(cost))::bigint AS cost,
+               ROUND(AVG(contamination_rate)::numeric,1)::float AS contamination
+        FROM waste_records WHERE organisation_id = ${orgId}
+        GROUP BY suburb ORDER BY cost DESC LIMIT 5
+      `,
+      sql`
+        SELECT COUNT(*)::int AS n,
+               ROUND(SUM(fuel+maintenance+wages+repairs))::bigint AS total_cost,
+               SUM(defects)::int AS total_defects,
+               COUNT(DISTINCT vehicle_id)::int AS vehicle_count
+        FROM fleet_metrics WHERE organisation_id = ${orgId}
+      `,
+      sql`
+        SELECT vehicle_id,
+               SUM(defects)::int AS defects,
+               ROUND(SUM(fuel+maintenance+repairs))::bigint AS cost
+        FROM fleet_metrics WHERE organisation_id = ${orgId}
+        GROUP BY vehicle_id ORDER BY defects DESC, cost DESC LIMIT 5
+      `,
+      sql`
+        SELECT COUNT(*)::int AS n,
+               COUNT(CASE WHEN status='Open' THEN 1 END)::int AS open,
+               COUNT(CASE WHEN priority='High' AND status='Open' THEN 1 END)::int AS high_open,
+               ROUND(AVG(CASE WHEN status='Open' THEN days_open END)::numeric,1)::float AS avg_days
+        FROM service_requests WHERE organisation_id = ${orgId}
+      `,
+      sql`
+        SELECT suburb, COUNT(*)::int AS open
+        FROM service_requests WHERE organisation_id = ${orgId} AND status='Open'
+        GROUP BY suburb ORDER BY open DESC LIMIT 5
+      `,
+    ]);
+
+    const wn  = Number(wasteAgg[0]?.n ?? 0);
+    const fn  = Number(fleetAgg[0]?.n ?? 0);
+    const srn = Number(srAgg[0]?.n ?? 0);
+
+    console.log(`[CHAT] rows found — waste_records: ${wn}, fleet_metrics: ${fn}, service_requests: ${srn}`);
+    if (wn  === 0) console.warn(`[CHAT] ⚠ 0 rows in waste_records for org ${orgId}`);
+    if (fn  === 0) console.warn(`[CHAT] ⚠ 0 rows in fleet_metrics for org ${orgId}`);
+    if (srn === 0) console.warn(`[CHAT] ⚠ 0 rows in service_requests for org ${orgId}`);
+
+    const parts: string[] = [];
+
+    if (wn > 0) {
+      const a = wasteAgg[0] ?? {};
+      const suburbs = wasteSuburbs as { suburb: string; cost: number; contamination: number }[];
+      const contamHot = suburbs.filter(s => Number(s.contamination) > 8)
+        .map(s => `${s.suburb} (${s.contamination}%)`).join(', ');
+      parts.push(
+        `Waste Records (${wn} rows): Total cost $${Number(a.total_cost ?? 0).toLocaleString()}, ` +
+        `${Number(a.total_tonnes ?? 0).toLocaleString()} tonnes, avg contamination ${a.avg_contamination ?? 0}% (target ≤8%). ` +
+        `Top suburbs by cost: ${suburbs.map(s => `${s.suburb} ($${Number(s.cost).toLocaleString()})`).join(', ')}.` +
+        (contamHot ? ` Suburbs exceeding 8% threshold: ${contamHot}.` : ''),
+      );
+    }
+
+    if (fn > 0) {
+      const a = fleetAgg[0] ?? {};
+      const vehicles = fleetVehicles as { vehicle_id: string; defects: number; cost: number }[];
+      const defectList = vehicles.filter(v => Number(v.defects) > 0)
+        .map(v => `${v.vehicle_id} (${v.defects} defects, $${Number(v.cost).toLocaleString()})`).join(', ');
+      parts.push(
+        `Fleet Metrics (${fn} rows): Total cost $${Number(a.total_cost ?? 0).toLocaleString()}, ` +
+        `${a.vehicle_count ?? 0} vehicles, ${a.total_defects ?? 0} defects recorded.` +
+        (defectList ? ` Vehicles with defects: ${defectList}.` : ''),
+      );
+    }
+
+    if (srn > 0) {
+      const a = srAgg[0] ?? {};
+      const areas = (srAreas as { suburb: string; open: number }[])
+        .map(r => `${r.suburb} (${r.open} open)`).join(', ');
+      parts.push(
+        `Service Requests (${srn} rows): ${a.open ?? 0} open (${a.high_open ?? 0} high-priority), ` +
+        `avg ${a.avg_days ?? 0} days open.` +
+        (areas ? ` Highest-volume areas: ${areas}.` : ''),
+      );
+    }
+
+    if (parts.length === 0) return 'NO_DATA: No operational data uploaded for this organisation.';
+    return parts.join('\n');
+  } catch (err) {
+    console.error('[CHAT] preloadOrgData failed:', err);
+    return '';
+  }
+}
+
 // ─── Audit logging ────────────────────────────────────────────────────────────
 
 function logAgentRun(
@@ -458,7 +579,6 @@ function logAgentRun(
 // ─── Specialist agent dispatch ────────────────────────────────────────────────
 
 function agentOutputToHelena(out: AgentOutput): string {
-  // Format AgentOutput as the JSON string Helena normally returns
   const spokenSummary = [
     out.summary,
     out.findings.slice(0, 3).join(' '),
@@ -483,6 +603,20 @@ function agentOutputToHelena(out: AgentOutput): string {
 // ─── Route handler ────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
+  // Auth — hard fail, no silent fallback
+  let orgId: string;
+  let userId: string;
+  let userContext: string;
+  try {
+    const session = await getAuthSession();
+    orgId       = session.organisationId;
+    userId      = session.userId;
+    userContext = `Role: ${session.role}, Name: ${session.name}`;
+  } catch {
+    return Response.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  console.log('[CHAT] orgId:', orgId);
+
   const {
     messages, memoryContext, spotifyContext, taskContext, calendarContext, dashboardContext, moduleKey, viewMode, department,
   } = await req.json() as {
@@ -497,30 +631,24 @@ export async function POST(req: NextRequest) {
     department?: string;
   };
 
-  // Resolve org + user context — graceful if unauthenticated
-  let orgId: string | undefined;
-  let userId: string | undefined;
-  let userContext: string | undefined;
-  try {
-    const session = await requireSession();
-    orgId       = session.organisationId;
-    userId      = session.userId;
-    userContext = `Role: ${session.role}, Name: ${session.name}`;
-  } catch { /* not logged in — HLNA works without DB access */ }
+  const lastUserMsg = [...messages].reverse().find(m => m.role === 'user')?.content ?? '';
 
   // Brain context — capped so it never blocks
-  const lastUserMsg = [...messages].reverse().find(m => m.role === 'user')?.content ?? '';
   const brainContext = await Promise.race([
     getBrainContext(lastUserMsg),
     new Promise<string>(resolve => setTimeout(() => resolve(''), 150)),
   ]);
 
-  // Agent routing — dispatch to specialist agents for data-heavy queries (not for LD Tennis)
-  if (orgId && lastUserMsg && !(LD_TENNIS_ORG_ID && orgId === LD_TENNIS_ORG_ID)) {
+  // Proactive data preload — only for non-tennis orgs
+  const isLDTennis = LD_TENNIS_ORG_ID && orgId === LD_TENNIS_ORG_ID;
+  const liveDataContext = isLDTennis ? '' : await preloadOrgData(orgId);
+
+  // Agent routing — dispatch to specialist agents for data-heavy queries
+  if (lastUserMsg && !isLDTennis) {
     try {
-      const routeResult = await routeToAgent({ organisationId: orgId, userId: '', query: lastUserMsg });
+      const routeResult = await routeToAgent({ organisationId: orgId, userId, query: lastUserMsg });
       if (routeResult.agent !== 'chat') {
-        const agentInput = { organisationId: orgId, userId: '', department, query: lastUserMsg };
+        const agentInput = { organisationId: orgId, userId, department, query: lastUserMsg };
         let agentOut: AgentOutput | null = null;
         if (routeResult.agent === 'insight')  agentOut = await insightAgent.run(agentInput);
         if (routeResult.agent === 'action')   agentOut = await actionAgent.run(agentInput);
@@ -554,7 +682,8 @@ export async function POST(req: NextRequest) {
   try {
     const result = await callClaude(
       messages, memoryContext, spotifyContext, brainContext,
-      taskContext, calendarContext, dashboardContext, orgId, moduleKey, userContext, viewMode, department,
+      taskContext, calendarContext, dashboardContext, liveDataContext,
+      orgId, moduleKey, userContext, viewMode, department,
     );
     raw      = result.text;
     analysis = result.analysis;
@@ -562,7 +691,10 @@ export async function POST(req: NextRequest) {
     console.warn('[Helena] Claude unavailable, falling back to Ollama:', (err as Error).message);
     source = 'ollama';
     try {
-      const sys = buildSystem(memoryContext, spotifyContext, brainContext, taskContext, calendarContext, dashboardContext, undefined, moduleKey, userContext, viewMode, department);
+      const sys = buildSystem(
+        memoryContext, spotifyContext, brainContext, taskContext, calendarContext,
+        dashboardContext, liveDataContext, undefined, moduleKey, userContext, viewMode, department,
+      );
       raw = await callOllama(messages, sys);
     } catch (ollamaErr) {
       console.error('[Helena] Ollama fallback failed:', ollamaErr);

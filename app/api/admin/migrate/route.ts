@@ -253,6 +253,8 @@ export async function POST() {
   await sql`ALTER TABLE organisations ADD COLUMN IF NOT EXISTS contact_email  TEXT`;
   await sql`ALTER TABLE organisations ADD COLUMN IF NOT EXISTS contact_phone  TEXT`;
   await sql`ALTER TABLE organisations ADD COLUMN IF NOT EXISTS settings       JSONB DEFAULT '{}'`;
+  await sql`ALTER TABLE organisations ADD COLUMN IF NOT EXISTS plan           TEXT`;
+  await sql`ALTER TABLE organisations ADD COLUMN IF NOT EXISTS trial_ends_at  TIMESTAMPTZ`;
 
   // 18. Module registry — platform-wide module definitions
   await sql`
