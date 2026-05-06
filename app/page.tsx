@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import CommandDemo from "@/components/CommandDemo";
 
 const FONT = 'var(--font-inter), "Inter", -apple-system, sans-serif';
 const BG   = '#08090C';
@@ -81,23 +82,23 @@ const CAPABILITIES = [
 ];
 
 const DASHBOARDS = [
-  { title: 'Fleet Management',      color: '#3B82F6', category: 'Operations',    href: '/dashboard/fleet',        icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><rect x="1" y="3" width="15" height="13" rx="2"/><path d="M16 8h4l3 3v5h-7V8z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg> },
-  { title: 'Waste & Recycling',     color: '#10B981', category: 'Operations',    href: '/dashboard/waste',        icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg> },
-  { title: 'Water & Utilities',     color: '#06B6D4', category: 'Infrastructure', href: '/dashboard/water',        icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M12 2C6 8 4 12 4 16a8 8 0 0 0 16 0c0-4-2-8-8-14z"/></svg> },
+  { title: 'Fleet Management',       color: '#3B82F6', category: 'Operations',     href: '/dashboard/fleet',        icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><rect x="1" y="3" width="15" height="13" rx="2"/><path d="M16 8h4l3 3v5h-7V8z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg> },
+  { title: 'Waste & Recycling',      color: '#10B981', category: 'Operations',     href: '/dashboard/waste',        icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg> },
+  { title: 'Water & Utilities',      color: '#06B6D4', category: 'Infrastructure', href: '/dashboard/water',        icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M12 2C6 8 4 12 4 16a8 8 0 0 0 16 0c0-4-2-8-8-14z"/></svg> },
   { title: 'Roads & Infrastructure', color: '#64748B', category: 'Infrastructure', href: '/dashboard/roads',        icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M3 17l3-10 3 4 3-8 3 4 3-8"/><path d="M3 21h18"/></svg> },
-  { title: 'Parks & Open Spaces',   color: '#22C55E', category: 'Environment',   href: '/dashboard/parks',        icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M12 22V12"/><path d="M5 9l7-7 7 7"/><path d="M5 22h14"/><path d="M5 16l7-4 7 4"/></svg> },
-  { title: 'Environmental & ESG',   color: '#16A34A', category: 'Environment',   href: '/dashboard/environment',  icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg> },
-  { title: 'Labour & Workforce',    color: '#A855F7', category: 'People',        href: '/dashboard/labour',       icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg> },
-  { title: 'Facilities Management', color: '#8B5CF6', category: 'Operations',    href: '/dashboard/facilities',   icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/><path d="M3 9h6"/><path d="M3 15h6"/></svg> },
-  { title: 'Construction Projects', color: '#F97316', category: 'Capital Works',  href: '/dashboard/construction', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M3 21h18"/><path d="M9 21V7l3-4 3 4v14"/><path d="M9 11h6"/><rect x="2" y="14" width="5" height="7"/><rect x="17" y="14" width="5" height="7"/></svg> },
-  { title: 'Supply Chain',          color: '#0EA5E9', category: 'Logistics',     href: '/dashboard/supply',       icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><circle cx="5" cy="6" r="3"/><circle cx="19" cy="6" r="3"/><circle cx="12" cy="18" r="3"/><path d="M5 9v3l7 4 7-4V9"/><path d="M12 13V7"/></svg> },
-  { title: 'Logistics & Freight',   color: '#F59E0B', category: 'Logistics',     href: '/dashboard/logistics',    icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M21 10V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14"/><path d="M3 20h18"/><circle cx="17" cy="17" r="3"/></svg> },
-  { title: 'Depot Operations',      color: '#EC4899', category: 'Logistics',     href: '/dashboard/depot',        icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><rect x="2" y="7" width="20" height="15" rx="1"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/></svg> },
+  { title: 'Parks & Open Spaces',    color: '#22C55E', category: 'Environment',    href: '/dashboard/parks',        icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M12 22V12"/><path d="M5 9l7-7 7 7"/><path d="M5 22h14"/><path d="M5 16l7-4 7 4"/></svg> },
+  { title: 'Environmental & ESG',    color: '#16A34A', category: 'Environment',    href: '/dashboard/environment',  icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg> },
+  { title: 'Labour & Workforce',     color: '#A855F7', category: 'People',         href: '/dashboard/labour',       icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg> },
+  { title: 'Facilities Management',  color: '#8B5CF6', category: 'Operations',     href: '/dashboard/facilities',   icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/><path d="M3 9h6"/><path d="M3 15h6"/></svg> },
+  { title: 'Construction Projects',  color: '#F97316', category: 'Capital Works',  href: '/dashboard/construction', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M3 21h18"/><path d="M9 21V7l3-4 3 4v14"/><path d="M9 11h6"/><rect x="2" y="14" width="5" height="7"/><rect x="17" y="14" width="5" height="7"/></svg> },
+  { title: 'Supply Chain',           color: '#0EA5E9', category: 'Logistics',      href: '/dashboard/supply',       icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><circle cx="5" cy="6" r="3"/><circle cx="19" cy="6" r="3"/><circle cx="12" cy="18" r="3"/><path d="M5 9v3l7 4 7-4V9"/><path d="M12 13V7"/></svg> },
+  { title: 'Logistics & Freight',    color: '#F59E0B', category: 'Logistics',      href: '/dashboard/logistics',    icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M21 10V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14"/><path d="M3 20h18"/><circle cx="17" cy="17" r="3"/></svg> },
+  { title: 'Depot Operations',       color: '#EC4899', category: 'Logistics',      href: '/dashboard/depot',        icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><rect x="2" y="7" width="20" height="15" rx="1"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/></svg> },
 ];
 
 const STEPS = [
-  { n: '01', title: 'Connect your data', body: 'Upload Excel files, link your calendar, email, and operational systems. BrainBase structures it automatically.' },
-  { n: '02', title: 'Ask HLNΛ anything', body: 'Speak or type. "Which zone has the highest contamination?" "Show me overdue fleet services." Helena answers from your data.' },
+  { n: '01', title: 'Connect your data',    body: 'Upload Excel files, link your calendar, email, and operational systems. BrainBase structures it automatically.' },
+  { n: '02', title: 'Ask HLNΛ anything',    body: 'Speak or type. "Which zone has the highest contamination?" "Show me overdue fleet services." Helena answers from your data.' },
   { n: '03', title: 'Operate with clarity', body: 'Navigate 12 service dashboards by voice. Get insights, spot risks, and brief your team — in seconds, not hours.' },
 ];
 
@@ -137,23 +138,52 @@ export default function Home() {
               letterSpacing: '-.03em', lineHeight: 1.06,
               color: '#F1F5F9', margin: '0 0 22px',
             }}>
-              Your operations,<br />
+              Ask anything about<br />
               <span style={{
                 background: 'linear-gradient(135deg, #818CF8 0%, #A78BFA 55%, #C084FC 100%)',
                 WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text',
-              }}>unified.</span>
+              }}>your operations.</span>
             </h1>
 
             <p style={{
-              fontSize: 17, lineHeight: 1.75, margin: '0 0 36px',
+              fontSize: 17, lineHeight: 1.75, margin: '0 0 24px',
               color: 'rgba(226,232,240,.72)', maxWidth: 460,
             }}>
-              One intelligent platform for every council service — fleet, waste, water, roads, parks, and more.
-              Ask HLNΛ in plain English and get answers from your live operational data in seconds.
+              BrainBase connects your council's data — fleet, waste, water, roads, parks, and more —
+              and lets you query it in plain English through HLNΛ, your voice AI assistant.
             </p>
 
+            <div style={{ margin: '0 0 32px' }}>
+              <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '.08em', color: 'rgba(167,139,250,.60)', textTransform: 'uppercase', marginBottom: 10 }}>Try asking:</div>
+              {[
+                '"Which fleet vehicles are overdue for service?"',
+                '"What is our waste contamination rate in Zone 3?"',
+                '"Show me this week\'s labour costs by department."',
+              ].map((q, i) => (
+                <div key={i} style={{
+                  fontSize: 13, color: 'rgba(226,232,240,.55)', lineHeight: 1.5,
+                  padding: '5px 0', borderLeft: '2px solid rgba(139,92,246,.30)', paddingLeft: 12,
+                  marginBottom: i < 2 ? 6 : 0,
+                }}>
+                  {q}
+                </div>
+              ))}
+            </div>
+
+            <div style={{
+              padding: '20px', borderRadius: 12, marginBottom: 28,
+              background: 'rgba(255,255,255,.03)', border: '1px solid rgba(255,255,255,.09)',
+            }}>
+              <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '.08em', color: 'rgba(167,139,250,.60)', textTransform: 'uppercase', marginBottom: 12 }}>
+                Live demo — try it now
+              </div>
+              <CommandDemo
+                placeholder="Ask anything about your operations..."
+              />
+            </div>
+
             <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-              <Link href="/command" style={{
+              <Link href="/app" style={{
                 padding: '11px 24px', borderRadius: 8, fontSize: 14, fontWeight: 600,
                 background: 'rgba(99,102,241,.18)', border: '1px solid rgba(99,102,241,.38)',
                 color: '#F1F5F9', textDecoration: 'none', letterSpacing: '.01em',
@@ -162,7 +192,7 @@ export default function Home() {
               }}
                 onMouseEnter={e => { e.currentTarget.style.background = 'rgba(99,102,241,.28)'; e.currentTarget.style.borderColor = 'rgba(99,102,241,.55)'; }}
                 onMouseLeave={e => { e.currentTarget.style.background = 'rgba(99,102,241,.18)'; e.currentTarget.style.borderColor = 'rgba(99,102,241,.38)'; }}>
-                Open Command Centre
+                Ask HLNΛ a question →
               </Link>
               <Link href="/dashboards" style={{
                 padding: '11px 24px', borderRadius: 8, fontSize: 14, fontWeight: 600,
@@ -172,7 +202,7 @@ export default function Home() {
               }}
                 onMouseEnter={e => { e.currentTarget.style.color = 'rgba(226,232,240,.88)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,.22)'; }}
                 onMouseLeave={e => { e.currentTarget.style.color = 'rgba(226,232,240,.62)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,.11)'; }}>
-                Browse Dashboards →
+                Explore all 12 modules →
               </Link>
             </div>
           </div>
@@ -189,7 +219,6 @@ export default function Home() {
               pointerEvents: 'none',
             }} />
 
-            {/* Orb — transparent asset, floats on page background */}
             <div style={{ position: 'relative', width: '100%', maxWidth: 520 }}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
@@ -214,9 +243,9 @@ export default function Home() {
           marginBottom: 72,
         }}>
           {[
-            { value: '12', label: 'Intelligence modules' },
+            { value: '12',   label: 'Intelligence modules' },
             { value: 'HLNΛ', label: 'Voice AI assistant' },
-            { value: '3', label: 'Wake modes (voice, space, chat)' },
+            { value: '3',    label: 'Wake modes (voice, space, chat)' },
             { value: 'Live', label: 'Real-time data analysis' },
           ].map((s, i) => (
             <div key={i} style={{
@@ -248,7 +277,7 @@ export default function Home() {
               }}>
                 <div style={{
                   position: 'absolute', top: 0, left: 0, right: 0, height: 2,
-                  background: `linear-gradient(90deg, rgba(139,92,246,.50), transparent)`,
+                  background: 'linear-gradient(90deg, rgba(139,92,246,.50), transparent)',
                   borderRadius: '14px 14px 0 0',
                 }} />
                 <div style={{
@@ -384,14 +413,14 @@ export default function Home() {
               Ready to begin
             </div>
             <h2 style={{ fontSize: 24, fontWeight: 700, color: '#F5F7FA', letterSpacing: '-.02em', margin: '0 0 8px' }}>
-              Open your command centre.
+              Start your first conversation.
             </h2>
             <p style={{ fontSize: 14, color: 'rgba(230,237,243,.45)', margin: 0, maxWidth: 440, lineHeight: 1.5 }}>
-              HLNΛ is ready. Say "Hey Helena" or press Space to start. All 12 modules are live.
+              Type or say anything — HLNΛ reads your operational data and answers in seconds. All 12 modules are live.
             </p>
           </div>
           <div style={{ display: 'flex', gap: 10, flexShrink: 0 }}>
-            <Link href="/command" style={{
+            <Link href="/app" style={{
               padding: '12px 24px', borderRadius: 9, fontWeight: 600, fontSize: 14,
               background: 'rgba(139,92,246,.28)', border: '1px solid rgba(139,92,246,.50)',
               color: '#F5F7FA', textDecoration: 'none', letterSpacing: '.02em',
@@ -399,7 +428,7 @@ export default function Home() {
             }}
               onMouseEnter={e => (e.currentTarget.style.background = 'rgba(139,92,246,.40)')}
               onMouseLeave={e => (e.currentTarget.style.background = 'rgba(139,92,246,.28)')}>
-              Open Command Centre
+              Ask HLNΛ now →
             </Link>
             <Link href="/dashboards" style={{
               padding: '12px 24px', borderRadius: 9, fontWeight: 600, fontSize: 14,
@@ -413,6 +442,7 @@ export default function Home() {
             </Link>
           </div>
         </div>
+
       </div>
     </main>
   );
