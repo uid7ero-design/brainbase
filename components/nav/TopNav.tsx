@@ -467,6 +467,10 @@ function AppNav({ session, pathname }: { session: NonNullable<Session>; pathname
 
       {/* Centre nav */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+        {isSuperAdmin && (
+          <NavItem href="/admin/founder" label="Founder OS" active={pathname.startsWith('/admin/founder')} />
+        )}
+
         {isManager && (
           <NavItem href="/command" label="Command" active={pathname.startsWith('/command')} />
         )}
@@ -557,9 +561,22 @@ export default function TopNav({ serverSession }: { serverSession?: Session }) {
   const pathname = usePathname();
 
   useEffect(() => {
-    fetch('/api/me').then(r => r.ok ? r.json() : null).then(d => {
-      setFetchedSession(d?.role ? { role: d.role, name: d.name, avatarUrl: d.profile?.avatar_url ?? undefined } : null);
-    }).catch(() => setFetchedSession(null));
+    fetch('/api/me')
+      .then(async res => {
+        if (res.status === 401) return null;                          // expected — no session
+        if (!res.ok) {
+          console.warn('[TopNav] /api/me unexpected status:', res.status);
+          return null;
+        }
+        return res.json() as Promise<{ role: string; name: string; profile?: { avatar_url?: string } }>;
+      })
+      .then(d => {
+        setFetchedSession(d?.role ? { role: d.role, name: d.name, avatarUrl: d.profile?.avatar_url ?? undefined } : null);
+      })
+      .catch(err => {
+        console.warn('[TopNav] /api/me network error:', (err as Error).message);
+        setFetchedSession(null);
+      });
   }, []);
 
   const session = serverSession !== undefined ? serverSession : fetchedSession;

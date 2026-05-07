@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import Anthropic from '@anthropic-ai/sdk';
+import OpenAI from 'openai';
 import { getAuthSession } from '@/lib/authSession';
 import sql from '@/lib/db';
 
-const anthropic = new Anthropic();
+const openai = new OpenAI();
 
 // ─── Data summaries per dashboard type ───────────────────────────────────────
 
@@ -154,8 +154,8 @@ async function generateInsight(snapshot: string, dashboardType: string): Promise
     service_requests: 'down (fewer open SRs and faster resolution is better)',
   };
 
-  const resp = await anthropic.messages.create({
-    model:      'claude-haiku-4-5-20251001',
+  const resp = await openai.chat.completions.create({
+    model:      process.env.OPENAI_MODEL ?? 'gpt-4o-mini',
     max_tokens: 400,
     messages: [{
       role: 'user',
@@ -178,7 +178,7 @@ Return exactly this JSON structure:
     }],
   });
 
-  const text = resp.content.find(b => b.type === 'text')?.text ?? '';
+  const text = resp.choices[0].message.content ?? '';
   const match = text.match(/\{[\s\S]*\}/);
   if (!match) throw new Error('No JSON in response');
   return JSON.parse(match[0]);

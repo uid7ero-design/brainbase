@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server';
-import Anthropic from '@anthropic-ai/sdk';
+import OpenAI from 'openai';
 import { getAuthSession } from '@/lib/authSession';
 import sql from '@/lib/db';
 
-const anthropic = new Anthropic();
+const openai = new OpenAI();
 
 // ─── Per-module period comparison ─────────────────────────────────────────────
 
@@ -188,8 +188,8 @@ export async function POST() {
   }
 
   try {
-    const resp = await anthropic.messages.create({
-      model: 'claude-haiku-4-5-20251001',
+    const resp = await openai.chat.completions.create({
+      model: process.env.OPENAI_MODEL ?? 'gpt-4o-mini',
       max_tokens: 400,
       messages: [{
         role: 'user',
@@ -216,7 +216,7 @@ HARD RULES — output will be rejected if violated:
       }],
     });
 
-    const text = resp.content.find(b => b.type === 'text')?.text ?? '';
+    const text = resp.choices[0].message.content ?? '';
     const match = text.match(/\{[\s\S]*\}/);
     if (!match) throw new Error('No JSON');
     const parsed = JSON.parse(match[0]) as { bullets: string[]; summary: string };

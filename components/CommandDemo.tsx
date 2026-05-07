@@ -107,14 +107,78 @@ const getFileAnalysis = (filename: string, q: string): string => {
 
 // ── Types ─────────────────────────────────────────────────────────────────
 
+interface RecommendedAction {
+  owner?:     string;
+  action?:    string;
+  timeframe?: string;
+}
+
+interface ExecutiveSummary {
+  headline?:                string;
+  summary?:                 string;
+  top_finding?:             string;
+  key_finding?:             string;
+  title?:                   string;
+  impact?:                  string;
+  overview?:                string;
+  description?:             string;
+  body?:                    string;
+  recommended_action?:      string;
+  confidence?:              number;
+  primary_affected_entity?: string;
+  major_change_percent?:    number | string;
+}
+
+// Structured evidence block — returned by hardened backend contract
+interface EvidenceBlock {
+  current_value?:     string | number;
+  previous_value?:    string | number;
+  change_percent?:    string | number;
+  comparison_period?: string;
+  sample_size?:       string | number;
+  affected_entity?:   string;
+  direction?:         string;
+}
+
+// Structured impact block — each value is a label or list of labels
+interface ImpactBlock {
+  financial?:   string | string[];
+  operational?: string | string[];
+  service?:     string | string[];
+}
+
 interface InsightItem {
-  text?: string; insight?: string
-  confidence?: number
-  impact?: string; severity?: string
-  why_this_matters?: string; why?: string
-  recommended_action?: string; recommendation?: string
+  // Text — try all common aliases
+  text?: string; insight?: string; title?: string; finding?: string; description?: string
+  confidence?: number; confidence_reasoning?: string
+  // severity: string (e.g. 'high') OR ImpactBlock — levelOf() safely ignores non-strings
+  impact?: string | ImpactBlock; severity?: string
+  // Why / rationale — two common spellings
+  why_this_matters?: string; why_it_matters?: string; why?: string
+  // Benefit / opportunity
+  estimated_benefit?: string; benefit?: string
+  recommended_action?: string | RecommendedAction; recommendation?: string
   area?: string; category?: string
+  priority?: string
+  opportunity_score?: number; score?: number
   trend?: string; delta?: string | number
+  trend_strength?:  string | number; strength?: string | number
+  trend_velocity?:  string | number; velocity?: string | number
+  duration?:        string
+  // Structured evidence block (new contract) — flat fields kept for backward compat
+  evidence?: EvidenceBlock
+  // Flat evidence fallbacks — include common backend aliases
+  current_value?:     string | number
+  previous_value?:    string | number
+  change_percent?:    string | number; changePct?: string | number; pct_change?: string | number
+  comparison_period?: string
+  sample_size?:       string | number; row_count?: string | number
+  affected_entity?:   string; entity?: string; suburb?: string; vehicle_id?: string
+  direction?:         string; trendDir?: string; trend_direction?: string
+  // Flat impact fallbacks — structured and free-text variants
+  financial_impact?:   string; cost_exposure?: string; overspend_risk?: string; savings_opportunity?: string
+  operational_impact?: string; route_inefficiency?: string; increased_workload?: string; processing_burden?: string
+  service_impact?:     string; missed_service_risk?: string; complaint_risk?: string; reliability_risk?: string
 }
 interface DecisionItem { text?: string; action?: string; priority?: string; area?: string }
 interface IssueItem    { text?: string; issue?: string;  severity?: string; field?: string }
@@ -123,10 +187,19 @@ interface PipelineResult {
   risks?:               unknown;
   recommended_actions?: unknown;
   data_issues?:         unknown;
+  data_quality?:        unknown;   // backend alias for data_issues
   key_insights?:        unknown;
+  insights?:            unknown;   // backend alias for key_insights
+  trends?:              unknown;
+  opportunities?:       unknown;
   summary?:             string;
   overall_status?:      string;
   confidence_score?:    number;
+  executive_summary?:   ExecutiveSummary;
+  // AgentOutput field aliases — normalised by toArr() where needed
+  findings?:            unknown;   // InsightAgent: string[] of findings
+  warnings?:            unknown;   // maps to data_issues
+  confidence?:          number;    // maps to confidence_score
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────
@@ -156,7 +229,14 @@ const isPipelineShape = (v: unknown): v is PipelineResult =>
   !!(  (v as PipelineResult).risks
     || (v as PipelineResult).recommended_actions
     || (v as PipelineResult).key_insights
-    || (v as PipelineResult).data_issues);
+    || (v as PipelineResult).insights
+    || (v as PipelineResult).data_issues
+    || (v as PipelineResult).data_quality
+    || (v as PipelineResult).trends
+    || (v as PipelineResult).opportunities
+    || (v as PipelineResult).executive_summary
+    || (v as PipelineResult).findings
+    || (v as PipelineResult).warnings);
 
 // Severity palette — Critical/High/Medium/Low
 const SEV: Record<string, { color: string; bg: string; border: string; label: string }> = {
@@ -168,6 +248,45 @@ const SEV: Record<string, { color: string; bg: string; border: string; label: st
 const sev = (v?: string) => SEV[(v ?? '').toLowerCase()] ?? SEV.medium;
 
 const confPct = (v: number) => Math.round(v > 1 ? v : v * 100);
+
+const confLabel = (v: number): { label: string; color: string } => {
+  const p = confPct(v);
+  if (p >= 70) return { label: 'High confidence',     color: '#34D399' };
+  if (p >= 40) return { label: 'Moderate confidence', color: '#60A5FA' };
+  return             { label: 'Low confidence',       color: '#F87171' };
+};
+
+const directionIcon = (dir?: string): string => {
+  const d = (dir ?? '').toLowerCase();
+  if (d === 'accelerating')                                  return '⚡';
+  if (d === 'decelerating')                                  return '⤓';
+  if (d === 'stable')                                        return '→';
+  if (/^up|rising|increas/i.test(d))                        return '↑';
+  if (/^down|falling|decreas/i.test(d))                     return '↓';
+  return '→';
+};
+
+const directionColor = (dir?: string): string => {
+  const d = (dir ?? '').toLowerCase();
+  if (d === 'accelerating')              return '#F59E0B';
+  if (d === 'decelerating' || d === 'stable') return '#94A3B8';
+  if (/^up|rising|increas/i.test(d))    return '#34D399';
+  if (/^down|falling|decreas/i.test(d)) return '#F87171';
+  return '#22D3EE';
+};
+
+// Normalise ImpactBlock string | string[] to a flat string array
+const toStringArr = (v?: string | string[]): string[] => {
+  if (!v) return [];
+  if (Array.isArray(v)) return v.filter(s => typeof s === 'string' && s.length > 0);
+  return typeof v === 'string' && v.length > 0 ? [v] : [];
+};
+
+// Extract flat impact values from legacy per-field keys
+const getFlatImpactValues = (item: InsightItem, keys: string[]): string[] =>
+  keys
+    .map(k => (item as Record<string, unknown>)[k])
+    .filter((v): v is string => typeof v === 'string' && v.length > 0);
 
 // ── Sub-components ────────────────────────────────────────────────────────
 
@@ -223,8 +342,8 @@ function SeverityBadge({ level }: { level?: string }) {
   const s = sev(level);
   return (
     <span style={{
-      fontSize: 10, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase',
-      padding: '2px 7px', borderRadius: 4, flexShrink: 0,
+      fontSize: 10, fontWeight: 700, letterSpacing: '.05em', textTransform: 'uppercase',
+      padding: '1px 6px', borderRadius: 3, flexShrink: 0,
       background: s.bg, border: `1px solid ${s.border}`, color: s.color,
     }}>
       {s.label}
@@ -240,8 +359,8 @@ function SectionHeader({ icon, label, count, color, open, onToggle }: {
     <button
       onClick={onToggle}
       style={{
-        width: '100%', display: 'flex', alignItems: 'center', gap: 8,
-        background: 'none', border: 'none', cursor: 'pointer', padding: '0 0 10px', textAlign: 'left',
+        width: '100%', display: 'flex', alignItems: 'center', gap: 7,
+        background: 'none', border: 'none', cursor: 'pointer', padding: '0 0 7px', textAlign: 'left',
       }}
     >
       <span style={{ display: 'flex', alignItems: 'center', opacity: 0.75 }}>{icon}</span>
@@ -252,37 +371,283 @@ function SectionHeader({ icon, label, count, color, open, onToggle }: {
   );
 }
 
-function HeroSummary({ summary, status, confidence, topAction }: {
+// ── Evidence chips ──────────────────────────────────────────────────────────
+
+function EvidenceChips({ item }: { item: InsightItem }) {
+  type Chip = { label?: string; value: string; highlight?: boolean; color?: string };
+  const chips: Chip[] = [];
+
+  // Structured evidence block takes precedence; fall back to all flat field aliases
+  const ev = item.evidence;
+  const changePct  = ev?.change_percent    ?? item.change_percent  ?? item.changePct ?? item.pct_change;
+  const currentVal = ev?.current_value     ?? item.current_value;
+  const prevVal    = ev?.previous_value    ?? item.previous_value;
+  const period     = ev?.comparison_period ?? item.comparison_period;
+  const entity     = ev?.affected_entity   ?? item.affected_entity ?? item.entity ?? item.suburb ?? item.vehicle_id;
+  const sampleSz   = ev?.sample_size       ?? item.sample_size     ?? item.row_count;
+  const dir        = ev?.direction         ?? item.direction        ?? item.trendDir ?? item.trend_direction;
+
+  if (changePct != null) {
+    const num = typeof changePct === 'number' ? changePct : parseFloat(String(changePct));
+    if (!isNaN(num)) {
+      const up = num > 0;
+      chips.push({ value: `${up ? '↑' : '↓'} ${Math.abs(num)}%`, highlight: true, color: up ? '#34D399' : '#F87171' });
+    }
+  } else if (dir) {
+    chips.push({ value: `${directionIcon(dir)} ${dir}`, highlight: true, color: directionColor(dir) });
+  }
+  if (currentVal != null) chips.push({ label: 'Current',  value: String(currentVal) });
+  if (prevVal    != null) chips.push({ label: 'Previous', value: String(prevVal) });
+  if (period)             chips.push({ label: 'Period',   value: period });
+  if (entity)             chips.push({ label: 'Entity',   value: entity });
+  if (sampleSz   != null) chips.push({ label: 'Rows',     value: Number(sampleSz).toLocaleString() });
+
+  if (chips.length === 0) return null;
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, marginTop: 6, alignItems: 'center' }}>
+      <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '.09em', textTransform: 'uppercase', color: 'rgba(255,255,255,.16)', marginRight: 1, flexShrink: 0 }}>EVD</span>
+      {chips.map((c, i) => (
+        <span key={i} style={{
+          fontSize: 10,
+          padding: c.highlight ? '1px 7px' : '1px 5px',
+          borderRadius: 3, flexShrink: 0,
+          background: c.highlight ? `${c.color}14` : 'rgba(255,255,255,.035)',
+          border:     `1px solid ${c.highlight ? `${c.color}30` : 'rgba(255,255,255,.08)'}`,
+          color:      c.highlight ? c.color : 'rgba(226,232,240,.50)',
+          fontWeight: c.highlight ? 700 : 400,
+          fontVariantNumeric: 'tabular-nums',
+        }}>
+          {c.label
+            ? <><span style={{ opacity: 0.55 }}>{c.label}:</span> <span style={{ color: 'rgba(226,232,240,.75)' }}>{c.value}</span></>
+            : c.value
+          }
+        </span>
+      ))}
+    </div>
+  );
+}
+
+// ── Impact chips ────────────────────────────────────────────────────────────
+
+function ImpactChips({ item }: { item: InsightItem }) {
+  // If item.impact is an ImpactBlock (object), use its structured values.
+  const impactBlock: ImpactBlock | null =
+    item.impact != null && typeof item.impact === 'object' ? item.impact as ImpactBlock : null;
+
+  // If impact is a descriptive string (not a severity keyword), treat as financial text
+  const impactStr = typeof item.impact === 'string' ? item.impact : null;
+  const isSeverityWord = impactStr ? /^(high|medium|low|critical)$/i.test(impactStr.trim()) : false;
+  const impactDescStr = impactStr && !isSeverityWord ? impactStr : null;
+
+  const groups = [
+    {
+      label: '💰 Financial', color: '#F59E0B',
+      values: (impactBlock
+        ? toStringArr(impactBlock.financial)
+        : [
+            ...getFlatImpactValues(item, ['financial_impact', 'cost_exposure', 'overspend_risk', 'savings_opportunity']),
+            ...(impactDescStr ? [impactDescStr] : []),
+          ]
+      ).slice(0, 2),
+    },
+    {
+      label: '🛠 Operational', color: '#60A5FA',
+      values: (impactBlock
+        ? toStringArr(impactBlock.operational)
+        : getFlatImpactValues(item, ['operational_impact', 'route_inefficiency', 'increased_workload', 'processing_burden'])
+      ).slice(0, 2),
+    },
+    {
+      label: '📞 Service', color: '#F87171',
+      values: (impactBlock
+        ? toStringArr(impactBlock.service)
+        : getFlatImpactValues(item, ['service_impact', 'missed_service_risk', 'complaint_risk', 'reliability_risk'])
+      ).slice(0, 2),
+    },
+  ].filter(g => g.values.length > 0);
+
+  if (groups.length === 0) return null;
+  // Inline segmented row — emoji icon + truncated first value per category
+  const emoji: Record<string, string> = { '💰 Financial': '💰', '🛠 Operational': '🛠', '📞 Service': '📞' };
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, marginTop: 6 }}>
+      {groups.map(g => (
+        <span key={g.label} title={g.values.join(' · ')} style={{
+          display: 'inline-flex', alignItems: 'center', gap: 3,
+          fontSize: 10, padding: '1px 6px', borderRadius: 3,
+          background: `${g.color}0A`, border: `1px solid ${g.color}1E`,
+          color: `${g.color}A8`, maxWidth: 180,
+        }}>
+          <span style={{ flexShrink: 0 }}>{emoji[g.label] ?? ''}</span>
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {g.values[0]}
+          </span>
+          {g.values.length > 1 && (
+            <span style={{ opacity: 0.50, flexShrink: 0 }}>+{g.values.length - 1}</span>
+          )}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+// ── Action block ────────────────────────────────────────────────────────────
+
+function ActionBlock({ action }: { action?: string | RecommendedAction }) {
+  const [expanded, setExpanded] = useState(false);
+  if (!action) return null;
+  const obj: RecommendedAction = typeof action === 'string' ? { action } : action;
+  if (!obj.action && !obj.owner && !obj.timeframe) return null;
+  const hasExtra = !!(obj.owner || obj.timeframe);
+  return (
+    <div style={{ marginTop: 7, paddingTop: 7, borderTop: '1px solid rgba(52,211,153,.08)' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 5 }}>
+        <span style={{ fontSize: 10, color: 'rgba(52,211,153,.55)', flexShrink: 0, lineHeight: 1.4, fontWeight: 700 }}>→</span>
+        <span style={{ fontSize: 12, color: 'rgba(110,231,183,.72)', lineHeight: 1.45, flex: 1 }}>{obj.action}</span>
+        {hasExtra && (
+          <button
+            onClick={() => setExpanded(o => !o)}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px 0 0', flexShrink: 0 }}
+          >
+            <ChevronDown size={9} style={{ color: 'rgba(52,211,153,.30)', transition: 'transform .18s', transform: expanded ? 'rotate(180deg)' : 'none' }} />
+          </button>
+        )}
+      </div>
+      {expanded && hasExtra && (
+        <div style={{ marginTop: 4, paddingLeft: 15, display: 'flex', gap: 10 }}>
+          {obj.owner    && <span style={{ fontSize: 10, color: 'rgba(226,232,240,.35)' }}>Owner: {obj.owner}</span>}
+          {obj.timeframe && <span style={{ fontSize: 10, color: 'rgba(226,232,240,.28)' }}>{obj.timeframe}</span>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Confidence label ────────────────────────────────────────────────────────
+
+function ConfidenceLabel({ score }: { score?: number }) {
+  if (score == null) return null;
+  const { label, color } = confLabel(score);
+  const pct = confPct(score);
+  return (
+    <span style={{
+      fontSize: 10, padding: '1px 6px', borderRadius: 3, flexShrink: 0,
+      background: `${color}0F`, border: `1px solid ${color}22`,
+      color: `${color}CC`, fontWeight: 600,
+      display: 'inline-flex', alignItems: 'center', gap: 3,
+    }}>
+      <span style={{ fontVariantNumeric: 'tabular-nums' }}>{pct}%</span>
+      <span style={{ width: 1, height: 7, background: `${color}38`, flexShrink: 0 }} />
+      <span style={{ opacity: 0.80 }}>{label.replace(' confidence', '')}</span>
+    </span>
+  );
+}
+
+function HeroSummary({ summary, status, confidence, topAction, executiveSummary }: {
   summary?: string; status?: string; confidence?: number; topAction?: string;
+  executiveSummary?: ExecutiveSummary;
 }) {
-  if (!summary && !status && !topAction) return null;
+  const es = executiveSummary;
+  if (!summary && !status && !topAction && !es) return null;
+
   const sl = (status ?? '').toLowerCase();
   const statusColor = sl.includes('good') || sl.includes('ok') || sl.includes('normal')
     ? '#34D399' : sl.includes('critical') || sl.includes('alert') ? '#F87171' : '#F59E0B';
+
+  // Resolve field aliases — try every known backend field name variant
+  const rawHeadline = es ? (strOf(es, 'headline', 'summary', 'top_finding', 'key_finding', 'title') || undefined) : undefined;
+  const rawImpact   = es ? (strOf(es, 'impact', 'overview', 'description', 'body', 'detail') || undefined) : undefined;
+
+  // Strip backend error/failure messages — never surface them as analysis headlines
+  const isErrPhrase = (s?: string) =>
+    /unavailable|could not (generate|process|analyse|analyze)|no (structured )?insights?|analysis (failed|incomplete|error)/i.test(s ?? '');
+  const esHeadline    = isErrPhrase(rawHeadline) ? undefined : rawHeadline;
+  const esImpact      = isErrPhrase(rawImpact)   ? undefined : rawImpact;
+  const displayAction = es?.recommended_action ?? topAction;
+
   return (
     <div style={{
-      padding: '20px 22px', borderRadius: 12,
+      padding: '14px 16px', borderRadius: 10,
       background: 'linear-gradient(135deg, rgba(99,102,241,.07) 0%, rgba(139,92,246,.04) 100%)',
       border: '1px solid rgba(99,102,241,.22)',
-      boxShadow: '0 4px 32px rgba(99,102,241,.05)',
+      boxShadow: '0 4px 24px rgba(99,102,241,.05)',
     }}>
       {status && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: summary ? 12 : 0 }}>
-          <span style={{ width: 6, height: 6, borderRadius: '50%', background: statusColor, flexShrink: 0, boxShadow: `0 0 8px ${statusColor}` }} />
-          <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.10em', textTransform: 'uppercase', color: 'rgba(255,255,255,.35)' }}>Status</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: (summary || esHeadline) ? 8 : 0 }}>
+          <span style={{ width: 5, height: 5, borderRadius: '50%', background: statusColor, flexShrink: 0, boxShadow: `0 0 6px ${statusColor}` }} />
+          <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '.10em', textTransform: 'uppercase', color: 'rgba(255,255,255,.32)' }}>Status</span>
           <span style={{ fontSize: 11, fontWeight: 600, color: statusColor }}>{status}</span>
         </div>
       )}
-      {summary && (
-        <p style={{ margin: 0, fontSize: 14, color: '#E2E8F0', lineHeight: 1.7 }}>{summary}</p>
+
+      {esHeadline && (
+        <p style={{ margin: '0 0 6px', fontSize: 14, fontWeight: 700, color: '#E2E8F0', lineHeight: 1.3 }}>{esHeadline}</p>
       )}
-      {(confidence != null || topAction) && (
-        <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid rgba(255,255,255,.07)', display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {confidence != null && <ConfidenceMeter score={confidence} />}
-          {topAction && (
-            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-              <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', color: '#34D399', flexShrink: 0, paddingTop: 1 }}>Action</span>
-              <span style={{ fontSize: 12, color: 'rgba(110,231,183,.75)', lineHeight: 1.55 }}>{topAction}</span>
+      {(esImpact ?? summary) && (
+        esImpact
+          ? <p style={{ margin: 0, fontSize: 13, color: '#E2E8F0', lineHeight: 1.6, paddingLeft: 10, borderLeft: '2px solid rgba(99,102,241,.38)' }}>{esImpact}</p>
+          : <p style={{ margin: 0, fontSize: 13, color: '#E2E8F0', lineHeight: 1.6 }}>{summary}</p>
+      )}
+
+      {/* Fallback: es exists but none of its text fields matched — still confirm analysis ran */}
+      {es && !esHeadline && !esImpact && !summary && !status && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ width: 4, height: 4, borderRadius: '50%', background: '#A78BFA', flexShrink: 0, boxShadow: '0 0 5px #A78BFA' }} />
+          <span style={{ fontSize: 11, color: 'rgba(167,139,250,.55)' }}>HLNΛ analysis complete</span>
+        </div>
+      )}
+
+      {/* Executive summary meta row — dominant metric + entity + confidence */}
+      {es && (es.major_change_percent != null || es.primary_affected_entity || es.confidence != null) && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginTop: 10, alignItems: 'center' }}>
+          {es.major_change_percent != null && (() => {
+            const num = typeof es.major_change_percent === 'number' ? es.major_change_percent : parseFloat(String(es.major_change_percent));
+            if (isNaN(num)) return null;
+            const up = num > 0;
+            const col = up ? '#34D399' : '#F87171';
+            return (
+              <span style={{
+                fontSize: 16, fontWeight: 800, padding: '3px 10px', borderRadius: 5,
+                background: `${col}12`, border: `1px solid ${col}28`, color: col,
+                fontVariantNumeric: 'tabular-nums', letterSpacing: '-.01em',
+              }}>
+                {up ? '↑' : '↓'} {Math.abs(num)}%
+              </span>
+            );
+          })()}
+          {es.primary_affected_entity && (
+            <span style={{
+              fontSize: 10, fontWeight: 600, padding: '3px 8px', borderRadius: 5,
+              background: 'rgba(99,102,241,.12)', border: '1px solid rgba(99,102,241,.26)',
+              color: 'rgba(167,139,250,.88)', letterSpacing: '.02em',
+            }}>
+              {es.primary_affected_entity}
+            </span>
+          )}
+          {es.confidence != null && (() => {
+            const { label, color } = confLabel(es.confidence);
+            const pct = confPct(es.confidence);
+            return (
+              <span style={{
+                fontSize: 10, fontWeight: 600, padding: '3px 8px', borderRadius: 5,
+                background: `${color}0F`, border: `1px solid ${color}22`,
+                color: `${color}CC`, display: 'inline-flex', alignItems: 'center', gap: 4,
+              }}>
+                <span style={{ fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>{pct}%</span>
+                <span style={{ opacity: 0.55 }}>{label.replace(' confidence', '')}</span>
+              </span>
+            );
+          })()}
+        </div>
+      )}
+
+      {((!es && confidence != null) || displayAction) && (
+        <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid rgba(255,255,255,.06)', display: 'flex', flexDirection: 'column', gap: 7 }}>
+          {!es && confidence != null && <ConfidenceMeter score={confidence} />}
+          {displayAction && (
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6 }}>
+              <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', color: '#34D399', flexShrink: 0, paddingTop: 2 }}>→</span>
+              <span style={{ fontSize: 12, color: 'rgba(110,231,183,.72)', lineHeight: 1.5 }}>{displayAction}</span>
             </div>
           )}
         </div>
@@ -293,53 +658,88 @@ function HeroSummary({ summary, status, confidence, topAction }: {
 
 function RiskIntelligenceCard({ item }: { item: string | InsightItem }) {
   const [expanded, setExpanded] = useState(false);
-  const text     = strOf(item, "insight", "text");
-  const why      = typeof item !== "string" ? (item.why_this_matters ?? item.why) : undefined;
-  const action   = typeof item !== "string" ? (item.recommended_action ?? item.recommendation) : undefined;
-  const area     = typeof item !== "string" ? (item.area ?? item.category) : undefined;
-  const severity = levelOf(item, "severity", "impact");
-  const s = sev(severity);
-  const hasDetail = !!(why || action);
+
+  const itm        = typeof item !== "string" ? item : undefined;
+  const text       = strOf(item, "text", "insight", "title", "finding", "description");
+  const why        = itm?.why_this_matters ?? itm?.why_it_matters ?? itm?.why;
+  const confReason = itm?.confidence_reasoning;
+  const rawAction  = itm?.recommended_action;
+  const action: RecommendedAction | undefined = !rawAction
+    ? (itm?.recommendation ? { action: itm.recommendation } : undefined)
+    : typeof rawAction === 'string' ? { action: rawAction } : rawAction;
+  const area     = itm?.area ?? itm?.category;
+  const severity = levelOf(item, "severity") ?? (typeof itm?.impact === 'string' ? itm.impact : undefined);
+  const priority = itm?.priority;
+  const conf     = itm?.confidence;
+  const s        = sev(severity);
+
+  const hasAction = !!(action?.action || action?.owner || action?.timeframe);
+  const hasDetail = !!(why || confReason);
+
   return (
     <div
-      style={{ borderRadius: 10, overflow: 'hidden', background: s.bg, border: `1px solid ${s.border}`, borderLeft: `3px solid ${s.color}`, transition: 'transform .15s, box-shadow .15s' }}
-      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.transform = 'translateY(-1px)'; (e.currentTarget as HTMLElement).style.boxShadow = `0 8px 24px ${s.color}18`; }}
+      style={{ borderRadius: 8, overflow: 'hidden', background: s.bg, border: `1px solid ${s.border}`, borderLeft: `3px solid ${s.color}`, transition: 'transform .15s, box-shadow .15s' }}
+      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.transform = 'translateY(-1px)'; (e.currentTarget as HTMLElement).style.boxShadow = `0 6px 18px ${s.color}14`; }}
       onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = 'none'; (e.currentTarget as HTMLElement).style.boxShadow = 'none'; }}
     >
-      <div style={{ padding: '14px 16px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, marginBottom: 8 }}>
-          {area && <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', color: 'rgba(255,255,255,.30)' }}>{area}</span>}
-          <SeverityBadge level={severity} />
+      <div style={{ padding: '10px 13px' }}>
+        {/* Header: area · priority · confidence · severity — compact single row */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6, marginBottom: 6, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
+            {area && (
+              <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.07em', textTransform: 'uppercase', color: 'rgba(255,255,255,.30)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{area}</span>
+            )}
+            {priority && (
+              <span style={{
+                fontSize: 9, fontWeight: 700, letterSpacing: '.05em', textTransform: 'uppercase',
+                padding: '1px 5px', borderRadius: 3, flexShrink: 0,
+                background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.10)',
+                color: 'rgba(226,232,240,.45)',
+              }}>{priority}</span>
+            )}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+            <ConfidenceLabel score={conf} />
+            <SeverityBadge level={severity} />
+          </div>
         </div>
-        <p style={{ margin: 0, fontSize: 13, color: '#E2E8F0', lineHeight: 1.65 }}>{text}</p>
+
+        <p style={{ margin: 0, fontSize: 12.5, color: '#E2E8F0', lineHeight: 1.5 }}>{text}</p>
+
+        {itm && <EvidenceChips item={itm} />}
+        {itm && <ImpactChips item={itm} />}
+        {hasAction && <ActionBlock action={action} />}
       </div>
+
       {hasDetail && (
         <>
           <button
             onClick={() => setExpanded(o => !o)}
             style={{
-              width: '100%', padding: '7px 16px', display: 'flex', alignItems: 'center', gap: 6,
-              background: 'rgba(0,0,0,.15)', border: 'none', borderTop: `1px solid ${s.border}`,
+              width: '100%', padding: '5px 13px', display: 'flex', alignItems: 'center', gap: 5,
+              background: 'rgba(0,0,0,.12)', border: 'none', borderTop: `1px solid ${s.border}`,
               cursor: 'pointer', textAlign: 'left',
             }}
           >
-            <span style={{ fontSize: 11, color: 'rgba(255,255,255,.30)', flex: 1 }}>
-              {expanded ? 'Less detail' : 'Why this matters'}
+            <span style={{ fontSize: 10, color: 'rgba(255,255,255,.28)', flex: 1 }}>
+              {expanded ? 'Less' : 'Why this matters'}
             </span>
-            <ChevronDown size={10} style={{ color: 'rgba(255,255,255,.20)', transition: 'transform .2s', transform: expanded ? 'rotate(180deg)' : 'none' }} />
+            <ChevronDown size={9} style={{ color: 'rgba(255,255,255,.18)', transition: 'transform .18s', transform: expanded ? 'rotate(180deg)' : 'none' }} />
           </button>
           {expanded && (
-            <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div style={{ padding: '8px 13px', display: 'flex', flexDirection: 'column', gap: 7 }}>
               {why && (
-                <div>
-                  <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', color: 'rgba(255,255,255,.28)', marginBottom: 4 }}>Why this matters</div>
-                  <p style={{ margin: 0, fontSize: 12, color: 'rgba(226,232,240,.60)', lineHeight: 1.6 }}>{why}</p>
-                </div>
+                <p style={{ margin: 0, fontSize: 11.5, color: 'rgba(226,232,240,.58)', lineHeight: 1.55 }}>{why}</p>
               )}
-              {action && (
-                <div>
-                  <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', color: '#34D399', marginBottom: 4 }}>Recommended action</div>
-                  <p style={{ margin: 0, fontSize: 12, color: 'rgba(110,231,183,.72)', lineHeight: 1.6 }}>{action}</p>
+              {confReason && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', color: 'rgba(255,255,255,.20)' }}>Confidence</span>
+                  {confReason.split(/[\n•·]/).map(seg => seg.trim()).filter(seg => seg.length > 0).map((bullet, bi) => (
+                    <div key={bi} style={{ display: 'flex', alignItems: 'flex-start', gap: 5 }}>
+                      <span style={{ color: 'rgba(255,255,255,.20)', flexShrink: 0 }}>·</span>
+                      <span style={{ fontSize: 11, color: 'rgba(226,232,240,.40)', lineHeight: 1.5 }}>{bullet}</span>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
@@ -351,55 +751,186 @@ function RiskIntelligenceCard({ item }: { item: string | InsightItem }) {
 }
 
 function OpportunityCard({ item }: { item: string | InsightItem }) {
-  const text   = strOf(item, "insight", "text");
-  const action = typeof item !== "string" ? (item.recommended_action ?? item.recommendation) : undefined;
-  const area   = typeof item !== "string" ? (item.area ?? item.category) : undefined;
-  const conf   = typeof item !== "string" ? item.confidence : undefined;
+  const [whyOpen, setWhyOpen] = useState(false);
+  const itm        = typeof item !== "string" ? item : undefined;
+  const text       = strOf(item, "text", "insight", "title", "finding", "description");
+  const why        = itm?.why_it_matters ?? itm?.why_this_matters ?? itm?.why;
+  const benefit    = itm?.estimated_benefit ?? itm?.benefit;
+  const rawAction  = itm?.recommended_action;
+  const action: RecommendedAction | undefined = !rawAction
+    ? (itm?.recommendation ? { action: itm.recommendation } : undefined)
+    : typeof rawAction === 'string' ? { action: rawAction } : rawAction;
+  const area       = itm?.area ?? itm?.category;
+  const conf       = itm?.confidence;
+  const score      = itm?.opportunity_score ?? itm?.score;
+  const priority   = itm?.priority;
+  const hasAction  = !!(action?.action || action?.owner || action?.timeframe);
+
   return (
     <div
-      style={{ padding: '14px 16px', borderRadius: 10, background: 'rgba(129,140,248,.05)', border: '1px solid rgba(129,140,248,.16)', borderLeft: '3px solid rgba(129,140,248,.55)', transition: 'transform .15s, box-shadow .15s' }}
-      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.transform = 'translateY(-1px)'; (e.currentTarget as HTMLElement).style.boxShadow = '0 8px 20px rgba(129,140,248,.10)'; }}
+      style={{ borderRadius: 8, overflow: 'hidden', background: 'rgba(129,140,248,.05)', border: '1px solid rgba(129,140,248,.16)', borderLeft: '3px solid rgba(129,140,248,.50)', transition: 'transform .15s, box-shadow .15s' }}
+      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.transform = 'translateY(-1px)'; (e.currentTarget as HTMLElement).style.boxShadow = '0 6px 16px rgba(129,140,248,.08)'; }}
       onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = 'none'; (e.currentTarget as HTMLElement).style.boxShadow = 'none'; }}
     >
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, marginBottom: 6 }}>
-        {area && <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', color: 'rgba(255,255,255,.28)' }}>{area}</span>}
-        {conf != null && (
-          <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 4, background: 'rgba(129,140,248,.12)', border: '1px solid rgba(129,140,248,.20)', color: 'rgba(167,139,250,.80)', flexShrink: 0 }}>
-            {confPct(conf)}% conf
-          </span>
+      <div style={{ padding: '10px 13px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6, marginBottom: 5, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
+            {area && (
+              <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.07em', textTransform: 'uppercase', color: 'rgba(255,255,255,.26)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{area}</span>
+            )}
+            {priority && (
+              <span style={{
+                fontSize: 9, fontWeight: 700, letterSpacing: '.05em', textTransform: 'uppercase',
+                padding: '1px 5px', borderRadius: 3, flexShrink: 0,
+                background: 'rgba(129,140,248,.10)', border: '1px solid rgba(129,140,248,.20)',
+                color: 'rgba(167,139,250,.65)',
+              }}>{priority}</span>
+            )}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+            {score != null && (
+              <span style={{
+                fontSize: 9, padding: '1px 5px', borderRadius: 3, fontWeight: 700,
+                background: 'rgba(129,140,248,.10)', border: '1px solid rgba(129,140,248,.20)',
+                color: 'rgba(167,139,250,.75)',
+              }}>
+                {Math.round(score > 1 ? score : score * 100)}
+              </span>
+            )}
+            <ConfidenceLabel score={conf} />
+          </div>
+        </div>
+
+        <p style={{ margin: 0, fontSize: 12.5, color: '#E2E8F0', lineHeight: 1.5 }}>{text}</p>
+
+        {benefit && (
+          <div style={{ marginTop: 5, display: 'flex', alignItems: 'flex-start', gap: 5 }}>
+            <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', color: 'rgba(52,211,153,.45)', flexShrink: 0, paddingTop: 1 }}>Benefit</span>
+            <span style={{ fontSize: 11.5, color: 'rgba(52,211,153,.70)', lineHeight: 1.4 }}>{benefit}</span>
+          </div>
         )}
+
+        {itm && <EvidenceChips item={itm} />}
+        {itm && <ImpactChips item={itm} />}
+        {hasAction && <ActionBlock action={action} />}
       </div>
-      <p style={{ margin: 0, fontSize: 13, color: '#E2E8F0', lineHeight: 1.65 }}>{text}</p>
-      {action && <p style={{ margin: '8px 0 0', fontSize: 12, color: 'rgba(129,140,248,.65)', lineHeight: 1.55 }}>→ {action}</p>}
+
+      {why && (
+        <>
+          <button
+            onClick={() => setWhyOpen(o => !o)}
+            style={{
+              width: '100%', padding: '5px 13px', display: 'flex', alignItems: 'center', gap: 5,
+              background: 'rgba(129,140,248,.04)', border: 'none', borderTop: '1px solid rgba(129,140,248,.10)',
+              cursor: 'pointer', textAlign: 'left',
+            }}
+          >
+            <span style={{ fontSize: 10, color: 'rgba(167,139,250,.38)', flex: 1 }}>
+              {whyOpen ? 'Less' : 'Why this matters'}
+            </span>
+            <ChevronDown size={9} style={{ color: 'rgba(129,140,248,.28)', transition: 'transform .18s', transform: whyOpen ? 'rotate(180deg)' : 'none' }} />
+          </button>
+          {whyOpen && (
+            <div style={{ padding: '7px 13px', background: 'rgba(129,140,248,.03)' }}>
+              <p style={{ margin: 0, fontSize: 11.5, color: 'rgba(226,232,240,.52)', lineHeight: 1.55 }}>{why}</p>
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }
 
 function TrendSignal({ item }: { item: InsightItem }) {
-  const text  = strOf(item, "insight", "text");
-  const delta = item.delta;
-  const trend = item.trend;
-  const area  = item.area ?? item.category;
-  const dirStr = String(delta ?? trend ?? '');
-  const isUp   = /^\+|up|incr/i.test(dirStr);
-  const isDown = /^-|down|decr/i.test(dirStr);
-  const dirColor = isUp ? '#34D399' : isDown ? '#F87171' : '#22D3EE';
+  const text     = strOf(item, "text", "insight", "title", "finding", "description");
+  const area     = item.area ?? item.category;
+  // Entity: try evidence block, then all flat aliases
+  const entity   = item.evidence?.affected_entity ?? item.affected_entity ?? item.entity ?? item.suburb ?? item.vehicle_id;
+  const strength = item.trend_strength ?? item.strength;
+  const velocity = item.trend_velocity ?? item.velocity;
+  const duration = item.duration;
+  // Direction: try all aliases
+  const resolvedDir = item.direction ?? item.trendDir ?? item.trend_direction;
+
+  // Determine direction + colour
+  let icon: string;
+  let color: string;
+
+  if (resolvedDir) {
+    icon  = directionIcon(resolvedDir);
+    color = directionColor(resolvedDir);
+  } else if (item.delta != null) {
+    const ds = String(item.delta);
+    const up   = /^\+|up|incr/i.test(ds);
+    const down = /^-|down|decr/i.test(ds);
+    icon  = up ? '↑' : down ? '↓' : '→';
+    color = up ? '#34D399' : down ? '#F87171' : '#22D3EE';
+  } else if (item.trend) {
+    const up   = /up|incr|rising/i.test(item.trend);
+    const down = /down|decr|falling/i.test(item.trend);
+    icon  = up ? '↑' : down ? '↓' : '→';
+    color = up ? '#34D399' : down ? '#F87171' : '#22D3EE';
+  } else {
+    icon  = '→';
+    color = '#22D3EE';
+  }
+
+  // Change percent: evidence block first, then all flat aliases
+  const rawChangePct = item.evidence?.change_percent ?? item.change_percent ?? item.changePct ?? item.pct_change;
+  let changePctStr: string | null = null;
+  if (rawChangePct != null) {
+    const num = typeof rawChangePct === 'number' ? rawChangePct : parseFloat(String(rawChangePct));
+    changePctStr = isNaN(num) ? String(rawChangePct) : `${num > 0 ? '+' : ''}${num}%`;
+  }
+
+  const primaryVal = changePctStr ?? (item.delta != null ? String(item.delta) : null);
+
   return (
     <div
-      style={{ padding: '12px 14px', borderRadius: 8, background: 'rgba(34,211,238,.04)', border: '1px solid rgba(34,211,238,.12)', display: 'flex', gap: 10, alignItems: 'flex-start', transition: 'transform .15s' }}
+      style={{ padding: '9px 11px', borderRadius: 7, background: 'rgba(34,211,238,.04)', border: '1px solid rgba(34,211,238,.11)', transition: 'transform .15s' }}
       onMouseEnter={e => { (e.currentTarget as HTMLElement).style.transform = 'translateY(-1px)'; }}
       onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = 'none'; }}
     >
-      {delta != null && (
-        <span style={{ fontSize: 15, fontWeight: 700, color: dirColor, flexShrink: 0, lineHeight: 1.2 }}>
-          {isUp ? '↑' : isDown ? '↓' : '→'} {String(delta)}
-        </span>
-      )}
-      <div style={{ flex: 1, minWidth: 0 }}>
-        {area && <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', color: '#22D3EE', marginBottom: 3 }}>{area}</div>}
-        <p style={{ margin: 0, fontSize: 12, color: 'rgba(226,232,240,.65)', lineHeight: 1.55 }}>{text}</p>
-        {trend && !delta && <span style={{ fontSize: 11, color: dirColor, marginTop: 4, display: 'block' }}>{trend}</span>}
+      {/* Signal header: icon · value · entity */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+        <span style={{ fontSize: 14, fontWeight: 700, color, lineHeight: 1, flexShrink: 0 }}>{icon}</span>
+        {primaryVal && (
+          <span style={{ fontSize: 13, fontWeight: 800, color, lineHeight: 1, fontVariantNumeric: 'tabular-nums', letterSpacing: '-.01em' }}>{primaryVal}</span>
+        )}
+        {(area || entity) && (
+          <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '.07em', textTransform: 'uppercase', color: 'rgba(34,211,238,.42)', marginLeft: 'auto', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 90 }}>
+            {entity ?? area}
+          </span>
+        )}
       </div>
+
+      {/* Description — 2-line clamp */}
+      {(text || (item.trend && !resolvedDir && item.delta == null && changePctStr == null)) && (
+        <p style={{ margin: '4px 0 0', fontSize: 11, color: 'rgba(226,232,240,.58)', lineHeight: 1.45, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as const }}>
+          {text || item.trend}
+        </p>
+      )}
+
+      {/* Metadata row: strength · velocity · duration */}
+      {(strength != null || velocity != null || duration) && (
+        <div style={{ display: 'flex', gap: 3, alignItems: 'center', marginTop: 5, flexWrap: 'wrap' }}>
+          {strength != null && (
+            <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 3, fontWeight: 700, background: `${color}0D`, border: `1px solid ${color}22`, color: `${color}BB` }}>
+              {String(strength)}
+            </span>
+          )}
+          {velocity != null && (
+            <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 3, fontWeight: 600, background: `${color}07`, border: `1px solid ${color}17`, color: `${color}88` }}>
+              {String(velocity)}
+            </span>
+          )}
+          {duration && (
+            <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 3, background: 'rgba(255,255,255,.03)', border: '1px solid rgba(255,255,255,.07)', color: 'rgba(255,255,255,.28)' }}>
+              {duration}
+            </span>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -421,42 +952,94 @@ function PipelineResultView({ result }: { result: PipelineResult }) {
   const [trendsOpen,   setTrendsOpen]   = useState(true);
   const [qualityOpen,  setQualityOpen]  = useState(false);
 
-  const issues   = toArr<string | IssueItem>  (result.data_issues);
-  const insights = toArr<string | InsightItem>(result.key_insights);
+  // data_quality may be an array of issues OR an object with a nested issues/items key
+  const rawDQ = result.data_quality;
+  const dqItems: (string | IssueItem)[] = Array.isArray(rawDQ)
+    ? rawDQ as (string | IssueItem)[]
+    : (rawDQ && typeof rawDQ === 'object'
+      ? toArr<string | IssueItem>(rawDQ, 'issues', 'items', 'problems', 'checks', 'warnings')
+      : []);
+
+  const issues   = toArr<string | IssueItem>  (result.data_issues,   'data_issues')
+                 .concat(dqItems)
+                 .concat(toArr<string | IssueItem>(result.warnings, 'warnings'));
+  const insights = toArr<string | InsightItem>(result.key_insights, 'key_insights')
+                 .concat(toArr<string | InsightItem>(result.insights, 'insights'))
+                 .concat(toArr<string | InsightItem>(result.findings, 'findings'));
   const xforms   = toArr<string | InsightItem>(result.risks);
   const actions  = toArr<string | DecisionItem>(result.recommended_actions);
 
+  // Top-level arrays from hardened backend contract (may or may not be present)
+  const topTrends       = toArr<InsightItem>(result.trends);
+  const topOpportunities = toArr<InsightItem>(result.opportunities);
+
+  // Severity check — safe against ImpactBlock (levelOf only returns strings)
+  const sevOf = (i: unknown) => (levelOf(i, "severity") ?? (typeof (i as InsightItem)?.impact === 'string' ? (i as InsightItem).impact as string : undefined) ?? '').toLowerCase();
+
   const allRisks = [
     ...xforms,
-    ...insights.filter(i => ['critical', 'high'].includes((levelOf(i, "impact", "severity") ?? '').toLowerCase())),
+    ...insights.filter(i => ['critical', 'high'].includes(sevOf(i))),
   ];
-  const opportunities = insights.filter(
-    i => !['critical', 'high'].includes((levelOf(i, "impact", "severity") ?? '').toLowerCase())
-  );
-  const trends = [...insights, ...xforms].filter((i): i is InsightItem =>
-    typeof i !== "string" && ((i as InsightItem).delta != null || !!(i as InsightItem).trend)
-  );
 
-  const topAction = actions.length > 0 ? strOf(actions[0], "action", "text") : undefined;
-  const lowConf   = result.confidence_score != null && confPct(result.confidence_score) < 60;
+  // Merge top-level opportunities with filtered key_insights; de-dup by reference
+  const derivedOpportunities = insights.filter(i => !['critical', 'high'].includes(sevOf(i)));
+  const opportunities = topOpportunities.length > 0 ? topOpportunities : derivedOpportunities;
+
+  // An item is a trend signal if it carries any movement data — check all aliases
+  const hasTrendData = (i: unknown): i is InsightItem =>
+    typeof i !== "string" && (
+      (i as InsightItem).delta         != null ||
+      !!(i as InsightItem).trend                 ||
+      !!(i as InsightItem).direction             ||
+      !!(i as InsightItem).trendDir              ||
+      !!(i as InsightItem).trend_direction       ||
+      (i as InsightItem).trend_strength  != null ||
+      (i as InsightItem).strength        != null ||
+      (i as InsightItem).trend_velocity  != null ||
+      (i as InsightItem).velocity        != null ||
+      (i as InsightItem).change_percent  != null ||
+      (i as InsightItem).changePct       != null ||
+      (i as InsightItem).evidence?.change_percent != null ||
+      (i as InsightItem).evidence?.direction      != null
+    );
+
+  const derivedTrends = [...insights, ...xforms].filter(hasTrendData);
+  const trends = topTrends.length > 0 ? topTrends : derivedTrends;
+
+  const topAction  = actions.length > 0 ? strOf(actions[0], "action", "text") : undefined;
+  const confScore  = result.confidence_score ?? result.confidence;
+  const lowConf    = confScore != null && confPct(confScore) < 60;
+
+  // Guard: any usable content means we never show the empty state
+  const hasExecutiveSummary = !!result.executive_summary;
+  const hasDataQuality      = !!result.data_quality;
+  const hasAnyUsableContent =
+    hasExecutiveSummary      ||
+    hasDataQuality           ||
+    allRisks.length     > 0  ||
+    opportunities.length > 0 ||
+    trends.length       > 0  ||
+    insights.length     > 0  ||
+    toArr(result.findings).length > 0;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
 
       {/* 1 — Hero */}
       <HeroSummary
         summary={result.summary}
         status={result.overall_status}
-        confidence={result.confidence_score}
+        confidence={confScore}
         topAction={topAction}
+        executiveSummary={result.executive_summary}
       />
 
       {/* Low-confidence warning */}
       {lowConf && (
-        <div style={{ padding: '10px 14px', borderRadius: 8, display: 'flex', gap: 8, alignItems: 'center', background: 'rgba(245,158,11,.06)', border: '1px solid rgba(245,158,11,.22)' }}>
-          <span style={{ fontSize: 12, color: '#F59E0B', flexShrink: 0 }}>⚠</span>
-          <span style={{ fontSize: 12, color: 'rgba(245,158,11,.75)', lineHeight: 1.5 }}>
-            Confidence below 60% — treat findings as directional. Results may reflect incomplete or inconsistent data.
+        <div style={{ padding: '7px 12px', borderRadius: 6, display: 'flex', gap: 6, alignItems: 'center', background: 'rgba(245,158,11,.06)', border: '1px solid rgba(245,158,11,.20)' }}>
+          <span style={{ fontSize: 11, color: '#F59E0B', flexShrink: 0 }}>⚠</span>
+          <span style={{ fontSize: 11, color: 'rgba(245,158,11,.70)', lineHeight: 1.4 }}>
+            Low confidence — treat findings as directional. Data may be incomplete or inconsistent.
           </span>
         </div>
       )}
@@ -466,7 +1049,7 @@ function PipelineResultView({ result }: { result: PipelineResult }) {
         <div>
           <SectionHeader icon={<ShieldIcon />} label="Risk Intelligence" count={allRisks.length} color="#F87171" open={risksOpen} onToggle={() => setRisksOpen(o => !o)} />
           {risksOpen && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               {allRisks.map((item, i) => <RiskIntelligenceCard key={i} item={item as InsightItem} />)}
             </div>
           )}
@@ -478,7 +1061,7 @@ function PipelineResultView({ result }: { result: PipelineResult }) {
         <div>
           <SectionHeader icon={<LightbulbIcon />} label="Opportunities" count={opportunities.length} color="#818CF8" open={insightsOpen} onToggle={() => setInsightsOpen(o => !o)} />
           {insightsOpen && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               {opportunities.map((item, i) => <OpportunityCard key={i} item={item as InsightItem} />)}
             </div>
           )}
@@ -490,7 +1073,7 @@ function PipelineResultView({ result }: { result: PipelineResult }) {
         <div>
           <SectionHeader icon={<TrendIcon />} label="Trends & Signals" count={trends.length} color="#22D3EE" open={trendsOpen} onToggle={() => setTrendsOpen(o => !o)} />
           {trendsOpen && (
-            <div style={{ display: 'grid', gridTemplateColumns: trends.length > 1 ? '1fr 1fr' : '1fr', gap: 8 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: trends.length > 1 ? '1fr 1fr' : '1fr', gap: 6 }}>
               {trends.map((item, i) => <TrendSignal key={i} item={item} />)}
             </div>
           )}
@@ -502,16 +1085,16 @@ function PipelineResultView({ result }: { result: PipelineResult }) {
         <div>
           <SectionHeader icon={<DatabaseIcon />} label="Data Quality" count={issues.length} color="#94A3B8" open={qualityOpen} onToggle={() => setQualityOpen(o => !o)} />
           {qualityOpen && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
               {issues.map((item, i) => {
                 const text     = strOf(item, "issue", "text");
                 const field    = typeof item !== "string" ? item.field : undefined;
                 const severity = levelOf(item, "severity") ?? 'medium';
-                const s = sev(severity);
+                const sq = sev(severity);
                 return (
-                  <div key={i} style={{ padding: '10px 14px', borderRadius: 8, background: 'rgba(255,255,255,.025)', border: '1px solid rgba(255,255,255,.07)', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
-                    <span style={{ fontSize: 12, color: 'rgba(226,232,240,.60)', lineHeight: 1.55, flex: 1 }}>
-                      {field && <span style={{ color: s.color, marginRight: 5, fontWeight: 600 }}>{field}:</span>}
+                  <div key={i} style={{ padding: '7px 11px', borderRadius: 6, background: 'rgba(255,255,255,.02)', border: '1px solid rgba(255,255,255,.06)', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                    <span style={{ fontSize: 11.5, color: 'rgba(226,232,240,.55)', lineHeight: 1.45, flex: 1 }}>
+                      {field && <span style={{ color: sq.color, marginRight: 4, fontWeight: 600 }}>{field}:</span>}
                       {text}
                     </span>
                     <SeverityBadge level={severity} />
@@ -523,8 +1106,8 @@ function PipelineResultView({ result }: { result: PipelineResult }) {
         </div>
       )}
 
-      {/* Empty state */}
-      {allRisks.length === 0 && opportunities.length === 0 && trends.length === 0 && issues.length === 0 && !result.summary && (
+      {/* Empty state — only when there is truly no usable content at all */}
+      {!hasAnyUsableContent && issues.length === 0 && !result.summary && (
         <div style={{ padding: '28px', textAlign: 'center', borderRadius: 10, background: 'rgba(255,255,255,.02)', border: '1px dashed rgba(255,255,255,.08)' }}>
           <p style={{ margin: 0, fontSize: 13, color: 'rgba(255,255,255,.28)' }}>No structured intelligence found in this result.</p>
         </div>
@@ -555,10 +1138,11 @@ const getFallbackResponse = (q: string): string => {
 };
 
 const THINKING_MSGS = [
-  "Analysing operational patterns",
-  "Identifying risks and anomalies",
-  "Evaluating trends and signals",
-  "Structuring intelligence report",
+  "Analysing operational patterns…",
+  "Comparing historical performance…",
+  "Detecting emerging risks…",
+  "Calculating operational impact…",
+  "Preparing executive briefing…",
 ];
 
 export default function CommandDemo({ placeholder = "Type a query..." }: CommandDemoProps) {
@@ -588,7 +1172,10 @@ export default function CommandDemo({ placeholder = "Type a query..." }: Command
       const r = raw as Record<string, unknown>;
       // New backend format: { type: "pipeline", result: { risks, recommended_actions, ... } }
       if (r.type === "pipeline" && r.result && typeof r.result === "object") {
-        return r.result as PipelineResult;
+        if (isPipelineShape(r.result)) return r.result;
+        // result itself might be double-nested — recurse one level
+        const inner = r.result as Record<string, unknown>;
+        if (inner.result && isPipelineShape(inner.result)) return inner.result;
       }
       // Legacy: nested under .result key
       const nested = r.result;
@@ -626,31 +1213,31 @@ export default function CommandDemo({ placeholder = "Type a query..." }: Command
     setLoading(true);
     try {
       if (file) {
-        // Step 1 — upload file
+        // Step 1 — upload file (proxied for server-side logging)
         const form = new FormData();
         form.append("file", file);
         form.append("query", q);
-        const uploadRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/upload`, {
+        const uploadRes = await fetch(`/api/hlna/upload`, {
           method: "POST",
           body: form,
         });
         const uploadData = await uploadRes.json();
-        console.log("upload:", uploadData);
-        const filePath: string = uploadData.file_path ?? uploadData.path ?? uploadData.filename ?? "";
+        const filePath: string = uploadData.file_path ?? uploadData.path ?? uploadData.filename ?? uploadData.stored_path ?? uploadData.filepath ?? "";
+        console.log("[HLNA] upload response:", uploadData, "| resolved file_path:", filePath || "(empty — check proxy logs)");
 
-        // Step 2 — run query against uploaded file
+        // Step 2 — run query against uploaded file (proxied for server-side logging)
         setLoadingMsg(getLoadingMessage(q));
-        const runRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/run`, {
+        const runRes = await fetch(`/api/hlna/run`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ query: q, file_path: filePath }),
         });
         const runData = await runRes.json();
-        console.log("run:", runData);
+        console.log("[HLNA] run response keys:", runData && typeof runData === "object" ? Object.keys(runData) : typeof runData);
         applyResult(resolveRaw(runData, () => getFileAnalysis(file.name, q)));
       } else {
         const [res] = await Promise.all([
-          fetch(`${process.env.NEXT_PUBLIC_API_URL}/run`, {
+          fetch(`/api/hlna/run`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ query: q }),
@@ -658,7 +1245,7 @@ export default function CommandDemo({ placeholder = "Type a query..." }: Command
           new Promise(r => setTimeout(r, 1500)),
         ]);
         const data = await res.json();
-        console.log(data);
+        console.log("[HLNA] run (no file) response keys:", data && typeof data === "object" ? Object.keys(data) : typeof data);
         applyResult(resolveRaw(data, () => getFallbackResponse(q)));
       }
     } finally {
@@ -758,19 +1345,32 @@ export default function CommandDemo({ placeholder = "Type a query..." }: Command
           background: 'linear-gradient(135deg, rgba(139,92,246,.06) 0%, rgba(99,102,241,.04) 100%)',
           border: '1px solid rgba(139,92,246,.16)',
         }}>
-          {/* HLNΛ badge */}
+          {/* HLNΛ badge + step counter */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
-            <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#A78BFA', boxShadow: '0 0 7px #A78BFA', flexShrink: 0 }} />
+            <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#A78BFA', boxShadow: '0 0 8px #A78BFA', flexShrink: 0 }} />
             <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.12em', textTransform: 'uppercase', color: 'rgba(167,139,250,.55)' }}>
-              HLNΛ · Processing
+              HLNΛ · Intelligence Engine
+            </span>
+            <span style={{ marginLeft: 'auto', fontSize: 10, color: 'rgba(167,139,250,.30)', fontVariantNumeric: 'tabular-nums' }}>
+              {msgIdx + 1} / {THINKING_MSGS.length}
             </span>
           </div>
+          {/* Step progress pips */}
+          <div style={{ display: 'flex', gap: 3, marginBottom: 12 }}>
+            {THINKING_MSGS.map((_, i) => (
+              <div key={i} style={{
+                height: 2, flex: 1, borderRadius: 2,
+                background: i <= msgIdx ? '#A78BFA' : 'rgba(167,139,250,.12)',
+                transition: 'background .4s ease',
+              }} />
+            ))}
+          </div>
           {/* Contextual phase message */}
-          <div style={{ fontSize: 11, color: 'rgba(226,232,240,.32)', marginBottom: 8, fontStyle: 'italic', letterSpacing: '.01em' }}>
+          <div style={{ fontSize: 11, color: 'rgba(226,232,240,.30)', marginBottom: 6, fontStyle: 'italic', letterSpacing: '.01em' }}>
             {loadingMsg}
           </div>
           {/* Rotating intelligence message */}
-          <div style={{ fontSize: 13, color: 'rgba(226,232,240,.72)', marginBottom: 14, lineHeight: 1.5, minHeight: 20 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: 'rgba(226,232,240,.82)', marginBottom: 14, lineHeight: 1.5, minHeight: 22 }}>
             {THINKING_MSGS[msgIdx]}
           </div>
           {/* Dot indicators */}
