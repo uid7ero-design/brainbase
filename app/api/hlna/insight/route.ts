@@ -3,8 +3,6 @@ import OpenAI from 'openai';
 import { getAuthSession } from '@/lib/authSession';
 import sql from '@/lib/db';
 
-const openai = new OpenAI();
-
 // ─── Data summaries per dashboard type ───────────────────────────────────────
 
 async function wasteSnapshot(oid: string) {
@@ -132,7 +130,7 @@ Top request types: ${(byType as {service_type:string; count:number; open:number}
 
 // ─── Claude analysis ──────────────────────────────────────────────────────────
 
-async function generateInsight(snapshot: string, dashboardType: string): Promise<{
+async function generateInsight(openai: OpenAI, snapshot: string, dashboardType: string): Promise<{
   headline: string;
   trend: string | null;
   trendDir: 'up' | 'down' | 'flat';
@@ -195,6 +193,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) return NextResponse.json({ error: 'OPENAI_API_KEY is not configured' }, { status: 503 });
+  const openai = new OpenAI({ apiKey });
+
   const { dashboardType } = await req.json() as { dashboardType: string };
 
   try {
@@ -209,7 +211,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ hasData: false, timestamp: new Date().toISOString() });
     }
 
-    const insight = await generateInsight(snapshot, dashboardType);
+    const insight = await generateInsight(openai, snapshot, dashboardType);
     return NextResponse.json({ ...insight, hasData: true, timestamp: new Date().toISOString() });
   } catch (err) {
     console.error('[hlna/insight]', err);

@@ -3,8 +3,6 @@ import OpenAI from 'openai';
 import { getAuthSession } from '@/lib/authSession';
 import sql from '@/lib/db';
 
-const openai = new OpenAI();
-
 // ─── Module data snapshots ─────────────────────────────────────────────────────
 
 async function wasteSnapshot(oid: string): Promise<string | null> {
@@ -231,6 +229,10 @@ export async function POST() {
       moduleKeys = ['waste_recycling', 'fleet_management', 'service_requests'];
     }
   }
+
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) return NextResponse.json({ error: 'OPENAI_API_KEY is not configured' }, { status: 503 });
+  const openai = new OpenAI({ apiKey });
 
   const snapResults = await Promise.all(
     moduleKeys

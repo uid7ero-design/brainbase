@@ -3,8 +3,6 @@ import OpenAI from 'openai';
 import { getAuthSession } from '@/lib/authSession';
 import sql from '@/lib/db';
 
-const openai = new OpenAI();
-
 type RankedAction = {
   rank: number;
   title: string;
@@ -70,6 +68,10 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) return NextResponse.json({ error: 'OPENAI_API_KEY is not configured' }, { status: 503 });
+  const openai = new OpenAI({ apiKey });
 
   const { moduleKey = 'waste_recycling', context = '' } = await req.json() as {
     moduleKey?: string;

@@ -3,8 +3,6 @@ import OpenAI from 'openai';
 import { getAuthSession } from '@/lib/authSession';
 import sql from '@/lib/db';
 
-const openai = new OpenAI();
-
 // ─── Per-module period comparison ─────────────────────────────────────────────
 
 async function wasteChanged(oid: string): Promise<string | null> {
@@ -186,6 +184,10 @@ export async function POST() {
   if (deltas.length === 0) {
     return NextResponse.json({ hasData: false, bullets: [], timestamp: new Date().toISOString() });
   }
+
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) return NextResponse.json({ error: 'OPENAI_API_KEY is not configured' }, { status: 503 });
+  const openai = new OpenAI({ apiKey });
 
   try {
     const resp = await openai.chat.completions.create({
