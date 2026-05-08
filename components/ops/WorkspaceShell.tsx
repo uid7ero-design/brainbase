@@ -3,12 +3,14 @@ import { useState, useEffect } from 'react';
 import { usePathname } from 'next/navigation';
 import Sidebar from './Sidebar';
 import OpBar from './OpBar';
+import IntelRail from './IntelRail';
 
 interface WorkspaceShellProps {
   children: React.ReactNode;
   title?: string;
   alertCount?: number;
   uploadingCount?: number;
+  intelRail?: boolean;
 }
 
 type Session = { name: string; role: string; avatarUrl?: string } | null;
@@ -18,6 +20,7 @@ export default function WorkspaceShell({
   title = 'Command Centre',
   alertCount = 4,
   uploadingCount = 0,
+  intelRail = false,
 }: WorkspaceShellProps) {
   const pathname = usePathname();
   const [collapsed, setCollapsed]   = useState(false);
@@ -120,7 +123,7 @@ export default function WorkspaceShell({
         </div>
 
         {/* ── Main area ── */}
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', position: 'relative', zIndex: 1 }}>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', position: 'relative', zIndex: 1, minWidth: 0 }}>
           <OpBar
             title={title}
             session={session}
@@ -128,9 +131,12 @@ export default function WorkspaceShell({
             uploadingCount={uploadingCount}
           />
 
-          {/* Scrollable content */}
-          <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden' }}>
-            {children}
+          {/* Canvas + optional Intel Rail */}
+          <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+            <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', minWidth: 0 }}>
+              {children}
+            </div>
+            {intelRail && <IntelRail />}
           </div>
         </div>
       </div>

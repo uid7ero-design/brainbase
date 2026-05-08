@@ -461,7 +461,7 @@ export default function CommandPage() {
   // ── RENDER ───────────────────────────────────────────────────────────────
 
   return (
-    <WorkspaceShell title="Command Centre" alertCount={4}>
+    <WorkspaceShell title="Command Centre" alertCount={4} intelRail>
       <style dangerouslySetInnerHTML={{ __html: `
         /* react-grid-layout */
         .react-grid-layout{position:relative;transition:height 200ms ease}
