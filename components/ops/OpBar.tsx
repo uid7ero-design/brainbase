@@ -52,9 +52,10 @@ export default function OpBar({ title = 'Command Centre', session, alertCount = 
       <header style={{
         height: 44, display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         padding: '0 20px',
-        background: 'rgba(6,7,10,.90)',
-        backdropFilter: 'blur(20px)',
-        borderBottom: '1px solid rgba(255,255,255,.055)',
+        background: 'rgba(6,7,10,.95)',
+        backdropFilter: 'blur(24px)',
+        borderBottom: '1px solid rgba(255,255,255,.065)',
+        boxShadow: '0 1px 0 rgba(139,92,246,.05), 0 4px 24px rgba(0,0,0,.40)',
         flexShrink: 0, fontFamily: FONT, zIndex: 5, position: 'relative',
       }}>
 

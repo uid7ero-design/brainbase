@@ -61,7 +61,8 @@ export default function WorkspaceShell({
   return (
     <>
       <style dangerouslySetInnerHTML={{ __html: `
-        @keyframes ws-fadein { from{opacity:0} to{opacity:1} }
+        @keyframes ws-fadein  { from{opacity:0} to{opacity:1} }
+        @keyframes ws-breathe { 0%,100%{opacity:.7} 50%{opacity:1} }
         body { overflow: hidden !important; }
         * { box-sizing: border-box; }
         ::-webkit-scrollbar       { width: 3px; height: 3px; }
@@ -74,19 +75,31 @@ export default function WorkspaceShell({
         position: 'fixed', inset: 0, display: 'flex',
         background: '#07080B',
         fontFamily: 'var(--font-inter),"Inter",-apple-system,sans-serif',
-        animation: 'ws-fadein .25s ease',
+        animation: 'ws-fadein .3s ease',
         zIndex: 50,
         overflow: 'hidden',
       }}>
 
-        {/* ── Ambient background ── */}
+        {/* ── Layer 1: deep ambient gradient ── */}
         <div style={{
           position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 0,
-          background: 'radial-gradient(ellipse 90% 55% at 50% -8%, rgba(109,40,217,.14) 0%, transparent 60%)',
+          background: 'radial-gradient(ellipse 100% 60% at 50% -10%, rgba(109,40,217,.18) 0%, transparent 58%)',
+          animation: 'ws-breathe 8s ease-in-out infinite',
         }} />
+        {/* ── Layer 2: bottom counter-vignette ── */}
         <div style={{
           position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 0,
-          backgroundImage: 'linear-gradient(rgba(255,255,255,.012) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.012) 1px,transparent 1px)',
+          background: 'radial-gradient(ellipse 80% 40% at 50% 110%, rgba(6,5,20,.70) 0%, transparent 65%)',
+        }} />
+        {/* ── Layer 3: corner vignettes ── */}
+        <div style={{
+          position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 0,
+          background: 'radial-gradient(ellipse 50% 80% at 0% 50%, rgba(4,4,12,.55) 0%, transparent 55%), radial-gradient(ellipse 30% 60% at 100% 0%, rgba(80,30,180,.07) 0%, transparent 50%)',
+        }} />
+        {/* ── Layer 4: grid ── */}
+        <div style={{
+          position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 0,
+          backgroundImage: 'linear-gradient(rgba(255,255,255,.009) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.009) 1px,transparent 1px)',
           backgroundSize: '48px 48px',
         }} />
 
@@ -98,6 +111,12 @@ export default function WorkspaceShell({
             pathname={pathname ?? '/'}
             alertCount={alertCount}
           />
+          {/* edge light between sidebar and canvas */}
+          <div style={{
+            position: 'absolute', top: 0, right: -1, width: 1, height: '100%',
+            background: 'linear-gradient(180deg, transparent 0%, rgba(139,92,246,.18) 30%, rgba(139,92,246,.08) 70%, transparent 100%)',
+            pointerEvents: 'none', zIndex: 11,
+          }} />
         </div>
 
         {/* ── Main area ── */}
