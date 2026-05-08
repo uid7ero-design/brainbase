@@ -9,10 +9,13 @@ type Stage     = 'lead' | 'contacted' | 'demo' | 'trial' | 'proposal' | 'paid' |
 type Prio      = 'high' | 'medium' | 'low';
 type Severity  = 'critical' | 'high' | 'medium' | 'low';
 type FeedType  = 'sales' | 'product' | 'system' | 'client';
+type Section   = 'overview' | 'clients' | 'revenue' | 'tasks' | 'system';
 
 type QueueItem = {
   id: number; severity: Severity; type: FeedType;
   title: string; why: string; action: string; due: string; cta: string;
+  client_id?: number | string;
+  analysis_id?: string;
 };
 
 type RecoItem = {
@@ -25,10 +28,42 @@ type FounderIntel = {
   opportunities?: string[];
   risks?: string[];
   recommended_actions?: Array<{ impact?: string; urgency?: string; effort?: string; action: string; detail?: string }>;
-  attention_queue?: Array<{ id?: number; severity?: string; type?: string; title: string; why?: string; action?: string; due?: string; cta?: string }>;
+  attention_queue?: Array<{ id?: number; severity?: string; type?: string; title: string; why?: string; action?: string; due?: string; cta?: string; client_id?: number | string; analysis_id?: string }>;
   system_alerts?: string[];
   confidence?: number;
   generated_at?: string;
+};
+
+type LinkedOrg = {
+  id: string;
+  name: string;
+  slug: string;
+  status?: string | null;
+  created_at?: string | null;
+};
+
+type LinkedUser = {
+  id: string;
+  name: string;
+  email?: string | null;
+  username?: string | null;
+};
+
+type FounderClientRaw = {
+  id?: number | string;
+  organisation_name?: string;
+  contact_name?: string;
+  stage?: string;
+  estimated_value?: number | null;
+  last_contacted_at?: string | null;
+  next_action?: string | null;
+  next_action_due_at?: string | null;
+  probability?: number | null;
+  status?: string | null;
+  organisation_id?: string | null;
+  primary_contact_id?: string | null;
+  linked_organisation?: LinkedOrg | null;
+  linked_primary_user?: LinkedUser | null;
 };
 
 function toSeverity(s?: string): Severity {
@@ -39,6 +74,44 @@ function toFeedType(t?: string): FeedType {
   if (t === 'sales' || t === 'product' || t === 'system' || t === 'client') return t;
   return 'sales';
 }
+function toStage(s?: string | null): Stage {
+  const valid: Stage[] = ['lead', 'contacted', 'demo', 'trial', 'proposal', 'paid', 'lost'];
+  return valid.includes(s as Stage) ? (s as Stage) : 'lead';
+}
+function daysAgoFrom(dateStr?: string | null): number {
+  if (!dateStr) return 0;
+  const ms = Date.now() - new Date(dateStr).getTime();
+  return Math.max(0, Math.floor(ms / 86400000));
+}
+function mapRawClient(raw: FounderClientRaw, idx: number): Client {
+  return {
+    id:      typeof raw.id === 'number' ? raw.id : idx + 1,
+    org:     raw.organisation_name ?? `Client ${idx + 1}`,
+    contact: raw.contact_name ?? '—',
+    email:   '',
+    value:   raw.estimated_value ?? 0,
+    stage:   toStage(raw.stage),
+    action:  raw.next_action ?? '—',
+    daysAgo: daysAgoFrom(raw.last_contacted_at),
+    notes:   '',
+    usage:   { uploads: 0, analyses: 0, lastActive: '—', topModule: '—' },
+    uploads:  [],
+    insights: [],
+    organisation_id:      raw.organisation_id    ?? null,
+    primary_contact_id:   raw.primary_contact_id ?? null,
+    linked_organisation:  raw.linked_organisation  ?? null,
+    linked_primary_user:  raw.linked_primary_user  ?? null,
+  };
+}
+
+type ClientOverride = {
+  daysAgo?: number;
+  action?: string;
+  followedUp?: boolean;
+  stage?: Stage;
+  highlighted?: boolean;
+};
+type SessionEvent = { ts: string; event: string; type: FeedType; client: string | null };
 
 // ─── Mock data ────────────────────────────────────────────────────────────────
 
@@ -66,6 +139,10 @@ type Client = {
   usage: { uploads: number; analyses: number; lastActive: string; topModule: string };
   uploads: string[];
   insights: string[];
+  organisation_id?: string | null;
+  primary_contact_id?: string | null;
+  linked_organisation?: LinkedOrg | null;
+  linked_primary_user?: LinkedUser | null;
 };
 
 const PIPELINE: Client[] = [
@@ -292,9 +369,9 @@ function LatBar({ ms }: { ms: number }) {
   );
 }
 
-function StageFunnel() {
+function StageFunnel({ clients }: { clients: Client[] }) {
   const counts: Partial<Record<Stage, number>> = {};
-  PIPELINE.forEach(c => { counts[c.stage] = (counts[c.stage] ?? 0) + 1; });
+  clients.forEach(c => { counts[c.stage] = (counts[c.stage] ?? 0) + 1; });
   const stages: Stage[] = ['lead', 'contacted', 'demo', 'trial', 'proposal', 'paid'];
   const mx = Math.max(...stages.map(s => counts[s] ?? 0), 1);
   return (
@@ -312,9 +389,45 @@ function StageFunnel() {
   );
 }
 
+// ─── Section tabs ─────────────────────────────────────────────────────────────
+
+const SECTION_TABS: Array<{ id: Section; label: string }> = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'clients',  label: 'Clients'  },
+  { id: 'revenue',  label: 'Revenue'  },
+  { id: 'tasks',    label: 'Tasks'    },
+  { id: 'system',   label: 'System'   },
+];
+
+function SectionTabs({ section, setSection }: { section: Section; setSection: (s: Section) => void }) {
+  return (
+    <div style={{ display: 'flex', gap: 2, marginBottom: 8 }}>
+      {SECTION_TABS.map(t => (
+        <button
+          key={t.id}
+          onClick={() => setSection(t.id)}
+          style={{
+            padding: '4px 11px', borderRadius: 5, fontSize: 11,
+            fontWeight: section === t.id ? 700 : 400,
+            background: section === t.id ? T.purpleA : 'transparent',
+            color: section === t.id ? T.purple : T.dim,
+            border: `1px solid ${section === t.id ? T.purpleB : 'transparent'}`,
+            cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.12s',
+          }}
+        >{t.label}</button>
+      ))}
+    </div>
+  );
+}
+
 // ─── Attention Queue ──────────────────────────────────────────────────────────
 
-function AttentionQueue({ items, onAction }: { items: QueueItem[]; onAction: (msg: string) => void }) {
+function AttentionQueue({ items, onAction, onFollowUp, onMarkReviewed }: {
+  items: QueueItem[];
+  onAction: (msg: string) => void;
+  onFollowUp?: (clientId: number | string, org: string) => void;
+  onMarkReviewed?: (analysisId: string | undefined, org: string, clientId?: number) => void;
+}) {
   const [dismissed, setDismissed] = useState<Set<number>>(new Set());
   const [actioned,  setActioned]  = useState<Set<number>>(new Set());
 
@@ -364,7 +477,16 @@ function AttentionQueue({ items, onAction }: { items: QueueItem[]; onAction: (ms
                 {done ? (
                   <span style={{ fontSize: 10, color: T.green, fontWeight: 600 }}>✓ Done</span>
                 ) : (
-                  <Btn small label={`→ ${q.cta}`} color={sc} onClick={() => { setActioned(p => new Set([...p, q.id])); onAction(`${q.cta}: ${q.title}`); }} />
+                  <Btn small label={`→ ${q.cta}`} color={sc} onClick={() => {
+                    setActioned(p => new Set([...p, q.id]));
+                    if (q.analysis_id !== undefined && onMarkReviewed) {
+                      onMarkReviewed(q.analysis_id, q.title, typeof q.client_id === 'number' ? q.client_id : undefined);
+                    } else if (q.client_id !== undefined && onFollowUp) {
+                      onFollowUp(q.client_id, q.title);
+                    } else {
+                      onAction(`${q.cta}: ${q.title}`);
+                    }
+                  }} />
                 )}
                 <button onClick={() => setDismissed(p => new Set([...p, q.id]))} style={{ background: 'none', border: 'none', color: T.dim, cursor: 'pointer', fontSize: 13, padding: '0 2px', lineHeight: 1 }}>×</button>
               </div>
@@ -465,11 +587,13 @@ function HlnaBriefing({ intel, initialLoading }: { intel: FounderIntel | null; i
 
 // ─── Client pipeline ──────────────────────────────────────────────────────────
 
-function ClientPipeline({ onSelect, onAction }: {
+function ClientPipeline({ onSelect, onFollowUp, overrides, clients }: {
   onSelect: (c: Client) => void;
-  onAction: (msg: string) => void;
+  onFollowUp: (clientId: number, org: string) => void;
+  overrides: Record<number, ClientOverride>;
+  clients: Client[];
 }) {
-  const pipelineVal = PIPELINE.filter(c => c.stage !== 'lost').reduce((a, c) => a + c.value, 0);
+  const pipelineVal = clients.filter(c => c.stage !== 'lost').reduce((a, c) => a + c.value, 0);
   const colTpl = '2fr 1fr 0.6fr 0.8fr 2fr 0.65fr 72px';
 
   return (
@@ -478,9 +602,9 @@ function ClientPipeline({ onSelect, onAction }: {
         <div style={{ flex: 1 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 7 }}>
             <Lbl s="Client pipeline" />
-            <Mono size={10} color={T.dim}>{PIPELINE.length} accounts · ${pipelineVal.toLocaleString()} open</Mono>
+            <Mono size={10} color={T.dim}>{clients.length} accounts · ${pipelineVal.toLocaleString()} open</Mono>
           </div>
-          <StageFunnel />
+          <StageFunnel clients={clients} />
         </div>
       </div>
 
@@ -490,29 +614,48 @@ function ClientPipeline({ onSelect, onAction }: {
         ))}
       </div>
 
-      {PIPELINE.map((c, i) => {
-        const stale = c.daysAgo >= 4;
+      {clients.map((base, i) => {
+        const ov       = overrides[base.id] ?? {};
+        const effDays  = ov.daysAgo  ?? base.daysAgo;
+        const effStage = ov.stage    ?? base.stage;
+        const effAct   = ov.action   ?? base.action;
+        const stale    = !ov.followedUp && effDays >= 4;
+        const bgBase   = ov.highlighted
+          ? 'rgba(34,197,94,0.09)'
+          : i % 2 === 0 ? 'rgba(255,255,255,0.010)' : 'transparent';
+        const merged: Client = { ...base, daysAgo: effDays, stage: effStage, action: effAct };
         return (
-          <div key={c.id}
-            onClick={() => onSelect(c)}
+          <div key={base.id}
+            onClick={() => onSelect(merged)}
             style={{
               display: 'grid', gridTemplateColumns: colTpl, gap: 6,
               padding: '5px 5px', borderRadius: 5, cursor: 'pointer',
-              background: i % 2 === 0 ? 'rgba(255,255,255,0.010)' : 'transparent',
-              borderLeft: stale ? `2px solid ${T.red}` : '2px solid transparent',
-              alignItems: 'center', transition: 'background .1s',
+              background: bgBase,
+              borderLeft: stale ? `2px solid ${T.red}` : ov.highlighted ? `2px solid ${T.green}` : '2px solid transparent',
+              alignItems: 'center', transition: 'background 0.6s, border-left 0.6s',
             }}
             onMouseEnter={e => (e.currentTarget.style.background = 'rgba(139,92,246,0.06)')}
-            onMouseLeave={e => (e.currentTarget.style.background = i % 2 === 0 ? 'rgba(255,255,255,0.010)' : 'transparent')}
+            onMouseLeave={e => (e.currentTarget.style.background = bgBase)}
           >
-            <span style={{ fontSize: 12, fontWeight: 500, color: T.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.org}</span>
-            <span style={{ fontSize: 11, color: T.sub, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.contact}</span>
-            <Mono size={11} color={T.text}>${(c.value/1000).toFixed(1)}k</Mono>
-            <StagePill s={c.stage} />
-            <span style={{ fontSize: 11, color: T.sub, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.action}</span>
-            <Mono size={10} color={ageColor(c.daysAgo)}>{ageLabel(c.daysAgo)}</Mono>
-            <div onClick={e => { e.stopPropagation(); onAction(`Follow up: ${c.org}`); }}>
-              <Btn small label="Follow up" color={stale ? T.red : undefined} onClick={() => {}} />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5, overflow: 'hidden' }}>
+              <span style={{ fontSize: 12, fontWeight: 500, color: T.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{base.org}</span>
+              {base.linked_organisation && (
+                <span title={`Linked: ${base.linked_organisation.name}`} style={{ fontSize: 8, padding: '1px 4px', borderRadius: 3, background: 'rgba(34,211,238,0.12)', color: T.cyan, border: '1px solid rgba(34,211,238,0.22)', flexShrink: 0, letterSpacing: '0.04em', fontWeight: 700 }}>LINKED</span>
+              )}
+            </div>
+            <span style={{ fontSize: 11, color: T.sub, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{base.contact}</span>
+            <Mono size={11} color={T.text}>${(base.value/1000).toFixed(1)}k</Mono>
+            <StagePill s={effStage} />
+            <span style={{ fontSize: 11, color: ov.followedUp ? T.green : T.sub, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{effAct}</span>
+            <Mono size={10} color={ov.followedUp ? T.green : ageColor(effDays)}>{ov.followedUp ? 'just now' : ageLabel(effDays)}</Mono>
+            <div onClick={e => e.stopPropagation()}>
+              {ov.followedUp ? (
+                <span style={{ fontSize: 10, color: T.green, fontWeight: 600, fontFamily: T.mono }}>✓ Sent</span>
+              ) : (
+                <div onClick={() => onFollowUp(base.id, base.org)}>
+                  <Btn small label="Follow up" color={stale ? T.red : undefined} onClick={() => {}} />
+                </div>
+              )}
             </div>
           </div>
         );
@@ -649,23 +792,40 @@ function AiRecommendations({ items, onAction }: { items: RecoItem[]; onAction: (
 
 // ─── Activity feed ────────────────────────────────────────────────────────────
 
-function ActivityFeed() {
+function ActivityFeed({ sessionEvents }: { sessionEvents: SessionEvent[] }) {
+  const all = [...sessionEvents, ...ACTIVITY];
   return (
     <Card style={{ padding: '11px 12px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
         <span style={{ width: 5, height: 5, borderRadius: '50%', background: T.green, boxShadow: `0 0 5px ${T.green}`, display: 'inline-block' }} />
         <Lbl s="Live activity" />
+        {sessionEvents.length > 0 && (
+          <span style={{ fontSize: 9, fontWeight: 700, color: T.green, background: T.greenA, padding: '1px 5px', borderRadius: 3, marginBottom: 7, letterSpacing: '0.05em' }}>
+            {sessionEvents.length} new
+          </span>
+        )}
       </div>
-      {ACTIVITY.map((a, i) => (
-        <div key={i} style={{ display: 'flex', gap: 8, padding: '3px 0', borderBottom: i < ACTIVITY.length - 1 ? `1px solid ${T.borderB}` : 'none' }}>
-          <Mono size={9} color={T.dim}>{a.ts}</Mono>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 10.5, color: T.sub, lineHeight: 1.4 }}>{a.event}</div>
-            {a.client && <Mono size={9} color={FEED_C[a.type]}>{a.client}</Mono>}
+      {all.map((a, i) => {
+        const isNew = i < sessionEvents.length;
+        return (
+          <div key={i} style={{
+            display: 'flex', gap: 8, padding: '4px 0',
+            borderBottom: i < all.length - 1 ? `1px solid ${T.borderB}` : 'none',
+            background: isNew ? 'rgba(34,197,94,0.04)' : 'transparent',
+            borderLeft: isNew ? `2px solid ${T.green}` : '2px solid transparent',
+            paddingLeft: isNew ? 6 : 0,
+            borderRadius: isNew ? 3 : 0,
+            marginBottom: isNew ? 2 : 0,
+          }}>
+            <Mono size={9} color={isNew ? T.green : T.dim}>{isNew ? 'now' : a.ts}</Mono>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 10.5, color: isNew ? T.text : T.sub, lineHeight: 1.4 }}>{a.event}</div>
+              {a.client && <Mono size={9} color={FEED_C[a.type]}>{a.client}</Mono>}
+            </div>
+            <span style={{ width: 5, height: 5, borderRadius: '50%', background: FEED_C[a.type], flexShrink: 0, marginTop: 4 }} />
           </div>
-          <span style={{ width: 5, height: 5, borderRadius: '50%', background: FEED_C[a.type], flexShrink: 0, marginTop: 4 }} />
-        </div>
-      ))}
+        );
+      })}
     </Card>
   );
 }
@@ -767,9 +927,11 @@ function LiveContext() {
 
 // ─── Client drawer ────────────────────────────────────────────────────────────
 
-function ClientDrawer({ client, onClose, onAction, onModal }: {
+function ClientDrawer({ client, onClose, onAction, onModal, onAdvanceStage, drawerActivity }: {
   client: Client; onClose: () => void; onAction: (msg: string) => void;
   onModal: (m: 'book-demo' | 'proposal') => void;
+  onAdvanceStage: (clientId: number, org: string, stage: Stage) => void;
+  drawerActivity: Array<{ ts: string; event: string }>;
 }) {
   const router = useRouter();
   return (
@@ -802,17 +964,85 @@ function ClientDrawer({ client, onClose, onAction, onModal }: {
           <div style={{ padding: '9px 11px', borderRadius: 7, background: T.purpleA, border: `1px solid ${T.purpleB}` }}>
             <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: T.purple, marginBottom: 4 }}>Next action</div>
             <div style={{ fontSize: 12, color: T.text, marginBottom: 8 }}>{client.action}</div>
-            <div style={{ display: 'flex', gap: 6 }}>
-              <Btn small label="→ CRM"             onClick={() => router.push('/crm/contacts')} />
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              <Btn small label="← Back"             onClick={onClose} />
               <Btn small label="Generate Briefing" onClick={() => { onClose(); router.push('/command'); }} />
               <Btn small label="Create Proposal"   onClick={() => { onClose(); onModal('proposal'); }} />
+              {client.stage !== 'paid' && client.stage !== 'lost' && (
+                <Btn small label="Advance →" color={T.green} onClick={() => onAdvanceStage(client.id, client.org, client.stage)} />
+              )}
             </div>
           </div>
+
+          {drawerActivity.length > 0 && (
+            <div>
+              <Lbl s="Session activity" c={T.green} />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                {drawerActivity.map((ev, i) => (
+                  <div key={i} style={{
+                    padding: '5px 8px 5px 10px', borderRadius: 5,
+                    background: 'rgba(34,197,94,0.05)', border: `1px solid rgba(34,197,94,0.15)`,
+                    borderLeft: `2px solid ${T.green}`,
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8,
+                  }}>
+                    <span style={{ fontSize: 11, color: T.sub, flex: 1 }}>{ev.event}</span>
+                    <Mono size={9} color={T.green}>now</Mono>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* ── Linked Tenant panel ── */}
+          {client.linked_organisation ? (
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                <Lbl s="Linked tenant" c={T.cyan} />
+                <span style={{ fontSize: 8, padding: '1px 5px', borderRadius: 3, background: 'rgba(34,211,238,0.12)', color: T.cyan, border: '1px solid rgba(34,211,238,0.22)', fontWeight: 700, letterSpacing: '0.04em', marginBottom: 6 }}>LINKED</span>
+              </div>
+              <div style={{ padding: '9px 11px', background: 'rgba(34,211,238,0.05)', border: '1px solid rgba(34,211,238,0.15)', borderRadius: 7 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 2 }}>{client.linked_organisation.name}</div>
+                <Mono size={10} color={T.dim}>{client.linked_organisation.slug}</Mono>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, marginTop: 7 }}>
+                  {client.linked_organisation.status && (
+                    <div style={{ padding: '4px 7px', borderRadius: 4, background: 'rgba(255,255,255,0.03)', border: `1px solid ${T.border}` }}>
+                      <div style={{ fontSize: 8, color: T.dim, marginBottom: 1 }}>Status</div>
+                      <div style={{ fontSize: 11, color: T.sub }}>{client.linked_organisation.status}</div>
+                    </div>
+                  )}
+                  {client.linked_organisation.created_at && (
+                    <div style={{ padding: '4px 7px', borderRadius: 4, background: 'rgba(255,255,255,0.03)', border: `1px solid ${T.border}` }}>
+                      <div style={{ fontSize: 8, color: T.dim, marginBottom: 1 }}>Created</div>
+                      <div style={{ fontSize: 11, color: T.sub }}>{new Date(client.linked_organisation.created_at).toLocaleDateString()}</div>
+                    </div>
+                  )}
+                </div>
+                {client.linked_primary_user && (
+                  <div style={{ marginTop: 7, paddingTop: 7, borderTop: `1px solid rgba(255,255,255,0.05)` }}>
+                    <div style={{ fontSize: 9, color: T.dim, marginBottom: 3, textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700 }}>Primary contact</div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: T.text }}>{client.linked_primary_user.name}</div>
+                    {client.linked_primary_user.email && <Mono size={10} color={T.dim}>{client.linked_primary_user.email}</Mono>}
+                  </div>
+                )}
+                <div style={{ marginTop: 8 }}>
+                  <Btn small label="Open Organisation Admin" color={T.cyan} onClick={() => router.push('/admin/orgs')} />
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div>
+              <Lbl s="Tenant link" />
+              <div style={{ padding: '10px 11px', borderRadius: 7, border: `1px dashed ${T.border}`, textAlign: 'center' }}>
+                <div style={{ fontSize: 10, color: T.dim, marginBottom: 6 }}>Not linked to a tenant organisation</div>
+                <Btn small label="Link to existing org" color={T.cyan} onClick={() => router.push('/admin/orgs')} />
+              </div>
+            </div>
+          )}
 
           <div>
             <Lbl s="Notes" />
             <div style={{ fontSize: 11.5, color: T.sub, lineHeight: 1.6, background: 'rgba(255,255,255,0.02)', border: `1px solid ${T.border}`, borderRadius: 6, padding: '8px 10px' }}>
-              {client.notes}
+              {client.notes || <span style={{ color: T.dim, fontStyle: 'italic' }}>No notes</span>}
             </div>
           </div>
 
@@ -874,46 +1104,57 @@ function ClientDrawer({ client, onClose, onAction, onModal }: {
 
 // ─── Left sidebar ─────────────────────────────────────────────────────────────
 
-function LeftSidebar({ onModal }: { onModal: (m: 'book-demo' | 'proposal') => void }) {
+type NavItem = { label: string; section?: Section; href?: string };
+
+function LeftSidebar({ onModal, section, setSection }: {
+  onModal: (m: 'book-demo' | 'proposal' | 'add-lead') => void;
+  section: Section;
+  setSection: (s: Section) => void;
+}) {
   const router = useRouter();
 
-  const NAV: Array<{ label: string; href: string | null }> = [
-    { label: 'Command', href: '/admin/founder' },
-    { label: 'Clients', href: '/crm'           },
-    { label: 'Revenue', href: null             },
-    { label: 'Product', href: '/data'          },
-    { label: 'System',  href: '/admin'         },
+  const NAV: NavItem[] = [
+    { label: 'Overview', section: 'overview' },
+    { label: 'Clients',  section: 'clients'  },
+    { label: 'Revenue',  section: 'revenue'  },
+    { label: 'Tasks',    section: 'tasks'    },
+    { label: 'System',   section: 'system'   },
+    { label: 'Product',  href: '/data'       },
+    { label: 'Admin',    href: '/admin'      },
   ];
 
   const ACTS = [
-    { icon: '＋', l: 'Add lead',       fn: () => router.push('/crm/contacts') },
-    { icon: '◆',  l: 'Book demo',      fn: () => onModal('book-demo')          },
-    { icon: '↗',  l: 'Gen proposal',   fn: () => onModal('proposal')           },
-    { icon: '▷',  l: 'Run analysis',   fn: () => router.push('/command')       },
-    { icon: '↑',  l: 'Upload dataset', fn: () => router.push('/data')          },
-    { icon: '⊞',  l: 'Open CRM',       fn: () => router.push('/crm')           },
+    { icon: '＋', l: 'Add lead',       fn: () => onModal('add-lead')              },
+    { icon: '◆',  l: 'Book demo',      fn: () => onModal('book-demo')             },
+    { icon: '↗',  l: 'Gen proposal',   fn: () => onModal('proposal')              },
+    { icon: '⊞',  l: 'Clients',        fn: () => setSection('clients')            },
+    { icon: '▷',  l: 'Run analysis',   fn: () => router.push('/command')          },
+    { icon: '↑',  l: 'Upload dataset', fn: () => router.push('/data')             },
   ];
 
   return (
     <div style={{ width: 148, flexShrink: 0, borderRight: `1px solid ${T.border}`, background: T.s1, display: 'flex', flexDirection: 'column', padding: '13px 0', overflowY: 'auto' }}>
       <div style={{ padding: '0 10px', marginBottom: 16 }}>
         <Lbl s="Navigate" />
-        {NAV.map((n, i) => (
-          <div
-            key={n.label}
-            onClick={() => n.href && router.push(n.href)}
-            style={{
-              padding: '5px 8px', borderRadius: 5, fontSize: 12, marginBottom: 1,
-              cursor: n.href ? 'pointer' : 'default',
-              fontWeight: i === 0 ? 600 : 400,
-              color: i === 0 ? T.purple : n.href ? T.sub : T.dim,
-              background: i === 0 ? T.purpleA : 'transparent',
-              borderLeft: i === 0 ? `2px solid ${T.purple}` : '2px solid transparent',
-            }}
-          >
-            {n.label}
-          </div>
-        ))}
+        {NAV.map(n => {
+          const active = n.section ? n.section === section : false;
+          return (
+            <div
+              key={n.label}
+              onClick={() => n.section ? setSection(n.section) : n.href && router.push(n.href)}
+              style={{
+                padding: '5px 8px', borderRadius: 5, fontSize: 12, marginBottom: 1,
+                cursor: 'pointer',
+                fontWeight: active ? 600 : 400,
+                color: active ? T.purple : n.href ? T.dim : T.sub,
+                background: active ? T.purpleA : 'transparent',
+                borderLeft: active ? `2px solid ${T.purple}` : '2px solid transparent',
+              }}
+            >
+              {n.label}
+            </div>
+          );
+        })}
       </div>
 
       <div style={{ width: '100%', height: 1, background: T.border, marginBottom: 14 }} />
@@ -951,16 +1192,17 @@ function LeftSidebar({ onModal }: { onModal: (m: 'book-demo' | 'proposal') => vo
 
 // ─── Toast ────────────────────────────────────────────────────────────────────
 
-function Toast({ msg }: { msg: string }) {
+function Toast({ msg, isError }: { msg: string; isError?: boolean }) {
+  const bc = isError ? 'rgba(239,68,68,0.22)' : T.purpleB;
   return (
     <div style={{
       position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)',
-      background: T.s2, border: `1px solid ${T.purpleB}`, borderRadius: 8,
-      padding: '9px 16px', zIndex: 300, fontSize: 12, color: T.text,
-      boxShadow: `0 4px 24px rgba(0,0,0,0.5), 0 0 0 1px ${T.purpleB}`,
+      background: T.s2, border: `1px solid ${bc}`, borderRadius: 8,
+      padding: '9px 16px', zIndex: 300, fontSize: 12, color: isError ? T.sub : T.text,
+      boxShadow: `0 4px 24px rgba(0,0,0,0.5), 0 0 0 1px ${bc}`,
       display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap',
     }}>
-      <span style={{ color: T.green }}>✓</span>
+      <span style={{ color: isError ? T.red : T.green }}>{isError ? '⚠' : '✓'}</span>
       {msg}
     </div>
   );
@@ -975,12 +1217,339 @@ const INPUT_S: React.CSSProperties = {
   boxSizing: 'border-box',
 };
 
+// ─── Add Lead modal ───────────────────────────────────────────────────────────
+
+const STAGE_OPTIONS: Stage[] = ['lead', 'contacted', 'demo', 'trial', 'proposal'];
+
+function AddLeadModal({ onClose, onAdded, clients }: {
+  onClose: () => void;
+  onAdded: (msg: string) => void;
+  clients: Client[];
+}) {
+  const [mode,       setMode]       = useState<'existing' | 'new'>('existing');
+  const [orgFilter,  setOrgFilter]  = useState('');
+  const [selId,      setSelId]      = useState<number | null>(null);
+  const [org,        setOrg]        = useState('');
+  const [contact,    setContact]    = useState('');
+  const [email,      setEmail]      = useState('');
+  const [stage,      setStage]      = useState<Stage>('lead');
+  const [valStr,     setValStr]     = useState('');
+  const [nextAction, setNextAction] = useState('');
+  const [note,       setNote]       = useState('');
+  const [loading,    setLoading]    = useState(false);
+
+  // ── Tenant linking state ─────────────────────────────────────────────────
+  type TenantOrg  = { id: string; name: string; slug: string };
+  type TenantUser = { id: string; name: string; email: string; organisation_id: string };
+
+  const [tenantOpen,     setTenantOpen]     = useState(false);
+  const [tenantOrgs,     setTenantOrgs]     = useState<TenantOrg[]>([]);
+  const [tenantUsers,    setTenantUsers]    = useState<TenantUser[]>([]);
+  const [tenantOrgId,    setTenantOrgId]    = useState('');
+  const [tenantContactId, setTenantContactId] = useState('');
+  const [tenantFilter,   setTenantFilter]   = useState('');
+  const [tenantLoading,  setTenantLoading]  = useState(false);
+
+  const openTenantSection = () => {
+    setTenantOpen(true);
+    if (tenantOrgs.length > 0) return;
+    setTenantLoading(true);
+    Promise.all([
+      fetch('/api/admin/orgs').then(r => r.ok ? r.json() : { orgs: [] }),
+      fetch('/api/admin/users').then(r => r.ok ? r.json() : { users: [] }),
+    ]).then(([orgsData, usersData]) => {
+      setTenantOrgs((orgsData.orgs ?? []) as TenantOrg[]);
+      setTenantUsers((usersData.users ?? []) as TenantUser[]);
+    }).catch(() => {}).finally(() => setTenantLoading(false));
+  };
+
+  const filteredTenantOrgs = tenantOrgs.filter(o =>
+    o.name.toLowerCase().includes(tenantFilter.toLowerCase())
+  );
+  const orgUsers = tenantOrgId ? tenantUsers.filter(u => u.organisation_id === tenantOrgId) : [];
+  const linkedTenantOrg = tenantOrgs.find(o => o.id === tenantOrgId);
+
+  const selectTenantOrg = (id: string) => {
+    setTenantOrgId(id);
+    setTenantContactId('');
+    const o = tenantOrgs.find(x => x.id === id);
+    if (o && !org.trim()) setOrg(o.name);
+  };
+
+  // ── Existing CRM client flow ──────────────────────────────────────────────
+  const filtered = clients.filter(c =>
+    c.org.toLowerCase().includes(orgFilter.toLowerCase())
+  );
+
+  const selectExisting = (id: number) => {
+    setSelId(id);
+    const c = clients.find(x => x.id === id);
+    if (!c) return;
+    setOrg(c.org);
+    if (c.contact && c.contact !== '—') setContact(c.contact);
+    if (c.email) setEmail(c.email);
+    if (c.value) setValStr(String(c.value));
+    setStage(c.stage === 'lost' ? 'lead' : c.stage);
+    if (c.action && c.action !== '—') setNextAction(c.action);
+    if (c.notes) setNote(c.notes);
+  };
+
+  const switchMode = (m: 'existing' | 'new') => {
+    setMode(m);
+    setSelId(null);
+    setOrg(''); setContact(''); setEmail('');
+    setStage('lead'); setValStr(''); setNextAction(''); setNote('');
+  };
+
+  const ready = !!org.trim() && (mode === 'new' || selId !== null);
+
+  const submit = async () => {
+    if (!ready || loading) return;
+    setLoading(true);
+    try {
+      await fetch('/api/admin/founder-action/add-lead', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          org:                org.trim(),
+          contact_name:       contact.trim() || undefined,
+          email:              email.trim()   || undefined,
+          stage,
+          estimated_value:    valStr ? Number(valStr) : undefined,
+          next_action:        nextAction.trim() || undefined,
+          note:               note.trim()       || undefined,
+          existing_client_id: selId ?? undefined,
+          organisation_id:    tenantOrgId     || undefined,
+          primary_contact_id: tenantContactId || undefined,
+        }),
+      });
+      onAdded(`Lead added — ${org.trim()}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const modeBtn = (m: 'existing' | 'new', label: string) => (
+    <button
+      onClick={() => switchMode(m)}
+      style={{
+        flex: 1, padding: '5px 0', fontSize: 11, fontWeight: 600, borderRadius: 4,
+        border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+        background: mode === m ? T.purple : 'transparent',
+        color:      mode === m ? '#fff'    : T.dim,
+      }}
+    >{label}</button>
+  );
+
+  return (
+    <>
+      <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 290, background: 'rgba(0,0,0,0.55)' }} />
+      <div style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', width: 420, maxHeight: '88vh', overflowY: 'auto', zIndex: 300, background: T.s2, border: `1px solid ${T.border}`, borderRadius: 10, padding: '20px 22px', fontFamily: 'var(--font-inter), Inter, sans-serif' }}>
+
+        {/* Header */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>Add Lead</div>
+            <div style={{ fontSize: 11, color: T.dim, marginTop: 2 }}>Add a prospect to the pipeline</div>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: T.dim, fontSize: 18, cursor: 'pointer', lineHeight: 1 }}>×</button>
+        </div>
+
+        {/* Mode toggle */}
+        <div style={{ display: 'flex', gap: 2, padding: 3, background: 'rgba(255,255,255,0.04)', border: `1px solid ${T.border}`, borderRadius: 6, marginBottom: 14 }}>
+          {modeBtn('existing', 'Existing organisation')}
+          {modeBtn('new',      'New organisation')}
+        </div>
+
+        {/* ── Existing org flow ── */}
+        {mode === 'existing' && (
+          <div style={{ marginBottom: 12 }}>
+            <Lbl s="Search organisations" />
+            <input
+              value={orgFilter}
+              onChange={e => { setOrgFilter(e.target.value); setSelId(null); setOrg(''); }}
+              placeholder="Type to filter…"
+              style={{ ...INPUT_S, marginBottom: 5 }}
+            />
+            {filtered.length === 0 ? (
+              <div style={{ fontSize: 11, color: T.dim, padding: '6px 8px' }}>No matches — switch to &ldquo;New organisation&rdquo;</div>
+            ) : (
+              <select
+                size={Math.min(filtered.length, 5)}
+                value={selId ?? ''}
+                onChange={e => selectExisting(Number(e.target.value))}
+                style={{ ...INPUT_S, height: 'auto', padding: 0 }}
+              >
+                {filtered.map(c => (
+                  <option key={c.id} value={c.id} style={{ padding: '5px 8px' }}>
+                    {c.org}{c.contact && c.contact !== '—' ? ` — ${c.contact}` : ''} [{c.stage.toUpperCase()}]
+                  </option>
+                ))}
+              </select>
+            )}
+            {selId !== null && (
+              <div style={{ marginTop: 6, padding: '5px 8px', borderRadius: 5, background: T.purpleA, border: `1px solid ${T.purpleB}`, fontSize: 10, color: T.purple }}>
+                Lead will be added for <strong>{org}</strong>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── Org name (new mode only) ── */}
+        {mode === 'new' && (
+          <div style={{ marginBottom: 10 }}>
+            <Lbl s="Organisation name" />
+            <input
+              value={org}
+              onChange={e => setOrg(e.target.value)}
+              placeholder="e.g. City of Adelaide"
+              style={INPUT_S}
+            />
+          </div>
+        )}
+
+        {/* Contact + Email */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10 }}>
+          <div>
+            <Lbl s="Contact name" />
+            <input value={contact} onChange={e => setContact(e.target.value)} placeholder="Full name" style={INPUT_S} />
+          </div>
+          <div>
+            <Lbl s="Email (optional)" />
+            <input value={email} onChange={e => setEmail(e.target.value)} placeholder="email@council.sa.gov.au" style={INPUT_S} />
+          </div>
+        </div>
+
+        {/* Stage + Value */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10 }}>
+          <div>
+            <Lbl s="Stage" />
+            <select value={stage} onChange={e => setStage(e.target.value as Stage)} style={INPUT_S}>
+              {STAGE_OPTIONS.map(s => <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>)}
+            </select>
+          </div>
+          <div>
+            <Lbl s="Est. value $/mo (optional)" />
+            <input type="number" value={valStr} onChange={e => setValStr(e.target.value)} placeholder="e.g. 2400" style={INPUT_S} />
+          </div>
+        </div>
+
+        {/* Next action */}
+        <div style={{ marginBottom: 10 }}>
+          <Lbl s="Next action (optional)" />
+          <input value={nextAction} onChange={e => setNextAction(e.target.value)} placeholder="e.g. Send intro email" style={INPUT_S} />
+        </div>
+
+        {/* Note */}
+        <div style={{ marginBottom: 12 }}>
+          <Lbl s="Note (optional)" />
+          <textarea
+            value={note}
+            onChange={e => setNote(e.target.value)}
+            placeholder="Context, source, key contacts…"
+            rows={2}
+            style={{ ...INPUT_S, resize: 'vertical' }}
+          />
+        </div>
+
+        {/* ── Link existing tenant ── */}
+        <div style={{ marginBottom: 16, borderRadius: 7, border: `1px solid ${tenantOrgId ? 'rgba(34,211,238,0.25)' : T.border}`, overflow: 'hidden' }}>
+          <button
+            onClick={() => tenantOpen ? setTenantOpen(false) : openTenantSection()}
+            style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 11px', background: tenantOrgId ? 'rgba(34,211,238,0.06)' : 'rgba(255,255,255,0.03)', border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+              <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: tenantOrgId ? T.cyan : T.dim }}>Link existing tenant</span>
+              {linkedTenantOrg && (
+                <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 3, background: 'rgba(34,211,238,0.12)', color: T.cyan, border: '1px solid rgba(34,211,238,0.22)', fontWeight: 700 }}>
+                  {linkedTenantOrg.name}
+                </span>
+              )}
+            </div>
+            <span style={{ fontSize: 10, color: T.dim }}>{tenantOpen ? '▲' : '▼'}</span>
+          </button>
+
+          {tenantOpen && (
+            <div style={{ padding: '10px 11px', borderTop: `1px solid ${T.border}` }}>
+              {tenantLoading ? (
+                <div style={{ fontSize: 11, color: T.dim, padding: '4px 0' }}>Loading organisations…</div>
+              ) : tenantOrgs.length === 0 ? (
+                <div style={{ fontSize: 11, color: T.dim, padding: '4px 0' }}>No tenant organisations found.</div>
+              ) : (
+                <>
+                  <div style={{ marginBottom: 8 }}>
+                    <Lbl s="Find tenant organisation" />
+                    <input
+                      value={tenantFilter}
+                      onChange={e => setTenantFilter(e.target.value)}
+                      placeholder="Type to filter…"
+                      style={{ ...INPUT_S, marginBottom: 5 }}
+                    />
+                    <select
+                      value={tenantOrgId}
+                      onChange={e => selectTenantOrg(e.target.value)}
+                      style={INPUT_S}
+                    >
+                      <option value="">— No link —</option>
+                      {filteredTenantOrgs.map(o => (
+                        <option key={o.id} value={o.id}>{o.name} ({o.slug})</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {tenantOrgId && (
+                    <div style={{ marginBottom: 0 }}>
+                      <Lbl s="Primary contact (optional)" />
+                      {orgUsers.length === 0 ? (
+                        <div style={{ fontSize: 10, color: T.dim, padding: '3px 0' }}>No users in this organisation.</div>
+                      ) : (
+                        <select
+                          value={tenantContactId}
+                          onChange={e => setTenantContactId(e.target.value)}
+                          style={INPUT_S}
+                        >
+                          <option value="">— Select contact —</option>
+                          {orgUsers.map(u => (
+                            <option key={u.id} value={u.id}>{u.name}{u.email ? ` (${u.email})` : ''}</option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button
+            onClick={submit}
+            disabled={!ready || loading}
+            style={{ flex: 1, padding: '8px', borderRadius: 6, background: ready && !loading ? T.purple : 'rgba(139,92,246,0.3)', border: 'none', color: '#fff', fontSize: 12, fontWeight: 600, cursor: ready && !loading ? 'pointer' : 'not-allowed', fontFamily: 'inherit' }}
+          >
+            {loading ? 'Adding…' : 'Add Lead'}
+          </button>
+          <button onClick={onClose} style={{ padding: '8px 14px', borderRadius: 6, background: 'transparent', border: `1px solid ${T.border}`, color: T.sub, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }}>
+            Cancel
+          </button>
+        </div>
+      </div>
+    </>
+  );
+}
+
 // ─── Book Demo modal ──────────────────────────────────────────────────────────
 
-function BookDemoModal({ onClose, onConfirm }: { onClose: () => void; onConfirm: (msg: string) => void }) {
-  const [org,  setOrg]  = useState('');
-  const [date, setDate] = useState('');
-  const [time, setTime] = useState('');
+function BookDemoModal({ onClose, onBook, clients }: {
+  onClose: () => void;
+  onBook: (org: string, date: string, time?: string) => Promise<void>;
+  clients: Client[];
+}) {
+  const [org,     setOrg]     = useState('');
+  const [date,    setDate]    = useState('');
+  const [time,    setTime]    = useState('');
+  const [loading, setLoading] = useState(false);
   const ready = !!org && !!date;
 
   return (
@@ -999,7 +1568,7 @@ function BookDemoModal({ onClose, onConfirm }: { onClose: () => void; onConfirm:
           <Lbl s="Client" />
           <select value={org} onChange={e => setOrg(e.target.value)} style={{ ...INPUT_S, color: org ? T.text : T.sub }}>
             <option value="">Select a client or prospect…</option>
-            {PIPELINE.map(c => <option key={c.id} value={c.org}>{c.org} — {c.contact}</option>)}
+            {clients.map(c => <option key={c.id} value={c.org}>{c.org} — {c.contact}</option>)}
           </select>
         </div>
 
@@ -1016,10 +1585,15 @@ function BookDemoModal({ onClose, onConfirm }: { onClose: () => void; onConfirm:
 
         <div style={{ display: 'flex', gap: 8 }}>
           <button
-            onClick={() => ready && onConfirm(`Demo booked: ${org} · ${date}${time ? ' at ' + time : ''}`)}
-            style={{ flex: 1, padding: '8px', borderRadius: 6, background: ready ? T.purple : 'rgba(139,92,246,0.3)', border: 'none', color: '#fff', fontSize: 12, fontWeight: 600, cursor: ready ? 'pointer' : 'not-allowed', fontFamily: 'inherit' }}
+            onClick={async () => {
+              if (!ready || loading) return;
+              setLoading(true);
+              await onBook(org, date, time || undefined);
+              setLoading(false);
+            }}
+            style={{ flex: 1, padding: '8px', borderRadius: 6, background: ready && !loading ? T.purple : 'rgba(139,92,246,0.3)', border: 'none', color: '#fff', fontSize: 12, fontWeight: 600, cursor: ready && !loading ? 'pointer' : 'not-allowed', fontFamily: 'inherit' }}
           >
-            Confirm Demo
+            {loading ? 'Logging…' : 'Confirm Demo'}
           </button>
           <button onClick={onClose} style={{ padding: '8px 14px', borderRadius: 6, background: 'transparent', border: `1px solid ${T.border}`, color: T.sub, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }}>
             Cancel
@@ -1032,7 +1606,7 @@ function BookDemoModal({ onClose, onConfirm }: { onClose: () => void; onConfirm:
 
 // ─── Generate Proposal modal ──────────────────────────────────────────────────
 
-function ProposalModal({ preselect, onClose, onConfirm }: { preselect?: Client | null; onClose: () => void; onConfirm: (msg: string) => void }) {
+function ProposalModal({ preselect, onClose, onConfirm, clients }: { preselect?: Client | null; onClose: () => void; onConfirm: (msg: string) => void; clients: Client[] }) {
   const [org,   setOrg]   = useState(preselect?.org ?? '');
   const [price, setPrice] = useState(preselect ? String(preselect.value) : '');
   const [mod,   setMod]   = useState(preselect?.usage.topModule ?? 'Waste & Recycling');
@@ -1055,7 +1629,7 @@ function ProposalModal({ preselect, onClose, onConfirm }: { preselect?: Client |
           <Lbl s="Client" />
           <select value={org} onChange={e => setOrg(e.target.value)} style={{ ...INPUT_S, color: org ? T.text : T.sub }}>
             <option value="">Select a client…</option>
-            {PIPELINE.map(c => <option key={c.id} value={c.org}>{c.org} — {c.contact}</option>)}
+            {clients.map(c => <option key={c.id} value={c.org}>{c.org} — {c.contact}</option>)}
           </select>
         </div>
 
@@ -1118,34 +1692,76 @@ function SnapshotHero() {
 // ─── Root ─────────────────────────────────────────────────────────────────────
 
 export default function FounderPage() {
+  const [section,        setSection]        = useState<Section>('overview');
   const [tasksDone,      setTasksDone]      = useState<Set<number>>(() => new Set(TASKS.filter(t => t.done).map(t => t.id)));
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   const [toast,          setToast]          = useState<string | null>(null);
-  const [modal,          setModal]          = useState<'book-demo' | 'proposal' | null>(null);
+  const [toastError,     setToastError]     = useState<string | null>(null);
+  const [modal,          setModal]          = useState<'book-demo' | 'proposal' | 'add-lead' | null>(null);
+
+  // ─── Session-level action state ──────────────────────────────────────────
+  const [clientOverrides, setClientOverrides] = useState<Record<number, ClientOverride>>({});
+  const [sessionEvents,   setSessionEvents]   = useState<SessionEvent[]>([]);
+  const [drawerActivity,  setDrawerActivity]  = useState<Record<number, Array<{ ts: string; event: string }>>>({});
+
+  // ─── Clients (real data → fallback to mock PIPELINE) ─────────────────────
+  const [clients, setClients] = useState<Client[]>(PIPELINE);
+
+  useEffect(() => {
+    fetch('/api/admin/founder-clients')
+      .then(r => r.ok ? r.json() : Promise.reject())
+      .then((data: { clients?: FounderClientRaw[] }) => {
+        if (Array.isArray(data?.clients) && data.clients.length > 0)
+          setClients(data.clients.map(mapRawClient));
+      })
+      .catch(() => { /* keep mock */ });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─── Founder intelligence ────────────────────────────────────────────────
   const [intel,        setIntel]        = useState<FounderIntel | null>(null);
   const [intelLoading, setIntelLoading] = useState(true);
   const [intelError,   setIntelError]   = useState(false);
 
-  useEffect(() => {
+  const loadIntel = () => {
     fetch('/api/admin/founder-intelligence')
       .then(r => r.ok ? r.json() : Promise.reject(r.status))
-      .then((data: FounderIntel) => { setIntel(data); setIntelLoading(false); })
+      .then((data: FounderIntel) => { setIntel(data); setIntelLoading(false); setIntelError(false); })
       .catch(() => { setIntelError(true); setIntelLoading(false); });
-  }, []);
+  };
+
+  useEffect(() => { loadIntel(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const refreshIntel = () => { setIntelLoading(true); loadIntel(); };
+
+  // Tries founder-state for activity events; silently skips if not available
+  const refreshFounderState = async () => {
+    try {
+      const res = await fetch('/api/admin/founder-state', { signal: AbortSignal.timeout(3000) });
+      if (!res.ok) return;
+      const data = await res.json() as { founder_activity_events?: SessionEvent[] };
+      if (Array.isArray(data?.founder_activity_events) && data.founder_activity_events.length > 0) {
+        setSessionEvents(prev => {
+          const seen = new Set(prev.map(e => `${e.ts}|${e.event}`));
+          const fresh = data.founder_activity_events!.filter(e => !seen.has(`${e.ts}|${e.event}`));
+          return fresh.length > 0 ? [...fresh, ...prev] : prev;
+        });
+      }
+    } catch { /* founder-state not available */ }
+  };
 
   // ─── Derive queue items (live → fallback to mock) ────────────────────────
   const queueItems: QueueItem[] = (intel?.attention_queue?.length)
     ? intel.attention_queue.map((item, i) => ({
-        id:       item.id ?? (1000 + i),
-        severity: toSeverity(item.severity),
-        type:     toFeedType(item.type),
-        title:    item.title,
-        why:      item.why    ?? '',
-        action:   item.action ?? '',
-        due:      item.due    ?? '',
-        cta:      item.cta    ?? 'Take Action',
+        id:          item.id ?? (1000 + i),
+        severity:    toSeverity(item.severity),
+        type:        toFeedType(item.type),
+        title:       item.title,
+        why:         item.why    ?? '',
+        action:      item.action ?? '',
+        due:         item.due    ?? '',
+        cta:         item.cta    ?? 'Take Action',
+        client_id:   item.client_id,
+        analysis_id: item.analysis_id,
       }))
     : QUEUE;
 
@@ -1165,6 +1781,135 @@ export default function FounderPage() {
   const showToast = (msg: string) => {
     setToast(msg);
     setTimeout(() => setToast(null), 2600);
+  };
+
+  const showError = (msg: string) => {
+    setToastError(msg);
+    setTimeout(() => setToastError(null), 3500);
+  };
+
+  // ─── Session event logger ────────────────────────────────────────────────
+  const now = () => {
+    const d = new Date();
+    return `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
+  };
+
+  const addSessionEvent = (event: string, type: FeedType, client: string | null, clientId?: number) => {
+    const ts = now();
+    setSessionEvents(prev => [{ ts, event, type, client }, ...prev]);
+    if (clientId !== undefined) {
+      setDrawerActivity(prev => ({
+        ...prev,
+        [clientId]: [{ ts, event }, ...(prev[clientId] ?? [])],
+      }));
+    }
+  };
+
+  const flashRow = (id: number) => {
+    setClientOverrides(prev => ({ ...prev, [id]: { ...prev[id], highlighted: true } }));
+    setTimeout(() => setClientOverrides(prev => ({ ...prev, [id]: { ...prev[id], highlighted: false } })), 2200);
+  };
+
+  // ─── Backend action handlers ─────────────────────────────────────────────
+
+  const doFollowUp = async (clientId: number | string | undefined, org: string) => {
+    const id = typeof clientId === 'number' ? clientId : clientId != null ? Number(clientId) : undefined;
+    // Optimistic: mark row immediately
+    if (id != null) {
+      setClientOverrides(prev => ({
+        ...prev,
+        [id]: { ...prev[id], daysAgo: 0, action: 'Follow-up sent', followedUp: true, highlighted: true },
+      }));
+      setTimeout(() => setClientOverrides(prev => ({ ...prev, [id]: { ...prev[id], highlighted: false } })), 2200);
+    }
+    try {
+      const res = await fetch('/api/admin/founder-action/follow-up-client', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ client_id: clientId, org }),
+      });
+      if (!res.ok) throw new Error(String(res.status));
+      addSessionEvent(`Follow-up logged — ${org}`, 'sales', org, id);
+      showToast(`Follow-up logged — ${org}`);
+      refreshIntel();
+      refreshFounderState();
+    } catch {
+      // Revert optimistic changes on error
+      if (id != null) {
+        setClientOverrides(prev => {
+          const copy = { ...prev };
+          delete copy[id];
+          return copy;
+        });
+      }
+      showError(`Could not log follow-up for ${org}`);
+    }
+  };
+
+  const doAdvanceStage = async (clientId: number | string, org: string, currentStage: Stage) => {
+    const STAGE_ORDER: Stage[] = ['lead', 'contacted', 'demo', 'trial', 'proposal', 'paid'];
+    const idx = STAGE_ORDER.indexOf(currentStage);
+    const nextStage = idx >= 0 && idx < STAGE_ORDER.length - 1 ? STAGE_ORDER[idx + 1] : null;
+    if (!nextStage) { showError(`${org} is already at the final stage`); return; }
+    const id = typeof clientId === 'number' ? clientId : Number(clientId);
+    try {
+      const res = await fetch('/api/admin/founder-action/advance-client-stage', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ client_id: clientId, org, stage: nextStage }),
+      });
+      if (!res.ok) throw new Error(String(res.status));
+      setClientOverrides(prev => ({
+        ...prev,
+        [id]: { ...prev[id], stage: nextStage, action: `Stage → ${nextStage}` },
+      }));
+      flashRow(id);
+      addSessionEvent(`Stage advanced → ${nextStage}`, 'sales', org, id);
+      showToast(`${org} → ${nextStage}`);
+      setSelectedClient(null);
+      refreshIntel();
+      refreshFounderState();
+    } catch {
+      showError(`Could not advance stage for ${org}`);
+    }
+  };
+
+  const doLogDemo = async (clientId: number | string | undefined, org: string, date: string, time?: string) => {
+    const id = clientId != null ? (typeof clientId === 'number' ? clientId : Number(clientId)) : undefined;
+    try {
+      const res = await fetch('/api/admin/founder-action/log-demo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ client_id: clientId, org, date, time }),
+      });
+      if (!res.ok) throw new Error(String(res.status));
+      const label = `Demo logged — ${org} · ${date}${time ? ' at ' + time : ''}`;
+      addSessionEvent(label, 'sales', org, id);
+      if (id != null) flashRow(id);
+      showToast(label);
+      refreshIntel();
+      refreshFounderState();
+    } catch {
+      showError(`Could not log demo for ${org}`);
+    }
+  };
+
+  const doMarkReviewed = async (analysisId: string | undefined, org: string, clientId?: number) => {
+    try {
+      const res = await fetch('/api/admin/founder-action/mark-analysis-reviewed', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ analysis_id: analysisId, org }),
+      });
+      if (!res.ok) throw new Error(String(res.status));
+      addSessionEvent(`Analysis marked reviewed — ${org}`, 'product', org, clientId);
+      if (clientId != null) flashRow(clientId);
+      showToast(`Analysis marked reviewed — ${org}`);
+      refreshIntel();
+      refreshFounderState();
+    } catch {
+      showError(`Could not mark analysis reviewed for ${org}`);
+    }
   };
 
   return (
@@ -1192,12 +1937,12 @@ export default function FounderPage() {
       {/* Body */}
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
 
-        <LeftSidebar onModal={setModal} />
+        <LeftSidebar onModal={setModal} section={section} setSection={setSection} />
 
         {/* Center column */}
         <div style={{ flex: 1, overflowY: 'auto', padding: '11px 11px', display: 'flex', flexDirection: 'column', gap: 8 }}>
 
-          {/* Error banner — shown only when API failed */}
+          {/* Error banner */}
           {intelError && (
             <div style={{ padding: '6px 11px', borderRadius: 5, background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.14)', display: 'flex', alignItems: 'center', gap: 6 }}>
               <span style={{ fontSize: 10, color: T.yellow }}>⚠</span>
@@ -1205,34 +1950,76 @@ export default function FounderPage() {
             </div>
           )}
 
-          <SnapshotHero />
-          <AttentionQueue items={queueItems} onAction={showToast} />
-          <HlnaBriefing intel={intel} initialLoading={intelLoading} />
-          <ClientPipeline onSelect={setSelectedClient} onAction={showToast} />
-          <RevenueIntel />
-          <FounderTasks done={tasksDone} toggle={toggleTask} />
+          <SectionTabs section={section} setSection={setSection} />
+
+          {/* ── Overview ── */}
+          {section === 'overview' && <>
+            <SnapshotHero />
+            <AttentionQueue items={queueItems} onAction={showToast} onFollowUp={doFollowUp} onMarkReviewed={doMarkReviewed} />
+            <HlnaBriefing intel={intel} initialLoading={intelLoading} />
+            <ClientPipeline onSelect={setSelectedClient} onFollowUp={doFollowUp} overrides={clientOverrides} clients={clients} />
+            <RevenueIntel />
+            <FounderTasks done={tasksDone} toggle={toggleTask} />
+          </>}
+
+          {/* ── Clients ── */}
+          {section === 'clients' && <>
+            <AttentionQueue
+              items={queueItems.filter(q => q.type === 'sales' || q.type === 'client')}
+              onAction={showToast} onFollowUp={doFollowUp} onMarkReviewed={doMarkReviewed}
+            />
+            <ClientPipeline onSelect={setSelectedClient} onFollowUp={doFollowUp} overrides={clientOverrides} clients={clients} />
+          </>}
+
+          {/* ── Revenue ── */}
+          {section === 'revenue' && <>
+            <SnapshotHero />
+            <RevenueIntel />
+          </>}
+
+          {/* ── Tasks ── */}
+          {section === 'tasks' && <>
+            <FounderTasks done={tasksDone} toggle={toggleTask} />
+          </>}
+
+          {/* ── System ── */}
+          {section === 'system' && <>
+            <SystemHealth alerts={intel?.system_alerts} />
+            <ProductUsage />
+            <LiveContext />
+          </>}
         </div>
 
-        {/* Right column */}
+        {/* Right column — persistent context panel */}
         <div style={{ width: 252, flexShrink: 0, borderLeft: `1px solid ${T.border}`, background: T.s1, overflowY: 'auto', padding: '11px 10px', display: 'flex', flexDirection: 'column', gap: 8 }}>
           <AiRecommendations items={recoItems} onAction={showToast} />
-          <ActivityFeed />
-          <SystemHealth alerts={intel?.system_alerts} />
-          <ProductUsage />
-          <LiveContext />
+          <ActivityFeed sessionEvents={sessionEvents} />
+          {section !== 'system' && <>
+            <SystemHealth alerts={intel?.system_alerts} />
+            <ProductUsage />
+            <LiveContext />
+          </>}
         </div>
       </div>
 
       {/* Client drawer */}
       {selectedClient && (
-        <ClientDrawer client={selectedClient} onClose={() => setSelectedClient(null)} onAction={showToast} onModal={m => { setSelectedClient(null); setModal(m); }} />
+        <ClientDrawer client={selectedClient} onClose={() => setSelectedClient(null)} onAction={showToast} onModal={m => { setSelectedClient(null); setModal(m); }} onAdvanceStage={doAdvanceStage} drawerActivity={drawerActivity[selectedClient.id] ?? []} />
       )}
 
       {/* Modals */}
+      {modal === 'add-lead' && (
+        <AddLeadModal
+          onClose={() => setModal(null)}
+          clients={clients}
+          onAdded={msg => { setModal(null); showToast(msg); refreshFounderState(); }}
+        />
+      )}
       {modal === 'book-demo' && (
         <BookDemoModal
           onClose={() => setModal(null)}
-          onConfirm={msg => { setModal(null); showToast(msg); }}
+          onBook={async (org, date, time) => { await doLogDemo(undefined, org, date, time); setModal(null); }}
+          clients={clients}
         />
       )}
       {modal === 'proposal' && (
@@ -1240,11 +2027,13 @@ export default function FounderPage() {
           preselect={selectedClient}
           onClose={() => setModal(null)}
           onConfirm={msg => { setModal(null); showToast(msg); }}
+          clients={clients}
         />
       )}
 
       {/* Toast */}
-      {toast && <Toast msg={toast} />}
+      {toast      && <Toast msg={toast} />}
+      {toastError && <Toast msg={toastError} isError />}
     </div>
   );
 }

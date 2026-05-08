@@ -184,7 +184,7 @@ const OPS_ITEMS = [
   { label: 'Waste',    href: '/dashboard/wste',   description: 'Service verification & tracking' },
   { label: 'Fleet',    href: '/dashboard/fleet',  description: 'Asset lifecycle & cost analysis' },
   { label: 'Social',   href: '/dashboard/social', description: 'Instagram intelligence & sentiment' },
-  { label: 'CRM',      href: '/crm',              description: 'Companies, contacts & deals' },
+  { label: 'CRM',      href: '/admin/founder',    description: 'Business pipeline & client management' },
 ];
 
 function OpsDropdown({ pathname }: { pathname: string }) {

@@ -1,10 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 
 type Org  = { id: string; name: string; slug: string; created_at: string };
 type User = { id: string; username: string; name: string; email: string; role: string; organisation_id: string; org_name: string };
+type CrmClient = { organisation_id?: string | null; stage?: string; estimated_value?: number | null; next_action?: string | null; org?: string };
 
 const FONT  = "var(--font-inter), -apple-system, sans-serif";
 const ROLES = ['viewer', 'manager', 'admin', 'super_admin'];
@@ -26,6 +27,16 @@ export default function AdminClient({ orgs: initial, users: initialUsers }: Prop
   const [saving,  setSaving]  = useState(false);
   const [error,   setError]   = useState('');
   const [success, setSuccess] = useState('');
+
+  // CRM clients (founder pipeline) — fetched client-side
+  const [crmClients, setCrmClients] = useState<CrmClient[]>([]);
+
+  useEffect(() => {
+    fetch('/api/admin/founder-clients')
+      .then(r => r.ok ? r.json() : { clients: [] })
+      .then((d: { clients?: CrmClient[] }) => { if (Array.isArray(d.clients)) setCrmClients(d.clients); })
+      .catch(() => {});
+  }, []);
 
   // Org state
   const [orgForm,    setOrgForm]    = useState({ name: '', slug: '' });
@@ -194,25 +205,55 @@ export default function AdminClient({ orgs: initial, users: initialUsers }: Prop
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                   <thead>
                     <tr style={{ background: 'rgba(255,255,255,0.02)' }}>
-                      {['Name', 'Slug', 'Created', ''].map(h => (
+                      {['Name', 'Slug', 'CRM', 'Created', ''].map(h => (
                         <th key={h} style={{ padding: '8px 16px', textAlign: 'left', fontSize: 10, fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.32)', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {orgs.map(o => (
-                      <tr key={o.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                        <td style={{ padding: '10px 16px', fontWeight: 600 }}>{o.name}</td>
-                        <td style={{ padding: '10px 16px', color: 'rgba(255,255,255,0.45)', fontFamily: 'monospace', fontSize: 12 }}>{o.slug}</td>
-                        <td style={{ padding: '10px 16px', color: 'rgba(255,255,255,0.35)', fontSize: 12 }}>{fmt(o.created_at)}</td>
-                        <td style={{ padding: '10px 16px', whiteSpace: 'nowrap' }}>
-                          <div style={{ display: 'flex', gap: 6 }}>
-                            <button onClick={() => openEditOrg(o)} style={smallBtn('rgba(124,58,237,0.15)', '#C4B5FD', 'rgba(124,58,237,0.30)')}>Edit</button>
-                            <button onClick={() => deleteOrg(o)} style={smallBtn('rgba(239,68,68,0.10)', '#FCA5A5', 'rgba(239,68,68,0.22)')}>Delete</button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
+                    {orgs.map(o => {
+                      const crm = crmClients.find(c => c.organisation_id === o.id);
+                      const STAGE_C: Record<string, string> = { lead: '#94A3B8', contacted: '#60A5FA', demo: '#A78BFA', trial: '#FCD34D', proposal: '#FDE68A', paid: '#4ADE80', lost: '#F87171' };
+                      const stageColor = crm?.stage ? (STAGE_C[crm.stage] ?? '#94A3B8') : undefined;
+                      return (
+                        <tr key={o.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                          <td style={{ padding: '10px 16px', fontWeight: 600 }}>{o.name}</td>
+                          <td style={{ padding: '10px 16px', color: 'rgba(255,255,255,0.45)', fontFamily: 'monospace', fontSize: 12 }}>{o.slug}</td>
+                          <td style={{ padding: '10px 16px', fontSize: 11 }}>
+                            {crm ? (
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                                  <span style={{ padding: '1px 5px', borderRadius: 3, fontSize: 9, fontWeight: 700, background: `${stageColor}18`, color: stageColor, border: `1px solid ${stageColor}30` }}>
+                                    {(crm.stage ?? '').toUpperCase()}
+                                  </span>
+                                  {crm.estimated_value != null && (
+                                    <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.45)', fontFamily: 'monospace' }}>${crm.estimated_value.toLocaleString()}/mo</span>
+                                  )}
+                                </div>
+                                {crm.next_action && (
+                                  <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.30)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 180 }}>{crm.next_action}</span>
+                                )}
+                                <button
+                                  onClick={() => router.push('/admin/founder')}
+                                  style={{ alignSelf: 'flex-start', padding: '2px 6px', fontSize: 9, fontWeight: 600, background: 'rgba(34,211,238,0.10)', color: '#22D3EE', border: '1px solid rgba(34,211,238,0.22)', borderRadius: 3, cursor: 'pointer', fontFamily: FONT, marginTop: 2 }}
+                                >
+                                  View in Founder OS →
+                                </button>
+                              </div>
+                            ) : (
+                              <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.20)' }}>—</span>
+                            )}
+                          </td>
+                          <td style={{ padding: '10px 16px', color: 'rgba(255,255,255,0.35)', fontSize: 12 }}>{fmt(o.created_at)}</td>
+                          <td style={{ padding: '10px 16px', whiteSpace: 'nowrap' }}>
+                            <div style={{ display: 'flex', gap: 6 }}>
+                              <button onClick={() => openEditOrg(o)} style={smallBtn('rgba(124,58,237,0.15)', '#C4B5FD', 'rgba(124,58,237,0.30)')}>Edit</button>
+                              <button onClick={() => deleteOrg(o)} style={smallBtn('rgba(239,68,68,0.10)', '#FCA5A5', 'rgba(239,68,68,0.22)')}>Delete</button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               )}
