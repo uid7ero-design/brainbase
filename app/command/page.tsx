@@ -4,9 +4,9 @@ import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { HlnaOrb } from "@/components/brand/HlnaOrb";
+import WorkspaceShell from "@/components/ops/WorkspaceShell";
 
 const FONT = 'var(--font-inter), "Inter", -apple-system, sans-serif';
-const BG = "#07080B";
 
 // ── DATA ─────────────────────────────────────────────────────────────────────
 
@@ -123,10 +123,6 @@ function Sparkline({ data, color }: { data: number[]; color: string }) {
   );
 }
 
-// ── ORB ──────────────────────────────────────────────────────────────────────
-
-type OrbState = "idle" | "thinking" | "alert";
-
 // ── TYPING EFFECT ────────────────────────────────────────────────────────────
 
 function useTyping(text: string, speed = 20) {
@@ -189,6 +185,7 @@ function HighlightedText({ text }: { text: string }) {
 // ── MESSAGE TYPE ─────────────────────────────────────────────────────────────
 
 type Msg = { role: "user" | "assistant"; text: string };
+type OrbState = "idle" | "thinking" | "alert";
 
 // ── PAGE ─────────────────────────────────────────────────────────────────────
 
@@ -203,9 +200,6 @@ export default function CommandPage() {
   const bottomRef               = useRef<HTMLDivElement>(null);
   const prevMsgCount            = useRef(msgs.length);
   const { shown, done }         = useTyping(HLNA_SUMMARY, 20);
-
-  // Force scroll to top on every page load
-  useEffect(() => { window.scrollTo(0, 0); }, []);
 
   useEffect(() => {
     if (msgs.length <= prevMsgCount.current) { prevMsgCount.current = msgs.length; return; }
@@ -240,56 +234,23 @@ export default function CommandPage() {
   }
 
   return (
-    <main style={{ minHeight: "100vh", background: BG, color: "#F5F7FA", fontFamily: FONT }}>
+    <WorkspaceShell title="Command Centre" alertCount={4}>
 
-      {/* ── CSS ──────────────────────────────────────────────────── */}
       <style dangerouslySetInnerHTML={{ __html: `
         @keyframes dot-bounce   { from{transform:translateY(0);opacity:.4} to{transform:translateY(-5px);opacity:1} }
         @keyframes live-blink   { 0%,100%{opacity:1} 50%{opacity:.35} }
         @keyframes cursor-blink { 0%,49%{opacity:1} 50%,100%{opacity:0} }
         @keyframes fade-in      { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:translateY(0)} }
-        * { box-sizing: border-box }
-        ::-webkit-scrollbar { width: 3px }
-        ::-webkit-scrollbar-track { background: transparent }
-        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,.10); border-radius: 3px }
       `}} />
 
-      {/* Subtle grid */}
-      <div style={{
-        position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none",
-        backgroundImage: "linear-gradient(rgba(255,255,255,.016) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.016) 1px,transparent 1px)",
-        backgroundSize: "44px 44px",
-      }} />
-      {/* Ambient purple */}
-      <div style={{
-        position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none",
-        background: "radial-gradient(ellipse 70% 55% at 50% -5%,rgba(139,92,246,.18) 0%,transparent 65%)",
-      }} />
+      <div style={{ padding: "20px 28px 80px", color: "#F5F7FA", fontFamily: FONT }}>
 
-      {/* ── Breadcrumb sub-bar ───────────────────────────────────── */}
-      <div style={{
-        height: 36, display: "flex", alignItems: "center", justifyContent: "space-between",
-        padding: "0 32px", borderBottom: "1px solid rgba(255,255,255,.04)",
-        background: "rgba(7,8,11,.60)",
-      }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "rgba(255,255,255,.22)", letterSpacing: ".03em" }}>
-          <span>Command Centre</span><span>/</span><span>Operations</span><span>/</span>
-          <span style={{ color: "rgba(167,139,250,.70)" }}>Today</span>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "2px 10px", borderRadius: 20, background: "rgba(139,92,246,.12)", border: "1px solid rgba(139,92,246,.28)" }}>
-          <div style={{ width: 5, height: 5, borderRadius: "50%", background: "#22C55E", boxShadow: "0 0 5px #22C55E", animation: "live-blink 2.4s ease-in-out infinite" }} />
-          <span style={{ fontSize: 10, fontWeight: 600, color: "#C4B5FD", letterSpacing: ".03em" }}>Live</span>
-        </div>
-      </div>
-
-      <div style={{ maxWidth: 1280, margin: "0 auto", padding: "22px 32px 96px", position: "relative", zIndex: 1 }}>
-
-        {/* ── KPI STRIP ────────────────────────────────────────── */}
+        {/* ── KPI STRIP ─────────────────────────────────────────── */}
         <section style={{
           display: "grid", gridTemplateColumns: "repeat(5,1fr)",
           borderRadius: 14, overflow: "hidden",
           border: "1px solid rgba(255,255,255,.07)",
-          marginBottom: 18,
+          marginBottom: 16,
         }}>
           {KPIS.map((kpi, i) => {
             const color = kpi.trendBad ? "#EF4444" : "#22C55E";
@@ -320,7 +281,7 @@ export default function CommandPage() {
           })}
         </section>
 
-        {/* ── HLNA HERO ────────────────────────────────────────── */}
+        {/* ── HLNA HERO ─────────────────────────────────────────── */}
         <section style={{
           padding: "28px 32px",
           borderRadius: 16,
@@ -330,7 +291,6 @@ export default function CommandPage() {
           marginBottom: 14,
           position: "relative", overflow: "hidden",
         }}>
-          {/* Glow blob */}
           <div style={{
             position: "absolute", top: -130, right: -130,
             width: 400, height: 400, borderRadius: "50%", pointerEvents: "none",
@@ -339,7 +299,6 @@ export default function CommandPage() {
 
           <div style={{ display: "flex", alignItems: "center", gap: 40, flexWrap: "wrap" }}>
             <div style={{ flex: "1 1 320px" }}>
-              {/* Live badge */}
               <div style={{
                 display: "inline-flex", alignItems: "center", gap: 8, marginBottom: 16,
                 padding: "4px 12px", borderRadius: 20,
@@ -353,7 +312,6 @@ export default function CommandPage() {
                 </span>
               </div>
 
-              {/* Summary — typing then highlighted */}
               <p style={{ fontSize: "clamp(15px,1.6vw,20px)", lineHeight: 1.78, color: "#E6EDF3", margin: "0 0 22px", maxWidth: 680 }}>
                 {done
                   ? <HighlightedText text={HLNA_SUMMARY} />
@@ -361,7 +319,6 @@ export default function CommandPage() {
                 }
               </p>
 
-              {/* Action buttons */}
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
                 <Link href="/dashboard/waste" style={{
                   padding: "9px 18px", borderRadius: 8, fontSize: 12, fontWeight: 600,
@@ -384,7 +341,6 @@ export default function CommandPage() {
               </div>
             </div>
 
-            {/* Orb + state label */}
             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16 }}>
               <HlnaOrb size={140} state={orbState === "alert" ? "idle" : orbState} speechRef={undefined} style={undefined} />
               <div style={{ textAlign: "center" }}>
@@ -405,16 +361,15 @@ export default function CommandPage() {
           </div>
         </section>
 
-        {/* ── SYSTEM STATUS STRIP ──────────────────────────────── */}
+        {/* ── SYSTEM STATUS STRIP ───────────────────────────────── */}
         <section style={{
           display: "grid", gridTemplateColumns: "repeat(6,1fr)",
           borderRadius: 10, overflow: "hidden",
           border: "1px solid rgba(255,255,255,.06)",
-          marginBottom: 18,
+          marginBottom: 16,
         }}>
           {SYS_STATUS.map((sys, i) => {
             const color = sys.status === "ok" ? "#22C55E" : sys.status === "warn" ? "#F59E0B" : "#EF4444";
-            const note  = sys.note;
             return (
               <div key={sys.label} style={{
                 padding: "10px 14px",
@@ -425,20 +380,20 @@ export default function CommandPage() {
                 <div style={{ width: 6, height: 6, borderRadius: "50%", background: color, boxShadow: `0 0 6px ${color}`, flexShrink: 0 }} />
                 <div>
                   <div style={{ fontSize: 11, fontWeight: 600, color: "rgba(255,255,255,.65)", lineHeight: 1.25 }}>{sys.label}</div>
-                  <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: ".06em", color, textTransform: "uppercase", marginTop: 1 }}>{note}</div>
+                  <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: ".06em", color, textTransform: "uppercase", marginTop: 1 }}>{sys.note}</div>
                 </div>
               </div>
             );
           })}
         </section>
 
-        {/* ── MAIN CONTENT ─────────────────────────────────────── */}
+        {/* ── MAIN CONTENT ──────────────────────────────────────── */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 300px", gap: 16, alignItems: "start" }}>
 
-          {/* LEFT: Action Cards + HLNA Panel */}
+          {/* LEFT */}
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
 
-            {/* ── ACTION CARDS ────────────────────────────────── */}
+            {/* ── ALERTS ──────────────────────────────────────── */}
             <section>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
                 <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: ".12em", color: "rgba(255,255,255,.28)", textTransform: "uppercase" }}>
@@ -463,21 +418,16 @@ export default function CommandPage() {
                       onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.transform = "translateY(-2px)"; (e.currentTarget as HTMLDivElement).style.boxShadow = `0 8px 32px ${"glow" in s ? s.glow : "transparent"}`; }}
                       onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.transform = ""; (e.currentTarget as HTMLDivElement).style.boxShadow = ""; }}
                     >
-                      {/* Badge */}
                       <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
                         <div style={{ width: 7, height: 7, borderRadius: "50%", background: s.dot, boxShadow: `0 0 7px ${s.dot}`, flexShrink: 0 }} />
                         <span style={{ fontSize: 10, fontWeight: 700, color: s.text, letterSpacing: ".09em", textTransform: "uppercase" }}>{("label" in s) ? s.label : ""}</span>
                       </div>
-                      {/* Title */}
                       <div style={{ fontSize: 13, fontWeight: 600, color: "#F5F7FA", lineHeight: 1.35 }}>{alert.title}</div>
-                      {/* Big metric */}
                       <div>
                         <div style={{ fontSize: 34, fontWeight: 700, letterSpacing: "-.04em", color: s.text, lineHeight: 1 }}>{alert.metric}</div>
                         <div style={{ fontSize: 10, color: "rgba(255,255,255,.32)", marginTop: 3, letterSpacing: ".04em" }}>{alert.metricLabel}</div>
                       </div>
-                      {/* Description */}
                       <div style={{ fontSize: 11, color: "rgba(230,237,243,.44)", lineHeight: 1.55 }}>{alert.description}</div>
-                      {/* Action */}
                       <Link href={alert.href} style={{
                         display: "block", padding: "8px 14px", borderRadius: 7,
                         background: `${s.dot}18`, border: `1px solid ${s.dot}38`,
@@ -514,7 +464,6 @@ export default function CommandPage() {
                 <span style={{ fontSize: 9, color: "rgba(255,255,255,.20)", letterSpacing: ".06em", textTransform: "uppercase" }}>· Ask anything</span>
               </div>
 
-              {/* Messages */}
               <div style={{ padding: "14px 16px", display: "flex", flexDirection: "column", gap: 10, minHeight: 160, maxHeight: 240, overflowY: "auto" }}>
                 {msgs.map((m, i) => (
                   <div key={i} style={{ display: "flex", justifyContent: m.role === "user" ? "flex-end" : "flex-start", animation: "fade-in .2s ease" }}>
@@ -539,7 +488,6 @@ export default function CommandPage() {
                 <div ref={bottomRef} />
               </div>
 
-              {/* Suggested prompts */}
               <div style={{ padding: "0 16px 10px", display: "flex", gap: 6, flexWrap: "wrap" }}>
                 {SUGGESTED.map(p => (
                   <button key={p} onClick={() => send(p)} style={{
@@ -555,7 +503,6 @@ export default function CommandPage() {
                 ))}
               </div>
 
-              {/* Input */}
               <div style={{ padding: "10px 12px", borderTop: "1px solid rgba(255,255,255,.05)", display: "flex", gap: 8, alignItems: "center" }}>
                 <input
                   value={input}
@@ -587,7 +534,7 @@ export default function CommandPage() {
             </section>
           </div>
 
-          {/* RIGHT: Action Hub + 24h Changes */}
+          {/* RIGHT */}
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
 
             {/* ── ACTION HUB ──────────────────────────────────── */}
@@ -604,12 +551,11 @@ export default function CommandPage() {
               </div>
 
               <div style={{ padding: "12px" }}>
-                {/* Immediate */}
                 <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: ".12em", color: "rgba(255,255,255,.20)", textTransform: "uppercase", marginBottom: 8, paddingLeft: 2 }}>Immediate</div>
                 {([
-                  { label: "Resolve Alerts",   href: "/dashboard/waste",  color: "#EF4444", bg: "rgba(239,68,68,.10)",  border: "rgba(239,68,68,.25)",  icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> },
-                  { label: "Reassign Routes",  href: "/dashboard/waste",  color: "#F59E0B", bg: "rgba(245,158,11,.10)", border: "rgba(245,158,11,.25)", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 014-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 01-4 4H3"/></svg> },
-                  { label: "Dispatch Crew",    href: "/dashboard/fleet",  color: "#60A5FA", bg: "rgba(59,130,246,.10)", border: "rgba(59,130,246,.25)", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg> },
+                  { label: "Resolve Alerts",  href: "/dashboard/waste", color: "#EF4444", bg: "rgba(239,68,68,.10)",  border: "rgba(239,68,68,.25)",  icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> },
+                  { label: "Reassign Routes", href: "/dashboard/waste", color: "#F59E0B", bg: "rgba(245,158,11,.10)", border: "rgba(245,158,11,.25)", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 014-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 01-4 4H3"/></svg> },
+                  { label: "Dispatch Crew",   href: "/dashboard/fleet", color: "#60A5FA", bg: "rgba(59,130,246,.10)", border: "rgba(59,130,246,.25)", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg> },
                 ] as { label: string; href: string; color: string; bg: string; border: string; icon: React.ReactNode }[]).map(btn => (
                   <Link key={btn.label} href={btn.href} style={{ textDecoration: "none", display: "block", marginBottom: 6 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 13px", borderRadius: 9, background: btn.bg, border: `1px solid ${btn.border}`, cursor: "pointer", transition: "all .15s" }}
@@ -624,7 +570,6 @@ export default function CommandPage() {
 
                 <div style={{ height: 1, background: "rgba(255,255,255,.05)", margin: "10px 0" }} />
 
-                {/* Reporting */}
                 <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: ".12em", color: "rgba(255,255,255,.20)", textTransform: "uppercase", marginBottom: 8, paddingLeft: 2 }}>Reporting</div>
                 {([
                   { label: "Generate Monthly Report", action: () => alert("Report generation coming soon."), icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg> },
@@ -641,7 +586,6 @@ export default function CommandPage() {
 
                 <div style={{ height: 1, background: "rgba(255,255,255,.05)", margin: "10px 0" }} />
 
-                {/* Navigation */}
                 <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: ".12em", color: "rgba(255,255,255,.20)", textTransform: "uppercase", marginBottom: 8, paddingLeft: 2 }}>Navigation</div>
                 {([
                   { label: "Waste Dashboard", href: "/dashboard/waste", color: "#34D399", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg> },
@@ -694,6 +638,6 @@ export default function CommandPage() {
           </div>
         </div>
       </div>
-    </main>
+    </WorkspaceShell>
   );
 }

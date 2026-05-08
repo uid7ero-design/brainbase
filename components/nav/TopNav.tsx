@@ -581,6 +581,7 @@ export default function TopNav({ serverSession }: { serverSession?: Session }) {
 
   const session = serverSession !== undefined ? serverSession : fetchedSession;
   if (pathname?.startsWith(`/tennis`)) return null;
+  if (pathname?.startsWith(`/command`)) return null;
   if (session === undefined) return null;
   if (!session) return <PublicNav pathname={pathname} />;
   return <AppNav session={session} pathname={pathname} />;
