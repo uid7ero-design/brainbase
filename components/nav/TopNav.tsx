@@ -90,95 +90,6 @@ function HlnaItem({ active }: { active: boolean }) {
 }
 
 // â”€â”€â”€ Operations dropdown â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-const TENNIS_ITEMS = [
-  { label: 'Leads',    href: '/dashboard/leads',    description: 'Booking requests from ldtennis.com.au' },
-  { label: 'Contacts', href: '/dashboard/contacts', description: 'Contact management & status tracking' },
-];
-
-function TennisDropdown({ pathname }: { pathname: string }) {
-  const [open, setOpen] = useState(false);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const isActive = TENNIS_ITEMS.some(item => pathname.startsWith(item.href));
-
-  function handleEnter() {
-    if (timerRef.current) clearTimeout(timerRef.current);
-    setOpen(true);
-  }
-  function handleLeave() {
-    timerRef.current = setTimeout(() => setOpen(false), 140);
-  }
-
-  return (
-    <div style={{ position: 'relative' }} onMouseEnter={handleEnter} onMouseLeave={handleLeave}>
-      <button
-        style={{
-          display: 'flex', alignItems: 'center', gap: 5,
-          fontSize: 13, fontWeight: 500, letterSpacing: '-0.01em',
-          padding: '5px 10px', borderRadius: 7,
-          color: isActive ? '#C4B5FD' : open ? 'rgba(255,255,255,.85)' : 'rgba(255,255,255,.45)',
-          background: isActive ? 'rgba(139,92,246,.10)' : open ? 'rgba(255,255,255,.05)' : 'transparent',
-          border: `1px solid ${isActive ? 'rgba(139,92,246,.22)' : 'transparent'}`,
-          cursor: 'pointer', fontFamily: FONT,
-          transition: 'color .14s, background .14s',
-          whiteSpace: 'nowrap',
-        }}
-      >
-        Tennis
-        <svg
-          width="10" height="6" viewBox="0 0 10 6" fill="none"
-          style={{ opacity: 0.45, transform: open ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform .18s' }}
-        >
-          <path d="M1 1L5 5L9 1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-        </svg>
-      </button>
-
-      {open && (
-        <div style={{
-          position: 'absolute', top: 'calc(100% + 10px)', left: 0,
-          background: 'rgba(7,5,16,.98)',
-          border: '1px solid rgba(255,255,255,.09)',
-          borderRadius: 11, padding: 5, minWidth: 220,
-          boxShadow: '0 12px 40px rgba(0,0,0,.55), 0 0 0 1px rgba(255,255,255,.04)',
-          zIndex: 200,
-        }}>
-          <div style={{
-            position: 'absolute', top: -5, left: 18,
-            width: 8, height: 8,
-            background: 'rgba(7,5,16,.98)',
-            border: '1px solid rgba(255,255,255,.09)',
-            borderRight: 'none', borderBottom: 'none',
-            transform: 'rotate(45deg)',
-          }} />
-          {TENNIS_ITEMS.map(item => {
-            const itemActive = pathname.startsWith(item.href);
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                style={{
-                  display: 'flex', flexDirection: 'column', gap: 2,
-                  padding: '9px 13px', borderRadius: 8, textDecoration: 'none',
-                  background: itemActive ? 'rgba(139,92,246,.10)' : 'transparent',
-                  transition: 'background .12s',
-                }}
-                onMouseEnter={e => { if (!itemActive) e.currentTarget.style.background = 'rgba(255,255,255,.05)'; }}
-                onMouseLeave={e => { if (!itemActive) e.currentTarget.style.background = 'transparent'; }}
-              >
-                <span style={{ fontSize: 13, fontWeight: 500, letterSpacing: '-0.01em', color: itemActive ? '#C4B5FD' : 'rgba(255,255,255,.80)' }}>
-                  {item.label}
-                </span>
-                <span style={{ fontSize: 11, color: 'rgba(255,255,255,.30)', lineHeight: 1.4 }}>
-                  {item.description}
-                </span>
-              </Link>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}
 
 const OPS_ITEMS = [
   { label: 'Waste',    href: '/dashboard/wste',   description: 'Service verification & tracking' },
@@ -477,7 +388,9 @@ function AppNav({ session, pathname }: { session: NonNullable<Session>; pathname
 
         <HlnaItem active={pathname === '/dashboard'} />
 
-        <TennisDropdown pathname={pathname} />
+        {isSuperAdmin && (
+          <NavItem href="/clients" label="Clients" active={pathname.startsWith('/clients')} />
+        )}
 
         {isManager && (
           <OpsDropdown pathname={pathname} />

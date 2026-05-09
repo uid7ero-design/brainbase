@@ -34,8 +34,8 @@ export async function middleware(req: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  // /admin — super_admin only
-  if (pathname.startsWith('/admin') && session.role !== 'super_admin') {
+  // /admin and /clients — super_admin only
+  if ((pathname.startsWith('/admin') || pathname.startsWith('/clients')) && session.role !== 'super_admin') {
     return NextResponse.redirect(new URL('/dashboard', req.url));
   }
 
