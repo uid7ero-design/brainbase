@@ -2,6 +2,7 @@ import Link from 'next/link'
 import HlnaInsightCard from './HlnaInsightCard'
 import WeatherPanel    from './WeatherPanel'
 import LeadsChart      from './LeadsChart'
+import { HlnaOrb }    from '@/components/brand/HlnaOrb'
 
 const FONT = "var(--font-inter), -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
 
@@ -109,12 +110,26 @@ export default function TennisDashboard({ stats, recentLeads, attentionContacts,
   return (
     <div style={{ width: '100%', maxWidth: 1152, margin: '0 auto', padding: '28px 24px 64px', fontFamily: FONT }}>
 
-      {/* ── Header ─────────────────────────────────────────────────── */}
-      <div style={{ marginBottom: 28 }}>
-        <h1 style={{ fontSize: 20, fontWeight: 700, color: '#F5F7FA', letterSpacing: '-.02em', margin: '0 0 3px' }}>
-          LD Tennis
-        </h1>
-        <span style={{ fontSize: 12, color: 'rgba(255,255,255,.25)' }}>Coaching dashboard</span>
+      {/* ── HLNA Orb Header ────────────────────────────────────────── */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 28,
+        marginBottom: 28,
+        background: 'rgba(99,102,241,.04)',
+        border: '1px solid rgba(99,102,241,.14)',
+        borderRadius: 16, padding: '20px 24px',
+      }}>
+        <HlnaOrb size={72} state="idle" />
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.14em', textTransform: 'uppercase', color: 'rgba(167,139,250,.65)', marginBottom: 4 }}>
+            HLNA · LD Tennis
+          </div>
+          <h1 style={{ fontSize: 22, fontWeight: 700, color: '#F5F7FA', letterSpacing: '-.02em', margin: '0 0 4px' }}>
+            Coaching Dashboard
+          </h1>
+          <span style={{ fontSize: 12, color: 'rgba(255,255,255,.28)' }}>
+            Leads, contacts, and session activity
+          </span>
+        </div>
       </div>
 
       {/* ── Row 1: KPI cards ───────────────────────────────────────── */}

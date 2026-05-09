@@ -3,7 +3,7 @@ import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
-type Session = { role: string; name: string; avatarUrl?: string } | null;
+type Session = { role: string; name: string; avatarUrl?: string; enabledModules?: string[] } | null;
 
 const FONT = 'var(--font-inter), "Inter", -apple-system, sans-serif';
 
@@ -362,9 +362,10 @@ function PublicNav({ pathname }: { pathname: string }) {
 
 // â”€â”€â”€ Authenticated nav â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function AppNav({ session, pathname }: { session: NonNullable<Session>; pathname: string }) {
-  const { role, name, avatarUrl } = session;
+  const { role, name, avatarUrl, enabledModules = [] } = session;
   const isManager    = ['manager', 'admin', 'super_admin'].includes(role);
   const isSuperAdmin = role === 'super_admin';
+  const isClientOrg  = !isSuperAdmin && enabledModules.length === 0;
   const initials     = name.split(' ').map((p: string) => p[0]).join('').slice(0, 2).toUpperCase();
 
   return (
@@ -378,34 +379,44 @@ function AppNav({ session, pathname }: { session: NonNullable<Session>; pathname
 
       {/* Centre nav */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-        {isSuperAdmin && (
-          <NavItem href="/admin/founder" label="Founder OS" active={pathname.startsWith('/admin/founder')} />
-        )}
+        {isClientOrg ? (
+          <>
+            <HlnaItem active={pathname === '/dashboard'} />
+            <NavItem href="/dashboard/leads"    label="Leads"    active={pathname.startsWith('/dashboard/leads')} />
+            <NavItem href="/dashboard/contacts" label="Contacts" active={pathname.startsWith('/dashboard/contacts')} />
+          </>
+        ) : (
+          <>
+            {isSuperAdmin && (
+              <NavItem href="/admin/founder" label="Founder OS" active={pathname.startsWith('/admin/founder')} />
+            )}
 
-        {isManager && (
-          <NavItem href="/command" label="Command" active={pathname.startsWith('/command')} />
-        )}
+            {isManager && (
+              <NavItem href="/command" label="Command" active={pathname.startsWith('/command')} />
+            )}
 
-        <HlnaItem active={pathname === '/dashboard'} />
+            <HlnaItem active={pathname === '/dashboard'} />
 
-        {isSuperAdmin && (
-          <NavItem href="/clients" label="Clients" active={pathname.startsWith('/clients')} />
-        )}
+            {isSuperAdmin && (
+              <NavItem href="/clients" label="Clients" active={pathname.startsWith('/clients')} />
+            )}
 
-        {isManager && (
-          <OpsDropdown pathname={pathname} />
-        )}
+            {isManager && (
+              <OpsDropdown pathname={pathname} />
+            )}
 
-        {isManager && (
-          <NavItem href="/reports" label="Reports" active={pathname.startsWith('/reports')} />
-        )}
+            {isManager && (
+              <NavItem href="/reports" label="Reports" active={pathname.startsWith('/reports')} />
+            )}
 
-        {isManager && (
-          <NavItem href="/data" label="Data" active={pathname.startsWith('/data')} />
-        )}
+            {isManager && (
+              <NavItem href="/data" label="Data" active={pathname.startsWith('/data')} />
+            )}
 
-        {isSuperAdmin && (
-          <AdminDropdown pathname={pathname} />
+            {isSuperAdmin && (
+              <AdminDropdown pathname={pathname} />
+            )}
+          </>
         )}
       </div>
 
@@ -484,7 +495,12 @@ export default function TopNav({ serverSession }: { serverSession?: Session }) {
         return res.json() as Promise<{ role: string; name: string; profile?: { avatar_url?: string } }>;
       })
       .then(d => {
-        setFetchedSession(d?.role ? { role: d.role, name: d.name, avatarUrl: d.profile?.avatar_url ?? undefined } : null);
+        setFetchedSession(d?.role ? {
+          role: d.role,
+          name: d.name,
+          avatarUrl: d.profile?.avatar_url ?? undefined,
+          enabledModules: (d.enabledModules ?? []).map((m: { key: string }) => m.key),
+        } : null);
       })
       .catch(err => {
         console.warn('[TopNav] /api/me network error:', (err as Error).message);
