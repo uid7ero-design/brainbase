@@ -9,3 +9,12 @@ coverage
 *.log
 *.pem
 .env*
+# WIP — not yet ready for production
+app/api/bin-maintenance
+app/api/ops
+app/dashboard/bin-maintenance
+backend_migration
+components/ops/DrilldownDrawer.tsx
+components/ops/maintenance
+scripts/clear-bin-maintenance.ts
+"Waste Intelligence Dashboard"
