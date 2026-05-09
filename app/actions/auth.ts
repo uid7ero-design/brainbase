@@ -3,7 +3,7 @@ import { redirect } from 'next/navigation';
 import { headers } from 'next/headers';
 import bcrypt from 'bcryptjs';
 import sql from '@/lib/db';
-import { createSession, deleteSession, type Role } from '@/lib/session';
+import { createSession, deleteSession, getSession, type Role } from '@/lib/session';
 import { checkRateLimit, resetRateLimit } from '@/lib/rateLimit';
 
 export type LoginState = { error?: string; unverified?: boolean } | undefined;
@@ -54,6 +54,9 @@ export async function login(prevState: LoginState, formData: FormData): Promise<
 }
 
 export async function logout() {
+  const session = await getSession();
   await deleteSession();
+  const ldTennisOrgId = process.env.LD_TENNIS_ORG_ID ?? '';
+  if (ldTennisOrgId && session?.organisationId === ldTennisOrgId) redirect('/tennis');
   redirect('/login');
 }

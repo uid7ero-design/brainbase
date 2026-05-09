@@ -13,7 +13,7 @@ export async function GET() {
     where: { organisation_id: session.organisationId },
     orderBy: { created_at: 'desc' },
     select: {
-      id: true, title: true, slug: true, excerpt: true,
+      id: true, title: true, slug: true, excerpt: true, content: true,
       cover_image_url: true, published: true, published_at: true,
       author_name: true, created_at: true,
     },

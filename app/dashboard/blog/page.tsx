@@ -116,12 +116,27 @@ function Editor({ post, onSave, onDelete, onBack }: {
   const [title, setTitle]       = useState(post?.title ?? '');
   const [excerpt, setExcerpt]   = useState(post?.excerpt ?? '');
   const [content, setContent]   = useState(post?.content ?? '');
-  const [imageUrl, setImageUrl] = useState(post?.cover_image_url ?? '');
+  const [imageUrl, setImageUrl]   = useState(post?.cover_image_url ?? '');
+  const [uploading, setUploading] = useState(false);
+  const [uploadErr, setUploadErr] = useState('');
+  const imageInputRef = useRef<HTMLInputElement>(null);
   const [author, setAuthor]     = useState(post?.author_name ?? 'Luke Doughty');
   const [published, setPublished] = useState(post?.published ?? false);
   const [saving, setSaving]     = useState(false);
   const [deleting, setDeleting] = useState(false);
   const contentRef = useRef<HTMLTextAreaElement>(null);
+
+  async function handleImageFile(file: File) {
+    setUploadErr('');
+    setUploading(true);
+    const fd = new FormData();
+    fd.append('file', file);
+    const res = await fetch('/api/tennis/blog/upload-image', { method: 'POST', body: fd });
+    const data = await res.json();
+    setUploading(false);
+    if (!res.ok) { setUploadErr(data.error ?? 'Upload failed'); return; }
+    setImageUrl(data.url);
+  }
 
   function insertText(text: string) {
     const ta = contentRef.current;
@@ -209,12 +224,55 @@ function Editor({ post, onSave, onDelete, onBack }: {
 
           {/* Cover image */}
           <div style={{ background: 'rgba(255,255,255,.03)', border: '1px solid rgba(255,255,255,.08)', borderRadius: 12, padding: 14 }}>
-            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.12em', textTransform: 'uppercase', color: 'rgba(255,255,255,.25)', marginBottom: 10 }}>Cover Image URL</div>
-            <input value={imageUrl} onChange={e => setImageUrl(e.target.value)} placeholder="https://…"
-              style={{ ...inp, fontSize: 11 }} />
-            {imageUrl && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={imageUrl} alt="" style={{ marginTop: 10, width: '100%', height: 120, objectFit: 'cover', borderRadius: 8 }} />
+            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.12em', textTransform: 'uppercase', color: 'rgba(255,255,255,.25)', marginBottom: 10 }}>Cover Image</div>
+            <input
+              ref={imageInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              style={{ display: 'none' }}
+              onChange={e => { const f = e.target.files?.[0]; if (f) handleImageFile(f); e.target.value = ''; }}
+            />
+            {imageUrl ? (
+              <div style={{ position: 'relative' }}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={imageUrl} alt="" style={{ width: '100%', height: 120, objectFit: 'cover', borderRadius: 8 }} />
+                <button
+                  onClick={() => imageInputRef.current?.click()}
+                  disabled={uploading}
+                  style={{
+                    position: 'absolute', bottom: 6, right: 6,
+                    fontSize: 10, fontWeight: 600, padding: '3px 10px', borderRadius: 6, cursor: 'pointer',
+                    background: 'rgba(0,0,0,.65)', border: '1px solid rgba(255,255,255,.18)',
+                    color: 'rgba(255,255,255,.75)', fontFamily: FONT,
+                  }}>
+                  {uploading ? 'Uploading…' : 'Change'}
+                </button>
+                <button
+                  onClick={() => setImageUrl('')}
+                  style={{
+                    position: 'absolute', top: 6, right: 6,
+                    fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 6, cursor: 'pointer',
+                    background: 'rgba(239,68,68,.20)', border: '1px solid rgba(239,68,68,.35)',
+                    color: '#f87171', fontFamily: FONT,
+                  }}>
+                  ✕
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => imageInputRef.current?.click()}
+                disabled={uploading}
+                style={{
+                  width: '100%', padding: '24px 0', borderRadius: 8, cursor: uploading ? 'default' : 'pointer',
+                  background: 'rgba(255,255,255,.02)', border: '1px dashed rgba(255,255,255,.14)',
+                  color: 'rgba(255,255,255,.30)', fontSize: 12, fontFamily: FONT,
+                  opacity: uploading ? .6 : 1,
+                }}>
+                {uploading ? 'Uploading…' : '+ Upload image'}
+              </button>
+            )}
+            {uploadErr && (
+              <p style={{ fontSize: 11, color: '#f87171', marginTop: 6, margin: '6px 0 0' }}>{uploadErr}</p>
             )}
           </div>
 

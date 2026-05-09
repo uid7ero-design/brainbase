@@ -38,7 +38,7 @@ export default async function BlogPage() {
                 {post.cover_image_url ? (
                   <div className="relative h-48 md:h-auto overflow-hidden">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={post.cover_image_url} alt={post.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                    <img src={post.cover_image_url} alt={post.title} className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
                   </div>
                 ) : (
                   <div className="hidden md:block h-full min-h-40 bg-linear-to-br from-green-500/10 to-transparent" />

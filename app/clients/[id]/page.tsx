@@ -2,12 +2,11 @@ import { redirect, notFound } from 'next/navigation'
 import Link from 'next/link'
 import { requireRole } from '@/lib/org'
 import sql from '@/lib/db'
-import TennisDashboard from '@/components/dashboard/TennisDashboard'
+import ClientWorkspace, { type Contact, type Lead, type Opportunity } from '@/components/clients/ClientWorkspace'
 
 export const dynamic = 'force-dynamic'
 
 const FONT = "var(--font-inter), -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
-const LD_TENNIS_ORG_ID = process.env.LD_TENNIS_ORG_ID ?? ''
 
 export default async function ClientSpacePage({ params }: { params: Promise<{ id: string }> }) {
   try { await requireRole('super_admin') } catch { redirect('/dashboard') }
@@ -16,73 +15,95 @@ export default async function ClientSpacePage({ params }: { params: Promise<{ id
 
   const orgs = await sql`SELECT id, name FROM organisations WHERE id = ${oid} LIMIT 1`
   if (!orgs[0]) notFound()
-
   const org = orgs[0] as { id: string; name: string }
 
-  // LD Tennis workspace
-  if (oid === LD_TENNIS_ORG_ID) {
-    const [statsRows, recentLeads, attentionContacts, leadsPerDay] = await Promise.all([
-      sql`
-        SELECT
-          COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '7 days')::int AS new_this_week,
-          COUNT(*) FILTER (WHERE status IN ('new', 'contacted'))::int          AS active_leads,
-          COUNT(*) FILTER (WHERE status = 'new')::int                          AS needs_followup
-        FROM tennis_leads WHERE organisation_id = ${oid}
-      `.catch(() => [{ new_this_week: 0, active_leads: 0, needs_followup: 0 }]),
-      sql`
-        SELECT id, name, email, status, session_type, created_at
-        FROM tennis_leads WHERE organisation_id = ${oid}
-        ORDER BY created_at DESC LIMIT 6
-      `.catch(() => []),
-      sql`
-        SELECT id, name, email, phone, status, last_contacted_at
-        FROM contacts
-        WHERE organisation_id = ${oid}
-          AND status != 'inactive'
-          AND (last_contacted_at IS NULL OR last_contacted_at < NOW() - INTERVAL '7 days')
-        ORDER BY last_contacted_at ASC NULLS FIRST LIMIT 6
-      `.catch(() => []),
-      sql`
-        SELECT
-          DATE(created_at AT TIME ZONE 'Australia/Adelaide')::text AS day,
-          COUNT(*)::int AS leads
-        FROM tennis_leads
-        WHERE organisation_id = ${oid}
-          AND created_at >= NOW() - INTERVAL '7 days'
-        GROUP BY day ORDER BY day ASC
-      `.catch(() => []),
-    ])
+  const [contacts, leads] = await Promise.all([
+    sql`
+      SELECT id, name, email, phone, status, address, age, program,
+             session_times, next_action, last_contacted_at, created_at
+      FROM contacts
+      WHERE organisation_id = ${oid}
+      ORDER BY
+        CASE WHEN last_contacted_at IS NULL THEN 0 ELSE 1 END ASC,
+        last_contacted_at ASC NULLS FIRST,
+        created_at DESC
+    `.catch(() => []),
+    sql`
+      SELECT id, name, email, phone, session_type, message, status, created_at
+      FROM tennis_leads
+      WHERE organisation_id = ${oid}
+      ORDER BY created_at DESC
+    `.catch(() => []),
+  ])
 
-    const s = (statsRows[0] ?? {}) as { new_this_week: number; active_leads: number; needs_followup: number }
+  const now = Date.now()
 
-    return (
-      <>
-        <ClientBanner orgName={org.name} orgId={oid} />
-        <TennisDashboard
-          stats={{ newThisWeek: s.new_this_week ?? 0, activeLeads: s.active_leads ?? 0, needsFollowup: s.needs_followup ?? 0 }}
-          recentLeads={recentLeads as Parameters<typeof TennisDashboard>[0]['recentLeads']}
-          attentionContacts={attentionContacts as Parameters<typeof TennisDashboard>[0]['attentionContacts']}
-          leadsPerDay={leadsPerDay as Parameters<typeof TennisDashboard>[0]['leadsPerDay']}
-        />
-      </>
-    )
-  }
+  const opportunities: Opportunity[] = [
+    {
+      key: 'cold_leads',
+      label: 'Leads going cold',
+      description: 'Enquiries stuck in "new" for more than 3 days with no follow-up',
+      items: (leads as Lead[])
+        .filter(l => l.status === 'new' && (now - new Date(l.created_at).getTime()) > 3 * 86400000)
+        .map(l => ({
+          id: l.id, type: 'lead' as const, name: l.name,
+          detail: `${Math.floor((now - new Date(l.created_at).getTime()) / 86400000)}d old · ${l.session_type ?? 'general enquiry'}`,
+        })),
+    },
+    {
+      key: 'no_followup',
+      label: 'Contacts overdue for contact',
+      description: 'Active or lead contacts not reached in 14+ days',
+      items: (contacts as Contact[])
+        .filter(c =>
+          ['lead', 'contacted', 'active'].includes(c.status) &&
+          (!c.last_contacted_at || (now - new Date(c.last_contacted_at).getTime()) > 14 * 86400000)
+        )
+        .map(c => ({
+          id: c.id, type: 'contact' as const, name: c.name,
+          detail: c.last_contacted_at
+            ? `Last contact ${Math.floor((now - new Date(c.last_contacted_at).getTime()) / 86400000)}d ago`
+            : 'Never contacted',
+        })),
+    },
+    {
+      key: 'no_next_action',
+      label: 'No next action set',
+      description: 'Active contacts missing a next action — easy wins to define',
+      items: (contacts as Contact[])
+        .filter(c => c.status === 'active' && !c.next_action)
+        .map(c => ({
+          id: c.id, type: 'contact' as const, name: c.name,
+          detail: c.program ?? 'no program set',
+        })),
+    },
+    {
+      key: 'booked_upgrade',
+      label: 'Booked leads to activate',
+      description: 'Leads marked "booked" — consider moving them to active contacts',
+      items: (leads as Lead[])
+        .filter(l => l.status === 'booked')
+        .map(l => ({
+          id: l.id, type: 'lead' as const, name: l.name,
+          detail: l.session_type ?? 'session booked',
+        })),
+    },
+  ]
 
-  // Generic client — no specific dashboard yet
   return (
     <>
-      <ClientBanner orgName={org.name} orgId={oid} />
-      <div style={{ maxWidth: 640, margin: '60px auto', padding: '0 24px', fontFamily: FONT, textAlign: 'center' }}>
-        <p style={{ fontSize: 14, color: 'rgba(255,255,255,.35)' }}>
-          No dashboard configured for this client yet.
-        </p>
-      </div>
+      <ClientBanner orgName={org.name} />
+      <ClientWorkspace
+        orgId={oid}
+        contacts={contacts as Contact[]}
+        leads={leads as Lead[]}
+        opportunities={opportunities}
+      />
     </>
   )
 }
 
-function ClientBanner({ orgName, orgId }: { orgName: string; orgId: string }) {
-  void orgId
+function ClientBanner({ orgName }: { orgName: string }) {
   return (
     <div style={{
       position: 'sticky', top: 52, zIndex: 90,
@@ -95,26 +116,17 @@ function ClientBanner({ orgName, orgId }: { orgName: string; orgId: string }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
         <div style={{
           width: 6, height: 6, borderRadius: '50%',
-          background: '#818cf8',
-          boxShadow: '0 0 8px rgba(129,140,248,.70)',
+          background: '#818cf8', boxShadow: '0 0 8px rgba(129,140,248,.70)',
         }} />
-        <span style={{ fontSize: 12, color: 'rgba(255,255,255,.55)', letterSpacing: '.01em' }}>
-          Viewing
-        </span>
-        <span style={{ fontSize: 12, fontWeight: 600, color: '#c4b5fd' }}>
-          {orgName}
-        </span>
+        <span style={{ fontSize: 12, color: 'rgba(255,255,255,.55)', letterSpacing: '.01em' }}>Viewing</span>
+        <span style={{ fontSize: 12, fontWeight: 600, color: '#c4b5fd' }}>{orgName}</span>
       </div>
-      <Link
-        href="/clients"
-        style={{
-          fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,.38)',
-          textDecoration: 'none', letterSpacing: '.04em',
-          padding: '3px 10px', borderRadius: 6,
-          border: '1px solid rgba(255,255,255,.10)',
-          transition: 'color .14s, border-color .14s',
-        }}
-      >
+      <Link href="/clients" style={{
+        fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,.38)',
+        textDecoration: 'none', letterSpacing: '.04em',
+        padding: '3px 10px', borderRadius: 6,
+        border: '1px solid rgba(255,255,255,.10)',
+      }}>
         ← Exit to clients
       </Link>
     </div>
