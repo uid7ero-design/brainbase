@@ -172,7 +172,7 @@ export default function Sidebar({ collapsed, onToggle, pathname, alertCount = 0 
           flexShrink: 0,
         }}>
           {!collapsed && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, animation: 'sb-fade .2s ease' }}>
+            <Link href="/dashboard" style={{ display: 'flex', alignItems: 'center', gap: 8, animation: 'sb-fade .2s ease', textDecoration: 'none' }}>
               {/* Tactical logo mark */}
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
                 <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"
@@ -181,13 +181,15 @@ export default function Sidebar({ collapsed, onToggle, pathname, alertCount = 0 
               <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.18em', color: 'rgba(255,255,255,.75)', textTransform: 'uppercase' }}>
                 Brainbase
               </span>
-            </div>
+            </Link>
           )}
           {collapsed && (
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"
-                fill="rgba(139,92,246,.22)" stroke="#8B5CF6" strokeWidth="1.5" strokeLinejoin="round"/>
-            </svg>
+            <Link href="/dashboard" title="Back to dashboard" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none' }}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"
+                  fill="rgba(139,92,246,.22)" stroke="#8B5CF6" strokeWidth="1.5" strokeLinejoin="round"/>
+              </svg>
+            </Link>
           )}
 
           {/* Toggle */}

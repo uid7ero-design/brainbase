@@ -507,6 +507,14 @@ export default function CommandPage() {
         background: "rgba(6,7,10,.50)",
         animation: "toolbar-in .2s ease",
       }}>
+        <Link href="/dashboard" style={{ display: "flex", alignItems: "center", gap: 4, textDecoration: "none", color: "rgba(255,255,255,.22)", fontSize: 10.5, transition: "color .14s" }}
+          onMouseEnter={e => (e.currentTarget.style.color = "rgba(255,255,255,.55)")}
+          onMouseLeave={e => (e.currentTarget.style.color = "rgba(255,255,255,.22)")}
+        >
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><polyline points="15 18 9 12 15 6"/></svg>
+          Dashboard
+        </Link>
+        <span style={{ opacity: .20, fontSize: 10 }}>/</span>
         <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 10.5, color: "rgba(255,255,255,.20)", letterSpacing: ".03em" }}>
           <span>Command Centre</span><span style={{ opacity: .35 }}>/</span><span style={{ color: "rgba(167,139,250,.55)" }}>Operations</span>
         </div>
