@@ -14,13 +14,8 @@ export default function Nav() {
   return (
     <nav className={`fixed top-0 left-0 right-0 z-50 transition-all duration-500 ${scrolled ? "bg-black/90 backdrop-blur-xl border-b border-white/8" : "bg-transparent"}`}>
       <div className="max-w-6xl mx-auto px-6 md:px-10 py-5 flex items-center justify-between">
-        <a href="/tennis" className="group flex items-center gap-3 hover:opacity-90 transition-opacity">
-          <div className="relative w-10 h-10 rounded-full overflow-hidden border-2 border-white/15 shadow-md shadow-black/40 group-hover:border-white/30 transition-all duration-300">
-            <Image src="/logo.jpg" alt="LD Tennis" fill className="object-cover" sizes="40px" />
-          </div>
-          <span className="font-bold text-lg tracking-tight text-white hidden sm:block">
-            LD <span className="text-green-500">Tennis</span>
-          </span>
+        <a href="/tennis" className="group hover:opacity-90 transition-opacity">
+          <Image src="/ld-tennis-logo.svg" alt="LD Tennis Coaching" width={140} height={82} className="h-10 w-auto" />
         </a>
         <div className="flex items-center gap-6">
           <div className="hidden md:flex items-center gap-6 text-sm text-zinc-400">
