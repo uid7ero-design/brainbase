@@ -14,6 +14,7 @@ export default async function ClientSpacePage({ params }: { params: Promise<{ id
   const { id: oid } = await params
 
   const orgs = await sql`SELECT id, name FROM organisations WHERE id = ${oid} LIMIT 1`
+    .catch((err) => { console.error('[CLIENT SPACE ERROR] org lookup failed:', err); return []; })
   if (!orgs[0]) notFound()
   const org = orgs[0] as { id: string; name: string }
 
@@ -27,13 +28,13 @@ export default async function ClientSpacePage({ params }: { params: Promise<{ id
         CASE WHEN last_contacted_at IS NULL THEN 0 ELSE 1 END ASC,
         last_contacted_at ASC NULLS FIRST,
         created_at DESC
-    `.catch(() => []),
+    `.catch((err) => { console.error('[CLIENT SPACE ERROR] contacts query failed:', err); return []; }),
     sql`
       SELECT id, name, email, phone, session_type, message, status, created_at
       FROM tennis_leads
       WHERE organisation_id = ${oid}
       ORDER BY created_at DESC
-    `.catch(() => []),
+    `.catch((err) => { console.error('[CLIENT SPACE ERROR] leads query failed:', err); return []; }),
   ])
 
   const now = Date.now()

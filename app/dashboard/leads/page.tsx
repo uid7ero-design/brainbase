@@ -5,10 +5,12 @@ import Link from 'next/link';
 
 
 const statusStyles: Record<string, string> = {
-  new:       'bg-green-500/10 text-green-400 border-green-500/20',
-  contacted: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
-  booked:    'bg-purple-500/10 text-purple-400 border-purple-500/20',
-  closed:    'bg-zinc-500/10 text-zinc-500 border-zinc-500/20',
+  new:         'bg-green-500/10 text-green-400 border-green-500/20',
+  contacted:   'bg-blue-500/10 text-blue-400 border-blue-500/20',
+  in_progress: 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20',
+  booked:      'bg-purple-500/10 text-purple-400 border-purple-500/20',
+  closed:      'bg-zinc-500/10 text-zinc-500 border-zinc-500/20',
+  cancelled:   'bg-red-500/10 text-red-400 border-red-500/20',
 };
 
 function formatDateTime(ts: string) {

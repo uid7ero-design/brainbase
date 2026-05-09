@@ -3,17 +3,41 @@ import path  from 'path';
 import { cosine } from './embedder';
 import type { Chunk } from './chunker';
 
+// TODO: Replace filesystem storage with database or KV store.
+// Vercel serverless environment does not support a persistent writable filesystem.
+// Current implementation silently degrades to an empty in-memory store on Vercel.
+// Recommended migration path: Neon (already in use) or Vercel KV.
+
 const STORE_DIR  = path.join(process.cwd(), '.brainbase');
 const STORE_FILE = path.join(STORE_DIR, 'vectors.json');
 
 type Entry = Chunk & { embedding: number[]; mtime: number };
-
-type Store = { entries: Entry[] };
+type Store  = { entries: Entry[] };
 
 let cache: Store | null = null;
 
+// Tracks whether the filesystem is actually writable.
+// Set to false on first write failure (e.g. Vercel EROFS).
+// Exported so the route handler can include it in the debug response.
+let _fsAvailable     = true;
+let _fsWarningLogged = false;
+
+export function isFilesystemAvailable(): boolean { return _fsAvailable; }
+
 function ensureDir() {
-  if (!fs.existsSync(STORE_DIR)) fs.mkdirSync(STORE_DIR, { recursive: true });
+  try {
+    if (!fs.existsSync(STORE_DIR)) fs.mkdirSync(STORE_DIR, { recursive: true });
+  } catch (err) {
+    _fsAvailable = false;
+    if (!_fsWarningLogged) {
+      _fsWarningLogged = true;
+      console.warn('[BRAIN FALLBACK]', {
+        reason: 'filesystem_unavailable',
+        detail: err instanceof Error ? err.message : String(err),
+        at:     new Date().toISOString(),
+      });
+    }
+  }
 }
 
 export function loadStore(): Store {
@@ -29,8 +53,20 @@ export function loadStore(): Store {
 }
 
 export function saveStore() {
-  ensureDir();
-  fs.writeFileSync(STORE_FILE, JSON.stringify(cache ?? { entries: [] }));
+  try {
+    ensureDir();
+    fs.writeFileSync(STORE_FILE, JSON.stringify(cache ?? { entries: [] }));
+  } catch (err) {
+    _fsAvailable = false;
+    if (!_fsWarningLogged) {
+      _fsWarningLogged = true;
+      console.warn('[BRAIN FALLBACK]', {
+        reason: 'filesystem_unavailable',
+        detail: err instanceof Error ? err.message : String(err),
+        at:     new Date().toISOString(),
+      });
+    }
+  }
 }
 
 export function upsertChunks(chunks: (Chunk & { embedding: number[]; mtime: number })[]) {

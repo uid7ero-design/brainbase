@@ -202,9 +202,61 @@ const MODULE_SNAPSHOTS: Record<string, (oid: string) => Promise<string | null>> 
   ld_tennis:         tennisSnapshot,
 };
 
+// ─── Fallback counters ─────────────────────────────────────────────────────────
+
+const instanceStartTime                        = Date.now();
+const fallbackCounters: Record<string, number> = {};
+
+const classifyRate = (rate: number) => {
+  if (rate > 1)    return 'critical';
+  if (rate > 0.1)  return 'high';
+  if (rate > 0.01) return 'elevated';
+  if (rate > 0)    return 'low';
+  return 'none';
+};
+
+// ─── Safe fallback ─────────────────────────────────────────────────────────────
+
+function fallback(greeting: string, reason: string) {
+  fallbackCounters[reason] = (fallbackCounters[reason] ?? 0) + 1;
+  console.warn('[HLNA FALLBACK]', { reason, at: new Date().toISOString() });
+  console.warn('[FALLBACK EVENT]', { service: 'hlna_briefing', reason, at: new Date().toISOString() });
+  if (fallbackCounters[reason] % 10 === 0) {
+    const uptimeMs      = Date.now() - instanceStartTime;
+    const uptimeSeconds = uptimeMs / 1000;
+    const rates    = Object.fromEntries(
+      Object.entries(fallbackCounters).map(([r, c]) => [r, uptimeSeconds > 0 ? +(c / uptimeSeconds).toFixed(4) : 0])
+    );
+    const severity = Object.fromEntries(
+      Object.entries(rates).map(([r, rate]) => [r, classifyRate(rate)])
+    );
+    console.warn('[FALLBACK SUMMARY]', {
+      service:       'hlna_briefing',
+      counts:        fallbackCounters,
+      rates,
+      severity,
+      instanceStart: instanceStartTime,
+      uptimeMs,
+    });
+  }
+  return NextResponse.json({
+    greeting,
+    lines:       [],
+    urgentCount: 0,
+    summary:     '',
+    modules:     [],
+    hasData:     false,
+    timestamp:   new Date().toISOString(),
+    debug:       { source: 'fallback', reason },
+  });
+}
+
 // ─── Route handler ─────────────────────────────────────────────────────────────
 
 export async function POST() {
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+
   let oid: string;
   try {
     const session = await getAuthSession();
@@ -213,42 +265,43 @@ export async function POST() {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  let moduleKeys: string[] = [];
-  const ldTennisOrgId = process.env.LD_TENNIS_ORG_ID;
-  if (ldTennisOrgId && oid === ldTennisOrgId) {
-    moduleKeys = ['ld_tennis'];
-  } else {
-    try {
-      const rows = await sql`
-        SELECT m.key FROM organisation_modules om
-        JOIN modules m ON m.id = om.module_id
-        WHERE om.organisation_id = ${oid} AND om.enabled = true
-      `;
-      moduleKeys = rows.map(r => r.key as string);
-    } catch {
-      moduleKeys = ['waste_recycling', 'fleet_management', 'service_requests'];
-    }
-  }
-
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) return NextResponse.json({ error: 'OPENAI_API_KEY is not configured' }, { status: 503 });
-  const openai = new OpenAI({ apiKey });
-
-  const snapResults = await Promise.all(
-    moduleKeys
-      .filter(k => MODULE_SNAPSHOTS[k])
-      .map(k => MODULE_SNAPSHOTS[k](oid))
-  );
-  const snapshots = snapResults.filter(Boolean) as string[];
-
-  if (snapshots.length === 0) {
-    return NextResponse.json({ hasData: false, timestamp: new Date().toISOString() });
-  }
-
-  const hour = new Date().getHours();
-  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
-
   try {
+    let moduleKeys: string[] = [];
+    const ldTennisOrgId = process.env.LD_TENNIS_ORG_ID;
+    if (ldTennisOrgId && oid === ldTennisOrgId) {
+      moduleKeys = ['ld_tennis'];
+    } else {
+      try {
+        const rows = await sql`
+          SELECT m.key FROM organisation_modules om
+          JOIN modules m ON m.id = om.module_id
+          WHERE om.organisation_id = ${oid} AND om.enabled = true
+        `;
+        moduleKeys = rows.map(r => r.key as string);
+      } catch (err) {
+        console.error('[HLNA BRIEFING ERROR] module key lookup failed:', err);
+        moduleKeys = ['waste_recycling', 'fleet_management', 'service_requests'];
+      }
+    }
+
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      console.error('[HLNA BRIEFING ERROR] OPENAI_API_KEY not configured');
+      return fallback(greeting, 'missing_api_key');
+    }
+    const openai = new OpenAI({ apiKey });
+
+    const snapResults = await Promise.all(
+      moduleKeys
+        .filter(k => MODULE_SNAPSHOTS[k])
+        .map(k => MODULE_SNAPSHOTS[k](oid))
+    );
+    const snapshots = snapResults.filter(Boolean) as string[];
+
+    if (snapshots.length === 0) {
+      return fallback(greeting, 'no_data');
+    }
+
     const isTennis = moduleKeys.includes('ld_tennis');
     const systemContext = isTennis
       ? 'You are a coaching business briefing assistant for a tennis coach. Focus on client follow-ups, new leads, and session management.'
@@ -293,7 +346,7 @@ HARD RULES — output will be rejected if violated:
 
     const text = resp.choices[0].message.content ?? '';
     const match = text.match(/\{[\s\S]*\}/);
-    if (!match) throw new Error('No JSON');
+    if (!match) throw new Error('No JSON in response');
     const parsed = JSON.parse(match[0]) as { lines: string[]; urgentCount: number; summary: string };
 
     return NextResponse.json({
@@ -306,7 +359,7 @@ HARD RULES — output will be rejected if violated:
       timestamp:   new Date().toISOString(),
     });
   } catch (err) {
-    console.error('[hlna/briefing]', err);
-    return NextResponse.json({ error: 'Briefing failed' }, { status: 500 });
+    console.error('[HLNA BRIEFING ERROR]', err);
+    return fallback(greeting, 'exception');
   }
 }

@@ -6,10 +6,12 @@ import DeleteLeadButton from './DeleteLeadButton';
 import LeadStatusPicker from './LeadStatusPicker';
 
 const statusStyles: Record<string, string> = {
-  new:       'bg-green-500/10 text-green-400 border-green-500/20',
-  contacted: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
-  booked:    'bg-purple-500/10 text-purple-400 border-purple-500/20',
-  closed:    'bg-zinc-500/10 text-zinc-500 border-zinc-500/20',
+  new:         'bg-green-500/10 text-green-400 border-green-500/20',
+  contacted:   'bg-blue-500/10 text-blue-400 border-blue-500/20',
+  in_progress: 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20',
+  booked:      'bg-purple-500/10 text-purple-400 border-purple-500/20',
+  closed:      'bg-zinc-500/10 text-zinc-500 border-zinc-500/20',
+  cancelled:   'bg-red-500/10 text-red-400 border-red-500/20',
 };
 
 function Field({ label, value }: { label: string; value: string | null | undefined }) {
@@ -28,7 +30,7 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
   const { id } = await params;
 
   const rows = await sql`
-    SELECT id, name, email, phone, session_type, message, status, created_at
+    SELECT id, name, email, phone, session_type, message, status, notes, created_at
     FROM tennis_leads
     WHERE id = ${id} AND organisation_id = ${session.organisationId}
     LIMIT 1
@@ -51,7 +53,7 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
         </p>
       </div>
 
-      <LeadStatusPicker leadId={lead.id as string} currentStatus={lead.status as string} />
+      <LeadStatusPicker leadId={lead.id as string} currentStatus={lead.status as string} currentNotes={lead.notes as string | null} />
 
       <div className="rounded-2xl border border-white/8 bg-white/2 overflow-hidden mb-6">
         <div className="px-6 py-4 border-b border-white/5 flex items-center justify-between">

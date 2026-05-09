@@ -148,9 +148,17 @@ export function MorningBriefing() {
         fetch('/api/hlna/briefing',    { method: 'POST' }),
         fetch('/api/hlna/whatchanged', { method: 'POST' }),
       ]);
-      if (briefRes.ok) setApiData(await briefRes.json());
-      if (chgRes.ok)   setChanged(await chgRes.json());
-    } catch { /* silent */ }
+      if (briefRes.ok) {
+        const data: ApiResponse & { debug?: { source: string; reason: string } } = await briefRes.json();
+        if (process.env.NODE_ENV === 'development' && data.debug) {
+          console.warn('[HLNA] Fallback response active:', data.debug);
+        }
+        setApiData(data);
+      }
+      if (chgRes.ok) setChanged(await chgRes.json());
+    } catch (err) {
+      console.error('[HLNA] loadBriefing failed:', err);
+    }
     finally { setLoading(false); }
   }, []);
 

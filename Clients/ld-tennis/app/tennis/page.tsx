@@ -1,4 +1,5 @@
 import LeadForm from './LeadForm'
+import BouncingBall from './BouncingBall'
 
 const services = [
   {
@@ -21,9 +22,11 @@ const services = [
 export default function TennisPage() {
   return (
     <main className="min-h-screen bg-white text-gray-900">
+      <BouncingBall />
       {/* Nav */}
       <nav className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-        <span className="text-xl font-bold tracking-tight">LD Tennis</span>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/LD%20Tennis%20Coaching%20Logo%20-%20Copy.svg" alt="LD Tennis Coaching" className="h-12 w-auto" />
         <a
           href="#contact"
           className="bg-green-600 hover:bg-green-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
@@ -35,7 +38,7 @@ export default function TennisPage() {
       {/* Hero */}
       <section className="max-w-4xl mx-auto px-6 pt-20 pb-16 text-center">
         <div className="inline-block bg-green-50 text-green-700 text-sm font-medium px-3 py-1 rounded-full mb-6">
-          Professional Tennis Coaching · Sydney
+          Professional Tennis Coaching · Adelaide
         </div>
         <h1 className="text-5xl sm:text-6xl font-bold leading-tight mb-6">
           Elevate your game<br />

@@ -548,7 +548,7 @@ function BrainWidget() {
     try { const r = await fetch('/api/brain'); setStatus(await r.json()); } catch {}
   }
 
-  useEffect(() => { loadStatus(); const t = setInterval(loadStatus, 3000); return () => clearInterval(t); }, []);
+  useEffect(() => { loadStatus(); }, []);
   useEffect(() => { if (editing) setTimeout(() => inputRef.current?.focus(), 60); }, [editing]);
 
   async function save() {
