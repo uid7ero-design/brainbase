@@ -20,7 +20,7 @@ export default async function ClientsPage() {
   let session
   try { session = await requireRole('super_admin') } catch { redirect('/dashboard') }
 
-  const orgs = await sql<ClientOrg[]>`
+  const orgs = (await sql`
     SELECT
       o.id,
       o.name,
@@ -34,7 +34,7 @@ export default async function ClientsPage() {
     WHERE o.id != ${session.organisationId}
     GROUP BY o.id
     ORDER BY o.name ASC
-  `.catch(() => [] as ClientOrg[])
+  `.catch(() => [])) as ClientOrg[]
 
   return (
     <div style={{ width: '100%', maxWidth: 960, margin: '0 auto', padding: '40px 24px 80px', fontFamily: FONT }}>
