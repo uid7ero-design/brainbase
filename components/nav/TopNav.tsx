@@ -537,7 +537,7 @@ export default function TopNav({ serverSession }: { serverSession?: Session }) {
           console.warn('[TopNav] /api/me unexpected status:', res.status);
           return null;
         }
-        return res.json() as Promise<{ role: string; name: string; profile?: { avatar_url?: string } }>;
+        return res.json() as Promise<{ role: string; name: string; profile?: { avatar_url?: string }; enabledModules?: { key: string }[] }>;
       })
       .then(d => {
         setFetchedSession(d?.role ? {
