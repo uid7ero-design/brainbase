@@ -3,6 +3,7 @@ import { redirect, notFound } from 'next/navigation';
 import sql from '@/lib/db';
 import Link from 'next/link';
 import DeleteLeadButton from './DeleteLeadButton';
+import LeadStatusPicker from './LeadStatusPicker';
 
 const statusStyles: Record<string, string> = {
   new:       'bg-green-500/10 text-green-400 border-green-500/20',
@@ -49,6 +50,8 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
           Received {receivedAt.toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' })} at {receivedAt.toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' })}
         </p>
       </div>
+
+      <LeadStatusPicker leadId={lead.id as string} currentStatus={lead.status as string} />
 
       <div className="rounded-2xl border border-white/8 bg-white/2 overflow-hidden mb-6">
         <div className="px-6 py-4 border-b border-white/5 flex items-center justify-between">

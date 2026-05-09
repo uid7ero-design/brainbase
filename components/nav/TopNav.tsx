@@ -318,6 +318,45 @@ function Logo() {
 }
 
 // â”€â”€â”€ Divider â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Squad nav item ───────────────────────────────────────────────────────────
+function SquadItem({ active }: { active: boolean }) {
+  return (
+    <Link
+      href="/dashboard/contacts"
+      style={{
+        display: 'flex', alignItems: 'center',
+        fontSize: 13, fontWeight: 500, letterSpacing: '-0.01em',
+        padding: '5px 10px', borderRadius: 7, textDecoration: 'none',
+        color: active ? '#C4B5FD' : 'rgba(255,255,255,.45)',
+        background: active ? 'rgba(139,92,246,.10)' : 'transparent',
+        border: `1px solid ${active ? 'rgba(139,92,246,.22)' : 'transparent'}`,
+        transition: 'color .14s, background .14s, border-color .14s',
+        whiteSpace: 'nowrap',
+      }}
+      onMouseEnter={e => {
+        if (active) return;
+        e.currentTarget.style.color = 'rgba(255,255,255,.85)';
+        e.currentTarget.style.background = 'rgba(255,255,255,.05)';
+      }}
+      onMouseLeave={e => {
+        if (active) return;
+        e.currentTarget.style.color = 'rgba(255,255,255,.45)';
+        e.currentTarget.style.background = 'transparent';
+      }}
+    >
+      {'Squ'}
+      <span style={{
+        background: 'linear-gradient(to top, #6D28D9, #C084FC)',
+        WebkitBackgroundClip: 'text',
+        WebkitTextFillColor: 'transparent',
+        backgroundClip: 'text',
+        fontWeight: 700,
+      }}>{'A'}</span>
+      {'d'}
+    </Link>
+  );
+}
+
 function Divider() {
   return <div style={{ width: 1, height: 16, background: 'rgba(255,255,255,.08)', flexShrink: 0 }} />;
 }
@@ -383,7 +422,7 @@ function AppNav({ session, pathname }: { session: NonNullable<Session>; pathname
           <>
             <HlnaItem active={pathname === '/dashboard'} />
             <NavItem href="/dashboard/leads"    label="Leads"    active={pathname.startsWith('/dashboard/leads')} />
-            <NavItem href="/dashboard/contacts" label="Contacts" active={pathname.startsWith('/dashboard/contacts')} />
+            <SquadItem active={pathname.startsWith('/dashboard/contacts')} />
           </>
         ) : (
           <>
