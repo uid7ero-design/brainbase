@@ -16,14 +16,11 @@ export default function Hero() {
               <span className="text-green-400 text-sm font-medium tracking-wide">Accepting New Students</span>
             </div>
             <h1 className="animate-fade-up [animation-delay:200ms] text-4xl md:text-5xl lg:text-6xl xl:text-7xl font-bold tracking-tight text-white leading-[1.06]">
-              Private Tennis Coaching That Builds{" "}
-              <span className="text-green-500">Real Confidence</span>
+              Structured Coaching in a Fun,{" "}
+              <span className="text-green-500">Supportive Setting</span>
             </h1>
-            <p className="animate-fade-up [animation-delay:280ms] text-xl font-semibold text-zinc-300 max-w-lg leading-snug">
-              Structured Coaching in a Fun, Supportive Setting
-            </p>
-            <p className="animate-fade-up [animation-delay:350ms] text-base text-zinc-400 max-w-lg leading-relaxed">
-              Beginner-friendly coaching for kids and adults. Learn the game properly from the start, with clear structure and real progress. A welcoming place for kids and adults to learn and improve at their own pace.
+            <p className="animate-fade-up [animation-delay:350ms] text-lg text-zinc-400 max-w-lg leading-relaxed">
+              A welcoming place for kids and adults to learn and improve at their own pace.
             </p>
             <div className="animate-fade-up [animation-delay:500ms] flex flex-col sm:flex-row gap-4 items-center lg:items-start">
               <a href="#contact" className="group inline-flex items-center gap-2 bg-green-500 text-black font-semibold px-7 py-3.5 rounded-full hover:bg-green-400 active:scale-95 transition-all duration-200 text-base shadow-[0_0_40px_rgba(34,197,94,0.25)] hover:shadow-[0_0_60px_rgba(34,197,94,0.45)]">
