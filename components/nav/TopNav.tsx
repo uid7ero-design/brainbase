@@ -345,13 +345,18 @@ function SquadItem({ active }: { active: boolean }) {
       }}
     >
       {'Squ'}
-      <span style={{
-        background: 'linear-gradient(to top, #6D28D9, #C084FC)',
-        WebkitBackgroundClip: 'text',
-        WebkitTextFillColor: 'transparent',
-        backgroundClip: 'text',
-        fontWeight: 700,
-      }}>{'A'}</span>
+      <svg
+        width="9" height="11" viewBox="153 7 38 41"
+        style={{ display: 'inline', verticalAlign: 'middle', margin: '0 1px', flexShrink: 0 }}
+      >
+        <defs>
+          <linearGradient id="squad-lg" gradientUnits="userSpaceOnUse" x1="172" y1="48" x2="172" y2="7">
+            <stop offset="0%" stopColor="#6D28D9"/>
+            <stop offset="100%" stopColor="#C084FC"/>
+          </linearGradient>
+        </defs>
+        <path d="M 153,48 L 172,7 L 191,48" fill="none" stroke="url(#squad-lg)" strokeWidth="8" strokeLinecap="round" strokeLinejoin="round"/>
+      </svg>
       {'d'}
     </Link>
   );
