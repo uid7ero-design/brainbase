@@ -74,6 +74,8 @@ export async function deleteUser(userId: string) {
   await requireSuperAdmin();
   const session = await getSession();
   if (session?.userId === userId) throw new Error('Cannot delete your own account.');
+  // Clear FK-constrained child records before removing the user
+  await sql`DELETE FROM agent_runs WHERE user_id = ${userId}`;
   await sql`DELETE FROM users WHERE id = ${userId}`;
   revalidatePath('/admin/users');
 }

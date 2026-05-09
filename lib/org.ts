@@ -1,4 +1,5 @@
 import 'server-only';
+import { cookies } from 'next/headers';
 import { getSession, type SessionPayload, type Role } from './session';
 import sql from './db';
 
@@ -49,9 +50,16 @@ export async function requireSession(): Promise<OrgSession> {
     throw new Error('Session invalid');
   }
 
+  let organisationId = user.organisation_id as string;
+  if ((user.role as string) === 'super_admin') {
+    const jar = await cookies();
+    const override = jar.get('org_override')?.value;
+    if (override) organisationId = override;
+  }
+
   return {
     userId: session.userId,
-    organisationId: user.organisation_id as string,
+    organisationId,
     role: user.role as Role,
     name: session.name,
   };

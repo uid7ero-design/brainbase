@@ -3,6 +3,7 @@ import { Geist, Geist_Mono, Inter } from "next/font/google";
 import "./globals.css";
 import TopNav from "@/components/nav/TopNav";
 import SessionProvider from "@/components/session/SessionProvider";
+import OrgSwitcher from "@/components/admin/OrgSwitcher";
 import { getSession } from "@/lib/session";
 import sql from "@/lib/db";
 
@@ -57,6 +58,7 @@ export default async function RootLayout({
           name={session?.name ?? ''}
           secureModeDefault={secureMode}
         >
+          <OrgSwitcher />
           <TopNav serverSession={serverSession} />
           {children}
         </SessionProvider>

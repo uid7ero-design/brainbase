@@ -1,4 +1,5 @@
 import 'server-only';
+import { cookies } from 'next/headers';
 import { getSession } from './session';
 import sql from './db';
 
@@ -31,9 +32,16 @@ export async function getAuthSession(): Promise<AuthSession> {
     throw new Error('Session invalid — organisation mismatch');
   }
 
+  let organisationId = user.organisation_id as string;
+  if ((user.role as string) === 'super_admin') {
+    const jar = await cookies();
+    const override = jar.get('org_override')?.value;
+    if (override) organisationId = override;
+  }
+
   return {
     userId:         jwt.userId,
-    organisationId: user.organisation_id as string,
+    organisationId,
     role:           user.role as string,
     name:           user.name as string,
     email:          user.email as string,

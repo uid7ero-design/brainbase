@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import * as XLSX from 'xlsx';
 import sql from '@/lib/db';
 import { requireSession, unauthorized } from '@/lib/org';
+import { prisma } from '@/lib/prisma';
+import type { BinType, Severity, MaintenanceStatus } from '@prisma/client';
 
 // ─── Column maps ──────────────────────────────────────────────────────────────
 
@@ -80,17 +82,140 @@ const FLEET_COLUMN_MAP: Record<string, string> = {
   'route minutes':   'route_minutes',
 };
 
+const BIN_MAINTENANCE_COLUMN_MAP: Record<string, string> = {
+  // suburb
+  suburb:              'suburb',
+  suburbname:          'suburb',
+  'site suburb':       'suburb',
+  sitesuburb:          'suburb',
+  locality:            'suburb',
+  area:                'suburb',
+  town:                'suburb',
+  city:                'suburb',
+  // address (street name / full address)
+  address:             'address',
+  'street address':    'address',
+  streetaddress:       'address',
+  propertyaddress:     'address',
+  'site address':      'address',
+  siteaddress:         'address',
+  location:            'address',
+  sitename:            'address',
+  site:                'address',
+  streetno:            'address',
+  propertyno:          'address',
+  // street number — kept separate so we can combine with address
+  'street number':     'street_number',
+  streetnumber:        'street_number',
+  'street no':         'street_number',
+  streetno2:           'street_number',
+  houseno:             'street_number',
+  housenumber:         'street_number',
+  // bin type
+  'bin type':          'bin_type',
+  bin_type:            'bin_type',
+  bintype:             'bin_type',
+  bincolour:           'bin_type',
+  bincolor:            'bin_type',
+  binsize:             'bin_type',
+  container:           'bin_type',
+  containertype:       'bin_type',
+  'waste stream':      'bin_type',
+  wastestream:         'bin_type',
+  stream:              'bin_type',
+  // issue type
+  'issue type':        'issue_type',
+  issue_type:          'issue_type',
+  issuetype:           'issue_type',
+  issue:               'issue_type',
+  'issue description': 'issue_type',
+  issuedescription:    'issue_type',
+  issuedetail:         'issue_type',
+  'fault type':        'issue_type',
+  fault_type:          'issue_type',
+  faulttype:           'issue_type',
+  fault:               'issue_type',
+  'fault description': 'issue_type',
+  faultdescription:    'issue_type',
+  defect:              'issue_type',
+  defecttype:          'issue_type',
+  problem:             'issue_type',
+  problemtype:         'issue_type',
+  complaint:           'issue_type',
+  complainttype:       'issue_type',
+  description:         'issue_type',
+  'job type':          'issue_type',
+  jobtype:             'issue_type',
+  'service fault':     'issue_type',
+  servicefault:        'issue_type',
+  maintenancetype:     'issue_type',
+  repairtype:          'issue_type',
+  category:            'issue_type',
+  'service category':  'issue_type',
+  servicecategory:     'issue_type',
+  'request type':      'issue_type',
+  requesttype:         'issue_type',
+  'service type':      'issue_type',
+  servicetype:         'issue_type',
+  // severity
+  severity:            'severity',
+  priority:            'severity',
+  urgency:             'severity',
+  'job priority':      'severity',
+  jobpriority:         'severity',
+  // status
+  status:              'status',
+  state:               'status',
+  'job status':        'status',
+  jobstatus:           'status',
+  // assigned to
+  'assigned to':       'assigned_to',
+  assigned_to:         'assigned_to',
+  assignedto:          'assigned_to',
+  assignee:            'assigned_to',
+  technician:          'assigned_to',
+  operator:            'assigned_to',
+  crew:                'assigned_to',
+  worker:              'assigned_to',
+  officer:             'assigned_to',
+  inspector:           'assigned_to',
+  // scheduled date
+  'scheduled date':    'scheduled_date',
+  scheduled_date:      'scheduled_date',
+  scheduleddate:       'scheduled_date',
+  'due date':          'scheduled_date',
+  duedate:             'scheduled_date',
+  'target date':       'scheduled_date',
+  targetdate:          'scheduled_date',
+  // notes
+  notes:               'notes',
+  comments:            'notes',
+  remarks:             'notes',
+  'additional notes':  'notes',
+  additionalnotes:     'notes',
+  detail:              'notes',
+};
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+// For column mapping — preserves spaces so "issue type" matches the map key "issue type"
 function normaliseKey(k: string): string {
   return k.trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+// For detection only — strips ALL non-alpha chars so "Issue Type" = "issue_type" = "issuetype"
+function normDetect(k: string): string {
+  return k.toLowerCase().replace(/[^a-z]/g, '');
 }
 
 function mapRow(raw: Record<string, unknown>, map: Record<string, string>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(raw)) {
-    const mapped = map[normaliseKey(k)];
-    if (mapped) out[mapped] = v;
+    const nk  = normaliseKey(k);
+    const nkd = normDetect(k);
+    const mapped = map[nk] ?? map[nkd];
+    // First non-empty write wins — don't overwrite a good value with N/A or empty
+    if (mapped && !(mapped in out)) out[mapped] = v;
   }
   return out;
 }
@@ -98,27 +223,76 @@ function mapRow(raw: Record<string, unknown>, map: Record<string, string>): Reco
 /**
  * Detect department from CSV rows.
  * 1. Look for explicit 'department' column in first row.
- * 2. Auto-detect from column names if absent.
+ * 2. Auto-detect from column names — BinMaintenance checked before Waste/Fleet.
  * 3. Default to 'Waste'.
  */
 function detectDepartment(rows: Record<string, unknown>[]): string {
   if (!rows.length) return 'Waste';
   const firstRow = rows[0];
-  const normKeys = Object.keys(firstRow).map(k => ({ orig: k, norm: normaliseKey(k) }));
+  const rawCols  = Object.keys(firstRow);
 
-  // Explicit department column
-  const deptKey = normKeys.find(k => k.norm === 'department');
+  // Log actual headers for diagnostics
+  console.log('[upload] raw headers:', rawCols);
+
+  // Both a space-preserved normalised form and a fully-stripped form for each column
+  const colsNorm    = rawCols.map(normaliseKey);   // "Issue Type" → "issue type"
+  const colsStripped = rawCols.map(normDetect);    // "Issue Type" → "issuetype"
+
+  const has = (terms: string[]): boolean =>
+    terms.some(t => colsNorm.includes(t) || colsStripped.includes(t));
+
+  const hasContaining = (substrings: string[]): boolean =>
+    colsStripped.some(c => substrings.some(s => c.includes(s)));
+
+  // Explicit department column wins
+  const deptKey = rawCols.find(k => normDetect(k) === 'department');
   if (deptKey) {
-    const val = String(firstRow[deptKey.orig] ?? '').trim();
-    if (val) return val;
+    const val = String(firstRow[deptKey] ?? '').trim();
+    if (val) {
+      console.log('[upload] explicit department column:', val);
+      return val;
+    }
   }
 
-  // Auto-detect by characteristic columns
-  const cols = normKeys.map(k => k.norm);
-  const isFleet = cols.some(c => ['vehicle_id', 'vehicle', 'truck', 'asset_id'].includes(c))
-    || (cols.includes('fuel') && !cols.includes('contamination_rate'));
-  if (isFleet) return 'Fleet';
+  // ── BIN MAINTENANCE ────────────────────────────────────────────────────────
+  // Needs: a suburb indicator + an address indicator + an issue/bin indicator
+  const hasSuburb =
+    has(['suburb', 'locality', 'suburbname', 'suburbtown']) ||
+    hasContaining(['suburb', 'locality', 'postcode']);
 
+  const hasAddress =
+    has(['address', 'streetaddress', 'propertyaddress', 'streetno', 'sitename']) ||
+    hasContaining(['address', 'streetno', 'propertyno', 'sitename']);
+
+  const hasIssueBin =
+    has([
+      'issuetype', 'issue', 'issuedetail', 'issuedescription',
+      'faulttype', 'fault', 'faultdescription',
+      'defect', 'defecttype',
+      'problemtype', 'problem',
+      'complaint', 'complainttype',
+      'bintype', 'bincolour', 'binsize', 'containertype', 'wastetype',
+      'jobtype', 'servicefault', 'maintenancetype', 'repairtype',
+    ]) ||
+    hasContaining(['issue', 'fault', 'defect', 'bintype', 'complaint']);
+
+  console.log('[upload] bin maintenance signals — suburb:', hasSuburb, 'address:', hasAddress, 'issue/bin:', hasIssueBin);
+
+  if (hasSuburb && hasAddress && hasIssueBin) {
+    console.log('[upload] → BinMaintenance');
+    return 'BinMaintenance';
+  }
+
+  // ── FLEET ──────────────────────────────────────────────────────────────────
+  const isFleet =
+    has(['vehicleid', 'vehicle', 'truck', 'assetid', 'fleetno']) ||
+    (has(['fuel']) && !has(['contaminationrate', 'contamination']));
+  if (isFleet) {
+    console.log('[upload] → Fleet');
+    return 'Fleet';
+  }
+
+  console.log('[upload] → Waste (default)');
   return 'Waste';
 }
 
@@ -156,7 +330,7 @@ export async function POST(req: NextRequest) {
   }
 
   const bytes = await file.arrayBuffer();
-  const workbook = XLSX.read(Buffer.from(bytes), { type: 'buffer' });
+  const workbook = XLSX.read(Buffer.from(bytes), { type: 'buffer', cellDates: true });
   const sheetName = workbook.SheetNames[0];
   const sheet = workbook.Sheets[sheetName];
   const rawRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: null });
@@ -178,7 +352,10 @@ export async function POST(req: NextRequest) {
   const fileId = fileRows[0].id as string;
 
   try {
-    if (department === 'Fleet') {
+    let recordsInserted = rawRows.length;
+    if (department === 'BinMaintenance') {
+      recordsInserted = await insertBinMaintenanceRecords(rawRows, session.organisationId);
+    } else if (department === 'Fleet') {
       await insertFleetRecords(rawRows, fileId, session.organisationId);
     } else {
       await insertWasteRecords(rawRows, fileId, session.organisationId, department);
@@ -187,11 +364,11 @@ export async function POST(req: NextRequest) {
     await sql`UPDATE uploaded_files SET upload_status = 'complete' WHERE id = ${fileId}`;
 
     return NextResponse.json({
-      success: true,
+      success:         true,
       fileId,
       fileName,
       department,
-      recordsInserted: rawRows.length,
+      recordsInserted,
     });
   } catch (err) {
     await sql`UPDATE uploaded_files SET upload_status = 'error' WHERE id = ${fileId}`;
@@ -271,4 +448,121 @@ async function insertFleetRecords(
       )
     `;
   }
+}
+
+// ─── Bin Maintenance insert ───────────────────────────────────────────────────
+
+async function insertBinMaintenanceRecords(
+  rawRows: Record<string, unknown>[],
+  orgId: string,
+): Promise<number> {
+  type JobData = {
+    organisation_id: string; suburb: string; address: string;
+    bin_type: BinType; issue_type: string; severity: Severity;
+    status: MaintenanceStatus; assigned_to: string | null;
+    scheduled_date: Date | null; completed_date: null; notes: string | null;
+  };
+
+  // ── Diagnostics ────────────────────────────────────────────────────────────
+  console.log(`[bin-maintenance] raw row count: ${rawRows.length}`);
+  if (rawRows.length > 0) {
+    const firstRaw = rawRows[0];
+    console.log('[bin-maintenance] raw column names:', Object.keys(firstRaw));
+    console.log('[bin-maintenance] first raw row values:', JSON.stringify(firstRaw));
+    const firstMapped = mapRow(firstRaw, BIN_MAINTENANCE_COLUMN_MAP);
+    console.log('[bin-maintenance] first row after mapRow:', JSON.stringify(firstMapped));
+    // Show what each key normalises to for the first row
+    const keyForms = Object.keys(firstRaw).map(k => ({ raw: k, norm: normaliseKey(k), stripped: normDetect(k), mapsTo: BIN_MAINTENANCE_COLUMN_MAP[normaliseKey(k)] ?? BIN_MAINTENANCE_COLUMN_MAP[normDetect(k)] ?? '(unmapped)' }));
+    console.log('[bin-maintenance] column mapping trace:', JSON.stringify(keyForms));
+  }
+
+  const records: JobData[] = [];
+  let noSuburb = 0, noAddress = 0, noIssue = 0;
+
+  for (const raw of rawRows) {
+    const rec = mapRow(raw, BIN_MAINTENANCE_COLUMN_MAP);
+
+    const suburb    = strVal(rec.suburb);
+    // Combine "Street Number" + "Site Address" (or similar) into a full address
+    const streetName = strVal(rec.address);
+    const streetNum  = strVal(rec.street_number);
+    const address    = streetNum && streetName ? `${streetNum} ${streetName}` : (streetName || streetNum);
+    const issueType  = strVal(rec.issue_type) || strVal(rec.description) || strVal(rec.fault) || strVal(rec.defect);
+
+    if (!suburb || !address || !issueType) {
+      if (!suburb)    noSuburb++;
+      if (!address)   noAddress++;
+      if (!issueType) noIssue++;
+      continue;
+    }
+
+    records.push({
+      organisation_id: orgId,
+      suburb,
+      address,
+      bin_type:       normBinType(strVal(rec.bin_type)),
+      issue_type:     issueType,
+      severity:       normSeverity(strVal(rec.severity) || strVal(rec.priority)),
+      status:         normStatus(strVal(rec.status) || strVal(rec.state)),
+      assigned_to:    strVal(rec.assigned_to) ?? null,
+      scheduled_date: normDate(rec.scheduled_date),
+      completed_date: null,
+      notes:          strVal(rec.notes) ?? null,
+    });
+  }
+
+  console.log(`[bin-maintenance] rejected rows — no suburb: ${noSuburb}, no address: ${noAddress}, no issue_type: ${noIssue}`);
+  console.log(`[bin-maintenance] valid rows ready for createMany: ${records.length}`);
+
+  if (records.length === 0) return 0;
+
+  const result = await prisma.binMaintenanceJob.createMany({ data: records, skipDuplicates: false });
+  console.log(`[bin-maintenance upload] inserted ${result.count} of ${rawRows.length} rows for org ${orgId}`);
+  return result.count;
+}
+
+function strVal(v: unknown): string {
+  const s = v != null ? String(v).trim() : '';
+  return s;
+}
+
+function normBinType(s: string): BinType {
+  const l = s.toLowerCase().replace(/[\s_-]/g, '');
+  if (l.includes('recycl') || l === 'yellow') return 'RECYCLING';
+  if (l.includes('organic') || l.includes('green') || l === 'fogo') return 'ORGANICS';
+  if (l.includes('bulk') || l.includes('hard'))  return 'BULK_WASTE';
+  return 'GENERAL_WASTE';
+}
+
+function normSeverity(s: string): Severity {
+  const l = s.toLowerCase();
+  if (l === 'critical' || l === 'urgent') return 'CRITICAL';
+  if (l === 'high')                       return 'HIGH';
+  if (l === 'low' || l === 'minor')       return 'LOW';
+  return 'MEDIUM';
+}
+
+function normStatus(s: string): MaintenanceStatus {
+  const l = s.toLowerCase().replace(/[\s_-]/g, '');
+  if (l.startsWith('completed') || l === 'complete' || l === 'done' || l === 'resolved') return 'COMPLETED';
+  if (l === 'closed' || l.startsWith('closed'))     return 'CLOSED';
+  if (l === 'inprogress' || l === 'active')         return 'IN_PROGRESS';
+  if (l === 'assigned')                             return 'ASSIGNED';
+  if (l === 'scheduled')                            return 'SCHEDULED';
+  if (l === 'escalated')                            return 'ESCALATED';
+  return 'OPEN';
+}
+
+function normDate(v: unknown): Date | null {
+  if (!v) return null;
+  // Already a Date object (XLSX cellDates: true)
+  if (v instanceof Date) return isNaN(v.getTime()) ? null : v;
+  // Excel serial number (days since 1900-01-01 with 1900 leap-year bug offset)
+  if (typeof v === 'number') {
+    const ms = (v - 25569) * 86400 * 1000;
+    const d = new Date(ms);
+    return isNaN(d.getTime()) ? null : d;
+  }
+  const d = new Date(String(v));
+  return isNaN(d.getTime()) ? null : d;
 }

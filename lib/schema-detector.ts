@@ -11,7 +11,7 @@ const SIGNATURES: Record<SchemaType, string[]> = {
   ILLEGAL_DUMPING:    ["location", "report_date", "waste_type", "severity", "zone", "suburb"],
   DEBTORS:            ["account_number", "outstanding_amount", "days_overdue", "aging_bucket", "account_name"],
   SERVICE_REQUESTS:   ["request_date", "request_type", "service_type", "priority", "status"],
-  BIN_MAINTENANCE:    ["property_id", "collection_date", "bin_type", "status"],
+  BIN_MAINTENANCE:    ["suburb", "address", "bin_type", "issue_type", "status", "severity"],
   WASTE_METRICS:      ["period_start", "metric_key", "metric_value", "module", "zone"],
   FINANCIAL:          ["amount", "category", "date", "account", "transaction_type"],
   GENERIC:            [],

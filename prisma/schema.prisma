@@ -44,7 +44,8 @@ model Organisation {
   hlna_insights      HlnaInsight[]
   hlna_actions       HlnaAction[]
   hlna_briefings     HlnaBriefing[]
-  evidence_records   EvidenceRecord[]
+  evidence_records     EvidenceRecord[]
+  bin_maintenance_jobs BinMaintenanceJob[]
 
   @@map("organisations")
 }
@@ -577,6 +578,67 @@ model EvidenceRecord {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// BIN MAINTENANCE
+// ─────────────────────────────────────────────────────────────────────────────
+
+model BinMaintenanceJob {
+  id              String            @id @default(cuid())
+  organisation_id String
+  suburb          String
+  address         String
+  bin_type        BinType           @default(GENERAL_WASTE)
+  issue_type      String
+  severity        Severity          @default(MEDIUM)
+  status          MaintenanceStatus @default(OPEN)
+  assigned_to     String?
+  scheduled_date  DateTime?
+  completed_date  DateTime?
+  notes           String?
+  metadata        Json              @default("{}")
+  created_at      DateTime          @default(now())
+  updated_at      DateTime          @updatedAt
+
+  organisation  Organisation          @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
+  comments      MaintenanceComment[]
+  attachments   MaintenanceAttachment[]
+
+  @@index([organisation_id, status])
+  @@index([suburb])
+  @@index([severity])
+  @@index([created_at(sort: Desc)])
+  @@map("bin_maintenance_jobs")
+}
+
+model MaintenanceComment {
+  id                 String   @id @default(cuid())
+  maintenance_job_id String
+  user_id            String?
+  comment            String
+  created_at         DateTime @default(now())
+
+  job BinMaintenanceJob @relation(fields: [maintenance_job_id], references: [id], onDelete: Cascade)
+
+  @@index([maintenance_job_id])
+  @@map("maintenance_comments")
+}
+
+model MaintenanceAttachment {
+  id                 String   @id @default(cuid())
+  maintenance_job_id String
+  uploaded_by        String?
+  file_name          String
+  file_path          String
+  mimetype           String
+  size_bytes         Int
+  created_at         DateTime @default(now())
+
+  job BinMaintenanceJob @relation(fields: [maintenance_job_id], references: [id], onDelete: Cascade)
+
+  @@index([maintenance_job_id])
+  @@map("maintenance_attachments")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // ENUMS
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -739,4 +801,21 @@ enum ActionStatus {
   IN_PROGRESS
   COMPLETE
   CANCELLED
+}
+
+enum MaintenanceStatus {
+  OPEN
+  ASSIGNED
+  SCHEDULED
+  IN_PROGRESS
+  ESCALATED
+  COMPLETED
+  CLOSED
+}
+
+enum BinType {
+  GENERAL_WASTE
+  RECYCLING
+  ORGANICS
+  BULK_WASTE
 }

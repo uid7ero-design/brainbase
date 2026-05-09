@@ -59,7 +59,7 @@ function validateRows(
     ILLEGAL_DUMPING:    ["location", "report_date", "waste_type"],
     DEBTORS:            ["account_number", "outstanding_amount"],
     SERVICE_REQUESTS:   ["request_date", "request_type"],
-    BIN_MAINTENANCE:    ["property_id", "collection_date", "status"],
+    BIN_MAINTENANCE:    ["suburb", "address", "issue_type"],
   };
 
   for (const canonical of requiredBySchema[schemaType] ?? []) {

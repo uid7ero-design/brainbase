@@ -53,7 +53,9 @@ const FIELD_ALIASES: Record<string, string[]> = {
   response_hours:   ["responsehours", "responsetime", "timetoresolve"],
 
   // Bin maintenance
-  bin_type:         ["bintype", "binsize", "containertype"],
+  bin_type:         ["bintype", "binsize", "containertype", "wastetype", "bincolour"],
+  issue_type:       ["issuetype", "issue", "faulttype", "faultdescription", "problemtype", "defect", "complaint"],
+  assigned_to:      ["assignedto", "assignee", "technician", "operator", "crewassigned", "crew"],
 
   // Metrics
   metric_key:       ["metrickey", "metric", "kpi", "indicator"],
@@ -69,7 +71,7 @@ const SCHEMA_FIELDS: Partial<Record<SchemaType, string[]>> = {
   ILLEGAL_DUMPING:    ["location", "report_date", "waste_type", "severity", "zone", "suburb", "volume_estimate", "crew_assigned", "resolution_date", "cost_estimate", "notes"],
   DEBTORS:            ["account_number", "account_name", "outstanding_amount", "original_amount", "days_overdue", "aging_bucket", "last_payment_date", "last_payment_amount", "status", "collection_stage"],
   SERVICE_REQUESTS:   ["request_date", "request_type", "service_type", "zone", "suburb", "address", "asset_id", "priority", "severity", "status", "repeat_issue", "complaint_count", "units_affected", "response_hours", "resolution_date", "notes"],
-  BIN_MAINTENANCE:    ["property_id", "collection_date", "bin_type", "status", "suburb", "route", "notes"],
+  BIN_MAINTENANCE:    ["suburb", "address", "bin_type", "issue_type", "severity", "status", "assigned_to", "scheduled_date", "notes"],
   WASTE_METRICS:      ["period_start", "period_end", "metric_key", "metric_value", "module", "zone"],
   FINANCIAL:          ["account_number", "account_name", "outstanding_amount", "original_amount", "status"],
   GENERIC:            [],

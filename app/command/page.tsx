@@ -10,6 +10,7 @@ import WorkspaceShell from "@/components/ops/WorkspaceShell";
 import HlnaBriefingWidget from "@/components/ops/widgets/HlnaBriefingWidget";
 import WeatherWidget from "@/components/ops/widgets/WeatherWidget";
 import MapWidget from "@/components/ops/widgets/MapWidget";
+import DrilldownDrawer, { type DrawerAlert } from "@/components/ops/DrilldownDrawer";
 
 const FONT = 'var(--font-inter), "Inter", -apple-system, sans-serif';
 const LAYOUT_KEY = "ops-workspace-layout-v1";
@@ -141,7 +142,8 @@ export default function CommandPage() {
   const [layout, setLayout] = useState<LayoutItem[]>(DEFAULT_LAYOUT);
   const [editMode, setEditMode] = useState(false);
   const [ribbonExpanded, setRibbonExpanded] = useState<string | null>(null);
-  const [orbState, setOrbState] = useState<OrbState>("idle");
+  const [orbState, setOrbState]         = useState<OrbState>("idle");
+  const [drawerAlert, setDrawerAlert]   = useState<DrawerAlert | null>(null);
   const [msgs, setMsgs] = useState<Msg[]>([
     { role: "assistant", text: "Good morning. Monitoring all systems. 2 alerts need your attention today." },
   ]);
@@ -187,6 +189,14 @@ export default function CommandPage() {
     setLayout(DEFAULT_LAYOUT);
     try { localStorage.removeItem(LAYOUT_KEY); } catch {}
   };
+
+  function handleAlertAction(alertId: string, action: string, payload?: Record<string, unknown>) {
+    fetch(`/api/ops/alerts/${alertId}/action`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, ...payload }),
+    }).catch(() => {});
+  }
 
   async function send(text: string) {
     const t = text.trim();
@@ -308,7 +318,9 @@ export default function CommandPage() {
                 display: "flex", flexDirection: "column", gap: 9,
                 transition: "all .18s",
                 boxShadow: "inset 0 1px 0 rgba(255,255,255,.04)",
+                cursor: "pointer",
               }}
+                onClick={() => setDrawerAlert({ id: alert.id, title: alert.title, status: alert.status, metric: alert.metric, metricLabel: alert.metricLabel, description: alert.description })}
                 onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.transform = "translateY(-2px)"; (e.currentTarget as HTMLDivElement).style.boxShadow = `0 8px 28px ${"glow" in s ? s.glow : "transparent"}, inset 0 1px 0 rgba(255,255,255,.04)`; }}
                 onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.transform = ""; (e.currentTarget as HTMLDivElement).style.boxShadow = "inset 0 1px 0 rgba(255,255,255,.04)"; }}
               >
@@ -322,12 +334,14 @@ export default function CommandPage() {
                   <div style={{ fontSize: 9.5, color: "rgba(255,255,255,.30)", marginTop: 2, letterSpacing: ".04em" }}>{alert.metricLabel}</div>
                 </div>
                 <div style={{ fontSize: 10.5, color: "rgba(230,237,243,.42)", lineHeight: 1.55 }}>{alert.description}</div>
-                <Link href={alert.href} style={{
-                  display: "block", padding: "7px 12px", borderRadius: 7,
-                  background: `${s.dot}16`, border: `1px solid ${s.dot}35`,
-                  fontSize: 11, fontWeight: 600, color: s.text,
-                  textDecoration: "none", textAlign: "center", letterSpacing: ".02em", transition: "all .15s",
-                }}
+                <Link href={alert.href}
+                  onClick={e => e.stopPropagation()}
+                  style={{
+                    display: "block", padding: "7px 12px", borderRadius: 7,
+                    background: `${s.dot}16`, border: `1px solid ${s.dot}35`,
+                    fontSize: 11, fontWeight: 600, color: s.text,
+                    textDecoration: "none", textAlign: "center", letterSpacing: ".02em", transition: "all .15s",
+                  }}
                   onMouseEnter={e => { e.currentTarget.style.background = `${s.dot}28`; e.currentTarget.style.boxShadow = `0 0 12px ${"glow" in s ? s.glow : "transparent"}`; }}
                   onMouseLeave={e => { e.currentTarget.style.background = `${s.dot}16`; e.currentTarget.style.boxShadow = ""; }}>
                   {alert.action} →
@@ -461,6 +475,7 @@ export default function CommandPage() {
   // ── RENDER ───────────────────────────────────────────────────────────────
 
   return (
+    <>
     <WorkspaceShell title="Command Centre" alertCount={4} intelRail>
       <style dangerouslySetInnerHTML={{ __html: `
         /* react-grid-layout */
@@ -546,5 +561,13 @@ export default function CommandPage() {
         )}
       </div>
     </WorkspaceShell>
+    {drawerAlert && (
+      <DrilldownDrawer
+        alert={drawerAlert}
+        onClose={() => setDrawerAlert(null)}
+        onAction={handleAlertAction}
+      />
+    )}
+    </>
   );
 }
