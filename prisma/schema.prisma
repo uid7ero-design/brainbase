@@ -48,6 +48,8 @@ model Organisation {
   bin_maintenance_jobs   BinMaintenanceJob[]
   blog_posts             BlogPost[]
   newsletter_subscribers NewsletterSubscriber[]
+  bookings               Booking[]
+  sessions               Session[]
 
   @@map("organisations")
 }
@@ -858,4 +860,92 @@ model NewsletterSubscriber {
   @@unique([organisation_id, email])
   @@index([organisation_id])
   @@map("newsletter_subscribers")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SESSIONS (generic scheduling engine)
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Session {
+  id               String    @id
+  organisation_id  String
+  name             String
+  day_of_week      Int
+  start_time       String
+  duration_minutes Int       @default(60)
+  max_capacity     Int       @default(8)
+  session_type     String
+  resource_id      String?
+  recurring        Boolean   @default(true)
+  created_at       DateTime  @default(now())
+
+  organisation Organisation    @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
+  bookings     Booking[]
+  instances    SessionInstance[]
+
+  @@index([organisation_id])
+  @@index([day_of_week])
+  @@map("sessions")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SESSION INSTANCES (real calendar dates for recurring sessions)
+// ─────────────────────────────────────────────────────────────────────────────
+
+model SessionInstance {
+  id               String    @id
+  session_id       String
+  organisation_id  String
+  date             DateTime  @db.Date
+  start_time       String
+  duration_minutes Int       @default(60)
+  max_capacity     Int       @default(8)
+  // scheduled | cancelled
+  status           String    @default("scheduled")
+  created_at       DateTime  @default(now())
+
+  session  Session   @relation(fields: [session_id], references: [id], onDelete: Cascade)
+  bookings Booking[]
+
+  @@unique([session_id, date])
+  @@index([session_id])
+  @@index([date])
+  @@index([organisation_id])
+  @@map("session_instances")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BOOKINGS
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Booking {
+  id                    String    @id @default(cuid())
+  organisation_id       String
+  session_id            String?
+  session_instance_id   String?
+  pipeline_id           String?
+  client_name           String
+  client_email          String?
+  date                  DateTime
+  time                  String
+  session_type          String
+  // pending_confirmation | confirmed | reschedule_requested | cancelled
+  status                String    @default("pending_confirmation")
+  paid                  Boolean   @default(false)
+  // attending | absent | null
+  attendance_status     String?
+  confirmed_at          DateTime?
+  notes                 String?
+  created_at            DateTime  @default(now())
+  updated_at            DateTime  @updatedAt
+
+  organisation      Organisation     @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
+  session           Session?         @relation(fields: [session_id], references: [id])
+  session_instance  SessionInstance? @relation(fields: [session_instance_id], references: [id])
+
+  @@index([organisation_id])
+  @@index([session_id])
+  @@index([session_instance_id])
+  @@index([date])
+  @@map("bookings")
 }

@@ -1,13 +1,19 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useActionState } from 'react';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { login } from '@/app/actions/auth';
 import { HlnaOrb } from '@/components/brand/HlnaOrb';
 
 export default function LoginPage() {
+  const router = useRouter();
   const [state, action, pending] = useActionState(login, undefined);
   const [email, setEmail] = useState('');
+
+  useEffect(() => {
+    if (state?.redirectTo) router.push(state.redirectTo);
+  }, [state?.redirectTo]);
 
   return (
     <div style={{
@@ -88,7 +94,7 @@ export default function LoginPage() {
               onChange={e => {
                 // Capture email from username field for unverified UX
                 const form = (e.target as HTMLElement).closest('form') as HTMLFormElement;
-                setEmail((form.elements.namedItem('username') as HTMLInputElement)?.value ?? '');
+                setEmail((form.elements.namedItem('email') as HTMLInputElement)?.value ?? '');
               }}
               style={{ width: '100%', padding: '10px 14px', background: '#111318', border: '1px solid #1f2937', borderRadius: 8, color: '#f9fafb', fontSize: 14, outline: 'none', boxSizing: 'border-box' }}
             />

@@ -9,13 +9,24 @@ export async function GET() {
     SELECT
       cp.id, cp.type, cp.title, cp.description, cp.status, cp.priority,
       cp.founder_note, cp.created_at, cp.updated_at,
+      cp.organisation_id,
       o.name AS org_name,
       u.name AS submitted_by_name,
       (
         SELECT json_agg(pm ORDER BY pm.created_at ASC)
         FROM pipeline_messages pm
         WHERE pm.pipeline_id = cp.id
-      ) AS messages
+      ) AS messages,
+      (
+        SELECT row_to_json(b)
+        FROM (
+          SELECT id, date, time, session_type, status, confirmed_at
+          FROM bookings
+          WHERE pipeline_id = cp.id::text
+          ORDER BY created_at DESC
+          LIMIT 1
+        ) b
+      ) AS booking
     FROM client_pipeline cp
     LEFT JOIN organisations o ON o.id = cp.organisation_id
     LEFT JOIN users u ON u.id = cp.submitted_by

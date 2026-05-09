@@ -5,9 +5,15 @@ import { useEffect, useState } from 'react'
 const FONT = "var(--font-inter), -apple-system, sans-serif"
 
 type Message = { id: string; author_type: 'founder' | 'client'; body: string; created_at: string }
+type BookingRecord = {
+  id: string; date: string; time: string; session_type: string
+  status: 'pending_confirmation' | 'confirmed' | 'reschedule_requested' | 'cancelled'
+  confirmed_at: string | null
+}
 type PipelineRequest = {
   id: string; type: string; title: string; description: string | null
   status: string; priority: string; created_at: string
+  booking?: BookingRecord | null
 }
 
 const TYPE_OPTIONS = [
@@ -23,6 +29,17 @@ const STATUS_STYLE: Record<string, { bg: string; color: string; border: string; 
   resolved:        { bg: 'rgba(34,197,94,.10)',   color: '#4ade80', border: 'rgba(34,197,94,.25)',  label: 'Resolved' },
 }
 
+const BOOKING_STATUS: Record<string, { label: string; color: string; bg: string; border: string }> = {
+  pending_confirmation: { label: 'Awaiting confirmation', color: '#fb923c', bg: 'rgba(251,146,60,.10)', border: 'rgba(251,146,60,.30)' },
+  confirmed:            { label: '✅ Confirmed',           color: '#4ade80', bg: 'rgba(34,197,94,.10)',  border: 'rgba(34,197,94,.30)'  },
+  reschedule_requested: { label: '🔁 Awaiting new time',  color: '#fbbf24', bg: 'rgba(251,191,36,.10)', border: 'rgba(251,191,36,.28)' },
+  cancelled:            { label: 'Cancelled',             color: '#71717a', bg: 'rgba(113,113,122,.10)',border: 'rgba(113,113,122,.25)' },
+}
+
+function fmtDate(d: string) {
+  return new Date(d).toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'long', year: 'numeric' })
+}
+
 function ago(ts: string) {
   const d = Math.floor((Date.now() - new Date(ts).getTime()) / 86400000)
   if (d === 0) return 'Today'
@@ -35,6 +52,8 @@ const inp: React.CSSProperties = {
   borderRadius: 8, padding: '8px 11px', fontSize: 12, color: '#F5F7FA',
   outline: 'none', fontFamily: FONT, boxSizing: 'border-box', resize: 'none', lineHeight: 1.6,
 }
+
+type RescheduleState = { show: boolean; msg: string; acting: boolean; err: string | null }
 
 export default function PortalPage() {
   const [requests, setRequests]   = useState<PipelineRequest[]>([])
@@ -51,6 +70,10 @@ export default function PortalPage() {
   const [description, setDesc]    = useState('')
   const [submitting, setSub]      = useState(false)
   const [submitError, setSubErr]  = useState<string | null>(null)
+  // booking action state per request id
+  const [bookingActing, setBookingActing]   = useState<Record<string, boolean>>({})
+  const [bookingErr, setBookingErr]         = useState<Record<string, string | null>>({})
+  const [reschedule, setReschedule]         = useState<Record<string, RescheduleState>>({})
 
   useEffect(() => {
     fetch('/api/portal/pipeline')
@@ -114,6 +137,68 @@ export default function PortalPage() {
       const d = await res.json().catch(() => ({})) as { error?: string }
       setSubErr(d.error ?? 'Submission failed')
     }
+  }
+
+  async function confirmBooking(req: PipelineRequest, bookingId: string) {
+    if (bookingActing[req.id]) return
+    setBookingActing(a => ({ ...a, [req.id]: true }))
+    setBookingErr(e => ({ ...e, [req.id]: null }))
+    const res = await fetch(`/api/bookings/${bookingId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'confirm' }),
+    }).catch(() => null)
+    setBookingActing(a => ({ ...a, [req.id]: false }))
+    if (res?.ok) {
+      const sysMsg: Message = {
+        id: crypto.randomUUID(), author_type: 'client',
+        body: `✅ Session confirmed for ${fmtDate(req.booking!.date)} at ${req.booking!.time}`,
+        created_at: new Date().toISOString(),
+      }
+      setMessages(m => ({ ...m, [req.id]: [...(m[req.id] ?? []), sysMsg] }))
+      setRequests(rs => rs.map(r => r.id === req.id
+        ? { ...r, status: 'resolved', booking: { ...r.booking!, status: 'confirmed', confirmed_at: new Date().toISOString() } }
+        : r
+      ))
+    } else {
+      const d = res ? await res.json().catch(() => ({})) as { error?: string } : {}
+      setBookingErr(e => ({ ...e, [req.id]: d.error ?? 'Failed to confirm booking' }))
+    }
+  }
+
+  async function requestReschedule(req: PipelineRequest, bookingId: string) {
+    const rs = reschedule[req.id]
+    if (!rs || bookingActing[req.id]) return
+    setBookingActing(a => ({ ...a, [req.id]: true }))
+    setBookingErr(e => ({ ...e, [req.id]: null }))
+    const res = await fetch(`/api/bookings/${bookingId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'reschedule', message: rs.msg }),
+    }).catch(() => null)
+    setBookingActing(a => ({ ...a, [req.id]: false }))
+    if (res?.ok) {
+      const msgBody = rs.msg.trim()
+        ? `🔁 Client requested a different time\n\n"${rs.msg.trim()}"`
+        : '🔁 Client requested a different time'
+      const sysMsg: Message = {
+        id: crypto.randomUUID(), author_type: 'client',
+        body: msgBody, created_at: new Date().toISOString(),
+      }
+      setMessages(m => ({ ...m, [req.id]: [...(m[req.id] ?? []), sysMsg] }))
+      setRequests(rs2 => rs2.map(r => r.id === req.id
+        ? { ...r, status: 'in_progress', booking: { ...r.booking!, status: 'reschedule_requested' } }
+        : r
+      ))
+      setReschedule(s => ({ ...s, [req.id]: { show: false, msg: '', acting: false, err: null } }))
+    } else {
+      const d = res ? await res.json().catch(() => ({})) as { error?: string } : {}
+      setBookingErr(e => ({ ...e, [req.id]: d.error ?? 'Failed to request change' }))
+    }
+  }
+
+  function openReschedule(reqId: string) {
+    setReschedule(s => ({ ...s, [reqId]: { show: true, msg: '', acting: false, err: null } }))
   }
 
   return (
@@ -203,11 +288,27 @@ export default function PortalPage() {
             const st = STATUS_STYLE[req.status] ?? STATUS_STYLE.new
             const msgs = messages[req.id]
             const isFetching = fetching[req.id]
+            const booking = req.booking && req.booking.status !== 'cancelled' ? req.booking : null
+            const rs = reschedule[req.id]
+            const isActing = bookingActing[req.id]
+
+            // Highlight card if booking is pending confirmation
+            const hasPendingBooking = booking?.status === 'pending_confirmation'
+            const cardBorderColor = hasPendingBooking
+              ? 'rgba(99,102,241,.35)'
+              : req.status === 'awaiting_client'
+              ? 'rgba(251,146,60,.30)'
+              : 'rgba(255,255,255,.07)'
+            const cardBg = hasPendingBooking
+              ? 'rgba(99,102,241,.04)'
+              : req.status === 'awaiting_client'
+              ? 'rgba(251,146,60,.04)'
+              : 'rgba(255,255,255,.025)'
 
             return (
               <div key={req.id} style={{
-                background: req.status === 'awaiting_client' ? 'rgba(251,146,60,.04)' : 'rgba(255,255,255,.025)',
-                border: req.status === 'awaiting_client' ? '1px solid rgba(251,146,60,.30)' : '1px solid rgba(255,255,255,.07)',
+                background: cardBg,
+                border: `1px solid ${cardBorderColor}`,
                 borderRadius: 14, overflow: 'hidden',
               }}>
                 {/* Header row */}
@@ -226,7 +327,12 @@ export default function PortalPage() {
                       {ago(req.created_at)}
                     </div>
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                    {hasPendingBooking && (
+                      <span style={{ fontSize: 10, fontWeight: 700, color: '#a5b4fc', background: 'rgba(99,102,241,.18)', border: '1px solid rgba(99,102,241,.35)', padding: '2px 8px', borderRadius: 20 }}>
+                        Session proposed
+                      </span>
+                    )}
                     <span style={{
                       fontSize: 10, fontWeight: 600, padding: '2px 9px', borderRadius: 20,
                       background: st.bg, color: st.color, border: `1px solid ${st.border}`,
@@ -241,6 +347,105 @@ export default function PortalPage() {
                       <p style={{ margin: '0 0 16px', fontSize: 13, color: 'rgba(255,255,255,.45)', lineHeight: 1.65 }}>
                         {req.description}
                       </p>
+                    )}
+
+                    {/* Booking card */}
+                    {booking && (
+                      <div style={{
+                        background: BOOKING_STATUS[booking.status]?.bg ?? 'rgba(255,255,255,.04)',
+                        border: `1px solid ${BOOKING_STATUS[booking.status]?.border ?? 'rgba(255,255,255,.09)'}`,
+                        borderRadius: 12, padding: '14px 16px', marginBottom: 20,
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 10 }}>
+                          <div>
+                            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.10em', textTransform: 'uppercase', color: 'rgba(255,255,255,.30)', marginBottom: 4 }}>
+                              Proposed Session
+                            </div>
+                            <div style={{ fontSize: 14, fontWeight: 700, color: '#F5F7FA', letterSpacing: '-.01em' }}>
+                              {fmtDate(booking.date)}
+                            </div>
+                            <div style={{ fontSize: 12, color: 'rgba(255,255,255,.50)', marginTop: 2 }}>
+                              {booking.time} · {booking.session_type}
+                            </div>
+                          </div>
+                          <span style={{
+                            fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 20, flexShrink: 0,
+                            background: BOOKING_STATUS[booking.status]?.bg,
+                            color: BOOKING_STATUS[booking.status]?.color,
+                            border: `1px solid ${BOOKING_STATUS[booking.status]?.border}`,
+                          }}>
+                            {BOOKING_STATUS[booking.status]?.label ?? booking.status}
+                          </span>
+                        </div>
+
+                        {/* Actions for pending_confirmation */}
+                        {booking.status === 'pending_confirmation' && !rs?.show && (
+                          <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
+                            <button
+                              onClick={() => confirmBooking(req, booking.id)}
+                              disabled={isActing}
+                              style={{
+                                fontSize: 12, fontWeight: 600, padding: '7px 18px', borderRadius: 8, cursor: 'pointer',
+                                background: 'rgba(34,197,94,.15)', border: '1px solid rgba(34,197,94,.35)',
+                                color: '#4ade80', fontFamily: FONT, opacity: isActing ? .5 : 1,
+                              }}
+                            >
+                              {isActing ? 'Confirming…' : 'Confirm Session'}
+                            </button>
+                            <button
+                              onClick={() => openReschedule(req.id)}
+                              disabled={isActing}
+                              style={{
+                                fontSize: 12, fontWeight: 600, padding: '7px 18px', borderRadius: 8, cursor: 'pointer',
+                                background: 'rgba(255,255,255,.05)', border: '1px solid rgba(255,255,255,.12)',
+                                color: 'rgba(255,255,255,.55)', fontFamily: FONT, opacity: isActing ? .5 : 1,
+                              }}
+                            >
+                              Request Change
+                            </button>
+                          </div>
+                        )}
+
+                        {/* Reschedule input */}
+                        {booking.status === 'pending_confirmation' && rs?.show && (
+                          <div style={{ marginTop: 14 }}>
+                            <textarea
+                              value={rs.msg}
+                              onChange={e => setReschedule(s => ({ ...s, [req.id]: { ...s[req.id], msg: e.target.value } }))}
+                              placeholder="What time works for you? (optional)…"
+                              rows={2}
+                              style={{ ...inp, marginBottom: 8 }}
+                            />
+                            <div style={{ display: 'flex', gap: 8 }}>
+                              <button
+                                onClick={() => requestReschedule(req, booking.id)}
+                                disabled={isActing}
+                                style={{
+                                  fontSize: 12, fontWeight: 600, padding: '6px 16px', borderRadius: 8, cursor: 'pointer',
+                                  background: 'rgba(251,191,36,.14)', border: '1px solid rgba(251,191,36,.35)',
+                                  color: '#fbbf24', fontFamily: FONT, opacity: isActing ? .5 : 1,
+                                }}
+                              >
+                                {isActing ? 'Sending…' : 'Confirm Request'}
+                              </button>
+                              <button
+                                onClick={() => setReschedule(s => ({ ...s, [req.id]: { ...s[req.id], show: false } }))}
+                                style={{
+                                  fontSize: 12, fontWeight: 600, padding: '6px 14px', borderRadius: 8, cursor: 'pointer',
+                                  background: 'none', border: '1px solid rgba(255,255,255,.09)',
+                                  color: 'rgba(255,255,255,.35)', fontFamily: FONT,
+                                }}
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
+                        {bookingErr[req.id] && (
+                          <p style={{ margin: '8px 0 0', fontSize: 11, color: '#f87171' }}>{bookingErr[req.id]}</p>
+                        )}
+                      </div>
                     )}
 
                     {/* Thread */}
@@ -271,7 +476,7 @@ export default function PortalPage() {
                     {/* Reply box — only if not resolved */}
                     {req.status !== 'resolved' && (
                       <div>
-                        {req.status === 'awaiting_client' && (
+                        {req.status === 'awaiting_client' && !hasPendingBooking && (
                           <div style={{
                             display: 'flex', alignItems: 'center', gap: 8,
                             background: 'rgba(251,146,60,.08)', border: '1px solid rgba(251,146,60,.25)',
@@ -289,10 +494,10 @@ export default function PortalPage() {
                           placeholder="Add a message…" rows={2}
                           style={{
                             ...inp,
-                            border: req.status === 'awaiting_client'
+                            border: req.status === 'awaiting_client' && !hasPendingBooking
                               ? '1px solid rgba(251,146,60,.45)'
                               : '1px solid rgba(255,255,255,.09)',
-                            boxShadow: req.status === 'awaiting_client'
+                            boxShadow: req.status === 'awaiting_client' && !hasPendingBooking
                               ? '0 0 0 2px rgba(251,146,60,.10)'
                               : 'none',
                           }}

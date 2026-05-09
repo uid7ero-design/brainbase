@@ -36,12 +36,10 @@ export function MicButton({ helena, chatOpen, onChatToggle, llmSource, orbAlert 
 
   return (
     <div style={{
-      position: "fixed", bottom: 0, left: 0, right: 0,
-      display: "flex", justifyContent: "center",
-      paddingBottom: 18, zIndex: 50, pointerEvents: "none",
+      position: "fixed", bottom: 20, right: 20,
+      zIndex: 50, pointerEvents: "none",
     }}>
       <div style={{
-        width: "min(520px, 88vw)",
         background: "rgba(6, 6, 14, 0.72)",
         border: `1px solid ${active ? "rgba(124,58,237,0.22)" : "rgba(255,255,255,0.06)"}`,
         borderRadius: 14,

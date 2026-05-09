@@ -15,7 +15,17 @@ export async function GET() {
           SELECT json_agg(pm ORDER BY pm.created_at ASC)
           FROM pipeline_messages pm
           WHERE pm.pipeline_id = cp.id
-        ) AS messages
+        ) AS messages,
+        (
+          SELECT row_to_json(b)
+          FROM (
+            SELECT id, date, time, session_type, status, confirmed_at
+            FROM bookings
+            WHERE pipeline_id = cp.id::text
+            ORDER BY created_at DESC
+            LIMIT 1
+          ) b
+        ) AS booking
       FROM client_pipeline cp
       WHERE cp.organisation_id = ${session.organisationId}
       ORDER BY

@@ -27,6 +27,8 @@ export default function AdminAside({ name }: { name: string }) {
 
       <nav style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 2, padding: '0 8px' }}>
         <a href="/admin/founder"    style={navLink}>Founder OS</a>
+        <a href="/admin/pipeline"   style={navLink}>Pipeline</a>
+        <a href="/admin/sessions"   style={navLink}>Planner</a>
         <a href="/admin/orgs"       style={navLink}>Organisations</a>
         <a href="/admin/users"      style={navLink}>Users</a>
         <a href="/admin/agent-runs" style={navLink}>Agent Runs</a>

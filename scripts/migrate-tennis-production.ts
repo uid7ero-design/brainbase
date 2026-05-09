@@ -26,10 +26,13 @@ async function main() {
   await sql`ALTER TABLE tennis_leads ADD COLUMN IF NOT EXISTS client_token TEXT DEFAULT gen_random_uuid()::text`;
   console.log('✓ notes + client_token columns ensured');
 
-  // Backfill any NULLs
+  // Backfill any NULLs — cast to text handles both TEXT and UUID column types
   const backfilled = await sql`
-    UPDATE tennis_leads SET client_token = gen_random_uuid()::text WHERE client_token IS NULL RETURNING id
-  `;
+    UPDATE tennis_leads SET client_token = gen_random_uuid()::text::text WHERE client_token IS NULL RETURNING id
+  `.catch(async () => {
+    // Column might be UUID type — retry without explicit cast
+    return sql`UPDATE tennis_leads SET client_token = gen_random_uuid() WHERE client_token IS NULL RETURNING id`;
+  });
   if (backfilled.length > 0) console.log(`✓ backfilled ${backfilled.length} row(s)`);
 
   await sql`CREATE INDEX IF NOT EXISTS idx_tennis_leads_org     ON tennis_leads(organisation_id)`;

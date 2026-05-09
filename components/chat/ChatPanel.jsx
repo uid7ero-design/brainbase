@@ -365,8 +365,8 @@ export function ChatPanel({ messages, responding, transcript, onSend, onClose })
 
   return (
     <div style={{
-      position: "fixed", bottom: 86, left: "50%", transform: "translateX(-50%)",
-      width: "min(580px, 92vw)", zIndex: 60,
+      position: "fixed", bottom: 86, right: 20,
+      width: "min(520px, calc(100vw - 40px))", zIndex: 60,
       display: "flex", flexDirection: "column",
       animation: "chatSlideUp 0.28s cubic-bezier(0.16,1,0.3,1)",
       borderRadius: 14, overflow: "hidden",

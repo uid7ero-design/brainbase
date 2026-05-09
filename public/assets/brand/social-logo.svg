@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 1080" width="1080" height="1080">
+  <defs>
+    <radialGradient id="bg-grad" cx="50%" cy="40%" r="65%">
+      <stop offset="0%" stop-color="#0B1940"/>
+      <stop offset="100%" stop-color="#030A1C"/>
+    </radialGradient>
+    <radialGradient id="orb-sphere" cx="36%" cy="32%" r="68%">
+      <stop offset="0%" stop-color="#BFDBFE"/>
+      <stop offset="22%" stop-color="#3B82F6"/>
+      <stop offset="52%" stop-color="#1E40AF"/>
+      <stop offset="78%" stop-color="#1A2D78"/>
+      <stop offset="100%" stop-color="#0A1535"/>
+    </radialGradient>
+    <radialGradient id="glow-purple" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#7C3AED" stop-opacity="0.45"/>
+      <stop offset="100%" stop-color="#7C3AED" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glow-deep" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#4C1D95" stop-opacity="0.3"/>
+      <stop offset="100%" stop-color="#4C1D95" stop-opacity="0"/>
+    </radialGradient>
+    <!-- Lambda gradient coords are in the local (pre-scale) coordinate space of the referencing group -->
+    <linearGradient id="lambda-bb" gradientUnits="userSpaceOnUse" x1="119" y1="54" x2="119" y2="8">
+      <stop offset="0%" stop-color="#5B21B6"/>
+      <stop offset="55%" stop-color="#7C3AED"/>
+      <stop offset="100%" stop-color="#A78BFA"/>
+    </linearGradient>
+    <linearGradient id="lambda-hl" gradientUnits="userSpaceOnUse" x1="172" y1="48" x2="172" y2="7">
+      <stop offset="0%" stop-color="#6D28D9"/>
+      <stop offset="100%" stop-color="#C084FC"/>
+    </linearGradient>
+    <linearGradient id="ring-grad" gradientUnits="userSpaceOnUse" x1="290" y1="375" x2="790" y2="375">
+      <stop offset="0%"   stop-color="#7C3AED" stop-opacity="0"/>
+      <stop offset="25%"  stop-color="#7C3AED" stop-opacity="0.55"/>
+      <stop offset="75%"  stop-color="#A78BFA" stop-opacity="0.45"/>
+      <stop offset="100%" stop-color="#7C3AED" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="blur-xl" x="-80%" y="-80%" width="260%" height="260%">
+      <feGaussianBlur stdDeviation="48"/>
+    </filter>
+    <filter id="blur-lg" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="24"/>
+    </filter>
+    <filter id="blur-sm" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="7"/>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1080" height="1080" fill="url(#bg-grad)"/>
+
+  <!-- Orb: outer ambient glow layers -->
+  <circle cx="540" cy="375" r="320" fill="url(#glow-deep)"   filter="url(#blur-xl)"/>
+  <circle cx="540" cy="375" r="255" fill="url(#glow-purple)" filter="url(#blur-lg)"/>
+
+  <!-- Orb: main sphere -->
+  <circle cx="540" cy="375" r="182" fill="url(#orb-sphere)"/>
+
+  <!-- Orbital ring -->
+  <ellipse cx="540" cy="375" rx="248" ry="62"
+           fill="none" stroke="url(#ring-grad)" stroke-width="1.5"
+           transform="rotate(-15, 540, 375)"/>
+  <ellipse cx="540" cy="375" rx="248" ry="62"
+           fill="none" stroke="#8B5CF6" stroke-width="5" stroke-opacity="0.12"
+           filter="url(#blur-sm)"
+           transform="rotate(-15, 540, 375)"/>
+
+  <!-- Second fainter ring -->
+  <ellipse cx="540" cy="375" rx="214" ry="54"
+           fill="none" stroke="#6D28D9" stroke-width="1" stroke-opacity="0.22"
+           transform="rotate(22, 540, 375)"/>
+
+  <!-- Orbital satellites -->
+  <circle cx="312" cy="414" r="5.5" fill="#C4B5FD" opacity="0.95"/>
+  <circle cx="312" cy="414" r="13"  fill="#7C3AED" opacity="0.35" filter="url(#blur-sm)"/>
+  <circle cx="755" cy="350" r="4"   fill="#67E8F9" opacity="0.9"/>
+  <circle cx="755" cy="350" r="10"  fill="#06B6D4" opacity="0.28" filter="url(#blur-sm)"/>
+
+  <!-- Sphere specular highlight -->
+  <ellipse cx="494" cy="325" rx="64" ry="42" fill="white" opacity="0.065"/>
+
+  <!-- BRΛINBASE wordmark — scale 1.784, centred at x=540, glyph midpoint y≈734 -->
+  <g transform="translate(199, 674) scale(1.784)" fill="#F5F7FA">
+    <path d="M40.18 54L24.51 54L24.51 13.26L39.52 13.26Q43.87 13.26 46.71 14.68Q49.56 16.10 50.95 18.52Q52.35 20.94 52.35 23.95L52.35 23.95Q52.35 26.49 51.42 28.23Q50.49 29.96 48.92 31.02Q47.34 32.07 45.46 32.56L45.46 32.56L45.46 32.97Q47.51 33.05 49.45 34.27Q51.39 35.49 52.66 37.69Q53.93 39.89 53.93 43.04L53.93 43.04Q53.93 46.13 52.47 48.61Q51.01 51.10 47.97 52.55Q44.94 54 40.18 54L40.18 54ZM30.75 35.71L30.75 48.64L39.55 48.64Q43.93 48.64 45.84 46.95Q47.75 45.25 47.75 42.73L47.75 42.73Q47.75 40.77 46.78 39.18Q45.81 37.59 44.04 36.65Q42.26 35.71 39.80 35.71L39.80 35.71L30.75 35.71ZM30.75 18.59L30.75 30.89L38.92 30.89Q40.97 30.89 42.64 30.10Q44.31 29.31 45.27 27.86Q46.22 26.41 46.22 24.47L46.22 24.47Q46.22 21.95 44.47 20.27Q42.72 18.59 39.09 18.59L39.09 18.59L30.75 18.59Z"/>
+    <path d="M70.52 54L64.29 54L64.29 13.26L78.89 13.26Q83.59 13.26 86.74 14.88Q89.88 16.51 91.44 19.41Q93 22.31 93 26.05L93 26.05Q93 29.83 91.43 32.66Q89.86 35.49 86.71 37.05L86.71 37.05Q86.16 37.32 85.56 37.54L85.56 37.54L94.53 54L87.45 54L79.19 38.61Q79.03 38.61 78.84 38.61L78.84 38.61L70.52 38.61L70.52 54ZM70.52 18.59L70.52 33.27L78.23 33.27Q81.24 33.27 83.09 32.41Q84.93 31.55 85.81 29.94Q86.68 28.32 86.68 26.05L86.68 26.05Q86.68 23.76 85.81 22.09Q84.93 20.42 83.07 19.51Q81.21 18.59 78.18 18.59L78.18 18.59L70.52 18.59Z"/>
+    <path d="M 99,54 L 119,8 L 139,54" fill="none" stroke="url(#lambda-bb)" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M146.28 13.26L152.51 13.26L152.51 54L146.28 54L146.28 13.26Z"/>
+    <path d="M170.85 54L164.54 54L164.54 13.26L171.73 13.26L187.07 37.51Q187.83 38.71 188.79 40.38Q189.75 42.05 190.81 44.13L190.81 44.13Q191.39 45.25 191.93 46.48L191.93 46.48Q191.85 45.28 191.80 44.07L191.80 44.07Q191.66 41.80 191.61 39.81Q191.55 37.81 191.55 36.45L191.55 36.45L191.55 13.26L197.87 13.26L197.87 54L190.65 54L176.89 32.32Q175.80 30.54 174.75 28.73Q173.70 26.93 172.44 24.55L172.44 24.55Q171.54 22.94 170.39 20.80L170.39 20.80Q170.50 22.69 170.58 24.41L170.58 24.41Q170.71 27.04 170.78 29.05Q170.85 31.06 170.85 32.26L170.85 32.26L170.85 54Z"/>
+    <path d="M225.56 54L209.89 54L209.89 13.26L224.90 13.26Q229.25 13.26 232.09 14.68Q234.94 16.10 236.33 18.52Q237.73 20.94 237.73 23.95L237.73 23.95Q237.73 26.49 236.80 28.23Q235.87 29.96 234.29 31.02Q232.72 32.07 230.84 32.56L230.84 32.56L230.84 32.97Q232.89 33.05 234.83 34.27Q236.77 35.49 238.04 37.69Q239.31 39.89 239.31 43.04L239.31 43.04Q239.31 46.13 237.85 48.61Q236.39 51.10 233.35 52.55Q230.32 54 225.56 54L225.56 54ZM216.13 35.71L216.13 48.64L224.93 48.64Q229.30 48.64 231.22 46.95Q233.13 45.25 233.13 42.73L233.13 42.73Q233.13 40.77 232.16 39.18Q231.19 37.59 229.41 36.65Q227.64 35.71 225.18 35.71L225.18 35.71L216.13 35.71ZM216.13 18.59L216.13 30.89L224.30 30.89Q226.35 30.89 228.02 30.10Q229.69 29.31 230.64 27.86Q231.60 26.41 231.60 24.47L231.60 24.47Q231.60 21.95 229.85 20.27Q228.10 18.59 224.46 18.59L224.46 18.59L216.13 18.59Z"/>
+    <path d="M253.30 54L246.55 54L261.04 13.26L268.70 13.26L283.46 54L276.71 54L272.96 43.25L256.94 43.25L253.30 54ZM258.72 38.06L271.13 38.06L268.78 31.33Q267.85 28.57 266.76 24.82L266.76 24.82Q265.88 21.93 264.84 18.15L264.84 18.15Q263.80 21.98 262.96 24.91L262.96 24.91Q261.84 28.71 260.99 31.33L260.99 31.33L258.72 38.06Z"/>
+    <path d="M306.04 54.68Q301.48 54.68 298.11 53.23Q294.75 51.79 292.85 49.09Q290.95 46.40 290.76 42.68L297.02 42.68Q297.21 44.89 298.46 46.34Q299.70 47.79 301.70 48.50Q303.69 49.21 306.02 49.21Q308.61 49.21 310.62 48.41Q312.63 47.60 313.81 46.11Q314.98 44.62 314.98 42.65Q314.98 40.88 313.96 39.74Q312.93 38.61 311.20 37.85Q309.46 37.10 307.25 36.53L302.49 35.21Q297.48 33.88 294.68 31.25Q291.88 28.63 291.88 24.44Q291.88 20.91 293.78 18.28Q295.68 15.64 298.95 14.17Q302.21 12.71 306.32 12.71Q310.50 12.71 313.69 14.17Q316.87 15.64 318.69 18.18Q320.51 20.72 320.59 23.98L314.52 23.98Q314.22 21.19 311.94 19.66Q309.65 18.13 306.18 18.13Q303.72 18.13 301.90 18.89Q300.08 19.66 299.08 21.01Q298.09 22.36 298.09 24.09Q298.09 26.03 299.28 27.22Q300.46 28.41 302.17 29.10Q303.88 29.80 305.44 30.21L309.41 31.25Q311.35 31.74 313.41 32.58Q315.48 33.41 317.23 34.74Q318.98 36.06 320.06 38.02Q321.14 39.97 321.14 42.73Q321.14 46.18 319.36 48.89Q317.58 51.59 314.21 53.14Q310.83 54.68 306.04 54.68Z"/>
+    <path d="M357.36 54L331.55 54L331.55 13.26L357.20 13.26L357.20 18.62L337.78 18.62L337.78 30.76L355.80 30.76L355.80 36.09L337.78 36.09L337.78 48.64L357.36 48.64L357.36 54Z"/>
+  </g>
+
+  <!-- "powered by" label -->
+  <text x="540" y="840"
+        font-family="'SF Pro Text', 'Inter', 'Helvetica Neue', Arial, sans-serif"
+        font-size="22" font-weight="300" letter-spacing="7"
+        fill="#71717A" text-anchor="middle" dominant-baseline="middle">powered by</text>
+
+  <!-- HLNΛ wordmark — scale 0.95, centred at x=540, glyph midpoint y≈863 -->
+  <g transform="translate(439, 882) scale(0.95)" fill="#F5F7FA">
+    <path d="M28.59 48L21.81 48L21.81 10.17L28.59 10.17L28.59 25.81L46.18 25.81L46.18 10.17L52.96 10.17L52.96 48L46.18 48L46.18 31.52L28.59 31.52L28.59 48Z"/>
+    <path d="M93.07 48L69.58 48L69.58 10.17L76.36 10.17L76.36 42.29L93.07 42.29L93.07 48Z"/>
+    <path d="M114.89 48L107.98 48L107.98 10.17L115.65 10.17L128.73 31.01Q129.54 32.31 130.45 33.95Q131.37 35.58 132.36 37.59Q132.87 38.66 133.37 39.80Q133.30 38.76 133.25 37.69Q133.09 35.46 133.03 33.44Q132.97 31.42 132.97 30.02L132.97 10.17L139.85 10.17L139.85 48L132.15 48L120.35 29.24Q119.23 27.43 118.24 25.68Q117.25 23.93 116.11 21.72Q115.37 20.27 114.41 18.47Q114.51 20.10 114.58 21.62Q114.71 24.11 114.80 26.06Q114.89 28.02 114.89 29.21L114.89 48Z"/>
+    <path d="M 153,48 L 172,7 L 191,48" fill="none" stroke="url(#lambda-hl)" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+</svg>
