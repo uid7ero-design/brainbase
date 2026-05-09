@@ -10,7 +10,7 @@ type PipelineRequest = {
 }
 
 const TYPE_OPTS = [
-  { value: 'request',  label: 'Feature request', desc: 'Something new you'd like added' },
+  { value: 'request',  label: 'Feature request', desc: "Something new you'd like added" },
   { value: 'issue',    label: 'Issue / bug',      desc: 'Something that isn\'t working right' },
   { value: 'feedback', label: 'Feedback',         desc: 'General feedback or suggestion' },
 ]
