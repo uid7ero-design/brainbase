@@ -16,7 +16,16 @@ const STATUS_LABELS: Record<string, string> = {
   cancelled:   'Cancelled',
 };
 
-const APP_URL = process.env.APP_URL ?? 'https://brainbase.com.au';
+const APP_URL = process.env.APP_URL ?? 'https://brainbase.com.au'
+
+type Lead = {
+  id: string
+  status: string
+  name: string
+  email: string
+  notes: string | null
+  client_token: string | null
+};
 
 function buildClientEmail(
   name: string,
@@ -64,28 +73,33 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json({ error: 'Invalid status' }, { status: 400 });
   }
 
-  let rows: { id: string; status: string; name: string; email: string; notes: string | null; client_token: string | null }[] = [];
+  let rows: Lead[] = [];
 
-  if (body.status && body.note !== undefined) {
-    rows = await sql`
-      UPDATE tennis_leads SET status = ${body.status}, notes = ${body.note}
-      WHERE id = ${id} AND organisation_id = ${session.organisationId}
-      RETURNING id, status, name, email, notes, client_token::text AS client_token
-    `;
-  } else if (body.status) {
-    rows = await sql`
-      UPDATE tennis_leads SET status = ${body.status}
-      WHERE id = ${id} AND organisation_id = ${session.organisationId}
-      RETURNING id, status, name, email, notes, client_token::text AS client_token
-    `;
-  } else if (body.note !== undefined) {
-    rows = await sql`
-      UPDATE tennis_leads SET notes = ${body.note}
-      WHERE id = ${id} AND organisation_id = ${session.organisationId}
-      RETURNING id, status, name, email, notes, client_token::text AS client_token
-    `;
-  } else {
-    return NextResponse.json({ error: 'Nothing to update' }, { status: 400 });
+  try {
+    if (body.status && body.note !== undefined) {
+      rows = (await sql`
+        UPDATE tennis_leads SET status = ${body.status}, notes = ${body.note}
+        WHERE id = ${id} AND organisation_id = ${session.organisationId}
+        RETURNING id, status, name, email, notes, client_token::text AS client_token
+      `) as unknown as Lead[];
+    } else if (body.status) {
+      rows = (await sql`
+        UPDATE tennis_leads SET status = ${body.status}
+        WHERE id = ${id} AND organisation_id = ${session.organisationId}
+        RETURNING id, status, name, email, notes, client_token::text AS client_token
+      `) as unknown as Lead[];
+    } else if (body.note !== undefined) {
+      rows = (await sql`
+        UPDATE tennis_leads SET notes = ${body.note}
+        WHERE id = ${id} AND organisation_id = ${session.organisationId}
+        RETURNING id, status, name, email, notes, client_token::text AS client_token
+      `) as unknown as Lead[];
+    } else {
+      return NextResponse.json({ error: 'Nothing to update' }, { status: 400 });
+    }
+  } catch (err) {
+    console.error('[leads PATCH] SQL error:', err);
+    return NextResponse.json({ error: 'Database error — check server logs' }, { status: 500 });
   }
 
   if (rows.length === 0) return NextResponse.json({ error: 'Not found' }, { status: 404 });
@@ -117,11 +131,17 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
 
   const { id } = await params;
 
-  const rows = await sql`
-    DELETE FROM tennis_leads
-    WHERE id = ${id} AND organisation_id = ${session.organisationId}
-    RETURNING id
-  `;
+  let rows;
+  try {
+    rows = await sql`
+      DELETE FROM tennis_leads
+      WHERE id = ${id} AND organisation_id = ${session.organisationId}
+      RETURNING id
+    `;
+  } catch (err) {
+    console.error('[leads DELETE] SQL error:', err);
+    return NextResponse.json({ error: 'Database error' }, { status: 500 });
+  }
 
   if (rows.length === 0) return NextResponse.json({ error: 'Not found' }, { status: 404 });
   return NextResponse.json({ success: true });

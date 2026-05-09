@@ -25,6 +25,7 @@ export default function LeadStatusPicker({
   const [notify, setNotify] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const router = useRouter();
 
   const dirty = status !== currentStatus || note !== (currentNotes ?? '');
@@ -32,21 +33,29 @@ export default function LeadStatusPicker({
   async function save() {
     if (saving) return;
     setSaving(true);
+    setSaveError(null);
     const body: Record<string, unknown> = { note };
     if (status !== currentStatus) body.status = status;
     if (notify) body.notify = true;
 
-    const res = await fetch(`/api/leads/${leadId}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
+    try {
+      const res = await fetch(`/api/leads/${leadId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
 
-    if (res.ok) {
-      setSaved(true);
-      setNotify(false);
-      setTimeout(() => setSaved(false), 2500);
-      router.refresh();
+      if (res.ok) {
+        setSaved(true);
+        setNotify(false);
+        setTimeout(() => setSaved(false), 2500);
+        router.refresh();
+      } else {
+        const data = await res.json().catch(() => ({})) as { error?: string };
+        setSaveError(data.error ?? `Server error (${res.status})`);
+      }
+    } catch {
+      setSaveError('Network error — check your connection');
     }
     setSaving(false);
   }
@@ -83,6 +92,12 @@ export default function LeadStatusPicker({
           className="w-full bg-white/4 border border-white/8 rounded-xl px-4 py-3 text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-white/20 resize-none"
         />
       </div>
+
+      {saveError && (
+        <p className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">
+          {saveError}
+        </p>
+      )}
 
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <label className="flex items-center gap-2.5 cursor-pointer select-none">

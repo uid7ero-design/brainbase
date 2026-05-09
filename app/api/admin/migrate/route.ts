@@ -590,6 +590,9 @@ export async function POST() {
       created_at       TIMESTAMPTZ DEFAULT NOW()
     )
   `;
+  await sql`ALTER TABLE tennis_leads ADD COLUMN IF NOT EXISTS notes        TEXT`;
+  await sql`ALTER TABLE tennis_leads ADD COLUMN IF NOT EXISTS client_token TEXT DEFAULT gen_random_uuid()::text`;
+  await sql`UPDATE tennis_leads SET client_token = gen_random_uuid()::text WHERE client_token IS NULL`;
   await sql`CREATE INDEX IF NOT EXISTS idx_tennis_leads_org     ON tennis_leads(organisation_id)`;
   await sql`CREATE INDEX IF NOT EXISTS idx_tennis_leads_created ON tennis_leads(created_at DESC)`;
 
