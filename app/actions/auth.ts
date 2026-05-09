@@ -4,7 +4,7 @@ import bcrypt from 'bcryptjs';
 import sql from '@/lib/db';
 import { createSession, deleteSession, getSession, type Role } from '@/lib/session';
 
-export type LoginState = { error?: string; redirectTo?: string } | undefined;
+export type LoginState = { error?: string; redirectTo?: string; unverified?: boolean } | undefined;
 
 export async function login(prevState: LoginState, formData: FormData): Promise<LoginState> {
   const username = (formData.get('username') as string)?.trim().toLowerCase();
