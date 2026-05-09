@@ -6,14 +6,15 @@ export default async function CancelPage({ searchParams }: { searchParams: Promi
   const { t } = await searchParams;
   if (!t) notFound();
 
-  let rows: { name: string; session_type: string | null; status: string }[] = [];
+  type CancelRow = { name: string; session_type: string | null; status: string }
+  let rows: CancelRow[] = [];
   try {
-    rows = await sql`
+    rows = (await sql`
       SELECT name, session_type, status
       FROM tennis_leads
       WHERE client_token = ${t}::uuid
       LIMIT 1
-    `;
+    `) as unknown as CancelRow[];
   } catch {
     notFound();
   }
