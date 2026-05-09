@@ -13,8 +13,8 @@ export default function About() {
               <div className="relative">
                 <div className="absolute -inset-3 rounded-full bg-green-500/8 blur-2xl" />
                 <div className="absolute -inset-0.5 rounded-full bg-linear-to-br from-green-500/25 via-green-500/5 to-transparent" />
-                <div className="relative w-52 h-52 rounded-full overflow-hidden shadow-2xl shadow-black/60">
-                  <Image src="/luke.png" alt="Luke Doughty – Head Coach, LD Tennis" fill className="object-cover object-top" sizes="208px" />
+                <div className="relative w-72 h-72 rounded-full overflow-hidden shadow-2xl shadow-black/60">
+                  <Image src="/luke.png" alt="Luke Doughty – Head Coach, LD Tennis" fill className="object-cover object-top" sizes="288px" />
                 </div>
                 <div className="absolute -bottom-1 -right-1 w-10 h-10 rounded-full bg-green-500 flex items-center justify-center shadow-md shadow-green-500/30 border-2 border-[#0a0a0a]">
                   <svg className="w-4 h-4 text-black" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
