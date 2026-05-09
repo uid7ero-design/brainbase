@@ -132,6 +132,7 @@ function Heartbeat() {
 
 type Msg = { role: "user" | "assistant"; text: string };
 type OrbState = "idle" | "thinking" | "alert";
+type PipelineItem = { id: string; type: string; title: string; description: string | null; org_name: string | null; created_at: string; status: string };
 
 // ── PAGE ─────────────────────────────────────────────────────────────────────
 
@@ -144,6 +145,18 @@ export default function CommandPage() {
   const [ribbonExpanded, setRibbonExpanded] = useState<string | null>(null);
   const [orbState, setOrbState]         = useState<OrbState>("idle");
   const [drawerAlert, setDrawerAlert]   = useState<DrawerAlert | null>(null);
+  const [pipelineAlerts, setPipelineAlerts] = useState<PipelineItem[]>([]);
+
+  useEffect(() => {
+    fetch('/api/admin/pipeline')
+      .then(r => r.ok ? r.json() : { requests: [] })
+      .then((d: { requests?: PipelineItem[] }) => {
+        const newItems = (d.requests ?? []).filter((r: PipelineItem & { status: string }) => r.status === 'new');
+        setPipelineAlerts(newItems);
+      })
+      .catch(() => {});
+  }, []);
+
   const [msgs, setMsgs] = useState<Msg[]>([
     { role: "assistant", text: "Good morning. Monitoring all systems. 2 alerts need your attention today." },
   ]);
@@ -297,16 +310,67 @@ export default function CommandPage() {
     </section>
   );
 
+  const totalAlertCount = ALERTS.filter(a => a.status === "critical" || a.status === "warning").length + pipelineAlerts.length;
+
   const AlertsGrid = (
     <div style={{ height: "100%", display: "flex", flexDirection: "column", borderRadius: 14, overflow: "hidden", background: "rgba(7,8,11,.72)", border: "1px solid rgba(255,255,255,.07)", backdropFilter: "blur(16px)" }}>
       <div style={{ padding: "11px 16px", borderBottom: "1px solid rgba(255,255,255,.055)", background: "rgba(255,255,255,.015)", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
           <div style={{ width: 5.5, height: 5.5, borderRadius: "50%", background: "#EF4444", boxShadow: "0 0 6px #EF4444", animation: "kf-blink 2s ease-in-out infinite" }} />
           <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: ".10em", color: "rgba(255,255,255,.40)", textTransform: "uppercase" }}>Active Alerts</span>
+          {pipelineAlerts.length > 0 && (
+            <span style={{ fontSize: 9, fontWeight: 700, padding: "1px 7px", borderRadius: 20, background: "rgba(99,102,241,.20)", border: "1px solid rgba(99,102,241,.35)", color: "#a5b4fc", letterSpacing: ".04em" }}>
+              {pipelineAlerts.length} client request{pipelineAlerts.length !== 1 ? "s" : ""}
+            </span>
+          )}
         </div>
-        <span style={{ fontSize: 10.5, color: "rgba(239,68,68,.70)", fontWeight: 600 }}>2 require immediate action</span>
+        <span style={{ fontSize: 10.5, color: "rgba(239,68,68,.70)", fontWeight: 600 }}>{totalAlertCount} require attention</span>
       </div>
       <div style={{ flex: 1, overflowY: "auto", padding: "12px" }}>
+        {/* Client pipeline requests */}
+        {pipelineAlerts.length > 0 && (
+          <div style={{ marginBottom: 10 }}>
+            <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: ".10em", color: "rgba(165,180,252,.50)", textTransform: "uppercase", marginBottom: 6 }}>Client Requests</div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(210px,1fr))", gap: 9, marginBottom: 12 }}>
+              {pipelineAlerts.map(item => (
+                <div key={item.id} style={{
+                  padding: "14px", borderRadius: 11,
+                  background: "rgba(99,102,241,.08)", border: "1px solid rgba(99,102,241,.22)",
+                  backdropFilter: "blur(8px)", display: "flex", flexDirection: "column", gap: 8,
+                  transition: "all .18s", boxShadow: "inset 0 1px 0 rgba(255,255,255,.04)",
+                }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#a5b4fc", boxShadow: "0 0 6px #a5b4fc", animation: "kf-blink 2s ease-in-out infinite", flexShrink: 0 }} />
+                    <span style={{ fontSize: 9.5, fontWeight: 700, color: "#a5b4fc", letterSpacing: ".09em", textTransform: "uppercase" }}>
+                      {item.type === "issue" ? "Issue" : item.type === "feedback" ? "Feedback" : "Request"}
+                    </span>
+                    {item.org_name && (
+                      <span style={{ fontSize: 9, color: "rgba(165,180,252,.55)", marginLeft: "auto" }}>{item.org_name}</span>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 12.5, fontWeight: 600, color: "#F5F7FA", lineHeight: 1.35 }}>{item.title}</div>
+                  {item.description && (
+                    <div style={{ fontSize: 10.5, color: "rgba(230,237,243,.40)", lineHeight: 1.55 }}>{item.description}</div>
+                  )}
+                  <Link href="/admin/pipeline"
+                    style={{
+                      display: "block", padding: "7px 12px", borderRadius: 7, marginTop: "auto",
+                      background: "rgba(99,102,241,.16)", border: "1px solid rgba(99,102,241,.35)",
+                      fontSize: 11, fontWeight: 600, color: "#a5b4fc",
+                      textDecoration: "none", textAlign: "center", letterSpacing: ".02em", transition: "all .15s",
+                    }}
+                    onMouseEnter={e => { e.currentTarget.style.background = "rgba(99,102,241,.28)"; }}
+                    onMouseLeave={e => { e.currentTarget.style.background = "rgba(99,102,241,.16)"; }}
+                  >
+                    Respond →
+                  </Link>
+                </div>
+              ))}
+            </div>
+            <div style={{ height: 1, background: "rgba(255,255,255,.05)", marginBottom: 12 }} />
+          </div>
+        )}
+        {/* Operational alerts */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(210px,1fr))", gap: 9 }}>
           {ALERTS.map(alert => {
             const s = S[alert.status];
@@ -476,7 +540,7 @@ export default function CommandPage() {
 
   return (
     <>
-    <WorkspaceShell title="Command Centre" alertCount={4} intelRail>
+    <WorkspaceShell title="Command Centre" alertCount={totalAlertCount} intelRail>
       <style dangerouslySetInnerHTML={{ __html: `
         /* react-grid-layout */
         .react-grid-layout{position:relative;transition:height 200ms ease}

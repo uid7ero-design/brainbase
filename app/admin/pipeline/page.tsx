@@ -1,20 +1,23 @@
 'use client'
 
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState } from 'react'
 import { redirect } from 'next/navigation'
 
 const FONT = "var(--font-inter),-apple-system,sans-serif"
 
+type Message = { id: string; author_type: 'founder' | 'client'; body: string; created_at: string }
 type PipelineRequest = {
   id: string; type: string; title: string; description: string | null
   status: string; priority: string; founder_note: string | null
   org_name: string | null; submitted_by_name: string | null; created_at: string; updated_at: string
+  messages?: Message[]
 }
 
 const STATUS_STYLE: Record<string, { bg: string; color: string; border: string; label: string }> = {
-  new:         { bg: 'rgba(99,102,241,.12)',  color: '#a5b4fc', border: 'rgba(99,102,241,.28)', label: 'New' },
-  in_progress: { bg: 'rgba(251,191,36,.10)',  color: '#fbbf24', border: 'rgba(251,191,36,.25)', label: 'In progress' },
-  resolved:    { bg: 'rgba(34,197,94,.10)',   color: '#4ade80', border: 'rgba(34,197,94,.25)',  label: 'Resolved' },
+  new:             { bg: 'rgba(99,102,241,.12)',  color: '#a5b4fc', border: 'rgba(99,102,241,.28)', label: 'New' },
+  in_progress:     { bg: 'rgba(251,191,36,.10)',  color: '#fbbf24', border: 'rgba(251,191,36,.25)', label: 'In progress' },
+  awaiting_client: { bg: 'rgba(251,146,60,.10)',  color: '#fb923c', border: 'rgba(251,146,60,.25)', label: 'Awaiting client' },
+  resolved:        { bg: 'rgba(34,197,94,.10)',   color: '#4ade80', border: 'rgba(34,197,94,.25)',  label: 'Resolved' },
 }
 
 const PRIORITY_STYLE: Record<string, { color: string }> = {
@@ -44,11 +47,12 @@ const inp: React.CSSProperties = {
 
 function RequestCard({ req, onUpdate }: { req: PipelineRequest; onUpdate: (updated: Partial<PipelineRequest>) => void }) {
   const [expanded, setExpanded]   = useState(false)
-  const [note, setNote]           = useState(req.founder_note ?? '')
   const [saving, setSaving]       = useState(false)
-  const noteRef = useRef<HTMLTextAreaElement>(null)
-
-  async function update(patch: { status?: string; priority?: string; founder_note?: string }) {
+  const [msgs, setMsgs]           = useState<Message[]>(req.messages ?? [])
+  const [reply, setReply]         = useState('')
+  const [sendErr, setSendErr]     = useState<string | null>(null)
+  const [sending, setSending]     = useState(false)
+  async function update(patch: { status?: string; priority?: string }) {
     setSaving(true)
     const res = await fetch(`/api/admin/pipeline/${req.id}`, {
       method: 'PATCH',
@@ -59,6 +63,25 @@ function RequestCard({ req, onUpdate }: { req: PipelineRequest; onUpdate: (updat
     if (res.ok) {
       const data = await res.json()
       onUpdate(data.request)
+    }
+  }
+
+  async function sendMessage() {
+    if (!reply.trim() || sending) return
+    setSending(true); setSendErr(null)
+    const res = await fetch(`/api/admin/pipeline/${req.id}/messages`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ body: reply }),
+    })
+    setSending(false)
+    if (res.ok) {
+      const d = await res.json() as { message: Message }
+      setMsgs(m => [...m, d.message])
+      setReply('')
+    } else {
+      const d = await res.json().catch(() => ({})) as { error?: string }
+      setSendErr(d.error ?? 'Failed to send')
     }
   }
 
@@ -145,22 +168,44 @@ function RequestCard({ req, onUpdate }: { req: PipelineRequest; onUpdate: (updat
             </div>
           </div>
 
-          {/* Founder note */}
+          {/* Message thread */}
           <div>
-            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.10em', textTransform: 'uppercase', color: 'rgba(255,255,255,.25)', marginBottom: 6 }}>
-              Note to client
+            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.10em', textTransform: 'uppercase', color: 'rgba(255,255,255,.25)', marginBottom: 10 }}>
+              Thread ({msgs.length})
             </div>
-            <textarea ref={noteRef} style={{ ...inp, resize: 'vertical', lineHeight: 1.6 }} rows={3}
-              value={note} onChange={e => setNote(e.target.value)}
-              placeholder="Leave a note visible to the client (e.g. status update, ETA)…" />
-            <button onClick={() => update({ founder_note: note })} disabled={saving || note === (req.founder_note ?? '')}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12 }}>
+              {msgs.length === 0 ? (
+                <p style={{ fontSize: 12, color: 'rgba(255,255,255,.22)', margin: 0 }}>No messages yet.</p>
+              ) : msgs.map(m => (
+                <div key={m.id} style={{
+                  display: 'flex', flexDirection: 'column',
+                  alignItems: m.author_type === 'founder' ? 'flex-end' : 'flex-start',
+                }}>
+                  <div style={{
+                    maxWidth: '85%', padding: '9px 13px', borderRadius: 10,
+                    background: m.author_type === 'founder' ? 'rgba(99,102,241,.18)' : 'rgba(255,255,255,.06)',
+                    border: `1px solid ${m.author_type === 'founder' ? 'rgba(99,102,241,.30)' : 'rgba(255,255,255,.08)'}`,
+                  }}>
+                    <p style={{ margin: 0, fontSize: 12, color: '#e4e4e7', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{m.body}</p>
+                    <p style={{ margin: '5px 0 0', fontSize: 10, color: 'rgba(255,255,255,.25)' }}>
+                      {m.author_type === 'founder' ? 'You' : (req.org_name ?? 'Client')} · {new Date(m.created_at).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' })}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <textarea style={{ ...inp, resize: 'vertical', lineHeight: 1.6 }} rows={2}
+              value={reply} onChange={e => setReply(e.target.value)}
+              placeholder="Reply to client…" />
+            {sendErr && <p style={{ margin: '4px 0 0', fontSize: 11, color: '#f87171' }}>{sendErr}</p>}
+            <button onClick={sendMessage} disabled={!reply.trim() || sending}
               style={{
                 marginTop: 8, fontSize: 12, fontWeight: 600, padding: '6px 16px', borderRadius: 8, cursor: 'pointer',
                 background: 'rgba(99,102,241,.18)', border: '1px solid rgba(99,102,241,.35)',
                 color: '#a5b4fc', fontFamily: FONT,
-                opacity: saving || note === (req.founder_note ?? '') ? .45 : 1,
+                opacity: !reply.trim() || sending ? .45 : 1,
               }}>
-              {saving ? 'Saving…' : 'Save note'}
+              {sending ? 'Sending…' : 'Send'}
             </button>
           </div>
         </div>
@@ -172,7 +217,7 @@ function RequestCard({ req, onUpdate }: { req: PipelineRequest; onUpdate: (updat
 export default function AdminPipelinePage() {
   const [requests, setRequests] = useState<PipelineRequest[]>([])
   const [loading, setLoading]   = useState(true)
-  const [filter, setFilter]     = useState<'all' | 'new' | 'in_progress' | 'resolved'>('all')
+  const [filter, setFilter]     = useState<'all' | 'new' | 'awaiting_client' | 'in_progress' | 'resolved'>('all')
 
   useEffect(() => {
     fetch('/api/admin/pipeline')
@@ -187,6 +232,7 @@ export default function AdminPipelinePage() {
 
   const filtered = filter === 'all' ? requests : requests.filter(r => r.status === filter)
   const newCount = requests.filter(r => r.status === 'new').length
+  const awaitingCount = requests.filter(r => r.status === 'awaiting_client').length
 
   return (
     <div style={{ maxWidth: 800, margin: '0 auto', padding: '36px 24px 80px', fontFamily: FONT }}>
@@ -203,6 +249,14 @@ export default function AdminPipelinePage() {
               {newCount} new
             </span>
           )}
+          {awaitingCount > 0 && (
+            <span style={{
+              fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 20,
+              background: 'rgba(251,146,60,.12)', color: '#fb923c', border: '1px solid rgba(251,146,60,.30)',
+            }}>
+              {awaitingCount} awaiting client
+            </span>
+          )}
         </div>
         <p style={{ fontSize: 12, color: 'rgba(255,255,255,.28)', margin: 0 }}>
           Requests and issues submitted by your clients.
@@ -211,7 +265,7 @@ export default function AdminPipelinePage() {
 
       {/* Filter tabs */}
       <div style={{ display: 'flex', gap: 4, marginBottom: 16, background: 'rgba(255,255,255,.03)', border: '1px solid rgba(255,255,255,.07)', borderRadius: 10, padding: 4, width: 'fit-content' }}>
-        {(['all', 'new', 'in_progress', 'resolved'] as const).map(f => (
+        {(['all', 'new', 'awaiting_client', 'in_progress', 'resolved'] as const).map(f => (
           <button key={f} onClick={() => setFilter(f)}
             style={{
               fontSize: 11, fontWeight: 600, padding: '5px 14px', borderRadius: 7, cursor: 'pointer',
@@ -219,7 +273,7 @@ export default function AdminPipelinePage() {
               border: 'none', color: filter === f ? '#a5b4fc' : 'rgba(255,255,255,.35)',
               fontFamily: FONT,
             }}>
-            {f === 'all' ? 'All' : f === 'in_progress' ? 'In progress' : f.charAt(0).toUpperCase() + f.slice(1)}
+            {f === 'all' ? 'All' : STATUS_STYLE[f]?.label ?? f}
           </button>
         ))}
       </div>

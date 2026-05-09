@@ -14,7 +14,13 @@ export async function POST() {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
+  const steps: string[] = [];
+  function step(label: string) { steps.push(label); }
+
+  try {
+
   // 1. organisations
+  step('1. organisations');
   await sql`
     CREATE TABLE IF NOT EXISTS organisations (
       id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -25,6 +31,7 @@ export async function POST() {
   `;
 
   // 2. Extend users: add organisation_id and email if they don't exist
+  step('2. users columns');
   await sql`
     ALTER TABLE users
       ADD COLUMN IF NOT EXISTS organisation_id UUID REFERENCES organisations(id),
@@ -411,7 +418,7 @@ export async function POST() {
   await sql`CREATE INDEX IF NOT EXISTS idx_wste_exceptions_org  ON wste_exceptions(organisation_id)`;
   await sql`CREATE INDEX IF NOT EXISTS idx_wste_exceptions_run  ON wste_exceptions(run_id)`;
 
-  // Seed default modules
+  step('seed modules');
   await sql`
     INSERT INTO modules (key, name, industry, description) VALUES
       ('waste_recycling',  'Waste & Recycling',   'Local Government',   'Waste, collections, contamination and recycling operations'),
@@ -576,7 +583,7 @@ export async function POST() {
   await sql`CREATE INDEX IF NOT EXISTS idx_agent_runs_org       ON agent_runs(organisation_id)`;
   await sql`CREATE INDEX IF NOT EXISTS idx_agent_runs_created   ON agent_runs(created_at DESC)`;
 
-  // Tennis vertical — leads captured from /tennis landing page
+  step('tennis_leads');
   await sql`
     CREATE TABLE IF NOT EXISTS tennis_leads (
       id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -592,7 +599,10 @@ export async function POST() {
   `;
   await sql`ALTER TABLE tennis_leads ADD COLUMN IF NOT EXISTS notes        TEXT`;
   await sql`ALTER TABLE tennis_leads ADD COLUMN IF NOT EXISTS client_token TEXT DEFAULT gen_random_uuid()::text`;
-  await sql`UPDATE tennis_leads SET client_token = gen_random_uuid()::text WHERE client_token IS NULL`;
+  // Backfill nulls — try TEXT cast first, fall back for UUID-typed columns
+  await sql`UPDATE tennis_leads SET client_token = gen_random_uuid()::text WHERE client_token IS NULL`.catch(async () => {
+    await sql`UPDATE tennis_leads SET client_token = gen_random_uuid() WHERE client_token IS NULL`.catch(() => {});
+  });
   await sql`CREATE INDEX IF NOT EXISTS idx_tennis_leads_org     ON tennis_leads(organisation_id)`;
   await sql`CREATE INDEX IF NOT EXISTS idx_tennis_leads_created ON tennis_leads(created_at DESC)`;
 
@@ -695,7 +705,7 @@ export async function POST() {
   await sql`CREATE INDEX IF NOT EXISTS idx_social_insights_org     ON social_insights(organisation_id)`;
   await sql`CREATE INDEX IF NOT EXISTS idx_social_insights_created ON social_insights(created_at DESC)`;
 
-  // 28. Contacts — tennis coaching client CRM
+  step('28. contacts');
   await sql`
     CREATE TABLE IF NOT EXISTS contacts (
       id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -732,5 +742,75 @@ export async function POST() {
   await sql`CREATE INDEX IF NOT EXISTS idx_contact_journal_contact ON contact_journal(contact_id)`;
   await sql`CREATE INDEX IF NOT EXISTS idx_contact_journal_org     ON contact_journal(organisation_id)`;
 
-  return NextResponse.json({ success: true, message: 'Migration complete.' });
+  step('30. client_pipeline');
+  await sql`
+    CREATE TABLE IF NOT EXISTS client_pipeline (
+      id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      organisation_id  UUID NOT NULL REFERENCES organisations(id),
+      submitted_by     UUID REFERENCES users(id),
+      type             TEXT NOT NULL DEFAULT 'request'
+        CHECK (type IN ('request', 'issue', 'feedback')),
+      title            TEXT NOT NULL,
+      description      TEXT,
+      status           TEXT NOT NULL DEFAULT 'new'
+        CHECK (status IN ('new', 'in_progress', 'resolved')),
+      priority         TEXT NOT NULL DEFAULT 'medium'
+        CHECK (priority IN ('low', 'medium', 'high')),
+      founder_note     TEXT,
+      created_at       TIMESTAMPTZ DEFAULT NOW(),
+      updated_at       TIMESTAMPTZ DEFAULT NOW()
+    )
+  `;
+  await sql`CREATE INDEX IF NOT EXISTS idx_client_pipeline_org     ON client_pipeline(organisation_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_client_pipeline_status  ON client_pipeline(status)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_client_pipeline_created ON client_pipeline(created_at DESC)`;
+
+  step('31. pipeline_messages');
+  await sql`
+    CREATE TABLE IF NOT EXISTS pipeline_messages (
+      id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      pipeline_id     UUID NOT NULL REFERENCES client_pipeline(id) ON DELETE CASCADE,
+      organisation_id UUID NOT NULL REFERENCES organisations(id),
+      author_type     TEXT NOT NULL,
+      body            TEXT NOT NULL,
+      created_at      TIMESTAMPTZ DEFAULT NOW()
+    )
+  `;
+  await sql`CREATE INDEX IF NOT EXISTS idx_pipeline_messages_pipeline ON pipeline_messages(pipeline_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_pipeline_messages_created  ON pipeline_messages(created_at)`;
+
+  // 32. Expand client_pipeline status to include awaiting_client
+  step('32. client_pipeline awaiting_client status');
+  await sql`
+    DO $$
+    DECLARE r RECORD;
+    BEGIN
+      FOR r IN
+        SELECT constraint_name FROM information_schema.table_constraints
+        WHERE table_name = 'client_pipeline'
+          AND constraint_type = 'CHECK'
+          AND constraint_name ILIKE '%status%'
+      LOOP
+        EXECUTE 'ALTER TABLE client_pipeline DROP CONSTRAINT IF EXISTS ' || quote_ident(r.constraint_name);
+      END LOOP;
+    END $$
+  `;
+  await sql`
+    ALTER TABLE client_pipeline
+      ADD CONSTRAINT client_pipeline_status_check
+      CHECK (status IN ('new', 'in_progress', 'awaiting_client', 'resolved'))
+  `;
+
+  return NextResponse.json({ success: true, message: 'Migration complete.', steps });
+
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    const stack   = err instanceof Error ? err.stack   : undefined;
+    console.error('[MIGRATE ERROR] failed at step:', steps.at(-1), '\n', err);
+    return NextResponse.json({
+      error:       message,
+      failedAfter: steps.at(-1) ?? 'start',
+      stack,
+    }, { status: 500 });
+  }
 }

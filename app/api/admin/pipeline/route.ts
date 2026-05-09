@@ -10,15 +10,20 @@ export async function GET() {
       cp.id, cp.type, cp.title, cp.description, cp.status, cp.priority,
       cp.founder_note, cp.created_at, cp.updated_at,
       o.name AS org_name,
-      u.name AS submitted_by_name
+      u.name AS submitted_by_name,
+      (
+        SELECT json_agg(pm ORDER BY pm.created_at ASC)
+        FROM pipeline_messages pm
+        WHERE pm.pipeline_id = cp.id
+      ) AS messages
     FROM client_pipeline cp
     LEFT JOIN organisations o ON o.id = cp.organisation_id
     LEFT JOIN users u ON u.id = cp.submitted_by
     ORDER BY
-      CASE cp.status WHEN 'new' THEN 0 WHEN 'in_progress' THEN 1 ELSE 2 END,
+      CASE cp.status WHEN 'new' THEN 0 WHEN 'awaiting_client' THEN 1 WHEN 'in_progress' THEN 2 ELSE 3 END,
       CASE cp.priority WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END,
       cp.created_at DESC
-  `.catch(() => [])
+  `.catch(err => { console.error('[PIPELINE GET ERROR]', err); return [] })
 
   return NextResponse.json({ requests: rows })
 }
