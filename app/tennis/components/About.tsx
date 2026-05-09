@@ -7,23 +7,19 @@ export default function About() {
   return (
     <section id="about" className="py-20 px-6 bg-[#0a0a0a]">
       <div className="max-w-5xl mx-auto">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-16 items-center">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-16 items-start">
           <ScrollFadeIn>
-            <div className="flex flex-col items-center lg:items-start gap-8">
-              <div className="relative">
-                <div className="absolute -inset-3 rounded-full bg-green-500/8 blur-2xl" />
-                <div className="absolute -inset-0.5 rounded-full bg-linear-to-br from-green-500/25 via-green-500/5 to-transparent" />
-                <div className="relative w-72 h-72 rounded-full overflow-hidden shadow-2xl shadow-black/60">
-                  <Image src="/luke.png" alt="Luke Doughty – Head Coach, LD Tennis" fill className="object-cover object-top" sizes="288px" />
+            <div className="relative">
+              <div className="absolute -inset-2 rounded-3xl bg-green-500/8 blur-2xl" />
+              <div className="absolute -inset-0.5 rounded-3xl bg-linear-to-br from-green-500/30 via-green-500/8 to-transparent" />
+              <div className="relative rounded-3xl overflow-hidden shadow-2xl shadow-black/60 w-full aspect-[3/4]">
+                <Image src="/luke.png" alt="Luke Doughty – Head Coach, LD Tennis" fill className="object-cover object-top" sizes="(max-width: 1024px) 100vw, 50vw" />
+                <div className="absolute bottom-0 inset-x-0 h-32 bg-linear-to-t from-black/60 to-transparent" />
+                <div className="absolute bottom-5 left-5 right-5 flex flex-wrap gap-2">
+                  {highlights.map((h) => (
+                    <span key={h} className="text-xs font-medium text-white/80 bg-black/50 backdrop-blur-sm border border-white/15 rounded-full px-3 py-1">{h}</span>
+                  ))}
                 </div>
-                <div className="absolute -bottom-1 -right-1 w-10 h-10 rounded-full bg-green-500 flex items-center justify-center shadow-md shadow-green-500/30 border-2 border-[#0a0a0a]">
-                  <svg className="w-4 h-4 text-black" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
-                </div>
-              </div>
-              <div className="flex flex-wrap gap-2 justify-center lg:justify-start">
-                {highlights.map((h) => (
-                  <span key={h} className="text-xs font-medium text-zinc-400 bg-white/4 border border-white/8 rounded-full px-3 py-1.5">{h}</span>
-                ))}
               </div>
             </div>
           </ScrollFadeIn>
