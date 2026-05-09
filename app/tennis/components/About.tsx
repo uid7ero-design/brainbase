@@ -1,7 +1,7 @@
 import Image from "next/image";
 import ScrollFadeIn from "./ScrollFadeIn";
 
-const highlights = ["10+ Years Experience", "Tennis SA Certified", "Level 1 Coach", "All Ages 4+"];
+const highlights = ["20+ Years in Tennis", "Tennis Australia Certified", "Level 1 Coach", "Division 1 Player", "All Ages 5+"];
 
 export default function About() {
   return (
@@ -36,8 +36,9 @@ export default function About() {
                 <p className="text-zinc-500 text-sm font-medium uppercase tracking-widest">Head Coach &amp; Founder</p>
               </div>
               <div className="space-y-4 text-zinc-400 leading-relaxed max-w-sm">
-                <p>A Level 1 certified tennis coach with over 10 years of experience, including 8 years with Tennis SA. Luke focuses on making tennis accessible, structured, and genuinely enjoyable.</p>
-                <p>Specialising in beginner and entry-level coaching for all ages 4+, his sessions are designed to build confidence first — not just technique, but how you feel on court.</p>
+                <p>Luke has been involved in tennis for over 20 years and brings 5 years of coaching experience to his programs. A current Level 1 certified coach with Tennis Australia, he has worked with leading sporting organisations including the South Australian Cricket Association and Tennis SA — where he developed a deep understanding of how important the right entry-level coaching is in shaping a player&apos;s long-term experience.</p>
+                <p>After working full-time with Tennis SA, Luke stepped away to return to hands-on coaching with a focus on growing the game at a grassroots level. As a current Division 1 men&apos;s player, he combines his playing experience with a structured, supportive approach — delivering sessions that are clear, engaging, and tailored to each individual.</p>
+                <p>Specialising in beginner and entry-level coaching for ages 5+, his goal is simple: to create a positive environment where players learn the game properly, enjoy the process, and develop confidence that lasts.</p>
               </div>
               <div className="pt-2">
                 <a href="#contact" className="inline-flex items-center gap-2 text-sm font-medium text-zinc-400 hover:text-white transition-colors group">

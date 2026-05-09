@@ -30,6 +30,9 @@ export default function Nav() {
           <a href="#contact" className="text-sm font-semibold bg-green-500 text-black px-5 py-2.5 rounded-full hover:bg-green-400 active:scale-95 transition-all duration-200">
             Contact Me
           </a>
+          <a href="/login" className="text-xs text-zinc-600 hover:text-zinc-400 transition-colors hidden md:block">
+            Login
+          </a>
         </div>
       </div>
     </nav>

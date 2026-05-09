@@ -2,9 +2,9 @@ import ScrollFadeIn from "./ScrollFadeIn";
 
 const points = [
   { number: "01", title: "Fundamentals first.", body: "Every session is built around the foundations of the game — technique, movement, and awareness. Skills developed properly from the start last." },
-  { number: "02", title: "Tailored to the individual.", body: "No generic programs. Each session is structured around your level, goals, and pace." },
-  { number: "03", title: "Confidence is the outcome.", body: "Progress isn't just technical — it's how you feel on court. Relaxed, capable, and ready to play." },
-  { number: "04", title: "Beginner-first approach.", body: "From first-time players to adults returning to the game, every session is structured, supportive, and easy to follow." },
+  { number: "02", title: "Program-focused coaching.", body: "Luke strongly believes in structured programs as the best way to develop players. They provide consistency, progression, and a clear learning pathway from beginner to confident player." },
+  { number: "03", title: "Beginner-first approach.", body: "From first-time players to adults returning to the game, every session is structured, supportive, and easy to follow." },
+  { number: "04", title: "Enjoying the game comes first.", body: "A safe, supportive environment helps players relax, have fun, and naturally build confidence while they learn." },
 ];
 
 export default function Positioning() {

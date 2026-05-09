@@ -2,8 +2,9 @@ import ScrollFadeIn from "./ScrollFadeIn";
 
 const services = [
   { name: "Private Coaching", tag: "Most popular", pricing: [{ label: "1 hour", value: "$70" }, { label: "30 min", value: "$35" }], description: "One-on-one sessions built entirely around you — the fastest way to improve at any age or level.", featured: true },
-  { name: "ANZ Hot Shots", tag: "Ages 5–12", pricing: [{ label: "Per term (min. 8 wks)", value: "$140" }, { label: "Casual", value: "$20" }], description: "Red, Orange, and Green ball groups for junior players. Builds coordination, agility, and confidence on smaller courts with modified equipment.", featured: false },
-  { name: "Yellow Ball Squads", tag: "Intermediate", pricing: [{ label: "Per term (min. 8 wks)", value: "$140" }, { label: "Casual", value: "$20" }], description: "Squad sessions for players developing match play skills and on-court decision making. One hour per session.", featured: false },
+  { name: "Hot Shots Tennis", tag: "Ages 5–12", pricing: [{ label: "Per term", value: "$140" }, { label: "Per session", value: "$20" }], description: "Red, Orange, and Green ball groups for junior players. Builds coordination, agility, and confidence on smaller courts with modified equipment.", featured: false },
+  { name: "Hot Shots Matchplay", tag: "New", pricing: [{ label: "In Hot Shots program", value: "$10" }, { label: "New players", value: "$15" }], description: "Designed to give children in Hot Shots programs the opportunity to transition from learning the game to playing matches in a fun team environment.", featured: false, isNew: true },
+  { name: "Adult Beginner Groups", tag: "New", pricing: [{ label: "Per session", value: "$20" }], description: "Suitable for players who have never picked up a racquet before or haven't played for years. Learn the fundamentals in a fun, welcoming environment.", featured: false, isNew: true },
   { name: "Cardio Tennis", tag: "All levels", pricing: [{ label: "Per session", value: "$15" }, { label: "Per term (10 sessions)", value: "$120" }], description: "A high-energy group fitness class combining tennis drills, games, and a pumping soundtrack. Social, fun, and suitable for all abilities.", featured: false },
   { name: "Semi-Private Coaching", tag: "2–4 players", pricing: [{ label: "Varies by group size", value: "Ask Luke" }], description: "Train with friends or family in a small group. More flexible than private coaching, still highly focused.", featured: false },
 ];
@@ -40,7 +41,7 @@ export default function Coaching() {
               <div key={service.name} className="group relative rounded-2xl border border-white/8 bg-white/4 p-7 flex flex-col justify-between gap-5 shadow-md shadow-black/30 hover:-translate-y-1.5 hover:shadow-xl hover:shadow-black/50 hover:bg-white/7 hover:border-white/15 transition-all duration-300 cursor-pointer overflow-hidden">
                 <div className="absolute -top-8 -right-8 w-32 h-32 rounded-full bg-white/0 group-hover:bg-white/4 blur-2xl pointer-events-none transition-all duration-500" />
                 <div className="flex flex-col gap-3 relative">
-                  <span className="inline-flex w-fit text-xs font-semibold uppercase tracking-widest text-zinc-500 bg-white/6 border border-white/10 rounded-full px-3 py-1 group-hover:text-zinc-400 group-hover:border-white/15 transition-colors duration-300">{service.tag}</span>
+                  <span className={`inline-flex w-fit text-xs font-semibold uppercase tracking-widest rounded-full px-3 py-1 transition-colors duration-300 ${'isNew' in service && service.isNew ? 'text-green-400 bg-green-500/10 border border-green-500/25 group-hover:border-green-500/40' : 'text-zinc-500 bg-white/6 border border-white/10 group-hover:text-zinc-400 group-hover:border-white/15'}`}>{service.tag}</span>
                   <h3 className="text-lg font-bold text-zinc-100 tracking-tight group-hover:text-white transition-colors duration-300">{service.name}</h3>
                   <p className="text-zinc-500 text-sm leading-relaxed group-hover:text-zinc-400 transition-colors duration-300">{service.description}</p>
                 </div>

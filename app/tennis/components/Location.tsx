@@ -35,6 +35,7 @@ export default function Location() {
               </div>
               <ul className="flex flex-col gap-5 relative">
                 <li><p className="text-white font-semibold">Monday to Friday</p><p className="text-zinc-500 text-sm mt-0.5">From 3:30pm onwards</p></li>
+                <li><p className="text-white font-semibold">Sunday</p><p className="text-zinc-500 text-sm mt-0.5">From 8:00am onwards</p></li>
                 <li><p className="text-zinc-400 text-sm leading-relaxed group-hover:text-zinc-300 transition-colors duration-300">Flexible times available — <a href="#contact" className="text-zinc-300 hover:text-white underline underline-offset-4 transition-colors">reach out to discuss</a>.</p></li>
               </ul>
               <div className="absolute bottom-0 left-0 right-0 h-px bg-linear-to-r from-green-500/0 via-green-500/40 to-green-500/0 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
