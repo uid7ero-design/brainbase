@@ -1733,6 +1733,16 @@ export default function FounderPage() {
 
   const refreshIntel = () => { setIntelLoading(true); loadIntel(); };
 
+  // ─── Real ops alerts (tennis leads etc.) ────────────────────────────────
+  type OpsAlert = { id: string; severity: string; title: string; description: string; rule_key: string | null; created_at: string };
+  const [opsAlerts, setOpsAlerts] = useState<OpsAlert[]>([]);
+  useEffect(() => {
+    fetch('/api/ops/alerts')
+      .then(r => r.ok ? r.json() : Promise.reject())
+      .then((d: { alerts?: OpsAlert[] }) => { if (Array.isArray(d?.alerts)) setOpsAlerts(d.alerts.filter(a => (a as { status?: string }).status === 'OPEN' || !(a as { status?: string }).status)); })
+      .catch(() => {});
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Tries founder-state for activity events; silently skips if not available
   const refreshFounderState = async () => {
     try {
@@ -1750,7 +1760,20 @@ export default function FounderPage() {
   };
 
   // ─── Derive queue items (live → fallback to mock) ────────────────────────
-  const queueItems: QueueItem[] = (intel?.attention_queue?.length)
+  const opsQueueItems: QueueItem[] = opsAlerts.map((a, i) => ({
+    id:       9000 + i,
+    severity: toSeverity(a.severity),
+    type:     'sales' as FeedType,
+    title:    a.title,
+    why:      a.description,
+    action:   'Review lead in dashboard',
+    due:      'Now',
+    cta:      'View Lead',
+  }));
+
+  const queueItems: QueueItem[] = [
+    ...opsQueueItems,
+    ...((intel?.attention_queue?.length)
     ? intel.attention_queue.map((item, i) => ({
         id:          item.id ?? (1000 + i),
         severity:    toSeverity(item.severity),
@@ -1763,7 +1786,8 @@ export default function FounderPage() {
         client_id:   item.client_id,
         analysis_id: item.analysis_id,
       }))
-    : QUEUE;
+    : QUEUE),
+  ];
 
   // ─── Derive recommendation items (live → fallback to mock) ──────────────
   const recoItems: RecoItem[] = (intel?.recommended_actions?.length)

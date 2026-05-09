@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { Resend } from 'resend';
 import sql from '@/lib/db';
+import { prisma } from '@/lib/prisma';
 import { validateBookingRequest } from '@/app/tennis/lib/booking';
 import type { BookingRequest } from '@/app/tennis/lib/booking';
 
@@ -59,6 +60,24 @@ export async function POST(request: Request): Promise<Response> {
       `;
     } catch (err) {
       console.error('[/api/lead] contacts insert error:', err);
+    }
+  }
+
+  // Create alert in Founder OS
+  if (LD_TENNIS_ORG_ID) {
+    try {
+      await prisma.alert.create({
+        data: {
+          organisation_id: LD_TENNIS_ORG_ID,
+          title: `New coaching enquiry – ${body.name}`,
+          description: `${body.sessionType ? body.sessionType + ' · ' : ''}${body.email}${body.phone ? ' · ' + body.phone : ''}${body.message ? '\n' + body.message : ''}`,
+          severity: 'HIGH',
+          rule_key: 'new_tennis_lead',
+          metadata: { name: body.name, email: body.email, phone: body.phone ?? null, sessionType: body.sessionType ?? null },
+        },
+      });
+    } catch (err) {
+      console.error('[/api/lead] alert create error:', err);
     }
   }
 
