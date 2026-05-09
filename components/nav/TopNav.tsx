@@ -214,9 +214,10 @@ function OpsDropdown({ pathname }: { pathname: string }) {
 
 // â”€â”€â”€ Admin dropdown â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const ADMIN_ITEMS = [
-  { label: 'Organisations', href: '/admin/orgs',  description: 'Manage accounts & modules' },
-  { label: 'Users',         href: '/admin/users', description: 'Roles, access & invitations' },
-  { label: 'Setup',         href: '/onboarding',  description: 'Onboarding & configuration' },
+  { label: 'Organisations', href: '/admin/orgs',      description: 'Manage accounts & modules' },
+  { label: 'Users',         href: '/admin/users',     description: 'Roles, access & invitations' },
+  { label: 'Pipeline',      href: '/admin/pipeline',  description: 'Client requests & issues' },
+  { label: 'Setup',         href: '/onboarding',      description: 'Onboarding & configuration' },
 ];
 
 function AdminDropdown({ pathname }: { pathname: string }) {
@@ -429,6 +430,7 @@ function AppNav({ session, pathname }: { session: NonNullable<Session>; pathname
             <NavItem href="/dashboard/leads"    label="Leads"    active={pathname.startsWith('/dashboard/leads')} />
             <SquadItem active={pathname.startsWith('/dashboard/contacts')} />
             <NavItem href="/dashboard/blog"     label="Blog"     active={pathname.startsWith('/dashboard/blog')} />
+            <NavItem href="/dashboard/pipeline" label="Requests" active={pathname.startsWith('/dashboard/pipeline')} />
           </>
         ) : (
           <>
