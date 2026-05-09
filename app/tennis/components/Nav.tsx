@@ -26,6 +26,7 @@ export default function Nav() {
           <div className="hidden md:flex items-center gap-6 text-sm text-zinc-400">
             <a href="#coaching" className="hover:text-white transition-colors">Coaching</a>
             <a href="#about" className="hover:text-white transition-colors">About</a>
+            <a href="/tennis/blog" className="hover:text-white transition-colors">Blog</a>
           </div>
           <a href="#contact" className="text-sm font-semibold bg-green-500 text-black px-5 py-2.5 rounded-full hover:bg-green-400 active:scale-95 transition-all duration-200">
             Contact Me

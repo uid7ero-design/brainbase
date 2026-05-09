@@ -428,6 +428,7 @@ function AppNav({ session, pathname }: { session: NonNullable<Session>; pathname
             <HlnaItem active={pathname === '/dashboard'} />
             <NavItem href="/dashboard/leads"    label="Leads"    active={pathname.startsWith('/dashboard/leads')} />
             <SquadItem active={pathname.startsWith('/dashboard/contacts')} />
+            <NavItem href="/dashboard/blog"     label="Blog"     active={pathname.startsWith('/dashboard/blog')} />
           </>
         ) : (
           <>

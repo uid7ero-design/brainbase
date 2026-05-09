@@ -44,8 +44,10 @@ model Organisation {
   hlna_insights      HlnaInsight[]
   hlna_actions       HlnaAction[]
   hlna_briefings     HlnaBriefing[]
-  evidence_records     EvidenceRecord[]
-  bin_maintenance_jobs BinMaintenanceJob[]
+  evidence_records       EvidenceRecord[]
+  bin_maintenance_jobs   BinMaintenanceJob[]
+  blog_posts             BlogPost[]
+  newsletter_subscribers NewsletterSubscriber[]
 
   @@map("organisations")
 }
@@ -818,4 +820,42 @@ enum BinType {
   RECYCLING
   ORGANICS
   BULK_WASTE
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BLOG
+// ─────────────────────────────────────────────────────────────────────────────
+
+model BlogPost {
+  id              String    @id @default(cuid())
+  organisation_id String
+  title           String
+  slug            String
+  excerpt         String?
+  content         String
+  cover_image_url String?
+  published       Boolean   @default(false)
+  published_at    DateTime?
+  author_name     String?
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @updatedAt
+
+  organisation Organisation @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
+
+  @@unique([organisation_id, slug])
+  @@index([organisation_id])
+  @@map("blog_posts")
+}
+
+model NewsletterSubscriber {
+  id              String   @id @default(cuid())
+  organisation_id String
+  email           String
+  created_at      DateTime @default(now())
+
+  organisation Organisation @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
+
+  @@unique([organisation_id, email])
+  @@index([organisation_id])
+  @@map("newsletter_subscribers")
 }
