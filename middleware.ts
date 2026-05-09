@@ -20,6 +20,12 @@ const PUBLIC = [
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
+  const hostname = req.headers.get('host') ?? '';
+
+  // ldtennis.com.au root → tennis landing page
+  if ((hostname === 'ldtennis.com.au' || hostname === 'www.ldtennis.com.au') && pathname === '/') {
+    return NextResponse.redirect(new URL('/tennis', req.url));
+  }
 
   if (PUBLIC.some(p => pathname === p || pathname.startsWith(p + '/'))) {
     return NextResponse.next();
