@@ -111,7 +111,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       await resend.emails.send({
         from: 'onboarding@resend.dev',
         to: lead.email,
-        replyTo: process.env.MAIL_TO ?? 'uid7ero@gmail.com',
+        replyTo: process.env.MAIL_TO ?? 'hello@hlna.com.au',
         subject: `Update from LD Tennis Coaching`,
         html: buildClientEmail(lead.name, body.status ?? null, body.note ?? null, lead.client_token),
       });

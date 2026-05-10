@@ -84,7 +84,7 @@ export async function POST(request: Request): Promise<Response> {
   // Send email notification
   const { error } = await resend.emails.send({
     from: 'onboarding@resend.dev',
-    to: process.env.MAIL_TO ?? 'uid7ero@gmail.com',
+    to: process.env.MAIL_TO ?? 'hello@hlna.com.au',
     replyTo: body.email,
     subject: `New Booking Request – ${body.name}`,
     html: buildEmailHtml(body),

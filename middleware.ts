@@ -16,6 +16,9 @@ const PUBLIC = [
   '/tennis',
   '/api/auth',   // all /api/auth/* routes are public
   '/api/lead',
+  '/for-coaches',
+  '/request-demo',
+  '/api/request-demo',
 ];
 
 export async function middleware(req: NextRequest) {

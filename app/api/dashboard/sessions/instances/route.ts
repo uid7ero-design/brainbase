@@ -7,24 +7,21 @@ export async function GET() {
   try { session = await requireRole('viewer') } catch { return NextResponse.json({ error: 'Forbidden' }, { status: 403 }) }
 
   try {
-    const today = new Date(); today.setHours(0, 0, 0, 0)
-    const end   = new Date(today); end.setDate(today.getDate() + 14)
-    const todayStr = today.toISOString().split('T')[0]
-    const endStr   = end.toISOString().split('T')[0]
-
     const instances = await sql`
       SELECT
-        si.id, si.session_id, si.date, si.start_time, si.duration_minutes, si.max_capacity, si.status,
+        si.id, si.session_id, to_char(si.date, 'YYYY-MM-DD') AS date, si.start_time, si.duration_minutes,
+        si.max_capacity, si.status,
         s.name AS session_name, s.session_type, s.resource_id,
-        COALESCE(
-          (SELECT COUNT(*)::int FROM bookings b WHERE b.session_instance_id = si.id AND b.status != 'cancelled'),
-          0
-        ) AS enrolled_count
+        COALESCE(ec.cnt, 0) AS enrolled_count,
+        COALESCE(ec.cnt * s.price_per_session, 0)::int AS revenue,
+        COALESCE(ROUND(ec.cnt::numeric / NULLIF(si.max_capacity, 0) * 100), 0)::int AS utilisation
       FROM session_instances si
       JOIN sessions s ON s.id = si.session_id
+      LEFT JOIN LATERAL (
+        SELECT COUNT(*)::int AS cnt FROM bookings b
+        WHERE b.session_instance_id = si.id AND b.status != 'cancelled'
+      ) ec ON true
       WHERE s.organisation_id = ${session.organisationId}
-        AND si.date >= ${todayStr}::date
-        AND si.date <= ${endStr}::date
         AND si.status = 'scheduled'
       ORDER BY si.date ASC, si.start_time ASC
     `

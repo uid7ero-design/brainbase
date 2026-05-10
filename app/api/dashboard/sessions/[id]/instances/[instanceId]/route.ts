@@ -15,20 +15,20 @@ export async function POST(
 
   try {
     const instances = await sql`
-      SELECT si.id, si.max_capacity,
+      SELECT si.id, si.max_capacity, to_char(si.date, 'YYYY-MM-DD') AS date, si.start_time, s.session_type,
         COALESCE((SELECT COUNT(*)::int FROM bookings b WHERE b.session_instance_id = si.id AND b.status != 'cancelled'), 0) AS enrolled
       FROM session_instances si
       JOIN sessions s ON s.id = si.session_id
       WHERE si.id = ${instanceId} AND si.session_id = ${id} AND s.organisation_id = ${session.organisationId}
     `
     if (!instances[0]) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-    const inst = instances[0] as { id: string; max_capacity: number; enrolled: number }
+    const inst = instances[0] as { id: string; max_capacity: number; enrolled: number; date: string; start_time: string; session_type: string }
     if (inst.enrolled >= inst.max_capacity) return NextResponse.json({ error: 'Session is full' }, { status: 409 })
 
     const rows = await sql`
-      INSERT INTO bookings (id, session_id, session_instance_id, client_name, client_email, status, paid)
-      VALUES (${crypto.randomUUID()}, ${id}, ${instanceId}, ${body.client_name.trim()}, ${body.client_email?.trim() || null}, 'confirmed', false)
-      RETURNING id, client_name, client_email, paid, attendance_status, status, pipeline_id, created_at
+      INSERT INTO bookings (id, organisation_id, session_id, session_instance_id, client_name, client_email, date, time, session_type, status, paid, is_recurring)
+      VALUES (${crypto.randomUUID()}, ${session.organisationId}, ${id}, ${instanceId}, ${body.client_name.trim()}, ${body.client_email?.trim() || null}, ${inst.date}, ${inst.start_time}, ${inst.session_type}, 'confirmed', false, false)
+      RETURNING id, client_name, client_email, paid, attendance_status, status, pipeline_id, is_recurring, created_at
     `
     return NextResponse.json({ booking: rows[0] }, { status: 201 })
   } catch (err) {
@@ -48,7 +48,7 @@ export async function GET(
 
   try {
     const instances = await sql`
-      SELECT si.id, si.session_id, si.date, si.start_time, si.duration_minutes, si.max_capacity, si.status
+      SELECT si.id, si.session_id, to_char(si.date, 'YYYY-MM-DD') AS date, si.start_time, si.duration_minutes, si.max_capacity, si.status
       FROM session_instances si
       JOIN sessions s ON s.id = si.session_id
       WHERE si.id = ${instanceId} AND si.session_id = ${id} AND s.organisation_id = ${session.organisationId}
@@ -58,7 +58,7 @@ export async function GET(
     let bookings: unknown[] = []
     try {
       bookings = await sql`
-        SELECT b.id, b.client_name, b.client_email, b.paid, b.attendance_status, b.status, b.pipeline_id, b.created_at
+        SELECT b.id, b.client_name, b.client_email, b.paid, b.attendance_status, b.status, b.pipeline_id, b.is_recurring, b.created_at
         FROM bookings b
         WHERE b.session_instance_id = ${instanceId} AND b.status != 'cancelled'
         ORDER BY b.created_at ASC

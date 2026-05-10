@@ -40,7 +40,7 @@ const REDDIT_SUBS: { sub: string; source: string; category: Category }[] = [
 ];
 
 const ITEMS_PER_SOURCE = 4;
-const UA = 'BrainBase/1.0 (news aggregator; contact uid7ero@gmail.com)';
+const UA = 'BrainBase/1.0 (news aggregator; contact hello@hlna.com.au)';
 
 // ── RSS helpers ────────────────────────────────────────────────────────────
 function extractTag(xml: string, tag: string): string {

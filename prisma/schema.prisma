@@ -1,7 +1,3 @@
-// Brainbase Platform — Prisma Schema
-// Target: Neon PostgreSQL  |  ORM: Prisma 5
-// Every operational table carries organisation_id, created_at, updated_at.
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -12,104 +8,98 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// TENANCY
-// ─────────────────────────────────────────────────────────────────────────────
-
 model Organisation {
-  id         String   @id @default(cuid())
-  name       String
-  slug       String   @unique
-  plan       Plan     @default(TRIAL)
-  status     OrgStatus @default(ACTIVE)
-  settings   Json     @default("{}")
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
-
-  users              User[]
-  uploads            Upload[]
-  dashboard_configs  DashboardConfig[]
-  metrics            Metric[]
-  forecasts          Forecast[]
-  financial_models   FinancialModel[]
-  contracts          Contract[]
-  illegal_dumping    IllegalDumping[]
-  missed_collections MissedCollection[]
-  debtor_accounts    DebtorAccount[]
-  service_requests   ServiceRequest[]
-  briefings          Briefing[]
-  alerts             Alert[]
-  audit_logs         AuditLog[]
-  saved_views        SavedView[]
-  hlna_insights      HlnaInsight[]
-  hlna_actions       HlnaAction[]
-  hlna_briefings     HlnaBriefing[]
-  evidence_records       EvidenceRecord[]
+  id                     String                 @id @default(cuid())
+  name                   String
+  slug                   String                 @unique
+  plan                   Plan                   @default(TRIAL)
+  status                 OrgStatus              @default(ACTIVE)
+  settings               Json                   @default("{}")
+  created_at             DateTime               @default(now())
+  updated_at             DateTime               @updatedAt
+  alerts                 Alert[]
+  audit_logs             AuditLog[]
   bin_maintenance_jobs   BinMaintenanceJob[]
   blog_posts             BlogPost[]
-  newsletter_subscribers NewsletterSubscriber[]
   bookings               Booking[]
+  briefings              Briefing[]
+  contacts               contacts[]
+  contracts              Contract[]
+  dashboard_configs      DashboardConfig[]
+  debtor_accounts        DebtorAccount[]
+  evidence_records       EvidenceRecord[]
+  financial_models       FinancialModel[]
+  forecasts              Forecast[]
+  hlna_actions           HlnaAction[]
+  hlna_briefings         HlnaBriefing[]
+  hlna_insights          HlnaInsight[]
+  illegal_dumping        IllegalDumping[]
+  metrics                Metric[]
+  missed_collections     MissedCollection[]
+  newsletter_subscribers NewsletterSubscriber[]
+  saved_views            SavedView[]
+  service_requests       ServiceRequest[]
   sessions               Session[]
+  tennis_leads           tennis_leads[]
+  uploads                Upload[]
+  users                  User[]
 
   @@map("organisations")
 }
 
 model User {
-  id              String     @id @default(cuid())
-  organisation_id String
-  email           String     @unique
-  name            String
-  role            UserRole   @default(VIEWER)
-  status          UserStatus @default(ACTIVE)
-  last_login_at   DateTime?
-  created_at      DateTime   @default(now())
-  updated_at      DateTime   @updatedAt
-
-  organisation    Organisation @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
-  uploads         Upload[]
+  id                String            @id @default(cuid())
+  organisation_id   String
+  email             String            @unique
+  name              String
+  role              UserRole          @default(VIEWER)
+  status            UserStatus        @default(ACTIVE)
+  last_login_at     DateTime?
+  created_at        DateTime          @default(now())
+  updated_at        DateTime          @updatedAt
+  password          String?
+  password_hash     String?
+  email_verified    Boolean           @default(true)
+  audit_logs        AuditLog[]
+  briefings         Briefing[]
   dashboard_configs DashboardConfig[]
-  saved_views     SavedView[]
-  briefings       Briefing[]
-  audit_logs      AuditLog[]
+  saved_views       SavedView[]
+  uploads           Upload[]
+  organisation      Organisation      @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
 
   @@index([organisation_id])
   @@map("users")
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// UPLOAD PIPELINE
-// ─────────────────────────────────────────────────────────────────────────────
-
 model Upload {
-  id               String       @id @default(cuid())
-  organisation_id  String
-  user_id          String?
-  original_name    String
-  stored_path      String
-  mimetype         String
-  size_bytes       Int
-  schema_type      SchemaType   @default(UNKNOWN)
-  module           Module?
-  status           UploadStatus @default(PENDING)
-  row_count        Int?
-  column_count     Int?
-  columns_detected Json         @default("[]")
-  field_mappings   Json         @default("{}")
-  validation_errors Json        @default("[]")
-  preview_rows     Json         @default("[]")
-  metadata         Json         @default("{}")
-  created_at       DateTime     @default(now())
-  updated_at       DateTime     @updatedAt
-
-  organisation    Organisation  @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
-  user            User?         @relation(fields: [user_id], references: [id])
-  metrics         Metric[]
-  hlna_insights   HlnaInsight[]
-  illegal_dumping IllegalDumping[]
+  id                 String             @id @default(cuid())
+  organisation_id    String
+  user_id            String?
+  original_name      String
+  stored_path        String
+  mimetype           String
+  size_bytes         Int
+  schema_type        SchemaType         @default(UNKNOWN)
+  module             Module?
+  status             UploadStatus       @default(PENDING)
+  row_count          Int?
+  column_count       Int?
+  columns_detected   Json               @default("[]")
+  field_mappings     Json               @default("{}")
+  validation_errors  Json               @default("[]")
+  preview_rows       Json               @default("[]")
+  metadata           Json               @default("{}")
+  created_at         DateTime           @default(now())
+  updated_at         DateTime           @updatedAt
+  debtor_accounts    DebtorAccount[]
+  evidence_records   EvidenceRecord[]
+  hlna_insights      HlnaInsight[]
+  illegal_dumping    IllegalDumping[]
+  metrics            Metric[]
   missed_collections MissedCollection[]
-  debtor_accounts DebtorAccount[]
-  service_requests ServiceRequest[]
-  evidence_records EvidenceRecord[]
+  service_requests   ServiceRequest[]
+  organisation       Organisation       @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
+  user               User?              @relation(fields: [user_id], references: [id])
 
   @@index([organisation_id])
   @@index([schema_type])
@@ -118,55 +108,45 @@ model Upload {
   @@map("uploads")
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// CONFIGURATION & VIEWS
-// ─────────────────────────────────────────────────────────────────────────────
-
 model DashboardConfig {
-  id              String   @id @default(cuid())
+  id              String       @id @default(cuid())
   organisation_id String
   user_id         String?
   name            String
   module          Module
-  config          Json     @default("{}")
-  is_default      Boolean  @default(false)
-  created_at      DateTime @default(now())
-  updated_at      DateTime @updatedAt
-
-  organisation Organisation @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
-  user         User?        @relation(fields: [user_id], references: [id])
+  config          Json         @default("{}")
+  is_default      Boolean      @default(false)
+  created_at      DateTime     @default(now())
+  updated_at      DateTime     @updatedAt
+  organisation    Organisation @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
+  user            User?        @relation(fields: [user_id], references: [id])
 
   @@index([organisation_id, module])
   @@map("dashboard_configs")
 }
 
 model SavedView {
-  id              String   @id @default(cuid())
+  id              String       @id @default(cuid())
   organisation_id String
   user_id         String?
   module          Module
   name            String
-  filters         Json     @default("{}")
-  columns         Json     @default("[]")
+  filters         Json         @default("{}")
+  columns         Json         @default("[]")
   sort_field      String?
   sort_direction  String?
-  is_shared       Boolean  @default(false)
-  created_at      DateTime @default(now())
-  updated_at      DateTime @updatedAt
-
-  organisation Organisation @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
-  user         User?        @relation(fields: [user_id], references: [id])
+  is_shared       Boolean      @default(false)
+  created_at      DateTime     @default(now())
+  updated_at      DateTime     @updatedAt
+  organisation    Organisation @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
+  user            User?        @relation(fields: [user_id], references: [id])
 
   @@index([organisation_id, module])
   @@map("saved_views")
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// METRICS & KPIs
-// ─────────────────────────────────────────────────────────────────────────────
-
 model Metric {
-  id              String    @id @default(cuid())
+  id              String       @id @default(cuid())
   organisation_id String
   upload_id       String?
   module          Module
@@ -177,12 +157,11 @@ model Metric {
   unit            String?
   dimension       String?
   dimension_value String?
-  metadata        Json      @default("{}")
-  created_at      DateTime  @default(now())
-  updated_at      DateTime  @updatedAt
-
-  organisation Organisation @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
-  upload       Upload?      @relation(fields: [upload_id], references: [id])
+  metadata        Json         @default("{}")
+  created_at      DateTime     @default(now())
+  updated_at      DateTime     @updatedAt
+  organisation    Organisation @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
+  upload          Upload?      @relation(fields: [upload_id], references: [id])
 
   @@index([organisation_id, module])
   @@index([organisation_id, metric_key])
@@ -190,24 +169,19 @@ model Metric {
   @@map("metrics")
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// FORECASTING
-// ─────────────────────────────────────────────────────────────────────────────
-
 model Forecast {
-  id              String         @id @default(cuid())
+  id              String            @id @default(cuid())
   organisation_id String
   module          Module
   name            String
-  method          ForecastMethod @default(LINEAR)
-  horizon_weeks   Int            @default(12)
-  status          ForecastStatus @default(DRAFT)
+  method          ForecastMethod    @default(LINEAR)
+  horizon_weeks   Int               @default(12)
+  status          ForecastStatus    @default(DRAFT)
   notes           String?
-  created_at      DateTime       @default(now())
-  updated_at      DateTime       @updatedAt
-
-  organisation Organisation     @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
-  versions     ForecastVersion[]
+  created_at      DateTime          @default(now())
+  updated_at      DateTime          @updatedAt
+  versions        ForecastVersion[]
+  organisation    Organisation      @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
 
   @@index([organisation_id, module])
   @@map("forecasts")
@@ -223,34 +197,28 @@ model ForecastVersion {
   accuracy_mae  Float?
   accuracy_mape Float?
   created_at    DateTime @default(now())
-
-  forecast Forecast @relation(fields: [forecast_id], references: [id], onDelete: Cascade)
+  forecast      Forecast @relation(fields: [forecast_id], references: [id], onDelete: Cascade)
 
   @@unique([forecast_id, version])
   @@map("forecast_versions")
 }
 
 model FinancialModel {
-  id              String   @id @default(cuid())
+  id              String       @id @default(cuid())
   organisation_id String
   name            String
   base_year       Int
-  assumptions     Json     @default("{}")
-  projections     Json     @default("{}")
-  scenarios       Json     @default("{}")
-  status          String   @default("draft")
-  created_at      DateTime @default(now())
-  updated_at      DateTime @updatedAt
-
-  organisation Organisation @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
+  assumptions     Json         @default("{}")
+  projections     Json         @default("{}")
+  scenarios       Json         @default("{}")
+  status          String       @default("draft")
+  created_at      DateTime     @default(now())
+  updated_at      DateTime     @updatedAt
+  organisation    Organisation @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
 
   @@index([organisation_id])
   @@map("financial_models")
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// CONTRACTS
-// ─────────────────────────────────────────────────────────────────────────────
 
 model Contract {
   id              String         @id @default(cuid())
@@ -268,20 +236,15 @@ model Contract {
   metadata        Json           @default("{}")
   created_at      DateTime       @default(now())
   updated_at      DateTime       @updatedAt
-
-  organisation Organisation @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
+  organisation    Organisation   @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
 
   @@index([organisation_id])
   @@index([end_date])
   @@map("contracts")
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// OPERATIONAL MODULES
-// ─────────────────────────────────────────────────────────────────────────────
-
 model IllegalDumping {
-  id              String          @id @default(cuid())
+  id              String         @id @default(cuid())
   organisation_id String
   upload_id       String?
   report_date     DateTime
@@ -290,18 +253,17 @@ model IllegalDumping {
   zone            String?
   waste_type      String
   volume_estimate String?
-  severity        Severity        @default(MEDIUM)
-  status          IncidentStatus  @default(OPEN)
+  severity        Severity       @default(MEDIUM)
+  status          IncidentStatus @default(OPEN)
   crew_assigned   String?
   resolution_date DateTime?
   cost_estimate   Float?
   notes           String?
-  metadata        Json            @default("{}")
-  created_at      DateTime        @default(now())
-  updated_at      DateTime        @updatedAt
-
-  organisation Organisation @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
-  upload       Upload?      @relation(fields: [upload_id], references: [id])
+  metadata        Json           @default("{}")
+  created_at      DateTime       @default(now())
+  updated_at      DateTime       @updatedAt
+  organisation    Organisation   @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
+  upload          Upload?        @relation(fields: [upload_id], references: [id])
 
   @@index([organisation_id])
   @@index([status])
@@ -311,7 +273,7 @@ model IllegalDumping {
 }
 
 model MissedCollection {
-  id               String            @id @default(cuid())
+  id               String       @id @default(cuid())
   organisation_id  String
   upload_id        String?
   scheduled_date   DateTime
@@ -323,17 +285,16 @@ model MissedCollection {
   property_id      String?
   driver_id        String?
   reason           String?
-  status           MissedStatus      @default(OPEN)
+  status           MissedStatus @default(OPEN)
   rescheduled_date DateTime?
   completed_date   DateTime?
-  complaint_raised Boolean           @default(false)
+  complaint_raised Boolean      @default(false)
   notes            String?
-  metadata         Json              @default("{}")
-  created_at       DateTime          @default(now())
-  updated_at       DateTime          @updatedAt
-
-  organisation Organisation @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
-  upload       Upload?      @relation(fields: [upload_id], references: [id])
+  metadata         Json         @default("{}")
+  created_at       DateTime     @default(now())
+  updated_at       DateTime     @updatedAt
+  organisation     Organisation @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
+  upload           Upload?      @relation(fields: [upload_id], references: [id])
 
   @@index([organisation_id])
   @@index([status])
@@ -344,26 +305,25 @@ model MissedCollection {
 }
 
 model DebtorAccount {
-  id                String        @id @default(cuid())
-  organisation_id   String
-  upload_id         String?
-  account_number    String
-  account_name      String
-  outstanding_amount Float
-  original_amount   Float?
-  days_overdue      Int
-  aging_bucket      AgingBucket
-  last_payment_date DateTime?
+  id                  String       @id @default(cuid())
+  organisation_id     String
+  upload_id           String?
+  account_number      String
+  account_name        String
+  outstanding_amount  Float
+  original_amount     Float?
+  days_overdue        Int
+  aging_bucket        AgingBucket
+  last_payment_date   DateTime?
   last_payment_amount Float?
-  status            DebtorStatus  @default(OPEN)
-  collection_stage  String?
-  notes             String?
-  metadata          Json          @default("{}")
-  created_at        DateTime      @default(now())
-  updated_at        DateTime      @updatedAt
-
-  organisation Organisation @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
-  upload       Upload?      @relation(fields: [upload_id], references: [id])
+  status              DebtorStatus @default(OPEN)
+  collection_stage    String?
+  notes               String?
+  metadata            Json         @default("{}")
+  created_at          DateTime     @default(now())
+  updated_at          DateTime     @updatedAt
+  organisation        Organisation @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
+  upload              Upload?      @relation(fields: [upload_id], references: [id])
 
   @@index([organisation_id])
   @@index([aging_bucket])
@@ -372,7 +332,7 @@ model DebtorAccount {
 }
 
 model ServiceRequest {
-  id              String          @id @default(cuid())
+  id              String         @id @default(cuid())
   organisation_id String
   upload_id       String?
   request_date    DateTime
@@ -382,21 +342,20 @@ model ServiceRequest {
   suburb          String?
   address         String?
   asset_id        String?
-  priority        Priority        @default(MEDIUM)
-  severity        Severity        @default(MEDIUM)
-  status          IncidentStatus  @default(OPEN)
-  repeat_issue    Boolean         @default(false)
-  complaint_count Int             @default(0)
+  priority        Priority       @default(MEDIUM)
+  severity        Severity       @default(MEDIUM)
+  status          IncidentStatus @default(OPEN)
+  repeat_issue    Boolean        @default(false)
+  complaint_count Int            @default(0)
   units_affected  Int?
   response_hours  Float?
   resolution_date DateTime?
   notes           String?
-  metadata        Json            @default("{}")
-  created_at      DateTime        @default(now())
-  updated_at      DateTime        @updatedAt
-
-  organisation Organisation @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
-  upload       Upload?      @relation(fields: [upload_id], references: [id])
+  metadata        Json           @default("{}")
+  created_at      DateTime       @default(now())
+  updated_at      DateTime       @updatedAt
+  organisation    Organisation   @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
+  upload          Upload?        @relation(fields: [upload_id], references: [id])
 
   @@index([organisation_id])
   @@index([status])
@@ -406,39 +365,30 @@ model ServiceRequest {
   @@map("service_requests")
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// ALERTS
-// ─────────────────────────────────────────────────────────────────────────────
-
 model Alert {
-  id              String      @id @default(cuid())
+  id              String       @id @default(cuid())
   organisation_id String
   module          Module?
-  severity        Severity    @default(MEDIUM)
+  severity        Severity     @default(MEDIUM)
   title           String
   description     String
-  status          AlertStatus @default(OPEN)
+  status          AlertStatus  @default(OPEN)
   rule_key        String?
   acknowledged_by String?
   acknowledged_at DateTime?
   resolved_at     DateTime?
-  metadata        Json        @default("{}")
-  created_at      DateTime    @default(now())
-  updated_at      DateTime    @updatedAt
-
-  organisation Organisation @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
+  metadata        Json         @default("{}")
+  created_at      DateTime     @default(now())
+  updated_at      DateTime     @updatedAt
+  organisation    Organisation @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
 
   @@index([organisation_id, status])
   @@index([severity])
   @@map("alerts")
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// AUDIT
-// ─────────────────────────────────────────────────────────────────────────────
-
 model AuditLog {
-  id              String   @id @default(cuid())
+  id              String       @id @default(cuid())
   organisation_id String
   user_id         String?
   action          String
@@ -448,20 +398,15 @@ model AuditLog {
   after_state     Json?
   ip_address      String?
   user_agent      String?
-  created_at      DateTime @default(now())
-
-  organisation Organisation @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
-  user         User?        @relation(fields: [user_id], references: [id])
+  created_at      DateTime     @default(now())
+  organisation    Organisation @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
+  user            User?        @relation(fields: [user_id], references: [id])
 
   @@index([organisation_id])
   @@index([resource_type, resource_id])
   @@index([created_at(sort: Desc)])
   @@map("audit_logs")
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// BRIEFINGS
-// ─────────────────────────────────────────────────────────────────────────────
 
 model Briefing {
   id              String       @id @default(cuid())
@@ -474,18 +419,13 @@ model Briefing {
   period_start    DateTime?
   period_end      DateTime?
   created_at      DateTime     @default(now())
-
-  organisation Organisation @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
-  user         User?        @relation(fields: [user_id], references: [id])
+  organisation    Organisation @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
+  user            User?        @relation(fields: [user_id], references: [id])
 
   @@index([organisation_id])
   @@index([type])
   @@map("briefings")
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// HLNA AI LAYER
-// ─────────────────────────────────────────────────────────────────────────────
 
 model HlnaInsight {
   id              String        @id @default(cuid())
@@ -503,10 +443,9 @@ model HlnaInsight {
   actioned_at     DateTime?
   created_at      DateTime      @default(now())
   updated_at      DateTime      @updatedAt
-
-  organisation Organisation @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
-  upload       Upload?      @relation(fields: [upload_id], references: [id])
-  actions      HlnaAction[]
+  actions         HlnaAction[]
+  organisation    Organisation  @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
+  upload          Upload?       @relation(fields: [upload_id], references: [id])
 
   @@index([organisation_id, status])
   @@index([module])
@@ -529,30 +468,28 @@ model HlnaAction {
   outcome         String?
   created_at      DateTime     @default(now())
   updated_at      DateTime     @updatedAt
-
-  organisation Organisation @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
-  insight      HlnaInsight? @relation(fields: [insight_id], references: [id])
+  insight         HlnaInsight? @relation(fields: [insight_id], references: [id])
+  organisation    Organisation @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
 
   @@index([organisation_id, status])
   @@map("hlna_actions")
 }
 
 model HlnaBriefing {
-  id              String   @id @default(cuid())
-  organisation_id String
-  module          Module?
-  type            String   @default("operational")
-  summary         String
-  opportunities   Json     @default("[]")
-  risks           Json     @default("[]")
-  recommended_actions Json @default("[]")
-  raw_prompt      String?
-  model_version   String?
-  token_count     Int?
-  confidence      Float    @default(0.7)
-  created_at      DateTime @default(now())
-
-  organisation Organisation @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
+  id                  String       @id @default(cuid())
+  organisation_id     String
+  module              Module?
+  type                String       @default("operational")
+  summary             String
+  opportunities       Json         @default("[]")
+  risks               Json         @default("[]")
+  recommended_actions Json         @default("[]")
+  raw_prompt          String?
+  model_version       String?
+  token_count         Int?
+  confidence          Float        @default(0.7)
+  created_at          DateTime     @default(now())
+  organisation        Organisation @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
 
   @@index([organisation_id])
   @@index([module])
@@ -560,51 +497,45 @@ model HlnaBriefing {
 }
 
 model EvidenceRecord {
-  id              String   @id @default(cuid())
-  organisation_id String
-  module          Module?
-  entity_type     String
-  entity_id       String?
-  field           String
-  value           String
-  unit            String?
+  id               String       @id @default(cuid())
+  organisation_id  String
+  module           Module?
+  entity_type      String
+  entity_id        String?
+  field            String
+  value            String
+  unit             String?
   source_upload_id String?
-  context         Json     @default("{}")
-  recorded_at     DateTime
-  created_at      DateTime @default(now())
-
-  organisation Organisation @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
-  source_upload Upload?     @relation(fields: [source_upload_id], references: [id])
+  context          Json         @default("{}")
+  recorded_at      DateTime
+  created_at       DateTime     @default(now())
+  organisation     Organisation @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
+  source_upload    Upload?      @relation(fields: [source_upload_id], references: [id])
 
   @@index([organisation_id, entity_type])
   @@index([module])
   @@map("evidence_records")
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// BIN MAINTENANCE
-// ─────────────────────────────────────────────────────────────────────────────
-
 model BinMaintenanceJob {
-  id              String            @id @default(cuid())
+  id              String                  @id @default(cuid())
   organisation_id String
   suburb          String
   address         String
-  bin_type        BinType           @default(GENERAL_WASTE)
+  bin_type        BinType                 @default(GENERAL_WASTE)
   issue_type      String
-  severity        Severity          @default(MEDIUM)
-  status          MaintenanceStatus @default(OPEN)
+  severity        Severity                @default(MEDIUM)
+  status          MaintenanceStatus       @default(OPEN)
   assigned_to     String?
   scheduled_date  DateTime?
   completed_date  DateTime?
   notes           String?
-  metadata        Json              @default("{}")
-  created_at      DateTime          @default(now())
-  updated_at      DateTime          @updatedAt
-
-  organisation  Organisation          @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
-  comments      MaintenanceComment[]
-  attachments   MaintenanceAttachment[]
+  metadata        Json                    @default("{}")
+  created_at      DateTime                @default(now())
+  updated_at      DateTime                @updatedAt
+  organisation    Organisation            @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
+  attachments     MaintenanceAttachment[]
+  comments        MaintenanceComment[]
 
   @@index([organisation_id, status])
   @@index([suburb])
@@ -614,37 +545,175 @@ model BinMaintenanceJob {
 }
 
 model MaintenanceComment {
-  id                 String   @id @default(cuid())
+  id                 String            @id @default(cuid())
   maintenance_job_id String
   user_id            String?
   comment            String
-  created_at         DateTime @default(now())
-
-  job BinMaintenanceJob @relation(fields: [maintenance_job_id], references: [id], onDelete: Cascade)
+  created_at         DateTime          @default(now())
+  job                BinMaintenanceJob @relation(fields: [maintenance_job_id], references: [id], onDelete: Cascade)
 
   @@index([maintenance_job_id])
   @@map("maintenance_comments")
 }
 
 model MaintenanceAttachment {
-  id                 String   @id @default(cuid())
+  id                 String            @id @default(cuid())
   maintenance_job_id String
   uploaded_by        String?
   file_name          String
   file_path          String
   mimetype           String
   size_bytes         Int
-  created_at         DateTime @default(now())
-
-  job BinMaintenanceJob @relation(fields: [maintenance_job_id], references: [id], onDelete: Cascade)
+  created_at         DateTime          @default(now())
+  job                BinMaintenanceJob @relation(fields: [maintenance_job_id], references: [id], onDelete: Cascade)
 
   @@index([maintenance_job_id])
   @@map("maintenance_attachments")
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// ENUMS
-// ─────────────────────────────────────────────────────────────────────────────
+model BlogPost {
+  id              String       @id @default(cuid())
+  organisation_id String
+  title           String
+  slug            String
+  excerpt         String?
+  content         String
+  cover_image_url String?
+  published       Boolean      @default(false)
+  published_at    DateTime?
+  author_name     String?
+  created_at      DateTime     @default(now())
+  updated_at      DateTime     @updatedAt
+  organisation    Organisation @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
+
+  @@unique([organisation_id, slug])
+  @@index([organisation_id])
+  @@map("blog_posts")
+}
+
+model NewsletterSubscriber {
+  id              String       @id @default(cuid())
+  organisation_id String
+  email           String
+  created_at      DateTime     @default(now())
+  organisation    Organisation @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
+
+  @@unique([organisation_id, email])
+  @@index([organisation_id])
+  @@map("newsletter_subscribers")
+}
+
+model Session {
+  id               String            @id
+  organisation_id  String
+  name             String
+  day_of_week      Int
+  start_time       String
+  duration_minutes Int               @default(60)
+  max_capacity     Int               @default(8)
+  session_type       String
+  resource_id        String?
+  recurring          Boolean           @default(true)
+  price_per_session  Float             @default(0)
+  created_at         DateTime          @default(now()) @db.Timestamp(6)
+  bookings           Booking[]
+  instances          SessionInstance[]
+  organisation     Organisation      @relation(fields: [organisation_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([organisation_id])
+  @@index([day_of_week])
+  @@map("sessions")
+}
+
+model SessionInstance {
+  id               String    @id
+  session_id       String
+  organisation_id  String
+  date             DateTime  @db.Date
+  start_time       String
+  duration_minutes Int       @default(60)
+  max_capacity     Int       @default(8)
+  status           String    @default("scheduled")
+  created_at       DateTime  @default(now()) @db.Timestamptz(6)
+  bookings         Booking[]
+  session          Session   @relation(fields: [session_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([session_id, date])
+  @@index([date], map: "idx_session_instances_date")
+  @@index([organisation_id], map: "idx_session_instances_org")
+  @@index([session_id], map: "idx_session_instances_session_id")
+  @@map("session_instances")
+}
+
+model Booking {
+  id                  String           @id @default(cuid())
+  organisation_id     String
+  pipeline_id         String?
+  client_name         String
+  client_email        String?
+  date                DateTime
+  time                String
+  session_type        String
+  status              String           @default("pending_confirmation")
+  notes               String?
+  created_at          DateTime         @default(now())
+  updated_at          DateTime         @default(now()) @updatedAt
+  confirmed_at        DateTime?        @db.Timestamp(6)
+  session_id          String?
+  paid                Boolean          @default(false)
+  attendance_status   String?
+  session_instance_id String?
+  organisation        Organisation     @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
+  session             Session?         @relation(fields: [session_id], references: [id], onUpdate: NoAction)
+  session_instance    SessionInstance? @relation(fields: [session_instance_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([organisation_id])
+  @@index([session_id])
+  @@index([date])
+  @@index([session_instance_id], map: "idx_bookings_session_instance_id")
+  @@map("bookings")
+}
+
+model contacts {
+  id                String       @id @default(dbgenerated("(gen_random_uuid())::text"))
+  organisation_id   String
+  name              String
+  email             String?
+  phone             String?
+  status            String       @default("lead")
+  address           String?
+  age               String?
+  program           String?
+  session_times     String?
+  next_action       String?
+  notes             String?
+  last_contacted_at DateTime?    @db.Timestamptz(6)
+  created_at        DateTime?    @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime?    @default(now()) @db.Timestamptz(6)
+  organisations     Organisation @relation(fields: [organisation_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([organisation_id, email])
+  @@index([organisation_id], map: "idx_contacts_org")
+  @@index([organisation_id, status], map: "idx_contacts_status")
+}
+
+model tennis_leads {
+  id              String       @id @default(dbgenerated("(gen_random_uuid())::text"))
+  organisation_id String
+  name            String
+  email           String
+  phone           String?
+  session_type    String?
+  message         String?
+  status          String       @default("new")
+  notes           String?
+  client_token    String?      @default(dbgenerated("(gen_random_uuid())::text"))
+  created_at      DateTime?    @default(now()) @db.Timestamptz(6)
+  organisations   Organisation @relation(fields: [organisation_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([created_at(sort: Desc)], map: "idx_tennis_leads_created")
+  @@index([organisation_id], map: "idx_tennis_leads_org")
+}
 
 enum Plan {
   TRIAL
@@ -824,128 +893,8 @@ enum BinType {
   BULK_WASTE
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// BLOG
-// ─────────────────────────────────────────────────────────────────────────────
-
-model BlogPost {
-  id              String    @id @default(cuid())
-  organisation_id String
-  title           String
-  slug            String
-  excerpt         String?
-  content         String
-  cover_image_url String?
-  published       Boolean   @default(false)
-  published_at    DateTime?
-  author_name     String?
-  created_at      DateTime  @default(now())
-  updated_at      DateTime  @updatedAt
-
-  organisation Organisation @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
-
-  @@unique([organisation_id, slug])
-  @@index([organisation_id])
-  @@map("blog_posts")
-}
-
-model NewsletterSubscriber {
-  id              String   @id @default(cuid())
-  organisation_id String
-  email           String
-  created_at      DateTime @default(now())
-
-  organisation Organisation @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
-
-  @@unique([organisation_id, email])
-  @@index([organisation_id])
-  @@map("newsletter_subscribers")
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// SESSIONS (generic scheduling engine)
-// ─────────────────────────────────────────────────────────────────────────────
-
-model Session {
-  id               String    @id
-  organisation_id  String
-  name             String
-  day_of_week      Int
-  start_time       String
-  duration_minutes Int       @default(60)
-  max_capacity     Int       @default(8)
-  session_type     String
-  resource_id      String?
-  recurring        Boolean   @default(true)
-  created_at       DateTime  @default(now())
-
-  organisation Organisation    @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
-  bookings     Booking[]
-  instances    SessionInstance[]
-
-  @@index([organisation_id])
-  @@index([day_of_week])
-  @@map("sessions")
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// SESSION INSTANCES (real calendar dates for recurring sessions)
-// ─────────────────────────────────────────────────────────────────────────────
-
-model SessionInstance {
-  id               String    @id
-  session_id       String
-  organisation_id  String
-  date             DateTime  @db.Date
-  start_time       String
-  duration_minutes Int       @default(60)
-  max_capacity     Int       @default(8)
-  // scheduled | cancelled
-  status           String    @default("scheduled")
-  created_at       DateTime  @default(now())
-
-  session  Session   @relation(fields: [session_id], references: [id], onDelete: Cascade)
-  bookings Booking[]
-
-  @@unique([session_id, date])
-  @@index([session_id])
-  @@index([date])
-  @@index([organisation_id])
-  @@map("session_instances")
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// BOOKINGS
-// ─────────────────────────────────────────────────────────────────────────────
-
-model Booking {
-  id                    String    @id @default(cuid())
-  organisation_id       String
-  session_id            String?
-  session_instance_id   String?
-  pipeline_id           String?
-  client_name           String
-  client_email          String?
-  date                  DateTime
-  time                  String
-  session_type          String
-  // pending_confirmation | confirmed | reschedule_requested | cancelled
-  status                String    @default("pending_confirmation")
-  paid                  Boolean   @default(false)
-  // attending | absent | null
-  attendance_status     String?
-  confirmed_at          DateTime?
-  notes                 String?
-  created_at            DateTime  @default(now())
-  updated_at            DateTime  @updatedAt
-
-  organisation      Organisation     @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
-  session           Session?         @relation(fields: [session_id], references: [id])
-  session_instance  SessionInstance? @relation(fields: [session_instance_id], references: [id])
-
-  @@index([organisation_id])
-  @@index([session_id])
-  @@index([session_instance_id])
-  @@index([date])
-  @@map("bookings")
+enum BookingStatus {
+  SCHEDULED
+  COMPLETED
+  CANCELLED
 }

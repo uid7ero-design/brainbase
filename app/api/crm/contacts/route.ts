@@ -30,15 +30,26 @@ export async function POST(req: NextRequest) {
   try { session = await requireSession(); } catch { return unauthorized(); }
 
   const body = await req.json();
-  const { first_name, last_name, email, phone, job_title, company_id, notes } = body;
+  const {
+    first_name, last_name, email, phone, job_title, company_id, notes,
+    coaching_type, date_of_birth, emergency_contact_name, emergency_contact_phone,
+    guardian_name, guardian_phone,
+  } = body;
   if (!first_name?.trim() || !last_name?.trim()) {
     return NextResponse.json({ error: 'First and last name are required.' }, { status: 400 });
   }
 
   const rows = await sql`
-    INSERT INTO crm_contacts (organisation_id, created_by, first_name, last_name, email, phone, job_title, company_id, notes)
-    VALUES (${session.organisationId}, ${session.userId}, ${first_name.trim()}, ${last_name.trim()},
-            ${email ?? null}, ${phone ?? null}, ${job_title ?? null}, ${company_id ?? null}, ${notes ?? null})
+    INSERT INTO crm_contacts (
+      organisation_id, created_by, first_name, last_name, email, phone, job_title, company_id, notes,
+      coaching_type, date_of_birth, emergency_contact_name, emergency_contact_phone,
+      guardian_name, guardian_phone
+    ) VALUES (
+      ${session.organisationId}, ${session.userId}, ${first_name.trim()}, ${last_name.trim()},
+      ${email ?? null}, ${phone ?? null}, ${job_title ?? null}, ${company_id ?? null}, ${notes ?? null},
+      ${coaching_type ?? null}, ${date_of_birth ?? null}, ${emergency_contact_name ?? null},
+      ${emergency_contact_phone ?? null}, ${guardian_name ?? null}, ${guardian_phone ?? null}
+    )
     RETURNING *
   `;
   return NextResponse.json({ contact: rows[0] }, { status: 201 });

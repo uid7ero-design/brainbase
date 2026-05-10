@@ -102,9 +102,19 @@ const STEPS = [
   { n: '03', title: 'Operate with clarity', body: 'Navigate 12 service dashboards by voice. Get insights, spot risks, and brief your team — in seconds, not hours.' },
 ];
 
+const COACH_BULLETS = [
+  'Organise sessions and weekly schedules',
+  'Manage players, clients, and contacts',
+  'Track attendance, safety, and guardian details',
+  'Understand your weekly revenue (coming soon)',
+];
+
 export default function Home() {
-  const [hoveredDash, setHoveredDash] = useState<string | null>(null);
-  const [hoveredCap,  setHoveredCap]  = useState<number | null>(null);
+  const [hoveredDash,   setHoveredDash]   = useState<string | null>(null);
+  const [hoveredCap,    setHoveredCap]    = useState<number | null>(null);
+  const [coachHov,      setCoachHov]      = useState(false);
+  const [coachDemoHov,  setCoachDemoHov]  = useState(false);
+  const [useCaseHov,    setUseCaseHov]    = useState(false);
 
   return (
     <main style={{ minHeight: '100vh', background: BG, color: '#F5F7FA', fontFamily: FONT }}>
@@ -259,6 +269,84 @@ export default function Home() {
           ))}
         </div>
 
+        {/* ── Coaches & Service Businesses ──────────────────────────────── */}
+        <section style={{ marginBottom: 72 }}>
+          <div style={{
+            padding: '48px', borderRadius: 16,
+            background: 'rgba(16,185,129,.06)', border: '1px solid rgba(16,185,129,.18)',
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            flexWrap: 'wrap', gap: 40, position: 'relative', overflow: 'hidden',
+          }}>
+            <div style={{
+              position: 'absolute', right: -80, bottom: -80,
+              width: 280, height: 280, borderRadius: '50%',
+              background: 'radial-gradient(circle, rgba(16,185,129,.10) 0%, transparent 70%)',
+              pointerEvents: 'none',
+            }} />
+
+            <div style={{ flex: '1 1 320px', maxWidth: 500 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '.12em', color: 'rgba(52,211,153,.70)', textTransform: 'uppercase', marginBottom: 10 }}>
+                Coaching & Service Businesses
+              </div>
+              <h2 style={{ fontSize: 26, fontWeight: 700, color: '#F5F7FA', letterSpacing: '-.02em', margin: '0 0 12px', lineHeight: 1.2 }}>
+                Built for Coaches &amp; Service Businesses
+              </h2>
+              <p style={{ fontSize: 15, color: 'rgba(230,237,243,.55)', margin: '0 0 24px', lineHeight: 1.65 }}>
+                Run your sessions, manage your clients, and understand your business — all in one place.
+              </p>
+              <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {COACH_BULLETS.map((item, i) => (
+                  <li key={i} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div style={{
+                      width: 18, height: 18, borderRadius: '50%', flexShrink: 0,
+                      background: 'rgba(16,185,129,.15)', border: '1px solid rgba(16,185,129,.30)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    }}>
+                      <svg width="9" height="9" viewBox="0 0 12 9" fill="none">
+                        <path d="M1 4.5L4.5 8L11 1" stroke="#34D399" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                      </svg>
+                    </div>
+                    <span style={{ fontSize: 14, color: 'rgba(226,232,240,.72)' }}>{item}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <Link
+                href="/for-coaches"
+                onMouseEnter={() => setCoachHov(true)}
+                onMouseLeave={() => setCoachHov(false)}
+                style={{
+                  display: 'inline-block',
+                  padding: '13px 28px', borderRadius: 9, fontWeight: 600, fontSize: 14,
+                  background: coachHov ? 'rgba(16,185,129,.28)' : 'rgba(16,185,129,.18)',
+                  border: coachHov ? '1px solid rgba(16,185,129,.55)' : '1px solid rgba(16,185,129,.36)',
+                  color: '#F5F7FA', textDecoration: 'none', letterSpacing: '.02em',
+                  transition: 'background .15s, border-color .15s',
+                  boxShadow: coachHov ? '0 0 20px rgba(16,185,129,.12)' : 'none',
+                }}>
+                For Coaches &amp; Service Businesses →
+              </Link>
+              <Link
+                href="/request-demo"
+                onMouseEnter={() => setCoachDemoHov(true)}
+                onMouseLeave={() => setCoachDemoHov(false)}
+                style={{
+                  display: 'inline-block', textAlign: 'center',
+                  padding: '11px 28px', borderRadius: 9, fontWeight: 600, fontSize: 14,
+                  background: 'transparent',
+                  border: coachDemoHov ? '1px solid rgba(255,255,255,.22)' : '1px solid rgba(255,255,255,.10)',
+                  color: coachDemoHov ? 'rgba(226,232,240,.90)' : 'rgba(226,232,240,.55)',
+                  textDecoration: 'none', letterSpacing: '.02em',
+                  transition: 'border-color .15s, color .15s',
+                }}>
+                Request a Demo →
+              </Link>
+            </div>
+          </div>
+        </section>
+
         {/* ── How it works ──────────────────────────────────────────────── */}
         <section style={{ marginBottom: 72 }}>
           <div style={{ marginBottom: 32 }}>
@@ -393,6 +481,102 @@ export default function Home() {
               );
             })}
           </div>
+        </section>
+
+        {/* ── Use Cases funnel ──────────────────────────────────────────── */}
+        <section style={{ marginBottom: 72 }}>
+          <div style={{ marginBottom: 32, textAlign: 'center' }}>
+            <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '.12em', color: 'rgba(139,92,246,.70)', textTransform: 'uppercase', marginBottom: 10 }}>Use Cases</div>
+            <h2 style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-.03em', color: '#F5F7FA', margin: '0 0 10px' }}>
+              Built for real operations
+            </h2>
+            <p style={{ fontSize: 15, color: 'rgba(226,232,240,.52)', margin: 0, lineHeight: 1.6 }}>
+              HLNΛ adapts to how your business runs — start with your use case.
+            </p>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 14, marginBottom: 20 }}>
+
+            {/* Primary card — For Coaches */}
+            <Link
+              href="/for-coaches"
+              style={{ textDecoration: 'none' }}
+              onMouseEnter={() => setUseCaseHov(true)}
+              onMouseLeave={() => setUseCaseHov(false)}
+            >
+              <div style={{
+                padding: '22px', borderRadius: 14, height: '100%', boxSizing: 'border-box',
+                background: useCaseHov ? 'rgba(16,185,129,.10)' : 'rgba(16,185,129,.06)',
+                border: useCaseHov ? '1px solid rgba(16,185,129,.40)' : '1px solid rgba(16,185,129,.22)',
+                transform: useCaseHov ? 'translateY(-2px)' : 'translateY(0)',
+                transition: 'all .18s', position: 'relative', overflow: 'hidden', cursor: 'pointer',
+              }}>
+                <div style={{
+                  position: 'absolute', top: 0, left: 0, right: 0, height: 2,
+                  background: 'linear-gradient(90deg, rgba(16,185,129,.70), transparent)',
+                  borderRadius: '14px 14px 0 0',
+                }} />
+                <div style={{
+                  width: 34, height: 34, borderRadius: 8, marginBottom: 14,
+                  background: 'rgba(16,185,129,.14)', border: '1px solid rgba(16,185,129,.28)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#34D399',
+                }}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
+                    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
+                    <path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                  </svg>
+                </div>
+                <h3 style={{ fontSize: 14, fontWeight: 700, color: '#F5F7FA', margin: '0 0 8px', letterSpacing: '-.01em', lineHeight: 1.3 }}>
+                  For Coaches &amp; Service Businesses
+                </h3>
+                <p style={{ fontSize: 13, color: 'rgba(226,232,240,.60)', lineHeight: 1.6, margin: '0 0 18px' }}>
+                  Run your sessions, manage your clients, and understand your business — all in one place.
+                </p>
+                <div style={{
+                  fontSize: 13, fontWeight: 600, color: '#34D399',
+                  display: 'flex', alignItems: 'center', gap: 4,
+                }}>
+                  Explore →
+                </div>
+              </div>
+            </Link>
+
+            {/* Muted placeholder cards */}
+            {[
+              { title: 'For Councils & Local Government', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><path d="M3 21h18"/><path d="M9 21V7l3-4 3 4v14"/><path d="M9 11h6"/><rect x="2" y="14" width="5" height="7"/><rect x="17" y="14" width="5" height="7"/></svg> },
+              { title: 'For Fleet & Operations',          icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><rect x="1" y="3" width="15" height="13" rx="2"/><path d="M16 8h4l3 3v5h-7V8z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg> },
+              { title: 'For Facilities & Assets',         icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/><path d="M3 9h6"/><path d="M3 15h6"/></svg> },
+            ].map((card, i) => (
+              <div key={i} style={{
+                padding: '22px', borderRadius: 14, opacity: 0.40,
+                background: 'rgba(255,255,255,.03)', border: '1px solid rgba(255,255,255,.07)',
+                position: 'relative', overflow: 'hidden', cursor: 'default',
+              }}>
+                <div style={{
+                  width: 34, height: 34, borderRadius: 8, marginBottom: 14,
+                  background: 'rgba(255,255,255,.06)', border: '1px solid rgba(255,255,255,.10)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'rgba(255,255,255,.35)',
+                }}>
+                  {card.icon}
+                </div>
+                <h3 style={{ fontSize: 14, fontWeight: 700, color: '#F5F7FA', margin: '0 0 12px', letterSpacing: '-.01em', lineHeight: 1.3 }}>
+                  {card.title}
+                </h3>
+                <div style={{
+                  display: 'inline-block',
+                  fontSize: 10, fontWeight: 600, letterSpacing: '.08em', textTransform: 'uppercase',
+                  color: 'rgba(255,255,255,.35)', padding: '3px 8px', borderRadius: 4,
+                  background: 'rgba(255,255,255,.05)', border: '1px solid rgba(255,255,255,.09)',
+                }}>
+                  Coming Soon
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <p style={{ textAlign: 'center', fontSize: 12, color: 'rgba(255,255,255,.28)', margin: 0, letterSpacing: '.01em' }}>
+            Pricing varies by use case — explore your industry to get started.
+          </p>
         </section>
 
         {/* ── CTA banner ────────────────────────────────────────────────── */}
