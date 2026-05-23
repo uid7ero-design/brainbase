@@ -45,7 +45,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ fy: st
 
   await prisma.financialModel.update({
     where: { id: model.id },
-    data:  { line_items: items, last_edited_by: session.userId },
+    data:  { line_items: items as unknown[], last_edited_by: session.userId },
   });
 
   return NextResponse.json({ success: true });
