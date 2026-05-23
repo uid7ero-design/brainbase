@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getAuthSession } from '@/lib/authSession';
 import { prisma } from '@/lib/prisma';
+import { Prisma } from '@prisma/client';
 
 interface LineItem {
   gl: string;
@@ -45,7 +46,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ fy: st
 
   await prisma.financialModel.update({
     where: { id: model.id },
-    data:  { line_items: items as unknown[], last_edited_by: session.userId },
+    data:  { line_items: items as unknown as Prisma.InputJsonValue, last_edited_by: session.userId },
   });
 
   return NextResponse.json({ success: true });
