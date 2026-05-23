@@ -72,6 +72,75 @@ export function passwordResetEmail(name: string, token: string) {
   };
 }
 
+// ── Web Service Lead notification ────────────────────────────────────────────
+
+const SERVICE_LABELS: Record<string, string> = {
+  website_design: 'Website Design & Development',
+  ai_website:     'AI-Powered Website',
+  maintenance:    'Management & Maintenance',
+  integrations:   'Business System Integrations',
+};
+
+const BUDGET_LABELS: Record<string, string> = {
+  under_2500:   'Under $2,500',
+  '2500_5000':  '$2,500 – $5,000',
+  '5000_10000': '$5,000 – $10,000',
+  '10000_20000':'$10,000 – $20,000',
+  '20000_plus': '$20,000+',
+  unsure:       'Not sure yet',
+};
+
+export function webServiceLeadEmail(lead: {
+  id: string;
+  fullName: string;
+  businessName: string;
+  email: string;
+  phone: string;
+  serviceInterest: string[];
+  budgetRange: string;
+  projectDesc: string;
+}) {
+  const adminUrl = `${BASE_URL}/admin/web-services`;
+  const services = lead.serviceInterest.map(s => SERVICE_LABELS[s] ?? s).join(', ') || '—';
+  const budget   = (BUDGET_LABELS[lead.budgetRange] ?? lead.budgetRange) || '—';
+
+  return {
+    subject: `New Website Systems Lead — ${escHtml(lead.fullName)}${lead.businessName ? ` · ${escHtml(lead.businessName)}` : ''}`,
+    html: emailLayout(`
+      <h2 style="margin:0 0 6px;font-size:20px;font-weight:700;color:#111">New Website Systems Enquiry</h2>
+      <p style="margin:0 0 24px;font-size:13px;color:#888">Submitted via BrainBase Website Systems</p>
+
+      <table cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;margin:0 0 20px;font-size:14px">
+        ${detailRow('Name',     escHtml(lead.fullName))}
+        ${detailRow('Business', lead.businessName ? escHtml(lead.businessName) : '—')}
+        ${detailRow('Email',    `<a href="mailto:${escHtml(lead.email)}" style="color:#7C3AED">${escHtml(lead.email)}</a>`)}
+        ${detailRow('Phone',    lead.phone ? escHtml(lead.phone) : '—')}
+        ${detailRow('Services', services)}
+        ${detailRow('Budget',   budget)}
+      </table>
+
+      ${lead.projectDesc ? `
+        <div style="background:#f9fafb;border-radius:8px;padding:16px 20px;margin:0 0 24px;border:1px solid #e4e4e7">
+          <div style="font-size:11px;font-weight:700;color:#999;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Project Goals</div>
+          <p style="margin:0;color:#333;font-size:14px;line-height:1.6">${escHtml(lead.projectDesc)}</p>
+        </div>
+      ` : ''}
+
+      <a href="${adminUrl}" style="${btnStyle}">View Lead in Admin →</a>
+      <p style="margin:20px 0 0;font-size:12px;color:#aaa">Lead ID: ${lead.id}</p>
+    `),
+  };
+}
+
+function detailRow(label: string, value: string) {
+  return `
+    <tr>
+      <td style="padding:7px 0;color:#888;width:90px;vertical-align:top;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.04em">${label}</td>
+      <td style="padding:7px 0 7px 16px;color:#222;border-bottom:1px solid #f0f0f0">${value}</td>
+    </tr>
+  `;
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 const btnStyle = [

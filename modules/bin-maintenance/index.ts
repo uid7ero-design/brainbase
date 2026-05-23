@@ -3,6 +3,7 @@ import { parseFile } from "@/services/upload";
 import { readFileSync } from "fs";
 import { persistMetrics } from "@/services/persistence";
 import { Module, MaintenanceStatus, BinType, Severity } from "@prisma/client";
+import { computeBinMaintenanceKpi } from "./calculations";
 
 export async function importBinMaintenance(
   upload_id: string,
@@ -43,16 +44,45 @@ export async function importBinMaintenance(
 
   await prisma.binMaintenanceJob.createMany({ data: records, skipDuplicates: true });
 
-  const now      = new Date();
-  const open     = records.filter(r => r.status === MaintenanceStatus.OPEN || r.status === MaintenanceStatus.ASSIGNED || r.status === MaintenanceStatus.SCHEDULED || r.status === MaintenanceStatus.IN_PROGRESS).length;
-  const critical = records.filter(r => r.severity === Severity.CRITICAL).length;
-  const done     = records.filter(r => r.status === MaintenanceStatus.COMPLETED || r.status === MaintenanceStatus.CLOSED).length;
+  const now = new Date();
+
+  const kpiInput = records.map(r => ({
+    id:             '',
+    suburb:         r.suburb,
+    address:        r.address,
+    issue_type:     r.issue_type,
+    bin_type:       r.bin_type,
+    status:         r.status,
+    severity:       r.severity,
+    scheduled_date: r.scheduled_date,
+    created_at:     now,
+    assigned_to:    r.assigned_to,
+  }));
+
+  const kpi = computeBinMaintenanceKpi(kpiInput);
+
+  const period_start = records
+    .map(r => r.scheduled_date)
+    .filter((d): d is Date => d !== null)
+    .reduce<Date | null>((min, d) => !min || d < min ? d : min, null) ?? now;
+
+  const base = { organisation_id, upload_id, module: Module.BIN_MAINTENANCE, period_start, period_end: now };
 
   await persistMetrics([
-    { organisation_id, upload_id, module: Module.BIN_MAINTENANCE, period_start: now, period_end: now, metric_key: "total_jobs",       metric_value: records.length },
-    { organisation_id, upload_id, module: Module.BIN_MAINTENANCE, period_start: now, period_end: now, metric_key: "open_jobs",        metric_value: open },
-    { organisation_id, upload_id, module: Module.BIN_MAINTENANCE, period_start: now, period_end: now, metric_key: "critical_jobs",    metric_value: critical },
-    { organisation_id, upload_id, module: Module.BIN_MAINTENANCE, period_start: now, period_end: now, metric_key: "completion_rate",  metric_value: records.length > 0 ? Math.round((done / records.length) * 1000) / 10 : 0, unit: "%" },
+    { ...base, metric_key: "total_jobs",       metric_value: kpi.total_jobs },
+    { ...base, metric_key: "open_jobs",        metric_value: kpi.open_jobs },
+    { ...base, metric_key: "completed_jobs",   metric_value: kpi.completed_jobs },
+    { ...base, metric_key: "overdue_jobs",     metric_value: kpi.overdue_jobs },
+    { ...base, metric_key: "unassigned_open",  metric_value: kpi.unassigned_open },
+    { ...base, metric_key: "completion_rate",  metric_value: kpi.completion_rate, unit: "%" },
+    { ...base, metric_key: "avg_age_open_days", metric_value: kpi.avg_age_open_days, unit: "days" },
+    ...kpi.by_suburb.map(s => ({
+      ...base,
+      metric_key:      "open_jobs",
+      metric_value:    s.open,
+      dimension:       "suburb",
+      dimension_value: s.suburb,
+    })),
   ]);
 
   return records.length;

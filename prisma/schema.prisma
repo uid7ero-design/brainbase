@@ -43,6 +43,8 @@ model Organisation {
   tennis_leads           tennis_leads[]
   uploads                Upload[]
   users                  User[]
+  sporting_activities    SportingActivity[]
+  web_service_leads      WebServiceLead[]
 
   @@map("organisations")
 }
@@ -50,7 +52,8 @@ model Organisation {
 model User {
   id                String            @id @default(cuid())
   organisation_id   String
-  email             String            @unique
+  username          String            @unique
+  email             String?           @unique
   name              String
   role              UserRole          @default(VIEWER)
   status            UserStatus        @default(ACTIVE)
@@ -204,18 +207,20 @@ model ForecastVersion {
 }
 
 model FinancialModel {
-  id              String       @id @default(cuid())
-  organisation_id String
-  name            String
-  base_year       Int
-  assumptions     Json         @default("{}")
-  projections     Json         @default("{}")
-  scenarios       Json         @default("{}")
-  status          String       @default("draft")
-  created_at      DateTime     @default(now())
-  updated_at      DateTime     @updatedAt
-  organisation    Organisation @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
+  id                 String       @id @default(cuid())
+  organisation_id    String
+  financial_year     String
+  forecast_params    Json         @default("{\"multiplier\":1.0,\"as_at_date\":\"\"}")
+  line_items         Json         @default("[]")
+  rise_and_fall      Json         @default("[]")
+  forecast_overrides Json         @default("{}")
+  last_edited_by     String?
+  locked_at          DateTime?
+  created_at         DateTime     @default(now())
+  updated_at         DateTime     @updatedAt
+  organisation       Organisation @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
 
+  @@unique([organisation_id, financial_year])
   @@index([organisation_id])
   @@map("financial_models")
 }
@@ -897,4 +902,160 @@ enum BookingStatus {
   SCHEDULED
   COMPLETED
   CANCELLED
+}
+
+model SportingActivity {
+  id                      String       @id @default(cuid())
+  organisation_id         String
+  name                    String
+  season                  SportSeason  @default(YEAR_ROUND)
+  games_per_week          Int
+  players_per_team        Int
+  total_participants      Int
+  spectators_per_week     Int
+  total_visitors_per_week Int
+  notes                   String?
+  created_at              DateTime     @default(now())
+  updated_at              DateTime     @updatedAt
+  organisation            Organisation @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
+
+  @@index([organisation_id])
+  @@map("sporting_activities")
+}
+
+enum SportSeason {
+  SUMMER
+  WINTER
+  YEAR_ROUND
+}
+
+enum WebLeadStatus {
+  NEW
+  CONTACTED
+  DISCOVERY
+  QUALIFIED
+  PROPOSAL_SENT
+  PROPOSAL_APPROVED
+  ONBOARDING
+  IN_DEPLOYMENT
+  ACTIVE_CLIENT
+  PAUSED
+  WON
+  LOST
+}
+
+model WebServiceLead {
+  id                  String               @id @default(cuid())
+  created_at          DateTime             @default(now())
+  updated_at          DateTime             @updatedAt
+  organisation_id     String?
+  full_name           String
+  business_name       String?
+  email               String
+  phone               String?
+  website_url         String?
+  business_type       String?
+  service_interest    String[]             @default([])
+  budget_range        String?
+  project_description String?
+  status              WebLeadStatus        @default(NEW)
+  source              String?              @default("website")
+  notes               String?
+  priority            String?              @default("medium")
+  score               Int?                 @default(0)
+  pipeline_notes      String?
+  organisation        Organisation?        @relation(fields: [organisation_id], references: [id], onDelete: SetNull)
+  proposals           DeploymentProposal[]
+  onboarding          ClientOnboarding[]
+
+  @@index([status])
+  @@index([email])
+  @@index([created_at(sort: Desc)])
+  @@map("web_service_leads")
+}
+
+enum ProposalStatus {
+  DRAFT
+  SENT
+  VIEWED
+  APPROVED
+  REJECTED
+}
+
+model DeploymentProposal {
+  id                String         @id @default(cuid())
+  created_at        DateTime       @default(now())
+  updated_at        DateTime       @updatedAt
+  lead_id           String?
+  organisation_id   String?
+  proposal_title    String         @default("Untitled Proposal")
+  proposal_type     String         @default("website_deployment")
+  deployment_scope  String?
+  monthly_recurring Decimal?       @default(0) @db.Decimal(10, 2)
+  one_time_cost     Decimal?       @default(0) @db.Decimal(10, 2)
+  status            ProposalStatus @default(DRAFT)
+  proposal_content  String?
+  included_modules  String[]       @default([])
+  notes             String?
+  sent_at           DateTime?
+  viewed_at         DateTime?
+  approved_at       DateTime?
+  lead              WebServiceLead? @relation(fields: [lead_id], references: [id], onDelete: SetNull)
+
+  @@index([lead_id])
+  @@index([status])
+  @@index([created_at(sort: Desc)])
+  @@map("deployment_proposals")
+}
+
+model ClientOnboarding {
+  id                  String         @id @default(cuid())
+  created_at          DateTime       @default(now())
+  updated_at          DateTime       @updatedAt
+  organisation_id     String?
+  lead_id             String?
+  proposal_id         String?
+  client_name         String         @default("")
+  onboarding_stage    String         @default("discovery")
+  assigned_to         String?
+  target_launch_date  DateTime?
+  hosting_status      String         @default("pending")
+  domain_status       String         @default("pending")
+  deployment_status   String         @default("not_started")
+  integrations_status String         @default("not_started")
+  crm_status          String         @default("not_started")
+  launch_status       String         @default("not_started")
+  checklist           Json           @default("[]")
+  notes               String?
+  lead                WebServiceLead? @relation(fields: [lead_id], references: [id], onDelete: SetNull)
+  managed_service     ManagedService[]
+
+  @@index([onboarding_stage])
+  @@index([lead_id])
+  @@map("client_onboarding")
+}
+
+model ManagedService {
+  id                String           @id @default(cuid())
+  created_at        DateTime         @default(now())
+  updated_at        DateTime         @updatedAt
+  organisation_id   String?
+  lead_id           String?
+  onboarding_id     String?
+  client_name       String           @default("")
+  hosting_provider  String           @default("vercel")
+  domain_provider   String?
+  domain_name       String?
+  ssl_status        String           @default("active")
+  hosting_plan      String           @default("starter")
+  maintenance_plan  String           @default("standard")
+  monthly_value     Decimal          @default(0) @db.Decimal(10, 2)
+  renewal_date      DateTime?
+  status            String           @default("active")
+  notes             String?
+  onboarding        ClientOnboarding? @relation(fields: [onboarding_id], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@index([created_at(sort: Desc)])
+  @@map("managed_services")
 }

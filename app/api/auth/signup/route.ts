@@ -25,28 +25,26 @@ export async function POST(req: NextRequest) {
   if (password.length < 8) {
     return NextResponse.json({ error: 'Password must be at least 8 characters.' }, { status: 400 });
   }
-  const slug       = slugify(orgName.trim());
-  const trialEndsAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
+  const slug = slugify(orgName.trim());
 
   try {
-    // Create org with trial status
     const uniqueSlug = `${slug}-${Math.floor(Math.random() * 9000) + 1000}`;
     const [org] = await sql`
-      INSERT INTO organisations (name, slug, plan, trial_ends_at)
-      VALUES (${orgName.trim()}, ${uniqueSlug}, 'trial', ${trialEndsAt.toISOString()})
+      INSERT INTO organisations (name, slug, plan, status, settings)
+      VALUES (${orgName.trim()}, ${uniqueSlug}, 'TRIAL', 'ACTIVE', '{}')
       RETURNING id
     `;
 
     const hash = await bcrypt.hash(password, 12);
 
     const [user] = await sql`
-      INSERT INTO users (username, name, email, password_hash, role, organisation_id, email_verified)
+      INSERT INTO users (name, email, password_hash, role, status, organisation_id, email_verified)
       VALUES (
-        ${emailLower},
         ${name.trim()},
         ${emailLower},
         ${hash},
-        'admin',
+        'ADMIN',
+        'ACTIVE',
         ${org.id}::uuid,
         true
       )

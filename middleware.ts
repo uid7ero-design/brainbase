@@ -43,14 +43,16 @@ export async function middleware(req: NextRequest) {
     return NextResponse.redirect(url);
   }
 
+  const role = session.role?.toLowerCase() ?? '';
+
   // /admin and /clients — super_admin only
-  if ((pathname.startsWith('/admin') || pathname.startsWith('/clients')) && session.role !== 'super_admin') {
+  if ((pathname.startsWith('/admin') || pathname.startsWith('/clients')) && role !== 'super_admin') {
     return NextResponse.redirect(new URL('/dashboard', req.url));
   }
 
   // /command — manager, admin, super_admin only (not viewer)
   const COMMAND_ROLES = ['manager', 'admin', 'super_admin'];
-  if (pathname.startsWith('/command') && !COMMAND_ROLES.includes(session.role)) {
+  if (pathname.startsWith('/command') && !COMMAND_ROLES.includes(role)) {
     return NextResponse.redirect(new URL('/dashboard', req.url));
   }
 

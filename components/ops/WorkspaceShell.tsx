@@ -75,7 +75,7 @@ export default function WorkspaceShell({
       `}} />
 
       <div style={{
-        position: 'fixed', inset: 0, display: 'flex',
+        position: 'fixed', top: 52, left: 0, right: 0, bottom: 0, display: 'flex',
         background: '#07080B',
         fontFamily: 'var(--font-inter),"Inter",-apple-system,sans-serif',
         animation: 'ws-fadein .3s ease',

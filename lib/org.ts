@@ -50,8 +50,10 @@ export async function requireSession(): Promise<OrgSession> {
     throw new Error('Session invalid');
   }
 
+  const role = (user.role as string).toLowerCase() as Role;
+
   let organisationId = user.organisation_id as string;
-  if ((user.role as string) === 'super_admin') {
+  if (role === 'super_admin') {
     const jar = await cookies();
     const override = jar.get('org_override')?.value;
     if (override) organisationId = override;
@@ -60,7 +62,7 @@ export async function requireSession(): Promise<OrgSession> {
   return {
     userId: session.userId,
     organisationId,
-    role: user.role as Role,
+    role,
     name: session.name,
   };
 }

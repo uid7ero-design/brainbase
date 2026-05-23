@@ -50,7 +50,7 @@ const FEATURES = [
     color: '#6366F1',
     title: 'Website & Booking Presence',
     description: 'Create and manage your own coaching website — showcase your sessions, pricing, and locations, all connected to your system.',
-    badge: 'Coming Soon',
+    badge: 'Expanding',
     icon: (
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
         <circle cx="12" cy="12" r="10"/>
@@ -62,8 +62,8 @@ const FEATURES = [
   {
     color: '#F59E0B',
     title: 'Revenue Visibility',
-    description: 'Understand what your time is worth.',
-    badge: 'Coming Soon',
+    description: 'Understand what your time is worth — and where it&apos;s being spent.',
+    badge: 'Expanding',
     icon: (
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
         <line x1="12" y1="1" x2="12" y2="23"/>
@@ -75,7 +75,7 @@ const FEATURES = [
     color: '#EC4899',
     title: 'Client Communication',
     description: 'Message players, send reminders, and keep everyone informed about sessions.',
-    badge: 'Coming Soon',
+    badge: 'Expanding',
     icon: (
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
         <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
@@ -92,16 +92,92 @@ const SCHEDULE = [
 
 const WHO_FOR = ['Tennis & Sports Coaches', 'Personal Trainers', 'Clubs & Academies', 'Service-based Businesses'];
 
+const OUTCOMES = [
+  {
+    color: '#10B981',
+    title: 'Fewer Missed Sessions',
+    description: 'Clear scheduling visibility means nothing slips through the cracks.',
+    icon: (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
+        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
+      </svg>
+    ),
+  },
+  {
+    color: '#38BDF8',
+    title: 'Centralised Client Records',
+    description: 'Every player, contact, and guardian — accessible and organised, never scattered.',
+    icon: (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
+        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
+        <path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+      </svg>
+    ),
+  },
+  {
+    color: '#6EE7B7',
+    title: 'Weekly Revenue Clarity',
+    description: 'Know exactly what each week is worth — before and after it happens.',
+    icon: (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
+        <line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+      </svg>
+    ),
+  },
+  {
+    color: '#A78BFA',
+    title: 'Less Time on Admin',
+    description: 'Sessions, clients, and payments managed in one system — not three.',
+    icon: (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
+        <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+      </svg>
+    ),
+  },
+  {
+    color: '#F59E0B',
+    title: 'Scheduling You Can Trust',
+    description: 'Capacity, players, and timing — visible in a single operational view.',
+    icon: (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
+        <rect x="3" y="4" width="18" height="18" rx="2"/>
+        <line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
+      </svg>
+    ),
+  },
+  {
+    color: '#34D399',
+    title: 'Operational Clarity',
+    description: 'Understand where your business is growing — and where it needs attention.',
+    icon: (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
+        <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+      </svg>
+    ),
+  },
+];
+
 const FUTURE_BULLETS = [
   'Know your weekly revenue',
   'Spot empty sessions before the week starts',
   'Understand where your business is growing',
 ];
 
+const BRAINBASE_MODULES = [
+  { title: 'Intelligent Websites',    color: '#6366F1', active: true,  icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg> },
+  { title: 'CRM & Client Management', color: '#8B5CF6', active: true,  icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg> },
+  { title: 'Scheduling & Bookings',   color: '#10B981', active: true,  icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> },
+  { title: 'Messaging',               color: '#38BDF8', active: true,  icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> },
+  { title: 'Dashboards & Reporting',  color: '#A78BFA', active: true,  icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg> },
+  { title: 'Workflow Automation',     color: '#F59E0B', active: false, icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg> },
+  { title: 'Revenue Intelligence',    color: '#22C55E', active: true,  icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg> },
+  { title: 'Client Portals',          color: '#EC4899', active: false, icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> },
+];
+
 const PRICING = [
   {
-    name: 'Starter',
-    tagline: 'Get your sessions organised',
+    name: 'Foundation',
+    tagline: 'Organise your coaching operation',
     price: 29,
     color: '#10B981',
     accentBg: 'rgba(16,185,129,.12)',
@@ -113,39 +189,40 @@ const PRICING = [
     popular: false,
   },
   {
-    name: 'Growth',
-    tagline: 'Start understanding your business',
+    name: 'Operations',
+    tagline: 'Build operational visibility',
     price: 59,
     color: '#34D399',
     accentBg: 'rgba(16,185,129,.22)',
     accentBorder: 'rgba(16,185,129,.48)',
     cardBg: 'rgba(16,185,129,.06)',
     cardBorder: 'rgba(16,185,129,.28)',
-    cta: 'Start Growing',
-    features: ['Everything in Starter', 'Revenue tracking', 'Session insights', 'Player tracking'],
+    cta: 'Start Operating',
+    features: ['Everything in Foundation', 'Revenue tracking', 'Session insights', 'Player tracking'],
     popular: true,
   },
   {
-    name: 'Pro',
-    tagline: 'Run your business like a system',
+    name: 'Business System',
+    tagline: 'Run a complete business system',
     price: 99,
     color: '#a5b4fc',
     accentBg: 'rgba(99,102,241,.16)',
     accentBorder: 'rgba(99,102,241,.34)',
     cardBg: 'rgba(255,255,255,.03)',
     cardBorder: 'rgba(99,102,241,.18)',
-    cta: 'Go Pro',
-    features: ['Everything in Growth', 'Advanced insights', 'Multi-location support', 'Priority support'],
+    cta: 'Get the Full System',
+    features: ['Everything in Operations', 'Advanced insights', 'Multi-location support', 'Priority support'],
     popular: false,
   },
 ];
 
 export default function ForCoaches() {
-  const [hoveredFeature, setHoveredFeature] = useState<number | null>(null);
-  const [ctaHov,         setCtaHov]         = useState(false);
-  const [heroHov,        setHeroHov]        = useState(false);
-  const [heroDemoHov,    setHeroDemoHov]    = useState(false);
-  const [hoveredRow,     setHoveredRow]     = useState<number | null>(null);
+  const [hoveredFeature,  setHoveredFeature]  = useState<number | null>(null);
+  const [hoveredBBModule, setHoveredBBModule] = useState<number | null>(null);
+  const [ctaHov,          setCtaHov]          = useState(false);
+  const [heroHov,         setHeroHov]         = useState(false);
+  const [heroDemoHov,     setHeroDemoHov]     = useState(false);
+  const [hoveredRow,      setHoveredRow]      = useState<number | null>(null);
 
   return (
     <main style={{ minHeight: '100vh', background: BG, color: '#F5F7FA', fontFamily: FONT }}>
@@ -189,15 +266,15 @@ export default function ForCoaches() {
             letterSpacing: '-.03em', lineHeight: 1.08,
             color: '#F1F5F9', margin: '0 0 22px',
           }}>
-            Stop Running Your<br />
+            Stop Running Sessions.<br />
             <span style={{
               background: 'linear-gradient(135deg, #34D399 0%, #10B981 55%, #059669 100%)',
               WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text',
-            }}>Sessions in Chaos</span>
+            }}>Start Running a Business.</span>
           </h1>
 
           <p style={{ fontSize: 18, lineHeight: 1.75, margin: '0 0 36px', color: 'rgba(226,232,240,.68)' }}>
-            See your week clearly, keep every client organised, and finally understand what your time is worth.
+            One connected operational system for coaches. Manage your sessions, clients, and revenue — and finally see your business as a whole.
           </p>
 
           <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
@@ -381,6 +458,52 @@ export default function ForCoaches() {
           </div>
         </section>
 
+        {/* ── Operational Outcomes ──────────────────────────────────────── */}
+        <section style={{ marginBottom: 72 }}>
+          <div style={{ textAlign: 'center', marginBottom: 40 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '.12em', color: 'rgba(52,211,153,.70)', textTransform: 'uppercase', marginBottom: 8 }}>Operational impact</div>
+            <h2 style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-.03em', color: '#F5F7FA', margin: '0 0 10px' }}>
+              Built to reduce operational chaos
+            </h2>
+            <p style={{ fontSize: 15, color: 'rgba(226,232,240,.45)', margin: '0 auto', maxWidth: 520, lineHeight: 1.6 }}>
+              BrainBase helps coaching businesses operate with more structure, visibility, and control.
+            </p>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 14 }}>
+            {OUTCOMES.map((outcome, i) => (
+              <div key={i}
+                onMouseEnter={e => {
+                  (e.currentTarget as HTMLDivElement).style.background = `${outcome.color}08`;
+                  (e.currentTarget as HTMLDivElement).style.borderColor = `${outcome.color}35`;
+                  (e.currentTarget as HTMLDivElement).style.transform = 'translateY(-2px)';
+                }}
+                onMouseLeave={e => {
+                  (e.currentTarget as HTMLDivElement).style.background = 'rgba(255,255,255,.025)';
+                  (e.currentTarget as HTMLDivElement).style.borderColor = `${outcome.color}18`;
+                  (e.currentTarget as HTMLDivElement).style.transform = 'translateY(0)';
+                }}
+                style={{
+                  padding: '20px 22px', borderRadius: 12, cursor: 'default',
+                  background: 'rgba(255,255,255,.025)',
+                  border: `1px solid ${outcome.color}18`,
+                  transition: 'all .18s',
+                }}>
+                <div style={{
+                  width: 36, height: 36, borderRadius: 9, marginBottom: 14,
+                  background: `${outcome.color}12`, border: `1px solid ${outcome.color}25`,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  color: outcome.color,
+                }}>
+                  {outcome.icon}
+                </div>
+                <h3 style={{ fontSize: 14, fontWeight: 700, color: '#F5F7FA', margin: '0 0 7px', letterSpacing: '-.01em' }}>{outcome.title}</h3>
+                <p style={{ fontSize: 12, color: 'rgba(226,232,240,.52)', lineHeight: 1.6, margin: 0 }}>{outcome.description}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+
         {/* ── Features ──────────────────────────────────────────────────── */}
         <section style={{ marginBottom: 16 }}>
           <div style={{ textAlign: 'center', marginBottom: 40 }}>
@@ -461,10 +584,10 @@ export default function ForCoaches() {
             background: 'rgba(99,102,241,.04)', border: '1px solid rgba(99,102,241,.12)',
           }}>
             <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '.10em', color: 'rgba(165,180,252,.45)', textTransform: 'uppercase', marginBottom: 12 }}>
-              Coming next
+              Expanding platform
             </div>
             <h3 style={{ fontSize: 17, fontWeight: 700, color: '#F5F7FA', margin: '0 0 18px', letterSpacing: '-.01em' }}>
-              Soon you'll be able to:
+              The operational system keeps growing:
             </h3>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 11 }}>
               {FUTURE_BULLETS.map((item, i) => (
@@ -480,19 +603,112 @@ export default function ForCoaches() {
         {/* ── Value bridge ─────────────────────────────────────────────── */}
         <div style={{ textAlign: 'center', marginBottom: 40 }}>
           <p style={{ fontSize: 16, color: 'rgba(226,232,240,.55)', margin: 0, lineHeight: 1.6, fontStyle: 'italic' }}>
-            You&apos;re already running sessions — this shows you what they&apos;re worth.
+            You&apos;re already running sessions — BrainBase turns them into a business you can see and grow.
           </p>
         </div>
+
+        {/* ── Powered By BrainBase Modules ─────────────────────────────── */}
+        <section style={{ marginBottom: 72 }}>
+          <div style={{
+            padding: '40px 40px 36px', borderRadius: 16,
+            background: 'rgba(99,102,241,.04)', border: '1px solid rgba(99,102,241,.14)',
+            position: 'relative', overflow: 'hidden',
+          }}>
+            {/* Background glow */}
+            <div style={{
+              position: 'absolute', right: -80, top: -80,
+              width: 300, height: 300, borderRadius: '50%',
+              background: 'radial-gradient(circle, rgba(139,92,246,.08) 0%, transparent 70%)',
+              pointerEvents: 'none',
+            }} />
+
+            <div style={{ position: 'relative' }}>
+              <div style={{ marginBottom: 28 }}>
+                <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '.12em', color: 'rgba(165,180,252,.55)', textTransform: 'uppercase', marginBottom: 8 }}>
+                  Platform
+                </div>
+                <h2 style={{ fontSize: 24, fontWeight: 700, color: '#F5F7FA', letterSpacing: '-.02em', margin: '0 0 8px' }}>
+                  Powered by BrainBase Modules
+                </h2>
+                <p style={{ fontSize: 14, color: 'rgba(226,232,240,.42)', margin: 0, lineHeight: 1.6, maxWidth: 520 }}>
+                  This coaching system is a live BrainBase operational deployment. Each module is connected,
+                  reusable, and part of a growing infrastructure platform — built to scale with your business.
+                </p>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 10 }}>
+                {BRAINBASE_MODULES.map((mod, i) => {
+                  const isHov = hoveredBBModule === i;
+                  return (
+                    <div
+                      key={i}
+                      onMouseEnter={() => setHoveredBBModule(i)}
+                      onMouseLeave={() => setHoveredBBModule(null)}
+                      style={{
+                        padding: '14px 16px', borderRadius: 10,
+                        display: 'flex', alignItems: 'center', gap: 10,
+                        background: mod.active
+                          ? (isHov ? `${mod.color}12` : `${mod.color}07`)
+                          : 'rgba(255,255,255,.02)',
+                        border: mod.active
+                          ? (isHov ? `1px solid ${mod.color}40` : `1px solid ${mod.color}20`)
+                          : '1px solid rgba(255,255,255,.06)',
+                        opacity: mod.active ? 1 : 0.40,
+                        transform: isHov && mod.active ? 'translateY(-1px)' : 'translateY(0)',
+                        transition: 'all .15s', cursor: 'default',
+                      }}>
+                      <div style={{
+                        width: 28, height: 28, borderRadius: 7, flexShrink: 0,
+                        background: mod.active ? `${mod.color}14` : 'rgba(255,255,255,.05)',
+                        border: mod.active ? `1px solid ${mod.color}25` : '1px solid rgba(255,255,255,.09)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        color: mod.active ? mod.color : 'rgba(255,255,255,.25)',
+                      }}>
+                        {mod.icon}
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: mod.active ? '#F5F7FA' : 'rgba(255,255,255,.35)', lineHeight: 1.3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {mod.title}
+                        </div>
+                        {!mod.active && (
+                          <div style={{ fontSize: 9, fontWeight: 600, letterSpacing: '.06em', color: 'rgba(255,255,255,.25)', textTransform: 'uppercase', marginTop: 2 }}>
+                            Expanding
+                          </div>
+                        )}
+                      </div>
+                      {mod.active && (
+                        <div style={{
+                          width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
+                          background: mod.color, boxShadow: `0 0 6px ${mod.color}`,
+                        }} />
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid rgba(255,255,255,.05)' }}>
+                <span style={{ fontSize: 12, color: 'rgba(255,255,255,.22)', letterSpacing: '.02em' }}>
+                  Powered by{' '}
+                  <Link href="/" style={{ color: 'rgba(165,180,252,.50)', textDecoration: 'none', fontWeight: 600 }}>
+                    BrainBase
+                  </Link>
+                  {' '}— AI-powered business infrastructure platform
+                </span>
+              </div>
+            </div>
+          </div>
+        </section>
 
         {/* ── Pricing ───────────────────────────────────────────────────── */}
         <section style={{ marginBottom: 72 }}>
           <div style={{ textAlign: 'center', marginBottom: 40 }}>
             <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '.12em', color: 'rgba(52,211,153,.70)', textTransform: 'uppercase', marginBottom: 8 }}>Pricing</div>
             <h2 style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-.03em', color: '#F5F7FA', margin: '0 0 10px' }}>
-              Start running your business properly
+              Deploy your operational system
             </h2>
             <p style={{ fontSize: 14, color: 'rgba(255,255,255,.32)', margin: 0 }}>
-              Stop guessing your schedule, your clients, and your income.
+              Choose the deployment tier that fits where your business is today.
             </p>
           </div>
 
@@ -553,20 +769,50 @@ export default function ForCoaches() {
           </p>
         </section>
 
-        {/* ── Social proof ──────────────────────────────────────────────── */}
+        {/* ── Live deployment: LD Tennis ────────────────────────────────── */}
         <section style={{ marginBottom: 72 }}>
           <div style={{
-            padding: '32px 40px', borderRadius: 14,
-            background: 'rgba(255,255,255,.02)', border: '1px solid rgba(255,255,255,.07)',
-            textAlign: 'center',
+            padding: '32px 36px', borderRadius: 14,
+            background: 'rgba(16,185,129,.03)', border: '1px solid rgba(16,185,129,.14)',
+            position: 'relative', overflow: 'hidden',
           }}>
-            <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '.08em', color: 'rgba(255,255,255,.25)', textTransform: 'uppercase', marginBottom: 10 }}>
-              Real businesses
+            <div style={{
+              position: 'absolute', right: -60, top: -60, width: 220, height: 220, borderRadius: '50%',
+              background: 'radial-gradient(circle, rgba(16,185,129,.06) 0%, transparent 70%)',
+              pointerEvents: 'none',
+            }} />
+            <div style={{ position: 'relative', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 24 }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+                  <div style={{
+                    fontSize: 9, fontWeight: 700, letterSpacing: '.10em', textTransform: 'uppercase',
+                    padding: '3px 10px', borderRadius: 20,
+                    background: 'rgba(16,185,129,.12)', border: '1px solid rgba(16,185,129,.30)',
+                    color: '#34D399',
+                  }}>Live Deployment</div>
+                  <div style={{ width: 5, height: 5, borderRadius: '50%', background: '#22C55E', boxShadow: '0 0 6px #22C55E', animation: 'pulse 2.5s ease-in-out infinite' }} />
+                </div>
+                <h3 style={{ fontSize: 20, fontWeight: 700, color: '#F5F7FA', margin: '0 0 8px', letterSpacing: '-.02em' }}>
+                  <a href="https://ldtennis.com.au" target="_blank" rel="noopener noreferrer" style={{ color: '#34D399', textDecoration: 'none' }}>LD Tennis</a>
+                </h3>
+                <p style={{ fontSize: 14, color: 'rgba(226,232,240,.52)', margin: '0 0 18px', lineHeight: 1.55, maxWidth: 420 }}>
+                  A live BrainBase operational deployment — managing sessions, players, and revenue for a real coaching business.
+                </p>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
+                  {['Session Management', 'Client Records', 'Revenue Tracking', 'Powered by BrainBase'].map((tag, i) => (
+                    <span key={i} style={{
+                      fontSize: 11, color: 'rgba(52,211,153,.65)',
+                      padding: '3px 10px', borderRadius: 20,
+                      background: 'rgba(16,185,129,.08)', border: '1px solid rgba(16,185,129,.20)',
+                    }}>{tag}</span>
+                  ))}
+                </div>
+              </div>
+              <div style={{ textAlign: 'right', flexShrink: 0, paddingTop: 4 }}>
+                <div style={{ fontSize: 10, color: 'rgba(255,255,255,.22)', letterSpacing: '.06em', textTransform: 'uppercase', marginBottom: 4 }}>Infrastructure</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'rgba(165,180,252,.55)' }}>BrainBase Platform</div>
+              </div>
             </div>
-            <p style={{ fontSize: 17, fontWeight: 500, color: 'rgba(230,237,243,.72)', margin: 0, lineHeight: 1.6 }}>
-              Built with real coaching businesses — starting with{' '}
-              <a href="https://ldtennis.com.au" target="_blank" rel="noopener noreferrer" style={{ color: '#34D399', fontWeight: 600, textDecoration: 'none', borderBottom: '1px solid rgba(52,211,153,.35)', paddingBottom: 1 }}>LD Tennis</a>
-            </p>
           </div>
         </section>
 
@@ -586,13 +832,13 @@ export default function ForCoaches() {
 
           <div style={{ position: 'relative' }}>
             <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '.12em', color: 'rgba(52,211,153,.70)', textTransform: 'uppercase', marginBottom: 12 }}>
-              Ready
+              Get operational
             </div>
             <h2 style={{ fontSize: 28, fontWeight: 700, color: '#F5F7FA', letterSpacing: '-.02em', margin: '0 0 12px' }}>
               Know your schedule. Know your clients. Know your numbers.
             </h2>
             <p style={{ fontSize: 15, color: 'rgba(230,237,243,.45)', margin: '0 0 28px', lineHeight: 1.55 }}>
-              See exactly how your sessions, clients, and revenue connect.
+              Deploy a connected operational system — and start running your coaching business with clarity.
             </p>
             <Link
               href="/request-demo"

@@ -33,7 +33,7 @@ export async function getAuthSession(): Promise<AuthSession> {
   }
 
   let organisationId = user.organisation_id as string;
-  if ((user.role as string) === 'super_admin') {
+  if ((user.role as string).toLowerCase() === 'super_admin') {
     const jar = await cookies();
     const override = jar.get('org_override')?.value;
     if (override) organisationId = override;
@@ -42,7 +42,7 @@ export async function getAuthSession(): Promise<AuthSession> {
   return {
     userId:         jwt.userId,
     organisationId,
-    role:           user.role as string,
+    role:           (user.role as string).toLowerCase(),
     name:           user.name as string,
     email:          user.email as string,
   };

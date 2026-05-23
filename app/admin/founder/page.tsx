@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import InstagramFeedPanel from '@/components/instagram/InstagramFeedPanel';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -9,7 +10,7 @@ type Stage     = 'lead' | 'contacted' | 'demo' | 'trial' | 'proposal' | 'paid' |
 type Prio      = 'high' | 'medium' | 'low';
 type Severity  = 'critical' | 'high' | 'medium' | 'low';
 type FeedType  = 'sales' | 'product' | 'system' | 'client';
-type Section   = 'overview' | 'clients' | 'revenue' | 'tasks' | 'system';
+type Section   = 'overview' | 'clients' | 'revenue' | 'tasks' | 'system' | 'instagram';
 
 type QueueItem = {
   id: number; severity: Severity; type: FeedType;
@@ -392,11 +393,12 @@ function StageFunnel({ clients }: { clients: Client[] }) {
 // ─── Section tabs ─────────────────────────────────────────────────────────────
 
 const SECTION_TABS: Array<{ id: Section; label: string }> = [
-  { id: 'overview', label: 'Overview' },
-  { id: 'clients',  label: 'Clients'  },
-  { id: 'revenue',  label: 'Revenue'  },
-  { id: 'tasks',    label: 'Tasks'    },
-  { id: 'system',   label: 'System'   },
+  { id: 'overview',   label: 'Overview'   },
+  { id: 'clients',    label: 'Clients'    },
+  { id: 'revenue',    label: 'Revenue'    },
+  { id: 'tasks',      label: 'Tasks'      },
+  { id: 'system',     label: 'System'     },
+  { id: 'instagram',  label: 'Instagram'  },
 ];
 
 function SectionTabs({ section, setSection }: { section: Section; setSection: (s: Section) => void }) {
@@ -1118,8 +1120,9 @@ function LeftSidebar({ onModal, section, setSection }: {
     { label: 'Clients',  section: 'clients'  },
     { label: 'Revenue',  section: 'revenue'  },
     { label: 'Tasks',    section: 'tasks'    },
-    { label: 'System',   section: 'system'   },
-    { label: 'Product',  href: '/data'       },
+    { label: 'System',     section: 'system'     },
+    { label: 'Instagram',  section: 'instagram'  },
+    { label: 'Product',    href: '/data'          },
     { label: 'Admin',    href: '/admin'      },
   ];
 
@@ -1733,6 +1736,13 @@ export default function FounderPage() {
 
   const refreshIntel = () => { setIntelLoading(true); loadIntel(); };
 
+  // ─── Instagram OAuth result toast ────────────────────────────────────────
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search);
+    if (p.get('ig_connected')) { setToast('Instagram connected!'); window.history.replaceState({}, '', '/admin/founder'); }
+    if (p.get('ig_error')) { setToastError(decodeURIComponent(p.get('ig_error')!)); window.history.replaceState({}, '', '/admin/founder'); }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ─── Real ops alerts (tennis leads etc.) ────────────────────────────────
   type OpsAlert = { id: string; severity: string; title: string; description: string; rule_key: string | null; created_at: string };
   const [opsAlerts, setOpsAlerts] = useState<OpsAlert[]>([]);
@@ -2012,6 +2022,11 @@ export default function FounderPage() {
             <ProductUsage />
             <LiveContext />
           </>}
+
+          {/* ── Instagram ── */}
+          {section === 'instagram' && (
+            <InstagramFeedPanel />
+          )}
         </div>
 
         {/* Right column — persistent context panel */}

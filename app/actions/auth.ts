@@ -25,14 +25,14 @@ export async function login(prevState: LoginState, formData: FormData): Promise<
   await createSession(
     user.id as string,
     user.organisation_id as string,
-    user.role as Role,
+    (user.role as string).toLowerCase() as Role,
     user.name as string,
   );
 
+  const role = String(user.role).toLowerCase();
   const ldTennisOrgId = process.env.LD_TENNIS_ORG_ID ?? '';
-  const redirectTo = user.role === 'super_admin'
-    ? '/admin/founder'
-    : (ldTennisOrgId && user.organisation_id === ldTennisOrgId) ? '/dashboard/leads' : '/dashboard';
+  const isLdTennis = ldTennisOrgId && user.organisation_id === ldTennisOrgId;
+  const redirectTo = (role === 'super_admin' && !isLdTennis) ? '/admin/founder' : '/dashboard';
 
   return { redirectTo };
 }

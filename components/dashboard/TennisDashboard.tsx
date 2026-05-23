@@ -1,8 +1,9 @@
 import Link from 'next/link'
-import HlnaInsightCard from './HlnaInsightCard'
-import WeatherPanel    from './WeatherPanel'
-import LeadsChart      from './LeadsChart'
-import { HlnaOrb }    from '@/components/brand/HlnaOrb'
+import HlnaInsightCard  from './HlnaInsightCard'
+import WeatherPanel     from './WeatherPanel'
+import LeadsChart       from './LeadsChart'
+import TennisNewsPanel  from './TennisNewsPanel'
+import { HlnaOrb }     from '@/components/brand/HlnaOrb'
 
 const FONT = "var(--font-inter), -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
 
@@ -205,7 +206,12 @@ export default function TennisDashboard({ stats, recentLeads, attentionContacts,
         <WeatherPanel />
       </div>
 
-      {/* ── Row 4: Recent Activity (full width) ────────────────────── */}
+      {/* ── Row 4: Tennis News (full width) ────────────────────────── */}
+      <div style={{ marginBottom: 14 }}>
+        <TennisNewsPanel />
+      </div>
+
+      {/* ── Row 5: Recent Activity (full width) ────────────────────── */}
       <div style={{
         background: 'rgba(255,255,255,.025)',
         border: '1px solid rgba(255,255,255,.07)',

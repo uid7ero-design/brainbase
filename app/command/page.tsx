@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import GridLayout from "react-grid-layout";
@@ -11,19 +11,13 @@ import HlnaBriefingWidget from "@/components/ops/widgets/HlnaBriefingWidget";
 import WeatherWidget from "@/components/ops/widgets/WeatherWidget";
 import MapWidget from "@/components/ops/widgets/MapWidget";
 import DrilldownDrawer, { type DrawerAlert } from "@/components/ops/DrilldownDrawer";
+import FinancialTab from "./financial";
 
 const FONT = 'var(--font-inter), "Inter", -apple-system, sans-serif';
 const LAYOUT_KEY = "ops-workspace-layout-v1";
 
 // ── DATA ─────────────────────────────────────────────────────────────────────
 
-const KPIS = [
-  { label: "Missed Bins",       value: "47",    trend: "up"   as const, trendLabel: "+12%",      trendBad: true,  spark: [22, 18, 25, 30, 28, 38, 47] },
-  { label: "On-Time",           value: "81%",   trend: "down" as const, trendLabel: "−6%",       trendBad: true,  spark: [92, 90, 88, 87, 85, 83, 81] },
-  { label: "Active Alerts",     value: "4",     trend: "up"   as const, trendLabel: "+2 today",  trendBad: true,  spark: [1, 2, 1, 2, 3, 2, 4] },
-  { label: "Cost Variance",     value: "+5.2%", trend: "up"   as const, trendLabel: "vs budget", trendBad: true,  spark: [0.5, 1.2, 2.0, 3.1, 3.8, 4.5, 5.2] },
-  { label: "Fleet Avail.",      value: "88%",   trend: "down" as const, trendLabel: "−4% wk",    trendBad: true,  spark: [95, 94, 93, 92, 90, 89, 88] },
-];
 
 const ALERTS = [
   { id: "route-delays",      status: "critical" as const, title: "Route delays exceeding KPI",     metric: "+34 min", metricLabel: "avg delay",           description: "Southern routes 4 and 7 running significantly over schedule.",                        action: "Reassign crew",  href: "/dashboard/waste"  },
@@ -57,6 +51,19 @@ const NAVIGATE_MAP: Record<string, string> = {
   water: "/dashboard/water", roads: "/dashboard/roads",
   dashboards: "/dashboards",
 };
+
+const TABS = [
+  { id: "overview",   label: "Overview"          },
+  { id: "financial",  label: "Financial"          },
+  { id: "waste",      label: "Waste Intelligence" },
+  { id: "debtors",    label: "Debtors"            },
+  { id: "kerbside",   label: "Kerbside"           },
+  { id: "dumping",    label: "Illegal Dumping"    },
+  { id: "crm",        label: "CRM / Requests"     },
+  { id: "sports",     label: "Sporting Clubs"     },
+];
+
+const ACTIVE_FY = "2025-26";
 
 // ── STATUS STYLES ────────────────────────────────────────────────────────────
 
@@ -134,6 +141,96 @@ type Msg = { role: "user" | "assistant"; text: string };
 type OrbState = "idle" | "thinking" | "alert";
 type PipelineItem = { id: string; type: string; title: string; description: string | null; org_name: string | null; created_at: string; status: string };
 
+// ── KPI STRIP (live data) ────────────────────────────────────────────────────
+
+type KpiEntry = { label: string; value: string | number; trend: "up" | "down"; trendLabel: string; trendBad: boolean };
+
+function KpiStrip() {
+  const [kpis, setKpis] = useState<Record<string, Record<string, number>>>({});
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let alive = true;
+    async function load() {
+      const endpoints: Record<string, string> = {
+        kerbside: `/api/missed-collections/kpi?fy=${ACTIVE_FY}`,
+        dumping:  `/api/illegal-dumping/kpi?fy=${ACTIVE_FY}`,
+        waste:    `/api/waste/kpi?fy=${ACTIVE_FY}`,
+      };
+      const results: Record<string, Record<string, number>> = {};
+      await Promise.allSettled(
+        Object.entries(endpoints).map(async ([key, url]) => {
+          try {
+            const res = await fetch(url, { credentials: "include" });
+            if (res.ok) results[key] = ((await res.json()) as { data?: Record<string, number> }).data ?? {};
+          } catch { results[key] = {}; }
+        })
+      );
+      if (alive) { setKpis(results); setLoading(false); }
+    }
+    load();
+    return () => { alive = false; };
+  }, []);
+
+  const missed     = kpis.kerbside?.missedCount ?? 0;
+  const completion = kpis.kerbside?.completionRate ?? 81;
+  const incidents  = kpis.dumping?.totalIncidents ?? 0;
+  const diversion  = Math.round(kpis.waste?.diversionRate ?? 0);
+
+  const KPI_DATA: KpiEntry[] = [
+    { label: "Missed Bins",    value: missed,              trend: missed > 30 ? "up" : "down",         trendLabel: `${Math.round(missed / 10)}% of sched.`, trendBad: true  },
+    { label: "On-Time",        value: `${Math.round(completion)}%`, trend: completion > 85 ? "up" : "down", trendLabel: completion > 85 ? "+2%" : "−6%",   trendBad: completion < 85 },
+    { label: "Active Alerts",  value: incidents,           trend: "up",                                trendLabel: `+${incidents > 5 ? 2 : 1} today`,      trendBad: true  },
+    { label: "Diversion Rate", value: `${diversion}%`,     trend: diversion > 60 ? "up" : "down",      trendLabel: "vs 60% target",                         trendBad: diversion < 60 },
+    { label: "Fleet Avail.",   value: "88%",               trend: "down",                              trendLabel: "−4% wk",                                trendBad: true  },
+  ];
+
+  const sparks: number[][] = [
+    [22, 18, 25, 30, 28, 38, missed],
+    [92, 90, 88, 87, 85, 83, completion],
+    [1, 2, 1, 2, 3, 2, incidents],
+    [55, 58, 60, 62, 61, 63, diversion],
+    [95, 94, 93, 92, 90, 89, 88],
+  ];
+
+  if (loading) {
+    return (
+      <section style={{ height: "100%", display: "grid", gridTemplateColumns: "repeat(5,1fr)", borderRadius: 12, overflow: "hidden", border: "1px solid rgba(255,255,255,.07)", background: "rgba(7,8,11,.88)" }}>
+        {Array.from({ length: 5 }).map((_, i) => (
+          <div key={i} style={{ padding: "16px 18px", display: "flex", flexDirection: "column", gap: 8 }}>
+            <div style={{ height: 9, width: 60, borderRadius: 4, background: "rgba(255,255,255,.07)" }} />
+            <div style={{ height: 34, width: 80, borderRadius: 4, background: "rgba(255,255,255,.05)" }} />
+          </div>
+        ))}
+      </section>
+    );
+  }
+
+  return (
+    <section style={{ height: "100%", display: "grid", gridTemplateColumns: "repeat(5,1fr)", borderRadius: 12, overflow: "hidden", border: "1px solid rgba(255,255,255,.07)", boxShadow: "inset 0 1px 0 rgba(255,255,255,.04), 0 0 30px rgba(0,0,0,.30)" }}>
+      {KPI_DATA.map((kpi, i) => {
+        const color = kpi.trendBad ? "#EF4444" : "#22C55E";
+        return (
+          <div key={kpi.label} style={{ padding: "16px 18px", background: "rgba(7,8,11,.88)", backdropFilter: "blur(12px)", borderRight: i < KPI_DATA.length - 1 ? "1px solid rgba(255,255,255,.055)" : "none", position: "relative", overflow: "hidden" }}>
+            <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 1, background: `linear-gradient(90deg,transparent,${color}22,transparent)` }} />
+            <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: ".12em", color: "rgba(255,255,255,.24)", textTransform: "uppercase", marginBottom: 9 }}>{kpi.label}</div>
+            <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 6 }}>
+              <div>
+                <div style={{ fontSize: 34, fontWeight: 700, letterSpacing: "-.04em", color: "#F5F7FA", lineHeight: 1, marginBottom: 6 }}>{kpi.value}</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 10.5, fontWeight: 600, color }}>
+                  <span>{kpi.trend === "up" ? "↑" : "↓"}</span>
+                  <span>{kpi.trendLabel}</span>
+                </div>
+              </div>
+              <Sparkline data={sparks[i]} color={color} />
+            </div>
+          </div>
+        );
+      })}
+    </section>
+  );
+}
+
 // ── PAGE ─────────────────────────────────────────────────────────────────────
 
 export default function CommandPage() {
@@ -146,9 +243,25 @@ export default function CommandPage() {
   const [orbState, setOrbState]         = useState<OrbState>("idle");
   const [drawerAlert, setDrawerAlert]   = useState<DrawerAlert | null>(null);
   const [pipelineAlerts, setPipelineAlerts] = useState<PipelineItem[]>([]);
+  const [activeTab, setActiveTab] = useState("overview");
+
+  // Init tab from URL + sync URL on change
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const tab = params.get("tab");
+    if (tab && TABS.some(t => t.id === tab)) setActiveTab(tab);
+  }, []);
+
+  function handleTabChange(tabId: string) {
+    setActiveTab(tabId);
+    const url = new URL(window.location.href);
+    if (tabId === "overview") url.searchParams.delete("tab");
+    else url.searchParams.set("tab", tabId);
+    window.history.replaceState(null, "", url.pathname + url.search);
+  }
 
   useEffect(() => {
-    fetch('/api/admin/pipeline')
+    fetch('/api/admin/pipeline', { credentials: 'include' })
       .then(r => r.ok ? r.json() : { requests: [] })
       .then((d: { requests?: PipelineItem[] }) => {
         const newItems = (d.requests ?? []).filter((r: PipelineItem & { status: string }) => r.status === 'new');
@@ -207,6 +320,7 @@ export default function CommandPage() {
     fetch(`/api/ops/alerts/${alertId}/action`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify({ action, ...payload }),
     }).catch(() => {});
   }
@@ -220,6 +334,7 @@ export default function CommandPage() {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ messages: next.map(m => ({ role: m.role, content: m.text })), dashboardContext: "Command Centre — real-time municipal operations hub." }),
       });
       const d = await res.json();
@@ -233,37 +348,6 @@ export default function CommandPage() {
   }
 
   // ── WIDGET PANELS ────────────────────────────────────────────────────────
-
-  const KpiStrip = (
-    <section style={{ height: "100%", display: "grid", gridTemplateColumns: "repeat(5,1fr)", borderRadius: 12, overflow: "hidden", border: "1px solid rgba(255,255,255,.07)", boxShadow: "inset 0 1px 0 rgba(255,255,255,.04), 0 0 30px rgba(0,0,0,.30)" }}>
-      {KPIS.map((kpi, i) => {
-        const color = kpi.trendBad ? "#EF4444" : "#22C55E";
-        return (
-          <div key={kpi.label} style={{
-            padding: "16px 18px", background: "rgba(7,8,11,.88)", backdropFilter: "blur(12px)",
-            borderRight: i < KPIS.length - 1 ? "1px solid rgba(255,255,255,.055)" : "none",
-            position: "relative", overflow: "hidden",
-          }}>
-            {/* Subtle top edge */}
-            <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 1, background: `linear-gradient(90deg,transparent,${color}22,transparent)` }} />
-            <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: ".12em", color: "rgba(255,255,255,.24)", textTransform: "uppercase", marginBottom: 9 }}>
-              {kpi.label}
-            </div>
-            <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 6 }}>
-              <div>
-                <div style={{ fontSize: 34, fontWeight: 700, letterSpacing: "-.04em", color: "#F5F7FA", lineHeight: 1, marginBottom: 6 }}>{kpi.value}</div>
-                <div style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 10.5, fontWeight: 600, color }}>
-                  <span>{kpi.trend === "up" ? "↑" : "↓"}</span>
-                  <span>{kpi.trendLabel}</span>
-                </div>
-              </div>
-              <Sparkline data={kpi.spark} color={color} />
-            </div>
-          </div>
-        );
-      })}
-    </section>
-  );
 
   const StatusRibbon = (
     <section style={{ height: "100%", display: "grid", gridTemplateColumns: "repeat(6,1fr)", borderRadius: 10, overflow: "hidden", border: "1px solid rgba(255,255,255,.07)", boxShadow: "0 0 20px rgba(0,0,0,.20)" }}>
@@ -585,53 +669,98 @@ export default function CommandPage() {
         <div style={{ flex: 1 }} />
         <LiveAgo baseSeconds={3} />
         <div style={{ width: 1, height: 12, background: "rgba(255,255,255,.07)" }} />
-        {editMode && (
+        {activeTab === "overview" && editMode && (
           <button onClick={resetLayout} style={{ padding: "3px 9px", borderRadius: 5, fontSize: 10, fontWeight: 600, background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.10)", color: "rgba(255,255,255,.35)", cursor: "pointer", fontFamily: FONT, letterSpacing: ".04em" }}>
             Reset layout
           </button>
         )}
-        <button onClick={() => setEditMode(p => !p)} style={{
-          padding: "3px 10px", borderRadius: 5, fontSize: 10, fontWeight: 600,
-          background: editMode ? "rgba(139,92,246,.20)" : "rgba(255,255,255,.04)",
-          border: `1px solid ${editMode ? "rgba(139,92,246,.38)" : "rgba(255,255,255,.10)"}`,
-          color: editMode ? "#C4B5FD" : "rgba(255,255,255,.35)",
-          cursor: "pointer", fontFamily: FONT, letterSpacing: ".04em", transition: "all .15s",
-        }}>
-          {editMode ? "✓ Done" : "⊞ Edit workspace"}
-        </button>
-      </div>
-
-      {/* ── Grid canvas ── */}
-      <div ref={containerRef} style={{ flex: 1, overflowY: "auto", overflowX: "hidden", padding: "12px 16px 64px" }}>
-        {gridWidth > 0 && (
-          <div className={editMode ? "edit-mode" : ""}>
-            <GridLayout
-              layout={layout}
-              width={gridWidth - 32}
-              gridConfig={{ cols: 12, rowHeight: 32, margin: [10, 10], containerPadding: [0, 0] }}
-              dragConfig={{ enabled: editMode, handle: ".widget-drag-handle" }}
-              resizeConfig={{ enabled: editMode }}
-              onLayoutChange={handleLayoutChange}
-            >
-              <div key="kpi">{KpiStrip}</div>
-              <div key="ribbon">{StatusRibbon}</div>
-              <div key="briefing">
-                <HlnaBriefingWidget orbState={orbState} />
-              </div>
-              <div key="weather">
-                <WeatherWidget />
-              </div>
-              <div key="alerts">{AlertsGrid}</div>
-              <div key="actions">{ActionsHub}</div>
-              <div key="changes">{ChangesPanel}</div>
-              <div key="assistant">{AssistantPanel}</div>
-              <div key="map">
-                <MapWidget />
-              </div>
-            </GridLayout>
-          </div>
+        {activeTab === "overview" && (
+          <button onClick={() => setEditMode(p => !p)} style={{
+            padding: "3px 10px", borderRadius: 5, fontSize: 10, fontWeight: 600,
+            background: editMode ? "rgba(139,92,246,.20)" : "rgba(255,255,255,.04)",
+            border: `1px solid ${editMode ? "rgba(139,92,246,.38)" : "rgba(255,255,255,.10)"}`,
+            color: editMode ? "#C4B5FD" : "rgba(255,255,255,.35)",
+            cursor: "pointer", fontFamily: FONT, letterSpacing: ".04em", transition: "all .15s",
+          }}>
+            {editMode ? "✓ Done" : "⊞ Edit workspace"}
+          </button>
         )}
       </div>
+
+      {/* ── Tab bar ── */}
+      <div style={{
+        height: 40, display: "flex", alignItems: "center", gap: 0,
+        padding: "0 16px", flexShrink: 0,
+        borderBottom: "1px solid rgba(255,255,255,.05)",
+        background: "rgba(6,7,10,.60)",
+        overflowX: "auto",
+      }}>
+        {TABS.map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => handleTabChange(tab.id)}
+            style={{
+              padding: "0 18px", height: "100%",
+              background: activeTab === tab.id ? "rgba(139,92,246,.14)" : "transparent",
+              border: "none",
+              borderBottom: activeTab === tab.id ? "2px solid #A78BFA" : "2px solid transparent",
+              color: activeTab === tab.id ? "#C4B5FD" : "rgba(255,255,255,.35)",
+              fontSize: 12, fontWeight: 600, cursor: "pointer",
+              transition: "all .15s", whiteSpace: "nowrap",
+              letterSpacing: ".02em", fontFamily: FONT,
+            }}
+            onMouseEnter={e => { if (activeTab !== tab.id) e.currentTarget.style.color = "rgba(255,255,255,.60)"; }}
+            onMouseLeave={e => { if (activeTab !== tab.id) e.currentTarget.style.color = "rgba(255,255,255,.35)"; }}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── Tab content ── */}
+      {activeTab === "overview" ? (
+        /* Overview: full GridLayout dashboard */
+        <div ref={containerRef} style={{ flex: 1, overflowY: "auto", overflowX: "hidden", padding: "12px 16px 64px" }}>
+          {gridWidth > 0 && (
+            <div className={editMode ? "edit-mode" : ""}>
+              <GridLayout
+                layout={layout}
+                width={gridWidth - 32}
+                gridConfig={{ cols: 12, rowHeight: 32, margin: [10, 10], containerPadding: [0, 0] }}
+                dragConfig={{ enabled: editMode, handle: ".widget-drag-handle" }}
+                resizeConfig={{ enabled: editMode }}
+                onLayoutChange={handleLayoutChange}
+              >
+                <div key="kpi"><KpiStrip /></div>
+                <div key="ribbon">{StatusRibbon}</div>
+                <div key="briefing">
+                  <HlnaBriefingWidget orbState={orbState} />
+                </div>
+                <div key="weather">
+                  <WeatherWidget />
+                </div>
+                <div key="alerts">{AlertsGrid}</div>
+                <div key="actions">{ActionsHub}</div>
+                <div key="changes">{ChangesPanel}</div>
+                <div key="assistant">{AssistantPanel}</div>
+                <div key="map">
+                  <MapWidget />
+                </div>
+              </GridLayout>
+            </div>
+          )}
+        </div>
+      ) : (
+        <div style={{ flex: 1, minHeight: 0, overflowY: "auto", display: "flex" }}>
+          {activeTab === "financial" && <FinancialTab />}
+          {activeTab === "waste"     && <WasteIntelligenceTab />}
+          {activeTab === "debtors"   && <DebtorsTab />}
+          {activeTab === "kerbside"  && <KerbsideTab />}
+          {activeTab === "dumping"   && <IllegalDumpingTab />}
+          {activeTab === "crm"       && <CRMTab />}
+          {activeTab === "sports"    && <SportingClubsTab />}
+        </div>
+      )}
     </WorkspaceShell>
     {drawerAlert && (
       <DrilldownDrawer
@@ -643,3 +772,318 @@ export default function CommandPage() {
     </>
   );
 }
+
+// ━━━ ANALYTICS TAB COMPONENTS ━━━
+
+function tabFetch(endpoint: string): Promise<Record<string, unknown>> {
+  return fetch(`/api/${endpoint}/kpi?fy=${ACTIVE_FY}`, { credentials: "include" })
+    .then(r => r.ok ? r.json() : { data: {} })
+    .then((j: { data?: Record<string, unknown> }) => j.data ?? {})
+    .catch(() => ({}));
+}
+
+
+const WasteIntelligenceTab = React.memo(function WasteIntelligenceTab() {
+  const [data, setData] = useState<Record<string, number>>({});
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    let alive = true;
+    tabFetch("waste").then(d => { if (alive) { setData(d as typeof data); setLoading(false); } });
+    return () => { alive = false; };
+  }, []);
+  if (loading) return <div style={{ padding: 20, color: "rgba(255,255,255,.40)" }}>Loading waste intelligence...</div>;
+  const dr = Math.round(data.diversionRate ?? 0);
+  return (
+    <div style={{ padding: "20px 22px", display: "flex", flexDirection: "column", gap: 20, flex: 1, overflowY: "auto" }}>
+      <h2 style={{ fontSize: 20, fontWeight: 700, color: "#F5F7FA", margin: 0 }}>Waste Intelligence</h2>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))", gap: 12 }}>
+        {([
+          { label: "Total Waste",    val: Math.round(data.totalWaste    ?? 0), color: "#EF4444" },
+          { label: "Recycling",      val: Math.round(data.totalRecycling ?? 0), color: "#FBBF24" },
+          { label: "Organics",       val: Math.round(data.totalOrganics  ?? 0), color: "#22C55E" },
+          { label: "Diversion Rate", val: `${dr}%`,                             color: dr > 60 ? "#22C55E" : "#F59E0B" },
+        ] as const).map(({ label, val, color }) => (
+          <div key={label} style={{ padding: 14, background: "rgba(255,255,255,.04)", border: `1px solid ${color}33`, borderRadius: 8 }}>
+            <div style={{ fontSize: 10, color: "rgba(255,255,255,.40)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 6 }}>{label}</div>
+            <div style={{ fontSize: 24, fontWeight: 700, color }}>{val}</div>
+            {label !== "Diversion Rate" && <div style={{ fontSize: 9, color: "rgba(255,255,255,.30)" }}>tonnes</div>}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+});
+
+type Debtor = { account: string; amount: number; daysOverdue: number; status: string };
+
+const DebtorsTab = React.memo(function DebtorsTab() {
+  const [data, setData] = useState<{ totalOutstanding?: number; count?: number; avgDaysOverdue?: number; recoveryRate?: number; topDebtors?: Debtor[] }>({});
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    let alive = true;
+    tabFetch("debtors").then(d => { if (alive) { setData(d as typeof data); setLoading(false); } });
+    return () => { alive = false; };
+  }, []);
+  if (loading) return <div style={{ padding: 20, color: "rgba(255,255,255,.40)" }}>Loading debtors...</div>;
+  const rr = Math.round(data.recoveryRate ?? 0);
+  return (
+    <div style={{ padding: "20px 22px", display: "flex", flexDirection: "column", gap: 20, flex: 1, overflowY: "auto" }}>
+      <h2 style={{ fontSize: 20, fontWeight: 700, color: "#F5F7FA", margin: 0 }}>Debtors Management</h2>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))", gap: 12 }}>
+        {([
+          { label: "Total Outstanding", val: `$${Number(data.totalOutstanding ?? 0).toLocaleString()}`, color: "#EF4444" },
+          { label: "Debtor Count",       val: String(data.count ?? 0),                                   color: "#F59E0B" },
+          { label: "Avg Days Overdue",   val: String(Math.round(data.avgDaysOverdue ?? 0)),               color: "#EF4444" },
+          { label: "Recovery Rate",      val: `${rr}%`,                                                   color: rr > 50 ? "#22C55E" : "#EF4444" },
+        ] as const).map(({ label, val, color }) => (
+          <div key={label} style={{ padding: 14, background: "rgba(255,255,255,.04)", border: `1px solid ${color}33`, borderRadius: 8 }}>
+            <div style={{ fontSize: 10, color: "rgba(255,255,255,.40)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 6 }}>{label}</div>
+            <div style={{ fontSize: 24, fontWeight: 700, color }}>{val}</div>
+          </div>
+        ))}
+      </div>
+      {(data.topDebtors?.length ?? 0) > 0 && (
+        <div style={{ background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.08)", borderRadius: 12, padding: 16, overflowX: "auto" }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,.40)", textTransform: "uppercase", letterSpacing: ".08em", marginBottom: 12 }}>Top Debtors</div>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, color: "rgba(255,255,255,.70)" }}>
+            <thead>
+              <tr style={{ borderBottom: "1px solid rgba(255,255,255,.08)" }}>
+                {["Account", "Amount", "Days Overdue", "Status"].map(h => (
+                  <th key={h} style={{ padding: "8px 12px", textAlign: h === "Account" || h === "Status" ? "left" : "right", fontWeight: 600, color: "rgba(255,255,255,.40)" }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {data.topDebtors!.map((d, i) => (
+                <tr key={i} style={{ borderBottom: "1px solid rgba(255,255,255,.04)" }}>
+                  <td style={{ padding: "8px 12px" }}>{d.account}</td>
+                  <td style={{ padding: "8px 12px", textAlign: "right" }}>${d.amount.toLocaleString()}</td>
+                  <td style={{ padding: "8px 12px", textAlign: "right" }}>{d.daysOverdue}</td>
+                  <td style={{ padding: "8px 12px" }}>
+                    <span style={{ padding: "2px 8px", borderRadius: 4, fontSize: 10, background: d.status === "OPEN" ? "rgba(239,68,68,.15)" : "rgba(34,197,94,.15)", color: d.status === "OPEN" ? "#EF4444" : "#22C55E" }}>{d.status}</span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+});
+
+const KerbsideTab = React.memo(function KerbsideTab() {
+  const [data, setData] = useState<{ totalScheduled?: number; missedCount?: number; completionRate?: number; slaCompliance?: number }>({});
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    let alive = true;
+    tabFetch("missed-collections").then(d => { if (alive) { setData(d as typeof data); setLoading(false); } });
+    return () => { alive = false; };
+  }, []);
+  if (loading) return <div style={{ padding: 20, color: "rgba(255,255,255,.40)" }}>Loading kerbside operations...</div>;
+  const cr = Math.round(data.completionRate ?? 0);
+  const sl = Math.round(data.slaCompliance ?? 0);
+  return (
+    <div style={{ padding: "20px 22px", display: "flex", flexDirection: "column", gap: 20, flex: 1, overflowY: "auto" }}>
+      <h2 style={{ fontSize: 20, fontWeight: 700, color: "#F5F7FA", margin: 0 }}>Kerbside Operations</h2>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))", gap: 12 }}>
+        {([
+          { label: "Total Scheduled",    val: String(data.totalScheduled ?? 0), color: "#5B9CF6" },
+          { label: "Missed Collections", val: String(data.missedCount ?? 0),    color: "#EF4444" },
+          { label: "Completion Rate",    val: `${cr}%`,                         color: cr > 95 ? "#22C55E" : "#F59E0B" },
+          { label: "SLA Compliance",     val: `${sl}%`,                         color: sl > 90 ? "#22C55E" : "#EF4444" },
+        ] as const).map(({ label, val, color }) => (
+          <div key={label} style={{ padding: 14, background: "rgba(255,255,255,.04)", border: `1px solid ${color}33`, borderRadius: 8 }}>
+            <div style={{ fontSize: 10, color: "rgba(255,255,255,.40)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 6 }}>{label}</div>
+            <div style={{ fontSize: 24, fontWeight: 700, color }}>{val}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
+});
+
+// â”â”â” ADDITIONAL TABS â”â”â”
+
+const IllegalDumpingTab = React.memo(function IllegalDumpingTab() {
+  const [data, setData] = useState<{
+    totalIncidents?: number; recoveryRate?: number;
+    topSuburbs?: { suburb: string; count: number }[];
+    severityBreakdown?: { CRITICAL: number; HIGH: number; MEDIUM: number; LOW: number };
+  }>({});
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    let alive = true;
+    tabFetch("illegal-dumping").then(d => { if (alive) { setData(d as typeof data); setLoading(false); } });
+    return () => { alive = false; };
+  }, []);
+  if (loading) return <div style={{ padding: 20, color: "rgba(255,255,255,.40)" }}>Loading illegal dumping data...</div>;
+  const rr = Math.round(data.recoveryRate ?? 0);
+  const sb = data.severityBreakdown;
+  return (
+    <div style={{ padding: "20px 22px", display: "flex", flexDirection: "column", gap: 20, flex: 1, overflowY: "auto" }}>
+      <h2 style={{ fontSize: 20, fontWeight: 700, color: "#F5F7FA", margin: 0 }}>Illegal Dumping</h2>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))", gap: 12 }}>
+        <div style={{ padding: 14, background: "rgba(255,255,255,.04)", border: "1px solid rgba(239,68,68,.2)", borderRadius: 8 }}>
+          <div style={{ fontSize: 10, color: "rgba(255,255,255,.40)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 6 }}>Total Incidents</div>
+          <div style={{ fontSize: 24, fontWeight: 700, color: "#EF4444" }}>{data.totalIncidents ?? 0}</div>
+        </div>
+        <div style={{ padding: 14, background: "rgba(255,255,255,.04)", border: rr > 50 ? "1px solid rgba(34,197,94,.2)" : "1px solid rgba(239,68,68,.2)", borderRadius: 8 }}>
+          <div style={{ fontSize: 10, color: "rgba(255,255,255,.40)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 6 }}>Recovery Rate</div>
+          <div style={{ fontSize: 24, fontWeight: 700, color: rr > 50 ? "#22C55E" : "#EF4444" }}>{rr}%</div>
+        </div>
+      </div>
+      {(data.topSuburbs?.length ?? 0) > 0 && (
+        <div style={{ background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.08)", borderRadius: 12, padding: 16 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,.40)", textTransform: "uppercase", letterSpacing: ".08em", marginBottom: 12 }}>Top Suburbs</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))", gap: 12 }}>
+            {data.topSuburbs!.map((s, i) => (
+              <div key={i} style={{ padding: 12, background: "rgba(255,255,255,.02)", border: "1px solid rgba(255,255,255,.05)", borderRadius: 8 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: "#F5F7FA", marginBottom: 4 }}>{s.suburb}</div>
+                <div style={{ fontSize: 18, fontWeight: 700, color: "#EF4444" }}>{s.count}</div>
+                <div style={{ fontSize: 9, color: "rgba(255,255,255,.30)" }}>incidents</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {sb && (
+        <div style={{ background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.08)", borderRadius: 12, padding: 16 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,.40)", textTransform: "uppercase", letterSpacing: ".08em", marginBottom: 12 }}>Severity Breakdown</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))", gap: 12 }}>
+            {([
+              { label: "CRITICAL", val: sb.CRITICAL, bg: "rgba(239,68,68,.10)",  border: "rgba(239,68,68,.2)",  color: "#EF4444" },
+              { label: "HIGH",     val: sb.HIGH,     bg: "rgba(245,158,11,.10)", border: "rgba(245,158,11,.2)", color: "#F59E0B" },
+              { label: "MEDIUM",   val: sb.MEDIUM,   bg: "rgba(34,197,94,.10)",  border: "rgba(34,197,94,.2)",  color: "#22C55E" },
+              { label: "LOW",      val: sb.LOW,      bg: "rgba(91,156,246,.10)", border: "rgba(91,156,246,.2)", color: "#5B9CF6" },
+            ] as const).map(({ label, val, bg, border, color }) => (
+              <div key={label} style={{ padding: 12, background: bg, border: `1px solid ${border}`, borderRadius: 8, textAlign: "center" }}>
+                <div style={{ fontSize: 12, color, fontWeight: 600, marginBottom: 4 }}>{label}</div>
+                <div style={{ fontSize: 20, fontWeight: 700, color }}>{val ?? 0}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+});
+
+const CRMTab = React.memo(function CRMTab() {
+  type CRMRequest = { requestId?: string; category?: string; status?: string; daysRequestOpen?: number; deadlinePassed?: boolean };
+  const [requests, setRequests] = useState<CRMRequest[]>([]);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    let alive = true;
+    try {
+      const stored = localStorage.getItem(`onk_cc_crm_${ACTIVE_FY}`);
+      if (stored) setRequests((JSON.parse(stored) as { requests?: CRMRequest[] }).requests ?? []);
+    } catch { /* ignore */ }
+    if (alive) setLoading(false);
+    return () => { alive = false; };
+  }, []);
+  if (loading) return <div style={{ padding: 20, color: "rgba(255,255,255,.40)" }}>Loading CRM requests...</div>;
+  const openCount    = requests.filter(r => r.status === "Active").length;
+  const overdueCount = requests.filter(r => r.deadlinePassed).length;
+  const avgDaysOpen  = requests.length > 0 ? Math.round(requests.reduce((s, r) => s + (r.daysRequestOpen ?? 0), 0) / requests.length) : 0;
+  return (
+    <div style={{ padding: "20px 22px", display: "flex", flexDirection: "column", gap: 20, flex: 1, overflowY: "auto" }}>
+      <h2 style={{ fontSize: 20, fontWeight: 700, color: "#F5F7FA", margin: 0 }}>CRM / Requests</h2>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))", gap: 12 }}>
+        {([
+          { label: "Total Requests", val: String(requests.length), color: "#5B9CF6" },
+          { label: "Open",           val: String(openCount),        color: "#22C55E" },
+          { label: "Overdue",        val: String(overdueCount),     color: overdueCount > 0 ? "#EF4444" : "#22C55E" },
+          { label: "Avg Days Open",  val: String(avgDaysOpen),      color: "#F59E0B" },
+        ] as const).map(({ label, val, color }) => (
+          <div key={label} style={{ padding: 14, background: "rgba(255,255,255,.04)", border: `1px solid ${color}33`, borderRadius: 8 }}>
+            <div style={{ fontSize: 10, color: "rgba(255,255,255,.40)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 6 }}>{label}</div>
+            <div style={{ fontSize: 24, fontWeight: 700, color }}>{val}</div>
+          </div>
+        ))}
+      </div>
+      {requests.length > 0 && (
+        <div style={{ background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.08)", borderRadius: 12, padding: 16, overflowX: "auto" }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,.40)", textTransform: "uppercase", letterSpacing: ".08em", marginBottom: 12 }}>Recent Requests</div>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, color: "rgba(255,255,255,.70)" }}>
+            <thead>
+              <tr style={{ borderBottom: "1px solid rgba(255,255,255,.08)" }}>
+                {["ID", "Category", "Status", "Days Open"].map((h, i) => (
+                  <th key={h} style={{ padding: "8px 12px", textAlign: i === 3 ? "right" : "left", fontWeight: 600, color: "rgba(255,255,255,.40)" }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {requests.slice(0, 10).map((r, i) => (
+                <tr key={i} style={{ borderBottom: "1px solid rgba(255,255,255,.04)" }}>
+                  <td style={{ padding: "8px 12px" }}>{r.requestId?.slice(0, 8)}</td>
+                  <td style={{ padding: "8px 12px" }}>{r.category}</td>
+                  <td style={{ padding: "8px 12px" }}>
+                    <span style={{ padding: "2px 8px", borderRadius: 4, fontSize: 9, background: r.status === "Active" ? "rgba(91,156,246,.15)" : "rgba(34,197,94,.15)", color: r.status === "Active" ? "#5B9CF6" : "#22C55E" }}>{r.status}</span>
+                  </td>
+                  <td style={{ padding: "8px 12px", textAlign: "right" }}>{r.daysRequestOpen ?? 0}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+});
+
+type SportActivity = { name: string; participants: number; spectators: number; visitors: number };
+
+const SportingClubsTab = React.memo(function SportingClubsTab() {
+  const [data, setData] = useState<{ totalActivities?: number; totalParticipants?: number; totalSpectators?: number; totalVisitors?: number; byActivity?: SportActivity[] }>({});
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    let alive = true;
+    tabFetch("sports").then(d => { if (alive) { setData(d as typeof data); setLoading(false); } });
+    return () => { alive = false; };
+  }, []);
+  if (loading) return <div style={{ padding: 20, color: "rgba(255,255,255,.40)" }}>Loading sporting clubs data...</div>;
+  return (
+    <div style={{ padding: "20px 22px", display: "flex", flexDirection: "column", gap: 20, flex: 1, overflowY: "auto" }}>
+      <h2 style={{ fontSize: 20, fontWeight: 700, color: "#F5F7FA", margin: 0 }}>Sporting Clubs</h2>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))", gap: 12 }}>
+        {([
+          { label: "Total Activities",   val: String(data.totalActivities ?? 0),             color: "#22C55E" },
+          { label: "Total Participants", val: (data.totalParticipants ?? 0).toLocaleString(), color: "#5B9CF6" },
+          { label: "Spectators/Week",    val: (data.totalSpectators ?? 0).toLocaleString(),   color: "#F59E0B" },
+          { label: "Total Visitors",     val: (data.totalVisitors ?? 0).toLocaleString(),     color: "#A78BFA" },
+        ] as const).map(({ label, val, color }) => (
+          <div key={label} style={{ padding: 14, background: "rgba(255,255,255,.04)", border: `1px solid ${color}33`, borderRadius: 8 }}>
+            <div style={{ fontSize: 10, color: "rgba(255,255,255,.40)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 6 }}>{label}</div>
+            <div style={{ fontSize: 24, fontWeight: 700, color }}>{val}</div>
+          </div>
+        ))}
+      </div>
+      {(data.byActivity?.length ?? 0) > 0 && (
+        <div style={{ background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.08)", borderRadius: 12, padding: 16, overflowX: "auto" }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,.40)", textTransform: "uppercase", letterSpacing: ".08em", marginBottom: 12 }}>Sports Breakdown</div>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, color: "rgba(255,255,255,.70)" }}>
+            <thead>
+              <tr style={{ borderBottom: "1px solid rgba(255,255,255,.08)" }}>
+                {["Sport", "Participants", "Spectators/Week", "Visitors/Week"].map((h, i) => (
+                  <th key={h} style={{ padding: "8px 12px", textAlign: i === 0 ? "left" : "right", fontWeight: 600, color: "rgba(255,255,255,.40)" }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {data.byActivity!.map((a, i) => (
+                <tr key={i} style={{ borderBottom: "1px solid rgba(255,255,255,.04)" }}>
+                  <td style={{ padding: "8px 12px" }}>{a.name}</td>
+                  <td style={{ padding: "8px 12px", textAlign: "right" }}>{a.participants.toLocaleString()}</td>
+                  <td style={{ padding: "8px 12px", textAlign: "right" }}>{a.spectators.toLocaleString()}</td>
+                  <td style={{ padding: "8px 12px", textAlign: "right" }}>{a.visitors.toLocaleString()}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+});

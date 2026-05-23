@@ -1,4 +1,5 @@
 'use server';
+import { randomUUID } from 'crypto';
 import bcrypt from 'bcryptjs';
 import sql from '@/lib/db';
 import { getSession, type Role } from '@/lib/session';
@@ -30,7 +31,9 @@ export async function createUser(prevState: UserFormState, formData: FormData): 
   if (existing.length > 0) return { error: 'Username already taken.' };
 
   const passwordHash = await bcrypt.hash(password, 12);
-  await sql`INSERT INTO users (username, password_hash, name, role, organisation_id) VALUES (${username}, ${passwordHash}, ${name}, ${role}, ${orgId})`;
+  const roleUpper = role.toUpperCase();
+  const id = randomUUID();
+  await sql`INSERT INTO users (id, username, password_hash, name, role, organisation_id, created_at, updated_at) VALUES (${id}, ${username}, ${passwordHash}, ${name}, ${roleUpper}, ${orgId}, NOW(), NOW())`;
 
   revalidatePath('/admin/users');
   return { success: `User "${name}" created.` };
@@ -40,7 +43,7 @@ export async function updateUserRole(userId: string, role: Role) {
   await requireSuperAdmin();
   const validRoles: Role[] = ['super_admin', 'admin', 'manager', 'viewer'];
   if (!validRoles.includes(role)) throw new Error('Invalid role');
-  await sql`UPDATE users SET role = ${role}, updated_at = NOW() WHERE id = ${userId}`;
+  await sql`UPDATE users SET role = ${role.toUpperCase()}, updated_at = NOW() WHERE id = ${userId}`;
   revalidatePath('/admin/users');
 }
 

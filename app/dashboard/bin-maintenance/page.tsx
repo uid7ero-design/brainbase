@@ -260,7 +260,7 @@ export default function BinMaintenancePage() {
     if (newSkip === 0) setLoading(true); else setLoadingMore(true);
     setFetchError('');
     try {
-      const res  = await fetch(`/api/bin-maintenance?skip=${newSkip}&take=${PAGE_SIZE}`);
+      const res  = await fetch(`/api/bin-maintenance?skip=${newSkip}&take=${PAGE_SIZE}`, { credentials: 'include' });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         setFetchError((err as { error?: string }).error ?? `Error ${res.status}`);
@@ -435,6 +435,7 @@ export default function BinMaintenancePage() {
     if (selectedJob?.id === jobId) setSelectedJob(p => p ? { ...p, status } : null);
     fetch(`/api/bin-maintenance/${jobId}`, {
       method:'PATCH', headers:{ 'Content-Type':'application/json' },
+      credentials: 'include',
       body: JSON.stringify({ status, ...(payload?.assignedTo ? { assigned_to: payload.assignedTo } : {}) }),
     }).catch(() => {});
   }
@@ -452,7 +453,7 @@ export default function BinMaintenancePage() {
     try {
       const fd = new FormData();
       fd.append('file', file);
-      const res  = await fetch('/api/files/upload', { method:'POST', body:fd });
+      const res  = await fetch('/api/files/upload', { method:'POST', credentials: 'include', body:fd });
       const data = await res.json() as { success?:boolean; recordsInserted?:number; department?:string; error?:string };
       if (!res.ok || !data.success) { setUploadMsg(data.error ?? 'Upload failed'); return; }
       if (data.department !== 'BinMaintenance') {

@@ -7,7 +7,7 @@ type Session = { role: string; name: string; avatarUrl?: string; enabledModules?
 
 const FONT = 'var(--font-inter), "Inter", -apple-system, sans-serif';
 
-// â”€â”€â”€ Shared pill nav item â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// â"€â"€â"€ Shared pill nav item â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 function NavItem({ href, label, active }: { href: string; label: string; active: boolean }) {
   return (
     <Link
@@ -38,7 +38,7 @@ function NavItem({ href, label, active }: { href: string; label: string; active:
   );
 }
 
-// â”€â”€â”€ HLNA hero item â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// â"€â"€â"€ HLNA hero item â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 function HlnaItem({ active }: { active: boolean }) {
   return (
     <Link
@@ -89,7 +89,7 @@ function HlnaItem({ active }: { active: boolean }) {
   );
 }
 
-// â”€â”€â”€ Operations dropdown â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// â"€â"€â"€ Operations dropdown â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
 const OPS_ITEMS = [
   { label: 'Waste',    href: '/dashboard/wste',   description: 'Service verification & tracking' },
@@ -189,7 +189,7 @@ function OpsDropdown({ pathname }: { pathname: string }) {
             );
           })}
 
-          {/* Footer â€” all dashboards */}
+          {/* Footer â€" all dashboards */}
           <div style={{ height: 1, background: 'rgba(255,255,255,.07)', margin: '4px 4px 3px' }} />
           <Link
             href="/dashboards"
@@ -204,7 +204,7 @@ function OpsDropdown({ pathname }: { pathname: string }) {
             <span style={{ fontSize: 12, fontWeight: 500, color: 'rgba(255,255,255,.38)', letterSpacing: '-0.01em' }}>
               All dashboards
             </span>
-            <span style={{ fontSize: 11, color: 'rgba(255,255,255,.22)' }}>â†’</span>
+            <span style={{ fontSize: 11, color: 'rgba(255,255,255,.22)' }}>â†'</span>
           </Link>
         </div>
       )}
@@ -212,7 +212,7 @@ function OpsDropdown({ pathname }: { pathname: string }) {
   );
 }
 
-// â”€â”€â”€ Admin dropdown â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// â"€â"€â"€ Admin dropdown â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 const ADMIN_ITEMS = [
   { label: 'Organisations', href: '/admin/orgs',      description: 'Manage accounts & modules' },
   { label: 'Users',         href: '/admin/users',     description: 'Roles, access & invitations' },
@@ -306,7 +306,7 @@ function AdminDropdown({ pathname }: { pathname: string }) {
   );
 }
 
-// â”€â”€â”€ Logo â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// â"€â"€â"€ Logo â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 function Logo() {
   return (
     <Link
@@ -318,7 +318,7 @@ function Logo() {
   );
 }
 
-// â”€â”€â”€ Divider â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// â"€â"€â"€ Divider â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 // ─── Squad nav item ───────────────────────────────────────────────────────────
 function SquadItem({ active }: { active: boolean }) {
   return (
@@ -367,7 +367,29 @@ function Divider() {
   return <div style={{ width: 1, height: 16, background: 'rgba(255,255,255,.08)', flexShrink: 0 }} />;
 }
 
-// â”€â”€â”€ Marketing nav (unauthenticated) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+function Clock() {
+  const [time, setTime] = useState('');
+  const [date, setDate] = useState('');
+  useEffect(() => {
+    const tick = () => {
+      const now = new Date();
+      setTime(now.toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }));
+      setDate(now.toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' }));
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, []);
+  if (!time) return null;
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontFamily: 'var(--font-geist-mono,"Geist Mono",monospace)', flexShrink: 0 }}>
+      <span style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,.55)', letterSpacing: '.04em' }}>{time}</span>
+      <span style={{ fontSize: 10, color: 'rgba(255,255,255,.22)', letterSpacing: '.04em' }}>{date}</span>
+    </div>
+  );
+}
+
+// â"€â"€â"€ Marketing nav (unauthenticated) â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 function PublicNav({ pathname }: { pathname: string }) {
   return (
     <nav style={{
@@ -380,6 +402,7 @@ function PublicNav({ pathname }: { pathname: string }) {
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
         <NavItem href="/#product" label="Product" active={false} />
+        <NavItem href="/web-systems" label="Web Systems" active={pathname.startsWith('/web-systems')} />
         <NavItem href="/pricing" label="Pricing" active={pathname.startsWith('/pricing')} />
         <NavItem href="/demo" label="Demo" active={pathname.startsWith('/demo')} />
 
@@ -405,7 +428,7 @@ function PublicNav({ pathname }: { pathname: string }) {
   );
 }
 
-// â”€â”€â”€ Authenticated nav â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// â"€â"€â"€ Authenticated nav â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 function AppNav({ session, pathname }: { session: NonNullable<Session>; pathname: string }) {
   const { role, name, avatarUrl, enabledModules = [] } = session;
   const isManager    = ['manager', 'admin', 'super_admin'].includes(role);
@@ -468,8 +491,10 @@ function AppNav({ session, pathname }: { session: NonNullable<Session>; pathname
         )}
       </div>
 
-      {/* Right â€” profile + sign out */}
+      {/* Right - profile + sign out */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <Clock />
+        <Divider />
         <Link
           href="/account/profile"
           style={{
@@ -527,7 +552,7 @@ function AppNav({ session, pathname }: { session: NonNullable<Session>; pathname
   );
 }
 
-// â”€â”€â”€ Root â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// â"€â"€â"€ Root â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 export default function TopNav({ serverSession }: { serverSession?: Session }) {
   const [fetchedSession, setFetchedSession] = useState<Session>(undefined as unknown as Session);
   const pathname = usePathname();
@@ -558,7 +583,6 @@ export default function TopNav({ serverSession }: { serverSession?: Session }) {
 
   const session = serverSession !== undefined ? serverSession : fetchedSession;
   if (pathname?.startsWith(`/tennis`)) return null;
-  if (pathname?.startsWith(`/command`)) return null;
   if (session === undefined) return null;
   if (!session) return <PublicNav pathname={pathname} />;
   return <AppNav session={session} pathname={pathname} />;
