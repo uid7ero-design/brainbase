@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getAuthSession } from '@/lib/authSession';
 import { prisma } from '@/lib/prisma';
-import { Module } from '@prisma/client';
+import { Module, Prisma } from '@prisma/client';
 
 interface LineItem {
   gl: string;
@@ -87,8 +87,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ fy: str
         organisation_id:    orgId,
         financial_year:     fy,
         forecast_params:    { multiplier: 1.0, as_at_date: new Date().toISOString().slice(0, 10) },
-        line_items,
-        rise_and_fall:      [],
+        line_items:         line_items as unknown as Prisma.InputJsonValue,
+        rise_and_fall:      [] as unknown as Prisma.InputJsonValue,
         forecast_overrides: {},
       },
     });
@@ -147,7 +147,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ fy: st
   const current = model.forecast_params as unknown as ForecastParams;
   await prisma.financialModel.update({
     where:  { id: model.id },
-    data:   { forecast_params: { ...current, ...body }, last_edited_by: session.userId },
+    data:   { forecast_params: { ...current, ...body } as unknown as Prisma.InputJsonValue, last_edited_by: session.userId },
   });
 
   return NextResponse.json({ success: true });
