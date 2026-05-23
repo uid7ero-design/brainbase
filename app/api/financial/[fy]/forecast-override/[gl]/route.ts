@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getAuthSession } from '@/lib/authSession';
 import { prisma } from '@/lib/prisma';
+import { Prisma } from '@prisma/client';
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ fy: string; gl: string }> }) {
   let session;
@@ -20,7 +21,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ fy: st
   });
   if (!model) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
-  const overrides = model.forecast_overrides as Record<string, number>;
+  const overrides = model.forecast_overrides as unknown as Record<string, number>;
 
   if (body?.value === null || body?.clear) {
     delete overrides[gl];
@@ -32,7 +33,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ fy: st
 
   await prisma.financialModel.update({
     where: { id: model.id },
-    data:  { forecast_overrides: overrides, last_edited_by: session.userId },
+    data:  { forecast_overrides: overrides as unknown as Prisma.InputJsonValue, last_edited_by: session.userId },
   });
 
   return NextResponse.json({ success: true });

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getAuthSession } from '@/lib/authSession';
 import { prisma } from '@/lib/prisma';
+import { Prisma } from '@prisma/client';
 
 interface RafEntry {
   gl: string;
@@ -36,7 +37,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ fy: st
   });
   if (!model) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
-  const entries = model.rise_and_fall as RafEntry[];
+  const entries = model.rise_and_fall as unknown as RafEntry[];
   const idx     = entries.findIndex(e => e.gl === gl);
 
   if (idx === -1) {
@@ -48,7 +49,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ fy: st
 
   await prisma.financialModel.update({
     where: { id: model.id },
-    data:  { rise_and_fall: entries, last_edited_by: session.userId },
+    data:  { rise_and_fall: entries as unknown as Prisma.InputJsonValue, last_edited_by: session.userId },
   });
 
   return NextResponse.json({ success: true });
