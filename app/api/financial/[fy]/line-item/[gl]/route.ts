@@ -37,7 +37,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ fy: st
   });
   if (!model) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
-  const items = model.line_items as LineItem[];
+  const items = model.line_items as unknown as LineItem[];
   const idx   = items.findIndex(i => i.gl === gl);
   if (idx === -1) return NextResponse.json({ error: 'GL not found' }, { status: 404 });
 

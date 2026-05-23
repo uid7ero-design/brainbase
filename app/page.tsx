@@ -1031,8 +1031,12 @@ export default function Home() {
             <h2 style={{ fontSize: 24, fontWeight: 700, color: '#F5F7FA', letterSpacing: '-.02em', margin: '0 0 8px' }}>
               Start your first conversation.
             </h2>
-            <p style={{ fontSize: 14, color: 'rgba(230,237,243,.45)', margin: 0, maxWidth: 440, lineHeight: 1.5 }}>
+            <p style={{ fontSize: 14, color: 'rgba(230,237,243,.45)', margin: '0 0 10px', maxWidth: 440, lineHeight: 1.5 }}>
               Book a strategy call to see what BrainBase can deploy for your business — or explore the platform and ask HLNΛ anything.
+            </p>
+            <p style={{ fontSize: 11, color: 'rgba(255,255,255,.22)', margin: 0, letterSpacing: '.02em', display: 'flex', alignItems: 'center', gap: 7 }}>
+              <span style={{ width: 4, height: 4, borderRadius: '50%', background: 'rgba(139,92,246,.55)', display: 'inline-block', flexShrink: 0 }} />
+              Based in Adelaide, Australia — serving businesses locally and across Australia.
             </p>
           </div>
           <div style={{ display: 'flex', gap: 10, flexShrink: 0, flexWrap: 'wrap' }}>
@@ -1062,6 +1066,21 @@ export default function Home() {
         </div>
 
       </div>
+
+      {/* Footer */}
+      <footer style={{
+        borderTop: '1px solid rgba(255,255,255,.05)',
+        margin: '56px 0 0',
+        padding: '22px 0',
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        flexWrap: 'wrap', gap: 12,
+      }}>
+        <span style={{ fontSize: 11, color: 'rgba(255,255,255,.22)', letterSpacing: '.02em' }}>
+          Built and deployed from{' '}
+          <span style={{ color: 'rgba(255,255,255,.38)', fontWeight: 500 }}>Adelaide, Australia</span>.
+        </span>
+        <span style={{ fontSize: 11, color: 'rgba(255,255,255,.16)', letterSpacing: '.01em' }}>© 2025 BrainBase</span>
+      </footer>
 
       <EnquiryModal open={enquiryOpen} onClose={() => setEnquiryOpen(false)} />
     </main>

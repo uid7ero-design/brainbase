@@ -1083,9 +1083,13 @@ export default function WebSystems() {
             <h2 style={{ fontSize: 28, fontWeight: 700, color: '#F5F7FA', letterSpacing: '-.03em', margin: '0 0 12px', lineHeight: 1.2 }}>
               Connected systems scale better businesses.
             </h2>
-            <p style={{ fontSize: 15, color: 'rgba(230,237,243,.45)', margin: 0, lineHeight: 1.6, maxWidth: 480 }}>
+            <p style={{ fontSize: 15, color: 'rgba(230,237,243,.45)', margin: '0 0 12px', lineHeight: 1.6, maxWidth: 480 }}>
               BrainBase helps businesses move beyond disconnected tools and operate through
               intelligent connected systems — starting with your website.
+            </p>
+            <p style={{ fontSize: 11, color: 'rgba(255,255,255,.22)', margin: 0, letterSpacing: '.02em', display: 'flex', alignItems: 'center', gap: 7 }}>
+              <span style={{ width: 4, height: 4, borderRadius: '50%', background: 'rgba(139,92,246,.60)', display: 'inline-block', flexShrink: 0 }} />
+              Operational deployments managed from Adelaide, Australia
             </p>
           </div>
 
@@ -1124,6 +1128,21 @@ export default function WebSystems() {
         </div>
 
       </div>
+
+      {/* Footer */}
+      <footer style={{
+        borderTop: '1px solid rgba(255,255,255,.05)',
+        margin: '56px 0 0',
+        padding: '22px 52px',
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        flexWrap: 'wrap', gap: 12,
+      }}>
+        <span style={{ fontSize: 11, color: 'rgba(255,255,255,.22)', letterSpacing: '.02em' }}>
+          Built and deployed from{' '}
+          <span style={{ color: 'rgba(255,255,255,.38)', fontWeight: 500 }}>Adelaide, Australia</span>.
+        </span>
+        <span style={{ fontSize: 11, color: 'rgba(255,255,255,.16)', letterSpacing: '.01em' }}>© 2025 BrainBase</span>
+      </footer>
 
       <EnquiryModal open={enquiryOpen} onClose={() => setEnquiryOpen(false)} />
     </main>

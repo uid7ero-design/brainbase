@@ -342,6 +342,9 @@ export default function EnquiryModal({ open, onClose }: Props) {
             <p style={{ textAlign: 'center', fontSize: 11, color: 'rgba(255,255,255,.22)', margin: '14px 0 0', lineHeight: 1.5 }}>
               No commitment required · We respond within 1–2 business days
             </p>
+            <p style={{ textAlign: 'center', fontSize: 11, color: 'rgba(255,255,255,.16)', margin: '5px 0 0', letterSpacing: '.02em' }}>
+              Based in Adelaide, Australia — working with businesses locally and remotely.
+            </p>
           </div>
         )}
       </div>
