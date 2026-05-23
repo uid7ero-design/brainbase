@@ -2,20 +2,24 @@
  * check-both-dbs.ts
  *
  * Run:
+ *   HLNA_DATABASE_URL="postgresql://..." BRAINBASE_DATABASE_URL="postgresql://..." \
  *   npx ts-node --skipProject --compilerOptions '{"module":"commonjs","esModuleInterop":true}' \
  *   --transpile-only scripts/check-both-dbs.ts
  */
 
 import { neon } from '@neondatabase/serverless';
 
-const HLNA_URL      = 'postgresql://neondb_owner:npg_fxzdBw2Qcb8Z@ep-bitter-field-a7t5kwxy.ap-southeast-2.aws.neon.tech/neondb?sslmode=require&channel_binding=require';
-const BRAINBASE_URL = 'postgresql://neondb_owner:npg_Hns7k5vWEzuX@ep-gentle-bread-a7xbcif7-pooler.ap-southeast-2.aws.neon.tech/neondb?sslmode=require&channel_binding=require';
+const HLNA_URL      = process.env.HLNA_DATABASE_URL;
+const BRAINBASE_URL = process.env.BRAINBASE_DATABASE_URL;
 
 const LINE = '═'.repeat(52);
 
 type OrgRow = { id: string; name: string };
 
 async function main() {
+  if (!HLNA_URL)      throw new Error('HLNA_DATABASE_URL env var is not set');
+  if (!BRAINBASE_URL) throw new Error('BRAINBASE_DATABASE_URL env var is not set');
+
   console.log(`\n${LINE}`);
   console.log('DB CROSS-CHECK — City of Onkaparinga');
   console.log(`${LINE}\n`);
@@ -24,8 +28,8 @@ async function main() {
   const brainbaseSQL = neon(BRAINBASE_URL);
 
   const [hlnaRows, brainbaseRows] = await Promise.all([
-    hlnaSQL`SELECT id, name FROM organisations WHERE name ILIKE '%onkaparinga%'` as Promise<OrgRow[]>,
-    brainbaseSQL`SELECT id, name FROM organisations WHERE name ILIKE '%onkaparinga%'` as Promise<OrgRow[]>,
+    hlnaSQL`SELECT id, name FROM organisations WHERE name ILIKE '%onkaparinga%'` as unknown as Promise<OrgRow[]>,
+    brainbaseSQL`SELECT id, name FROM organisations WHERE name ILIKE '%onkaparinga%'` as unknown as Promise<OrgRow[]>,
   ]);
 
   const hlna      = hlnaRows[0]      ?? null;
