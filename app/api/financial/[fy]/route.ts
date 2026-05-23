@@ -94,10 +94,10 @@ export async function GET(_req: Request, { params }: { params: Promise<{ fy: str
     });
   }
 
-  const fp        = model.forecast_params as ForecastParams;
+  const fp        = model.forecast_params as unknown as ForecastParams;
   const multiplier = fp.multiplier ?? 1.0;
-  const overrides  = model.forecast_overrides as Record<string, number>;
-  const items      = (model.line_items as LineItem[]).map(i => computeLine(i, multiplier, overrides));
+  const overrides  = model.forecast_overrides as unknown as Record<string, number>;
+  const items      = (model.line_items as unknown as LineItem[]).map(i => computeLine(i, multiplier, overrides));
 
   const expenses   = items.filter(i => i.category === 'EXPENSE');
   const recoveries = items.filter(i => i.category === 'RECOVERY');
@@ -144,7 +144,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ fy: st
   });
   if (!model) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
-  const current = model.forecast_params as ForecastParams;
+  const current = model.forecast_params as unknown as ForecastParams;
   await prisma.financialModel.update({
     where:  { id: model.id },
     data:   { forecast_params: { ...current, ...body }, last_edited_by: session.userId },
