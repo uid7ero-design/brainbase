@@ -1,7 +1,22 @@
 import { NextResponse } from 'next/server';
 import { getAuthSession } from '@/lib/authSession';
 import { prisma } from '@/lib/prisma';
-import { computeBinMaintenanceKpi } from '@/modules/bin-maintenance/calculations';
+import {
+  computeBinMaintenanceKpi,
+  computeCompliance,
+  computeCategoryStreamCrossTab,
+  computePatterns,
+  computeProjections,
+  computeAdditionalCancel,
+  computeDamagedParts,
+  computeMissedCollections,
+  computeDashboardHeaderStats,
+  computeScheduleStatus,
+  computeStreamStats,
+  computeRepeatProperties,
+  computeCompletionTrend,
+  isAdditionalCancel,
+} from '@/modules/bin-maintenance/calculations';
 
 export async function GET(req: Request) {
   let session;
@@ -12,12 +27,16 @@ export async function GET(req: Request) {
   }
 
   const { searchParams } = new URL(req.url);
-  const since = searchParams.get('since');
+  const from = searchParams.get('from');
+  const to   = searchParams.get('to');
+
+  const gte = from ? new Date(`${from}T00:00:00`) : undefined;
+  const lte = to   ? new Date(`${to}T23:59:59.999`) : undefined;
 
   const jobs = await prisma.binMaintenanceJob.findMany({
     where: {
       organisation_id: session.organisationId,
-      ...(since ? { created_at: { gte: new Date(since) } } : {}),
+      ...((gte || lte) ? { created_at: { ...(gte ? { gte } : {}), ...(lte ? { lte } : {}) } } : {}),
     },
     select: {
       id:             true,
@@ -29,7 +48,9 @@ export async function GET(req: Request) {
       severity:       true,
       scheduled_date: true,
       created_at:     true,
+      completed_date: true,
       assigned_to:    true,
+      notes:          true,
     },
   });
 
@@ -37,5 +58,25 @@ export async function GET(req: Request) {
     return NextResponse.json({ hasData: false });
   }
 
-  return NextResponse.json({ hasData: true, ...computeBinMaintenanceKpi(jobs) });
+  // Additional Cancel is schedule-dependent, not a maintenance SLA — excluded from
+  // every other tab's stats and reported on its own.
+  const mainJobs = jobs.filter(j => !isAdditionalCancel(j.issue_type));
+  const acJobs   = jobs.filter(j =>  isAdditionalCancel(j.issue_type));
+
+  return NextResponse.json({
+    hasData: true,
+    ...computeBinMaintenanceKpi(mainJobs),
+    compliance: computeCompliance(mainJobs),
+    category_stream: computeCategoryStreamCrossTab(mainJobs),
+    patterns: computePatterns(mainJobs),
+    projections: computeProjections(mainJobs),
+    additional_cancel: computeAdditionalCancel(acJobs),
+    damaged_parts: computeDamagedParts(mainJobs),
+    missed_collections: computeMissedCollections(mainJobs),
+    dashboard_header: computeDashboardHeaderStats(mainJobs),
+    schedule_status: computeScheduleStatus(mainJobs),
+    stream_stats: computeStreamStats(mainJobs),
+    repeat_properties: computeRepeatProperties(mainJobs),
+    completion_trend: computeCompletionTrend(mainJobs),
+  });
 }

@@ -525,6 +525,7 @@ model EvidenceRecord {
 model BinMaintenanceJob {
   id              String                  @id @default(cuid())
   organisation_id String
+  ticket_number   String?
   suburb          String
   address         String
   bin_type        BinType                 @default(GENERAL_WASTE)
@@ -542,6 +543,7 @@ model BinMaintenanceJob {
   attachments     MaintenanceAttachment[]
   comments        MaintenanceComment[]
 
+  @@unique([organisation_id, ticket_number])
   @@index([organisation_id, status])
   @@index([suburb])
   @@index([severity])

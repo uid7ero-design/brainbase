@@ -1,8 +1,14 @@
 'use client';
 import { useState, useEffect, useMemo, useCallback } from 'react';
+import Link from 'next/link';
 import WorkspaceShell from '@/components/ops/WorkspaceShell';
 import MaintenanceJobDrawer, { type MaintenanceJob, type MaintenanceStatus, type Severity } from '@/components/ops/maintenance/MaintenanceJobDrawer';
 import CreateJobModal from '@/components/ops/maintenance/CreateJobModal';
+import RequestsMap from '@/components/ops/maintenance/RequestsMap';
+import type {
+  BinMaintenanceDashboardHeader, BinMaintenanceScheduleStatus, BinMaintenanceStreamStats,
+  BinMaintenanceRepeatProperties, BinMaintenanceCompletionTrend,
+} from '@/modules/bin-maintenance/calculations';
 
 const FONT = 'var(--font-inter),"Inter",-apple-system,sans-serif';
 const PAGE_SIZE = 2000;
@@ -21,7 +27,7 @@ const ST: Record<MaintenanceStatus, { color: string; bg: string; label: string }
   IN_PROGRESS: { color:'#F59E0B', bg:'rgba(245,158,11,.14)',              label:'In Progress' },
   ESCALATED:   { color:'#F97316', bg:'rgba(249,115,22,.14)',              label:'Escalated'   },
   COMPLETED:   { color:'#22C55E', bg:'rgba(34,197,94,.14)',               label:'Completed'   },
-  CLOSED:      { color:'rgba(255,255,255,.28)', bg:'rgba(255,255,255,.06)', label:'Closed'    },
+  CLOSED:      { color:'rgba(255,255,255,.5)', bg:'rgba(255,255,255,.06)', label:'Closed'    },
 };
 
 const STREAM: Record<string, { color: string; bg: string; label: string }> = {
@@ -32,6 +38,16 @@ const STREAM: Record<string, { color: string; bg: string; label: string }> = {
 };
 
 const STATUS_ORDER: MaintenanceStatus[] = ['OPEN','ASSIGNED','SCHEDULED','IN_PROGRESS','ESCALATED','COMPLETED','CLOSED'];
+const STREAM_TYPES = ['GENERAL_WASTE','RECYCLING','ORGANICS','BULK_WASTE'] as const;
+
+type DashboardKpiExtra = {
+  dashboard_header:  BinMaintenanceDashboardHeader;
+  schedule_status:   BinMaintenanceScheduleStatus;
+  stream_stats:      BinMaintenanceStreamStats;
+  repeat_properties: BinMaintenanceRepeatProperties;
+  completion_trend:  BinMaintenanceCompletionTrend;
+};
+type DashboardKpiData = { hasData: false } | ({ hasData: true } & DashboardKpiExtra);
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -42,7 +58,7 @@ function ageStr(iso: string) {
 
 function isOverdue(job: MaintenanceJob) {
   if (!job.scheduled_date) return false;
-  if (['COMPLETED','CLOSED'].includes(job.status)) return false;
+  if (job.completed_date) return false;
   return new Date(job.scheduled_date) < new Date();
 }
 
@@ -139,8 +155,8 @@ function StockDrawer({ onClose }: { onClose: () => void }) {
           <span style={{ fontSize:10.5,fontWeight:700,letterSpacing:'.12em',color:'rgba(139,92,246,.75)',textTransform:'uppercase' }}>Stock & Parts</span>
           {lowCount > 0 && <span style={{ fontSize:9,fontWeight:700,color:'#EF4444',background:'rgba(239,68,68,.10)',border:'1px solid rgba(239,68,68,.22)',padding:'2px 7px',borderRadius:10 }}>{lowCount} LOW</span>}
           <div style={{ flex:1 }} />
-          <button onClick={() => setItems(DEFAULT_STOCK)} style={{ fontSize:9.5,color:'rgba(255,255,255,.22)',background:'none',border:'none',cursor:'pointer',fontFamily:FONT }}>Reset</button>
-          <button onClick={onClose} style={{ padding:'4px 12px',borderRadius:6,background:'rgba(255,255,255,.06)',border:'1px solid rgba(255,255,255,.10)',color:'rgba(255,255,255,.40)',fontSize:11,fontWeight:600,cursor:'pointer',fontFamily:FONT }}>Close</button>
+          <button onClick={() => setItems(DEFAULT_STOCK)} style={{ fontSize:9.5,color:'rgba(255,255,255,.44)',background:'none',border:'none',cursor:'pointer',fontFamily:FONT }}>Reset</button>
+          <button onClick={onClose} style={{ padding:'4px 12px',borderRadius:6,background:'rgba(255,255,255,.06)',border:'1px solid rgba(255,255,255,.10)',color:'rgba(255,255,255,.62)',fontSize:11,fontWeight:600,cursor:'pointer',fontFamily:FONT }}>Close</button>
         </div>
         <div style={{ display:'grid',gridTemplateColumns:'repeat(10,1fr)',gap:8 }}>
           {items.map(item => {
@@ -150,17 +166,17 @@ function StockDrawer({ onClose }: { onClose: () => void }) {
             const bar = crit ? '#EF4444' : low ? '#F59E0B' : '#22C55E';
             return (
               <div key={item.id} style={{ background:low?'rgba(239,68,68,.04)':'rgba(255,255,255,.03)',border:`1px solid ${low?'rgba(239,68,68,.15)':'rgba(255,255,255,.07)'}`,borderRadius:9,padding:'10px 10px 8px' }}>
-                <div style={{ fontSize:9,fontWeight:600,color:'rgba(255,255,255,.40)',marginBottom:6,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }}>{item.name}</div>
+                <div style={{ fontSize:9,fontWeight:600,color:'rgba(255,255,255,.62)',marginBottom:6,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }}>{item.name}</div>
                 <div style={{ display:'flex',alignItems:'center',gap:4,marginBottom:6 }}>
-                  <button onClick={() => adj(item.id, -1)} style={{ width:18,height:18,borderRadius:3,background:'rgba(255,255,255,.06)',border:'1px solid rgba(255,255,255,.10)',color:'rgba(255,255,255,.50)',fontSize:13,fontWeight:700,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:FONT,lineHeight:1,flexShrink:0 }}>−</button>
+                  <button onClick={() => adj(item.id, -1)} style={{ width:18,height:18,borderRadius:3,background:'rgba(255,255,255,.06)',border:'1px solid rgba(255,255,255,.10)',color:'rgba(255,255,255,.72)',fontSize:13,fontWeight:700,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:FONT,lineHeight:1,flexShrink:0 }}>−</button>
                   <span style={{ flex:1,textAlign:'center',fontSize:20,fontWeight:800,color:low?'#EF4444':'#F5F7FA',fontFamily:FONT }}>{item.qty}</span>
-                  <button onClick={() => adj(item.id, 1)}  style={{ width:18,height:18,borderRadius:3,background:'rgba(255,255,255,.06)',border:'1px solid rgba(255,255,255,.10)',color:'rgba(255,255,255,.50)',fontSize:13,fontWeight:700,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:FONT,lineHeight:1,flexShrink:0 }}>+</button>
+                  <button onClick={() => adj(item.id, 1)}  style={{ width:18,height:18,borderRadius:3,background:'rgba(255,255,255,.06)',border:'1px solid rgba(255,255,255,.10)',color:'rgba(255,255,255,.72)',fontSize:13,fontWeight:700,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:FONT,lineHeight:1,flexShrink:0 }}>+</button>
                 </div>
                 <div style={{ height:3,background:'rgba(255,255,255,.06)',borderRadius:2,overflow:'hidden' }}>
                   <div style={{ height:'100%',width:`${pct}%`,background:bar,borderRadius:2,transition:'width .4s ease' }}/>
                 </div>
                 <div style={{ display:'flex',justifyContent:'space-between',marginTop:3 }}>
-                  <span style={{ fontSize:8,color:'rgba(255,255,255,.22)' }}>min {item.min}</span>
+                  <span style={{ fontSize:8,color:'rgba(255,255,255,.44)' }}>min {item.min}</span>
                   {low && <span style={{ fontSize:8,fontWeight:700,color:'#EF4444' }}>LOW</span>}
                 </div>
               </div>
@@ -169,53 +185,6 @@ function StockDrawer({ onClose }: { onClose: () => void }) {
         </div>
       </div>
     </div>
-  );
-}
-
-// ─── Hotspot Map ──────────────────────────────────────────────────────────────
-
-const MAP_POSITIONS = [
-  {x:140,y:58},{x:215,y:40},{x:72,y:48},{x:262,y:82},{x:98,y:112},
-  {x:192,y:118},{x:48,y:125},{x:248,y:145},{x:162,y:155},{x:98,y:168},
-  {x:225,y:172},{x:48,y:78},{x:172,y:188},{x:288,y:118},{x:130,y:182},
-];
-
-function HotspotMap({ jobs }: { jobs: MaintenanceJob[] }) {
-  const counts: Record<string, { count:number; critical:boolean; overdue:boolean }> = {};
-  for (const j of jobs) {
-    if (['COMPLETED','CLOSED'].includes(j.status)) continue;
-    if (!counts[j.suburb]) counts[j.suburb] = { count:0, critical:false, overdue:false };
-    counts[j.suburb].count++;
-    if (j.severity === 'CRITICAL') counts[j.suburb].critical = true;
-    if (isOverdue(j)) counts[j.suburb].overdue = true;
-  }
-  const sorted = Object.entries(counts).sort(([,a],[,b]) => b.count - a.count).slice(0, 15);
-  return (
-    <svg viewBox="0 0 310 200" style={{ width:'100%',height:'100%' }} preserveAspectRatio="xMidYMid meet">
-      <rect width="310" height="200" fill="#020407"/>
-      {Array.from({length:11}).map((_,i) => <line key={`v${i}`} x1={i*31} y1={0} x2={i*31} y2={200} stroke="rgba(255,255,255,.013)" strokeWidth="0.5"/>)}
-      {Array.from({length:8}).map((_,i)  => <line key={`h${i}`} x1={0} y1={i*29} x2={310} y2={i*29} stroke="rgba(255,255,255,.013)" strokeWidth="0.5"/>)}
-      {sorted.map(([suburb, data], i) => {
-        if (i >= MAP_POSITIONS.length) return null;
-        const pos = MAP_POSITIONS[i];
-        const r   = Math.min(5 + data.count * 1.8, 22);
-        const col = data.critical ? '#EF4444' : data.overdue ? '#F97316' : '#F59E0B';
-        return (
-          <g key={suburb}>
-            <circle cx={pos.x} cy={pos.y} r={r+4} fill="none" stroke={col} strokeWidth="0.5" opacity="0.2">
-              <animate attributeName="r" values={`${r+2};${r+9};${r+2}`} dur={`${2.5+i*0.25}s`} repeatCount="indefinite"/>
-              <animate attributeName="opacity" values="0.25;0;0.25" dur={`${2.5+i*0.25}s`} repeatCount="indefinite"/>
-            </circle>
-            <circle cx={pos.x} cy={pos.y} r={r} fill={`${col}1A`} stroke={col} strokeWidth="0.8" opacity="0.9"/>
-            <text x={pos.x} y={pos.y+3.5} textAnchor="middle" fill={col} fontSize="8" fontWeight="800" fontFamily={FONT}>{data.count}</text>
-            <text x={pos.x} y={pos.y+r+9} textAnchor="middle" fill="rgba(255,255,255,.24)" fontSize="5.5" fontFamily={FONT}>{suburb.split(' ')[0]}</text>
-          </g>
-        );
-      })}
-      <rect x={0} y={0} width={310} height={1.5} fill="rgba(139,92,246,.07)" opacity="0.7">
-        <animateTransform attributeName="transform" type="translate" from="0,-2" to="0,202" dur="7s" repeatCount="indefinite"/>
-      </rect>
-    </svg>
   );
 }
 
@@ -229,7 +198,7 @@ function FilterChip({ label, active, color, count, onClick }: {
       padding:'5px 11px',borderRadius:20,fontSize:10.5,fontWeight:600,
       background:active?`${color}18`:'rgba(255,255,255,.04)',
       border:`1px solid ${active?color+'35':'rgba(255,255,255,.08)'}`,
-      color:active?color:'rgba(255,255,255,.35)',
+      color:active?color:'rgba(255,255,255,.57)',
       cursor:'pointer',fontFamily:FONT,transition:'all .14s',display:'flex',alignItems:'center',gap:5,
     }}>
       {label}<span style={{ fontSize:9,fontWeight:700,opacity:.7 }}>{count}</span>
@@ -255,6 +224,21 @@ export default function BinMaintenancePage() {
   const [uploading,    setUploading]    = useState(false);
   const [uploadMsg,    setUploadMsg]    = useState('');
   const [stockOpen,    setStockOpen]    = useState(false);
+  const [kpi,          setKpi]          = useState<DashboardKpiData | null>(null);
+  const [statsLoading, setStatsLoading] = useState(true);
+
+  const fetchKpi = useCallback(async () => {
+    try {
+      const res = await fetch('/api/bin-maintenance/kpi', { credentials: 'include' });
+      setKpi(await res.json() as DashboardKpiData);
+    } catch {
+      setKpi({ hasData: false });
+    } finally {
+      setStatsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { fetchKpi(); }, [fetchKpi]);
 
   const fetchJobs = useCallback(async (newSkip: number, replace: boolean) => {
     if (newSkip === 0) setLoading(true); else setLoadingMore(true);
@@ -285,96 +269,57 @@ export default function BinMaintenancePage() {
   // ── Intelligence ─────────────────────────────────────────────────────────────
 
   const activeJobs = useMemo(() =>
-    jobs.filter(j => !['COMPLETED','CLOSED'].includes(j.status)), [jobs]);
+    jobs.filter(j => !j.completed_date), [jobs]);
+
+  // Stat tiles below are sourced from the full-dataset /api/bin-maintenance/kpi
+  // aggregate (kpi state), NOT the paginated `jobs` array — the DB has 11k+ rows
+  // while `jobs` only holds whatever pages have been loaded via "Load More".
+  // Only the job list/table stays scoped to the paginated `jobs` array.
 
   const stats = useMemo(() => {
-    const completed = jobs.filter(j => j.status === 'COMPLETED' || j.status === 'CLOSED');
+    const dh = kpi?.hasData ? kpi.dashboard_header : null;
     return {
-      active:      activeJobs.length,
-      critical:    activeJobs.filter(j => j.severity === 'CRITICAL' || j.status === 'ESCALATED').length,
-      unassigned:  activeJobs.filter(j => !j.assigned_to).length,
-      overdue:     activeJobs.filter(isOverdue).length,
-      completed:   completed.length,
-      compRate:    jobs.length > 0 ? Math.round((completed.length / jobs.length) * 100) : 0,
+      active:     dh?.active ?? 0,
+      critical:   dh?.critical ?? 0,
+      unassigned: dh?.unassigned ?? 0,
+      overdue:    dh?.overdue ?? 0,
+      completed:  dh?.completed ?? 0,
+      compRate:   dh?.compRate ?? 0,
     };
-  }, [jobs, activeJobs]);
+  }, [kpi]);
 
   const slaStats = useMemo(() => {
-    const today   = new Date();
-    const withSch = jobs.filter(j => j.scheduled_date);
-    const active  = withSch.filter(j => !['COMPLETED','CLOSED'].includes(j.status));
-    let breached = 0, atRisk = 0, onTrack = 0;
-    for (const j of active) {
-      const days = (new Date(j.scheduled_date!).getTime() - today.getTime()) / 86400000;
-      if (days < 0) breached++; else if (days < 2) atRisk++; else onTrack++;
-    }
-    const done = withSch.filter(j => ['COMPLETED','CLOSED'].includes(j.status)).length;
-    const pct  = withSch.length > 0 ? Math.round(((done + onTrack) / withSch.length) * 100) : 100;
-    const breachMap: Record<string, number> = {};
-    for (const j of active.filter(j => new Date(j.scheduled_date!) < today))
-      breachMap[j.suburb] = (breachMap[j.suburb] ?? 0) + 1;
-    return {
-      breached, atRisk, onTrack, pct,
-      scheduled: withSch.length,
-      worstSuburbs: Object.entries(breachMap).sort(([,a],[,b]) => b-a).slice(0,3),
-    };
-  }, [jobs]);
+    if (kpi?.hasData) return kpi.schedule_status;
+    return { breached: 0, atRisk: 0, onTrack: 0, pct: 0, scheduled: 0, worstSuburbs: [] as [string, number][] };
+  }, [kpi]);
 
-  const streamStats = useMemo(() =>
-    (['GENERAL_WASTE','RECYCLING','ORGANICS','BULK_WASTE'] as const).map(t => {
-      const all  = jobs.filter(j => j.bin_type === t);
-      const act  = all.filter(j => !['COMPLETED','CLOSED'].includes(j.status));
-      const comp = all.filter(j => j.status === 'COMPLETED' || j.status === 'CLOSED');
-      return {
-        type: t, ...STREAM[t],
-        total: all.length, active: act.length, completed: comp.length,
-        overdue: act.filter(isOverdue).length,
-        compRate: all.length > 0 ? Math.round((comp.length / all.length) * 100) : 0,
-        pct: jobs.length > 0 ? Math.round((all.length / jobs.length) * 100) : 0,
-      };
-    }), [jobs]);
+  const streamStats = useMemo(() => {
+    const source = kpi?.hasData
+      ? kpi.stream_stats
+      : STREAM_TYPES.map(type => ({ type, total: 0, active: 0, completed: 0, overdue: 0, compRate: 0, pct: 0 }));
+    return source.map(s => ({ ...s, ...STREAM[s.type] }));
+  }, [kpi]);
 
-  const repeatProps = useMemo(() => {
-    const map: Record<string, { suburb:string; address:string; count:number; issues:string[]; active:number }> = {};
-    for (const j of jobs) {
-      const k = `${j.suburb.toUpperCase()}__${j.address.toUpperCase()}`;
-      if (!map[k]) map[k] = { suburb:j.suburb, address:j.address, count:0, issues:[], active:0 };
-      map[k].count++;
-      if (!map[k].issues.includes(j.issue_type)) map[k].issues.push(j.issue_type);
-      if (!['COMPLETED','CLOSED'].includes(j.status)) map[k].active++;
-    }
-    return Object.values(map).filter(p => p.count > 1).sort((a,b) => b.count - a.count).slice(0, 15);
-  }, [jobs]);
+  const repeatProps = useMemo(() =>
+    kpi?.hasData ? kpi.repeat_properties.slice(0, 15) : [],
+    [kpi]);
 
   const issueFreq = useMemo(() => {
-    const map: Record<string, number> = {};
-    for (const j of activeJobs) map[j.issue_type] = (map[j.issue_type] ?? 0) + 1;
+    const map = kpi?.hasData ? kpi.dashboard_header.by_issue_type_open : {};
     const mx = Math.max(...Object.values(map), 1);
     return Object.entries(map).sort(([,a],[,b]) => b-a).slice(0,7)
       .map(([issue, count]) => ({ issue, count, pct: Math.round((count/mx)*100) }));
-  }, [activeJobs]);
+  }, [kpi]);
 
   const productivity = useMemo(() => {
-    const done = jobs.filter(j => j.status === 'COMPLETED' || j.status === 'CLOSED');
-    const byWeek: Record<string, number> = {};
-    for (const j of done) {
-      if (!j.scheduled_date) continue;
-      const d = new Date(j.scheduled_date);
-      d.setDate(d.getDate() - d.getDay() + 1);
-      const k = d.toISOString().substring(0,10);
-      byWeek[k] = (byWeek[k] ?? 0) + 1;
-    }
-    const weeks = Object.keys(byWeek).sort().slice(-8);
-    const trend = weeks.map(w => byWeek[w]);
-    const avg   = trend.length > 0 ? Math.round(trend.reduce((a,b)=>a+b,0)/trend.length) : 0;
-    const unPct = activeJobs.length > 0
-      ? Math.round((activeJobs.filter(j=>!j.assigned_to).length / activeJobs.length) * 100)
-      : 0;
-    return { total: done.length, rate: stats.compRate, avg, trend, unPct };
-  }, [jobs, activeJobs, stats.compRate]);
+    const dh = kpi?.hasData ? kpi.dashboard_header : null;
+    const ct = kpi?.hasData ? kpi.completion_trend : null;
+    const unPct = dh && dh.active > 0 ? Math.round((dh.unassigned / dh.active) * 100) : 0;
+    return { total: ct?.total ?? 0, rate: dh?.compRate ?? 0, avg: ct?.avg ?? 0, trend: ct?.trend ?? [], unPct };
+  }, [kpi]);
 
   const hlna = useMemo(() => {
-    if (jobs.length === 0) return [];
+    if (!kpi?.hasData) return [];
     const lines: string[] = [];
     if (slaStats.breached > 0) lines.push(`${slaStats.breached} jobs have breached their scheduled dates — immediate escalation required.`);
     if (slaStats.atRisk > 0)   lines.push(`${slaStats.atRisk} jobs approaching SLA deadline within 48h — prioritise assignment now.`);
@@ -387,15 +332,15 @@ export default function BinMaintenancePage() {
     if (productivity.unPct > 50) lines.push(`${productivity.unPct}% of active jobs are unassigned — workforce coverage gap detected.`);
     const repeat3 = repeatProps.filter(p => p.count >= 3).length;
     if (repeat3 > 0) lines.push(`${repeat3} properties with 3+ repeat events — recommend high-attention asset register.`);
-    lines.push(`Overall completion rate: ${productivity.rate}% across ${jobs.length.toLocaleString()} operational records.`);
+    lines.push(`Overall completion rate: ${productivity.rate}% across ${kpi.dashboard_header.total.toLocaleString()} operational records.`);
     return lines.slice(0, 5);
-  }, [jobs, slaStats, repeatProps, streamStats, productivity]);
+  }, [kpi, slaStats, repeatProps, streamStats, productivity]);
 
   // ── Filtered view ──────────────────────────────────────────────────────────
 
   const displayed = useMemo(() => {
     let out = [...jobs];
-    if (filterStatus === 'active')   out = out.filter(j => !['COMPLETED','CLOSED'].includes(j.status));
+    if (filterStatus === 'active')   out = out.filter(j => !j.completed_date);
     else if (filterStatus !== 'all') out = out.filter(j => j.status === filterStatus);
     if (filterSev !== 'all') out = out.filter(j => j.severity === filterSev);
     if (search) {
@@ -419,10 +364,11 @@ export default function BinMaintenancePage() {
   }, [jobs, filterStatus, filterSev, search, sortBy]);
 
   const statusCounts = useMemo(() => {
-    const m: Record<string,number> = { all: jobs.length, active: activeJobs.length };
-    for (const s of STATUS_ORDER) m[s] = jobs.filter(j=>j.status===s).length;
+    const dh = kpi?.hasData ? kpi.dashboard_header : null;
+    const m: Record<string,number> = { all: dh?.total ?? 0, active: dh?.active ?? 0 };
+    for (const s of STATUS_ORDER) m[s] = dh?.by_status[s] ?? 0;
     return m;
-  }, [jobs, activeJobs]);
+  }, [kpi]);
 
   // ── Handlers ─────────────────────────────────────────────────────────────────
 
@@ -437,12 +383,13 @@ export default function BinMaintenancePage() {
       method:'PATCH', headers:{ 'Content-Type':'application/json' },
       credentials: 'include',
       body: JSON.stringify({ status, ...(payload?.assignedTo ? { assigned_to: payload.assignedTo } : {}) }),
-    }).catch(() => {});
+    }).then(() => fetchKpi()).catch(() => {});
   }
 
   function handleCreated(job: MaintenanceJob) {
     setJobs(p => [job, ...p]);
     setTotal(t => t + 1);
+    fetchKpi();
   }
 
   async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
@@ -461,7 +408,7 @@ export default function BinMaintenancePage() {
         return;
       }
       setUploadMsg(`Imported ${data.recordsInserted} records`);
-      await fetchJobs(0, true);
+      await Promise.all([fetchJobs(0, true), fetchKpi()]);
     } catch { setUploadMsg('Upload failed — check connection'); }
     finally { setUploading(false); setTimeout(() => setUploadMsg(''), 6000); }
   }
@@ -481,17 +428,24 @@ export default function BinMaintenancePage() {
         .bm-row        { cursor:pointer; transition:background .14s; }
         .bm-card:hover { border-color:rgba(139,92,246,.22)!important; }
         .bm-card       { transition:border-color .2s; }
+        .leaflet-container { background:#0a0d12; font-family:${FONT}; }
+        .leaflet-control-zoom a { background:rgba(10,13,18,.85)!important; color:rgba(255,255,255,.7)!important; border-color:rgba(255,255,255,.12)!important; }
+        .leaflet-control-zoom a:hover { background:rgba(139,92,246,.22)!important; color:#fff!important; }
+        .leaflet-control-attribution { background:rgba(0,0,0,.45)!important; color:rgba(255,255,255,.35)!important; font-size:8px!important; }
+        .leaflet-control-attribution a { color:rgba(255,255,255,.5)!important; }
+        .bm-map-tip { background:rgba(10,13,18,.92)!important; border:1px solid rgba(255,255,255,.12)!important; color:rgba(255,255,255,.85)!important; font-family:${FONT}; font-size:10px!important; box-shadow:none!important; }
+        .bm-map-tip::before { border-top-color:rgba(255,255,255,.12)!important; }
       `}} />
 
       {/* ── Toolbar ── */}
       <div style={{ height:36,display:'flex',alignItems:'center',gap:10,padding:'0 20px',flexShrink:0,borderBottom:'1px solid rgba(255,255,255,.04)',background:'rgba(6,7,10,.50)' }}>
-        <div style={{ fontSize:10.5,color:'rgba(255,255,255,.20)',display:'flex',alignItems:'center',gap:5 }}>
+        <div style={{ fontSize:10.5,color:'rgba(255,255,255,.42)',display:'flex',alignItems:'center',gap:5 }}>
           <span>Operations</span><span style={{ opacity:.35 }}>/</span>
-          <span style={{ color:'rgba(255,255,255,.35)' }}>Waste</span><span style={{ opacity:.35 }}>/</span>
+          <span style={{ color:'rgba(255,255,255,.57)' }}>Waste</span><span style={{ opacity:.35 }}>/</span>
           <span style={{ color:'rgba(167,139,250,.55)' }}>Bin Maintenance</span>
         </div>
         <div style={{ flex:1 }} />
-        {loading && <span style={{ fontSize:9.5,color:'rgba(255,255,255,.22)',animation:'bm-blink 1.5s ease-in-out infinite' }}>Syncing…</span>}
+        {loading && <span style={{ fontSize:9.5,color:'rgba(255,255,255,.44)',animation:'bm-blink 1.5s ease-in-out infinite' }}>Syncing…</span>}
         {!loading && !fetchError && (
           <div style={{ display:'flex',alignItems:'center',gap:4 }}>
             <div style={{ width:5,height:5,borderRadius:'50%',background:'#22C55E',animation:'bm-blink 2.5s ease-in-out infinite' }}/>
@@ -506,6 +460,11 @@ export default function BinMaintenancePage() {
             <button onClick={()=>fetchJobs(0,true)} style={{ fontSize:9.5,color:'rgba(139,92,246,.70)',background:'none',border:'none',cursor:'pointer',fontFamily:FONT,textDecoration:'underline',padding:0 }}>Retry</button>
           </div>
         )}
+        <div style={{ width:1,height:12,background:'rgba(255,255,255,.07)' }}/>
+        <Link href="/dashboard/bin-maintenance/insights" style={{ display:'flex',alignItems:'center',gap:5,padding:'5px 11px',borderRadius:7,background:'rgba(255,255,255,.05)',border:'1px solid rgba(255,255,255,.10)',color:'rgba(255,255,255,.6)',fontSize:10.5,fontWeight:600,fontFamily:FONT,textDecoration:'none' }}>
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>
+          Insights
+        </Link>
         <div style={{ width:1,height:12,background:'rgba(255,255,255,.07)' }}/>
         <button onClick={() => setStockOpen(v=>!v)} style={{ display:'flex',alignItems:'center',gap:5,padding:'5px 11px',borderRadius:7,background:stockOpen?'rgba(139,92,246,.18)':'rgba(255,255,255,.05)',border:`1px solid ${stockOpen?'rgba(139,92,246,.35)':'rgba(255,255,255,.10)'}`,color:stockOpen?'#C4B5FD':'rgba(255,255,255,.38)',fontSize:10.5,fontWeight:600,cursor:'pointer',fontFamily:FONT }}>
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
@@ -540,11 +499,11 @@ export default function BinMaintenancePage() {
         ] as const).map((s, i) => (
           <div key={s.label} style={{ padding:'14px 18px',background:'rgba(7,8,11,.80)',borderRight:i<5?'1px solid rgba(255,255,255,.05)':'none',position:'relative',overflow:'hidden' }}>
             <div style={{ position:'absolute',top:0,left:0,right:0,height:1,background:`linear-gradient(90deg,transparent,${s.color}22,transparent)` }}/>
-            <div style={{ fontSize:9.5,fontWeight:700,letterSpacing:'.12em',color:'rgba(255,255,255,.24)',textTransform:'uppercase',marginBottom:7 }}>{s.label}</div>
+            <div style={{ fontSize:9.5,fontWeight:700,letterSpacing:'.12em',color:'rgba(255,255,255,.46)',textTransform:'uppercase',marginBottom:7 }}>{s.label}</div>
             <div style={{ fontSize:28,fontWeight:800,letterSpacing:'-.04em',color:'#F5F7FA',lineHeight:1 }}>
-              {loading ? <span style={{ fontSize:18,color:'rgba(255,255,255,.15)' }}>—</span> : s.val}
+              {statsLoading ? <span style={{ fontSize:18,color:'rgba(255,255,255,.37)' }}>—</span> : s.val}
             </div>
-            <div style={{ fontSize:9.5,color:'rgba(255,255,255,.28)',marginTop:4 }}>{s.sub}</div>
+            <div style={{ fontSize:9.5,color:'rgba(255,255,255,.5)',marginTop:4 }}>{s.sub}</div>
           </div>
         ))}
       </div>
@@ -554,7 +513,7 @@ export default function BinMaintenancePage() {
 
         {/* SLA Panel */}
         <div className="bm-card" style={{ padding:'14px 16px',background:'rgba(5,6,9,.70)',borderRight:'1px solid rgba(255,255,255,.05)' }}>
-          <div style={{ fontSize:9,fontWeight:700,letterSpacing:'.12em',color:'rgba(255,255,255,.22)',textTransform:'uppercase',marginBottom:10 }}>SLA Status</div>
+          <div style={{ fontSize:9,fontWeight:700,letterSpacing:'.12em',color:'rgba(255,255,255,.44)',textTransform:'uppercase',marginBottom:10 }}>SLA Status</div>
           <div style={{ display:'flex',alignItems:'center',gap:14 }}>
             <RingChart pct={slaStats.pct} color={slaColor} size={68}/>
             <div style={{ flex:1,display:'flex',flexDirection:'column',gap:6 }}>
@@ -565,7 +524,7 @@ export default function BinMaintenancePage() {
               ]).map(r => (
                 <div key={r.label} style={{ display:'flex',alignItems:'center',gap:6 }}>
                   <div style={{ width:5,height:5,borderRadius:'50%',background:r.c,flexShrink:0 }}/>
-                  <span style={{ fontSize:10,color:'rgba(255,255,255,.38)',flex:1 }}>{r.label}</span>
+                  <span style={{ fontSize:10,color:'rgba(255,255,255,.6)',flex:1 }}>{r.label}</span>
                   <span style={{ fontSize:11,fontWeight:700,color:r.c }}>{r.val}</span>
                 </div>
               ))}
@@ -576,7 +535,7 @@ export default function BinMaintenancePage() {
               <div style={{ fontSize:8.5,fontWeight:700,letterSpacing:'.08em',color:'rgba(239,68,68,.45)',textTransform:'uppercase',marginBottom:4 }}>Breach Hotspots</div>
               {slaStats.worstSuburbs.map(([sub, cnt]) => (
                 <div key={sub} style={{ display:'flex',justifyContent:'space-between',marginBottom:3 }}>
-                  <span style={{ fontSize:9.5,color:'rgba(255,255,255,.32)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',flex:1 }}>{sub}</span>
+                  <span style={{ fontSize:9.5,color:'rgba(255,255,255,.54)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',flex:1 }}>{sub}</span>
                   <span style={{ fontSize:9.5,fontWeight:700,color:'#EF4444',marginLeft:6 }}>{cnt}</span>
                 </div>
               ))}
@@ -586,16 +545,16 @@ export default function BinMaintenancePage() {
 
         {/* Stream Analytics */}
         <div className="bm-card" style={{ padding:'14px 16px',background:'rgba(5,6,9,.70)',borderRight:'1px solid rgba(255,255,255,.05)' }}>
-          <div style={{ fontSize:9,fontWeight:700,letterSpacing:'.12em',color:'rgba(255,255,255,.22)',textTransform:'uppercase',marginBottom:10 }}>Stream Analytics</div>
+          <div style={{ fontSize:9,fontWeight:700,letterSpacing:'.12em',color:'rgba(255,255,255,.44)',textTransform:'uppercase',marginBottom:10 }}>Stream Analytics</div>
           {streamStats.map(s => (
             <div key={s.type} style={{ marginBottom:9 }}>
               <div style={{ display:'flex',justifyContent:'space-between',marginBottom:3 }}>
                 <div style={{ display:'flex',alignItems:'center',gap:5 }}>
                   <div style={{ width:5,height:5,borderRadius:'50%',background:s.color }}/>
-                  <span style={{ fontSize:10,color:'rgba(255,255,255,.45)',fontWeight:600 }}>{s.label}</span>
+                  <span style={{ fontSize:10,color:'rgba(255,255,255,.67)',fontWeight:600 }}>{s.label}</span>
                 </div>
                 <div style={{ display:'flex',gap:6 }}>
-                  <span style={{ fontSize:9.5,color:'rgba(255,255,255,.25)' }}>{s.total.toLocaleString()}</span>
+                  <span style={{ fontSize:9.5,color:'rgba(255,255,255,.47)' }}>{s.total.toLocaleString()}</span>
                   <span style={{ fontSize:9.5,fontWeight:700,color:s.color }}>{s.pct}%</span>
                 </div>
               </div>
@@ -603,7 +562,7 @@ export default function BinMaintenancePage() {
                 <div style={{ height:'100%',width:`${s.pct}%`,background:s.color,borderRadius:2,transition:'width .5s ease',opacity:.8 }}/>
               </div>
               <div style={{ display:'flex',gap:8,marginTop:2 }}>
-                <span style={{ fontSize:8.5,color:'rgba(255,255,255,.22)' }}>Active: {s.active}</span>
+                <span style={{ fontSize:8.5,color:'rgba(255,255,255,.44)' }}>Active: {s.active}</span>
                 <span style={{ fontSize:8.5,color:'rgba(34,197,94,.40)' }}>✓ {s.compRate}%</span>
                 {s.overdue > 0 && <span style={{ fontSize:8.5,color:'rgba(249,115,22,.55)' }}>⚠ {s.overdue}</span>}
               </div>
@@ -614,7 +573,7 @@ export default function BinMaintenancePage() {
         {/* Repeat Properties */}
         <div className="bm-card" style={{ padding:'14px 16px',background:'rgba(5,6,9,.70)',borderRight:'1px solid rgba(255,255,255,.05)',overflow:'hidden' }}>
           <div style={{ display:'flex',alignItems:'center',gap:6,marginBottom:10 }}>
-            <div style={{ fontSize:9,fontWeight:700,letterSpacing:'.12em',color:'rgba(255,255,255,.22)',textTransform:'uppercase' }}>Repeat Properties</div>
+            <div style={{ fontSize:9,fontWeight:700,letterSpacing:'.12em',color:'rgba(255,255,255,.44)',textTransform:'uppercase' }}>Repeat Properties</div>
             <span style={{ fontSize:9,fontWeight:700,color:'#F97316',background:'rgba(249,115,22,.10)',border:'1px solid rgba(249,115,22,.20)',padding:'1px 6px',borderRadius:8 }}>{repeatProps.length}</span>
           </div>
           {repeatProps.slice(0,5).map((p,i) => (
@@ -623,112 +582,114 @@ export default function BinMaintenancePage() {
                 <span style={{ fontSize:9,fontWeight:800,color:p.count>=4?'#EF4444':'#F97316' }}>{p.count}</span>
               </div>
               <div style={{ flex:1,minWidth:0 }}>
-                <div style={{ fontSize:10,color:'rgba(255,255,255,.58)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }}>{p.address}</div>
-                <div style={{ fontSize:8.5,color:'rgba(255,255,255,.26)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }}>{p.suburb} · {p.issues[0]}</div>
+                <div style={{ fontSize:10,color:'rgba(255,255,255,.8)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }}>{p.address}</div>
+                <div style={{ fontSize:8.5,color:'rgba(255,255,255,.48)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }}>{p.suburb} · {p.issues[0]}</div>
               </div>
               {p.active > 0 && <div style={{ width:6,height:6,borderRadius:'50%',background:'#EF4444',flexShrink:0,animation:'bm-blink 2s ease-in-out infinite' }}/>}
             </div>
           ))}
-          {repeatProps.length > 5 && <div style={{ fontSize:9,color:'rgba(255,255,255,.20)',textAlign:'center',marginTop:4 }}>+{repeatProps.length-5} more</div>}
-          {repeatProps.length === 0 && !loading && <div style={{ fontSize:9.5,color:'rgba(255,255,255,.18)',marginTop:8 }}>No repeat properties detected.</div>}
+          {repeatProps.length > 5 && <div style={{ fontSize:9,color:'rgba(255,255,255,.42)',textAlign:'center',marginTop:4 }}>+{repeatProps.length-5} more</div>}
+          {repeatProps.length === 0 && !statsLoading && <div style={{ fontSize:9.5,color:'rgba(255,255,255,.4)',marginTop:8 }}>No repeat properties detected.</div>}
         </div>
 
         {/* Issue Breakdown */}
         <div className="bm-card" style={{ padding:'14px 16px',background:'rgba(5,6,9,.70)' }}>
-          <div style={{ fontSize:9,fontWeight:700,letterSpacing:'.12em',color:'rgba(255,255,255,.22)',textTransform:'uppercase',marginBottom:10 }}>Active Issue Types</div>
+          <div style={{ fontSize:9,fontWeight:700,letterSpacing:'.12em',color:'rgba(255,255,255,.44)',textTransform:'uppercase',marginBottom:10 }}>Active Issue Types</div>
           {issueFreq.map(({ issue, count, pct }) => (
             <div key={issue} style={{ marginBottom:7 }}>
               <div style={{ display:'flex',justifyContent:'space-between',marginBottom:2 }}>
-                <span style={{ fontSize:10,color:'rgba(255,255,255,.42)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',flex:1,paddingRight:6 }}>{issue}</span>
-                <span style={{ fontSize:10,fontWeight:700,color:'rgba(255,255,255,.50)',flexShrink:0 }}>{count}</span>
+                <span style={{ fontSize:10,color:'rgba(255,255,255,.64)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',flex:1,paddingRight:6 }}>{issue}</span>
+                <span style={{ fontSize:10,fontWeight:700,color:'rgba(255,255,255,.72)',flexShrink:0 }}>{count}</span>
               </div>
               <div style={{ height:2.5,background:'rgba(255,255,255,.06)',borderRadius:2,overflow:'hidden' }}>
                 <div style={{ height:'100%',width:`${pct}%`,background:'rgba(139,92,246,.55)',borderRadius:2,transition:'width .4s ease' }}/>
               </div>
             </div>
           ))}
-          {issueFreq.length === 0 && !loading && <div style={{ fontSize:10,color:'rgba(255,255,255,.18)',marginTop:16,textAlign:'center' }}>No active jobs</div>}
+          {issueFreq.length === 0 && !statsLoading && <div style={{ fontSize:10,color:'rgba(255,255,255,.4)',marginTop:16,textAlign:'center' }}>No active jobs</div>}
         </div>
       </div>
 
       {/* ── Main Body ── */}
-      <div style={{ flex:1,display:'flex',overflow:'hidden' }}>
+      <div style={{ flex:1,display:'flex',overflow:'hidden',alignItems:'flex-start' }}>
 
-        {/* Left Rail */}
-        <div style={{ width:300,flexShrink:0,borderRight:'1px solid rgba(255,255,255,.05)',display:'flex',flexDirection:'column',overflow:'hidden',background:'rgba(5,6,9,.50)' }}>
+        {/* Left Rail — Map */}
+        <div style={{ flex:'1 1 50%',minWidth:0,borderRight:'1px solid rgba(255,255,255,.05)',display:'flex',flexDirection:'column',background:'rgba(5,6,9,.50)' }}>
 
           <div style={{ padding:'10px 12px 4px',flexShrink:0 }}>
             <div style={{ display:'flex',alignItems:'center',gap:6,marginBottom:6 }}>
               <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="rgba(139,92,246,.60)" strokeWidth="2" strokeLinecap="round"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
-              <span style={{ fontSize:9.5,fontWeight:700,letterSpacing:'.12em',color:'rgba(255,255,255,.28)',textTransform:'uppercase' }}>Operational Hotspots</span>
+              <span style={{ fontSize:9.5,fontWeight:700,letterSpacing:'.12em',color:'rgba(255,255,255,.5)',textTransform:'uppercase' }}>Operational Hotspots</span>
             </div>
           </div>
-          <div style={{ height:155,flexShrink:0,padding:'0 12px',marginBottom:4 }}>
-            <div style={{ height:'100%',borderRadius:10,overflow:'hidden',border:'1px solid rgba(255,255,255,.06)' }}>
-              <HotspotMap jobs={activeJobs}/>
+          <div style={{ flex:'1 1 auto',minHeight:320,padding:'0 12px',marginBottom:4,display:'flex' }}>
+            <div style={{ flex:1,borderRadius:10,overflow:'hidden',border:'1px solid rgba(255,255,255,.06)' }}>
+              <RequestsMap jobs={activeJobs} onSuburbClick={setSearch}/>
             </div>
           </div>
 
-          <div style={{ padding:'6px 12px',flexShrink:0 }}>
-            <div style={{ fontSize:9,fontWeight:700,letterSpacing:'.12em',color:'rgba(255,255,255,.20)',textTransform:'uppercase',marginBottom:6 }}>Active By Suburb</div>
-            {Object.entries(
-              activeJobs.reduce((acc,j) => { acc[j.suburb]=(acc[j.suburb]??0)+1; return acc; },{} as Record<string,number>)
-            ).sort(([,a],[,b])=>b-a).slice(0,6).map(([sub,cnt]) => {
-              const mx = Math.max(...Object.values(activeJobs.reduce((a,j)=>{ a[j.suburb]=(a[j.suburb]??0)+1; return a; },{} as Record<string,number>)),1);
-              return (
-                <div key={sub} style={{ display:'flex',alignItems:'center',gap:7,marginBottom:5 }}>
-                  <span style={{ fontSize:10,color:'rgba(255,255,255,.44)',flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }}>{sub}</span>
-                  <div style={{ width:50,height:3,background:'rgba(255,255,255,.06)',borderRadius:2,overflow:'hidden' }}>
-                    <div style={{ height:'100%',width:`${Math.min((cnt/mx)*100,100)}%`,background:'rgba(139,92,246,.60)',borderRadius:2 }}/>
+          <div style={{ flexShrink:0,height:260,overflowY:'auto' }}>
+            <div style={{ padding:'6px 12px',flexShrink:0 }}>
+              <div style={{ fontSize:9,fontWeight:700,letterSpacing:'.12em',color:'rgba(255,255,255,.42)',textTransform:'uppercase',marginBottom:6 }}>Active By Suburb</div>
+              {Object.entries(
+                activeJobs.reduce((acc,j) => { acc[j.suburb]=(acc[j.suburb]??0)+1; return acc; },{} as Record<string,number>)
+              ).sort(([,a],[,b])=>b-a).slice(0,6).map(([sub,cnt]) => {
+                const mx = Math.max(...Object.values(activeJobs.reduce((a,j)=>{ a[j.suburb]=(a[j.suburb]??0)+1; return a; },{} as Record<string,number>)),1);
+                return (
+                  <div key={sub} style={{ display:'flex',alignItems:'center',gap:7,marginBottom:5 }}>
+                    <span style={{ fontSize:10,color:'rgba(255,255,255,.66)',flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }}>{sub}</span>
+                    <div style={{ width:50,height:3,background:'rgba(255,255,255,.06)',borderRadius:2,overflow:'hidden' }}>
+                      <div style={{ height:'100%',width:`${Math.min((cnt/mx)*100,100)}%`,background:'rgba(139,92,246,.60)',borderRadius:2 }}/>
+                    </div>
+                    <span style={{ fontSize:9.5,fontWeight:700,color:'rgba(255,255,255,.54)',width:18,textAlign:'right' }}>{cnt}</span>
                   </div>
-                  <span style={{ fontSize:9.5,fontWeight:700,color:'rgba(255,255,255,.32)',width:18,textAlign:'right' }}>{cnt}</span>
+                );
+              })}
+            </div>
+
+            <div style={{ padding:'6px 12px',flexShrink:0,borderTop:'1px solid rgba(255,255,255,.04)' }}>
+              <div style={{ fontSize:9,fontWeight:700,letterSpacing:'.12em',color:'rgba(255,255,255,.42)',textTransform:'uppercase',marginBottom:7 }}>Productivity</div>
+              <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr',gap:7,marginBottom:8 }}>
+                <div style={{ padding:'8px',background:'rgba(255,255,255,.03)',borderRadius:7,border:'1px solid rgba(255,255,255,.06)' }}>
+                  <div style={{ fontSize:8.5,color:'rgba(255,255,255,.46)',marginBottom:2 }}>Completed</div>
+                  <div style={{ fontSize:18,fontWeight:800,color:'#22C55E',lineHeight:1 }}>{productivity.total.toLocaleString()}</div>
+                  <div style={{ fontSize:8,color:'rgba(34,197,94,.38)',marginTop:2 }}>{productivity.rate}% rate</div>
                 </div>
-              );
-            })}
-          </div>
-
-          <div style={{ padding:'6px 12px',flexShrink:0,borderTop:'1px solid rgba(255,255,255,.04)' }}>
-            <div style={{ fontSize:9,fontWeight:700,letterSpacing:'.12em',color:'rgba(255,255,255,.20)',textTransform:'uppercase',marginBottom:7 }}>Productivity</div>
-            <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr',gap:7,marginBottom:8 }}>
-              <div style={{ padding:'8px',background:'rgba(255,255,255,.03)',borderRadius:7,border:'1px solid rgba(255,255,255,.06)' }}>
-                <div style={{ fontSize:8.5,color:'rgba(255,255,255,.24)',marginBottom:2 }}>Completed</div>
-                <div style={{ fontSize:18,fontWeight:800,color:'#22C55E',lineHeight:1 }}>{productivity.total.toLocaleString()}</div>
-                <div style={{ fontSize:8,color:'rgba(34,197,94,.38)',marginTop:2 }}>{productivity.rate}% rate</div>
+                <div style={{ padding:'8px',background:'rgba(255,255,255,.03)',borderRadius:7,border:'1px solid rgba(255,255,255,.06)' }}>
+                  <div style={{ fontSize:8.5,color:'rgba(255,255,255,.46)',marginBottom:2 }}>Avg / Week</div>
+                  <div style={{ fontSize:18,fontWeight:800,color:'#A78BFA',lineHeight:1 }}>{productivity.avg}</div>
+                  <div style={{ fontSize:8,color:'rgba(167,139,250,.38)',marginTop:2 }}>historical</div>
+                </div>
               </div>
-              <div style={{ padding:'8px',background:'rgba(255,255,255,.03)',borderRadius:7,border:'1px solid rgba(255,255,255,.06)' }}>
-                <div style={{ fontSize:8.5,color:'rgba(255,255,255,.24)',marginBottom:2 }}>Avg / Week</div>
-                <div style={{ fontSize:18,fontWeight:800,color:'#A78BFA',lineHeight:1 }}>{productivity.avg}</div>
-                <div style={{ fontSize:8,color:'rgba(167,139,250,.38)',marginTop:2 }}>historical</div>
-              </div>
+              {productivity.trend.length > 1 && (
+                <>
+                  <div style={{ fontSize:8.5,color:'rgba(255,255,255,.4)',marginBottom:3 }}>Weekly completion trend</div>
+                  <Sparkline data={productivity.trend} color="#22C55E" width={265} height={28}/>
+                </>
+              )}
             </div>
-            {productivity.trend.length > 1 && (
-              <>
-                <div style={{ fontSize:8.5,color:'rgba(255,255,255,.18)',marginBottom:3 }}>Weekly completion trend</div>
-                <Sparkline data={productivity.trend} color="#22C55E" width={265} height={28}/>
-              </>
-            )}
-          </div>
 
-          {/* HLNA Briefing */}
-          <div style={{ flex:1,padding:'8px 12px 12px',borderTop:'1px solid rgba(255,255,255,.04)',overflow:'auto',minHeight:0 }}>
-            <div style={{ display:'flex',alignItems:'center',gap:5,marginBottom:8 }}>
-              <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="rgba(139,92,246,.80)" strokeWidth="2.5" strokeLinecap="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-              <span style={{ fontSize:9,fontWeight:700,letterSpacing:'.14em',color:'rgba(139,92,246,.65)',textTransform:'uppercase' }}>HLNA · Operational Brief</span>
-            </div>
-            {hlna.map((line, i) => (
-              <div key={i} style={{ display:'flex',gap:7,marginBottom:7,animation:`bm-fade .3s ease ${i*.08}s both` }}>
-                <div style={{ width:3,height:3,borderRadius:'50%',background:'rgba(139,92,246,.50)',flexShrink:0,marginTop:5 }}/>
-                <p style={{ fontSize:9.5,color:'rgba(255,255,255,.38)',margin:0,lineHeight:1.65,fontFamily:FONT }}>{line}</p>
+            {/* HLNA Briefing */}
+            <div style={{ padding:'8px 12px 12px',borderTop:'1px solid rgba(255,255,255,.04)' }}>
+              <div style={{ display:'flex',alignItems:'center',gap:5,marginBottom:8 }}>
+                <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="rgba(139,92,246,.80)" strokeWidth="2.5" strokeLinecap="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                <span style={{ fontSize:9,fontWeight:700,letterSpacing:'.14em',color:'rgba(139,92,246,.65)',textTransform:'uppercase' }}>HLNA · Operational Brief</span>
               </div>
-            ))}
-            {hlna.length === 0 && !loading && (
-              <p style={{ fontSize:9.5,color:'rgba(255,255,255,.18)',fontFamily:FONT,margin:0 }}>Awaiting data…</p>
-            )}
+              {hlna.map((line, i) => (
+                <div key={i} style={{ display:'flex',gap:7,marginBottom:7,animation:`bm-fade .3s ease ${i*.08}s both` }}>
+                  <div style={{ width:3,height:3,borderRadius:'50%',background:'rgba(139,92,246,.50)',flexShrink:0,marginTop:5 }}/>
+                  <p style={{ fontSize:9.5,color:'rgba(255,255,255,.6)',margin:0,lineHeight:1.65,fontFamily:FONT }}>{line}</p>
+                </div>
+              ))}
+              {hlna.length === 0 && !statsLoading && (
+                <p style={{ fontSize:9.5,color:'rgba(255,255,255,.4)',fontFamily:FONT,margin:0 }}>Awaiting data…</p>
+              )}
+            </div>
           </div>
         </div>
 
         {/* Operational Queue */}
-        <div style={{ flex:1,display:'flex',flexDirection:'column',overflow:'hidden',minWidth:0 }}>
+        <div style={{ flex:'1 1 50%',display:'flex',flexDirection:'column',overflow:'hidden',minWidth:0 }}>
 
           {/* Filter bar */}
           <div style={{ padding:'10px 16px',borderBottom:'1px solid rgba(255,255,255,.04)',background:'rgba(6,7,10,.40)',flexShrink:0,display:'flex',alignItems:'center',gap:8,flexWrap:'wrap' }}>
@@ -754,7 +715,7 @@ export default function BinMaintenancePage() {
                 onFocus={e=>(e.currentTarget.style.borderColor='rgba(139,92,246,.40)')}
                 onBlur={e=>(e.currentTarget.style.borderColor='rgba(255,255,255,.08)')}/>
             </div>
-            <select value={sortBy} onChange={e=>setSortBy(e.target.value as typeof sortBy)} style={{ background:'rgba(255,255,255,.04)',border:'1px solid rgba(255,255,255,.08)',borderRadius:7,padding:'5px 10px',fontSize:11,color:'rgba(255,255,255,.50)',fontFamily:FONT,outline:'none',cursor:'pointer',colorScheme:'dark' }}>
+            <select value={sortBy} onChange={e=>setSortBy(e.target.value as typeof sortBy)} style={{ background:'rgba(255,255,255,.04)',border:'1px solid rgba(255,255,255,.08)',borderRadius:7,padding:'5px 10px',fontSize:11,color:'rgba(255,255,255,.72)',fontFamily:FONT,outline:'none',cursor:'pointer',colorScheme:'dark' }}>
               <option value="severity">Severity ↓</option>
               <option value="date">Scheduled date</option>
               <option value="suburb">Suburb A→Z</option>
@@ -765,7 +726,7 @@ export default function BinMaintenancePage() {
           {/* Table header */}
           <div style={{ display:'grid',gridTemplateColumns:'4px 1fr 160px 100px 100px 70px 44px',padding:'7px 16px',borderBottom:'1px solid rgba(255,255,255,.05)',background:'rgba(0,0,0,.20)',flexShrink:0,alignItems:'center' }}>
             {['','Address / Issue','Bin Type','Status','Assigned','Due / Age',''].map((h,i)=>(
-              <span key={i} style={{ fontSize:9,fontWeight:700,letterSpacing:'.12em',color:'rgba(255,255,255,.22)',textTransform:'uppercase',paddingLeft:i===0?0:i===1?10:0 }}>{h}</span>
+              <span key={i} style={{ fontSize:9,fontWeight:700,letterSpacing:'.12em',color:'rgba(255,255,255,.44)',textTransform:'uppercase',paddingLeft:i===0?0:i===1?10:0 }}>{h}</span>
             ))}
           </div>
 
@@ -791,7 +752,7 @@ export default function BinMaintenancePage() {
             )}
 
             {!loading && !fetchError && displayed.length === 0 && (
-              <div style={{ padding:'48px',textAlign:'center',color:'rgba(255,255,255,.20)',fontSize:13 }}>
+              <div style={{ padding:'48px',textAlign:'center',color:'rgba(255,255,255,.42)',fontSize:13 }}>
                 {jobs.length === 0 ? 'No maintenance jobs. Upload a spreadsheet or create a job.' : 'No jobs match the current filters.'}
               </div>
             )}
@@ -807,16 +768,21 @@ export default function BinMaintenancePage() {
                   onClick={()=>setSelectedJob(job)}>
                   <div style={{ width:3,height:28,borderRadius:2,background:s.color,boxShadow:`0 0 6px ${s.color}55`,flexShrink:0 }}/>
                   <div style={{ paddingLeft:12,minWidth:0 }}>
-                    <div style={{ fontSize:12.5,fontWeight:600,color:'rgba(255,255,255,.78)',lineHeight:1.3,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }}>{job.address}</div>
+                    <div style={{ display:'flex',alignItems:'baseline',gap:6 }}>
+                      <div style={{ fontSize:12.5,fontWeight:600,color:'rgba(255,255,255,.85)',lineHeight:1.3,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }}>{job.address}</div>
+                      {job.ticket_number && (
+                        <span style={{ fontSize:9,fontWeight:600,color:'rgba(255,255,255,.28)',fontFamily:'monospace',flexShrink:0 }}>#{job.ticket_number}</span>
+                      )}
+                    </div>
                     <div style={{ display:'flex',alignItems:'center',gap:5,marginTop:2 }}>
-                      <span style={{ fontSize:10,color:'rgba(255,255,255,.30)' }}>{job.suburb}</span>
+                      <span style={{ fontSize:10,color:'rgba(255,255,255,.52)' }}>{job.suburb}</span>
                       <span style={{ opacity:.3 }}>·</span>
-                      <span style={{ fontSize:10,color:'rgba(255,255,255,.44)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:160 }}>{job.issue_type}</span>
+                      <span style={{ fontSize:10,color:'rgba(255,255,255,.66)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:160 }}>{job.issue_type}</span>
                     </div>
                   </div>
                   <div style={{ display:'flex',alignItems:'center',gap:5 }}>
                     <div style={{ width:5,height:5,borderRadius:'50%',background:STREAM[job.bin_type]?.color||'#6B7280',flexShrink:0 }}/>
-                    <span style={{ fontSize:11,color:'rgba(255,255,255,.40)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }}>
+                    <span style={{ fontSize:11,color:'rgba(255,255,255,.62)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }}>
                       {job.bin_type.replace(/_/g,' ').toLowerCase().replace(/(?:^|\s)\S/g,c=>c.toUpperCase())}
                     </span>
                   </div>
@@ -828,10 +794,10 @@ export default function BinMaintenancePage() {
                     {av ? (
                       <>
                         <div style={{ width:22,height:22,borderRadius:'50%',background:'rgba(96,165,250,.16)',border:'1px solid rgba(96,165,250,.24)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:9,fontWeight:700,color:'#60A5FA',flexShrink:0 }}>{av}</div>
-                        <span style={{ fontSize:10.5,color:'rgba(255,255,255,.44)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }}>{job.assigned_to?.split(' ')[0]}</span>
+                        <span style={{ fontSize:10.5,color:'rgba(255,255,255,.66)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }}>{job.assigned_to?.split(' ')[0]}</span>
                       </>
                     ) : (
-                      <span style={{ fontSize:10.5,color:'rgba(255,255,255,.20)',fontStyle:'italic' }}>Unassigned</span>
+                      <span style={{ fontSize:10.5,color:'rgba(255,255,255,.42)',fontStyle:'italic' }}>Unassigned</span>
                     )}
                   </div>
                   <div style={{ textAlign:'right' }}>
@@ -840,7 +806,7 @@ export default function BinMaintenancePage() {
                         {od?'⚠ ':''}{new Date(job.scheduled_date).toLocaleDateString('en-AU',{day:'numeric',month:'short'})}
                       </div>
                     )}
-                    <div style={{ fontSize:9.5,color:'rgba(255,255,255,.22)',marginTop:1 }}>{ageStr(job.created_at)}</div>
+                    <div style={{ fontSize:9.5,color:'rgba(255,255,255,.44)',marginTop:1 }}>{ageStr(job.created_at)}</div>
                   </div>
                   <div style={{ display:'flex',justifyContent:'center' }}>
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,.20)" strokeWidth="2" strokeLinecap="round"><polyline points="9 18 15 12 9 6"/></svg>
@@ -861,13 +827,13 @@ export default function BinMaintenancePage() {
 
           {/* Footer */}
           <div style={{ padding:'8px 16px',borderTop:'1px solid rgba(255,255,255,.04)',background:'rgba(0,0,0,.20)',flexShrink:0,display:'flex',alignItems:'center',gap:10 }}>
-            <span style={{ fontSize:10,color:'rgba(255,255,255,.20)' }}>{displayed.length} shown · {jobs.length.toLocaleString()} loaded · {total.toLocaleString()} total</span>
+            <span style={{ fontSize:10,color:'rgba(255,255,255,.42)' }}>{displayed.length} shown · {jobs.length.toLocaleString()} loaded · {total.toLocaleString()} total</span>
             <div style={{ flex:1 }}/>
             <div style={{ display:'flex',alignItems:'center',gap:6 }}>
               {Object.entries(STREAM).map(([k,v]) => (
                 <div key={k} style={{ display:'flex',alignItems:'center',gap:3 }}>
                   <div style={{ width:5,height:5,borderRadius:'50%',background:v.color }}/>
-                  <span style={{ fontSize:9,color:'rgba(255,255,255,.22)' }}>{v.label.split(' ')[0]}</span>
+                  <span style={{ fontSize:9,color:'rgba(255,255,255,.44)' }}>{v.label.split(' ')[0]}</span>
                 </div>
               ))}
             </div>

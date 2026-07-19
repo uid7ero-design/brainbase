@@ -12,6 +12,7 @@ export type Severity = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
 
 export interface MaintenanceJob {
   id: string;
+  ticket_number: string | null;
   suburb: string;
   address: string;
   bin_type: BinType;
@@ -234,7 +235,12 @@ export default function MaintenanceJobDrawer({ job, onClose, onStatusChange }: P
                 <div style={{ padding: '2px 8px', borderRadius: 20, background: st.bg, fontSize: 9, fontWeight: 700, color: st.color, letterSpacing: '.06em', textTransform: 'uppercase' }}>{st.label}</div>
                 <div style={{ padding: '2px 8px', borderRadius: 20, background: 'rgba(255,255,255,.06)', fontSize: 9, fontWeight: 600, color: 'rgba(255,255,255,.35)', textTransform: 'uppercase', letterSpacing: '.06em' }}>{BIN_LABELS[job.bin_type]}</div>
               </div>
-              <div style={{ fontSize: 14, fontWeight: 700, color: '#F5F7FA', lineHeight: 1.3 }}>{job.address}</div>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: '#F5F7FA', lineHeight: 1.3 }}>{job.address}</div>
+                {job.ticket_number && (
+                  <span style={{ fontSize: 10, fontWeight: 600, color: 'rgba(255,255,255,.32)', fontFamily: 'monospace' }}>#{job.ticket_number}</span>
+                )}
+              </div>
               <div style={{ fontSize: 11.5, color: 'rgba(255,255,255,.40)', marginTop: 2 }}>{job.suburb} &middot; {job.issue_type}</div>
             </div>
             <button onClick={onClose} style={{ width:28,height:28,borderRadius:7,background:'rgba(255,255,255,.06)',border:'1px solid rgba(255,255,255,.10)',display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'rgba(255,255,255,.45)',fontSize:16,fontFamily:FONT,flexShrink:0 }}>×</button>
@@ -270,6 +276,7 @@ export default function MaintenanceJobDrawer({ job, onClose, onStatusChange }: P
                 <div style={{ fontSize:9.5,fontWeight:700,letterSpacing:'.12em',color:'rgba(255,255,255,.22)',textTransform:'uppercase',marginBottom:10 }}>Job Details</div>
                 <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr',gap:8 }}>
                   {[
+                    { label:'Ticket #',       value: job.ticket_number || '—' },
                     { label:'Address',        value: job.address     },
                     { label:'Suburb',         value: job.suburb      },
                     { label:'Bin Type',       value: BIN_LABELS[job.bin_type] },

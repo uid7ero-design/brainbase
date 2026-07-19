@@ -23,6 +23,9 @@ export async function GET(req: NextRequest) {
 
   const where = {
     organisation_id: organisationId,
+    // Additional Cancel is schedule-dependent, not maintenance work — kept out of the
+    // main operational list/filters entirely; view it via Insights → Additional Cancel.
+    NOT: { issue_type: { contains: 'additional cancel', mode: Prisma.QueryMode.insensitive } },
     ...(status   ? { status:   status   as 'OPEN' | 'ASSIGNED' | 'SCHEDULED' | 'IN_PROGRESS' | 'ESCALATED' | 'COMPLETED' | 'CLOSED' } : {}),
     ...(severity ? { severity: severity as 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' } : {}),
     ...(suburb   ? { suburb: { contains: suburb, mode: Prisma.QueryMode.insensitive } } : {}),

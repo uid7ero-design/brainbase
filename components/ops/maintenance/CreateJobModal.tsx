@@ -74,7 +74,7 @@ export default function CreateJobModal({ onClose, onCreated }: Props) {
     } catch {
       // If API fails (no DB), create a local demo job
       const localJob: MaintenanceJob = {
-        id: `demo-${Date.now()}`, suburb, address, bin_type: binType,
+        id: `demo-${Date.now()}`, ticket_number: null, suburb, address, bin_type: binType,
         issue_type: resolvedIssue, severity, status: 'OPEN',
         assigned_to: assignedTo || null, scheduled_date: scheduledDate || null,
         completed_date: null, notes: notes || null,

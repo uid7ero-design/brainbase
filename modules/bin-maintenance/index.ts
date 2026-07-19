@@ -57,6 +57,7 @@ export async function importBinMaintenance(
     scheduled_date: r.scheduled_date,
     created_at:     now,
     assigned_to:    r.assigned_to,
+    completed_date: r.completed_date,
   }));
 
   const kpi = computeBinMaintenanceKpi(kpiInput);
