@@ -9,23 +9,21 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null)
   if (!body) return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
 
-  const { name, email, phone, status, address, age, program, session_times, next_action,
-          guardian_name, guardian_phone, session_id } = body
+  const { name, email, phone, status, address, age, program, session_times, next_action } = body
   if (!name?.trim()) return NextResponse.json({ error: 'Name is required.' }, { status: 400 })
 
   const rows = await sql`
     INSERT INTO contacts (
       organisation_id, name, email, phone, status, address, age,
-      program, session_times, next_action, guardian_name, guardian_phone, session_id
+      program, session_times, next_action
     ) VALUES (
       ${session.organisationId}, ${name.trim()},
       ${email || null}, ${phone || null}, ${status || 'lead'},
-      ${address || null}, ${age != null ? Number(age) : null},
-      ${program || null}, ${session_times || null}, ${next_action || null},
-      ${guardian_name || null}, ${guardian_phone || null}, ${session_id || null}
+      ${address || null}, ${age != null ? String(age) : null},
+      ${program || null}, ${session_times || null}, ${next_action || null}
     )
     RETURNING id, name, email, phone, status, address, age, program, session_times,
-              next_action, guardian_name, guardian_phone, session_id, last_contacted_at, created_at
+              next_action, last_contacted_at, created_at
   `
   return NextResponse.json({ contact: rows[0] }, { status: 201 })
 }

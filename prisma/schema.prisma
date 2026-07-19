@@ -692,14 +692,26 @@ model contacts {
   session_times     String?
   next_action       String?
   notes             String?
-  last_contacted_at DateTime?    @db.Timestamptz(6)
-  created_at        DateTime?    @default(now()) @db.Timestamptz(6)
-  updated_at        DateTime?    @default(now()) @db.Timestamptz(6)
-  organisations     Organisation @relation(fields: [organisation_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  last_contacted_at DateTime?        @db.Timestamptz(6)
+  created_at        DateTime?        @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime?        @default(now()) @db.Timestamptz(6)
+  organisations     Organisation     @relation(fields: [organisation_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  journal           contact_journal[]
 
   @@unique([organisation_id, email])
   @@index([organisation_id], map: "idx_contacts_org")
   @@index([organisation_id, status], map: "idx_contacts_status")
+}
+
+model contact_journal {
+  id              String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  contact_id      String
+  organisation_id String
+  note            String
+  created_at      DateTime @default(now()) @db.Timestamptz(6)
+  contact         contacts @relation(fields: [contact_id], references: [id], onDelete: Cascade)
+
+  @@index([contact_id, created_at(sort: Desc)], map: "idx_contact_journal_contact")
 }
 
 model tennis_leads {
