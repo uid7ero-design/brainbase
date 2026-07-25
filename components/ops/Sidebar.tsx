@@ -1,5 +1,6 @@
 'use client';
 import Link from 'next/link';
+import { useOpsTheme } from '@/components/ops/theme';
 
 const FONT = 'var(--font-inter),"Inter",-apple-system,sans-serif';
 
@@ -15,6 +16,7 @@ const I = {
   alerts:    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>,
   waste:     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>,
   fleet:     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="1" y="3" width="15" height="13" rx="1"/><path d="M16 8h4l3 3v5h-7z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>,
+  dumping:   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 011-1h6a1 1 0 011 1v2"/><path d="M6 6l1 14a1 1 0 001 1h8a1 1 0 001-1l1-14"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>,
   parks:     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M17 8C8 10 5.9 16.17 3.82 22"/><path d="M9.05 17.17C11 14.5 16 13 21 14"/></svg>,
   compliance:<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg>,
   assets:    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/></svg>,
@@ -24,6 +26,8 @@ const I = {
   users:     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>,
   settings:  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>,
   collapse:  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="15 18 9 12 15 6"/></svg>,
+  sun:       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>,
+  moon:      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>,
 };
 
 // ── Nav data ──────────────────────────────────────────────────────────────────
@@ -46,7 +50,7 @@ const SECTIONS = [
     items: [
       { icon: I.waste,     label: 'Waste',          href: '/dashboard/waste',            exact: false },
       { icon: I.binmaint, label: 'Bin Maintenance', href: '/dashboard/bin-maintenance', exact: false },
-      { icon: I.fleet,     label: 'Fleet',          href: '/dashboard/fleet',        exact: false },
+      { icon: I.dumping,   label: 'Illegal Dumping', href: '/dashboard/illegal-dumping', exact: false },
       { icon: I.parks,     label: 'Parks',          href: '/dashboard/parks',        exact: false },
       { icon: I.compliance,label: 'Compliance',     href: '/dashboard/compliance',   exact: false },
       { icon: I.assets,    label: 'Assets',         href: '/dashboard/facilities',   exact: false },
@@ -85,6 +89,7 @@ function NavItem({
   exact: boolean; pathname: string; collapsed: boolean;
   alertColor?: string;
 }) {
+  const t = useOpsTheme();
   const active = exact ? pathname === href : pathname.startsWith(href);
 
   return (
@@ -98,9 +103,9 @@ function NavItem({
         justifyContent: collapsed ? 'center' : 'flex-start',
         borderRadius: 8,
         textDecoration: 'none',
-        color: active ? '#C4B5FD' : 'rgba(255,255,255,.40)',
-        background: active ? 'rgba(139,92,246,.12)' : 'transparent',
-        borderLeft: `2px solid ${active ? '#8B5CF6' : 'transparent'}`,
+        color: active ? t.accentText : t.ink(.40),
+        background: active ? (t.isDark ? 'rgba(139,92,246,.12)' : 'rgba(124,58,237,.10)') : 'transparent',
+        borderLeft: `2px solid ${active ? t.accent : 'transparent'}`,
         marginLeft: collapsed ? 0 : -2,
         transition: 'all .15s ease',
         position: 'relative',
@@ -110,12 +115,12 @@ function NavItem({
       }}
       onMouseEnter={e => {
         if (active) return;
-        e.currentTarget.style.color = 'rgba(255,255,255,.72)';
-        e.currentTarget.style.background = 'rgba(255,255,255,.04)';
+        e.currentTarget.style.color = t.ink(.72);
+        e.currentTarget.style.background = t.ink(.04);
       }}
       onMouseLeave={e => {
         if (active) return;
-        e.currentTarget.style.color = 'rgba(255,255,255,.40)';
+        e.currentTarget.style.color = t.ink(.40);
         e.currentTarget.style.background = 'transparent';
       }}
     >
@@ -143,6 +148,8 @@ function NavItem({
 }
 
 export default function Sidebar({ collapsed, onToggle, pathname, alertCount = 0 }: SidebarProps) {
+  const t = useOpsTheme();
+
   return (
     <>
       <style dangerouslySetInnerHTML={{ __html: `
@@ -155,9 +162,9 @@ export default function Sidebar({ collapsed, onToggle, pathname, alertCount = 0 
         minWidth: collapsed ? 56 : 220,
         height: '100%',
         display: 'flex', flexDirection: 'column',
-        background: 'rgba(6,7,10,.97)',
-        borderRight: '1px solid rgba(255,255,255,.055)',
-        transition: 'width .22s cubic-bezier(.4,0,.2,1), min-width .22s cubic-bezier(.4,0,.2,1)',
+        background: t.sidebarBg,
+        borderRight: `1px solid ${t.ink(.08)}`,
+        transition: 'width .22s cubic-bezier(.4,0,.2,1), min-width .22s cubic-bezier(.4,0,.2,1), background .2s ease',
         overflow: 'hidden',
         flexShrink: 0,
         position: 'relative',
@@ -169,7 +176,7 @@ export default function Sidebar({ collapsed, onToggle, pathname, alertCount = 0 
         <div style={{
           height: 52, display: 'flex', alignItems: 'center',
           padding: collapsed ? '0 12px' : '0 14px',
-          borderBottom: '1px solid rgba(255,255,255,.05)',
+          borderBottom: `1px solid ${t.ink(.07)}`,
           justifyContent: collapsed ? 'center' : 'space-between',
           flexShrink: 0,
         }}>
@@ -178,9 +185,9 @@ export default function Sidebar({ collapsed, onToggle, pathname, alertCount = 0 
               {/* Tactical logo mark */}
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
                 <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"
-                  fill="rgba(139,92,246,.18)" stroke="#8B5CF6" strokeWidth="1.5" strokeLinejoin="round"/>
+                  fill="rgba(139,92,246,.18)" stroke={t.accent} strokeWidth="1.5" strokeLinejoin="round"/>
               </svg>
-              <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.18em', color: 'rgba(255,255,255,.75)', textTransform: 'uppercase' }}>
+              <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.18em', color: t.ink(.82), textTransform: 'uppercase' }}>
                 Brainbase
               </span>
             </Link>
@@ -189,7 +196,7 @@ export default function Sidebar({ collapsed, onToggle, pathname, alertCount = 0 
             <Link href="/dashboard" title="Back to dashboard" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none' }}>
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
                 <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"
-                  fill="rgba(139,92,246,.22)" stroke="#8B5CF6" strokeWidth="1.5" strokeLinejoin="round"/>
+                  fill="rgba(139,92,246,.22)" stroke={t.accent} strokeWidth="1.5" strokeLinejoin="round"/>
               </svg>
             </Link>
           )}
@@ -198,13 +205,13 @@ export default function Sidebar({ collapsed, onToggle, pathname, alertCount = 0 
           <button onClick={onToggle} style={{
             width: 26, height: 26, borderRadius: 7,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.07)',
-            cursor: 'pointer', color: 'rgba(255,255,255,.35)',
+            background: t.ink(.04), border: `1px solid ${t.ink(.09)}`,
+            cursor: 'pointer', color: t.ink(.40),
             transition: 'all .15s', flexShrink: 0,
             transform: collapsed ? 'rotate(180deg)' : 'none',
           }}
-            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,.08)'; e.currentTarget.style.color = 'rgba(255,255,255,.70)'; }}
-            onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,.04)'; e.currentTarget.style.color = 'rgba(255,255,255,.35)'; }}
+            onMouseEnter={e => { e.currentTarget.style.background = t.ink(.08); e.currentTarget.style.color = t.ink(.75); }}
+            onMouseLeave={e => { e.currentTarget.style.background = t.ink(.04); e.currentTarget.style.color = t.ink(.40); }}
           >
             {I.collapse}
           </button>
@@ -218,7 +225,7 @@ export default function Sidebar({ collapsed, onToggle, pathname, alertCount = 0 
               {!collapsed && (
                 <div style={{
                   fontSize: 9, fontWeight: 700, letterSpacing: '.16em',
-                  color: 'rgba(255,255,255,.18)', textTransform: 'uppercase',
+                  color: t.ink(.24), textTransform: 'uppercase',
                   padding: '0 12px', marginBottom: 4,
                   animation: 'sb-fade .2s ease',
                 }}>
@@ -226,7 +233,7 @@ export default function Sidebar({ collapsed, onToggle, pathname, alertCount = 0 
                 </div>
               )}
               {collapsed && si > 0 && (
-                <div style={{ height: 1, background: 'rgba(255,255,255,.06)', margin: '6px 0' }} />
+                <div style={{ height: 1, background: t.ink(.08), margin: '6px 0' }} />
               )}
 
               {section.items.map(item => (
@@ -245,17 +252,18 @@ export default function Sidebar({ collapsed, onToggle, pathname, alertCount = 0 
           ))}
         </nav>
 
-        {/* ── Footer status ── */}
+        {/* ── Footer status + theme toggle ── */}
         <div style={{
           padding: collapsed ? '10px 6px' : '10px 12px',
-          borderTop: '1px solid rgba(255,255,255,.05)',
+          borderTop: `1px solid ${t.ink(.07)}`,
           flexShrink: 0,
+          display: 'flex', flexDirection: collapsed ? 'column' : 'row', alignItems: 'center', gap: 6,
         }}>
           <div style={{
-            display: 'flex', alignItems: 'center',
+            display: 'flex', alignItems: 'center', flex: collapsed ? undefined : 1, minWidth: 0,
             gap: 8, padding: collapsed ? '6px 0' : '8px 10px',
-            borderRadius: 8, background: 'rgba(34,197,94,.06)',
-            border: '1px solid rgba(34,197,94,.12)',
+            borderRadius: 8, background: t.isDark ? 'rgba(34,197,94,.06)' : 'rgba(22,163,74,.08)',
+            border: `1px solid ${t.isDark ? 'rgba(34,197,94,.12)' : 'rgba(22,163,74,.20)'}`,
             justifyContent: collapsed ? 'center' : 'flex-start',
           }}>
             <div style={{
@@ -264,11 +272,26 @@ export default function Sidebar({ collapsed, onToggle, pathname, alertCount = 0 
               flexShrink: 0, animation: 'sb-blink 2.8s ease-in-out infinite',
             }} />
             {!collapsed && (
-              <span style={{ fontSize: 10, fontWeight: 600, color: 'rgba(34,197,94,.75)', letterSpacing: '.06em', animation: 'sb-fade .2s ease' }}>
+              <span style={{ fontSize: 10, fontWeight: 600, color: t.isDark ? 'rgba(34,197,94,.75)' : '#16A34A', letterSpacing: '.06em', animation: 'sb-fade .2s ease', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 Systems Live
               </span>
             )}
           </div>
+
+          <button
+            onClick={t.toggleTheme}
+            title={t.isDark ? 'Switch to light theme' : 'Switch to dark theme'}
+            style={{
+              width: 26, height: 26, borderRadius: 7, flexShrink: 0,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              background: t.ink(.04), border: `1px solid ${t.ink(.09)}`,
+              cursor: 'pointer', color: t.ink(.45), transition: 'all .15s',
+            }}
+            onMouseEnter={e => { e.currentTarget.style.background = t.ink(.08); e.currentTarget.style.color = t.ink(.80); }}
+            onMouseLeave={e => { e.currentTarget.style.background = t.ink(.04); e.currentTarget.style.color = t.ink(.45); }}
+          >
+            {t.isDark ? I.sun : I.moon}
+          </button>
         </div>
       </aside>
     </>

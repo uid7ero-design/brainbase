@@ -12,6 +12,7 @@ import WeatherWidget from "@/components/ops/widgets/WeatherWidget";
 import MapWidget from "@/components/ops/widgets/MapWidget";
 import DrilldownDrawer, { type DrawerAlert } from "@/components/ops/DrilldownDrawer";
 import FinancialTab from "./financial";
+import { useOpsTheme } from "@/components/ops/theme";
 
 const FONT = 'var(--font-inter), "Inter", -apple-system, sans-serif';
 const LAYOUT_KEY = "ops-workspace-layout-v1";
@@ -109,13 +110,14 @@ function Sparkline({ data, color }: { data: number[]; color: string }) {
 // ── LIVE TIMESTAMP ─────────────────────────────────────────────────────────────
 
 function LiveAgo({ baseSeconds = 0 }: { baseSeconds?: number }) {
+  const t = useOpsTheme();
   const [secs, setSecs] = useState(baseSeconds);
   useEffect(() => {
     const id = setInterval(() => setSecs(p => p + 1), 1000);
     return () => clearInterval(id);
   }, []);
   const txt = secs < 60 ? `${secs}s ago` : `${Math.floor(secs / 60)}m ago`;
-  return <span style={{ fontSize: 9.5, color: "rgba(255,255,255,.22)", fontVariantNumeric: "tabular-nums" }}>Updated {txt}</span>;
+  return <span style={{ fontSize: 9.5, color: t.ink(.22), fontVariantNumeric: "tabular-nums" }}>Updated {txt}</span>;
 }
 
 // ── HEARTBEAT ─────────────────────────────────────────────────────────────────
@@ -146,6 +148,7 @@ type PipelineItem = { id: string; type: string; title: string; description: stri
 type KpiEntry = { label: string; value: string | number; trend: "up" | "down"; trendLabel: string; trendBad: boolean };
 
 function KpiStrip() {
+  const t = useOpsTheme();
   const [kpis, setKpis] = useState<Record<string, Record<string, number>>>({});
   const [loading, setLoading] = useState(true);
 
@@ -195,11 +198,11 @@ function KpiStrip() {
 
   if (loading) {
     return (
-      <section style={{ height: "100%", display: "grid", gridTemplateColumns: "repeat(5,1fr)", borderRadius: 12, overflow: "hidden", border: "1px solid rgba(255,255,255,.07)", background: "rgba(7,8,11,.88)" }}>
+      <section style={{ height: "100%", display: "grid", gridTemplateColumns: "repeat(5,1fr)", borderRadius: 12, overflow: "hidden", border: `1px solid ${t.ink(.07)}`, background: t.paper(.88) }}>
         {Array.from({ length: 5 }).map((_, i) => (
           <div key={i} style={{ padding: "16px 18px", display: "flex", flexDirection: "column", gap: 8 }}>
-            <div style={{ height: 9, width: 60, borderRadius: 4, background: "rgba(255,255,255,.07)" }} />
-            <div style={{ height: 34, width: 80, borderRadius: 4, background: "rgba(255,255,255,.05)" }} />
+            <div style={{ height: 9, width: 60, borderRadius: 4, background: t.ink(.07) }} />
+            <div style={{ height: 34, width: 80, borderRadius: 4, background: t.ink(.05) }} />
           </div>
         ))}
       </section>
@@ -207,16 +210,16 @@ function KpiStrip() {
   }
 
   return (
-    <section style={{ height: "100%", display: "grid", gridTemplateColumns: "repeat(5,1fr)", borderRadius: 12, overflow: "hidden", border: "1px solid rgba(255,255,255,.07)", boxShadow: "inset 0 1px 0 rgba(255,255,255,.04), 0 0 30px rgba(0,0,0,.30)" }}>
+    <section style={{ height: "100%", display: "grid", gridTemplateColumns: "repeat(5,1fr)", borderRadius: 12, overflow: "hidden", border: `1px solid ${t.ink(.07)}`, boxShadow: `inset 0 1px 0 ${t.ink(.04)}, 0 0 30px rgba(0,0,0,.30)` }}>
       {KPI_DATA.map((kpi, i) => {
         const color = kpi.trendBad ? "#EF4444" : "#22C55E";
         return (
-          <div key={kpi.label} style={{ padding: "16px 18px", background: "rgba(7,8,11,.88)", backdropFilter: "blur(12px)", borderRight: i < KPI_DATA.length - 1 ? "1px solid rgba(255,255,255,.055)" : "none", position: "relative", overflow: "hidden" }}>
+          <div key={kpi.label} style={{ padding: "16px 18px", background: t.paper(.88), backdropFilter: "blur(12px)", borderRight: i < KPI_DATA.length - 1 ? `1px solid ${t.ink(.055)}` : "none", position: "relative", overflow: "hidden" }}>
             <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 1, background: `linear-gradient(90deg,transparent,${color}22,transparent)` }} />
-            <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: ".12em", color: "rgba(255,255,255,.24)", textTransform: "uppercase", marginBottom: 9 }}>{kpi.label}</div>
+            <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: ".12em", color: t.ink(.24), textTransform: "uppercase", marginBottom: 9 }}>{kpi.label}</div>
             <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 6 }}>
               <div>
-                <div style={{ fontSize: 34, fontWeight: 700, letterSpacing: "-.04em", color: "#F5F7FA", lineHeight: 1, marginBottom: 6 }}>{kpi.value}</div>
+                <div style={{ fontSize: 34, fontWeight: 700, letterSpacing: "-.04em", color: t.ink(.94), lineHeight: 1, marginBottom: 6 }}>{kpi.value}</div>
                 <div style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 10.5, fontWeight: 600, color }}>
                   <span>{kpi.trend === "up" ? "↑" : "↓"}</span>
                   <span>{kpi.trendLabel}</span>
@@ -234,6 +237,7 @@ function KpiStrip() {
 // ── PAGE ─────────────────────────────────────────────────────────────────────
 
 export default function CommandPage() {
+  const t = useOpsTheme();
   const router = useRouter();
   const containerRef = useRef<HTMLDivElement>(null);
   const [gridWidth, setGridWidth] = useState(900);
@@ -350,7 +354,7 @@ export default function CommandPage() {
   // ── WIDGET PANELS ────────────────────────────────────────────────────────
 
   const StatusRibbon = (
-    <section style={{ height: "100%", display: "grid", gridTemplateColumns: "repeat(6,1fr)", borderRadius: 10, overflow: "hidden", border: "1px solid rgba(255,255,255,.07)", boxShadow: "0 0 20px rgba(0,0,0,.20)" }}>
+    <section style={{ height: "100%", display: "grid", gridTemplateColumns: "repeat(6,1fr)", borderRadius: 10, overflow: "hidden", border: `1px solid ${t.ink(.07)}`, boxShadow: "0 0 20px rgba(0,0,0,.20)" }}>
       {SYS_STATUS.map((sys, i) => {
         const color = sys.status === "ok" ? "#22C55E" : sys.status === "warn" ? "#F59E0B" : "#EF4444";
         const isOpen = ribbonExpanded === sys.label;
@@ -359,15 +363,15 @@ export default function CommandPage() {
             onClick={() => setRibbonExpanded(isOpen ? null : sys.label)}
             style={{
               padding: "10px 14px",
-              background: isOpen ? `${color}0D` : "rgba(7,8,11,.85)",
+              background: isOpen ? `${color}0D` : t.paper(.85),
               backdropFilter: "blur(10px)",
-              borderRight: i < SYS_STATUS.length - 1 ? "1px solid rgba(255,255,255,.055)" : "none",
+              borderRight: i < SYS_STATUS.length - 1 ? `1px solid ${t.ink(.055)}` : "none",
               display: "flex", alignItems: "center", gap: 8,
               cursor: "pointer", transition: "all .18s", position: "relative",
               boxShadow: isOpen ? `inset 0 0 0 1px ${color}30` : "none",
             }}
-            onMouseEnter={e => { if (!isOpen) (e.currentTarget as HTMLDivElement).style.background = "rgba(255,255,255,.04)"; }}
-            onMouseLeave={e => { if (!isOpen) (e.currentTarget as HTMLDivElement).style.background = "rgba(7,8,11,.85)"; }}
+            onMouseEnter={e => { if (!isOpen) (e.currentTarget as HTMLDivElement).style.background = t.ink(.04); }}
+            onMouseLeave={e => { if (!isOpen) (e.currentTarget as HTMLDivElement).style.background = t.paper(.85); }}
           >
             {/* Status dot with pulse ring on critical */}
             <div style={{ position: "relative", flexShrink: 0 }}>
@@ -377,15 +381,15 @@ export default function CommandPage() {
               <div style={{ width: 7, height: 7, borderRadius: "50%", background: color, boxShadow: `0 0 7px ${color}`, animation: sys.status !== "ok" ? "ribbon-pulse 2.2s ease-in-out infinite" : "none" }} />
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: "rgba(255,255,255,.68)", lineHeight: 1.2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{sys.label}</div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: t.ink(.68), lineHeight: 1.2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{sys.label}</div>
               <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: ".06em", color, textTransform: "uppercase", marginTop: 1 }}>{sys.note}</div>
               {isOpen && (
-                <div style={{ fontSize: 9.5, color: "rgba(255,255,255,.45)", lineHeight: 1.5, marginTop: 4, whiteSpace: "normal", animation: "ribbon-expand .15s ease" }}>
+                <div style={{ fontSize: 9.5, color: t.ink(.45), lineHeight: 1.5, marginTop: 4, whiteSpace: "normal", animation: "ribbon-expand .15s ease" }}>
                   {sys.detail}
                 </div>
               )}
             </div>
-            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,.20)" strokeWidth="2.5" strokeLinecap="round" style={{ flexShrink: 0, transform: isOpen ? "rotate(180deg)" : "none", transition: "transform .18s" }}>
+            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke={t.ink(.20)} strokeWidth="2.5" strokeLinecap="round" style={{ flexShrink: 0, transform: isOpen ? "rotate(180deg)" : "none", transition: "transform .18s" }}>
               <polyline points="6 9 12 15 18 9" />
             </svg>
           </div>
@@ -397,11 +401,11 @@ export default function CommandPage() {
   const totalAlertCount = ALERTS.filter(a => a.status === "critical" || a.status === "warning").length + pipelineAlerts.length;
 
   const AlertsGrid = (
-    <div style={{ height: "100%", display: "flex", flexDirection: "column", borderRadius: 14, overflow: "hidden", background: "rgba(7,8,11,.72)", border: "1px solid rgba(255,255,255,.07)", backdropFilter: "blur(16px)" }}>
-      <div style={{ padding: "11px 16px", borderBottom: "1px solid rgba(255,255,255,.055)", background: "rgba(255,255,255,.015)", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+    <div style={{ height: "100%", display: "flex", flexDirection: "column", borderRadius: 14, overflow: "hidden", background: t.paper(.72), border: `1px solid ${t.ink(.07)}`, backdropFilter: "blur(16px)" }}>
+      <div style={{ padding: "11px 16px", borderBottom: `1px solid ${t.ink(.055)}`, background: t.ink(.015), flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
           <div style={{ width: 5.5, height: 5.5, borderRadius: "50%", background: "#EF4444", boxShadow: "0 0 6px #EF4444", animation: "kf-blink 2s ease-in-out infinite" }} />
-          <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: ".10em", color: "rgba(255,255,255,.40)", textTransform: "uppercase" }}>Active Alerts</span>
+          <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: ".10em", color: t.ink(.40), textTransform: "uppercase" }}>Active Alerts</span>
           {pipelineAlerts.length > 0 && (
             <span style={{ fontSize: 9, fontWeight: 700, padding: "1px 7px", borderRadius: 20, background: "rgba(99,102,241,.20)", border: "1px solid rgba(99,102,241,.35)", color: "#a5b4fc", letterSpacing: ".04em" }}>
               {pipelineAlerts.length} client request{pipelineAlerts.length !== 1 ? "s" : ""}
@@ -421,7 +425,7 @@ export default function CommandPage() {
                   padding: "14px", borderRadius: 11,
                   background: "rgba(99,102,241,.08)", border: "1px solid rgba(99,102,241,.22)",
                   backdropFilter: "blur(8px)", display: "flex", flexDirection: "column", gap: 8,
-                  transition: "all .18s", boxShadow: "inset 0 1px 0 rgba(255,255,255,.04)",
+                  transition: "all .18s", boxShadow: `inset 0 1px 0 ${t.ink(.04)}`,
                 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                     <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#a5b4fc", boxShadow: "0 0 6px #a5b4fc", animation: "kf-blink 2s ease-in-out infinite", flexShrink: 0 }} />
@@ -432,9 +436,9 @@ export default function CommandPage() {
                       <span style={{ fontSize: 9, color: "rgba(165,180,252,.55)", marginLeft: "auto" }}>{item.org_name}</span>
                     )}
                   </div>
-                  <div style={{ fontSize: 12.5, fontWeight: 600, color: "#F5F7FA", lineHeight: 1.35 }}>{item.title}</div>
+                  <div style={{ fontSize: 12.5, fontWeight: 600, color: t.ink(.94), lineHeight: 1.35 }}>{item.title}</div>
                   {item.description && (
-                    <div style={{ fontSize: 10.5, color: "rgba(230,237,243,.40)", lineHeight: 1.55 }}>{item.description}</div>
+                    <div style={{ fontSize: 10.5, color: t.ink(.40), lineHeight: 1.55 }}>{item.description}</div>
                   )}
                   <Link href="/admin/pipeline"
                     style={{
@@ -451,7 +455,7 @@ export default function CommandPage() {
                 </div>
               ))}
             </div>
-            <div style={{ height: 1, background: "rgba(255,255,255,.05)", marginBottom: 12 }} />
+            <div style={{ height: 1, background: t.ink(.05), marginBottom: 12 }} />
           </div>
         )}
         {/* Operational alerts */}
@@ -465,23 +469,23 @@ export default function CommandPage() {
                 backdropFilter: "blur(8px)",
                 display: "flex", flexDirection: "column", gap: 9,
                 transition: "all .18s",
-                boxShadow: "inset 0 1px 0 rgba(255,255,255,.04)",
+                boxShadow: `inset 0 1px 0 ${t.ink(.04)}`,
                 cursor: "pointer",
               }}
                 onClick={() => setDrawerAlert({ id: alert.id, title: alert.title, status: alert.status, metric: alert.metric, metricLabel: alert.metricLabel, description: alert.description })}
-                onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.transform = "translateY(-2px)"; (e.currentTarget as HTMLDivElement).style.boxShadow = `0 8px 28px ${"glow" in s ? s.glow : "transparent"}, inset 0 1px 0 rgba(255,255,255,.04)`; }}
-                onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.transform = ""; (e.currentTarget as HTMLDivElement).style.boxShadow = "inset 0 1px 0 rgba(255,255,255,.04)"; }}
+                onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.transform = "translateY(-2px)"; (e.currentTarget as HTMLDivElement).style.boxShadow = `0 8px 28px ${"glow" in s ? s.glow : "transparent"}, inset 0 1px 0 ${t.ink(.04)}`; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.transform = ""; (e.currentTarget as HTMLDivElement).style.boxShadow = `inset 0 1px 0 ${t.ink(.04)}`; }}
               >
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                   <div style={{ width: 6, height: 6, borderRadius: "50%", background: s.dot, boxShadow: `0 0 6px ${s.dot}`, flexShrink: 0 }} />
                   <span style={{ fontSize: 9.5, fontWeight: 700, color: s.text, letterSpacing: ".09em", textTransform: "uppercase" }}>{("label" in s) ? s.label : ""}</span>
                 </div>
-                <div style={{ fontSize: 12.5, fontWeight: 600, color: "#F5F7FA", lineHeight: 1.35 }}>{alert.title}</div>
+                <div style={{ fontSize: 12.5, fontWeight: 600, color: t.ink(.94), lineHeight: 1.35 }}>{alert.title}</div>
                 <div>
                   <div style={{ fontSize: 30, fontWeight: 700, letterSpacing: "-.04em", color: s.text, lineHeight: 1 }}>{alert.metric}</div>
-                  <div style={{ fontSize: 9.5, color: "rgba(255,255,255,.30)", marginTop: 2, letterSpacing: ".04em" }}>{alert.metricLabel}</div>
+                  <div style={{ fontSize: 9.5, color: t.ink(.30), marginTop: 2, letterSpacing: ".04em" }}>{alert.metricLabel}</div>
                 </div>
-                <div style={{ fontSize: 10.5, color: "rgba(230,237,243,.42)", lineHeight: 1.55 }}>{alert.description}</div>
+                <div style={{ fontSize: 10.5, color: t.ink(.42), lineHeight: 1.55 }}>{alert.description}</div>
                 <Link href={alert.href}
                   onClick={e => e.stopPropagation()}
                   style={{
@@ -503,9 +507,9 @@ export default function CommandPage() {
   );
 
   const ActionsHub = (
-    <div style={{ height: "100%", display: "flex", flexDirection: "column", borderRadius: 14, overflow: "hidden", background: "rgba(7,8,11,.72)", border: "1px solid rgba(255,255,255,.07)", backdropFilter: "blur(16px)" }}>
-      <div style={{ padding: "11px 16px", borderBottom: "1px solid rgba(255,255,255,.055)", background: "rgba(255,255,255,.015)", flexShrink: 0 }}>
-        <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: ".10em", color: "rgba(255,255,255,.38)", textTransform: "uppercase" }}>Operational Actions</span>
+    <div style={{ height: "100%", display: "flex", flexDirection: "column", borderRadius: 14, overflow: "hidden", background: t.paper(.72), border: `1px solid ${t.ink(.07)}`, backdropFilter: "blur(16px)" }}>
+      <div style={{ padding: "11px 16px", borderBottom: `1px solid ${t.ink(.055)}`, background: t.ink(.015), flexShrink: 0 }}>
+        <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: ".10em", color: t.ink(.38), textTransform: "uppercase" }}>Operational Actions</span>
       </div>
       <div style={{ flex: 1, overflowY: "auto", padding: "10px" }}>
         {([
@@ -523,17 +527,17 @@ export default function CommandPage() {
             </div>
           </Link>
         ))}
-        <div style={{ height: 1, background: "rgba(255,255,255,.05)", margin: "8px 2px" }} />
+        <div style={{ height: 1, background: t.ink(.05), margin: "8px 2px" }} />
         {([
           { label: "Monthly Report", action: () => alert("Coming soon."), icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> },
           { label: "Export Data",    action: () => alert("Coming soon."), icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> },
         ] as { label: string; action: () => void; icon: React.ReactNode }[]).map(btn => (
-          <button key={btn.label} onClick={btn.action} style={{ display: "flex", alignItems: "center", gap: 9, padding: "10px 12px", borderRadius: 8, width: "100%", background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.08)", cursor: "pointer", transition: "all .15s", fontFamily: FONT, marginBottom: 6 }}
-            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = "rgba(255,255,255,.07)"; (e.currentTarget as HTMLElement).style.transform = "translateX(2px)"; }}
-            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = "rgba(255,255,255,.04)"; (e.currentTarget as HTMLElement).style.transform = ""; }}>
-            <span style={{ color: "rgba(255,255,255,.38)", flexShrink: 0 }}>{btn.icon}</span>
-            <span style={{ fontSize: 11.5, fontWeight: 600, color: "rgba(230,237,243,.55)", flex: 1 }}>{btn.label}</span>
-            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,.20)" strokeWidth="2.5" strokeLinecap="round"><polyline points="9 18 15 12 9 6"/></svg>
+          <button key={btn.label} onClick={btn.action} style={{ display: "flex", alignItems: "center", gap: 9, padding: "10px 12px", borderRadius: 8, width: "100%", background: t.ink(.04), border: `1px solid ${t.ink(.08)}`, cursor: "pointer", transition: "all .15s", fontFamily: FONT, marginBottom: 6 }}
+            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = t.ink(.07); (e.currentTarget as HTMLElement).style.transform = "translateX(2px)"; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = t.ink(.04); (e.currentTarget as HTMLElement).style.transform = ""; }}>
+            <span style={{ color: t.ink(.38), flexShrink: 0 }}>{btn.icon}</span>
+            <span style={{ fontSize: 11.5, fontWeight: 600, color: t.ink(.55), flex: 1 }}>{btn.label}</span>
+            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke={t.ink(.20)} strokeWidth="2.5" strokeLinecap="round"><polyline points="9 18 15 12 9 6"/></svg>
           </button>
         ))}
       </div>
@@ -541,20 +545,20 @@ export default function CommandPage() {
   );
 
   const ChangesPanel = (
-    <div style={{ height: "100%", display: "flex", flexDirection: "column", borderRadius: 14, overflow: "hidden", background: "rgba(7,8,11,.72)", border: "1px solid rgba(255,255,255,.07)", backdropFilter: "blur(16px)" }}>
-      <div style={{ padding: "11px 16px", borderBottom: "1px solid rgba(255,255,255,.055)", background: "rgba(255,255,255,.015)", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: ".10em", color: "rgba(255,255,255,.38)", textTransform: "uppercase" }}>Last 24 Hours</span>
+    <div style={{ height: "100%", display: "flex", flexDirection: "column", borderRadius: 14, overflow: "hidden", background: t.paper(.72), border: `1px solid ${t.ink(.07)}`, backdropFilter: "blur(16px)" }}>
+      <div style={{ padding: "11px 16px", borderBottom: `1px solid ${t.ink(.055)}`, background: t.ink(.015), flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: ".10em", color: t.ink(.38), textTransform: "uppercase" }}>Last 24 Hours</span>
         <Heartbeat />
       </div>
       <div style={{ flex: 1, padding: "10px 14px" }}>
         {CHANGES.map((c, i) => {
           const bad = c.dir === "up"; const color = bad ? "#EF4444" : "#22C55E";
           return (
-            <div key={c.label} style={{ display: "flex", alignItems: "center", gap: 9, padding: "9px 2px", borderBottom: i < CHANGES.length - 1 ? "1px solid rgba(255,255,255,.04)" : "none" }}>
+            <div key={c.label} style={{ display: "flex", alignItems: "center", gap: 9, padding: "9px 2px", borderBottom: i < CHANGES.length - 1 ? `1px solid ${t.ink(.04)}` : "none" }}>
               <div style={{ width: 24, height: 24, borderRadius: 7, background: `${color}14`, border: `1px solid ${color}28`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontSize: 12, color }}>
                 {c.dir === "up" ? "↑" : "↓"}
               </div>
-              <span style={{ fontSize: 11.5, color: "rgba(230,237,243,.62)", flex: 1 }}>{c.label}</span>
+              <span style={{ fontSize: 11.5, color: t.ink(.62), flex: 1 }}>{c.label}</span>
               <span style={{ fontSize: 13, fontWeight: 700, color }}>{c.delta}</span>
             </div>
           );
@@ -564,14 +568,14 @@ export default function CommandPage() {
   );
 
   const AssistantPanel = (
-    <div style={{ height: "100%", display: "flex", flexDirection: "column", borderRadius: 14, overflow: "hidden", background: "rgba(7,8,11,.72)", border: "1px solid rgba(255,255,255,.07)", backdropFilter: "blur(16px)" }}>
-      <div style={{ padding: "11px 16px", borderBottom: "1px solid rgba(255,255,255,.055)", background: "rgba(139,92,246,.04)", flexShrink: 0, display: "flex", alignItems: "center", gap: 10 }}>
+    <div style={{ height: "100%", display: "flex", flexDirection: "column", borderRadius: 14, overflow: "hidden", background: t.paper(.72), border: `1px solid ${t.ink(.07)}`, backdropFilter: "blur(16px)" }}>
+      <div style={{ padding: "11px 16px", borderBottom: `1px solid ${t.ink(.055)}`, background: "rgba(139,92,246,.04)", flexShrink: 0, display: "flex", alignItems: "center", gap: 10 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1 }}>
           <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#22C55E", boxShadow: "0 0 5px #22C55E", animation: "kf-blink 2.4s ease-in-out infinite" }} />
-          <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: ".10em", color: "rgba(255,255,255,.48)", textTransform: "uppercase" }}>
+          <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: ".10em", color: t.ink(.48), textTransform: "uppercase" }}>
             HLN<span style={{ color: "#A78BFA" }}>Λ</span> Assistant
           </span>
-          <span style={{ fontSize: 9, color: "rgba(255,255,255,.18)", letterSpacing: ".06em", textTransform: "uppercase" }}>· Ask anything</span>
+          <span style={{ fontSize: 9, color: t.ink(.18), letterSpacing: ".06em", textTransform: "uppercase" }}>· Ask anything</span>
         </div>
         <div style={{ filter: orbState === "thinking" ? "drop-shadow(0 0 8px rgba(167,139,250,.7))" : "drop-shadow(0 0 4px rgba(139,92,246,.35))", transition: "filter .4s" }}>
           <HlnaOrb size={28} state={orbState === "alert" ? "idle" : orbState} speechRef={undefined} style={undefined} />
@@ -580,7 +584,7 @@ export default function CommandPage() {
       <div style={{ flex: 1, overflowY: "auto", padding: "12px 14px", display: "flex", flexDirection: "column", gap: 8 }}>
         {msgs.map((m, i) => (
           <div key={i} style={{ display: "flex", justifyContent: m.role === "user" ? "flex-end" : "flex-start", animation: "kf-fadein .2s ease" }}>
-            <div style={{ maxWidth: "85%", padding: "8px 12px", borderRadius: 9, fontSize: 12.5, lineHeight: 1.6, background: m.role === "user" ? "rgba(255,255,255,.06)" : "rgba(99,102,241,.15)", border: m.role === "user" ? "1px solid rgba(255,255,255,.08)" : "1px solid rgba(99,102,241,.24)", color: "rgba(255,255,255,.86)" }}>
+            <div style={{ maxWidth: "85%", padding: "8px 12px", borderRadius: 9, fontSize: 12.5, lineHeight: 1.6, background: m.role === "user" ? t.ink(.06) : "rgba(99,102,241,.15)", border: m.role === "user" ? `1px solid ${t.ink(.08)}` : "1px solid rgba(99,102,241,.24)", color: t.ink(.86) }}>
               {m.text}
             </div>
           </div>
@@ -596,23 +600,23 @@ export default function CommandPage() {
       </div>
       <div style={{ padding: "0 12px 8px", display: "flex", gap: 6, flexWrap: "wrap", flexShrink: 0 }}>
         {SUGGESTED.map(p => (
-          <button key={p} onClick={() => send(p)} style={{ padding: "4px 10px", borderRadius: 20, fontSize: 10.5, fontWeight: 500, background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.07)", color: "rgba(230,237,243,.48)", cursor: "pointer", transition: "all .15s", whiteSpace: "nowrap", fontFamily: FONT }}
+          <button key={p} onClick={() => send(p)} style={{ padding: "4px 10px", borderRadius: 20, fontSize: 10.5, fontWeight: 500, background: t.ink(.04), border: `1px solid ${t.ink(.07)}`, color: t.ink(.48), cursor: "pointer", transition: "all .15s", whiteSpace: "nowrap", fontFamily: FONT }}
             onMouseEnter={e => { e.currentTarget.style.background = "rgba(139,92,246,.14)"; e.currentTarget.style.color = "#C4B5FD"; e.currentTarget.style.borderColor = "rgba(139,92,246,.28)"; }}
-            onMouseLeave={e => { e.currentTarget.style.background = "rgba(255,255,255,.04)"; e.currentTarget.style.color = "rgba(230,237,243,.48)"; e.currentTarget.style.borderColor = "rgba(255,255,255,.07)"; }}>
+            onMouseLeave={e => { e.currentTarget.style.background = t.ink(.04); e.currentTarget.style.color = t.ink(.48); e.currentTarget.style.borderColor = t.ink(.07); }}>
             {p}
           </button>
         ))}
       </div>
-      <div style={{ padding: "8px 12px", borderTop: "1px solid rgba(255,255,255,.05)", display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
+      <div style={{ padding: "8px 12px", borderTop: `1px solid ${t.ink(.05)}`, display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
         <input value={input} onChange={e => setInput(e.target.value)}
           onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(input); } }}
           placeholder="Ask HLNΛ anything…"
-          style={{ flex: 1, background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.07)", borderRadius: 8, padding: "7px 11px", fontSize: 12.5, color: "#F5F7FA", outline: "none", fontFamily: FONT, transition: "border-color .15s" }}
+          style={{ flex: 1, background: t.ink(.04), border: `1px solid ${t.ink(.07)}`, borderRadius: 8, padding: "7px 11px", fontSize: 12.5, color: t.ink(.94), outline: "none", fontFamily: FONT, transition: "border-color .15s" }}
           onFocus={e => (e.currentTarget.style.borderColor = "rgba(139,92,246,.45)")}
-          onBlur={e => (e.currentTarget.style.borderColor = "rgba(255,255,255,.07)")}
+          onBlur={e => (e.currentTarget.style.borderColor = t.ink(.07))}
         />
-        <button onClick={() => send(input)} disabled={!input.trim() || busy} style={{ width: 34, height: 34, borderRadius: 8, flexShrink: 0, background: input.trim() ? "rgba(139,92,246,.28)" : "rgba(255,255,255,.04)", border: `1px solid ${input.trim() ? "rgba(139,92,246,.44)" : "rgba(255,255,255,.07)"}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: input.trim() ? "pointer" : "default", transition: "all .15s" }}>
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={input.trim() ? "#C4B5FD" : "rgba(255,255,255,.20)"} strokeWidth="2" strokeLinecap="round">
+        <button onClick={() => send(input)} disabled={!input.trim() || busy} style={{ width: 34, height: 34, borderRadius: 8, flexShrink: 0, background: input.trim() ? "rgba(139,92,246,.28)" : t.ink(.04), border: `1px solid ${input.trim() ? "rgba(139,92,246,.44)" : t.ink(.07)}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: input.trim() ? "pointer" : "default", transition: "all .15s" }}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={input.trim() ? "#C4B5FD" : t.ink(.20)} strokeWidth="2" strokeLinecap="round">
             <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
           </svg>
         </button>
@@ -635,7 +639,7 @@ export default function CommandPage() {
         .react-grid-item.react-grid-placeholder{background:rgba(139,92,246,.07);border:1px dashed rgba(139,92,246,.28);border-radius:12px;opacity:.8;transition-duration:100ms;z-index:2;backdrop-filter:blur(4px)}
         .react-grid-item>.react-resizable-handle{position:absolute;width:20px;height:20px;bottom:0;right:0;cursor:se-resize;opacity:0;transition:opacity .2s}
         .react-grid-item:hover>.react-resizable-handle{opacity:1}
-        .react-grid-item>.react-resizable-handle::after{content:"";position:absolute;right:4px;bottom:4px;width:6px;height:6px;border-right:1.5px solid rgba(255,255,255,.25);border-bottom:1.5px solid rgba(255,255,255,.25)}
+        .react-grid-item>.react-resizable-handle::after{content:"";position:absolute;right:4px;bottom:4px;width:6px;height:6px;border-right:1.5px solid ${t.ink(.25)};border-bottom:1.5px solid ${t.ink(.25)}}
         .edit-mode .react-grid-item:not(.react-grid-placeholder){outline:1px dashed rgba(139,92,246,.25);outline-offset:-1px;cursor:grab}
         /* Page keyframes */
         @keyframes kf-blink  { 0%,100%{opacity:1} 50%{opacity:.3} }
@@ -651,43 +655,43 @@ export default function CommandPage() {
       <div style={{
         height: 34, display: "flex", alignItems: "center", gap: 10,
         padding: "0 20px", flexShrink: 0,
-        borderBottom: "1px solid rgba(255,255,255,.04)",
-        background: "rgba(6,7,10,.50)",
+        borderBottom: `1px solid ${t.ink(.04)}`,
+        background: t.paper(.50),
         animation: "toolbar-in .2s ease",
       }}>
-        <Link href="/dashboard" style={{ display: "flex", alignItems: "center", gap: 4, textDecoration: "none", color: "rgba(255,255,255,.22)", fontSize: 10.5, transition: "color .14s" }}
-          onMouseEnter={e => (e.currentTarget.style.color = "rgba(255,255,255,.55)")}
-          onMouseLeave={e => (e.currentTarget.style.color = "rgba(255,255,255,.22)")}
+        <Link href="/dashboard" style={{ display: "flex", alignItems: "center", gap: 4, textDecoration: "none", color: t.ink(.22), fontSize: 10.5, transition: "color .14s" }}
+          onMouseEnter={e => (e.currentTarget.style.color = t.ink(.55))}
+          onMouseLeave={e => (e.currentTarget.style.color = t.ink(.22))}
         >
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><polyline points="15 18 9 12 15 6"/></svg>
           Dashboard
         </Link>
         <span style={{ opacity: .20, fontSize: 10 }}>/</span>
-        <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 10.5, color: "rgba(255,255,255,.20)", letterSpacing: ".03em" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 10.5, color: t.ink(.20), letterSpacing: ".03em" }}>
           <span>Command Centre</span><span style={{ opacity: .35 }}>/</span><span style={{ color: "rgba(167,139,250,.55)" }}>Operations</span>
         </div>
         <div style={{ flex: 1 }} />
-        <Link href="/command/organiser" style={{ display: "flex", alignItems: "center", gap: 4, textDecoration: "none", color: "rgba(255,255,255,.22)", fontSize: 10.5, transition: "color .14s" }}
+        <Link href="/command/organiser" style={{ display: "flex", alignItems: "center", gap: 4, textDecoration: "none", color: t.ink(.22), fontSize: 10.5, transition: "color .14s" }}
           onMouseEnter={e => (e.currentTarget.style.color = "rgba(167,139,250,.85)")}
-          onMouseLeave={e => (e.currentTarget.style.color = "rgba(255,255,255,.22)")}
+          onMouseLeave={e => (e.currentTarget.style.color = t.ink(.22))}
         >
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
           Organiser
         </Link>
-        <div style={{ width: 1, height: 12, background: "rgba(255,255,255,.07)" }} />
+        <div style={{ width: 1, height: 12, background: t.ink(.07) }} />
         <LiveAgo baseSeconds={3} />
-        <div style={{ width: 1, height: 12, background: "rgba(255,255,255,.07)" }} />
+        <div style={{ width: 1, height: 12, background: t.ink(.07) }} />
         {activeTab === "overview" && editMode && (
-          <button onClick={resetLayout} style={{ padding: "3px 9px", borderRadius: 5, fontSize: 10, fontWeight: 600, background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.10)", color: "rgba(255,255,255,.35)", cursor: "pointer", fontFamily: FONT, letterSpacing: ".04em" }}>
+          <button onClick={resetLayout} style={{ padding: "3px 9px", borderRadius: 5, fontSize: 10, fontWeight: 600, background: t.ink(.04), border: `1px solid ${t.ink(.10)}`, color: t.ink(.35), cursor: "pointer", fontFamily: FONT, letterSpacing: ".04em" }}>
             Reset layout
           </button>
         )}
         {activeTab === "overview" && (
           <button onClick={() => setEditMode(p => !p)} style={{
             padding: "3px 10px", borderRadius: 5, fontSize: 10, fontWeight: 600,
-            background: editMode ? "rgba(139,92,246,.20)" : "rgba(255,255,255,.04)",
-            border: `1px solid ${editMode ? "rgba(139,92,246,.38)" : "rgba(255,255,255,.10)"}`,
-            color: editMode ? "#C4B5FD" : "rgba(255,255,255,.35)",
+            background: editMode ? "rgba(139,92,246,.20)" : t.ink(.04),
+            border: `1px solid ${editMode ? "rgba(139,92,246,.38)" : t.ink(.10)}`,
+            color: editMode ? "#C4B5FD" : t.ink(.35),
             cursor: "pointer", fontFamily: FONT, letterSpacing: ".04em", transition: "all .15s",
           }}>
             {editMode ? "✓ Done" : "⊞ Edit workspace"}
@@ -699,8 +703,8 @@ export default function CommandPage() {
       <div style={{
         height: 40, display: "flex", alignItems: "center", gap: 0,
         padding: "0 16px", flexShrink: 0,
-        borderBottom: "1px solid rgba(255,255,255,.05)",
-        background: "rgba(6,7,10,.60)",
+        borderBottom: `1px solid ${t.ink(.05)}`,
+        background: t.paper(.60),
         overflowX: "auto",
       }}>
         {TABS.map(tab => (
@@ -712,13 +716,13 @@ export default function CommandPage() {
               background: activeTab === tab.id ? "rgba(139,92,246,.14)" : "transparent",
               border: "none",
               borderBottom: activeTab === tab.id ? "2px solid #A78BFA" : "2px solid transparent",
-              color: activeTab === tab.id ? "#C4B5FD" : "rgba(255,255,255,.35)",
+              color: activeTab === tab.id ? "#C4B5FD" : t.ink(.35),
               fontSize: 12, fontWeight: 600, cursor: "pointer",
               transition: "all .15s", whiteSpace: "nowrap",
               letterSpacing: ".02em", fontFamily: FONT,
             }}
-            onMouseEnter={e => { if (activeTab !== tab.id) e.currentTarget.style.color = "rgba(255,255,255,.60)"; }}
-            onMouseLeave={e => { if (activeTab !== tab.id) e.currentTarget.style.color = "rgba(255,255,255,.35)"; }}
+            onMouseEnter={e => { if (activeTab !== tab.id) e.currentTarget.style.color = t.ink(.60); }}
+            onMouseLeave={e => { if (activeTab !== tab.id) e.currentTarget.style.color = t.ink(.35); }}
           >
             {tab.label}
           </button>
@@ -792,6 +796,7 @@ function tabFetch(endpoint: string): Promise<Record<string, unknown>> {
 
 
 const WasteIntelligenceTab = React.memo(function WasteIntelligenceTab() {
+  const t = useOpsTheme();
   const [data, setData] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   useEffect(() => {
@@ -799,11 +804,11 @@ const WasteIntelligenceTab = React.memo(function WasteIntelligenceTab() {
     tabFetch("waste").then(d => { if (alive) { setData(d as typeof data); setLoading(false); } });
     return () => { alive = false; };
   }, []);
-  if (loading) return <div style={{ padding: 20, color: "rgba(255,255,255,.40)" }}>Loading waste intelligence...</div>;
+  if (loading) return <div style={{ padding: 20, color: t.ink(.40) }}>Loading waste intelligence...</div>;
   const dr = Math.round(data.diversionRate ?? 0);
   return (
     <div style={{ padding: "20px 22px", display: "flex", flexDirection: "column", gap: 20, flex: 1, overflowY: "auto" }}>
-      <h2 style={{ fontSize: 20, fontWeight: 700, color: "#F5F7FA", margin: 0 }}>Waste Intelligence</h2>
+      <h2 style={{ fontSize: 20, fontWeight: 700, color: t.ink(.94), margin: 0 }}>Waste Intelligence</h2>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))", gap: 12 }}>
         {([
           { label: "Total Waste",    val: Math.round(data.totalWaste    ?? 0), color: "#EF4444" },
@@ -811,10 +816,10 @@ const WasteIntelligenceTab = React.memo(function WasteIntelligenceTab() {
           { label: "Organics",       val: Math.round(data.totalOrganics  ?? 0), color: "#22C55E" },
           { label: "Diversion Rate", val: `${dr}%`,                             color: dr > 60 ? "#22C55E" : "#F59E0B" },
         ] as const).map(({ label, val, color }) => (
-          <div key={label} style={{ padding: 14, background: "rgba(255,255,255,.04)", border: `1px solid ${color}33`, borderRadius: 8 }}>
-            <div style={{ fontSize: 10, color: "rgba(255,255,255,.40)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 6 }}>{label}</div>
+          <div key={label} style={{ padding: 14, background: t.ink(.04), border: `1px solid ${color}33`, borderRadius: 8 }}>
+            <div style={{ fontSize: 10, color: t.ink(.40), textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 6 }}>{label}</div>
             <div style={{ fontSize: 24, fontWeight: 700, color }}>{val}</div>
-            {label !== "Diversion Rate" && <div style={{ fontSize: 9, color: "rgba(255,255,255,.30)" }}>tonnes</div>}
+            {label !== "Diversion Rate" && <div style={{ fontSize: 9, color: t.ink(.30) }}>tonnes</div>}
           </div>
         ))}
       </div>
@@ -825,6 +830,7 @@ const WasteIntelligenceTab = React.memo(function WasteIntelligenceTab() {
 type Debtor = { account: string; amount: number; daysOverdue: number; status: string };
 
 const DebtorsTab = React.memo(function DebtorsTab() {
+  const t = useOpsTheme();
   const [data, setData] = useState<{ totalOutstanding?: number; count?: number; avgDaysOverdue?: number; recoveryRate?: number; topDebtors?: Debtor[] }>({});
   const [loading, setLoading] = useState(true);
   useEffect(() => {
@@ -832,11 +838,11 @@ const DebtorsTab = React.memo(function DebtorsTab() {
     tabFetch("debtors").then(d => { if (alive) { setData(d as typeof data); setLoading(false); } });
     return () => { alive = false; };
   }, []);
-  if (loading) return <div style={{ padding: 20, color: "rgba(255,255,255,.40)" }}>Loading debtors...</div>;
+  if (loading) return <div style={{ padding: 20, color: t.ink(.40) }}>Loading debtors...</div>;
   const rr = Math.round(data.recoveryRate ?? 0);
   return (
     <div style={{ padding: "20px 22px", display: "flex", flexDirection: "column", gap: 20, flex: 1, overflowY: "auto" }}>
-      <h2 style={{ fontSize: 20, fontWeight: 700, color: "#F5F7FA", margin: 0 }}>Debtors Management</h2>
+      <h2 style={{ fontSize: 20, fontWeight: 700, color: t.ink(.94), margin: 0 }}>Debtors Management</h2>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))", gap: 12 }}>
         {([
           { label: "Total Outstanding", val: `$${Number(data.totalOutstanding ?? 0).toLocaleString()}`, color: "#EF4444" },
@@ -844,26 +850,26 @@ const DebtorsTab = React.memo(function DebtorsTab() {
           { label: "Avg Days Overdue",   val: String(Math.round(data.avgDaysOverdue ?? 0)),               color: "#EF4444" },
           { label: "Recovery Rate",      val: `${rr}%`,                                                   color: rr > 50 ? "#22C55E" : "#EF4444" },
         ] as const).map(({ label, val, color }) => (
-          <div key={label} style={{ padding: 14, background: "rgba(255,255,255,.04)", border: `1px solid ${color}33`, borderRadius: 8 }}>
-            <div style={{ fontSize: 10, color: "rgba(255,255,255,.40)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 6 }}>{label}</div>
+          <div key={label} style={{ padding: 14, background: t.ink(.04), border: `1px solid ${color}33`, borderRadius: 8 }}>
+            <div style={{ fontSize: 10, color: t.ink(.40), textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 6 }}>{label}</div>
             <div style={{ fontSize: 24, fontWeight: 700, color }}>{val}</div>
           </div>
         ))}
       </div>
       {(data.topDebtors?.length ?? 0) > 0 && (
-        <div style={{ background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.08)", borderRadius: 12, padding: 16, overflowX: "auto" }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,.40)", textTransform: "uppercase", letterSpacing: ".08em", marginBottom: 12 }}>Top Debtors</div>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, color: "rgba(255,255,255,.70)" }}>
+        <div style={{ background: t.ink(.04), border: `1px solid ${t.ink(.08)}`, borderRadius: 12, padding: 16, overflowX: "auto" }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: t.ink(.40), textTransform: "uppercase", letterSpacing: ".08em", marginBottom: 12 }}>Top Debtors</div>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, color: t.ink(.70) }}>
             <thead>
-              <tr style={{ borderBottom: "1px solid rgba(255,255,255,.08)" }}>
+              <tr style={{ borderBottom: `1px solid ${t.ink(.08)}` }}>
                 {["Account", "Amount", "Days Overdue", "Status"].map(h => (
-                  <th key={h} style={{ padding: "8px 12px", textAlign: h === "Account" || h === "Status" ? "left" : "right", fontWeight: 600, color: "rgba(255,255,255,.40)" }}>{h}</th>
+                  <th key={h} style={{ padding: "8px 12px", textAlign: h === "Account" || h === "Status" ? "left" : "right", fontWeight: 600, color: t.ink(.40) }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {data.topDebtors!.map((d, i) => (
-                <tr key={i} style={{ borderBottom: "1px solid rgba(255,255,255,.04)" }}>
+                <tr key={i} style={{ borderBottom: `1px solid ${t.ink(.04)}` }}>
                   <td style={{ padding: "8px 12px" }}>{d.account}</td>
                   <td style={{ padding: "8px 12px", textAlign: "right" }}>${d.amount.toLocaleString()}</td>
                   <td style={{ padding: "8px 12px", textAlign: "right" }}>{d.daysOverdue}</td>
@@ -881,6 +887,7 @@ const DebtorsTab = React.memo(function DebtorsTab() {
 });
 
 const KerbsideTab = React.memo(function KerbsideTab() {
+  const t = useOpsTheme();
   const [data, setData] = useState<{ totalScheduled?: number; missedCount?: number; completionRate?: number; slaCompliance?: number }>({});
   const [loading, setLoading] = useState(true);
   useEffect(() => {
@@ -888,12 +895,12 @@ const KerbsideTab = React.memo(function KerbsideTab() {
     tabFetch("missed-collections").then(d => { if (alive) { setData(d as typeof data); setLoading(false); } });
     return () => { alive = false; };
   }, []);
-  if (loading) return <div style={{ padding: 20, color: "rgba(255,255,255,.40)" }}>Loading kerbside operations...</div>;
+  if (loading) return <div style={{ padding: 20, color: t.ink(.40) }}>Loading kerbside operations...</div>;
   const cr = Math.round(data.completionRate ?? 0);
   const sl = Math.round(data.slaCompliance ?? 0);
   return (
     <div style={{ padding: "20px 22px", display: "flex", flexDirection: "column", gap: 20, flex: 1, overflowY: "auto" }}>
-      <h2 style={{ fontSize: 20, fontWeight: 700, color: "#F5F7FA", margin: 0 }}>Kerbside Operations</h2>
+      <h2 style={{ fontSize: 20, fontWeight: 700, color: t.ink(.94), margin: 0 }}>Kerbside Operations</h2>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))", gap: 12 }}>
         {([
           { label: "Total Scheduled",    val: String(data.totalScheduled ?? 0), color: "#5B9CF6" },
@@ -901,8 +908,8 @@ const KerbsideTab = React.memo(function KerbsideTab() {
           { label: "Completion Rate",    val: `${cr}%`,                         color: cr > 95 ? "#22C55E" : "#F59E0B" },
           { label: "SLA Compliance",     val: `${sl}%`,                         color: sl > 90 ? "#22C55E" : "#EF4444" },
         ] as const).map(({ label, val, color }) => (
-          <div key={label} style={{ padding: 14, background: "rgba(255,255,255,.04)", border: `1px solid ${color}33`, borderRadius: 8 }}>
-            <div style={{ fontSize: 10, color: "rgba(255,255,255,.40)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 6 }}>{label}</div>
+          <div key={label} style={{ padding: 14, background: t.ink(.04), border: `1px solid ${color}33`, borderRadius: 8 }}>
+            <div style={{ fontSize: 10, color: t.ink(.40), textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 6 }}>{label}</div>
             <div style={{ fontSize: 24, fontWeight: 700, color }}>{val}</div>
           </div>
         ))}
@@ -915,6 +922,7 @@ const KerbsideTab = React.memo(function KerbsideTab() {
 // â”â”â” ADDITIONAL TABS â”â”â”
 
 const IllegalDumpingTab = React.memo(function IllegalDumpingTab() {
+  const t = useOpsTheme();
   const [data, setData] = useState<{
     totalIncidents?: number; recoveryRate?: number;
     topSuburbs?: { suburb: string; count: number }[];
@@ -926,39 +934,39 @@ const IllegalDumpingTab = React.memo(function IllegalDumpingTab() {
     tabFetch("illegal-dumping").then(d => { if (alive) { setData(d as typeof data); setLoading(false); } });
     return () => { alive = false; };
   }, []);
-  if (loading) return <div style={{ padding: 20, color: "rgba(255,255,255,.40)" }}>Loading illegal dumping data...</div>;
+  if (loading) return <div style={{ padding: 20, color: t.ink(.40) }}>Loading illegal dumping data...</div>;
   const rr = Math.round(data.recoveryRate ?? 0);
   const sb = data.severityBreakdown;
   return (
     <div style={{ padding: "20px 22px", display: "flex", flexDirection: "column", gap: 20, flex: 1, overflowY: "auto" }}>
-      <h2 style={{ fontSize: 20, fontWeight: 700, color: "#F5F7FA", margin: 0 }}>Illegal Dumping</h2>
+      <h2 style={{ fontSize: 20, fontWeight: 700, color: t.ink(.94), margin: 0 }}>Illegal Dumping</h2>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))", gap: 12 }}>
-        <div style={{ padding: 14, background: "rgba(255,255,255,.04)", border: "1px solid rgba(239,68,68,.2)", borderRadius: 8 }}>
-          <div style={{ fontSize: 10, color: "rgba(255,255,255,.40)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 6 }}>Total Incidents</div>
+        <div style={{ padding: 14, background: t.ink(.04), border: "1px solid rgba(239,68,68,.2)", borderRadius: 8 }}>
+          <div style={{ fontSize: 10, color: t.ink(.40), textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 6 }}>Total Incidents</div>
           <div style={{ fontSize: 24, fontWeight: 700, color: "#EF4444" }}>{data.totalIncidents ?? 0}</div>
         </div>
-        <div style={{ padding: 14, background: "rgba(255,255,255,.04)", border: rr > 50 ? "1px solid rgba(34,197,94,.2)" : "1px solid rgba(239,68,68,.2)", borderRadius: 8 }}>
-          <div style={{ fontSize: 10, color: "rgba(255,255,255,.40)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 6 }}>Recovery Rate</div>
+        <div style={{ padding: 14, background: t.ink(.04), border: rr > 50 ? "1px solid rgba(34,197,94,.2)" : "1px solid rgba(239,68,68,.2)", borderRadius: 8 }}>
+          <div style={{ fontSize: 10, color: t.ink(.40), textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 6 }}>Recovery Rate</div>
           <div style={{ fontSize: 24, fontWeight: 700, color: rr > 50 ? "#22C55E" : "#EF4444" }}>{rr}%</div>
         </div>
       </div>
       {(data.topSuburbs?.length ?? 0) > 0 && (
-        <div style={{ background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.08)", borderRadius: 12, padding: 16 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,.40)", textTransform: "uppercase", letterSpacing: ".08em", marginBottom: 12 }}>Top Suburbs</div>
+        <div style={{ background: t.ink(.04), border: `1px solid ${t.ink(.08)}`, borderRadius: 12, padding: 16 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: t.ink(.40), textTransform: "uppercase", letterSpacing: ".08em", marginBottom: 12 }}>Top Suburbs</div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))", gap: 12 }}>
             {data.topSuburbs!.map((s, i) => (
-              <div key={i} style={{ padding: 12, background: "rgba(255,255,255,.02)", border: "1px solid rgba(255,255,255,.05)", borderRadius: 8 }}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: "#F5F7FA", marginBottom: 4 }}>{s.suburb}</div>
+              <div key={i} style={{ padding: 12, background: t.ink(.02), border: `1px solid ${t.ink(.05)}`, borderRadius: 8 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: t.ink(.94), marginBottom: 4 }}>{s.suburb}</div>
                 <div style={{ fontSize: 18, fontWeight: 700, color: "#EF4444" }}>{s.count}</div>
-                <div style={{ fontSize: 9, color: "rgba(255,255,255,.30)" }}>incidents</div>
+                <div style={{ fontSize: 9, color: t.ink(.30) }}>incidents</div>
               </div>
             ))}
           </div>
         </div>
       )}
       {sb && (
-        <div style={{ background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.08)", borderRadius: 12, padding: 16 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,.40)", textTransform: "uppercase", letterSpacing: ".08em", marginBottom: 12 }}>Severity Breakdown</div>
+        <div style={{ background: t.ink(.04), border: `1px solid ${t.ink(.08)}`, borderRadius: 12, padding: 16 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: t.ink(.40), textTransform: "uppercase", letterSpacing: ".08em", marginBottom: 12 }}>Severity Breakdown</div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))", gap: 12 }}>
             {([
               { label: "CRITICAL", val: sb.CRITICAL, bg: "rgba(239,68,68,.10)",  border: "rgba(239,68,68,.2)",  color: "#EF4444" },
@@ -979,6 +987,7 @@ const IllegalDumpingTab = React.memo(function IllegalDumpingTab() {
 });
 
 const CRMTab = React.memo(function CRMTab() {
+  const t = useOpsTheme();
   type CRMRequest = { requestId?: string; category?: string; status?: string; daysRequestOpen?: number; deadlinePassed?: boolean };
   const [requests, setRequests] = useState<CRMRequest[]>([]);
   const [loading, setLoading] = useState(true);
@@ -991,13 +1000,13 @@ const CRMTab = React.memo(function CRMTab() {
     if (alive) setLoading(false);
     return () => { alive = false; };
   }, []);
-  if (loading) return <div style={{ padding: 20, color: "rgba(255,255,255,.40)" }}>Loading CRM requests...</div>;
+  if (loading) return <div style={{ padding: 20, color: t.ink(.40) }}>Loading CRM requests...</div>;
   const openCount    = requests.filter(r => r.status === "Active").length;
   const overdueCount = requests.filter(r => r.deadlinePassed).length;
   const avgDaysOpen  = requests.length > 0 ? Math.round(requests.reduce((s, r) => s + (r.daysRequestOpen ?? 0), 0) / requests.length) : 0;
   return (
     <div style={{ padding: "20px 22px", display: "flex", flexDirection: "column", gap: 20, flex: 1, overflowY: "auto" }}>
-      <h2 style={{ fontSize: 20, fontWeight: 700, color: "#F5F7FA", margin: 0 }}>CRM / Requests</h2>
+      <h2 style={{ fontSize: 20, fontWeight: 700, color: t.ink(.94), margin: 0 }}>CRM / Requests</h2>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))", gap: 12 }}>
         {([
           { label: "Total Requests", val: String(requests.length), color: "#5B9CF6" },
@@ -1005,26 +1014,26 @@ const CRMTab = React.memo(function CRMTab() {
           { label: "Overdue",        val: String(overdueCount),     color: overdueCount > 0 ? "#EF4444" : "#22C55E" },
           { label: "Avg Days Open",  val: String(avgDaysOpen),      color: "#F59E0B" },
         ] as const).map(({ label, val, color }) => (
-          <div key={label} style={{ padding: 14, background: "rgba(255,255,255,.04)", border: `1px solid ${color}33`, borderRadius: 8 }}>
-            <div style={{ fontSize: 10, color: "rgba(255,255,255,.40)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 6 }}>{label}</div>
+          <div key={label} style={{ padding: 14, background: t.ink(.04), border: `1px solid ${color}33`, borderRadius: 8 }}>
+            <div style={{ fontSize: 10, color: t.ink(.40), textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 6 }}>{label}</div>
             <div style={{ fontSize: 24, fontWeight: 700, color }}>{val}</div>
           </div>
         ))}
       </div>
       {requests.length > 0 && (
-        <div style={{ background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.08)", borderRadius: 12, padding: 16, overflowX: "auto" }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,.40)", textTransform: "uppercase", letterSpacing: ".08em", marginBottom: 12 }}>Recent Requests</div>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, color: "rgba(255,255,255,.70)" }}>
+        <div style={{ background: t.ink(.04), border: `1px solid ${t.ink(.08)}`, borderRadius: 12, padding: 16, overflowX: "auto" }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: t.ink(.40), textTransform: "uppercase", letterSpacing: ".08em", marginBottom: 12 }}>Recent Requests</div>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, color: t.ink(.70) }}>
             <thead>
-              <tr style={{ borderBottom: "1px solid rgba(255,255,255,.08)" }}>
+              <tr style={{ borderBottom: `1px solid ${t.ink(.08)}` }}>
                 {["ID", "Category", "Status", "Days Open"].map((h, i) => (
-                  <th key={h} style={{ padding: "8px 12px", textAlign: i === 3 ? "right" : "left", fontWeight: 600, color: "rgba(255,255,255,.40)" }}>{h}</th>
+                  <th key={h} style={{ padding: "8px 12px", textAlign: i === 3 ? "right" : "left", fontWeight: 600, color: t.ink(.40) }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {requests.slice(0, 10).map((r, i) => (
-                <tr key={i} style={{ borderBottom: "1px solid rgba(255,255,255,.04)" }}>
+                <tr key={i} style={{ borderBottom: `1px solid ${t.ink(.04)}` }}>
                   <td style={{ padding: "8px 12px" }}>{r.requestId?.slice(0, 8)}</td>
                   <td style={{ padding: "8px 12px" }}>{r.category}</td>
                   <td style={{ padding: "8px 12px" }}>
@@ -1044,6 +1053,7 @@ const CRMTab = React.memo(function CRMTab() {
 type SportActivity = { name: string; participants: number; spectators: number; visitors: number };
 
 const SportingClubsTab = React.memo(function SportingClubsTab() {
+  const t = useOpsTheme();
   const [data, setData] = useState<{ totalActivities?: number; totalParticipants?: number; totalSpectators?: number; totalVisitors?: number; byActivity?: SportActivity[] }>({});
   const [loading, setLoading] = useState(true);
   useEffect(() => {
@@ -1051,10 +1061,10 @@ const SportingClubsTab = React.memo(function SportingClubsTab() {
     tabFetch("sports").then(d => { if (alive) { setData(d as typeof data); setLoading(false); } });
     return () => { alive = false; };
   }, []);
-  if (loading) return <div style={{ padding: 20, color: "rgba(255,255,255,.40)" }}>Loading sporting clubs data...</div>;
+  if (loading) return <div style={{ padding: 20, color: t.ink(.40) }}>Loading sporting clubs data...</div>;
   return (
     <div style={{ padding: "20px 22px", display: "flex", flexDirection: "column", gap: 20, flex: 1, overflowY: "auto" }}>
-      <h2 style={{ fontSize: 20, fontWeight: 700, color: "#F5F7FA", margin: 0 }}>Sporting Clubs</h2>
+      <h2 style={{ fontSize: 20, fontWeight: 700, color: t.ink(.94), margin: 0 }}>Sporting Clubs</h2>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))", gap: 12 }}>
         {([
           { label: "Total Activities",   val: String(data.totalActivities ?? 0),             color: "#22C55E" },
@@ -1062,26 +1072,26 @@ const SportingClubsTab = React.memo(function SportingClubsTab() {
           { label: "Spectators/Week",    val: (data.totalSpectators ?? 0).toLocaleString(),   color: "#F59E0B" },
           { label: "Total Visitors",     val: (data.totalVisitors ?? 0).toLocaleString(),     color: "#A78BFA" },
         ] as const).map(({ label, val, color }) => (
-          <div key={label} style={{ padding: 14, background: "rgba(255,255,255,.04)", border: `1px solid ${color}33`, borderRadius: 8 }}>
-            <div style={{ fontSize: 10, color: "rgba(255,255,255,.40)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 6 }}>{label}</div>
+          <div key={label} style={{ padding: 14, background: t.ink(.04), border: `1px solid ${color}33`, borderRadius: 8 }}>
+            <div style={{ fontSize: 10, color: t.ink(.40), textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 6 }}>{label}</div>
             <div style={{ fontSize: 24, fontWeight: 700, color }}>{val}</div>
           </div>
         ))}
       </div>
       {(data.byActivity?.length ?? 0) > 0 && (
-        <div style={{ background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.08)", borderRadius: 12, padding: 16, overflowX: "auto" }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,.40)", textTransform: "uppercase", letterSpacing: ".08em", marginBottom: 12 }}>Sports Breakdown</div>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, color: "rgba(255,255,255,.70)" }}>
+        <div style={{ background: t.ink(.04), border: `1px solid ${t.ink(.08)}`, borderRadius: 12, padding: 16, overflowX: "auto" }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: t.ink(.40), textTransform: "uppercase", letterSpacing: ".08em", marginBottom: 12 }}>Sports Breakdown</div>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, color: t.ink(.70) }}>
             <thead>
-              <tr style={{ borderBottom: "1px solid rgba(255,255,255,.08)" }}>
+              <tr style={{ borderBottom: `1px solid ${t.ink(.08)}` }}>
                 {["Sport", "Participants", "Spectators/Week", "Visitors/Week"].map((h, i) => (
-                  <th key={h} style={{ padding: "8px 12px", textAlign: i === 0 ? "left" : "right", fontWeight: 600, color: "rgba(255,255,255,.40)" }}>{h}</th>
+                  <th key={h} style={{ padding: "8px 12px", textAlign: i === 0 ? "left" : "right", fontWeight: 600, color: t.ink(.40) }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {data.byActivity!.map((a, i) => (
-                <tr key={i} style={{ borderBottom: "1px solid rgba(255,255,255,.04)" }}>
+                <tr key={i} style={{ borderBottom: `1px solid ${t.ink(.04)}` }}>
                   <td style={{ padding: "8px 12px" }}>{a.name}</td>
                   <td style={{ padding: "8px 12px", textAlign: "right" }}>{a.participants.toLocaleString()}</td>
                   <td style={{ padding: "8px 12px", textAlign: "right" }}>{a.spectators.toLocaleString()}</td>

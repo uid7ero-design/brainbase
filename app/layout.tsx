@@ -4,6 +4,7 @@ import "./globals.css";
 import TopNav from "@/components/nav/TopNav";
 import SessionProvider from "@/components/session/SessionProvider";
 import OrgSwitcher from "@/components/admin/OrgSwitcher";
+import { ThemeProvider } from "@/components/theme/ThemeProvider";
 import { getSession } from "@/lib/session";
 import sql from "@/lib/db";
 
@@ -50,9 +51,15 @@ export default async function RootLayout({
   return (
     <html
       lang="en"
+      data-theme="dark"
       className={`${geistSans.variable} ${geistMono.variable} ${inter.variable} h-full antialiased`}
     >
       <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `try{var t=localStorage.getItem("bb-theme");if(t==="light")document.documentElement.setAttribute("data-theme","light");}catch(e){}`,
+          }}
+        />
         <script
           dangerouslySetInnerHTML={{
             __html: `(function(c,l,a,r,i,t,y){c[a]=c[a]||function(){(c[a].q=c[a].q||[]).push(arguments)};t=l.createElement(r);t.async=1;t.src="https://www.clarity.ms/tag/"+i;y=l.getElementsByTagName(r)[0];y.parentNode.insertBefore(t,y);})(window,document,"clarity","script","wvg7lqjkde");`,
@@ -60,15 +67,17 @@ export default async function RootLayout({
         />
       </head>
       <body className="min-h-full flex flex-col">
-        <SessionProvider
-          hasSession={!!session}
-          name={session?.name ?? ''}
-          secureModeDefault={secureMode}
-        >
-          <OrgSwitcher />
-          <TopNav serverSession={serverSession} />
-          {children}
-        </SessionProvider>
+        <ThemeProvider>
+          <SessionProvider
+            hasSession={!!session}
+            name={session?.name ?? ''}
+            secureModeDefault={secureMode}
+          >
+            <OrgSwitcher />
+            <TopNav serverSession={serverSession} />
+            {children}
+          </SessionProvider>
+        </ThemeProvider>
       </body>
     </html>
   );

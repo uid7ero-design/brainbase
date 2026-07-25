@@ -4,6 +4,7 @@ import { usePathname } from 'next/navigation';
 import Sidebar from './Sidebar';
 import OpBar from './OpBar';
 import IntelRail from './IntelRail';
+import { useOpsTheme } from './theme';
 
 interface WorkspaceShellProps {
   children: React.ReactNode;
@@ -23,6 +24,7 @@ export default function WorkspaceShell({
   intelRail = false,
 }: WorkspaceShellProps) {
   const pathname = usePathname();
+  const t = useOpsTheme();
   const [collapsed, setCollapsed]   = useState(false);
   const [session, setSession]       = useState<Session>(null);
   const [mounted, setMounted]       = useState(false);
@@ -55,9 +57,11 @@ export default function WorkspaceShell({
   }, []);
 
   if (!mounted) {
-    // SSR / hydration placeholder — avoid layout shift
+    // SSR / hydration placeholder — avoid layout shift. Reads --bg-base directly
+    // (set synchronously by the blocking theme script in <head>) since the
+    // theme context itself isn't meaningful until this component mounts.
     return (
-      <div style={{ position: 'fixed', inset: 0, background: '#07080B' }} />
+      <div style={{ position: 'fixed', inset: 0, background: 'var(--bg-base)' }} />
     );
   }
 
@@ -70,39 +74,44 @@ export default function WorkspaceShell({
         * { box-sizing: border-box; }
         ::-webkit-scrollbar       { width: 3px; height: 3px; }
         ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,.09); border-radius: 3px; }
-        ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,.18); }
+        ::-webkit-scrollbar-thumb { background: ${t.ink(.09)}; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: ${t.ink(.18)}; }
       `}} />
 
       <div style={{
         position: 'fixed', top: 52, left: 0, right: 0, bottom: 0, display: 'flex',
-        background: '#07080B',
+        background: t.pageBg,
         fontFamily: 'var(--font-inter),"Inter",-apple-system,sans-serif',
         animation: 'ws-fadein .3s ease',
         zIndex: 50,
         overflow: 'hidden',
       }}>
 
-        {/* ── Layer 1: deep ambient gradient ── */}
+        {/* ── Layer 1: deep ambient gradient — subtler in light, since a big purple */}
+        {/* glow against white reads as gaudy rather than moody like it does on black */}
         <div style={{
           position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 0,
-          background: 'radial-gradient(ellipse 100% 60% at 50% -10%, rgba(109,40,217,.18) 0%, transparent 58%)',
+          background: `radial-gradient(ellipse 100% 60% at 50% -10%, rgba(109,40,217,${t.isDark ? .18 : .07}) 0%, transparent 58%)`,
           animation: 'ws-breathe 8s ease-in-out infinite',
         }} />
-        {/* ── Layer 2: bottom counter-vignette ── */}
-        <div style={{
-          position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 0,
-          background: 'radial-gradient(ellipse 80% 40% at 50% 110%, rgba(6,5,20,.70) 0%, transparent 65%)',
-        }} />
-        {/* ── Layer 3: corner vignettes ── */}
-        <div style={{
-          position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 0,
-          background: 'radial-gradient(ellipse 50% 80% at 0% 50%, rgba(4,4,12,.55) 0%, transparent 55%), radial-gradient(ellipse 30% 60% at 100% 0%, rgba(80,30,180,.07) 0%, transparent 50%)',
-        }} />
+        {/* ── Layer 2: bottom counter-vignette — dark-mode only (would just muddy a light page) ── */}
+        {t.isDark && (
+          <div style={{
+            position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 0,
+            background: 'radial-gradient(ellipse 80% 40% at 50% 110%, rgba(6,5,20,.70) 0%, transparent 65%)',
+          }} />
+        )}
+        {/* ── Layer 3: corner vignettes — dark-mode only ── */}
+        {t.isDark && (
+          <div style={{
+            position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 0,
+            background: 'radial-gradient(ellipse 50% 80% at 0% 50%, rgba(4,4,12,.55) 0%, transparent 55%), radial-gradient(ellipse 30% 60% at 100% 0%, rgba(80,30,180,.07) 0%, transparent 50%)',
+          }} />
+        )}
         {/* ── Layer 4: grid ── */}
         <div style={{
           position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 0,
-          backgroundImage: 'linear-gradient(rgba(255,255,255,.009) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.009) 1px,transparent 1px)',
+          backgroundImage: `linear-gradient(${t.ink(t.isDark ? .009 : .035)} 1px,transparent 1px),linear-gradient(90deg,${t.ink(t.isDark ? .009 : .035)} 1px,transparent 1px)`,
           backgroundSize: '48px 48px',
         }} />
 
@@ -117,7 +126,7 @@ export default function WorkspaceShell({
           {/* edge light between sidebar and canvas */}
           <div style={{
             position: 'absolute', top: 0, right: -1, width: 1, height: '100%',
-            background: 'linear-gradient(180deg, transparent 0%, rgba(139,92,246,.18) 30%, rgba(139,92,246,.08) 70%, transparent 100%)',
+            background: `linear-gradient(180deg, transparent 0%, rgba(139,92,246,${t.isDark ? .18 : .14}) 30%, rgba(139,92,246,${t.isDark ? .08 : .06}) 70%, transparent 100%)`,
             pointerEvents: 'none', zIndex: 11,
           }} />
         </div>

@@ -37,6 +37,38 @@
   --foreground: var(--text-primary);
 }
 
+:root[data-theme='light'] {
+  /* Backgrounds */
+  --bg-base:    #F5F6F8;
+  --bg-surface: #FFFFFF;
+  --bg-raised:  #FFFFFF;
+  --bg-overlay: #F0F1F5;
+
+  /* Borders */
+  --border:       rgba(15, 17, 23, 0.10);
+  --border-light: rgba(15, 17, 23, 0.06);
+  --border-focus: rgba(124, 58, 237, 0.45);
+
+  /* Purple palette — brand colour, unchanged across themes */
+  --purple-600:  #6D28D9;
+  --purple-500:  #7C3AED;
+  --purple-400:  #8B5CF6;
+  --purple-300:  #7C3AED;
+  --purple-200:  #6D28D9;
+  --purple-glow: rgba(124, 58, 237, 0.12);
+
+  /* Text */
+  --text-primary:   #15161A;
+  --text-secondary: #52525B;
+  --text-muted:     #8B8D98;
+
+  /* Status — kept vivid in both themes */
+  --green:  #16A34A;
+  --yellow: #D97706;
+  --red:    #DC2626;
+  --cyan:   #0891B2;
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -60,6 +92,9 @@ body {
 ::-webkit-scrollbar-track  { background: transparent; }
 ::-webkit-scrollbar-thumb  { background: rgba(255,255,255,0.10); border-radius: 4px; }
 ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.20); }
+
+:root[data-theme='light'] ::-webkit-scrollbar-thumb { background: rgba(15,17,23,0.14); }
+:root[data-theme='light'] ::-webkit-scrollbar-thumb:hover { background: rgba(15,17,23,0.24); }
 
 /* ─── Tennis landing page animations ─────────────────── */
 @theme {

@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { HlnaOrb } from '@/components/brand/HlnaOrb';
+import { useOpsTheme } from './theme';
 
 const FONT = 'var(--font-inter),"Inter",-apple-system,sans-serif';
 const MONO = 'var(--font-geist-mono,"Geist Mono",monospace)';
@@ -86,6 +87,9 @@ function formatAge(s: number) {
 }
 
 // ── Mini Radar ─────────────────────────────────────────────────────────────────
+// Kept on its own dark "radar screen" surface regardless of page theme — same
+// treatment as the bin-maintenance map's dark basemap; a dense data viz like
+// this reads better on black than re-tinted for a light page.
 
 function MiniRadar() {
   return (
@@ -163,6 +167,7 @@ function MiniRadar() {
 // ── Main component ─────────────────────────────────────────────────────────────
 
 export default function IntelRail() {
+  const t = useOpsTheme();
   const [activity, setActivity]       = useState<ActivityItem[]>(INITIAL_ACTIVITY);
   const [pulseIdx, setPulseIdx]       = useState(0);
   const [pulseFading, setPulseFading] = useState(false);
@@ -213,6 +218,7 @@ export default function IntelRail() {
   }, []);
 
   const insight = PULSE_INSIGHTS[pulseIdx];
+  const railBg = t.isDark ? 'rgba(4,5,9,.98)' : 'rgba(255,255,255,.98)';
 
   return (
     <>
@@ -229,25 +235,25 @@ export default function IntelRail() {
       <aside style={{
         width: 260, flexShrink: 0,
         height: '100%', display: 'flex', flexDirection: 'column',
-        background: 'rgba(4,5,9,.98)',
-        borderLeft: '1px solid rgba(255,255,255,.055)',
+        background: railBg,
+        borderLeft: `1px solid ${t.ink(.08)}`,
         fontFamily: FONT,
         position: 'relative', zIndex: 8, overflow: 'hidden',
-        boxShadow: 'inset 1px 0 0 rgba(139,92,246,.06)',
+        boxShadow: `inset 1px 0 0 ${t.isDark ? 'rgba(139,92,246,.06)' : 'rgba(124,58,237,.05)'}`,
       }}>
         {/* Edge light */}
-        <div style={{ position: 'absolute', top: 0, left: 0, width: 1, height: '100%', background: 'linear-gradient(180deg,transparent 0%,rgba(139,92,246,.14) 25%,rgba(139,92,246,.07) 75%,transparent 100%)', pointerEvents: 'none', zIndex: 1 }} />
+        <div style={{ position: 'absolute', top: 0, left: 0, width: 1, height: '100%', background: `linear-gradient(180deg,transparent 0%,rgba(139,92,246,${t.isDark ? .14 : .10}) 25%,rgba(139,92,246,${t.isDark ? .07 : .05}) 75%,transparent 100%)`, pointerEvents: 'none', zIndex: 1 }} />
 
         {/* ── HLNA CORE HEADER ─────────────────────────────────── */}
         <div style={{
           padding: '14px 16px 12px',
-          borderBottom: '1px solid rgba(139,92,246,.10)',
-          background: 'linear-gradient(180deg,rgba(109,40,217,.09) 0%,rgba(4,5,9,.0) 100%)',
+          borderBottom: `1px solid ${t.isDark ? 'rgba(139,92,246,.10)' : 'rgba(124,58,237,.14)'}`,
+          background: t.isDark ? 'linear-gradient(180deg,rgba(109,40,217,.09) 0%,rgba(4,5,9,.0) 100%)' : 'linear-gradient(180deg,rgba(124,58,237,.06) 0%,rgba(255,255,255,0) 100%)',
           flexShrink: 0,
           position: 'relative', overflow: 'hidden',
         }}>
           {/* Ambient glow behind orb */}
-          <div style={{ position: 'absolute', top: -20, left: '50%', transform: 'translateX(-50%)', width: 120, height: 80, borderRadius: '50%', background: 'radial-gradient(ellipse,rgba(139,92,246,.18) 0%,transparent 70%)', pointerEvents: 'none' }} />
+          <div style={{ position: 'absolute', top: -20, left: '50%', transform: 'translateX(-50%)', width: 120, height: 80, borderRadius: '50%', background: `radial-gradient(ellipse,rgba(139,92,246,${t.isDark ? .18 : .12}) 0%,transparent 70%)`, pointerEvents: 'none' }} />
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, position: 'relative' }}>
             {/* Orb */}
@@ -258,22 +264,22 @@ export default function IntelRail() {
             {/* Identity */}
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
-                <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: '.18em', color: 'rgba(255,255,255,.80)', textTransform: 'uppercase' }}>
-                  HLN<span style={{ color: '#A78BFA' }}>Λ</span>
+                <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: '.18em', color: t.ink(.85), textTransform: 'uppercase' }}>
+                  HLN<span style={{ color: t.isDark ? '#A78BFA' : '#7C3AED' }}>Λ</span>
                 </span>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '1px 6px', borderRadius: 3, background: 'rgba(34,197,94,.07)', border: '1px solid rgba(34,197,94,.16)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '1px 6px', borderRadius: 3, background: t.isDark ? 'rgba(34,197,94,.07)' : 'rgba(22,163,74,.09)', border: `1px solid ${t.isDark ? 'rgba(34,197,94,.16)' : 'rgba(22,163,74,.22)'}` }}>
                   <div style={{ width: 4, height: 4, borderRadius: '50%', background: '#22C55E', boxShadow: '0 0 4px #22C55E', animation: 'ir-blink 2.4s ease-in-out infinite' }} />
-                  <span style={{ fontSize: 8.5, fontWeight: 700, color: 'rgba(34,197,94,.80)', letterSpacing: '.08em', textTransform: 'uppercase' }}>Live</span>
+                  <span style={{ fontSize: 8.5, fontWeight: 700, color: t.isDark ? 'rgba(34,197,94,.80)' : '#16A34A', letterSpacing: '.08em', textTransform: 'uppercase' }}>Live</span>
                 </div>
               </div>
-              <div style={{ fontSize: 9, color: 'rgba(255,255,255,.28)', letterSpacing: '.06em', textTransform: 'uppercase', marginBottom: 4 }}>
+              <div style={{ fontSize: 9, color: t.ink(.32), letterSpacing: '.06em', textTransform: 'uppercase', marginBottom: 4 }}>
                 {orbState === 'thinking' ? 'Processing analysis…' : 'Monitoring operations'}
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                <div style={{ height: 2, flex: 1, borderRadius: 1, background: 'rgba(255,255,255,.07)', overflow: 'hidden' }}>
+                <div style={{ height: 2, flex: 1, borderRadius: 1, background: t.ink(.08), overflow: 'hidden' }}>
                   <div style={{ height: '100%', width: `${orbState === 'thinking' ? 65 : 32}%`, background: 'linear-gradient(90deg,#6D28D9,#A78BFA)', borderRadius: 1, transition: 'width 1.5s ease', animation: orbState === 'thinking' ? 'ir-shimmer 1.2s ease-in-out infinite' : 'none' }} />
                 </div>
-                <span style={{ fontSize: 8.5, color: 'rgba(167,139,250,.45)', fontFamily: MONO, letterSpacing: '.02em', whiteSpace: 'nowrap' }}>
+                <span style={{ fontSize: 8.5, color: t.isDark ? 'rgba(167,139,250,.45)' : 'rgba(124,58,237,.55)', fontFamily: MONO, letterSpacing: '.02em', whiteSpace: 'nowrap' }}>
                   {orbState === 'thinking' ? '65%' : '32%'} load
                 </span>
               </div>
@@ -286,32 +292,31 @@ export default function IntelRail() {
 
           {/* ── A. LIVE ACTIVITY FEED ──────────────────────────── */}
           <section>
-            <div style={{ padding: '9px 14px 7px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'sticky', top: 0, background: 'rgba(4,5,9,.98)', zIndex: 2, borderBottom: '1px solid rgba(255,255,255,.04)' }}>
+            <div style={{ padding: '9px 14px 7px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'sticky', top: 0, background: railBg, zIndex: 2, borderBottom: `1px solid ${t.ink(.045)}` }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                 <div style={{ width: 4, height: 4, borderRadius: '50%', background: '#22C55E', boxShadow: '0 0 5px #22C55E', animation: 'ir-blink 1.8s ease-in-out infinite' }} />
-                <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '.12em', color: 'rgba(255,255,255,.30)', textTransform: 'uppercase' }}>Live Activity</span>
+                <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '.12em', color: t.ink(.34), textTransform: 'uppercase' }}>Live Activity</span>
               </div>
-              <span style={{ fontSize: 8.5, color: 'rgba(255,255,255,.18)', fontFamily: MONO }}>{activity.length} events</span>
+              <span style={{ fontSize: 8.5, color: t.ink(.22), fontFamily: MONO }}>{activity.length} events</span>
             </div>
 
             <div style={{ padding: '6px 0' }}>
               {activity.map((item) => {
                 const color = ACTIVITY_COLOR[item.type];
-                const ageDisplay = formatAge(item.age + tick * 0);
                 return (
                   <div key={item.id} className={item.fresh ? 'ir-fresh' : ''} style={{
                     display: 'flex', alignItems: 'flex-start', gap: 8,
                     padding: '5px 14px',
-                    borderBottom: '1px solid rgba(255,255,255,.025)',
+                    borderBottom: `1px solid ${t.ink(.03)}`,
                     transition: 'background .2s',
                   }}
-                    onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,.025)')}
+                    onMouseEnter={e => (e.currentTarget.style.background = t.ink(.03))}
                     onMouseLeave={e => (e.currentTarget.style.background = '')}
                   >
                     <div style={{ width: 5, height: 5, borderRadius: '50%', background: color, boxShadow: `0 0 5px ${color}`, flexShrink: 0, marginTop: 4 }} />
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 10.5, color: 'rgba(230,237,243,.65)', lineHeight: 1.45, wordBreak: 'break-word' }}>{item.text}</div>
-                      <div style={{ fontSize: 8.5, color: 'rgba(255,255,255,.20)', fontFamily: MONO, marginTop: 2, letterSpacing: '.02em' }}>
+                      <div style={{ fontSize: 10.5, color: t.ink(.68), lineHeight: 1.45, wordBreak: 'break-word' }}>{item.text}</div>
+                      <div style={{ fontSize: 8.5, color: t.ink(.24), fontFamily: MONO, marginTop: 2, letterSpacing: '.02em' }}>
                         {item.type.toUpperCase()} · {formatAge(item.age + tick)}
                       </div>
                     </div>
@@ -322,10 +327,10 @@ export default function IntelRail() {
           </section>
 
           {/* ── C. HLNA PULSE INSIGHTS ────────────────────────── */}
-          <section style={{ borderTop: '1px solid rgba(255,255,255,.045)' }}>
-            <div style={{ padding: '9px 14px 7px', display: 'flex', alignItems: 'center', gap: 5, borderBottom: '1px solid rgba(255,255,255,.04)' }}>
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="rgba(167,139,250,.65)" strokeWidth="2" strokeLinecap="round"><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z"/></svg>
-              <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '.12em', color: 'rgba(255,255,255,.30)', textTransform: 'uppercase' }}>HLNΛ Pulse</span>
+          <section style={{ borderTop: `1px solid ${t.ink(.045)}` }}>
+            <div style={{ padding: '9px 14px 7px', display: 'flex', alignItems: 'center', gap: 5, borderBottom: `1px solid ${t.ink(.045)}` }}>
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={t.isDark ? 'rgba(167,139,250,.65)' : 'rgba(124,58,237,.65)'} strokeWidth="2" strokeLinecap="round"><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z"/></svg>
+              <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '.12em', color: t.ink(.34), textTransform: 'uppercase' }}>HLNΛ Pulse</span>
             </div>
             <div style={{ padding: '12px 14px', minHeight: 80 }}>
               <div style={{
@@ -333,18 +338,18 @@ export default function IntelRail() {
                 transform: pulseFading ? 'translateY(4px)' : 'none',
                 transition: 'opacity .35s ease, transform .35s ease',
               }}>
-                <div style={{ fontSize: 11, lineHeight: 1.6, color: 'rgba(230,237,243,.72)', marginBottom: 8 }}>
+                <div style={{ fontSize: 11, lineHeight: 1.6, color: t.ink(.76), marginBottom: 8 }}>
                   {insight.text}
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <div style={{ height: 2, flex: 1, borderRadius: 1, background: 'rgba(255,255,255,.07)', overflow: 'hidden' }}>
+                  <div style={{ height: 2, flex: 1, borderRadius: 1, background: t.ink(.08), overflow: 'hidden' }}>
                     <div style={{ height: '100%', width: `${insight.conf}%`, borderRadius: 1, background: 'linear-gradient(90deg,#6D28D9,#A78BFA)' }} />
                   </div>
-                  <span style={{ fontSize: 8.5, color: 'rgba(167,139,250,.55)', fontFamily: MONO }}>{insight.conf}%</span>
+                  <span style={{ fontSize: 8.5, color: t.isDark ? 'rgba(167,139,250,.55)' : 'rgba(124,58,237,.60)', fontFamily: MONO }}>{insight.conf}%</span>
                 </div>
                 <div style={{ display: 'flex', gap: 5, marginTop: 6 }}>
                   {PULSE_INSIGHTS.map((_, i) => (
-                    <div key={i} style={{ width: i === pulseIdx ? 14 : 4, height: 2, borderRadius: 1, background: i === pulseIdx ? '#A78BFA' : 'rgba(255,255,255,.12)', transition: 'width .3s, background .3s' }} />
+                    <div key={i} style={{ width: i === pulseIdx ? 14 : 4, height: 2, borderRadius: 1, background: i === pulseIdx ? (t.isDark ? '#A78BFA' : '#7C3AED') : t.ink(.14), transition: 'width .3s, background .3s' }} />
                   ))}
                 </div>
               </div>
@@ -352,13 +357,13 @@ export default function IntelRail() {
           </section>
 
           {/* ── B. ACTIVE OPERATIONAL TASKS ───────────────────── */}
-          <section style={{ borderTop: '1px solid rgba(255,255,255,.045)' }}>
-            <div style={{ padding: '9px 14px 7px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid rgba(255,255,255,.04)' }}>
+          <section style={{ borderTop: `1px solid ${t.ink(.045)}` }}>
+            <div style={{ padding: '9px 14px 7px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: `1px solid ${t.ink(.045)}` }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                 <div style={{ width: 4, height: 4, borderRadius: '50%', background: '#F59E0B', boxShadow: '0 0 5px #F59E0B', animation: 'ir-blink 3s ease-in-out infinite' }} />
-                <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '.12em', color: 'rgba(255,255,255,.30)', textTransform: 'uppercase' }}>Active Tasks</span>
+                <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '.12em', color: t.ink(.34), textTransform: 'uppercase' }}>Active Tasks</span>
               </div>
-              <span style={{ fontSize: 8.5, color: 'rgba(239,68,68,.55)', fontFamily: MONO, fontWeight: 700 }}>2 critical</span>
+              <span style={{ fontSize: 8.5, color: t.isDark ? 'rgba(239,68,68,.55)' : 'rgba(220,38,38,.65)', fontFamily: MONO, fontWeight: 700 }}>2 critical</span>
             </div>
             <div style={{ padding: '6px 0' }}>
               {TASKS.map((task, i) => {
@@ -367,15 +372,15 @@ export default function IntelRail() {
                   <Link key={i} href={task.href} style={{ display: 'block', textDecoration: 'none' }}>
                     <div style={{
                       display: 'flex', alignItems: 'center', gap: 8, padding: '6px 14px',
-                      borderBottom: '1px solid rgba(255,255,255,.025)',
+                      borderBottom: `1px solid ${t.ink(.03)}`,
                       transition: 'background .15s',
                     }}
-                      onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,.03)')}
+                      onMouseEnter={e => (e.currentTarget.style.background = t.ink(.035))}
                       onMouseLeave={e => (e.currentTarget.style.background = '')}
                     >
                       <div style={{ width: 5, height: 5, borderRadius: '50%', background: color, boxShadow: `0 0 5px ${color}`, flexShrink: 0 }} />
-                      <span style={{ fontSize: 10.5, color: 'rgba(230,237,243,.62)', flex: 1, lineHeight: 1.4 }}>{task.text}</span>
-                      <span style={{ fontSize: 8.5, color: 'rgba(255,255,255,.22)', fontFamily: MONO, whiteSpace: 'nowrap' }}>{task.age}</span>
+                      <span style={{ fontSize: 10.5, color: t.ink(.65), flex: 1, lineHeight: 1.4 }}>{task.text}</span>
+                      <span style={{ fontSize: 8.5, color: t.ink(.26), fontFamily: MONO, whiteSpace: 'nowrap' }}>{task.age}</span>
                     </div>
                   </Link>
                 );
@@ -384,15 +389,15 @@ export default function IntelRail() {
           </section>
 
           {/* ── D. SYSTEM HEALTH ──────────────────────────────── */}
-          <section style={{ borderTop: '1px solid rgba(255,255,255,.045)' }}>
-            <div style={{ padding: '9px 14px 7px', display: 'flex', alignItems: 'center', gap: 5, borderBottom: '1px solid rgba(255,255,255,.04)' }}>
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="rgba(96,165,250,.65)" strokeWidth="2" strokeLinecap="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-              <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '.12em', color: 'rgba(255,255,255,.30)', textTransform: 'uppercase' }}>System Health</span>
+          <section style={{ borderTop: `1px solid ${t.ink(.045)}` }}>
+            <div style={{ padding: '9px 14px 7px', display: 'flex', alignItems: 'center', gap: 5, borderBottom: `1px solid ${t.ink(.045)}` }}>
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={t.isDark ? 'rgba(96,165,250,.65)' : 'rgba(37,99,235,.65)'} strokeWidth="2" strokeLinecap="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+              <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '.12em', color: t.ink(.34), textTransform: 'uppercase' }}>System Health</span>
             </div>
             <div style={{ padding: '8px 14px 10px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '5px 10px' }}>
               {HEALTH.map(h => (
                 <div key={h.label} style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                  <span style={{ fontSize: 8.5, color: 'rgba(255,255,255,.22)', letterSpacing: '.04em', textTransform: 'uppercase' }}>{h.label}</span>
+                  <span style={{ fontSize: 8.5, color: t.ink(.26), letterSpacing: '.04em', textTransform: 'uppercase' }}>{h.label}</span>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                     <div style={{ width: 4, height: 4, borderRadius: '50%', background: h.color, boxShadow: `0 0 4px ${h.color}`, flexShrink: 0 }} />
                     <span style={{ fontSize: 10, fontWeight: 600, color: h.color, fontFamily: MONO }}>{h.value}</span>
@@ -403,32 +408,32 @@ export default function IntelRail() {
           </section>
 
           {/* ── E. MINI RADAR ─────────────────────────────────── */}
-          <section style={{ borderTop: '1px solid rgba(255,255,255,.045)' }}>
-            <div style={{ padding: '9px 14px 7px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid rgba(255,255,255,.04)' }}>
+          <section style={{ borderTop: `1px solid ${t.ink(.045)}` }}>
+            <div style={{ padding: '9px 14px 7px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: `1px solid ${t.ink(.045)}` }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="rgba(139,92,246,.65)" strokeWidth="2" strokeLinecap="round"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
-                <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '.12em', color: 'rgba(255,255,255,.30)', textTransform: 'uppercase' }}>Operational Radar</span>
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={t.isDark ? 'rgba(139,92,246,.65)' : 'rgba(124,58,237,.65)'} strokeWidth="2" strokeLinecap="round"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
+                <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '.12em', color: t.ink(.34), textTransform: 'uppercase' }}>Operational Radar</span>
               </div>
               <div style={{ display: 'flex', gap: 5 }}>
                 {[{ c: '#EF4444', n: '2' }, { c: '#F59E0B', n: '2' }].map(({ c, n }) => (
                   <div key={c} style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                     <div style={{ width: 3.5, height: 3.5, borderRadius: '50%', background: c }} />
-                    <span style={{ fontSize: 8, color: 'rgba(255,255,255,.25)' }}>{n}</span>
+                    <span style={{ fontSize: 8, color: t.ink(.28) }}>{n}</span>
                   </div>
                 ))}
               </div>
             </div>
-            <div style={{ padding: '8px 20px 14px', height: 140 }}>
+            <div style={{ padding: '8px 20px 14px', height: 140, background: t.isDark ? 'transparent' : '#0A0D12', borderRadius: t.isDark ? 0 : 10, margin: t.isDark ? 0 : '0 12px 12px' }}>
               <MiniRadar />
             </div>
           </section>
 
           {/* ── Footer ─────────────────────────────────────────── */}
-          <div style={{ padding: '8px 14px 10px', borderTop: '1px solid rgba(255,255,255,.04)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span style={{ fontSize: 8.5, color: 'rgba(255,255,255,.18)', letterSpacing: '.04em' }}>Intelligence v2.4</span>
+          <div style={{ padding: '8px 14px 10px', borderTop: `1px solid ${t.ink(.04)}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span style={{ fontSize: 8.5, color: t.ink(.22), letterSpacing: '.04em' }}>Intelligence v2.4</span>
             <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
               <div style={{ width: 3.5, height: 3.5, borderRadius: '50%', background: '#22C55E', animation: 'ir-blink 2.4s ease-in-out infinite' }} />
-              <span style={{ fontSize: 8.5, color: 'rgba(34,197,94,.50)', letterSpacing: '.04em' }}>Live</span>
+              <span style={{ fontSize: 8.5, color: t.isDark ? 'rgba(34,197,94,.50)' : 'rgba(22,163,74,.65)', letterSpacing: '.04em' }}>Live</span>
             </div>
           </div>
         </div>
