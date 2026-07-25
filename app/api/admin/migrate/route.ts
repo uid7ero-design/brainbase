@@ -42,8 +42,8 @@ export async function POST() {
   await sql`
     CREATE TABLE IF NOT EXISTS uploaded_files (
       id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      organisation_id UUID NOT NULL REFERENCES organisations(id),
-      uploaded_by     UUID NOT NULL REFERENCES users(id),
+      organisation_id TEXT NOT NULL REFERENCES organisations(id),
+      uploaded_by     TEXT NOT NULL REFERENCES users(id),
       file_name       TEXT NOT NULL,
       file_url        TEXT NOT NULL DEFAULT '',
       file_type       TEXT NOT NULL DEFAULT 'xlsx',
@@ -800,6 +800,113 @@ export async function POST() {
       ADD CONSTRAINT client_pipeline_status_check
       CHECK (status IN ('new', 'in_progress', 'awaiting_client', 'resolved'))
   `;
+
+  step('33. organiser_boards');
+  await sql`
+    CREATE TABLE IF NOT EXISTS organiser_boards (
+      id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      organisation_id TEXT NOT NULL REFERENCES organisations(id),
+      name            TEXT NOT NULL,
+      color           TEXT,
+      icon            TEXT,
+      position        INTEGER NOT NULL DEFAULT 0,
+      created_by      TEXT REFERENCES users(id),
+      created_at      TIMESTAMPTZ DEFAULT NOW(),
+      updated_at      TIMESTAMPTZ DEFAULT NOW()
+    )
+  `;
+
+  step('34. organiser_groups');
+  await sql`
+    CREATE TABLE IF NOT EXISTS organiser_groups (
+      id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      board_id        UUID NOT NULL REFERENCES organiser_boards(id) ON DELETE CASCADE,
+      organisation_id TEXT NOT NULL REFERENCES organisations(id),
+      name            TEXT NOT NULL,
+      color           TEXT,
+      position        INTEGER NOT NULL DEFAULT 0,
+      created_at      TIMESTAMPTZ DEFAULT NOW()
+    )
+  `;
+
+  step('35. organiser_items');
+  await sql`
+    CREATE TABLE IF NOT EXISTS organiser_items (
+      id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      board_id        UUID NOT NULL REFERENCES organiser_boards(id) ON DELETE CASCADE,
+      organisation_id TEXT NOT NULL REFERENCES organisations(id),
+      group_id        UUID REFERENCES organiser_groups(id) ON DELETE SET NULL,
+      parent_item_id  UUID REFERENCES organiser_items(id) ON DELETE CASCADE,
+      name            TEXT NOT NULL,
+      status          TEXT NOT NULL DEFAULT 'Not Started',
+      priority        TEXT,
+      owner           TEXT,
+      due_date        DATE,
+      notes           TEXT,
+      fields          JSONB NOT NULL DEFAULT '{}',
+      position        INTEGER NOT NULL DEFAULT 0,
+      created_at      TIMESTAMPTZ DEFAULT NOW(),
+      updated_at      TIMESTAMPTZ DEFAULT NOW()
+    )
+  `;
+
+  await sql`CREATE INDEX IF NOT EXISTS idx_organiser_boards_org        ON organiser_boards(organisation_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_organiser_groups_board      ON organiser_groups(board_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_organiser_groups_org        ON organiser_groups(organisation_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_organiser_items_board       ON organiser_items(board_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_organiser_items_org         ON organiser_items(organisation_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_organiser_items_group       ON organiser_items(group_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_organiser_items_parent      ON organiser_items(parent_item_id)`;
+
+  step('36. organiser_columns');
+  await sql`
+    CREATE TABLE IF NOT EXISTS organiser_columns (
+      id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      board_id        UUID NOT NULL REFERENCES organiser_boards(id) ON DELETE CASCADE,
+      organisation_id TEXT NOT NULL REFERENCES organisations(id),
+      name            TEXT NOT NULL,
+      type            TEXT NOT NULL CHECK (type IN ('text', 'number', 'date', 'status', 'checkbox')),
+      options         JSONB NOT NULL DEFAULT '[]',
+      position        INTEGER NOT NULL DEFAULT 0,
+      created_at      TIMESTAMPTZ DEFAULT NOW()
+    )
+  `;
+
+  step('37. organiser_items.custom_values');
+  await sql`ALTER TABLE organiser_items ADD COLUMN IF NOT EXISTS custom_values JSONB NOT NULL DEFAULT '{}'`;
+
+  step('38. organiser_item_files');
+  await sql`
+    CREATE TABLE IF NOT EXISTS organiser_item_files (
+      id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      item_id         UUID NOT NULL REFERENCES organiser_items(id) ON DELETE CASCADE,
+      board_id        UUID NOT NULL REFERENCES organiser_boards(id) ON DELETE CASCADE,
+      organisation_id TEXT NOT NULL REFERENCES organisations(id),
+      file_name       TEXT NOT NULL,
+      file_url        TEXT NOT NULL,
+      file_size       INTEGER,
+      uploaded_by     TEXT REFERENCES users(id),
+      created_at      TIMESTAMPTZ DEFAULT NOW()
+    )
+  `;
+
+  step('39. organiser_item_updates');
+  await sql`
+    CREATE TABLE IF NOT EXISTS organiser_item_updates (
+      id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      item_id         UUID NOT NULL REFERENCES organiser_items(id) ON DELETE CASCADE,
+      board_id        UUID NOT NULL REFERENCES organiser_boards(id) ON DELETE CASCADE,
+      organisation_id TEXT NOT NULL REFERENCES organisations(id),
+      author_name     TEXT,
+      body            TEXT NOT NULL,
+      created_at      TIMESTAMPTZ DEFAULT NOW()
+    )
+  `;
+
+  await sql`CREATE INDEX IF NOT EXISTS idx_organiser_columns_board      ON organiser_columns(board_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_organiser_columns_org        ON organiser_columns(organisation_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_organiser_item_files_item    ON organiser_item_files(item_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_organiser_item_updates_item  ON organiser_item_updates(item_id)`;
 
   return NextResponse.json({ success: true, message: 'Migration complete.', steps });
 
