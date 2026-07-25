@@ -9,10 +9,8 @@ coverage
 *.log
 *.pem
 .env*
-# WIP — not yet ready for production (need lib/prisma + lib/authSession)
-app/api/bin-maintenance
+# WIP — not yet ready for production
 app/api/ops
-app/dashboard/bin-maintenance
 backend_migration
 scripts/clear-bin-maintenance.ts
 "Waste Intelligence Dashboard"
