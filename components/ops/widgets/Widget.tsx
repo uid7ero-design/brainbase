@@ -48,11 +48,11 @@ export default function Widget({
               animation: 'w-blink 2.4s ease-in-out infinite', flexShrink: 0,
             }} />
           )}
-          <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.10em', color: 'rgba(255,255,255,.42)', textTransform: 'uppercase' }}>
+          <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.10em', color:'rgba(255,255,255,.64)', textTransform: 'uppercase' }}>
             {title}
           </span>
           {subtitle && (
-            <span style={{ fontSize: 9, color: 'rgba(255,255,255,.20)', letterSpacing: '.06em', textTransform: 'uppercase' }}>
+            <span style={{ fontSize: 9, color:'rgba(255,255,255,.42)', letterSpacing: '.06em', textTransform: 'uppercase' }}>
               · {subtitle}
             </span>
           )}
@@ -100,7 +100,7 @@ function WidgetSkeleton() {
 function WidgetEmpty({ message }: { message: string }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', minHeight: 60 }}>
-      <span style={{ fontSize: 12, color: 'rgba(255,255,255,.18)', letterSpacing: '.04em' }}>{message}</span>
+      <span style={{ fontSize: 12, color:'rgba(255,255,255,.4)', letterSpacing: '.04em' }}>{message}</span>
     </div>
   );
 }
