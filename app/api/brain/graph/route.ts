@@ -1,10 +1,15 @@
 import { loadStore } from '../../../../lib/brain/store';
 import { cosine }    from '../../../../lib/brain/embedder';
+import { requireRole } from '../../../../lib/org';
 
 const LINK_THRESHOLD = 0.50; // minimum similarity to draw an edge
 const MAX_LINKS_PER_NODE = 8;
 
 export async function GET() {
+  // The Brain vault is global, not organisation-scoped — super_admin only
+  // until it becomes organisation-scoped (temporary containment).
+  try { await requireRole('super_admin'); } catch { return Response.json({ error: 'Forbidden' }, { status: 403 }); }
+
   const store = loadStore();
 
   // Group chunks by file and average their embeddings

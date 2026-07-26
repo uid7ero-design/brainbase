@@ -1,7 +1,14 @@
 import { NextResponse } from 'next/server';
 import { getValidAccessToken } from '../../../../lib/spotify/tokens';
+import { requireGlobalIntegrationAccess, integrationAccessErrorStatus } from '../../../../lib/globalIntegrationAccess';
 
 export async function GET() {
+  try {
+    await requireGlobalIntegrationAccess('SPOTIFY_OWNER_ORG_ID', 'viewer');
+  } catch (err) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: integrationAccessErrorStatus(err) });
+  }
+
   const token = await getValidAccessToken();
   if (!token) return NextResponse.json({ devices: [] });
 

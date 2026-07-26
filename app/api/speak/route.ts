@@ -1,9 +1,22 @@
 import { NextRequest } from 'next/server';
+import { requireSession } from '@/lib/org';
+import { checkRateLimit } from '@/lib/rateLimit';
 
 const VOICE_ID = process.env.ELEVENLABS_VOICE_ID!;
 const API_KEY  = process.env.ELEVENLABS_API_KEY!;
 
 export async function POST(req: NextRequest) {
+  let session;
+  try {
+    session = await requireSession();
+  } catch {
+    return new Response('Unauthorized', { status: 401 });
+  }
+
+  if (!checkRateLimit(`speak:${session.userId}`, 30, 15 * 60_000)) {
+    return new Response('Too many requests', { status: 429, headers: { 'Retry-After': '900' } });
+  }
+
   const { text } = await req.json();
   if (!text?.trim()) return new Response('No text', { status: 400 });
 

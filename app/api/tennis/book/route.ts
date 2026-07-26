@@ -1,10 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
 import sql from '@/lib/db'
+import { checkRateLimit } from '@/lib/rateLimit'
+import { getClientIp } from '@/lib/clientIp'
 
 const ORG_ID = process.env.LD_TENNIS_ORG_ID
 
 export async function POST(req: NextRequest) {
   if (!ORG_ID) return NextResponse.json({ error: 'Booking not available' }, { status: 503 })
+
+  if (!checkRateLimit(`tennis-book:${getClientIp(req)}`, 10, 60 * 60_000)) {
+    return NextResponse.json({ error: 'Too many requests. Please wait before trying again.' }, { status: 429 })
+  }
 
   let body: { session_instance_id: string; name: string; email: string; phone?: string }
   try { body = await req.json() } catch { return NextResponse.json({ error: 'Invalid request' }, { status: 400 }) }

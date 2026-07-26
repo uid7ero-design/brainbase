@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getValidAccessToken } from '../../../../../lib/gmail/tokens';
+import { requireGlobalIntegrationAccess, integrationAccessErrorStatus } from '../../../../../lib/globalIntegrationAccess';
 
 const BASE = 'https://gmail.googleapis.com/gmail/v1/users/me';
 
@@ -37,6 +38,12 @@ function extractText(payload: Record<string, unknown>): string {
 }
 
 export async function GET(req: NextRequest) {
+  try {
+    await requireGlobalIntegrationAccess('GMAIL_OWNER_ORG_ID', 'manager');
+  } catch (err) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: integrationAccessErrorStatus(err) });
+  }
+
   const id = new URL(req.url).searchParams.get('id');
   if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 });
 

@@ -5,6 +5,20 @@ import { redirect } from 'next/navigation'
 
 const FONT = "var(--font-inter),-apple-system,sans-serif"
 
+/**
+ * Books on behalf of whichever client submitted a given pipeline request —
+ * often a different organisation than the founder's own. The dedicated
+ * server-side endpoint derives that organisation itself (from the pipeline
+ * record), so this console never needs to touch impersonation/org_override.
+ */
+function bookForPipeline(pipelineId: string, body: Record<string, unknown>) {
+  return fetch(`/api/admin/pipeline/${pipelineId}/booking`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
+
 type Message = { id: string; author_type: 'founder' | 'client'; body: string; created_at: string }
 type BookingRecord = {
   id: string; date: string; time: string; session_type: string
@@ -123,15 +137,9 @@ function AddToSessionModal({ req, onClose, onAdded }: {
   async function submit() {
     if (!selected || !selectedInstance || submitting) return
     setSubmitting(true); setErr(null)
-    const res = await fetch('/api/bookings', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        organisation_id:      req.organisation_id,
-        pipeline_id:          req.id,
-        session_instance_id:  selectedInstance.id,
-        client_name:          req.submitted_by_name ?? req.org_name ?? 'Client',
-      }),
+    const res = await bookForPipeline(req.id, {
+      session_instance_id: selectedInstance.id,
+      client_name:         req.submitted_by_name ?? req.org_name ?? 'Client',
     })
     setSubmitting(false)
     if (res.ok) {
@@ -297,18 +305,12 @@ function BookingModal({
     if (!date || !time || !sessionType || !clientName || submitting) return
     setSubmitting(true); setErr(null)
 
-    const res = await fetch('/api/bookings', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        organisation_id: req.organisation_id,
-        pipeline_id:     req.id,
-        client_name:     clientName,
-        client_email:    clientEmail || undefined,
-        date,
-        time,
-        session_type:    sessionType,
-      }),
+    const res = await bookForPipeline(req.id, {
+      client_name:     clientName,
+      client_email:    clientEmail || undefined,
+      date,
+      time,
+      session_type:    sessionType,
     })
 
     setSubmitting(false)

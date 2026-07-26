@@ -2,6 +2,14 @@ import { NextRequest } from 'next/server';
 import { readConfig, writeConfig } from '../../../lib/brain/config';
 import { syncVault, startWatcher, getSyncStatus } from '../../../lib/brain/watcher';
 import { getStats, clearStore, isFilesystemAvailable } from '../../../lib/brain/store';
+import { requireRole } from '../../../lib/org';
+
+// The Brain notes vault is a single global filesystem vault with no
+// per-organisation partition — restricted to super_admin until it becomes
+// organisation-scoped (temporary containment, not the final architecture).
+async function requireBrainAccess() {
+  await requireRole('super_admin');
+}
 
 const OLLAMA_URL  = process.env.OLLAMA_URL  || 'http://localhost:11434';
 const EMBED_MODEL = process.env.EMBED_MODEL || 'nomic-embed-text';
@@ -57,6 +65,8 @@ function recordFallback(reason: string) {
 }
 
 export async function GET() {
+  try { await requireBrainAccess(); } catch { return Response.json({ error: 'Forbidden' }, { status: 403 }); }
+
   try {
     const cfg    = readConfig();
     const status = getSyncStatus();
@@ -86,6 +96,8 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
+  try { await requireBrainAccess(); } catch { return Response.json({ error: 'Forbidden' }, { status: 403 }); }
+
   try {
     const body = await req.json() as { action: string; vaultPath?: string };
 

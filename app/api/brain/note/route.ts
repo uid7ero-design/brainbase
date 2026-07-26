@@ -1,10 +1,15 @@
 import { NextRequest } from 'next/server';
 import fs   from 'fs';
-import path from 'path';
 import { readConfig } from '../../../../lib/brain/config';
 import { syncVault }  from '../../../../lib/brain/watcher';
+import { requireRole } from '../../../../lib/org';
+import { resolveSafeNotePath } from '../../../../lib/brain/pathGuard';
 
 export async function POST(req: NextRequest) {
+  // The Brain vault is global, not organisation-scoped — super_admin only
+  // until it becomes organisation-scoped (temporary containment).
+  try { await requireRole('super_admin'); } catch { return Response.json({ error: 'Forbidden' }, { status: 403 }); }
+
   const { title, body, folder } = await req.json() as {
     title: string;
     body:  string;
@@ -21,18 +26,17 @@ export async function POST(req: NextRequest) {
   }
 
   const safeTitle = title.replace(/[<>:"/\\|?*]/g, '-').trim();
-  const timestamp = new Date().toISOString().slice(0, 10);
+  const fileName = `${safeTitle}.md`;
 
-  const targetDir = folder
-    ? path.join(cfg.vaultPath, folder)
-    : cfg.vaultPath;
+  const resolved = resolveSafeNotePath(cfg.vaultPath, folder, fileName);
+  if (!resolved.ok) {
+    return Response.json({ error: 'Invalid folder path' }, { status: 400 });
+  }
+  const { filePath, targetDir } = resolved;
 
   if (!fs.existsSync(targetDir)) {
     fs.mkdirSync(targetDir, { recursive: true });
   }
-
-  const fileName = `${safeTitle}.md`;
-  const filePath = path.join(targetDir, fileName);
 
   const content = `# ${title}\n\n*Created by Helena — ${new Date().toLocaleString()}*\n\n${body ?? ''}`;
 

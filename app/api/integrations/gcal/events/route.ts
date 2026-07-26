@@ -1,5 +1,7 @@
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { getValidAccessTokens } from '../../../../../lib/gcal/tokens';
+import { requireGlobalIntegrationAccess, integrationAccessErrorStatus } from '../../../../../lib/globalIntegrationAccess';
+import { checkRateLimit } from '../../../../../lib/rateLimit';
 
 const CAL_BASE = 'https://www.googleapis.com/calendar/v3';
 
@@ -47,8 +49,14 @@ async function fetchAllCalendars(token: string, email: string, params: URLSearch
 }
 
 export async function GET() {
+  try {
+    await requireGlobalIntegrationAccess('GCAL_OWNER_ORG_ID', 'viewer');
+  } catch (err) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: integrationAccessErrorStatus(err) });
+  }
+
   const accounts = await getValidAccessTokens();
-  if (!accounts.length) return Response.json({ error: 'Not connected' }, { status: 401 });
+  if (!accounts.length) return NextResponse.json({ error: 'Not connected' }, { status: 401 });
 
   const now   = new Date();
   const start = new Date(now); start.setHours(0, 0, 0, 0);
@@ -75,12 +83,23 @@ export async function GET() {
     return new Date(a.start).getTime() - new Date(b.start).getTime();
   });
 
-  return Response.json({ events: allEvents });
+  return NextResponse.json({ events: allEvents });
 }
 
 export async function POST(req: NextRequest) {
+  let session;
+  try {
+    session = await requireGlobalIntegrationAccess('GCAL_OWNER_ORG_ID', 'manager');
+  } catch (err) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: integrationAccessErrorStatus(err) });
+  }
+
+  if (!checkRateLimit(`gcal-write:${session.userId}`, 30, 60 * 60_000)) {
+    return NextResponse.json({ error: 'Too many requests' }, { status: 429, headers: { 'Retry-After': '3600' } });
+  }
+
   const accounts = await getValidAccessTokens();
-  if (!accounts.length) return Response.json({ error: 'Not connected' }, { status: 401 });
+  if (!accounts.length) return NextResponse.json({ error: 'Not connected' }, { status: 401 });
 
   const { token } = accounts[0];
 
@@ -114,6 +133,6 @@ export async function POST(req: NextRequest) {
     body: JSON.stringify(body),
   });
 
-  if (!res.ok) return Response.json({ error: 'Create failed' }, { status: res.status });
-  return Response.json({ ok: true, event: await res.json() });
+  if (!res.ok) return NextResponse.json({ error: 'Create failed' }, { status: res.status });
+  return NextResponse.json({ ok: true, event: await res.json() });
 }
