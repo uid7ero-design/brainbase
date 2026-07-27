@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { Resend } from 'resend';
 import sql from '@/lib/db';
 import { prisma } from '@/lib/prisma';
+import { checkRateLimit } from '@/lib/rateLimit';
+import { getClientIp } from '@/lib/clientIp';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
@@ -49,6 +51,10 @@ function buildEmail(d: {
 }
 
 export async function POST(req: NextRequest) {
+  if (!checkRateLimit(`request-demo:${getClientIp(req)}`, 5, 60 * 60_000)) {
+    return NextResponse.json({ error: 'Too many requests. Please wait before trying again.' }, { status: 429 });
+  }
+
   let body: Record<string, string>;
   try { body = await req.json(); } catch {
     return NextResponse.json({ error: 'Invalid body' }, { status: 400 });

@@ -2,12 +2,18 @@ import { NextRequest, NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
 import sql from '@/lib/db';
 import { createSession } from '@/lib/session';
+import { checkRateLimit } from '@/lib/rateLimit';
+import { getClientIp } from '@/lib/clientIp';
 
 function slugify(str: string) {
   return str.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'org';
 }
 
 export async function POST(req: NextRequest) {
+  if (!checkRateLimit(`signup:${getClientIp(req)}`, 5, 60 * 60_000)) {
+    return NextResponse.json({ error: 'Too many requests. Please wait before trying again.' }, { status: 429 });
+  }
+
   const body = await req.json().catch(() => null);
   if (!body) return NextResponse.json({ error: 'Invalid request.' }, { status: 400 });
 

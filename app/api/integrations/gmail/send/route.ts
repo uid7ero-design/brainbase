@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getValidAccessToken, readTokens } from '../../../../../lib/gmail/tokens';
+import { requireGlobalIntegrationAccess, integrationAccessErrorStatus } from '../../../../../lib/globalIntegrationAccess';
+import { checkRateLimit } from '../../../../../lib/rateLimit';
 
 const BASE = 'https://gmail.googleapis.com/gmail/v1/users/me';
 
@@ -21,6 +23,17 @@ function makeRaw(to: string, from: string, subject: string, body: string, thread
 }
 
 export async function POST(req: NextRequest) {
+  let session;
+  try {
+    session = await requireGlobalIntegrationAccess('GMAIL_OWNER_ORG_ID', 'manager');
+  } catch (err) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: integrationAccessErrorStatus(err) });
+  }
+
+  if (!checkRateLimit(`gmail-send:${session.userId}`, 20, 60 * 60_000)) {
+    return NextResponse.json({ error: 'Too many requests' }, { status: 429, headers: { 'Retry-After': '3600' } });
+  }
+
   const { to, subject, body, threadId, inReplyTo } = await req.json() as {
     to: string; subject: string; body: string; threadId?: string; inReplyTo?: string;
   };

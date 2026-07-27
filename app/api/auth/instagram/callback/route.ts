@@ -1,14 +1,39 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireSession } from '@/lib/org'
+import { requireRole } from '@/lib/org'
 import sql from '@/lib/db'
+import { encrypt } from '@/lib/social/crypto'
+import { verifyOAuthState } from '@/lib/oauthState'
+import { STATE_COOKIE } from '../connect/route'
 
 const APP_ID = process.env.META_APP_ID!
 const APP_SECRET = process.env.META_APP_SECRET!
 const REDIRECT_URI = process.env.META_REDIRECT_URI!
 
 export async function GET(req: NextRequest) {
-  const session = await requireSession().catch(() => null)
-  if (!session) return NextResponse.redirect(new URL('/login', req.url))
+  // Same role floor as the connect step — writing a new token is a
+  // token-changing action, restricted to manager+.
+  let session
+  try {
+    session = await requireRole('manager')
+  } catch (err) {
+    const insufficientRole = err instanceof Error && err.message === 'Forbidden'
+    return NextResponse.redirect(
+      insufficientRole
+        ? new URL('/admin/founder?ig_error=Forbidden', req.url)
+        : new URL('/login', req.url),
+    )
+  }
+
+  // State is verified before the OAuth code is ever exchanged — a missing,
+  // malformed, mismatched, or expired state all fail identically, and the
+  // state cookie is consumed (one-time use) whether verification succeeds
+  // or fails. Never log the state value itself.
+  const providedState = req.nextUrl.searchParams.get('state')
+  const stateOk = await verifyOAuthState(STATE_COOKIE, providedState)
+  if (!stateOk) {
+    console.error('[Instagram callback] OAuth state missing, malformed, mismatched, or expired')
+    return NextResponse.redirect(new URL('/admin/founder?ig_error=invalid_state', req.url))
+  }
 
   const code = req.nextUrl.searchParams.get('code')
   const error = req.nextUrl.searchParams.get('error_description')
@@ -61,10 +86,18 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // Every new write is encrypted with the same AES-256-GCM helper the newer
+  // social_accounts flow already uses (lib/social/crypto.ts) — no new
+  // plaintext token is ever written here again. Existing rows written before
+  // this fix remain plaintext at rest (see the read-side fallback in
+  // /api/instagram/feed) — migrating them is a tracked follow-up, not
+  // performed here (no uncontrolled production-data migration).
+  const encryptedToken = encrypt(longToken)
+
   // Upsert into social_connections
   await sql`
     INSERT INTO social_connections (organisation_id, platform, access_token, token_expires_at, instagram_account_id, platform_username)
-    VALUES (${session.organisationId}, 'instagram', ${longToken}, ${expiresAt}, ${igAccountId}, ${igUsername})
+    VALUES (${session.organisationId}, 'instagram', ${encryptedToken}, ${expiresAt}, ${igAccountId}, ${igUsername})
     ON CONFLICT (organisation_id, platform)
     DO UPDATE SET
       access_token = EXCLUDED.access_token,

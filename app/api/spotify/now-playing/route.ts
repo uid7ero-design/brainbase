@@ -1,9 +1,16 @@
 import { NextResponse } from 'next/server';
 import { getValidAccessToken } from '../../../../lib/spotify/tokens';
+import { requireGlobalIntegrationAccess, integrationAccessErrorStatus } from '../../../../lib/globalIntegrationAccess';
 
 const API_BASE = 'https://api.spotify.com/v1';
 
 export async function GET() {
+  try {
+    await requireGlobalIntegrationAccess('SPOTIFY_OWNER_ORG_ID', 'viewer');
+  } catch (err) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: integrationAccessErrorStatus(err) });
+  }
+
   const token = await getValidAccessToken();
   if (!token) return NextResponse.json({ connected: false });
 

@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getAuthSession } from '@/lib/authSession';
+import { stampOrganisationOnObject } from '@/lib/stampOrganisation';
+import { checkRateLimit } from '@/lib/rateLimit';
 
 const BACKEND = process.env.NEXT_PUBLIC_API_URL ?? '';
+const MAX_BODY_BYTES = 2 * 1024 * 1024; // 2MB
 
 type AnyObj = Record<string, unknown>;
 
@@ -34,6 +38,22 @@ function logPipelineShape(label: string, obj: AnyObj) {
 }
 
 export async function POST(req: NextRequest) {
+  let session;
+  try {
+    session = await getAuthSession();
+  } catch {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  if (!checkRateLimit(`hlna-run:${session.userId}`, 20, 15 * 60_000)) {
+    return NextResponse.json({ error: 'Too many requests' }, { status: 429, headers: { 'Retry-After': '900' } });
+  }
+
+  const contentLength = Number(req.headers.get('content-length') ?? '0');
+  if (contentLength > MAX_BODY_BYTES) {
+    return NextResponse.json({ error: 'Request too large' }, { status: 413 });
+  }
+
   let body: AnyObj;
   try {
     body = await req.json() as AnyObj;
@@ -41,6 +61,10 @@ export async function POST(req: NextRequest) {
     console.error('[HLNA /run] failed to parse request body:', e);
     return NextResponse.json({ error: 'Bad request' }, { status: 400 });
   }
+
+  // The client must never be able to select/override the tenant sent to the
+  // external HLNA backend — always overwrite with the authenticated session's org.
+  body = stampOrganisationOnObject(body, session.organisationId);
 
   console.log('[HLNA /run] request — query:', body.query, '| file_path:', body.file_path ?? '(none)');
 
