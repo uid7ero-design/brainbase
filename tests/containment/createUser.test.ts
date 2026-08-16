@@ -65,4 +65,25 @@ describe('createUser server action — super_admin-only guard', () => {
     expect(result).toEqual({ error: 'Username already taken.' });
     expect(sqlMock).toHaveBeenCalledTimes(1);
   });
+
+  it('rejects a password under 8 characters without inserting', async () => {
+    getSessionMock.mockResolvedValue({ userId: 'admin1', organisationId: 'bb-org', role: 'super_admin', name: 'James' });
+
+    const result = await createUser(undefined, formData({ ...validFields, password: 'short1' }));
+    expect(result).toEqual({ error: 'Password must be at least 8 characters.' });
+    expect(sqlMock).not.toHaveBeenCalled();
+  });
+
+  it('stores a bcrypt hash, never the plaintext password', async () => {
+    getSessionMock.mockResolvedValue({ userId: 'admin1', organisationId: 'bb-org', role: 'super_admin', name: 'James' });
+    sqlMock.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+
+    await createUser(undefined, formData(validFields));
+
+    const insertCallArgs = sqlMock.mock.calls[1];
+    const storedHash = insertCallArgs.find((v: unknown) => typeof v === 'string' && v.startsWith('$2'));
+    expect(storedHash).toBeDefined();
+    expect(storedHash).not.toBe(validFields.password);
+    expect(insertCallArgs).not.toContain(validFields.password);
+  });
 });
