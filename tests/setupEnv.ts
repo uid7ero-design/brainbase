@@ -5,3 +5,4 @@
 // would actually use these values (see individual test files).
 process.env.DATABASE_URL ??= 'postgresql://test:test@localhost:5432/test';
 process.env.SESSION_SECRET ??= 'test-session-secret-not-for-production-0000000000000000';
+process.env.RESEND_API_KEY ??= 'test-resend-key-not-for-production';
