@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireRole } from '@/lib/org'
+import { requireRole, roleGte } from '@/lib/org'
 import sql from '@/lib/db'
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -33,9 +33,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  // ── Paid / attendance updates (admin only) ───────────────────────────────────
+  // ── Paid / attendance updates (manager and above, own org only) ──────────────
   if ('paid' in body || 'attendance_status' in body) {
-    if (session.role !== 'super_admin') {
+    if (!roleGte(session.role, 'manager')) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
     try {
