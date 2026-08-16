@@ -31,6 +31,12 @@ if (!process.env.DATABASE_URL) {
 const sql = neon(process.env.DATABASE_URL);
 
 // LD Tennis org (existing client — keep its known UUID)
+// ⚠️ UNVERIFIED: scripts/delete-duplicate-org.ts labels this exact UUID
+// `PHANTOM` and deletes it + its users. scripts/check-ld-data.ts uses a
+// different UUID (8ecd003b-583f-4616-a830-8dbf8aa51d2c) for "the" LD Tennis
+// org. Confirm which UUID is actually live (match the production
+// LD_TENNIS_ORG_ID env var against /admin/orgs) before running this — it
+// may otherwise recreate a deleted duplicate organisation.
 const LD_ORG_ID   = '0c0397b1-a9a6-4ae5-86f5-283aeb502e73';
 const LD_ORG_NAME = 'LD Tennis';
 const LD_ORG_SLUG = 'ld-tennis';
