@@ -11,8 +11,13 @@ export async function GET() {
       SELECT
         s.id, s.name, s.day_of_week, s.start_time, s.duration_minutes,
         s.max_capacity, s.session_type, s.resource_id, s.recurring, s.price_per_session, s.created_at,
+        -- Unique roster players, not total booking rows: a weekly player
+        -- propagated across 6 future instances has 6 booking rows but is
+        -- one player. Bookings sharing a recurring_group_id collapse to a
+        -- single count; one-off/drop-in bookings (recurring_group_id NULL)
+        -- each count individually via their own id.
         COALESCE(
-          (SELECT COUNT(*)::int FROM bookings b
+          (SELECT COUNT(DISTINCT COALESCE(b.recurring_group_id, b.id))::int FROM bookings b
            WHERE b.session_id = s.id AND b.status != 'cancelled'),
           0
         ) AS enrolled_count
