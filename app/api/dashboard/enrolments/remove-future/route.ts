@@ -6,13 +6,17 @@ export async function POST(req: NextRequest) {
   let session
   try { session = await requireRole('manager') } catch { return NextResponse.json({ error: 'Forbidden' }, { status: 403 }) }
 
-  let body: { client_name: string; client_email?: string | null; session_id: string; from_date: string }
+  let body: { client_name: string; client_email?: string | null; session_id: string; from_date: string; recurring_group_id?: string | null }
   try { body = await req.json() } catch { return NextResponse.json({ error: 'Invalid body' }, { status: 400 }) }
   if (!body.client_name?.trim() || !body.session_id || !body.from_date) {
     return NextResponse.json({ error: 'client_name, session_id, and from_date are required' }, { status: 400 })
   }
 
   const clientEmail = body.client_email ?? null
+  // Prefer the stable recurring_group_id when the booking has one (rows
+  // created after this feature shipped); fall back to name/email matching
+  // for legacy rows that predate it, preserving existing production data.
+  const groupId = body.recurring_group_id ?? null
 
   try {
     // Stop recurring propagation from the current instance without cancelling the booking
@@ -23,8 +27,10 @@ export async function POST(req: NextRequest) {
         WHERE session_id = ${body.session_id}
           AND date = ${body.from_date}::date
       )
-        AND client_name = ${body.client_name.trim()}
-        AND (${clientEmail}::text IS NULL OR client_email = ${clientEmail})
+        AND (
+          (${groupId}::text IS NOT NULL AND recurring_group_id = ${groupId})
+          OR (${groupId}::text IS NULL AND client_name = ${body.client_name.trim()} AND (${clientEmail}::text IS NULL OR client_email = ${clientEmail}))
+        )
         AND status != 'cancelled'
         AND organisation_id = ${session.organisationId}
     `
@@ -37,8 +43,10 @@ export async function POST(req: NextRequest) {
         WHERE session_id = ${body.session_id}
           AND date > ${body.from_date}::date
       )
-        AND client_name = ${body.client_name.trim()}
-        AND (${clientEmail}::text IS NULL OR client_email = ${clientEmail})
+        AND (
+          (${groupId}::text IS NOT NULL AND recurring_group_id = ${groupId})
+          OR (${groupId}::text IS NULL AND client_name = ${body.client_name.trim()} AND (${clientEmail}::text IS NULL OR client_email = ${clientEmail}))
+        )
         AND status != 'cancelled'
         AND organisation_id = ${session.organisationId}
       RETURNING id
