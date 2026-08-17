@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireRole } from '@/lib/org'
 import sql from '@/lib/db'
-import { propagateRecurringEnrolment } from '@/lib/tennisRecurrence'
+import { propagateRecurringEnrolment, normalizeEmail, findDuplicateEnrolment } from '@/lib/tennisRecurrence'
 
 export async function POST(
   req: NextRequest,
@@ -31,6 +31,37 @@ export async function POST(
 
     const clientName = body.client_name.trim()
     const clientEmail = body.client_email?.trim() || null
+    const emailNorm = normalizeEmail(clientEmail)
+
+    // Server-side duplicate-person guard — never relies on the UI. Only
+    // possible when an email was provided; a booking with no email has no
+    // reliable identity to check and is allowed through unchanged rather
+    // than guessed at via name matching.
+    if (emailNorm) {
+      const dup = await findDuplicateEnrolment({
+        organisationId: session.organisationId, sessionId: id, instanceId, emailNorm, wantWeekly: weekly,
+      })
+      if (dup.type === 'weekly_exists' || dup.type === 'once_same_date' || dup.type === 'once_exists_elsewhere') {
+        return NextResponse.json({ error: dup.message }, { status: 409 })
+      }
+      if (dup.type === 'once_upgradeable') {
+        // Same person already has a Once booking on this exact date and
+        // Luke chose Weekly — convert that booking in place instead of
+        // creating a second lineage for the same person in this class.
+        const recurringGroupId = dup.existingRecurringGroupId ?? crypto.randomUUID()
+        const rows = await sql`
+          UPDATE bookings SET is_recurring = true, recurring_group_id = ${recurringGroupId}
+          WHERE id = ${dup.existingBookingId} AND organisation_id = ${session.organisationId}
+          RETURNING id, client_name, client_email, paid, attendance_status, status, pipeline_id, is_recurring, recurring_group_id, created_at
+        `
+        const propagation = await propagateRecurringEnrolment({
+          organisationId: session.organisationId, sessionId: id, recurringGroupId,
+          clientName, clientEmail, afterDate: inst.date,
+        })
+        return NextResponse.json({ booking: rows[0], propagation, upgraded: true }, { status: 200 })
+      }
+    }
+
     const recurringGroupId = weekly ? crypto.randomUUID() : null
 
     const rows = await sql`

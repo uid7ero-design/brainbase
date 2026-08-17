@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireRole } from '@/lib/org'
 import sql from '@/lib/db'
-import { propagateRecurringEnrolment } from '@/lib/tennisRecurrence'
+import { propagateRecurringEnrolment, normalizeEmail, findDuplicateEnrolment } from '@/lib/tennisRecurrence'
 
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   let session
@@ -53,6 +53,24 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     }
 
     if (body.is_recurring) {
+      // Guard against the exact production duplicate scenario: this same
+      // person already has a *different*, separate Weekly lineage in this
+      // session (e.g. from an earlier enrolment that was also toggled to
+      // Weekly) — toggling this booking to Weekly too would create a
+      // second recurring lineage for the same person in the same class.
+      const emailNorm = normalizeEmail(booking.client_email)
+      if (emailNorm && booking.session_instance_id) {
+        const dup = await findDuplicateEnrolment({
+          organisationId: session.organisationId, sessionId: booking.session_id,
+          instanceId: booking.session_instance_id, emailNorm, wantWeekly: true,
+        })
+        // 'once_upgradeable' would only ever refer to this exact booking
+        // (same email + same instance), so it is not a real duplicate here.
+        if (dup.type === 'weekly_exists' || dup.type === 'once_exists_elsewhere') {
+          return NextResponse.json({ error: dup.message }, { status: 409 })
+        }
+      }
+
       // Once -> Weekly: mint a lineage id if this booking doesn't already
       // have one, mark it recurring, then backfill exactly like initial
       // Weekly enrolment does.

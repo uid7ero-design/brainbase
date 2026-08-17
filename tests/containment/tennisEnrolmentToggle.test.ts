@@ -16,9 +16,15 @@ vi.mock('@/lib/db', () => ({
 }))
 
 const propagateMock = vi.fn()
-vi.mock('@/lib/tennisRecurrence', () => ({
-  propagateRecurringEnrolment: (...args: unknown[]) => propagateMock(...args),
-}))
+const findDuplicateMock = vi.fn()
+vi.mock('@/lib/tennisRecurrence', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/tennisRecurrence')>()
+  return {
+    ...actual,
+    propagateRecurringEnrolment: (...args: unknown[]) => propagateMock(...args),
+    findDuplicateEnrolment: (...args: unknown[]) => findDuplicateMock(...args),
+  }
+})
 
 const { PATCH } = await import('@/app/api/dashboard/enrolments/[id]/route')
 
@@ -34,7 +40,7 @@ const onceBooking = { id: 'booking-1', session_id: 'sess-1', session_instance_id
 const weeklyBooking = { ...onceBooking, recurring_group_id: 'group-1' }
 
 describe('PATCH /api/dashboard/enrolments/[id] — Once <-> Weekly toggle', () => {
-  beforeEach(() => { requireRoleMock.mockReset(); sqlMock.mockReset(); propagateMock.mockReset() })
+  beforeEach(() => { requireRoleMock.mockReset(); sqlMock.mockReset(); propagateMock.mockReset(); findDuplicateMock.mockReset() })
 
   it('denies a caller below manager', async () => {
     requireRoleMock.mockRejectedValue(new Error('Forbidden'))
@@ -92,5 +98,45 @@ describe('PATCH /api/dashboard/enrolments/[id] — Once <-> Weekly toggle', () =
     const res = await PATCH(patchRequest({ is_recurring: true }), { params })
     expect(res.status).toBe(404)
     expect(propagateMock).not.toHaveBeenCalled()
+  })
+
+  it('no email on the booking: skips the duplicate check (matches existing behaviour, no reliable identity)', async () => {
+    requireRoleMock.mockResolvedValue(manager)
+    sqlMock
+      .mockResolvedValueOnce([onceBooking]) // client_email: null
+      .mockResolvedValueOnce([{ id: 'booking-1', is_recurring: true, recurring_group_id: 'new-group' }])
+    propagateMock.mockResolvedValue({ propagated: 0, alreadyPresent: 0, paused: 0, capacityBlocked: 0, errors: 0, skippedDates: [] })
+
+    const res = await PATCH(patchRequest({ is_recurring: true }), { params })
+    expect(res.status).toBe(200)
+    expect(findDuplicateMock).not.toHaveBeenCalled()
+  })
+
+  it('this is the exact production duplicate scenario: a second booking for the same email cannot be toggled to Weekly if the email already has a separate Weekly lineage', async () => {
+    requireRoleMock.mockResolvedValue(manager)
+    const secondOnceBooking = { ...onceBooking, id: 'booking-2', client_email: 'jimmy@example.com' }
+    sqlMock.mockResolvedValueOnce([secondOnceBooking])
+    findDuplicateMock.mockResolvedValue({ type: 'weekly_exists', message: 'This player is already enrolled weekly in this session.' })
+
+    const res = await PATCH(patchRequest({ is_recurring: true }), { params })
+    expect(res.status).toBe(409)
+    const data = await res.json()
+    expect(data.error).toBe('This player is already enrolled weekly in this session.')
+    // Only the booking lookup ran — no UPDATE, no propagation.
+    expect(sqlMock).toHaveBeenCalledTimes(1)
+    expect(propagateMock).not.toHaveBeenCalled()
+  })
+
+  it('Weekly -> Once is never blocked by the duplicate guard (guard only applies when moving to Weekly)', async () => {
+    requireRoleMock.mockResolvedValue(manager)
+    const weeklyBookingWithEmail = { ...weeklyBooking, client_email: 'jimmy@example.com' }
+    sqlMock
+      .mockResolvedValueOnce([weeklyBookingWithEmail])
+      .mockResolvedValueOnce([{ id: 'booking-1', is_recurring: false, recurring_group_id: 'group-1' }])
+      .mockResolvedValueOnce([])
+
+    const res = await PATCH(patchRequest({ is_recurring: false }), { params })
+    expect(res.status).toBe(200)
+    expect(findDuplicateMock).not.toHaveBeenCalled()
   })
 })
