@@ -666,9 +666,10 @@ function summaryText(s: PropagationSummary): string | null {
   return parts.join('. ') + '.'
 }
 
-function InstanceRoster({ detail, sessionRecurring, onBookingUpdate, onEnroll, onRemove, onRemoveFuture, onRefresh }: {
+function InstanceRoster({ detail, sessionRecurring, hasOtherInstances, onBookingUpdate, onEnroll, onRemove, onRemoveFuture, onRefresh }: {
   detail: InstanceDetail
   sessionRecurring: boolean
+  hasOtherInstances: boolean
   onBookingUpdate: (id: string, patch: Partial<InstanceBooking>) => void
   onEnroll: (booking: InstanceBooking) => void
   onRemove: (bookingId: string) => void
@@ -677,11 +678,18 @@ function InstanceRoster({ detail, sessionRecurring, onBookingUpdate, onEnroll, o
 }) {
   const { instance, bookings } = detail
   if (!instance) return null
+  // A session flagged `recurring` should always offer Weekly, even before
+  // any future instances exist yet — but `recurring` alone is not a
+  // reliable signal in practice: generate-instances does not require it,
+  // so a session flagged non-recurring can still have future instances to
+  // propagate into (this was the actual production bug — Weekly was
+  // wrongly hidden for such a session). Offer Weekly whenever either is true.
+  const canOfferWeekly = sessionRecurring || hasOtherInstances
   const end  = endTime(instance.start_time, instance.duration_minutes)
   const paid = bookings.filter(b => b.paid).length
   const [showEnroll, setShowEnroll] = useState(false)
   const [enrollForm, setEnrollForm] = useState({ name: '', email: '' })
-  const [frequency, setFrequency]   = useState<'weekly' | 'once'>(sessionRecurring ? 'weekly' : 'once')
+  const [frequency, setFrequency]   = useState<'weekly' | 'once'>(canOfferWeekly ? 'weekly' : 'once')
   const [enrolling, setEnrolling]   = useState(false)
   const [enrollErr, setEnrollErr]   = useState<string | null>(null)
   const [contacts, setContacts]     = useState<Contact[]>([])
@@ -863,7 +871,7 @@ function InstanceRoster({ detail, sessionRecurring, onBookingUpdate, onEnroll, o
             <div style={{ fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,.30)', letterSpacing: '.08em', textTransform: 'uppercase', marginBottom: 4 }}>Email (optional)</div>
             <input style={inp} placeholder="client@email.com" type="email" value={enrollForm.email} onChange={e => setEnrollForm(f => ({ ...f, email: e.target.value }))} />
           </div>
-          {sessionRecurring && (
+          {canOfferWeekly && (
             <div>
               <div style={{ fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,.30)', letterSpacing: '.08em', textTransform: 'uppercase', marginBottom: 4 }}>Booking frequency</div>
               <div style={{ display: 'flex', gap: 6 }}>
@@ -1102,6 +1110,19 @@ export default function SessionsPage() {
       .catch(() => setRosterLoading(false))
   }
 
+  // Single shared refresh path for every recurrence-related mutation
+  // (initial Weekly/Once enrolment, Once<->Weekly toggle, Pause, Resume,
+  // Remove future) — refetches from the server rather than hand-patching
+  // local counts, and preserves the currently selected session/date instead
+  // of collapsing the roster panel back to the date picker.
+  function refreshDashboard() {
+    fetch(API).then(r => r.json()).then(d => setSessions(d.sessions ?? [])).catch(() => null)
+    if (selectedSessionId) {
+      fetch(`${API}/${selectedSessionId}`).then(r => r.json()).then(d => { if (d.instances) setInstances(d.instances) }).catch(() => null)
+      if (selectedInstanceId) loadRoster(selectedSessionId, selectedInstanceId)
+    }
+  }
+
   async function generateInstances() {
     if (!selectedSessionId || generating) return
     setGenerating(true)
@@ -1120,16 +1141,13 @@ export default function SessionsPage() {
 
   function handleRemove(bookingId: string) {
     setInstanceDetail(d => d ? { ...d, bookings: d.bookings.filter(b => b.id !== bookingId) } : d)
-    setSessions(prev => prev.map(s => s.id === selectedSessionId ? { ...s, enrolled_count: Math.max(0, s.enrolled_count - 1) } : s))
-    setInstances(prev => prev.map(i => i.id === selectedInstanceId ? { ...i, enrolled_count: Math.max(0, i.enrolled_count - 1) } : i))
+    refreshDashboard()
   }
 
   function handleRemoveFuture(bookingId: string) {
     // Clear recurring flag on the current booking — it stays, just won't propagate
     setInstanceDetail(d => d ? { ...d, bookings: d.bookings.map(b => b.id === bookingId ? { ...b, is_recurring: false } : b) } : d)
-    // Refresh week view and instance list so future enrolled counts update
-    fetch(`${API}/instances`).then(r => r.json()).then(d => setWeekInstances(d.instances ?? [])).catch(() => null)
-    if (selectedSessionId) loadInstances(selectedSessionId)
+    refreshDashboard()
   }
 
   function handleCreate(s: Session) {
@@ -1352,19 +1370,17 @@ export default function SessionsPage() {
             <div style={{ padding: '32px 22px', textAlign: 'center', color: 'rgba(255,255,255,.25)', fontSize: 13 }}>Loading roster…</div>
           ) : instanceDetail ? (
             <InstanceRoster
+              key={instanceDetail.instance.id}
               detail={instanceDetail}
               sessionRecurring={selectedSession?.recurring ?? false}
+              hasOtherInstances={instances.some(i => i.id !== instanceDetail.instance.id)}
               onBookingUpdate={handleBookingUpdate}
               onRemove={handleRemove}
               onRemoveFuture={handleRemoveFuture}
-              onRefresh={() => {
-                if (selectedSessionId && selectedInstanceId) loadRoster(selectedSessionId, selectedInstanceId)
-                fetch(`${API}/instances`).then(r => r.json()).then(d => setWeekInstances(d.instances ?? [])).catch(() => null)
-              }}
+              onRefresh={refreshDashboard}
               onEnroll={b => {
                 setInstanceDetail(d => d ? { ...d, bookings: [...d.bookings, b] } : d)
-                setSessions(prev => prev.map(s => s.id === selectedSessionId ? { ...s, enrolled_count: s.enrolled_count + 1 } : s))
-                setInstances(prev => prev.map(i => i.id === selectedInstanceId ? { ...i, enrolled_count: i.enrolled_count + 1 } : i))
+                refreshDashboard()
               }}
             />
           ) : null}
