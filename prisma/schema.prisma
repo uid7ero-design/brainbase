@@ -670,6 +670,12 @@ model Booking {
   paid                Boolean          @default(false)
   attendance_status   String?
   session_instance_id String?
+  // NOT YET APPLIED to the production database — see scripts/add-is-recurring.sql.
+  // Written by app/api/dashboard/{enrolments,sessions/[id]/instances/[instanceId],
+  // sessions/[id]/generate-instances}/route.ts (raw SQL, not Prisma Client, so this
+  // field declaration alone has no runtime effect). Run the migration before
+  // relying on this model matching the live schema.
+  is_recurring        Boolean          @default(false)
   organisation        Organisation     @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
   session             Session?         @relation(fields: [session_id], references: [id], onUpdate: NoAction)
   session_instance    SessionInstance? @relation(fields: [session_instance_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
