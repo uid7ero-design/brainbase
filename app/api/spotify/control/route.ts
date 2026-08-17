@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getValidAccessToken } from '../../../../lib/spotify/tokens';
+import { requireGlobalIntegrationAccess, integrationAccessErrorStatus } from '../../../../lib/globalIntegrationAccess';
+import { checkRateLimit } from '../../../../lib/rateLimit';
 
 const API_BASE = 'https://api.spotify.com/v1/me/player';
 
@@ -11,6 +13,17 @@ const ACTIONS: Record<string, { method: string; path: string }> = {
 };
 
 export async function POST(req: NextRequest) {
+  let session;
+  try {
+    session = await requireGlobalIntegrationAccess('SPOTIFY_OWNER_ORG_ID', 'manager');
+  } catch (err) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: integrationAccessErrorStatus(err) });
+  }
+
+  if (!checkRateLimit(`spotify-control:${session.userId}`, 60, 15 * 60_000)) {
+    return NextResponse.json({ error: 'Too many requests' }, { status: 429, headers: { 'Retry-After': '900' } });
+  }
+
   const token = await getValidAccessToken();
   if (!token) return NextResponse.json({ error: 'not_connected' }, { status: 401 });
 

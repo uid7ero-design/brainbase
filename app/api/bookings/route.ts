@@ -2,15 +2,27 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireRole } from '@/lib/org'
 import sql from '@/lib/db'
 
-export async function GET() {
-  try { await requireRole('super_admin') } catch { return NextResponse.json({ error: 'Forbidden' }, { status: 403 }) }
+export async function GET(req: NextRequest) {
+  let session
+  try { session = await requireRole('super_admin') } catch { return NextResponse.json({ error: 'Forbidden' }, { status: 403 }) }
 
+  const { searchParams } = new URL(req.url)
+  const limit  = Math.min(Math.max(Number(searchParams.get('limit')) || 100, 1), 500)
+  const offset = Math.max(Number(searchParams.get('offset')) || 0, 0)
+
+  // Effective organisation — respects the existing org_override (impersonation)
+  // convention already used platform-wide. Never returns every organisation's
+  // bookings unconditionally; a super_admin inspecting a different org's
+  // bookings switches into it via /api/admin/impersonate first, same as
+  // every other cross-org admin action.
   try {
     const bookings = await sql`
       SELECT id, organisation_id, session_id, session_instance_id, pipeline_id, client_name, client_email,
              date, time, session_type, status, paid, attendance_status, confirmed_at, notes, created_at, updated_at
       FROM bookings
+      WHERE organisation_id = ${session.organisationId}
       ORDER BY date ASC, time ASC
+      LIMIT ${limit} OFFSET ${offset}
     `
     return NextResponse.json({ bookings })
   } catch (err) {
@@ -20,10 +32,10 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  try { await requireRole('super_admin') } catch { return NextResponse.json({ error: 'Forbidden' }, { status: 403 }) }
+  let session
+  try { session = await requireRole('super_admin') } catch { return NextResponse.json({ error: 'Forbidden' }, { status: 403 }) }
 
   let body: {
-    organisation_id: string
     session_id?: string
     session_instance_id?: string
     pipeline_id?: string
@@ -36,9 +48,16 @@ export async function POST(req: NextRequest) {
   }
   try { body = await req.json() } catch { return NextResponse.json({ error: 'Invalid body' }, { status: 400 }) }
 
-  if (!body.organisation_id || !body.client_name) {
-    return NextResponse.json({ error: 'organisation_id and client_name are required' }, { status: 400 })
+  if (!body.client_name) {
+    return NextResponse.json({ error: 'client_name is required' }, { status: 400 })
   }
+
+  // The organisation is always the caller's effective/authenticated organisation
+  // context (respecting org_override) — a raw organisationId is never
+  // trusted. To book on behalf of a different organisation, switch into it via
+  // /api/admin/impersonate first, exactly as every other cross-org admin
+  // action in this platform already requires.
+  const organisationId = session.organisationId
 
   // ── Session-instance booking (specific calendar date) ────────────────────────
   if (body.session_instance_id) {
@@ -47,7 +66,7 @@ export async function POST(req: NextRequest) {
              s.name, s.session_type, s.day_of_week
       FROM session_instances si
       JOIN sessions s ON s.id = si.session_id
-      WHERE si.id = ${body.session_instance_id} AND s.organisation_id = ${body.organisation_id}
+      WHERE si.id = ${body.session_instance_id} AND s.organisation_id = ${organisationId}
         AND si.status = 'scheduled'
     `
     if (!instances[0]) return NextResponse.json({ error: 'Session instance not found or cancelled' }, { status: 404 })
@@ -74,7 +93,7 @@ export async function POST(req: NextRequest) {
            date, time, session_type, status, notes)
         VALUES (
           ${id},
-          ${body.organisation_id},
+          ${organisationId},
           ${inst.session_id},
           ${body.session_instance_id},
           ${body.pipeline_id ?? null},
@@ -102,7 +121,7 @@ export async function POST(req: NextRequest) {
 
         await sql`
           INSERT INTO pipeline_messages (pipeline_id, organisation_id, author_type, body)
-          VALUES (${body.pipeline_id}::uuid, ${body.organisation_id}, 'founder', ${msgBody})
+          VALUES (${body.pipeline_id}::uuid, ${organisationId}, 'founder', ${msgBody})
         `.catch(err => console.error('[bookings POST/instance] message insert error:', err))
       }
 
@@ -118,7 +137,7 @@ export async function POST(req: NextRequest) {
     const sess = await sql`
       SELECT id, name, start_time, session_type, max_capacity, day_of_week
       FROM sessions
-      WHERE id = ${body.session_id} AND organisation_id = ${body.organisation_id}
+      WHERE id = ${body.session_id} AND organisation_id = ${organisationId}
     `
     if (!sess[0]) return NextResponse.json({ error: 'Session not found' }, { status: 404 })
 
@@ -140,7 +159,7 @@ export async function POST(req: NextRequest) {
            date, time, session_type, status, notes)
         VALUES (
           ${id},
-          ${body.organisation_id},
+          ${organisationId},
           ${body.session_id},
           ${body.pipeline_id ?? null},
           ${body.client_name},
@@ -166,7 +185,7 @@ export async function POST(req: NextRequest) {
 
         await sql`
           INSERT INTO pipeline_messages (pipeline_id, organisation_id, author_type, body)
-          VALUES (${body.pipeline_id}::uuid, ${body.organisation_id}, 'founder', ${msgBody})
+          VALUES (${body.pipeline_id}::uuid, ${organisationId}, 'founder', ${msgBody})
         `.catch(err => console.error('[bookings POST/session] message insert error:', err))
       }
 
@@ -197,7 +216,7 @@ export async function POST(req: NextRequest) {
         (id, organisation_id, pipeline_id, client_name, client_email, date, time, session_type, status, notes)
       VALUES (
         ${id},
-        ${body.organisation_id},
+        ${organisationId},
         ${body.pipeline_id ?? null},
         ${body.client_name},
         ${body.client_email ?? null},
@@ -222,7 +241,7 @@ export async function POST(req: NextRequest) {
 
       await sql`
         INSERT INTO pipeline_messages (pipeline_id, organisation_id, author_type, body)
-        VALUES (${body.pipeline_id}::uuid, ${body.organisation_id}, 'founder', ${msgBody})
+        VALUES (${body.pipeline_id}::uuid, ${organisationId}, 'founder', ${msgBody})
       `.catch(err => console.error('[bookings POST] message insert error:', err))
     }
 

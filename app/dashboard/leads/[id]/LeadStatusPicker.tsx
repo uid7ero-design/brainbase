@@ -9,6 +9,7 @@ const STATUSES = [
   { value: 'in_progress', label: 'In Progress', cls: 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20 hover:bg-yellow-500/20' },
   { value: 'booked',      label: 'Booked',      cls: 'bg-purple-500/10 text-purple-400 border-purple-500/20 hover:bg-purple-500/20' },
   { value: 'closed',      label: 'Closed',      cls: 'bg-zinc-500/10 text-zinc-500 border-zinc-500/20 hover:bg-zinc-500/20' },
+  { value: 'cancelled',   label: 'Cancelled',   cls: 'bg-red-500/10 text-red-400 border-red-500/20 hover:bg-red-500/20' },
 ];
 
 export default function LeadStatusPicker({

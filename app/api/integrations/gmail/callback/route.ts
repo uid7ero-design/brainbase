@@ -1,11 +1,27 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { writeTokens } from '../../../../../lib/gmail/tokens';
+import { requireGlobalIntegrationAccess } from '../../../../../lib/globalIntegrationAccess';
+import { verifyOAuthState } from '../../../../../lib/oauthState';
 
 export async function GET(req: NextRequest) {
+  const dashboard = new URL('/dashboard', req.url).toString();
+
+  try {
+    await requireGlobalIntegrationAccess('GMAIL_OWNER_ORG_ID', 'manager');
+  } catch {
+    return NextResponse.redirect(`${dashboard}?error=unauthorized`);
+  }
+
   const { searchParams } = new URL(req.url);
   const code  = searchParams.get('code');
   const error = searchParams.get('error');
-  const dashboard = new URL('/dashboard', req.url).toString();
+  const state = searchParams.get('state');
+
+  const stateOk = await verifyOAuthState('gmail_oauth_state', state);
+  if (!stateOk) {
+    console.error('[Gmail callback] OAuth state missing or mismatched');
+    return NextResponse.redirect(`${dashboard}?error=invalid_state`);
+  }
 
   if (error || !code) {
     console.error('[Gmail callback] error:', error);

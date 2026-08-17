@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireRole } from '@/lib/org'
 import sql from '@/lib/db'
+import { prisma } from '@/lib/prisma'
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   let session
@@ -84,18 +85,32 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
 
   const { id } = await params
 
+  // Verify ownership BEFORE any mutation — no child or parent row may be
+  // touched unless this session actually belongs to the caller's organisation.
+  const owned = await prisma.session.findFirst({
+    where: { id, organisation_id: session.organisationId },
+    select: { id: true },
+  })
+  if (!owned) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
   try {
-    // Delete bookings → instances → session (foreign key order)
-    await sql`
-      DELETE FROM bookings WHERE session_instance_id IN (
-        SELECT id FROM session_instances WHERE session_id = ${id}
-      )
-    `
-    await sql`DELETE FROM session_instances WHERE session_id = ${id}`
-    const rows = await sql`
-      DELETE FROM sessions WHERE id = ${id} AND organisation_id = ${session.organisationId} RETURNING id
-    `
-    if (!rows[0]) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    // All three deletes run in a single transaction: if any statement fails,
+    // Prisma rolls back the whole batch — no row is left partially deleted.
+    await prisma.$transaction([
+      prisma.booking.deleteMany({
+        where: {
+          organisation_id: session.organisationId,
+          session_instance: { session_id: id },
+        },
+      }),
+      prisma.sessionInstance.deleteMany({
+        where: { session_id: id, organisation_id: session.organisationId },
+      }),
+      prisma.session.deleteMany({
+        where: { id, organisation_id: session.organisationId },
+      }),
+    ])
+
     return NextResponse.json({ deleted: true })
   } catch (err) {
     console.error('[dashboard/sessions/[id] DELETE]', err)

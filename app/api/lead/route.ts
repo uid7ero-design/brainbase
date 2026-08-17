@@ -1,9 +1,11 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { Resend } from 'resend';
 import sql from '@/lib/db';
 import { prisma } from '@/lib/prisma';
 import { validateBookingRequest } from '@/app/tennis/lib/booking';
 import type { BookingRequest } from '@/app/tennis/lib/booking';
+import { checkRateLimit } from '@/lib/rateLimit';
+import { getClientIp } from '@/lib/clientIp';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
@@ -32,7 +34,11 @@ function buildEmailHtml(data: BookingRequest): string {
   `;
 }
 
-export async function POST(request: Request): Promise<Response> {
+export async function POST(request: NextRequest): Promise<Response> {
+  if (!checkRateLimit(`lead:${getClientIp(request)}`, 5, 60 * 60_000)) {
+    return NextResponse.json({ success: false, message: 'Too many requests. Please wait before trying again.' }, { status: 429 });
+  }
+
   let body: unknown;
   try { body = await request.json(); } catch {
     return NextResponse.json({ success: false, message: 'Invalid request body.' }, { status: 400 });

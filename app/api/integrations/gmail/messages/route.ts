@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getValidAccessToken } from '../../../../../lib/gmail/tokens';
+import { requireGlobalIntegrationAccess, integrationAccessErrorStatus } from '../../../../../lib/globalIntegrationAccess';
 
 const BASE = 'https://gmail.googleapis.com/gmail/v1/users/me';
 
@@ -17,6 +18,12 @@ function relativeTime(ms: number): string {
 }
 
 export async function GET() {
+  try {
+    await requireGlobalIntegrationAccess('GMAIL_OWNER_ORG_ID', 'manager');
+  } catch (err) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: integrationAccessErrorStatus(err) });
+  }
+
   const token = await getValidAccessToken();
   if (!token) return NextResponse.json({ error: 'not connected' }, { status: 401 });
 

@@ -1,15 +1,34 @@
 import { NextRequest, NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
 import sql from '@/lib/db';
+import { secureCompare } from '@/lib/secureCompare';
 
 /**
  * POST /api/admin/seed
  * Creates the initial organisation + super_admin user.
- * Only works when no users exist. Safe to call once.
+ * Only works when no users exist AND a valid bootstrap secret is supplied —
+ * the empty-users-table condition alone is no longer sufficient. Requires
+ * ADMIN_SEED_SECRET to be configured; if it is not set, this route refuses
+ * outright (fails closed) rather than falling back to the old behaviour.
  *
  * Body: { orgName, orgSlug, username, password, name }
+ * Bootstrap secret must be supplied via the `x-seed-secret` request header.
  */
 export async function POST(req: NextRequest) {
+  const requiredSecret = process.env.ADMIN_SEED_SECRET;
+  if (!requiredSecret) {
+    return NextResponse.json(
+      { error: 'Bootstrap is not configured on this deployment.' },
+      { status: 403 },
+    );
+  }
+
+  const suppliedSecret = req.headers.get('x-seed-secret') ?? '';
+  if (!suppliedSecret || !secureCompare(suppliedSecret, requiredSecret)) {
+    // Never log the supplied or required secret.
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
+
   // Ensure base tables exist
   await sql`
     CREATE TABLE IF NOT EXISTS organisations (

@@ -111,7 +111,7 @@ export default function UsersClient({ users, orgs, currentUserId }: { users: Use
               <label style={labelStyle}>Organisation</label>
               <select name="orgId" required style={selectStyle}>
                 <option value="">— Select organisation —</option>
-                {orgs.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
+                {orgs.map(o => <option key={o.id} value={o.id}>{o.name} ({o.slug})</option>)}
               </select>
             </div>
             <div>

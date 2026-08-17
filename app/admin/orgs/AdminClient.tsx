@@ -107,7 +107,7 @@ export default function AdminClient({ orgs: initial, users: initialUsers }: Prop
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(userForm),
     });
-    const data = await res.json();
+    const data = await res.json().catch(() => ({}));
     if (!res.ok) { flash(data.error ?? 'Failed.', true); setSaving(false); return; }
     setUsers(p => [data.user, ...p]);
     setUserForm({ username: '', password: '', name: '', email: '', role: 'manager', organisationId: '' });
@@ -136,7 +136,7 @@ export default function AdminClient({ orgs: initial, users: initialUsers }: Prop
       method: 'PATCH', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
-    const data = await res.json();
+    const data = await res.json().catch(() => ({}));
     if (!res.ok) { flash(data.error ?? 'Failed.', true); setSaving(false); return; }
     setUsers(p => p.map(u => u.id === editUser.id ? data.user : u));
     setEditUser(null);

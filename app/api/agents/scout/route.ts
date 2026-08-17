@@ -1,5 +1,7 @@
 import { NextRequest } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
+import { requireSession } from '@/lib/org';
+import { checkRateLimit } from '@/lib/rateLimit';
 
 const anthropic = new Anthropic();
 const TAVILY_KEY = process.env.TAVILY_API_KEY ?? '';
@@ -31,6 +33,17 @@ async function tavilySearch(query: string): Promise<TavilyResult[]> {
 }
 
 export async function POST(req: NextRequest) {
+  let session;
+  try {
+    session = await requireSession();
+  } catch {
+    return Response.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  if (!checkRateLimit(`scout:${session.userId}`, 10, 60 * 60_000)) {
+    return Response.json({ error: 'Too many requests' }, { status: 429, headers: { 'Retry-After': '3600' } });
+  }
+
   const { query } = await req.json() as { query: string };
   if (!query?.trim()) {
     return Response.json({ error: 'query required' }, { status: 400 });
