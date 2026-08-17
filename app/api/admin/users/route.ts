@@ -20,7 +20,11 @@ export async function GET() {
     LEFT JOIN organisations o ON o.id = u.organisation_id
     ORDER BY u.created_at DESC
   `;
-  return NextResponse.json({ users });
+  // Normalise for display: existing rows may hold role in either case
+  // depending on which admin path created them (see PATCH/POST below) —
+  // the edit form only recognises the lowercase canonical form.
+  const normalised = users.map(u => ({ ...u, role: (u.role as string).toLowerCase() }));
+  return NextResponse.json({ users: normalised });
 }
 
 export async function PATCH(req: NextRequest) {
@@ -33,34 +37,44 @@ export async function PATCH(req: NextRequest) {
   const body = await req.json().catch(() => null);
   if (!body) return NextResponse.json({ error: 'Invalid JSON.' }, { status: 400 });
 
-  const { name, role, organisationId, email, password } = body;
+  const { name, organisationId, email, password } = body;
+  // Normalise case before validating/storing — the DB may already hold
+  // either case depending on which admin path wrote the row, and this is
+  // the single canonical boundary where role casing is settled (mirrors
+  // lib/org.ts's requireSession(), which already lowercases role on read).
+  const role: string | undefined = typeof body.role === 'string' ? body.role.toLowerCase() : body.role;
 
   if (name !== undefined && !name?.trim())
     return NextResponse.json({ error: 'name cannot be blank.' }, { status: 400 });
-  if (role !== undefined && !ROLES.includes(role))
+  if (role !== undefined && !ROLES.includes(role as Role))
     return NextResponse.json({ error: `role must be one of: ${ROLES.join(', ')}.` }, { status: 400 });
   if (password !== undefined && password.length < 8)
     return NextResponse.json({ error: 'Password must be at least 8 characters.' }, { status: 400 });
 
-  const [current] = await sql`SELECT name, role, organisation_id, email, password_hash FROM users WHERE id = ${id}::uuid`;
-  if (!current) return NextResponse.json({ error: 'User not found.' }, { status: 404 });
+  try {
+    const [current] = await sql`SELECT name, role, organisation_id, email, password_hash FROM users WHERE id = ${id}::uuid`;
+    if (!current) return NextResponse.json({ error: 'User not found.' }, { status: 404 });
 
-  const newName  = (name as string | undefined)?.trim()   ?? (current.name as string);
-  const newRole  = (role as string | undefined)            ?? (current.role as string);
-  const newOrgId = (organisationId as string | undefined)  ?? (current.organisation_id as string);
-  const newEmail = email !== undefined ? (email?.trim() || null) : (current.email as string | null);
-  const newHash  = password ? await bcrypt.hash(password as string, 12) : (current.password_hash as string);
+    const newName  = (name as string | undefined)?.trim()   ?? (current.name as string);
+    const newRole  = (role as string | undefined)            ?? (current.role as string);
+    const newOrgId = (organisationId as string | undefined)  ?? (current.organisation_id as string);
+    const newEmail = email !== undefined ? (email?.trim() || null) : (current.email as string | null);
+    const newHash  = password ? await bcrypt.hash(password as string, 12) : (current.password_hash as string);
 
-  const rows = await sql`
-    UPDATE users
-    SET name = ${newName}, role = ${newRole}, organisation_id = ${newOrgId}::uuid,
-        email = ${newEmail}, password_hash = ${newHash}
-    WHERE id = ${id}::uuid
-    RETURNING id, email, name, role, organisation_id, email_verified, created_at
-  `;
+    const rows = await sql`
+      UPDATE users
+      SET name = ${newName}, role = ${newRole}, organisation_id = ${newOrgId}::uuid,
+          email = ${newEmail}, password_hash = ${newHash}
+      WHERE id = ${id}::uuid
+      RETURNING id, email, name, role, organisation_id, email_verified, created_at
+    `;
 
-  const [orgRow] = await sql`SELECT name FROM organisations WHERE id = ${newOrgId}::uuid`.catch(() => [null]);
-  return NextResponse.json({ user: { ...rows[0], org_name: orgRow?.name ?? null } });
+    const [orgRow] = await sql`SELECT name FROM organisations WHERE id = ${newOrgId}::uuid`.catch(() => [null]);
+    return NextResponse.json({ user: { ...rows[0], org_name: orgRow?.name ?? null } });
+  } catch (err) {
+    console.error('[admin/users PATCH]', err);
+    return NextResponse.json({ error: 'Failed to update user.' }, { status: 500 });
+  }
 }
 
 export async function DELETE(req: NextRequest) {
@@ -84,13 +98,14 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);
   if (!body) return NextResponse.json({ error: 'Invalid JSON.' }, { status: 400 });
 
-  const { username, password, name, role, organisationId } = body;
+  const { username, password, name, organisationId } = body;
+  const role: string | undefined = typeof body.role === 'string' ? body.role.toLowerCase() : body.role;
   const emailVal = (username ?? body.email)?.trim().toLowerCase();
 
   if (!emailVal)                         return NextResponse.json({ error: 'Email is required.' }, { status: 400 });
   if (!password || password.length < 8)  return NextResponse.json({ error: 'password must be at least 8 characters.' }, { status: 400 });
   if (!name?.trim())                     return NextResponse.json({ error: 'name is required.' }, { status: 400 });
-  if (!ROLES.includes(role))             return NextResponse.json({ error: `role must be one of: ${ROLES.join(', ')}.` }, { status: 400 });
+  if (!ROLES.includes(role as Role))     return NextResponse.json({ error: `role must be one of: ${ROLES.join(', ')}.` }, { status: 400 });
   if (!organisationId)                   return NextResponse.json({ error: 'organisationId is required.' }, { status: 400 });
 
   const passwordHash = await bcrypt.hash(password, 12);
