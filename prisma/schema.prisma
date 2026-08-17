@@ -22,6 +22,7 @@ model Organisation {
   bin_maintenance_jobs   BinMaintenanceJob[]
   blog_posts             BlogPost[]
   bookings               Booking[]
+  booking_recurrence_pauses BookingRecurrencePause[]
   briefings              Briefing[]
   contacts               contacts[]
   contracts              Contract[]
@@ -625,6 +626,7 @@ model Session {
   created_at         DateTime          @default(now()) @db.Timestamp(6)
   bookings           Booking[]
   instances          SessionInstance[]
+  recurrence_pauses  BookingRecurrencePause[]
   organisation     Organisation      @relation(fields: [organisation_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([organisation_id])
@@ -670,15 +672,54 @@ model Booking {
   paid                Boolean          @default(false)
   attendance_status   String?
   session_instance_id String?
+  // NOT YET APPLIED to the production database — see scripts/add-is-recurring.sql.
+  // Written by app/api/dashboard/{enrolments,sessions/[id]/instances/[instanceId],
+  // sessions/[id]/generate-instances}/route.ts (raw SQL, not Prisma Client, so this
+  // field declaration alone has no runtime effect). Run the migration before
+  // relying on this model matching the live schema.
+  is_recurring        Boolean          @default(false)
+  // NOT YET APPLIED to the production database — see
+  // scripts/add-recurring-pause-support.sql. Stable identifier shared by a
+  // player's source booking and every propagated/backfilled copy of it
+  // across future session instances (replaces name/email-only matching).
+  // Also raw-SQL-only; see the same routes as is_recurring above.
+  recurring_group_id  String?
   organisation        Organisation     @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
-  session             Session?         @relation(fields: [session_id], references: [id], onUpdate: NoAction)
+  session              Session?         @relation(fields: [session_id], references: [id], onUpdate: NoAction)
   session_instance    SessionInstance? @relation(fields: [session_instance_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([organisation_id])
   @@index([session_id])
   @@index([date])
   @@index([session_instance_id], map: "idx_bookings_session_instance_id")
+  @@index([recurring_group_id], map: "idx_bookings_recurring_group_id")
   @@map("bookings")
+}
+
+// NOT YET APPLIED to the production database — see
+// scripts/add-recurring-pause-support.sql. Represents a bounded date-range
+// pause on a recurring booking lineage (recurring_group_id) — the lineage
+// stays recurring (is_recurring remains true on the source booking); dates
+// inside the window are simply excluded from propagation/backfill/generation.
+// session_id is present so a future class-wide pause (recurring_group_id
+// NULL) could reuse this table without a schema change, but no route reads
+// or writes that shape yet — every current pause is player-scoped.
+model BookingRecurrencePause {
+  id                 String       @id @default(cuid())
+  organisation_id    String
+  recurring_group_id String?
+  session_id         String
+  pause_from         DateTime     @db.Date
+  pause_until        DateTime     @db.Date
+  reason             String?
+  created_by         String?
+  created_at         DateTime     @default(now())
+  organisation       Organisation @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
+  session            Session      @relation(fields: [session_id], references: [id], onDelete: Cascade)
+
+  @@index([organisation_id, recurring_group_id], map: "idx_pauses_org_group")
+  @@index([session_id], map: "idx_pauses_session")
+  @@map("booking_recurrence_pauses")
 }
 
 model contacts {
