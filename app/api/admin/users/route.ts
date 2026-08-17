@@ -56,7 +56,12 @@ export async function PATCH(req: NextRequest) {
     if (!current) return NextResponse.json({ error: 'User not found.' }, { status: 404 });
 
     const newName  = (name as string | undefined)?.trim()   ?? (current.name as string);
-    const newRole  = (role as string | undefined)            ?? (current.role as string);
+    // users.role is a real Postgres enum (UserRole: SUPER_ADMIN, ADMIN,
+    // MANAGER, ANALYST, VIEWER) — uppercase-only labels, not a TEXT column.
+    // `role` was already validated against the lowercase canonical Role
+    // values above; it must be uppercased here to match the enum, mirroring
+    // app/actions/users.ts's createUser, which already does this correctly.
+    const newRole  = (role as string | undefined)?.toUpperCase() ?? (current.role as string);
     const newOrgId = (organisationId as string | undefined)  ?? (current.organisation_id as string);
     const newEmail = email !== undefined ? (email?.trim() || null) : (current.email as string | null);
     const newHash  = password ? await bcrypt.hash(password as string, 12) : (current.password_hash as string);
@@ -70,7 +75,8 @@ export async function PATCH(req: NextRequest) {
     `;
 
     const [orgRow] = await sql`SELECT name FROM organisations WHERE id = ${newOrgId}`.catch(() => [null]);
-    return NextResponse.json({ user: { ...rows[0], org_name: orgRow?.name ?? null } });
+    const updated = { ...rows[0], role: (rows[0].role as string).toLowerCase() };
+    return NextResponse.json({ user: { ...updated, org_name: orgRow?.name ?? null } });
   } catch (err) {
     console.error('[admin/users PATCH]', err);
     return NextResponse.json({ error: 'Failed to update user.' }, { status: 500 });
@@ -111,6 +117,8 @@ export async function POST(req: NextRequest) {
   const passwordHash = await bcrypt.hash(password, 12);
 
   try {
+    // users.role is a real Postgres enum (UserRole) with uppercase-only
+    // labels — see the matching comment in PATCH above.
     const rows = await sql`
       INSERT INTO users (id, email, password_hash, name, role, organisation_id, email_verified)
       VALUES (
@@ -118,15 +126,15 @@ export async function POST(req: NextRequest) {
         ${emailVal},
         ${passwordHash},
         ${name.trim()},
-        ${role},
+        ${(role as string).toUpperCase()},
         ${organisationId},
         false
       )
       RETURNING id, email, name, role, organisation_id, email_verified, created_at
     `;
-    const user = rows[0];
+    const user = { ...rows[0], role: (rows[0].role as string).toLowerCase() };
 
-    const token = await createToken(user.id as string, 'verify', 24 * 60 * 60_000);
+    const token = await createToken(rows[0].id as string, 'verify', 24 * 60 * 60_000);
     const { subject, html } = verificationEmail(name.trim(), token);
     await sendEmail({ to: emailVal, subject, html }).catch(err =>
       console.error('[users] verification email failed:', err),
