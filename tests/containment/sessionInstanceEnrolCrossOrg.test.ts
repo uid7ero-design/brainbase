@@ -61,8 +61,9 @@ describe('POST /api/dashboard/sessions/[id]/instances/[instanceId] — cross-org
   it('a manager can enrol into their own org session instance when capacity allows', async () => {
     requireRoleMock.mockResolvedValue({ userId: 'u1', organisationId: 'org-a', role: 'manager', name: 'A' });
     sqlMock
-      .mockResolvedValueOnce([{ id: 'inst-1', max_capacity: 8, enrolled: 2, date: '2026-08-20', start_time: '18:00', session_type: 'Group' }])
-      .mockResolvedValueOnce([{ id: 'booking-1', client_name: 'Test Client', client_email: null, paid: false, attendance_status: null, status: 'confirmed', pipeline_id: null, is_recurring: false, created_at: new Date().toISOString() }]);
+      .mockResolvedValueOnce([{ id: 'inst-1', max_capacity: 8, date: '2026-08-20', start_time: '18:00', session_type: 'Group' }])
+      .mockResolvedValueOnce([{ cnt: 2 }])
+      .mockResolvedValueOnce([{ id: 'booking-1', client_name: 'Test Client', client_email: null, paid: false, attendance_status: null, status: 'confirmed', pipeline_id: null, is_recurring: false, recurring_group_id: null, created_at: new Date().toISOString() }]);
 
     const res = await POST(postRequest({ client_name: 'Test Client' }), { params });
     expect(res.status).toBe(201);
@@ -70,10 +71,12 @@ describe('POST /api/dashboard/sessions/[id]/instances/[instanceId] — cross-org
 
   it('rejects enrolment once the instance is at capacity', async () => {
     requireRoleMock.mockResolvedValue({ userId: 'u1', organisationId: 'org-a', role: 'manager', name: 'A' });
-    sqlMock.mockResolvedValueOnce([{ id: 'inst-1', max_capacity: 4, enrolled: 4, date: '2026-08-20', start_time: '18:00', session_type: 'Group' }]);
+    sqlMock
+      .mockResolvedValueOnce([{ id: 'inst-1', max_capacity: 4, date: '2026-08-20', start_time: '18:00', session_type: 'Group' }])
+      .mockResolvedValueOnce([{ cnt: 4 }]);
 
     const res = await POST(postRequest({ client_name: 'Test Client' }), { params });
     expect(res.status).toBe(409);
-    expect(sqlMock).toHaveBeenCalledTimes(1);
+    expect(sqlMock).toHaveBeenCalledTimes(2);
   });
 });

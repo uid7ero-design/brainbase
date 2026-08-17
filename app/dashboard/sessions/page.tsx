@@ -24,8 +24,15 @@ type WeekInstance = SessionInstance & { session_name: string; session_type: stri
 type InstanceBooking = {
   id: string; client_name: string; client_email: string | null
   paid: boolean; attendance_status: string | null; status: string
-  pipeline_id: string | null; is_recurring: boolean; created_at: string
+  pipeline_id: string | null; is_recurring: boolean; recurring_group_id: string | null
+  active_pause_from: string | null; active_pause_until: string | null
+  created_at: string
 }
+
+type PropagationSummary = {
+  propagated: number; alreadyPresent: number; paused: number
+  capacityBlocked: number; errors: number; skippedDates: string[]
+} | null
 
 type InstanceDetail = { instance: SessionInstance; bookings: InstanceBooking[] }
 type ContactBrief  = { id: string; name: string; session_id: string | null }
@@ -649,12 +656,24 @@ function InstancesPanel({ session, instances, selectedInstanceId, instancesLoadi
 
 type Contact = { id: string; name: string; email: string | null; phone: string | null }
 
-function InstanceRoster({ detail, onBookingUpdate, onEnroll, onRemove, onRemoveFuture }: {
+function summaryText(s: PropagationSummary): string | null {
+  if (!s) return null
+  const parts: string[] = []
+  if (s.propagated > 0) parts.push(`Added to ${s.propagated} future session${s.propagated === 1 ? '' : 's'}`)
+  if (s.capacityBlocked > 0) parts.push(`${s.capacityBlocked} session${s.capacityBlocked === 1 ? '' : 's'} full (${s.skippedDates.join(', ')})`)
+  if (s.errors > 0) parts.push(`${s.errors} failed`)
+  if (parts.length === 0) return s.alreadyPresent > 0 ? 'Already enrolled in all upcoming sessions.' : null
+  return parts.join('. ') + '.'
+}
+
+function InstanceRoster({ detail, sessionRecurring, onBookingUpdate, onEnroll, onRemove, onRemoveFuture, onRefresh }: {
   detail: InstanceDetail
+  sessionRecurring: boolean
   onBookingUpdate: (id: string, patch: Partial<InstanceBooking>) => void
   onEnroll: (booking: InstanceBooking) => void
   onRemove: (bookingId: string) => void
   onRemoveFuture: (bookingId: string) => void
+  onRefresh: () => void
 }) {
   const { instance, bookings } = detail
   if (!instance) return null
@@ -662,12 +681,17 @@ function InstanceRoster({ detail, onBookingUpdate, onEnroll, onRemove, onRemoveF
   const paid = bookings.filter(b => b.paid).length
   const [showEnroll, setShowEnroll] = useState(false)
   const [enrollForm, setEnrollForm] = useState({ name: '', email: '' })
+  const [frequency, setFrequency]   = useState<'weekly' | 'once'>(sessionRecurring ? 'weekly' : 'once')
   const [enrolling, setEnrolling]   = useState(false)
   const [enrollErr, setEnrollErr]   = useState<string | null>(null)
   const [contacts, setContacts]     = useState<Contact[]>([])
   const [nameQuery, setNameQuery]   = useState('')
   const [showDrop, setShowDrop]     = useState(false)
   const [removingId, setRemovingId] = useState<string | null>(null)
+  const [pausingId, setPausingId]   = useState<string | null>(null)
+  const [pauseForm, setPauseForm]   = useState({ from: '', until: '', reason: '' })
+  const [pauseErr, setPauseErr]     = useState<string | null>(null)
+  const [notice, setNotice]         = useState<string | null>(null)
 
   useEffect(() => {
     if (!showEnroll) return
@@ -689,13 +713,16 @@ function InstanceRoster({ detail, onBookingUpdate, onEnroll, onRemove, onRemoveF
     setEnrolling(true); setEnrollErr(null)
     const res = await fetch(`${API}/${instance.session_id}/instances/${instance.id}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ client_name: enrollForm.name, client_email: enrollForm.email || undefined }),
+      body: JSON.stringify({ client_name: enrollForm.name, client_email: enrollForm.email || undefined, frequency }),
     })
     setEnrolling(false)
     if (res.ok) {
-      const d = await res.json() as { booking: InstanceBooking }
+      const d = await res.json() as { booking: InstanceBooking; propagation: PropagationSummary }
       onEnroll(d.booking)
       setEnrollForm({ name: '', email: '' }); setNameQuery(''); setShowEnroll(false)
+      const text = summaryText(d.propagation)
+      setNotice(frequency === 'weekly' ? `Enrolled weekly.${text ? ' ' + text : ''}` : 'Enrolled.')
+      if (d.propagation && (d.propagation.propagated > 0 || d.propagation.capacityBlocked > 0)) onRefresh()
     } else {
       const d = await res.json().catch(() => ({})) as { error?: string }
       setEnrollErr(d.error ?? 'Failed to enroll')
@@ -727,6 +754,7 @@ function InstanceRoster({ detail, onBookingUpdate, onEnroll, onRemove, onRemoveF
         client_email: b.client_email,
         session_id: instance.session_id,
         from_date: instance.date,
+        recurring_group_id: b.recurring_group_id,
       }),
     })
     if (res.ok) onRemoveFuture(b.id)
@@ -735,7 +763,50 @@ function InstanceRoster({ detail, onBookingUpdate, onEnroll, onRemove, onRemoveF
   async function toggleRecurring(b: InstanceBooking) {
     const next = !b.is_recurring
     const res  = await fetch(`/api/dashboard/enrolments/${b.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ is_recurring: next }) })
-    if (res.ok) onBookingUpdate(b.id, { is_recurring: next })
+    if (res.ok) {
+      const d = await res.json() as { booking: { recurring_group_id: string | null }; propagation?: PropagationSummary; futureCancelled?: number }
+      onBookingUpdate(b.id, { is_recurring: next, recurring_group_id: d.booking.recurring_group_id })
+      if (next) {
+        const text = summaryText(d.propagation ?? null)
+        setNotice(`Switched to weekly.${text ? ' ' + text : ''}`)
+        if (d.propagation && (d.propagation.propagated > 0 || d.propagation.capacityBlocked > 0)) onRefresh()
+      } else {
+        setNotice(d.futureCancelled ? `Switched to once. Removed ${d.futureCancelled} future session${d.futureCancelled === 1 ? '' : 's'}.` : 'Switched to once.')
+        if (d.futureCancelled) onRefresh()
+      }
+    }
+  }
+
+  async function submitPause(b: InstanceBooking) {
+    if (!pauseForm.from || !pauseForm.until) { setPauseErr('Both dates are required'); return }
+    setPauseErr(null)
+    const res = await fetch(`/api/dashboard/enrolments/${b.id}/pause`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pause_from: pauseForm.from, pause_until: pauseForm.until, reason: pauseForm.reason || undefined }),
+    })
+    if (res.ok) {
+      const d = await res.json() as { pause: { pause_from: string; pause_until: string }; cancelled: number; conflicts: { id: string; date: string }[] }
+      onBookingUpdate(b.id, { active_pause_from: d.pause.pause_from, active_pause_until: d.pause.pause_until })
+      setPausingId(null); setPauseForm({ from: '', until: '', reason: '' })
+      setNotice(d.conflicts.length > 0
+        ? `Paused. ${d.cancelled} session(s) removed. ${d.conflicts.length} could not be removed (already paid/attended) — review manually.`
+        : `Paused ${d.pause.pause_from}–${d.pause.pause_until}. ${d.cancelled} session(s) removed.`)
+      onRefresh()
+    } else {
+      const d = await res.json().catch(() => ({})) as { error?: string }
+      setPauseErr(d.error ?? 'Failed to pause')
+    }
+  }
+
+  async function resumeEarly(b: InstanceBooking) {
+    const res = await fetch(`/api/dashboard/enrolments/${b.id}/pause`, { method: 'DELETE' })
+    if (res.ok) {
+      const d = await res.json() as { propagation: PropagationSummary }
+      onBookingUpdate(b.id, { active_pause_from: null, active_pause_until: null })
+      const text = summaryText(d.propagation)
+      setNotice(`Resumed weekly.${text ? ' ' + text : ''}`)
+      onRefresh()
+    }
   }
 
   const capClr = capacityColor(bookings.length, instance.max_capacity)
@@ -754,6 +825,13 @@ function InstanceRoster({ detail, onBookingUpdate, onEnroll, onRemove, onRemoveF
           }}>+ Enroll</button>
         </div>
       </div>
+
+      {notice && (
+        <div style={{ padding: '8px 20px', fontSize: 12, color: '#a5b4fc', background: 'rgba(99,102,241,.08)', borderBottom: '1px solid rgba(255,255,255,.06)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span>{notice}</span>
+          <button onClick={() => setNotice(null)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,.30)', cursor: 'pointer', fontSize: 13 }}>✕</button>
+        </div>
+      )}
 
       {showEnroll && (
         <div style={{ padding: '14px 20px', borderBottom: '1px solid rgba(255,255,255,.06)', display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
@@ -785,6 +863,21 @@ function InstanceRoster({ detail, onBookingUpdate, onEnroll, onRemove, onRemoveF
             <div style={{ fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,.30)', letterSpacing: '.08em', textTransform: 'uppercase', marginBottom: 4 }}>Email (optional)</div>
             <input style={inp} placeholder="client@email.com" type="email" value={enrollForm.email} onChange={e => setEnrollForm(f => ({ ...f, email: e.target.value }))} />
           </div>
+          {sessionRecurring && (
+            <div>
+              <div style={{ fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,.30)', letterSpacing: '.08em', textTransform: 'uppercase', marginBottom: 4 }}>Booking frequency</div>
+              <div style={{ display: 'flex', gap: 6 }}>
+                {(['weekly', 'once'] as const).map(f => (
+                  <button key={f} onClick={() => setFrequency(f)} style={{
+                    fontSize: 12, fontWeight: 600, padding: '7px 14px', borderRadius: 8, cursor: 'pointer', fontFamily: FONT,
+                    background: frequency === f ? 'rgba(99,102,241,.22)' : 'rgba(255,255,255,.04)',
+                    border: `1px solid ${frequency === f ? 'rgba(99,102,241,.45)' : 'rgba(255,255,255,.09)'}`,
+                    color: frequency === f ? '#a5b4fc' : 'rgba(255,255,255,.40)',
+                  }}>{f === 'weekly' ? '↻ Weekly' : 'Once'}</button>
+                ))}
+              </div>
+            </div>
+          )}
           <div style={{ display: 'flex', gap: 6 }}>
             <button onClick={() => { setShowEnroll(false); setEnrollErr(null); setNameQuery('') }} style={{ fontSize: 12, fontWeight: 600, padding: '8px 14px', borderRadius: 8, cursor: 'pointer', background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.09)', color: 'rgba(255,255,255,.35)', fontFamily: FONT }}>Cancel</button>
             <button onClick={submitEnroll} disabled={!enrollForm.name.trim() || enrolling} style={{ fontSize: 12, fontWeight: 600, padding: '8px 16px', borderRadius: 8, cursor: 'pointer', background: 'rgba(99,102,241,.22)', border: '1px solid rgba(99,102,241,.40)', color: '#a5b4fc', fontFamily: FONT, opacity: !enrollForm.name.trim() || enrolling ? .45 : 1 }}>{enrolling ? 'Enrolling…' : 'Confirm'}</button>
@@ -843,12 +936,39 @@ function InstanceRoster({ detail, onBookingUpdate, onEnroll, onRemove, onRemoveF
                   )}
                 </td>
                 <td style={{ padding: '12px 20px' }}>
-                  <button onClick={() => toggleRecurring(b)} style={{
-                    fontSize: 11, fontWeight: 600, padding: '4px 12px', borderRadius: 20, cursor: 'pointer', fontFamily: FONT,
-                    background: b.is_recurring ? 'rgba(99,102,241,.18)' : 'rgba(255,255,255,.04)',
-                    border: `1px solid ${b.is_recurring ? 'rgba(99,102,241,.40)' : 'rgba(255,255,255,.09)'}`,
-                    color: b.is_recurring ? '#a5b4fc' : 'rgba(255,255,255,.28)',
-                  }}>{b.is_recurring ? '↻ Weekly' : 'Once'}</button>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-start' }}>
+                    <button onClick={() => toggleRecurring(b)} style={{
+                      fontSize: 11, fontWeight: 600, padding: '4px 12px', borderRadius: 20, cursor: 'pointer', fontFamily: FONT,
+                      background: b.is_recurring ? 'rgba(99,102,241,.18)' : 'rgba(255,255,255,.04)',
+                      border: `1px solid ${b.is_recurring ? 'rgba(99,102,241,.40)' : 'rgba(255,255,255,.09)'}`,
+                      color: b.is_recurring ? '#a5b4fc' : 'rgba(255,255,255,.28)',
+                    }}>{b.is_recurring ? '↻ Weekly' : 'Once'}</button>
+                    {b.is_recurring && b.active_pause_from && b.active_pause_until && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: 9, fontWeight: 700, color: '#fbbf24', background: 'rgba(251,191,36,.12)', border: '1px solid rgba(251,191,36,.28)', borderRadius: 20, padding: '1px 6px' }}>
+                          Paused {formatDateAU(b.active_pause_from)}–{formatDateAU(b.active_pause_until)}
+                        </span>
+                        <button onClick={() => resumeEarly(b)} style={{ fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 20, cursor: 'pointer', fontFamily: FONT, background: 'none', border: '1px solid rgba(255,255,255,.12)', color: 'rgba(255,255,255,.40)' }}>Resume early</button>
+                      </div>
+                    )}
+                    {b.is_recurring && !b.active_pause_from && pausingId !== b.id && (
+                      <button onClick={() => { setPausingId(b.id); setPauseErr(null) }} style={{ fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 20, cursor: 'pointer', fontFamily: FONT, background: 'none', border: '1px solid rgba(255,255,255,.10)', color: 'rgba(255,255,255,.30)' }}>Pause</button>
+                    )}
+                    {pausingId === b.id && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, padding: 8, borderRadius: 8, background: 'rgba(255,255,255,.03)', border: '1px solid rgba(255,255,255,.08)', minWidth: 180 }}>
+                        <div style={{ display: 'flex', gap: 4 }}>
+                          <input type="date" value={pauseForm.from} onChange={e => setPauseForm(f => ({ ...f, from: e.target.value }))} style={{ ...inp, padding: '4px 6px', fontSize: 11 }} />
+                          <input type="date" value={pauseForm.until} onChange={e => setPauseForm(f => ({ ...f, until: e.target.value }))} style={{ ...inp, padding: '4px 6px', fontSize: 11 }} />
+                        </div>
+                        <input placeholder="Reason (optional)" value={pauseForm.reason} onChange={e => setPauseForm(f => ({ ...f, reason: e.target.value }))} style={{ ...inp, padding: '4px 6px', fontSize: 11 }} />
+                        <div style={{ display: 'flex', gap: 4 }}>
+                          <button onClick={() => submitPause(b)} style={{ fontSize: 10, fontWeight: 600, padding: '4px 10px', borderRadius: 20, cursor: 'pointer', fontFamily: FONT, background: 'rgba(251,191,36,.15)', border: '1px solid rgba(251,191,36,.35)', color: '#fbbf24' }}>Confirm pause</button>
+                          <button onClick={() => { setPausingId(null); setPauseErr(null) }} style={{ fontSize: 10, padding: '4px 8px', borderRadius: 20, cursor: 'pointer', fontFamily: FONT, background: 'none', border: '1px solid rgba(255,255,255,.10)', color: 'rgba(255,255,255,.30)' }}>✕</button>
+                        </div>
+                        {pauseErr && <div style={{ fontSize: 10, color: '#f87171' }}>{pauseErr}</div>}
+                      </div>
+                    )}
+                  </div>
                 </td>
                 <td style={{ padding: '12px 20px' }}>
                   {removingId === b.id ? (
@@ -1233,9 +1353,14 @@ export default function SessionsPage() {
           ) : instanceDetail ? (
             <InstanceRoster
               detail={instanceDetail}
+              sessionRecurring={selectedSession?.recurring ?? false}
               onBookingUpdate={handleBookingUpdate}
               onRemove={handleRemove}
               onRemoveFuture={handleRemoveFuture}
+              onRefresh={() => {
+                if (selectedSessionId && selectedInstanceId) loadRoster(selectedSessionId, selectedInstanceId)
+                fetch(`${API}/instances`).then(r => r.json()).then(d => setWeekInstances(d.instances ?? [])).catch(() => null)
+              }}
               onEnroll={b => {
                 setInstanceDetail(d => d ? { ...d, bookings: [...d.bookings, b] } : d)
                 setSessions(prev => prev.map(s => s.id === selectedSessionId ? { ...s, enrolled_count: s.enrolled_count + 1 } : s))

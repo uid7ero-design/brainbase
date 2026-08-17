@@ -1,72 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireRole } from '@/lib/org'
 import sql from '@/lib/db'
+import { enrolActiveLineagesIntoNewInstance } from '@/lib/tennisRecurrence'
 
 function toLocalDateStr(date: Date): string {
   const y = date.getFullYear()
   const m = String(date.getMonth() + 1).padStart(2, '0')
   const d = String(date.getDate()).padStart(2, '0')
   return `${y}-${m}-${d}`
-}
-
-async function propagateRecurring(
-  newInstanceId: string,
-  sessionId: string,
-  organisationId: string,
-  newDate: string,
-  maxCapacity: number,
-  sessionType: string,
-  startTime: string,
-) {
-  // Find the closest instance before this date
-  const prevRows = await sql`
-    SELECT id FROM session_instances
-    WHERE session_id = ${sessionId} AND date < ${newDate}::date AND status = 'scheduled'
-    ORDER BY date DESC LIMIT 1
-  `
-  if (!prevRows[0]) return
-
-  const prevId = prevRows[0].id as string
-
-  // Get recurring bookings from that instance
-  const recurring = await sql`
-    SELECT client_name, client_email FROM bookings
-    WHERE session_instance_id = ${prevId} AND is_recurring = true AND status != 'cancelled'
-  `
-  if (recurring.length === 0) return
-
-  // Count only non-recurring slots already taken (new enrollments count against capacity)
-  const countRows = await sql`
-    SELECT COUNT(*)::int AS cnt FROM bookings
-    WHERE session_instance_id = ${newInstanceId} AND status != 'cancelled'
-  `
-  let enrolled = (countRows[0] as { cnt: number }).cnt
-
-  for (const r of recurring as { client_name: string; client_email: string | null }[]) {
-    // Duplicate check first — already-enrolled players don't consume a capacity slot
-    const dup = await sql`
-      SELECT 1 FROM bookings
-      WHERE session_instance_id = ${newInstanceId}
-        AND client_name = ${r.client_name}
-        AND (${r.client_email ?? null}::text IS NULL OR client_email = ${r.client_email ?? null})
-        AND status != 'cancelled'
-      LIMIT 1
-    `
-    if (dup.length > 0) continue
-
-    // Only gate genuinely new insertions against capacity
-    if (enrolled >= maxCapacity) continue
-
-    await sql`
-      INSERT INTO bookings
-        (id, organisation_id, session_id, session_instance_id, client_name, client_email, date, time, session_type, status, paid, is_recurring)
-      VALUES
-        (${crypto.randomUUID()}, ${organisationId}, ${sessionId}, ${newInstanceId},
-         ${r.client_name}, ${r.client_email ?? null}, ${newDate}, ${startTime}, ${sessionType},
-         'confirmed', false, true)
-    `
-    enrolled++
-  }
 }
 
 export async function POST(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -127,16 +68,25 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
       continue
     }
 
-    // Resolve the instance id (may already exist via ON CONFLICT)
+    // Resolve the instance id (may already exist via ON CONFLICT) and
+    // auto-enrol every currently-active recurring lineage into it — same
+    // eligibility rules (pause windows, duplicate prevention, capacity) as
+    // backfilling an already-generated instance; see lib/tennisRecurrence.ts.
     try {
       const instRows = await sql`
         SELECT id FROM session_instances WHERE session_id = ${tmpl.id} AND date = ${targetDate}::date
       `
       if (instRows[0]) {
-        await propagateRecurring(
-          instRows[0].id as string, tmpl.id, tmpl.organisation_id,
-          targetDate, tmpl.max_capacity, tmpl.session_type, tmpl.start_time,
-        )
+        const countRows = await sql`SELECT COUNT(*)::int AS cnt FROM bookings WHERE session_instance_id = ${instRows[0].id} AND status != 'cancelled'`
+        await enrolActiveLineagesIntoNewInstance({
+          organisationId: tmpl.organisation_id,
+          sessionId: tmpl.id,
+          instance: {
+            id: instRows[0].id as string, date: targetDate, start_time: tmpl.start_time,
+            max_capacity: tmpl.max_capacity, session_type: tmpl.session_type,
+            enrolled: (countRows[0] as { cnt: number }).cnt,
+          },
+        })
       }
     } catch (err) {
       console.error('[generate-instances] PROPAGATE FAILED for', targetDate, err)
