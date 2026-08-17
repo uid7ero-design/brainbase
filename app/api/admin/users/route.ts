@@ -52,7 +52,7 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: 'Password must be at least 8 characters.' }, { status: 400 });
 
   try {
-    const [current] = await sql`SELECT name, role, organisation_id, email, password_hash FROM users WHERE id = ${id}::uuid`;
+    const [current] = await sql`SELECT name, role, organisation_id, email, password_hash FROM users WHERE id = ${id}`;
     if (!current) return NextResponse.json({ error: 'User not found.' }, { status: 404 });
 
     const newName  = (name as string | undefined)?.trim()   ?? (current.name as string);
@@ -63,13 +63,13 @@ export async function PATCH(req: NextRequest) {
 
     const rows = await sql`
       UPDATE users
-      SET name = ${newName}, role = ${newRole}, organisation_id = ${newOrgId}::uuid,
+      SET name = ${newName}, role = ${newRole}, organisation_id = ${newOrgId},
           email = ${newEmail}, password_hash = ${newHash}
-      WHERE id = ${id}::uuid
+      WHERE id = ${id}
       RETURNING id, email, name, role, organisation_id, email_verified, created_at
     `;
 
-    const [orgRow] = await sql`SELECT name FROM organisations WHERE id = ${newOrgId}::uuid`.catch(() => [null]);
+    const [orgRow] = await sql`SELECT name FROM organisations WHERE id = ${newOrgId}`.catch(() => [null]);
     return NextResponse.json({ user: { ...rows[0], org_name: orgRow?.name ?? null } });
   } catch (err) {
     console.error('[admin/users PATCH]', err);
@@ -87,7 +87,7 @@ export async function DELETE(req: NextRequest) {
   if (id === session.userId)
     return NextResponse.json({ error: 'Cannot delete your own account.' }, { status: 409 });
 
-  await sql`DELETE FROM users WHERE id = ${id}::uuid`;
+  await sql`DELETE FROM users WHERE id = ${id}`;
   return NextResponse.json({ success: true });
 }
 
