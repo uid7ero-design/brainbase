@@ -1,7 +1,10 @@
 'use client'
 
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { parseLocalDate, formatDateAU } from '@/lib/date'
+import {
+  parseLocalDate, formatDateAU, addDays, addWeeks, addMonths, toDateStr, isSameDay,
+  getWeekRange, getMonthGridRange, formatWeekHeading, formatMonthHeading, type DateRange,
+} from '@/lib/date'
 
 const FONT = "var(--font-inter),-apple-system,sans-serif"
 const API  = '/api/dashboard/sessions'
@@ -41,6 +44,7 @@ const LOCATIONS = ['Mt Compass Tennis Club', 'Morphett Vale Tennis Club']
 
 const DAYS_ORDER = [1, 2, 3, 4, 5, 6, 0]
 const DAY_LABEL  = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+const DAY_LABEL_MON = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 const DAY_FULL   = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 
 const ATTENDANCE_CYCLE: Record<string, string> = {
@@ -129,6 +133,21 @@ const inp: React.CSSProperties = {
   width: '100%', background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.10)',
   borderRadius: 8, padding: '8px 11px', fontSize: 13, color: '#F5F7FA',
   outline: 'none', fontFamily: FONT, boxSizing: 'border-box',
+}
+
+const navBtn: React.CSSProperties = {
+  fontSize: 12, fontWeight: 600, padding: '5px 12px', borderRadius: 20, cursor: 'pointer',
+  background: 'rgba(255,255,255,.05)', border: '1px solid rgba(255,255,255,.12)',
+  color: 'rgba(255,255,255,.55)', fontFamily: FONT,
+}
+
+function toggleBtn(active: boolean): React.CSSProperties {
+  return {
+    fontSize: 12, fontWeight: 600, padding: '4px 12px', borderRadius: 18, cursor: 'pointer', fontFamily: FONT,
+    background: active ? 'rgba(99,102,241,.22)' : 'transparent',
+    border: 'none',
+    color: active ? '#a5b4fc' : 'rgba(255,255,255,.40)',
+  }
 }
 
 // ─── Custom Select ────────────────────────────────────────────────────────────
@@ -494,160 +513,136 @@ function SessionCard({ session, selected, onClick, sessionContacts }: {
   )
 }
 
-// ─── Week View ────────────────────────────────────────────────────────────────
+// ─── Calendar (Week / Month navigation over existing session instances) ───────
+// Read-only over already-scheduled session_instances rows — never generates,
+// mutates, or propagates anything. "Generate 6 weeks" / recurrence / pause
+// remain the only ways instances come into existence; this just browses them.
 
-function WeekView({ instances, onSelectInstance }: {
-  instances: WeekInstance[]
-  onSelectInstance: (sessionId: string, instanceId: string) => void
+function CalendarEntry({ inst, compact, onSelect }: {
+  inst: WeekInstance; compact?: boolean; onSelect: () => void
 }) {
-  if (instances.length === 0) return (
-    <div style={{ marginBottom: 28, padding: '18px 20px', background: 'rgba(255,255,255,.02)', border: '1px solid rgba(255,255,255,.06)', borderRadius: 12, fontSize: 13, color: 'rgba(255,255,255,.22)' }}>
-      No sessions in the next 2 weeks. Create a session below to get started.
-    </div>
-  )
-
-  const today   = instances.filter(i => isToday(i.date))
-  const upcoming = instances.filter(i => !isToday(i.date))
-
-  function Row({ inst }: { inst: WeekInstance }) {
-    const end    = endTime(inst.start_time, inst.duration_minutes)
-    const capClr = capacityColor(inst.enrolled_count, inst.max_capacity)
-    const full   = inst.enrolled_count >= inst.max_capacity
-    const pct    = Math.min(1, inst.enrolled_count / inst.max_capacity)
+  const capClr = capacityColor(inst.enrolled_count, inst.max_capacity)
+  const full   = inst.enrolled_count >= inst.max_capacity
+  if (compact) {
     return (
-      <div onClick={() => onSelectInstance(inst.session_id, inst.id)}
-        style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 16px', borderRadius: 10, cursor: 'pointer', background: 'rgba(255,255,255,.03)', border: '1px solid rgba(255,255,255,.07)' }}
-        onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,.06)')}
-        onMouseLeave={e => (e.currentTarget.style.background = 'rgba(255,255,255,.03)')}
+      <div onClick={onSelect} style={{
+        fontSize: 9.5, padding: '2px 5px', borderRadius: 4, cursor: 'pointer', fontFamily: FONT,
+        background: 'rgba(255,255,255,.05)', color: 'rgba(255,255,255,.65)',
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 4,
+      }}
+        onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,.10)')}
+        onMouseLeave={e => (e.currentTarget.style.background = 'rgba(255,255,255,.05)')}
       >
-        <div style={{ minWidth: 72, fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,.40)' }}>{formatDateAU(inst.date)}</div>
-        <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: '#F5F7FA', marginBottom: 1 }}>{inst.session_name}</div>
-          <div style={{ fontSize: 11, color: 'rgba(255,255,255,.30)', display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
-              {inst.start_time}–{end}{inst.resource_id && ` · ${inst.resource_id}`}
-              {inst.session_type && <span style={sessionChip(inst.session_type)}>{sessionLabel(inst.session_type)}</span>}
-            </div>
-        </div>
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, minWidth: 80 }}>
-          <span style={{ fontSize: 12, fontWeight: 800, color: capClr }}>{inst.enrolled_count}/{inst.max_capacity}</span>
-          <div style={{ width: 60, height: 4, background: 'rgba(255,255,255,.08)', borderRadius: 4, overflow: 'hidden' }}>
-            <div style={{ width: `${pct * 100}%`, height: '100%', background: capClr, borderRadius: 4 }} />
-          </div>
-        </div>
-        {full && <span style={{ fontSize: 10, fontWeight: 700, color: '#f87171', background: 'rgba(239,68,68,.12)', border: '1px solid rgba(239,68,68,.28)', borderRadius: 20, padding: '2px 8px' }}>Full</span>}
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sessionLabel(inst.session_type)}</span>
+        <span style={{ fontWeight: 700, color: capClr, flexShrink: 0 }}>{inst.enrolled_count}/{inst.max_capacity}</span>
       </div>
     )
   }
-
   return (
-    <div style={{ marginBottom: 32 }}>
-      {today.length > 0 && (
-        <div style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,.30)', letterSpacing: '.08em', textTransform: 'uppercase', marginBottom: 8 }}>Today</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>{today.map(i => <Row key={i.id} inst={i} />)}</div>
-        </div>
-      )}
-      {upcoming.length > 0 && (
-        <div>
-          <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,.30)', letterSpacing: '.08em', textTransform: 'uppercase', marginBottom: 8 }}>Upcoming (2 weeks)</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>{upcoming.map(i => <Row key={i.id} inst={i} />)}</div>
-        </div>
-      )}
+    <div onClick={onSelect} style={{
+      padding: '5px 8px', borderRadius: 6, cursor: 'pointer', fontFamily: FONT,
+      background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.08)',
+      display: 'flex', flexDirection: 'column', gap: 2,
+    }}
+      onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,.08)')}
+      onMouseLeave={e => (e.currentTarget.style.background = 'rgba(255,255,255,.04)')}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+        <span style={{ fontSize: 11, fontWeight: 600, color: '#F5F7FA', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{inst.session_name}</span>
+        <span style={{ fontSize: 10, fontWeight: 800, color: capClr, flexShrink: 0 }}>{inst.enrolled_count}/{inst.max_capacity}</span>
+      </div>
+      <div style={{ fontSize: 10, color: 'rgba(255,255,255,.32)', display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+        <span>{inst.start_time}</span>
+        {inst.resource_id && <span>· {inst.resource_id}</span>}
+        {inst.session_type && <span style={sessionChip(inst.session_type)}>{sessionLabel(inst.session_type)}</span>}
+        {full && <span style={{ fontWeight: 700, color: '#f87171' }}>Full</span>}
+      </div>
     </div>
   )
 }
 
-// ─── Instances Panel ──────────────────────────────────────────────────────────
-
-function InstancesPanel({ session, instances, selectedInstanceId, instancesLoading, onSelectInstance, onGenerate, generating, onEdit, onDelete }: {
-  session: Session; instances: SessionInstance[]; selectedInstanceId: string | null
-  instancesLoading: boolean; onSelectInstance: (id: string) => void
-  onGenerate: () => void; generating: boolean
-  onEdit: () => void; onDelete: () => void
+function WeekGrid({ range, instances, onSelectInstance }: {
+  range: DateRange
+  instances: WeekInstance[]
+  onSelectInstance: (sessionId: string, instanceId: string) => void
 }) {
-  const end = endTime(session.start_time, session.duration_minutes)
-  const [confirmDel, setConfirmDel] = useState(false)
+  const days = Array.from({ length: 7 }, (_, i) => addDays(range.start, i))
   return (
-    <div style={{ marginTop: 24, background: 'rgba(255,255,255,.025)', border: '1px solid rgba(255,255,255,.08)', borderRadius: 14, overflow: 'hidden' }}>
-      <div style={{ padding: '14px 20px', borderBottom: '1px solid rgba(255,255,255,.06)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-        <div>
-          <div style={{ fontSize: 14, fontWeight: 700, color: '#F5F7FA' }}>{session.name}</div>
-          <div style={{ fontSize: 12, color: 'rgba(255,255,255,.35)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-            {DAY_FULL[session.day_of_week]} · {session.start_time}–{end}
-            {session.resource_id && ` · ${session.resource_id}`}
-            {session.session_type && <span style={sessionChip(session.session_type)}>{sessionLabel(session.session_type)}</span>}
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 8 }}>
+      {days.map((day, i) => {
+        const dateStr = toDateStr(day)
+        const dayInstances = instances.filter(inst => inst.date === dateStr).sort((a, b) => a.start_time.localeCompare(b.start_time))
+        const today_ = isSameDay(day, new Date())
+        return (
+          <div key={dateStr}>
+            <div style={{
+              fontSize: 11, fontWeight: 700, textAlign: 'center', marginBottom: 8, paddingBottom: 8,
+              borderBottom: `1px solid ${today_ ? 'rgba(99,102,241,.35)' : 'rgba(255,255,255,.06)'}`,
+              color: today_ ? '#a5b4fc' : 'rgba(255,255,255,.30)',
+            }}>
+              {DAY_LABEL_MON[i]} <span style={{ color: today_ ? '#a5b4fc' : 'rgba(255,255,255,.45)' }}>{day.getDate()}</span>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 5, minHeight: 32 }}>
+              {dayInstances.length === 0
+                ? <div style={{ height: 32, border: '1px dashed rgba(255,255,255,.05)', borderRadius: 6 }} />
+                : dayInstances.map(inst => (
+                    <CalendarEntry key={inst.id} inst={inst} onSelect={() => onSelectInstance(inst.session_id, inst.id)} />
+                  ))
+              }
+            </div>
           </div>
-        </div>
-        <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0 }}>
-          <button onClick={onGenerate} disabled={generating} style={{
-            fontSize: 12, fontWeight: 600, padding: '6px 14px', borderRadius: 20, cursor: generating ? 'not-allowed' : 'pointer',
-            background: 'rgba(99,102,241,.15)', border: '1px solid rgba(99,102,241,.35)',
-            color: '#a5b4fc', fontFamily: FONT, opacity: generating ? .5 : 1,
-          }}>{generating ? 'Generating…' : '↻ Generate 6 weeks'}</button>
-          <button onClick={onEdit} style={{
-            fontSize: 12, fontWeight: 600, padding: '6px 12px', borderRadius: 20, cursor: 'pointer',
-            background: 'rgba(255,255,255,.05)', border: '1px solid rgba(255,255,255,.12)',
-            color: 'rgba(255,255,255,.50)', fontFamily: FONT,
-          }}>Edit</button>
-          {confirmDel ? (
-            <>
-              <button onClick={onDelete} style={{
-                fontSize: 12, fontWeight: 700, padding: '6px 14px', borderRadius: 20, cursor: 'pointer',
-                background: 'rgba(239,68,68,.22)', border: '1px solid rgba(239,68,68,.50)',
-                color: '#f87171', fontFamily: FONT,
-              }}>Confirm delete</button>
-              <button onClick={() => setConfirmDel(false)} style={{
-                fontSize: 12, fontWeight: 600, padding: '6px 10px', borderRadius: 20, cursor: 'pointer',
-                background: 'none', border: '1px solid rgba(255,255,255,.12)',
-                color: 'rgba(255,255,255,.35)', fontFamily: FONT,
-              }}>Cancel</button>
-            </>
-          ) : (
-            <button onClick={() => setConfirmDel(true)} style={{
-              fontSize: 12, fontWeight: 600, padding: '6px 12px', borderRadius: 20, cursor: 'pointer',
-              background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.22)',
-              color: '#f87171', fontFamily: FONT,
-            }}>Delete</button>
-          )}
-        </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function MonthGrid({ range, monthAnchor, instances, onSelectInstance }: {
+  range: DateRange
+  monthAnchor: Date
+  instances: WeekInstance[]
+  onSelectInstance: (sessionId: string, instanceId: string) => void
+}) {
+  const totalDays = Math.round((range.end.getTime() - range.start.getTime()) / 86400000) + 1
+  const days = Array.from({ length: totalDays }, (_, i) => addDays(range.start, i))
+  const weeks: Date[][] = []
+  for (let i = 0; i < days.length; i += 7) weeks.push(days.slice(i, i + 7))
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 6 }}>
+        {DAY_LABEL_MON.map(l => (
+          <div key={l} style={{ fontSize: 10, fontWeight: 700, textAlign: 'center', color: 'rgba(255,255,255,.28)', letterSpacing: '.06em', textTransform: 'uppercase' }}>{l}</div>
+        ))}
       </div>
-      {instancesLoading ? (
-        <div style={{ padding: '32px 20px', textAlign: 'center', color: 'rgba(255,255,255,.25)', fontSize: 13 }}>Loading dates…</div>
-      ) : instances.length === 0 ? (
-        <div style={{ padding: '32px 20px', textAlign: 'center', color: 'rgba(255,255,255,.25)', fontSize: 13 }}>
-          No dates yet. <button onClick={onGenerate} style={{ background: 'none', border: 'none', color: '#a5b4fc', cursor: 'pointer', fontSize: 13, fontFamily: FONT, padding: 0 }}>Generate →</button>
-        </div>
-      ) : (
-        <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {instances.map(inst => {
-            const capClr = capacityColor(inst.enrolled_count, inst.max_capacity)
-            const full   = inst.enrolled_count >= inst.max_capacity
-            const pct    = Math.min(1, inst.enrolled_count / inst.max_capacity)
-            const today_ = isToday(inst.date)
-            const sel    = selectedInstanceId === inst.id
+      {weeks.map((week, wi) => (
+        <div key={wi} style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 6 }}>
+          {week.map(day => {
+            const dateStr = toDateStr(day)
+            const inMonth = day.getMonth() === monthAnchor.getMonth()
+            const today_ = isSameDay(day, new Date())
+            const dayInstances = instances.filter(inst => inst.date === dateStr).sort((a, b) => a.start_time.localeCompare(b.start_time))
+            const shown = dayInstances.slice(0, 3)
+            const extra = dayInstances.length - shown.length
             return (
-              <div key={inst.id} onClick={() => onSelectInstance(inst.id)} style={{
-                display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', borderRadius: 10, cursor: 'pointer',
-                background: sel ? 'rgba(99,102,241,.12)' : today_ ? 'rgba(255,255,255,.05)' : 'rgba(255,255,255,.03)',
-                border: `1px solid ${sel ? 'rgba(99,102,241,.35)' : today_ ? 'rgba(255,255,255,.14)' : 'rgba(255,255,255,.07)'}`,
+              <div key={dateStr} style={{
+                minHeight: 74, padding: 6, borderRadius: 8,
+                background: today_ ? 'rgba(99,102,241,.08)' : 'rgba(255,255,255,.02)',
+                border: `1px solid ${today_ ? 'rgba(99,102,241,.30)' : 'rgba(255,255,255,.06)'}`,
+                opacity: inMonth ? 1 : .35,
               }}>
-                <div style={{ minWidth: 90, fontSize: 12, fontWeight: today_ ? 700 : 500, color: today_ ? '#F5F7FA' : 'rgba(255,255,255,.45)' }}>
-                  {formatDateAU(inst.date)}
-                  {today_ && <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: '#a5b4fc', background: 'rgba(99,102,241,.20)', border: '1px solid rgba(99,102,241,.35)', borderRadius: 20, padding: '1px 6px' }}>Today</span>}
+                <div style={{ fontSize: 10, fontWeight: today_ ? 800 : 600, color: today_ ? '#a5b4fc' : 'rgba(255,255,255,.35)', marginBottom: 4 }}>{day.getDate()}</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  {shown.map(inst => (
+                    <CalendarEntry key={inst.id} inst={inst} compact onSelect={() => onSelectInstance(inst.session_id, inst.id)} />
+                  ))}
+                  {extra > 0 && <div style={{ fontSize: 9, color: 'rgba(255,255,255,.30)' }}>+{extra} more</div>}
                 </div>
-                <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <div style={{ width: 80, height: 5, background: 'rgba(255,255,255,.08)', borderRadius: 4, overflow: 'hidden' }}>
-                    <div style={{ width: `${pct * 100}%`, height: '100%', background: capClr, borderRadius: 4 }} />
-                  </div>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: capClr }}>{inst.enrolled_count}/{inst.max_capacity}</span>
-                  {full && <span style={{ fontSize: 10, fontWeight: 700, color: '#f87171', background: 'rgba(239,68,68,.12)', border: '1px solid rgba(239,68,68,.28)', borderRadius: 20, padding: '1px 7px' }}>Full</span>}
-                </div>
-                <span style={{ fontSize: 11, color: 'rgba(255,255,255,.25)' }}>View roster →</span>
               </div>
             )
           })}
         </div>
-      )}
+      ))}
     </div>
   )
 }
@@ -666,7 +661,7 @@ function summaryText(s: PropagationSummary): string | null {
   return parts.join('. ') + '.'
 }
 
-function InstanceRoster({ detail, sessionRecurring, hasOtherInstances, onBookingUpdate, onEnroll, onRemove, onRemoveFuture, onRefresh }: {
+function InstanceRoster({ detail, sessionRecurring, hasOtherInstances, onBookingUpdate, onEnroll, onRemove, onRemoveFuture, onRefresh, toggleErrId, toggleErr, onToggleError }: {
   detail: InstanceDetail
   sessionRecurring: boolean
   hasOtherInstances: boolean
@@ -675,6 +670,9 @@ function InstanceRoster({ detail, sessionRecurring, hasOtherInstances, onBooking
   onRemove: (bookingId: string) => void
   onRemoveFuture: (bookingId: string) => void
   onRefresh: () => void
+  toggleErrId: string | null
+  toggleErr: string | null
+  onToggleError: (id: string | null, message: string | null) => void
 }) {
   const { instance, bookings } = detail
   if (!instance) return null
@@ -770,6 +768,7 @@ function InstanceRoster({ detail, sessionRecurring, hasOtherInstances, onBooking
 
   async function toggleRecurring(b: InstanceBooking) {
     const next = !b.is_recurring
+    onToggleError(null, null)
     const res  = await fetch(`/api/dashboard/enrolments/${b.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ is_recurring: next }) })
     if (res.ok) {
       const d = await res.json() as { booking: { recurring_group_id: string | null }; propagation?: PropagationSummary; futureCancelled?: number }
@@ -782,6 +781,9 @@ function InstanceRoster({ detail, sessionRecurring, hasOtherInstances, onBooking
         setNotice(d.futureCancelled ? `Switched to once. Removed ${d.futureCancelled} future session${d.futureCancelled === 1 ? '' : 's'}.` : 'Switched to once.')
         if (d.futureCancelled) onRefresh()
       }
+    } else {
+      const d = await res.json().catch(() => ({})) as { error?: string }
+      onToggleError(b.id, d.error ?? 'Failed to update')
     }
   }
 
@@ -951,6 +953,9 @@ function InstanceRoster({ detail, sessionRecurring, hasOtherInstances, onBooking
                       border: `1px solid ${b.is_recurring ? 'rgba(99,102,241,.40)' : 'rgba(255,255,255,.09)'}`,
                       color: b.is_recurring ? '#a5b4fc' : 'rgba(255,255,255,.28)',
                     }}>{b.is_recurring ? '↻ Weekly' : 'Once'}</button>
+                    {toggleErrId === b.id && toggleErr && (
+                      <div style={{ fontSize: 10, color: '#f87171', maxWidth: 180 }}>{toggleErr}</div>
+                    )}
                     {b.is_recurring && b.active_pause_from && b.active_pause_until && (
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                         <span style={{ fontSize: 9, fontWeight: 700, color: '#fbbf24', background: 'rgba(251,191,36,.12)', border: '1px solid rgba(251,191,36,.28)', borderRadius: 20, padding: '1px 6px' }}>
@@ -1025,10 +1030,31 @@ export default function SessionsPage() {
   const [selectedInstanceId, setSelectedInstanceId] = useState<string | null>(null)
   const [instanceDetail, setInstanceDetail]         = useState<InstanceDetail | null>(null)
   const [rosterLoading, setRosterLoading]           = useState(false)
-  const [weekInstances, setWeekInstances]           = useState<WeekInstance[]>([])
-  const [weekLoading, setWeekLoading]               = useState(true)
+  const [calendarView, setCalendarView]             = useState<'week' | 'month'>('week')
+  const [calendarAnchor, setCalendarAnchor]         = useState<Date>(() => new Date())
+  const [calendarInstances, setCalendarInstances]   = useState<WeekInstance[]>([])
+  const [calendarLoading, setCalendarLoading]       = useState(true)
   const [confirmDel, setConfirmDel]                 = useState(false)
   const [deleteErr, setDeleteErr]                   = useState<string | null>(null)
+  const [toggleErrId, setToggleErrId]               = useState<string | null>(null)
+  const [toggleErr, setToggleErr]                   = useState<string | null>(null)
+
+  // Bounded to the currently visible week/month range — never fetches all
+  // history. Navigating (Prev/Today/Next, Week|Month) only ever re-reads
+  // already-scheduled session_instances rows; it never generates or
+  // mutates them.
+  const loadCalendar = useCallback((anchor: Date, view: 'week' | 'month') => {
+    const range = view === 'week' ? getWeekRange(anchor) : getMonthGridRange(anchor)
+    fetch(`${API}/instances?date_from=${toDateStr(range.start)}&date_to=${toDateStr(range.end)}`)
+      .then(r => r.json())
+      .then(d => setCalendarInstances(d.instances ?? []))
+      .catch(() => setCalendarInstances([]))
+      .finally(() => setCalendarLoading(false))
+  }, [])
+
+  useEffect(() => {
+    loadCalendar(calendarAnchor, calendarView)
+  }, [calendarAnchor, calendarView, loadCalendar])
 
   useEffect(() => {
     const today = todayStr()
@@ -1040,9 +1066,7 @@ export default function SessionsPage() {
       const loadedSessions: Session[] = sessData.sessions ?? []
       const loadedInstances: WeekInstance[] = instData.instances ?? []
       setSessions(loadedSessions)
-      setWeekInstances(loadedInstances)
       setLoading(false)
-      setWeekLoading(false)
 
       // Detect sessions whose future instances are on the wrong weekday and fix them all
       const sessionDayMap = new Map(loadedSessions.map(s => [s.id, s.day_of_week]))
@@ -1057,11 +1081,9 @@ export default function SessionsPage() {
       if (badIds.size > 0) {
         Promise.all([...badIds].map(id =>
           fetch(`${API}/${id}/generate-instances`, { method: 'POST' }).catch(() => null)
-        )).then(() =>
-          fetch(`${API}/instances`).then(r => r.json()).then(d => setWeekInstances(d.instances ?? [])).catch(() => null)
-        ).catch(() => null)
+        )).catch(() => null)
       }
-    }).catch(() => { setLoading(false); setWeekLoading(false) })
+    }).catch(() => setLoading(false))
 
     fetch('/api/contacts').then(r => r.json()).then(d => setContacts(d.contacts ?? [])).catch(() => null)
   }, [])
@@ -1085,12 +1107,12 @@ export default function SessionsPage() {
           .then(r => r.ok ? r.json() : null)
           .then(rd => {
             if (rd?.instances) setInstances(rd.instances)
-            fetch(`${API}/instances`).then(r => r.json()).then(d => setWeekInstances(d.instances ?? [])).catch(() => null)
+            loadCalendar(calendarAnchor, calendarView)
           })
           .catch(() => null)
       }
     }
-  }, [])
+  }, [loadCalendar, calendarAnchor, calendarView])
 
   async function selectSession(id: string) {
     if (selectedSessionId === id) { setSelectedSessionId(null); setInstances([]); setSelectedInstanceId(null); setInstanceDetail(null); setConfirmDel(false); setDeleteErr(null); return }
@@ -1121,7 +1143,13 @@ export default function SessionsPage() {
       fetch(`${API}/${selectedSessionId}`).then(r => r.json()).then(d => { if (d.instances) setInstances(d.instances) }).catch(() => null)
       if (selectedInstanceId) loadRoster(selectedSessionId, selectedInstanceId)
     }
+    loadCalendar(calendarAnchor, calendarView)
   }
+
+  function calendarPrev() { setCalendarLoading(true); setCalendarAnchor(a => calendarView === 'week' ? addWeeks(a, -1) : addMonths(a, -1)) }
+  function calendarNext() { setCalendarLoading(true); setCalendarAnchor(a => calendarView === 'week' ? addWeeks(a, 1) : addMonths(a, 1)) }
+  function calendarToday() { setCalendarLoading(true); setCalendarAnchor(new Date()) }
+  function setCalendarViewAndReload(view: 'week' | 'month') { setCalendarLoading(true); setCalendarView(view) }
 
   async function generateInstances() {
     if (!selectedSessionId || generating) return
@@ -1131,7 +1159,7 @@ export default function SessionsPage() {
     if (res.ok) {
       const d = await res.json() as { instances: SessionInstance[] }
       setInstances(d.instances ?? [])
-      fetch(`${API}/instances`).then(r => r.json()).then(d => setWeekInstances(d.instances ?? [])).catch(() => null)
+      loadCalendar(calendarAnchor, calendarView)
     }
   }
 
@@ -1152,12 +1180,12 @@ export default function SessionsPage() {
 
   function handleCreate(s: Session) {
     setSessions(prev => [...prev, s].sort((a, b) => a.day_of_week !== b.day_of_week ? a.day_of_week - b.day_of_week : a.start_time.localeCompare(b.start_time)))
-    setTimeout(() => { fetch(`${API}/instances`).then(r => r.json()).then(d => setWeekInstances(d.instances ?? [])).catch(() => null) }, 1500)
+    setTimeout(() => loadCalendar(calendarAnchor, calendarView), 1500)
   }
 
   function handleSave(updated: Session) {
     setSessions(prev => prev.map(s => s.id === updated.id ? updated : s).sort((a, b) => a.day_of_week !== b.day_of_week ? a.day_of_week - b.day_of_week : a.start_time.localeCompare(b.start_time)))
-    fetch(`${API}/instances`).then(r => r.json()).then(d => setWeekInstances(d.instances ?? [])).catch(() => null)
+    loadCalendar(calendarAnchor, calendarView)
   }
 
   async function handleDelete(id: string) {
@@ -1167,7 +1195,7 @@ export default function SessionsPage() {
       setSessions(prev => prev.filter(s => s.id !== id))
       setSelectedSessionId(null); setInstances([]); setSelectedInstanceId(null); setInstanceDetail(null)
       setConfirmDel(false)
-      fetch(`${API}/instances`).then(r => r.json()).then(d => setWeekInstances(d.instances ?? [])).catch(() => null)
+      loadCalendar(calendarAnchor, calendarView)
     } else {
       const errData = await res.json().catch(() => ({})) as { error?: string }
       setDeleteErr(errData.error ?? 'Failed to delete session')
@@ -1178,8 +1206,16 @@ export default function SessionsPage() {
   const selectedSession        = sessions.find(s => s.id === selectedSessionId) ?? null
   const weeklyRevenue          = sessions.reduce((sum, s) => sum + sessionRevenue(s.price_per_session ?? 0, s.session_type, s.enrolled_count), 0)
   const selRevenue             = selectedSession ? sessionRevenue(selectedSession.price_per_session ?? 0, selectedSession.session_type, selectedSession.enrolled_count) : 0
-  const selCapClr              = selectedSession ? capacityColor(selectedSession.enrolled_count, selectedSession.max_capacity) : '#4ade80'
-  const selUtilisation         = selectedSession && selectedSession.max_capacity > 0 ? Math.round(selectedSession.enrolled_count / selectedSession.max_capacity * 100) : 0
+  // PLAYERS / FILL RATE describe the currently selected instance/date, not
+  // a session-wide aggregate — selectedSession.enrolled_count is the
+  // unique-roster-across-all-instances count (correct for the session
+  // card in the list above), which is a different metric and was
+  // incorrectly reused here. Fall back to the session-level figure only
+  // when no specific date is selected yet.
+  const selectedCapacity       = instanceDetail ? instanceDetail.instance.max_capacity : (selectedSession?.max_capacity ?? 0)
+  const selectedPlayers        = instanceDetail ? instanceDetail.bookings.length : (selectedSession?.enrolled_count ?? 0)
+  const selCapClr              = selectedSession ? capacityColor(selectedPlayers, selectedCapacity) : '#4ade80'
+  const selUtilisation         = selectedCapacity > 0 ? Math.round(selectedPlayers / selectedCapacity * 100) : 0
   const instancesTotalRevenue  = instances.reduce((sum, i) => sum + (i.revenue ?? 0), 0)
   const paidCount              = instanceDetail ? instanceDetail.bookings.filter(b => b.paid).length : null
 
@@ -1259,6 +1295,39 @@ export default function SessionsPage() {
         </div>
       )}
 
+      {/* ── Calendar: Week / Month navigation over existing dated instances ── */}
+      {!loading && sessions.length > 0 && (
+        <div style={{ marginTop: 32 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 14, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,.30)', letterSpacing: '.08em', textTransform: 'uppercase' }}>Calendar</div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: '#F5F7FA' }}>
+                {calendarView === 'week' ? formatWeekHeading(getWeekRange(calendarAnchor)) : formatMonthHeading(calendarAnchor)}
+              </div>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', gap: 4 }}>
+                <button onClick={calendarPrev} style={navBtn}>‹ Prev</button>
+                <button onClick={calendarToday} style={navBtn}>Today</button>
+                <button onClick={calendarNext} style={navBtn}>Next ›</button>
+              </div>
+              <div style={{ display: 'flex', gap: 2, background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.08)', borderRadius: 20, padding: 2 }}>
+                <button onClick={() => setCalendarViewAndReload('week')} style={toggleBtn(calendarView === 'week')}>Week</button>
+                <button onClick={() => setCalendarViewAndReload('month')} style={toggleBtn(calendarView === 'month')}>Month</button>
+              </div>
+            </div>
+          </div>
+
+          {calendarLoading ? (
+            <div style={{ padding: '24px 0', color: 'rgba(255,255,255,.25)', fontSize: 13 }}>Loading calendar…</div>
+          ) : calendarView === 'week' ? (
+            <WeekGrid range={getWeekRange(calendarAnchor)} instances={calendarInstances} onSelectInstance={selectInstance} />
+          ) : (
+            <MonthGrid range={getMonthGridRange(calendarAnchor)} monthAnchor={calendarAnchor} instances={calendarInstances} onSelectInstance={selectInstance} />
+          )}
+        </div>
+      )}
+
       {selectedSessionId && selectedSession && (
         <div style={{ marginTop: 32, background: 'rgba(255,255,255,.025)', border: '1px solid rgba(255,255,255,.08)', borderRadius: 16, overflow: 'hidden' }}>
 
@@ -1292,10 +1361,10 @@ export default function SessionsPage() {
           {/* Stats: players · fill rate · revenue · instances total · paid */}
           <div style={{ padding: '14px 22px', borderBottom: '1px solid rgba(255,255,255,.06)', display: 'flex', gap: 32, flexWrap: 'wrap' }}>
             <div>
-              <div style={lbl10}>Players</div>
+              <div style={lbl10}>Players{instanceDetail ? ' (this date)' : ''}</div>
               <div style={{ fontSize: 20, fontWeight: 700, color: selCapClr, letterSpacing: '-.02em' }}>
-                {selectedSession.enrolled_count}
-                <span style={{ fontSize: 13, fontWeight: 500, color: 'rgba(255,255,255,.28)' }}>/{selectedSession.max_capacity}</span>
+                {selectedPlayers}
+                <span style={{ fontSize: 13, fontWeight: 500, color: 'rgba(255,255,255,.28)' }}>/{selectedCapacity}</span>
               </div>
             </div>
             <div>
@@ -1378,6 +1447,9 @@ export default function SessionsPage() {
               onRemove={handleRemove}
               onRemoveFuture={handleRemoveFuture}
               onRefresh={refreshDashboard}
+              toggleErrId={toggleErrId}
+              toggleErr={toggleErr}
+              onToggleError={(id, message) => { setToggleErrId(id); setToggleErr(message) }}
               onEnroll={b => {
                 setInstanceDetail(d => d ? { ...d, bookings: [...d.bookings, b] } : d)
                 refreshDashboard()
