@@ -27,16 +27,27 @@ vi.mock('@/lib/email', () => ({
 
 const { GET, PATCH, DELETE, POST } = await import('@/app/api/admin/users/route');
 
-// users.id / organisations.id are Prisma `String @default(cuid())` — plain
-// Postgres TEXT columns, not the native `uuid` type — but some rows (e.g.
-// ones created via this route's own POST, which inserts
-// `gen_random_uuid()::text`) hold UUID-*shaped* text values. Production hit
-// exactly this: casting the incoming id to `::uuid` before comparing it
-// against a TEXT column throws `operator does not exist: text = uuid`
-// whenever the id happens to look like a UUID. Using a UUID-shaped id here
-// (instead of the previous plain 'user-1') is what makes this class of bug
-// reproducible in these tests.
+// users.id / organisations.id / users.organisation_id are Prisma `String`
+// fields — confirmed via a direct read-only information_schema query against
+// the real database to be genuine TEXT columns (not the native `uuid`
+// type). Some rows (e.g. ones created via this route's own POST, which
+// inserts `gen_random_uuid()::text`) hold UUID-*shaped* text values, which
+// is what makes the id/organisation_id `::uuid`-cast bug (fixed in an
+// earlier commit) reproducible only with an id shaped like this — a plain
+// placeholder id would have hit a different Postgres error instead.
 const UUID_SHAPED_ID = '123e4567-e89b-12d3-a456-426614174000';
+
+// users.role, by contrast, IS a real Postgres enum (`UserRole`), confirmed
+// the same way: SUPER_ADMIN, ADMIN, MANAGER, ANALYST, VIEWER — uppercase
+// labels only. A previous commit (3d54af3) lowercased `role` before writing
+// it to the DB in both PATCH and POST, which is invalid for this enum and
+// is what caused Production to keep failing (with a *different* Postgres
+// error — invalid input value for enum "UserRole" — not the text/uuid one)
+// even after the id/organisation_id cast bug was fixed. This was verified
+// directly against the real database via non-destructive `EXPLAIN` calls
+// before writing this fix; see the commit message for detail.
+const UPPERCASE_ROLE = 'MANAGER';
+const LOWERCASE_ROLE = 'manager';
 
 function patchRequest(body: unknown, id: string = UUID_SHAPED_ID): NextRequest {
   return asNextRequest(new Request(`http://localhost/api/admin/users?id=${id}`, {
@@ -58,24 +69,22 @@ function postRequest(body: unknown): NextRequest {
   }));
 }
 
-// A mocked `sql` never actually asks Postgres to resolve an operator, so it
-// can't itself catch `text = uuid` — that's exactly why the previous test
-// suite (which only ever asserted on mocked *return values*) missed this in
-// production. This inspects the literal SQL text of every call instead: the
-// tagged-template call arrives at the mock as [stringsArray, ...values], so
-// callArgs[0] is the actual SQL source with each interpolation hole in
-// place, independent of what value was substituted there.
+// A mocked `sql` never actually asks Postgres to resolve an operator or
+// validate an enum label, so it can't itself catch either the `text = uuid`
+// bug or the enum-casing bug — that's exactly why the previous test suite
+// (which only ever asserted on mocked *return values*, and in the role
+// case asserted the *wrong* expected casing) stayed green while Production
+// kept failing. This inspects the literal SQL text and the interpolated
+// values of every call instead: the tagged-template call arrives at the
+// mock as [stringsArray, ...values], so callArgs[0] is the SQL source and
+// the remaining entries are the actual runtime values substituted in.
 function allQueryTextFromCalls(calls: unknown[][]): string {
   return calls.map(callArgs => (callArgs[0] as string[]).join('')).join('\n');
 }
 
 const superAdminSession = { userId: 'admin1', organisationId: 'bb-org', role: 'super_admin', name: 'James' };
 
-// This reproduces the exact production report: Luke's row was created via
-// this route (which historically stored `role` in whatever case the client
-// sent) rather than app/actions/users.ts's createUser (which always
-// .toUpperCase()s), so his DB row genuinely holds a mixed/legacy case —
-// simulated here as 'VIEWER' arriving via GET.
+// A user row exactly as the real UserRole enum stores it — uppercase.
 const lukeRowUppercase = {
   id: UUID_SHAPED_ID, email: 'luke@example.com', name: 'Luke Doughty', role: 'VIEWER',
   organisation_id: 'ld-tennis-org', email_verified: true, created_at: new Date().toISOString(),
@@ -85,7 +94,7 @@ const lukeRowUppercase = {
 describe('GET /api/admin/users — role display normalisation', () => {
   beforeEach(() => { getSessionMock.mockReset(); sqlMock.mockReset(); });
 
-  it('normalises a legacy-uppercase stored role to lowercase for the edit form', async () => {
+  it('normalises the enum-stored uppercase role to lowercase for the edit form', async () => {
     getSessionMock.mockResolvedValue(superAdminSession);
     sqlMock.mockResolvedValueOnce([lukeRowUppercase]);
 
@@ -95,49 +104,55 @@ describe('GET /api/admin/users — role display normalisation', () => {
   });
 });
 
-describe('PATCH /api/admin/users — role casing, validation, and id/schema type contract', () => {
+describe('PATCH /api/admin/users — role enum casing, id/schema type contract, and validation', () => {
   beforeEach(() => { getSessionMock.mockReset(); sqlMock.mockReset(); });
 
   it('rejects a non-super_admin caller', async () => {
     getSessionMock.mockResolvedValue({ userId: 'u1', organisationId: 'org-a', role: 'manager', name: 'Not James' });
-    const res = await PATCH(patchRequest({ role: 'manager' }));
+    const res = await PATCH(patchRequest({ role: LOWERCASE_ROLE }));
     expect(res.status).toBe(403);
     expect(sqlMock).not.toHaveBeenCalled();
   });
 
-  it('updates viewer -> manager for a UUID-shaped id against the actual TEXT id/organisation_id schema, using the exact lowercase value the real UI sends', async () => {
+  it('updates viewer -> manager: writes the UPPERCASE enum label to the DB but returns lowercase to the client', async () => {
     getSessionMock.mockResolvedValue(superAdminSession);
     sqlMock
       .mockResolvedValueOnce([{ name: 'Luke Doughty', role: 'VIEWER', organisation_id: 'ld-tennis-org', email: 'luke@example.com', password_hash: 'hash' }])
-      .mockResolvedValueOnce([{ id: UUID_SHAPED_ID, email: 'luke@example.com', name: 'Luke Doughty', role: 'manager', organisation_id: 'ld-tennis-org', email_verified: true, created_at: new Date().toISOString() }])
+      // RETURNING reflects what a real UserRole enum column actually stores — uppercase.
+      .mockResolvedValueOnce([{ id: UUID_SHAPED_ID, email: 'luke@example.com', name: 'Luke Doughty', role: UPPERCASE_ROLE, organisation_id: 'ld-tennis-org', email_verified: true, created_at: new Date().toISOString() }])
       .mockResolvedValueOnce([{ name: 'LD Tennis' }]);
 
-    const res = await PATCH(patchRequest({ name: 'Luke Doughty', role: 'manager', organisationId: 'ld-tennis-org', email: 'luke@example.com' }));
+    const res = await PATCH(patchRequest({ name: 'Luke Doughty', role: LOWERCASE_ROLE, organisationId: 'ld-tennis-org', email: 'luke@example.com' }));
     expect(res.status).toBe(200);
     const data = await res.json();
+    // Client-facing response stays lowercase, matching GET's convention.
     expect(data.user.role).toBe('manager');
 
-    // The UPDATE call must receive the canonical lowercase form, not the
-    // legacy uppercase value that was previously in the DB.
+    // The actual UPDATE sent to Postgres must carry the UPPERCASE enum
+    // label — this is the real production bug: it must NOT be lowercase.
     const updateCallArgs = sqlMock.mock.calls[1];
-    expect(updateCallArgs).toContain('manager');
-    expect(updateCallArgs).not.toContain('MANAGER');
+    expect(updateCallArgs).toContain(UPPERCASE_ROLE);
+    expect(updateCallArgs).not.toContain(LOWERCASE_ROLE);
 
-    // The production regression: no query issued by this request may cast
-    // the id/organisation_id parameter to ::uuid — those columns are TEXT.
+    // The separately-fixed id/organisation_id regression: no query issued
+    // by this request may cast the id/organisationId parameter to ::uuid —
+    // those columns are TEXT, confirmed directly against the real schema.
     const allSql = allQueryTextFromCalls(sqlMock.mock.calls);
     expect(allSql).not.toContain('::uuid');
   });
 
-  it('still accepts the update if a case-variant role is submitted (defence in depth)', async () => {
+  it('still accepts and correctly uppercases a case-variant role submission (defence in depth)', async () => {
     getSessionMock.mockResolvedValue(superAdminSession);
     sqlMock
       .mockResolvedValueOnce([{ name: 'Luke Doughty', role: 'VIEWER', organisation_id: 'ld-tennis-org', email: 'luke@example.com', password_hash: 'hash' }])
-      .mockResolvedValueOnce([{ id: UUID_SHAPED_ID, email: 'luke@example.com', name: 'Luke Doughty', role: 'manager', organisation_id: 'ld-tennis-org', email_verified: true, created_at: new Date().toISOString() }])
+      .mockResolvedValueOnce([{ id: UUID_SHAPED_ID, email: 'luke@example.com', name: 'Luke Doughty', role: UPPERCASE_ROLE, organisation_id: 'ld-tennis-org', email_verified: true, created_at: new Date().toISOString() }])
       .mockResolvedValueOnce([{ name: 'LD Tennis' }]);
 
     const res = await PATCH(patchRequest({ role: 'Manager', organisationId: 'ld-tennis-org' }));
     expect(res.status).toBe(200);
+
+    const updateCallArgs = sqlMock.mock.calls[1];
+    expect(updateCallArgs).toContain(UPPERCASE_ROLE);
   });
 
   it('still rejects a genuinely invalid role', async () => {
@@ -153,7 +168,7 @@ describe('PATCH /api/admin/users — role casing, validation, and id/schema type
     getSessionMock.mockResolvedValue(superAdminSession);
     sqlMock.mockRejectedValueOnce(new Error('connection lost'));
 
-    const res = await PATCH(patchRequest({ role: 'manager', organisationId: 'ld-tennis-org' }));
+    const res = await PATCH(patchRequest({ role: LOWERCASE_ROLE, organisationId: 'ld-tennis-org' }));
     expect(res.status).toBe(500);
     // Must be parseable JSON — this is what previously surfaced to the
     // client as "Unexpected end of JSON input" when the handler threw
@@ -166,18 +181,18 @@ describe('PATCH /api/admin/users — role casing, validation, and id/schema type
     getSessionMock.mockResolvedValue(superAdminSession);
     sqlMock.mockResolvedValueOnce([]); // no matching row
 
-    const res = await PATCH(patchRequest({ role: 'manager' }, 'does-not-exist'));
+    const res = await PATCH(patchRequest({ role: LOWERCASE_ROLE }, 'does-not-exist'));
     expect(res.status).toBe(404);
 
     const allSql = allQueryTextFromCalls(sqlMock.mock.calls);
     expect(allSql).not.toContain('::uuid');
   });
 
-  it('organisation assignment is unaffected by the id/cast fix: omitting organisationId keeps the existing organisation', async () => {
+  it('organisation assignment is unaffected by the role/id fixes: omitting organisationId keeps the existing organisation', async () => {
     getSessionMock.mockResolvedValue(superAdminSession);
     sqlMock
-      .mockResolvedValueOnce([{ name: 'Luke Doughty', role: 'manager', organisation_id: 'ld-tennis-org', email: 'luke@example.com', password_hash: 'hash' }])
-      .mockResolvedValueOnce([{ id: UUID_SHAPED_ID, email: 'luke@example.com', name: 'Luke Doughty', role: 'manager', organisation_id: 'ld-tennis-org', email_verified: true, created_at: new Date().toISOString() }])
+      .mockResolvedValueOnce([{ name: 'Luke Doughty', role: UPPERCASE_ROLE, organisation_id: 'ld-tennis-org', email: 'luke@example.com', password_hash: 'hash' }])
+      .mockResolvedValueOnce([{ id: UUID_SHAPED_ID, email: 'luke@example.com', name: 'Luke Doughty', role: UPPERCASE_ROLE, organisation_id: 'ld-tennis-org', email_verified: true, created_at: new Date().toISOString() }])
       .mockResolvedValueOnce([{ name: 'LD Tennis' }]);
 
     const res = await PATCH(patchRequest({ name: 'Luke Doughty' })); // no organisationId in body
@@ -185,6 +200,22 @@ describe('PATCH /api/admin/users — role casing, validation, and id/schema type
 
     const updateCallArgs = sqlMock.mock.calls[1];
     expect(updateCallArgs).toContain('ld-tennis-org'); // fell back to current.organisation_id
+  });
+
+  it('preserves the existing role unchanged (already uppercase from the DB) when role is omitted from the request', async () => {
+    getSessionMock.mockResolvedValue(superAdminSession);
+    sqlMock
+      .mockResolvedValueOnce([{ name: 'Luke Doughty', role: UPPERCASE_ROLE, organisation_id: 'ld-tennis-org', email: 'luke@example.com', password_hash: 'hash' }])
+      .mockResolvedValueOnce([{ id: UUID_SHAPED_ID, email: 'luke@example.com', name: 'Luke Doughty', role: UPPERCASE_ROLE, organisation_id: 'ld-tennis-org', email_verified: true, created_at: new Date().toISOString() }])
+      .mockResolvedValueOnce([{ name: 'LD Tennis' }]);
+
+    const res = await PATCH(patchRequest({ name: 'Luke Doughty' })); // no role in body
+    expect(res.status).toBe(200);
+
+    // current.role (already uppercase, straight from the DB) must be used
+    // as-is, not re-cased or corrupted when it falls through unchanged.
+    const updateCallArgs = sqlMock.mock.calls[1];
+    expect(updateCallArgs).toContain(UPPERCASE_ROLE);
   });
 });
 
@@ -217,7 +248,7 @@ describe('DELETE /api/admin/users — id/schema type contract', () => {
   });
 });
 
-describe('POST /api/admin/users — role casing on creation (unaffected by this fix)', () => {
+describe('POST /api/admin/users — role enum casing on creation', () => {
   beforeEach(() => { getSessionMock.mockReset(); sqlMock.mockReset(); });
 
   it('still rejects an invalid role on create', async () => {
@@ -227,23 +258,36 @@ describe('POST /api/admin/users — role casing on creation (unaffected by this 
     expect(sqlMock).not.toHaveBeenCalled();
   });
 
-  it('stores a normalised lowercase role even if a mixed-case value is submitted', async () => {
+  it('writes the UPPERCASE enum label even though a lowercase value was submitted, and returns lowercase to the client', async () => {
     getSessionMock.mockResolvedValue(superAdminSession);
-    sqlMock.mockResolvedValueOnce([{ id: 'new-id', email: 'newcoach@example.com', name: 'New Coach', role: 'manager', organisation_id: 'ld-tennis-org', email_verified: false, created_at: new Date().toISOString() }]);
+    sqlMock.mockResolvedValueOnce([{ id: 'new-id', email: 'newcoach@example.com', name: 'New Coach', role: UPPERCASE_ROLE, organisation_id: 'ld-tennis-org', email_verified: false, created_at: new Date().toISOString() }]);
 
-    const res = await POST(postRequest({ username: 'newcoach', password: 'longenoughpw', name: 'New Coach', role: 'MANAGER', organisationId: 'ld-tennis-org' }));
+    const res = await POST(postRequest({ username: 'newcoach', password: 'longenoughpw', name: 'New Coach', role: LOWERCASE_ROLE, organisationId: 'ld-tennis-org' }));
+    expect(res.status).toBe(201);
+    const data = await res.json();
+    expect(data.user.role).toBe('manager');
+
+    const insertCallArgs = sqlMock.mock.calls[0];
+    expect(insertCallArgs).toContain(UPPERCASE_ROLE);
+    expect(insertCallArgs).not.toContain(LOWERCASE_ROLE);
+  });
+
+  it('also uppercases a mixed-case role submission', async () => {
+    getSessionMock.mockResolvedValue(superAdminSession);
+    sqlMock.mockResolvedValueOnce([{ id: 'new-id', email: 'newcoach@example.com', name: 'New Coach', role: UPPERCASE_ROLE, organisation_id: 'ld-tennis-org', email_verified: false, created_at: new Date().toISOString() }]);
+
+    const res = await POST(postRequest({ username: 'newcoach', password: 'longenoughpw', name: 'New Coach', role: 'MaNaGeR', organisationId: 'ld-tennis-org' }));
     expect(res.status).toBe(201);
 
     const insertCallArgs = sqlMock.mock.calls[0];
-    expect(insertCallArgs).toContain('manager');
-    expect(insertCallArgs).not.toContain('MANAGER');
+    expect(insertCallArgs).toContain(UPPERCASE_ROLE);
   });
 
   it('generates the new user id as text (gen_random_uuid()::text), matching the TEXT id column — not a bare ::uuid value', async () => {
     getSessionMock.mockResolvedValue(superAdminSession);
-    sqlMock.mockResolvedValueOnce([{ id: 'new-id', email: 'newcoach@example.com', name: 'New Coach', role: 'manager', organisation_id: 'ld-tennis-org', email_verified: false, created_at: new Date().toISOString() }]);
+    sqlMock.mockResolvedValueOnce([{ id: 'new-id', email: 'newcoach@example.com', name: 'New Coach', role: UPPERCASE_ROLE, organisation_id: 'ld-tennis-org', email_verified: false, created_at: new Date().toISOString() }]);
 
-    await POST(postRequest({ username: 'newcoach', password: 'longenoughpw', name: 'New Coach', role: 'manager', organisationId: 'ld-tennis-org' }));
+    await POST(postRequest({ username: 'newcoach', password: 'longenoughpw', name: 'New Coach', role: LOWERCASE_ROLE, organisationId: 'ld-tennis-org' }));
 
     const insertSql = (sqlMock.mock.calls[0][0] as string[]).join('');
     expect(insertSql).toContain('gen_random_uuid()::text');
