@@ -3,7 +3,9 @@ import HlnaInsightCard  from './HlnaInsightCard'
 import WeatherPanel     from './WeatherPanel'
 import LeadsChart       from './LeadsChart'
 import TennisNewsPanel  from './TennisNewsPanel'
+import TodaysSchedule, { type TodaySessionInstance } from './TodaysSchedule'
 import { HlnaOrb }     from '@/components/brand/HlnaOrb'
+import type { SessionTypeRow } from '@/lib/sessionDisplay'
 
 const FONT = "var(--font-inter), -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
 
@@ -31,10 +33,13 @@ type Contact = {
 }
 
 export type Props = {
-  stats:             { newThisWeek: number; activeLeads: number; needsFollowup: number }
+  greeting:          string
+  stats:             { todaysSessions: number; newThisWeek: number; activeLeads: number; needsFollowup: number }
   recentLeads:       Lead[]
   attentionContacts: Contact[]
   leadsPerDay:       { day: string; leads: number }[]
+  todaysSessions:    TodaySessionInstance[]
+  sessionTypes:      SessionTypeRow[]
 }
 
 // ─── Primitives ───────────────────────────────────────────────────────────────
@@ -107,9 +112,28 @@ function actionBtn(color: string, bg: string, border: string): React.CSSProperti
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export default function TennisDashboard({ stats, recentLeads, attentionContacts, leadsPerDay }: Props) {
+export default function TennisDashboard({
+  greeting, stats, recentLeads, attentionContacts, leadsPerDay, todaysSessions, sessionTypes,
+}: Props) {
+  const todayLabel = new Date().toLocaleDateString('en-AU', {
+    weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Australia/Adelaide',
+  })
+
   return (
     <div style={{ width: '100%', maxWidth: 1152, margin: '0 auto', padding: '28px 24px 64px', fontFamily: FONT }}>
+
+      {/* ── Greeting header ──────────────────────────────────────────
+          "Open this first thing in the morning" — greeting + date come
+          first, above the existing branded HLNA panel, so the page reads
+          as a day overview rather than a static app title. The greeting
+          itself is computed server-side in app/dashboard/page.tsx (see
+          lib/dashboard/greeting.ts) — never duplicated here. */}
+      <div style={{ marginBottom: 20 }}>
+        <h1 style={{ fontSize: 24, fontWeight: 700, color: '#F5F7FA', letterSpacing: '-.02em', margin: '0 0 4px' }}>
+          {greeting}
+        </h1>
+        <span style={{ fontSize: 13, color: 'rgba(255,255,255,.35)' }}>{todayLabel}</span>
+      </div>
 
       {/* ── HLNA Orb Header ────────────────────────────────────────── */}
       <div style={{
@@ -124,9 +148,9 @@ export default function TennisDashboard({ stats, recentLeads, attentionContacts,
           <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.14em', textTransform: 'uppercase', color: 'rgba(167,139,250,.65)', marginBottom: 4 }}>
             HLNA · LD Tennis
           </div>
-          <h1 style={{ fontSize: 22, fontWeight: 700, color: '#F5F7FA', letterSpacing: '-.02em', margin: '0 0 4px' }}>
+          <h2 style={{ fontSize: 22, fontWeight: 700, color: '#F5F7FA', letterSpacing: '-.02em', margin: '0 0 4px' }}>
             Coaching Dashboard
-          </h1>
+          </h2>
           <span style={{ fontSize: 12, color: 'rgba(255,255,255,.28)' }}>
             Leads, contacts, and session activity
           </span>
@@ -134,16 +158,19 @@ export default function TennisDashboard({ stats, recentLeads, attentionContacts,
       </div>
 
       {/* ── Row 1: KPI cards ───────────────────────────────────────── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14, marginBottom: 14 }}>
-        <StatCard label="New leads"      value={stats.newThisWeek}   sub="Last 7 days"            accent="#4ade80" />
-        <StatCard label="Active clients" value={stats.activeLeads}   sub="New or contacted"       accent="#60a5fa" />
-        <StatCard label="Follow-up"      value={stats.needsFollowup} sub="Awaiting your response" accent="#fbbf24" />
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 14 }}>
+        <StatCard label="Today's Sessions" value={stats.todaysSessions} sub="Scheduled today"          accent="#818cf8" />
+        <StatCard label="New Leads"        value={stats.newThisWeek}    sub="Last 7 days"               accent="#4ade80" />
+        <StatCard label="Follow-ups"       value={stats.needsFollowup}  sub="Awaiting your response"    accent="#fbbf24" />
+        <StatCard label="Active Clients"   value={stats.activeLeads}    sub="New or contacted"           accent="#60a5fa" />
       </div>
 
-      {/* ── Row 2: Needs Attention | Leads Chart ───────────────────── */}
+      {/* ── Row 2: Today's Schedule | Needs Attention ────────────────── */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
 
-        {/* Needs Attention — PRIMARY */}
+        <TodaysSchedule instances={todaysSessions} sessionTypes={sessionTypes} />
+
+        {/* Needs Attention */}
         <div style={{
           background: 'rgba(255,255,255,.04)',
           border: '1px solid rgba(255,255,255,.14)',
@@ -151,7 +178,7 @@ export default function TennisDashboard({ stats, recentLeads, attentionContacts,
         }}>
           <PanelHeader title="Needs Attention" href="/dashboard/contacts" linkLabel="All contacts →" />
           {attentionContacts.length === 0 ? (
-            <EmptyState message="All contacts are up to date." />
+            <EmptyState message="You're all caught up" />
           ) : (
             <div>
               {attentionContacts.map((c, i) => {
@@ -195,23 +222,25 @@ export default function TennisDashboard({ stats, recentLeads, attentionContacts,
           )}
         </div>
 
-        {/* Leads Chart — top right */}
-        <LeadsChart rawData={leadsPerDay} />
-
       </div>
 
-      {/* ── Row 3: HLNA | Weather ───────────────────────────────────── */}
+      {/* ── Row 3: Lead Trend | Weather ───────────────────────────────── */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
-        <HlnaInsightCard />
+        <LeadsChart rawData={leadsPerDay} />
         <WeatherPanel />
       </div>
 
-      {/* ── Row 4: Tennis News (full width) ────────────────────────── */}
+      {/* ── Row 4: HLNA briefing (full width) ──────────────────────── */}
+      <div style={{ marginBottom: 14 }}>
+        <HlnaInsightCard />
+      </div>
+
+      {/* ── Row 5: Tennis News (full width) ────────────────────────── */}
       <div style={{ marginBottom: 14 }}>
         <TennisNewsPanel />
       </div>
 
-      {/* ── Row 5: Recent Activity (full width) ────────────────────── */}
+      {/* ── Row 6: Recent Activity (full width) ────────────────────── */}
       <div style={{
         background: 'rgba(255,255,255,.025)',
         border: '1px solid rgba(255,255,255,.07)',
@@ -219,7 +248,7 @@ export default function TennisDashboard({ stats, recentLeads, attentionContacts,
       }}>
         <PanelHeader title="Recent Activity" href="/dashboard/leads" linkLabel="All leads →" />
         {recentLeads.length === 0 ? (
-          <EmptyState message={"No leads yet. They'll appear here when someone submits the form."} />
+          <EmptyState message="No recent activity" />
         ) : (
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <tbody>
