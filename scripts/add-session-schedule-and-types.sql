@@ -13,10 +13,20 @@ ALTER TABLE sessions ADD COLUMN IF NOT EXISTS end_mode text NOT NULL DEFAULT 'on
 ALTER TABLE sessions ADD COLUMN IF NOT EXISTS end_after_weeks integer;
 ALTER TABLE sessions ADD COLUMN IF NOT EXISTS end_date date;
 
-ALTER TABLE sessions
-  ADD CONSTRAINT sessions_end_mode_check
-  CHECK (end_mode IN ('ongoing', 'after_weeks', 'on_date'))
-  NOT VALID;
+-- PostgreSQL has no ADD CONSTRAINT IF NOT EXISTS, so this is wrapped in a
+-- DO block that checks pg_constraint first — safe to re-run, unlike a bare
+-- ALTER TABLE ADD CONSTRAINT (which would error on a second run).
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'sessions_end_mode_check'
+  ) THEN
+    ALTER TABLE sessions
+      ADD CONSTRAINT sessions_end_mode_check
+      CHECK (end_mode IN ('ongoing', 'after_weeks', 'on_date'))
+      NOT VALID;
+  END IF;
+END $$;
 -- NOT VALID skips checking existing rows at migration time (they're all
 -- 'ongoing' via the DEFAULT above, so it would pass anyway, but NOT VALID
 -- keeps this migration fast/lock-light on a large table). Validate
