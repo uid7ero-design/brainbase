@@ -75,6 +75,14 @@ export const SESSION_TYPE_COLOUR_PALETTE: Record<string, { text: string; bg: str
 }
 export const SESSION_TYPE_COLOUR_KEYS = Object.keys(SESSION_TYPE_COLOUR_PALETTE)
 
+// Human-readable names for the colour picker UI — the API/storage layer
+// only ever sees the lowercase key above; this is presentation only.
+export const SESSION_TYPE_COLOUR_NAMES: Record<string, string> = {
+  purple: 'Purple', violet: 'Violet', indigo: 'Indigo', green: 'Green',
+  emerald: 'Emerald', blue: 'Blue', orange: 'Orange', amber: 'Amber',
+  sky: 'Sky', slate: 'Slate', rose: 'Rose', teal: 'Teal',
+}
+
 // Both resolve against the live, organisation-scoped session types list
 // first (fetched from /api/dashboard/session-types — includes archived
 // types too, since a session saved against an archived type must keep

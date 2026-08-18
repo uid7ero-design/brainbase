@@ -77,15 +77,17 @@ describe('app/dashboard/sessions/page.tsx — Session Type as primary title + ca
     expect(body).toContain('optionalLabel(selectedSession.name, selectedSession.session_type, sessionTypes) && (')
   })
 
-  it('the management strip (SessionChip) leads with Session Type, keeps Repair future dates / Edit / Delete unchanged', () => {
-    const fnStart = source.indexOf('function SessionChip(')
+  it('the Manage Sessions modal leads with Session Type, keeps Repair future dates / Edit / Delete unchanged', () => {
+    // Superseded by fix/tennis-session-management-ui: the SessionChip strip
+    // was replaced by an on-demand ManageSessionsModal — see
+    // tennisSessionManagementUiStaticCheck.test.ts for full coverage.
+    const fnStart = source.indexOf('function ManageSessionsModal(')
     const fnEnd = source.indexOf('\n// ─── Calendar')
     expect(fnStart).toBeGreaterThan(-1)
     const body = source.slice(fnStart, fnEnd)
-    expect(body).toContain('const title  = sessionLabel(session.session_type, sessionTypes)')
-    expect(body).not.toMatch(/>\{session\.name\}</)
+    expect(body).toContain('const title = sessionLabel(s.session_type, sessionTypes)')
+    expect(body).not.toMatch(/>\{s\.name\}</)
     expect(source).toContain('Repair future dates')
-    expect(source).toContain('>Edit<')
   })
 
   it('Create/Edit form: Type comes before the Optional Label field, and the field is renamed', () => {

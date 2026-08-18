@@ -24,9 +24,13 @@ describe('app/dashboard/sessions/page.tsx — static source checks (single-calen
     expect(source).toContain('function MonthGrid(')
   })
 
-  it('session management (schedule repair / Edit / Delete) is still reachable via the compact SessionChip strip, not deleted along with the old grid', () => {
-    expect(source).toContain('function SessionChip(')
-    expect(source).toContain('onClick={() => selectSession(s.id)}')
+  it('session management (schedule repair / Edit / Delete) is reachable via the Manage Sessions modal, not deleted along with the old grid', () => {
+    // Superseded by fix/tennis-session-management-ui: the horizontal
+    // SessionChip strip (which used to sit above the calendar on every
+    // page load) was replaced with an on-demand modal — see
+    // tennisSessionManagementUiStaticCheck.test.ts for full coverage.
+    expect(source).toContain('function ManageSessionsModal(')
+    expect(source).toContain("setShowManageSessions(true)")
   })
 
   it('the manual instance-repair action and "+ New Session" are preserved', () => {
