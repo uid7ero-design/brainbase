@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireRole } from '@/lib/org'
 import sql from '@/lib/db'
 import { reconcileFutureInstances, type EndMode } from '@/lib/tennisSchedule'
+import { resolveTypeDisplayName } from '@/lib/tennisSessionTypes'
 
 const VALID_END_MODES: EndMode[] = ['ongoing', 'after_weeks', 'on_date']
 
@@ -76,7 +77,7 @@ export async function POST(req: NextRequest) {
   try { session = await requireRole('manager') } catch { return NextResponse.json({ error: 'Forbidden' }, { status: 403 }) }
 
   let body: {
-    name: string; day_of_week: number; start_time: string
+    name?: string; day_of_week: number; start_time: string
     duration_minutes?: number; max_capacity?: number
     session_type: string; resource_id?: string; recurring?: boolean
     price_per_session?: number
@@ -84,8 +85,13 @@ export async function POST(req: NextRequest) {
   }
   try { body = await req.json() } catch { return NextResponse.json({ error: 'Invalid body' }, { status: 400 }) }
 
-  if (!body.name?.trim() || body.day_of_week == null || !body.start_time || !body.session_type?.trim()) {
-    return NextResponse.json({ error: 'name, day_of_week, start_time, and session_type are required' }, { status: 400 })
+  // Session Type is the primary identity now — name (the optional custom
+  // label) is no longer required from the caller. The sessions.name column
+  // itself is still NOT NULL with no default (no migration was made for
+  // this), so a blank/omitted name falls back to the type's own display
+  // name below rather than being rejected here.
+  if (body.day_of_week == null || !body.start_time || !body.session_type?.trim()) {
+    return NextResponse.json({ error: 'day_of_week, start_time, and session_type are required' }, { status: 400 })
   }
   const scheduleErr = validateSchedule(body)
   if (scheduleErr) return NextResponse.json({ error: scheduleErr }, { status: 400 })
@@ -95,13 +101,14 @@ export async function POST(req: NextRequest) {
 
   try {
     const id = crypto.randomUUID()
+    const name = body.name?.trim() || await resolveTypeDisplayName(session.organisationId, body.session_type.trim())
     const rows = await sql`
       INSERT INTO sessions (
         id, organisation_id, name, day_of_week, start_time, duration_minutes, max_capacity,
         session_type, resource_id, recurring, price_per_session, start_date, end_mode, end_after_weeks, end_date
       )
       VALUES (
-        ${id}, ${session.organisationId}, ${body.name.trim()}, ${body.day_of_week},
+        ${id}, ${session.organisationId}, ${name}, ${body.day_of_week},
         ${body.start_time}, ${body.duration_minutes ?? 60}, ${body.max_capacity ?? 8},
         ${body.session_type.trim()}, ${body.resource_id?.trim() ?? null}, ${body.recurring ?? true},
         ${body.price_per_session ?? 0}, ${startDate}::date, ${endMode},

@@ -3,6 +3,7 @@ import { requireRole } from '@/lib/org'
 import sql from '@/lib/db'
 import { prisma } from '@/lib/prisma'
 import { reconcileFutureInstances, type EndMode } from '@/lib/tennisSchedule'
+import { resolveTypeDisplayName } from '@/lib/tennisSessionTypes'
 
 const VALID_END_MODES: EndMode[] = ['ongoing', 'after_weeks', 'on_date']
 
@@ -80,6 +81,18 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const scheduleErr = validateSchedule(body)
   if (scheduleErr) return NextResponse.json({ error: scheduleErr }, { status: 400 })
 
+  // Optional label: a blank name submitted alongside a session_type falls
+  // back to that type's display name (sessions.name stays NOT NULL, no
+  // migration was made for this — see resolveTypeDisplayName). A blank
+  // name with no session_type in the same request can't be resolved to a
+  // type-based fallback, so it's left alone and COALESCE below preserves
+  // whatever is already stored, rather than erroring.
+  let resolvedName: string | null = null
+  if (body.name !== undefined) {
+    const trimmed = body.name.trim()
+    resolvedName = trimmed || (body.session_type ? await resolveTypeDisplayName(session.organisationId, body.session_type.trim()) : null)
+  }
+
   try {
     // Schedule fields are updated with explicit UPDATE ... SET (not
     // COALESCE-preserve-existing) whenever end_mode is supplied, since
@@ -88,7 +101,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     // end_after_weeks, not silently keep the old value around).
     const rows = body.end_mode !== undefined ? await sql`
       UPDATE sessions SET
-        name              = COALESCE(${body.name?.trim() ?? null}, name),
+        name              = COALESCE(${resolvedName}, name),
         day_of_week       = COALESCE(${body.day_of_week ?? null}, day_of_week),
         start_time        = COALESCE(${body.start_time ?? null}, start_time),
         duration_minutes  = COALESCE(${body.duration_minutes ?? null}, duration_minutes),
@@ -107,7 +120,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         to_char(start_date, 'YYYY-MM-DD') AS start_date, end_mode, end_after_weeks, to_char(end_date, 'YYYY-MM-DD') AS end_date
     ` : await sql`
       UPDATE sessions SET
-        name              = COALESCE(${body.name?.trim() ?? null}, name),
+        name              = COALESCE(${resolvedName}, name),
         day_of_week       = COALESCE(${body.day_of_week ?? null}, day_of_week),
         start_time        = COALESCE(${body.start_time ?? null}, start_time),
         duration_minutes  = COALESCE(${body.duration_minutes ?? null}, duration_minutes),
