@@ -5,6 +5,10 @@ import {
   parseLocalDate, formatDateAU, addDays, addWeeks, addMonths, toDateStr, isSameDay,
   getWeekRange, getMonthGridRange, formatWeekHeading, formatMonthHeading, eachDayInRange, type DateRange,
 } from '@/lib/date'
+import {
+  sessionLabel, sessionColourDot, optionalLabel,
+  SESSION_TYPE_COLOUR_KEYS, SESSION_TYPE_COLOUR_PALETTE, type SessionTypeRow,
+} from '@/lib/sessionDisplay'
 
 const FONT = "var(--font-inter),-apple-system,sans-serif"
 const API  = '/api/dashboard/sessions'
@@ -18,8 +22,6 @@ type Session = {
   enrolled_count: number; price_per_session: number
   start_date: string | null; end_mode: EndMode; end_after_weeks: number | null; end_date: string | null
 }
-
-type SessionTypeRow = { id: string; name: string; slug: string; colour_key: string; active: boolean; sort_order: number }
 
 type ReconcileSummary = { generated: number; cancelledInstances: number; conflicts: { instanceId: string; date: string }[] }
 type ReconcileAllSummary = {
@@ -67,47 +69,6 @@ const ATTENDANCE_STYLE: Record<string, { label: string; color: string; bg: strin
   absent:    { label: '✗ Absent', color: '#f87171', bg: 'rgba(239,68,68,.12)',  border: 'rgba(239,68,68,.30)'  },
 }
 
-const SESSION_LABELS: Record<string, string> = {
-  // Private Coaching
-  PRIVATE_30:        'Private Coaching (30 min)',
-  PRIVATE_60:        'Private Coaching (60 min)',
-  SEMI_PRIVATE:      'Semi-Private Coaching',
-  // Hot Shots (Juniors)
-  GROUP_TERM_JUNIOR: 'Hot Shots Tennis',
-  MATCHPLAY:         'Hot Shots Matchplay',
-  // Adult Coaching
-  GROUP_TERM_ADULT:  'Adult Beginner Group',
-  // Fitness
-  CARDIO_SESSION:    'Cardio Tennis',
-  CARDIO_TERM:       'Cardio Tennis (Term)',
-  // Other
-  CLINIC:            'Clinic',
-  ASSESSMENT:        'Assessment',
-  // Legacy fallbacks
-  PRIVATE:           'Private Coaching',
-  GROUP:             'Group Session',
-  GROUP_CASUAL:      'Group Session',
-  ACADEMY:           'Academy Program',
-}
-
-const SESSION_COLOURS: Record<string, { text: string; bg: string; border: string }> = {
-  PRIVATE_30:        { text: '#c084fc', bg: 'rgba(168,85,247,.14)',   border: 'rgba(168,85,247,.35)'   },
-  PRIVATE_60:        { text: '#a855f7', bg: 'rgba(168,85,247,.20)',   border: 'rgba(168,85,247,.42)'   },
-  SEMI_PRIVATE:      { text: '#818cf8', bg: 'rgba(79,70,229,.15)',    border: 'rgba(79,70,229,.38)'    },
-  GROUP_TERM_JUNIOR: { text: '#4ade80', bg: 'rgba(22,163,74,.13)',    border: 'rgba(22,163,74,.32)'    },
-  MATCHPLAY:         { text: '#34d399', bg: 'rgba(16,185,129,.12)',   border: 'rgba(16,185,129,.30)'   },
-  GROUP_TERM_ADULT:  { text: '#60a5fa', bg: 'rgba(37,99,235,.13)',    border: 'rgba(37,99,235,.32)'    },
-  CARDIO_SESSION:    { text: '#fb923c', bg: 'rgba(249,115,22,.13)',   border: 'rgba(249,115,22,.32)'   },
-  CARDIO_TERM:       { text: '#f97316', bg: 'rgba(234,88,12,.14)',    border: 'rgba(234,88,12,.34)'    },
-  CLINIC:            { text: '#7dd3fc', bg: 'rgba(14,165,233,.12)',   border: 'rgba(14,165,233,.30)'   },
-  ASSESSMENT:        { text: '#94a3b8', bg: 'rgba(100,116,139,.13)',  border: 'rgba(100,116,139,.30)'  },
-  // Legacy fallbacks
-  PRIVATE:           { text: '#c084fc', bg: 'rgba(168,85,247,.14)',   border: 'rgba(168,85,247,.35)'   },
-  GROUP:             { text: '#4ade80', bg: 'rgba(22,163,74,.13)',    border: 'rgba(22,163,74,.32)'    },
-  GROUP_CASUAL:      { text: '#4ade80', bg: 'rgba(22,163,74,.13)',    border: 'rgba(22,163,74,.32)'    },
-  ACADEMY:           { text: '#fb923c', bg: 'rgba(249,115,22,.13)',   border: 'rgba(249,115,22,.32)'   },
-}
-
 const SESSION_PRICES: Record<string, number> = {
   PRIVATE_60:        70,
   PRIVATE_30:        35,
@@ -123,42 +84,6 @@ const SESSION_PRICES: Record<string, number> = {
   GROUP:             20,
   GROUP_CASUAL:      20,
   ACADEMY:           25,
-}
-
-// Fixed, finite colour palette for organisation-managed session types — a
-// manager picks one of these keys, never raw CSS. Keep in sync with
-// VALID_COLOUR_KEYS in app/api/dashboard/session-types/route.ts.
-const SESSION_TYPE_COLOUR_PALETTE: Record<string, { text: string; bg: string; border: string }> = {
-  purple:  { text: '#c084fc', bg: 'rgba(168,85,247,.14)',  border: 'rgba(168,85,247,.35)'  },
-  violet:  { text: '#a855f7', bg: 'rgba(168,85,247,.20)',  border: 'rgba(168,85,247,.42)'  },
-  indigo:  { text: '#818cf8', bg: 'rgba(79,70,229,.15)',   border: 'rgba(79,70,229,.38)'   },
-  green:   { text: '#4ade80', bg: 'rgba(22,163,74,.13)',   border: 'rgba(22,163,74,.32)'   },
-  emerald: { text: '#34d399', bg: 'rgba(16,185,129,.12)',  border: 'rgba(16,185,129,.30)'  },
-  blue:    { text: '#60a5fa', bg: 'rgba(37,99,235,.13)',   border: 'rgba(37,99,235,.32)'   },
-  orange:  { text: '#fb923c', bg: 'rgba(249,115,22,.13)',  border: 'rgba(249,115,22,.32)'  },
-  amber:   { text: '#f97316', bg: 'rgba(234,88,12,.14)',   border: 'rgba(234,88,12,.34)'   },
-  sky:     { text: '#7dd3fc', bg: 'rgba(14,165,233,.12)',  border: 'rgba(14,165,233,.30)'  },
-  slate:   { text: '#94a3b8', bg: 'rgba(100,116,139,.13)', border: 'rgba(100,116,139,.30)' },
-  rose:    { text: '#fb7185', bg: 'rgba(244,63,94,.13)',   border: 'rgba(244,63,94,.32)'   },
-  teal:    { text: '#2dd4bf', bg: 'rgba(20,184,166,.13)',  border: 'rgba(20,184,166,.32)'  },
-}
-const SESSION_TYPE_COLOUR_KEYS = Object.keys(SESSION_TYPE_COLOUR_PALETTE)
-
-// Both resolve against the live, organisation-scoped session types list
-// first (fetched from /api/dashboard/session-types — includes archived
-// types too, since a session saved against an archived type must keep
-// resolving/displaying correctly), falling back to the hardcoded maps
-// above for any type not yet backed by a session_types row (pre-migration,
-// or a type created before this feature existed).
-function sessionLabel(type: string, types: SessionTypeRow[]): string {
-  return types.find(t => t.slug === type)?.name ?? SESSION_LABELS[type] ?? type ?? 'Session'
-}
-
-function sessionChip(type: string, types: SessionTypeRow[]): React.CSSProperties {
-  const match = types.find(t => t.slug === type)
-  const c = match ? SESSION_TYPE_COLOUR_PALETTE[match.colour_key] : SESSION_COLOURS[type]
-  if (!c) return { color: 'rgba(255,255,255,.35)', background: 'rgba(255,255,255,.06)', border: '1px solid rgba(255,255,255,.12)', fontSize: 10, fontWeight: 700, borderRadius: 20, padding: '2px 8px', display: 'inline-block' }
-  return { color: c.text, background: c.bg, border: `1px solid ${c.border}`, fontSize: 10, fontWeight: 700, borderRadius: 20, padding: '2px 8px', display: 'inline-block' }
 }
 
 function sessionPrice(type: string) { return SESSION_PRICES[type] ?? 0 }
@@ -394,13 +319,19 @@ function SessionFormFields({ form, set, sessionTypes, onManageTypes }: {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         <div style={sectionLbl}>Session Details</div>
-        <div><label style={fieldLbl}>Session Name</label><input style={inp} value={form.name} onChange={e => set('name', e.target.value)} placeholder="Hot Shots Red Ball" /></div>
         <div>
           <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
             <label style={fieldLbl}>Type</label>
             <button type="button" onClick={onManageTypes} style={{ background: 'none', border: 'none', color: '#a5b4fc', cursor: 'pointer', fontSize: 11, fontFamily: FONT, padding: 0, marginBottom: 5 }}>Manage types</button>
           </div>
           <CustomSelect value={form.session_type} onChange={v => set('session_type', v)} placeholder="Select session type" options={typeOptions} />
+        </div>
+        <div>
+          <label style={fieldLbl}>Optional Label</label>
+          <input style={inp} value={form.name} onChange={e => set('name', e.target.value)} placeholder="e.g. Green Ball Advanced" />
+          <p style={{ margin: '4px 0 0', fontSize: 11, color: 'rgba(255,255,255,.28)' }}>
+            Use only when you need to distinguish this class from others of the same type. Leave blank to just show the type name.
+          </p>
         </div>
       </div>
 
@@ -481,7 +412,7 @@ function CreateModal({ onClose, onCreate, sessionTypes, onManageTypes }: {
   const set = (k: keyof SessionFormState, v: string | number | boolean) => setForm(f => ({ ...f, [k]: v }))
 
   async function submit() {
-    if (!form.name.trim() || !form.session_type.trim() || saving) return
+    if (!form.session_type.trim() || saving) return
     if (form.end_mode === 'on_date' && !form.end_date) { setErr('Choose an end date, or switch Ends to a different option.'); return }
     setSaving(true); setErr(null)
     const res = await fetch(API, {
@@ -511,8 +442,8 @@ function CreateModal({ onClose, onCreate, sessionTypes, onManageTypes }: {
           {err && <p style={{ margin: '12px 0 0', fontSize: 12, color: '#f87171' }}>{err}</p>}
           <div style={{ display: 'flex', gap: 8, marginTop: 22 }}>
             <button onClick={onClose} style={{ flex: 1, fontSize: 13, fontWeight: 600, padding: '9px 0', borderRadius: 8, cursor: 'pointer', background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.09)', color: 'rgba(255,255,255,.40)', fontFamily: FONT }}>Cancel</button>
-            <button onClick={submit} disabled={!form.name.trim() || !form.session_type.trim() || saving}
-              style={{ flex: 2, fontSize: 13, fontWeight: 600, padding: '9px 0', borderRadius: 8, cursor: 'pointer', background: 'rgba(99,102,241,.22)', border: '1px solid rgba(99,102,241,.40)', color: '#a5b4fc', fontFamily: FONT, opacity: !form.name.trim() || !form.session_type.trim() || saving ? .45 : 1 }}>
+            <button onClick={submit} disabled={!form.session_type.trim() || saving}
+              style={{ flex: 2, fontSize: 13, fontWeight: 600, padding: '9px 0', borderRadius: 8, cursor: 'pointer', background: 'rgba(99,102,241,.22)', border: '1px solid rgba(99,102,241,.40)', color: '#a5b4fc', fontFamily: FONT, opacity: !form.session_type.trim() || saving ? .45 : 1 }}>
               {saving ? 'Creating…' : 'Create Session'}
             </button>
           </div>
@@ -542,7 +473,7 @@ function EditModal({ session, onClose, onSave, sessionTypes, onManageTypes }: {
   const set = (k: keyof SessionFormState, v: string | number | boolean) => setForm(f => ({ ...f, [k]: v }))
 
   async function submit() {
-    if (!form.name.trim() || !form.session_type.trim() || saving) return
+    if (!form.session_type.trim() || saving) return
     if (form.end_mode === 'on_date' && !form.end_date) { setErr('Choose an end date, or switch Ends to a different option.'); return }
     setSaving(true); setErr(null)
     const res = await fetch(`${API}/${session.id}`, {
@@ -585,8 +516,8 @@ function EditModal({ session, onClose, onSave, sessionTypes, onManageTypes }: {
           )}
           <div style={{ display: 'flex', gap: 8, marginTop: 22 }}>
             <button onClick={onClose} style={{ flex: 1, fontSize: 13, fontWeight: 600, padding: '9px 0', borderRadius: 8, cursor: 'pointer', background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.09)', color: 'rgba(255,255,255,.40)', fontFamily: FONT }}>Cancel</button>
-            <button onClick={submit} disabled={!form.name.trim() || !form.session_type.trim() || saving}
-              style={{ flex: 2, fontSize: 13, fontWeight: 600, padding: '9px 0', borderRadius: 8, cursor: 'pointer', background: 'rgba(99,102,241,.22)', border: '1px solid rgba(99,102,241,.40)', color: '#a5b4fc', fontFamily: FONT, opacity: !form.name.trim() || !form.session_type.trim() || saving ? .45 : 1 }}>
+            <button onClick={submit} disabled={!form.session_type.trim() || saving}
+              style={{ flex: 2, fontSize: 13, fontWeight: 600, padding: '9px 0', borderRadius: 8, cursor: 'pointer', background: 'rgba(99,102,241,.22)', border: '1px solid rgba(99,102,241,.40)', color: '#a5b4fc', fontFamily: FONT, opacity: !form.session_type.trim() || saving ? .45 : 1 }}>
               {saving ? 'Saving…' : 'Save Changes'}
             </button>
           </div>
@@ -726,17 +657,18 @@ function SessionChip({ session, selected, onClick, sessionContacts, sessionTypes
 }) {
   const full   = session.enrolled_count >= session.max_capacity
   const capClr = capacityColor(session.enrolled_count, session.max_capacity)
+  const title  = sessionLabel(session.session_type, sessionTypes)
+  const label  = optionalLabel(session.name, session.session_type, sessionTypes)
   return (
     <button onClick={onClick} style={{
       display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2, flexShrink: 0,
       padding: '6px 12px', borderRadius: 10, cursor: 'pointer', fontFamily: FONT, textAlign: 'left',
       background: selected ? 'rgba(99,102,241,.16)' : 'rgba(255,255,255,.03)',
       border: `1px solid ${selected ? 'rgba(99,102,241,.40)' : full ? 'rgba(239,68,68,.22)' : 'rgba(255,255,255,.08)'}`,
+      borderLeft: `3px solid ${sessionColourDot(session.session_type, sessionTypes)}`,
     }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        <span style={{ fontSize: 12, fontWeight: 700, color: '#F5F7FA' }}>{session.name}</span>
-        {session.session_type && <span style={sessionChip(session.session_type, sessionTypes)}>{sessionLabel(session.session_type, sessionTypes)}</span>}
-      </div>
+      <span style={{ fontSize: 12, fontWeight: 700, color: '#F5F7FA' }}>{title}</span>
+      {label && <span style={{ fontSize: 10, color: 'rgba(255,255,255,.40)' }}>{label}</span>}
       <div style={{ fontSize: 10, color: 'rgba(255,255,255,.35)', display: 'flex', alignItems: 'center', gap: 6 }}>
         <span>{DAY_LABEL[session.day_of_week]} {session.start_time}</span>
         <span style={{ fontWeight: 700, color: capClr }}>{session.enrolled_count}/{session.max_capacity}</span>
@@ -763,7 +695,10 @@ function CalendarEntry({ inst, compact, selected, sessionTypes, onSelect }: {
 }) {
   const capClr = capacityColor(inst.enrolled_count, inst.max_capacity)
   const full   = inst.enrolled_count >= inst.max_capacity
+  const title  = sessionLabel(inst.session_type, sessionTypes)
   if (compact) {
+    // Month view: tight on space, but the start time must still be visible
+    // without clicking — "10:00 Hot Shots Tennis · 3/8".
     return (
       <div onClick={onSelect} style={{
         fontSize: 9.5, padding: '2px 5px', borderRadius: 4, cursor: 'pointer', fontFamily: FONT,
@@ -775,29 +710,37 @@ function CalendarEntry({ inst, compact, selected, sessionTypes, onSelect }: {
         onMouseEnter={e => { if (!selected) e.currentTarget.style.background = 'rgba(255,255,255,.10)' }}
         onMouseLeave={e => { if (!selected) e.currentTarget.style.background = 'rgba(255,255,255,.05)' }}
       >
-        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sessionLabel(inst.session_type, sessionTypes)}</span>
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <span style={{ fontWeight: 700, color: selected ? '#c7d2fe' : 'rgba(255,255,255,.85)' }}>{inst.start_time}</span> {title}
+        </span>
         <span style={{ fontWeight: 700, color: capClr, flexShrink: 0 }}>{inst.enrolled_count}/{inst.max_capacity}</span>
       </div>
     )
   }
+  const label = optionalLabel(inst.session_name, inst.session_type, sessionTypes)
   return (
     <div onClick={onSelect} style={{
       padding: '5px 8px', borderRadius: 6, cursor: 'pointer', fontFamily: FONT,
       background: selected ? 'rgba(99,102,241,.18)' : 'rgba(255,255,255,.04)',
       border: `1px solid ${selected ? 'rgba(99,102,241,.50)' : 'rgba(255,255,255,.08)'}`,
+      borderLeft: `3px solid ${sessionColourDot(inst.session_type, sessionTypes)}`,
       display: 'flex', flexDirection: 'column', gap: 2,
     }}
       onMouseEnter={e => { if (!selected) e.currentTarget.style.background = 'rgba(255,255,255,.08)' }}
       onMouseLeave={e => { if (!selected) e.currentTarget.style.background = 'rgba(255,255,255,.04)' }}
     >
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
-        <span style={{ fontSize: 11, fontWeight: 600, color: selected ? '#c7d2fe' : '#F5F7FA', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{inst.session_name}</span>
+        <span style={{ fontSize: 11, fontWeight: 700, color: selected ? '#c7d2fe' : '#F5F7FA', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</span>
         <span style={{ fontSize: 10, fontWeight: 800, color: capClr, flexShrink: 0 }}>{inst.enrolled_count}/{inst.max_capacity}</span>
       </div>
+      {label && (
+        <div style={{ fontSize: 10, color: 'rgba(255,255,255,.45)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</div>
+      )}
+      <div style={{ fontSize: 10, fontWeight: 600, color: selected ? '#a5b4fc' : 'rgba(255,255,255,.60)' }}>
+        {inst.start_time}–{endTime(inst.start_time, inst.duration_minutes)}
+      </div>
       <div style={{ fontSize: 10, color: 'rgba(255,255,255,.32)', display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
-        <span>{inst.start_time}</span>
-        {inst.resource_id && <span>· {inst.resource_id}</span>}
-        {inst.session_type && <span style={sessionChip(inst.session_type, sessionTypes)}>{sessionLabel(inst.session_type, sessionTypes)}</span>}
+        {inst.resource_id && <span>{inst.resource_id}</span>}
         {full && <span style={{ fontWeight: 700, color: '#f87171' }}>Full</span>}
       </div>
     </div>
@@ -1625,9 +1568,14 @@ export default function SessionsPage() {
           <div style={{ padding: '16px 22px', borderBottom: '1px solid rgba(255,255,255,.07)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
             <div>
               <div style={{ fontSize: 15, fontWeight: 700, color: '#F5F7FA', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                {selectedSession.name}
-                {selectedSession.session_type && <span style={sessionChip(selectedSession.session_type, sessionTypes)}>{sessionLabel(selectedSession.session_type, sessionTypes)}</span>}
+                <span style={{ width: 10, height: 10, borderRadius: 3, background: sessionColourDot(selectedSession.session_type, sessionTypes), flexShrink: 0 }} />
+                {sessionLabel(selectedSession.session_type, sessionTypes)}
               </div>
+              {optionalLabel(selectedSession.name, selectedSession.session_type, sessionTypes) && (
+                <div style={{ fontSize: 13, color: 'rgba(255,255,255,.50)', marginTop: 2 }}>
+                  {optionalLabel(selectedSession.name, selectedSession.session_type, sessionTypes)}
+                </div>
+              )}
               <div style={{ fontSize: 12, color: 'rgba(255,255,255,.35)', marginTop: 4, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                 {DAY_FULL[selectedSession.day_of_week]} · {selectedSession.start_time}–{endTime(selectedSession.start_time, selectedSession.duration_minutes)}
                 {selectedSession.resource_id && <><span>·</span><span>📍 {selectedSession.resource_id}</span></>}

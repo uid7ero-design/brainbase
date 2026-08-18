@@ -10,6 +10,9 @@ import path from 'path'
 const SOURCE_PATH = path.resolve(__dirname, '../../app/dashboard/sessions/page.tsx')
 const source = fs.readFileSync(SOURCE_PATH, 'utf-8')
 
+const DISPLAY_LIB_PATH = path.resolve(__dirname, '../../lib/sessionDisplay.ts')
+const displayLibSource = fs.readFileSync(DISPLAY_LIB_PATH, 'utf-8')
+
 describe('app/dashboard/sessions/page.tsx — static checks (schedule fields + session type dropdown + form alignment)', () => {
   it('the Create/Edit form has the new Schedule fields: Start Date and an Ends control (After weeks / On date / Ongoing)', () => {
     expect(source).toContain('Start Date')
@@ -36,8 +39,12 @@ describe('app/dashboard/sessions/page.tsx — static checks (schedule fields + s
   })
 
   it('sessionLabel/sessionChip resolve regardless of active state — an archived type still renders correctly on a historical/current session', () => {
-    const sessionLabelFn = source.match(/function sessionLabel\([\s\S]{0,200}/)
-    const sessionChipFn = source.match(/function sessionChip\([\s\S]{0,300}/)
+    // These now live in lib/sessionDisplay.ts (extracted so they're
+    // directly, really unit-testable — see tennisSessionDisplay.test.ts —
+    // rather than only checkable via source text); the page imports them.
+    expect(source).toContain("from '@/lib/sessionDisplay'")
+    const sessionLabelFn = displayLibSource.match(/export function sessionLabel\([\s\S]{0,200}/)
+    const sessionChipFn = displayLibSource.match(/export function sessionChip\([\s\S]{0,300}/)
     expect(sessionLabelFn).not.toBeNull()
     expect(sessionChipFn).not.toBeNull()
     // Neither filters the lookup by t.active — only the dropdown does that.
