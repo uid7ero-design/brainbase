@@ -1,6 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireRole } from '@/lib/org'
 import sql from '@/lib/db'
+import { reconcileFutureInstances, type EndMode } from '@/lib/tennisSchedule'
+
+const VALID_END_MODES: EndMode[] = ['ongoing', 'after_weeks', 'on_date']
+
+function validateSchedule(body: { end_mode?: string; end_after_weeks?: number | null; end_date?: string | null }): string | null {
+  if (body.end_mode !== undefined && !VALID_END_MODES.includes(body.end_mode as EndMode)) {
+    return "end_mode must be 'ongoing', 'after_weeks', or 'on_date'"
+  }
+  if (body.end_mode === 'after_weeks' && (!body.end_after_weeks || body.end_after_weeks < 1 || body.end_after_weeks > 104)) {
+    return 'end_after_weeks must be between 1 and 104 when end_mode is after_weeks'
+  }
+  if (body.end_mode === 'on_date' && !body.end_date) {
+    return 'end_date is required when end_mode is on_date'
+  }
+  return null
+}
 
 export async function GET() {
   let session
@@ -11,6 +27,8 @@ export async function GET() {
       SELECT
         s.id, s.name, s.day_of_week, s.start_time, s.duration_minutes,
         s.max_capacity, s.session_type, s.resource_id, s.recurring, s.price_per_session, s.created_at,
+        to_char(s.start_date, 'YYYY-MM-DD') AS start_date, s.end_mode, s.end_after_weeks,
+        to_char(s.end_date, 'YYYY-MM-DD') AS end_date,
         -- Unique roster players, not total booking rows: a weekly player
         -- propagated across 6 future instances has 6 booking rows but is
         -- one player. Bookings sharing a recurring_group_id collapse to a
@@ -25,6 +43,15 @@ export async function GET() {
       WHERE s.organisation_id = ${session.organisationId}
       ORDER BY s.day_of_week, s.start_time
     `
+
+    // GET returns data only — no write side effect. Automatic horizon
+    // top-up now happens via an explicit, awaited POST (see
+    // /api/dashboard/sessions/reconcile/route.ts), not as an unawaited
+    // side effect of a read. A fire-and-forget write here was rejected:
+    // in a serverless request the process can be frozen/recycled the
+    // instant the response is sent, before the write actually lands, and
+    // a GET mutating state at all is surprising behaviour for anything
+    // that might refetch, prefetch, or cache this endpoint later.
     return NextResponse.json({ sessions })
   } catch {
     // bookings table may not exist yet — fall back to count-free query
@@ -53,59 +80,50 @@ export async function POST(req: NextRequest) {
     duration_minutes?: number; max_capacity?: number
     session_type: string; resource_id?: string; recurring?: boolean
     price_per_session?: number
+    start_date?: string | null; end_mode?: EndMode; end_after_weeks?: number | null; end_date?: string | null
   }
   try { body = await req.json() } catch { return NextResponse.json({ error: 'Invalid body' }, { status: 400 }) }
 
   if (!body.name?.trim() || body.day_of_week == null || !body.start_time || !body.session_type?.trim()) {
     return NextResponse.json({ error: 'name, day_of_week, start_time, and session_type are required' }, { status: 400 })
   }
+  const scheduleErr = validateSchedule(body)
+  if (scheduleErr) return NextResponse.json({ error: scheduleErr }, { status: 400 })
+
+  const endMode = body.end_mode ?? 'ongoing'
+  const startDate = body.start_date ?? null
 
   try {
     const id = crypto.randomUUID()
     const rows = await sql`
-      INSERT INTO sessions (id, organisation_id, name, day_of_week, start_time, duration_minutes, max_capacity, session_type, resource_id, recurring, price_per_session)
+      INSERT INTO sessions (
+        id, organisation_id, name, day_of_week, start_time, duration_minutes, max_capacity,
+        session_type, resource_id, recurring, price_per_session, start_date, end_mode, end_after_weeks, end_date
+      )
       VALUES (
         ${id}, ${session.organisationId}, ${body.name.trim()}, ${body.day_of_week},
         ${body.start_time}, ${body.duration_minutes ?? 60}, ${body.max_capacity ?? 8},
         ${body.session_type.trim()}, ${body.resource_id?.trim() ?? null}, ${body.recurring ?? true},
-        ${body.price_per_session ?? 0}
+        ${body.price_per_session ?? 0}, ${startDate}::date, ${endMode},
+        ${endMode === 'after_weeks' ? body.end_after_weeks : null},
+        ${endMode === 'on_date' ? body.end_date : null}::date
       )
-      RETURNING id, organisation_id, name, day_of_week, start_time, duration_minutes, max_capacity, session_type, resource_id, recurring, price_per_session, created_at
+      RETURNING id, organisation_id, name, day_of_week, start_time, duration_minutes, max_capacity, session_type,
+        resource_id, recurring, price_per_session, created_at,
+        to_char(start_date, 'YYYY-MM-DD') AS start_date, end_mode, end_after_weeks, to_char(end_date, 'YYYY-MM-DD') AS end_date
     `
+    const created = rows[0] as { id: string; day_of_week: number; start_time: string; duration_minutes: number; max_capacity: number; session_type: string; start_date: string | null; end_mode: EndMode; end_after_weeks: number | null; end_date: string | null }
 
-    // Auto-generate instances
-    generateInstances(id, session.organisationId, body.day_of_week, body.start_time, body.duration_minutes ?? 60, body.max_capacity ?? 8)
-      .catch(err => console.error('[dashboard/sessions POST] generate error:', err))
+    const reconcile = await reconcileFutureInstances({
+      organisationId: session.organisationId,
+      sessionId: id,
+      rules: { day_of_week: created.day_of_week, start_date: created.start_date, end_mode: created.end_mode, end_after_weeks: created.end_after_weeks, end_date: created.end_date },
+      startTime: created.start_time, durationMinutes: created.duration_minutes, maxCapacity: created.max_capacity, sessionType: created.session_type,
+    })
 
-    return NextResponse.json({ session: { ...rows[0], enrolled_count: 0 } }, { status: 201 })
+    return NextResponse.json({ session: { ...rows[0], enrolled_count: 0 }, reconcile }, { status: 201 })
   } catch (err) {
     console.error('[dashboard/sessions POST]', err)
     return NextResponse.json({ error: 'Failed to create session' }, { status: 500 })
-  }
-}
-
-function toLocalDateStr(date: Date): string {
-  const y = date.getFullYear()
-  const m = String(date.getMonth() + 1).padStart(2, '0')
-  const d = String(date.getDate()).padStart(2, '0')
-  return `${y}-${m}-${d}`
-}
-
-async function generateInstances(
-  sessionId: string, organisationId: string,
-  dayOfWeek: number, startTime: string, durationMinutes: number, maxCapacity: number
-) {
-  const now = new Date()
-  let daysUntilNext = ((dayOfWeek - now.getDay()) + 7) % 7
-  if (daysUntilNext === 0) daysUntilNext = 7
-  for (let w = 0; w < 6; w++) {
-    const base = new Date()
-    base.setDate(base.getDate() + daysUntilNext + w * 7)
-    const targetDate = toLocalDateStr(base)
-    await sql`
-      INSERT INTO session_instances (id, session_id, organisation_id, date, start_time, duration_minutes, max_capacity, status)
-      VALUES (${crypto.randomUUID()}, ${sessionId}, ${organisationId}, ${targetDate}::date, ${startTime}, ${durationMinutes}, ${maxCapacity}, 'scheduled')
-      ON CONFLICT (session_id, date) DO NOTHING
-    `
   }
 }
