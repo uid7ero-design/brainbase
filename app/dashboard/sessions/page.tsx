@@ -21,6 +21,10 @@ type Session = {
   resource_id: string | null; recurring: boolean; created_at: string
   enrolled_count: number; price_per_session: number
   start_date: string | null; end_mode: EndMode; end_after_weeks: number | null; end_date: string | null
+  // NULL = inherit the session type's colour. See resolveSessionColourKey /
+  // sessionColourDot in lib/sessionDisplay.ts for the one shared resolver
+  // every render site must use — never re-derive this precedence locally.
+  session_colour_key: string | null
 }
 
 type ReconcileSummary = { generated: number; cancelledInstances: number; conflicts: { instanceId: string; date: string }[] }
@@ -36,7 +40,7 @@ type SessionInstance = {
   created_at: string; enrolled_count: number; revenue: number; utilisation: number
 }
 
-type WeekInstance = SessionInstance & { session_name: string; session_type: string; resource_id: string | null }
+type WeekInstance = SessionInstance & { session_name: string; session_type: string; resource_id: string | null; session_colour_key: string | null }
 
 type InstanceBooking = {
   id: string; client_name: string; client_email: string | null
@@ -338,6 +342,7 @@ type SessionFormState = {
   duration_minutes: number; max_capacity: number; session_type: string; resource_id: string; recurring: boolean
   price_per_session: number
   start_date: string; end_mode: EndMode; end_after_weeks: number; end_date: string
+  session_colour_key: string // '' = inherit the session type's colour
 }
 
 const FLAT_LEGACY_TYPE_OPTIONS: SelectOption[] = SESSION_TYPE_GROUPS.flatMap(g => g.options)
@@ -379,6 +384,11 @@ function SessionFormFields({ form, set, sessionTypes, onManageTypes }: {
         .map(t => ({ value: t.slug, label: t.name }))
     : FLAT_LEGACY_TYPE_OPTIONS
 
+  // What the type itself currently resolves to — shown so "Use type colour"
+  // reads as "Use type colour — Green", not just a bare, unhelpful label.
+  const typeColourKey = sessionTypes.find(t => t.slug === form.session_type)?.colour_key
+  const typeColourName = typeColourKey ? (SESSION_TYPE_COLOUR_NAMES[typeColourKey] ?? typeColourKey) : null
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -396,6 +406,23 @@ function SessionFormFields({ form, set, sessionTypes, onManageTypes }: {
           <p style={{ margin: '4px 0 0', fontSize: 11, color: 'rgba(255,255,255,.28)' }}>
             Use only when you need to distinguish this class from others of the same type. Leave blank to just show the type name.
           </p>
+        </div>
+        <div>
+          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
+            <label style={fieldLbl}>Session Colour</label>
+            {form.session_colour_key && (
+              <button type="button" onClick={() => set('session_colour_key', '')}
+                style={{ background: 'none', border: 'none', color: '#a5b4fc', cursor: 'pointer', fontSize: 11, fontFamily: FONT, padding: 0, marginBottom: 5 }}>
+                Use type colour
+              </button>
+            )}
+          </div>
+          <p style={{ margin: '0 0 8px', fontSize: 11, color: form.session_colour_key ? '#a5b4fc' : 'rgba(255,255,255,.35)' }}>
+            {form.session_colour_key
+              ? `Session override — ${SESSION_TYPE_COLOUR_NAMES[form.session_colour_key] ?? form.session_colour_key}`
+              : `Use type colour${typeColourName ? ` — ${typeColourName}` : ''}`}
+          </p>
+          <ColourPicker value={form.session_colour_key || typeColourKey || 'slate'} onChange={v => set('session_colour_key', v)} />
         </div>
       </div>
 
@@ -469,6 +496,7 @@ function CreateModal({ onClose, onCreate, sessionTypes, onManageTypes }: {
     duration_minutes: 60, max_capacity: 8, session_type: '', resource_id: '', recurring: true,
     price_per_session: 0,
     start_date: todayStr(), end_mode: 'ongoing', end_after_weeks: 10, end_date: '',
+    session_colour_key: '',
   })
   const [saving, setSaving] = useState(false)
   const [err, setErr]       = useState<string | null>(null)
@@ -529,10 +557,23 @@ function EditModal({ session, onClose, onSave, sessionTypes, onManageTypes }: {
     price_per_session: session.price_per_session ?? 0,
     start_date: session.start_date ?? todayStr(), end_mode: session.end_mode ?? 'ongoing',
     end_after_weeks: session.end_after_weeks ?? 10, end_date: session.end_date ?? '',
+    session_colour_key: session.session_colour_key ?? '',
   })
   const [saving, setSaving] = useState(false)
   const [err, setErr]       = useState<string | null>(null)
   const [reconcileNote, setReconcileNote] = useState<string | null>(null)
+  const closeRef = useRef<HTMLButtonElement>(null)
+
+  // Regardless of which surface opened Edit (the page header, the selected-
+  // session detail, or Manage Sessions), this must be the sole active
+  // dialog by the time it mounts, so it always owns focus/Escape itself
+  // rather than relying on whatever opened it.
+  useEffect(() => {
+    closeRef.current?.focus()
+    function onKeyDown(e: KeyboardEvent) { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [onClose])
 
   const set = (k: keyof SessionFormState, v: string | number | boolean) => setForm(f => ({ ...f, [k]: v }))
 
@@ -563,12 +604,13 @@ function EditModal({ session, onClose, onSave, sessionTypes, onManageTypes }: {
   return (
     <>
       <style>{`@keyframes cm-fade{from{opacity:0}to{opacity:1}}@keyframes cm-in{from{opacity:0;transform:scale(.96)}to{opacity:1;transform:scale(1)}}`}</style>
-      <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.70)', backdropFilter: 'blur(4px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', animation: 'cm-fade .15s ease' }}
+      <div role="dialog" aria-modal="true" aria-label="Edit session"
+        style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.70)', backdropFilter: 'blur(4px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', animation: 'cm-fade .15s ease' }}
         onClick={e => { if (e.target === e.currentTarget) onClose() }}>
         <div style={{ background: '#111215', border: '1px solid rgba(255,255,255,.10)', borderRadius: 16, padding: '26px 28px', width: '100%', maxWidth: 480, maxHeight: '88vh', overflowY: 'auto', fontFamily: FONT, animation: 'cm-in .18s ease' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 22 }}>
             <div style={{ fontSize: 16, fontWeight: 700, color: '#F5F7FA' }}>Edit Session</div>
-            <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,.35)', cursor: 'pointer', fontSize: 18 }}>✕</button>
+            <button ref={closeRef} onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,.35)', cursor: 'pointer', fontSize: 18 }}>✕</button>
           </div>
           <SessionFormFields form={form} set={set} sessionTypes={sessionTypes} onManageTypes={onManageTypes} />
           {err && <p style={{ margin: '12px 0 0', fontSize: 12, color: '#f87171' }}>{err}</p>}
@@ -786,7 +828,7 @@ function ManageSessionsModal({ sessions, sessionTypes, contacts, onClose, onEdit
               return (
                 <div key={s.id} style={{
                   padding: '10px 12px', borderRadius: 10, background: 'rgba(255,255,255,.03)',
-                  border: '1px solid rgba(255,255,255,.08)', borderLeft: `3px solid ${sessionColourDot(s.session_type, sessionTypes)}`,
+                  border: '1px solid rgba(255,255,255,.08)', borderLeft: `3px solid ${sessionColourDot(s.session_type, sessionTypes, s.session_colour_key)}`,
                 }}>
                   <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
                     <div style={{ minWidth: 0 }}>
@@ -864,7 +906,7 @@ function CalendarEntry({ inst, compact, selected, sessionTypes, onSelect }: {
   // longhand (never mixing the `border` shorthand with `borderLeft`), so
   // there is no ambiguity about which one wins: the left edge is always
   // the type colour, the other three sides carry the selected-state ring.
-  const typeColour = sessionColourDot(inst.session_type, sessionTypes)
+  const typeColour = sessionColourDot(inst.session_type, sessionTypes, inst.session_colour_key)
   if (compact) {
     // Month view: tight on space, but the start time must still be visible
     // without clicking — "10:00 Hot Shots Tennis · 3/8".
@@ -1633,7 +1675,7 @@ export default function SessionsPage() {
         <ManageSessionsModal
           sessions={sessions} sessionTypes={sessionTypes} contacts={contacts}
           onClose={() => setShowManageSessions(false)}
-          onEdit={s => setEditingSession(s)}
+          onEdit={s => { setShowManageSessions(false); setEditingSession(s) }}
           onDelete={handleDelete}
           onRepaired={() => { fetch(API).then(r => r.json()).then(d => setSessions(d.sessions ?? [])).catch(() => null); loadCalendar(calendarAnchor, calendarView) }}
         />
@@ -1735,7 +1777,7 @@ export default function SessionsPage() {
           <div style={{ padding: '16px 22px', borderBottom: '1px solid rgba(255,255,255,.07)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
             <div>
               <div style={{ fontSize: 15, fontWeight: 700, color: '#F5F7FA', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                <span style={{ width: 10, height: 10, borderRadius: 3, background: sessionColourDot(selectedSession.session_type, sessionTypes), flexShrink: 0 }} />
+                <span style={{ width: 10, height: 10, borderRadius: 3, background: sessionColourDot(selectedSession.session_type, sessionTypes, selectedSession.session_colour_key), flexShrink: 0 }} />
                 {sessionLabel(selectedSession.session_type, sessionTypes)}
               </div>
               {optionalLabel(selectedSession.name, selectedSession.session_type, sessionTypes) && (

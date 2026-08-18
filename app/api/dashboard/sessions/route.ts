@@ -3,6 +3,7 @@ import { requireRole } from '@/lib/org'
 import sql from '@/lib/db'
 import { reconcileFutureInstances, type EndMode } from '@/lib/tennisSchedule'
 import { resolveTypeDisplayName } from '@/lib/tennisSessionTypes'
+import { validateSessionColourOverride } from '@/lib/sessionDisplay'
 
 const VALID_END_MODES: EndMode[] = ['ongoing', 'after_weeks', 'on_date']
 
@@ -29,7 +30,7 @@ export async function GET() {
         s.id, s.name, s.day_of_week, s.start_time, s.duration_minutes,
         s.max_capacity, s.session_type, s.resource_id, s.recurring, s.price_per_session, s.created_at,
         to_char(s.start_date, 'YYYY-MM-DD') AS start_date, s.end_mode, s.end_after_weeks,
-        to_char(s.end_date, 'YYYY-MM-DD') AS end_date,
+        to_char(s.end_date, 'YYYY-MM-DD') AS end_date, s.session_colour_key,
         -- Unique roster players, not total booking rows: a weekly player
         -- propagated across 6 future instances has 6 booking rows but is
         -- one player. Bookings sharing a recurring_group_id collapse to a
@@ -82,6 +83,7 @@ export async function POST(req: NextRequest) {
     session_type: string; resource_id?: string; recurring?: boolean
     price_per_session?: number
     start_date?: string | null; end_mode?: EndMode; end_after_weeks?: number | null; end_date?: string | null
+    session_colour_key?: string | null
   }
   try { body = await req.json() } catch { return NextResponse.json({ error: 'Invalid body' }, { status: 400 }) }
 
@@ -96,6 +98,9 @@ export async function POST(req: NextRequest) {
   const scheduleErr = validateSchedule(body)
   if (scheduleErr) return NextResponse.json({ error: scheduleErr }, { status: 400 })
 
+  const colourOverride = validateSessionColourOverride(body.session_colour_key)
+  if (colourOverride === 'INVALID') return NextResponse.json({ error: 'Invalid session_colour_key' }, { status: 400 })
+
   const endMode = body.end_mode ?? 'ongoing'
   const startDate = body.start_date ?? null
 
@@ -105,7 +110,8 @@ export async function POST(req: NextRequest) {
     const rows = await sql`
       INSERT INTO sessions (
         id, organisation_id, name, day_of_week, start_time, duration_minutes, max_capacity,
-        session_type, resource_id, recurring, price_per_session, start_date, end_mode, end_after_weeks, end_date
+        session_type, resource_id, recurring, price_per_session, start_date, end_mode, end_after_weeks, end_date,
+        session_colour_key
       )
       VALUES (
         ${id}, ${session.organisationId}, ${name}, ${body.day_of_week},
@@ -113,11 +119,13 @@ export async function POST(req: NextRequest) {
         ${body.session_type.trim()}, ${body.resource_id?.trim() ?? null}, ${body.recurring ?? true},
         ${body.price_per_session ?? 0}, ${startDate}::date, ${endMode},
         ${endMode === 'after_weeks' ? body.end_after_weeks : null},
-        ${endMode === 'on_date' ? body.end_date : null}::date
+        ${endMode === 'on_date' ? body.end_date : null}::date,
+        ${colourOverride}
       )
       RETURNING id, organisation_id, name, day_of_week, start_time, duration_minutes, max_capacity, session_type,
         resource_id, recurring, price_per_session, created_at,
-        to_char(start_date, 'YYYY-MM-DD') AS start_date, end_mode, end_after_weeks, to_char(end_date, 'YYYY-MM-DD') AS end_date
+        to_char(start_date, 'YYYY-MM-DD') AS start_date, end_mode, end_after_weeks, to_char(end_date, 'YYYY-MM-DD') AS end_date,
+        session_colour_key
     `
     const created = rows[0] as { id: string; day_of_week: number; start_time: string; duration_minutes: number; max_capacity: number; session_type: string; start_date: string | null; end_mode: EndMode; end_after_weeks: number | null; end_date: string | null }
 

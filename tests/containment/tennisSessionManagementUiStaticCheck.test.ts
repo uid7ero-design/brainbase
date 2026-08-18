@@ -116,21 +116,21 @@ describe('app/dashboard/sessions/page.tsx — user-configurable session type col
     expect(body).not.toMatch(/\/api\/dashboard\/sessions\/(?!reconcile)/) // never touches the sessions endpoint
   })
 
-  it('9. Week and Month calendar entries resolve colour through sessionColourDot(session_type, sessionTypes) — updating a type\'s colour_key changes every entry of that type automatically', () => {
+  it('9. Week and Month calendar entries resolve colour through sessionColourDot(session_type, sessionTypes, session_colour_key) — updating a type\'s colour_key changes every non-overridden entry of that type automatically, while a session override still takes precedence', () => {
     const fnStart = source.indexOf('function CalendarEntry(')
     const fnEnd = source.indexOf('\nfunction WeekGrid(')
     const body = source.slice(fnStart, fnEnd)
-    expect(body).toContain('const typeColour = sessionColourDot(inst.session_type, sessionTypes)')
+    expect(body).toContain('const typeColour = sessionColourDot(inst.session_type, sessionTypes, inst.session_colour_key)')
   })
 
-  it('the selected session detail header and Manage Sessions both resolve colour the same way (single source of truth, not a duplicated copy)', () => {
+  it('the selected session detail header and Manage Sessions both resolve colour the same way (single shared resolver, override-aware, not a duplicated copy)', () => {
     const detailStart = source.indexOf('{/* Session header + actions */}')
     const detailEnd = source.indexOf('{deleteErr &&')
-    expect(source.slice(detailStart, detailEnd)).toContain('sessionColourDot(selectedSession.session_type, sessionTypes)')
+    expect(source.slice(detailStart, detailEnd)).toContain('sessionColourDot(selectedSession.session_type, sessionTypes, selectedSession.session_colour_key)')
 
     const modalStart = source.indexOf('function ManageSessionsModal(')
     const modalEnd = source.indexOf('\n// ─── Calendar')
-    expect(source.slice(modalStart, modalEnd)).toContain('sessionColourDot(s.session_type, sessionTypes)')
+    expect(source.slice(modalStart, modalEnd)).toContain('sessionColourDot(s.session_type, sessionTypes, s.session_colour_key)')
   })
 })
 

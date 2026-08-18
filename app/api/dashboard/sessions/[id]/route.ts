@@ -4,6 +4,7 @@ import sql from '@/lib/db'
 import { prisma } from '@/lib/prisma'
 import { reconcileFutureInstances, type EndMode } from '@/lib/tennisSchedule'
 import { resolveTypeDisplayName } from '@/lib/tennisSessionTypes'
+import { validateSessionColourOverride } from '@/lib/sessionDisplay'
 
 const VALID_END_MODES: EndMode[] = ['ongoing', 'after_weeks', 'on_date']
 
@@ -30,7 +31,8 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     const sessions = await sql`
       SELECT id, name, day_of_week, start_time, duration_minutes, max_capacity, session_type, resource_id, recurring,
              price_per_session, created_at,
-             to_char(start_date, 'YYYY-MM-DD') AS start_date, end_mode, end_after_weeks, to_char(end_date, 'YYYY-MM-DD') AS end_date
+             to_char(start_date, 'YYYY-MM-DD') AS start_date, end_mode, end_after_weeks, to_char(end_date, 'YYYY-MM-DD') AS end_date,
+             session_colour_key
       FROM sessions
       WHERE id = ${id} AND organisation_id = ${session.organisationId}
     `
@@ -75,11 +77,19 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     name: string; day_of_week: number; start_time: string; duration_minutes: number; max_capacity: number
     session_type: string; resource_id: string | null; recurring: boolean; price_per_session: number
     start_date: string | null; end_mode: EndMode; end_after_weeks: number | null; end_date: string | null
+    session_colour_key: string | null
   }>
   try { body = await req.json() } catch { return NextResponse.json({ error: 'Invalid body' }, { status: 400 }) }
 
   const scheduleErr = validateSchedule(body)
   if (scheduleErr) return NextResponse.json({ error: scheduleErr }, { status: 400 })
+
+  // Distinguish "field omitted" (leave whatever is stored alone) from
+  // "field explicitly sent as null/blank" (reset to inherit-from-type) —
+  // a plain COALESCE can't express the reset-to-NULL case, so the SET
+  // clauses below branch on body.session_colour_key !== undefined instead.
+  const colourOverride = validateSessionColourOverride(body.session_colour_key)
+  if (colourOverride === 'INVALID') return NextResponse.json({ error: 'Invalid session_colour_key' }, { status: 400 })
 
   // Optional label: a blank name submitted alongside a session_type falls
   // back to that type's display name (sessions.name stays NOT NULL, no
@@ -113,11 +123,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         start_date        = ${body.start_date !== undefined ? body.start_date : sql`start_date`}::date,
         end_mode          = ${body.end_mode},
         end_after_weeks   = ${body.end_mode === 'after_weeks' ? body.end_after_weeks ?? null : null},
-        end_date          = ${body.end_mode === 'on_date' ? body.end_date ?? null : null}::date
+        end_date          = ${body.end_mode === 'on_date' ? body.end_date ?? null : null}::date,
+        session_colour_key = ${body.session_colour_key !== undefined ? colourOverride : sql`session_colour_key`}
       WHERE id = ${id} AND organisation_id = ${session.organisationId}
       RETURNING id, name, day_of_week, start_time, duration_minutes, max_capacity, session_type, resource_id, recurring,
         price_per_session, created_at,
-        to_char(start_date, 'YYYY-MM-DD') AS start_date, end_mode, end_after_weeks, to_char(end_date, 'YYYY-MM-DD') AS end_date
+        to_char(start_date, 'YYYY-MM-DD') AS start_date, end_mode, end_after_weeks, to_char(end_date, 'YYYY-MM-DD') AS end_date,
+        session_colour_key
     ` : await sql`
       UPDATE sessions SET
         name              = COALESCE(${resolvedName}, name),
@@ -129,11 +141,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         resource_id       = ${body.resource_id !== undefined ? (body.resource_id?.trim() || null) : sql`resource_id`},
         recurring         = COALESCE(${body.recurring ?? null}, recurring),
         price_per_session = COALESCE(${body.price_per_session ?? null}, price_per_session),
-        start_date        = ${body.start_date !== undefined ? body.start_date : sql`start_date`}::date
+        start_date        = ${body.start_date !== undefined ? body.start_date : sql`start_date`}::date,
+        session_colour_key = ${body.session_colour_key !== undefined ? colourOverride : sql`session_colour_key`}
       WHERE id = ${id} AND organisation_id = ${session.organisationId}
       RETURNING id, name, day_of_week, start_time, duration_minutes, max_capacity, session_type, resource_id, recurring,
         price_per_session, created_at,
-        to_char(start_date, 'YYYY-MM-DD') AS start_date, end_mode, end_after_weeks, to_char(end_date, 'YYYY-MM-DD') AS end_date
+        to_char(start_date, 'YYYY-MM-DD') AS start_date, end_mode, end_after_weeks, to_char(end_date, 'YYYY-MM-DD') AS end_date,
+        session_colour_key
     `
     if (!rows[0]) return NextResponse.json({ error: 'Not found' }, { status: 404 })
     const updated = rows[0] as {
