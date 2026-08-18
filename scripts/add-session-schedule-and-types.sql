@@ -19,7 +19,7 @@ ALTER TABLE sessions ADD COLUMN IF NOT EXISTS end_date date;
 DO $$
 BEGIN
   IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'sessions_end_mode_check'
+    SELECT 1 FROM pg_constraint WHERE conrelid = 'sessions'::regclass AND contype = 'c' AND conname = 'sessions_end_mode_check'
   ) THEN
     ALTER TABLE sessions
       ADD CONSTRAINT sessions_end_mode_check
