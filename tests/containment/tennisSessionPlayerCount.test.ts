@@ -33,4 +33,16 @@ describe('GET /api/dashboard/sessions — session-level PLAYERS/enrolled_count s
     // Regression guard: must not regress to the old total-row-count form.
     expect(querySql).not.toMatch(/COUNT\(\*\)::int FROM bookings b\s*\n\s*WHERE b\.session_id/)
   })
+
+  it('performs no write: exactly one sql call (the SELECT), nothing else — reconciliation is not a side effect of this GET', async () => {
+    requireRoleMock.mockResolvedValue({ userId: 'u1', organisationId: 'org-a', role: 'manager', name: 'Luke' })
+    sqlMock.mockResolvedValueOnce([{ id: 's1', day_of_week: 1, start_time: '10:00', enrolled_count: 0 }])
+    await GET()
+    // If GET still fired reconcileFutureInstances (INSERT/UPDATE session_instances,
+    // SELECT for protected bookings, etc.) there would be more than one call here.
+    expect(sqlMock).toHaveBeenCalledTimes(1)
+    const querySql = (sqlMock.mock.calls[0][0] as string[]).join('')
+    expect(querySql).toContain('SELECT')
+    expect(querySql).not.toMatch(/INSERT INTO session_instances|UPDATE session_instances/)
+  })
 })

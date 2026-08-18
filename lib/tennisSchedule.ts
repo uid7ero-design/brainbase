@@ -165,3 +165,61 @@ export async function reconcileFutureInstances(params: {
 
   return { generated, cancelledInstances, conflicts }
 }
+
+export type ReconcileAllResult = {
+  reconciled: number
+  totalGenerated: number
+  totalCancelledInstances: number
+  conflicts: { sessionId: string; instanceId: string; date: string }[]
+  errors: { sessionId: string; message: string }[]
+}
+
+type SessionScheduleRow = {
+  id: string; day_of_week: number; start_time: string; duration_minutes: number; max_capacity: number
+  session_type: string; start_date: string | null; end_mode: EndMode; end_after_weeks: number | null; end_date: string | null
+}
+
+// Reconciles every session belonging to one organisation in a single
+// awaited call. This is the actual automatic-top-up mechanism for Ongoing
+// schedules — invoked from an explicit, authenticated POST
+// (/api/dashboard/sessions/reconcile), never as an unawaited side effect of
+// a GET. One session's failure never aborts the batch: it's caught,
+// recorded in `errors`, and the loop continues, so a single bad row can't
+// take down horizon maintenance for every other session in the org.
+//
+// The `sessions` table currently has no active/archived/deleted concept —
+// every row is reconciled unconditionally, exactly matching the existing
+// pre-this-feature behaviour where every session always got automatic
+// instance generation regardless of any notion of "in use." No lifecycle
+// field is invented here; if LD Tennis later needs to pause/retire a
+// session without deleting it, that is new schema and out of scope for
+// this fix.
+export async function reconcileAllSessionsForOrg(organisationId: string): Promise<ReconcileAllResult> {
+  const sessions = (await sql`
+    SELECT id, day_of_week, start_time, duration_minutes, max_capacity, session_type,
+      to_char(start_date, 'YYYY-MM-DD') AS start_date, end_mode, end_after_weeks, to_char(end_date, 'YYYY-MM-DD') AS end_date
+    FROM sessions WHERE organisation_id = ${organisationId}
+  `) as SessionScheduleRow[]
+
+  const result: ReconcileAllResult = { reconciled: 0, totalGenerated: 0, totalCancelledInstances: 0, conflicts: [], errors: [] }
+
+  for (const s of sessions) {
+    try {
+      const r = await reconcileFutureInstances({
+        organisationId,
+        sessionId: s.id,
+        rules: { day_of_week: s.day_of_week, start_date: s.start_date, end_mode: s.end_mode, end_after_weeks: s.end_after_weeks, end_date: s.end_date },
+        startTime: s.start_time, durationMinutes: s.duration_minutes, maxCapacity: s.max_capacity, sessionType: s.session_type,
+      })
+      result.reconciled++
+      result.totalGenerated += r.generated
+      result.totalCancelledInstances += r.cancelledInstances
+      result.conflicts.push(...r.conflicts.map(c => ({ sessionId: s.id, ...c })))
+    } catch (err) {
+      console.error('[reconcileAllSessionsForOrg] failed for session', s.id, err)
+      result.errors.push({ sessionId: s.id, message: err instanceof Error ? err.message : 'Unknown error' })
+    }
+  }
+
+  return result
+}

@@ -45,24 +45,38 @@ CREATE TABLE IF NOT EXISTS session_types (
 
 CREATE INDEX IF NOT EXISTS idx_session_types_org ON session_types (organisation_id);
 
--- Backfill: LD Tennis's current 11 hardcoded types, as real rows, using
+-- Backfill: LD Tennis's current 10 hardcoded types, as real rows, using
 -- the exact same slug values already stored in sessions.session_type today
 -- (SESSION_TYPE_GROUPS in app/dashboard/sessions/page.tsx) — so every
 -- existing session continues to resolve to the same type with the same
 -- name/colour it already displays, with zero visual change on cutover.
--- Replace <LD_TENNIS_ORG_ID> with the real value (LD_TENNIS_ORG_ID env var)
--- before running. ON CONFLICT DO NOTHING makes this safe to re-run.
-INSERT INTO session_types (organisation_id, name, slug, colour_key, sort_order) VALUES
-  ('<LD_TENNIS_ORG_ID>', 'Private Coaching (30 min)', 'PRIVATE_30',        'purple', 0),
-  ('<LD_TENNIS_ORG_ID>', 'Private Coaching (60 min)', 'PRIVATE_60',        'violet', 1),
-  ('<LD_TENNIS_ORG_ID>', 'Semi-Private Coaching',     'SEMI_PRIVATE',      'indigo', 2),
-  ('<LD_TENNIS_ORG_ID>', 'Hot Shots Tennis',          'GROUP_TERM_JUNIOR', 'green',  3),
-  ('<LD_TENNIS_ORG_ID>', 'Hot Shots Matchplay',       'MATCHPLAY',         'emerald',4),
-  ('<LD_TENNIS_ORG_ID>', 'Adult Beginner Group',      'GROUP_TERM_ADULT',  'blue',   5),
-  ('<LD_TENNIS_ORG_ID>', 'Cardio Tennis (Session)',   'CARDIO_SESSION',    'orange', 6),
-  ('<LD_TENNIS_ORG_ID>', 'Cardio Tennis (Term)',      'CARDIO_TERM',       'amber',  7),
-  ('<LD_TENNIS_ORG_ID>', 'Clinic',                    'CLINIC',            'sky',    8),
-  ('<LD_TENNIS_ORG_ID>', 'Assessment',                'ASSESSMENT',       'slate',  9)
+--
+-- Self-contained: resolves LD Tennis's organisation_id from its stable
+-- slug ('ld-tennis', verified against production organisations.slug —
+-- the same unique column every org is already identified by, e.g.
+-- Organisation.slug in prisma/schema.prisma) rather than requiring a UUID
+-- to be hand-edited into this script. INSERT ... SELECT ... WHERE fails
+-- safely: if no organisation with that slug exists, the SELECT returns
+-- zero rows and the INSERT inserts nothing (no error, no partial state) —
+-- it can never seed these types into any other organisation, since the
+-- WHERE clause is the only source of organisation_id here. ON CONFLICT
+-- DO NOTHING keeps it safe to re-run.
+INSERT INTO session_types (organisation_id, name, slug, colour_key, sort_order)
+SELECT o.id, v.name, v.slug, v.colour_key, v.sort_order
+FROM organisations o
+CROSS JOIN (VALUES
+  ('Private Coaching (30 min)', 'PRIVATE_30',        'purple', 0),
+  ('Private Coaching (60 min)', 'PRIVATE_60',        'violet', 1),
+  ('Semi-Private Coaching',     'SEMI_PRIVATE',      'indigo', 2),
+  ('Hot Shots Tennis',          'GROUP_TERM_JUNIOR', 'green',  3),
+  ('Hot Shots Matchplay',       'MATCHPLAY',         'emerald',4),
+  ('Adult Beginner Group',      'GROUP_TERM_ADULT',  'blue',   5),
+  ('Cardio Tennis (Session)',   'CARDIO_SESSION',    'orange', 6),
+  ('Cardio Tennis (Term)',      'CARDIO_TERM',       'amber',  7),
+  ('Clinic',                    'CLINIC',            'sky',    8),
+  ('Assessment',                'ASSESSMENT',        'slate',  9)
+) AS v(name, slug, colour_key, sort_order)
+WHERE o.slug = 'ld-tennis'
 ON CONFLICT (organisation_id, slug) DO NOTHING;
 
 -- Rollback (not run automatically — keep for reference if this needs to be reverted):

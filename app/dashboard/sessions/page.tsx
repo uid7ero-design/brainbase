@@ -22,6 +22,11 @@ type Session = {
 type SessionTypeRow = { id: string; name: string; slug: string; colour_key: string; active: boolean; sort_order: number }
 
 type ReconcileSummary = { generated: number; cancelledInstances: number; conflicts: { instanceId: string; date: string }[] }
+type ReconcileAllSummary = {
+  reconciled: number; totalGenerated: number; totalCancelledInstances: number
+  conflicts: { sessionId: string; instanceId: string; date: string }[]
+  errors: { sessionId: string; message: string }[]
+}
 
 type SessionInstance = {
   id: string; session_id: string; date: string; start_time: string
@@ -1278,6 +1283,7 @@ export default function SessionsPage() {
   const [confirmDel, setConfirmDel]                 = useState(false)
   const [deleteErr, setDeleteErr]                   = useState<string | null>(null)
   const [repairNote, setRepairNote]                 = useState<string | null>(null)
+  const [reconcileWarning, setReconcileWarning]     = useState<string | null>(null)
   const [toggleErrId, setToggleErrId]               = useState<string | null>(null)
   const [toggleErr, setToggleErr]                   = useState<string | null>(null)
   const [sessionTypes, setSessionTypes]             = useState<SessionTypeRow[]>([])
@@ -1336,6 +1342,36 @@ export default function SessionsPage() {
     fetch('/api/contacts').then(r => r.json()).then(d => setContacts(d.contacts ?? [])).catch(() => null)
     loadSessionTypes()
   }, [loadSessionTypes])
+
+  // The one automatic top-up trigger for Ongoing schedules: an explicit,
+  // authenticated, awaited POST called once on page entry — never an
+  // unawaited write inside GET /api/dashboard/sessions (a fire-and-forget
+  // write there was rejected: a serverless request can be frozen/recycled
+  // the instant the response is sent, before the write actually lands, and
+  // a GET mutating state at all is surprising for anything that might
+  // refetch/prefetch/cache it later). Failure here must not make the
+  // dashboard unusable — sessions/calendar data already loaded by the
+  // effect above is left exactly as it is; "Repair future dates" remains
+  // available per-session as a manual fallback.
+  useEffect(() => {
+    fetch(`${API}/reconcile`, { method: 'POST' })
+      .then(r => r.ok ? r.json() : Promise.reject(new Error(`reconcile failed (${r.status})`)))
+      .then((result: ReconcileAllSummary) => {
+        if (result.errors.length > 0) {
+          setReconcileWarning(`Automatic schedule check had ${result.errors.length} error${result.errors.length === 1 ? '' : 's'} for some classes — use "Repair future dates" on those sessions if their calendar looks out of date.`)
+        }
+        if (result.totalGenerated > 0 || result.totalCancelledInstances > 0) {
+          fetch(API).then(r => r.json()).then(d => setSessions(d.sessions ?? [])).catch(() => null)
+          loadCalendar(calendarAnchor, calendarView)
+        }
+      })
+      .catch(() => setReconcileWarning('Could not run the automatic schedule check. Existing sessions and dates below are unaffected — use "Repair future dates" on a session if it looks out of date.'))
+    // Deliberately mount-only: this refreshes the calendar range that was
+    // showing when the page loaded, using calendarAnchor/calendarView's
+    // initial values — not a dependency this should re-run for on every
+    // Prev/Next/Week|Month click.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadCalendar])
 
   const loadInstances = useCallback(async (sessionId: string) => {
     setInstancesLoading(true); setSelectedInstanceId(null); setInstanceDetail(null)
@@ -1509,6 +1545,17 @@ export default function SessionsPage() {
           <button onClick={() => setShowCreate(true)} style={{ background: 'none', border: 'none', color: '#a5b4fc', cursor: 'pointer', fontSize: 13, fontFamily: FONT, padding: 0 }}>
             Create your first session →
           </button>
+        </div>
+      )}
+
+      {/* Non-destructive: the automatic schedule check failing (or partially
+          failing) never hides already-loaded sessions/calendar data below —
+          it only surfaces this dismissible note and points at the manual
+          "Repair future dates" fallback. */}
+      {reconcileWarning && (
+        <div style={{ marginTop: 16, padding: '10px 16px', borderRadius: 10, background: 'rgba(251,191,36,.08)', border: '1px solid rgba(251,191,36,.24)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+          <span style={{ fontSize: 12, color: '#fbbf24' }}>{reconcileWarning}</span>
+          <button onClick={() => setReconcileWarning(null)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,.30)', cursor: 'pointer', fontSize: 13, flexShrink: 0 }}>✕</button>
         </div>
       )}
 

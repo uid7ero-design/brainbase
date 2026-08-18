@@ -44,22 +44,14 @@ export async function GET() {
       ORDER BY s.day_of_week, s.start_time
     `
 
-    // Deterministic "ensure future horizon" trigger — no cron/background
-    // infrastructure: every session's schedule is reconciled once per
-    // dashboard load (the smallest safe way to guarantee an Ongoing class
-    // never runs out of future dates the way the old manual "Generate 6
-    // weeks" workflow did). Fire-and-forget so page load latency isn't
-    // affected; ON CONFLICT DO NOTHING makes repeat runs cheap no-ops once
-    // a session's horizon is already topped up.
-    for (const s of sessions as { id: string; day_of_week: number; start_time: string; duration_minutes: number; max_capacity: number; session_type: string; start_date: string | null; end_mode: EndMode; end_after_weeks: number | null; end_date: string | null }[]) {
-      reconcileFutureInstances({
-        organisationId: session.organisationId,
-        sessionId: s.id,
-        rules: { day_of_week: s.day_of_week, start_date: s.start_date, end_mode: s.end_mode, end_after_weeks: s.end_after_weeks, end_date: s.end_date },
-        startTime: s.start_time, durationMinutes: s.duration_minutes, maxCapacity: s.max_capacity, sessionType: s.session_type,
-      }).catch(err => console.error('[dashboard/sessions GET] horizon reconcile error for', s.id, err))
-    }
-
+    // GET returns data only — no write side effect. Automatic horizon
+    // top-up now happens via an explicit, awaited POST (see
+    // /api/dashboard/sessions/reconcile/route.ts), not as an unawaited
+    // side effect of a read. A fire-and-forget write here was rejected:
+    // in a serverless request the process can be frozen/recycled the
+    // instant the response is sent, before the write actually lands, and
+    // a GET mutating state at all is surprising behaviour for anything
+    // that might refetch, prefetch, or cache this endpoint later.
     return NextResponse.json({ sessions })
   } catch {
     // bookings table may not exist yet — fall back to count-free query

@@ -10,7 +10,7 @@ vi.mock('@/lib/tennisRecurrence', () => ({
   enrolActiveLineagesIntoNewInstance: (...args: unknown[]) => enrolActiveLineagesMock(...args),
 }))
 
-const { computeExpectedOccurrences, reconcileFutureInstances, HORIZON_WEEKS } = await import('@/lib/tennisSchedule')
+const { computeExpectedOccurrences, reconcileFutureInstances, reconcileAllSessionsForOrg, HORIZON_WEEKS } = await import('@/lib/tennisSchedule')
 
 function d(y: number, m: number, day: number): Date {
   return new Date(y, m - 1, day)
@@ -177,5 +177,96 @@ describe('reconcileFutureInstances — DB-mocked safety behaviour', () => {
     expect(result.conflicts).toEqual([])
     const cancelCalls = sqlMock.mock.calls.filter(c => (c[0] as string[]).join('').includes("session_instances SET status = 'cancelled'"))
     expect(cancelCalls.length).toBeGreaterThan(0)
+  })
+})
+
+describe('reconcileAllSessionsForOrg — the automatic top-up trigger invoked by POST /api/dashboard/sessions/reconcile', () => {
+  beforeEach(() => { sqlMock.mockReset(); enrolActiveLineagesMock.mockReset() })
+
+  it('reconciles every session belonging to the organisation, scoped by the SELECT itself', async () => {
+    sqlMock.mockImplementation((strings: TemplateStringsArray, ...values: unknown[]) => {
+      const text = strings.join('')
+      if (text.includes('FROM sessions WHERE organisation_id')) {
+        return Promise.resolve([
+          { id: 'sess-1', day_of_week: 1, start_time: '10:00', duration_minutes: 60, max_capacity: 8, session_type: 'GROUP_TERM_JUNIOR', start_date: '2026-08-17', end_mode: 'ongoing', end_after_weeks: null, end_date: null },
+          { id: 'sess-2', day_of_week: 5, start_time: '17:00', duration_minutes: 60, max_capacity: 8, session_type: 'CARDIO_SESSION', start_date: '2026-08-21', end_mode: 'ongoing', end_after_weeks: null, end_date: null },
+        ])
+      }
+      if (text.includes('INSERT INTO session_instances')) return Promise.resolve([{ id: `inst-${values[0]}` }])
+      if (text.includes('SELECT COUNT(*)::int AS cnt')) return Promise.resolve([{ cnt: 0 }])
+      return Promise.resolve([])
+    })
+    const result = await reconcileAllSessionsForOrg('org-a')
+    expect(result.reconciled).toBe(2)
+    expect(result.totalGenerated).toBeGreaterThan(0)
+    // The SELECT that finds which sessions to reconcile is itself org-scoped.
+    const selectCall = sqlMock.mock.calls.find(c => (c[0] as string[]).join('').includes('FROM sessions WHERE organisation_id'))
+    expect(selectCall).toContain('org-a')
+  })
+
+  it('a single failing session is isolated: it is recorded in errors, and the other session in the same batch still reconciles and is counted — one bad row cannot abort the whole batch', async () => {
+    let updateCallCount = 0
+    sqlMock.mockImplementation((strings: TemplateStringsArray) => {
+      const text = strings.join('')
+      if (text.includes('FROM sessions WHERE organisation_id')) {
+        return Promise.resolve([
+          { id: 'sess-bad', day_of_week: 1, start_time: '10:00', duration_minutes: 60, max_capacity: 8, session_type: 'GROUP_TERM_JUNIOR', start_date: '2026-08-17', end_mode: 'ongoing', end_after_weeks: null, end_date: null },
+          { id: 'sess-good', day_of_week: 5, start_time: '17:00', duration_minutes: 60, max_capacity: 8, session_type: 'CARDIO_SESSION', start_date: '2026-08-21', end_mode: 'ongoing', end_after_weeks: null, end_date: null },
+        ])
+      }
+      if (text.includes('SET start_time = ')) {
+        updateCallCount++
+        if (updateCallCount === 1) throw new Error('simulated DB error for the first session only')
+        return Promise.resolve([])
+      }
+      if (text.includes('INSERT INTO session_instances')) return Promise.resolve([{ id: 'inst-good' }])
+      if (text.includes('SELECT COUNT(*)::int AS cnt')) return Promise.resolve([{ cnt: 0 }])
+      return Promise.resolve([])
+    })
+    const result = await reconcileAllSessionsForOrg('org-a')
+    expect(result.errors).toHaveLength(1)
+    expect(result.errors[0].sessionId).toBe('sess-bad')
+    expect(result.reconciled).toBe(1) // sess-good still succeeded
+  })
+
+  it('idempotent: a second reconcile where every expected date already exists (ON CONFLICT DO NOTHING branch) reports zero newly generated, not duplicates or an error', async () => {
+    sqlMock.mockImplementation((strings: TemplateStringsArray) => {
+      const text = strings.join('')
+      if (text.includes('FROM sessions WHERE organisation_id')) {
+        return Promise.resolve([
+          { id: 'sess-1', day_of_week: 1, start_time: '10:00', duration_minutes: 60, max_capacity: 8, session_type: 'GROUP_TERM_JUNIOR', start_date: '2026-08-17', end_mode: 'ongoing', end_after_weeks: null, end_date: null },
+        ])
+      }
+      // Simulates the ON CONFLICT ... DO NOTHING branch: the INSERT executes
+      // but RETURNING yields no rows because the row already existed.
+      if (text.includes('INSERT INTO session_instances')) return Promise.resolve([])
+      return Promise.resolve([])
+    })
+    const result = await reconcileAllSessionsForOrg('org-a')
+    expect(result.totalGenerated).toBe(0)
+    expect(result.errors).toEqual([])
+    expect(enrolActiveLineagesMock).not.toHaveBeenCalled() // never called for a conflict/no-op insert
+  })
+
+  it('every generation query still targets ON CONFLICT (session_id, date) DO NOTHING — the same production unique constraint this relies on', async () => {
+    sqlMock.mockImplementation((strings: TemplateStringsArray) => {
+      const text = strings.join('')
+      if (text.includes('FROM sessions WHERE organisation_id')) {
+        return Promise.resolve([
+          { id: 'sess-1', day_of_week: 1, start_time: '10:00', duration_minutes: 60, max_capacity: 8, session_type: 'GROUP_TERM_JUNIOR', start_date: '2026-08-17', end_mode: 'ongoing', end_after_weeks: null, end_date: null },
+        ])
+      }
+      if (text.includes('INSERT INTO session_instances')) return Promise.resolve([{ id: 'inst-1' }])
+      if (text.includes('SELECT COUNT(*)::int AS cnt')) return Promise.resolve([{ cnt: 0 }])
+      return Promise.resolve([])
+    })
+    await reconcileAllSessionsForOrg('org-a')
+    const insertCalls = sqlMock.mock.calls.filter(c => (c[0] as string[]).join('').includes('INSERT INTO session_instances'))
+    expect(insertCalls.length).toBeGreaterThan(0)
+    for (const call of insertCalls) {
+      const text = (call[0] as string[]).join('')
+      expect(text).toContain('ON CONFLICT (session_id, date)')
+      expect(text).toContain('DO NOTHING')
+    }
   })
 })
