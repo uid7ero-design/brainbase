@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   toDateStr, addDays, addWeeks, addMonths, startOfWeek, endOfWeek,
-  getWeekRange, getMonthGridRange, formatWeekHeading, formatMonthHeading, isSameDay,
+  getWeekRange, getMonthGridRange, formatWeekHeading, formatMonthHeading, isSameDay, eachDayInRange,
 } from '@/lib/date'
 
 function d(y: number, m: number, day: number): Date {
@@ -153,5 +153,46 @@ describe('navigation composition (Previous / Today / Next semantics)', () => {
     const back = addMonths(prev, 1)
     expect(back.getFullYear()).toBe(start.getFullYear())
     expect(back.getMonth()).toBe(start.getMonth())
+  })
+})
+
+describe('eachDayInRange', () => {
+  it('returns every date in a normal (non-DST-crossing) week range, in order, no gaps or duplicates', () => {
+    const range = getWeekRange(d(2026, 8, 19)) // 17-23 Aug 2026
+    const days = eachDayInRange(range)
+    expect(days).toHaveLength(7)
+    expect(days.map(toDateStr)).toEqual([
+      '2026-08-17', '2026-08-18', '2026-08-19', '2026-08-20', '2026-08-21', '2026-08-22', '2026-08-23',
+    ])
+  })
+
+  it('returns the full August 2026 month-grid range (leading/trailing days included) with no gaps', () => {
+    const range = getMonthGridRange(d(2026, 8, 1))
+    const days = eachDayInRange(range)
+    expect(toDateStr(days[0])).toBe('2026-07-27')
+    expect(toDateStr(days[days.length - 1])).toBe('2026-09-06')
+    // Every cell a 7-column grid needs, and exactly that many — no gaps, no duplicates.
+    expect(days).toHaveLength(42)
+    const dateStrs = days.map(toDateStr)
+    expect(new Set(dateStrs).size).toBe(42)
+    for (let i = 1; i < days.length; i++) {
+      expect(toDateStr(addDays(days[i - 1], 1))).toBe(dateStrs[i])
+    }
+  })
+
+  it('is exact across the Australian DST spring-forward transition (first Sunday of October) — no dropped or duplicated day', () => {
+    // 4 Oct 2026 is the first Sunday of October — AEST/ACST clocks spring
+    // forward that day, so local midnight-to-midnight isn't exactly 24h.
+    // A range.end.getTime() - range.start.getTime() / 86400000 day-count
+    // would be off by a fraction of a day here; eachDayInRange must not be.
+    const range = getMonthGridRange(d(2026, 10, 15))
+    const days = eachDayInRange(range)
+    const dateStrs = days.map(toDateStr)
+    expect(new Set(dateStrs).size).toBe(days.length) // no duplicates
+    for (let i = 1; i < days.length; i++) {
+      expect(toDateStr(addDays(days[i - 1], 1))).toBe(dateStrs[i]) // no gaps
+    }
+    expect(days.length % 7).toBe(0) // still a whole number of weeks
+    expect(dateStrs).toContain('2026-10-04') // the transition day itself is present
   })
 })

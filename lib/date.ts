@@ -79,6 +79,24 @@ export function getMonthGridRange(d: Date): DateRange {
   return { start: startOfWeek(firstOfMonth), end: endOfWeek(lastOfMonth) }
 }
 
+/**
+ * All calendar dates from range.start to range.end inclusive, in order.
+ * Steps day-by-day via addDays() (field-based, local time) rather than
+ * dividing a millisecond difference by 86400000 — Australian states observe
+ * DST, so a local-midnight-to-local-midnight span isn't always exactly 24h
+ * on the days either side of a DST transition, which would silently drop or
+ * duplicate a day if computed via ms math.
+ */
+export function eachDayInRange(range: DateRange): Date[] {
+  const days: Date[] = []
+  let cur = range.start
+  while (cur.getTime() <= range.end.getTime()) {
+    days.push(cur)
+    cur = addDays(cur, 1)
+  }
+  return days
+}
+
 const AU_MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
 
 /** e.g. "17–23 August 2026", or "28 Aug – 3 Sep 2026" across a month boundary. */
