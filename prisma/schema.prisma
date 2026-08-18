@@ -41,6 +41,7 @@ model Organisation {
   saved_views            SavedView[]
   service_requests       ServiceRequest[]
   sessions               Session[]
+  session_types          SessionType[]
   tennis_leads           tennis_leads[]
   uploads                Upload[]
   users                  User[]
@@ -624,6 +625,20 @@ model Session {
   recurring          Boolean           @default(true)
   price_per_session  Float             @default(0)
   created_at         DateTime          @default(now()) @db.Timestamp(6)
+  // NOT YET APPLIED to the production database — see
+  // scripts/add-session-schedule-and-types.sql. Schedule-rule fields
+  // (lib/tennisSchedule.ts) replacing the manual "Generate 6 weeks" workflow
+  // with an automatically-maintained rolling horizon of future instances.
+  // start_date/end_date nullable for backward compatibility with existing
+  // rows (a legacy session with no schedule rule set behaves as "ongoing,
+  // starting from whenever it's next reconciled" — see computeExpectedOccurrences).
+  // Written by app/api/dashboard/sessions/{route,[id]/route}.ts (raw SQL,
+  // not Prisma Client, so this declaration alone has no runtime effect
+  // until the migration is applied).
+  start_date         DateTime?         @db.Date
+  end_mode           String            @default("ongoing") // 'ongoing' | 'after_weeks' | 'on_date'
+  end_after_weeks    Int?
+  end_date           DateTime?         @db.Date
   bookings           Booking[]
   instances          SessionInstance[]
   recurrence_pauses  BookingRecurrencePause[]
@@ -632,6 +647,32 @@ model Session {
   @@index([organisation_id])
   @@index([day_of_week])
   @@map("sessions")
+}
+
+// NOT YET APPLIED to the production database — see
+// scripts/add-session-schedule-and-types.sql. Organisation-scoped,
+// manager-manageable replacement for the hardcoded SESSION_TYPE_GROUPS
+// constant in app/dashboard/sessions/page.tsx. sessions.session_type stays a
+// plain string column (unchanged, non-destructive) — this table exists
+// alongside it as the source of truth for which type strings are currently
+// selectable and how they display; a session's saved session_type string
+// keeps rendering correctly even after its matching row here is archived or
+// (in principle) removed, since sessions never hold a hard FK to this table.
+model SessionType {
+  id              String       @id @default(dbgenerated("(gen_random_uuid())::text"))
+  organisation_id String
+  name            String
+  slug            String
+  colour_key      String       @default("slate") // one of a fixed palette — see SESSION_TYPE_COLOURS, never raw CSS
+  active          Boolean      @default(true)
+  sort_order      Int          @default(0)
+  created_at      DateTime     @default(now())
+  updated_at      DateTime     @default(now()) @updatedAt
+  organisation    Organisation @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
+
+  @@unique([organisation_id, slug])
+  @@index([organisation_id])
+  @@map("session_types")
 }
 
 model SessionInstance {

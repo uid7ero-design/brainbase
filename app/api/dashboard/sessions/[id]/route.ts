@@ -2,6 +2,22 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireRole } from '@/lib/org'
 import sql from '@/lib/db'
 import { prisma } from '@/lib/prisma'
+import { reconcileFutureInstances, type EndMode } from '@/lib/tennisSchedule'
+
+const VALID_END_MODES: EndMode[] = ['ongoing', 'after_weeks', 'on_date']
+
+function validateSchedule(body: { end_mode?: string; end_after_weeks?: number | null; end_date?: string | null }): string | null {
+  if (body.end_mode !== undefined && !VALID_END_MODES.includes(body.end_mode as EndMode)) {
+    return "end_mode must be 'ongoing', 'after_weeks', or 'on_date'"
+  }
+  if (body.end_mode === 'after_weeks' && (!body.end_after_weeks || body.end_after_weeks < 1 || body.end_after_weeks > 104)) {
+    return 'end_after_weeks must be between 1 and 104 when end_mode is after_weeks'
+  }
+  if (body.end_mode === 'on_date' && !body.end_date) {
+    return 'end_date is required when end_mode is on_date'
+  }
+  return null
+}
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   let session
@@ -12,7 +28,8 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
   try {
     const sessions = await sql`
       SELECT id, name, day_of_week, start_time, duration_minutes, max_capacity, session_type, resource_id, recurring,
-             price_per_session, created_at
+             price_per_session, created_at,
+             to_char(start_date, 'YYYY-MM-DD') AS start_date, end_mode, end_after_weeks, to_char(end_date, 'YYYY-MM-DD') AS end_date
       FROM sessions
       WHERE id = ${id} AND organisation_id = ${session.organisationId}
     `
@@ -53,11 +70,23 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   try { session = await requireRole('manager') } catch { return NextResponse.json({ error: 'Forbidden' }, { status: 403 }) }
 
   const { id } = await params
-  let body: Partial<{ name: string; day_of_week: number; start_time: string; duration_minutes: number; max_capacity: number; session_type: string; resource_id: string | null; recurring: boolean; price_per_session: number }>
+  let body: Partial<{
+    name: string; day_of_week: number; start_time: string; duration_minutes: number; max_capacity: number
+    session_type: string; resource_id: string | null; recurring: boolean; price_per_session: number
+    start_date: string | null; end_mode: EndMode; end_after_weeks: number | null; end_date: string | null
+  }>
   try { body = await req.json() } catch { return NextResponse.json({ error: 'Invalid body' }, { status: 400 }) }
 
+  const scheduleErr = validateSchedule(body)
+  if (scheduleErr) return NextResponse.json({ error: scheduleErr }, { status: 400 })
+
   try {
-    const rows = await sql`
+    // Schedule fields are updated with explicit UPDATE ... SET (not
+    // COALESCE-preserve-existing) whenever end_mode is supplied, since
+    // end_after_weeks/end_date genuinely need to be able to become NULL
+    // when switching modes (e.g. after_weeks -> ongoing must clear
+    // end_after_weeks, not silently keep the old value around).
+    const rows = body.end_mode !== undefined ? await sql`
       UPDATE sessions SET
         name              = COALESCE(${body.name?.trim() ?? null}, name),
         day_of_week       = COALESCE(${body.day_of_week ?? null}, day_of_week),
@@ -67,12 +96,50 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         session_type      = COALESCE(${body.session_type?.trim() ?? null}, session_type),
         resource_id       = ${body.resource_id !== undefined ? (body.resource_id?.trim() || null) : sql`resource_id`},
         recurring         = COALESCE(${body.recurring ?? null}, recurring),
-        price_per_session = COALESCE(${body.price_per_session ?? null}, price_per_session)
+        price_per_session = COALESCE(${body.price_per_session ?? null}, price_per_session),
+        start_date        = ${body.start_date !== undefined ? body.start_date : sql`start_date`}::date,
+        end_mode          = ${body.end_mode},
+        end_after_weeks   = ${body.end_mode === 'after_weeks' ? body.end_after_weeks ?? null : null},
+        end_date          = ${body.end_mode === 'on_date' ? body.end_date ?? null : null}::date
       WHERE id = ${id} AND organisation_id = ${session.organisationId}
-      RETURNING id, name, day_of_week, start_time, duration_minutes, max_capacity, session_type, resource_id, recurring, price_per_session, created_at
+      RETURNING id, name, day_of_week, start_time, duration_minutes, max_capacity, session_type, resource_id, recurring,
+        price_per_session, created_at,
+        to_char(start_date, 'YYYY-MM-DD') AS start_date, end_mode, end_after_weeks, to_char(end_date, 'YYYY-MM-DD') AS end_date
+    ` : await sql`
+      UPDATE sessions SET
+        name              = COALESCE(${body.name?.trim() ?? null}, name),
+        day_of_week       = COALESCE(${body.day_of_week ?? null}, day_of_week),
+        start_time        = COALESCE(${body.start_time ?? null}, start_time),
+        duration_minutes  = COALESCE(${body.duration_minutes ?? null}, duration_minutes),
+        max_capacity      = COALESCE(${body.max_capacity ?? null}, max_capacity),
+        session_type      = COALESCE(${body.session_type?.trim() ?? null}, session_type),
+        resource_id       = ${body.resource_id !== undefined ? (body.resource_id?.trim() || null) : sql`resource_id`},
+        recurring         = COALESCE(${body.recurring ?? null}, recurring),
+        price_per_session = COALESCE(${body.price_per_session ?? null}, price_per_session),
+        start_date        = ${body.start_date !== undefined ? body.start_date : sql`start_date`}::date
+      WHERE id = ${id} AND organisation_id = ${session.organisationId}
+      RETURNING id, name, day_of_week, start_time, duration_minutes, max_capacity, session_type, resource_id, recurring,
+        price_per_session, created_at,
+        to_char(start_date, 'YYYY-MM-DD') AS start_date, end_mode, end_after_weeks, to_char(end_date, 'YYYY-MM-DD') AS end_date
     `
     if (!rows[0]) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-    return NextResponse.json({ session: rows[0] })
+    const updated = rows[0] as {
+      id: string; day_of_week: number; start_time: string; duration_minutes: number; max_capacity: number
+      session_type: string; start_date: string | null; end_mode: EndMode; end_after_weeks: number | null; end_date: string | null
+    }
+
+    // Bring session_instances in line with the (possibly just-changed)
+    // schedule — future-only, never touches a past instance, never
+    // deletes/rewrites a protected (paid/attended) booking; see
+    // lib/tennisSchedule.ts for the full future-only safety contract.
+    const reconcile = await reconcileFutureInstances({
+      organisationId: session.organisationId,
+      sessionId: id,
+      rules: { day_of_week: updated.day_of_week, start_date: updated.start_date, end_mode: updated.end_mode, end_after_weeks: updated.end_after_weeks, end_date: updated.end_date },
+      startTime: updated.start_time, durationMinutes: updated.duration_minutes, maxCapacity: updated.max_capacity, sessionType: updated.session_type,
+    })
+
+    return NextResponse.json({ session: rows[0], reconcile })
   } catch (err) {
     console.error('[dashboard/sessions/[id] PATCH]', err)
     return NextResponse.json({ error: 'Failed to update session' }, { status: 500 })
