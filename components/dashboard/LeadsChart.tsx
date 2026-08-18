@@ -59,44 +59,52 @@ export default function LeadsChart({ rawData }: Props) {
         </span>
       </div>
 
-      {/* Chart */}
-      <div style={{ padding: '14px 10px 14px' }}>
-        <ResponsiveContainer width="100%" height={160}>
-          <BarChart data={data} barSize={26} margin={{ top: 4, right: 4, bottom: 0, left: -18 }}>
-            <XAxis
-              dataKey="label"
-              tick={{ fill: 'rgba(255,255,255,.38)', fontSize: 11, fontFamily: FONT }}
-              axisLine={false}
-              tickLine={false}
-            />
-            <YAxis
-              allowDecimals={false}
-              tick={{ fill: 'rgba(255,255,255,.35)', fontSize: 10, fontFamily: FONT }}
-              axisLine={false}
-              tickLine={false}
-              width={24}
-              tickCount={4}
-            />
-            <Tooltip
-              cursor={{ fill: 'rgba(255,255,255,.06)', radius: 4 } as object}
-              contentStyle={{
-                background: '#ffffff',
-                border: '1px solid rgba(0,0,0,.10)',
-                borderRadius: 8,
-                fontSize: 12,
-                color: '#111827',
-                fontFamily: FONT,
-                padding: '8px 12px',
-                boxShadow: '0 4px 16px rgba(0,0,0,.25)',
-              }}
-              labelStyle={{ color: '#374151', marginBottom: 4, fontWeight: 600 }}
-              itemStyle={{ color: '#111827' }}
-              formatter={(value: unknown) => { const n = Number(value ?? 0); return [n === 1 ? '1 lead' : `${n} leads`, ''] }}
-            />
-            <Bar dataKey="leads" shape={leadsBarShape} />
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
+      {/* Chart — or a compact empty state instead of an empty 160px canvas
+          when there's genuinely nothing to plot this week. */}
+      {total === 0 ? (
+        <div style={{ padding: '28px 22px', textAlign: 'center' }}>
+          <div style={{ fontSize: 12, color: 'rgba(255,255,255,.30)' }}>No new leads this week</div>
+          <div style={{ fontSize: 11, color: 'rgba(255,255,255,.18)', marginTop: 4 }}>New enquiries will appear here</div>
+        </div>
+      ) : (
+        <div style={{ padding: '14px 10px 14px' }}>
+          <ResponsiveContainer width="100%" height={160}>
+            <BarChart data={data} barSize={26} margin={{ top: 4, right: 4, bottom: 0, left: -18 }}>
+              <XAxis
+                dataKey="label"
+                tick={{ fill: 'rgba(255,255,255,.38)', fontSize: 11, fontFamily: FONT }}
+                axisLine={false}
+                tickLine={false}
+              />
+              <YAxis
+                allowDecimals={false}
+                tick={{ fill: 'rgba(255,255,255,.35)', fontSize: 10, fontFamily: FONT }}
+                axisLine={false}
+                tickLine={false}
+                width={24}
+                tickCount={4}
+              />
+              <Tooltip
+                cursor={{ fill: 'rgba(255,255,255,.06)', radius: 4 } as object}
+                contentStyle={{
+                  background: '#ffffff',
+                  border: '1px solid rgba(0,0,0,.10)',
+                  borderRadius: 8,
+                  fontSize: 12,
+                  color: '#111827',
+                  fontFamily: FONT,
+                  padding: '8px 12px',
+                  boxShadow: '0 4px 16px rgba(0,0,0,.25)',
+                }}
+                labelStyle={{ color: '#374151', marginBottom: 4, fontWeight: 600 }}
+                itemStyle={{ color: '#111827' }}
+                formatter={(value: unknown) => { const n = Number(value ?? 0); return [n === 1 ? '1 lead' : `${n} leads`, ''] }}
+              />
+              <Bar dataKey="leads" shape={leadsBarShape} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      )}
     </div>
   )
 }

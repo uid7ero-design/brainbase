@@ -118,12 +118,16 @@ describe('components/dashboard/TennisDashboard.tsx — greeting header + empty s
     expect(dashSource).not.toContain('Demo Council')
   })
 
-  it('four KPI cards appear in the requested order: Today\'s Sessions, New Leads, Follow-ups, Active Clients', () => {
+  it('four KPI cards appear in the requested order: Today\'s Sessions, New Leads, Follow-ups, Open Leads (formerly "Active Clients" — see the dedicated rename test below)', () => {
     const kpiBlockStart = dashSource.indexOf("Row 1: KPI cards")
     const kpiBlockEnd = dashSource.indexOf('Row 2:')
     const block = dashSource.slice(kpiBlockStart, kpiBlockEnd)
-    const order = ["Today's Sessions", 'New Leads', 'Follow-ups', 'Active Clients']
-      .map(label => block.indexOf(label))
+    // Match the actual StatCard label="..." prop, not a bare substring —
+    // a bare substring would also match this file's own explanatory code
+    // comments, which is exactly the false-pass this test used to be
+    // vulnerable to before the Active Clients -> Open Leads rename.
+    const order = ["Today's Sessions", 'New Leads', 'Follow-ups', 'Open Leads']
+      .map(label => block.indexOf(`label="${label}"`))
     expect(order.every(i => i > -1)).toBe(true)
     expect(order).toEqual([...order].sort((a, b) => a - b))
   })

@@ -40,8 +40,16 @@ function timeAgo(dateStr: string): string {
   }
 }
 
+// How many articles are shown by default — a display-only cap, not a
+// change to how many are fetched (fetchTennisNews still pulls up to 6 from
+// the feed above; this just renders fewer of them so the panel stops
+// dominating the lower half of the page). No expand/collapse control:
+// this component has no client-side state today, and adding it would be
+// more UI work than this polish round calls for.
+const VISIBLE_ITEM_COUNT = 4
+
 export default async function TennisNewsPanel() {
-  const items = await fetchTennisNews()
+  const items = (await fetchTennisNews()).slice(0, VISIBLE_ITEM_COUNT)
 
   return (
     <div style={{

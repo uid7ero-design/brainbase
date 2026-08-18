@@ -64,7 +64,13 @@ export default function TodaysSchedule({ instances, sessionTypes }: Props) {
       </div>
 
       {instances.length === 0 ? (
-        <div style={{ padding: '32px 22px', textAlign: 'center', color: 'rgba(255,255,255,.18)', fontSize: 12, lineHeight: 1.7 }}>
+        // Compact rather than the full 32px empty-panel treatment used
+        // elsewhere — this panel sits beside Needs Attention in a 2-column
+        // row, and a tall blank block here reads as visually dead. No
+        // "next session" line: that would need a new query for the next
+        // future instance beyond today, which this polish round explicitly
+        // avoids adding.
+        <div style={{ padding: '18px 22px', textAlign: 'center', color: 'rgba(255,255,255,.18)', fontSize: 12 }}>
           No sessions scheduled today
         </div>
       ) : (
