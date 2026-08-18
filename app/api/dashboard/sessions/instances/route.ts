@@ -30,7 +30,7 @@ export async function GET(req: NextRequest) {
       SELECT
         si.id, si.session_id, to_char(si.date, 'YYYY-MM-DD') AS date, si.start_time, si.duration_minutes,
         si.max_capacity, si.status,
-        s.name AS session_name, s.session_type, s.resource_id,
+        s.name AS session_name, s.session_type, s.resource_id, s.session_colour_key,
         COALESCE(ec.cnt, 0) AS enrolled_count,
         COALESCE(ec.cnt * s.price_per_session, 0)::int AS revenue,
         COALESCE(ROUND(ec.cnt::numeric / NULLIF(si.max_capacity, 0) * 100), 0)::int AS utilisation

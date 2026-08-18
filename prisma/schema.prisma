@@ -639,6 +639,15 @@ model Session {
   end_mode           String            @default("ongoing") // 'ongoing' | 'after_weeks' | 'on_date'
   end_after_weeks    Int?
   end_date           DateTime?         @db.Date
+  // NOT YET APPLIED to the production database — see
+  // scripts/add-session-colour-override.sql. NULL means "inherit the
+  // session type's colour"; a non-null value is one of the finite palette
+  // keys in SESSION_TYPE_COLOUR_KEYS (lib/sessionDisplay.ts), same as
+  // session_types.colour_key below. Written by
+  // app/api/dashboard/sessions/{route,[id]/route}.ts (raw SQL, not Prisma
+  // Client, so this declaration alone has no runtime effect until the
+  // migration is applied).
+  session_colour_key String?
   bookings           Booking[]
   instances          SessionInstance[]
   recurrence_pauses  BookingRecurrencePause[]

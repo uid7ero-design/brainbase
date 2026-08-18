@@ -1,11 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireRole } from '@/lib/org'
 import sql from '@/lib/db'
-
-const VALID_COLOUR_KEYS = [
-  'purple', 'violet', 'indigo', 'green', 'emerald', 'blue',
-  'orange', 'amber', 'sky', 'slate', 'rose', 'teal',
-]
+import { SESSION_TYPE_COLOUR_KEYS } from '@/lib/sessionDisplay'
 
 // Rename / recolour / reorder / archive-or-reactivate. Never deletes a row
 // — archiving (active = false) is the only "removal" a manager can do, so
@@ -21,7 +17,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   let body: { name?: string; colour_key?: string; active?: boolean; sort_order?: number }
   try { body = await req.json() } catch { return NextResponse.json({ error: 'Invalid body' }, { status: 400 }) }
 
-  if (body.colour_key !== undefined && !VALID_COLOUR_KEYS.includes(body.colour_key)) {
+  if (body.colour_key !== undefined && !SESSION_TYPE_COLOUR_KEYS.includes(body.colour_key)) {
     return NextResponse.json({ error: 'Invalid colour_key' }, { status: 400 })
   }
 

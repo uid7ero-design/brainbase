@@ -1,14 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireRole } from '@/lib/org'
 import sql from '@/lib/db'
-
-// Safe, finite colour palette — the client never sends raw CSS, only one of
-// these keys. Keep in sync with SESSION_TYPE_COLOUR_PALETTE in
-// app/dashboard/sessions/page.tsx.
-const VALID_COLOUR_KEYS = [
-  'purple', 'violet', 'indigo', 'green', 'emerald', 'blue',
-  'orange', 'amber', 'sky', 'slate', 'rose', 'teal',
-]
+import { SESSION_TYPE_COLOUR_KEYS } from '@/lib/sessionDisplay'
 
 function slugify(name: string): string {
   return name.trim().toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'TYPE'
@@ -54,7 +47,7 @@ export async function POST(req: NextRequest) {
 
   const name = body.name?.trim()
   if (!name) return NextResponse.json({ error: 'name is required' }, { status: 400 })
-  const colourKey = body.colour_key && VALID_COLOUR_KEYS.includes(body.colour_key) ? body.colour_key : 'slate'
+  const colourKey = body.colour_key && SESSION_TYPE_COLOUR_KEYS.includes(body.colour_key) ? body.colour_key : 'slate'
 
   try {
     const existing = await sql`

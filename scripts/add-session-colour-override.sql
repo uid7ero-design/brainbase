@@ -1,0 +1,24 @@
+-- Run once against the production database.
+-- Additive only: adds a single nullable column, nothing else. Safe to run
+-- with existing data, safe to re-run (IF NOT EXISTS). Does not drop,
+-- rename, or change the type of any existing column, and performs no
+-- backfill — every existing session row gets session_colour_key = NULL
+-- automatically (a bare ADD COLUMN with no DEFAULT), which means "inherit
+-- the session type's colour", i.e. every existing session keeps rendering
+-- with exactly the colour it already shows today. Nothing is copied from
+-- session_types.colour_key into this column.
+--
+-- NULL is a deliberate, permanent, valid state here, not just a migration
+-- artefact — it is how "use type colour" is expressed for the lifetime of
+-- a row, and resetting an override (from the Edit Session form) writes
+-- NULL back too. There is no CHECK constraint on the value: this matches
+-- the existing session_types.colour_key column (see
+-- scripts/add-session-schedule-and-types.sql), which is also validated
+-- only at the application layer, against the same finite palette
+-- (SESSION_TYPE_COLOUR_KEYS in lib/sessionDisplay.ts) — see
+-- validateSessionColourOverride() in that file, used by both
+-- app/api/dashboard/sessions/route.ts and [id]/route.ts.
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS session_colour_key text NULL;
+
+-- Rollback (not run automatically — keep for reference if this needs to be reverted):
+--   ALTER TABLE sessions DROP COLUMN IF EXISTS session_colour_key;

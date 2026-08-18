@@ -56,9 +56,15 @@ export const SESSION_COLOURS: Record<string, { text: string; bg: string; border:
   ACADEMY:           { text: '#fb923c', bg: 'rgba(249,115,22,.13)',   border: 'rgba(249,115,22,.32)'   },
 }
 
-// Fixed, finite colour palette for organisation-managed session types — a
-// manager picks one of these keys, never raw CSS. Keep in sync with
-// VALID_COLOUR_KEYS in app/api/dashboard/session-types/route.ts.
+// Fixed, finite colour palette for organisation-managed session types (and,
+// as of the per-session colour override feature, individual sessions too)
+// — a manager picks one of these keys, never raw CSS/hex/RGB. Keep in sync
+// with VALID_COLOUR_KEYS in app/api/dashboard/session-types/route.ts.
+// The original 12 keys (purple..teal) are unchanged from their initial
+// values so existing session_types rows keep rendering identically; the
+// remaining keys were added later to widen coverage across the hue wheel
+// (warm reds/pinks, cyan, lime/yellow, and two additional dark-theme-safe
+// greys) while staying genuinely distinguishable from their neighbours.
 export const SESSION_TYPE_COLOUR_PALETTE: Record<string, { text: string; bg: string; border: string }> = {
   purple:  { text: '#c084fc', bg: 'rgba(168,85,247,.14)',  border: 'rgba(168,85,247,.35)'  },
   violet:  { text: '#a855f7', bg: 'rgba(168,85,247,.20)',  border: 'rgba(168,85,247,.42)'  },
@@ -72,6 +78,14 @@ export const SESSION_TYPE_COLOUR_PALETTE: Record<string, { text: string; bg: str
   slate:   { text: '#94a3b8', bg: 'rgba(100,116,139,.13)', border: 'rgba(100,116,139,.30)' },
   rose:    { text: '#fb7185', bg: 'rgba(244,63,94,.13)',   border: 'rgba(244,63,94,.32)'   },
   teal:    { text: '#2dd4bf', bg: 'rgba(20,184,166,.13)',  border: 'rgba(20,184,166,.32)'  },
+  red:     { text: '#f87171', bg: 'rgba(239,68,68,.14)',   border: 'rgba(239,68,68,.35)'   },
+  pink:    { text: '#f472b6', bg: 'rgba(236,72,153,.14)',  border: 'rgba(236,72,153,.35)'  },
+  fuchsia: { text: '#e879f9', bg: 'rgba(217,70,239,.14)',  border: 'rgba(217,70,239,.35)'  },
+  cyan:    { text: '#22d3ee', bg: 'rgba(6,182,212,.14)',   border: 'rgba(6,182,212,.35)'   },
+  lime:    { text: '#a3e635', bg: 'rgba(132,204,22,.16)',  border: 'rgba(132,204,22,.36)'  },
+  yellow:  { text: '#facc15', bg: 'rgba(234,179,8,.16)',   border: 'rgba(234,179,8,.36)'   },
+  stone:   { text: '#a8a29e', bg: 'rgba(120,113,108,.16)', border: 'rgba(120,113,108,.34)' },
+  neutral: { text: '#a3a3a3', bg: 'rgba(115,115,115,.16)', border: 'rgba(115,115,115,.34)' },
 }
 export const SESSION_TYPE_COLOUR_KEYS = Object.keys(SESSION_TYPE_COLOUR_PALETTE)
 
@@ -81,6 +95,8 @@ export const SESSION_TYPE_COLOUR_NAMES: Record<string, string> = {
   purple: 'Purple', violet: 'Violet', indigo: 'Indigo', green: 'Green',
   emerald: 'Emerald', blue: 'Blue', orange: 'Orange', amber: 'Amber',
   sky: 'Sky', slate: 'Slate', rose: 'Rose', teal: 'Teal',
+  red: 'Red', pink: 'Pink', fuchsia: 'Fuchsia', cyan: 'Cyan',
+  lime: 'Lime', yellow: 'Yellow', stone: 'Stone', neutral: 'Neutral',
 }
 
 // Both resolve against the live, organisation-scoped session types list
@@ -103,10 +119,48 @@ export function sessionChip(type: string, types: SessionTypeRow[]): CSSPropertie
 // Just the accent colour (for a small dot/left-stripe next to a title that
 // already spells the type name out in full) — used where sessionChip's
 // full pill badge would just repeat text the title already shows.
-export function sessionColourDot(type: string, types: SessionTypeRow[]): string {
+//
+// This is the ONE shared colour resolver for a session — every render site
+// (Week/Month calendar entries, the selected-session detail header, Manage
+// Sessions rows) must call this rather than re-deriving colour itself, so
+// the precedence rule lives in exactly one place:
+//   1. sessionColourOverride, if set and still a valid palette key, wins.
+//   2. Otherwise the session's Type colour (session_types.colour_key).
+//   3. Otherwise the legacy hardcoded SESSION_COLOURS fallback (types
+//      predating the session_types table), then a neutral grey.
+// A session with no override (sessionColourOverride null/undefined) always
+// tracks its type's colour automatically, since step 2 is re-evaluated
+// fresh on every call — nothing is cached or copied onto the session.
+export function sessionColourDot(type: string, types: SessionTypeRow[], sessionColourOverride?: string | null): string {
+  if (sessionColourOverride && SESSION_TYPE_COLOUR_PALETTE[sessionColourOverride]) {
+    return SESSION_TYPE_COLOUR_PALETTE[sessionColourOverride].text
+  }
   const match = types.find(t => t.slug === type)
   const c = match ? SESSION_TYPE_COLOUR_PALETTE[match.colour_key] : SESSION_COLOURS[type]
   return c?.text ?? '#94a3b8'
+}
+
+// Which palette key is actually in effect for a session — same precedence
+// as sessionColourDot, but returns the KEY (for UI that needs to show/
+// compare the resolved key, e.g. "Use type colour — Green" vs "Session
+// override — Orange") rather than only its rendered colour string.
+export function resolveSessionColourKey(type: string, types: SessionTypeRow[], sessionColourOverride?: string | null): string | null {
+  if (sessionColourOverride && SESSION_TYPE_COLOUR_PALETTE[sessionColourOverride]) return sessionColourOverride
+  const match = types.find(t => t.slug === type)
+  if (match && SESSION_TYPE_COLOUR_PALETTE[match.colour_key]) return match.colour_key
+  return null
+}
+
+// Shared server-side validation for a session's optional colour override —
+// used identically by both app/api/dashboard/sessions/route.ts (POST) and
+// [id]/route.ts (PATCH) so the accepted-values rule lives in one place, not
+// two hand-copied validators. Returns null for "inherit type colour"
+// (blank/omitted/explicit null), the key itself when it's a real palette
+// entry, or the literal string 'INVALID' for anything else (unknown key,
+// raw hex, CSS) so callers can reject the request with a 400.
+export function validateSessionColourOverride(value: string | null | undefined): string | null {
+  if (value === undefined || value === null || value === '') return null
+  return SESSION_TYPE_COLOUR_PALETTE[value] ? value : 'INVALID'
 }
 
 // Session Type is the primary visible identity everywhere in this UI (see
