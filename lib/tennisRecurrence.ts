@@ -13,6 +13,83 @@ import sql from '@/lib/db'
 
 export type EnrolOutcome = 'enrolled' | 'already_present' | 'paused' | 'capacity_blocked' | 'error'
 
+// ─── Duplicate-person enrolment guard ──────────────────────────────────────
+// Server-side only — never relies on the UI to prevent the same person
+// being enrolled into the same class more than once. Identity is
+// normalised email (trim + lowercase), scoped to organisation + session,
+// per the explicit "no fuzzy name matching" requirement — a booking with
+// no email cannot be checked and is intentionally allowed through
+// unchanged (no reliable identity to compare, not silently guessed).
+
+export function normalizeEmail(email: string | null | undefined): string | null {
+  const trimmed = email?.trim().toLowerCase()
+  return trimmed ? trimmed : null
+}
+
+export type DuplicateCheck =
+  | { type: 'none' }
+  | { type: 'weekly_exists'; message: string }
+  | { type: 'once_same_date'; message: string }
+  | { type: 'once_exists_elsewhere'; message: string }
+  | { type: 'once_upgradeable'; existingBookingId: string; existingRecurringGroupId: string | null }
+
+/**
+ * Looks at every active (non-cancelled) booking this normalised email
+ * already has in this session, and decides what a new enrolment attempt
+ * (Once or Weekly) into `instanceId` should do:
+ *  - an existing Weekly lineage always blocks a new attempt (rule A) —
+ *    this session already has this person recurring, regardless of what
+ *    they're now trying to book;
+ *  - an existing Once booking on the exact same instance either blocks a
+ *    duplicate Once (rule B) or, if the caller wants Weekly, is reported
+ *    as upgradeable rather than silently duplicated (rule D, narrow case:
+ *    same date only — the caller converts that one booking in place, it
+ *    is never ambiguous which row to convert);
+ *  - an existing Once booking on a *different* date does not block a new
+ *    Once elsewhere (rule C), but does block a fresh Weekly attempt with a
+ *    message directing Luke to convert the existing booking instead,
+ *    rather than guessing which of possibly several Once bookings should
+ *    become the recurring source (rule D, wider case).
+ */
+export async function findDuplicateEnrolment(params: {
+  organisationId: string
+  sessionId: string
+  instanceId: string
+  emailNorm: string
+  wantWeekly: boolean
+}): Promise<DuplicateCheck> {
+  const { organisationId, sessionId, instanceId, emailNorm, wantWeekly } = params
+
+  const rows = (await sql`
+    SELECT id, is_recurring, session_instance_id, recurring_group_id
+    FROM bookings
+    WHERE organisation_id = ${organisationId} AND session_id = ${sessionId}
+      AND status != 'cancelled' AND LOWER(TRIM(client_email)) = ${emailNorm}
+  `) as { id: string; is_recurring: boolean; session_instance_id: string | null; recurring_group_id: string | null }[]
+
+  const weeklyRow = rows.find(r => r.is_recurring)
+  if (weeklyRow) {
+    return { type: 'weekly_exists', message: 'This player is already enrolled weekly in this session.' }
+  }
+
+  const sameInstanceRow = rows.find(r => r.session_instance_id === instanceId)
+  if (sameInstanceRow) {
+    if (wantWeekly) {
+      return { type: 'once_upgradeable', existingBookingId: sameInstanceRow.id, existingRecurringGroupId: sameInstanceRow.recurring_group_id }
+    }
+    return { type: 'once_same_date', message: 'This player is already enrolled for this session date.' }
+  }
+
+  if (wantWeekly && rows.length > 0) {
+    return {
+      type: 'once_exists_elsewhere',
+      message: 'This player already has a one-off booking in this class on another date. Change that booking to Weekly instead of creating a new enrolment.',
+    }
+  }
+
+  return { type: 'none' }
+}
+
 export type PropagationSummary = {
   propagated: number
   alreadyPresent: number
