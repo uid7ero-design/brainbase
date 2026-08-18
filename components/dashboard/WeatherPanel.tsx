@@ -3,11 +3,25 @@
 import { useEffect, useState } from 'react'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 
-const LAT = -34.93
-const LNG = 138.60
-const TZ  = 'Australia/Adelaide'
+// Defaults match LD Tennis's original hardcoded values exactly, so the
+// existing caller (TennisDashboard, which passes no props) sees zero
+// visual/behavioural change. A future org passes its own coordinates
+// instead of these ever being edited in place.
+const DEFAULT_LAT = -34.93
+const DEFAULT_LNG = 138.60
+const DEFAULT_TZ  = 'Australia/Adelaide'
+const DEFAULT_LOCATION_LABEL = 'Adelaide'
+const DEFAULT_CONTEXT_LABEL  = 'Playability Forecast'
 
 const FONT = "var(--font-inter), -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+
+type Props = {
+  latitude?: number
+  longitude?: number
+  timezone?: string
+  locationLabel?: string
+  contextLabel?: string
+}
 
 type Day = {
   date: string; maxTemp: number; minTemp: number; rainPct: number; rainMm: number; code: number
@@ -90,7 +104,13 @@ function LoadingRows() {
   )
 }
 
-export default function WeatherPanel() {
+export default function WeatherPanel({
+  latitude = DEFAULT_LAT,
+  longitude = DEFAULT_LNG,
+  timezone = DEFAULT_TZ,
+  locationLabel = DEFAULT_LOCATION_LABEL,
+  contextLabel = DEFAULT_CONTEXT_LABEL,
+}: Props) {
   const [days,    setDays]    = useState<Day[]>([])
   const [loading, setLoading] = useState(true)
   const [error,   setError]   = useState(false)
@@ -98,9 +118,9 @@ export default function WeatherPanel() {
   useEffect(() => {
     const url = [
       'https://api.open-meteo.com/v1/forecast',
-      `?latitude=${LAT}&longitude=${LNG}`,
+      `?latitude=${latitude}&longitude=${longitude}`,
       `&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum,weathercode`,
-      `&timezone=${encodeURIComponent(TZ)}&forecast_days=7`,
+      `&timezone=${encodeURIComponent(timezone)}&forecast_days=7`,
     ].join('')
 
     fetch(url)
@@ -125,7 +145,7 @@ export default function WeatherPanel() {
         setLoading(false)
       })
       .catch(() => { setError(true); setLoading(false) })
-  }, [])
+  }, [latitude, longitude, timezone])
 
   const todayStatus = pctPlayability(days[0]?.rainPct ?? 0)
   const chartData   = days.map((d, i) => ({ ...d, label: dayLabel(d.date, i) }))
@@ -144,9 +164,9 @@ export default function WeatherPanel() {
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
       }}>
         <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: '.10em', textTransform: 'uppercase', color: 'rgba(255,255,255,.35)' }}>
-          Playability Forecast
+          {contextLabel}
         </span>
-        <span style={{ fontSize: 10, color: 'rgba(255,255,255,.20)' }}>Adelaide · 7 days</span>
+        <span style={{ fontSize: 10, color: 'rgba(255,255,255,.20)' }}>{locationLabel} · 7 days</span>
       </div>
 
       {loading ? <LoadingRows /> : error ? (
