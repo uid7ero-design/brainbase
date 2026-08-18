@@ -53,10 +53,14 @@ describe('app/dashboard/sessions/page.tsx — static checks (schedule fields + s
   })
 
   it('colour selection is restricted to the fixed palette (no raw CSS/free-text colour input in the form)', () => {
+    // Superseded by fix/tennis-session-management-ui: the colour_key picker
+    // moved from a CustomSelect (options={SESSION_TYPE_COLOUR_KEYS.map...})
+    // to a dedicated swatch-based ColourPicker — see
+    // tennisSessionManagementUiStaticCheck.test.ts for full coverage.
     expect(source).toContain('SESSION_TYPE_COLOUR_PALETTE')
     expect(source).toContain('SESSION_TYPE_COLOUR_KEYS')
-    // The Manage Session Types colour picker uses the fixed key list, not a text input.
-    expect(source).toMatch(/options=\{SESSION_TYPE_COLOUR_KEYS\.map/)
+    expect(source).toMatch(/SESSION_TYPE_COLOUR_KEYS\.map\(key =>/)
+    expect(source).not.toMatch(/type="text"[^>]*colour|type="color"/)
   })
 
   it('the 4-field alignment bug is fixed with a shared fixed-height label style applied uniformly to every label in a multi-column row, not a per-field margin patch', () => {

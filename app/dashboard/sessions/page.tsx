@@ -7,7 +7,7 @@ import {
 } from '@/lib/date'
 import {
   sessionLabel, sessionColourDot, optionalLabel,
-  SESSION_TYPE_COLOUR_KEYS, SESSION_TYPE_COLOUR_PALETTE, type SessionTypeRow,
+  SESSION_TYPE_COLOUR_KEYS, SESSION_TYPE_COLOUR_PALETTE, SESSION_TYPE_COLOUR_NAMES, type SessionTypeRow,
 } from '@/lib/sessionDisplay'
 
 const FONT = "var(--font-inter),-apple-system,sans-serif"
@@ -228,6 +228,44 @@ function CustomSelect({ value, onChange, placeholder, options, groups }: {
   )
 }
 
+// A fixed, finite palette of swatch buttons — each shows an actual colour
+// dot plus a readable name (never a raw hex/CSS input, never a tenant-
+// supplied string). Replaces a plain CustomSelect dropdown whose options
+// were just lowercase colour_key text with no visual swatch per choice,
+// which technically worked but wasn't obvious/discoverable as a colour
+// picker at a glance.
+function ColourPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <div role="radiogroup" aria-label="Colour" style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+      {SESSION_TYPE_COLOUR_KEYS.map(key => {
+        const c = SESSION_TYPE_COLOUR_PALETTE[key]
+        const isSelected = value === key
+        return (
+          <button
+            key={key}
+            type="button"
+            role="radio"
+            aria-checked={isSelected}
+            aria-label={SESSION_TYPE_COLOUR_NAMES[key] ?? key}
+            onClick={() => onChange(key)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6, padding: '5px 10px', borderRadius: 20,
+              cursor: 'pointer', fontFamily: FONT,
+              background: isSelected ? 'rgba(99,102,241,.18)' : 'rgba(255,255,255,.03)',
+              border: `1px solid ${isSelected ? 'rgba(99,102,241,.45)' : 'rgba(255,255,255,.09)'}`,
+            }}
+          >
+            <span style={{ width: 12, height: 12, borderRadius: '50%', background: c.text, flexShrink: 0 }} />
+            <span style={{ fontSize: 11, fontWeight: 600, color: isSelected ? '#c7d2fe' : 'rgba(255,255,255,.60)' }}>
+              {SESSION_TYPE_COLOUR_NAMES[key] ?? key}
+            </span>
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
 function endTime(start: string, dur: number) {
   const [h, m] = start.split(':').map(Number)
   const total = h * 60 + m + dur
@@ -245,6 +283,32 @@ function scheduleSummary(s: Session): string {
   if (s.end_mode === 'after_weeks' && s.end_after_weeks) return `${s.end_after_weeks} weeks · ${dayLine}`
   if (s.end_mode === 'on_date' && s.end_date) return `Ends ${formatDateAU(s.end_date)} · ${dayLine}`
   return `Ongoing · ${dayLine}`
+}
+
+// Just the end-rule half of scheduleSummary — used in Manage Sessions
+// where day/time are already shown on their own line.
+function endRuleSummary(s: Session): string {
+  if (s.end_mode === 'after_weeks' && s.end_after_weeks) return `${s.end_after_weeks} weeks`
+  if (s.end_mode === 'on_date' && s.end_date) return `Ends ${formatDateAU(s.end_date)}`
+  return 'Ongoing'
+}
+
+type RepairResult = { instances: SessionInstance[]; reconcile: ReconcileSummary }
+
+async function repairSession(id: string): Promise<RepairResult | null> {
+  const res = await fetch(`${API}/${id}/generate-instances`, { method: 'POST' })
+  if (!res.ok) return null
+  return await res.json() as RepairResult
+}
+
+function formatRepairNote(reconcile: ReconcileSummary): string {
+  const { generated, cancelledInstances, conflicts } = reconcile
+  if (generated === 0 && cancelledInstances === 0 && conflicts.length === 0) return 'Already up to date — nothing to repair.'
+  const parts: string[] = []
+  if (generated > 0) parts.push(`added ${generated} future date${generated === 1 ? '' : 's'}`)
+  if (cancelledInstances > 0) parts.push(`removed ${cancelledInstances} stale date${cancelledInstances === 1 ? '' : 's'}`)
+  if (conflicts.length > 0) parts.push(`${conflicts.length} date${conflicts.length === 1 ? '' : 's'} left unchanged (has paid/attended players)`)
+  return parts.join(', ') + '.'
 }
 
 const CLIENT_TZ = 'Australia/Sydney'
@@ -539,6 +603,7 @@ function ManageSessionTypesModal({ types, onClose, onChanged }: {
   const [busyId, setBusyId] = useState<string | null>(null)
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState('')
+  const [recolouringId, setRecolouringId] = useState<string | null>(null)
 
   const sorted = [...types].sort((a, b) => a.sort_order - b.sort_order)
 
@@ -597,25 +662,32 @@ function ManageSessionTypesModal({ types, onClose, onChanged }: {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {sorted.length === 0 && <p style={{ fontSize: 12, color: 'rgba(255,255,255,.30)' }}>No session types yet. Add your first one below.</p>}
             {sorted.map(t => (
-              <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 8, background: 'rgba(255,255,255,.03)', border: '1px solid rgba(255,255,255,.07)', opacity: t.active ? 1 : .5 }}>
-                <span style={{ width: 12, height: 12, borderRadius: 4, background: SESSION_TYPE_COLOUR_PALETTE[t.colour_key]?.text ?? '#94a3b8', flexShrink: 0 }} />
-                {renamingId === t.id ? (
-                  <input autoFocus style={{ ...inp, flex: 1, padding: '4px 8px' }} value={renameValue}
-                    onChange={e => setRenameValue(e.target.value)}
-                    onKeyDown={e => { if (e.key === 'Enter') saveRename(t); if (e.key === 'Escape') setRenamingId(null) }} />
-                ) : (
-                  <span style={{ flex: 1, fontSize: 13, color: '#F5F7FA' }}>{t.name}</span>
+              <div key={t.id} style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '8px 10px', borderRadius: 8, background: 'rgba(255,255,255,.03)', border: '1px solid rgba(255,255,255,.07)', opacity: t.active ? 1 : .5 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <button type="button" onClick={() => setRecolouringId(id => id === t.id ? null : t.id)}
+                    aria-label={`Change colour — currently ${SESSION_TYPE_COLOUR_NAMES[t.colour_key] ?? t.colour_key}`}
+                    aria-expanded={recolouringId === t.id}
+                    style={{ width: 16, height: 16, borderRadius: 5, background: SESSION_TYPE_COLOUR_PALETTE[t.colour_key]?.text ?? '#94a3b8', flexShrink: 0, border: recolouringId === t.id ? '2px solid rgba(255,255,255,.60)' : 'none', cursor: 'pointer', padding: 0 }} />
+                  {renamingId === t.id ? (
+                    <input autoFocus style={{ ...inp, flex: 1, padding: '4px 8px' }} value={renameValue}
+                      onChange={e => setRenameValue(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter') saveRename(t); if (e.key === 'Escape') setRenamingId(null) }} />
+                  ) : (
+                    <span style={{ flex: 1, fontSize: 13, color: '#F5F7FA' }}>{t.name}</span>
+                  )}
+                  {!t.active && <span style={{ fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,.35)', background: 'rgba(255,255,255,.06)', borderRadius: 20, padding: '1px 6px', flexShrink: 0 }}>Archived</span>}
+                  {renamingId === t.id ? (
+                    <button onClick={() => saveRename(t)} disabled={busyId === t.id} style={{ background: 'none', border: 'none', color: '#a5b4fc', cursor: 'pointer', fontSize: 11, fontFamily: FONT }}>Save</button>
+                  ) : (
+                    <button onClick={() => { setRenamingId(t.id); setRenameValue(t.name) }} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,.40)', cursor: 'pointer', fontSize: 11, fontFamily: FONT }}>Rename</button>
+                  )}
+                  <button onClick={() => toggleActive(t)} disabled={busyId === t.id} style={{ background: 'none', border: 'none', color: t.active ? '#f87171' : '#4ade80', cursor: 'pointer', fontSize: 11, fontFamily: FONT, flexShrink: 0 }}>
+                    {t.active ? 'Archive' : 'Restore'}
+                  </button>
+                </div>
+                {recolouringId === t.id && (
+                  <ColourPicker value={t.colour_key} onChange={v => { recolour(t, v); setRecolouringId(null) }} />
                 )}
-                {!t.active && <span style={{ fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,.35)', background: 'rgba(255,255,255,.06)', borderRadius: 20, padding: '1px 6px', flexShrink: 0 }}>Archived</span>}
-                <CustomSelect value={t.colour_key} onChange={v => recolour(t, v)} options={SESSION_TYPE_COLOUR_KEYS.map(k => ({ value: k, label: k }))} />
-                {renamingId === t.id ? (
-                  <button onClick={() => saveRename(t)} disabled={busyId === t.id} style={{ background: 'none', border: 'none', color: '#a5b4fc', cursor: 'pointer', fontSize: 11, fontFamily: FONT }}>Save</button>
-                ) : (
-                  <button onClick={() => { setRenamingId(t.id); setRenameValue(t.name) }} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,.40)', cursor: 'pointer', fontSize: 11, fontFamily: FONT }}>Rename</button>
-                )}
-                <button onClick={() => toggleActive(t)} disabled={busyId === t.id} style={{ background: 'none', border: 'none', color: t.active ? '#f87171' : '#4ade80', cursor: 'pointer', fontSize: 11, fontFamily: FONT, flexShrink: 0 }}>
-                  {t.active ? 'Archive' : 'Restore'}
-                </button>
               </div>
             ))}
           </div>
@@ -626,7 +698,7 @@ function ManageSessionTypesModal({ types, onClose, onChanged }: {
             {adding ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 <input style={inp} placeholder="New type name" value={newName} onChange={e => setNewName(e.target.value)} autoFocus />
-                <CustomSelect value={newColour} onChange={setNewColour} options={SESSION_TYPE_COLOUR_KEYS.map(k => ({ value: k, label: k }))} />
+                <ColourPicker value={newColour} onChange={setNewColour} />
                 <div style={{ display: 'flex', gap: 6 }}>
                   <button onClick={() => setAdding(false)} style={{ flex: 1, fontSize: 12, fontWeight: 600, padding: '7px 0', borderRadius: 8, cursor: 'pointer', background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.09)', color: 'rgba(255,255,255,.40)', fontFamily: FONT }}>Cancel</button>
                   <button onClick={addType} disabled={!newName.trim()} style={{ flex: 1, fontSize: 12, fontWeight: 600, padding: '7px 0', borderRadius: 8, cursor: 'pointer', background: 'rgba(99,102,241,.22)', border: '1px solid rgba(99,102,241,.40)', color: '#a5b4fc', fontFamily: FONT, opacity: !newName.trim() ? .5 : 1 }}>Add type</button>
@@ -642,44 +714,135 @@ function ManageSessionTypesModal({ types, onClose, onChanged }: {
   )
 }
 
-// ─── Session Card ─────────────────────────────────────────────────────────────
-
-// Compact session-management chip — the one entry point to Edit/Repair
-// future dates/Delete for a given session template. Kept deliberately
-// small and muted (not a competing schedule view): a session with zero
-// scheduled instances in the visible calendar range (e.g. its schedule
-// hasn't been reconciled since being edited) would otherwise be
-// unreachable for management once the old full-width Weekly Schedule grid
-// is removed, since the calendar can only show dated instances that
-// already exist.
-function SessionChip({ session, selected, onClick, sessionContacts, sessionTypes }: {
-  session: Session; selected: boolean; onClick: () => void; sessionContacts: ContactBrief[]; sessionTypes: SessionTypeRow[]
+// ─── Manage Sessions ────────────────────────────────────────────────────────
+// Replaces the old horizontal SessionChip strip that used to sit above the
+// calendar on every page load (visually competing with it). The calendar is
+// now the only surface shown by default; this modal is the one place Luke
+// reaches Repair future dates / Edit / Delete for a session template —
+// still essential for a session with no scheduled instances currently
+// visible in the calendar range (its schedule hasn't been reconciled since
+// being edited, or its rolling horizon hasn't topped up yet), which would
+// otherwise be completely unreachable for management.
+function ManageSessionsModal({ sessions, sessionTypes, contacts, onClose, onEdit, onDelete, onRepaired }: {
+  sessions: Session[]
+  sessionTypes: SessionTypeRow[]
+  contacts: ContactBrief[]
+  onClose: () => void
+  onEdit: (s: Session) => void
+  onDelete: (id: string) => Promise<void> | void
+  onRepaired: () => void
 }) {
-  const full   = session.enrolled_count >= session.max_capacity
-  const capClr = capacityColor(session.enrolled_count, session.max_capacity)
-  const title  = sessionLabel(session.session_type, sessionTypes)
-  const label  = optionalLabel(session.name, session.session_type, sessionTypes)
+  const [busyId, setBusyId] = useState<string | null>(null)
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+  const [notes, setNotes] = useState<Record<string, string>>({})
+  const closeRef = useRef<HTMLButtonElement>(null)
+
+  useEffect(() => {
+    closeRef.current?.focus()
+    function onKeyDown(e: KeyboardEvent) { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [onClose])
+
+  const sorted = [...sessions].sort((a, b) => a.day_of_week !== b.day_of_week ? a.day_of_week - b.day_of_week : a.start_time.localeCompare(b.start_time))
+
+  async function handleRepair(id: string) {
+    setBusyId(id); setNotes(n => ({ ...n, [id]: '' }))
+    const result = await repairSession(id)
+    setBusyId(null)
+    if (result) { setNotes(n => ({ ...n, [id]: formatRepairNote(result.reconcile) })); onRepaired() }
+  }
+
+  async function handleDeleteConfirmed(id: string) {
+    setBusyId(id)
+    await onDelete(id)
+    setBusyId(null); setConfirmDeleteId(null)
+  }
+
   return (
-    <button onClick={onClick} style={{
-      display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2, flexShrink: 0,
-      padding: '6px 12px', borderRadius: 10, cursor: 'pointer', fontFamily: FONT, textAlign: 'left',
-      background: selected ? 'rgba(99,102,241,.16)' : 'rgba(255,255,255,.03)',
-      border: `1px solid ${selected ? 'rgba(99,102,241,.40)' : full ? 'rgba(239,68,68,.22)' : 'rgba(255,255,255,.08)'}`,
-      borderLeft: `3px solid ${sessionColourDot(session.session_type, sessionTypes)}`,
-    }}>
-      <span style={{ fontSize: 12, fontWeight: 700, color: '#F5F7FA' }}>{title}</span>
-      {label && <span style={{ fontSize: 10, color: 'rgba(255,255,255,.40)' }}>{label}</span>}
-      <div style={{ fontSize: 10, color: 'rgba(255,255,255,.35)', display: 'flex', alignItems: 'center', gap: 6 }}>
-        <span>{DAY_LABEL[session.day_of_week]} {session.start_time}</span>
-        <span style={{ fontWeight: 700, color: capClr }}>{session.enrolled_count}/{session.max_capacity}</span>
-        {full && <span style={{ fontWeight: 700, color: '#f87171' }}>Full</span>}
-      </div>
-      {sessionContacts.length > 0 && (
-        <div style={{ fontSize: 9, color: 'rgba(255,255,255,.38)', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {sessionContacts.map(c => c.name).join(', ')}
+    <>
+      <style>{`@keyframes cm-fade{from{opacity:0}to{opacity:1}}@keyframes cm-in{from{opacity:0;transform:scale(.96)}to{opacity:1;transform:scale(1)}}`}</style>
+      <div role="dialog" aria-modal="true" aria-label="Manage sessions"
+        style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.75)', backdropFilter: 'blur(4px)', zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center', animation: 'cm-fade .15s ease', padding: 16 }}
+        onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+        <div style={{ background: '#111215', border: '1px solid rgba(255,255,255,.10)', borderRadius: 16, padding: '24px 26px', width: '100%', maxWidth: 560, maxHeight: '86vh', overflowY: 'auto', fontFamily: FONT, animation: 'cm-in .18s ease' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
+            <div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: '#F5F7FA' }}>Manage Sessions</div>
+              <p style={{ margin: '2px 0 0', fontSize: 12, color: 'rgba(255,255,255,.35)' }}>Every session template, including any with no dates currently on the calendar.</p>
+            </div>
+            <button ref={closeRef} onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,.35)', cursor: 'pointer', fontSize: 18 }}>✕</button>
+          </div>
+
+          {sorted.length === 0 && <p style={{ fontSize: 12, color: 'rgba(255,255,255,.30)' }}>No sessions yet.</p>}
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {sorted.map(s => {
+              const title = sessionLabel(s.session_type, sessionTypes)
+              const label = optionalLabel(s.name, s.session_type, sessionTypes)
+              const sessionContacts = contacts.filter(c => c.session_id === s.id)
+              const full = s.enrolled_count >= s.max_capacity
+              const capClr = capacityColor(s.enrolled_count, s.max_capacity)
+              return (
+                <div key={s.id} style={{
+                  padding: '10px 12px', borderRadius: 10, background: 'rgba(255,255,255,.03)',
+                  border: '1px solid rgba(255,255,255,.08)', borderLeft: `3px solid ${sessionColourDot(s.session_type, sessionTypes)}`,
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: '#F5F7FA' }}>{title}</div>
+                      {label && <div style={{ fontSize: 11, color: 'rgba(255,255,255,.45)', marginTop: 1 }}>{label}</div>}
+                      <div style={{ fontSize: 11, color: 'rgba(255,255,255,.35)', marginTop: 3, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                        <span>{DAY_FULL[s.day_of_week]} · {s.start_time}–{endTime(s.start_time, s.duration_minutes)}</span>
+                        {s.resource_id && <span>· {s.resource_id}</span>}
+                      </div>
+                      <div style={{ fontSize: 11, color: 'rgba(165,180,252,.65)', marginTop: 3, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                        <span>{endRuleSummary(s)}</span>
+                        <span style={{ fontWeight: 700, color: capClr }}>{s.enrolled_count}/{s.max_capacity}</span>
+                        {full && <span style={{ fontWeight: 700, color: '#f87171' }}>Full</span>}
+                      </div>
+                      {sessionContacts.length > 0 && (
+                        <div style={{ fontSize: 10, color: 'rgba(255,255,255,.32)', marginTop: 3 }}>{sessionContacts.map(c => c.name).join(', ')}</div>
+                      )}
+                    </div>
+                    <div style={{ display: 'flex', gap: 6, flexShrink: 0, flexWrap: 'wrap' }}>
+                      <button onClick={() => handleRepair(s.id)} disabled={busyId === s.id} aria-label={`Repair future dates for ${title}`}
+                        style={{ fontSize: 11, fontWeight: 600, padding: '5px 10px', borderRadius: 20, cursor: busyId === s.id ? 'not-allowed' : 'pointer', background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.10)', color: 'rgba(255,255,255,.45)', fontFamily: FONT, opacity: busyId === s.id ? .5 : 1 }}>
+                        {busyId === s.id ? 'Repairing…' : 'Repair'}
+                      </button>
+                      <button onClick={() => onEdit(s)} aria-label={`Edit ${title}`}
+                        style={{ fontSize: 11, fontWeight: 600, padding: '5px 10px', borderRadius: 20, cursor: 'pointer', background: 'rgba(255,255,255,.05)', border: '1px solid rgba(255,255,255,.12)', color: 'rgba(255,255,255,.55)', fontFamily: FONT }}>
+                        Edit
+                      </button>
+                      {confirmDeleteId === s.id ? (
+                        <>
+                          <button onClick={() => handleDeleteConfirmed(s.id)} disabled={busyId === s.id} aria-label={`Confirm delete ${title}`}
+                            style={{ fontSize: 11, fontWeight: 700, padding: '5px 10px', borderRadius: 20, cursor: 'pointer', background: 'rgba(239,68,68,.22)', border: '1px solid rgba(239,68,68,.50)', color: '#f87171', fontFamily: FONT }}>
+                            Confirm
+                          </button>
+                          <button onClick={() => setConfirmDeleteId(null)} aria-label="Cancel delete"
+                            style={{ fontSize: 11, padding: '5px 8px', borderRadius: 20, cursor: 'pointer', background: 'none', border: '1px solid rgba(255,255,255,.10)', color: 'rgba(255,255,255,.30)', fontFamily: FONT }}>
+                            ✕
+                          </button>
+                        </>
+                      ) : (
+                        <button onClick={() => setConfirmDeleteId(s.id)} aria-label={`Delete ${title}`}
+                          style={{ fontSize: 11, fontWeight: 600, padding: '5px 10px', borderRadius: 20, cursor: 'pointer', background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.22)', color: '#f87171', fontFamily: FONT }}>
+                          Delete
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  {notes[s.id] && (
+                    <div style={{ marginTop: 8, fontSize: 11, color: '#a5b4fc' }}>{notes[s.id]}</div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
         </div>
-      )}
-    </button>
+      </div>
+    </>
   )
 }
 
@@ -696,14 +859,24 @@ function CalendarEntry({ inst, compact, selected, sessionTypes, onSelect }: {
   const capClr = capacityColor(inst.enrolled_count, inst.max_capacity)
   const full   = inst.enrolled_count >= inst.max_capacity
   const title  = sessionLabel(inst.session_type, sessionTypes)
+  // Selected state must ADD emphasis, not replace the type-colour stripe —
+  // a Production bug had the two collide. Every side is set as an explicit
+  // longhand (never mixing the `border` shorthand with `borderLeft`), so
+  // there is no ambiguity about which one wins: the left edge is always
+  // the type colour, the other three sides carry the selected-state ring.
+  const typeColour = sessionColourDot(inst.session_type, sessionTypes)
   if (compact) {
     // Month view: tight on space, but the start time must still be visible
     // without clicking — "10:00 Hot Shots Tennis · 3/8".
+    const compactBorderColor = selected ? 'rgba(99,102,241,.45)' : 'transparent'
     return (
       <div onClick={onSelect} style={{
         fontSize: 9.5, padding: '2px 5px', borderRadius: 4, cursor: 'pointer', fontFamily: FONT,
         background: selected ? 'rgba(99,102,241,.22)' : 'rgba(255,255,255,.05)',
-        border: selected ? '1px solid rgba(99,102,241,.45)' : '1px solid transparent',
+        borderTop: `1px solid ${compactBorderColor}`,
+        borderRight: `1px solid ${compactBorderColor}`,
+        borderBottom: `1px solid ${compactBorderColor}`,
+        borderLeft: `2px solid ${typeColour}`,
         color: selected ? '#c7d2fe' : 'rgba(255,255,255,.65)',
         display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 4,
       }}
@@ -718,12 +891,15 @@ function CalendarEntry({ inst, compact, selected, sessionTypes, onSelect }: {
     )
   }
   const label = optionalLabel(inst.session_name, inst.session_type, sessionTypes)
+  const fullBorderColor = selected ? 'rgba(99,102,241,.50)' : 'rgba(255,255,255,.08)'
   return (
     <div onClick={onSelect} style={{
       padding: '5px 8px', borderRadius: 6, cursor: 'pointer', fontFamily: FONT,
       background: selected ? 'rgba(99,102,241,.18)' : 'rgba(255,255,255,.04)',
-      border: `1px solid ${selected ? 'rgba(99,102,241,.50)' : 'rgba(255,255,255,.08)'}`,
-      borderLeft: `3px solid ${sessionColourDot(inst.session_type, sessionTypes)}`,
+      borderTop: `1px solid ${fullBorderColor}`,
+      borderRight: `1px solid ${fullBorderColor}`,
+      borderBottom: `1px solid ${fullBorderColor}`,
+      borderLeft: `3px solid ${typeColour}`,
       display: 'flex', flexDirection: 'column', gap: 2,
     }}
       onMouseEnter={e => { if (!selected) e.currentTarget.style.background = 'rgba(255,255,255,.08)' }}
@@ -1231,6 +1407,7 @@ export default function SessionsPage() {
   const [toggleErr, setToggleErr]                   = useState<string | null>(null)
   const [sessionTypes, setSessionTypes]             = useState<SessionTypeRow[]>([])
   const [showManageTypes, setShowManageTypes]       = useState(false)
+  const [showManageSessions, setShowManageSessions] = useState(false)
 
   const loadSessionTypes = useCallback(() => {
     fetch('/api/dashboard/session-types?include_archived=1').then(r => r.json()).then(d => setSessionTypes(d.types ?? [])).catch(() => null)
@@ -1342,11 +1519,6 @@ export default function SessionsPage() {
     }
   }, [loadCalendar, calendarAnchor, calendarView])
 
-  async function selectSession(id: string) {
-    if (selectedSessionId === id) { setSelectedSessionId(null); setInstances([]); setSelectedInstanceId(null); setInstanceDetail(null); setConfirmDel(false); setDeleteErr(null); return }
-    setSelectedSessionId(id); setConfirmDel(false); setDeleteErr(null); await loadInstances(id)
-  }
-
   async function selectInstance(sessionId: string, instanceId: string) {
     if (sessionId !== selectedSessionId) { setSelectedSessionId(sessionId); await loadInstances(sessionId) }
     loadRoster(sessionId, instanceId)
@@ -1382,21 +1554,12 @@ export default function SessionsPage() {
   async function generateInstances() {
     if (!selectedSessionId || generating) return
     setGenerating(true); setRepairNote(null)
-    const res = await fetch(`${API}/${selectedSessionId}/generate-instances`, { method: 'POST' })
+    const result = await repairSession(selectedSessionId)
     setGenerating(false)
-    if (res.ok) {
-      const d = await res.json() as { instances: SessionInstance[]; reconcile: ReconcileSummary }
-      setInstances(d.instances ?? [])
+    if (result) {
+      setInstances(result.instances ?? [])
       loadCalendar(calendarAnchor, calendarView)
-      const { generated, cancelledInstances, conflicts } = d.reconcile
-      if (generated === 0 && cancelledInstances === 0 && conflicts.length === 0) setRepairNote('Already up to date — nothing to repair.')
-      else {
-        const parts = []
-        if (generated > 0) parts.push(`added ${generated} future date${generated === 1 ? '' : 's'}`)
-        if (cancelledInstances > 0) parts.push(`removed ${cancelledInstances} stale date${cancelledInstances === 1 ? '' : 's'}`)
-        if (conflicts.length > 0) parts.push(`${conflicts.length} date${conflicts.length === 1 ? '' : 's'} left unchanged (has paid/attended players)`)
-        setRepairNote(parts.join(', ') + '.')
-      }
+      setRepairNote(formatRepairNote(result.reconcile))
     }
   }
 
@@ -1466,6 +1629,15 @@ export default function SessionsPage() {
       {showCreate && <CreateModal onClose={() => setShowCreate(false)} onCreate={handleCreate} sessionTypes={sessionTypes} onManageTypes={() => setShowManageTypes(true)} />}
       {editingSession && <EditModal session={editingSession} onClose={() => setEditingSession(null)} onSave={handleSave} sessionTypes={sessionTypes} onManageTypes={() => setShowManageTypes(true)} />}
       {showManageTypes && <ManageSessionTypesModal types={sessionTypes} onClose={() => setShowManageTypes(false)} onChanged={loadSessionTypes} />}
+      {showManageSessions && (
+        <ManageSessionsModal
+          sessions={sessions} sessionTypes={sessionTypes} contacts={contacts}
+          onClose={() => setShowManageSessions(false)}
+          onEdit={s => setEditingSession(s)}
+          onDelete={handleDelete}
+          onRepaired={() => { fetch(API).then(r => r.json()).then(d => setSessions(d.sessions ?? [])).catch(() => null); loadCalendar(calendarAnchor, calendarView) }}
+        />
+      )}
 
       {/* ── Page header ──────────────────────────────────────────────────── */}
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 20, gap: 16 }}>
@@ -1475,11 +1647,18 @@ export default function SessionsPage() {
             {sessions.length} session{sessions.length !== 1 ? 's' : ''} · click a date below to view its roster
           </p>
         </div>
-        <button onClick={() => setShowCreate(true)} style={{
-          fontSize: 13, fontWeight: 600, padding: '8px 18px', borderRadius: 20, cursor: 'pointer',
-          background: 'rgba(99,102,241,.20)', border: '1px solid rgba(99,102,241,.40)',
-          color: '#a5b4fc', fontFamily: FONT, flexShrink: 0,
-        }}>+ New Session</button>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
+          <button onClick={() => setShowManageSessions(true)} style={{
+            fontSize: 12, fontWeight: 600, padding: '7px 14px', borderRadius: 20, cursor: 'pointer',
+            background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.10)',
+            color: 'rgba(255,255,255,.45)', fontFamily: FONT,
+          }}>Manage sessions</button>
+          <button onClick={() => setShowCreate(true)} style={{
+            fontSize: 13, fontWeight: 600, padding: '8px 18px', borderRadius: 20, cursor: 'pointer',
+            background: 'rgba(99,102,241,.20)', border: '1px solid rgba(99,102,241,.40)',
+            color: '#a5b4fc', fontFamily: FONT,
+          }}>+ New Session</button>
+        </div>
       </div>
 
       {!loading && sessions.length === 0 && (
@@ -1528,18 +1707,6 @@ export default function SessionsPage() {
                 <button onClick={() => setCalendarViewAndReload('month')} style={toggleBtn(calendarView === 'month')}>Month</button>
               </div>
             </div>
-          </div>
-
-          {/* Manage sessions — compact, muted utility strip (not a second
-              schedule view). This is the only way to reach Generate 6
-              weeks/Edit/Delete for a session with no instances currently
-              visible in the calendar range below (e.g. its last 6-week
-              batch expired and nobody has regenerated it yet). */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, overflowX: 'auto', paddingBottom: 2 }}>
-            <span style={{ fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,.24)', letterSpacing: '.06em', textTransform: 'uppercase', flexShrink: 0 }}>Manage</span>
-            {sessions.map(s => (
-              <SessionChip key={s.id} session={s} selected={selectedSessionId === s.id} onClick={() => selectSession(s.id)} sessionContacts={contacts.filter(c => c.session_id === s.id)} sessionTypes={sessionTypes} />
-            ))}
           </div>
 
           {/* Date heading (left) — already carried by the controls row above on desktop; shown here for the calendar itself */}
