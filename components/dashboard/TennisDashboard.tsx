@@ -162,7 +162,11 @@ export default function TennisDashboard({
         <StatCard label="Today's Sessions" value={stats.todaysSessions} sub="Scheduled today"          accent="#818cf8" />
         <StatCard label="New Leads"        value={stats.newThisWeek}    sub="Last 7 days"               accent="#4ade80" />
         <StatCard label="Follow-ups"       value={stats.needsFollowup}  sub="Awaiting your response"    accent="#fbbf24" />
-        <StatCard label="Active Clients"   value={stats.activeLeads}    sub="New or contacted"           accent="#60a5fa" />
+        {/* Was "Active Clients" — the calculation was always lead statuses
+            (new/contacted), never the contacts table, so the old label
+            overstated what this counts. Renamed only; the underlying
+            calculation is unchanged (see app/dashboard/page.tsx). */}
+        <StatCard label="Open Leads"       value={stats.activeLeads}    sub="New or contacted"           accent="#60a5fa" />
       </div>
 
       {/* ── Row 2: Today's Schedule | Needs Attention ────────────────── */}

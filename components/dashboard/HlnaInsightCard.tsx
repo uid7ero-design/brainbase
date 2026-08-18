@@ -77,15 +77,17 @@ export default function HlnaInsightCard() {
       display: 'flex', flexDirection: 'column',
       fontFamily: FONT,
     }}>
-      {/* Header */}
+      {/* Header — slightly stronger emphasis than a standard panel header
+          (larger label, brighter colour) so this doesn't read as lower
+          priority than the News panel below it. */}
       <div style={{
-        padding: '14px 20px',
+        padding: '16px 20px',
         borderBottom: '1px solid rgba(99,102,241,.14)',
         display: 'flex', alignItems: 'center', gap: 8,
         background: 'rgba(99,102,241,.05)',
       }}>
-        <span style={{ fontSize: 14, color: '#818cf8', lineHeight: 1 }}>◈</span>
-        <span style={{ fontSize: 12, fontWeight: 600, letterSpacing: '.08em', textTransform: 'uppercase', color: 'rgba(255,255,255,.50)' }}>
+        <span style={{ fontSize: 16, color: '#a5b4fc', lineHeight: 1 }}>◈</span>
+        <span style={{ fontSize: 13, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: 'rgba(255,255,255,.65)' }}>
           HLNA Insight
         </span>
         {urgent > 0 && (
@@ -105,9 +107,19 @@ export default function HlnaInsightCard() {
         {loading ? (
           <LoadingPulse />
         ) : !briefing?.hasData ? (
-          <p style={{ fontSize: 12, color: 'rgba(255,255,255,.30)', lineHeight: 1.6, margin: 0 }}>
-            No data yet. Add contacts and leads to unlock AI insights.
-          </p>
+          // Padded like the other panels' empty states (not a bare
+          // one-line <p>) so this card keeps real presence on the page
+          // instead of collapsing into a thin strip when there's nothing
+          // to show yet. Accurate, not invented: still states plainly
+          // that there is no insight right now.
+          <div style={{ padding: '10px 0 24px' }}>
+            <p style={{ fontSize: 13, color: 'rgba(255,255,255,.45)', fontWeight: 500, margin: '0 0 4px' }}>
+              No insight available yet
+            </p>
+            <p style={{ fontSize: 12, color: 'rgba(255,255,255,.28)', lineHeight: 1.6, margin: 0 }}>
+              HLNA will surface priorities here as lead and contact activity builds.
+            </p>
+          </div>
         ) : (
           <>
             {/* Summary */}
