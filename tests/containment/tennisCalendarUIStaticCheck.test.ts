@@ -37,8 +37,8 @@ describe('app/dashboard/sessions/page.tsx — static source checks (Week/Month c
     expect(source).toContain('onSelectInstance={selectInstance}')
   })
 
-  it('"Generate 6 weeks" is preserved unchanged and is separate from calendar navigation', () => {
-    expect(source).toContain("'↻ Generate 6 weeks'")
+  it('the manual instance-repair action (formerly "Generate 6 weeks", now "Repair future dates" per the automatic scheduling feature) is separate from calendar navigation', () => {
+    expect(source).toContain('Repair future dates')
     expect(source).toContain('onClick={generateInstances}')
   })
 

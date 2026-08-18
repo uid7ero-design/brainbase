@@ -24,13 +24,13 @@ describe('app/dashboard/sessions/page.tsx — static source checks (single-calen
     expect(source).toContain('function MonthGrid(')
   })
 
-  it('session management (Generate 6 weeks / Edit / Delete) is still reachable via the compact SessionChip strip, not deleted along with the old grid', () => {
+  it('session management (schedule repair / Edit / Delete) is still reachable via the compact SessionChip strip, not deleted along with the old grid', () => {
     expect(source).toContain('function SessionChip(')
     expect(source).toContain('onClick={() => selectSession(s.id)}')
   })
 
-  it('"Generate 6 weeks" and "+ New Session" are preserved', () => {
-    expect(source).toContain("'↻ Generate 6 weeks'")
+  it('the manual instance-repair action and "+ New Session" are preserved', () => {
+    expect(source).toContain('Repair future dates')
     expect(source).toContain('onClick={generateInstances}')
     expect(source).toContain('+ New Session')
     expect(source).toContain('onClick={() => setShowCreate(true)}')

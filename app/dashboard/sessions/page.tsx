@@ -9,12 +9,19 @@ import {
 const FONT = "var(--font-inter),-apple-system,sans-serif"
 const API  = '/api/dashboard/sessions'
 
+type EndMode = 'ongoing' | 'after_weeks' | 'on_date'
+
 type Session = {
   id: string; name: string; day_of_week: number; start_time: string
   duration_minutes: number; max_capacity: number; session_type: string
   resource_id: string | null; recurring: boolean; created_at: string
   enrolled_count: number; price_per_session: number
+  start_date: string | null; end_mode: EndMode; end_after_weeks: number | null; end_date: string | null
 }
+
+type SessionTypeRow = { id: string; name: string; slug: string; colour_key: string; active: boolean; sort_order: number }
+
+type ReconcileSummary = { generated: number; cancelledInstances: number; conflicts: { instanceId: string; date: string }[] }
 
 type SessionInstance = {
   id: string; session_id: string; date: string; start_time: string
@@ -113,12 +120,38 @@ const SESSION_PRICES: Record<string, number> = {
   ACADEMY:           25,
 }
 
-function sessionLabel(type: string) {
-  return SESSION_LABELS[type] ?? type ?? 'Session'
+// Fixed, finite colour palette for organisation-managed session types — a
+// manager picks one of these keys, never raw CSS. Keep in sync with
+// VALID_COLOUR_KEYS in app/api/dashboard/session-types/route.ts.
+const SESSION_TYPE_COLOUR_PALETTE: Record<string, { text: string; bg: string; border: string }> = {
+  purple:  { text: '#c084fc', bg: 'rgba(168,85,247,.14)',  border: 'rgba(168,85,247,.35)'  },
+  violet:  { text: '#a855f7', bg: 'rgba(168,85,247,.20)',  border: 'rgba(168,85,247,.42)'  },
+  indigo:  { text: '#818cf8', bg: 'rgba(79,70,229,.15)',   border: 'rgba(79,70,229,.38)'   },
+  green:   { text: '#4ade80', bg: 'rgba(22,163,74,.13)',   border: 'rgba(22,163,74,.32)'   },
+  emerald: { text: '#34d399', bg: 'rgba(16,185,129,.12)',  border: 'rgba(16,185,129,.30)'  },
+  blue:    { text: '#60a5fa', bg: 'rgba(37,99,235,.13)',   border: 'rgba(37,99,235,.32)'   },
+  orange:  { text: '#fb923c', bg: 'rgba(249,115,22,.13)',  border: 'rgba(249,115,22,.32)'  },
+  amber:   { text: '#f97316', bg: 'rgba(234,88,12,.14)',   border: 'rgba(234,88,12,.34)'   },
+  sky:     { text: '#7dd3fc', bg: 'rgba(14,165,233,.12)',  border: 'rgba(14,165,233,.30)'  },
+  slate:   { text: '#94a3b8', bg: 'rgba(100,116,139,.13)', border: 'rgba(100,116,139,.30)' },
+  rose:    { text: '#fb7185', bg: 'rgba(244,63,94,.13)',   border: 'rgba(244,63,94,.32)'   },
+  teal:    { text: '#2dd4bf', bg: 'rgba(20,184,166,.13)',  border: 'rgba(20,184,166,.32)'  },
+}
+const SESSION_TYPE_COLOUR_KEYS = Object.keys(SESSION_TYPE_COLOUR_PALETTE)
+
+// Both resolve against the live, organisation-scoped session types list
+// first (fetched from /api/dashboard/session-types — includes archived
+// types too, since a session saved against an archived type must keep
+// resolving/displaying correctly), falling back to the hardcoded maps
+// above for any type not yet backed by a session_types row (pre-migration,
+// or a type created before this feature existed).
+function sessionLabel(type: string, types: SessionTypeRow[]): string {
+  return types.find(t => t.slug === type)?.name ?? SESSION_LABELS[type] ?? type ?? 'Session'
 }
 
-function sessionChip(type: string): React.CSSProperties {
-  const c = SESSION_COLOURS[type]
+function sessionChip(type: string, types: SessionTypeRow[]): React.CSSProperties {
+  const match = types.find(t => t.slug === type)
+  const c = match ? SESSION_TYPE_COLOUR_PALETTE[match.colour_key] : SESSION_COLOURS[type]
   if (!c) return { color: 'rgba(255,255,255,.35)', background: 'rgba(255,255,255,.06)', border: '1px solid rgba(255,255,255,.12)', fontSize: 10, fontWeight: 700, borderRadius: 20, padding: '2px 8px', display: 'inline-block' }
   return { color: c.text, background: c.bg, border: `1px solid ${c.border}`, fontSize: 10, fontWeight: 700, borderRadius: 20, padding: '2px 8px', display: 'inline-block' }
 }
@@ -277,6 +310,13 @@ function capacityColor(enrolled: number, max: number) {
   return '#4ade80'
 }
 
+function scheduleSummary(s: Session): string {
+  const dayLine = `${DAY_FULL[s.day_of_week]}s ${s.start_time}`
+  if (s.end_mode === 'after_weeks' && s.end_after_weeks) return `${s.end_after_weeks} weeks · ${dayLine}`
+  if (s.end_mode === 'on_date' && s.end_date) return `Ends ${formatDateAU(s.end_date)} · ${dayLine}`
+  return `Ongoing · ${dayLine}`
+}
+
 const CLIENT_TZ = 'Australia/Sydney'
 
 function todayStr(): string {
@@ -297,34 +337,159 @@ function isToday(d: string | Date): boolean {
   return normalizeDate(d) === todayStr()
 }
 
+// ─── Session Form Fields (shared by Create/Edit) ───────────────────────────────
+
+type SessionFormState = {
+  name: string; day_of_week: number; start_time: string
+  duration_minutes: number; max_capacity: number; session_type: string; resource_id: string; recurring: boolean
+  price_per_session: number
+  start_date: string; end_mode: EndMode; end_after_weeks: number; end_date: string
+}
+
+const FLAT_LEGACY_TYPE_OPTIONS: SelectOption[] = SESSION_TYPE_GROUPS.flatMap(g => g.options)
+
+const fieldLbl: React.CSSProperties = {
+  display: 'block', fontSize: 11, fontWeight: 700, letterSpacing: '.08em',
+  textTransform: 'uppercase', color: 'rgba(255,255,255,.35)', marginBottom: 5,
+}
+// Used only inside multi-column field rows (Start Date/Start Time/Duration,
+// Max Capacity/Price): a fixed minHeight + explicit lineHeight reserves the
+// same vertical space for every label in the row regardless of whether its
+// own text wraps to two lines, so every input below it starts at the same
+// Y position — the actual fix for the misaligned-fields production bug,
+// not a per-field margin patch.
+const fieldRowLbl: React.CSSProperties = { ...fieldLbl, minHeight: 28, lineHeight: '14px' }
+const sectionLbl: React.CSSProperties = {
+  fontSize: 10, fontWeight: 800, letterSpacing: '.10em', textTransform: 'uppercase', color: 'rgba(255,255,255,.24)',
+}
+
+function pillStyle(active: boolean): React.CSSProperties {
+  return {
+    fontSize: 11, fontWeight: 700, padding: '5px 12px', borderRadius: 20, cursor: 'pointer',
+    background: active ? 'rgba(99,102,241,.25)' : 'rgba(255,255,255,.04)',
+    border: `1px solid ${active ? 'rgba(99,102,241,.45)' : 'rgba(255,255,255,.10)'}`,
+    color: active ? '#a5b4fc' : 'rgba(255,255,255,.40)', fontFamily: FONT,
+  }
+}
+
+function SessionFormFields({ form, set, sessionTypes, onManageTypes }: {
+  form: SessionFormState
+  set: (k: keyof SessionFormState, v: string | number | boolean) => void
+  sessionTypes: SessionTypeRow[]
+  onManageTypes: () => void
+}) {
+  const typeOptions: SelectOption[] = sessionTypes.length > 0
+    ? sessionTypes
+        .filter(t => t.active || t.slug === form.session_type)
+        .sort((a, b) => a.sort_order - b.sort_order)
+        .map(t => ({ value: t.slug, label: t.name }))
+    : FLAT_LEGACY_TYPE_OPTIONS
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div style={sectionLbl}>Session Details</div>
+        <div><label style={fieldLbl}>Session Name</label><input style={inp} value={form.name} onChange={e => set('name', e.target.value)} placeholder="Hot Shots Red Ball" /></div>
+        <div>
+          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
+            <label style={fieldLbl}>Type</label>
+            <button type="button" onClick={onManageTypes} style={{ background: 'none', border: 'none', color: '#a5b4fc', cursor: 'pointer', fontSize: 11, fontFamily: FONT, padding: 0, marginBottom: 5 }}>Manage types</button>
+          </div>
+          <CustomSelect value={form.session_type} onChange={v => set('session_type', v)} placeholder="Select session type" options={typeOptions} />
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div style={sectionLbl}>Schedule</div>
+        <div>
+          <label style={fieldLbl}>Day</label>
+          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+            {DAYS_ORDER.map(d => (
+              <button key={d} type="button" onClick={() => set('day_of_week', d)} style={pillStyle(form.day_of_week === d)}>{DAY_LABEL[d]}</button>
+            ))}
+          </div>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+          <div><label style={fieldRowLbl}>Start Date</label><input style={{ ...inp, colorScheme: 'dark' }} type="date" value={form.start_date} onChange={e => set('start_date', e.target.value)} /></div>
+          <div><label style={fieldRowLbl}>Start Time</label><input style={{ ...inp, colorScheme: 'dark' }} type="time" value={form.start_time} onChange={e => set('start_time', e.target.value)} /></div>
+          <div><label style={fieldRowLbl}>Duration (min)</label><input style={inp} type="number" min={15} max={480} value={form.duration_minutes} onChange={e => set('duration_minutes', parseInt(e.target.value) || 60)} /></div>
+        </div>
+        <div>
+          <label style={fieldLbl}>Ends</label>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+            <button type="button" onClick={() => set('end_mode', 'after_weeks')} style={pillStyle(form.end_mode === 'after_weeks')}>After weeks</button>
+            {form.end_mode === 'after_weeks' && (
+              <>
+                <input style={{ ...inp, width: 60 }} type="number" min={1} max={104} value={form.end_after_weeks} onChange={e => set('end_after_weeks', parseInt(e.target.value) || 1)} />
+                <span style={{ fontSize: 12, color: 'rgba(255,255,255,.40)' }}>weeks</span>
+              </>
+            )}
+            <button type="button" onClick={() => set('end_mode', 'on_date')} style={pillStyle(form.end_mode === 'on_date')}>On date</button>
+            {form.end_mode === 'on_date' && (
+              <input style={{ ...inp, width: 150, colorScheme: 'dark' }} type="date" value={form.end_date} onChange={e => set('end_date', e.target.value)} />
+            )}
+            <button type="button" onClick={() => set('end_mode', 'ongoing')} style={pillStyle(form.end_mode === 'ongoing')}>Ongoing</button>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div style={sectionLbl}>Capacity &amp; Price</div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div><label style={fieldRowLbl}>Max Capacity</label><input style={inp} type="number" min={1} max={100} value={form.max_capacity} onChange={e => set('max_capacity', parseInt(e.target.value) || 8)} /></div>
+          <div><label style={fieldRowLbl}>Price ($)</label><input style={inp} type="number" min={0} step={0.5} value={form.price_per_session} onChange={e => set('price_per_session', parseFloat(e.target.value) || 0)} /></div>
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div style={sectionLbl}>Location</div>
+        <CustomSelect value={form.resource_id} onChange={v => set('resource_id', v)} placeholder="— Select location —" options={LOCATION_OPTIONS} />
+      </div>
+
+      <div>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+          <input type="checkbox" checked={form.recurring} onChange={e => set('recurring', e.target.checked)} style={{ width: 16, height: 16, accentColor: '#6366f1' }} />
+          <span style={{ fontSize: 13, color: 'rgba(255,255,255,.55)' }}>Allow weekly (recurring) enrolment</span>
+        </label>
+        <p style={{ margin: '4px 0 0 26px', fontSize: 11, color: 'rgba(255,255,255,.28)' }}>
+          Lets players choose Weekly when enrolling in this class. Separate from the Schedule above, which controls how often the class itself runs.
+        </p>
+      </div>
+    </div>
+  )
+}
+
 // ─── Create Modal ─────────────────────────────────────────────────────────────
 
-function CreateModal({ onClose, onCreate }: { onClose: () => void; onCreate: (s: Session) => void }) {
-  const [form, setForm] = useState({
+function CreateModal({ onClose, onCreate, sessionTypes, onManageTypes }: {
+  onClose: () => void; onCreate: (s: Session) => void; sessionTypes: SessionTypeRow[]; onManageTypes: () => void
+}) {
+  const [form, setForm] = useState<SessionFormState>({
     name: '', day_of_week: 1, start_time: '10:00',
     duration_minutes: 60, max_capacity: 8, session_type: '', resource_id: '', recurring: true,
     price_per_session: 0,
+    start_date: todayStr(), end_mode: 'ongoing', end_after_weeks: 10, end_date: '',
   })
   const [saving, setSaving] = useState(false)
   const [err, setErr]       = useState<string | null>(null)
 
-  const set = (k: string, v: string | number | boolean) => setForm(f => ({ ...f, [k]: v }))
+  const set = (k: keyof SessionFormState, v: string | number | boolean) => setForm(f => ({ ...f, [k]: v }))
 
   async function submit() {
     if (!form.name.trim() || !form.session_type.trim() || saving) return
+    if (form.end_mode === 'on_date' && !form.end_date) { setErr('Choose an end date, or switch Ends to a different option.'); return }
     setSaving(true); setErr(null)
     const res = await fetch(API, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...form, resource_id: form.resource_id.trim() || undefined }),
+      body: JSON.stringify({
+        ...form, resource_id: form.resource_id.trim() || undefined,
+        end_after_weeks: form.end_mode === 'after_weeks' ? form.end_after_weeks : null,
+        end_date: form.end_mode === 'on_date' ? form.end_date : null,
+      }),
     })
     setSaving(false)
     if (res.ok) { const d = await res.json() as { session: Session }; onCreate(d.session); onClose() }
     else { const d = await res.json().catch(() => ({})) as { error?: string }; setErr(d.error ?? 'Failed') }
-  }
-
-  const lbl: React.CSSProperties = {
-    display: 'block', fontSize: 11, fontWeight: 700, letterSpacing: '.08em',
-    textTransform: 'uppercase', color: 'rgba(255,255,255,.35)', marginBottom: 5,
   }
 
   return (
@@ -332,45 +497,12 @@ function CreateModal({ onClose, onCreate }: { onClose: () => void; onCreate: (s:
       <style>{`@keyframes cm-fade{from{opacity:0}to{opacity:1}}@keyframes cm-in{from{opacity:0;transform:scale(.96)}to{opacity:1;transform:scale(1)}}`}</style>
       <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.70)', backdropFilter: 'blur(4px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', animation: 'cm-fade .15s ease' }}
         onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-        <div style={{ background: '#111215', border: '1px solid rgba(255,255,255,.10)', borderRadius: 16, padding: '26px 28px', width: '100%', maxWidth: 460, fontFamily: FONT, animation: 'cm-in .18s ease' }}>
+        <div style={{ background: '#111215', border: '1px solid rgba(255,255,255,.10)', borderRadius: 16, padding: '26px 28px', width: '100%', maxWidth: 480, maxHeight: '88vh', overflowY: 'auto', fontFamily: FONT, animation: 'cm-in .18s ease' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 22 }}>
             <div style={{ fontSize: 16, fontWeight: 700, color: '#F5F7FA' }}>New Session</div>
             <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,.35)', cursor: 'pointer', fontSize: 18 }}>✕</button>
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            <div><label style={lbl}>Session Name</label><input style={inp} value={form.name} onChange={e => set('name', e.target.value)} placeholder="Hot Shots Red Ball" /></div>
-            <div>
-              <label style={lbl}>Type</label>
-              <CustomSelect value={form.session_type} onChange={v => set('session_type', v)} placeholder="Select session type" groups={SESSION_TYPE_GROUPS} />
-            </div>
-            <div>
-              <label style={lbl}>Day</label>
-              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                {DAYS_ORDER.map(d => (
-                  <button key={d} onClick={() => set('day_of_week', d)} style={{
-                    fontSize: 11, fontWeight: 700, padding: '5px 12px', borderRadius: 20, cursor: 'pointer',
-                    background: form.day_of_week === d ? 'rgba(99,102,241,.25)' : 'rgba(255,255,255,.04)',
-                    border: `1px solid ${form.day_of_week === d ? 'rgba(99,102,241,.45)' : 'rgba(255,255,255,.10)'}`,
-                    color: form.day_of_week === d ? '#a5b4fc' : 'rgba(255,255,255,.40)', fontFamily: FONT,
-                  }}>{DAY_LABEL[d]}</button>
-                ))}
-              </div>
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 12 }}>
-              <div><label style={lbl}>Start Time</label><input style={{ ...inp, colorScheme: 'dark' }} type="time" value={form.start_time} onChange={e => set('start_time', e.target.value)} /></div>
-              <div><label style={lbl}>Duration (min)</label><input style={inp} type="number" min={15} max={480} value={form.duration_minutes} onChange={e => set('duration_minutes', parseInt(e.target.value) || 60)} /></div>
-              <div><label style={lbl}>Max Capacity</label><input style={inp} type="number" min={1} max={100} value={form.max_capacity} onChange={e => set('max_capacity', parseInt(e.target.value) || 8)} /></div>
-              <div><label style={lbl}>Price ($)</label><input style={inp} type="number" min={0} step={0.5} value={form.price_per_session} onChange={e => set('price_per_session', parseFloat(e.target.value) || 0)} /></div>
-            </div>
-            <div>
-              <label style={lbl}>Location</label>
-              <CustomSelect value={form.resource_id} onChange={v => set('resource_id', v)} placeholder="— Select location —" options={LOCATION_OPTIONS} />
-            </div>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
-              <input type="checkbox" checked={form.recurring} onChange={e => set('recurring', e.target.checked)} style={{ width: 16, height: 16, accentColor: '#6366f1' }} />
-              <span style={{ fontSize: 13, color: 'rgba(255,255,255,.55)' }}>Recurring weekly</span>
-            </label>
-          </div>
+          <SessionFormFields form={form} set={set} sessionTypes={sessionTypes} onManageTypes={onManageTypes} />
           {err && <p style={{ margin: '12px 0 0', fontSize: 12, color: '#f87171' }}>{err}</p>}
           <div style={{ display: 'flex', gap: 8, marginTop: 22 }}>
             <button onClick={onClose} style={{ flex: 1, fontSize: 13, fontWeight: 600, padding: '9px 0', borderRadius: 8, cursor: 'pointer', background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.09)', color: 'rgba(255,255,255,.40)', fontFamily: FONT }}>Cancel</button>
@@ -387,33 +519,45 @@ function CreateModal({ onClose, onCreate }: { onClose: () => void; onCreate: (s:
 
 // ─── Edit Modal ───────────────────────────────────────────────────────────────
 
-function EditModal({ session, onClose, onSave }: { session: Session; onClose: () => void; onSave: (s: Session) => void }) {
-  const [form, setForm] = useState({
+function EditModal({ session, onClose, onSave, sessionTypes, onManageTypes }: {
+  session: Session; onClose: () => void; onSave: (s: Session) => void; sessionTypes: SessionTypeRow[]; onManageTypes: () => void
+}) {
+  const [form, setForm] = useState<SessionFormState>({
     name: session.name, day_of_week: session.day_of_week, start_time: session.start_time,
     duration_minutes: session.duration_minutes, max_capacity: session.max_capacity,
     session_type: session.session_type, resource_id: session.resource_id ?? '', recurring: session.recurring,
     price_per_session: session.price_per_session ?? 0,
+    start_date: session.start_date ?? todayStr(), end_mode: session.end_mode ?? 'ongoing',
+    end_after_weeks: session.end_after_weeks ?? 10, end_date: session.end_date ?? '',
   })
   const [saving, setSaving] = useState(false)
   const [err, setErr]       = useState<string | null>(null)
+  const [reconcileNote, setReconcileNote] = useState<string | null>(null)
 
-  const set = (k: string, v: string | number | boolean) => setForm(f => ({ ...f, [k]: v }))
+  const set = (k: keyof SessionFormState, v: string | number | boolean) => setForm(f => ({ ...f, [k]: v }))
 
   async function submit() {
     if (!form.name.trim() || !form.session_type.trim() || saving) return
+    if (form.end_mode === 'on_date' && !form.end_date) { setErr('Choose an end date, or switch Ends to a different option.'); return }
     setSaving(true); setErr(null)
     const res = await fetch(`${API}/${session.id}`, {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...form, resource_id: form.resource_id.trim() || null }),
+      body: JSON.stringify({
+        ...form, resource_id: form.resource_id.trim() || null,
+        end_after_weeks: form.end_mode === 'after_weeks' ? form.end_after_weeks : null,
+        end_date: form.end_mode === 'on_date' ? form.end_date : null,
+      }),
     })
     setSaving(false)
-    if (res.ok) { const d = await res.json() as { session: Session }; onSave({ ...d.session, enrolled_count: session.enrolled_count }); onClose() }
+    if (res.ok) {
+      const d = await res.json() as { session: Session; reconcile: ReconcileSummary }
+      if (d.reconcile.conflicts.length > 0) {
+        setReconcileNote(`Saved, but ${d.reconcile.conflicts.length} future date${d.reconcile.conflicts.length === 1 ? '' : 's'} outside the new schedule already ${d.reconcile.conflicts.length === 1 ? 'has' : 'have'} paid or attended players, so ${d.reconcile.conflicts.length === 1 ? 'it was' : 'they were'} left scheduled — review manually.`)
+        return
+      }
+      onSave({ ...d.session, enrolled_count: session.enrolled_count }); onClose()
+    }
     else { const d = await res.json().catch(() => ({})) as { error?: string }; setErr(d.error ?? 'Failed') }
-  }
-
-  const lbl: React.CSSProperties = {
-    display: 'block', fontSize: 11, fontWeight: 700, letterSpacing: '.08em',
-    textTransform: 'uppercase', color: 'rgba(255,255,255,.35)', marginBottom: 5,
   }
 
   return (
@@ -421,46 +565,19 @@ function EditModal({ session, onClose, onSave }: { session: Session; onClose: ()
       <style>{`@keyframes cm-fade{from{opacity:0}to{opacity:1}}@keyframes cm-in{from{opacity:0;transform:scale(.96)}to{opacity:1;transform:scale(1)}}`}</style>
       <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.70)', backdropFilter: 'blur(4px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', animation: 'cm-fade .15s ease' }}
         onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-        <div style={{ background: '#111215', border: '1px solid rgba(255,255,255,.10)', borderRadius: 16, padding: '26px 28px', width: '100%', maxWidth: 460, fontFamily: FONT, animation: 'cm-in .18s ease' }}>
+        <div style={{ background: '#111215', border: '1px solid rgba(255,255,255,.10)', borderRadius: 16, padding: '26px 28px', width: '100%', maxWidth: 480, maxHeight: '88vh', overflowY: 'auto', fontFamily: FONT, animation: 'cm-in .18s ease' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 22 }}>
             <div style={{ fontSize: 16, fontWeight: 700, color: '#F5F7FA' }}>Edit Session</div>
             <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,.35)', cursor: 'pointer', fontSize: 18 }}>✕</button>
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            <div><label style={lbl}>Session Name</label><input style={inp} value={form.name} onChange={e => set('name', e.target.value)} /></div>
-            <div>
-              <label style={lbl}>Type</label>
-              <CustomSelect value={form.session_type} onChange={v => set('session_type', v)} placeholder="Select session type" groups={SESSION_TYPE_GROUPS} />
-            </div>
-            <div>
-              <label style={lbl}>Day</label>
-              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                {DAYS_ORDER.map(d => (
-                  <button key={d} onClick={() => set('day_of_week', d)} style={{
-                    fontSize: 11, fontWeight: 700, padding: '5px 12px', borderRadius: 20, cursor: 'pointer',
-                    background: form.day_of_week === d ? 'rgba(99,102,241,.25)' : 'rgba(255,255,255,.04)',
-                    border: `1px solid ${form.day_of_week === d ? 'rgba(99,102,241,.45)' : 'rgba(255,255,255,.10)'}`,
-                    color: form.day_of_week === d ? '#a5b4fc' : 'rgba(255,255,255,.40)', fontFamily: FONT,
-                  }}>{DAY_LABEL[d]}</button>
-                ))}
-              </div>
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 12 }}>
-              <div><label style={lbl}>Start Time</label><input style={{ ...inp, colorScheme: 'dark' }} type="time" value={form.start_time} onChange={e => set('start_time', e.target.value)} /></div>
-              <div><label style={lbl}>Duration (min)</label><input style={inp} type="number" min={15} max={480} value={form.duration_minutes} onChange={e => set('duration_minutes', parseInt(e.target.value) || 60)} /></div>
-              <div><label style={lbl}>Max Capacity</label><input style={inp} type="number" min={1} max={100} value={form.max_capacity} onChange={e => set('max_capacity', parseInt(e.target.value) || 8)} /></div>
-              <div><label style={lbl}>Price ($)</label><input style={inp} type="number" min={0} step={0.5} value={form.price_per_session} onChange={e => set('price_per_session', parseFloat(e.target.value) || 0)} /></div>
-            </div>
-            <div>
-              <label style={lbl}>Location</label>
-              <CustomSelect value={form.resource_id} onChange={v => set('resource_id', v)} placeholder="— Select location —" options={LOCATION_OPTIONS} />
-            </div>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
-              <input type="checkbox" checked={form.recurring} onChange={e => set('recurring', e.target.checked)} style={{ width: 16, height: 16, accentColor: '#6366f1' }} />
-              <span style={{ fontSize: 13, color: 'rgba(255,255,255,.55)' }}>Recurring weekly</span>
-            </label>
-          </div>
+          <SessionFormFields form={form} set={set} sessionTypes={sessionTypes} onManageTypes={onManageTypes} />
           {err && <p style={{ margin: '12px 0 0', fontSize: 12, color: '#f87171' }}>{err}</p>}
+          {reconcileNote && (
+            <div style={{ margin: '12px 0 0', padding: '10px 12px', borderRadius: 8, background: 'rgba(251,191,36,.10)', border: '1px solid rgba(251,191,36,.28)' }}>
+              <p style={{ margin: 0, fontSize: 12, color: '#fbbf24' }}>{reconcileNote}</p>
+              <button onClick={onClose} style={{ marginTop: 8, background: 'none', border: 'none', color: '#a5b4fc', cursor: 'pointer', fontSize: 12, fontFamily: FONT, padding: 0 }}>Close</button>
+            </div>
+          )}
           <div style={{ display: 'flex', gap: 8, marginTop: 22 }}>
             <button onClick={onClose} style={{ flex: 1, fontSize: 13, fontWeight: 600, padding: '9px 0', borderRadius: 8, cursor: 'pointer', background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.09)', color: 'rgba(255,255,255,.40)', fontFamily: FONT }}>Cancel</button>
             <button onClick={submit} disabled={!form.name.trim() || !form.session_type.trim() || saving}
@@ -474,17 +591,133 @@ function EditModal({ session, onClose, onSave }: { session: Session; onClose: ()
   )
 }
 
+// ─── Manage Session Types ───────────────────────────────────────────────────────
+
+function ManageSessionTypesModal({ types, onClose, onChanged }: {
+  types: SessionTypeRow[]; onClose: () => void; onChanged: () => void
+}) {
+  const [adding, setAdding] = useState(false)
+  const [newName, setNewName] = useState('')
+  const [newColour, setNewColour] = useState('slate')
+  const [err, setErr] = useState<string | null>(null)
+  const [busyId, setBusyId] = useState<string | null>(null)
+  const [renamingId, setRenamingId] = useState<string | null>(null)
+  const [renameValue, setRenameValue] = useState('')
+
+  const sorted = [...types].sort((a, b) => a.sort_order - b.sort_order)
+
+  async function addType() {
+    if (!newName.trim()) return
+    setErr(null)
+    const res = await fetch('/api/dashboard/session-types', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: newName.trim(), colour_key: newColour }),
+    })
+    if (res.ok) { setNewName(''); setNewColour('slate'); setAdding(false); onChanged() }
+    else { const d = await res.json().catch(() => ({})) as { error?: string }; setErr(d.error ?? 'Failed to add type') }
+  }
+
+  async function toggleActive(t: SessionTypeRow) {
+    setBusyId(t.id)
+    await fetch(`/api/dashboard/session-types/${t.id}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ active: !t.active }),
+    })
+    setBusyId(null); onChanged()
+  }
+
+  async function recolour(t: SessionTypeRow, colour_key: string) {
+    setBusyId(t.id)
+    await fetch(`/api/dashboard/session-types/${t.id}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ colour_key }),
+    })
+    setBusyId(null); onChanged()
+  }
+
+  async function saveRename(t: SessionTypeRow) {
+    if (!renameValue.trim()) { setRenamingId(null); return }
+    setBusyId(t.id)
+    const res = await fetch(`/api/dashboard/session-types/${t.id}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: renameValue.trim() }),
+    })
+    setBusyId(null)
+    if (res.ok) { setRenamingId(null); onChanged() }
+    else { const d = await res.json().catch(() => ({})) as { error?: string }; setErr(d.error ?? 'Failed to rename') }
+  }
+
+  return (
+    <>
+      <style>{`@keyframes cm-fade{from{opacity:0}to{opacity:1}}@keyframes cm-in{from{opacity:0;transform:scale(.96)}to{opacity:1;transform:scale(1)}}`}</style>
+      <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.75)', backdropFilter: 'blur(4px)', zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center', animation: 'cm-fade .15s ease' }}
+        onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+        <div style={{ background: '#111215', border: '1px solid rgba(255,255,255,.10)', borderRadius: 16, padding: '24px 26px', width: '100%', maxWidth: 440, maxHeight: '82vh', overflowY: 'auto', fontFamily: FONT, animation: 'cm-in .18s ease' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: '#F5F7FA' }}>Manage Session Types</div>
+            <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,.35)', cursor: 'pointer', fontSize: 18 }}>✕</button>
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {sorted.length === 0 && <p style={{ fontSize: 12, color: 'rgba(255,255,255,.30)' }}>No session types yet. Add your first one below.</p>}
+            {sorted.map(t => (
+              <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 8, background: 'rgba(255,255,255,.03)', border: '1px solid rgba(255,255,255,.07)', opacity: t.active ? 1 : .5 }}>
+                <span style={{ width: 12, height: 12, borderRadius: 4, background: SESSION_TYPE_COLOUR_PALETTE[t.colour_key]?.text ?? '#94a3b8', flexShrink: 0 }} />
+                {renamingId === t.id ? (
+                  <input autoFocus style={{ ...inp, flex: 1, padding: '4px 8px' }} value={renameValue}
+                    onChange={e => setRenameValue(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') saveRename(t); if (e.key === 'Escape') setRenamingId(null) }} />
+                ) : (
+                  <span style={{ flex: 1, fontSize: 13, color: '#F5F7FA' }}>{t.name}</span>
+                )}
+                {!t.active && <span style={{ fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,.35)', background: 'rgba(255,255,255,.06)', borderRadius: 20, padding: '1px 6px', flexShrink: 0 }}>Archived</span>}
+                <CustomSelect value={t.colour_key} onChange={v => recolour(t, v)} options={SESSION_TYPE_COLOUR_KEYS.map(k => ({ value: k, label: k }))} />
+                {renamingId === t.id ? (
+                  <button onClick={() => saveRename(t)} disabled={busyId === t.id} style={{ background: 'none', border: 'none', color: '#a5b4fc', cursor: 'pointer', fontSize: 11, fontFamily: FONT }}>Save</button>
+                ) : (
+                  <button onClick={() => { setRenamingId(t.id); setRenameValue(t.name) }} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,.40)', cursor: 'pointer', fontSize: 11, fontFamily: FONT }}>Rename</button>
+                )}
+                <button onClick={() => toggleActive(t)} disabled={busyId === t.id} style={{ background: 'none', border: 'none', color: t.active ? '#f87171' : '#4ade80', cursor: 'pointer', fontSize: 11, fontFamily: FONT, flexShrink: 0 }}>
+                  {t.active ? 'Archive' : 'Restore'}
+                </button>
+              </div>
+            ))}
+          </div>
+
+          {err && <p style={{ margin: '10px 0 0', fontSize: 12, color: '#f87171' }}>{err}</p>}
+
+          <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid rgba(255,255,255,.07)' }}>
+            {adding ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <input style={inp} placeholder="New type name" value={newName} onChange={e => setNewName(e.target.value)} autoFocus />
+                <CustomSelect value={newColour} onChange={setNewColour} options={SESSION_TYPE_COLOUR_KEYS.map(k => ({ value: k, label: k }))} />
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button onClick={() => setAdding(false)} style={{ flex: 1, fontSize: 12, fontWeight: 600, padding: '7px 0', borderRadius: 8, cursor: 'pointer', background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.09)', color: 'rgba(255,255,255,.40)', fontFamily: FONT }}>Cancel</button>
+                  <button onClick={addType} disabled={!newName.trim()} style={{ flex: 1, fontSize: 12, fontWeight: 600, padding: '7px 0', borderRadius: 8, cursor: 'pointer', background: 'rgba(99,102,241,.22)', border: '1px solid rgba(99,102,241,.40)', color: '#a5b4fc', fontFamily: FONT, opacity: !newName.trim() ? .5 : 1 }}>Add type</button>
+                </div>
+              </div>
+            ) : (
+              <button onClick={() => setAdding(true)} style={{ width: '100%', fontSize: 12, fontWeight: 600, padding: '8px 0', borderRadius: 8, cursor: 'pointer', background: 'rgba(99,102,241,.15)', border: '1px solid rgba(99,102,241,.35)', color: '#a5b4fc', fontFamily: FONT }}>+ Add session type</button>
+            )}
+          </div>
+        </div>
+      </div>
+    </>
+  )
+}
+
 // ─── Session Card ─────────────────────────────────────────────────────────────
 
-// Compact session-management chip — the one entry point to Generate 6 weeks /
-// Edit / Delete for a given session template. Kept deliberately small and
-// muted (not a competing schedule view): a session with zero scheduled
-// instances in the visible calendar range (e.g. its last 6-week batch
-// expired) would otherwise be unreachable for management once the old
-// full-width Weekly Schedule grid is removed, since the calendar can only
-// show dated instances that already exist.
-function SessionChip({ session, selected, onClick, sessionContacts }: {
-  session: Session; selected: boolean; onClick: () => void; sessionContacts: ContactBrief[]
+// Compact session-management chip — the one entry point to Edit/Repair
+// future dates/Delete for a given session template. Kept deliberately
+// small and muted (not a competing schedule view): a session with zero
+// scheduled instances in the visible calendar range (e.g. its schedule
+// hasn't been reconciled since being edited) would otherwise be
+// unreachable for management once the old full-width Weekly Schedule grid
+// is removed, since the calendar can only show dated instances that
+// already exist.
+function SessionChip({ session, selected, onClick, sessionContacts, sessionTypes }: {
+  session: Session; selected: boolean; onClick: () => void; sessionContacts: ContactBrief[]; sessionTypes: SessionTypeRow[]
 }) {
   const full   = session.enrolled_count >= session.max_capacity
   const capClr = capacityColor(session.enrolled_count, session.max_capacity)
@@ -497,7 +730,7 @@ function SessionChip({ session, selected, onClick, sessionContacts }: {
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
         <span style={{ fontSize: 12, fontWeight: 700, color: '#F5F7FA' }}>{session.name}</span>
-        {session.session_type && <span style={sessionChip(session.session_type)}>{sessionLabel(session.session_type)}</span>}
+        {session.session_type && <span style={sessionChip(session.session_type, sessionTypes)}>{sessionLabel(session.session_type, sessionTypes)}</span>}
       </div>
       <div style={{ fontSize: 10, color: 'rgba(255,255,255,.35)', display: 'flex', alignItems: 'center', gap: 6 }}>
         <span>{DAY_LABEL[session.day_of_week]} {session.start_time}</span>
@@ -515,11 +748,13 @@ function SessionChip({ session, selected, onClick, sessionContacts }: {
 
 // ─── Calendar (Week / Month navigation over existing session instances) ───────
 // Read-only over already-scheduled session_instances rows — never generates,
-// mutates, or propagates anything. "Generate 6 weeks" / recurrence / pause
-// remain the only ways instances come into existence; this just browses them.
+// mutates, or propagates anything. The schedule-rule reconciliation in
+// lib/tennisSchedule.ts (automatic on save/dashboard load, plus the manual
+// "Repair future dates" recovery action) / recurrence / pause remain the
+// only ways instances come into existence; this just browses them.
 
-function CalendarEntry({ inst, compact, selected, onSelect }: {
-  inst: WeekInstance; compact?: boolean; selected?: boolean; onSelect: () => void
+function CalendarEntry({ inst, compact, selected, sessionTypes, onSelect }: {
+  inst: WeekInstance; compact?: boolean; selected?: boolean; sessionTypes: SessionTypeRow[]; onSelect: () => void
 }) {
   const capClr = capacityColor(inst.enrolled_count, inst.max_capacity)
   const full   = inst.enrolled_count >= inst.max_capacity
@@ -535,7 +770,7 @@ function CalendarEntry({ inst, compact, selected, onSelect }: {
         onMouseEnter={e => { if (!selected) e.currentTarget.style.background = 'rgba(255,255,255,.10)' }}
         onMouseLeave={e => { if (!selected) e.currentTarget.style.background = 'rgba(255,255,255,.05)' }}
       >
-        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sessionLabel(inst.session_type)}</span>
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sessionLabel(inst.session_type, sessionTypes)}</span>
         <span style={{ fontWeight: 700, color: capClr, flexShrink: 0 }}>{inst.enrolled_count}/{inst.max_capacity}</span>
       </div>
     )
@@ -557,17 +792,18 @@ function CalendarEntry({ inst, compact, selected, onSelect }: {
       <div style={{ fontSize: 10, color: 'rgba(255,255,255,.32)', display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
         <span>{inst.start_time}</span>
         {inst.resource_id && <span>· {inst.resource_id}</span>}
-        {inst.session_type && <span style={sessionChip(inst.session_type)}>{sessionLabel(inst.session_type)}</span>}
+        {inst.session_type && <span style={sessionChip(inst.session_type, sessionTypes)}>{sessionLabel(inst.session_type, sessionTypes)}</span>}
         {full && <span style={{ fontWeight: 700, color: '#f87171' }}>Full</span>}
       </div>
     </div>
   )
 }
 
-function WeekGrid({ range, instances, selectedInstanceId, onSelectInstance }: {
+function WeekGrid({ range, instances, selectedInstanceId, sessionTypes, onSelectInstance }: {
   range: DateRange
   instances: WeekInstance[]
   selectedInstanceId: string | null
+  sessionTypes: SessionTypeRow[]
   onSelectInstance: (sessionId: string, instanceId: string) => void
 }) {
   const days = Array.from({ length: 7 }, (_, i) => addDays(range.start, i))
@@ -590,7 +826,7 @@ function WeekGrid({ range, instances, selectedInstanceId, onSelectInstance }: {
               {dayInstances.length === 0
                 ? <div style={{ height: 32, border: '1px dashed rgba(255,255,255,.05)', borderRadius: 6 }} />
                 : dayInstances.map(inst => (
-                    <CalendarEntry key={inst.id} inst={inst} selected={inst.id === selectedInstanceId} onSelect={() => onSelectInstance(inst.session_id, inst.id)} />
+                    <CalendarEntry key={inst.id} inst={inst} selected={inst.id === selectedInstanceId} sessionTypes={sessionTypes} onSelect={() => onSelectInstance(inst.session_id, inst.id)} />
                   ))
               }
             </div>
@@ -601,11 +837,12 @@ function WeekGrid({ range, instances, selectedInstanceId, onSelectInstance }: {
   )
 }
 
-function MonthGrid({ range, monthAnchor, instances, selectedInstanceId, onSelectInstance }: {
+function MonthGrid({ range, monthAnchor, instances, selectedInstanceId, sessionTypes, onSelectInstance }: {
   range: DateRange
   monthAnchor: Date
   instances: WeekInstance[]
   selectedInstanceId: string | null
+  sessionTypes: SessionTypeRow[]
   onSelectInstance: (sessionId: string, instanceId: string) => void
 }) {
   const days = eachDayInRange(range)
@@ -638,7 +875,7 @@ function MonthGrid({ range, monthAnchor, instances, selectedInstanceId, onSelect
                 <div style={{ fontSize: 10, fontWeight: today_ ? 800 : 600, color: today_ ? '#a5b4fc' : 'rgba(255,255,255,.35)', marginBottom: 4 }}>{day.getDate()}</div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                   {shown.map(inst => (
-                    <CalendarEntry key={inst.id} inst={inst} compact selected={inst.id === selectedInstanceId} onSelect={() => onSelectInstance(inst.session_id, inst.id)} />
+                    <CalendarEntry key={inst.id} inst={inst} compact selected={inst.id === selectedInstanceId} sessionTypes={sessionTypes} onSelect={() => onSelectInstance(inst.session_id, inst.id)} />
                   ))}
                   {extra > 0 && <div style={{ fontSize: 9, color: 'rgba(255,255,255,.30)' }}>+{extra} more</div>}
                 </div>
@@ -1040,8 +1277,15 @@ export default function SessionsPage() {
   const [calendarLoading, setCalendarLoading]       = useState(true)
   const [confirmDel, setConfirmDel]                 = useState(false)
   const [deleteErr, setDeleteErr]                   = useState<string | null>(null)
+  const [repairNote, setRepairNote]                 = useState<string | null>(null)
   const [toggleErrId, setToggleErrId]               = useState<string | null>(null)
   const [toggleErr, setToggleErr]                   = useState<string | null>(null)
+  const [sessionTypes, setSessionTypes]             = useState<SessionTypeRow[]>([])
+  const [showManageTypes, setShowManageTypes]       = useState(false)
+
+  const loadSessionTypes = useCallback(() => {
+    fetch('/api/dashboard/session-types?include_archived=1').then(r => r.json()).then(d => setSessionTypes(d.types ?? [])).catch(() => null)
+  }, [])
 
   // Bounded to the currently visible week/month range — never fetches all
   // history. Navigating (Prev/Today/Next, Week|Month) only ever re-reads
@@ -1090,7 +1334,8 @@ export default function SessionsPage() {
     }).catch(() => setLoading(false))
 
     fetch('/api/contacts').then(r => r.json()).then(d => setContacts(d.contacts ?? [])).catch(() => null)
-  }, [])
+    loadSessionTypes()
+  }, [loadSessionTypes])
 
   const loadInstances = useCallback(async (sessionId: string) => {
     setInstancesLoading(true); setSelectedInstanceId(null); setInstanceDetail(null)
@@ -1157,13 +1402,22 @@ export default function SessionsPage() {
 
   async function generateInstances() {
     if (!selectedSessionId || generating) return
-    setGenerating(true)
+    setGenerating(true); setRepairNote(null)
     const res = await fetch(`${API}/${selectedSessionId}/generate-instances`, { method: 'POST' })
     setGenerating(false)
     if (res.ok) {
-      const d = await res.json() as { instances: SessionInstance[] }
+      const d = await res.json() as { instances: SessionInstance[]; reconcile: ReconcileSummary }
       setInstances(d.instances ?? [])
       loadCalendar(calendarAnchor, calendarView)
+      const { generated, cancelledInstances, conflicts } = d.reconcile
+      if (generated === 0 && cancelledInstances === 0 && conflicts.length === 0) setRepairNote('Already up to date — nothing to repair.')
+      else {
+        const parts = []
+        if (generated > 0) parts.push(`added ${generated} future date${generated === 1 ? '' : 's'}`)
+        if (cancelledInstances > 0) parts.push(`removed ${cancelledInstances} stale date${cancelledInstances === 1 ? '' : 's'}`)
+        if (conflicts.length > 0) parts.push(`${conflicts.length} date${conflicts.length === 1 ? '' : 's'} left unchanged (has paid/attended players)`)
+        setRepairNote(parts.join(', ') + '.')
+      }
     }
   }
 
@@ -1230,8 +1484,9 @@ export default function SessionsPage() {
 
   return (
     <div style={{ maxWidth: 1400, margin: '0 auto', padding: '32px 24px', fontFamily: FONT }}>
-      {showCreate && <CreateModal onClose={() => setShowCreate(false)} onCreate={handleCreate} />}
-      {editingSession && <EditModal session={editingSession} onClose={() => setEditingSession(null)} onSave={handleSave} />}
+      {showCreate && <CreateModal onClose={() => setShowCreate(false)} onCreate={handleCreate} sessionTypes={sessionTypes} onManageTypes={() => setShowManageTypes(true)} />}
+      {editingSession && <EditModal session={editingSession} onClose={() => setEditingSession(null)} onSave={handleSave} sessionTypes={sessionTypes} onManageTypes={() => setShowManageTypes(true)} />}
+      {showManageTypes && <ManageSessionTypesModal types={sessionTypes} onClose={() => setShowManageTypes(false)} onChanged={loadSessionTypes} />}
 
       {/* ── Page header ──────────────────────────────────────────────────── */}
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 20, gap: 16 }}>
@@ -1293,7 +1548,7 @@ export default function SessionsPage() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, overflowX: 'auto', paddingBottom: 2 }}>
             <span style={{ fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,.24)', letterSpacing: '.06em', textTransform: 'uppercase', flexShrink: 0 }}>Manage</span>
             {sessions.map(s => (
-              <SessionChip key={s.id} session={s} selected={selectedSessionId === s.id} onClick={() => selectSession(s.id)} sessionContacts={contacts.filter(c => c.session_id === s.id)} />
+              <SessionChip key={s.id} session={s} selected={selectedSessionId === s.id} onClick={() => selectSession(s.id)} sessionContacts={contacts.filter(c => c.session_id === s.id)} sessionTypes={sessionTypes} />
             ))}
           </div>
 
@@ -1307,9 +1562,9 @@ export default function SessionsPage() {
           ) : (
             <div style={{ overflowX: 'auto', paddingBottom: 4 }}>
               {calendarView === 'week' ? (
-                <WeekGrid range={getWeekRange(calendarAnchor)} instances={calendarInstances} selectedInstanceId={selectedInstanceId} onSelectInstance={selectInstance} />
+                <WeekGrid range={getWeekRange(calendarAnchor)} instances={calendarInstances} selectedInstanceId={selectedInstanceId} sessionTypes={sessionTypes} onSelectInstance={selectInstance} />
               ) : (
-                <MonthGrid range={getMonthGridRange(calendarAnchor)} monthAnchor={calendarAnchor} instances={calendarInstances} selectedInstanceId={selectedInstanceId} onSelectInstance={selectInstance} />
+                <MonthGrid range={getMonthGridRange(calendarAnchor)} monthAnchor={calendarAnchor} instances={calendarInstances} selectedInstanceId={selectedInstanceId} sessionTypes={sessionTypes} onSelectInstance={selectInstance} />
               )}
             </div>
           )}
@@ -1324,15 +1579,19 @@ export default function SessionsPage() {
             <div>
               <div style={{ fontSize: 15, fontWeight: 700, color: '#F5F7FA', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                 {selectedSession.name}
-                {selectedSession.session_type && <span style={sessionChip(selectedSession.session_type)}>{sessionLabel(selectedSession.session_type)}</span>}
+                {selectedSession.session_type && <span style={sessionChip(selectedSession.session_type, sessionTypes)}>{sessionLabel(selectedSession.session_type, sessionTypes)}</span>}
               </div>
               <div style={{ fontSize: 12, color: 'rgba(255,255,255,.35)', marginTop: 4, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                 {DAY_FULL[selectedSession.day_of_week]} · {selectedSession.start_time}–{endTime(selectedSession.start_time, selectedSession.duration_minutes)}
                 {selectedSession.resource_id && <><span>·</span><span>📍 {selectedSession.resource_id}</span></>}
               </div>
+              <div style={{ fontSize: 12, color: 'rgba(165,180,252,.65)', marginTop: 6, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <span>Schedule: {scheduleSummary(selectedSession)}</span>
+                <button onClick={() => setEditingSession(selectedSession)} style={{ background: 'none', border: 'none', color: '#a5b4fc', cursor: 'pointer', fontSize: 12, fontFamily: FONT, padding: 0, textDecoration: 'underline' }}>Edit schedule</button>
+              </div>
             </div>
             <div style={{ display: 'flex', gap: 6, flexShrink: 0, alignItems: 'center', flexWrap: 'wrap' }}>
-              <button onClick={generateInstances} disabled={generating} style={{ fontSize: 12, fontWeight: 600, padding: '6px 14px', borderRadius: 20, cursor: generating ? 'not-allowed' : 'pointer', background: 'rgba(99,102,241,.15)', border: '1px solid rgba(99,102,241,.35)', color: '#a5b4fc', fontFamily: FONT, opacity: generating ? .5 : 1 }}>{generating ? 'Generating…' : '↻ Generate 6 weeks'}</button>
+              <button onClick={generateInstances} disabled={generating} title="Force-reconcile future dates now, without waiting for the next automatic check" style={{ fontSize: 11, fontWeight: 600, padding: '5px 10px', borderRadius: 20, cursor: generating ? 'not-allowed' : 'pointer', background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.10)', color: 'rgba(255,255,255,.40)', fontFamily: FONT, opacity: generating ? .5 : 1 }}>{generating ? 'Repairing…' : 'Repair future dates'}</button>
               <button onClick={() => setEditingSession(selectedSession)} style={{ fontSize: 12, fontWeight: 600, padding: '6px 12px', borderRadius: 20, cursor: 'pointer', background: 'rgba(255,255,255,.05)', border: '1px solid rgba(255,255,255,.12)', color: 'rgba(255,255,255,.50)', fontFamily: FONT }}>Edit</button>
               {confirmDel ? (
                 <>
@@ -1345,6 +1604,12 @@ export default function SessionsPage() {
             </div>
           </div>
           {deleteErr && <div style={{ padding: '8px 22px', fontSize: 12, color: '#f87171', background: 'rgba(239,68,68,.07)', borderBottom: '1px solid rgba(239,68,68,.15)' }}>{deleteErr}</div>}
+          {repairNote && (
+            <div style={{ padding: '8px 22px', fontSize: 12, color: '#a5b4fc', background: 'rgba(99,102,241,.07)', borderBottom: '1px solid rgba(255,255,255,.06)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>{repairNote}</span>
+              <button onClick={() => setRepairNote(null)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,.30)', cursor: 'pointer', fontSize: 13 }}>✕</button>
+            </div>
+          )}
 
           {/* Stats: players · fill rate · revenue · instances total · paid */}
           <div style={{ padding: '14px 22px', borderBottom: '1px solid rgba(255,255,255,.06)', display: 'flex', gap: 32, flexWrap: 'wrap' }}>
