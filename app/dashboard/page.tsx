@@ -1,3 +1,4 @@
+import { redirect } from 'next/navigation'
 import { getAuthSession } from '@/lib/authSession'
 import sql from '@/lib/db'
 import BrainBase from '@/components/BrainBase'
@@ -15,11 +16,22 @@ export default async function DashboardPage() {
   let session
   try { session = await getAuthSession() } catch { return <BrainBase /> }
 
-  // Server-side only, organisation-scoped, slug-driven — never a user ID,
-  // never hostname, never a value the browser can influence. See
-  // lib/dashboard/clientDashboard.ts for the resolver and why a slug map
-  // was chosen over another one-off env var.
-  const variant = await resolveDashboardVariant(session.organisationId)
+  // Server-side only, organisation-scoped (+ role for Brainbase HQ),
+  // slug-driven — never a user ID, never hostname, never a value the
+  // browser can influence. See lib/dashboard/clientDashboard.ts for the
+  // resolver and why a slug map was chosen over another one-off env var.
+  const variant = await resolveDashboardVariant(session.organisationId, session.role)
+
+  // Brainbase HQ: redirect to the existing, fully-featured Founder OS
+  // route rather than rendering its page component inline here. Founder
+  // OS is designed to run inside app/admin/layout.tsx (its own sidebar
+  // chrome, its own super_admin re-check) — reusing that route as-is means
+  // zero risk of a visually-inconsistent or under-guarded copy of it
+  // living at /dashboard, and the existing route keeps working completely
+  // unchanged for anyone who links to it directly.
+  if (variant === 'brainbase-hq') {
+    redirect('/admin/founder')
+  }
 
   if (variant === 'ld-tennis') {
     const oid = session.organisationId
