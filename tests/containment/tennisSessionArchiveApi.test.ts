@@ -12,19 +12,14 @@ vi.mock('@/lib/org', () => ({
   requireRole: (...args: unknown[]) => requireRoleMock(...args),
 }))
 
-const sqlMock = vi.fn()
-vi.mock('@/lib/db', () => ({
-  default: (...args: unknown[]) => sqlMock(...args),
-}))
-
-const cancelFutureInstancesForArchiveMock = vi.fn()
-const reconcileFutureInstancesMock = vi.fn()
+const archiveSessionAtomicallyMock = vi.fn()
+const restoreSessionWithCompensationMock = vi.fn()
 vi.mock('@/lib/tennisSchedule', async () => {
   const actual = await vi.importActual<typeof import('@/lib/tennisSchedule')>('@/lib/tennisSchedule')
   return {
     ...actual,
-    cancelFutureInstancesForArchive: (...args: unknown[]) => cancelFutureInstancesForArchiveMock(...args),
-    reconcileFutureInstances: (...args: unknown[]) => reconcileFutureInstancesMock(...args),
+    archiveSessionAtomically: (...args: unknown[]) => archiveSessionAtomicallyMock(...args),
+    restoreSessionWithCompensation: (...args: unknown[]) => restoreSessionWithCompensationMock(...args),
   }
 })
 
@@ -34,123 +29,114 @@ const { POST: restorePOST } = await import('@/app/api/dashboard/sessions/[id]/re
 const manager = { userId: 'u1', organisationId: 'org-a', role: 'manager', name: 'Luke' }
 const params = Promise.resolve({ id: 'sess-1' })
 
-function postRequest(): NextRequest {
-  return asNextRequest(new Request('http://localhost/api/dashboard/sessions/sess-1/archive', { method: 'POST' }))
+function postRequest(action: 'archive' | 'restore'): NextRequest {
+  return asNextRequest(new Request(`http://localhost/api/dashboard/sessions/sess-1/${action}`, { method: 'POST' }))
 }
 
 describe('POST /api/dashboard/sessions/[id]/archive', () => {
-  beforeEach(() => {
-    requireRoleMock.mockReset(); sqlMock.mockReset(); cancelFutureInstancesForArchiveMock.mockReset()
-  })
+  beforeEach(() => { requireRoleMock.mockReset(); archiveSessionAtomicallyMock.mockReset() })
 
-  it('16. denies a caller below manager', async () => {
+  it('denies a caller below manager', async () => {
     requireRoleMock.mockRejectedValue(new Error('Forbidden'))
-    const res = await archivePOST(postRequest(), { params })
+    const res = await archivePOST(postRequest('archive'), { params })
     expect(res.status).toBe(403)
-    expect(sqlMock).not.toHaveBeenCalled()
+    expect(archiveSessionAtomicallyMock).not.toHaveBeenCalled()
   })
 
-  it('3. sets archived_at and reports the cancellation result', async () => {
+  it('archives successfully and reports the cancellation result, including a protected-booking conflict as a success-with-warning, not a failure', async () => {
     requireRoleMock.mockResolvedValue(manager)
-    sqlMock.mockResolvedValueOnce([{ id: 'sess-1' }]) // UPDATE ... RETURNING id
-    cancelFutureInstancesForArchiveMock.mockResolvedValue({ cancelledInstances: 2, conflicts: [] })
+    archiveSessionAtomicallyMock.mockResolvedValue({
+      outcome: 'archived', cancelledInstances: 2, conflicts: [{ instanceId: 'inst-1', date: '2099-01-02' }],
+    })
 
-    const res = await archivePOST(postRequest(), { params })
+    const res = await archivePOST(postRequest('archive'), { params })
     expect(res.status).toBe(200)
     const data = await res.json()
-    expect(data.archived).toBe(true)
-    expect(data.cancel).toEqual({ cancelledInstances: 2, conflicts: [] })
-    expect(cancelFutureInstancesForArchiveMock).toHaveBeenCalledWith({ organisationId: 'org-a', sessionId: 'sess-1' })
-
-    const updateCall = sqlMock.mock.calls.find(call => (call[0] as string[]).join('').includes('UPDATE sessions'))
-    expect((updateCall![0] as string[]).join('')).toContain('archived_at = NOW()')
-    expect((updateCall![0] as string[]).join('')).toContain('archived_at IS NULL')
+    expect(data).toEqual({ archived: true, cancel: { cancelledInstances: 2, conflicts: [{ instanceId: 'inst-1', date: '2099-01-02' }] } })
+    expect(archiveSessionAtomicallyMock).toHaveBeenCalledWith({ organisationId: 'org-a', sessionId: 'sess-1', actingUserId: 'u1' })
   })
 
-  it('15. a cross-org id matches nothing — never archives another organisation\'s session', async () => {
-    requireRoleMock.mockResolvedValue({ ...manager, organisationId: 'org-a' })
-    sqlMock
-      .mockResolvedValueOnce([]) // UPDATE ... WHERE organisation_id = 'org-a' matches zero rows (session belongs to org-b)
-      .mockResolvedValueOnce([]) // existence check also finds nothing scoped to org-a
-    const res = await archivePOST(postRequest(), { params })
-    expect(res.status).toBe(404)
-    expect(cancelFutureInstancesForArchiveMock).not.toHaveBeenCalled()
-    const sawOrgA = sqlMock.mock.calls.some(call => call.includes('org-a'))
-    expect(sawOrgA).toBe(true)
-  })
-
-  it('archiving an already-archived session returns a 409, not a silent no-op success', async () => {
+  it('a cross-org / missing session reports 404, never a false success', async () => {
     requireRoleMock.mockResolvedValue(manager)
-    sqlMock
-      .mockResolvedValueOnce([]) // UPDATE ... AND archived_at IS NULL matches nothing (already archived)
-      .mockResolvedValueOnce([{ id: 'sess-1' }]) // but it does exist for this org
-    const res = await archivePOST(postRequest(), { params })
+    archiveSessionAtomicallyMock.mockResolvedValue({ outcome: 'not_found' })
+    const res = await archivePOST(postRequest('archive'), { params })
+    expect(res.status).toBe(404)
+  })
+
+  it('archiving an already-archived session returns 409, not a silent no-op success', async () => {
+    requireRoleMock.mockResolvedValue(manager)
+    archiveSessionAtomicallyMock.mockResolvedValue({ outcome: 'already_archived' })
+    const res = await archivePOST(postRequest('archive'), { params })
     expect(res.status).toBe(409)
-    expect(cancelFutureInstancesForArchiveMock).not.toHaveBeenCalled()
+  })
+
+  it('an unexpected failure inside the atomic transaction returns 500 — never a 200 on a partially-completed archive', async () => {
+    requireRoleMock.mockResolvedValue(manager)
+    archiveSessionAtomicallyMock.mockRejectedValue(new Error('transaction rolled back'))
+    const res = await archivePOST(postRequest('archive'), { params })
+    expect(res.status).toBe(500)
+    const data = await res.json()
+    expect(data.error).toBeDefined()
+    expect(data.archived).toBeUndefined()
   })
 })
 
 describe('POST /api/dashboard/sessions/[id]/restore', () => {
-  beforeEach(() => {
-    requireRoleMock.mockReset(); sqlMock.mockReset(); reconcileFutureInstancesMock.mockReset()
-  })
+  beforeEach(() => { requireRoleMock.mockReset(); restoreSessionWithCompensationMock.mockReset() })
 
-  it('16. denies a caller below manager', async () => {
+  it('denies a caller below manager', async () => {
     requireRoleMock.mockRejectedValue(new Error('Forbidden'))
-    const res = await restorePOST(postRequest(), { params })
+    const res = await restorePOST(postRequest('restore'), { params })
     expect(res.status).toBe(403)
-    expect(sqlMock).not.toHaveBeenCalled()
+    expect(restoreSessionWithCompensationMock).not.toHaveBeenCalled()
   })
 
-  it('9/10. clears archived_at and immediately reconciles the session\'s future dates from its existing schedule rules', async () => {
+  it('clears archived_at and reports the reconcile result', async () => {
     requireRoleMock.mockResolvedValue(manager)
-    sqlMock.mockResolvedValueOnce([{
-      id: 'sess-1', day_of_week: 2, start_time: '17:00', duration_minutes: 60, max_capacity: 8,
-      session_type: 'GROUP', start_date: '2026-01-01', end_mode: 'ongoing', end_after_weeks: null, end_date: null,
-    }])
-    reconcileFutureInstancesMock.mockResolvedValue({ generated: 4, cancelledInstances: 0, conflicts: [] })
+    restoreSessionWithCompensationMock.mockResolvedValue({ outcome: 'restored', reconcile: { generated: 4, cancelledInstances: 0, conflicts: [] } })
 
-    const res = await restorePOST(postRequest(), { params })
+    const res = await restorePOST(postRequest('restore'), { params })
     expect(res.status).toBe(200)
     const data = await res.json()
     expect(data.restored).toBe(true)
     expect(data.reconcile.generated).toBe(4)
-    expect(reconcileFutureInstancesMock).toHaveBeenCalledWith(expect.objectContaining({
-      organisationId: 'org-a', sessionId: 'sess-1',
-      rules: expect.objectContaining({ day_of_week: 2, end_mode: 'ongoing' }),
-    }))
-
-    const updateCall = sqlMock.mock.calls.find(call => (call[0] as string[]).join('').includes('UPDATE sessions'))
-    expect((updateCall![0] as string[]).join('')).toContain('archived_at = NULL')
-    expect((updateCall![0] as string[]).join('')).toContain('archived_at IS NOT NULL')
+    expect(restoreSessionWithCompensationMock).toHaveBeenCalledWith({ organisationId: 'org-a', sessionId: 'sess-1', actingUserId: 'u1' })
   })
 
-  it('15. a cross-org id matches nothing — never restores another organisation\'s session', async () => {
-    requireRoleMock.mockResolvedValue({ ...manager, organisationId: 'org-a' })
-    sqlMock.mockResolvedValueOnce([]).mockResolvedValueOnce([])
-    const res = await restorePOST(postRequest(), { params })
-    expect(res.status).toBe(404)
-    expect(reconcileFutureInstancesMock).not.toHaveBeenCalled()
-  })
-
-  it('restoring a session that is not archived returns a 409, not a silent no-op success', async () => {
+  it('a cross-org / missing session reports 404', async () => {
     requireRoleMock.mockResolvedValue(manager)
-    sqlMock.mockResolvedValueOnce([]).mockResolvedValueOnce([{ id: 'sess-1' }])
-    const res = await restorePOST(postRequest(), { params })
+    restoreSessionWithCompensationMock.mockResolvedValue({ outcome: 'not_found' })
+    const res = await restorePOST(postRequest('restore'), { params })
+    expect(res.status).toBe(404)
+  })
+
+  it('restoring a session that is not archived returns 409, not a silent no-op success', async () => {
+    requireRoleMock.mockResolvedValue(manager)
+    restoreSessionWithCompensationMock.mockResolvedValue({ outcome: 'not_archived' })
+    const res = await restorePOST(postRequest('restore'), { params })
     expect(res.status).toBe(409)
-    expect(reconcileFutureInstancesMock).not.toHaveBeenCalled()
+  })
+
+  it('a reconciliation failure — even after archived_at was cleared and compensated back internally — returns 500, never a false 200 success', async () => {
+    requireRoleMock.mockResolvedValue(manager)
+    restoreSessionWithCompensationMock.mockResolvedValue({ outcome: 'reconcile_failed', error: 'boom' })
+    const res = await restorePOST(postRequest('restore'), { params })
+    expect(res.status).toBe(500)
+    const data = await res.json()
+    expect(data.error).toBeDefined()
+    expect(data.restored).toBeUndefined()
   })
 })
 
-describe('11/12/13/14. Manage Sessions UX — active/archived toggle, badge, Restore action', () => {
+describe('Manage Sessions UX — active/archived toggle, badge, Restore action', () => {
   const source = fs.readFileSync(path.resolve(__dirname, '../../app/dashboard/sessions/page.tsx'), 'utf-8')
 
-  it('11. defaults to active sessions only', () => {
+  it('defaults to active sessions only', () => {
     expect(source).toContain('const [showArchived, setShowArchived] = useState(false)')
     expect(source).toContain('const visible = showArchived ? sessions : sessions.filter(s => !s.archived_at)')
   })
 
-  it('12. "Show archived" toggle reveals archived sessions', () => {
+  it('"Show archived" toggle reveals archived sessions', () => {
     const fnStart = source.indexOf('function ManageSessionsModal(')
     const fnEnd = source.indexOf('\n// ─── Calendar')
     const body = source.slice(fnStart, fnEnd)
@@ -159,7 +145,7 @@ describe('11/12/13/14. Manage Sessions UX — active/archived toggle, badge, Res
     expect(body).toContain('onChange={e => setShowArchived(e.target.checked)}')
   })
 
-  it('13. an archived row displays an "Archived" badge', () => {
+  it('an archived row displays an "Archived" badge', () => {
     const fnStart = source.indexOf('function ManageSessionsModal(')
     const fnEnd = source.indexOf('\n// ─── Calendar')
     const body = source.slice(fnStart, fnEnd)
@@ -168,7 +154,7 @@ describe('11/12/13/14. Manage Sessions UX — active/archived toggle, badge, Res
     expect(body).toContain('>Archived<')
   })
 
-  it('14. a Restore action is wired for archived rows, calling the onRestore prop', () => {
+  it('a Restore action is wired for archived rows, calling the onRestore prop', () => {
     const fnStart = source.indexOf('function ManageSessionsModal(')
     const fnEnd = source.indexOf('\n// ─── Calendar')
     const body = source.slice(fnStart, fnEnd)
@@ -190,7 +176,7 @@ describe('11/12/13/14. Manage Sessions UX — active/archived toggle, badge, Res
   })
 })
 
-describe('17. migration is additive and idempotent (static — live twice-run verification was performed separately against a disposable schema)', () => {
+describe('migration is additive and idempotent (static — live twice-run verification was performed separately against a disposable schema)', () => {
   const sql = fs.readFileSync(path.resolve(__dirname, '../../scripts/add-session-archive.sql'), 'utf-8')
 
   it('adds the column and index idempotently (IF NOT EXISTS)', () => {

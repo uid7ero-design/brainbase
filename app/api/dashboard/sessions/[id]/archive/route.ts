@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireRole } from '@/lib/org'
-import sql from '@/lib/db'
-import { cancelFutureInstancesForArchive } from '@/lib/tennisSchedule'
+import { archiveSessionAtomically } from '@/lib/tennisSchedule'
 
 // Retires a session template without deleting it: stops it from ever
 // generating new future instances again (see reconcileAllSessionsForOrg's
@@ -10,6 +9,11 @@ import { cancelFutureInstancesForArchive } from '@/lib/tennisSchedule'
 // booking, which are left scheduled and reported back as a conflict for a
 // manager to resolve manually, exactly like an edited schedule's conflicts.
 // Historical instances/bookings/attendance are never touched.
+//
+// The archived_at write, every safe instance/booking cancellation, and the
+// audit log entry all happen inside one atomic Postgres transaction (see
+// archiveSessionAtomically) — an unexpected failure partway through can
+// never leave this route reporting success on a partially-completed archive.
 export async function POST(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   let session
   try { session = await requireRole('manager') } catch { return NextResponse.json({ error: 'Forbidden' }, { status: 403 }) }
@@ -17,23 +21,19 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
   const { id } = await params
 
   try {
-    // Scoped by both id AND organisation_id, and only transitions a
-    // currently-active row — a cross-org id or an already-archived one
-    // simply matches zero rows here, never silently no-ops on someone
-    // else's data.
-    const rows = await sql`
-      UPDATE sessions SET archived_at = NOW()
-      WHERE id = ${id} AND organisation_id = ${session.organisationId} AND archived_at IS NULL
-      RETURNING id
-    `
-    if (!rows[0]) {
-      const exists = await sql`SELECT id FROM sessions WHERE id = ${id} AND organisation_id = ${session.organisationId}`
-      if (!exists[0]) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-      return NextResponse.json({ error: 'Already archived' }, { status: 409 })
-    }
+    const result = await archiveSessionAtomically({
+      organisationId: session.organisationId,
+      sessionId: id,
+      actingUserId: session.userId,
+    })
 
-    const cancel = await cancelFutureInstancesForArchive({ organisationId: session.organisationId, sessionId: id })
-    return NextResponse.json({ archived: true, cancel })
+    if (result.outcome === 'not_found') return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    if (result.outcome === 'already_archived') return NextResponse.json({ error: 'Already archived' }, { status: 409 })
+
+    return NextResponse.json({
+      archived: true,
+      cancel: { cancelledInstances: result.cancelledInstances, conflicts: result.conflicts },
+    })
   } catch (err) {
     console.error('[dashboard/sessions/[id]/archive POST]', err)
     return NextResponse.json({ error: 'Failed to archive session' }, { status: 500 })
