@@ -31,9 +31,9 @@ type Session = {
   archived_at: string | null
 }
 
-type ReconcileSummary = { generated: number; cancelledInstances: number; conflicts: { instanceId: string; date: string }[] }
+type ReconcileSummary = { generated: number; reactivated: number; cancelledInstances: number; conflicts: { instanceId: string; date: string }[] }
 type ReconcileAllSummary = {
-  reconciled: number; totalGenerated: number; totalCancelledInstances: number
+  reconciled: number; totalGenerated: number; totalReactivated: number; totalCancelledInstances: number
   conflicts: { sessionId: string; instanceId: string; date: string }[]
   errors: { sessionId: string; message: string }[]
 }
@@ -310,10 +310,11 @@ async function repairSession(id: string): Promise<RepairResult | null> {
 }
 
 function formatRepairNote(reconcile: ReconcileSummary): string {
-  const { generated, cancelledInstances, conflicts } = reconcile
-  if (generated === 0 && cancelledInstances === 0 && conflicts.length === 0) return 'Already up to date — nothing to repair.'
+  const { generated, reactivated, cancelledInstances, conflicts } = reconcile
+  if (generated === 0 && reactivated === 0 && cancelledInstances === 0 && conflicts.length === 0) return 'Already up to date — nothing to repair.'
   const parts: string[] = []
   if (generated > 0) parts.push(`added ${generated} future date${generated === 1 ? '' : 's'}`)
+  if (reactivated > 0) parts.push(`restored ${reactivated} cancelled date${reactivated === 1 ? '' : 's'} to scheduled`)
   if (cancelledInstances > 0) parts.push(`removed ${cancelledInstances} stale date${cancelledInstances === 1 ? '' : 's'}`)
   if (conflicts.length > 0) parts.push(`${conflicts.length} date${conflicts.length === 1 ? '' : 's'} left unchanged (has paid/attended players)`)
   return parts.join(', ') + '.'
@@ -1594,7 +1595,7 @@ export default function SessionsPage() {
         if (result.errors.length > 0) {
           setReconcileWarning(`Automatic schedule check had ${result.errors.length} error${result.errors.length === 1 ? '' : 's'} for some classes — use "Repair future dates" on those sessions if their calendar looks out of date.`)
         }
-        if (result.totalGenerated > 0 || result.totalCancelledInstances > 0) {
+        if (result.totalGenerated > 0 || result.totalReactivated > 0 || result.totalCancelledInstances > 0) {
           fetch(`${API}?include_archived=1`).then(r => r.json()).then(d => setSessions(d.sessions ?? [])).catch(() => null)
           loadCalendar(calendarAnchor, calendarView)
         }

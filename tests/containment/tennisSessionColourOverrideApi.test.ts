@@ -22,7 +22,7 @@ vi.mock('@/lib/tennisSchedule', async () => {
   const actual = await vi.importActual<typeof import('@/lib/tennisSchedule')>('@/lib/tennisSchedule')
   return {
     ...actual,
-    reconcileFutureInstances: vi.fn().mockResolvedValue({ generated: 0, cancelledInstances: 0, conflicts: [] }),
+    reconcileFutureInstances: vi.fn().mockResolvedValue({ generated: 0, reactivated: 0, cancelledInstances: 0, conflicts: [] }),
   }
 })
 

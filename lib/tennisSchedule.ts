@@ -81,6 +81,7 @@ function nextOccurrenceOnOrAfter(d: Date, dayOfWeek: number): Date {
 
 export type ReconcileResult = {
   generated: number
+  reactivated: number
   cancelledInstances: number
   conflicts: { instanceId: string; date: string }[]
 }
@@ -162,26 +163,77 @@ export async function reconcileFutureInstances(params: {
       AND status = 'scheduled' AND date >= ${todayStr}::date
   `
 
+  const enrolNewOrReactivatedRow = async (instanceId: string, date: string) => {
+    const countRows = (await sql`SELECT COUNT(*)::int AS cnt FROM bookings WHERE session_instance_id = ${instanceId} AND status != 'cancelled'`) as { cnt: number }[]
+    await enrolActiveLineagesIntoNewInstance({
+      organisationId, sessionId,
+      instance: { id: instanceId, date, start_time: startTime, max_capacity: maxCapacity, session_type: sessionType, enrolled: countRows[0].cnt },
+    })
+  }
+
   let generated = 0
+  let reactivated = 0
+  const reactivationConflicts: { instanceId: string; date: string }[] = []
   for (const date of expected) {
-    const rows = (await sql`
+    const inserted = (await sql`
       INSERT INTO session_instances (id, session_id, organisation_id, date, start_time, duration_minutes, max_capacity, status)
       VALUES (${crypto.randomUUID()}, ${sessionId}, ${organisationId}, ${date}::date, ${startTime}, ${durationMinutes}, ${maxCapacity}, 'scheduled')
       ON CONFLICT (session_id, date) DO NOTHING
       RETURNING id
     `) as { id: string }[]
-    if (rows.length === 0) continue
-    generated++
-    const countRows = (await sql`SELECT COUNT(*)::int AS cnt FROM bookings WHERE session_instance_id = ${rows[0].id} AND status != 'cancelled'`) as { cnt: number }[]
-    await enrolActiveLineagesIntoNewInstance({
-      organisationId, sessionId,
-      instance: { id: rows[0].id, date, start_time: startTime, max_capacity: maxCapacity, session_type: sessionType, enrolled: countRows[0].cnt },
-    })
+    if (inserted.length > 0) {
+      generated++
+      await enrolNewOrReactivatedRow(inserted[0].id, date)
+      continue
+    }
+
+    // ON CONFLICT DO NOTHING fired because a row already exists for this
+    // date — but the unique index on (session_id, date) can't tell us
+    // whether that row is a live 'scheduled' instance (genuinely nothing to
+    // do) or a stale 'cancelled' one left behind by an earlier archive or
+    // schedule shrink. Treating "a row exists" as "this date is satisfied"
+    // is exactly what let a cancelled instance permanently blackhole its
+    // date — restore/repair would report "up to date" forever because the
+    // INSERT always no-ops, even though the calendar (which only shows
+    // status = 'scheduled') never gets a live instance back. Look the row
+    // up explicitly and reactivate it in place when safe, rather than
+    // leaving the date dead — reusing the existing row (never deleting or
+    // recreating it) preserves its id and any booking history exactly as
+    // the rest of this module already does for protected instances.
+    const existingRows = (await sql`
+      SELECT id, status FROM session_instances
+      WHERE session_id = ${sessionId} AND organisation_id = ${organisationId} AND date = ${date}::date
+    `) as { id: string; status: string }[]
+    const existing = existingRows[0]
+    if (!existing || existing.status === 'scheduled') continue
+
+    const protectedBookings = await sql`
+      SELECT id FROM bookings
+      WHERE session_instance_id = ${existing.id} AND status != 'cancelled' AND (paid = true OR attendance_status IS NOT NULL)
+    `
+    if (protectedBookings.length > 0) {
+      // A cancelled instance with paid/attended history on a date we still
+      // expect a class to run. The unique (session_id, date) index means a
+      // second live row for the same date isn't possible without a schema
+      // change, so — same as every other protected-booking case in this
+      // module — it's left untouched and reported as a conflict for manual
+      // review rather than silently overwritten.
+      reactivationConflicts.push({ instanceId: existing.id, date })
+      continue
+    }
+
+    await sql`
+      UPDATE session_instances
+      SET status = 'scheduled', start_time = ${startTime}, duration_minutes = ${durationMinutes}, max_capacity = ${maxCapacity}
+      WHERE id = ${existing.id}
+    `
+    reactivated++
+    await enrolNewOrReactivatedRow(existing.id, date)
   }
 
   const { cancelledInstances, conflicts } = await cancelStaleFutureInstances(organisationId, sessionId, todayStr, expected)
 
-  return { generated, cancelledInstances, conflicts }
+  return { generated, reactivated, cancelledInstances, conflicts: [...reactivationConflicts, ...conflicts] }
 }
 
 // ─── Audit logging (reuses the existing audit_logs table/model — see
@@ -378,7 +430,7 @@ export async function restoreSessionWithCompensation(params: {
     await auditLogInsertQuery({
       organisationId, userId: actingUserId, action: 'session.restore', sessionId,
       beforeState: { archived_at: previousArchivedAt },
-      afterState: { archived_at: null, generated: reconcile.generated, cancelledInstances: reconcile.cancelledInstances },
+      afterState: { archived_at: null, generated: reconcile.generated, reactivated: reconcile.reactivated, cancelledInstances: reconcile.cancelledInstances },
     })
   } catch (auditErr) {
     console.error('[restoreSessionWithCompensation] audit log write failed after a successful restore', { sessionId, organisationId }, auditErr)
@@ -390,6 +442,7 @@ export async function restoreSessionWithCompensation(params: {
 export type ReconcileAllResult = {
   reconciled: number
   totalGenerated: number
+  totalReactivated: number
   totalCancelledInstances: number
   conflicts: { sessionId: string; instanceId: string; date: string }[]
   errors: { sessionId: string; message: string }[]
@@ -422,7 +475,7 @@ export async function reconcileAllSessionsForOrg(organisationId: string): Promis
     FROM sessions WHERE organisation_id = ${organisationId} AND archived_at IS NULL
   `) as SessionScheduleRow[]
 
-  const result: ReconcileAllResult = { reconciled: 0, totalGenerated: 0, totalCancelledInstances: 0, conflicts: [], errors: [] }
+  const result: ReconcileAllResult = { reconciled: 0, totalGenerated: 0, totalReactivated: 0, totalCancelledInstances: 0, conflicts: [], errors: [] }
 
   for (const s of sessions) {
     try {
@@ -434,6 +487,7 @@ export async function reconcileAllSessionsForOrg(organisationId: string): Promis
       })
       result.reconciled++
       result.totalGenerated += r.generated
+      result.totalReactivated += r.reactivated
       result.totalCancelledInstances += r.cancelledInstances
       result.conflicts.push(...r.conflicts.map(c => ({ sessionId: s.id, ...c })))
     } catch (err) {

@@ -74,6 +74,14 @@ describe('GET /api/dashboard/sessions/instances — bounded calendar range query
     expect(sqlMock).not.toHaveBeenCalled()
   })
 
+  it('only status = \'scheduled\' instances are returned — a reactivated instance (status flipped back from cancelled by reconcile) becomes visible here, a still-cancelled one never does', async () => {
+    requireRoleMock.mockResolvedValue(manager)
+    sqlMock.mockResolvedValueOnce([])
+    await GET(asNextRequest('http://localhost/api/dashboard/sessions/instances?date_from=2026-08-17&date_to=2026-09-06'))
+    const queryText = (sqlMock.mock.calls[0][0] as string[]).join('')
+    expect(queryText).toContain("si.status = 'scheduled'")
+  })
+
   it('a month-grid-sized range (up to 6 weeks) is a single bounded query, not an unbounded fetch of all history', async () => {
     requireRoleMock.mockResolvedValue(manager)
     sqlMock.mockResolvedValueOnce([])
