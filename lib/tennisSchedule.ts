@@ -85,6 +85,42 @@ export type ReconcileResult = {
   conflicts: { instanceId: string; date: string }[]
 }
 
+// Shared by reconcileFutureInstances (real `expected` set — a schedule
+// changed) and cancelFutureInstancesForArchive (empty `expected` set — no
+// date is ever expected again). Cancels every future 'scheduled' instance
+// not in `expected`, unless it has a protected booking (paid or
+// attendance recorded), in which case it's left scheduled and reported as
+// a conflict. Never touches any instance dated before today, never
+// deletes a row — this is the one place that decision gets made, so
+// archiving reuses it instead of re-implementing the same safety rule.
+async function cancelStaleFutureInstances(
+  organisationId: string,
+  sessionId: string,
+  todayStr: string,
+  expected: Set<string>,
+): Promise<{ cancelledInstances: number; conflicts: { instanceId: string; date: string }[] }> {
+  const staleCandidates = (await sql`
+    SELECT id, to_char(date, 'YYYY-MM-DD') AS date FROM session_instances
+    WHERE session_id = ${sessionId} AND organisation_id = ${organisationId}
+      AND status = 'scheduled' AND date >= ${todayStr}::date
+  `) as { id: string; date: string }[]
+
+  const conflicts: { instanceId: string; date: string }[] = []
+  let cancelledInstances = 0
+  for (const inst of staleCandidates) {
+    if (expected.has(inst.date)) continue
+    const protectedBookings = await sql`
+      SELECT id FROM bookings
+      WHERE session_instance_id = ${inst.id} AND status != 'cancelled' AND (paid = true OR attendance_status IS NOT NULL)
+    `
+    if (protectedBookings.length > 0) { conflicts.push({ instanceId: inst.id, date: inst.date }); continue }
+    await sql`UPDATE bookings SET status = 'cancelled' WHERE session_instance_id = ${inst.id} AND status != 'cancelled'`
+    await sql`UPDATE session_instances SET status = 'cancelled' WHERE id = ${inst.id}`
+    cancelledInstances++
+  }
+  return { cancelledInstances, conflicts }
+}
+
 /**
  * Brings session_instances in line with the session's current schedule
  * rule and template fields (start_time/duration_minutes/max_capacity):
@@ -143,27 +179,32 @@ export async function reconcileFutureInstances(params: {
     })
   }
 
-  const staleCandidates = (await sql`
-    SELECT id, to_char(date, 'YYYY-MM-DD') AS date FROM session_instances
-    WHERE session_id = ${sessionId} AND organisation_id = ${organisationId}
-      AND status = 'scheduled' AND date >= ${todayStr}::date
-  `) as { id: string; date: string }[]
-
-  const conflicts: { instanceId: string; date: string }[] = []
-  let cancelledInstances = 0
-  for (const inst of staleCandidates) {
-    if (expected.has(inst.date)) continue
-    const protectedBookings = await sql`
-      SELECT id FROM bookings
-      WHERE session_instance_id = ${inst.id} AND status != 'cancelled' AND (paid = true OR attendance_status IS NOT NULL)
-    `
-    if (protectedBookings.length > 0) { conflicts.push({ instanceId: inst.id, date: inst.date }); continue }
-    await sql`UPDATE bookings SET status = 'cancelled' WHERE session_instance_id = ${inst.id} AND status != 'cancelled'`
-    await sql`UPDATE session_instances SET status = 'cancelled' WHERE id = ${inst.id}`
-    cancelledInstances++
-  }
+  const { cancelledInstances, conflicts } = await cancelStaleFutureInstances(organisationId, sessionId, todayStr, expected)
 
   return { generated, cancelledInstances, conflicts }
+}
+
+export type ArchiveCancelResult = {
+  cancelledInstances: number
+  conflicts: { instanceId: string; date: string }[]
+}
+
+// Called when archiving a session: cancels every future 'scheduled'
+// instance except those with a protected (paid or attendance-recorded)
+// booking, by reusing cancelStaleFutureInstances with an empty `expected`
+// set — "no date is ever expected again" is exactly what archiving means,
+// so this is the same safety rule reconcileFutureInstances already
+// applies when a schedule change drops a date, not a second
+// implementation of it. Never generates anything, never touches an
+// instance dated before today, never deletes a row.
+export async function cancelFutureInstancesForArchive(params: {
+  organisationId: string
+  sessionId: string
+}): Promise<ArchiveCancelResult> {
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const todayStr = toDateStr(today)
+  return cancelStaleFutureInstances(params.organisationId, params.sessionId, todayStr, new Set())
 }
 
 export type ReconcileAllResult = {
@@ -187,18 +228,18 @@ type SessionScheduleRow = {
 // recorded in `errors`, and the loop continues, so a single bad row can't
 // take down horizon maintenance for every other session in the org.
 //
-// The `sessions` table currently has no active/archived/deleted concept —
-// every row is reconciled unconditionally, exactly matching the existing
-// pre-this-feature behaviour where every session always got automatic
-// instance generation regardless of any notion of "in use." No lifecycle
-// field is invented here; if LD Tennis later needs to pause/retire a
-// session without deleting it, that is new schema and out of scope for
-// this fix.
+// Archived sessions (archived_at IS NOT NULL) are excluded — they were
+// deliberately retired via POST .../[id]/archive, which already cancelled
+// their safe future instances and left protected ones scheduled; an
+// archived session must never have new future instances generated for it
+// by the org-wide top-up, or archiving would be silently undone the next
+// time this runs. Active sessions (archived_at IS NULL) behave exactly as
+// before this feature existed.
 export async function reconcileAllSessionsForOrg(organisationId: string): Promise<ReconcileAllResult> {
   const sessions = (await sql`
     SELECT id, day_of_week, start_time, duration_minutes, max_capacity, session_type,
       to_char(start_date, 'YYYY-MM-DD') AS start_date, end_mode, end_after_weeks, to_char(end_date, 'YYYY-MM-DD') AS end_date
-    FROM sessions WHERE organisation_id = ${organisationId}
+    FROM sessions WHERE organisation_id = ${organisationId} AND archived_at IS NULL
   `) as SessionScheduleRow[]
 
   const result: ReconcileAllResult = { reconciled: 0, totalGenerated: 0, totalCancelledInstances: 0, conflicts: [], errors: [] }

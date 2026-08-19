@@ -32,7 +32,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
       SELECT id, name, day_of_week, start_time, duration_minutes, max_capacity, session_type, resource_id, recurring,
              price_per_session, created_at,
              to_char(start_date, 'YYYY-MM-DD') AS start_date, end_mode, end_after_weeks, to_char(end_date, 'YYYY-MM-DD') AS end_date,
-             session_colour_key
+             session_colour_key, archived_at
       FROM sessions
       WHERE id = ${id} AND organisation_id = ${session.organisationId}
     `
@@ -129,7 +129,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       RETURNING id, name, day_of_week, start_time, duration_minutes, max_capacity, session_type, resource_id, recurring,
         price_per_session, created_at,
         to_char(start_date, 'YYYY-MM-DD') AS start_date, end_mode, end_after_weeks, to_char(end_date, 'YYYY-MM-DD') AS end_date,
-        session_colour_key
+        session_colour_key, archived_at
     ` : await sql`
       UPDATE sessions SET
         name              = COALESCE(${resolvedName}, name),
@@ -147,24 +147,29 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       RETURNING id, name, day_of_week, start_time, duration_minutes, max_capacity, session_type, resource_id, recurring,
         price_per_session, created_at,
         to_char(start_date, 'YYYY-MM-DD') AS start_date, end_mode, end_after_weeks, to_char(end_date, 'YYYY-MM-DD') AS end_date,
-        session_colour_key
+        session_colour_key, archived_at
     `
     if (!rows[0]) return NextResponse.json({ error: 'Not found' }, { status: 404 })
     const updated = rows[0] as {
       id: string; day_of_week: number; start_time: string; duration_minutes: number; max_capacity: number
       session_type: string; start_date: string | null; end_mode: EndMode; end_after_weeks: number | null; end_date: string | null
+      archived_at: string | null
     }
 
-    // Bring session_instances in line with the (possibly just-changed)
-    // schedule — future-only, never touches a past instance, never
-    // deletes/rewrites a protected (paid/attended) booking; see
-    // lib/tennisSchedule.ts for the full future-only safety contract.
-    const reconcile = await reconcileFutureInstances({
-      organisationId: session.organisationId,
-      sessionId: id,
-      rules: { day_of_week: updated.day_of_week, start_date: updated.start_date, end_mode: updated.end_mode, end_after_weeks: updated.end_after_weeks, end_date: updated.end_date },
-      startTime: updated.start_time, durationMinutes: updated.duration_minutes, maxCapacity: updated.max_capacity, sessionType: updated.session_type,
-    })
+    // An archived session's schedule fields can still be edited (fixing a
+    // typo, correcting a price) without that silently un-retiring it —
+    // reconcile is the mechanism that generates/extends future instances,
+    // so skipping it here is what keeps "edit while archived" safe. Use
+    // the dedicated restore endpoint to bring a session back to active
+    // maintenance instead.
+    const reconcile = updated.archived_at
+      ? { generated: 0, cancelledInstances: 0, conflicts: [] }
+      : await reconcileFutureInstances({
+          organisationId: session.organisationId,
+          sessionId: id,
+          rules: { day_of_week: updated.day_of_week, start_date: updated.start_date, end_mode: updated.end_mode, end_after_weeks: updated.end_after_weeks, end_date: updated.end_date },
+          startTime: updated.start_time, durationMinutes: updated.duration_minutes, maxCapacity: updated.max_capacity, sessionType: updated.session_type,
+        })
 
     return NextResponse.json({ session: rows[0], reconcile })
   } catch (err) {
