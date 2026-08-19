@@ -111,7 +111,7 @@ describe('restoreSessionWithCompensation — real execution against a mocked db'
 
     const result = await restoreSessionWithCompensation({ organisationId: 'org-a', sessionId: 'sess-1', actingUserId: 'u1' })
 
-    expect(result).toEqual({ outcome: 'restored', reconcile: { generated: 0, cancelledInstances: 0, conflicts: [] } })
+    expect(result).toEqual({ outcome: 'restored', reconcile: { generated: 0, reactivated: 0, cancelledInstances: 0, conflicts: [] } })
 
     const auditCall = sqlMock.mock.calls.find(call => (call[0] as string[]).join('').includes('INSERT INTO audit_logs'))
     expect(auditCall).toBeDefined()
@@ -120,7 +120,44 @@ describe('restoreSessionWithCompensation — real execution against a mocked db'
     expect(auditCall![4]).toBe('session.restore')
     expect(auditCall![5]).toBe('sess-1')
     expect(auditCall![6]).toBe(JSON.stringify({ archived_at: '2026-01-01T00:00:00.000Z' }))
-    expect(auditCall![7]).toBe(JSON.stringify({ archived_at: null, generated: 0, cancelledInstances: 0 }))
+    expect(auditCall![7]).toBe(JSON.stringify({ archived_at: null, generated: 0, reactivated: 0, cancelledInstances: 0 }))
+    expect(JSON.stringify(auditCall)).not.toMatch(FORBIDDEN_AUDIT_CONTENT)
+  })
+
+  it('restoring a session whose future Sunday landed on a stale cancelled instance reactivates it and reports it in the audit event — the exact production "Already up to date" bug', async () => {
+    const PREVIOUS_ARCHIVED_AT = '2026-08-01T00:00:00.000Z'
+    sqlMock
+      .mockResolvedValueOnce([{ archived_at: PREVIOUS_ARCHIVED_AT, ...scheduleRow, day_of_week: 0 }]) // SELECT rows (Sunday)
+      .mockResolvedValueOnce([{ id: 'sess-1' }]) // UPDATE clear archived_at ... RETURNING id
+      .mockImplementation((strings: TemplateStringsArray) => {
+        const text = strings.join('')
+        if (text.includes('INSERT INTO session_instances')) return Promise.resolve([]) // every date already has a row
+        if (text.includes('SELECT id, status FROM session_instances')) {
+          return Promise.resolve([{ id: 'inst-cancelled-sunday', status: 'cancelled' }])
+        }
+        if (text.includes('SELECT id FROM bookings') && text.includes('paid = true OR attendance_status')) {
+          return Promise.resolve([]) // no protected bookings — safe to reactivate
+        }
+        if (text.includes('SELECT COUNT(*)::int AS cnt FROM bookings')) return Promise.resolve([{ cnt: 0 }])
+        return Promise.resolve([])
+      })
+
+    const result = await restoreSessionWithCompensation({ organisationId: 'org-a', sessionId: 'sess-1', actingUserId: 'u1' })
+
+    expect(result.outcome).toBe('restored')
+    if (result.outcome === 'restored') {
+      expect(result.reconcile.reactivated).toBeGreaterThan(0)
+    }
+
+    const reactivateCall = sqlMock.mock.calls.find(c =>
+      (c[0] as string[]).join('').includes('UPDATE session_instances') && (c[0] as string[]).join('').includes("status = 'scheduled'"),
+    )
+    expect(reactivateCall).toBeDefined()
+
+    const auditCall = sqlMock.mock.calls.find(call => (call[0] as string[]).join('').includes('INSERT INTO audit_logs'))
+    expect(auditCall).toBeDefined()
+    const afterState = JSON.parse(auditCall![7] as string)
+    expect(afterState.reactivated).toBeGreaterThan(0)
     expect(JSON.stringify(auditCall)).not.toMatch(FORBIDDEN_AUDIT_CONTENT)
   })
 

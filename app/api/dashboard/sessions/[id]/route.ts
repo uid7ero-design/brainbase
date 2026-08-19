@@ -163,7 +163,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     // the dedicated restore endpoint to bring a session back to active
     // maintenance instead.
     const reconcile = updated.archived_at
-      ? { generated: 0, cancelledInstances: 0, conflicts: [] }
+      ? { generated: 0, reactivated: 0, cancelledInstances: 0, conflicts: [] }
       : await reconcileFutureInstances({
           organisationId: session.organisationId,
           sessionId: id,
