@@ -1,13 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { Resend } from 'resend';
 import sql from '@/lib/db';
 import { prisma } from '@/lib/prisma';
 import { validateBookingRequest } from '@/app/tennis/lib/booking';
 import type { BookingRequest } from '@/app/tennis/lib/booking';
 import { checkRateLimit } from '@/lib/rateLimit';
 import { getClientIp } from '@/lib/clientIp';
-
-const resend = new Resend(process.env.RESEND_API_KEY);
+import { getResendClient } from '@/lib/resendClient';
 
 const LD_TENNIS_ORG_ID = process.env.LD_TENNIS_ORG_ID;
 
@@ -88,6 +86,12 @@ export async function POST(request: NextRequest): Promise<Response> {
   }
 
   // Send email notification
+  const resend = getResendClient();
+  if (!resend) {
+    console.error('[/api/lead] RESEND_API_KEY not configured — booking request not emailed');
+    return NextResponse.json({ success: false, message: 'Failed to send booking request. Please try again.' }, { status: 500 });
+  }
+
   const { error } = await resend.emails.send({
     from: 'onboarding@resend.dev',
     to: process.env.MAIL_TO ?? 'hello@hlna.com.au',

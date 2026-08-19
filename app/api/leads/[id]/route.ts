@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { Resend } from 'resend';
 import sql from '@/lib/db';
 import { requireRole } from '@/lib/org';
-
-const resend = new Resend(process.env.RESEND_API_KEY);
+import { getResendClient } from '@/lib/resendClient';
 
 const VALID_STATUSES = ['new', 'contacted', 'in_progress', 'booked', 'closed', 'cancelled'] as const;
 
@@ -107,16 +105,21 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const lead = rows[0];
 
   if (body.notify && lead.email) {
-    try {
-      await resend.emails.send({
-        from: 'onboarding@resend.dev',
-        to: lead.email,
-        replyTo: process.env.MAIL_TO ?? 'hello@hlna.com.au',
-        subject: `Update from LD Tennis Coaching`,
-        html: buildClientEmail(lead.name, body.status ?? null, body.note ?? null, lead.client_token),
-      });
-    } catch (err) {
-      console.error('[leads PATCH] email error:', err);
+    const resend = getResendClient();
+    if (!resend) {
+      console.error('[leads PATCH] RESEND_API_KEY not configured — update not emailed to', lead.email);
+    } else {
+      try {
+        await resend.emails.send({
+          from: 'onboarding@resend.dev',
+          to: lead.email,
+          replyTo: process.env.MAIL_TO ?? 'hello@hlna.com.au',
+          subject: `Update from LD Tennis Coaching`,
+          html: buildClientEmail(lead.name, body.status ?? null, body.note ?? null, lead.client_token),
+        });
+      } catch (err) {
+        console.error('[leads PATCH] email error:', err);
+      }
     }
   }
 
