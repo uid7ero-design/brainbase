@@ -150,7 +150,7 @@ describe('GET routes return session_colour_key so the UI never needs a second fe
   it('GET /api/dashboard/sessions selects session_colour_key', async () => {
     const { GET } = await import('@/app/api/dashboard/sessions/route')
     sqlMock.mockResolvedValue([])
-    await GET()
+    await GET(asNextRequest(new Request('http://localhost/api/dashboard/sessions')))
     const selectCall = sqlMock.mock.calls.find(call => (call[0] as string[]).join('').includes('FROM sessions s'))
     expect((selectCall![0] as string[]).join('')).toContain('session_colour_key')
   })

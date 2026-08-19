@@ -25,6 +25,10 @@ type Session = {
   // sessionColourDot in lib/sessionDisplay.ts for the one shared resolver
   // every render site must use — never re-derive this precedence locally.
   session_colour_key: string | null
+  // NULL = active. Non-null = archived (retired — see
+  // app/api/dashboard/sessions/[id]/{archive,restore}/route.ts). Historical
+  // instances/bookings remain fully intact and readable regardless.
+  archived_at: string | null
 }
 
 type ReconcileSummary = { generated: number; cancelledInstances: number; conflicts: { instanceId: string; date: string }[] }
@@ -765,18 +769,22 @@ function ManageSessionTypesModal({ types, onClose, onChanged }: {
 // visible in the calendar range (its schedule hasn't been reconciled since
 // being edited, or its rolling horizon hasn't topped up yet), which would
 // otherwise be completely unreachable for management.
-function ManageSessionsModal({ sessions, sessionTypes, contacts, onClose, onEdit, onDelete, onRepaired }: {
+function ManageSessionsModal({ sessions, sessionTypes, contacts, onClose, onEdit, onDelete, onArchive, onRestore, onRepaired }: {
   sessions: Session[]
   sessionTypes: SessionTypeRow[]
   contacts: ContactBrief[]
   onClose: () => void
   onEdit: (s: Session) => void
   onDelete: (id: string) => Promise<void> | void
+  onArchive: (id: string) => Promise<{ cancelledInstances: number; conflicts: { instanceId: string; date: string }[] } | null>
+  onRestore: (id: string) => Promise<ReconcileSummary | null>
   onRepaired: () => void
 }) {
   const [busyId, setBusyId] = useState<string | null>(null)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+  const [confirmArchiveId, setConfirmArchiveId] = useState<string | null>(null)
   const [notes, setNotes] = useState<Record<string, string>>({})
+  const [showArchived, setShowArchived] = useState(false)
   const closeRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
@@ -786,7 +794,12 @@ function ManageSessionsModal({ sessions, sessionTypes, contacts, onClose, onEdit
     return () => document.removeEventListener('keydown', onKeyDown)
   }, [onClose])
 
-  const sorted = [...sessions].sort((a, b) => a.day_of_week !== b.day_of_week ? a.day_of_week - b.day_of_week : a.start_time.localeCompare(b.start_time))
+  // Default: active only, matching "default operational views exclude
+  // archived templates" — Show archived reveals everything, same
+  // include_archived=1 convention Manage Types already uses.
+  const visible = showArchived ? sessions : sessions.filter(s => !s.archived_at)
+  const sorted = [...visible].sort((a, b) => a.day_of_week !== b.day_of_week ? a.day_of_week - b.day_of_week : a.start_time.localeCompare(b.start_time))
+  const archivedCount = sessions.filter(s => s.archived_at).length
 
   async function handleRepair(id: string) {
     setBusyId(id); setNotes(n => ({ ...n, [id]: '' }))
@@ -799,6 +812,24 @@ function ManageSessionsModal({ sessions, sessionTypes, contacts, onClose, onEdit
     setBusyId(id)
     await onDelete(id)
     setBusyId(null); setConfirmDeleteId(null)
+  }
+
+  async function handleArchiveConfirmed(id: string) {
+    setBusyId(id); setNotes(n => ({ ...n, [id]: '' }))
+    const cancel = await onArchive(id)
+    setBusyId(null); setConfirmArchiveId(null)
+    if (cancel) {
+      const parts = [`Archived — ${cancel.cancelledInstances} future date${cancel.cancelledInstances === 1 ? '' : 's'} cancelled`]
+      if (cancel.conflicts.length > 0) parts.push(`${cancel.conflicts.length} left scheduled (paid/attended) — review manually`)
+      setNotes(n => ({ ...n, [id]: parts.join(', ') }))
+    }
+  }
+
+  async function handleRestoreClick(id: string) {
+    setBusyId(id); setNotes(n => ({ ...n, [id]: '' }))
+    const reconcile = await onRestore(id)
+    setBusyId(null)
+    if (reconcile) setNotes(n => ({ ...n, [id]: `Restored — ${formatRepairNote(reconcile)}` }))
   }
 
   return (
@@ -816,10 +847,19 @@ function ManageSessionsModal({ sessions, sessionTypes, contacts, onClose, onEdit
             <button ref={closeRef} onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,.35)', cursor: 'pointer', fontSize: 18 }}>✕</button>
           </div>
 
-          {sorted.length === 0 && <p style={{ fontSize: 12, color: 'rgba(255,255,255,.30)' }}>No sessions yet.</p>}
+          {archivedCount > 0 && (
+            <label style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 14, cursor: 'pointer', width: 'fit-content' }}>
+              <input type="checkbox" checked={showArchived} onChange={e => setShowArchived(e.target.checked)}
+                style={{ width: 14, height: 14, accentColor: '#6366f1' }} />
+              <span style={{ fontSize: 11, color: 'rgba(255,255,255,.45)' }}>Show archived ({archivedCount})</span>
+            </label>
+          )}
+
+          {sorted.length === 0 && <p style={{ fontSize: 12, color: 'rgba(255,255,255,.30)' }}>{showArchived || archivedCount === 0 ? 'No sessions yet.' : 'No active sessions.'}</p>}
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {sorted.map(s => {
+              const archived = !!s.archived_at
               const title = sessionLabel(s.session_type, sessionTypes)
               const label = optionalLabel(s.name, s.session_type, sessionTypes)
               const sessionContacts = contacts.filter(c => c.session_id === s.id)
@@ -829,10 +869,16 @@ function ManageSessionsModal({ sessions, sessionTypes, contacts, onClose, onEdit
                 <div key={s.id} style={{
                   padding: '10px 12px', borderRadius: 10, background: 'rgba(255,255,255,.03)',
                   border: '1px solid rgba(255,255,255,.08)', borderLeft: `3px solid ${sessionColourDot(s.session_type, sessionTypes, s.session_colour_key)}`,
+                  opacity: archived ? .6 : 1,
                 }}>
                   <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
                     <div style={{ minWidth: 0 }}>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: '#F5F7FA' }}>{title}</div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: '#F5F7FA' }}>{title}</div>
+                        {archived && (
+                          <span style={{ fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,.35)', background: 'rgba(255,255,255,.06)', borderRadius: 20, padding: '1px 6px', flexShrink: 0 }}>Archived</span>
+                        )}
+                      </div>
                       {label && <div style={{ fontSize: 11, color: 'rgba(255,255,255,.45)', marginTop: 1 }}>{label}</div>}
                       <div style={{ fontSize: 11, color: 'rgba(255,255,255,.35)', marginTop: 3, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                         <span>{DAY_FULL[s.day_of_week]} · {s.start_time}–{endTime(s.start_time, s.duration_minutes)}</span>
@@ -848,14 +894,40 @@ function ManageSessionsModal({ sessions, sessionTypes, contacts, onClose, onEdit
                       )}
                     </div>
                     <div style={{ display: 'flex', gap: 6, flexShrink: 0, flexWrap: 'wrap' }}>
-                      <button onClick={() => handleRepair(s.id)} disabled={busyId === s.id} aria-label={`Repair future dates for ${title}`}
-                        style={{ fontSize: 11, fontWeight: 600, padding: '5px 10px', borderRadius: 20, cursor: busyId === s.id ? 'not-allowed' : 'pointer', background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.10)', color: 'rgba(255,255,255,.45)', fontFamily: FONT, opacity: busyId === s.id ? .5 : 1 }}>
-                        {busyId === s.id ? 'Repairing…' : 'Repair'}
-                      </button>
+                      {archived ? (
+                        <button onClick={() => handleRestoreClick(s.id)} disabled={busyId === s.id} aria-label={`Restore ${title}`}
+                          style={{ fontSize: 11, fontWeight: 600, padding: '5px 10px', borderRadius: 20, cursor: busyId === s.id ? 'not-allowed' : 'pointer', background: 'rgba(99,102,241,.15)', border: '1px solid rgba(99,102,241,.35)', color: '#a5b4fc', fontFamily: FONT, opacity: busyId === s.id ? .5 : 1 }}>
+                          {busyId === s.id ? 'Restoring…' : 'Restore'}
+                        </button>
+                      ) : (
+                        <button onClick={() => handleRepair(s.id)} disabled={busyId === s.id} aria-label={`Repair future dates for ${title}`}
+                          style={{ fontSize: 11, fontWeight: 600, padding: '5px 10px', borderRadius: 20, cursor: busyId === s.id ? 'not-allowed' : 'pointer', background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.10)', color: 'rgba(255,255,255,.45)', fontFamily: FONT, opacity: busyId === s.id ? .5 : 1 }}>
+                          {busyId === s.id ? 'Repairing…' : 'Repair'}
+                        </button>
+                      )}
                       <button onClick={() => onEdit(s)} aria-label={`Edit ${title}`}
                         style={{ fontSize: 11, fontWeight: 600, padding: '5px 10px', borderRadius: 20, cursor: 'pointer', background: 'rgba(255,255,255,.05)', border: '1px solid rgba(255,255,255,.12)', color: 'rgba(255,255,255,.55)', fontFamily: FONT }}>
                         Edit
                       </button>
+                      {!archived && (
+                        confirmArchiveId === s.id ? (
+                          <>
+                            <button onClick={() => handleArchiveConfirmed(s.id)} disabled={busyId === s.id} aria-label={`Confirm archive ${title}`}
+                              style={{ fontSize: 11, fontWeight: 700, padding: '5px 10px', borderRadius: 20, cursor: 'pointer', background: 'rgba(251,191,36,.18)', border: '1px solid rgba(251,191,36,.45)', color: '#fbbf24', fontFamily: FONT }}>
+                              Confirm
+                            </button>
+                            <button onClick={() => setConfirmArchiveId(null)} aria-label="Cancel archive"
+                              style={{ fontSize: 11, padding: '5px 8px', borderRadius: 20, cursor: 'pointer', background: 'none', border: '1px solid rgba(255,255,255,.10)', color: 'rgba(255,255,255,.30)', fontFamily: FONT }}>
+                              ✕
+                            </button>
+                          </>
+                        ) : (
+                          <button onClick={() => setConfirmArchiveId(s.id)} aria-label={`Archive ${title}`}
+                            style={{ fontSize: 11, fontWeight: 600, padding: '5px 10px', borderRadius: 20, cursor: 'pointer', background: 'rgba(251,191,36,.08)', border: '1px solid rgba(251,191,36,.22)', color: '#fbbf24', fontFamily: FONT }}>
+                            Archive
+                          </button>
+                        )
+                      )}
                       {confirmDeleteId === s.id ? (
                         <>
                           <button onClick={() => handleDeleteConfirmed(s.id)} disabled={busyId === s.id} aria-label={`Confirm delete ${title}`}
@@ -1476,7 +1548,7 @@ export default function SessionsPage() {
     const today = todayStr()
 
     Promise.all([
-      fetch(API).then(r => r.json()),
+      fetch(`${API}?include_archived=1`).then(r => r.json()),
       fetch(`${API}/instances`).then(r => r.json()),
     ]).then(([sessData, instData]) => {
       const loadedSessions: Session[] = sessData.sessions ?? []
@@ -1523,7 +1595,7 @@ export default function SessionsPage() {
           setReconcileWarning(`Automatic schedule check had ${result.errors.length} error${result.errors.length === 1 ? '' : 's'} for some classes — use "Repair future dates" on those sessions if their calendar looks out of date.`)
         }
         if (result.totalGenerated > 0 || result.totalCancelledInstances > 0) {
-          fetch(API).then(r => r.json()).then(d => setSessions(d.sessions ?? [])).catch(() => null)
+          fetch(`${API}?include_archived=1`).then(r => r.json()).then(d => setSessions(d.sessions ?? [])).catch(() => null)
           loadCalendar(calendarAnchor, calendarView)
         }
       })
@@ -1580,7 +1652,7 @@ export default function SessionsPage() {
   // local counts, and preserves the currently selected session/date instead
   // of collapsing the roster panel back to the date picker.
   function refreshDashboard() {
-    fetch(API).then(r => r.json()).then(d => setSessions(d.sessions ?? [])).catch(() => null)
+    fetch(`${API}?include_archived=1`).then(r => r.json()).then(d => setSessions(d.sessions ?? [])).catch(() => null)
     if (selectedSessionId) {
       fetch(`${API}/${selectedSessionId}`).then(r => r.json()).then(d => { if (d.instances) setInstances(d.instances) }).catch(() => null)
       if (selectedInstanceId) loadRoster(selectedSessionId, selectedInstanceId)
@@ -1645,8 +1717,40 @@ export default function SessionsPage() {
     }
   }
 
+  // Retires a session template in place (row stays in `sessions`, just
+  // gains archived_at) rather than removing it — Manage Sessions' "Show
+  // archived" toggle is what makes it visible/invisible, matching how
+  // Manage Types already treats an archived session type. Refreshes the
+  // calendar since archiving may have cancelled future instances.
+  async function handleArchive(id: string): Promise<{ cancelledInstances: number; conflicts: { instanceId: string; date: string }[] } | null> {
+    const res = await fetch(`${API}/${id}/archive`, { method: 'POST' })
+    if (!res.ok) return null
+    const d = await res.json() as { archived: boolean; cancel: { cancelledInstances: number; conflicts: { instanceId: string; date: string }[] } }
+    setSessions(prev => prev.map(s => s.id === id ? { ...s, archived_at: new Date().toISOString() } : s))
+    loadCalendar(calendarAnchor, calendarView)
+    return d.cancel
+  }
+
+  // Un-retires a session and immediately re-reconciles it, restoring its
+  // future horizon from its existing (untouched) schedule rules.
+  async function handleRestore(id: string): Promise<ReconcileSummary | null> {
+    const res = await fetch(`${API}/${id}/restore`, { method: 'POST' })
+    if (!res.ok) return null
+    const d = await res.json() as { restored: boolean; reconcile: ReconcileSummary }
+    setSessions(prev => prev.map(s => s.id === id ? { ...s, archived_at: null } : s))
+    loadCalendar(calendarAnchor, calendarView)
+    return d.reconcile
+  }
+
+  // `sessions` is fetched with include_archived=1 (mirrors sessionTypes'
+  // own always-fetch-everything pattern) so a historical calendar entry
+  // belonging to an archived session can still resolve its detail panel —
+  // never filter that lookup. Operational aggregates (revenue, the header
+  // count, the empty-state check) are "what's actually running" views, so
+  // they use activeSessions instead.
+  const activeSessions         = sessions.filter(s => !s.archived_at)
   const selectedSession        = sessions.find(s => s.id === selectedSessionId) ?? null
-  const weeklyRevenue          = sessions.reduce((sum, s) => sum + sessionRevenue(s.price_per_session ?? 0, s.session_type, s.enrolled_count), 0)
+  const weeklyRevenue          = activeSessions.reduce((sum, s) => sum + sessionRevenue(s.price_per_session ?? 0, s.session_type, s.enrolled_count), 0)
   const selRevenue             = selectedSession ? sessionRevenue(selectedSession.price_per_session ?? 0, selectedSession.session_type, selectedSession.enrolled_count) : 0
   // PLAYERS / FILL RATE describe the currently selected instance/date, not
   // a session-wide aggregate — selectedSession.enrolled_count is the
@@ -1677,7 +1781,9 @@ export default function SessionsPage() {
           onClose={() => setShowManageSessions(false)}
           onEdit={s => { setShowManageSessions(false); setEditingSession(s) }}
           onDelete={handleDelete}
-          onRepaired={() => { fetch(API).then(r => r.json()).then(d => setSessions(d.sessions ?? [])).catch(() => null); loadCalendar(calendarAnchor, calendarView) }}
+          onArchive={handleArchive}
+          onRestore={handleRestore}
+          onRepaired={() => { fetch(`${API}?include_archived=1`).then(r => r.json()).then(d => setSessions(d.sessions ?? [])).catch(() => null); loadCalendar(calendarAnchor, calendarView) }}
         />
       )}
 
@@ -1686,7 +1792,7 @@ export default function SessionsPage() {
         <div>
           <h1 style={{ fontSize: 20, fontWeight: 700, color: '#F5F7FA', margin: 0, letterSpacing: '-.02em' }}>Sessions</h1>
           <p style={{ fontSize: 12, color: 'rgba(255,255,255,.28)', margin: '4px 0 0' }}>
-            {sessions.length} session{sessions.length !== 1 ? 's' : ''} · click a date below to view its roster
+            {activeSessions.length} session{activeSessions.length !== 1 ? 's' : ''} · click a date below to view its roster
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>

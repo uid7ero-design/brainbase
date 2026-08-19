@@ -18,7 +18,7 @@ describe('app/dashboard/sessions/page.tsx — static source checks (Bug 2: stale
     // refreshed instead (confirmed dead: WeekView/weekInstances are
     // unreferenced anywhere else in this file).
     const fnBody = source.slice(source.indexOf('function refreshDashboard()'), source.indexOf('function refreshDashboard()') + 600)
-    expect(fnBody).toContain('fetch(API)')
+    expect(fnBody).toContain('fetch(`${API}?include_archived=1`)')
     expect(fnBody).toContain('setSessions(')
     expect(fnBody).toContain('fetch(`${API}/${selectedSessionId}`)')
     expect(fnBody).toContain('setInstances(')
