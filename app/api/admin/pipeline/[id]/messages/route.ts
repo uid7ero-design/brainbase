@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireRole } from '@/lib/org'
 import sql from '@/lib/db'
 import { getResendClient } from '@/lib/resendClient'
+import { resolveEmailConfig } from '@/lib/emailConfig'
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try { await requireRole('super_admin') } catch { return NextResponse.json({ error: 'Forbidden' }, { status: 403 }) }
@@ -30,6 +31,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     // Send email to client if their email is stored in founder_note
     const clientEmail = owns[0].founder_note as string | null
     if (clientEmail && clientEmail.includes('@')) {
+      const { from, to: businessInbox } = resolveEmailConfig(owns[0].organisation_id as string)
       const subject = `Re: ${owns[0].title as string}`
       const html = `
         <div style="font-family:sans-serif;max-width:600px;margin:0 auto;color:#1a1a1a">
@@ -43,7 +45,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
             </div>
             <p style="margin:0;color:#52525b;font-size:12px">
               — The Brainbase Team<br/>
-              <a href="mailto:${process.env.MAIL_TO ?? 'hello@hlna.com.au'}" style="color:#10b981;text-decoration:none">${process.env.MAIL_TO ?? 'hello@hlna.com.au'}</a>
+              <a href="mailto:${businessInbox}" style="color:#10b981;text-decoration:none">${businessInbox}</a>
             </p>
           </div>
         </div>`
@@ -53,9 +55,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         console.error('[pipeline/messages] RESEND_API_KEY not configured — reply not emailed to', clientEmail)
       } else {
         const { error } = await resend.emails.send({
-          from: 'onboarding@resend.dev',
+          from,
           to: clientEmail,
-          replyTo: process.env.MAIL_TO ?? 'hello@hlna.com.au',
+          replyTo: businessInbox,
           subject,
           html,
         })

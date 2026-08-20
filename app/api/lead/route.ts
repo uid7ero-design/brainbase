@@ -6,6 +6,7 @@ import type { BookingRequest } from '@/app/tennis/lib/booking';
 import { checkRateLimit } from '@/lib/rateLimit';
 import { getClientIp } from '@/lib/clientIp';
 import { getResendClient } from '@/lib/resendClient';
+import { resolveEmailConfig } from '@/lib/emailConfig';
 
 const LD_TENNIS_ORG_ID = process.env.LD_TENNIS_ORG_ID;
 
@@ -92,9 +93,10 @@ export async function POST(request: NextRequest): Promise<Response> {
     return NextResponse.json({ success: false, message: 'Failed to send booking request. Please try again.' }, { status: 500 });
   }
 
+  const { from, to } = resolveEmailConfig(LD_TENNIS_ORG_ID);
   const { error } = await resend.emails.send({
-    from: 'onboarding@resend.dev',
-    to: process.env.MAIL_TO ?? 'hello@hlna.com.au',
+    from,
+    to,
     replyTo: body.email,
     subject: `New Booking Request – ${body.name}`,
     html: buildEmailHtml(body),
