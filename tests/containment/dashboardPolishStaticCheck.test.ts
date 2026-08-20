@@ -140,7 +140,7 @@ describe('Part H item 12 — dashboard resolution / tenant scoping unchanged by 
   })
 
   it('app/dashboard/page.tsx still resolves via resolveDashboardVariant and stays organisation-scoped', () => {
-    expect(pageSource).toContain('resolveDashboardVariant(session.organisationId)')
+    expect(pageSource).toContain('resolveDashboardVariant(session.organisationId, session.role)')
     expect(pageSource).toContain('s.organisation_id = ${oid}')
     expect(pageSource).not.toContain('LD_TENNIS_ORG_ID')
   })

@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireRole } from '@/lib/org'
-import { Resend } from 'resend'
 import sql from '@/lib/db'
-
-const resend = new Resend(process.env.RESEND_API_KEY)
+import { getResendClient } from '@/lib/resendClient'
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try { await requireRole('super_admin') } catch { return NextResponse.json({ error: 'Forbidden' }, { status: 403 }) }
@@ -50,16 +48,21 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           </div>
         </div>`
 
-      const { error } = await resend.emails.send({
-        from: 'onboarding@resend.dev',
-        to: clientEmail,
-        replyTo: process.env.MAIL_TO ?? 'hello@hlna.com.au',
-        subject,
-        html,
-      })
+      const resend = getResendClient()
+      if (!resend) {
+        console.error('[pipeline/messages] RESEND_API_KEY not configured — reply not emailed to', clientEmail)
+      } else {
+        const { error } = await resend.emails.send({
+          from: 'onboarding@resend.dev',
+          to: clientEmail,
+          replyTo: process.env.MAIL_TO ?? 'hello@hlna.com.au',
+          subject,
+          html,
+        })
 
-      if (error) console.error('[pipeline/messages] Resend:', error)
-      else console.log('[pipeline/messages] reply emailed to', clientEmail)
+        if (error) console.error('[pipeline/messages] Resend:', error)
+        else console.log('[pipeline/messages] reply emailed to', clientEmail)
+      }
     }
 
     return NextResponse.json({ message: rows[0] }, { status: 201 })

@@ -20,9 +20,15 @@ function validateSchedule(body: { end_mode?: string; end_after_weeks?: number | 
   return null
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   let session
   try { session = await requireRole('viewer') } catch { return NextResponse.json({ error: 'Forbidden' }, { status: 403 }) }
+
+  // Default excludes archived templates (routine operational view); Manage
+  // Sessions' "Show archived" toggle passes include_archived=1 to see
+  // everything — same param name/convention as
+  // /api/dashboard/session-types?include_archived=1.
+  const includeArchived = new URL(req.url).searchParams.get('include_archived') === '1'
 
   try {
     const sessions = await sql`
@@ -30,7 +36,7 @@ export async function GET() {
         s.id, s.name, s.day_of_week, s.start_time, s.duration_minutes,
         s.max_capacity, s.session_type, s.resource_id, s.recurring, s.price_per_session, s.created_at,
         to_char(s.start_date, 'YYYY-MM-DD') AS start_date, s.end_mode, s.end_after_weeks,
-        to_char(s.end_date, 'YYYY-MM-DD') AS end_date, s.session_colour_key,
+        to_char(s.end_date, 'YYYY-MM-DD') AS end_date, s.session_colour_key, s.archived_at,
         -- Unique roster players, not total booking rows: a weekly player
         -- propagated across 6 future instances has 6 booking rows but is
         -- one player. Bookings sharing a recurring_group_id collapse to a
@@ -43,6 +49,7 @@ export async function GET() {
         ) AS enrolled_count
       FROM sessions s
       WHERE s.organisation_id = ${session.organisationId}
+        AND (${includeArchived} OR s.archived_at IS NULL)
       ORDER BY s.day_of_week, s.start_time
     `
 
@@ -60,9 +67,10 @@ export async function GET() {
     try {
       const sessions = await sql`
         SELECT id, name, day_of_week, start_time, duration_minutes,
-               max_capacity, session_type, resource_id, recurring, created_at
+               max_capacity, session_type, resource_id, recurring, created_at, archived_at
         FROM sessions
         WHERE organisation_id = ${session.organisationId}
+          AND (${includeArchived} OR archived_at IS NULL)
         ORDER BY day_of_week, start_time
       `
       return NextResponse.json({ sessions: sessions.map(s => ({ ...s, enrolled_count: 0 })) })
@@ -125,7 +133,7 @@ export async function POST(req: NextRequest) {
       RETURNING id, organisation_id, name, day_of_week, start_time, duration_minutes, max_capacity, session_type,
         resource_id, recurring, price_per_session, created_at,
         to_char(start_date, 'YYYY-MM-DD') AS start_date, end_mode, end_after_weeks, to_char(end_date, 'YYYY-MM-DD') AS end_date,
-        session_colour_key
+        session_colour_key, archived_at
     `
     const created = rows[0] as { id: string; day_of_week: number; start_time: string; duration_minutes: number; max_capacity: number; session_type: string; start_date: string | null; end_mode: EndMode; end_after_weeks: number | null; end_date: string | null }
 

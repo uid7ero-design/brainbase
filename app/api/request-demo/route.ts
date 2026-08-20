@@ -1,11 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { Resend } from 'resend';
 import sql from '@/lib/db';
 import { prisma } from '@/lib/prisma';
 import { checkRateLimit } from '@/lib/rateLimit';
 import { getClientIp } from '@/lib/clientIp';
-
-const resend = new Resend(process.env.RESEND_API_KEY);
+import { getResendClient } from '@/lib/resendClient';
 
 function row(label: string, value: string | null | undefined) {
   if (!value) return '';
@@ -146,15 +144,20 @@ export async function POST(req: NextRequest) {
   }
 
   // 3. Email
-  const { error } = await resend.emails.send({
-    from: 'onboarding@resend.dev',
-    to: process.env.MAIL_TO ?? 'hello@hlna.com.au',
-    replyTo: email.trim(),
-    subject: `Demo Request — ${business_name} · ${name}`,
-    html: buildEmail({ name, email, phone, business_name, business_type, description, num_clients, num_users, goal, referral }),
-  });
+  const resend = getResendClient();
+  if (!resend) {
+    console.error('[/api/request-demo] RESEND_API_KEY not configured — demo request not emailed');
+  } else {
+    const { error } = await resend.emails.send({
+      from: 'onboarding@resend.dev',
+      to: process.env.MAIL_TO ?? 'hello@hlna.com.au',
+      replyTo: email.trim(),
+      subject: `Demo Request — ${business_name} · ${name}`,
+      html: buildEmail({ name, email, phone, business_name, business_type, description, num_clients, num_users, goal, referral }),
+    });
 
-  if (error) console.error('[/api/request-demo] Resend:', error);
+    if (error) console.error('[/api/request-demo] Resend:', error);
+  }
 
   return NextResponse.json({ success: true });
 }

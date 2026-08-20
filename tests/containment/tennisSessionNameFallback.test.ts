@@ -35,7 +35,7 @@ describe('POST /api/dashboard/sessions — Session Type is primary, Optional Lab
       if (text.includes('INSERT INTO sessions')) return Promise.resolve([{ id: 'sess-1', day_of_week: 1, start_time: '10:00', duration_minutes: 60, max_capacity: 8, session_type: 'GROUP_TERM_JUNIOR', name: 'Hot Shots Tennis', start_date: null, end_mode: 'ongoing', end_after_weeks: null, end_date: null }])
       return Promise.resolve([])
     })
-    reconcileMock.mockResolvedValue({ generated: 0, cancelledInstances: 0, conflicts: [] })
+    reconcileMock.mockResolvedValue({ generated: 0, reactivated: 0, cancelledInstances: 0, conflicts: [] })
 
     const res = await POST(asNextRequest('http://localhost/api/dashboard/sessions', {
       day_of_week: 1, start_time: '10:00', session_type: 'GROUP_TERM_JUNIOR',
@@ -51,7 +51,7 @@ describe('POST /api/dashboard/sessions — Session Type is primary, Optional Lab
       if (text.includes('INSERT INTO sessions')) return Promise.resolve([{ id: 'sess-1', name: 'Cardio Tennis (Term)' }])
       return Promise.resolve([])
     })
-    reconcileMock.mockResolvedValue({ generated: 0, cancelledInstances: 0, conflicts: [] })
+    reconcileMock.mockResolvedValue({ generated: 0, reactivated: 0, cancelledInstances: 0, conflicts: [] })
 
     await POST(asNextRequest('http://localhost/api/dashboard/sessions', {
       name: '   ', day_of_week: 5, start_time: '09:00', session_type: 'CARDIO_TERM',
@@ -68,7 +68,7 @@ describe('POST /api/dashboard/sessions — Session Type is primary, Optional Lab
       if (text.includes('INSERT INTO sessions')) return Promise.resolve([{ id: 'sess-1', name: 'BRAND_NEW_SLUG' }])
       return Promise.resolve([])
     })
-    reconcileMock.mockResolvedValue({ generated: 0, cancelledInstances: 0, conflicts: [] })
+    reconcileMock.mockResolvedValue({ generated: 0, reactivated: 0, cancelledInstances: 0, conflicts: [] })
 
     const res = await POST(asNextRequest('http://localhost/api/dashboard/sessions', {
       day_of_week: 2, start_time: '11:00', session_type: 'BRAND_NEW_SLUG',
@@ -85,7 +85,7 @@ describe('POST /api/dashboard/sessions — Session Type is primary, Optional Lab
       if (text.includes('INSERT INTO sessions')) return Promise.resolve([{ id: 'sess-1', name: 'Green Ball Advanced' }])
       return Promise.resolve([])
     })
-    reconcileMock.mockResolvedValue({ generated: 0, cancelledInstances: 0, conflicts: [] })
+    reconcileMock.mockResolvedValue({ generated: 0, reactivated: 0, cancelledInstances: 0, conflicts: [] })
 
     await POST(asNextRequest('http://localhost/api/dashboard/sessions', {
       name: 'Green Ball Advanced', day_of_week: 1, start_time: '10:00', session_type: 'GROUP_TERM_JUNIOR',
