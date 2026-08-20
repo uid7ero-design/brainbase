@@ -92,21 +92,29 @@ describe('5. no secret value is ever logged', () => {
 })
 
 describe('Production email behaviour is otherwise unchanged', () => {
-  it('the same from/replyTo/subject shape is preserved in each route (only the client acquisition moved)', () => {
+  // Sender/recipient resolution moved to lib/emailConfig.ts (see
+  // ldTennisEmailConfig.test.ts) — the hardcoded 'onboarding@resend.dev'
+  // sandbox sender these routes used to share is gone, replaced by
+  // resolveEmailConfig(), but the replyTo shape each route already had is
+  // otherwise unchanged.
+  it('the same replyTo/subject shape is preserved in each route, and none hardcodes the onboarding@resend.dev sandbox sender any more', () => {
     const pipeline = fs.readFileSync(path.resolve(__dirname, '../../app/api/admin/pipeline/[id]/messages/route.ts'), 'utf-8')
-    expect(pipeline).toContain("from: 'onboarding@resend.dev'")
-    expect(pipeline).toContain('replyTo: process.env.MAIL_TO')
+    expect(pipeline).toContain('resolveEmailConfig(')
+    expect(pipeline).not.toContain("from: 'onboarding@resend.dev'")
 
     const lead = fs.readFileSync(path.resolve(__dirname, '../../app/api/lead/route.ts'), 'utf-8')
-    expect(lead).toContain("from: 'onboarding@resend.dev'")
+    expect(lead).toContain('resolveEmailConfig(')
     expect(lead).toContain('replyTo: body.email')
+    expect(lead).not.toContain("from: 'onboarding@resend.dev'")
 
     const leadsId = fs.readFileSync(path.resolve(__dirname, '../../app/api/leads/[id]/route.ts'), 'utf-8')
-    expect(leadsId).toContain("from: 'onboarding@resend.dev'")
+    expect(leadsId).toContain('resolveEmailConfig(')
+    expect(leadsId).not.toContain("from: 'onboarding@resend.dev'")
 
     const requestDemo = fs.readFileSync(path.resolve(__dirname, '../../app/api/request-demo/route.ts'), 'utf-8')
-    expect(requestDemo).toContain("from: 'onboarding@resend.dev'")
+    expect(requestDemo).toContain('resolveEmailConfig(')
     expect(requestDemo).toContain('replyTo: email.trim()')
+    expect(requestDemo).not.toContain("from: 'onboarding@resend.dev'")
   })
 
   it('lib/email.ts (the separate, pre-existing fetch-based helper for auth/lead-notification emails) is untouched — no second email subsystem was created', () => {

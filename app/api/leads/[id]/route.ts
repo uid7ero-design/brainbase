@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import sql from '@/lib/db';
 import { requireRole } from '@/lib/org';
 import { getResendClient } from '@/lib/resendClient';
+import { resolveEmailConfig } from '@/lib/emailConfig';
 
 const VALID_STATUSES = ['new', 'contacted', 'in_progress', 'booked', 'closed', 'cancelled'] as const;
 
@@ -110,10 +111,11 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       console.error('[leads PATCH] RESEND_API_KEY not configured — update not emailed to', lead.email);
     } else {
       try {
+        const { from, to: businessInbox } = resolveEmailConfig(session.organisationId);
         await resend.emails.send({
-          from: 'onboarding@resend.dev',
+          from,
           to: lead.email,
-          replyTo: process.env.MAIL_TO ?? 'hello@hlna.com.au',
+          replyTo: businessInbox,
           subject: `Update from LD Tennis Coaching`,
           html: buildClientEmail(lead.name, body.status ?? null, body.note ?? null, lead.client_token),
         });

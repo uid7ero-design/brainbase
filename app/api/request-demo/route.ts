@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma';
 import { checkRateLimit } from '@/lib/rateLimit';
 import { getClientIp } from '@/lib/clientIp';
 import { getResendClient } from '@/lib/resendClient';
+import { resolveEmailConfig } from '@/lib/emailConfig';
 
 function row(label: string, value: string | null | undefined) {
   if (!value) return '';
@@ -148,9 +149,10 @@ export async function POST(req: NextRequest) {
   if (!resend) {
     console.error('[/api/request-demo] RESEND_API_KEY not configured — demo request not emailed');
   } else {
+    const { from, to } = resolveEmailConfig(adminOrgId);
     const { error } = await resend.emails.send({
-      from: 'onboarding@resend.dev',
-      to: process.env.MAIL_TO ?? 'hello@hlna.com.au',
+      from,
+      to,
       replyTo: email.trim(),
       subject: `Demo Request — ${business_name} · ${name}`,
       html: buildEmail({ name, email, phone, business_name, business_type, description, num_clients, num_users, goal, referral }),
