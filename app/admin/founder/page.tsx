@@ -33,6 +33,10 @@ type FounderIntel = {
   system_alerts?: string[];
   confidence?: number;
   generated_at?: string;
+  // 'demo' when the intelligence backend was unreachable/unconfigured and
+  // the API returned its sample payload instead — see
+  // app/api/admin/founder-intelligence/route.ts. Absent/'live' otherwise.
+  source?: 'live' | 'demo';
 };
 
 type LinkedOrg = {
@@ -1958,11 +1962,15 @@ export default function FounderPage() {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14, fontSize: 10 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+            {/* SERVICES below is static sample data, not a live health
+                check — labelled honestly rather than asserting an
+                operational claim nothing here actually monitors (see
+                Part 1D/Task 2 of the AFK polish round). */}
             <Dot status="ok" />
-            <span style={{ color: T.green }}>All systems operational</span>
+            <span style={{ color: T.dim }}>Demo status</span>
           </div>
           <span style={{ color: T.dim }}>|</span>
-          <Mono size={10} color={T.sub}>MRR $12,480</Mono>
+          <Mono size={10} color={T.sub}>MRR $12,480 (demo)</Mono>
           <span style={{ color: T.dim }}>|</span>
           <a href="/admin" style={{ color: T.dim, textDecoration: 'none', fontSize: 10 }}>← Admin</a>
         </div>
@@ -1976,11 +1984,22 @@ export default function FounderPage() {
         {/* Center column */}
         <div style={{ flex: 1, overflowY: 'auto', padding: '11px 11px', display: 'flex', flexDirection: 'column', gap: 8 }}>
 
-          {/* Error banner */}
-          {intelError && (
+          {/* Error / demo-data banner — same treatment extended to cover
+              both cases: the intelligence backend request failing outright
+              (intelError) and it succeeding but returning the API route's
+              own sample payload because the backend itself is unreachable
+              (intel.source === 'demo'). Either way, the queue/briefing/
+              recommendations below are sample content, not this
+              organisation's real data — see Task 1D of the AFK polish
+              round: label clearly rather than presenting it as live. */}
+          {(intelError || intel?.source === 'demo') && (
             <div style={{ padding: '6px 11px', borderRadius: 5, background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.14)', display: 'flex', alignItems: 'center', gap: 6 }}>
               <span style={{ fontSize: 10, color: T.yellow }}>⚠</span>
-              <span style={{ fontSize: 10, color: 'rgba(245,158,11,0.75)' }}>Founder intelligence unavailable — displaying local operating data.</span>
+              <span style={{ fontSize: 10, color: 'rgba(245,158,11,0.75)' }}>
+                {intelError
+                  ? 'Founder intelligence unavailable — displaying local operating data.'
+                  : 'Demo data — intelligence backend not connected. KPIs, attention queue, and recommendations below are sample content.'}
+              </span>
             </div>
           )}
 

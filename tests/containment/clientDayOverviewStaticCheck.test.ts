@@ -14,7 +14,7 @@ const weatherSource = fs.readFileSync(path.resolve(__dirname, '../../components/
 describe('app/dashboard/page.tsx — dashboard resolution', () => {
   it('resolves the dashboard variant via the shared slug-based resolver, not an inline env-var equality check', () => {
     expect(pageSource).toContain("import { resolveDashboardVariant } from '@/lib/dashboard/clientDashboard'")
-    expect(pageSource).toContain('resolveDashboardVariant(session.organisationId)')
+    expect(pageSource).toContain('resolveDashboardVariant(session.organisationId, session.role)')
     expect(pageSource).not.toContain('LD_TENNIS_ORG_ID')
     expect(pageSource).not.toContain('session.organisationId === ')
   })
