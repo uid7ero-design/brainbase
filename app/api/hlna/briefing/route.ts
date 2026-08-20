@@ -164,14 +164,20 @@ async function tennisSnapshot(oid: string): Promise<string | null> {
           COUNT(CASE WHEN status != 'inactive' AND (last_contacted_at IS NULL OR last_contacted_at < NOW() - INTERVAL '7 days') THEN 1 END)::int AS needs_attention
         FROM contacts WHERE organisation_id = ${oid}
       `,
+      // Oldest-overdue timestamp only — no name/email/phone/address ever
+      // leaves this query. This snapshot feeds an external OpenAI prompt
+      // (see the chat.completions.create call below); the app's own
+      // Needs Attention UI already links an authorised user to the actual
+      // contact records separately, so the AI context never needed names
+      // to begin with.
       sql`
-        SELECT name, last_contacted_at
+        SELECT last_contacted_at
         FROM contacts
         WHERE organisation_id = ${oid}
           AND status != 'inactive'
           AND (last_contacted_at IS NULL OR last_contacted_at < NOW() - INTERVAL '7 days')
         ORDER BY last_contacted_at ASC NULLS FIRST
-        LIMIT 3
+        LIMIT 1
       `,
       sql`
         SELECT COUNT(*)::int AS pending FROM tennis_leads
@@ -183,12 +189,19 @@ async function tennisSnapshot(oid: string): Promise<string | null> {
     const t = contactStats[0] ?? {};
     if (!Number(t.total)) return null;
 
-    const attention    = (attentionRows as { name: string; last_contacted_at: string | null }[]).map(r => r.name).join(', ');
+    // Aggregate urgency/age signal in place of the previous name list
+    // ("Overdue follow-ups: <name>, <name>") — still tells the model how
+    // urgent the situation is without naming anyone.
+    const oldest = (attentionRows[0] as { last_contacted_at: string | null } | undefined);
+    const oldestAge = oldest
+      ? (oldest.last_contacted_at
+          ? `oldest ${Math.floor((Date.now() - new Date(oldest.last_contacted_at).getTime()) / 86400000)} day(s) since last contact`
+          : 'oldest never contacted')
+      : null;
     const pendingLeads = Number((leadsRows[0] as { pending: number })?.pending ?? 0);
 
     return [
-      `Tennis Contacts: ${t.total} total — ${t.active_count} active, ${t.lead_count} leads, ${t.inactive_count} inactive. ${t.needs_attention} contact${t.needs_attention !== 1 ? 's' : ''} need${t.needs_attention === 1 ? 's' : ''} attention (not contacted in 7+ days).`,
-      attention    ? `Overdue follow-ups: ${attention}.` : '',
+      `Tennis Contacts: ${t.total} total — ${t.active_count} active, ${t.lead_count} leads, ${t.inactive_count} inactive. ${t.needs_attention} contact${t.needs_attention !== 1 ? 's' : ''} need${t.needs_attention === 1 ? 's' : ''} attention (not contacted in 7+ days)${oldestAge ? `, ${oldestAge}` : ''}.`,
       pendingLeads > 0 ? `${pendingLeads} new lead${pendingLeads !== 1 ? 's' : ''} awaiting review.` : '',
       weatherLine,
     ].filter(Boolean).join(' ');
