@@ -117,7 +117,10 @@ function LiveAgo({ baseSeconds = 0 }: { baseSeconds?: number }) {
     return () => clearInterval(id);
   }, []);
   const txt = secs < 60 ? `${secs}s ago` : `${Math.floor(secs / 60)}m ago`;
-  return <span style={{ fontSize: 9.5, color: t.ink(.22), fontVariantNumeric: "tabular-nums" }}>Updated {txt}</span>;
+  // Honest label: this counts seconds since mount, it does not reflect an
+  // actual data refresh — was previously "Updated {txt}", which read as a
+  // live-refresh timestamp.
+  return <span style={{ fontSize: 9.5, color: t.ink(.22), fontVariantNumeric: "tabular-nums" }}>Demo · {txt}</span>;
 }
 
 // ── HEARTBEAT ─────────────────────────────────────────────────────────────────
@@ -458,7 +461,15 @@ export default function CommandPage() {
             <div style={{ height: 1, background: t.ink(.05), marginBottom: 12 }} />
           </div>
         )}
-        {/* Operational alerts */}
+        {/* Operational alerts — static sample data (see the ALERTS
+            constant), unlike the real Client Requests above sourced from
+            /api/admin/pipeline. Labelled so the two don't blend together
+            in one "Active Alerts" panel with no way to tell which is
+            which. */}
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+          <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: ".10em", color: "rgba(251,191,36,.60)", textTransform: "uppercase" }}>Operational Alerts</span>
+          <span style={{ fontSize: 8.5, fontWeight: 700, letterSpacing: ".06em", color: "rgba(251,191,36,.75)", background: "rgba(251,191,36,.10)", border: "1px solid rgba(251,191,36,.22)", borderRadius: 3, padding: "1px 5px" }}>DEMO</span>
+        </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(210px,1fr))", gap: 9 }}>
           {ALERTS.map(alert => {
             const s = S[alert.status];
@@ -670,6 +681,22 @@ export default function CommandPage() {
         <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 10.5, color: t.ink(.20), letterSpacing: ".03em" }}>
           <span>Command Centre</span><span style={{ opacity: .35 }}>/</span><span style={{ color: "rgba(167,139,250,.55)" }}>Operations</span>
         </div>
+        {/* Global demo-environment indicator — Command Centre mixes real,
+            organisation-scoped KPI data (waste/kerbside/dumping/CRM tabs,
+            all fetched from live API routes) with entirely static sample
+            content (alerts, system status, changes feed — see the
+            panel-level tags below). One clear marker here, rather than
+            labelling every row, per this round's own preferred approach.
+            This lives in command/page.tsx only, not the shared
+            WorkspaceShell component — bin-maintenance (a real operational
+            page using the same shell) must not be affected. */}
+        <span style={{
+          fontSize: 9, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase",
+          color: "rgba(251,191,36,.75)", background: "rgba(251,191,36,.08)",
+          border: "1px solid rgba(251,191,36,.22)", borderRadius: 4, padding: "2px 7px",
+        }}>
+          Demo Environment
+        </span>
         <div style={{ flex: 1 }} />
         <Link href="/command/organiser" style={{ display: "flex", alignItems: "center", gap: 4, textDecoration: "none", color: t.ink(.22), fontSize: 10.5, transition: "color .14s" }}
           onMouseEnter={e => (e.currentTarget.style.color = "rgba(167,139,250,.85)")}
