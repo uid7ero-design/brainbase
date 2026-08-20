@@ -12,6 +12,7 @@ type FounderIntelResponse = {
   system_alerts: string[];
   confidence: number;
   generated_at: string;
+  source?: 'live' | 'demo';
 };
 
 const MOCK: FounderIntelResponse = {
@@ -57,7 +58,7 @@ export async function GET() {
       });
       if (res.ok) {
         const data = await res.json() as FounderIntelResponse;
-        return NextResponse.json(data);
+        return NextResponse.json({ ...data, source: 'live' });
       }
       console.warn('[founder-intelligence] backend responded', res.status, '— falling back to mock');
     } catch (err) {
@@ -65,6 +66,8 @@ export async function GET() {
     }
   }
 
-  // Backend unavailable or not configured — return mock with a fresh timestamp.
-  return NextResponse.json({ ...MOCK, generated_at: new Date().toISOString() });
+  // Backend unavailable or not configured — return mock with a fresh
+  // timestamp, explicitly flagged as demo data so the UI never presents it
+  // as real (see FounderPage's demo-data banner in app/admin/founder/page.tsx).
+  return NextResponse.json({ ...MOCK, generated_at: new Date().toISOString(), source: 'demo' });
 }

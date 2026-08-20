@@ -15,7 +15,7 @@ const getRouteSource = fs.readFileSync(GET_ROUTE_PATH, 'utf-8')
 
 describe('GET /api/dashboard/sessions — no write side effect (regression guard)', () => {
   it('the GET function body itself contains no reconcile call — only the SELECT and its fallback', () => {
-    const getStart = getRouteSource.indexOf('export async function GET()')
+    const getStart = getRouteSource.indexOf('export async function GET(req: NextRequest)')
     const postStart = getRouteSource.indexOf('export async function POST(')
     expect(getStart).toBeGreaterThan(-1)
     expect(postStart).toBeGreaterThan(getStart)
@@ -47,7 +47,7 @@ describe('app/dashboard/sessions/page.tsx — the automatic reconcile trigger is
   })
 
   it('the call is chained with .then()/.catch() (awaited to completion), not fired as an unhandled void call', () => {
-    const block = pageSource.match(/fetch\(`\$\{API\}\/reconcile`, \{ method: 'POST' \}\)[\s\S]{0,600}/)
+    const block = pageSource.match(/fetch\(`\$\{API\}\/reconcile`, \{ method: 'POST' \}\)[\s\S]{0,700}/)
     expect(block).not.toBeNull()
     expect(block![0]).toContain('.then(r => r.ok ? r.json()')
     expect(block![0]).toContain('.catch(')

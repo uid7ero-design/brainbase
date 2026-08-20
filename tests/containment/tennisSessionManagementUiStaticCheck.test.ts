@@ -39,9 +39,19 @@ describe('app/dashboard/sessions/page.tsx — Manage Sessions modal replaces the
     const fnStart = source.indexOf('function ManageSessionsModal(')
     const fnEnd = source.indexOf('\n// ─── Calendar')
     const body = source.slice(fnStart, fnEnd)
-    // Sorted straight from the full `sessions` prop, no instance-based filter.
-    expect(body).toContain('const sorted = [...sessions].sort(')
-    expect(body).not.toMatch(/sessions\.filter\(/)
+    // Sorted from the full `sessions` prop (via the active/archived
+    // toggle's `visible` selection below) — no instance-based filter was
+    // ever applied here, and still isn't; a session with zero visible
+    // calendar instances is exactly the case this modal exists to reach.
+    expect(body).toContain('const sorted = [...visible].sort(')
+    expect(body).not.toMatch(/instances\.filter\(|calendarInstances\.filter\(/)
+  })
+
+  it('the only filter Manage Sessions applies is the intentional active/archived toggle (default active-only, "Show archived" reveals everything)', () => {
+    const fnStart = source.indexOf('function ManageSessionsModal(')
+    const fnEnd = source.indexOf('\n// ─── Calendar')
+    const body = source.slice(fnStart, fnEnd)
+    expect(body).toContain('const visible = showArchived ? sessions : sessions.filter(s => !s.archived_at)')
   })
 
   it('the page hierarchy reads: header -> calendar controls/date heading -> calendar -> selected detail — Manage Sessions renders only on demand, not inline in that flow', () => {

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import type { NextRequest } from 'next/server'
 
 const requireRoleMock = vi.fn()
 vi.mock('@/lib/org', () => ({
@@ -12,12 +13,16 @@ vi.mock('@/lib/db', () => ({
 
 const { GET } = await import('@/app/api/dashboard/sessions/route')
 
+function listRequest(): NextRequest {
+  return new Request('http://localhost/api/dashboard/sessions') as unknown as NextRequest
+}
+
 describe('GET /api/dashboard/sessions — session-level PLAYERS/enrolled_count semantics', () => {
   beforeEach(() => { requireRoleMock.mockReset(); sqlMock.mockReset() })
 
   it('denies a caller below viewer', async () => {
     requireRoleMock.mockRejectedValue(new Error('Forbidden'))
-    const res = await GET()
+    const res = await GET(listRequest())
     expect(res.status).toBe(403)
   })
 
@@ -27,7 +32,7 @@ describe('GET /api/dashboard/sessions — session-level PLAYERS/enrolled_count s
     // itself — the real semantics are proven against a live database in
     // tests/containment/tennisSessionPlayerCount.integration.test.ts.
     sqlMock.mockResolvedValueOnce([])
-    await GET()
+    await GET(listRequest())
     const querySql = (sqlMock.mock.calls[0][0] as string[]).join('')
     expect(querySql).toContain('COUNT(DISTINCT COALESCE(b.recurring_group_id, b.id))')
     // Regression guard: must not regress to the old total-row-count form.
@@ -37,7 +42,7 @@ describe('GET /api/dashboard/sessions — session-level PLAYERS/enrolled_count s
   it('performs no write: exactly one sql call (the SELECT), nothing else — reconciliation is not a side effect of this GET', async () => {
     requireRoleMock.mockResolvedValue({ userId: 'u1', organisationId: 'org-a', role: 'manager', name: 'Luke' })
     sqlMock.mockResolvedValueOnce([{ id: 's1', day_of_week: 1, start_time: '10:00', enrolled_count: 0 }])
-    await GET()
+    await GET(listRequest())
     // If GET still fired reconcileFutureInstances (INSERT/UPDATE session_instances,
     // SELECT for protected bookings, etc.) there would be more than one call here.
     expect(sqlMock).toHaveBeenCalledTimes(1)
