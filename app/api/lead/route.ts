@@ -48,12 +48,15 @@ export async function POST(request: NextRequest): Promise<Response> {
   }
 
   // Store lead in DB if org is configured
+  let leadId: string | null = null;
   if (LD_TENNIS_ORG_ID) {
     try {
-      await sql`
+      const leadRows = await sql`
         INSERT INTO tennis_leads (organisation_id, name, email, phone, session_type, message)
         VALUES (${LD_TENNIS_ORG_ID}, ${body.name}, ${body.email}, ${body.phone ?? null}, ${body.sessionType ?? null}, ${body.message ?? null})
+        RETURNING id
       `;
+      leadId = (leadRows[0]?.id as string) ?? null;
     } catch (err) {
       console.error('[/api/lead] DB insert error:', err);
     }
@@ -65,6 +68,39 @@ export async function POST(request: NextRequest): Promise<Response> {
       `;
     } catch (err) {
       console.error('[/api/lead] contacts insert error:', err);
+    }
+
+    // Pipeline visibility (additive, not the canonical record) — mirrors
+    // app/api/tennis/book/route.ts's client_pipeline insert shape so a
+    // website enquiry surfaces alongside session bookings in the existing
+    // LD Tennis pipeline UI. tennis_leads (above) is already written and
+    // remains canonical; only runs if that write actually produced an id,
+    // and its own failure is logged and swallowed — it must never affect
+    // the response, the contact upsert, or the email notification below.
+    if (leadId) {
+      try {
+        const enquiryDetails = [
+          body.sessionType && `Session: ${body.sessionType}`,
+          `Email: ${body.email}`,
+          body.phone && `Phone: ${body.phone}`,
+          body.message && `Message: ${body.message}`,
+        ].filter(Boolean).join(' · ');
+
+        await sql`
+          INSERT INTO client_pipeline (organisation_id, type, title, description, status, priority, submitted_by_name)
+          VALUES (
+            ${LD_TENNIS_ORG_ID},
+            'request',
+            ${`Website Enquiry — ${body.name}`},
+            ${enquiryDetails},
+            'new',
+            'medium',
+            ${body.name}
+          )
+        `;
+      } catch (err) {
+        console.error(`[/api/lead] pipeline sync failed for lead ${leadId}:`, err);
+      }
     }
   }
 
