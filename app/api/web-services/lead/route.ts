@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import { headers } from 'next/headers';
 import sql from '@/lib/db';
 import { sendEmail, webServiceLeadEmail } from '@/lib/email';
+import { resolveEmailConfig } from '@/lib/emailConfig';
 import { checkRateLimit } from '@/lib/rateLimit';
 
 const EMAIL_RE      = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -74,21 +75,36 @@ export async function POST(req: Request) {
   `;
   const lead = rows[0];
 
-  // ── Email notification (fire-and-forget) ─────────────────────────────────
-  const adminEmail = process.env.ADMIN_EMAIL ?? 'uid7ero@gmail.com';
-  sendEmail({
-    to: adminEmail,
-    ...webServiceLeadEmail({
-      id:              lead.id as string,
-      fullName,
-      businessName:    businessName  ?? '',
-      email,
-      phone:           phone         ?? '',
-      serviceInterest,
-      budgetRange:     budgetRange   ?? '',
-      projectDesc:     projectDesc   ?? '',
-    }),
-  }).catch(err => console.error('[web-lead] notification email failed:', err));
+  // ── Email notification ────────────────────────────────────────────────────
+  // This route isn't tied to any organisation, so it's always resolved with
+  // a null org id — that deterministically takes resolveEmailConfig's
+  // generic BrainBase branch (EMAIL_FROM / MAIL_TO), never LD Tennis's
+  // dedicated config, which only matches an exact LD_TENNIS_ORG_ID.
+  const { to: notifyEmail } = resolveEmailConfig(null);
+
+  // Awaited (not fire-and-forget): on Vercel's serverless runtime, an
+  // unawaited promise left running after the response is sent isn't
+  // guaranteed to finish before the invocation is frozen. The DB insert
+  // above already succeeded and is authoritative — a failed notification
+  // here is logged, not thrown, so it never costs the caller their
+  // otherwise-successful lead submission.
+  try {
+    await sendEmail({
+      to: notifyEmail,
+      ...webServiceLeadEmail({
+        id:              lead.id as string,
+        fullName,
+        businessName:    businessName  ?? '',
+        email,
+        phone:           phone         ?? '',
+        serviceInterest,
+        budgetRange:     budgetRange   ?? '',
+        projectDesc:     projectDesc   ?? '',
+      }),
+    });
+  } catch (err) {
+    console.error(`[web-lead] notification email failed for lead ${lead.id}:`, err);
+  }
 
   return NextResponse.json({ success: true, id: lead.id }, { status: 201 });
 }
