@@ -63,17 +63,22 @@ export async function POST(req: NextRequest) {
     const dateLabel = new Date(inst.date + 'T00:00:00').toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long' })
     const pipelineTitle = `${inst.session_name} — ${dateLabel}`
 
+    // No submitted_by_name column on client_pipeline (its only
+    // submitter-linking column is submitted_by, a users.id FK — see
+    // app/api/admin/pipeline/route.ts's `u.name AS submitted_by_name` JOIN
+    // alias). There's no real user row for an anonymous public booking, so
+    // the booker's name is folded into the description instead, since
+    // pipelineTitle (session name + date) doesn't otherwise carry it.
     await sql`
-      INSERT INTO client_pipeline (id, organisation_id, type, title, description, status, priority, submitted_by_name)
+      INSERT INTO client_pipeline (id, organisation_id, type, title, description, status, priority)
       VALUES (
         ${pipelineId}::uuid,
         ${ORG_ID},
         'request',
         ${pipelineTitle},
-        ${`Booked via website · ${inst.session_type} · ${inst.start_time}${body.phone ? ' · ' + body.phone : ''}`},
+        ${`Booked by ${body.name.trim()} via website · ${inst.session_type} · ${inst.start_time}${body.phone ? ' · ' + body.phone : ''}`},
         'new',
-        'medium',
-        ${body.name.trim()}
+        'medium'
       )
     `
 
