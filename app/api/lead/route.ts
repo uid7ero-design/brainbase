@@ -47,16 +47,17 @@ export async function POST(request: NextRequest): Promise<Response> {
     return NextResponse.json({ success: false, message: 'Name, email, and preferred time are required.' }, { status: 422 });
   }
 
-  // Store lead in DB if org is configured
-  let leadId: string | null = null;
+  // Store lead in DB if org is configured. tennis_leads is the sole
+  // canonical record for a website enquiry — it is NOT mirrored into
+  // client_pipeline. client_pipeline/"Requests" is for founder/client
+  // request threads (and /tennis/book's session bookings), not sales-lead
+  // workflow; do not build lead behaviour on top of it.
   if (LD_TENNIS_ORG_ID) {
     try {
-      const leadRows = await sql`
+      await sql`
         INSERT INTO tennis_leads (organisation_id, name, email, phone, session_type, message)
         VALUES (${LD_TENNIS_ORG_ID}, ${body.name}, ${body.email}, ${body.phone ?? null}, ${body.sessionType ?? null}, ${body.message ?? null})
-        RETURNING id
       `;
-      leadId = (leadRows[0]?.id as string) ?? null;
     } catch (err) {
       console.error('[/api/lead] DB insert error:', err);
     }
@@ -68,45 +69,6 @@ export async function POST(request: NextRequest): Promise<Response> {
       `;
     } catch (err) {
       console.error('[/api/lead] contacts insert error:', err);
-    }
-
-    // Pipeline visibility (additive, not the canonical record) — mirrors
-    // app/api/tennis/book/route.ts's client_pipeline insert shape so a
-    // website enquiry surfaces alongside session bookings in the existing
-    // LD Tennis pipeline UI. tennis_leads (above) is already written and
-    // remains canonical; only runs if that write actually produced an id,
-    // and its own failure is logged and swallowed — it must never affect
-    // the response, the contact upsert, or the email notification below.
-    //
-    // No submitted_by_name column: client_pipeline's only submitter-linking
-    // column is submitted_by (a users.id FK, populated via the admin-pipeline
-    // JOIN's `u.name AS submitted_by_name` alias — see app/api/admin/pipeline/route.ts).
-    // There's no real user row for an anonymous public enquiry, so the name
-    // is carried in the title instead, exactly like the request-demo pipeline
-    // entry already does.
-    if (leadId) {
-      try {
-        const enquiryDetails = [
-          body.sessionType && `Session: ${body.sessionType}`,
-          `Email: ${body.email}`,
-          body.phone && `Phone: ${body.phone}`,
-          body.message && `Message: ${body.message}`,
-        ].filter(Boolean).join(' · ');
-
-        await sql`
-          INSERT INTO client_pipeline (organisation_id, type, title, description, status, priority)
-          VALUES (
-            ${LD_TENNIS_ORG_ID},
-            'request',
-            ${`Website Enquiry — ${body.name}`},
-            ${enquiryDetails},
-            'new',
-            'medium'
-          )
-        `;
-      } catch (err) {
-        console.error(`[/api/lead] pipeline sync failed for lead ${leadId}:`, err);
-      }
     }
   }
 
