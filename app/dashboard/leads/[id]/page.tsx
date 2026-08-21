@@ -4,6 +4,7 @@ import sql from '@/lib/db';
 import Link from 'next/link';
 import DeleteLeadButton from './DeleteLeadButton';
 import LeadStatusPicker from './LeadStatusPicker';
+import ConvertToSquadButton from './ConvertToSquadButton';
 
 const statusStyles: Record<string, string> = {
   new:         'bg-green-500/10 text-green-400 border-green-500/20',
@@ -38,6 +39,18 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
 
   if (rows.length === 0) notFound();
   const lead = rows[0];
+
+  // Same identity link the conversion endpoint uses (org + case-insensitive
+  // email) — only to derive whether the "Add to Squad" button should render
+  // as already-converted; the endpoint itself re-derives this server-side.
+  const squadRows = await sql`
+    SELECT status FROM contacts
+    WHERE organisation_id = ${session.organisationId}
+      AND LOWER(email) = LOWER(${lead.email as string})
+    LIMIT 1
+  `;
+  const inSquad = squadRows[0]?.status === 'active';
+  const canOfferSquad = inSquad || ['new', 'contacted', 'in_progress'].includes(lead.status as string);
 
   const receivedAt = new Date(lead.created_at as string);
 
@@ -88,7 +101,10 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
             </a>
           )}
         </div>
-        <DeleteLeadButton leadId={lead.id as string} />
+        <div className="flex items-center gap-4">
+          {canOfferSquad && <ConvertToSquadButton leadId={lead.id as string} initialInSquad={inSquad} />}
+          <DeleteLeadButton leadId={lead.id as string} />
+        </div>
       </div>
     </div>
   );
