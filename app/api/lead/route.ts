@@ -77,6 +77,13 @@ export async function POST(request: NextRequest): Promise<Response> {
     // remains canonical; only runs if that write actually produced an id,
     // and its own failure is logged and swallowed — it must never affect
     // the response, the contact upsert, or the email notification below.
+    //
+    // No submitted_by_name column: client_pipeline's only submitter-linking
+    // column is submitted_by (a users.id FK, populated via the admin-pipeline
+    // JOIN's `u.name AS submitted_by_name` alias — see app/api/admin/pipeline/route.ts).
+    // There's no real user row for an anonymous public enquiry, so the name
+    // is carried in the title instead, exactly like the request-demo pipeline
+    // entry already does.
     if (leadId) {
       try {
         const enquiryDetails = [
@@ -87,15 +94,14 @@ export async function POST(request: NextRequest): Promise<Response> {
         ].filter(Boolean).join(' · ');
 
         await sql`
-          INSERT INTO client_pipeline (organisation_id, type, title, description, status, priority, submitted_by_name)
+          INSERT INTO client_pipeline (organisation_id, type, title, description, status, priority)
           VALUES (
             ${LD_TENNIS_ORG_ID},
             'request',
             ${`Website Enquiry — ${body.name}`},
             ${enquiryDetails},
             'new',
-            'medium',
-            ${body.name}
+            'medium'
           )
         `;
       } catch (err) {

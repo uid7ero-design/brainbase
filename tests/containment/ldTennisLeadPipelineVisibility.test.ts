@@ -144,11 +144,16 @@ describe('POST /api/lead — new client_pipeline visibility row', () => {
   it('type/status/priority are request/new/medium — inserted as fixed SQL literals, not caller-influenced values', async () => {
     await POST(jsonRequest(VALID_BODY))
     const [call] = callsMatching('INSERT INTO client_pipeline')
-    // 'request'/'new'/'medium' are literal text in the query (mirroring
-    // tennis/book/route.ts's own insert), not ${}-interpolated — so they
-    // never appear in the captured `values` array at all; assert on the
-    // query text instead, and confirm the columns are declared in this order.
-    expect(call.text).toContain('(organisation_id, type, title, description, status, priority, submitted_by_name)')
+    // 'request'/'new'/'medium' are literal text in the query, not
+    // ${}-interpolated — so they never appear in the captured `values`
+    // array; assert on the query text instead. No submitted_by_name column:
+    // client_pipeline's production schema has no such column (its only
+    // submitter-linking column is submitted_by, a users.id FK) — see
+    // app/api/admin/pipeline/route.ts's `u.name AS submitted_by_name` JOIN
+    // alias, which is where that name actually comes from when it's a real
+    // authenticated user, not raw insertable text.
+    expect(call.text).toContain('(organisation_id, type, title, description, status, priority)')
+    expect(call.text).not.toContain('submitted_by_name')
     expect(call.text).toMatch(/'request'/)
     expect(call.text).toMatch(/'new'/)
     expect(call.text).toMatch(/'medium'/)
@@ -157,14 +162,8 @@ describe('POST /api/lead — new client_pipeline visibility row', () => {
   it('the title identifies it as a website enquiry, including the lead name', async () => {
     await POST(jsonRequest(VALID_BODY))
     const [call] = callsMatching('INSERT INTO client_pipeline')
-    // values order (only the ${}-interpolated ones): organisation_id, title, description, submitted_by_name
+    // values order (only the ${}-interpolated ones): organisation_id, title, description
     expect(call.values[1]).toBe('Website Enquiry — Jamie Client')
-  })
-
-  it('submitted_by_name carries the lead name', async () => {
-    await POST(jsonRequest(VALID_BODY))
-    const [call] = callsMatching('INSERT INTO client_pipeline')
-    expect(call.values[3]).toBe('Jamie Client')
   })
 
   it('the description represents session type, email, phone, and message', async () => {
@@ -256,20 +255,8 @@ describe('POST /api/lead — pipeline insert failure handling', () => {
   })
 })
 
-describe('/tennis/book is unaffected by this change', () => {
-  it('app/api/tennis/book/route.ts source is untouched — still writes client_pipeline, bookings, and pipeline_messages the same way', () => {
-    const source = fs.readFileSync(
-      path.resolve(__dirname, '../../app/api/tennis/book/route.ts'),
-      'utf-8',
-    )
-    expect(source).toContain('INSERT INTO client_pipeline (id, organisation_id, type, title, description, status, priority, submitted_by_name)')
-    expect(source).toContain('INSERT INTO bookings (')
-    expect(source).toContain('INSERT INTO pipeline_messages')
-    // No new dependency on app/api/lead/route.ts or its pipeline-sync logic
-    expect(source).not.toContain('pipeline sync failed')
-  })
-
-  it('app/api/lead/route.ts does not touch the bookings or pipeline_messages tables', () => {
+describe('app/api/lead/route.ts stays scoped to its own tables', () => {
+  it('does not touch the bookings or pipeline_messages tables', () => {
     const source = fs.readFileSync(
       path.resolve(__dirname, '../../app/api/lead/route.ts'),
       'utf-8',
@@ -277,4 +264,23 @@ describe('/tennis/book is unaffected by this change', () => {
     expect(source).not.toContain('INSERT INTO bookings')
     expect(source).not.toContain('INSERT INTO pipeline_messages')
   })
+})
+
+describe('no writer anywhere in the repo re-introduces the non-existent submitted_by_name column', () => {
+  const WRITER_FILES = [
+    'app/api/lead/route.ts',
+    'app/api/tennis/book/route.ts',
+  ]
+  for (const rel of WRITER_FILES) {
+    it(`${rel}'s INSERT INTO client_pipeline column list never includes submitted_by_name`, () => {
+      const source = fs.readFileSync(path.resolve(__dirname, '../..', rel), 'utf-8')
+      // Scoped to the actual column-list parens after "INSERT INTO
+      // client_pipeline" — deliberately not a blanket string ban, since
+      // explanatory comments in these files legitimately name the column
+      // when documenting why it's absent.
+      const columnListMatch = source.match(/INSERT INTO client_pipeline\s*\(([^)]*)\)/)
+      expect(columnListMatch).not.toBeNull()
+      expect(columnListMatch![1]).not.toContain('submitted_by_name')
+    })
+  }
 })
