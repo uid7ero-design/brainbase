@@ -82,7 +82,7 @@ export async function PATCH(
     WHERE id = ${id}
     RETURNING
       id, created_at, updated_at, full_name, business_name, email,
-      phone, website_url, service_interest, budget_range,
+      phone, website_url, business_type, service_interest, budget_range,
       project_description, status, source, notes, priority, score, pipeline_notes
   `;
 
