@@ -5,6 +5,7 @@ import Link from 'next/link';
 import DeleteLeadButton from './DeleteLeadButton';
 import LeadStatusPicker from './LeadStatusPicker';
 import ConvertToSquadButton from './ConvertToSquadButton';
+import LeadMessaging from './LeadMessaging';
 
 const statusStyles: Record<string, string> = {
   new:         'bg-green-500/10 text-green-400 border-green-500/20',
@@ -83,6 +84,8 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
           <Field label="Message" value={lead.message as string} />
         </div>
       </div>
+
+      <LeadMessaging leadId={lead.id as string} leadName={lead.name as string} leadEmail={lead.email as string} />
 
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="flex gap-3">
