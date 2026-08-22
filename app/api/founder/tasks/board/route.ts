@@ -2,17 +2,23 @@ import 'server-only';
 import { NextResponse } from 'next/server';
 import { getAuthSession } from '@/lib/authSession';
 import sql from '@/lib/db';
-import { resolveBrainbaseOrgId, resolveFounderBoard } from '@/lib/founder/tasksBoard';
+import { resolveBrainbaseOrgId, resolveFounderBoard, FOUNDER_BOARD_NAME } from '@/lib/founder/tasksBoard';
 
 // Explicit, founder-initiated board creation — never automatic/silent.
-// Per the Phase D audit: whether BrainBase's organisation already has a
-// suitable Organiser board could not be verified from the repository
-// alone (that's Production data, not code). Rather than guess or seed one
-// automatically, GET /api/founder/tasks reports board: null when none
-// exists, and the founder must explicitly trigger this endpoint to create
-// one. If a board already exists, this is a deliberate no-op (409) —
-// Founder OS Tasks always uses the first existing board once one is
-// present, it never creates a second one.
+// Production verification found BrainBase's org already has two other
+// Organiser boards ("WORK", "Tafe") with real content — this endpoint must
+// never adopt, rename, or write to either of them. resolveFounderBoard()
+// (shared with GET/PATCH) checks for an existing board named EXACTLY
+// "Founder Tasks" first; WORK/Tafe never match that name, so they cannot be
+// returned here, adopted, or duplicated. If a "Founder Tasks" board already
+// exists, this is a deliberate, idempotent no-op (409) — never a second
+// "Founder Tasks" board. No group is created alongside the board: the
+// canonical Organiser item-creation route (app/api/organiser/boards/
+// [boardId]/items/route.ts) already treats group_id as fully optional
+// (items with a NULL group_id render under the Organiser UI's own built-in
+// "No group" section — see app/command/organiser/page.tsx), so a group is
+// not required for the board to function correctly and none is guessed
+// into existence here.
 export async function POST() {
   let session;
   try {
@@ -35,9 +41,18 @@ export async function POST() {
       return NextResponse.json({ error: 'A Founder Tasks board already exists', board: existing }, { status: 409 });
     }
 
+    // Appended after every existing board (matches the canonical
+    // app/api/organiser/boards/route.ts POST's own position convention) —
+    // never hardcoded to 0, which would collide with WORK's existing
+    // position 0 and disturb its ordering in the Organiser UI.
+    const posRows = await sql`
+      SELECT COALESCE(MAX(position), -1) + 1 AS next FROM organiser_boards WHERE organisation_id = ${orgId}
+    `;
+    const position = posRows[0].next as number;
+
     const rows = await sql`
       INSERT INTO organiser_boards (organisation_id, name, position, created_by)
-      VALUES (${orgId}, 'Founder Tasks', 0, ${session.userId})
+      VALUES (${orgId}, ${FOUNDER_BOARD_NAME}, ${position}, ${session.userId})
       RETURNING id, name
     `;
 
