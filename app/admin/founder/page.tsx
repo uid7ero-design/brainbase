@@ -135,10 +135,12 @@ type Client = {
 // PIPELINE (7 fake council clients), TASKS, MRR_POINTS, SERVICES, USAGE,
 // DEMOS, ACTIVITY, RECOMMENDATIONS, and SIGNALS were removed here — none had
 // an authoritative Production source (see the Phase B report's KPI/data
-// authority map). ClientPipeline, FounderTasks, RevenueIntel, SystemHealth,
-// ProductUsage, LiveContext, AiRecommendations, and ActivityFeed now render
-// an honest "Not connected" state in their place, or (ClientPipeline) an
-// empty state driven by the existing real founder-clients fetch.
+// authority map). ClientPipeline, RevenueIntel, SystemHealth, ProductUsage,
+// LiveContext, AiRecommendations, and ActivityFeed now render an honest
+// "Not connected" state in their place, or (ClientPipeline) an empty state
+// driven by the existing real founder-clients fetch. Founder tasks
+// (FounderTaskSummary/FounderTasksPanel) were reconnected in Phase D to the
+// real, authoritative Organiser board — see lib/founder/tasksBoard.ts.
 
 // ─── Tokens ───────────────────────────────────────────────────────────────────
 
@@ -861,21 +863,304 @@ const HEALTH_META: Record<string, { label: string; color: string }> = {
 };
 
 // ─── Founder tasks ────────────────────────────────────────────────────────────
-// Phase B: no authoritative task/follow-up table exists anywhere in the
-// schema (client-side "done" toggling on the old TASKS mock was never
-// persisted). Shown as not-connected rather than removed, so the shell
-// stays available for a future Client Implementations-style task system.
+// Founder OS Phase D. Real, persisted tasks — no mock, no "not connected"
+// placeholder. Backed by the existing, authoritative Organiser system
+// (organiser_boards/organiser_items — the exact tables /command/organiser
+// itself uses), scoped server-side to BrainBase's own board via the
+// GET/POST/PATCH /api/founder/tasks* adapter (see lib/founder/tasksBoard.ts
+// and app/api/founder/tasks/**). Founder OS does not own a second task
+// database; Organiser remains the sole persistence layer. status/priority
+// options below are copied verbatim from app/command/organiser/page.tsx's
+// own STATUS_OPTIONS/PRIORITY_OPTIONS — not a parallel vocabulary, so a
+// task created here looks identical when viewed in the canonical Organiser
+// UI. owner remains free text, matching organiser_items.owner's real
+// column type — not redesigned into a user picker in this phase.
 
-function FounderTasks() {
+type FounderTaskItem = {
+  id: string; title: string; status: string; priority: string | null;
+  owner: string | null; dueDate: string | null; notes: string | null;
+  createdAt: string; updatedAt: string;
+};
+type FounderTaskGroups = {
+  overdue: FounderTaskItem[]; today: FounderTaskItem[]; upcoming: FounderTaskItem[];
+  noDueDate: FounderTaskItem[]; completed: FounderTaskItem[];
+};
+const TASK_STATUS_OPTIONS = ['Not Started', 'Working on it', 'Stuck', 'Done'];
+const TASK_PRIORITY_OPTIONS = ['', 'Low', 'Medium', 'High', 'Critical'];
+const TASK_PRIORITY_COLOR: Record<string, string> = {
+  Critical: '#f87171', High: '#fb923c', Medium: '#fbbf24', Low: T.dim,
+};
+const EMPTY_TASK_GROUPS: FounderTaskGroups = { overdue: [], today: [], upcoming: [], noDueDate: [], completed: [] };
+
+function useFounderTasks() {
+  const [board, setBoard] = useState<{ id: string; name: string } | null>(null);
+  const [groups, setGroups] = useState<FounderTaskGroups>(EMPTY_TASK_GROUPS);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+  const [creatingBoard, setCreatingBoard] = useState(false);
+
+  const load = () => {
+    fetch('/api/founder/tasks')
+      .then(r => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((d: { board?: { id: string; name: string } | null; groups?: FounderTaskGroups }) => {
+        setBoard(d.board ?? null);
+        setGroups(d.groups ?? EMPTY_TASK_GROUPS);
+      })
+      .catch(() => setLoadError(true))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const createBoard = async () => {
+    setCreatingBoard(true);
+    try {
+      const res = await fetch('/api/founder/tasks/board', { method: 'POST' });
+      if (res.ok || res.status === 409) load();
+    } finally {
+      setCreatingBoard(false);
+    }
+  };
+
+  // Optimistic local patch, applied to every group (a status change can
+  // move a task between buckets, so the caller follows up with reload()
+  // once the request settles to re-derive correct grouping).
+  const patchLocalTask = (id: string, patch: Partial<FounderTaskItem>) => {
+    setGroups(prev => {
+      const next: FounderTaskGroups = { overdue: [], today: [], upcoming: [], noDueDate: [], completed: [] };
+      for (const key of Object.keys(prev) as (keyof FounderTaskGroups)[]) {
+        next[key] = prev[key].map(t => (t.id === id ? { ...t, ...patch } : t));
+      }
+      return next;
+    });
+  };
+
+  return { board, groups, loading, loadError, createBoard, creatingBoard, reload: load, patchLocalTask };
+}
+
+function taskCount(groups: FounderTaskGroups): number {
+  return groups.overdue.length + groups.today.length + groups.upcoming.length + groups.noDueDate.length;
+}
+
+// ── Overview: compact summary only — deliberately not the full list, and
+// deliberately not folded into the existing Attention Queue endpoint (see
+// the Phase D report for why: avoiding coupling this new, independent
+// adapter to the established, protected attention-queue aggregation).
+function FounderTaskSummary() {
+  const { board, groups, loading, loadError } = useFounderTasks();
+
   return (
     <Card style={{ padding: '13px 15px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
         <Lbl s="Founder tasks" />
       </div>
-      <div style={{ padding: '14px', textAlign: 'center', borderRadius: 6, border: `1px dashed ${T.border}` }}>
-        <div style={{ fontSize: 11, color: T.dim }}>Not connected</div>
-        <div style={{ fontSize: 10, color: T.dim, marginTop: 3 }}>No authoritative task/follow-up source exists yet.</div>
+      {loading ? (
+        <div style={{ fontSize: 11, color: T.dim }}>Loading…</div>
+      ) : loadError ? (
+        <div style={{ padding: '14px', textAlign: 'center', borderRadius: 6, border: `1px dashed ${T.border}` }}>
+          <div style={{ fontSize: 11, color: T.dim }}>Not connected</div>
+        </div>
+      ) : !board ? (
+        <div style={{ padding: '14px', textAlign: 'center', borderRadius: 6, border: `1px dashed ${T.border}` }}>
+          <div style={{ fontSize: 11, color: T.dim }}>No task board yet</div>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', gap: 10 }}>
+          <SnapshotTile label="Overdue" value={String(groups.overdue.length)} />
+          <SnapshotTile label="Due today" value={String(groups.today.length)} />
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function TaskRow({ task, onUpdate }: { task: FounderTaskItem; onUpdate: (id: string, patch: Record<string, unknown>) => void }) {
+  const done = task.status === 'Done';
+  return (
+    <div style={{
+      display: 'grid', gridTemplateColumns: '20px 2fr 110px 100px 1fr 90px', gap: 8, alignItems: 'center',
+      padding: '6px 8px', borderRadius: 5, background: 'rgba(255,255,255,0.018)', border: `1px solid ${T.border}`,
+      opacity: done ? 0.55 : 1,
+    }}>
+      <button
+        onClick={() => onUpdate(task.id, { status: done ? 'Not Started' : 'Done' })}
+        title={done ? 'Reopen' : 'Mark complete'}
+        style={{
+          width: 16, height: 16, borderRadius: 4, cursor: 'pointer',
+          border: `1.5px solid ${done ? T.green : 'rgba(255,255,255,0.25)'}`,
+          background: done ? T.green : 'transparent', color: '#fff', fontSize: 10,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+        }}
+      >{done ? '✓' : ''}</button>
+      <span style={{ fontSize: 12, color: done ? T.sub : T.text, textDecoration: done ? 'line-through' : 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{task.title}</span>
+      <select
+        value={task.priority ?? ''}
+        onChange={e => onUpdate(task.id, { priority: e.target.value || null })}
+        style={{ fontSize: 10, background: 'transparent', color: task.priority ? (TASK_PRIORITY_COLOR[task.priority] ?? T.sub) : T.dim, border: `1px solid ${T.border}`, borderRadius: 4, padding: '2px 4px' }}
+      >
+        {TASK_PRIORITY_OPTIONS.map(p => <option key={p} value={p}>{p || 'No priority'}</option>)}
+      </select>
+      <input
+        type="date"
+        value={task.dueDate ?? ''}
+        onChange={e => onUpdate(task.id, { due_date: e.target.value || null })}
+        style={{ fontSize: 10, background: 'transparent', color: T.sub, border: `1px solid ${T.border}`, borderRadius: 4, padding: '2px 4px', colorScheme: 'dark' }}
+      />
+      <input
+        type="text"
+        defaultValue={task.owner ?? ''}
+        placeholder="Owner"
+        onBlur={e => { if (e.target.value.trim() !== (task.owner ?? '')) onUpdate(task.id, { owner: e.target.value.trim() || null }); }}
+        style={{ fontSize: 10, background: 'transparent', color: T.sub, border: `1px solid ${T.border}`, borderRadius: 4, padding: '2px 4px' }}
+      />
+      <select
+        value={task.status}
+        onChange={e => onUpdate(task.id, { status: e.target.value })}
+        style={{ fontSize: 10, background: 'transparent', color: T.sub, border: `1px solid ${T.border}`, borderRadius: 4, padding: '2px 4px' }}
+      >
+        {TASK_STATUS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+      </select>
+    </div>
+  );
+}
+
+function TaskGroupSection({ label, tasks, onUpdate, defaultOpen = true }: {
+  label: string; tasks: FounderTaskItem[]; onUpdate: (id: string, patch: Record<string, unknown>) => void; defaultOpen?: boolean;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  if (tasks.length === 0) return null;
+  return (
+    <div style={{ marginBottom: 10 }}>
+      <button onClick={() => setOpen(p => !p)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+        <span style={{ fontSize: 10, color: T.dim }}>{open ? '▾' : '▸'}</span>
+        <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: T.dim }}>{label}</span>
+        <span style={{ fontSize: 10, color: T.dim }}>({tasks.length})</span>
+      </button>
+      {open && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {tasks.map(t => <TaskRow key={t.id} task={t} onUpdate={onUpdate} />)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Tasks tab: the full board. Organiser (/command/organiser) remains the
+// canonical, detailed work-management surface — this stays a focused
+// founder workflow: list, create, and the handful of updates a founder
+// actually needs (status/priority/due date/owner/complete/reopen), not a
+// second full item editor.
+function FounderTasksPanel() {
+  const { board, groups, loading, loadError, createBoard, creatingBoard, reload, patchLocalTask } = useFounderTasks();
+
+  const [showCreate, setShowCreate] = useState(false);
+  const [title, setTitle] = useState('');
+  const [priority, setPriority] = useState('');
+  const [dueDate, setDueDate] = useState('');
+  const [owner, setOwner] = useState('');
+  const [notes, setNotes] = useState('');
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+
+  const updateTask = async (id: string, patch: Record<string, unknown>) => {
+    // Optimistic local update across every group (the item's own bucket
+    // membership may change — e.g. marking Done moves it to Completed —
+    // so a full reload after the request settles keeps grouping correct).
+    patchLocalTask(id, patch as Partial<FounderTaskItem>);
+    try {
+      const res = await fetch(`/api/founder/tasks/${id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch),
+      });
+      if (!res.ok) throw new Error(String(res.status));
+    } finally {
+      reload();
+    }
+  };
+
+  const submitCreate = async () => {
+    setCreateError(null);
+    if (!title.trim()) { setCreateError('Title is required.'); return; }
+    setCreating(true);
+    try {
+      const res = await fetch('/api/founder/tasks', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: title.trim(),
+          priority: priority || undefined,
+          due_date: dueDate || undefined,
+          owner: owner.trim() || undefined,
+          notes: notes.trim() || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setCreateError(data.error ?? 'Could not create task.'); return; }
+      setShowCreate(false);
+      setTitle(''); setPriority(''); setDueDate(''); setOwner(''); setNotes('');
+      reload();
+    } catch {
+      setCreateError('Could not create task.');
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  return (
+    <Card style={{ padding: '13px 15px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Lbl s="Founder tasks" />
+          {board && <Mono size={9} color={T.dim}>{board.name}</Mono>}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <a href="/command/organiser" style={{ fontSize: 10, color: T.purple, textDecoration: 'none' }}>Open in Organiser →</a>
+          {board && <Btn small label={showCreate ? '✕ Cancel' : '+ New Task'} onClick={() => setShowCreate(p => !p)} />}
+        </div>
       </div>
+
+      {loading ? (
+        <div style={{ fontSize: 11, color: T.dim }}>Loading…</div>
+      ) : loadError ? (
+        <div style={{ padding: '14px', textAlign: 'center', borderRadius: 6, border: `1px dashed ${T.border}` }}>
+          <div style={{ fontSize: 11, color: T.dim }}>Not connected</div>
+        </div>
+      ) : !board ? (
+        <div style={{ padding: '14px', textAlign: 'center', borderRadius: 6, border: `1px dashed ${T.border}` }}>
+          <div style={{ fontSize: 11, color: T.dim, marginBottom: 8 }}>No task board yet</div>
+          <Btn small label={creatingBoard ? 'Creating…' : 'Create Founder Tasks board'} onClick={createBoard} />
+        </div>
+      ) : (
+        <>
+          {showCreate && (
+            <div style={{ marginBottom: 12, padding: 10, borderRadius: 6, border: `1px solid ${T.border}`, background: 'rgba(255,255,255,0.014)' }}>
+              {createError && <div style={{ fontSize: 10, color: T.red, marginBottom: 6 }}>{createError}</div>}
+              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: 8, marginBottom: 8 }}>
+                <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Task title" style={INPUT_S} />
+                <select value={priority} onChange={e => setPriority(e.target.value)} style={INPUT_S}>
+                  {TASK_PRIORITY_OPTIONS.map(p => <option key={p} value={p}>{p || 'No priority'}</option>)}
+                </select>
+                <input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} style={{ ...INPUT_S, colorScheme: 'dark' }} />
+                <input value={owner} onChange={e => setOwner(e.target.value)} placeholder="Owner" style={INPUT_S} />
+              </div>
+              <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Notes (optional)" rows={2} style={{ ...INPUT_S, resize: 'vertical', marginBottom: 8 }} />
+              <Btn small label={creating ? 'Creating…' : 'Create Task'} onClick={submitCreate} />
+            </div>
+          )}
+
+          {taskCount(groups) === 0 && groups.completed.length === 0 ? (
+            <div style={{ padding: '14px', textAlign: 'center', borderRadius: 6, border: `1px dashed ${T.border}` }}>
+              <div style={{ fontSize: 11, color: T.dim }}>No tasks yet</div>
+            </div>
+          ) : (
+            <>
+              <TaskGroupSection label="Overdue" tasks={groups.overdue} onUpdate={updateTask} />
+              <TaskGroupSection label="Today" tasks={groups.today} onUpdate={updateTask} />
+              <TaskGroupSection label="Upcoming" tasks={groups.upcoming} onUpdate={updateTask} />
+              <TaskGroupSection label="No due date" tasks={groups.noDueDate} onUpdate={updateTask} />
+              <TaskGroupSection label="Completed" tasks={groups.completed} onUpdate={updateTask} defaultOpen={false} />
+            </>
+          )}
+        </>
+      )}
     </Card>
   );
 }
@@ -2055,7 +2340,7 @@ export default function FounderPage() {
             <HlnaBriefing />
             <ClientPipeline onSelect={setSelectedClient} onFollowUp={doFollowUp} overrides={clientOverrides} clients={clients} loading={clientsLoading} />
             <RevenueIntel metrics={snapshotMetrics} loading={snapshotMetricsLoading} />
-            <FounderTasks />
+            <FounderTaskSummary />
           </>}
 
           {/* ── Clients ── */}
@@ -2076,7 +2361,7 @@ export default function FounderPage() {
 
           {/* ── Tasks ── */}
           {section === 'tasks' && <>
-            <FounderTasks />
+            <FounderTasksPanel />
           </>}
 
           {/* ── System ── */}
