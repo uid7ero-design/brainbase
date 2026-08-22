@@ -224,10 +224,10 @@ describe('Other Founder OS tabs/modules show honest "Not connected" states', () 
     expect(founderExecutable).not.toContain('Anthropic Series E closes')
   })
 
-  it('FounderTasks no longer renders the fake TASKS list or fake per-task done-toggling', () => {
+  it('FounderTasks no longer renders the fake TASKS list or fake per-task done-toggling (Phase D: superseded by real, persisted tasks — see founderTasks.test.ts)', () => {
     expect(founderExecutable).not.toContain('const TASKS')
     expect(founderExecutable).not.toContain('toggleTask')
-    expect(founderSource).toMatch(/function FounderTasks\(\)\s*\{/)
+    expect(founderSource).toMatch(/function FounderTasksPanel\(\)\s*\{/)
   })
 
   it('ClientPipeline no longer silently falls back to the fabricated PIPELINE fixture', () => {
