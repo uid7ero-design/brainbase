@@ -1112,7 +1112,19 @@ function FounderTasksPanel() {
           {board && <Mono size={9} color={T.dim}>{board.name}</Mono>}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <a href="/command/organiser" style={{ fontSize: 10, color: T.purple, textDecoration: 'none' }}>Open in Organiser →</a>
+          {/* Deep-links straight to the resolved Founder Tasks board
+              (?board=<id>) once one exists — never WORK/Tafe, never
+              whichever board Organiser would otherwise default to (see
+              app/command/organiser/page.tsx's board-selection fix). Falls
+              back to the plain, still-real Organiser URL (no board
+              preselected) when no Founder Tasks board has been created
+              yet — never broken, never a Command-overview link. */}
+          <Link
+            href={board ? `/command/organiser?board=${encodeURIComponent(board.id)}` : '/command/organiser'}
+            style={{ fontSize: 10, color: T.purple, textDecoration: 'none' }}
+          >
+            Open in Organiser →
+          </Link>
           {board && <Btn small label={showCreate ? '✕ Cancel' : '+ New Task'} onClick={() => setShowCreate(p => !p)} />}
         </div>
       </div>
@@ -1490,6 +1502,13 @@ function LeftSidebar({ onModal, section, setSection }: {
     { label: 'Tasks',    section: 'tasks'    },
     { label: 'System',     section: 'system'     },
     { label: 'Instagram',  section: 'instagram'  },
+    // Direct path to the real Organiser (/command/organiser) — deliberately
+    // NOT routed through /command's own demo-labelled overview page; there
+    // is no shared layout between the two routes, so this never renders
+    // any of Command's prototype content. See app/command/organiser/
+    // page.tsx's board deep-link support for the board-specific version of
+    // this link inside the Tasks tab itself.
+    { label: 'Organiser',  href: '/command/organiser' },
     { label: 'Product',    href: '/data'          },
     { label: 'Admin',    href: '/admin'      },
   ];

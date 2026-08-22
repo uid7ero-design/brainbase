@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { Suspense, useState, useEffect, useCallback, useRef } from "react";
+import { useSearchParams } from "next/navigation";
 import WorkspaceShell from "@/components/ops/WorkspaceShell";
 import { useOpsTheme } from "@/components/ops/theme";
 
@@ -916,8 +917,22 @@ function BoardRail({
 
 type ViewMode = "table" | "board" | "calendar";
 
-export default function OrganiserPage() {
+// Board deep-link (?board=<id>) — smallest addition supporting Founder OS's
+// "Open in Organiser" landing directly on a specific board (e.g. Founder
+// Tasks) instead of always defaulting to the first board by position.
+// Read once at mount; normal in-page board switching (clicking a board tab)
+// still goes through setActiveId directly and is unaffected. Tenancy is
+// enforced identically to every other board reference here: `list` itself
+// only ever contains boards GET /api/organiser/boards already scoped to
+// the caller's own organisation_id (see that route), so a foreign-org id
+// in the URL simply won't be found in `list` and falls through to the
+// existing first-board default — never a special "not found" state, never
+// a cross-org data fetch. No URL param write-back on manual switching by
+// design (out of scope for this correction).
+function OrganiserPageContent() {
   const t = useOpsTheme();
+  const searchParams = useSearchParams();
+  const requestedBoardId = searchParams.get("board");
   const [boards, setBoards] = useState<OrganiserBoard[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [boardData, setBoardData] = useState<BoardData | null>(null);
@@ -938,10 +953,19 @@ export default function OrganiserPage() {
     const d = await res.json().catch(() => ({ boards: [] }));
     const list: OrganiserBoard[] = d.boards ?? [];
     setBoards(list);
-    if (selectId) setActiveId(selectId);
-    else if (!activeId && list.length > 0) setActiveId(list[0].id);
+    if (selectId) {
+      setActiveId(selectId);
+    } else if (!activeId) {
+      // Only ever consulted on initial load (activeId still unset) — a
+      // requested board id that isn't in this org's own board list (wrong
+      // org, deleted board, typo) is silently ignored, not surfaced as an
+      // error, falling through to the existing first-board behaviour.
+      const requested = requestedBoardId && list.some(b => b.id === requestedBoardId) ? requestedBoardId : null;
+      if (requested) setActiveId(requested);
+      else if (list.length > 0) setActiveId(list[0].id);
+    }
     setLoading(false);
-  }, [activeId]);
+  }, [activeId, requestedBoardId]);
 
   const loadBoardData = useCallback(async (boardId: string) => {
     const res = await fetch(`/api/organiser/boards/${boardId}`, { credentials: "include" });
@@ -1220,6 +1244,14 @@ export default function OrganiserPage() {
         />
       )}
     </WorkspaceShell>
+  );
+}
+
+export default function OrganiserPage() {
+  return (
+    <Suspense fallback={null}>
+      <OrganiserPageContent />
+    </Suspense>
   );
 }
 
