@@ -20,7 +20,11 @@ export type AttentionItemType =
   | 'client_request'
   | 'web_lead'
   | 'upcoming_launch'
-  | 'overdue_deployment';
+  | 'overdue_deployment'
+  | 'implementation_blocked'
+  | 'implementation_at_risk'
+  | 'implementation_overdue_launch'
+  | 'implementation_upcoming_launch';
 
 export type AttentionSeverity = 'critical' | 'high' | 'medium' | 'low';
 
@@ -40,6 +44,15 @@ export type AttentionItem = {
 const LEAD_ACTIONABLE_STAGES = ['new', 'contacted', 'discovery', 'qualified'];
 const REQUEST_ACTIONABLE_STATUSES = ['new', 'in_progress'];
 const UPCOMING_WINDOW_DAYS = 14;
+
+// Client Implementations intelligence (Founder OS Phase C). Reuses the same
+// UPCOMING_WINDOW_DAYS threshold already established for Web Systems'
+// client_onboarding launches above, for consistency — not a separate,
+// undocumented number.
+const IMPLEMENTATION_STAGES_NON_TERMINAL = new Set([
+  'planning', 'discovery', 'setup', 'build', 'client_review',
+  'testing', 'ready_to_launch',
+]);
 
 const SEVERITY_RANK: Record<AttentionSeverity, number> = {
   critical: 0, high: 1, medium: 2, low: 3,
@@ -92,6 +105,7 @@ export async function GET() {
       onboardingRows,
       leadStageRows,
       snapshotRows,
+      implementationRows,
     ] = await Promise.all([
       // 1. Open alerts, cross-organisation. alerts.organisation_id and
       // organisations.id are both TEXT in the verified Production schema —
@@ -170,6 +184,22 @@ export async function GET() {
           (SELECT COUNT(*)::int FROM client_onboarding WHERE onboarding_stage <> 'live') AS onboarding_in_progress,
           (SELECT COUNT(*)::int FROM managed_services WHERE status = 'active') AS active_managed_services,
           (SELECT COALESCE(SUM(monthly_value), 0)::float FROM managed_services WHERE status = 'active') AS active_mrr
+      `,
+      // 8. Client Implementations (Founder OS Phase C) — every non-cancelled
+      // implementation, cross-organisation. Cancelled implementations are
+      // excluded entirely at the SQL level: they should never contribute to
+      // counts, attention items, or the by-stage breakdown. Both
+      // organisations.id and users.id are TEXT in the verified Production
+      // schema — same safe-direct-join precedent as the alerts query above.
+      sql`
+        SELECT i.id, i.organisation_id, i.name, i.service_type, i.stage,
+               i.health, i.owner_user_id, i.target_launch_date, i.next_action,
+               o.name AS org_name, u.name AS owner_name
+        FROM implementations i
+        LEFT JOIN organisations o ON o.id = i.organisation_id
+        LEFT JOIN users u ON u.id = i.owner_user_id
+        WHERE i.stage <> 'cancelled'
+        ORDER BY i.updated_at DESC
       `,
     ]);
 
@@ -271,6 +301,110 @@ export async function GET() {
       }
     }
 
+    // Client Implementations (Founder OS Phase C) — deterministic,
+    // one-item-per-implementation precedence to avoid flooding the queue.
+    // Exactly one of these fires per implementation, in this priority
+    // order (falls through to the next check only if the previous one
+    // doesn't apply):
+    //   1. health = 'blocked'                              → critical
+    //   2. target_launch_date passed, stage still active    → overdue (severity scales with days)
+    //   3. health = 'at_risk'                                → high
+    //   4. target_launch_date approaching, stage still active → upcoming (severity scales with days)
+    //   (else) nothing — an on-track implementation with no near-term
+    //   date genuinely needs no founder attention right now, which is
+    //   the correct, truthful outcome, not a gap.
+    // next_action is deliberately NOT an independent trigger (that would
+    // flood the queue with every implementation that merely has a next
+    // step defined, healthy or not) — when present, it enriches the
+    // description of whichever item above already fired. It's surfaced
+    // as its own, separate Overview list regardless of urgency (see
+    // implementationNextActions below), matching the brief's own
+    // "where it is operationally useful" qualifier for the queue.
+    for (const impl of implementationRows) {
+      const label = impl.name as string;
+      const orgId = impl.org_name ? String(impl.organisation_id) : null;
+      const orgName = (impl.org_name as string) ?? null;
+      const href = `/admin/implementations/${impl.id}`;
+      const health = impl.health as string;
+      const stage = impl.stage as string;
+      const nextAction = (impl.next_action as string) || null;
+      const nextActionSuffix = nextAction ? ` Next: ${nextAction}.` : '';
+      const targetDateStr = toDateOnlyString(impl.target_launch_date);
+      const dateActive = IMPLEMENTATION_STAGES_NON_TERMINAL.has(stage);
+
+      if (health === 'blocked') {
+        items.push({
+          id: `implementation_blocked:${impl.id}`,
+          type: 'implementation_blocked',
+          severity: 'critical',
+          title: `Blocked — ${label}`,
+          description: `${orgName ?? 'Unknown client'} · Stage: ${stage}.${nextActionSuffix}`,
+          organisationId: orgId,
+          organisationName: orgName ?? label,
+          createdAt: null,
+          href,
+          metadata: { stage, health, ownerName: impl.owner_name ?? null },
+        });
+        continue;
+      }
+
+      if (targetDateStr && dateActive) {
+        const targetDate = new Date(`${targetDateStr}T00:00:00Z`);
+        const days = daysBetween(targetDate, today);
+        if (days < 0) {
+          const daysOverdue = Math.abs(days);
+          items.push({
+            id: `implementation_overdue_launch:${impl.id}`,
+            type: 'implementation_overdue_launch',
+            severity: daysOverdue >= 14 ? 'critical' : daysOverdue >= 3 ? 'high' : 'medium',
+            title: `Overdue ${daysOverdue}d — ${label}`,
+            description: `${orgName ?? 'Unknown client'} · Target launch was ${targetDateStr}. Stage: ${stage}.${nextActionSuffix}`,
+            organisationId: orgId,
+            organisationName: orgName ?? label,
+            createdAt: null,
+            href,
+            metadata: { daysOverdue, stage, health, targetLaunchDate: targetDateStr },
+          });
+          continue;
+        }
+      }
+
+      if (health === 'at_risk') {
+        items.push({
+          id: `implementation_at_risk:${impl.id}`,
+          type: 'implementation_at_risk',
+          severity: 'high',
+          title: `At risk — ${label}`,
+          description: `${orgName ?? 'Unknown client'} · Stage: ${stage}.${nextActionSuffix}`,
+          organisationId: orgId,
+          organisationName: orgName ?? label,
+          createdAt: null,
+          href,
+          metadata: { stage, health, ownerName: impl.owner_name ?? null },
+        });
+        continue;
+      }
+
+      if (targetDateStr && dateActive) {
+        const targetDate = new Date(`${targetDateStr}T00:00:00Z`);
+        const days = daysBetween(targetDate, today);
+        if (days >= 0 && days <= UPCOMING_WINDOW_DAYS) {
+          items.push({
+            id: `implementation_upcoming_launch:${impl.id}`,
+            type: 'implementation_upcoming_launch',
+            severity: days <= 3 ? 'high' : days <= 7 ? 'medium' : 'low',
+            title: `Launch in ${days}d — ${label}`,
+            description: `${orgName ?? 'Unknown client'} · Target launch ${targetDateStr}. Stage: ${stage}.${nextActionSuffix}`,
+            organisationId: orgId,
+            organisationName: orgName ?? label,
+            createdAt: null,
+            href,
+            metadata: { daysUntil: days, stage, health, targetLaunchDate: targetDateStr },
+          });
+        }
+      }
+    }
+
     items.sort((x, y) => {
       const rankDiff = SEVERITY_RANK[x.severity] - SEVERITY_RANK[y.severity];
       if (rankDiff !== 0) return rankDiff;
@@ -284,6 +418,43 @@ export async function GET() {
       leadsByStage[row.status as string] = row.count as number;
     }
 
+    // Implementation summary (Founder OS Overview, Phase C) — every count
+    // here is derived directly from implementationRows (the same
+    // non-cancelled set the attention items above were derived from), not
+    // guessed or defaulted from an unrelated table. "Do NOT reinterpret the
+    // existing Active Clients KPI as implementation count" — this is a
+    // wholly separate, clearly-named metric family.
+    const implementationsByStage: Record<string, number> = {};
+    let implementationsAtRisk = 0;
+    let implementationsBlocked = 0;
+    let implementationsApproachingLaunch = 0;
+    for (const impl of implementationRows) {
+      const stage = impl.stage as string;
+      implementationsByStage[stage] = (implementationsByStage[stage] ?? 0) + 1;
+      if (impl.health === 'at_risk') implementationsAtRisk += 1;
+      if (impl.health === 'blocked') implementationsBlocked += 1;
+
+      const targetDateStr = toDateOnlyString(impl.target_launch_date);
+      if (targetDateStr && IMPLEMENTATION_STAGES_NON_TERMINAL.has(stage)) {
+        const days = daysBetween(new Date(`${targetDateStr}T00:00:00Z`), today);
+        if (days >= 0 && days <= UPCOMING_WINDOW_DAYS) implementationsApproachingLaunch += 1;
+      }
+    }
+
+    // Next actions — a separate Overview list, independent of urgency (see
+    // the comment above the attention-item derivation loop for why this is
+    // not also an independent queue trigger).
+    const implementationNextActions = implementationRows
+      .filter(impl => typeof impl.next_action === 'string' && (impl.next_action as string).trim())
+      .slice(0, 20)
+      .map(impl => ({
+        id: impl.id as string,
+        organisationName: (impl.org_name as string) ?? null,
+        name: impl.name as string,
+        nextAction: impl.next_action as string,
+        href: `/admin/implementations/${impl.id}`,
+      }));
+
     const snapshot = snapshotRows[0] ?? {};
 
     return NextResponse.json({
@@ -295,12 +466,18 @@ export async function GET() {
         onboardingInProgress: (snapshot.onboarding_in_progress as number) ?? 0,
         activeManagedServices: (snapshot.active_managed_services as number) ?? 0,
         activeMrr: (snapshot.active_mrr as number) ?? 0,
+        implementationsTotal: implementationRows.length,
+        implementationsByStage,
+        implementationsAtRisk,
+        implementationsBlocked,
+        implementationsApproachingLaunch,
       },
+      implementationNextActions,
     });
   } catch (err) {
     console.error('[GET /api/founder/attention-queue]', err);
     return NextResponse.json(
-      { error: 'Internal server error', items: [], metrics: {} },
+      { error: 'Internal server error', items: [], metrics: {}, implementationNextActions: [] },
       { status: 500 },
     );
   }
