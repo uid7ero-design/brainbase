@@ -1250,22 +1250,138 @@ function ActivityFeed({ sessionEvents }: { sessionEvents: SessionEvent[] }) {
 }
 
 // ─── System health ────────────────────────────────────────────────────────────
-// Phase B: SERVICES was a hardcoded, fabricated list (fake per-service "ok"/
-// "warn" status and fake latency numbers — no live health check ever ran).
-// No live service-health-check integration exists, so this is honestly
-// "Not connected" rather than a fake all-green dashboard.
+// Phase E.1: replaces the Phase B "Not connected" placeholder with real
+// data from GET /api/founder/system. Deliberately narrow — application
+// identity (Vercel runtime env vars), one live DB check, and BrainBase's
+// own Gmail/Google Calendar/Instagram connection state. A Phase E.0 audit
+// plus a read-only Production check found integrations/sync_jobs/
+// agent_runs don't exist in Production and users.last_login_at is
+// unpopulated — none of those are used here or anywhere in
+// lib/founder/systemSignals.ts. Wording is deliberately literal:
+// "Connected" never means "Healthy", a known commit is identity not a
+// health claim, and database.ok reflects this one request's live check,
+// never an uptime/SLA claim.
+
+type FounderConnectionState = 'connected' | 'not_connected' | 'connected_issue' | 'unknown';
+type FounderSystemData = {
+  application: { environment: string; commitSha: string | null; commitShaShort: string | null; commitMessage: string | null };
+  database: { ok: boolean; latencyMs: number | null };
+  services: {
+    gmail: { state: FounderConnectionState };
+    googleCalendar: { state: FounderConnectionState };
+    instagram: { state: FounderConnectionState };
+  };
+};
+const SERVICE_STATE_LABEL: Record<FounderConnectionState, string> = {
+  connected: 'Connected', not_connected: 'Not connected',
+  connected_issue: 'Connection issue', unknown: 'Unknown',
+};
+const SERVICE_STATE_COLOR: Record<FounderConnectionState, string> = {
+  connected: T.green, not_connected: T.dim, connected_issue: T.yellow, unknown: T.dim,
+};
 
 function SystemHealth() {
+  const [data, setData] = useState<FounderSystemData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/founder/system')
+      .then(r => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((d: FounderSystemData) => setData(d))
+      .catch(() => setLoadError(true))
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) {
+    return (
+      <Card style={{ padding: '11px 12px' }}>
+        <Lbl s="System status" />
+        <div style={{ fontSize: 11, color: T.dim, marginTop: 8 }}>Loading…</div>
+      </Card>
+    );
+  }
+
+  if (loadError || !data) {
+    return (
+      <Card style={{ padding: '11px 12px' }}>
+        <Lbl s="System status" />
+        <div style={{ padding: '14px', textAlign: 'center', borderRadius: 6, border: `1px dashed ${T.border}`, marginTop: 8 }}>
+          <div style={{ fontSize: 11, color: T.dim }}>Not connected</div>
+          <div style={{ fontSize: 10, color: T.dim, marginTop: 3 }}>Could not load system status.</div>
+        </div>
+      </Card>
+    );
+  }
+
+  const { application, database, services } = data;
+  const dbLabel = database.ok ? 'Operational' : 'Unavailable';
+  const dbColor = database.ok ? T.green : T.red;
+
   return (
-    <Card style={{ padding: '11px 12px' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-        <Lbl s="System health" />
-      </div>
-      <div style={{ padding: '14px', textAlign: 'center', borderRadius: 6, border: `1px dashed ${T.border}` }}>
-        <div style={{ fontSize: 11, color: T.dim }}>Not connected</div>
-        <div style={{ fontSize: 10, color: T.dim, marginTop: 3 }}>No live service health checks are implemented yet.</div>
-      </div>
-    </Card>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <Card style={{ padding: '11px 12px' }}>
+        <Lbl s="System status" />
+        {/* minWidth: 0 on both grid items is the actual fix here — CSS grid
+            items default to min-width: auto, so without it a long,
+            unbroken commit message (no wrap points) forces this column to
+            grow to its full intrinsic text width, which both overflows the
+            card/page AND squeezes/pushes the Database column out of the
+            visible area in the same row (confirmed live on the Vercel
+            preview — the Database tile was never missing from the API
+            response or un-rendered, just pushed off-screen by this). The
+            commit message itself now wraps (overflowWrap/wordBreak) and is
+            clamped to 2 lines instead of forcing a single unbroken line,
+            so it tolerates an arbitrarily long message, including one with
+            no spaces at all, without ever escaping this tile. */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 8, minWidth: 0 }}>
+          <div style={{ padding: '8px 10px', borderRadius: 6, background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)', minWidth: 0, overflow: 'hidden' }}>
+            <div style={{ fontSize: 9, color: T.dim, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Application</div>
+            <div style={{ fontSize: 12, color: T.text, fontWeight: 600 }}>{application.environment}</div>
+            {application.commitShaShort ? (
+              <>
+                <Mono size={10} color={T.sub}>{application.commitShaShort}</Mono>
+                {application.commitMessage && (
+                  <div style={{
+                    fontSize: 10, color: T.dim, marginTop: 3,
+                    overflowWrap: 'anywhere', wordBreak: 'break-word',
+                    display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
+                  }}>{application.commitMessage}</div>
+                )}
+              </>
+            ) : (
+              <div style={{ fontSize: 10, color: T.dim, marginTop: 3 }}>Commit: Unknown</div>
+            )}
+          </div>
+          <div style={{ padding: '8px 10px', borderRadius: 6, background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)', minWidth: 0, overflow: 'hidden' }}>
+            <div style={{ fontSize: 9, color: T.dim, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Database</div>
+            <div style={{ fontSize: 12, color: dbColor, fontWeight: 600 }}>{dbLabel}</div>
+            <div style={{ fontSize: 10, color: T.dim, marginTop: 3 }}>
+              {database.ok && database.latencyMs != null ? `${database.latencyMs} ms this request · live check` : 'Live check'}
+            </div>
+          </div>
+        </div>
+      </Card>
+
+      <Card style={{ padding: '11px 12px' }}>
+        <Lbl s="Service connections" />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 }}>
+          {([
+            ['Gmail', services.gmail.state],
+            ['Google Calendar', services.googleCalendar.state],
+            ['Instagram', services.instagram.state],
+          ] as const).map(([label, state]) => (
+            <div key={label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 8px', borderRadius: 5, background: 'rgba(255,255,255,0.018)', border: `1px solid ${T.border}` }}>
+              <span style={{ fontSize: 11, color: T.sub }}>{label}</span>
+              <span style={{ fontSize: 10, fontWeight: 600, color: SERVICE_STATE_COLOR[state] }}>{SERVICE_STATE_LABEL[state]}</span>
+            </div>
+          ))}
+        </div>
+        <div style={{ fontSize: 9, color: T.dim, marginTop: 8 }}>
+          Gmail/Google Calendar show whether an OAuth connection is stored, not a live API check.
+        </div>
+      </Card>
+    </div>
   );
 }
 
