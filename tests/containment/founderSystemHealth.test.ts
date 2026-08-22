@@ -413,3 +413,75 @@ describe('Containment: no Command/Organiser change, no schema change, no fabrica
     expect(ATTN_QUEUE_ROUTE_SOURCE).not.toContain('Database unavailable')
   })
 })
+
+// ── Pre-merge preview correction: Database tile visibility + Application
+// commit-message overflow ───────────────────────────────────────────────
+//
+// Root cause of BOTH confirmed preview defects was the same one bug, not
+// two: the Application/Database tiles sit in a `display: grid;
+// gridTemplateColumns: '1fr 1fr'` row with no minWidth: 0 on either grid
+// item. CSS grid items default to min-width: auto, so a long, unbroken
+// commit message (whiteSpace: nowrap, no wrap opportunities) forced the
+// Application column to grow to its full intrinsic text width — which
+// both overflowed the card/page (defect 2) AND pushed/squeezed the
+// Database column out of the visible row in the same breath (defect 1).
+// GET /api/founder/system always includes `database` in its response
+// (see the "Does not depend on..." and "Database status..." suites above,
+// both still passing unmodified) — the tile was never missing from data,
+// only from the rendered layout. Fixed with minWidth: 0 on both grid
+// items plus wrapping/line-clamping the commit message instead of forcing
+// it onto one unbroken line — no API/data change was needed or made.
+
+describe('Pre-merge correction: Database tile visible, Application overflow contained', () => {
+  it('both grid items carry minWidth: 0 — the actual fix for both confirmed preview defects', () => {
+    const gridStart = FOUNDER_PAGE_SOURCE.indexOf("gridTemplateColumns: '1fr 1fr'")
+    const gridEnd = FOUNDER_PAGE_SOURCE.indexOf('Service connections', gridStart)
+    const gridBlock = FOUNDER_PAGE_SOURCE.slice(gridStart - 40, gridEnd)
+    const minWidthZeroCount = (gridBlock.match(/minWidth: 0/g) ?? []).length
+    // grid container + Application item + Database item = 3 occurrences
+    expect(minWidthZeroCount).toBeGreaterThanOrEqual(3)
+  })
+
+  it('the Database tile is present in the same grid row as Application, unconditionally rendered whenever data has loaded', () => {
+    const start = FOUNDER_PAGE_SOURCE.indexOf("gridTemplateColumns: '1fr 1fr'")
+    const end = FOUNDER_PAGE_SOURCE.indexOf('Service connections', start)
+    const block = FOUNDER_PAGE_SOURCE.slice(start, end)
+    expect(block).toContain('>Application<')
+    expect(block).toContain('>Database<')
+    expect(block).not.toMatch(/Database[\s\S]{0,60}(display:\s*['"]none['"]|hidden\s*:\s*true)/)
+  })
+
+  it('Operational state renders the real request latency, sourced from database.latencyMs, not a hardcoded/average figure', () => {
+    expect(FOUNDER_PAGE_SOURCE).toContain('{database.ok && database.latencyMs != null ? `${database.latencyMs} ms this request · live check` : \'Live check\'}')
+  })
+
+  it('a database failure renders the literal label "Unavailable", driven by database.ok being false — never "Healthy"/"Operational"', () => {
+    expect(FOUNDER_PAGE_SOURCE).toContain("const dbLabel = database.ok ? 'Operational' : 'Unavailable';")
+  })
+
+  it('no uptime/average/SLA language was introduced by this correction (re-asserts the Phase E.1 rule still holds after the layout change)', () => {
+    expect(FOUNDER_PAGE_SOURCE).not.toMatch(/>.*?(uptime|SLA|average latency).*?</i)
+  })
+
+  it('the Application tile still displays the real commit message text — the correction changes CSS containment only, never the data', () => {
+    expect(FOUNDER_PAGE_SOURCE).toContain('{application.commitMessage && (')
+    expect(FOUNDER_PAGE_SOURCE).toContain('{application.commitMessage}</div>')
+  })
+
+  it('the commit message has explicit wrap/break containment (not whiteSpace: nowrap) and a line clamp, suitable for an arbitrarily long string with no spaces', () => {
+    const msgStart = FOUNDER_PAGE_SOURCE.indexOf('{application.commitMessage && (')
+    const msgEnd = FOUNDER_PAGE_SOURCE.indexOf(')}', msgStart)
+    const block = FOUNDER_PAGE_SOURCE.slice(msgStart, msgEnd)
+    expect(block).toContain("overflowWrap: 'anywhere'")
+    expect(block).toContain("wordBreak: 'break-word'")
+    expect(block).toContain('WebkitLineClamp: 2')
+    expect(block).not.toContain("whiteSpace: 'nowrap'")
+  })
+
+  it('the fix is scoped to the Application/Database tiles only — no broad overflow:hidden was applied to the whole Founder OS page', () => {
+    // The two intentional, tile-scoped overflow:hidden additions (grid item
+    // containers) are expected; this guards against a much broader
+    // page/body-level overflow:hidden being introduced as a shortcut.
+    expect(FOUNDER_PAGE_SOURCE).not.toMatch(/margin:\s*'-40px'[\s\S]{0,400}overflow:\s*'hidden'[\s\S]{0,200}overflowX/)
+  })
+})
