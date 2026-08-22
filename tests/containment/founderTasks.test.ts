@@ -5,7 +5,7 @@ import path from 'path'
 // ── Founder OS Phase D — Real Tasks & Action Management ─────────────────────
 //
 // Founder tasks are NOT a new table. They are the same organiser_boards /
-// organiser_items tables the canonical /command/organiser UI reads and
+// organiser_items tables the canonical Organiser UI (/organiser) reads and
 // writes, resolved server-side to BrainBase's own org+board via
 // lib/founder/tasksBoard.ts (deliberately ignoring org_override
 // impersonation — Founder OS's own tasks always mean BrainBase's own

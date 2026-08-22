@@ -865,13 +865,14 @@ const HEALTH_META: Record<string, { label: string; color: string }> = {
 // ─── Founder tasks ────────────────────────────────────────────────────────────
 // Founder OS Phase D. Real, persisted tasks — no mock, no "not connected"
 // placeholder. Backed by the existing, authoritative Organiser system
-// (organiser_boards/organiser_items — the exact tables /command/organiser
-// itself uses), scoped server-side to BrainBase's own board via the
-// GET/POST/PATCH /api/founder/tasks* adapter (see lib/founder/tasksBoard.ts
-// and app/api/founder/tasks/**). Founder OS does not own a second task
-// database; Organiser remains the sole persistence layer. status/priority
-// options below are copied verbatim from app/command/organiser/page.tsx's
-// own STATUS_OPTIONS/PRIORITY_OPTIONS — not a parallel vocabulary, so a
+// (organiser_boards/organiser_items — the exact tables the canonical
+// Organiser app at /organiser itself uses), scoped server-side to
+// BrainBase's own board via the GET/POST/PATCH /api/founder/tasks*
+// adapter (see lib/founder/tasksBoard.ts and app/api/founder/tasks/**).
+// Founder OS does not own a second task database; Organiser remains the
+// sole persistence layer. status/priority options below are copied
+// verbatim from app/organiser/page.tsx's own STATUS_OPTIONS/
+// PRIORITY_OPTIONS — not a parallel vocabulary, so a
 // task created here looks identical when viewed in the canonical Organiser
 // UI. owner remains free text, matching organiser_items.owner's real
 // column type — not redesigned into a user picker in this phase.
@@ -1045,7 +1046,7 @@ function TaskGroupSection({ label, tasks, onUpdate, defaultOpen = true }: {
   );
 }
 
-// ── Tasks tab: the full board. Organiser (/command/organiser) remains the
+// ── Tasks tab: the full board. Organiser (/organiser) remains the
 // canonical, detailed work-management surface — this stays a focused
 // founder workflow: list, create, and the handful of updates a founder
 // actually needs (status/priority/due date/owner/complete/reopen), not a
@@ -1115,12 +1116,15 @@ function FounderTasksPanel() {
           {/* Deep-links straight to the resolved Founder Tasks board
               (?board=<id>) once one exists — never WORK/Tafe, never
               whichever board Organiser would otherwise default to (see
-              app/command/organiser/page.tsx's board-selection fix). Falls
-              back to the plain, still-real Organiser URL (no board
+              app/organiser/page.tsx's board-selection fix). Falls back to
+              the plain, still-real canonical Organiser URL (no board
               preselected) when no Founder Tasks board has been created
-              yet — never broken, never a Command-overview link. */}
+              yet — never broken, never a Command-overview link. Targets
+              /organiser directly (Phase D.2) — the legacy /command/
+              organiser path still works via a redirect (next.config.ts)
+              but this link goes straight to the canonical route. */}
           <Link
-            href={board ? `/command/organiser?board=${encodeURIComponent(board.id)}` : '/command/organiser'}
+            href={board ? `/organiser?board=${encodeURIComponent(board.id)}` : '/organiser'}
             style={{ fontSize: 10, color: T.purple, textDecoration: 'none' }}
           >
             Open in Organiser →
@@ -1486,7 +1490,7 @@ function ClientDrawer({ client, onClose, onAction, onModal, onAdvanceStage, draw
 
 // ─── Left sidebar ─────────────────────────────────────────────────────────────
 
-type NavItem = { label: string; section?: Section; href?: string };
+type NavItem = { label: string; section?: Section; href?: string; dim?: boolean };
 
 function LeftSidebar({ onModal, section, setSection }: {
   onModal: (m: 'book-demo' | 'proposal' | 'add-lead') => void;
@@ -1502,15 +1506,15 @@ function LeftSidebar({ onModal, section, setSection }: {
     { label: 'Tasks',    section: 'tasks'    },
     { label: 'System',     section: 'system'     },
     { label: 'Instagram',  section: 'instagram'  },
-    // Direct path to the real Organiser (/command/organiser) — deliberately
-    // NOT routed through /command's own demo-labelled overview page; there
-    // is no shared layout between the two routes, so this never renders
-    // any of Command's prototype content. See app/command/organiser/
-    // page.tsx's board deep-link support for the board-specific version of
-    // this link inside the Tasks tab itself.
-    { label: 'Organiser',  href: '/command/organiser' },
-    { label: 'Product',    href: '/data'          },
-    { label: 'Admin',    href: '/admin'      },
+    // Organiser's canonical home (Phase D.2) — a real BrainBase capability
+    // with its own top-level route, not nested under /command. Rendered at
+    // normal (non-dim) weight like the in-app sections above: it's a
+    // first-class destination, not a peripheral utility link. See
+    // app/organiser/page.tsx's board deep-link support for the
+    // board-specific version of this link inside the Tasks tab itself.
+    { label: 'Organiser',  href: '/organiser' },
+    { label: 'Product',    href: '/data', dim: true },
+    { label: 'Admin',    href: '/admin', dim: true },
   ];
 
   const ACTS = [
@@ -1536,7 +1540,7 @@ function LeftSidebar({ onModal, section, setSection }: {
                 padding: '5px 8px', borderRadius: 5, fontSize: 12, marginBottom: 1,
                 cursor: 'pointer',
                 fontWeight: active ? 600 : 400,
-                color: active ? T.purple : n.href ? T.dim : T.sub,
+                color: active ? T.purple : n.dim ? T.dim : T.sub,
                 background: active ? T.purpleA : 'transparent',
                 borderLeft: active ? `2px solid ${T.purple}` : '2px solid transparent',
               }}

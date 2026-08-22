@@ -16,7 +16,7 @@ import { resolveBrainbaseOrgId, resolveFounderBoard, FOUNDER_BOARD_NAME } from '
 // canonical Organiser item-creation route (app/api/organiser/boards/
 // [boardId]/items/route.ts) already treats group_id as fully optional
 // (items with a NULL group_id render under the Organiser UI's own built-in
-// "No group" section — see app/command/organiser/page.tsx), so a group is
+// "No group" section — see app/organiser/page.tsx), so a group is
 // not required for the board to function correctly and none is guessed
 // into existence here.
 export async function POST() {

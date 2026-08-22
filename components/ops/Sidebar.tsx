@@ -37,7 +37,7 @@ const SECTIONS = [
     label: 'Core',
     items: [
       { icon: I.command,   label: 'Command Centre', href: '/command',     exact: true },
-      { icon: I.organiser, label: 'Organiser',      href: '/command/organiser', exact: false },
+      { icon: I.organiser, label: 'Organiser',      href: '/organiser', exact: false },
       { icon: I.dayjob,    label: 'Day Job',        href: '/dashboard',   exact: false },
       { icon: I.briefings, label: 'AI Briefings',   href: '/briefings',   exact: false },
       { icon: I.reports,   label: 'Reports',        href: '/reports',     exact: false },

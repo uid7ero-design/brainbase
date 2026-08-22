@@ -9,7 +9,7 @@ import { resolveBrainbaseOrgId, resolveFounderBoard } from '@/lib/founder/tasksB
 // super_admin only, matching every other founder-* route. Organiser
 // (organiser_boards/organiser_items) remains the sole authoritative
 // persistence layer — this route does not own a second task database, it
-// reads/writes the exact same tables the canonical /command/organiser UI
+// reads/writes the exact same tables the canonical Organiser UI (/organiser)
 // uses, scoped to BrainBase's own board (resolved server-side, impersonation-
 // proof — see lib/founder/tasksBoard.ts). No new schema, no new table.
 
