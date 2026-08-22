@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { logout } from '@/app/actions/auth';
 
@@ -46,6 +47,7 @@ export default function AdminAside({ name }: { name: string }) {
         <div style={section}>Operations</div>
         <a href="/admin/pipeline"      style={link('/admin/pipeline')}>Pipeline</a>
         <a href="/admin/sessions"      style={link('/admin/sessions')}>Planner</a>
+        <Link href="/admin/implementations" style={link('/admin/implementations')}>Client Implementations</Link>
 
         <div style={section}>Platform</div>
         <a href="/admin/orgs"          style={link('/admin/orgs')}>Organisations</a>
