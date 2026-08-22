@@ -326,16 +326,14 @@ describe('app/admin/implementations/[id]/page.tsx — core-record only, no later
 // ── Scope boundaries — every other system untouched ─────────────────────
 
 describe('Scope boundaries — no unrelated system was touched by this slice', () => {
-  it('Founder OS page is untouched', () => {
-    const founderSource = fs.readFileSync(path.resolve(__dirname, '../../app/admin/founder/page.tsx'), 'utf-8')
-    expect(founderSource).not.toContain('implementations')
-    expect(founderSource).not.toContain('/api/implementations')
-  })
-
-  it('the Phase A attention-queue endpoint is untouched', () => {
-    const attnSource = fs.readFileSync(path.resolve(__dirname, '../../app/api/founder/attention-queue/route.ts'), 'utf-8')
-    expect(attnSource).not.toContain('implementations')
-  })
+  // NOTE: "Founder OS is untouched" and "the attention-queue endpoint is
+  // untouched" were true, and asserted here, for this slice (Phase 2A —
+  // core CRUD only). Founder OS Phase C deliberately and explicitly wires
+  // real implementation data into both of those files — see
+  // founderImplementationIntelligence.test.ts for that phase's own
+  // coverage. Re-asserting "untouched" here would contradict a later,
+  // intentional, in-scope change, so these two checks were retired rather
+  // than left to fail permanently.
 
   it('organiser schema/API is untouched', () => {
     const migrateSource = fs.readFileSync(path.resolve(__dirname, '../../app/api/admin/migrate/route.ts'), 'utf-8')

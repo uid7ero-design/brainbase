@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import InstagramFeedPanel from '@/components/instagram/InstagramFeedPanel';
 
@@ -368,7 +369,10 @@ function AttentionQueue({ items, onAction, onFollowUp, onMarkReviewed }: {
 // Clients-tab mini-queue (still backed by queueItems/QUEUE) is unchanged —
 // out of scope for Phase A.
 
-type AttnItemType = 'alert' | 'client_request' | 'web_lead' | 'upcoming_launch' | 'overdue_deployment';
+type AttnItemType =
+  | 'alert' | 'client_request' | 'web_lead' | 'upcoming_launch' | 'overdue_deployment'
+  | 'implementation_blocked' | 'implementation_at_risk'
+  | 'implementation_overdue_launch' | 'implementation_upcoming_launch';
 type AttnItem = {
   id: string; type: AttnItemType; severity: Severity; title: string; description: string;
   organisationId: string | null; organisationName: string | null; createdAt: string | null;
@@ -378,6 +382,18 @@ type AttnMetrics = {
   leadsByStage: Record<string, number>;
   openAlerts: number; openRequests: number; onboardingInProgress: number;
   activeManagedServices: number; activeMrr: number;
+  // Founder OS Phase C — Client Implementations intelligence. Distinct from
+  // onboardingInProgress above (that's Web Systems' client_onboarding — a
+  // different table/vertical). Optional so older cached responses (before
+  // this field existed) still type-check safely.
+  implementationsTotal?: number;
+  implementationsByStage?: Record<string, number>;
+  implementationsAtRisk?: number;
+  implementationsBlocked?: number;
+  implementationsApproachingLaunch?: number;
+};
+type ImplementationNextAction = {
+  id: string; organisationName: string | null; name: string; nextAction: string; href: string;
 };
 
 const ATTN_TYPE_LABEL: Record<AttnItemType, string> = {
@@ -386,6 +402,10 @@ const ATTN_TYPE_LABEL: Record<AttnItemType, string> = {
   web_lead:           'Web Lead',
   upcoming_launch:    'Upcoming Launch',
   overdue_deployment: 'Overdue Deployment',
+  implementation_blocked:         'Implementation Blocked',
+  implementation_at_risk:         'Implementation At Risk',
+  implementation_overdue_launch:  'Implementation Overdue',
+  implementation_upcoming_launch: 'Implementation Launch',
 };
 const ATTN_TYPE_COLOR: Record<AttnItemType, string> = {
   alert:              T.red,
@@ -393,6 +413,10 @@ const ATTN_TYPE_COLOR: Record<AttnItemType, string> = {
   web_lead:           T.green,
   upcoming_launch:    '#60A5FA',
   overdue_deployment: '#F97316',
+  implementation_blocked:         T.red,
+  implementation_at_risk:         '#F59E0B',
+  implementation_overdue_launch:  '#F97316',
+  implementation_upcoming_launch: '#60A5FA',
 };
 
 function timeAgo(iso: string | null): string {
@@ -676,6 +700,165 @@ function RevenueIntel({ metrics, loading }: { metrics: AttnMetrics | null; loadi
     </Card>
   );
 }
+
+// ─── Client Implementations summary ──────────────────────────────────────────
+// Founder OS Phase C. Every value here comes from GET /api/founder/
+// attention-queue's metrics/implementationNextActions (shared with
+// SnapshotHero/RevenueIntel — no duplicate fetch), which is itself derived
+// directly from the real `implementations` table. Deliberately separate
+// from the existing "Active Clients"/"In implementation" (Web Systems
+// client_onboarding) metrics — never conflated with them.
+const IMPL_STAGE_LABEL: Record<string, string> = {
+  planning: 'Planning', discovery: 'Discovery', setup: 'Setup', build: 'Build',
+  client_review: 'Client Review', testing: 'Testing', ready_to_launch: 'Ready to Launch',
+  live: 'Live', on_hold: 'On Hold',
+};
+
+function ImplementationSummary({ metrics, loading, nextActions }: {
+  metrics: AttnMetrics | null; loading: boolean; nextActions: ImplementationNextAction[];
+}) {
+  return (
+    <Card style={{ padding: '13px 15px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+        <Lbl s="Client implementations" />
+        <Link href="/admin/implementations" style={{ fontSize: 10, color: T.purple, textDecoration: 'none' }}>View all →</Link>
+      </div>
+
+      {loading ? (
+        <div style={{ fontSize: 11, color: T.dim }}>Loading…</div>
+      ) : !metrics || metrics.implementationsTotal === undefined ? (
+        <div style={{ padding: '14px', textAlign: 'center', borderRadius: 6, border: `1px dashed ${T.border}` }}>
+          <div style={{ fontSize: 11, color: T.dim }}>Not connected</div>
+        </div>
+      ) : metrics.implementationsTotal === 0 ? (
+        <div style={{ padding: '14px', textAlign: 'center', borderRadius: 6, border: `1px dashed ${T.border}` }}>
+          <div style={{ fontSize: 11, color: T.dim }}>No implementations yet</div>
+          <div style={{ fontSize: 10, color: T.dim, marginTop: 3 }}>Create one from the Client Implementations workspace.</div>
+        </div>
+      ) : (
+        <>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: 10, marginBottom: 12 }}>
+            <SnapshotTile label="Total (active)"       value={String(metrics.implementationsTotal)} />
+            <SnapshotTile label="At risk"               value={String(metrics.implementationsAtRisk ?? 0)} />
+            <SnapshotTile label="Blocked"                value={String(metrics.implementationsBlocked ?? 0)} />
+            <SnapshotTile label="Approaching launch"     value={String(metrics.implementationsApproachingLaunch ?? 0)} />
+          </div>
+
+          {metrics.implementationsByStage && Object.keys(metrics.implementationsByStage).length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: nextActions.length > 0 ? 12 : 0 }}>
+              {Object.entries(metrics.implementationsByStage).map(([stage, count]) => (
+                <span key={stage} style={{ fontSize: 10, color: T.sub, background: 'rgba(255,255,255,0.03)', border: `1px solid ${T.border}`, borderRadius: 4, padding: '3px 8px' }}>
+                  {IMPL_STAGE_LABEL[stage] ?? stage}: <Mono size={10} color={T.text}>{count}</Mono>
+                </span>
+              ))}
+            </div>
+          )}
+
+          {nextActions.length > 0 && (
+            <div>
+              <Lbl s="Next actions" />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {nextActions.map(n => (
+                  <a key={n.id} href={n.href} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, textDecoration: 'none', padding: '5px 8px', borderRadius: 5, background: 'rgba(255,255,255,0.018)', border: `1px solid ${T.border}` }}>
+                    <span style={{ fontSize: 11, color: T.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {n.organisationName ? `${n.organisationName} — ` : ''}{n.name}
+                    </span>
+                    <span style={{ fontSize: 10.5, color: T.sub, flexShrink: 0 }}>{n.nextAction}</span>
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </Card>
+  );
+}
+
+// ─── Client Implementations by client ────────────────────────────────────────
+// Founder OS Clients tab (Phase C). Independent fetch — needs full row
+// detail the attention-queue summary above doesn't carry. Reuses the
+// existing, already-authorised GET /api/implementations endpoint verbatim
+// (no new API route). Grouped by organisation_id using the API's own
+// organisation_name — no parallel client-identity logic, no duplication of
+// the organisations table.
+type FullImplementation = {
+  id: string; organisation_id: string; organisation_name: string | null;
+  name: string; service_type: string | null; stage: string; health: string;
+  owner_name: string | null; target_launch_date: string | null; next_action: string | null;
+};
+
+function ImplementationsByClient() {
+  const [rows, setRows] = useState<FullImplementation[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/implementations')
+      .then(r => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((d: { implementations?: FullImplementation[] }) => setRows(Array.isArray(d.implementations) ? d.implementations : []))
+      .catch(() => setLoadError(true))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const groups = new Map<string, { name: string; items: FullImplementation[] }>();
+  for (const row of rows) {
+    const key = row.organisation_id;
+    if (!groups.has(key)) groups.set(key, { name: row.organisation_name ?? 'Unknown organisation', items: [] });
+    groups.get(key)!.items.push(row);
+  }
+
+  return (
+    <Card style={{ padding: '13px 15px' }}>
+      <Lbl s="Client implementations" />
+      {loading ? (
+        <div style={{ fontSize: 11, color: T.dim }}>Loading…</div>
+      ) : loadError ? (
+        <div style={{ fontSize: 11, color: T.red }}>Couldn&apos;t load implementations.</div>
+      ) : groups.size === 0 ? (
+        <div style={{ padding: '14px', textAlign: 'center', borderRadius: 6, border: `1px dashed ${T.border}` }}>
+          <div style={{ fontSize: 11, color: T.dim }}>No implementations yet</div>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {[...groups.entries()].map(([orgId, group]) => (
+            <div key={orgId}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.text, marginBottom: 5 }}>{group.name}</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {group.items.map(impl => {
+                  const health = HEALTH_META[impl.health] ?? HEALTH_META.on_track;
+                  return (
+                    <a key={impl.id} href={`/admin/implementations/${impl.id}`} style={{
+                      display: 'grid', gridTemplateColumns: '1.5fr 1fr 1fr auto 1fr 1.5fr', gap: 8, alignItems: 'center',
+                      textDecoration: 'none', padding: '6px 8px', borderRadius: 5,
+                      background: 'rgba(255,255,255,0.018)', border: `1px solid ${T.border}`,
+                    }}>
+                      <span style={{ fontSize: 12, color: T.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{impl.name}</span>
+                      <span style={{ fontSize: 10.5, color: T.sub }}>{impl.service_type ?? '—'}</span>
+                      <span style={{ fontSize: 10.5, color: T.sub }}>{IMPL_STAGE_LABEL[impl.stage] ?? impl.stage}</span>
+                      <span style={{ fontSize: 10, fontWeight: 700, color: health.color, background: `${health.color}18`, padding: '2px 6px', borderRadius: 4, whiteSpace: 'nowrap' }}>{health.label}</span>
+                      <span style={{ fontSize: 10.5, color: T.sub }}>{impl.owner_name ?? 'Unassigned'}</span>
+                      <span style={{ fontSize: 10.5, color: T.dim, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {impl.target_launch_date ? new Date(impl.target_launch_date).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' }) : '—'}
+                        {impl.next_action ? ` · ${impl.next_action}` : ''}
+                      </span>
+                    </a>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+const HEALTH_META: Record<string, { label: string; color: string }> = {
+  on_track: { label: 'On Track', color: '#34d399' },
+  at_risk:  { label: 'At Risk',  color: '#f59e0b' },
+  blocked:  { label: 'Blocked',  color: '#f87171' },
+};
 
 // ─── Founder tasks ────────────────────────────────────────────────────────────
 // Phase B: no authoritative task/follow-up table exists anywhere in the
@@ -1636,11 +1819,18 @@ export default function FounderPage() {
   // keeps its own independent fetch — this is purely additive. ───────────
   const [snapshotMetrics,        setSnapshotMetrics]        = useState<AttnMetrics | null>(null);
   const [snapshotMetricsLoading, setSnapshotMetricsLoading] = useState(true);
+  // Founder OS Phase C — same shared fetch above already returns a real,
+  // authoritative implementationNextActions list; captured here alongside
+  // snapshotMetrics rather than as a 4th duplicate request.
+  const [implementationNextActions, setImplementationNextActions] = useState<ImplementationNextAction[]>([]);
 
   useEffect(() => {
     fetch('/api/founder/attention-queue')
       .then(r => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
-      .then((d: { metrics?: AttnMetrics }) => setSnapshotMetrics(d.metrics ?? null))
+      .then((d: { metrics?: AttnMetrics; implementationNextActions?: ImplementationNextAction[] }) => {
+        setSnapshotMetrics(d.metrics ?? null);
+        setImplementationNextActions(Array.isArray(d.implementationNextActions) ? d.implementationNextActions : []);
+      })
       .catch(() => setSnapshotMetrics(null))
       .finally(() => setSnapshotMetricsLoading(false));
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1861,6 +2051,7 @@ export default function FounderPage() {
           {section === 'overview' && <>
             <SnapshotHero metrics={snapshotMetrics} loading={snapshotMetricsLoading} />
             <RealFounderOperations />
+            <ImplementationSummary metrics={snapshotMetrics} loading={snapshotMetricsLoading} nextActions={implementationNextActions} />
             <HlnaBriefing />
             <ClientPipeline onSelect={setSelectedClient} onFollowUp={doFollowUp} overrides={clientOverrides} clients={clients} loading={clientsLoading} />
             <RevenueIntel metrics={snapshotMetrics} loading={snapshotMetricsLoading} />
@@ -1869,6 +2060,7 @@ export default function FounderPage() {
 
           {/* ── Clients ── */}
           {section === 'clients' && <>
+            <ImplementationsByClient />
             <AttentionQueue
               items={queueItems.filter(q => q.type === 'sales' || q.type === 'client')}
               onAction={showToast} onFollowUp={doFollowUp} onMarkReviewed={doMarkReviewed}
