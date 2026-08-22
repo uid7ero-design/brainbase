@@ -85,8 +85,16 @@ describe('1D — Founder OS demo data is labelled, not presented as live', () =>
   })
 
   it('the page surfaces a demo-data banner when intel.source is demo, reusing the existing banner treatment rather than a new design', () => {
+    // Phase B (Founder OS real-data audit) narrowed this banner's copy: it
+    // no longer claims the whole page ("KPIs and recommendations") is
+    // sample content, since those are now real-or-honestly-unavailable
+    // regardless of this backend's state — only the HLNΛ briefing panel
+    // itself is still demo-shaped when this backend is unreachable, so the
+    // banner is scoped to describe only that. The trigger condition
+    // (intel?.source === 'demo') and the banner-on-demo behavior itself are
+    // unchanged; only the wording changed to stay accurate.
     expect(founderSource).toContain("intel?.source === 'demo'")
-    expect(founderSource).toContain('Demo data — intelligence backend not connected')
+    expect(founderSource).toContain('HLNΛ Chief of Staff briefing below is not connected')
   })
 
   it('the previously unconditional "All systems operational" claim (backed by zero real health checks) is no longer shown as fact', () => {
