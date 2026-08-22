@@ -1,6 +1,12 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
-import { decrypt, encrypt, SESSION_LIFETIME_MS, REFRESH_THRESHOLD_MS, COOKIE_OPTIONS } from '@/lib/session';
+import {
+  decrypt,
+  encrypt,
+  SESSION_LIFETIME_MS,
+  REFRESH_THRESHOLD_MS,
+  COOKIE_OPTIONS,
+} from '@/lib/session';
 
 const PUBLIC = [
   '/login',
@@ -14,7 +20,8 @@ const PUBLIC = [
   '/demo',
   '/',
   '/tennis',
-  '/api/auth',   // all /api/auth/* routes are public
+  '/web-systems',
+  '/api/auth',
   '/api/lead',
   '/for-coaches',
   '/request-demo',
@@ -26,50 +33,110 @@ export async function middleware(req: NextRequest) {
   const hostname = req.headers.get('host') ?? '';
 
   // ldtennis.com.au root → tennis landing page
-  if ((hostname === 'ldtennis.com.au' || hostname === 'www.ldtennis.com.au') && pathname === '/') {
-    return NextResponse.redirect(new URL('/tennis', req.url));
+  if (
+    (
+      hostname === 'ldtennis.com.au' ||
+      hostname === 'www.ldtennis.com.au'
+    ) &&
+    pathname === '/'
+  ) {
+    return NextResponse.redirect(
+      new URL('/tennis', req.url),
+    );
   }
 
-  if (PUBLIC.some(p => pathname === p || pathname.startsWith(p + '/'))) {
+  // Public routes
+  if (
+    PUBLIC.some(
+      p =>
+        pathname === p ||
+        pathname.startsWith(p + '/'),
+    )
+  ) {
     return NextResponse.next();
   }
 
-  const token = req.cookies.get('session')?.value;
+  const token =
+    req.cookies.get('session')?.value;
+
   const session = await decrypt(token);
 
   if (!session) {
     const url = req.nextUrl.clone();
     url.pathname = '/login';
+
     return NextResponse.redirect(url);
   }
 
-  const role = session.role?.toLowerCase() ?? '';
+  const role =
+    session.role?.toLowerCase() ?? '';
 
   // /admin and /clients — super_admin only
-  if ((pathname.startsWith('/admin') || pathname.startsWith('/clients')) && role !== 'super_admin') {
-    return NextResponse.redirect(new URL('/dashboard', req.url));
+  if (
+    (
+      pathname.startsWith('/admin') ||
+      pathname.startsWith('/clients')
+    ) &&
+    role !== 'super_admin'
+  ) {
+    return NextResponse.redirect(
+      new URL('/dashboard', req.url),
+    );
   }
 
-  // /command — manager, admin, super_admin only (not viewer)
-  const COMMAND_ROLES = ['manager', 'admin', 'super_admin'];
-  if (pathname.startsWith('/command') && !COMMAND_ROLES.includes(role)) {
-    return NextResponse.redirect(new URL('/dashboard', req.url));
+  // /command — manager, admin, super_admin only
+  const COMMAND_ROLES = [
+    'manager',
+    'admin',
+    'super_admin',
+  ];
+
+  if (
+    pathname.startsWith('/command') &&
+    !COMMAND_ROLES.includes(role)
+  ) {
+    return NextResponse.redirect(
+      new URL('/dashboard', req.url),
+    );
   }
 
   const res = NextResponse.next();
 
-  // Sliding refresh: re-issue cookie if within 2h of expiry
-  const expiresAt = new Date(session.expiresAt);
-  const msRemaining = expiresAt.getTime() - Date.now();
-  if (msRemaining > 0 && msRemaining < REFRESH_THRESHOLD_MS) {
-    const newExpiry = new Date(Date.now() + SESSION_LIFETIME_MS);
-    const newToken = await encrypt({ ...session, expiresAt: newExpiry.toISOString() });
-    res.cookies.set('session', newToken, COOKIE_OPTIONS(newExpiry));
+  // Sliding refresh:
+  // re-issue cookie if within 2h of expiry
+  const expiresAt = new Date(
+    session.expiresAt,
+  );
+
+  const msRemaining =
+    expiresAt.getTime() - Date.now();
+
+  if (
+    msRemaining > 0 &&
+    msRemaining < REFRESH_THRESHOLD_MS
+  ) {
+    const newExpiry = new Date(
+      Date.now() + SESSION_LIFETIME_MS,
+    );
+
+    const newToken = await encrypt({
+      ...session,
+      expiresAt:
+        newExpiry.toISOString(),
+    });
+
+    res.cookies.set(
+      'session',
+      newToken,
+      COOKIE_OPTIONS(newExpiry),
+    );
   }
 
   return res;
 }
 
 export const config = {
-  matcher: ['/((?!api|_next/static|_next/image|favicon.ico|.*\\.(?:webp|svg|png|jpg|jpeg|gif|ico|woff2?|ttf|mp3|mp4)$).*)'],
+  matcher: [
+    '/((?!api|_next/static|_next/image|favicon.ico|.*\\.(?:webp|svg|png|jpg|jpeg|gif|ico|woff2?|ttf|mp3|mp4)$).*)',
+  ],
 };

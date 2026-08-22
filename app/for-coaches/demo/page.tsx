@@ -1,242 +1,1690 @@
-"use client";
+'use client';
 
-import { useState } from "react";
-import Link from "next/link";
+import { useState } from 'react';
+import Link from 'next/link';
+import Image from 'next/image';
 
-const FONT = 'var(--font-inter), "Inter", -apple-system, sans-serif';
-const BG   = '#08090C';
+const FONT =
+  'var(--font-inter), "Inter", -apple-system, sans-serif';
 
-const DEMO_SCHEDULE = [
-  { day: 'Monday',    time: '4:00 pm',  type: 'Hot Shots',    capacity: 6, players: [{ name: 'Jack', paid: true }, { name: 'Emily', paid: true }, { name: 'Noah', paid: false }],                                  revenue: 60 },
-  { day: 'Tuesday',   time: '9:00 am',  type: 'Private 60',   capacity: 1, players: [{ name: 'Sarah', paid: true }],                                                                                              revenue: 70 },
-  { day: 'Wednesday', time: '10:30 am', type: 'Group Program', capacity: 6, players: [{ name: 'Tom', paid: true }, { name: 'Mia', paid: true }, { name: 'Luca', paid: false }],                                   revenue: 60 },
-  { day: 'Thursday',  time: '5:00 pm',  type: 'Private 30',   capacity: 1, players: [{ name: 'James', paid: true }],                                                                                             revenue: 35 },
-  { day: 'Friday',    time: '3:30 pm',  type: 'Hot Shots',    capacity: 6, players: [{ name: 'Olivia', paid: true }, { name: 'Ben', paid: true }, { name: 'Chloe', paid: true }, { name: 'Ryan', paid: false }], revenue: 80 },
+const BG = '#07080B';
+
+const KEYFRAMES = `
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: .40; }
+  }
+
+  @keyframes glowPulse {
+    0%, 100% { opacity: .45; }
+    50% { opacity: .82; }
+  }
+`;
+
+const KPI_CARDS = [
+  {
+    label: "Today's Sessions",
+    value: '6',
+    sub: 'Scheduled today',
+    color: '#8A4DFF',
+  },
+  {
+    label: 'New Leads',
+    value: '6',
+    sub: 'Last 7 days',
+    color: '#22C55E',
+  },
+  {
+    label: 'Follow-ups',
+    value: '5',
+    sub: 'Awaiting response',
+    color: '#F59E0B',
+  },
+  {
+    label: 'Open Leads',
+    value: '7',
+    sub: 'New or contacted',
+    color: '#3B82F6',
+  },
 ];
 
-const TOTAL = DEMO_SCHEDULE.reduce((s, d) => s + d.revenue, 0);
+const ATTENTION = [
+  {
+    name: 'New coaching enquiry',
+    status: 'Never contacted',
+    type: 'Lead',
+    color: '#22C55E',
+  },
+  {
+    name: 'Existing client',
+    status: 'Follow-up due',
+    type: 'Active',
+    color: '#3B82F6',
+  },
+  {
+    name: 'New website enquiry',
+    status: 'Awaiting response',
+    type: 'Lead',
+    color: '#22C55E',
+  },
+];
 
-export default function CoachingDemoPage() {
-  const [ctaHov,         setCtaHov]        = useState(false);
-  const [scheduleCtaHov, setScheduleCtaHov] = useState(false);
-  const [hoveredRow,     setHoveredRow]     = useState<number | null>(null);
+const SESSIONS = [
+  {
+    day: 'Mon 24',
+    title: 'Hot Shots Tennis',
+    program: 'Red Ball Beginners',
+    time: '15:45–16:30',
+    venue: 'Morphett Vale Tennis Club',
+    capacity: '1/30',
+    color: '#D946EF',
+  },
+  {
+    day: 'Mon 24',
+    title: 'Hot Shots Tennis',
+    program: 'Red Ball Improvers',
+    time: '16:30–17:15',
+    venue: 'Morphett Vale Tennis Club',
+    capacity: '0/30',
+    color: '#FB7185',
+  },
+  {
+    day: 'Wed 26',
+    title: 'Hot Shots Tennis',
+    program: 'Red Ball Hitters',
+    time: '15:00–15:30',
+    venue: 'Mt Compass Tennis Club',
+    capacity: '0/30',
+    color: '#F59E0B',
+  },
+  {
+    day: 'Thu 27',
+    title: 'Cardio Tennis',
+    program: 'Session',
+    time: '19:00–20:00',
+    venue: 'Morphett Vale Tennis Club',
+    capacity: '1/12',
+    color: '#8A4DFF',
+  },
+];
+
+const FLOW = [
+  {
+    number: '01',
+    title: 'Enquiry arrives',
+    body:
+      'Website and other enquiries enter the client operations system.',
+    color: '#6366F1',
+  },
+  {
+    number: '02',
+    title: 'Lead becomes visible',
+    body:
+      'The business can immediately see who is new, contacted or awaiting follow-up.',
+    color: '#8A4DFF',
+  },
+  {
+    number: '03',
+    title: 'Client is organised',
+    body:
+      'Contact details, relationship status and activity stay connected around one record.',
+    color: '#38BDF8',
+  },
+  {
+    number: '04',
+    title: 'Sessions are scheduled',
+    body:
+      'Programs, appointments, locations and capacity are managed inside the same system.',
+    color: '#22C55E',
+  },
+  {
+    number: '05',
+    title: 'Follow-up stays visible',
+    body:
+      'Calls, emails and outstanding actions remain visible until resolved.',
+    color: '#F59E0B',
+  },
+  {
+    number: '06',
+    title: 'HLNΛ adds context',
+    body:
+      'The intelligence layer helps surface priorities, activity and operational signals.',
+    color: '#A78BFA',
+  },
+];
+
+const MODULES = [
+  {
+    title: 'Leads',
+    body:
+      'See new enquiries, status and follow-up requirements.',
+    color: '#22C55E',
+  },
+  {
+    title: 'Clients',
+    body:
+      'Keep contacts, records and activity organised.',
+    color: '#38BDF8',
+  },
+  {
+    title: 'Sessions',
+    body:
+      'Manage schedules, programs, locations and capacity.',
+    color: '#8A4DFF',
+  },
+  {
+    title: 'Requests',
+    body:
+      'Keep incoming work and outstanding actions visible.',
+    color: '#F59E0B',
+  },
+  {
+    title: 'Dashboards',
+    body:
+      'Bring the important operational indicators into one view.',
+    color: '#A78BFA',
+  },
+  {
+    title: 'HLNΛ',
+    body:
+      'Provide intelligence and context across the connected platform.',
+    color: '#6366F1',
+  },
+];
+
+export default function ClientOperationsDemoPage() {
+  const [hoveredFlow, setHoveredFlow] =
+    useState<number | null>(null);
+
+  const [hoveredModule, setHoveredModule] =
+    useState<number | null>(null);
 
   return (
-    <main style={{ minHeight: '100vh', background: BG, color: '#F5F7FA', fontFamily: FONT }}>
-      <style>{`@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .4; } }`}</style>
+    <main
+      style={{
+        minHeight: '100vh',
+        background: BG,
+        color: '#F5F7FA',
+        fontFamily: FONT,
+        position: 'relative',
+        overflow: 'hidden',
+      }}
+    >
+      <style>{KEYFRAMES}</style>
 
-      <div style={{
-        position: 'fixed', inset: 0, zIndex: 0, pointerEvents: 'none',
-        background: 'radial-gradient(ellipse 60% 40% at 50% 0%, rgba(16,185,129,.09) 0%, transparent 65%)',
-      }} />
+      {/* Ambient background */}
+      <div
+        aria-hidden="true"
+        style={{
+          position: 'fixed',
+          inset: 0,
+          pointerEvents: 'none',
+          zIndex: 0,
+          background: `
+            radial-gradient(
+              ellipse 65% 42% at 50% 0%,
+              rgba(138,77,255,.11) 0%,
+              rgba(56,189,248,.025) 44%,
+              transparent 72%
+            )
+          `,
+        }}
+      />
 
-      <div style={{ maxWidth: 860, margin: '0 auto', padding: '0 32px 96px', position: 'relative', zIndex: 1 }}>
-
+      <div
+        style={{
+          maxWidth: 1180,
+          margin: '0 auto',
+          padding: '0 32px 96px',
+          position: 'relative',
+          zIndex: 1,
+        }}
+      >
         {/* Back */}
-        <div style={{ paddingTop: 28 }}>
-          <Link href="/for-coaches" style={{
-            fontSize: 13, color: 'rgba(255,255,255,.35)', textDecoration: 'none', transition: 'color .15s',
+        <div
+          style={{
+            paddingTop: 28,
           }}
-            onMouseEnter={e => (e.currentTarget.style.color = 'rgba(255,255,255,.60)')}
-            onMouseLeave={e => (e.currentTarget.style.color = 'rgba(255,255,255,.35)')}>
-            ← Back
+        >
+          <Link
+            href="/for-coaches"
+            style={{
+              fontSize: 11,
+              color: 'rgba(255,255,255,.34)',
+              textDecoration: 'none',
+            }}
+          >
+            ← Back to Client Operations
           </Link>
         </div>
 
-        {/* Hero */}
-        <section style={{ padding: '72px 0 56px', textAlign: 'center' }}>
-          <div style={{
-            display: 'inline-flex', alignItems: 'center', gap: 8,
-            padding: '4px 12px', borderRadius: 20, marginBottom: 24,
-            background: 'rgba(16,185,129,.08)', border: '1px solid rgba(16,185,129,.18)',
-          }}>
-            <div style={{ width: 5, height: 5, borderRadius: '50%', background: '#22C55E', boxShadow: '0 0 6px #22C55E', animation: 'pulse 2.5s ease-in-out infinite' }} />
-            <span style={{ fontSize: 11, fontWeight: 600, color: 'rgba(52,211,153,.82)', letterSpacing: '.08em', textTransform: 'uppercase' }}>System Demo</span>
+        {/* ============================================================
+            HERO
+        ============================================================ */}
+        <section
+          style={{
+            padding: '58px 0 72px',
+            textAlign: 'center',
+            maxWidth: 880,
+            margin: '0 auto',
+          }}
+        >
+          <div
+            style={{
+              width: '100%',
+              display: 'flex',
+              justifyContent: 'center',
+              marginBottom: 27,
+            }}
+          >
+            <div
+              style={{
+                width: 420,
+                maxWidth: '90vw',
+                display: 'flex',
+                justifyContent: 'center',
+              }}
+            >
+              <Image
+                src="/Brand/brainbase-logo-dark.svg"
+                alt="BrainBase"
+                width={760}
+                height={170}
+                priority
+                style={{
+                  display: 'block',
+                  width: 385,
+                  maxWidth: '112%',
+                  height: 'auto',
+                  transform: 'translateX(-3.5%)',
+                }}
+              />
+            </div>
           </div>
 
-          <h1 style={{
-            fontSize: 'clamp(30px, 4.5vw, 50px)', fontWeight: 700,
-            letterSpacing: '-.03em', lineHeight: 1.1,
-            color: '#F1F5F9', margin: '0 0 18px',
-          }}>
-            See how your week actually runs
+          <div
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 8,
+              padding: '5px 11px',
+              marginBottom: 24,
+              borderRadius: 999,
+              background: 'rgba(138,77,255,.06)',
+              border:
+                '1px solid rgba(138,77,255,.17)',
+            }}
+          >
+            <span
+              style={{
+                width: 5,
+                height: 5,
+                borderRadius: '50%',
+                background: '#22C55E',
+                boxShadow:
+                  '0 0 7px rgba(34,197,94,.8)',
+                animation:
+                  'pulse 2.5s ease-in-out infinite',
+              }}
+            />
+
+            <span
+              style={{
+                fontSize: 9,
+                fontWeight: 650,
+                letterSpacing: '.12em',
+                textTransform: 'uppercase',
+                color:
+                  'rgba(167,139,250,.80)',
+              }}
+            >
+              Live Client Operations Deployment
+            </span>
+          </div>
+
+          <h1
+            style={{
+              margin: '0 auto 20px',
+              maxWidth: 820,
+              fontSize:
+                'clamp(38px, 5vw, 58px)',
+              lineHeight: 1.04,
+              letterSpacing: '-.045em',
+              fontWeight: 650,
+              color: '#F5F7FA',
+            }}
+          >
+            See the system
+            <br />
+
+            <span
+              style={{
+                background:
+                  'linear-gradient(100deg, #8A4DFF 0%, #A78BFA 50%, #5C7CFF 100%)',
+                WebkitBackgroundClip: 'text',
+                WebkitTextFillColor:
+                  'transparent',
+                backgroundClip: 'text',
+              }}
+            >
+              behind the business.
+            </span>
           </h1>
-          <p style={{ fontSize: 16, color: 'rgba(226,232,240,.50)', margin: '0 auto', maxWidth: 500, lineHeight: 1.7 }}>
-            This is how your sessions, clients, and revenue connect in one place.
+
+          <p
+            style={{
+              margin: '0 auto',
+              maxWidth: 620,
+              fontSize: 15,
+              lineHeight: 1.7,
+              color:
+                'rgba(226,232,240,.60)',
+            }}
+          >
+            This walkthrough mirrors the current
+            BrainBase client-operations deployment —
+            connecting leads, clients, sessions,
+            follow-up and operational visibility.
           </p>
         </section>
 
-        {/* Schedule context header */}
-        <div style={{ textAlign: 'center', marginBottom: 28 }}>
-          <h2 style={{ fontSize: 22, fontWeight: 700, color: '#F5F7FA', letterSpacing: '-.02em', margin: '0 0 8px' }}>
-            This is your week in real-time
-          </h2>
-          <p style={{ fontSize: 14, color: 'rgba(226,232,240,.40)', margin: 0, lineHeight: 1.55 }}>
-            Every session, every player, every dollar — in one place.
-          </p>
-        </div>
+        {/* ============================================================
+            LIVE DASHBOARD PREVIEW
+        ============================================================ */}
+        <section
+          style={{
+            marginBottom: 94,
+          }}
+        >
+          <SectionHeading
+            eyebrow="Live System"
+            title="Start with what needs attention."
+            description="The dashboard gives the business a quick operational picture before anyone has to dig through separate systems."
+            centred
+          />
 
-        {/* Mock schedule dashboard */}
-        <section style={{ marginBottom: 32 }}>
-          <div style={{ borderRadius: 16, overflow: 'hidden', border: '1px solid rgba(255,255,255,.09)', background: 'rgba(255,255,255,.025)' }}>
+          <div
+            style={{
+              borderRadius: 18,
+              overflow: 'hidden',
+              background:
+                'rgba(255,255,255,.018)',
+              border:
+                '1px solid rgba(255,255,255,.075)',
+              boxShadow:
+                '0 30px 90px rgba(0,0,0,.22)',
+            }}
+          >
+            {/* Dashboard nav */}
+            <div
+              style={{
+                minHeight: 50,
+                padding: '0 18px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 14,
+                flexWrap: 'wrap',
+                background:
+                  'rgba(4,5,8,.86)',
+                borderBottom:
+                  '1px solid rgba(255,255,255,.06)',
+              }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 9,
+                  flexWrap: 'wrap',
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: 10,
+                    fontWeight: 700,
+                    letterSpacing: '.10em',
+                    color:
+                      'rgba(167,139,250,.88)',
+                  }}
+                >
+                  HLN
+                  <span style={{ color: '#8A4DFF' }}>
+                    Λ
+                  </span>
+                </span>
 
-            {/* Title bar */}
-            <div style={{
-              padding: '12px 20px', background: 'rgba(255,255,255,.03)',
-              borderBottom: '1px solid rgba(255,255,255,.07)',
-              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <div style={{ width: 10, height: 10, borderRadius: '50%', background: 'rgba(239,68,68,.50)' }} />
-                <div style={{ width: 10, height: 10, borderRadius: '50%', background: 'rgba(245,158,11,.50)' }} />
-                <div style={{ width: 10, height: 10, borderRadius: '50%', background: 'rgba(16,185,129,.50)' }} />
-                <span style={{ marginLeft: 8, fontSize: 11, color: 'rgba(255,255,255,.25)', letterSpacing: '.04em', fontFamily: '"JetBrains Mono", monospace' }}>weekly schedule</span>
+                {[
+                  'Leads',
+                  'SquΛd',
+                  'Sessions',
+                  'Requests',
+                  'Blog',
+                ].map(item => (
+                  <span
+                    key={item}
+                    style={{
+                      padding: '5px 8px',
+                      borderRadius: 6,
+                      fontSize: 10,
+                      color:
+                        'rgba(255,255,255,.37)',
+                    }}
+                  >
+                    {item}
+                  </span>
+                ))}
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
-                <span style={{ fontSize: 11, color: 'rgba(52,211,153,.60)', letterSpacing: '.04em', fontFamily: '"JetBrains Mono", monospace' }}>● Live</span>
-                <span style={{ fontSize: 10, color: 'rgba(255,255,255,.22)' }}>Updated just now</span>
+
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 7,
+                }}
+              >
+                <span
+                  style={{
+                    width: 5,
+                    height: 5,
+                    borderRadius: '50%',
+                    background: '#22C55E',
+                    boxShadow:
+                      '0 0 6px rgba(34,197,94,.8)',
+                  }}
+                />
+
+                <span
+                  style={{
+                    fontSize: 8,
+                    fontWeight: 650,
+                    letterSpacing: '.08em',
+                    color:
+                      'rgba(255,255,255,.28)',
+                  }}
+                >
+                  LIVE
+                </span>
               </div>
             </div>
 
-            <div style={{ padding: '8px 28px 24px', fontFamily: '"JetBrains Mono", "Fira Code", "Courier New", monospace' }}>
-              {DEMO_SCHEDULE.map((session, i) => {
-                const isHov = hoveredRow === i;
-                return (
-                  <div key={i}
-                    onMouseEnter={() => setHoveredRow(i)}
-                    onMouseLeave={() => setHoveredRow(null)}
+            <div
+              style={{
+                padding: '28px',
+              }}
+            >
+              <div
+                style={{
+                  marginBottom: 24,
+                }}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    marginBottom: 7,
+                  }}
+                >
+                  <span
                     style={{
-                      display: 'flex', gap: 20, alignItems: 'flex-start', flexWrap: 'wrap',
-                      padding: '16px 10px', borderRadius: 8,
-                      borderBottom: i < DEMO_SCHEDULE.length - 1 ? '1px solid rgba(255,255,255,.04)' : 'none',
-                      background: isHov ? 'rgba(16,185,129,.04)' : 'transparent',
-                      transform: isHov ? 'translateX(2px)' : 'translateX(0)',
-                      transition: 'all .15s',
-                    }}>
-                    <div style={{ minWidth: 148, flexShrink: 0 }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: '#34D399', marginBottom: 2 }}>{session.day}</div>
-                      <div style={{ fontSize: 12, color: 'rgba(255,255,255,.28)' }}>{session.time}</div>
+                      fontSize: 9,
+                      fontWeight: 650,
+                      letterSpacing: '.10em',
+                      textTransform: 'uppercase',
+                      color:
+                        'rgba(167,139,250,.72)',
+                    }}
+                  >
+                    HLNΛ · Client Operations
+                  </span>
+                </div>
+
+                <h2
+                  style={{
+                    margin: '0 0 5px',
+                    fontSize: 25,
+                    fontWeight: 650,
+                    letterSpacing: '-.03em',
+                    color: '#F5F7FA',
+                  }}
+                >
+                  Coaching Dashboard
+                </h2>
+
+                <p
+                  style={{
+                    margin: 0,
+                    fontSize: 11,
+                    color:
+                      'rgba(226,232,240,.38)',
+                  }}
+                >
+                  Leads, contacts and session activity
+                </p>
+              </div>
+
+              {/* KPI Cards */}
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns:
+                    'repeat(auto-fit, minmax(165px, 1fr))',
+                  gap: 10,
+                  marginBottom: 12,
+                }}
+              >
+                {KPI_CARDS.map(card => (
+                  <div
+                    key={card.label}
+                    style={{
+                      padding: '18px',
+                      minHeight: 115,
+                      borderRadius: 12,
+                      background:
+                        'rgba(255,255,255,.025)',
+                      border:
+                        '1px solid rgba(255,255,255,.065)',
+                    }}
+                  >
+                    <div
+                      style={{
+                        marginBottom: 10,
+                        fontSize: 8,
+                        fontWeight: 700,
+                        letterSpacing: '.10em',
+                        textTransform: 'uppercase',
+                        color:
+                          'rgba(255,255,255,.34)',
+                      }}
+                    >
+                      {card.label}
                     </div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
-                        <div style={{
-                          fontSize: 11, fontWeight: 600, letterSpacing: '.04em',
-                          padding: '3px 10px', borderRadius: 6,
-                          background: 'rgba(16,185,129,.10)', border: '1px solid rgba(16,185,129,.22)',
-                          color: '#6EE7B7',
-                        }}>
-                          {session.type}
-                        </div>
-                        <span style={{ fontSize: 11, color: 'rgba(255,255,255,.30)' }}>
-                          {session.players.length}/{session.capacity} players
-                        </span>
-                      </div>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
-                        {session.players.map((p, j) => (
-                          <span key={j} style={{
-                            display: 'inline-flex', alignItems: 'center', gap: 4,
-                            fontSize: 11, borderRadius: 20, padding: '2px 9px',
-                            color: p.paid ? 'rgba(226,232,240,.70)' : 'rgba(226,232,240,.50)',
-                            background: p.paid ? 'rgba(255,255,255,.05)' : 'rgba(245,158,11,.06)',
-                            border: p.paid ? '1px solid rgba(255,255,255,.09)' : '1px solid rgba(245,158,11,.20)',
-                          }}>
-                            {p.paid
-                              ? <span style={{ color: '#34D399', fontSize: 9 }}>✓</span>
-                              : <span style={{ color: '#F59E0B', fontSize: 9 }}>⏳</span>
-                            }
-                            {p.name}
-                          </span>
-                        ))}
-                      </div>
+
+                    <div
+                      style={{
+                        marginBottom: 7,
+                        fontSize: 32,
+                        lineHeight: 1,
+                        fontWeight: 700,
+                        color: card.color,
+                      }}
+                    >
+                      {card.value}
                     </div>
-                    <div style={{ flexShrink: 0, paddingTop: 2 }}>
-                      <span style={{ fontSize: 14, fontWeight: 700, color: 'rgba(52,211,153,.65)' }}>${session.revenue}</span>
+
+                    <div
+                      style={{
+                        fontSize: 9,
+                        color:
+                          'rgba(255,255,255,.30)',
+                      }}
+                    >
+                      {card.sub}
                     </div>
                   </div>
-                );
-              })}
-
-              {/* Revenue total */}
-              <div style={{ marginTop: 4, paddingTop: 18, borderTop: '1px solid rgba(255,255,255,.06)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
-                <div>
-                  <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.10em', textTransform: 'uppercase', color: 'rgba(255,255,255,.38)', marginBottom: 3 }}>Weekly Revenue</div>
-                  <div style={{ fontSize: 11, color: 'rgba(52,211,153,.55)' }}>+ $80 today</div>
-                </div>
-                <div style={{ fontSize: 32, fontWeight: 700, color: '#6EE7B7', letterSpacing: '-.03em', textShadow: '0 0 20px rgba(52,211,153,.35)' }}>${TOTAL.toLocaleString()}</div>
+                ))}
               </div>
 
-              {/* Insight */}
-              <div style={{ marginTop: 14, padding: '9px 14px', borderRadius: 8, background: 'rgba(52,211,153,.05)', border: '1px solid rgba(52,211,153,.14)' }}>
-                <span style={{ fontSize: 12, color: 'rgba(52,211,153,.70)' }}>📈 Friday is your highest earning day</span>
+              {/* Main panels */}
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns:
+                    'repeat(auto-fit, minmax(330px, 1fr))',
+                  gap: 10,
+                }}
+              >
+                {/* Today Schedule */}
+                <div
+                  style={{
+                    minHeight: 260,
+                    borderRadius: 12,
+                    background:
+                      'rgba(255,255,255,.018)',
+                    border:
+                      '1px solid rgba(255,255,255,.065)',
+                  }}
+                >
+                  <PanelHeader
+                    title="Today's Schedule"
+                    action="View Sessions →"
+                  />
+
+                  <div
+                    style={{
+                      padding: '15px',
+                    }}
+                  >
+                    {[
+                      {
+                        name: 'Hot Shots Tennis',
+                        detail:
+                          '15:45–16:30 · Morphett Vale',
+                        color: '#D946EF',
+                      },
+                      {
+                        name: 'Group Session',
+                        detail:
+                          '17:00–18:00 · Mt Compass',
+                        color: '#22C55E',
+                      },
+                      {
+                        name: 'Cardio Tennis',
+                        detail:
+                          '19:00–20:00 · Morphett Vale',
+                        color: '#8A4DFF',
+                      },
+                    ].map(item => (
+                      <div
+                        key={item.name}
+                        style={{
+                          padding: '11px 12px',
+                          marginBottom: 8,
+                          borderRadius: 9,
+                          background:
+                            'rgba(255,255,255,.024)',
+                          border:
+                            '1px solid rgba(255,255,255,.055)',
+                          borderLeft:
+                            `3px solid ${item.color}`,
+                        }}
+                      >
+                        <div
+                          style={{
+                            marginBottom: 3,
+                            fontSize: 10,
+                            fontWeight: 650,
+                            color: '#F5F7FA',
+                          }}
+                        >
+                          {item.name}
+                        </div>
+
+                        <div
+                          style={{
+                            fontSize: 9,
+                            color:
+                              'rgba(255,255,255,.34)',
+                          }}
+                        >
+                          {item.detail}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Attention */}
+                <div
+                  style={{
+                    minHeight: 260,
+                    borderRadius: 12,
+                    background:
+                      'rgba(255,255,255,.018)',
+                    border:
+                      '1px solid rgba(255,255,255,.065)',
+                  }}
+                >
+                  <PanelHeader
+                    title="Needs Attention"
+                    action="All Clients →"
+                  />
+
+                  {ATTENTION.map((item, index) => (
+                    <div
+                      key={item.name}
+                      style={{
+                        padding: '15px',
+                        borderBottom:
+                          index <
+                          ATTENTION.length - 1
+                            ? '1px solid rgba(255,255,255,.045)'
+                            : 'none',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent:
+                          'space-between',
+                        gap: 12,
+                      }}
+                    >
+                      <div>
+                        <div
+                          style={{
+                            marginBottom: 3,
+                            fontSize: 10,
+                            fontWeight: 650,
+                            color: '#F5F7FA',
+                          }}
+                        >
+                          {item.name}
+                        </div>
+
+                        <div
+                          style={{
+                            fontSize: 9,
+                            color:
+                              'rgba(255,255,255,.30)',
+                          }}
+                        >
+                          {item.status}
+                        </div>
+                      </div>
+
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 5,
+                          flexWrap: 'wrap',
+                          justifyContent: 'flex-end',
+                        }}
+                      >
+                        <span
+                          style={{
+                            padding: '3px 7px',
+                            borderRadius: 999,
+                            background:
+                              `${item.color}12`,
+                            border:
+                              `1px solid ${item.color}25`,
+                            color: item.color,
+                            fontSize: 8,
+                          }}
+                        >
+                          {item.type}
+                        </span>
+
+                        <span
+                          style={{
+                            padding: '3px 7px',
+                            borderRadius: 6,
+                            border:
+                              '1px solid rgba(34,197,94,.20)',
+                            background:
+                              'rgba(34,197,94,.07)',
+                            color: '#6EE7B7',
+                            fontSize: 8,
+                          }}
+                        >
+                          Call
+                        </span>
+
+                        <span
+                          style={{
+                            padding: '3px 7px',
+                            borderRadius: 6,
+                            border:
+                              '1px solid rgba(59,130,246,.20)',
+                            background:
+                              'rgba(59,130,246,.07)',
+                            color: '#93C5FD',
+                            fontSize: 8,
+                          }}
+                        >
+                          Email
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
           </div>
         </section>
 
-        {/* Post-schedule CTA */}
-        <div style={{ textAlign: 'center', marginBottom: 56 }}>
-          <Link
-            href="/app"
-            onMouseEnter={() => setScheduleCtaHov(true)}
-            onMouseLeave={() => setScheduleCtaHov(false)}
-            style={{
-              display: 'inline-block',
-              padding: '12px 32px', borderRadius: 9, fontWeight: 600, fontSize: 14,
-              background: scheduleCtaHov ? 'rgba(16,185,129,.28)' : 'rgba(16,185,129,.18)',
-              border: scheduleCtaHov ? '1px solid rgba(16,185,129,.55)' : '1px solid rgba(16,185,129,.36)',
-              color: '#F5F7FA', textDecoration: 'none', letterSpacing: '.02em',
-              transition: 'background .15s, border-color .15s',
-              boxShadow: scheduleCtaHov ? '0 0 24px rgba(16,185,129,.15)' : 'none',
-            }}>
-            Start your week like this →
-          </Link>
-        </div>
+        {/* ============================================================
+            SESSION VIEW
+        ============================================================ */}
+        <section
+          style={{
+            marginBottom: 94,
+          }}
+        >
+          <SectionHeading
+            eyebrow="Sessions"
+            title="See the week clearly."
+            description="The scheduling layer shows when services are running, where they are happening and how much capacity remains."
+            centred
+          />
 
-        {/* Three pillars */}
-        <section style={{ marginBottom: 64 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 16 }}>
-            {[
-              { color: '#34D399', label: 'Your schedule', body: 'Every session, every day — structured and visible at a glance.' },
-              { color: '#60a5fa', label: 'Your clients',  body: 'Every player linked to their session, guardian details included.' },
-              { color: '#a5b4fc', label: 'Your numbers',  body: 'See what each week is actually worth — not a guess, the real figure.' },
-            ].map((item, i) => (
-              <div key={i} style={{
-                padding: '22px 20px', borderRadius: 12,
-                background: 'rgba(255,255,255,.03)', border: '1px solid rgba(255,255,255,.07)',
-              }}>
-                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', color: item.color, marginBottom: 10, opacity: .80 }}>{item.label}</div>
-                <p style={{ fontSize: 13, color: 'rgba(226,232,240,.55)', lineHeight: 1.65, margin: 0 }}>{item.body}</p>
+          <div
+            style={{
+              padding: '28px',
+              borderRadius: 18,
+              background:
+                'rgba(255,255,255,.017)',
+              border:
+                '1px solid rgba(255,255,255,.07)',
+            }}
+          >
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'flex-start',
+                gap: 16,
+                flexWrap: 'wrap',
+                marginBottom: 22,
+              }}
+            >
+              <div>
+                <h3
+                  style={{
+                    margin: '0 0 4px',
+                    fontSize: 20,
+                    fontWeight: 650,
+                    color: '#F5F7FA',
+                  }}
+                >
+                  Sessions
+                </h3>
+
+                <p
+                  style={{
+                    margin: 0,
+                    fontSize: 10,
+                    color:
+                      'rgba(255,255,255,.30)',
+                  }}
+                >
+                  Week of 24–30 August
+                </p>
               </div>
-            ))}
+
+              <div
+                style={{
+                  display: 'flex',
+                  gap: 7,
+                }}
+              >
+                <span
+                  style={{
+                    padding: '6px 11px',
+                    borderRadius: 999,
+                    background:
+                      'rgba(255,255,255,.025)',
+                    border:
+                      '1px solid rgba(255,255,255,.07)',
+                    fontSize: 9,
+                    color:
+                      'rgba(255,255,255,.42)',
+                  }}
+                >
+                  Week
+                </span>
+
+                <span
+                  style={{
+                    padding: '6px 11px',
+                    borderRadius: 999,
+                    background:
+                      'rgba(138,77,255,.09)',
+                    border:
+                      '1px solid rgba(138,77,255,.20)',
+                    fontSize: 9,
+                    color: '#C4B5FD',
+                  }}
+                >
+                  + New Session
+                </span>
+              </div>
+            </div>
+
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns:
+                  'repeat(auto-fit, minmax(220px, 1fr))',
+                gap: 10,
+              }}
+            >
+              {SESSIONS.map((session, index) => (
+                <div
+                  key={`${session.day}-${index}`}
+                  style={{
+                    padding: '14px',
+                    borderRadius: 11,
+                    background:
+                      'rgba(255,255,255,.022)',
+                    border:
+                      '1px solid rgba(255,255,255,.06)',
+                    borderLeft:
+                      `3px solid ${session.color}`,
+                  }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent:
+                        'space-between',
+                      gap: 8,
+                      marginBottom: 7,
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: 8,
+                        textTransform: 'uppercase',
+                        letterSpacing: '.08em',
+                        color:
+                          'rgba(255,255,255,.30)',
+                      }}
+                    >
+                      {session.day}
+                    </div>
+
+                    <div
+                      style={{
+                        fontSize: 8,
+                        fontWeight: 700,
+                        color: '#22C55E',
+                      }}
+                    >
+                      {session.capacity}
+                    </div>
+                  </div>
+
+                  <div
+                    style={{
+                      marginBottom: 3,
+                      fontSize: 11,
+                      fontWeight: 650,
+                      color: '#F5F7FA',
+                    }}
+                  >
+                    {session.title}
+                  </div>
+
+                  <div
+                    style={{
+                      marginBottom: 7,
+                      fontSize: 9,
+                      color:
+                        'rgba(226,232,240,.46)',
+                    }}
+                  >
+                    {session.program}
+                  </div>
+
+                  <div
+                    style={{
+                      fontSize: 9,
+                      lineHeight: 1.55,
+                      color:
+                        'rgba(255,255,255,.32)',
+                    }}
+                  >
+                    {session.time}
+                    <br />
+                    {session.venue}
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         </section>
 
-        {/* CTA */}
-        <div style={{ textAlign: 'center' }}>
-          <p style={{ fontSize: 14, color: 'rgba(255,255,255,.28)', marginBottom: 24 }}>
-            Ready to set up your real schedule?
-          </p>
-          <Link
-            href="/request-demo"
-            onMouseEnter={() => setCtaHov(true)}
-            onMouseLeave={() => setCtaHov(false)}
-            style={{
-              display: 'inline-block',
-              padding: '14px 40px', borderRadius: 9, fontWeight: 600, fontSize: 15,
-              background: ctaHov ? 'rgba(16,185,129,.30)' : 'rgba(16,185,129,.20)',
-              border: ctaHov ? '1px solid rgba(16,185,129,.58)' : '1px solid rgba(16,185,129,.38)',
-              color: '#F5F7FA', textDecoration: 'none', letterSpacing: '.02em',
-              transition: 'background .15s, border-color .15s',
-              boxShadow: ctaHov ? '0 0 28px rgba(16,185,129,.18)' : 'none',
-            }}>
-            Request a Demo →
-          </Link>
-          <p style={{ marginTop: 16, fontSize: 12, color: 'rgba(255,255,255,.18)' }}>
-            No contracts. Cancel anytime.
-          </p>
-        </div>
+        {/* ============================================================
+            CONNECTED FLOW
+        ============================================================ */}
+        <section
+          style={{
+            marginBottom: 94,
+          }}
+        >
+          <SectionHeading
+            eyebrow="Connected Workflow"
+            title="The value is what happens between the screens."
+            description="BrainBase keeps each stage of the client journey connected instead of treating leads, clients, bookings and follow-up as separate jobs."
+            centred
+          />
 
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns:
+                'repeat(auto-fit, minmax(300px, 1fr))',
+              gap: 10,
+            }}
+          >
+            {FLOW.map((step, index) => {
+              const active =
+                hoveredFlow === index;
+
+              return (
+                <div
+                  key={step.number}
+                  onMouseEnter={() =>
+                    setHoveredFlow(index)
+                  }
+                  onMouseLeave={() =>
+                    setHoveredFlow(null)
+                  }
+                  style={{
+                    padding: '20px',
+                    display: 'flex',
+                    gap: 15,
+                    borderRadius: 13,
+                    background: active
+                      ? `rgba(${hexToRgbStr(
+                          step.color,
+                        )}, .055)`
+                      : 'rgba(255,255,255,.017)',
+                    border: active
+                      ? `1px solid ${step.color}30`
+                      : '1px solid rgba(255,255,255,.06)',
+                    transform: active
+                      ? 'translateY(-2px)'
+                      : 'translateY(0)',
+                    transition: 'all .16s',
+                  }}
+                >
+                  <div
+                    style={{
+                      width: 34,
+                      height: 34,
+                      borderRadius: 9,
+                      flexShrink: 0,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      background:
+                        `${step.color}12`,
+                      border:
+                        `1px solid ${step.color}28`,
+                      color: step.color,
+                      fontSize: 9,
+                      fontWeight: 700,
+                    }}
+                  >
+                    {step.number}
+                  </div>
+
+                  <div>
+                    <h3
+                      style={{
+                        margin: '0 0 5px',
+                        fontSize: 13,
+                        fontWeight: 650,
+                        color: '#F5F7FA',
+                      }}
+                    >
+                      {step.title}
+                    </h3>
+
+                    <p
+                      style={{
+                        margin: 0,
+                        fontSize: 11,
+                        lineHeight: 1.6,
+                        color:
+                          'rgba(226,232,240,.53)',
+                      }}
+                    >
+                      {step.body}
+                    </p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+
+        {/* ============================================================
+            MODULES
+        ============================================================ */}
+        <section
+          style={{
+            marginBottom: 94,
+            padding: '42px',
+            borderRadius: 18,
+            background:
+              'linear-gradient(135deg, rgba(138,77,255,.06), rgba(56,189,248,.015))',
+            border:
+              '1px solid rgba(138,77,255,.14)',
+          }}
+        >
+          <div
+            style={{
+              marginBottom: 28,
+            }}
+          >
+            <div
+              style={{
+                marginBottom: 9,
+                fontSize: 9,
+                fontWeight: 650,
+                letterSpacing: '.12em',
+                textTransform: 'uppercase',
+                color:
+                  'rgba(167,139,250,.70)',
+              }}
+            >
+              BrainBase Platform
+            </div>
+
+            <h2
+              style={{
+                margin: '0 0 10px',
+                fontSize: 29,
+                fontWeight: 650,
+                letterSpacing: '-.03em',
+                color: '#F5F7FA',
+              }}
+            >
+              One deployment. Multiple connected
+              modules.
+            </h2>
+
+            <p
+              style={{
+                margin: 0,
+                maxWidth: 650,
+                fontSize: 13,
+                lineHeight: 1.65,
+                color:
+                  'rgba(226,232,240,.53)',
+              }}
+            >
+              The coaching system is one real
+              configuration of BrainBase. The same
+              platform can be adapted to other
+              businesses built around clients,
+              bookings, services and follow-up.
+            </p>
+          </div>
+
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns:
+                'repeat(auto-fit, minmax(250px, 1fr))',
+              gap: 10,
+            }}
+          >
+            {MODULES.map((module, index) => {
+              const active =
+                hoveredModule === index;
+
+              return (
+                <div
+                  key={module.title}
+                  onMouseEnter={() =>
+                    setHoveredModule(index)
+                  }
+                  onMouseLeave={() =>
+                    setHoveredModule(null)
+                  }
+                  style={{
+                    padding: '18px',
+                    borderRadius: 12,
+                    background: active
+                      ? `rgba(${hexToRgbStr(
+                          module.color,
+                        )}, .055)`
+                      : 'rgba(7,8,11,.26)',
+                    border: active
+                      ? `1px solid ${module.color}30`
+                      : '1px solid rgba(255,255,255,.06)',
+                    transform: active
+                      ? 'translateY(-2px)'
+                      : 'translateY(0)',
+                    transition: 'all .16s',
+                  }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      marginBottom: 8,
+                    }}
+                  >
+                    <span
+                      style={{
+                        width: 6,
+                        height: 6,
+                        borderRadius: '50%',
+                        background: module.color,
+                        boxShadow:
+                          `0 0 7px ${module.color}80`,
+                      }}
+                    />
+
+                    <span
+                      style={{
+                        fontSize: 13,
+                        fontWeight: 650,
+                        color: '#F5F7FA',
+                      }}
+                    >
+                      {module.title}
+                    </span>
+                  </div>
+
+                  <p
+                    style={{
+                      margin: 0,
+                      fontSize: 10,
+                      lineHeight: 1.55,
+                      color:
+                        'rgba(226,232,240,.48)',
+                    }}
+                  >
+                    {module.body}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+
+        {/* ============================================================
+            LD TENNIS DEPLOYMENT
+        ============================================================ */}
+        <section
+          style={{
+            marginBottom: 94,
+          }}
+        >
+          <div
+            style={{
+              padding: '38px 40px',
+              borderRadius: 17,
+              background:
+                'linear-gradient(135deg, rgba(16,185,129,.045), rgba(138,77,255,.018))',
+              border:
+                '1px solid rgba(16,185,129,.15)',
+            }}
+          >
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns:
+                  'repeat(auto-fit, minmax(280px, 1fr))',
+                gap: 34,
+                alignItems: 'center',
+              }}
+            >
+              <div>
+                <div
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 7,
+                    marginBottom: 12,
+                  }}
+                >
+                  <span
+                    style={{
+                      padding: '3px 8px',
+                      borderRadius: 999,
+                      background:
+                        'rgba(16,185,129,.09)',
+                      border:
+                        '1px solid rgba(16,185,129,.22)',
+                      fontSize: 8,
+                      fontWeight: 700,
+                      letterSpacing: '.08em',
+                      color: '#6EE7B7',
+                    }}
+                  >
+                    LIVE DEPLOYMENT
+                  </span>
+
+                  <span
+                    style={{
+                      width: 5,
+                      height: 5,
+                      borderRadius: '50%',
+                      background: '#22C55E',
+                      boxShadow:
+                        '0 0 6px #22C55E',
+                      animation:
+                        'pulse 2.5s ease-in-out infinite',
+                    }}
+                  />
+                </div>
+
+                <h2
+                  style={{
+                    margin: '0 0 11px',
+                    fontSize: 28,
+                    fontWeight: 650,
+                    letterSpacing: '-.03em',
+                    color: '#F5F7FA',
+                  }}
+                >
+                  LD Tennis
+                </h2>
+
+                <p
+                  style={{
+                    margin: 0,
+                    maxWidth: 560,
+                    fontSize: 13,
+                    lineHeight: 1.7,
+                    color:
+                      'rgba(226,232,240,.56)',
+                  }}
+                >
+                  This live coaching deployment is
+                  the first client-operations use
+                  case built on BrainBase. It brings
+                  website enquiries, leads, clients,
+                  sessions and operational activity
+                  into one connected system.
+                </p>
+              </div>
+
+              <div
+                style={{
+                  padding: '22px',
+                  borderRadius: 13,
+                  background:
+                    'rgba(7,8,11,.25)',
+                  border:
+                    '1px solid rgba(255,255,255,.06)',
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: 9,
+                    fontWeight: 650,
+                    letterSpacing: '.10em',
+                    textTransform: 'uppercase',
+                    color:
+                      'rgba(255,255,255,.28)',
+                    marginBottom: 14,
+                  }}
+                >
+                  Current deployment includes
+                </div>
+
+                {[
+                  'Lead and enquiry management',
+                  'Client records',
+                  'Session scheduling',
+                  'Follow-up actions',
+                  'Operational dashboard',
+                  'HLNΛ intelligence layer',
+                ].map(item => (
+                  <div
+                    key={item}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      marginBottom: 9,
+                      fontSize: 10,
+                      color:
+                        'rgba(226,232,240,.54)',
+                    }}
+                  >
+                    <span
+                      style={{
+                        color: '#22C55E',
+                      }}
+                    >
+                      ✓
+                    </span>
+
+                    {item}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* ============================================================
+            FINAL CTA
+        ============================================================ */}
+        <section
+          style={{
+            padding: '48px 42px',
+            borderRadius: 19,
+            textAlign: 'center',
+            background:
+              'linear-gradient(135deg, rgba(138,77,255,.075), rgba(56,189,248,.025))',
+            border:
+              '1px solid rgba(138,77,255,.16)',
+          }}
+        >
+          <div
+            style={{
+              maxWidth: 660,
+              margin: '0 auto',
+            }}
+          >
+            <div
+              style={{
+                marginBottom: 11,
+                fontSize: 9,
+                fontWeight: 650,
+                letterSpacing: '.12em',
+                textTransform: 'uppercase',
+                color:
+                  'rgba(167,139,250,.70)',
+              }}
+            >
+              Your deployment
+            </div>
+
+            <h2
+              style={{
+                margin: '0 0 14px',
+                fontSize:
+                  'clamp(27px, 4vw, 38px)',
+                lineHeight: 1.1,
+                letterSpacing: '-.035em',
+                fontWeight: 650,
+                color: '#F5F7FA',
+              }}
+            >
+              The same foundation can be built
+              around your operation.
+            </h2>
+
+            <p
+              style={{
+                margin: '0 auto 25px',
+                maxWidth: 570,
+                fontSize: 13,
+                lineHeight: 1.7,
+                color:
+                  'rgba(226,232,240,.56)',
+              }}
+            >
+              Coaching is the first live example.
+              BrainBase can be configured for other
+              client and service businesses with the
+              terminology, workflows and modules
+              adapted to how they actually work.
+            </p>
+
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'center',
+                gap: 9,
+                flexWrap: 'wrap',
+              }}
+            >
+              <Link
+                href="/request-demo"
+                style={{
+                  height: 43,
+                  padding: '0 21px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  borderRadius: 9,
+                  background:
+                    'linear-gradient(100deg, #6A3DFF 0%, #8A4DFF 55%, #5677FF 100%)',
+                  color: '#FFFFFF',
+                  textDecoration: 'none',
+                  fontSize: 12,
+                  fontWeight: 650,
+                }}
+              >
+                Request a demo →
+              </Link>
+
+              <Link
+                href="/for-coaches"
+                style={{
+                  height: 41,
+                  padding: '0 19px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  borderRadius: 9,
+                  background:
+                    'rgba(255,255,255,.025)',
+                  border:
+                    '1px solid rgba(255,255,255,.08)',
+                  color:
+                    'rgba(245,247,250,.64)',
+                  textDecoration: 'none',
+                  fontSize: 12,
+                  fontWeight: 550,
+                }}
+              >
+                Back to Client Operations
+              </Link>
+            </div>
+          </div>
+        </section>
       </div>
     </main>
   );
+}
+
+function PanelHeader({
+  title,
+  action,
+}: {
+  title: string;
+  action: string;
+}) {
+  return (
+    <div
+      style={{
+        padding: '12px 15px',
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        gap: 10,
+        borderBottom:
+          '1px solid rgba(255,255,255,.055)',
+      }}
+    >
+      <span
+        style={{
+          fontSize: 9,
+          fontWeight: 700,
+          letterSpacing: '.08em',
+          textTransform: 'uppercase',
+          color:
+            'rgba(255,255,255,.38)',
+        }}
+      >
+        {title}
+      </span>
+
+      <span
+        style={{
+          fontSize: 9,
+          color: '#8A4DFF',
+        }}
+      >
+        {action}
+      </span>
+    </div>
+  );
+}
+
+function SectionHeading({
+  eyebrow,
+  title,
+  description,
+  centred = false,
+}: {
+  eyebrow: string;
+  title: string;
+  description: string;
+  centred?: boolean;
+}) {
+  return (
+    <div
+      style={{
+        maxWidth: centred ? 700 : 620,
+        margin: centred
+          ? '0 auto 38px'
+          : '0 0 38px',
+        textAlign: centred
+          ? 'center'
+          : 'left',
+      }}
+    >
+      <div
+        style={{
+          marginBottom: 10,
+          fontSize: 9,
+          fontWeight: 650,
+          letterSpacing: '.13em',
+          textTransform: 'uppercase',
+          color:
+            'rgba(167,139,250,.68)',
+        }}
+      >
+        {eyebrow}
+      </div>
+
+      <h2
+        style={{
+          margin: '0 0 13px',
+          fontSize:
+            'clamp(27px, 4vw, 38px)',
+          lineHeight: 1.1,
+          letterSpacing: '-.035em',
+          fontWeight: 650,
+          color: '#F5F7FA',
+        }}
+      >
+        {title}
+      </h2>
+
+      <p
+        style={{
+          margin: 0,
+          fontSize: 13,
+          lineHeight: 1.7,
+          color:
+            'rgba(226,232,240,.57)',
+        }}
+      >
+        {description}
+      </p>
+    </div>
+  );
+}
+
+function hexToRgbStr(hex: string): string {
+  const r = parseInt(
+    hex.slice(1, 3),
+    16,
+  );
+
+  const g = parseInt(
+    hex.slice(3, 5),
+    16,
+  );
+
+  const b = parseInt(
+    hex.slice(5, 7),
+    16,
+  );
+
+  return `${r},${g},${b}`;
 }
