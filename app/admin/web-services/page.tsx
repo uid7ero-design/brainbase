@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import LeadMessages from './LeadMessages';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -826,6 +827,9 @@ function DrawerContent({
             {saving ? 'Saving…' : 'Save notes'}
           </button>
         </div>
+
+        {/* Email / message history */}
+        <LeadMessages leadId={lead.id} leadEmail={lead.email} />
 
         {/* Timestamps */}
         <div style={{ fontSize: 11, color: 'rgba(255,255,255,.22)', borderTop: '1px solid rgba(255,255,255,.06)', paddingTop: 14, lineHeight: 1.7 }}>
