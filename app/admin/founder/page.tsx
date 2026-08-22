@@ -509,6 +509,150 @@ function AttentionQueue({ items, onAction, onFollowUp, onMarkReviewed }: {
   );
 }
 
+// ─── Founder OS Phase A — real, cross-organisation Attention Queue ──────────
+// Sourced from GET /api/founder/attention-queue (alerts, client_pipeline
+// Requests, web_service_leads, client_onboarding launches) — no mock data,
+// no external backend proxy. This replaces the QUEUE mock / founder-
+// intelligence fallback as the Overview tab's primary Attention Queue; the
+// Clients-tab mini-queue (still backed by queueItems/QUEUE) is unchanged —
+// out of scope for Phase A.
+
+type AttnItemType = 'alert' | 'client_request' | 'web_lead' | 'upcoming_launch' | 'overdue_deployment';
+type AttnItem = {
+  id: string; type: AttnItemType; severity: Severity; title: string; description: string;
+  organisationId: string | null; organisationName: string | null; createdAt: string | null;
+  href: string; metadata: Record<string, unknown>;
+};
+type AttnMetrics = {
+  leadsByStage: Record<string, number>;
+  openAlerts: number; openRequests: number; onboardingInProgress: number;
+  activeManagedServices: number; activeMrr: number;
+};
+
+const ATTN_TYPE_LABEL: Record<AttnItemType, string> = {
+  alert:              'Alert',
+  client_request:     'Client Request',
+  web_lead:           'Web Lead',
+  upcoming_launch:    'Upcoming Launch',
+  overdue_deployment: 'Overdue Deployment',
+};
+const ATTN_TYPE_COLOR: Record<AttnItemType, string> = {
+  alert:              T.red,
+  client_request:     T.cyan,
+  web_lead:           T.green,
+  upcoming_launch:    '#60A5FA',
+  overdue_deployment: '#F97316',
+};
+
+function timeAgo(iso: string | null): string {
+  if (!iso) return '';
+  const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
+  if (days <= 0) return 'Today';
+  if (days === 1) return '1d ago';
+  return `${days}d ago`;
+}
+
+function SnapshotTile({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={{ padding: '8px 10px', borderRadius: 6, background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)' }}>
+      <div style={{ fontSize: 9, color: T.dim, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>{label}</div>
+      <div style={{ fontSize: 16, fontWeight: 700, color: T.text, fontFamily: T.mono }}>{value}</div>
+    </div>
+  );
+}
+
+function RealFounderOperations() {
+  const [items, setItems] = useState<AttnItem[]>([]);
+  const [metrics, setMetrics] = useState<AttnMetrics | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/founder/attention-queue')
+      .then(r => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((d: { items?: AttnItem[]; metrics?: AttnMetrics }) => {
+        setItems(Array.isArray(d.items) ? d.items : []);
+        setMetrics(d.metrics ?? null);
+      })
+      .catch(() => setLoadError(true))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const critical = items.some(i => i.severity === 'critical');
+
+  return (
+    <>
+      <Card accent={critical ? T.red : T.purpleB} style={{ padding: '12px 14px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+          <span style={{ width: 6, height: 6, borderRadius: '50%', background: T.green, boxShadow: `0 0 7px ${T.green}`, display: 'inline-block' }} />
+          <Lbl s="Attention queue" c={T.text} />
+          {!loading && !loadError && (
+            <span style={{
+              fontSize: 9, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
+              color: items.length ? T.red : T.green, background: items.length ? T.redA : T.greenA,
+              padding: '2px 6px', borderRadius: 3, marginBottom: 7,
+            }}>
+              {items.length ? `${items.length} item${items.length !== 1 ? 's' : ''} need action` : '✓ All clear'}
+            </span>
+          )}
+        </div>
+
+        {loading && <div style={{ fontSize: 11, color: T.dim, padding: '4px 2px 2px' }}>Loading…</div>}
+        {!loading && loadError && (
+          <div style={{ fontSize: 11, color: T.red, padding: '4px 2px 2px' }}>Couldn&apos;t load the attention queue.</div>
+        )}
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {items.map(item => {
+            const sc = SEV_COLOR[item.severity];
+            const tc = ATTN_TYPE_COLOR[item.type];
+            return (
+              <a key={item.id} href={item.href} style={{
+                display: 'block', textDecoration: 'none', borderRadius: 6, overflow: 'hidden',
+                border: '1px solid rgba(255,255,255,0.05)', borderLeft: `3px solid ${sc}`,
+                background: SEV_BG[item.severity],
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px 4px' }}>
+                  <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: sc, background: `${sc}18`, padding: '1px 5px', borderRadius: 3, flexShrink: 0 }}>
+                    {item.severity}
+                  </span>
+                  <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: tc, background: `${tc}18`, padding: '1px 5px', borderRadius: 3, flexShrink: 0 }}>
+                    {ATTN_TYPE_LABEL[item.type]}
+                  </span>
+                  {item.organisationName && <Mono size={9} color={T.dim}>{item.organisationName}</Mono>}
+                  <span style={{ fontSize: 12, fontWeight: 500, color: T.text, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.title}</span>
+                  {item.createdAt && <Mono size={9} color={T.dim}>{timeAgo(item.createdAt)}</Mono>}
+                </div>
+                {item.description && (
+                  <div style={{ padding: '0 10px 7px 10px' }}>
+                    <span style={{ fontSize: 11, color: T.sub, lineHeight: 1.45 }}>{item.description}</span>
+                  </div>
+                )}
+              </a>
+            );
+          })}
+        </div>
+      </Card>
+
+      <Card style={{ padding: '12px 14px' }}>
+        <Lbl s="Real operational snapshot" />
+        {(loading || !metrics) ? (
+          <div style={{ fontSize: 11, color: T.dim }}>{loadError ? 'Unavailable.' : 'Loading…'}</div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 10 }}>
+            <SnapshotTile label="Active MRR"               value={`$${Math.round(metrics.activeMrr).toLocaleString()}`} />
+            <SnapshotTile label="Active managed services"  value={String(metrics.activeManagedServices)} />
+            <SnapshotTile label="In implementation"        value={String(metrics.onboardingInProgress)} />
+            <SnapshotTile label="Open requests"             value={String(metrics.openRequests)} />
+            <SnapshotTile label="Open alerts"               value={String(metrics.openAlerts)} />
+            <SnapshotTile label="New Web Systems leads"     value={String(metrics.leadsByStage['new'] ?? 0)} />
+          </div>
+        )}
+      </Card>
+    </>
+  );
+}
+
 // ─── HLNA Briefing ────────────────────────────────────────────────────────────
 
 const MOCK_QUADS = [
@@ -1988,17 +2132,21 @@ export default function FounderPage() {
               both cases: the intelligence backend request failing outright
               (intelError) and it succeeding but returning the API route's
               own sample payload because the backend itself is unreachable
-              (intel.source === 'demo'). Either way, the queue/briefing/
+              (intel.source === 'demo'). Either way, the briefing/
               recommendations below are sample content, not this
               organisation's real data — see Task 1D of the AFK polish
-              round: label clearly rather than presenting it as live. */}
+              round: label clearly rather than presenting it as live.
+              NOTE: the Attention Queue itself is excluded from this
+              copy since Founder OS Phase A — it's real, DB-backed data
+              (see RealFounderOperations below) regardless of whether the
+              separate external intelligence backend is reachable. */}
           {(intelError || intel?.source === 'demo') && (
             <div style={{ padding: '6px 11px', borderRadius: 5, background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.14)', display: 'flex', alignItems: 'center', gap: 6 }}>
               <span style={{ fontSize: 10, color: T.yellow }}>⚠</span>
               <span style={{ fontSize: 10, color: 'rgba(245,158,11,0.75)' }}>
                 {intelError
                   ? 'Founder intelligence unavailable — displaying local operating data.'
-                  : 'Demo data — intelligence backend not connected. KPIs, attention queue, and recommendations below are sample content.'}
+                  : 'Demo data — intelligence backend not connected. KPIs and recommendations below are sample content.'}
               </span>
             </div>
           )}
@@ -2008,7 +2156,7 @@ export default function FounderPage() {
           {/* ── Overview ── */}
           {section === 'overview' && <>
             <SnapshotHero />
-            <AttentionQueue items={queueItems} onAction={showToast} onFollowUp={doFollowUp} onMarkReviewed={doMarkReviewed} />
+            <RealFounderOperations />
             <HlnaBriefing intel={intel} initialLoading={intelLoading} />
             <ClientPipeline onSelect={setSelectedClient} onFollowUp={doFollowUp} overrides={clientOverrides} clients={clients} />
             <RevenueIntel />
