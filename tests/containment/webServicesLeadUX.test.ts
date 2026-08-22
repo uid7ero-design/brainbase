@@ -90,6 +90,36 @@ describe('app/admin/web-services/page.tsx — kanban horizontal scroll fix', () 
   })
 })
 
+describe('app/admin/web-services/page.tsx — sticky toolbar offset fix (top-clipping)', () => {
+  const source = fs.readFileSync(path.resolve(__dirname, '../../app/admin/web-services/page.tsx'), 'utf-8')
+
+  it('the page\'s own sticky toolbar uses top: 0, not top: 52', () => {
+    // Scoped to the header's own style block, not a blanket "no top: 52
+    // anywhere" ban — AdminAside legitimately uses top: 52 elsewhere, and
+    // this file's own comment explains the distinction by name.
+    const headerBlockMatch = source.match(/position: 'sticky', top: (\d+), zIndex: 50,/)
+    expect(headerBlockMatch).not.toBeNull()
+    expect(headerBlockMatch![1]).toBe('0')
+  })
+
+  it('zIndex: 50 is preserved on the toolbar (only the top offset changed)', () => {
+    expect(source).toContain("position: 'sticky', top: 0, zIndex: 50,")
+  })
+
+  it('does not modify the shared admin layout or AdminAside', () => {
+    const layout = fs.readFileSync(path.resolve(__dirname, '../../app/admin/layout.tsx'), 'utf-8')
+    const aside = fs.readFileSync(path.resolve(__dirname, '../../components/admin/AdminAside.tsx'), 'utf-8')
+    expect(layout).toContain("overflow: 'auto'")
+    expect(aside).toContain("position: 'sticky', top: 52")
+  })
+
+  it('horizontal kanban scrolling protections remain intact alongside the offset fix', () => {
+    expect(source).not.toContain("minHeight: 'calc(100vh - 150px)'")
+    expect(source).toContain("overflowX: 'auto'")
+    expect(source).toContain('wsp-kanban-scroll')
+  })
+})
+
 describe('app/admin/web-services/page.tsx — contact actions are now clickable', () => {
   const source = fs.readFileSync(path.resolve(__dirname, '../../app/admin/web-services/page.tsx'), 'utf-8')
 

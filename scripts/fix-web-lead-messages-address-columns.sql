@@ -1,0 +1,55 @@
+-- Corrective migration for web_lead_messages — NOT a second create-from-
+-- scratch script. scripts/create-web-service-lead-messages.sql already
+-- describes the correct, intended, application-required schema
+-- (from_address text NOT NULL, to_address text NOT NULL) and is left
+-- untouched. This file exists only because the SQL actually executed
+-- against Production when that migration was manually run did not match
+-- that file verbatim: the live table currently has a single
+-- `recipient_email text NOT NULL` column instead of `from_address` +
+-- `to_address`. app/api/web-services/leads/[id]/messages/route.ts's
+-- deployed INSERT/SELECT (and app/admin/web-services/LeadMessages.tsx's
+-- types) have always used from_address/to_address — that deployed
+-- application contract is authoritative, and this migration brings the
+-- table into line with it, not the other way around.
+--
+-- Written and safe ONLY under the verified precondition it targets:
+-- web_lead_messages currently has exactly 0 rows, `recipient_email`
+-- exists, and `from_address`/`to_address` do not. It intentionally does
+-- NOT attempt to backfill `from_address`/`to_address` from
+-- `recipient_email` — with 0 rows there is nothing to backfill, and
+-- guessing a backfill mapping for a hypothetical populated table (e.g.
+-- assuming recipient_email's value belongs in to_address) is out of
+-- scope here and would be the wrong call to make silently in a
+-- corrective script. If this is ever run against a table that already
+-- has rows, the ADD COLUMN ... NOT NULL steps below will correctly
+-- fail loudly (existing NULL from_address/to_address values would
+-- violate the constraint) rather than silently produce incomplete data.
+--
+-- Idempotent: safe to run twice. Each ADD COLUMN uses IF NOT EXISTS (a
+-- second run finds the column already present and skips it entirely,
+-- NOT NULL and all — Postgres does not partially apply a skipped
+-- IF NOT EXISTS clause). DROP COLUMN uses IF EXISTS for the same reason
+-- in reverse.
+--
+-- PostgreSQL NOT NULL-on-empty-table behaviour: adding a NOT NULL column
+-- (with no DEFAULT) only fails if existing rows would end up with a NULL
+-- value in it — the constraint is enforced against actual data, not
+-- declared unconditionally. With 0 rows, that check is vacuously
+-- satisfied, so no DEFAULT is required and this is a fast, metadata-only
+-- catalog change (no table rewrite, no scan of nonexistent rows) — a
+-- materially different, safer operation than adding a NOT NULL column to
+-- an already-populated table, which would need a DEFAULT (or fail).
+--
+-- Every existing constraint/index is left untouched by construction:
+-- this script never references the primary key, either foreign key, the
+-- direction CHECK, or idx_web_lead_messages_lead — none of those are
+-- defined on the columns being added/dropped here.
+ALTER TABLE web_lead_messages ADD COLUMN IF NOT EXISTS from_address TEXT NOT NULL;
+ALTER TABLE web_lead_messages ADD COLUMN IF NOT EXISTS to_address   TEXT NOT NULL;
+
+ALTER TABLE web_lead_messages DROP COLUMN IF EXISTS recipient_email;
+
+-- Rollback (not run automatically — keep for reference if this needs to be reverted):
+--   ALTER TABLE web_lead_messages ADD COLUMN IF NOT EXISTS recipient_email TEXT NOT NULL;
+--   ALTER TABLE web_lead_messages DROP COLUMN IF EXISTS from_address;
+--   ALTER TABLE web_lead_messages DROP COLUMN IF EXISTS to_address;
