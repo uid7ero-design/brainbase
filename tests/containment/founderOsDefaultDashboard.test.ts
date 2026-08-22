@@ -46,11 +46,13 @@ describe('7. client (non-super_admin) users cannot reach founder-only data throu
     // Full coverage of this lives in clientDashboardResolver.test.ts —
     // this asserts the defense-in-depth layer: even if the resolver
     // were ever bypassed, Founder OS's own APIs independently re-check.
+    // founder-intelligence is no longer fetched at all as of the Phase B
+    // trust-boundary hardening round (see the '1D' describe block below) —
+    // only founder-clients remains as a live example here.
     expect(founderSource).toContain("fetch('/api/admin/founder-clients')")
-    expect(founderSource).toContain("fetch('/api/admin/founder-intelligence')")
   })
 
-  it('founder-intelligence and founder-clients APIs still independently enforce super_admin — unchanged by this round', () => {
+  it('the founder-intelligence API route itself still independently enforces super_admin, even though the page no longer calls it', () => {
     expect(intelRouteSrc).toContain("session.role !== 'super_admin'")
   })
 
@@ -79,22 +81,16 @@ describe('9. /command (Command Centre) is untouched by this round', () => {
 })
 
 describe('1D — Founder OS demo data is labelled, not presented as live', () => {
-  it('the founder-intelligence API tags its response with source: live/demo', () => {
+  it('the founder-intelligence API route itself still tags its response with source: live/demo (unmodified — the page just no longer calls it)', () => {
     expect(intelRouteSrc).toContain("source: 'live'")
     expect(intelRouteSrc).toContain("source: 'demo'")
   })
 
-  it('the page surfaces a demo-data banner when intel.source is demo, reusing the existing banner treatment rather than a new design', () => {
-    // Phase B (Founder OS real-data audit) narrowed this banner's copy: it
-    // no longer claims the whole page ("KPIs and recommendations") is
-    // sample content, since those are now real-or-honestly-unavailable
-    // regardless of this backend's state — only the HLNΛ briefing panel
-    // itself is still demo-shaped when this backend is unreachable, so the
-    // banner is scoped to describe only that. The trigger condition
-    // (intel?.source === 'demo') and the banner-on-demo behavior itself are
-    // unchanged; only the wording changed to stay accurate.
-    expect(founderSource).toContain("intel?.source === 'demo'")
-    expect(founderSource).toContain('HLNΛ Chief of Staff briefing below is not connected')
+  it('Phase B trust-boundary hardening: the page no longer fetches founder-intelligence at all, and never conditionally shows a "demo" banner based on its source — HlnaBriefing is now an unconditional, permanent "not connected" shell regardless of that backend\'s live/demo state', () => {
+    expect(founderSource).not.toContain("fetch('/api/admin/founder-intelligence')")
+    expect(founderSource).not.toMatch(/intel\??\.source/)
+    expect(founderSource).toContain('function HlnaBriefing()')
+    expect(founderSource).toContain('Intelligence briefing not connected')
   })
 
   it('the previously unconditional "All systems operational" claim (backed by zero real health checks) is no longer shown as fact', () => {

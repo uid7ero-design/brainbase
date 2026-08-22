@@ -18,20 +18,9 @@ type QueueItem = {
   analysis_id?: string;
 };
 
-type FounderIntel = {
-  summary?: string;
-  opportunities?: string[];
-  risks?: string[];
-  recommended_actions?: Array<{ impact?: string; urgency?: string; effort?: string; action: string; detail?: string }>;
-  attention_queue?: Array<{ id?: number; severity?: string; type?: string; title: string; why?: string; action?: string; due?: string; cta?: string; client_id?: number | string; analysis_id?: string }>;
-  system_alerts?: string[];
-  confidence?: number;
-  generated_at?: string;
-  // 'demo' when the intelligence backend was unreachable/unconfigured and
-  // the API returned its sample payload instead — see
-  // app/api/admin/founder-intelligence/route.ts. Absent/'live' otherwise.
-  source?: 'live' | 'demo';
-};
+// FounderIntel (the founder-intelligence response shape) removed — Phase B
+// hardening cut the fetch entirely; nothing in this file reads that
+// backend's response anymore.
 
 type LinkedOrg = {
   id: string;
@@ -516,71 +505,26 @@ function RealFounderOperations() {
 }
 
 // ─── HLNA Briefing ────────────────────────────────────────────────────────────
-
-// Phase B: MOCK_QUADS (fake council-specific opportunity/risk/action text,
-// reusing the same fictional Port Adelaide/Campbelltown narrative as the
-// other removed mocks) is gone. The fake "HIGH URGENCY" badge and the fake
-// 2.4s "regenerating" animation (which never actually re-fetched anything)
-// are also gone — the Regenerate button now calls the real onRegenerate
-// (refreshIntel), and loading state reflects the real fetch. When the
-// external founder-intelligence backend is unreachable or returns its own
-// demo payload, this panel now honestly says so instead of silently
-// substituting fabricated content.
-function HlnaBriefing({ intel, loading, hasError, onRegenerate }: {
-  intel: FounderIntel | null; loading: boolean; hasError: boolean; onRegenerate: () => void;
-}) {
-  const isLive = !loading && !hasError && !!intel && intel.source !== 'demo';
-
-  const quads = isLive ? [
-    { k: '↗ Opportunity',        c: '#22C55E', text: intel!.opportunities?.slice(0, 2).join(' ') || 'No opportunities reported.' },
-    { k: '⚠ Risk',               c: '#F59E0B', text: intel!.risks?.slice(0, 2).join(' ') || 'No risks reported.' },
-    { k: "◎ Today's focus",      c: '#8B5CF6', text: intel!.summary || 'No summary available.' },
-    { k: '→ Recommended action', c: '#22D3EE', text: intel!.recommended_actions?.[0]?.action || 'No recommended action.' },
-  ] : [];
-
-  const conf = intel?.confidence != null
-    ? (intel.confidence > 1 ? Math.round(intel.confidence) : Math.round(intel.confidence * 100))
-    : null;
-
-  const displayTs = intel?.generated_at
-    ? (() => { const d = new Date(intel.generated_at!); return `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')} today`; })()
-    : null;
-
+// Phase B hardening: this panel used to show content from the external,
+// unverified founder-intelligence backend whenever that backend reported
+// itself live. Founder OS's trust boundary is now strict — NO data from
+// that legacy backend may be presented as authoritative operational
+// information, regardless of whether it claims to be live. This is now a
+// permanent, unconditional shell: no fetch, no props, no external content
+// ever shown, ever. (MOCK_QUADS, the fake "HIGH URGENCY" badge, and the
+// fake local "regenerating" animation were already removed in the prior
+// Phase B round — see git history for that diff.)
+function HlnaBriefing() {
   return (
-    <Card accent={isLive ? T.purple : T.borderB} style={{ padding: '13px 15px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ width: 6, height: 6, borderRadius: '50%', background: loading ? T.yellow : isLive ? T.green : T.dim, boxShadow: isLive ? `0 0 6px ${T.green}` : undefined, display: 'inline-block' }} />
-          <Lbl s="HLNΛ Chief of Staff" c={T.text} />
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          {isLive && <Mono size={9} color={T.dim}>{displayTs ? `Generated ${displayTs}` : 'Generated'}{conf != null ? ` · ${conf}% confidence` : ''}</Mono>}
-          <Btn small label={loading ? '⟳ Checking…' : '↺ Refresh'} onClick={onRegenerate} />
-        </div>
+    <Card style={{ padding: '13px 15px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+        <span style={{ width: 6, height: 6, borderRadius: '50%', background: T.dim, display: 'inline-block' }} />
+        <Lbl s="HLNΛ Chief of Staff" c={T.text} />
       </div>
-
-      {loading ? (
-        <div style={{ padding: '18px 4px' }}>
-          <div style={{ fontSize: 11, color: T.dim, marginBottom: 10 }}>Checking founder-intelligence backend…</div>
-          <div style={{ height: 2, background: T.borderB, borderRadius: 2, overflow: 'hidden' }}>
-            <div style={{ height: '100%', background: T.purple, borderRadius: 2, width: '45%', opacity: 0.7 }} />
-          </div>
-        </div>
-      ) : isLive ? (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-          {quads.map(q => (
-            <div key={q.k} style={{ padding: '9px 11px', borderRadius: 6, background: 'rgba(255,255,255,0.016)', border: `1px solid rgba(255,255,255,0.05)`, borderLeft: `2px solid ${q.c}` }}>
-              <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: q.c, marginBottom: 4 }}>{q.k}</div>
-              <div style={{ fontSize: 11.5, color: 'rgba(238,238,240,0.75)', lineHeight: 1.58 }}>{q.text}</div>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div style={{ padding: '14px', textAlign: 'center', borderRadius: 6, border: `1px dashed ${T.border}` }}>
-          <div style={{ fontSize: 11, color: T.dim }}>Not connected</div>
-          <div style={{ fontSize: 10, color: T.dim, marginTop: 3 }}>The founder-intelligence backend is unreachable — no briefing is available.</div>
-        </div>
-      )}
+      <div style={{ padding: '14px', textAlign: 'center', borderRadius: 6, border: `1px dashed ${T.border}` }}>
+        <div style={{ fontSize: 11, color: T.dim }}>Intelligence briefing not connected</div>
+        <div style={{ fontSize: 10, color: T.dim, marginTop: 3 }}>No authoritative briefing source is wired up yet.</div>
+      </div>
     </Card>
   );
 }
@@ -1701,21 +1645,10 @@ export default function FounderPage() {
       .finally(() => setSnapshotMetricsLoading(false));
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ─── Founder intelligence ────────────────────────────────────────────────
-  const [intel,        setIntel]        = useState<FounderIntel | null>(null);
-  const [intelLoading, setIntelLoading] = useState(true);
-  const [intelError,   setIntelError]   = useState(false);
-
-  const loadIntel = () => {
-    fetch('/api/admin/founder-intelligence')
-      .then(r => r.ok ? r.json() : Promise.reject(r.status))
-      .then((data: FounderIntel) => { setIntel(data); setIntelLoading(false); setIntelError(false); })
-      .catch(() => { setIntelError(true); setIntelLoading(false); });
-  };
-
-  useEffect(() => { loadIntel(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const refreshIntel = () => { setIntelLoading(true); loadIntel(); };
+  // Phase B hardening: the founder-intelligence fetch (intel/loadIntel/
+  // refreshIntel state) was removed entirely — HlnaBriefing is now a
+  // permanent, unconditional "not connected" shell that never reads from
+  // this backend, so there is nothing left to fetch it for.
 
   // ─── Instagram OAuth result toast ────────────────────────────────────────
   useEffect(() => {
@@ -1734,21 +1667,12 @@ export default function FounderPage() {
       .catch(() => {});
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Tries founder-state for activity events; silently skips if not available
-  const refreshFounderState = async () => {
-    try {
-      const res = await fetch('/api/admin/founder-state', { signal: AbortSignal.timeout(3000) });
-      if (!res.ok) return;
-      const data = await res.json() as { founder_activity_events?: SessionEvent[] };
-      if (Array.isArray(data?.founder_activity_events) && data.founder_activity_events.length > 0) {
-        setSessionEvents(prev => {
-          const seen = new Set(prev.map(e => `${e.ts}|${e.event}`));
-          const fresh = data.founder_activity_events!.filter(e => !seen.has(`${e.ts}|${e.event}`));
-          return fresh.length > 0 ? [...fresh, ...prev] : prev;
-        });
-      }
-    } catch { /* founder-state not available */ }
-  };
+  // Phase B hardening: refreshFounderState() was removed — its only purpose
+  // was merging "founder_activity_events" fetched from the external,
+  // unverified /api/admin/founder-state backend into sessionEvents. Live
+  // Activity may only ever contain genuine events generated locally by real
+  // user actions (see addSessionEvent below) — never anything sourced from
+  // that backend. Locally-generated sessionEvents are untouched.
 
   // ─── Derive Clients-tab mini-queue items — real ops alerts only (Phase B:
   // both the QUEUE mock and the intel.attention_queue fallback from the
@@ -1819,8 +1743,6 @@ export default function FounderPage() {
       if (!res.ok) throw new Error(String(res.status));
       addSessionEvent(`Follow-up logged — ${org}`, 'sales', org, id);
       showToast(`Follow-up logged — ${org}`);
-      refreshIntel();
-      refreshFounderState();
     } catch {
       // Revert optimistic changes on error
       if (id != null) {
@@ -1855,8 +1777,6 @@ export default function FounderPage() {
       addSessionEvent(`Stage advanced → ${nextStage}`, 'sales', org, id);
       showToast(`${org} → ${nextStage}`);
       setSelectedClient(null);
-      refreshIntel();
-      refreshFounderState();
     } catch {
       showError(`Could not advance stage for ${org}`);
     }
@@ -1875,8 +1795,6 @@ export default function FounderPage() {
       addSessionEvent(label, 'sales', org, id);
       if (id != null) flashRow(id);
       showToast(label);
-      refreshIntel();
-      refreshFounderState();
     } catch {
       showError(`Could not log demo for ${org}`);
     }
@@ -1893,8 +1811,6 @@ export default function FounderPage() {
       addSessionEvent(`Analysis marked reviewed — ${org}`, 'product', org, clientId);
       if (clientId != null) flashRow(clientId);
       showToast(`Analysis marked reviewed — ${org}`);
-      refreshIntel();
-      refreshFounderState();
     } catch {
       showError(`Could not mark analysis reviewed for ${org}`);
     }
@@ -1931,24 +1847,13 @@ export default function FounderPage() {
         {/* Center column */}
         <div style={{ flex: 1, overflowY: 'auto', padding: '11px 11px', display: 'flex', flexDirection: 'column', gap: 8 }}>
 
-          {/* Phase B: this banner used to claim "KPIs and recommendations
-              below are sample content" whenever the external intelligence
-              backend was unreachable — but KPIs are now real-or-honestly-
-              unavailable regardless of that backend's state, and
-              Recommendations no longer shows demo content at all (just a
-              plain Not-connected panel). The only thing that's still
-              genuinely demo-shaped when this backend is down is the HLNΛ
-              Chief of Staff briefing panel itself, which now shows its own
-              local "Not connected" state — so this banner is scoped to
-              describe only that one panel, not the page. */}
-          {(intelError || intel?.source === 'demo') && (
-            <div style={{ padding: '6px 11px', borderRadius: 5, background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.14)', display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ fontSize: 10, color: T.yellow }}>⚠</span>
-              <span style={{ fontSize: 10, color: 'rgba(245,158,11,0.75)' }}>
-                Founder-intelligence backend unreachable — the HLNΛ Chief of Staff briefing below is not connected. Everything else on this page is real, local data.
-              </span>
-            </div>
-          )}
+          {/* Phase B hardening: the conditional "demo backend unreachable"
+              banner is gone — it only ever existed to explain HlnaBriefing's
+              demo state, and that panel is now unconditionally
+              "Intelligence briefing not connected" regardless of backend
+              reachability, so a conditional banner would be redundant (and
+              inconsistent: it would go silent exactly when the backend
+              WAS reachable, while the panel still said not-connected). */}
 
           <SectionTabs section={section} setSection={setSection} />
 
@@ -1956,7 +1861,7 @@ export default function FounderPage() {
           {section === 'overview' && <>
             <SnapshotHero metrics={snapshotMetrics} loading={snapshotMetricsLoading} />
             <RealFounderOperations />
-            <HlnaBriefing intel={intel} loading={intelLoading} hasError={intelError} onRegenerate={refreshIntel} />
+            <HlnaBriefing />
             <ClientPipeline onSelect={setSelectedClient} onFollowUp={doFollowUp} overrides={clientOverrides} clients={clients} loading={clientsLoading} />
             <RevenueIntel metrics={snapshotMetrics} loading={snapshotMetricsLoading} />
             <FounderTasks />
@@ -2017,7 +1922,7 @@ export default function FounderPage() {
         <AddLeadModal
           onClose={() => setModal(null)}
           clients={clients}
-          onAdded={msg => { setModal(null); showToast(msg); refreshFounderState(); }}
+          onAdded={msg => { setModal(null); showToast(msg); }}
         />
       )}
       {modal === 'book-demo' && (
