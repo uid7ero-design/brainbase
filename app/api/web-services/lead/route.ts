@@ -2,9 +2,19 @@ import 'server-only';
 import { NextResponse } from 'next/server';
 import { headers } from 'next/headers';
 import sql from '@/lib/db';
+import { prisma } from '@/lib/prisma';
 import { sendEmail, webServiceLeadEmail } from '@/lib/email';
 import { resolveEmailConfig } from '@/lib/emailConfig';
 import { checkRateLimit } from '@/lib/rateLimit';
+
+const BUDGET_LABELS: Record<string, string> = {
+  under_2500:    'Under $2,500',
+  '2500_5000':   '$2,500–$5,000',
+  '5000_10000':  '$5,000–$10,000',
+  '10000_20000': '$10,000–$20,000',
+  '20000_plus':  '$20,000+',
+  unsure:        'Budget unsure',
+};
 
 const EMAIL_RE      = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const VALID_SERVICES = new Set(['website_design', 'ai_website', 'maintenance', 'integrations']);
@@ -74,6 +84,51 @@ export async function POST(req: Request) {
     RETURNING id, created_at
   `;
   const lead = rows[0];
+
+  // ── Founder OS alert ─────────────────────────────────────────────────────
+  // web_service_leads isn't tied to any organisation, but `alerts` requires
+  // one — resolved the same way app/api/request-demo/route.ts already does
+  // (the earliest-created super_admin's own org), not a new lookup pattern.
+  // Deliberately excludes project_description (free-text customer input)
+  // from title/description/metadata — this alert is a "something new
+  // arrived" notification, not a duplicate of the full submission, which
+  // is already fully visible in /admin/web-services. metadata is kept to
+  // safe, short, structured fields only.
+  try {
+    const [admin] = await sql`
+      SELECT organisation_id FROM users
+      WHERE role = 'super_admin' AND organisation_id IS NOT NULL
+      ORDER BY created_at ASC LIMIT 1
+    `;
+    const adminOrgId = admin?.organisation_id as string | undefined;
+
+    if (adminOrgId) {
+      await prisma.alert.create({
+        data: {
+          organisation_id: adminOrgId,
+          title: `New Website Systems Lead — ${fullName}${businessName ? ` · ${businessName}` : ''}`,
+          description: [
+            budgetRange ? BUDGET_LABELS[budgetRange] ?? budgetRange : null,
+            serviceInterest.length > 0 ? `${serviceInterest.length} service${serviceInterest.length > 1 ? 's' : ''} selected` : null,
+          ].filter(Boolean).join(' · ') || 'New enquiry via thebrainbase.com.au',
+          severity: 'HIGH',
+          rule_key: 'brainbase_web_services_lead',
+          metadata: {
+            id: lead.id,
+            full_name: fullName,
+            business_name: businessName,
+            budget_range: budgetRange,
+            service_interest: serviceInterest,
+            admin_url: '/admin/web-services',
+          },
+        },
+      });
+    } else {
+      console.warn('[web-lead] no super_admin org found — skipping Founder OS alert');
+    }
+  } catch (err) {
+    console.error(`[web-lead] Founder OS alert failed for lead ${lead.id}:`, err);
+  }
 
   // ── Email notification ────────────────────────────────────────────────────
   // This route isn't tied to any organisation, so it's always resolved with

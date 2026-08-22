@@ -201,6 +201,16 @@ export default function WebServicesPipeline() {
 
   return (
     <div style={{ minHeight: '100vh', background: BG, color: '#F5F7FA', fontFamily: FONT }}>
+      {/* Always-visible (not hover-only) horizontal scrollbar for the kanban
+          row below — without this, the native scrollbar is easy to miss on
+          desktop, especially once the row's own minHeight is removed. */}
+      <style>{`
+        .wsp-kanban-scroll::-webkit-scrollbar { height: 9px; }
+        .wsp-kanban-scroll::-webkit-scrollbar-track { background: transparent; }
+        .wsp-kanban-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,.16); border-radius: 5px; }
+        .wsp-kanban-scroll::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,.26); }
+        .wsp-kanban-scroll { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.16) transparent; }
+      `}</style>
 
       {/* ── Header ──────────────────────────────────────────────────────────── */}
       <div style={{
@@ -300,9 +310,9 @@ export default function WebServicesPipeline() {
 
       {/* ── KANBAN VIEW ──────────────────────────────────────────────────────── */}
       {!loading && view === 'kanban' && (
-        <div style={{
-          overflowX: 'auto', padding: '20px 24px 40px',
-          display: 'flex', gap: 12, alignItems: 'flex-start', minHeight: 'calc(100vh - 150px)',
+        <div className="wsp-kanban-scroll" style={{
+          overflowX: 'auto', overflowY: 'hidden', padding: '20px 24px 28px',
+          display: 'flex', gap: 12, alignItems: 'flex-start',
         }}>
           {COLUMNS.map(col => {
             const cards  = byStatus(col.status);
@@ -722,13 +732,21 @@ function DrawerContent({
         {/* Lead details */}
         <FieldBlock label="Contact">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <span>{lead.email}</span>
-            {lead.phone && <span style={{ color: 'rgba(255,255,255,.45)' }}>{lead.phone}</span>}
+            <a href={`mailto:${lead.email}`} style={{ color: '#818CF8', textDecoration: 'none' }}>{lead.email}</a>
+            {lead.phone && (
+              <a href={`tel:${lead.phone}`} style={{ color: 'rgba(226,232,240,.65)', textDecoration: 'none' }}>{lead.phone}</a>
+            )}
             {lead.website_url && (
               <a href={lead.website_url} target="_blank" rel="noopener noreferrer" style={{ color: '#818CF8', fontSize: 11 }}>{lead.website_url}</a>
             )}
           </div>
         </FieldBlock>
+
+        {lead.business_type && (
+          <FieldBlock label="Business Type">
+            {lead.business_type}
+          </FieldBlock>
+        )}
 
         {lead.project_description && (
           <FieldBlock label="Project Description">

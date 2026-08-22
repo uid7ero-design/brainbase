@@ -26,9 +26,30 @@ vi.mock('next/headers', () => ({
   headers: async () => new Map<string, string>(),
 }))
 
-const sqlMock = vi.fn()
+type SqlCall = { text: string; values: unknown[] }
+let sqlCalls: SqlCall[] = []
+let leadInsertResult: Array<{ id: string; created_at: string }> = []
+let adminOrgLookupResult: Array<{ organisation_id: string }> = []
+
+const sqlMock = vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
+  const text = strings.join('')
+  sqlCalls.push({ text, values })
+
+  if (text.includes('INSERT INTO web_service_leads')) {
+    return Promise.resolve(leadInsertResult)
+  }
+  if (text.includes("role = 'super_admin'")) {
+    return Promise.resolve(adminOrgLookupResult)
+  }
+  return Promise.resolve([])
+})
 vi.mock('@/lib/db', () => ({
-  default: (...args: unknown[]) => sqlMock(...args),
+  default: (...args: unknown[]) => (sqlMock as unknown as (...a: unknown[]) => Promise<unknown[]>)(...args),
+}))
+
+const alertCreateMock = vi.fn().mockResolvedValue({})
+vi.mock('@/lib/prisma', () => ({
+  prisma: { alert: { create: (...args: unknown[]) => alertCreateMock(...args) } },
 }))
 
 const rateLimitMock = vi.fn<(...args: unknown[]) => boolean>(() => true)
@@ -51,9 +72,13 @@ vi.mock('@/lib/email', async () => {
 const { POST } = await import('@/app/api/web-services/lead/route')
 
 beforeEach(() => {
-  sqlMock.mockReset()
+  sqlCalls = []
+  leadInsertResult = []
+  adminOrgLookupResult = [{ organisation_id: 'brainbase-hq-org-id' }]
+  sqlMock.mockClear()
   rateLimitMock.mockReset().mockReturnValue(true)
   sendEmailMock.mockReset().mockResolvedValue(undefined)
+  alertCreateMock.mockReset().mockResolvedValue({})
 })
 
 function jsonRequest(body: unknown): NextRequest {
@@ -67,7 +92,11 @@ function jsonRequest(body: unknown): NextRequest {
 const VALID_BODY = { full_name: 'Jamie Client', email: 'jamie@example.com' }
 
 function mockLeadInsert(id: string) {
-  sqlMock.mockResolvedValue([{ id, created_at: '2026-08-21T00:00:00.000Z' }])
+  leadInsertResult = [{ id, created_at: '2026-08-21T00:00:00.000Z' }]
+}
+
+function callsMatching(pattern: string): SqlCall[] {
+  return sqlCalls.filter(c => c.text.includes(pattern))
 }
 
 describe('Strategy Call notification (POST /api/web-services/lead) recipient resolution', () => {
@@ -169,7 +198,7 @@ describe('Strategy Call DB write happens before the notification attempt', () =>
     const res = await POST(jsonRequest(VALID_BODY))
     const json = await res.json()
 
-    expect(sqlMock).toHaveBeenCalledTimes(1)
+    expect(callsMatching('INSERT INTO web_service_leads')).toHaveLength(1)
     expect(json.id).toBe('lead-7')
     expect(sendEmailMock).toHaveBeenCalledTimes(1)
   })
@@ -181,12 +210,89 @@ describe('Strategy Call DB write happens before the notification attempt', () =>
 
     const res = await POST(jsonRequest(VALID_BODY))
 
-    // sql is only ever called once (the INSERT ... RETURNING) — no delete/
-    // rollback statement is issued after the email failure.
-    expect(sqlMock).toHaveBeenCalledTimes(1)
+    // No delete/rollback statement is issued against web_service_leads
+    // after the email failure — exactly one insert, ever.
+    expect(callsMatching('INSERT INTO web_service_leads')).toHaveLength(1)
     expect(res.status).toBe(201)
 
     vi.restoreAllMocks()
+  })
+})
+
+describe('Founder OS alert for a new Web Systems lead', () => {
+  it('creates an alert with the new rule_key, HIGH severity, and the BrainBase admin org id', async () => {
+    mockLeadInsert('lead-9')
+
+    await POST(jsonRequest({ ...VALID_BODY, business_name: 'Acme Co', budget_range: '5000_10000' }))
+
+    expect(alertCreateMock).toHaveBeenCalledTimes(1)
+    const data = alertCreateMock.mock.calls[0][0].data
+    expect(data.rule_key).toBe('brainbase_web_services_lead')
+    expect(data.severity).toBe('HIGH')
+    expect(data.organisation_id).toBe('brainbase-hq-org-id')
+    expect(data.title).toContain('Jamie Client')
+    expect(data.title).toContain('Acme Co')
+  })
+
+  it('never places the free-text project_description into title, description, or metadata', async () => {
+    mockLeadInsert('lead-10')
+    const secretDescription = 'this is sensitive confidential project detail text'
+
+    await POST(jsonRequest({ ...VALID_BODY, project_description: secretDescription }))
+
+    const data = alertCreateMock.mock.calls[0][0].data
+    expect(data.title).not.toContain(secretDescription)
+    expect(data.description).not.toContain(secretDescription)
+    expect(JSON.stringify(data.metadata)).not.toContain(secretDescription)
+  })
+
+  it('metadata is limited to short, structured, non-PII-bearing fields', async () => {
+    mockLeadInsert('lead-11')
+    await POST(jsonRequest({ ...VALID_BODY, business_name: 'Acme Co', budget_range: 'unsure', service_interest: ['website_design'] }))
+
+    const { metadata } = alertCreateMock.mock.calls[0][0].data
+    expect(metadata).toEqual({
+      id: 'lead-11',
+      full_name: 'Jamie Client',
+      business_name: 'Acme Co',
+      budget_range: 'unsure',
+      service_interest: ['website_design'],
+      admin_url: '/admin/web-services',
+    })
+  })
+
+  it('is skipped gracefully (not thrown) when no super_admin organisation exists, and the response still succeeds', async () => {
+    mockLeadInsert('lead-12')
+    adminOrgLookupResult = []
+
+    const res = await POST(jsonRequest(VALID_BODY))
+
+    expect(res.status).toBe(201)
+    expect(alertCreateMock).not.toHaveBeenCalled()
+  })
+
+  it('an alert-creation failure is logged and swallowed — the lead submission still succeeds and still emails', async () => {
+    mockLeadInsert('lead-13')
+    alertCreateMock.mockRejectedValue(new Error('alert create failed'))
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    const res = await POST(jsonRequest(VALID_BODY))
+    const json = await res.json()
+
+    expect(res.status).toBe(201)
+    expect(json).toEqual({ success: true, id: 'lead-13' })
+    expect(sendEmailMock).toHaveBeenCalledTimes(1)
+
+    errorSpy.mockRestore()
+  })
+
+  it('does not broaden the alert query cross-tenant — the same single super_admin lookup app/api/request-demo/route.ts already uses', () => {
+    const source = fs.readFileSync(
+      path.resolve(__dirname, '../../app/api/web-services/lead/route.ts'),
+      'utf-8',
+    )
+    expect(source).toContain("role = 'super_admin'")
+    expect(source).toContain('ORDER BY created_at ASC LIMIT 1')
   })
 })
 
