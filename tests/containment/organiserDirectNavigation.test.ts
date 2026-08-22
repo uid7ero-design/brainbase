@@ -3,6 +3,13 @@ import fs from 'fs'
 import path from 'path'
 
 // Founder OS Phase D.1 — direct Organiser access + navigation boundary.
+// Updated for Phase D.2 (Organiser promoted to its canonical route,
+// /organiser — see organiserCanonicalRoute.test.ts for the D.2-specific
+// promotion/redirect/single-implementation assertions): every literal
+// /command/organiser reference below was the pre-D.2 route and has been
+// updated to /organiser; the underlying behaviours these tests lock down
+// (deep-link tenancy, safe fallback, untouched CRUD, untouched Command
+// demo content) are unchanged by the route promotion itself.
 //
 // Sharing Organiser persistence (organiser_boards/organiser_items) with
 // Founder OS never implied sharing a navigation journey through Command's
@@ -18,7 +25,7 @@ import path from 'path'
 // Static source-text assertions — this project has no jsdom/React Testing
 // Library harness (same caveat as every other *StaticCheck.test.ts file).
 
-const ORGANISER_PAGE_SOURCE = fs.readFileSync(path.resolve(__dirname, '../../app/command/organiser/page.tsx'), 'utf-8')
+const ORGANISER_PAGE_SOURCE = fs.readFileSync(path.resolve(__dirname, '../../app/organiser/page.tsx'), 'utf-8')
 const COMMAND_PAGE_SOURCE = fs.readFileSync(path.resolve(__dirname, '../../app/command/page.tsx'), 'utf-8')
 const WORKSPACE_SHELL_SOURCE = fs.readFileSync(path.resolve(__dirname, '../../components/ops/WorkspaceShell.tsx'), 'utf-8')
 const FOUNDER_PAGE_SOURCE = fs.readFileSync(path.resolve(__dirname, '../../app/admin/founder/page.tsx'), 'utf-8')
@@ -42,16 +49,17 @@ function stripComments(src: string): string {
 // ── 1/2. Direct Organiser navigation exists and bypasses Command's overview ─
 
 describe('Direct Organiser navigation exists, independent of /command', () => {
-  it('Founder OS\'s own left sidebar has a top-level "Organiser" entry pointing straight at /command/organiser', () => {
-    expect(FOUNDER_PAGE_SOURCE).toContain("{ label: 'Organiser',  href: '/command/organiser' }")
+  it('Founder OS\'s own left sidebar has a top-level "Organiser" entry pointing straight at the canonical /organiser route', () => {
+    expect(FOUNDER_PAGE_SOURCE).toContain("{ label: 'Organiser',  href: '/organiser' }")
   })
 
-  it('the sidebar entry is not nested under or gated by a Command overview visit — it is a plain top-level href, like Product/Admin', () => {
+  it('the sidebar entry is not nested under or gated by a Command overview visit — it is a plain top-level href', () => {
     const navStart = FOUNDER_PAGE_SOURCE.indexOf('const NAV: NavItem[] = [')
     const navEnd = FOUNDER_PAGE_SOURCE.indexOf('];', navStart)
     const navBlock = FOUNDER_PAGE_SOURCE.slice(navStart, navEnd)
-    expect(navBlock).toContain("href: '/command/organiser'")
+    expect(navBlock).toContain("href: '/organiser'")
     expect(navBlock).not.toContain("href: '/command'")
+    expect(navBlock).not.toContain("href: '/command/organiser'")
   })
 
   it('there is no app/command/layout.tsx wrapping /command/organiser in /command\'s own page content — the two routes render fully independently', () => {
@@ -65,23 +73,24 @@ describe('Direct Organiser navigation exists, independent of /command', () => {
     expect(ORGANISER_PAGE_SOURCE).not.toContain('const CHANGES')
   })
 
-  it('the shared WorkspaceShell chrome (Sidebar/OpBar) that both /command and /command/organiser render into carries no demo content of its own', () => {
+  it('the shared WorkspaceShell chrome (Sidebar/OpBar), still reused by the promoted /organiser page, carries no demo content of its own', () => {
     expect(WORKSPACE_SHELL_SOURCE).not.toContain('Demo Environment')
     expect(WORKSPACE_SHELL_SOURCE).not.toContain('const ALERTS')
   })
 
-  it('components/ops/Sidebar.tsx (the persistent nav for the /command/* workspace shell) already exposes Organiser as a sibling of Command Centre, not nested under it', () => {
+  it('components/ops/Sidebar.tsx (the persistent nav for the /command/* + /organiser workspace shell) exposes Organiser as a sibling of Command Centre, pointing at its canonical route', () => {
     const sidebarSource = fs.readFileSync(path.resolve(__dirname, '../../components/ops/Sidebar.tsx'), 'utf-8')
     expect(sidebarSource).toContain("{ icon: I.command,   label: 'Command Centre', href: '/command',     exact: true }")
-    expect(sidebarSource).toContain("{ icon: I.organiser, label: 'Organiser',      href: '/command/organiser', exact: false }")
+    expect(sidebarSource).toContain("{ icon: I.organiser, label: 'Organiser',      href: '/organiser', exact: false }")
   })
 })
 
 // ── 3/4/5. Founder OS "Open in Organiser" deep-link behaviour ──────────────
 
 describe('Founder OS "Open in Organiser" targets the canonical Organiser and the resolved Founder Tasks board', () => {
-  it('the link is a next/link Link to /command/organiser, not a plain <a> and not the Command overview', () => {
-    expect(FOUNDER_PAGE_SOURCE).toContain("href={board ? `/command/organiser?board=${encodeURIComponent(board.id)}` : '/command/organiser'}")
+  it('the link is a next/link Link to the canonical /organiser route, not a plain <a> and not the Command overview or the legacy /command/organiser path', () => {
+    expect(FOUNDER_PAGE_SOURCE).toContain("href={board ? `/organiser?board=${encodeURIComponent(board.id)}` : '/organiser'}")
+    expect(FOUNDER_PAGE_SOURCE).not.toContain('/command/organiser?board=')
   })
 
   it('the board id used is the exact same `board` state resolved by useFounderTasks() — never a hardcoded, WORK/Tafe, or caller-supplied id', () => {
@@ -93,8 +102,8 @@ describe('Founder OS "Open in Organiser" targets the canonical Organiser and the
     expect(panelBody).not.toContain('Tafe')
   })
 
-  it('when no Founder Tasks board exists yet, the link falls back to the plain (still-real) Organiser URL — never broken, never pointing at /command', () => {
-    expect(FOUNDER_PAGE_SOURCE).toContain("'/command/organiser'}")
+  it('when no Founder Tasks board exists yet, the link falls back to the plain (still-real) canonical Organiser URL — never broken, never pointing at /command', () => {
+    expect(FOUNDER_PAGE_SOURCE).toContain("'/organiser'}")
   })
 
   it('the deep-link never creates a board or mutates data — it is a GET navigation using board data already fetched by GET /api/founder/tasks, not a new request', () => {
@@ -184,8 +193,8 @@ describe('Regression: Founder Tasks CRUD and board resolution are untouched by t
 // ── 10. No fake/demo data introduced into Founder OS ────────────────────────
 
 describe('No fake/demo data introduced into Founder OS by this navigation correction', () => {
-  it('the new sidebar "Organiser" entry is a plain href with no fabricated count/badge/metric attached', () => {
-    expect(FOUNDER_PAGE_SOURCE).not.toMatch(/label:\s*'Organiser',\s*href:\s*'\/command\/organiser',\s*(count|badge|metric)/)
+  it('the sidebar "Organiser" entry is a plain href with no fabricated count/badge/metric attached', () => {
+    expect(FOUNDER_PAGE_SOURCE).not.toMatch(/label:\s*'Organiser',\s*href:\s*'\/organiser',\s*(count|badge|metric)/)
   })
 
   it('no MOCK/DEMO/FAKE constant was added anywhere in the founder page or organiser page diffs for this correction', () => {

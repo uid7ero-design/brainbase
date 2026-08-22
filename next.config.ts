@@ -49,6 +49,24 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: path.resolve(__dirname),
   },
+  // Organiser was promoted to its canonical route (/organiser) in Phase D.2
+  // — it's a real BrainBase capability, not a Command Centre tool, and no
+  // longer lives nested under /command. This keeps existing bookmarks/links
+  // to the old /command/organiser path working. Query strings (e.g.
+  // ?board=<id>, used by Founder OS's board deep-link) are forwarded
+  // automatically by Next.js for a plain source/destination redirect like
+  // this — no explicit `:path*`/query handling needed. Temporary (not
+  // permanent) so this can still be adjusted later without browsers/CDNs
+  // hard-caching the old→new mapping.
+  async redirects() {
+    return [
+      {
+        source: '/command/organiser',
+        destination: '/organiser',
+        permanent: false,
+      },
+    ];
+  },
   webpack(config, { isServer }) {
     // Only attach once (server and client both compile; one is enough)
     if (!isServer) {
