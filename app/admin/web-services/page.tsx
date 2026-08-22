@@ -214,11 +214,21 @@ export default function WebServicesPipeline() {
       `}</style>
 
       {/* ── Header ──────────────────────────────────────────────────────────── */}
+      {/* top: 0, not 52 — this header's sticky positioning is scoped to
+          app/admin/layout.tsx's <main overflow: 'auto'>, which is its own
+          independent scroll container (not the page viewport), so top: 0
+          sticks it flush against that container's own top edge. 52 was a
+          copy of AdminAside's offset, which is correct for AdminAside
+          (a sibling of <main>, scoped to the true viewport) but wrong
+          here, and caused the sticky header to overlap/clip the top of
+          the kanban's first row once scrolled. See
+          components/admin/AdminAside.tsx, which intentionally keeps
+          top: 52 unchanged — it has a different, correct reference frame. */}
       <div style={{
         padding: '20px 28px 0',
         borderBottom: '1px solid rgba(255,255,255,.06)',
         background: 'rgba(7,8,11,.95)',
-        position: 'sticky', top: 52, zIndex: 50,
+        position: 'sticky', top: 0, zIndex: 50,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, gap: 16, flexWrap: 'wrap' }}>
           <div>
