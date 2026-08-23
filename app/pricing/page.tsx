@@ -25,7 +25,7 @@ const PLANS: Plan[] = [
   {
     name: 'Foundation',
     price: 29,
-    tagline: 'Get your operation organised',
+    tagline: 'Get the core operation organised',
     description:
       'A simple operational foundation for businesses ready to organise clients, leads and scheduling in one connected workspace.',
     color: '#8A4DFF',
@@ -43,7 +43,7 @@ const PLANS: Plan[] = [
   {
     name: 'Operations',
     price: 59,
-    tagline: 'Run the day-to-day work',
+    tagline: 'Run more of the day-to-day work',
     description:
       'For businesses that want leads, clients, workflows and operational visibility connected in one working system.',
     color: '#22C55E',
@@ -61,7 +61,7 @@ const PLANS: Plan[] = [
   {
     name: 'Business System',
     price: 99,
-    tagline: 'Connect the broader business',
+    tagline: 'Connect a broader part of the business',
     description:
       'For businesses ready to connect more of their operation and introduce deeper reporting, integrations and intelligence.',
     color: '#A78BFA',
@@ -80,7 +80,7 @@ const PLANS: Plan[] = [
     name: 'Enterprise',
     price: null,
     priceLabel: 'Custom',
-    tagline: 'Tailored deployment at scale',
+    tagline: 'Tailored deployment for complex organisations',
     description:
       'For larger organisations, multi-team environments and operations requiring tailored architecture, governance and implementation.',
     color: '#38BDF8',
@@ -374,7 +374,7 @@ export default function PricingPage() {
               color: '#F5F7FA',
             }}
           >
-            Start where you are.
+            Start with what you need.
             <br />
 
             <span
@@ -386,7 +386,7 @@ export default function PricingPage() {
                 backgroundClip: 'text',
               }}
             >
-              Expand as you connect more.
+              Expand as your operation grows.
             </span>
           </h1>
 
@@ -399,9 +399,47 @@ export default function PricingPage() {
               color: 'rgba(226,232,240,.60)',
             }}
           >
-            BRΛINBΛSE can begin with a focused operational need and grow into a
-            broader connected system as your workflows, reporting and
-            intelligence requirements develop.
+            BRΛINBΛSE pricing reflects the scope of the platform your
+            organisation needs today. Start focused, then add broader
+            capability as requirements grow.
+          </p>
+        </section>
+
+        {/* SIMPLE COMMERCIAL PRINCIPLE */}
+
+        <section
+          style={{
+            maxWidth: 780,
+            margin: '0 auto 56px',
+            padding: '22px 28px',
+            borderRadius: 13,
+            textAlign: 'center',
+            background: 'rgba(255,255,255,.016)',
+            border: '1px solid rgba(255,255,255,.065)',
+          }}
+        >
+          <div
+            style={{
+              fontSize: 13,
+              fontWeight: 650,
+              color: '#F5F7FA',
+              marginBottom: 7,
+            }}
+          >
+            You don&apos;t need the whole platform on day one.
+          </div>
+
+          <p
+            style={{
+              margin: 0,
+              fontSize: 12,
+              lineHeight: 1.7,
+              color: 'rgba(226,232,240,.52)',
+            }}
+          >
+            Start with the capabilities that solve today&apos;s problems.
+            Broader operational capability — and implementation, where
+            required — can be introduced later.
           </p>
         </section>
 
@@ -734,7 +772,7 @@ export default function PricingPage() {
               marginBottom: 7,
             }}
           >
-            Setup and implementation may be quoted separately
+            Platform subscription + implementation where required
           </div>
 
           <p
@@ -760,8 +798,7 @@ export default function PricingPage() {
               color: 'rgba(226,232,240,.28)',
             }}
           >
-            Any additional implementation costs will be discussed and quoted
-            before work begins.
+            Any implementation work is scoped and quoted before it begins.
           </p>
         </section>
 
@@ -796,7 +833,7 @@ export default function PricingPage() {
             <ChoiceCard
               number="03"
               title="Business System"
-              body="You are ready for deeper reporting, integrations and HLNΛ intelligence across a more connected business."
+              body="You are ready for deeper reporting, broader integrations where supported, and HLNΛ intelligence across a more connected business."
               color="#A78BFA"
             />
 
@@ -927,6 +964,60 @@ export default function PricingPage() {
               )}
             </div>
           </div>
+
+          <p
+            style={{
+              margin: '14px auto 0',
+              maxWidth: 720,
+              textAlign: 'center',
+              fontSize: 11,
+              lineHeight: 1.65,
+              color: 'rgba(226,232,240,.36)',
+            }}
+          >
+            Business integrations connect to external systems where
+            supported — not every integration is available for every plan
+            or system.
+          </p>
+        </section>
+
+        {/* CONFIGURATION, NOT RIGID BUNDLES */}
+
+        <section
+          style={{
+            maxWidth: 780,
+            margin: '0 auto 102px',
+            padding: '26px 30px',
+            borderRadius: 14,
+            textAlign: 'center',
+            background: 'rgba(255,255,255,.014)',
+            border: '1px solid rgba(255,255,255,.06)',
+          }}
+        >
+          <h3
+            style={{
+              margin: '0 0 8px',
+              fontSize: 16,
+              fontWeight: 650,
+              letterSpacing: '-.015em',
+              color: '#F5F7FA',
+            }}
+          >
+            The scope may be similar. The configuration can still differ.
+          </h3>
+
+          <p
+            style={{
+              margin: 0,
+              fontSize: 12,
+              lineHeight: 1.7,
+              color: 'rgba(226,232,240,.50)',
+            }}
+          >
+            Two organisations on the same BRΛINBΛSE tier can still use its
+            capabilities differently, configured around how each one
+            operates.
+          </p>
         </section>
 
         {/* ENTERPRISE */}
@@ -1248,6 +1339,19 @@ export default function PricingPage() {
               enquiries, CRM, bookings, workflows and the operational platform
               behind your business.
             </p>
+
+            <p
+              style={{
+                margin: '10px 0 0',
+                maxWidth: 520,
+                fontSize: 11,
+                lineHeight: 1.6,
+                color: 'rgba(226,232,240,.38)',
+              }}
+            >
+              Website projects are scoped and quoted separately from the
+              platform subscription.
+            </p>
           </div>
 
           <div
@@ -1364,9 +1468,9 @@ export default function PricingPage() {
                 fontWeight: 650,
               }}
             >
-              Start with the operation.
+              Start with the part of the operation
               <br />
-              We&apos;ll work out the system.
+              that matters most.
             </h2>
 
             <p
@@ -1379,8 +1483,8 @@ export default function PricingPage() {
                   'rgba(226,232,240,.58)',
               }}
             >
-              Tell us what you are trying to organise, connect, improve or
-              automate. We&apos;ll help identify the right place to begin.
+              Tell us what you need BRΛINBΛSE to handle now, and we can
+              scope the right starting point.
             </p>
 
             <div
@@ -1409,7 +1513,7 @@ export default function PricingPage() {
                     '0 8px 24px rgba(106,61,255,.18)',
                 }}
               >
-                Talk to BRΛINBΛSE →
+                Discuss your operation →
               </Link>
 
               <Link
