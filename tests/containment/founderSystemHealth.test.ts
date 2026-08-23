@@ -367,15 +367,17 @@ describe('No tokens, secrets, or integration config are ever returned', () => {
   })
 })
 
-// ── 10. ProductUsage / LiveContext remain honest placeholders ──────────────
+// ── 10. LiveContext remains an honest placeholder; ProductUsage was
+// intentionally superseded by Phase E.3 (real 30-day product-usage
+// aggregates — see tests/containment/founderProductUsage.test.ts) ─────────
 
-describe('ProductUsage and LiveContext are untouched — still honest "Not connected" states', () => {
-  it('ProductUsage() still renders Not connected with no fetch/data source', () => {
+describe('LiveContext is untouched — still an honest "Not connected" state; ProductUsage is now real (Phase E.3)', () => {
+  it('ProductUsage() now fetches real data from GET /api/founder/usage and falls back to Not connected only on load failure — no longer a static placeholder', () => {
     const start = FOUNDER_PAGE_SOURCE.indexOf('function ProductUsage()')
-    const end = FOUNDER_PAGE_SOURCE.indexOf('\n}', start)
+    const end = FOUNDER_PAGE_SOURCE.indexOf('\nfunction ', start + 10)
     const body = FOUNDER_PAGE_SOURCE.slice(start, end)
-    expect(body).toContain('Not connected')
-    expect(body).not.toContain('fetch(')
+    expect(body).toContain("fetch('/api/founder/usage')")
+    expect(body).toContain('Not connected') // still the honest load-failure state
   })
 
   it('LiveContext() still renders Not connected with no fetch/data source', () => {
