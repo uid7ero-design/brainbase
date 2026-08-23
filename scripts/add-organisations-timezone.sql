@@ -1,0 +1,35 @@
+-- Organisation canonical timezone — schema foundation only.
+-- Run once, manually, against the production database. NOT run
+-- automatically by this task — see the Modular Platform Foundation
+-- Phase F.2A report for the exact authorization/verification steps
+-- before this is executed.
+--
+-- Purpose: a canonical, per-organisation IANA timezone identifier
+-- (e.g. "Australia/Adelaide"), so calendars, bookings, reminders,
+-- automations, reporting, and other time-sensitive features can
+-- eventually operate on the organisation's intended business timezone
+-- rather than the server runtime timezone (currently UTC on Vercel —
+-- see the Founder OS Microsoft/Google calendar and tennis-session
+-- "today" window limitation, tracked separately, not touched here).
+--
+-- Design, locked by the Phase F.1 report:
+--   - TEXT, nullable, no database default.
+--   - NULL means "not configured" — application-level fallback
+--     behaviour (e.g. defaulting to UTC when null) is a separate,
+--     later phase; this script makes no assumption about it.
+--   - Values are expected to be IANA timezone identifiers, not fixed
+--     UTC offsets (offsets break across DST transitions — the exact
+--     class of bug this initiative traces back to).
+--   - Deliberately NOT defaulted to 'Australia/Adelaide' — that suits
+--     BrainBase's own internal users, not future customer
+--     organisations in other timezones.
+--
+-- Additive only: adds one nullable column to the existing, Production-
+-- confirmed public.organisations table. Does not touch id, name, slug,
+-- plan, status, settings, created_at, updated_at, any existing row's
+-- values, any other table, any module/entitlement schema, or the
+-- users table. All 3 existing organisation rows remain valid and
+-- unmodified — they simply gain a NULL value for this new column.
+
+ALTER TABLE public.organisations
+  ADD COLUMN IF NOT EXISTS timezone TEXT;
