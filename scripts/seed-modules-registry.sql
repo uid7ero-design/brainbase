@@ -1,0 +1,53 @@
+-- Initial capability registry seed — registers the platform-wide
+-- rows in public.modules only. Run once, manually, against the
+-- production database, AFTER scripts/create-modules.sql (this script
+-- inserts into that table). NOT run automatically by this task — see
+-- the Modular Platform Foundation Phase F.6B report for the exact
+-- authorization/verification steps before this is executed.
+--
+-- Purpose: register the first two approved capability keys — crm and
+-- organiser — in the capability registry (public.modules). This is
+-- REGISTRY seeding only: it makes both capabilities exist as concepts
+-- the platform is aware of. It grants nothing to anyone. No
+-- organisation becomes entitled to either capability as a result of
+-- running this script — that is organisation_modules' job, deliberately
+-- left untouched here, and is always a separate, later, explicitly
+-- authorized step (see the Phase F.6A report's rollout sequence).
+--
+-- Scope discipline: exactly two rows, matching the Phase F.6A-locked
+-- initial capability keys. No other capability (bookings, tennis,
+-- events, ticketing, any waste/dashboard area, HLNA/chat, uploads, any
+-- integration provider, Founder OS, admin, reporting) is registered by
+-- this script — each of those was explicitly found NOT ready for
+-- registration in the F.6A discovery report, for reasons specific to
+-- each (single-tenant deployment, needs its own design pass, needs
+-- internal/customer disentangling, is infrastructure not a product,
+-- is an integration never a capability, is an internal BrainBase tool
+-- never a customer entitlement).
+--
+-- Idempotency: ON CONFLICT (key) DO NOTHING, using modules' own primary
+-- key (key TEXT PRIMARY KEY — see scripts/create-modules.sql) as the
+-- conflict target. Safe to re-run; a second execution changes nothing.
+-- Deliberately DO NOTHING rather than DO UPDATE — this script seeds
+-- initial registry rows, it does not own ongoing edits to name/
+-- description/active for keys that already exist (that would be a
+-- future, separate, admin-driven concern, not a re-runnable seed
+-- script's job).
+--
+-- active = true for both rows: this is the platform-wide kill switch
+-- (see scripts/create-modules.sql's own comment) — true means the
+-- capability is available for use platform-wide, subject entirely to
+-- each organisation's own organisation_modules.enabled entitlement,
+-- which remains independently false (i.e. not entitled) for every
+-- organisation until a separate, later phase grants it.
+--
+-- Additive only: exactly one INSERT statement, into modules only.
+-- No UPDATE, no DELETE, no DDL, no schema mutation, no
+-- organisation_modules row, no organisation id, no UUID assumption, no
+-- organisations.plan reference, no integration-provider reference, no
+-- application/runtime logic.
+
+INSERT INTO modules (key, name, description, active) VALUES
+  ('crm', 'CRM', 'Customer relationship management for companies, contacts, deals and activities.', true),
+  ('organiser', 'Organiser', 'Organisation-scoped board and task management.', true)
+ON CONFLICT (key) DO NOTHING;
