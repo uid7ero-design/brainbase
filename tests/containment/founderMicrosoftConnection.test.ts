@@ -69,14 +69,23 @@ const FOUNDER_PAGE_SOURCE = fs.readFileSync(path.resolve(__dirname, '../../app/a
 const GMAIL_LOGIN_SOURCE = fs.readFileSync(path.resolve(__dirname, '../../app/api/integrations/gmail/login/route.ts'), 'utf-8')
 const GMAIL_TOKENS_SOURCE = fs.readFileSync(path.resolve(__dirname, '../../lib/gmail/tokens.ts'), 'utf-8')
 const GCAL_TOKENS_SOURCE = fs.readFileSync(path.resolve(__dirname, '../../lib/gcal/tokens.ts'), 'utf-8')
+const SCHEMA_SCRIPT_SOURCE = fs.readFileSync(path.resolve(__dirname, '../../scripts/create-microsoft-connections.sql'), 'utf-8')
 
 function stripComments(src: string): string {
   return src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+}
+// SQL uses `--` line comments, not `//` — a separate stripper so
+// assertions against the schema script only see real DDL, matching the
+// same "scope to executable code, not explanatory prose" discipline
+// already used for the .ts files above.
+function stripSqlComments(src: string): string {
+  return src.replace(/--.*$/gm, '')
 }
 const CALLBACK_EXECUTABLE = stripComments(CALLBACK_SOURCE)
 const TOKENS_EXECUTABLE = stripComments(TOKENS_SOURCE)
 const LOGIN_EXECUTABLE = stripComments(LOGIN_SOURCE)
 const STATUS_EXECUTABLE = stripComments(STATUS_SOURCE)
+const SCHEMA_SCRIPT_EXECUTABLE = stripSqlComments(SCHEMA_SCRIPT_SOURCE)
 
 function queue(...responses: unknown[][]) {
   responseQueue = responses
@@ -515,5 +524,65 @@ describe('readConnection / clearConnection direct coverage', () => {
     await clearConnection()
     expect(sqlMock).toHaveBeenCalledTimes(1)
     expect((sqlCallArgs(0)[0] as TemplateStringsArray).join('')).toContain('DELETE FROM microsoft_connections')
+  })
+})
+
+// ── Production schema pre-flight correction ──────────────────────────────
+//
+// A read-only Production pre-flight (Neon, SELECT-only introspection
+// against pg_proc/pg_trigger) confirmed public.set_updated_at() already
+// exists, with exactly the expected body, and is already relied on by
+// two other tables' triggers (web_service_leads, implementations). The
+// schema script originally included a CREATE OR REPLACE FUNCTION
+// set_updated_at() block for standalone-runnability; that block was
+// removed once Production evidence showed the function already exists,
+// since redefining a shared, multi-table function for a new table's
+// benefit is an unnecessary, non-additive change to an object two
+// unrelated existing tables depend on. This suite proves the corrected
+// script only creates the new table/trigger, only ever REFERENCES
+// set_updated_at() by name, and never creates/replaces/alters/drops any
+// existing schema object.
+
+describe('scripts/create-microsoft-connections.sql — reuses the confirmed-existing Production set_updated_at(), never redefines it', () => {
+  it('does NOT contain CREATE OR REPLACE FUNCTION set_updated_at (or any CREATE FUNCTION at all)', () => {
+    expect(SCHEMA_SCRIPT_EXECUTABLE).not.toMatch(/CREATE\s+(OR\s+REPLACE\s+)?FUNCTION/i)
+  })
+
+  it('does NOT DROP or ALTER the existing shared function, or ALTER/DROP any existing table', () => {
+    expect(SCHEMA_SCRIPT_EXECUTABLE).not.toMatch(/DROP\s+FUNCTION/i)
+    expect(SCHEMA_SCRIPT_EXECUTABLE).not.toMatch(/ALTER\s+FUNCTION/i)
+    expect(SCHEMA_SCRIPT_EXECUTABLE).not.toMatch(/ALTER\s+TABLE/i)
+    expect(SCHEMA_SCRIPT_EXECUTABLE).not.toMatch(/DROP\s+TABLE/i)
+  })
+
+  it('creates exactly one new table (microsoft_connections) and references no other table', () => {
+    const createTableMatches = [...SCHEMA_SCRIPT_EXECUTABLE.matchAll(/CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\s+(\w+)/gi)]
+    expect(createTableMatches).toHaveLength(1)
+    expect(createTableMatches[0][1]).toBe('microsoft_connections')
+    expect(SCHEMA_SCRIPT_EXECUTABLE).not.toContain('web_service_leads')
+    expect(SCHEMA_SCRIPT_EXECUTABLE).not.toContain('implementations')
+  })
+
+  it('creates exactly one new trigger, on microsoft_connections only, and never drops an existing trigger by name', () => {
+    const createTriggerMatches = [...SCHEMA_SCRIPT_EXECUTABLE.matchAll(/CREATE\s+TRIGGER\s+(\w+)/gi)]
+    expect(createTriggerMatches).toHaveLength(1)
+    expect(createTriggerMatches[0][1]).toBe('trg_microsoft_connections_updated_at')
+    const dropTriggerMatches = [...SCHEMA_SCRIPT_EXECUTABLE.matchAll(/DROP\s+TRIGGER\s+IF\s+EXISTS\s+(\w+)/gi)]
+    expect(dropTriggerMatches).toHaveLength(1)
+    expect(dropTriggerMatches[0][1]).toBe('trg_microsoft_connections_updated_at')
+    expect(SCHEMA_SCRIPT_EXECUTABLE).not.toContain('trg_web_service_leads_updated_at')
+    expect(SCHEMA_SCRIPT_EXECUTABLE).not.toContain('trg_implementations_updated_at')
+  })
+
+  it('the new trigger executes set_updated_at() by reference, without redefining it', () => {
+    expect(SCHEMA_SCRIPT_EXECUTABLE).toMatch(/EXECUTE\s+FUNCTION\s+public\.set_updated_at\(\)/i)
+  })
+
+  it('no unrelated schema object (table, function, trigger, extension, type) appears anywhere in the script', () => {
+    const createStatements = [...SCHEMA_SCRIPT_EXECUTABLE.matchAll(/CREATE\s+(?:OR\s+REPLACE\s+)?(TABLE|FUNCTION|TRIGGER|TYPE|EXTENSION|INDEX)\b[^;]*/gi)]
+      .map(m => m[0].replace(/\s+/g, ' ').trim())
+    expect(createStatements).toHaveLength(2) // the one CREATE TABLE, the one CREATE TRIGGER
+    expect(createStatements.some(s => /^CREATE TABLE IF NOT EXISTS microsoft_connections\b/i.test(s))).toBe(true)
+    expect(createStatements.some(s => /^CREATE TRIGGER trg_microsoft_connections_updated_at\b/i.test(s))).toBe(true)
   })
 })

@@ -28,10 +28,24 @@
 -- (lib/microsoft/tokens.ts's writeConnection()) enforces this via an
 -- atomic DELETE+INSERT, not a DB constraint, keeping this schema as
 -- small as possible. Additive only: this script creates one new table
--- and (idempotently) a shared trigger function already defined
--- identically by scripts/create-web-service-leads.sql and
--- scripts/create-implementations.sql — it does not alter any existing
--- table or row.
+-- and one new trigger. It does not create, replace, alter, or drop any
+-- existing table, row, trigger, or function.
+--
+-- public.set_updated_at() — a read-only Production pre-flight (Neon,
+-- SELECT-only introspection against pg_proc/pg_trigger) confirmed this
+-- shared trigger function ALREADY EXISTS in Production, with exactly the
+-- expected body (NEW.updated_at = now(); RETURN NEW;), and is already
+-- relied on by two other tables' triggers:
+-- trg_web_service_leads_updated_at (web_service_leads) and
+-- trg_implementations_updated_at (implementations). This script
+-- therefore deliberately does NOT define or replace it — an earlier
+-- draft included a CREATE OR REPLACE FUNCTION set_updated_at() here,
+-- which was removed once Production evidence showed the function
+-- already exists: redefining a shared, multi-table function for a new
+-- table's benefit would have been an unnecessary, non-additive change
+-- to an object two unrelated existing tables depend on. This script
+-- only ever REFERENCES set_updated_at() by name in the new trigger
+-- below; it never creates, replaces, alters, or drops it.
 
 CREATE TABLE IF NOT EXISTS microsoft_connections (
   id                      TEXT         PRIMARY KEY DEFAULT gen_random_uuid()::text,
@@ -44,20 +58,12 @@ CREATE TABLE IF NOT EXISTS microsoft_connections (
   updated_at              TIMESTAMPTZ  NOT NULL DEFAULT now()
 );
 
--- Reuses the shared set_updated_at() trigger function already
--- established by scripts/create-web-service-leads.sql — CREATE OR
--- REPLACE with an identical body is idempotent/harmless if it already
--- exists, and defining it here too keeps this script runnable
--- standalone.
-CREATE OR REPLACE FUNCTION set_updated_at()
-RETURNS TRIGGER LANGUAGE plpgsql AS $$
-BEGIN
-  NEW.updated_at = now();
-  RETURN NEW;
-END;
-$$;
-
+-- DROP TRIGGER IF EXISTS here only ever targets this script's OWN new
+-- trigger name (trg_microsoft_connections_updated_at, on the new
+-- microsoft_connections table only) so this script can be re-run
+-- idempotently. It does not touch trg_web_service_leads_updated_at,
+-- trg_implementations_updated_at, or any other existing trigger.
 DROP TRIGGER IF EXISTS trg_microsoft_connections_updated_at ON microsoft_connections;
 CREATE TRIGGER trg_microsoft_connections_updated_at
   BEFORE UPDATE ON microsoft_connections
-  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
