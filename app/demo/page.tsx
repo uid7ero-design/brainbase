@@ -354,18 +354,124 @@ function DataTable({
   )
 }
 
+const SCENARIO_STEPS = [
+  'New service request logged — REQ-1053',
+  'Added to the open requests queue — Open Requests 48 → 49',
+  'Flagged for Operations — workload updated',
+  "HLNΛ: This adds to today's backlog — worth prioritising before end of day.",
+]
+
 function OverviewTab({
   askHlna,
 }: {
   askHlna: (question: string) => void
 }) {
+  const [scenarioStep, setScenarioStep] =
+    useState(0)
+
+  const [scenarioLog, setScenarioLog] =
+    useState<string[]>([])
+
+  const openRequests =
+    scenarioStep >= 2 ? 49 : 48
+
+  function runScenario() {
+    if (scenarioStep > 0) return
+
+    setScenarioStep(1)
+    setScenarioLog([SCENARIO_STEPS[0]])
+
+    window.setTimeout(() => {
+      setScenarioLog(log => [
+        ...log,
+        SCENARIO_STEPS[1],
+      ])
+      setScenarioStep(2)
+
+      window.setTimeout(() => {
+        setScenarioLog(log => [
+          ...log,
+          SCENARIO_STEPS[2],
+        ])
+        setScenarioStep(3)
+
+        window.setTimeout(() => {
+          setScenarioLog(log => [
+            ...log,
+            SCENARIO_STEPS[3],
+          ])
+          setScenarioStep(4)
+        }, 700)
+      }, 700)
+    }, 700)
+  }
+
+  function resetScenario() {
+    setScenarioStep(0)
+    setScenarioLog([])
+  }
+
   return (
     <div className="bb-tab-page">
+      <div className="bb-scenario-bar">
+        <div>
+          <strong>
+            Try it: run an example scenario
+          </strong>
+
+          <span>
+            See how a new request moves through the
+            connected operation.
+          </span>
+        </div>
+
+        <button
+          onClick={
+            scenarioStep === 4
+              ? resetScenario
+              : runScenario
+          }
+          disabled={
+            scenarioStep > 0 &&
+            scenarioStep < 4
+          }
+          className="bb-scenario-button"
+        >
+          {scenarioStep === 0
+            ? 'Run scenario'
+            : scenarioStep < 4
+              ? 'Running…'
+              : 'Reset scenario'}
+        </button>
+      </div>
+
+      {scenarioLog.length > 0 && (
+        <div className="bb-scenario-log">
+          {scenarioLog.map((line, index) => (
+            <div
+              key={index}
+              className="bb-scenario-log-line"
+            >
+              {line}
+            </div>
+          ))}
+
+          <div className="bb-scenario-note">
+            Example scenario using demo data —
+            reset anytime.
+          </div>
+        </div>
+      )}
+
       <div className="bb-kpi-five">
         <MetricCard
           label="Open Requests"
-          value="48"
-          note="+9% this week"
+          value={String(openRequests)}
+          note={
+            scenarioStep >= 2
+              ? 'Updated by scenario'
+              : '+9% this week'
+          }
           colour="#f87171"
         />
 
@@ -1599,6 +1705,48 @@ export default function DemoPage() {
           color: #c4b5fd;
         }
 
+        .bb-connected-context {
+          padding: 16px 17px;
+          border-bottom:
+            1px solid rgba(255,255,255,.05);
+          background:
+            rgba(138,77,255,.025);
+        }
+
+        .bb-connected-context strong {
+          display: block;
+          margin-bottom: 4px;
+          color: #f5f7fa;
+          font-size: 12px;
+          font-weight: 700;
+        }
+
+        .bb-connected-context > p {
+          margin: 0 0 11px;
+          max-width: 640px;
+          color: rgba(226,232,240,.48);
+          font-size: 11px;
+          line-height: 1.55;
+        }
+
+        .bb-connection-list {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+        }
+
+        .bb-connection-list span {
+          padding: 6px 11px;
+          border-radius: 999px;
+          border:
+            1px solid rgba(255,255,255,.07);
+          background:
+            rgba(255,255,255,.02);
+          color: rgba(226,232,240,.55);
+          font-size: 10px;
+          line-height: 1.4;
+        }
+
         .bb-content {
           min-height: 700px;
           padding: 13px;
@@ -1607,6 +1755,87 @@ export default function DemoPage() {
         .bb-tab-page {
           animation:
             bbFadeUp .25s ease both;
+        }
+
+        .bb-scenario-bar {
+          margin-bottom: 12px;
+          padding: 13px 16px;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 14px;
+          flex-wrap: wrap;
+          border-radius: 12px;
+          border:
+            1px solid rgba(138,77,255,.14);
+          background:
+            rgba(138,77,255,.04);
+        }
+
+        .bb-scenario-bar strong {
+          display: block;
+          margin-bottom: 2px;
+          color: #f5f7fa;
+          font-size: 11.5px;
+          font-weight: 700;
+        }
+
+        .bb-scenario-bar span {
+          color: rgba(226,232,240,.44);
+          font-size: 10.5px;
+        }
+
+        .bb-scenario-button {
+          flex-shrink: 0;
+          min-height: 34px;
+          padding: 0 15px;
+          border-radius: 8px;
+          border:
+            1px solid rgba(167,139,250,.30);
+          background:
+            rgba(138,77,255,.14);
+          color: #c4b5fd;
+          font-family: ${FONT};
+          font-size: 10.5px;
+          font-weight: 700;
+          cursor: pointer;
+        }
+
+        .bb-scenario-button:disabled {
+          opacity: .55;
+          cursor: not-allowed;
+        }
+
+        .bb-scenario-log {
+          margin-bottom: 12px;
+          padding: 13px 16px;
+          border-radius: 12px;
+          border:
+            1px solid rgba(255,255,255,.06);
+          background:
+            rgba(255,255,255,.018);
+          animation:
+            bbFadeUp .25s ease both;
+        }
+
+        .bb-scenario-log-line {
+          padding: 5px 0;
+          color: rgba(226,232,240,.62);
+          font-size: 11px;
+          line-height: 1.5;
+          animation:
+            bbFadeUp .3s ease both;
+        }
+
+        .bb-scenario-log-line:not(:last-child) {
+          border-bottom:
+            1px solid rgba(255,255,255,.04);
+        }
+
+        .bb-scenario-note {
+          margin-top: 8px;
+          color: rgba(255,255,255,.24);
+          font-size: 9px;
         }
 
         .bb-kpi-five,
@@ -2535,6 +2764,13 @@ export default function DemoPage() {
           margin-left: auto;
         }
 
+        .bb-hlna-dock-framing {
+          margin-bottom: 12px;
+          color: rgba(226,232,240,.38);
+          font-size: 10px;
+          line-height: 1.5;
+        }
+
         .bb-hlna-answer {
           min-height: 72px;
           padding: 13px 14px;
@@ -2630,6 +2866,37 @@ export default function DemoPage() {
         .bb-hlna-form button:disabled {
           opacity: .4;
           cursor: default;
+        }
+
+        .bb-config-note {
+          max-width: 620px;
+          margin: 0 auto 56px;
+          padding: 0 22px;
+          text-align: center;
+        }
+
+        .bb-config-note strong {
+          display: block;
+          margin-bottom: 6px;
+          color: #f5f7fa;
+          font-size: 13px;
+          font-weight: 700;
+        }
+
+        .bb-config-note p {
+          margin: 0;
+          color: rgba(226,232,240,.46);
+          font-size: 11.5px;
+          line-height: 1.65;
+        }
+
+        .bb-tertiary-link {
+          display: inline-block;
+          margin-top: 14px;
+          color: rgba(196,181,253,.62);
+          font-size: 11px;
+          font-weight: 600;
+          text-decoration: none;
         }
 
         .bb-bottom-cta {
@@ -2868,16 +3135,17 @@ export default function DemoPage() {
         <DemoBadge />
 
         <h1>
-          Experience{' '}
-          <span>BRΛINBΛSE</span>
+          See how a{' '}
+          <span>connected operation</span> works.
         </h1>
 
         <p>
-          Explore how operational intelligence,
-          workflows, reporting and HLNΛ come together
-          across one connected platform. Everything
-          below uses simulated demo data, so you can
-          explore the experience safely.
+          Explore an example BRΛINBΛSE environment
+          showing how operational information,
+          workflows, dashboards and HLNΛ come together
+          in one platform. Everything below is an
+          example environment using simulated demo
+          data.
         </p>
 
         <div className="bb-hero-actions">
@@ -2929,6 +3197,37 @@ export default function DemoPage() {
                 <span />
                 HLNΛ connected
               </div>
+            </div>
+          </div>
+
+          <div className="bb-connected-context">
+            <strong>
+              Different views. One connected operation.
+            </strong>
+
+            <p>
+              Financial, customers, workforce, assets
+              and reporting are not separate products —
+              they are views into the same connected
+              environment. A change in one shows up in
+              the others, for example:
+            </p>
+
+            <div className="bb-connection-list">
+              <span>
+                18 requests outside target → Operations
+                risk
+              </span>
+
+              <span>
+                3 uncovered shifts tomorrow → workforce
+                risk
+              </span>
+
+              <span>
+                Fleet Unit 08 maintenance · maintenance
+                costs trending up
+              </span>
             </div>
           </div>
 
@@ -3010,7 +3309,7 @@ export default function DemoPage() {
                   </div>
 
                   <div className="bb-hlna-dock-title">
-                    Ask HLNΛ about this demo workspace
+                    Ask the operation
                   </div>
                 </div>
 
@@ -3018,6 +3317,12 @@ export default function DemoPage() {
                   <span />
                   Ready
                 </div>
+              </div>
+
+              <div className="bb-hlna-dock-framing">
+                HLNΛ helps interpret this connected
+                operation — it does not replace the
+                underlying operational system.
               </div>
 
               {thinking ? (
@@ -3087,6 +3392,19 @@ export default function DemoPage() {
         </div>
       </section>
 
+      {/* CONFIGURABILITY */}
+
+      <section className="bb-config-note">
+        <strong>This is one example configuration.</strong>
+
+        <p>
+          Same platform. Different operation. Another
+          organisation could use a different
+          combination of BRΛINBΛSE capabilities,
+          configured around how it works.
+        </p>
+      </section>
+
       {/* FINAL CTA */}
 
       <section className="bb-bottom-cta">
@@ -3094,9 +3412,9 @@ export default function DemoPage() {
           <DemoBadge />
 
           <h2>
-            Your operation. Your data.
+            What would BRΛINBΛSE look like
             <br />
-            One connected system.
+            around your operation?
           </h2>
 
           <p>
@@ -3113,17 +3431,24 @@ export default function DemoPage() {
               href="/request-demo"
               className="bb-primary-cta"
             >
-              Request a demo
+              Discuss your operation
               <span>→</span>
             </Link>
 
             <Link
-              href="/pricing"
+              href="/client-operations"
               className="bb-secondary-cta"
             >
-              View pricing
+              Explore Client Operations
             </Link>
           </div>
+
+          <Link
+            href="/web-systems"
+            className="bb-tertiary-link"
+          >
+            or explore Web Systems →
+          </Link>
         </div>
       </section>
     </main>
