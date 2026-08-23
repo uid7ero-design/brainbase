@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
+import { getOrganisationCapabilities, setOrganisationCapability, type OrganisationCapability } from '@/app/actions/orgModules';
 
 type Org  = { id: string; name: string; slug: string; created_at: string };
 type User = { id: string; username: string; name: string; email: string; role: string; organisation_id: string; org_name: string };
@@ -42,6 +43,36 @@ export default function AdminClient({ orgs: initial, users: initialUsers }: Prop
   const [orgForm,    setOrgForm]    = useState({ name: '', slug: '' });
   const [editOrg,    setEditOrg]    = useState<Org | null>(null);
   const [editOrgForm, setEditOrgForm] = useState({ name: '', slug: '' });
+
+  // Capabilities section (Phase F.6I) — loaded fresh for the explicit
+  // organisation whose edit modal is open. UX projection/control only;
+  // server-side requireCapability() (not wired to anything yet) remains
+  // the future enforcement authority — this UI only toggles entitlement.
+  const [capabilities, setCapabilities] = useState<OrganisationCapability[]>([]);
+  const [capabilitiesError, setCapabilitiesError] = useState('');
+  const [isCapabilityPending, startCapabilityTransition] = useTransition();
+
+  useEffect(() => {
+    if (!editOrg) return;
+    let active = true;
+    getOrganisationCapabilities(editOrg.id)
+      .then(caps => { if (active) { setCapabilities(caps); setCapabilitiesError(''); } })
+      .catch(() => { if (active) setCapabilitiesError('Unable to load capabilities.'); });
+    return () => { active = false; };
+  }, [editOrg]);
+
+  function toggleCapability(capabilityKey: string, enabled: boolean) {
+    if (!editOrg) return;
+    const orgId = editOrg.id;
+    startCapabilityTransition(async () => {
+      const result = await setOrganisationCapability(orgId, capabilityKey, enabled);
+      if (!result.ok) { setCapabilitiesError(result.error); return; }
+      setCapabilitiesError('');
+      getOrganisationCapabilities(orgId)
+        .then(setCapabilities)
+        .catch(() => setCapabilitiesError('Unable to load capabilities.'));
+    });
+  }
 
   // User state
   const [userForm,   setUserForm]   = useState({ username: '', password: '', name: '', email: '', role: 'manager', organisationId: '' });
@@ -366,6 +397,38 @@ export default function AdminClient({ orgs: initial, users: initialUsers }: Prop
             </Label>
             <PrimaryBtn disabled={saving}>{saving ? 'Saving…' : 'Save Changes'}</PrimaryBtn>
           </form>
+
+          {/* ── Capabilities (Phase F.6I) ── */}
+          <div style={{ marginTop: 22, paddingTop: 18, borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.35)', marginBottom: 10 }}>
+              Capabilities
+            </div>
+            {capabilitiesError && (
+              <div style={{ fontSize: 12, color: '#FCA5A5', marginBottom: 8 }}>{capabilitiesError}</div>
+            )}
+            {capabilities.length === 0 && !capabilitiesError ? (
+              <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.25)' }}>No registered capabilities.</div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, opacity: isCapabilityPending ? 0.6 : 1 }}>
+                {capabilities.map(c => (
+                  <label key={c.key} style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: c.active || c.enabled ? 'pointer' : 'not-allowed' }}>
+                    <input
+                      type="checkbox"
+                      checked={c.enabled}
+                      disabled={isCapabilityPending || (!c.active && !c.enabled)}
+                      onChange={e => toggleCapability(c.key, e.target.checked)}
+                    />
+                    <span style={{ fontSize: 13, color: '#F4F4F5' }}>{c.name}</span>
+                    {!c.active && (
+                      <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.35)', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.10)', borderRadius: 3, padding: '1px 5px' }}>
+                        Inactive
+                      </span>
+                    )}
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
         </Modal>
       )}
 
