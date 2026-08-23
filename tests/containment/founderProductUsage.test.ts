@@ -4,24 +4,28 @@ import path from 'path'
 
 // Founder OS Phase E.3 — real Product Usage signals.
 //
-// Scoped EXACTLY to the four sources a Phase E.2 audit confirmed
-// authoritative: uploaded_files, organiser_item_updates, social_insights,
-// saved_briefings. integrations/sync_jobs/agent_runs do not exist in
-// Production; users.last_seen_at does not exist; users.last_login_at is
-// unpopulated for all 5 Production users — none of those are queried
-// anywhere in this change. organiser_items (as opposed to
-// organiser_item_updates) is deliberately never queried: bulk CSV import
-// can create many organiser_items from one user action with no
-// distinguishing marker. Active organisations/users, general AI usage,
-// task completions, bookings, dashboard activity, trends, and
-// percentages were all explicitly excluded from V1 per that audit.
+// PRE-MERGE CORRECTION: a read-only Neon introspection query proved
+// social_insights and saved_briefings do not exist in the real deployed
+// database (their CREATE TABLE statements declare organisation_id as
+// UUID referencing organisations(id), but organisations.id is genuinely
+// TEXT there — a UUID column cannot have a foreign key to a TEXT column,
+// so those two CREATE TABLE statements never succeeded in Production).
+// Querying them caused every GET /api/founder/usage request to fail in
+// the deployed preview. Both were permanently removed from
+// lib/founder/usageSignals.ts, with no substitute metric added — this
+// file was updated accordingly, not weakened.
 //
-// social_insights.organisation_id and saved_briefings.organisation_id
-// are genuinely typed UUID (unlike every other table here, which is
-// TEXT) — the ::uuid cast used in lib/founder/usageSignals.ts is the
-// same, already-live pattern app/api/briefings/route.ts and
-// app/api/social/analyse/route.ts themselves use to WRITE to these two
-// tables in Production today, not a guess.
+// Scoped to the two sources confirmed by that same introspection to
+// exist with organisation_id genuinely typed TEXT: uploaded_files,
+// organiser_item_updates. integrations/sync_jobs/agent_runs do not
+// exist in Production; users.last_seen_at does not exist; users.
+// last_login_at is unpopulated for all 5 Production users — none of
+// those are queried anywhere in this change. organiser_items (as
+// opposed to organiser_item_updates) is deliberately never queried:
+// bulk CSV import can create many organiser_items from one user action
+// with no distinguishing marker. Active organisations/users, general AI
+// usage, task completions, bookings, dashboard activity, trends, and
+// percentages remain explicitly excluded from V1.
 
 const getAuthSessionMock = vi.fn()
 vi.mock('@/lib/authSession', () => ({
@@ -52,9 +56,10 @@ const COMMAND_PAGE_SOURCE = fs.readFileSync(path.resolve(__dirname, '../../app/c
 
 // Scoped to executable code, not this file's/the source's own explanatory
 // prose (both new files legitimately name integrations/sync_jobs/
-// agent_runs/last_seen_at/last_login_at/organiser_items while explaining
-// why they are NOT used) — same established pattern as
-// founderSystemHealth.test.ts / founderTasks.test.ts.
+// agent_runs/last_seen_at/last_login_at/organiser_items/social_insights/
+// saved_briefings while explaining why they are NOT used) — same
+// established pattern as founderSystemHealth.test.ts / founderTasks.
+// test.ts.
 function stripComments(src: string): string {
   return src
     .replace(/\/\*[\s\S]*?\*\//g, '')
@@ -91,9 +96,9 @@ describe('GET /api/founder/usage — access gating', () => {
     expect(sqlMock).not.toHaveBeenCalled()
   })
 
-  it('200 for a super_admin session, only after auth succeeds', async () => {
+  it('200 for a super_admin session, only after auth succeeds (test 15: super_admin auth enforced)', async () => {
     getAuthSessionMock.mockResolvedValue(SUPER_ADMIN)
-    queue(ORG_ROW, [{ count: 0 }], [{ count: 0 }], [{ count: 0 }], [{ count: 0 }])
+    queue(ORG_ROW, [{ count: 0 }], [{ count: 0 }])
     const res = await GET()
     expect(res.status).toBe(200)
   })
@@ -101,12 +106,23 @@ describe('GET /api/founder/usage — access gating', () => {
 
 // ── SOURCE TRUTH ─────────────────────────────────────────────────────────
 
-describe('Only the four E.2-approved sources are used', () => {
-  it('references uploaded_files, organiser_item_updates, social_insights, and saved_briefings', () => {
+describe('Only the two Production-confirmed sources are used (tests 1-4)', () => {
+  it('test 1: uses uploaded_files', () => {
     expect(SIGNALS_SOURCE).toContain('FROM uploaded_files')
+  })
+
+  it('test 2: uses organiser_item_updates', () => {
     expect(SIGNALS_SOURCE).toContain('FROM organiser_item_updates')
-    expect(SIGNALS_SOURCE).toContain('FROM social_insights')
-    expect(SIGNALS_SOURCE).toContain('FROM saved_briefings')
+  })
+
+  it('test 3: social_insights is absent from executable E.3 code', () => {
+    expect(SIGNALS_EXECUTABLE).not.toContain('social_insights')
+    expect(ROUTE_EXECUTABLE).not.toContain('social_insights')
+  })
+
+  it('test 4: saved_briefings is absent from executable E.3 code', () => {
+    expect(SIGNALS_EXECUTABLE).not.toContain('saved_briefings')
+    expect(ROUTE_EXECUTABLE).not.toContain('saved_briefings')
   })
 
   it('never references integrations, sync_jobs, or agent_runs in executable code', () => {
@@ -124,26 +140,27 @@ describe('Only the four E.2-approved sources are used', () => {
     }
   })
 
-  it('never queries organiser_items (as opposed to organiser_item_updates) in executable code', () => {
+  it('never queries organiser_items (as opposed to organiser_item_updates) — a naive substring check would false-positive on the valid table name, so this asserts the specific "FROM organiser_items" token is absent while "FROM organiser_item_updates" remains present', () => {
     expect(SIGNALS_EXECUTABLE).not.toMatch(/FROM organiser_items\b/)
+    expect(SIGNALS_EXECUTABLE).toContain('FROM organiser_item_updates')
   })
 
-  it('functional: every real sql`` call made during a full successful GET touches only the four approved tables', async () => {
+  it('functional: getProductUsage() now makes exactly 3 sql calls (org resolve + 2 metrics), touching only the two approved tables', async () => {
     getAuthSessionMock.mockResolvedValue(SUPER_ADMIN)
-    queue(ORG_ROW, [{ count: 1 }], [{ count: 2 }], [{ count: 3 }], [{ count: 4 }])
+    queue(ORG_ROW, [{ count: 1 }], [{ count: 2 }])
     await GET()
-    expect(sqlMock).toHaveBeenCalledTimes(5)
+    expect(sqlMock).toHaveBeenCalledTimes(3)
     const allCallStrings = sqlMock.mock.calls
       .map((_, i) => (sqlCallArgs(i)[0] as TemplateStringsArray).join(''))
       .join('\n')
-    expect(allCallStrings).not.toMatch(/\bintegrations\b|\bsync_jobs\b|\bagent_runs\b|last_seen_at|last_login_at/)
+    expect(allCallStrings).not.toMatch(/\bintegrations\b|\bsync_jobs\b|\bagent_runs\b|last_seen_at|last_login_at|social_insights|saved_briefings/)
     expect(allCallStrings).not.toMatch(/FROM organiser_items\b/)
   })
 })
 
 // ── UPLOADS ──────────────────────────────────────────────────────────────
 
-describe('Uploads', () => {
+describe('Uploads (test 5: demo-seed exclusion; test 6: BrainBase-org exclusion; test 7: 30-day window)', () => {
   it('30-day window, demo-seed.csv exclusion, and BrainBase-org exclusion are present in source', () => {
     const start = SIGNALS_SOURCE.indexOf('FROM uploaded_files')
     const end = SIGNALS_SOURCE.indexOf('`,', start)
@@ -153,15 +170,22 @@ describe('Uploads', () => {
     expect(block).toContain('organisation_id <> ${brainbaseOrgId}')
   })
 
+  it('the comparison is plain TEXT (no ::uuid cast) — matches the confirmed real column type', () => {
+    const start = SIGNALS_SOURCE.indexOf('FROM uploaded_files')
+    const end = SIGNALS_SOURCE.indexOf('`,', start)
+    const block = SIGNALS_SOURCE.slice(start, end)
+    expect(block).not.toContain('::uuid')
+  })
+
   it('functional: resolves the count returned by the query', async () => {
-    queue(ORG_ROW, [{ count: 7 }], [{ count: 0 }], [{ count: 0 }], [{ count: 0 }])
+    queue(ORG_ROW, [{ count: 7 }], [{ count: 0 }])
     const usage = await getProductUsage()
     expect(usage.uploads).toBe(7)
   })
 
   it('the API response never includes a filename or any per-row field', async () => {
     getAuthSessionMock.mockResolvedValue(SUPER_ADMIN)
-    queue(ORG_ROW, [{ count: 1 }], [{ count: 0 }], [{ count: 0 }], [{ count: 0 }])
+    queue(ORG_ROW, [{ count: 1 }], [{ count: 0 }])
     const res = await GET()
     const json = await res.json()
     expect(JSON.stringify(json)).not.toMatch(/file_name|\.csv|uploaded_by/)
@@ -170,7 +194,7 @@ describe('Uploads', () => {
 
 // ── ORGANISER ────────────────────────────────────────────────────────────
 
-describe('Organiser updates', () => {
+describe('Organiser updates (test 6: BrainBase-org exclusion; test 7: 30-day window)', () => {
   it('organiser_item_updates is used, organiser_items is not, BrainBase org is excluded', () => {
     const start = SIGNALS_SOURCE.indexOf('FROM organiser_item_updates')
     const end = SIGNALS_SOURCE.indexOf('`,', start)
@@ -178,82 +202,64 @@ describe('Organiser updates', () => {
     expect(block).toContain("INTERVAL '30 days'")
     expect(block).toContain('organisation_id <> ${brainbaseOrgId}')
     expect(block).not.toContain('organiser_items ')
+    expect(block).not.toContain('::uuid')
   })
 
   it('functional: resolves the count returned by the query', async () => {
-    queue(ORG_ROW, [{ count: 0 }], [{ count: 5 }], [{ count: 0 }], [{ count: 0 }])
+    queue(ORG_ROW, [{ count: 0 }], [{ count: 5 }])
     const usage = await getProductUsage()
     expect(usage.organiserUpdates).toBe(5)
   })
 
   it('the API response never includes author_name or comment body content', async () => {
     getAuthSessionMock.mockResolvedValue(SUPER_ADMIN)
-    queue(ORG_ROW, [{ count: 0 }], [{ count: 1 }], [{ count: 0 }], [{ count: 0 }])
+    queue(ORG_ROW, [{ count: 0 }], [{ count: 1 }])
     const res = await GET()
     const json = await res.json()
     expect(JSON.stringify(json)).not.toMatch(/author_name|body/)
   })
 })
 
-// ── SOCIAL ───────────────────────────────────────────────────────────────
+// ── REMOVED METRICS ──────────────────────────────────────────────────────
 
-describe('Social analyses', () => {
-  it('social_insights is used with an explicit ::uuid cast for the organisation_id comparison, BrainBase org excluded', () => {
-    const start = SIGNALS_SOURCE.indexOf('FROM social_insights')
-    const end = SIGNALS_SOURCE.indexOf('`,', start)
-    const block = SIGNALS_SOURCE.slice(start, end)
-    expect(block).toContain("INTERVAL '30 days'")
-    expect(block).toContain('organisation_id <> ${brainbaseOrgId}::uuid')
+describe('Social analyses / Briefings generated are fully removed, not replaced', () => {
+  it('ProductUsageAggregate no longer has socialAnalyses/briefingsGenerated fields', () => {
+    expect(SIGNALS_SOURCE).not.toContain('socialAnalyses')
+    expect(SIGNALS_SOURCE).not.toContain('briefingsGenerated')
   })
 
-  it('functional: resolves the count returned by the query', async () => {
-    queue(ORG_ROW, [{ count: 0 }], [{ count: 0 }], [{ count: 3 }], [{ count: 0 }])
-    const usage = await getProductUsage()
-    expect(usage.socialAnalyses).toBe(3)
+  it('the UI no longer renders "Social analyses" (test 12)', () => {
+    expect(FOUNDER_PAGE_SOURCE).not.toContain("'Social analyses'")
   })
 
-  it('the UI labels this specifically "Social analyses", never "AI usage"/"HLNA usage"/"AI requests"', () => {
-    expect(FOUNDER_PAGE_SOURCE).toContain("['Social analyses', data.socialAnalyses]")
+  it('the UI no longer renders "Briefings generated" (test 13)', () => {
+    expect(FOUNDER_PAGE_SOURCE).not.toContain("'Briefings generated'")
+  })
+
+  it('no substitute/speculative metric was introduced in their place', () => {
     const start = FOUNDER_PAGE_SOURCE.indexOf('function ProductUsage()')
     const end = FOUNDER_PAGE_SOURCE.indexOf('\nfunction ', start + 10)
     const body = FOUNDER_PAGE_SOURCE.slice(start, end)
-    expect(body).not.toMatch(/AI usage|HLNA usage|AI requests/)
-  })
-})
-
-// ── BRIEFINGS ────────────────────────────────────────────────────────────
-
-describe('Briefings generated', () => {
-  it('saved_briefings is used with an explicit ::uuid cast for the organisation_id comparison, BrainBase org excluded', () => {
-    const start = SIGNALS_SOURCE.indexOf('FROM saved_briefings')
-    const end = SIGNALS_SOURCE.indexOf('`,', start)
-    const block = SIGNALS_SOURCE.slice(start, end)
-    expect(block).toContain("INTERVAL '30 days'")
-    expect(block).toContain('organisation_id <> ${brainbaseOrgId}::uuid')
-  })
-
-  it('functional: resolves the count returned by the query', async () => {
-    queue(ORG_ROW, [{ count: 0 }], [{ count: 0 }], [{ count: 0 }], [{ count: 9 }])
-    const usage = await getProductUsage()
-    expect(usage.briefingsGenerated).toBe(9)
-  })
-
-  it('the UI labels this specifically "Briefings generated", never "viewed"/"acted on"/"AI requests"', () => {
-    expect(FOUNDER_PAGE_SOURCE).toContain("['Briefings generated', data.briefingsGenerated]")
-    expect(FOUNDER_PAGE_SOURCE).not.toMatch(/Briefings viewed|Briefings acted on/)
+    const tilesStart = body.indexOf('] as const).map')
+    const tilesBlockStart = body.lastIndexOf('([', tilesStart)
+    const tilesBlock = body.slice(tilesBlockStart, tilesStart)
+    expect(tilesBlock).toContain('Uploads')
+    expect(tilesBlock).toContain('Organiser updates')
+    // exactly two tuple entries — no third/fourth metric
+    expect((tilesBlock.match(/\[\s*'[^']+',/g) ?? []).length).toBe(2)
   })
 })
 
 // ── SEMANTICS ────────────────────────────────────────────────────────────
 
-describe('Zero vs failure semantics; no invented wording', () => {
-  it('a genuine zero-row result resolves to numeric 0 for every metric, not null/undefined', async () => {
-    queue(ORG_ROW, [{ count: 0 }], [{ count: 0 }], [{ count: 0 }], [{ count: 0 }])
+describe('Zero vs failure semantics; no invented wording (tests 9, 10)', () => {
+  it('test 9: a genuine zero-row result resolves to numeric 0 for every metric, not null/undefined', async () => {
+    queue(ORG_ROW, [{ count: 0 }], [{ count: 0 }])
     const usage = await getProductUsage()
-    expect(usage).toEqual({ windowDays: 30, uploads: 0, organiserUpdates: 0, socialAnalyses: 0, briefingsGenerated: 0 })
+    expect(usage).toEqual({ windowDays: 30, uploads: 0, organiserUpdates: 0 })
   })
 
-  it('a query failure propagates (all-or-nothing) rather than silently resolving to 0', async () => {
+  it('test 10: a query failure propagates (all-or-nothing) rather than silently resolving to 0', async () => {
     getAuthSessionMock.mockResolvedValue(SUPER_ADMIN)
     sqlMock.mockRejectedValueOnce(new Error('connection refused'))
     const res = await GET()
@@ -281,28 +287,34 @@ describe('Zero vs failure semantics; no invented wording', () => {
     expect(body).not.toMatch(/%|trend|vs\.|compared to/i)
   })
 
-  it('no "active users" or "active organisations" wording exists anywhere in the new files', () => {
-    for (const src of [SIGNALS_SOURCE, ROUTE_SOURCE, FOUNDER_PAGE_SOURCE]) {
+  it('no "active users" or "active organisations" wording exists in the new backend files or the ProductUsage() UI specifically', () => {
+    for (const src of [SIGNALS_SOURCE, ROUTE_SOURCE]) {
       expect(src).not.toMatch(/active users|active organisations/i)
     }
+    const start = FOUNDER_PAGE_SOURCE.indexOf('function ProductUsage()')
+    const end = FOUNDER_PAGE_SOURCE.indexOf('\nfunction ', start + 10)
+    const body = FOUNDER_PAGE_SOURCE.slice(start, end)
+    expect(body).not.toMatch(/active users|active organisations/i)
   })
 })
 
 // ── SECURITY ─────────────────────────────────────────────────────────────
 
-describe('Response contains aggregate numbers only', () => {
-  it('functional: the full GET response has exactly the five documented fields and nothing else', async () => {
+describe('Response contains aggregate numbers only (test 8, 14)', () => {
+  it('test 8: functional: the full GET response has exactly the three documented fields and nothing else', async () => {
     getAuthSessionMock.mockResolvedValue(SUPER_ADMIN)
-    queue(ORG_ROW, [{ count: 1 }], [{ count: 2 }], [{ count: 3 }], [{ count: 4 }])
+    queue(ORG_ROW, [{ count: 1 }], [{ count: 2 }])
     const res = await GET()
     const json = await res.json()
-    expect(Object.keys(json).sort()).toEqual(['briefingsGenerated', 'organiserUpdates', 'socialAnalyses', 'uploads', 'windowDays'])
+    expect(Object.keys(json).sort()).toEqual(['organiserUpdates', 'uploads', 'windowDays'])
     expect(typeof json.uploads).toBe('number')
+    expect(typeof json.organiserUpdates).toBe('number')
+    expect(json.windowDays).toBe(30)
   })
 
-  it('no organisation ids, user ids, tokens, or secrets ever appear in the response', async () => {
+  it('test 14: no organisation ids, user ids, tokens, or secrets ever appear in the response', async () => {
     getAuthSessionMock.mockResolvedValue(SUPER_ADMIN)
-    queue(ORG_ROW, [{ count: 1 }], [{ count: 1 }], [{ count: 1 }], [{ count: 1 }])
+    queue(ORG_ROW, [{ count: 1 }], [{ count: 1 }])
     const res = await GET()
     const json = await res.json()
     const serialized = JSON.stringify(json)
@@ -313,7 +325,7 @@ describe('Response contains aggregate numbers only', () => {
 
 // ── UI CONTAINMENT (do not repeat the Phase E.1 CSS-grid min-width bug) ───
 
-describe('Product Usage layout is responsive and cannot overflow', () => {
+describe('Product Usage layout is responsive and cannot overflow (test 16)', () => {
   it('the grid container and every grid item carry minWidth: 0', () => {
     const start = FOUNDER_PAGE_SOURCE.indexOf('function ProductUsage()')
     const end = FOUNDER_PAGE_SOURCE.indexOf('\nfunction ', start + 10)
@@ -333,6 +345,15 @@ describe('Product Usage layout is responsive and cannot overflow', () => {
 
   it('no broad page-level overflow:hidden shortcut was introduced', () => {
     expect(FOUNDER_PAGE_SOURCE).not.toMatch(/margin:\s*'-40px'[\s\S]{0,400}overflow:\s*'hidden'[\s\S]{0,200}overflowX/)
+  })
+})
+
+// ── UI: exactly the two authorised metrics (test 11) ────────────────────
+
+describe('UI renders exactly the two authorised metrics (test 11)', () => {
+  it('renders Uploads and Organiser updates tiles bound to the real API fields', () => {
+    expect(FOUNDER_PAGE_SOURCE).toContain("['Uploads', data.uploads]")
+    expect(FOUNDER_PAGE_SOURCE).toContain("['Organiser updates', data.organiserUpdates]")
   })
 })
 
@@ -361,5 +382,12 @@ describe('Regression: SystemHealth/LiveContext/System API/Command/Organiser unto
   it('Command and Organiser pages are untouched (established markers still present)', () => {
     expect(COMMAND_PAGE_SOURCE).toContain('Demo Environment')
     expect(ORGANISER_PAGE_SOURCE).toContain('export default function OrganiserPage() {')
+  })
+
+  it('app/api/social/analyse/route.ts and app/api/briefings/route.ts are untouched (still use their own established ::uuid cast — this correction did not need to change them)', () => {
+    const socialAnalyseSource = fs.readFileSync(path.resolve(__dirname, '../../app/api/social/analyse/route.ts'), 'utf-8')
+    const briefingsSource = fs.readFileSync(path.resolve(__dirname, '../../app/api/briefings/route.ts'), 'utf-8')
+    expect(socialAnalyseSource).toContain('::uuid')
+    expect(briefingsSource).toContain('::uuid')
   })
 })

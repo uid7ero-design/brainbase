@@ -1387,24 +1387,27 @@ function SystemHealth() {
 
 // ─── Product usage ────────────────────────────────────────────────────────────
 // Phase E.3: replaces the Phase B "Not connected" placeholder with real
-// 30-day aggregates from GET /api/founder/usage. Scoped to exactly the
-// four sources a Phase E.2 audit confirmed authoritative and free of
-// known contamination once excluded appropriately: uploaded_files
-// (excluding the known demo-seed.csv row and BrainBase's own org),
+// 30-day aggregates from GET /api/founder/usage. Pre-merge correction:
+// a read-only Neon introspection query proved social_insights and
+// saved_briefings do not exist in the real deployed database (their
+// CREATE TABLE statements never succeeded there — see lib/founder/
+// usageSignals.ts for the full explanation) — both were removed rather
+// than shipped against tables that aren't really there, with no
+// substitute metric added in their place. Scoped to the two sources
+// confirmed to actually exist with a TEXT organisation_id: uploaded_files
+// (excluding the known demo-seed.csv row and BrainBase's own org) and
 // organiser_item_updates (never organiser_items — bulk CSV import has no
-// distinguishing marker), social_insights, and saved_briefings (both
-// excluding BrainBase's own org). Deliberately does NOT include active
-// organisations/users, general AI usage, task completions, bookings, or
-// any trend/percentage — those were classified AMBER/RED/out of scope
-// in that audit. Grid items carry minWidth: 0 (the Phase E.1 fix,
-// applied here from the start rather than re-discovered).
+// distinguishing marker, and BrainBase's own org is excluded here too).
+// Deliberately does NOT include active organisations/users, general AI
+// usage, task completions, bookings, or any trend/percentage — those
+// were classified AMBER/RED/out of scope in the Phase E.2 audit. Grid
+// items carry minWidth: 0 (the Phase E.1 fix, applied here from the
+// start rather than re-discovered).
 
 type FounderUsageData = {
   windowDays: number;
   uploads: number;
   organiserUpdates: number;
-  socialAnalyses: number;
-  briefingsGenerated: number;
 };
 
 function ProductUsage() {
@@ -1451,8 +1454,6 @@ function ProductUsage() {
         {([
           ['Uploads', data.uploads],
           ['Organiser updates', data.organiserUpdates],
-          ['Social analyses', data.socialAnalyses],
-          ['Briefings generated', data.briefingsGenerated],
         ] as const).map(([label, value]) => (
           <div key={label} style={{ padding: '8px 10px', borderRadius: 6, background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)', minWidth: 0, overflow: 'hidden' }}>
             <div style={{ fontSize: 9, color: T.dim, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{label}</div>
