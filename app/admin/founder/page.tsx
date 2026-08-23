@@ -1386,18 +1386,79 @@ function SystemHealth() {
 }
 
 // ─── Product usage ────────────────────────────────────────────────────────────
-// Phase B: USAGE was fully fabricated (no persisted upload/analysis/API-call
-// counters were found within this task's scope). Not connected rather than
-// invented — see the Phase B report's KPI authority map for what was
-// checked.
+// Phase E.3: replaces the Phase B "Not connected" placeholder with real
+// 30-day aggregates from GET /api/founder/usage. Scoped to exactly the
+// four sources a Phase E.2 audit confirmed authoritative and free of
+// known contamination once excluded appropriately: uploaded_files
+// (excluding the known demo-seed.csv row and BrainBase's own org),
+// organiser_item_updates (never organiser_items — bulk CSV import has no
+// distinguishing marker), social_insights, and saved_briefings (both
+// excluding BrainBase's own org). Deliberately does NOT include active
+// organisations/users, general AI usage, task completions, bookings, or
+// any trend/percentage — those were classified AMBER/RED/out of scope
+// in that audit. Grid items carry minWidth: 0 (the Phase E.1 fix,
+// applied here from the start rather than re-discovered).
+
+type FounderUsageData = {
+  windowDays: number;
+  uploads: number;
+  organiserUpdates: number;
+  socialAnalyses: number;
+  briefingsGenerated: number;
+};
 
 function ProductUsage() {
+  const [data, setData] = useState<FounderUsageData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/founder/usage')
+      .then(r => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((d: FounderUsageData) => setData(d))
+      .catch(() => setLoadError(true))
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) {
+    return (
+      <Card style={{ padding: '11px 12px' }}>
+        <Lbl s="Product usage" />
+        <div style={{ fontSize: 11, color: T.dim, marginTop: 8 }}>Loading…</div>
+      </Card>
+    );
+  }
+
+  if (loadError || !data) {
+    return (
+      <Card style={{ padding: '11px 12px' }}>
+        <Lbl s="Product usage" />
+        <div style={{ padding: '14px', textAlign: 'center', borderRadius: 6, border: `1px dashed ${T.border}`, marginTop: 8 }}>
+          <div style={{ fontSize: 11, color: T.dim }}>Not connected</div>
+          <div style={{ fontSize: 10, color: T.dim, marginTop: 3 }}>Could not load product usage.</div>
+        </div>
+      </Card>
+    );
+  }
+
   return (
     <Card style={{ padding: '11px 12px' }}>
-      <Lbl s="Product usage" />
-      <div style={{ padding: '14px', textAlign: 'center', borderRadius: 6, border: `1px dashed ${T.border}` }}>
-        <div style={{ fontSize: 11, color: T.dim }}>Not connected</div>
-        <div style={{ fontSize: 10, color: T.dim, marginTop: 3 }}>No authoritative usage-tracking source was found for this panel.</div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8, minWidth: 0 }}>
+        <Lbl s="Product usage" />
+        <span style={{ fontSize: 9, color: T.dim, flexShrink: 0 }}>Last {data.windowDays} days</span>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, minWidth: 0 }}>
+        {([
+          ['Uploads', data.uploads],
+          ['Organiser updates', data.organiserUpdates],
+          ['Social analyses', data.socialAnalyses],
+          ['Briefings generated', data.briefingsGenerated],
+        ] as const).map(([label, value]) => (
+          <div key={label} style={{ padding: '8px 10px', borderRadius: 6, background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)', minWidth: 0, overflow: 'hidden' }}>
+            <div style={{ fontSize: 9, color: T.dim, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{label}</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: T.text, fontFamily: T.mono }}>{value}</div>
+          </div>
+        ))}
       </div>
     </Card>
   );
