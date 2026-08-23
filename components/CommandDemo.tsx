@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useState } from "react";
 
 interface CommandDemoProps {
   placeholder?: string;
+  showUpload?: boolean;
 }
 
 const getLoadingMessage = (q: string): string => {
@@ -1145,7 +1146,10 @@ const THINKING_MSGS = [
   "Preparing executive briefing…",
 ];
 
-export default function CommandDemo({ placeholder = "Type a query..." }: CommandDemoProps) {
+export default function CommandDemo({
+  placeholder = "Type a query...",
+  showUpload = false,
+}: CommandDemoProps) {
   const [query,      setQuery]      = useState("");
   const [result,     setResult]     = useState<PipelineResult | { _fallback: string } | null>(null);
   const [loading,    setLoading]    = useState(false);
@@ -1255,41 +1259,45 @@ export default function CommandDemo({ placeholder = "Type a query..." }: Command
 
   return (
     <div>
-      {/* ── File upload ── */}
-      <div style={{ marginBottom: 10 }}>
-        <input
-          ref={fileRef}
-          type="file"
-          accept=".csv,.xlsx"
-          style={{ display: 'none' }}
-          onChange={e => setFile(e.target.files?.[0] ?? null)}
-        />
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <button
-            onClick={() => fileRef.current?.click()}
-            style={{
-              padding: '7px 14px', borderRadius: 8, fontSize: 13, fontWeight: 500,
-              background: 'rgba(255,255,255,.05)', border: '1px solid rgba(255,255,255,.12)',
-              color: 'rgba(226,232,240,.70)', cursor: 'pointer', whiteSpace: 'nowrap',
-            }}
-          >
-            Upload file
-          </button>
-          {file ? (
-            <span style={{ fontSize: 13, color: 'rgba(226,232,240,.55)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {file.name}
+      {showUpload && (
+        <>
+          {/* ── File upload ── */}
+          <div style={{ marginBottom: 10 }}>
+            <input
+              ref={fileRef}
+              type="file"
+              accept=".csv,.xlsx"
+              style={{ display: 'none' }}
+              onChange={e => setFile(e.target.files?.[0] ?? null)}
+            />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <button
-                onClick={() => { setFile(null); if (fileRef.current) fileRef.current.value = ""; }}
-                style={{ marginLeft: 8, background: 'none', border: 'none', color: 'rgba(226,232,240,.35)', cursor: 'pointer', fontSize: 12, padding: 0 }}
+                onClick={() => fileRef.current?.click()}
+                style={{
+                  padding: '7px 14px', borderRadius: 8, fontSize: 13, fontWeight: 500,
+                  background: 'rgba(255,255,255,.05)', border: '1px solid rgba(255,255,255,.12)',
+                  color: 'rgba(226,232,240,.70)', cursor: 'pointer', whiteSpace: 'nowrap',
+                }}
               >
-                ✕
+                Upload file
               </button>
-            </span>
-          ) : (
-            <span style={{ fontSize: 12, color: 'rgba(226,232,240,.28)' }}>.csv or .xlsx</span>
-          )}
-        </div>
-      </div>
+              {file ? (
+                <span style={{ fontSize: 13, color: 'rgba(226,232,240,.55)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {file.name}
+                  <button
+                    onClick={() => { setFile(null); if (fileRef.current) fileRef.current.value = ""; }}
+                    style={{ marginLeft: 8, background: 'none', border: 'none', color: 'rgba(226,232,240,.35)', cursor: 'pointer', fontSize: 12, padding: 0 }}
+                  >
+                    ✕
+                  </button>
+                </span>
+              ) : (
+                <span style={{ fontSize: 12, color: 'rgba(226,232,240,.28)' }}>.csv or .xlsx</span>
+              )}
+            </div>
+          </div>
+        </>
+      )}
 
       {/* ── Query input ── */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>

@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
@@ -12,7 +12,8 @@ type Session = {
   enabledModules?: string[];
 } | null;
 
-const FONT = 'var(--font-inter), "Inter", -apple-system, sans-serif';
+const FONT =
+  'var(--font-inter), "Inter", -apple-system, sans-serif';
 
 // ─── Shared pill nav item ────────────────────────────────────────────────────
 
@@ -37,12 +38,19 @@ function NavItem({
         padding: '5px 10px',
         borderRadius: 7,
         textDecoration: 'none',
-        color: active ? '#C4B5FD' : 'rgba(255,255,255,.45)',
-        background: active ? 'rgba(139,92,246,.10)' : 'transparent',
+        color: active
+          ? '#C4B5FD'
+          : 'rgba(255,255,255,.45)',
+        background: active
+          ? 'rgba(139,92,246,.10)'
+          : 'transparent',
         border: `1px solid ${
-          active ? 'rgba(139,92,246,.22)' : 'transparent'
+          active
+            ? 'rgba(139,92,246,.22)'
+            : 'transparent'
         }`,
-        transition: 'color .14s, background .14s, border-color .14s',
+        transition:
+          'color .14s, background .14s, border-color .14s',
         whiteSpace: 'nowrap',
       }}
       onMouseEnter={e => {
@@ -85,9 +93,13 @@ function HlnaItem({
         padding: '5px 11px',
         borderRadius: 7,
         textDecoration: 'none',
-        background: active ? 'rgba(139,92,246,.13)' : 'transparent',
+        background: active
+          ? 'rgba(139,92,246,.13)'
+          : 'transparent',
         border: `1px solid ${
-          active ? 'rgba(167,139,250,.28)' : 'transparent'
+          active
+            ? 'rgba(167,139,250,.28)'
+            : 'transparent'
         }`,
         boxShadow: active
           ? '0 0 14px rgba(139,92,246,.18)'
@@ -123,7 +135,8 @@ function HlnaItem({
             ? 'drop-shadow(0 0 7px rgba(167,139,250,.60))'
             : 'none',
           opacity: active ? 1 : 0.6,
-          transition: 'filter .18s, opacity .18s',
+          transition:
+            'filter .18s, opacity .18s',
         }}
         aria-label="HLNA"
       >
@@ -153,8 +166,15 @@ function HlnaItem({
             x2="172"
             y2="7"
           >
-            <stop offset="0%" stopColor="#6D28D9" />
-            <stop offset="100%" stopColor="#C084FC" />
+            <stop
+              offset="0%"
+              stopColor="#6D28D9"
+            />
+
+            <stop
+              offset="100%"
+              stopColor="#C084FC"
+            />
           </linearGradient>
         </defs>
       </svg>
@@ -168,22 +188,26 @@ const OPS_ITEMS = [
   {
     label: 'Waste',
     href: '/dashboard/wste',
-    description: 'Service verification & tracking',
+    description:
+      'Service verification & tracking',
   },
   {
     label: 'Fleet',
     href: '/dashboard/fleet',
-    description: 'Asset lifecycle & cost analysis',
+    description:
+      'Asset lifecycle & cost analysis',
   },
   {
     label: 'Social',
     href: '/dashboard/social',
-    description: 'Instagram intelligence & sentiment',
+    description:
+      'Instagram intelligence & sentiment',
   },
   {
     label: 'CRM',
     href: '/admin/founder',
-    description: 'Business pipeline & client management',
+    description:
+      'Business pipeline & client management',
   },
 ];
 
@@ -192,7 +216,8 @@ function OpsDropdown({
 }: {
   pathname: string;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] =
+    useState(false);
 
   const timerRef =
     useRef<ReturnType<typeof setTimeout> | null>(
@@ -700,7 +725,7 @@ function AdminDropdown({
   );
 }
 
-// ─── BrainBase logo ──────────────────────────────────────────────────────────
+// ─── BRΛINBΛSE logo ──────────────────────────────────────────────────────────
 
 function Logo({
   compact = false,
@@ -713,7 +738,7 @@ function Logo({
   return (
     <Link
       href="/"
-      aria-label="BrainBase home"
+      aria-label="BRΛINBΛSE home"
       style={{
         display: 'flex',
         alignItems: 'center',
@@ -725,7 +750,7 @@ function Logo({
     >
       <Image
         src="/Brand/brainbase-logo-dark.svg"
-        alt="BrainBase"
+        alt="BRΛINBΛSE"
         width={300}
         height={68}
         priority
@@ -999,6 +1024,14 @@ function PublicNav({
         />
 
         <NavItem
+          href="/client-operations"
+          label="Client Operations"
+          active={pathname.startsWith(
+            '/client-operations',
+          )}
+        />
+
+        <NavItem
           href="/web-systems"
           label="Web Systems"
           active={pathname.startsWith(
@@ -1015,11 +1048,11 @@ function PublicNav({
         />
 
         <NavItem
-          href="/for-coaches/demo"
+          href="/demo"
           label="Demo"
-          active={pathname.startsWith(
-            '/for-coaches/demo',
-          )}
+          active={
+            pathname === '/demo'
+          }
         />
 
         <Divider />
@@ -1276,7 +1309,7 @@ function AppNav({
           flexShrink: 0,
         }}
       >
-        {/* Larger BrainBase mark */}
+        {/* Larger BRΛINBΛSE mark */}
         <div
           style={{
             width: 185,

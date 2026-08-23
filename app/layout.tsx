@@ -39,10 +39,28 @@ const inter = Inter({
   ],
 });
 
+const THEME_INIT_SCRIPT = `
+  try {
+    var theme = localStorage.getItem("bb-theme");
+
+    if (theme === "light") {
+      document.documentElement.setAttribute(
+        "data-theme",
+        "light"
+      );
+    } else {
+      document.documentElement.setAttribute(
+        "data-theme",
+        "dark"
+      );
+    }
+  } catch (e) {}
+`;
+
 export const metadata: Metadata = {
   title: {
-    default: 'BrainBase',
-    template: '%s | BrainBase',
+    default: 'BRΛINBΛSE',
+    template: '%s | BRΛINBΛSE',
   },
 
   description:
@@ -142,16 +160,17 @@ export default async function RootLayout({
         h-full
         antialiased
       `}
+      suppressHydrationWarning
     >
       <head>
         <meta
           name="application-name"
-          content="BrainBase"
+          content="BRΛINBΛSE"
         />
 
         <meta
           name="apple-mobile-web-app-title"
-          content="BrainBase"
+          content="BRΛINBΛSE"
         />
 
         <meta
@@ -159,29 +178,12 @@ export default async function RootLayout({
           content="#0A0D1A"
         />
 
-        <Script
+        <script
           id="brainbase-theme-init"
-          strategy="beforeInteractive"
-        >
-          {`
-            try {
-              var theme =
-                localStorage.getItem("bb-theme");
-
-              if (theme === "light") {
-                document.documentElement.setAttribute(
-                  "data-theme",
-                  "light"
-                );
-              } else {
-                document.documentElement.setAttribute(
-                  "data-theme",
-                  "dark"
-                );
-              }
-            } catch (e) {}
-          `}
-        </Script>
+          dangerouslySetInnerHTML={{
+            __html: THEME_INIT_SCRIPT,
+          }}
+        />
       </head>
 
       <body className="min-h-full flex flex-col">
