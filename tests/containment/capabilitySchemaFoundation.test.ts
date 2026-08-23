@@ -165,36 +165,20 @@ describe('Global containment — no DML, no destructive DDL, no legacy assumptio
     expect(createStatements.some(s => /organisation_modules/i.test(s))).toBe(true)
   })
 
-  it('this phase introduces no requireModule()-style server-side enforcement primitive anywhere in the repository (not built until a later, separately-approved phase)', () => {
-    // Deliberately scoped to the NEW primitive this phase does not
-    // build, not to "organisation_modules" as a bare string — several
-    // files already reference that legacy, never-deployed table from
-    // before this phase (app/api/me/route.ts, app/api/account/
-    // modules/route.ts, the two HLNA agent routes, etc. — fully
-    // documented in the Phase F.0/F.4A reports) and would false-
-    // positive a broader scan without actually testing anything this
-    // phase changed. Whether the diff itself only touches schema-
-    // definition files is verified separately via `git diff
-    // --name-status` during validation, not inside this unit test.
-    const scanDirs = ['app/api', 'lib', 'components']
-    const offenders: string[] = []
-    for (const dir of scanDirs) {
-      const abs = path.resolve(__dirname, '../../', dir)
-      if (!fs.existsSync(abs)) continue
-      const stack = [abs]
-      while (stack.length) {
-        const current = stack.pop()!
-        for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
-          const full = path.join(current, entry.name)
-          if (entry.isDirectory()) { stack.push(full); continue }
-          if (!/\.(ts|tsx)$/.test(entry.name)) continue
-          const content = fs.readFileSync(full, 'utf-8')
-          if (/requireModule\s*\(|requireCapability\s*\(/.test(content)) offenders.push(full)
-        }
-      }
-    }
-    expect(offenders).toEqual([])
-  })
+  // Phase F.4B originally asserted here that no requireModule()/
+  // requireCapability()-style server-side enforcement primitive existed
+  // anywhere in the repository yet — a deliberate TEMPORAL boundary for
+  // that phase ("not built until a later, separately-approved phase").
+  // Phase F.5B is now that separately-approved phase: it added
+  // lib/capabilities/requireCapability.ts, the intended, reviewed
+  // enforcement primitive. The condition this assertion existed to
+  // guard against has legitimately expired, so the assertion is
+  // retired here (Phase F.5C) rather than kept as a permanent ban on
+  // enforcement ever existing. tests/containment/requireCapability.
+  // test.ts is now the containment authority for the enforcement layer
+  // itself; the schema-only guarantees below (additive-only DDL, no
+  // seed data, TEXT identity, defaults, foreign keys, ON DELETE
+  // RESTRICT, Prisma sync) are unaffected and remain fully enforced.
 })
 
 describe('Prisma schema synchronization — PlatformModule/OrganisationModule models (Phase F.4B)', () => {
