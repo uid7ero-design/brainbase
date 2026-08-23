@@ -10,6 +10,13 @@ export async function GET() {
   let profile: Record<string, unknown> | null = null;
   let org: { name: string; industry: string | null; logo_url: string | null } | null = null;
   let enabledModules: { key: string; name: string; industry: string }[] = [];
+  // Platform capability projection (Phase F.6F) — UX data only, not an
+  // authorization boundary. Server routes remain the enforcement
+  // authority via lib/capabilities/requireCapability.ts. Kept in its
+  // own try/catch below, independent of the block above, so a failure
+  // here can never affect profile/org/enabledModules/last_seen_at, and
+  // vice versa.
+  let enabledCapabilities: { key: string; name: string }[] = [];
 
   try {
     const [userRow] = await sql`
@@ -45,6 +52,21 @@ export async function GET() {
     // Tables may not exist yet (pre-migration) — return minimal session data
   }
 
+  try {
+    const capabilities = await sql`
+      SELECT m.key, m.name
+      FROM organisation_modules om
+      JOIN modules m ON m.key = om.module_key
+      WHERE om.organisation_id = ${session.organisationId}
+        AND om.enabled = true
+        AND m.active = true
+      ORDER BY m.name
+    `;
+    enabledCapabilities = capabilities as typeof enabledCapabilities;
+  } catch {
+    // UX projection only — fail closed to an empty list, never leak the error.
+  }
+
   return NextResponse.json({
     userId:         session.userId,
     organisationId: session.organisationId ?? null,
@@ -53,5 +75,6 @@ export async function GET() {
     profile:        profile ?? null,
     org:            org ?? null,
     enabledModules,
+    enabledCapabilities,
   });
 }
