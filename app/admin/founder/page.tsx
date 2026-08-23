@@ -1270,6 +1270,7 @@ type FounderSystemData = {
     gmail: { state: FounderConnectionState };
     googleCalendar: { state: FounderConnectionState };
     instagram: { state: FounderConnectionState };
+    microsoft365: { state: FounderConnectionState };
   };
 };
 const SERVICE_STATE_LABEL: Record<FounderConnectionState, string> = {
@@ -1370,6 +1371,7 @@ function SystemHealth() {
             ['Gmail', services.gmail.state],
             ['Google Calendar', services.googleCalendar.state],
             ['Instagram', services.instagram.state],
+            ['Microsoft 365', services.microsoft365.state],
           ] as const).map(([label, state]) => (
             <div key={label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 8px', borderRadius: 5, background: 'rgba(255,255,255,0.018)', border: `1px solid ${T.border}` }}>
               <span style={{ fontSize: 11, color: T.sub }}>{label}</span>
@@ -1378,7 +1380,7 @@ function SystemHealth() {
           ))}
         </div>
         <div style={{ fontSize: 9, color: T.dim, marginTop: 8 }}>
-          Gmail/Google Calendar show whether an OAuth connection is stored, not a live API check.
+          Gmail/Google Calendar/Microsoft 365 show whether an OAuth connection is stored, not a live API check.
         </div>
       </Card>
     </div>

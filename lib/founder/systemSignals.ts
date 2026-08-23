@@ -3,6 +3,7 @@ import sql from '@/lib/db';
 import { decrypt } from '@/lib/social/crypto';
 import { readTokens as readGmailTokens } from '@/lib/gmail/tokens';
 import { readAllTokens as readGcalTokens } from '@/lib/gcal/tokens';
+import { getConnectionSummary as getMicrosoftConnectionSummary } from '@/lib/microsoft/tokens';
 import { resolveBrainbaseOrgId } from '@/lib/founder/tasksBoard';
 
 // Founder OS Phase E.1 — real system-health signals, built ONLY from
@@ -103,6 +104,25 @@ export function getGmailState(): ConnectionState {
 export function getGoogleCalendarState(): ConnectionState {
   try {
     return readGcalTokens().length > 0 ? 'connected' : 'not_connected';
+  } catch {
+    return 'unknown';
+  }
+}
+
+// Microsoft 365: PRESENCE semantics only, matching Gmail/GCal exactly —
+// "connected" means a stored connection row exists in Neon (see
+// lib/microsoft/tokens.ts's getConnectionSummary()), never "Microsoft
+// Graph is currently reachable". Unlike Gmail/GCal, this is a database
+// read (async) rather than a synchronous file read, and unlike Gmail/
+// GCal's plaintext file store, the underlying row's tokens are
+// encrypted at rest — but the STATUS SIGNAL ITSELF carries the exact
+// same truthful meaning as the other two: connection presence, not
+// live health. No Graph API call is made here — E.5A never fetches
+// calendar/mail/contacts/files.
+export async function getMicrosoftState(): Promise<ConnectionState> {
+  try {
+    const connection = await getMicrosoftConnectionSummary();
+    return connection ? 'connected' : 'not_connected';
   } catch {
     return 'unknown';
   }
