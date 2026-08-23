@@ -141,7 +141,11 @@ describe('GET /api/founder/system — access gating', () => {
     getAuthSessionMock.mockResolvedValue(SUPER_ADMIN)
     readGmailTokensMock.mockReturnValue(null)
     readGcalTokensMock.mockReturnValue([])
-    queue([{ '?column?': 1 }], ORG_ROW, [])
+    // Call order: checkDatabase's SELECT 1, resolveBrainbaseOrgId's org
+    // lookup, getMicrosoftState's connection-summary read (Phase E.5A),
+    // then getInstagramState's social_connections lookup (resumes last,
+    // after its own org-lookup await settles).
+    queue([{ '?column?': 1 }], ORG_ROW, [], [])
     const res = await GET()
     expect(res.status).toBe(200)
   })
@@ -165,13 +169,13 @@ describe('Does not depend on sources proven absent/unpopulated in Production', (
     }
   })
 
-  it('functional: every real sql`` call made during a full successful GET is either "SELECT 1" or the social_connections lookup — nothing else', async () => {
+  it('functional: every real sql`` call made during a full successful GET is SELECT 1, the BrainBase org lookup, the microsoft_connections read, or the social_connections lookup — nothing else', async () => {
     getAuthSessionMock.mockResolvedValue(SUPER_ADMIN)
     readGmailTokensMock.mockReturnValue(null)
     readGcalTokensMock.mockReturnValue([])
-    queue([{ '?column?': 1 }], ORG_ROW, [])
+    queue([{ '?column?': 1 }], ORG_ROW, [], [])
     await GET()
-    expect(sqlMock).toHaveBeenCalledTimes(3)
+    expect(sqlMock).toHaveBeenCalledTimes(4)
     const allCallStrings = sqlMock.mock.calls
       .map((_, i) => (sqlCallArgs(i)[0] as TemplateStringsArray).join(''))
       .join('\n')
@@ -344,7 +348,7 @@ describe('No tokens, secrets, or integration config are ever returned', () => {
     getAuthSessionMock.mockResolvedValue(SUPER_ADMIN)
     readGmailTokensMock.mockReturnValue({ access_token: 'super-secret-gmail', refresh_token: 'r', expires_at: 1 })
     readGcalTokensMock.mockReturnValue([{ access_token: 'super-secret-gcal', refresh_token: 'r', expires_at: 1, email: 'a@b.com' }])
-    queue([{ '?column?': 1 }], ORG_ROW, [{ access_token: 'super-secret-instagram', instagram_account_id: null }])
+    queue([{ '?column?': 1 }], ORG_ROW, [], [{ access_token: 'super-secret-instagram', instagram_account_id: null }])
     const res = await GET()
     const json = await res.json()
     const serialized = JSON.stringify(json)
@@ -358,7 +362,7 @@ describe('No tokens, secrets, or integration config are ever returned', () => {
     getAuthSessionMock.mockResolvedValue(SUPER_ADMIN)
     readGmailTokensMock.mockReturnValue(null)
     readGcalTokensMock.mockReturnValue([])
-    queue([{ '?column?': 1 }], ORG_ROW, [{ access_token: 'enc', instagram_account_id: 'ig-123' }])
+    queue([{ '?column?': 1 }], ORG_ROW, [], [{ access_token: 'enc', instagram_account_id: 'ig-123' }])
     fetchMock.mockResolvedValue({ json: () => Promise.resolve({ error: { message: 'SENSITIVE_GRAPH_DETAIL' } }) })
     const res = await GET()
     const json = await res.json()
