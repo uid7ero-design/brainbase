@@ -1,14 +1,10 @@
 'use client';
 
-import {
-  useEffect,
-  useState,
-} from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 
 import CommandDemo from '@/components/CommandDemo';
-import EnquiryModal from '@/components/web-services/EnquiryModal';
 
 const FONT =
   'var(--font-inter), "Inter", -apple-system, sans-serif';
@@ -70,8 +66,14 @@ const KEYFRAMES = `
 
   .bb-home-how-grid {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 12px;
+  }
+
+  .bb-home-two-col-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
   }
 
   .bb-home-hlna-grid {
@@ -83,7 +85,8 @@ const KEYFRAMES = `
 
   @media (max-width: 920px) {
     .bb-home-path-grid,
-    .bb-home-module-grid {
+    .bb-home-module-grid,
+    .bb-home-how-grid {
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
@@ -112,7 +115,8 @@ const KEYFRAMES = `
     .bb-home-path-grid,
     .bb-home-module-grid,
     .bb-home-outcome-grid,
-    .bb-home-how-grid {
+    .bb-home-how-grid,
+    .bb-home-two-col-grid {
       grid-template-columns: 1fr;
     }
 
@@ -131,62 +135,68 @@ const KEYFRAMES = `
   }
 `;
 
-const PATHS = [
+const PROOF_POINTS = [
+  'Start with what you need',
+  'Connect existing systems',
+  'Expand when ready',
+];
+
+const PROBLEM_TOOLS = [
+  'Website & forms',
+  'Email',
+  'Spreadsheets',
+  'Calendars',
+  'CRM',
+  'Reporting',
+  'Specialist systems',
+];
+
+const SOLUTION_OUTCOMES = [
   {
-    eyebrow: 'Client Operations',
-    title:
-      'Run clients, bookings and follow-up in one place.',
-    body:
-      'A connected operating system for businesses built around leads, clients, appointments, sessions and ongoing service delivery.',
-    href: '/client-operations',
-    action: 'Explore Client Operations',
+    title: 'One operational view',
+    body: 'Bring disconnected information, systems and workflows into one environment.',
     color: '#8A4DFF',
-    number: '01',
   },
   {
-    eyebrow: 'Web Systems',
-    title:
-      'Turn your website into part of the operation.',
-    body:
-      'Modern websites connected to enquiries, CRM, workflows, bookings, reporting and the wider BRΛINBΛSE platform.',
-    href: '/web-systems',
-    action: 'Explore Web Systems',
-    color: '#6366F1',
-    number: '02',
-  },
-  {
-    eyebrow: 'Platform Demo',
-    title:
-      'See the wider BRΛINBΛSE platform in action.',
-    body:
-      'Explore an interactive example showing how operational information, workflows, dashboards and intelligence come together.',
-    href: '/demo',
-    action: 'Explore BRΛINBΛSE Demo',
+    title: 'Less manual admin',
+    body: 'Reduce repetitive work, duplicated entry and time spent moving between tools.',
     color: '#38BDF8',
-    number: '03',
+  },
+  {
+    title: 'Faster decisions',
+    body: 'Surface the information that matters without manually searching across systems.',
+    color: '#A78BFA',
+  },
+  {
+    title: 'Better visibility',
+    body: 'Understand activity, performance and priorities from a clearer operational picture.',
+    color: '#22C55E',
   },
 ];
 
-const PLATFORM_MODULES = [
+const CAPABILITIES = [
   {
-    title: 'CRM & Clients',
+    title: 'Clients & CRM',
     description:
       'Contacts, pipelines, communication history and client activity in one connected workspace.',
     color: '#8A4DFF',
     icon: (
-      <svg
-        width="20"
-        height="20"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinecap="round"
-      >
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
         <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
         <circle cx="9" cy="7" r="4" />
         <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
         <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+      </svg>
+    ),
+  },
+  {
+    title: 'Leads',
+    description:
+      'Capture enquiries and follow them through to a client without losing track of where things stand.',
+    color: '#22C55E',
+    icon: (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M4 4h16l-6 8v7l-4 2v-9z" />
       </svg>
     ),
   },
@@ -196,85 +206,11 @@ const PLATFORM_MODULES = [
       'Manage appointments, sessions, programs and capacity with less manual coordination.',
     color: '#38BDF8',
     icon: (
-      <svg
-        width="20"
-        height="20"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinecap="round"
-      >
-        <rect
-          x="3"
-          y="4"
-          width="18"
-          height="18"
-          rx="2"
-        />
-        <line
-          x1="16"
-          y1="2"
-          x2="16"
-          y2="6"
-        />
-        <line
-          x1="8"
-          y1="2"
-          x2="8"
-          y2="6"
-        />
-        <line
-          x1="3"
-          y1="10"
-          x2="21"
-          y2="10"
-        />
-      </svg>
-    ),
-  },
-  {
-    title: 'Dashboards & Reporting',
-    description:
-      'Operational KPIs, trends and reporting brought together in a clear visual layer.',
-    color: '#A78BFA',
-    icon: (
-      <svg
-        width="20"
-        height="20"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.6"
-      >
-        <rect
-          x="3"
-          y="3"
-          width="7"
-          height="7"
-          rx="1"
-        />
-        <rect
-          x="14"
-          y="3"
-          width="7"
-          height="7"
-          rx="1"
-        />
-        <rect
-          x="3"
-          y="14"
-          width="7"
-          height="7"
-          rx="1"
-        />
-        <rect
-          x="14"
-          y="14"
-          width="7"
-          height="7"
-          rx="1"
-        />
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
+        <rect x="3" y="4" width="18" height="18" rx="2" />
+        <line x1="16" y1="2" x2="16" y2="6" />
+        <line x1="8" y1="2" x2="8" y2="6" />
+        <line x1="3" y1="10" x2="21" y2="10" />
       </svg>
     ),
   },
@@ -284,140 +220,158 @@ const PLATFORM_MODULES = [
       'Reduce repetitive admin with connected processes, triggers and follow-up workflows.',
     color: '#F59E0B',
     icon: (
-      <svg
-        width="20"
-        height="20"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinecap="round"
-      >
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
         <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
       </svg>
     ),
   },
   {
-    title: 'Intelligent Web Systems',
+    title: 'Dashboards & Reporting',
+    description:
+      'Operational KPIs, trends and reporting brought together in a clear visual layer.',
+    color: '#A78BFA',
+    icon: (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
+        <rect x="3" y="3" width="7" height="7" rx="1" />
+        <rect x="14" y="3" width="7" height="7" rx="1" />
+        <rect x="3" y="14" width="7" height="7" rx="1" />
+        <rect x="14" y="14" width="7" height="7" rx="1" />
+      </svg>
+    ),
+  },
+  {
+    title: 'Web Systems',
     description:
       'Websites that capture enquiries and connect directly into your wider operational environment.',
     color: '#6366F1',
     icon: (
-      <svg
-        width="20"
-        height="20"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinecap="round"
-      >
-        <circle
-          cx="12"
-          cy="12"
-          r="10"
-        />
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
+        <circle cx="12" cy="12" r="10" />
         <path d="M2 12h20" />
         <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
       </svg>
     ),
   },
   {
-    title: 'Portals & Workspaces',
+    title: 'HLNΛ Intelligence',
     description:
-      'Give clients, teams or stakeholders controlled access to the information and services relevant to them.',
+      'Ask questions and surface what matters across your connected operation.',
     color: '#EC4899',
     icon: (
-      <svg
-        width="20"
-        height="20"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinecap="round"
-      >
-        <rect
-          x="3"
-          y="11"
-          width="18"
-          height="11"
-          rx="2"
-        />
-        <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
+        <path d="M12 3v6M12 15v6M3 12h6M15 12h6" />
       </svg>
     ),
   },
 ];
 
-const OUTCOMES = [
+const CONFIG_EXAMPLES = [
   {
-    title: 'One operational view',
-    body:
-      'Bring disconnected information, systems and workflows into one environment.',
+    title: 'Tennis organisation',
     color: '#8A4DFF',
+    items: ['Courts', 'Coaching sessions', 'Players', 'Capacity'],
   },
   {
-    title: 'Less manual admin',
-    body:
-      'Reduce repetitive work, duplicated entry and time spent moving between tools.',
+    title: 'Consultancy',
     color: '#38BDF8',
+    items: [
+      'Consultations',
+      'Appointment durations',
+      'Intake questions',
+      'Teams meetings',
+    ],
+  },
+];
+
+const INTEGRATION_CAPABILITIES = [
+  'Clients & CRM',
+  'Scheduling & Bookings',
+  'Dashboards & Reporting',
+];
+
+const HOW_STEPS = [
+  {
+    n: '01',
+    title: 'Capture',
+    body: 'Bring information in from enquiries, forms, bookings and the systems you already use.',
   },
   {
-    title: 'Faster decisions',
-    body:
-      'Surface the information that matters without manually searching across systems.',
-    color: '#A78BFA',
+    n: '02',
+    title: 'Organise',
+    body: 'Turn that information into structured clients, leads, schedules and records.',
   },
   {
-    title: 'Better visibility',
-    body:
-      'Understand activity, performance and priorities from a clearer operational picture.',
-    color: '#22C55E',
+    n: '03',
+    title: 'Operate',
+    body: 'Run day-to-day work — follow-up, sessions, workflows and communication — in one place.',
+  },
+  {
+    n: '04',
+    title: 'Understand',
+    body: 'Use dashboards and HLNΛ to see what needs attention.',
   },
 ];
 
 const INTELLIGENCE = [
   {
     title: 'Ask your operation',
-    body:
-      'Use natural language to interrogate the information available inside BRΛINBΛSE.',
+    body: 'Use natural language to interrogate the information available inside BRΛINBΛSE.',
   },
   {
     title: 'Surface what matters',
-    body:
-      'HLNΛ helps identify important activity, changes and operational signals.',
+    body: 'HLNΛ helps identify important activity, changes and operational signals.',
   },
   {
     title: 'Connected context',
-    body:
-      'Bring information from across the platform together around the question being asked.',
+    body: 'Bring information from across the platform together around the question being asked.',
   },
   {
     title: 'Move toward action',
-    body:
-      'Use intelligence to help navigate priorities, workflows and decisions.',
+    body: 'Use intelligence to help navigate priorities, workflows and decisions.',
+  },
+];
+
+const PROOF_FLOW = [
+  'Website enquiries → leads',
+  'Leads → organised clients',
+  'Clients → scheduled sessions',
+  'Activity → operational dashboard',
+];
+
+const STARTING_POINTS = [
+  {
+    eyebrow: 'Client Operations',
+    title: 'Run clients, bookings and follow-up in one place.',
+    body: 'A BRΛINBΛSE configuration for client-based businesses — leads, clients, bookings and follow-up in one connected environment.',
+    href: '/client-operations',
+    action: 'Explore Client Operations',
+    color: '#8A4DFF',
+    number: '01',
+  },
+  {
+    eyebrow: 'Web Systems',
+    title: 'Turn your website into part of the operation.',
+    body: 'Start with the customer-facing website and connect the operation behind it — enquiries, CRM, workflows and reporting.',
+    href: '/web-systems',
+    action: 'Explore Web Systems',
+    color: '#6366F1',
+    number: '02',
+  },
+  {
+    eyebrow: 'Platform Demo',
+    title: 'See the wider BRΛINBΛSE platform in action.',
+    body: 'Explore an interactive example showing how connected information, workflows, dashboards and HLNΛ come together.',
+    href: '/demo',
+    action: 'Explore the platform demo',
+    color: '#38BDF8',
+    number: '03',
   },
 ];
 
 export default function Home() {
-  const [enquiryOpen, setEnquiryOpen] =
-    useState(false);
-
-  const [
-    hoveredModule,
-    setHoveredModule,
-  ] = useState<number | null>(null);
-
-  const [
-    hoveredOutcome,
-    setHoveredOutcome,
-  ] = useState<number | null>(null);
-
-  const [
-    hoveredPath,
-    setHoveredPath,
-  ] = useState<number | null>(null);
+  const [hoveredCapability, setHoveredCapability] = useState<number | null>(null);
+  const [hoveredOutcome, setHoveredOutcome] = useState<number | null>(null);
+  const [hoveredPath, setHoveredPath] = useState<number | null>(null);
 
   useEffect(() => {
     if (window.location.hash) {
@@ -425,31 +379,16 @@ export default function Home() {
     }
 
     const scrollToTop = () => {
-      window.scrollTo({
-        top: 0,
-        left: 0,
-        behavior: 'auto',
-      });
+      window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
     };
 
     scrollToTop();
 
-    const frame =
-      window.requestAnimationFrame(
-        scrollToTop,
-      );
-
-    const timer =
-      window.setTimeout(
-        scrollToTop,
-        50,
-      );
+    const frame = window.requestAnimationFrame(scrollToTop);
+    const timer = window.setTimeout(scrollToTop, 50);
 
     return () => {
-      window.cancelAnimationFrame(
-        frame,
-      );
-
+      window.cancelAnimationFrame(frame);
       window.clearTimeout(timer);
     };
   }, []);
@@ -494,13 +433,14 @@ export default function Home() {
           zIndex: 1,
         }}
       >
-        {/* HERO */}
+        {/* ================================================================
+            1. HERO
+        ================================================================= */}
 
         <section
           className="bb-home-hero"
           style={{
-            minHeight:
-              'calc(100vh - 52px)',
+            minHeight: 'calc(100vh - 52px)',
             display: 'flex',
             alignItems: 'center',
             padding: '50px 0 78px',
@@ -510,27 +450,14 @@ export default function Home() {
           <div
             style={{
               display: 'grid',
-              gridTemplateColumns:
-                'repeat(auto-fit, minmax(340px, 1fr))',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))',
               gap: 64,
               alignItems: 'center',
               width: '100%',
             }}
           >
-            <div
-              style={{
-                maxWidth: 620,
-                position: 'relative',
-                zIndex: 2,
-              }}
-            >
-              <div
-                style={{
-                  marginBottom: 31,
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                }}
-              >
+            <div style={{ maxWidth: 620, position: 'relative', zIndex: 2 }}>
+              <div style={{ marginBottom: 31, display: 'inline-flex', alignItems: 'center' }}>
                 <Image
                   src="/Brand/brainbase-logo-dark.svg"
                   alt="BRΛINBΛSE"
@@ -542,8 +469,7 @@ export default function Home() {
                     width: 355,
                     maxWidth: '90vw',
                     height: 'auto',
-                    transform:
-                      'translateX(-3.5%)',
+                    transform: 'translateX(-3.5%)',
                   }}
                 />
               </div>
@@ -556,12 +482,9 @@ export default function Home() {
                   padding: '6px 12px',
                   marginBottom: 22,
                   borderRadius: 999,
-                  background:
-                    'rgba(255,255,255,.024)',
-                  border:
-                    '1px solid rgba(255,255,255,.085)',
-                  backdropFilter:
-                    'blur(6px)',
+                  background: 'rgba(255,255,255,.024)',
+                  border: '1px solid rgba(255,255,255,.085)',
+                  backdropFilter: 'blur(6px)',
                 }}
               >
                 <span
@@ -570,10 +493,8 @@ export default function Home() {
                     height: 5,
                     borderRadius: '50%',
                     background: '#22C55E',
-                    boxShadow:
-                      '0 0 7px rgba(34,197,94,.85)',
-                    animation:
-                      'pulse 2.5s ease-in-out infinite',
+                    boxShadow: '0 0 7px rgba(34,197,94,.85)',
+                    animation: 'pulse 2.5s ease-in-out infinite',
                   }}
                 />
 
@@ -583,12 +504,10 @@ export default function Home() {
                     fontWeight: 650,
                     letterSpacing: '.11em',
                     textTransform: 'uppercase',
-                    color:
-                      'rgba(255,255,255,.52)',
+                    color: 'rgba(255,255,255,.52)',
                   }}
                 >
-                  Operational intelligence
-                  platform
+                  Connected operational platform
                 </span>
               </div>
 
@@ -596,51 +515,42 @@ export default function Home() {
                 style={{
                   margin: '0 0 24px',
                   maxWidth: 610,
-                  fontSize:
-                    'clamp(42px, 5.4vw, 68px)',
+                  fontSize: 'clamp(42px, 5.4vw, 68px)',
                   lineHeight: 1.02,
                   fontWeight: 650,
                   letterSpacing: '-.045em',
                   color: '#F5F7FA',
                 }}
               >
-                Operational intelligence,
+                One platform.
                 <br />
-
                 <span
                   style={{
-                    background:
-                      'linear-gradient(100deg, #8A4DFF 0%, #A78BFA 46%, #5C7CFF 100%)',
-                    WebkitBackgroundClip:
-                      'text',
-                    WebkitTextFillColor:
-                      'transparent',
+                    background: 'linear-gradient(100deg, #8A4DFF 0%, #A78BFA 46%, #5C7CFF 100%)',
+                    WebkitBackgroundClip: 'text',
+                    WebkitTextFillColor: 'transparent',
                     backgroundClip: 'text',
                   }}
                 >
-                  insight and automation
+                  Built around how
                 </span>
-
                 <br />
-                in one place.
+                your business works.
               </h1>
 
               <p
                 style={{
-                  margin: '0 0 30px',
+                  margin: '0 0 26px',
                   maxWidth: 535,
                   fontSize: 16,
                   lineHeight: 1.72,
-                  color:
-                    'rgba(226,232,240,.70)',
+                  color: 'rgba(226,232,240,.70)',
                 }}
               >
-                BRΛINBΛSE connects your
-                systems, information and
-                workflows into one operational
-                platform — helping you see
-                what is happening, understand
-                what matters and act faster.
+                BRΛINBΛSE brings the parts of your operation that matter into
+                one connected environment. Start with the capabilities you
+                need, configure them around your workflow and connect the
+                systems you already use.
               </p>
 
               <div
@@ -649,7 +559,7 @@ export default function Home() {
                   alignItems: 'center',
                   gap: 10,
                   flexWrap: 'wrap',
-                  marginBottom: 32,
+                  marginBottom: 22,
                 }}
               >
                 <Link
@@ -661,14 +571,12 @@ export default function Home() {
                     alignItems: 'center',
                     justifyContent: 'center',
                     borderRadius: 9,
-                    background:
-                      'linear-gradient(100deg, #6A3DFF 0%, #8A4DFF 55%, #5677FF 100%)',
+                    background: 'linear-gradient(100deg, #6A3DFF 0%, #8A4DFF 55%, #5677FF 100%)',
                     color: '#FFFFFF',
                     fontSize: 13,
                     fontWeight: 650,
                     textDecoration: 'none',
-                    boxShadow:
-                      '0 8px 26px rgba(106,61,255,.22)',
+                    boxShadow: '0 8px 26px rgba(106,61,255,.22)',
                   }}
                 >
                   Explore BRΛINBΛSE →
@@ -683,18 +591,15 @@ export default function Home() {
                     alignItems: 'center',
                     justifyContent: 'center',
                     borderRadius: 9,
-                    border:
-                      '1px solid rgba(255,255,255,.10)',
-                    background:
-                      'rgba(255,255,255,.025)',
-                    color:
-                      'rgba(245,247,250,.72)',
+                    border: '1px solid rgba(255,255,255,.10)',
+                    background: 'rgba(255,255,255,.025)',
+                    color: 'rgba(245,247,250,.72)',
                     textDecoration: 'none',
                     fontSize: 13,
                     fontWeight: 550,
                   }}
                 >
-                  Request a demo
+                  Discuss your operation
                 </Link>
               </div>
 
@@ -702,19 +607,54 @@ export default function Home() {
                 style={{
                   display: 'flex',
                   alignItems: 'center',
-                  gap: 8,
+                  gap: 16,
+                  flexWrap: 'wrap',
+                  marginBottom: 20,
                 }}
               >
+                {PROOF_POINTS.map((point, index) => (
+                  <div
+                    key={point}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 7,
+                    }}
+                  >
+                    {index > 0 && (
+                      <span
+                        style={{
+                          width: 3,
+                          height: 3,
+                          borderRadius: '50%',
+                          background: 'rgba(255,255,255,.18)',
+                        }}
+                      />
+                    )}
+
+                    <span
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 550,
+                        color: 'rgba(226,232,240,.52)',
+                      }}
+                    >
+                      {point}
+                    </span>
+                  </div>
+                ))}
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <span
                   style={{
                     fontSize: 9,
                     letterSpacing: '.08em',
                     textTransform: 'uppercase',
-                    color:
-                      'rgba(255,255,255,.34)',
+                    color: 'rgba(255,255,255,.34)',
                   }}
                 >
-                  Intelligence engine
+                  Intelligence layer
                 </span>
 
                 <span
@@ -725,14 +665,7 @@ export default function Home() {
                     color: '#F5F7FA',
                   }}
                 >
-                  HLN
-                  <span
-                    style={{
-                      color: '#8A4DFF',
-                    }}
-                  >
-                    Λ
-                  </span>
+                  HLN<span style={{ color: '#8A4DFF' }}>Λ</span>
                 </span>
 
                 <span
@@ -741,8 +674,7 @@ export default function Home() {
                     height: 4,
                     borderRadius: '50%',
                     background: '#22C55E',
-                    boxShadow:
-                      '0 0 5px rgba(34,197,94,.7)',
+                    boxShadow: '0 0 5px rgba(34,197,94,.7)',
                   }}
                 />
               </div>
@@ -756,8 +688,7 @@ export default function Home() {
                 alignItems: 'center',
                 justifyContent: 'center',
                 position: 'relative',
-                transform:
-                  'translateY(-10px)',
+                transform: 'translateY(-10px)',
               }}
             >
               <div
@@ -775,18 +706,15 @@ export default function Home() {
                     position: 'absolute',
                     left: '50%',
                     top: '50%',
-                    transform:
-                      'translate(-50%, -50%)',
+                    transform: 'translate(-50%, -50%)',
                     width: 620,
                     height: 620,
                     maxWidth: '90vw',
                     maxHeight: '90vw',
                     borderRadius: '50%',
-                    background:
-                      'radial-gradient(circle, rgba(138,77,255,.15) 0%, rgba(88,68,220,.06) 38%, transparent 68%)',
+                    background: 'radial-gradient(circle, rgba(138,77,255,.15) 0%, rgba(88,68,220,.06) 38%, transparent 68%)',
                     filter: 'blur(28px)',
-                    animation:
-                      'glowPulse 7s ease-in-out infinite',
+                    animation: 'glowPulse 7s ease-in-out infinite',
                   }}
                 />
 
@@ -800,11 +728,9 @@ export default function Home() {
                     objectFit: 'contain',
                     position: 'relative',
                     zIndex: 1,
-                    animation:
-                      'orbFloat 6s ease-in-out infinite',
+                    animation: 'orbFloat 6s ease-in-out infinite',
                     opacity: 0.94,
-                    filter:
-                      'drop-shadow(0 0 38px rgba(120,80,255,.45)) drop-shadow(0 0 100px rgba(70,100,255,.22))',
+                    filter: 'drop-shadow(0 0 38px rgba(120,80,255,.45)) drop-shadow(0 0 100px rgba(70,100,255,.22))',
                   }}
                 />
               </div>
@@ -815,36 +741,23 @@ export default function Home() {
                   marginTop: 28,
                   padding: '14px 15px',
                   borderRadius: 12,
-                  background:
-                    'rgba(7,8,11,.42)',
-                  border:
-                    '1px solid rgba(255,255,255,.085)',
-                  backdropFilter:
-                    'blur(9px)',
-                  WebkitBackdropFilter:
-                    'blur(9px)',
-                  boxShadow:
-                    '0 18px 50px rgba(0,0,0,.24)',
+                  background: 'rgba(7,8,11,.42)',
+                  border: '1px solid rgba(255,255,255,.085)',
+                  backdropFilter: 'blur(9px)',
+                  WebkitBackdropFilter: 'blur(9px)',
+                  boxShadow: '0 18px 50px rgba(0,0,0,.24)',
                   position: 'relative',
                   zIndex: 2,
                 }}
               >
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 7,
-                    marginBottom: 9,
-                  }}
-                >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 9 }}>
                   <span
                     style={{
                       width: 5,
                       height: 5,
                       borderRadius: '50%',
                       background: '#8A4DFF',
-                      boxShadow:
-                        '0 0 7px rgba(138,77,255,.9)',
+                      boxShadow: '0 0 7px rgba(138,77,255,.9)',
                     }}
                   />
 
@@ -854,8 +767,7 @@ export default function Home() {
                       fontWeight: 650,
                       letterSpacing: '.10em',
                       textTransform: 'uppercase',
-                      color:
-                        'rgba(167,139,250,.82)',
+                      color: 'rgba(167,139,250,.82)',
                     }}
                   >
                     HLNΛ · Operational intelligence
@@ -875,684 +787,607 @@ export default function Home() {
             marginBottom: 104,
             padding: '28px 30px',
             borderRadius: 17,
-            background:
-              'linear-gradient(135deg, rgba(138,77,255,.05), rgba(255,255,255,.015))',
-            border:
-              '1px solid rgba(255,255,255,.065)',
+            background: 'linear-gradient(135deg, rgba(138,77,255,.05), rgba(255,255,255,.015))',
+            border: '1px solid rgba(255,255,255,.065)',
             display: 'grid',
-            gridTemplateColumns:
-              'repeat(auto-fit, minmax(180px, 1fr))',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
             gap: 1,
             overflow: 'hidden',
           }}
         >
           {[
-            [
-              'One platform',
-              'Connected operations',
-            ],
-            [
-              'HLNΛ',
-              'Intelligence engine',
-            ],
-            [
-              'Modular',
-              'Built around your operation',
-            ],
-            [
-              'Flexible',
-              'Start where you need it',
-            ],
-          ].map(
-            ([value, label], index) => (
+            ['One platform', 'Connected operations'],
+            ['HLNΛ', 'Intelligence layer'],
+            ['Configurable', 'Built around your operation'],
+            ['Expandable', 'Add more when you need it'],
+          ].map(([value, label], index) => (
+            <div
+              key={value}
+              style={{
+                padding: '13px 22px',
+                textAlign: 'center',
+                borderRight: index < 3 ? '1px solid rgba(255,255,255,.05)' : 'none',
+              }}
+            >
               <div
-                key={value}
                 style={{
-                  padding: '13px 22px',
-                  textAlign: 'center',
-                  borderRight:
-                    index < 3
-                      ? '1px solid rgba(255,255,255,.05)'
-                      : 'none',
+                  marginBottom: 5,
+                  fontSize: 17,
+                  fontWeight: 650,
+                  letterSpacing: '-.02em',
+                  color: '#F5F7FA',
                 }}
               >
-                <div
-                  style={{
-                    marginBottom: 5,
-                    fontSize: 17,
-                    fontWeight: 650,
-                    letterSpacing: '-.02em',
-                    color: '#F5F7FA',
-                  }}
-                >
-                  {value}
-                </div>
-
-                <div
-                  style={{
-                    fontSize: 10,
-                    color:
-                      'rgba(255,255,255,.36)',
-                  }}
-                >
-                  {label}
-                </div>
+                {value}
               </div>
-            ),
-          )}
+
+              <div style={{ fontSize: 10, color: 'rgba(255,255,255,.36)' }}>{label}</div>
+            </div>
+          ))}
         </section>
 
-        {/* WHY */}
+        {/* ================================================================
+            2. THE PROBLEM
+        ================================================================= */}
 
-        <section
-          style={{
-            marginBottom: 112,
-          }}
-        >
+        <section style={{ marginBottom: 112 }}>
           <SectionHeading
-            eyebrow="Why BRΛINBΛSE"
-            title="Your operation should not live across disconnected tools."
-            description="BRΛINBΛSE brings the information, workflows and operational context you need into one environment instead of forcing people to piece the picture together manually."
+            eyebrow="The Problem"
+            title="Your business shouldn't need ten disconnected systems to get work done."
+            description="Most businesses build up a mix of tools like these — usually without planning to. None of them are wrong on their own, but information gets copied between systems, follow-up gets missed and reporting turns into manual work instead of a clear picture."
+            centred
+          />
+
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'center',
+              flexWrap: 'wrap',
+              gap: 8,
+              marginBottom: 30,
+            }}
+          >
+            {PROBLEM_TOOLS.map(tool => (
+              <span
+                key={tool}
+                style={{
+                  padding: '7px 14px',
+                  borderRadius: 999,
+                  fontSize: 11,
+                  fontWeight: 550,
+                  color: 'rgba(226,232,240,.62)',
+                  background: 'rgba(255,255,255,.02)',
+                  border: '1px solid rgba(255,255,255,.07)',
+                }}
+              >
+                {tool}
+              </span>
+            ))}
+          </div>
+
+          <div
+            style={{
+              maxWidth: 620,
+              margin: '0 auto',
+              padding: '28px 32px',
+              borderRadius: 16,
+              textAlign: 'center',
+              background: 'rgba(255,255,255,.018)',
+              border: '1px solid rgba(255,255,255,.07)',
+            }}
+          >
+            <p
+              style={{
+                margin: 0,
+                fontSize: 18,
+                lineHeight: 1.5,
+                fontWeight: 600,
+                letterSpacing: '-.01em',
+                color: 'rgba(226,232,240,.85)',
+              }}
+            >
+              Most businesses don&apos;t have a software problem.
+              <br />
+              They have a{' '}
+              <span style={{ color: '#A78BFA' }}>connection</span> problem.
+            </p>
+          </div>
+        </section>
+
+        {/* ================================================================
+            3. THE SOLUTION
+        ================================================================= */}
+
+        <section style={{ marginBottom: 112 }}>
+          <SectionHeading
+            eyebrow="The BRΛINBΛSE Approach"
+            title="One connected place to run the parts of your business that matter."
+            description="BRΛINBΛSE brings the information, workflows and operational context you rely on into one connected environment."
             centred
           />
 
           <div className="bb-home-outcome-grid">
-            {OUTCOMES.map(
-              (item, index) => {
-                const active =
-                  hoveredOutcome === index;
+            {SOLUTION_OUTCOMES.map((item, index) => {
+              const active = hoveredOutcome === index;
 
-                return (
+              return (
+                <div
+                  key={item.title}
+                  onMouseEnter={() => setHoveredOutcome(index)}
+                  onMouseLeave={() => setHoveredOutcome(null)}
+                  style={{
+                    minHeight: 175,
+                    padding: '24px',
+                    borderRadius: 14,
+                    background: active ? 'rgba(255,255,255,.03)' : 'rgba(255,255,255,.016)',
+                    border: '1px solid rgba(255,255,255,.06)',
+                    transition: 'all .16s',
+                    transform: active ? 'translateY(-2px)' : 'translateY(0)',
+                  }}
+                >
                   <div
-                    key={item.title}
-                    onMouseEnter={() =>
-                      setHoveredOutcome(
-                        index,
-                      )
-                    }
-                    onMouseLeave={() =>
-                      setHoveredOutcome(
-                        null,
-                      )
-                    }
                     style={{
-                      minHeight: 175,
-                      padding: '24px',
-                      borderRadius: 14,
-                      background: active
-                        ? 'rgba(255,255,255,.03)'
-                        : 'rgba(255,255,255,.016)',
-                      border:
-                        '1px solid rgba(255,255,255,.06)',
-                      transition:
-                        'all .16s',
-                      transform: active
-                        ? 'translateY(-2px)'
-                        : 'translateY(0)',
+                      width: 7,
+                      height: 7,
+                      borderRadius: '50%',
+                      background: item.color,
+                      boxShadow: active ? `0 0 12px ${item.color}` : `0 0 6px ${item.color}70`,
+                      marginBottom: 21,
                     }}
-                  >
-                    <div
-                      style={{
-                        width: 7,
-                        height: 7,
-                        borderRadius: '50%',
-                        background:
-                          item.color,
-                        boxShadow: active
-                          ? `0 0 12px ${item.color}`
-                          : `0 0 6px ${item.color}70`,
-                        marginBottom: 21,
-                      }}
-                    />
+                  />
 
-                    <h3
-                      style={{
-                        margin:
-                          '0 0 8px',
-                        fontSize: 15,
-                        fontWeight: 650,
-                        color: '#F5F7FA',
-                      }}
-                    >
-                      {item.title}
-                    </h3>
+                  <h3 style={{ margin: '0 0 8px', fontSize: 15, fontWeight: 650, color: '#F5F7FA' }}>
+                    {item.title}
+                  </h3>
 
-                    <p
-                      style={{
-                        margin: 0,
-                        fontSize: 12,
-                        lineHeight: 1.65,
-                        color:
-                          'rgba(226,232,240,.58)',
-                      }}
-                    >
-                      {item.body}
-                    </p>
-                  </div>
-                );
-              },
-            )}
+                  <p style={{ margin: 0, fontSize: 12, lineHeight: 1.65, color: 'rgba(226,232,240,.58)' }}>
+                    {item.body}
+                  </p>
+                </div>
+              );
+            })}
           </div>
         </section>
 
-        {/* PATHS */}
+        {/* ================================================================
+            4. START WITH WHAT YOU NEED
+        ================================================================= */}
 
-        <section
-          style={{
-            marginBottom: 112,
-          }}
-        >
+        <section style={{ marginBottom: 112 }}>
           <SectionHeading
-            eyebrow="Start Where It Makes Sense"
-            title="There is more than one way into BRΛINBΛSE."
-            description="Start with the part of your operation that needs attention today. The platform can expand as more of your systems, information and workflows become connected."
+            eyebrow="Start With What You Need"
+            title="You don't need the whole platform."
+            description="Here's what that looks like in practice."
             centred
           />
 
           <div className="bb-home-path-grid">
-            {PATHS.map(
-              (path, index) => {
-                const active =
-                  hoveredPath === index;
-
-                return (
-                  <Link
-                    key={path.title}
-                    href={path.href}
-                    onMouseEnter={() =>
-                      setHoveredPath(index)
-                    }
-                    onMouseLeave={() =>
-                      setHoveredPath(null)
-                    }
-                    style={{
-                      minHeight: 310,
-                      padding: '27px',
-                      display: 'flex',
-                      flexDirection:
-                        'column',
-                      borderRadius: 16,
-                      position: 'relative',
-                      overflow: 'hidden',
-                      textDecoration: 'none',
-                      background: active
-                        ? `rgba(${hexToRgbStr(
-                            path.color,
-                          )}, .055)`
-                        : 'rgba(255,255,255,.017)',
-                      border: active
-                        ? `1px solid ${path.color}34`
-                        : '1px solid rgba(255,255,255,.065)',
-                      transform: active
-                        ? 'translateY(-3px)'
-                        : 'translateY(0)',
-                      transition:
-                        'all .18s',
-                      boxShadow: active
-                        ? `0 18px 45px ${path.color}0E`
-                        : 'none',
-                    }}
-                  >
-                    <div
-                      style={{
-                        position:
-                          'absolute',
-                        top: 0,
-                        left: 0,
-                        right: 0,
-                        height: 1,
-                        background:
-                          `linear-gradient(90deg, ${path.color}90, transparent)`,
-                      }}
-                    />
-
-                    <div
-                      style={{
-                        display: 'flex',
-                        alignItems:
-                          'center',
-                        justifyContent:
-                          'space-between',
-                        gap: 12,
-                        marginBottom: 38,
-                      }}
-                    >
-                      <div
-                        style={{
-                          fontSize: 9,
-                          fontWeight: 700,
-                          letterSpacing:
-                            '.11em',
-                          textTransform:
-                            'uppercase',
-                          color:
-                            path.color,
-                        }}
-                      >
-                        {path.eyebrow}
-                      </div>
-
-                      <div
-                        style={{
-                          fontSize: 9,
-                          fontWeight: 700,
-                          color:
-                            'rgba(255,255,255,.22)',
-                        }}
-                      >
-                        {path.number}
-                      </div>
-                    </div>
-
-                    <h3
-                      style={{
-                        margin:
-                          '0 0 13px',
-                        fontSize: 21,
-                        lineHeight: 1.18,
-                        fontWeight: 650,
-                        letterSpacing:
-                          '-.028em',
-                        color: '#F5F7FA',
-                      }}
-                    >
-                      {path.title}
-                    </h3>
-
-                    <p
-                      style={{
-                        margin:
-                          '0 0 28px',
-                        fontSize: 12,
-                        lineHeight: 1.7,
-                        color:
-                          'rgba(226,232,240,.57)',
-                      }}
-                    >
-                      {path.body}
-                    </p>
-
-                    <div
-                      style={{
-                        marginTop: 'auto',
-                        paddingTop: 6,
-                        fontSize: 11,
-                        fontWeight: 600,
-                        color:
-                          path.color,
-                      }}
-                    >
-                      {path.action} →
-                    </div>
-                  </Link>
-                );
-              },
-            )}
-          </div>
-        </section>
-
-        {/* PRODUCT */}
-
-        <section
-          id="product"
-          style={{
-            marginBottom: 112,
-            scrollMarginTop: 100,
-          }}
-        >
-          <SectionHeading
-            eyebrow="The Platform"
-            title="One place to run the work that matters."
-            description="BRΛINBΛSE is modular. Use the capabilities that fit your operation and connect more over time."
-          />
-
-          <div className="bb-home-module-grid">
-            {PLATFORM_MODULES.map(
-              (module, index) => {
-                const active =
-                  hoveredModule === index;
-
-                return (
-                  <div
-                    key={module.title}
-                    onMouseEnter={() =>
-                      setHoveredModule(
-                        index,
-                      )
-                    }
-                    onMouseLeave={() =>
-                      setHoveredModule(
-                        null,
-                      )
-                    }
-                    style={{
-                      minHeight: 185,
-                      padding: '24px',
-                      borderRadius: 14,
-                      position: 'relative',
-                      overflow: 'hidden',
-                      background: active
-                        ? `rgba(${hexToRgbStr(
-                            module.color,
-                          )}, .055)`
-                        : 'rgba(255,255,255,.018)',
-                      border: active
-                        ? `1px solid ${module.color}32`
-                        : '1px solid rgba(255,255,255,.065)',
-                      transform: active
-                        ? 'translateY(-2px)'
-                        : 'translateY(0)',
-                      transition:
-                        'all .17s',
-                    }}
-                  >
-                    <div
-                      style={{
-                        position:
-                          'absolute',
-                        top: 0,
-                        left: 0,
-                        right: 0,
-                        height: 1,
-                        background:
-                          `linear-gradient(90deg, ${module.color}76, transparent)`,
-                      }}
-                    />
-
-                    <div
-                      style={{
-                        width: 38,
-                        height: 38,
-                        borderRadius: 9,
-                        marginBottom: 18,
-                        display: 'flex',
-                        alignItems:
-                          'center',
-                        justifyContent:
-                          'center',
-                        color:
-                          module.color,
-                        background:
-                          `${module.color}10`,
-                        border:
-                          `1px solid ${module.color}22`,
-                      }}
-                    >
-                      {module.icon}
-                    </div>
-
-                    <h3
-                      style={{
-                        margin:
-                          '0 0 8px',
-                        fontSize: 15,
-                        fontWeight: 650,
-                        letterSpacing:
-                          '-.015em',
-                        color: '#F5F7FA',
-                      }}
-                    >
-                      {module.title}
-                    </h3>
-
-                    <p
-                      style={{
-                        margin: 0,
-                        fontSize: 12,
-                        lineHeight: 1.65,
-                        color:
-                          'rgba(226,232,240,.58)',
-                      }}
-                    >
-                      {module.description}
-                    </p>
-                  </div>
-                );
-              },
-            )}
-          </div>
-        </section>
-
-        {/* HLNA */}
-
-        <section
-          className="bb-home-section-card"
-          style={{
-            marginBottom: 112,
-            padding: '54px 50px',
-            borderRadius: 22,
-            border:
-              '1px solid rgba(138,77,255,.17)',
-            background:
-              'linear-gradient(135deg, rgba(138,77,255,.085), rgba(56,189,248,.022) 68%, rgba(255,255,255,.012))',
-            position: 'relative',
-            overflow: 'hidden',
-            boxShadow:
-              '0 30px 90px rgba(0,0,0,.16)',
-          }}
-        >
-          <div
-            aria-hidden="true"
-            style={{
-              position: 'absolute',
-              width: 480,
-              height: 480,
-              right: -150,
-              top: -220,
-              borderRadius: '50%',
-              background:
-                'radial-gradient(circle, rgba(138,77,255,.13), transparent 68%)',
-            }}
-          />
-
-          <div className="bb-home-hlna-grid">
             <div
               style={{
-                position: 'relative',
+                minHeight: 230,
+                padding: '26px',
+                borderRadius: 16,
+                background: 'rgba(34,197,94,.045)',
+                border: '1px solid rgba(34,197,94,.16)',
               }}
             >
               <div
                 style={{
                   display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  marginBottom: 14,
-                  fontSize: 10,
-                  fontWeight: 650,
-                  letterSpacing: '.13em',
-                  color:
-                    'rgba(167,139,250,.80)',
+                  padding: '4px 10px',
+                  marginBottom: 20,
+                  borderRadius: 999,
+                  fontSize: 9,
+                  fontWeight: 700,
+                  letterSpacing: '.09em',
                   textTransform: 'uppercase',
+                  color: '#6EE7B7',
+                  background: 'rgba(34,197,94,.09)',
+                  border: '1px solid rgba(34,197,94,.22)',
                 }}
               >
-                <span
-                  style={{
-                    width: 5,
-                    height: 5,
-                    borderRadius: '50%',
-                    background: '#8A4DFF',
-                    boxShadow:
-                      '0 0 8px rgba(138,77,255,.8)',
-                  }}
-                />
-
-                Intelligence Engine
+                Today
               </div>
 
-              <h2
-                style={{
-                  margin: '0 0 18px',
-                  fontSize:
-                    'clamp(30px, 3.8vw, 44px)',
-                  lineHeight: 1.07,
-                  letterSpacing: '-.038em',
-                  fontWeight: 650,
-                  color: '#F5F7FA',
-                }}
-              >
-                BRΛINBΛSE thinks
-                <br />
-                through HLN
-                <span
-                  style={{
-                    color: '#8A4DFF',
-                  }}
-                >
-                  Λ
-                </span>
-                .
-              </h2>
-
-              <p
-                style={{
-                  margin: '0 0 26px',
-                  maxWidth: 450,
-                  fontSize: 14,
-                  lineHeight: 1.72,
-                  color:
-                    'rgba(226,232,240,.63)',
-                }}
-              >
-                HLNΛ is the intelligence
-                layer inside BRΛINBΛSE. It
-                connects operational
-                information with the
-                questions, decisions and
-                actions that happen every
-                day.
-              </p>
-
-              <Link
-                href="/demo"
-                style={{
-                  fontSize: 11,
-                  fontWeight: 600,
-                  color: '#C4B5FD',
-                  textDecoration: 'none',
-                }}
-              >
-                Experience HLNΛ in the
-                platform demo →
-              </Link>
+              <div style={{ display: 'grid', gap: 8 }}>
+                {['CRM', 'Bookings'].map(item => (
+                  <div
+                    key={item}
+                    style={{
+                      padding: '11px 14px',
+                      borderRadius: 10,
+                      fontSize: 13,
+                      fontWeight: 600,
+                      color: '#F5F7FA',
+                      background: 'rgba(7,8,11,.3)',
+                      border: '1px solid rgba(255,255,255,.06)',
+                    }}
+                  >
+                    {item}
+                  </div>
+                ))}
+              </div>
             </div>
 
             <div
               style={{
-                display: 'grid',
-                gridTemplateColumns:
-                  'repeat(2, minmax(0, 1fr))',
-                gap: 12,
-                position: 'relative',
+                minHeight: 230,
+                padding: '26px',
+                borderRadius: 16,
+                background: 'rgba(255,255,255,.012)',
+                border: '1px dashed rgba(255,255,255,.14)',
               }}
             >
-              {INTELLIGENCE.map(
-                (item, index) => (
-                  <div
-                    key={item.title}
-                    style={{
-                      minHeight: 126,
-                      padding: '20px',
-                      borderRadius: 13,
-                      background:
-                        'rgba(7,8,11,.34)',
-                      border:
-                        '1px solid rgba(255,255,255,.07)',
-                      backdropFilter:
-                        'blur(5px)',
-                      position: 'relative',
-                      overflow: 'hidden',
-                    }}
-                  >
-                    <div
-                      style={{
-                        position:
-                          'absolute',
-                        top: 0,
-                        left: 0,
-                        width: 46,
-                        height: 1,
-                        background:
-                          index % 2 === 0
-                            ? 'linear-gradient(90deg, #8A4DFF, transparent)'
-                            : 'linear-gradient(90deg, #38BDF8, transparent)',
-                      }}
-                    />
+              <div
+                style={{
+                  display: 'inline-flex',
+                  padding: '4px 10px',
+                  marginBottom: 20,
+                  borderRadius: 999,
+                  fontSize: 9,
+                  fontWeight: 700,
+                  letterSpacing: '.09em',
+                  textTransform: 'uppercase',
+                  color: 'rgba(255,255,255,.45)',
+                  background: 'rgba(255,255,255,.03)',
+                  border: '1px solid rgba(255,255,255,.1)',
+                }}
+              >
+                As you grow
+              </div>
 
-                    <h3
-                      style={{
-                        margin:
-                          '0 0 7px',
-                        fontSize: 13,
-                        fontWeight: 650,
-                        color: '#F5F7FA',
-                      }}
-                    >
-                      {item.title}
-                    </h3>
+              <div
+                style={{
+                  padding: '11px 14px',
+                  marginBottom: 12,
+                  borderRadius: 10,
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: 'rgba(226,232,240,.55)',
+                  background: 'rgba(7,8,11,.2)',
+                  border: '1px dashed rgba(255,255,255,.1)',
+                }}
+              >
+                Add another capability
+              </div>
 
-                    <p
-                      style={{
-                        margin: 0,
-                        fontSize: 11,
-                        lineHeight: 1.62,
-                        color:
-                          'rgba(226,232,240,.57)',
-                      }}
-                    >
-                      {item.body}
-                    </p>
-                  </div>
-                ),
-              )}
+              <p style={{ margin: 0, fontSize: 11, lineHeight: 1.6, color: 'rgba(226,232,240,.42)' }}>
+                Shows how the platform is designed to expand — not a
+                specific capability available today.
+              </p>
+            </div>
+
+            <div
+              style={{
+                minHeight: 230,
+                padding: '26px',
+                borderRadius: 16,
+                background: 'rgba(56,189,248,.04)',
+                border: '1px solid rgba(56,189,248,.15)',
+              }}
+            >
+              <div
+                style={{
+                  display: 'inline-flex',
+                  padding: '4px 10px',
+                  marginBottom: 20,
+                  borderRadius: 999,
+                  fontSize: 9,
+                  fontWeight: 700,
+                  letterSpacing: '.09em',
+                  textTransform: 'uppercase',
+                  color: '#7DD3FC',
+                  background: 'rgba(56,189,248,.09)',
+                  border: '1px solid rgba(56,189,248,.22)',
+                }}
+              >
+                Connected
+              </div>
+
+              <div
+                style={{
+                  padding: '11px 14px',
+                  marginBottom: 12,
+                  borderRadius: 10,
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: '#F5F7FA',
+                  background: 'rgba(7,8,11,.3)',
+                  border: '1px solid rgba(255,255,255,.06)',
+                }}
+              >
+                Microsoft 365
+              </div>
+
+              <p style={{ margin: 0, fontSize: 11, lineHeight: 1.6, color: 'rgba(226,232,240,.42)' }}>
+                An external system connected to BRΛINBΛSE — not a
+                BRΛINBΛSE capability itself.
+              </p>
             </div>
           </div>
         </section>
 
-        {/* HOW IT WORKS */}
+        {/* ================================================================
+            5. CAPABILITIES
+        ================================================================= */}
 
-        <section
-          style={{
-            marginBottom: 112,
-          }}
-        >
+        <section id="product" style={{ marginBottom: 112, scrollMarginTop: 100 }}>
+          <SectionHeading
+            eyebrow="Capabilities"
+            title="One place to run the work that matters."
+            description="Start with the capabilities you need today. Add more as your operation grows."
+          />
+
+          <div className="bb-home-module-grid">
+            {CAPABILITIES.map((capability, index) => {
+              const active = hoveredCapability === index;
+
+              return (
+                <div
+                  key={capability.title}
+                  onMouseEnter={() => setHoveredCapability(index)}
+                  onMouseLeave={() => setHoveredCapability(null)}
+                  style={{
+                    minHeight: 185,
+                    padding: '24px',
+                    borderRadius: 14,
+                    position: 'relative',
+                    overflow: 'hidden',
+                    background: active
+                      ? `rgba(${hexToRgbStr(capability.color)}, .055)`
+                      : 'rgba(255,255,255,.018)',
+                    border: active
+                      ? `1px solid ${capability.color}32`
+                      : '1px solid rgba(255,255,255,.065)',
+                    transform: active ? 'translateY(-2px)' : 'translateY(0)',
+                    transition: 'all .17s',
+                  }}
+                >
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      height: 1,
+                      background: `linear-gradient(90deg, ${capability.color}76, transparent)`,
+                    }}
+                  />
+
+                  <div
+                    style={{
+                      width: 38,
+                      height: 38,
+                      borderRadius: 9,
+                      marginBottom: 18,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: capability.color,
+                      background: `${capability.color}10`,
+                      border: `1px solid ${capability.color}22`,
+                    }}
+                  >
+                    {capability.icon}
+                  </div>
+
+                  <h3
+                    style={{
+                      margin: '0 0 8px',
+                      fontSize: 15,
+                      fontWeight: 650,
+                      letterSpacing: '-.015em',
+                      color: '#F5F7FA',
+                    }}
+                  >
+                    {capability.title}
+                  </h3>
+
+                  <p style={{ margin: 0, fontSize: 12, lineHeight: 1.65, color: 'rgba(226,232,240,.58)' }}>
+                    {capability.description}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+
+        {/* ================================================================
+            6. CONFIGURABILITY
+        ================================================================= */}
+
+        <section style={{ marginBottom: 112 }}>
+          <SectionHeading
+            eyebrow="Configurability"
+            title="Configured around how you work."
+            description="Two businesses can use the same BRΛINBΛSE capability very differently — Bookings, for example."
+            centred
+          />
+
+          <div className="bb-home-two-col-grid" style={{ marginBottom: 20 }}>
+            {CONFIG_EXAMPLES.map(example => (
+              <div
+                key={example.title}
+                style={{
+                  padding: '26px',
+                  borderRadius: 16,
+                  background: 'rgba(255,255,255,.017)',
+                  border: '1px solid rgba(255,255,255,.065)',
+                }}
+              >
+                <div
+                  style={{
+                    marginBottom: 6,
+                    fontSize: 9,
+                    fontWeight: 700,
+                    letterSpacing: '.11em',
+                    textTransform: 'uppercase',
+                    color: example.color,
+                  }}
+                >
+                  Bookings capability
+                </div>
+
+                <h3 style={{ margin: '0 0 16px', fontSize: 18, fontWeight: 650, color: '#F5F7FA' }}>
+                  {example.title}
+                </h3>
+
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                  {example.items.map(item => (
+                    <span
+                      key={item}
+                      style={{
+                        padding: '6px 12px',
+                        borderRadius: 999,
+                        fontSize: 11,
+                        fontWeight: 550,
+                        color: 'rgba(226,232,240,.68)',
+                        background: 'rgba(7,8,11,.28)',
+                        border: '1px solid rgba(255,255,255,.07)',
+                      }}
+                    >
+                      {item}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <p
+            style={{
+              margin: 0,
+              textAlign: 'center',
+              fontSize: 13,
+              fontWeight: 600,
+              color: 'rgba(226,232,240,.55)',
+            }}
+          >
+            Same capability. Different operation.
+          </p>
+        </section>
+
+        {/* ================================================================
+            7. INTEGRATIONS
+        ================================================================= */}
+
+        <section style={{ marginBottom: 112 }}>
+          <SectionHeading
+            eyebrow="Integrations"
+            title="Keep the systems that already make sense."
+            description="BRΛINBΛSE doesn't need to replace every specialist system your business relies on. It can connect with external systems where it makes sense, keeping important information closer to the operation."
+            centred
+          />
+
+          <div className="bb-home-two-col-grid">
+            <div
+              style={{
+                padding: '26px',
+                borderRadius: 16,
+                background: 'rgba(138,77,255,.035)',
+                border: '1px solid rgba(138,77,255,.14)',
+              }}
+            >
+              <div
+                style={{
+                  marginBottom: 14,
+                  fontSize: 9,
+                  fontWeight: 700,
+                  letterSpacing: '.11em',
+                  textTransform: 'uppercase',
+                  color: '#A78BFA',
+                }}
+              >
+                BRΛINBΛSE capabilities
+              </div>
+
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                {INTEGRATION_CAPABILITIES.map(item => (
+                  <span
+                    key={item}
+                    style={{
+                      padding: '7px 13px',
+                      borderRadius: 999,
+                      fontSize: 11,
+                      fontWeight: 550,
+                      color: 'rgba(226,232,240,.7)',
+                      background: 'rgba(7,8,11,.3)',
+                      border: '1px solid rgba(255,255,255,.07)',
+                    }}
+                  >
+                    {item}
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            <div
+              style={{
+                padding: '26px',
+                borderRadius: 16,
+                background: 'rgba(255,255,255,.012)',
+                border: '1px solid rgba(255,255,255,.07)',
+              }}
+            >
+              <div
+                style={{
+                  marginBottom: 14,
+                  fontSize: 9,
+                  fontWeight: 700,
+                  letterSpacing: '.11em',
+                  textTransform: 'uppercase',
+                  color: 'rgba(255,255,255,.42)',
+                }}
+              >
+                Connected external systems
+              </div>
+
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
+                <span
+                  style={{
+                    padding: '7px 13px',
+                    borderRadius: 999,
+                    fontSize: 11,
+                    fontWeight: 550,
+                    color: 'rgba(226,232,240,.7)',
+                    background: 'rgba(7,8,11,.3)',
+                    border: '1px solid rgba(255,255,255,.07)',
+                  }}
+                >
+                  Microsoft 365
+                </span>
+              </div>
+
+              <p style={{ margin: 0, fontSize: 11, lineHeight: 1.6, color: 'rgba(226,232,240,.42)' }}>
+                Shown as an example of a connected external system — not
+                every integration is available for every system.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        {/* ================================================================
+            8. HOW THE PLATFORM WORKS
+        ================================================================= */}
+
+        <section style={{ marginBottom: 112 }}>
           <SectionHeading
             eyebrow="How BRΛINBΛSE Works"
-            title="Connect. Understand. Act."
-            description="BRΛINBΛSE sits between the systems and information you already have and the decisions your people need to make."
+            title="Capture. Organise. Operate. Understand."
+            description="BRΛINBΛSE turns the information you already have into decisions your people can act on."
             centred
           />
 
           <div className="bb-home-how-grid">
-            {[
-              {
-                n: '01',
-                title: 'Connect',
-                body:
-                  'Bring together the information, systems and workflows relevant to your operation.',
-              },
-              {
-                n: '02',
-                title: 'Understand',
-                body:
-                  'Use dashboards and HLNΛ to turn connected information into useful operational context.',
-              },
-              {
-                n: '03',
-                title: 'Act',
-                body:
-                  'Move from insight to action through workflows, decisions and automation inside the platform.',
-              },
-            ].map(step => (
+            {HOW_STEPS.map(step => (
               <div
                 key={step.n}
                 style={{
-                  padding: '27px',
+                  padding: '24px',
                   minHeight: 205,
                   borderRadius: 14,
-                  background:
-                    'rgba(255,255,255,.017)',
-                  border:
-                    '1px solid rgba(255,255,255,.06)',
+                  background: 'rgba(255,255,255,.017)',
+                  border: '1px solid rgba(255,255,255,.06)',
                   position: 'relative',
                   overflow: 'hidden',
                 }}
@@ -1564,8 +1399,7 @@ export default function Home() {
                     left: 0,
                     right: 0,
                     height: 1,
-                    background:
-                      'linear-gradient(90deg, rgba(138,77,255,.62), transparent)',
+                    background: 'linear-gradient(90deg, rgba(138,77,255,.62), transparent)',
                   }}
                 />
 
@@ -1575,33 +1409,17 @@ export default function Home() {
                     fontSize: 10,
                     fontWeight: 700,
                     letterSpacing: '.10em',
-                    color:
-                      'rgba(167,139,250,.65)',
+                    color: 'rgba(167,139,250,.65)',
                   }}
                 >
                   {step.n}
                 </div>
 
-                <h3
-                  style={{
-                    margin: '0 0 8px',
-                    fontSize: 18,
-                    fontWeight: 650,
-                    color: '#F5F7FA',
-                  }}
-                >
+                <h3 style={{ margin: '0 0 8px', fontSize: 17, fontWeight: 650, color: '#F5F7FA' }}>
                   {step.title}
                 </h3>
 
-                <p
-                  style={{
-                    margin: 0,
-                    fontSize: 12,
-                    lineHeight: 1.65,
-                    color:
-                      'rgba(226,232,240,.58)',
-                  }}
-                >
+                <p style={{ margin: 0, fontSize: 12, lineHeight: 1.65, color: 'rgba(226,232,240,.58)' }}>
                   {step.body}
                 </p>
               </div>
@@ -1609,151 +1427,375 @@ export default function Home() {
           </div>
         </section>
 
-        {/* START SMALL */}
+        {/* ================================================================
+            9. HLNΛ
+        ================================================================= */}
 
         <section
           className="bb-home-section-card"
           style={{
             marginBottom: 112,
-            padding: '44px 46px',
-            borderRadius: 20,
-            background:
-              'linear-gradient(135deg, rgba(99,102,241,.065), rgba(138,77,255,.025))',
-            border:
-              '1px solid rgba(99,102,241,.13)',
+            padding: '54px 50px',
+            borderRadius: 22,
+            border: '1px solid rgba(138,77,255,.17)',
+            background: 'linear-gradient(135deg, rgba(138,77,255,.085), rgba(56,189,248,.022) 68%, rgba(255,255,255,.012))',
+            position: 'relative',
+            overflow: 'hidden',
+            boxShadow: '0 30px 90px rgba(0,0,0,.16)',
           }}
         >
           <div
+            aria-hidden="true"
             style={{
-              display: 'grid',
-              gridTemplateColumns:
-                'repeat(auto-fit, minmax(280px, 1fr))',
-              gap: 44,
-              alignItems: 'center',
+              position: 'absolute',
+              width: 480,
+              height: 480,
+              right: -150,
+              top: -220,
+              borderRadius: '50%',
+              background: 'radial-gradient(circle, rgba(138,77,255,.13), transparent 68%)',
             }}
-          >
-            <div>
+          />
+
+          <div className="bb-home-hlna-grid">
+            <div style={{ position: 'relative' }}>
               <div
                 style={{
-                  marginBottom: 11,
-                  fontSize: 9,
-                  fontWeight: 700,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  marginBottom: 14,
+                  fontSize: 10,
+                  fontWeight: 650,
+                  letterSpacing: '.13em',
+                  color: 'rgba(167,139,250,.80)',
                   textTransform: 'uppercase',
-                  letterSpacing: '.12em',
-                  color:
-                    'rgba(167,139,250,.70)',
                 }}
               >
-                Start small. Connect more.
+                <span
+                  style={{
+                    width: 5,
+                    height: 5,
+                    borderRadius: '50%',
+                    background: '#8A4DFF',
+                    boxShadow: '0 0 8px rgba(138,77,255,.8)',
+                  }}
+                />
+
+                Inside BRΛINBΛSE
               </div>
 
               <h2
                 style={{
-                  margin: '0 0 14px',
-                  fontSize:
-                    'clamp(27px, 4vw, 38px)',
+                  margin: '0 0 18px',
+                  fontSize: 'clamp(28px, 3.6vw, 40px)',
                   lineHeight: 1.1,
                   letterSpacing: '-.035em',
                   fontWeight: 650,
                   color: '#F5F7FA',
                 }}
               >
-                BRΛINBΛSE does not have to
-                replace everything at once.
+                HLN
+                <span style={{ color: '#8A4DFF' }}>Λ</span> — intelligence
+                across your operation.
               </h2>
 
               <p
                 style={{
-                  margin: 0,
-                  maxWidth: 550,
-                  fontSize: 13,
-                  lineHeight: 1.7,
-                  color:
-                    'rgba(226,232,240,.58)',
+                  margin: '0 0 26px',
+                  maxWidth: 450,
+                  fontSize: 14,
+                  lineHeight: 1.72,
+                  color: 'rgba(226,232,240,.63)',
                 }}
               >
-                Start with the problem that
-                matters now — a website,
-                client workflow, dashboard,
-                reporting process or
-                operational system — and
-                build from there.
+                When your clients, workflows, scheduling, activity and
+                operational data are connected, HLNΛ can help surface what
+                is happening, what has changed and what may need attention.
               </p>
+
+              <Link
+                href="/demo"
+                style={{ fontSize: 11, fontWeight: 600, color: '#C4B5FD', textDecoration: 'none' }}
+              >
+                See HLNΛ in the platform demo →
+              </Link>
             </div>
 
             <div
               style={{
                 display: 'grid',
-                gap: 9,
+                gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+                gap: 12,
+                position: 'relative',
               }}
             >
-              {[
-                [
-                  '01',
-                  'Start with one real problem',
-                ],
-                [
-                  '02',
-                  'Build the workflow around it',
-                ],
-                [
-                  '03',
-                  'Connect more as value grows',
-                ],
-              ].map(([number, text]) => (
+              {INTELLIGENCE.map((item, index) => (
                 <div
-                  key={number}
+                  key={item.title}
                   style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 13,
-                    padding: '14px 16px',
-                    borderRadius: 11,
-                    background:
-                      'rgba(7,8,11,.28)',
-                    border:
-                      '1px solid rgba(255,255,255,.06)',
+                    minHeight: 126,
+                    padding: '20px',
+                    borderRadius: 13,
+                    background: 'rgba(7,8,11,.34)',
+                    border: '1px solid rgba(255,255,255,.07)',
+                    backdropFilter: 'blur(5px)',
+                    position: 'relative',
+                    overflow: 'hidden',
                   }}
                 >
                   <div
                     style={{
-                      width: 30,
-                      height: 30,
-                      borderRadius: 8,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent:
-                        'center',
-                      flexShrink: 0,
-                      color: '#A78BFA',
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      width: 46,
+                      height: 1,
                       background:
-                        'rgba(138,77,255,.08)',
-                      border:
-                        '1px solid rgba(138,77,255,.16)',
-                      fontSize: 9,
-                      fontWeight: 700,
+                        index % 2 === 0
+                          ? 'linear-gradient(90deg, #8A4DFF, transparent)'
+                          : 'linear-gradient(90deg, #38BDF8, transparent)',
                     }}
-                  >
-                    {number}
-                  </div>
+                  />
 
-                  <span
-                    style={{
-                      fontSize: 12,
-                      fontWeight: 550,
-                      color:
-                        'rgba(245,247,250,.70)',
-                    }}
-                  >
-                    {text}
-                  </span>
+                  <h3 style={{ margin: '0 0 7px', fontSize: 13, fontWeight: 650, color: '#F5F7FA' }}>
+                    {item.title}
+                  </h3>
+
+                  <p style={{ margin: 0, fontSize: 11, lineHeight: 1.62, color: 'rgba(226,232,240,.57)' }}>
+                    {item.body}
+                  </p>
                 </div>
               ))}
             </div>
           </div>
         </section>
 
-        {/* FINAL CTA */}
+        {/* ================================================================
+            10. PROOF / REAL DEPLOYMENT
+        ================================================================= */}
+
+        <section style={{ marginBottom: 112 }}>
+          <div
+            style={{
+              padding: '38px 40px',
+              borderRadius: 17,
+              position: 'relative',
+              overflow: 'hidden',
+              background: 'linear-gradient(135deg, rgba(16,185,129,.045), rgba(138,77,255,.018))',
+              border: '1px solid rgba(16,185,129,.15)',
+            }}
+          >
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+                gap: 30,
+                alignItems: 'center',
+              }}
+            >
+              <div>
+                <div
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 7,
+                    marginBottom: 12,
+                  }}
+                >
+                  <span
+                    style={{
+                      padding: '3px 8px',
+                      borderRadius: 999,
+                      background: 'rgba(16,185,129,.09)',
+                      border: '1px solid rgba(16,185,129,.22)',
+                      fontSize: 8,
+                      fontWeight: 700,
+                      letterSpacing: '.08em',
+                      color: '#6EE7B7',
+                    }}
+                  >
+                    REAL DEPLOYMENT EXAMPLE
+                  </span>
+
+                  <span
+                    style={{
+                      width: 5,
+                      height: 5,
+                      borderRadius: '50%',
+                      background: '#22C55E',
+                      boxShadow: '0 0 6px #22C55E',
+                      animation: 'pulse 2.5s ease-in-out infinite',
+                    }}
+                  />
+                </div>
+
+                <h2 style={{ margin: '0 0 11px', fontSize: 27, fontWeight: 650, letterSpacing: '-.03em', color: '#F5F7FA' }}>
+                  LD Tennis
+                </h2>
+
+                <p style={{ margin: 0, maxWidth: 560, fontSize: 13, lineHeight: 1.7, color: 'rgba(226,232,240,.56)' }}>
+                  A real BRΛINBΛSE deployment, configured around how LD
+                  Tennis operates. Leads, clients, bookings, follow-up and
+                  reporting work together through the same connected
+                  platform.
+                </p>
+
+                <Link
+                  href="/client-operations/demo"
+                  style={{
+                    display: 'inline-flex',
+                    marginTop: 17,
+                    fontSize: 11,
+                    fontWeight: 650,
+                    color: '#6EE7B7',
+                    textDecoration: 'none',
+                  }}
+                >
+                  Explore the deployment →
+                </Link>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+                {PROOF_FLOW.map(item => (
+                  <div
+                    key={item}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 9,
+                      padding: '10px 12px',
+                      borderRadius: 9,
+                      background: 'rgba(7,8,11,.28)',
+                      border: '1px solid rgba(255,255,255,.06)',
+                    }}
+                  >
+                    <span
+                      style={{
+                        width: 5,
+                        height: 5,
+                        borderRadius: '50%',
+                        background: '#22C55E',
+                        flexShrink: 0,
+                      }}
+                    />
+
+                    <span style={{ fontSize: 12, fontWeight: 550, color: 'rgba(226,232,240,.68)' }}>
+                      {item}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* ================================================================
+            11. STARTING POINTS
+        ================================================================= */}
+
+        <section style={{ marginBottom: 112 }}>
+          <SectionHeading
+            eyebrow="Starting Points"
+            title="More than one way to start with BRΛINBΛSE."
+            description="Start with whichever part of the operation needs attention first. Each is a way into the same connected platform, not a separate product."
+            centred
+          />
+
+          <div className="bb-home-path-grid">
+            {STARTING_POINTS.map((path, index) => {
+              const active = hoveredPath === index;
+
+              return (
+                <Link
+                  key={path.title}
+                  href={path.href}
+                  onMouseEnter={() => setHoveredPath(index)}
+                  onMouseLeave={() => setHoveredPath(null)}
+                  style={{
+                    minHeight: 310,
+                    padding: '27px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    borderRadius: 16,
+                    position: 'relative',
+                    overflow: 'hidden',
+                    textDecoration: 'none',
+                    background: active
+                      ? `rgba(${hexToRgbStr(path.color)}, .055)`
+                      : 'rgba(255,255,255,.017)',
+                    border: active ? `1px solid ${path.color}34` : '1px solid rgba(255,255,255,.065)',
+                    transform: active ? 'translateY(-3px)' : 'translateY(0)',
+                    transition: 'all .18s',
+                    boxShadow: active ? `0 18px 45px ${path.color}0E` : 'none',
+                  }}
+                >
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      height: 1,
+                      background: `linear-gradient(90deg, ${path.color}90, transparent)`,
+                    }}
+                  />
+
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: 12,
+                      marginBottom: 38,
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: 9,
+                        fontWeight: 700,
+                        letterSpacing: '.11em',
+                        textTransform: 'uppercase',
+                        color: path.color,
+                      }}
+                    >
+                      {path.eyebrow}
+                    </div>
+
+                    <div style={{ fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,.22)' }}>
+                      {path.number}
+                    </div>
+                  </div>
+
+                  <h3
+                    style={{
+                      margin: '0 0 13px',
+                      fontSize: 21,
+                      lineHeight: 1.18,
+                      fontWeight: 650,
+                      letterSpacing: '-.028em',
+                      color: '#F5F7FA',
+                    }}
+                  >
+                    {path.title}
+                  </h3>
+
+                  <p style={{ margin: '0 0 28px', fontSize: 12, lineHeight: 1.7, color: 'rgba(226,232,240,.57)' }}>
+                    {path.body}
+                  </p>
+
+                  <div style={{ marginTop: 'auto', paddingTop: 6, fontSize: 11, fontWeight: 600, color: path.color }}>
+                    {path.action} →
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+        </section>
+
+        {/* ================================================================
+            12. FINAL CTA
+        ================================================================= */}
 
         <section
           className="bb-home-cta"
@@ -1763,10 +1805,8 @@ export default function Home() {
             textAlign: 'center',
             position: 'relative',
             overflow: 'hidden',
-            background:
-              'linear-gradient(135deg, rgba(138,77,255,.085), rgba(86,119,255,.035))',
-            border:
-              '1px solid rgba(138,77,255,.16)',
+            background: 'linear-gradient(135deg, rgba(138,77,255,.085), rgba(86,119,255,.035))',
+            border: '1px solid rgba(138,77,255,.16)',
           }}
         >
           <div
@@ -1775,24 +1815,16 @@ export default function Home() {
               position: 'absolute',
               left: '50%',
               top: '-180px',
-              transform:
-                'translateX(-50%)',
+              transform: 'translateX(-50%)',
               width: 540,
               height: 420,
               borderRadius: '50%',
-              background:
-                'radial-gradient(circle, rgba(138,77,255,.13), transparent 68%)',
+              background: 'radial-gradient(circle, rgba(138,77,255,.13), transparent 68%)',
               pointerEvents: 'none',
             }}
           />
 
-          <div
-            style={{
-              position: 'relative',
-              maxWidth: 680,
-              margin: '0 auto',
-            }}
-          >
+          <div style={{ position: 'relative', maxWidth: 680, margin: '0 auto' }}>
             <div
               style={{
                 marginBottom: 13,
@@ -1800,8 +1832,7 @@ export default function Home() {
                 fontWeight: 700,
                 textTransform: 'uppercase',
                 letterSpacing: '.13em',
-                color:
-                  'rgba(167,139,250,.70)',
+                color: 'rgba(167,139,250,.70)',
               }}
             >
               Your operation
@@ -1810,18 +1841,14 @@ export default function Home() {
             <h2
               style={{
                 margin: '0 0 15px',
-                fontSize:
-                  'clamp(29px, 4vw, 42px)',
+                fontSize: 'clamp(29px, 4vw, 42px)',
                 lineHeight: 1.09,
                 letterSpacing: '-.038em',
                 fontWeight: 650,
                 color: '#F5F7FA',
               }}
             >
-              Start with what you need
-              today.
-              <br />
-              Build from there.
+              Tell us what you&apos;re trying to improve.
             </h2>
 
             <p
@@ -1830,24 +1857,14 @@ export default function Home() {
                 maxWidth: 570,
                 fontSize: 14,
                 lineHeight: 1.7,
-                color:
-                  'rgba(226,232,240,.60)',
+                color: 'rgba(226,232,240,.60)',
               }}
             >
-              Tell us what is creating
-              friction in your operation and
-              we can explore where BRΛINBΛSE
-              could fit.
+              Tell us what is creating friction in your operation and we can
+              explore where BRΛINBΛSE could fit.
             </p>
 
-            <div
-              style={{
-                display: 'flex',
-                justifyContent: 'center',
-                gap: 10,
-                flexWrap: 'wrap',
-              }}
-            >
+            <div style={{ display: 'flex', justifyContent: 'center', gap: 10, flexWrap: 'wrap' }}>
               <Link
                 href="/request-demo"
                 style={{
@@ -1857,17 +1874,15 @@ export default function Home() {
                   alignItems: 'center',
                   justifyContent: 'center',
                   borderRadius: 9,
-                  background:
-                    'linear-gradient(100deg, #6A3DFF 0%, #8A4DFF 55%, #5677FF 100%)',
+                  background: 'linear-gradient(100deg, #6A3DFF 0%, #8A4DFF 55%, #5677FF 100%)',
                   color: '#FFFFFF',
                   fontSize: 12,
                   fontWeight: 650,
                   textDecoration: 'none',
-                  boxShadow:
-                    '0 8px 24px rgba(106,61,255,.18)',
+                  boxShadow: '0 8px 24px rgba(106,61,255,.18)',
                 }}
               >
-                Request a demo →
+                Discuss your operation →
               </Link>
 
               <Link
@@ -1879,41 +1894,16 @@ export default function Home() {
                   alignItems: 'center',
                   justifyContent: 'center',
                   borderRadius: 9,
-                  border:
-                    '1px solid rgba(255,255,255,.09)',
-                  background:
-                    'rgba(255,255,255,.025)',
-                  color:
-                    'rgba(245,247,250,.68)',
+                  border: '1px solid rgba(255,255,255,.09)',
+                  background: 'rgba(255,255,255,.025)',
+                  color: 'rgba(245,247,250,.68)',
                   textDecoration: 'none',
                   fontSize: 12,
                   fontWeight: 550,
                 }}
               >
-                Explore the platform
+                Explore BRΛINBΛSE
               </Link>
-
-              <button
-                onClick={() =>
-                  setEnquiryOpen(true)
-                }
-                style={{
-                  height: 43,
-                  padding: '0 20px',
-                  borderRadius: 9,
-                  border:
-                    '1px solid rgba(255,255,255,.07)',
-                  background: 'transparent',
-                  color:
-                    'rgba(245,247,250,.48)',
-                  fontSize: 12,
-                  fontWeight: 550,
-                  fontFamily: FONT,
-                  cursor: 'pointer',
-                }}
-              >
-                Discuss your operation
-              </button>
             </div>
           </div>
         </section>
@@ -1923,8 +1913,7 @@ export default function Home() {
 
       <footer
         style={{
-          borderTop:
-            '1px solid rgba(255,255,255,.05)',
+          borderTop: '1px solid rgba(255,255,255,.05)',
           marginTop: 72,
           position: 'relative',
           zIndex: 1,
@@ -1938,20 +1927,12 @@ export default function Home() {
             padding: '28px 32px',
             display: 'flex',
             alignItems: 'center',
-            justifyContent:
-              'space-between',
+            justifyContent: 'space-between',
             gap: 22,
             flexWrap: 'wrap',
           }}
         >
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 18,
-              flexWrap: 'wrap',
-            }}
-          >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 18, flexWrap: 'wrap' }}>
             <Image
               src="/Brand/brainbase-logo-dark.svg"
               alt="BRΛINBΛSE"
@@ -1962,92 +1943,44 @@ export default function Home() {
                 width: 125,
                 height: 'auto',
                 opacity: 0.70,
-                transform:
-                  'translateX(-3.5%)',
+                transform: 'translateX(-3.5%)',
               }}
             />
 
-            <span
-              style={{
-                fontSize: 10,
-                color:
-                  'rgba(255,255,255,.30)',
-              }}
-            >
-              Operational intelligence,
-              insight and automation in one place.
+            <span style={{ fontSize: 10, color: 'rgba(255,255,255,.30)' }}>
+              One connected operational platform.
             </span>
           </div>
 
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 18,
-              flexWrap: 'wrap',
-            }}
-          >
-            <Link
-              href="/client-operations"
-              style={footerLinkStyle}
-            >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 18, flexWrap: 'wrap' }}>
+            <Link href="/client-operations" style={footerLinkStyle}>
               Client Operations
             </Link>
 
-            <Link
-              href="/web-systems"
-              style={footerLinkStyle}
-            >
+            <Link href="/web-systems" style={footerLinkStyle}>
               Web Systems
             </Link>
 
-            <Link
-              href="/pricing"
-              style={footerLinkStyle}
-            >
+            <Link href="/pricing" style={footerLinkStyle}>
               Pricing
             </Link>
 
-            <Link
-              href="/demo"
-              style={footerLinkStyle}
-            >
+            <Link href="/demo" style={footerLinkStyle}>
               Demo
             </Link>
 
-            <Link
-              href="/terms"
-              style={footerLinkStyle}
-            >
+            <Link href="/terms" style={footerLinkStyle}>
               Terms
             </Link>
 
-            <Link
-              href="/privacy"
-              style={footerLinkStyle}
-            >
+            <Link href="/privacy" style={footerLinkStyle}>
               Privacy
             </Link>
 
-            <span
-              style={{
-                fontSize: 10,
-                color:
-                  'rgba(255,255,255,.20)',
-              }}
-            >
-              © 2026 BRΛINBΛSE
-            </span>
+            <span style={{ fontSize: 10, color: 'rgba(255,255,255,.20)' }}>© 2026 BRΛINBΛSE</span>
           </div>
         </div>
       </footer>
-
-      <EnquiryModal
-        open={enquiryOpen}
-        onClose={() =>
-          setEnquiryOpen(false)
-        }
-      />
     </main>
   );
 }
@@ -2072,15 +2005,9 @@ function SectionHeading({
   return (
     <div
       style={{
-        maxWidth: centred
-          ? 700
-          : 650,
-        margin: centred
-          ? '0 auto 39px'
-          : '0 0 39px',
-        textAlign: centred
-          ? 'center'
-          : 'left',
+        maxWidth: centred ? 700 : 650,
+        margin: centred ? '0 auto 39px' : '0 0 39px',
+        textAlign: centred ? 'center' : 'left',
       }}
     >
       <div
@@ -2090,8 +2017,7 @@ function SectionHeading({
           fontWeight: 700,
           letterSpacing: '.13em',
           textTransform: 'uppercase',
-          color:
-            'rgba(167,139,250,.68)',
+          color: 'rgba(167,139,250,.68)',
         }}
       >
         {eyebrow}
@@ -2100,8 +2026,7 @@ function SectionHeading({
       <h2
         style={{
           margin: '0 0 13px',
-          fontSize:
-            'clamp(28px, 4vw, 40px)',
+          fontSize: 'clamp(28px, 4vw, 40px)',
           lineHeight: 1.09,
           letterSpacing: '-.037em',
           fontWeight: 650,
@@ -2111,38 +2036,17 @@ function SectionHeading({
         {title}
       </h2>
 
-      <p
-        style={{
-          margin: 0,
-          fontSize: 14,
-          lineHeight: 1.7,
-          color:
-            'rgba(226,232,240,.60)',
-        }}
-      >
+      <p style={{ margin: 0, fontSize: 14, lineHeight: 1.7, color: 'rgba(226,232,240,.60)' }}>
         {description}
       </p>
     </div>
   );
 }
 
-function hexToRgbStr(
-  hex: string,
-): string {
-  const r = parseInt(
-    hex.slice(1, 3),
-    16,
-  );
-
-  const g = parseInt(
-    hex.slice(3, 5),
-    16,
-  );
-
-  const b = parseInt(
-    hex.slice(5, 7),
-    16,
-  );
+function hexToRgbStr(hex: string): string {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
 
   return `${r},${g},${b}`;
 }
