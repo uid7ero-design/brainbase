@@ -468,7 +468,8 @@ export default function RequestDemoPage() {
                 color: '#F5F7FA',
               }}
             >
-              Thanks for getting in touch.
+              Thanks — we&apos;ve received
+              your request.
             </h1>
 
             <p
@@ -483,10 +484,10 @@ export default function RequestDemoPage() {
               }}
             >
               We&apos;ll review what
-              you&apos;ve told us and get
-              back to you to discuss how
-              BRΛINBΛSE could fit your
-              operation.
+              you&apos;re trying to
+              improve and contact you to
+              discuss where BRΛINBΛSE
+              could fit.
             </p>
 
             <div
@@ -612,7 +613,7 @@ export default function RequestDemoPage() {
                       'uppercase',
                   }}
                 >
-                  Request a Demo
+                  Discuss your operation
                 </span>
               </div>
 
@@ -642,24 +643,23 @@ export default function RequestDemoPage() {
                     'rgba(226,232,240,.52)',
                 }}
               >
-                Give us a little context
-                about your organisation,
-                your current workflow and
-                where you&apos;d like
-                BRΛINBΛSE to help.
+                You don&apos;t need to know
+                exactly how BRΛINBΛSE
+                should be configured. Tell
+                us where the friction is,
+                what you use today and
+                what you want to improve —
+                we can help identify the
+                right starting point.
               </p>
             </section>
 
-            {/* What happens next */}
+            {/* How this works */}
             <div
               style={{
                 marginBottom: 14,
-                padding:
-                  '13px 16px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 12,
-                borderRadius: 11,
+                padding: '18px 20px',
+                borderRadius: 13,
                 background:
                   'rgba(138,77,255,.035)',
                 border:
@@ -668,50 +668,72 @@ export default function RequestDemoPage() {
             >
               <div
                 style={{
-                  width: 28,
-                  height: 28,
-                  borderRadius: 8,
-                  flexShrink: 0,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  background:
-                    'rgba(138,77,255,.09)',
-                  border:
-                    '1px solid rgba(138,77,255,.16)',
-                  color: '#C4B5FD',
-                  fontSize: 11,
-                  fontWeight: 700,
+                  marginBottom: 12,
+                  fontSize: 12,
+                  fontWeight: 650,
+                  color:
+                    'rgba(245,247,250,.80)',
                 }}
               >
-                01
+                Start with the problem, not the software.
               </div>
 
-              <div>
-                <div
-                  style={{
-                    marginBottom: 2,
-                    fontSize: 11,
-                    fontWeight: 650,
-                    color:
-                      'rgba(245,247,250,.78)',
-                  }}
-                >
-                  Start with your operation
-                </div>
+              <div
+                style={{
+                  display: 'grid',
+                  gap: 7,
+                  marginBottom: 12,
+                }}
+              >
+                {[
+                  "Tell us what's creating friction",
+                  'Tell us what systems you already rely on',
+                  "We'll discuss where BRΛINBΛSE could fit",
+                  'Start focused, expand later if needed',
+                ].map(point => (
+                  <div
+                    key={point}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                    }}
+                  >
+                    <span
+                      style={{
+                        width: 4,
+                        height: 4,
+                        borderRadius: '50%',
+                        flexShrink: 0,
+                        background:
+                          'rgba(167,139,250,.7)',
+                      }}
+                    />
 
-                <div
-                  style={{
-                    fontSize: 10,
-                    lineHeight: 1.5,
-                    color:
-                      'rgba(226,232,240,.37)',
-                  }}
-                >
-                  We use this information to
-                  understand what would be
-                  useful before we speak.
-                </div>
+                    <span
+                      style={{
+                        fontSize: 11,
+                        lineHeight: 1.5,
+                        color:
+                          'rgba(226,232,240,.55)',
+                      }}
+                    >
+                      {point}
+                    </span>
+                  </div>
+                ))}
+              </div>
+
+              <div
+                style={{
+                  fontSize: 10,
+                  lineHeight: 1.5,
+                  color:
+                    'rgba(226,232,240,.35)',
+                }}
+              >
+                BRΛINBΛSE can work alongside external
+                systems where it makes sense.
               </div>
             </div>
 
@@ -896,7 +918,7 @@ export default function RequestDemoPage() {
 
                 <Field
                   label="Tell us about your operation"
-                  helper="A few sentences is enough."
+                  helper="A few sentences is enough. Include any systems or tools you currently rely on, if relevant."
                 >
                   <textarea
                     className="bb-request-textarea"
@@ -1030,12 +1052,12 @@ export default function RequestDemoPage() {
 
                 {/* Goals */}
                 <SectionLabel>
-                  What should BRΛINBΛSE help with?
+                  Where would you like BRΛINBΛSE to help first?
                 </SectionLabel>
 
                 <Field
-                  label="What would you like to improve?"
-                  helper="For example: visibility, admin, reporting, scheduling, customer management, workflows, data or automation."
+                  label="What would you most like to improve?"
+                  helper="For example: lead follow-up, scheduling, client visibility, reporting, disconnected systems, website enquiries or manual admin."
                 >
                   <textarea
                     className="bb-request-textarea"
@@ -1163,7 +1185,7 @@ export default function RequestDemoPage() {
                 >
                   {submitting
                     ? 'Sending…'
-                    : 'Request a BRΛINBΛSE demo →'}
+                    : 'Discuss my operation →'}
                 </button>
 
                 <p
@@ -1176,6 +1198,12 @@ export default function RequestDemoPage() {
                       'rgba(255,255,255,.24)',
                   }}
                 >
+                  You don&apos;t need the whole
+                  platform on day one — BRΛINBΛSE
+                  can begin with the part of the
+                  operation that matters most and
+                  expand as requirements grow.
+                  <br />
                   No obligation. We&apos;ll
                   review your request and
                   contact you to discuss the
