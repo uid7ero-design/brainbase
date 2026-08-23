@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import InstagramFeedPanel from '@/components/instagram/InstagramFeedPanel';
+import { formatEventTime } from '@/lib/founder/formatEventTime';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -1467,6 +1468,101 @@ function ProductUsage() {
   );
 }
 
+// ─── Today's calendar (Microsoft 365, Phase E.5C) ──────────────────────────────
+// Read-only consumer of the already-approved, already-Production
+// GET /api/integrations/microsoft/events (Phase E.5B). Deliberately
+// separate from LiveContext()'s "Upcoming demos" card below, which
+// remains reserved for a future, dedicated demo-calendar capability
+// (see LiveContext()'s own header comment) — this card shows whatever
+// is actually on the connected Microsoft account's default calendar
+// today, honestly labelled as that, not as "demos". Does not read or
+// alter the server-side definition of "today" (a known UTC-day-
+// boundary limitation, deliberately deferred to a separate follow-up —
+// see the route's own comments) — this component only formats
+// whatever the endpoint already returns.
+
+type MicrosoftCalendarEvent = {
+  id: string;
+  title: string;
+  allDay: boolean;
+  start: string | null;
+  end: string | null;
+  location: string | null;
+  account: string | null;
+};
+
+function MicrosoftTodayCard() {
+  const [data, setData] = useState<{ events: MicrosoftCalendarEvent[] } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/integrations/microsoft/events')
+      .then(r => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((d: { events: MicrosoftCalendarEvent[] }) => setData(d))
+      .catch(() => setLoadError(true))
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) {
+    return (
+      <Card style={{ padding: '9px 11px' }}>
+        <Lbl s="Today's calendar" />
+        <div style={{ fontSize: 11, color: T.dim, marginTop: 4 }}>Loading…</div>
+      </Card>
+    );
+  }
+
+  // A stored-but-invalid connection (401 "Not connected") and any
+  // network/Graph failure (502) are deliberately shown identically —
+  // matching ProductUsage()'s own established "Not connected only on
+  // load failure" convention immediately above.
+  if (loadError || !data) {
+    return (
+      <Card style={{ padding: '9px 11px' }}>
+        <Lbl s="Today's calendar" />
+        <div style={{ padding: '10px', textAlign: 'center', borderRadius: 6, border: `1px dashed ${T.border}` }}>
+          <div style={{ fontSize: 10, color: T.dim }}>Not connected</div>
+        </div>
+      </Card>
+    );
+  }
+
+  if (data.events.length === 0) {
+    return (
+      <Card style={{ padding: '9px 11px' }}>
+        <Lbl s="Today's calendar" />
+        <div style={{ padding: '10px', textAlign: 'center', borderRadius: 6, border: `1px dashed ${T.border}` }}>
+          <div style={{ fontSize: 10, color: T.dim }}>No events today</div>
+        </div>
+      </Card>
+    );
+  }
+
+  return (
+    <Card style={{ padding: '9px 11px' }}>
+      <Lbl s="Today's calendar" />
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {data.events.map(event => (
+          <div key={event.id} style={{ padding: '6px 8px', borderRadius: 5, background: 'rgba(255,255,255,0.018)', border: `1px solid ${T.border}` }}>
+            <div style={{ fontSize: 10, color: T.dim }}>
+              {event.allDay ? 'All day' : [formatEventTime(event.start), formatEventTime(event.end)].filter(Boolean).join(' – ')}
+            </div>
+            <div style={{ fontSize: 11, color: T.text, fontWeight: 600, marginTop: 1, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
+              {event.title}
+            </div>
+            {event.location && (
+              <div style={{ fontSize: 10, color: T.sub, marginTop: 1, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
+                {event.location}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </Card>
+  );
+}
+
 // ─── Context (demos + signals) ────────────────────────────────────────────────
 // Phase B: DEMOS (fake upcoming sales demos) and SIGNALS (fake, staled-dated
 // "AI/local-government news" items) were both fabricated with no
@@ -2571,6 +2667,7 @@ export default function FounderPage() {
           {section === 'system' && <>
             <SystemHealth />
             <ProductUsage />
+            <MicrosoftTodayCard />
             <LiveContext />
           </>}
 
@@ -2587,6 +2684,7 @@ export default function FounderPage() {
           {section !== 'system' && <>
             <SystemHealth />
             <ProductUsage />
+            <MicrosoftTodayCard />
             <LiveContext />
           </>}
         </div>
