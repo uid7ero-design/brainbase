@@ -7,19 +7,43 @@ import Image from 'next/image';
 import EnquiryModal from '@/components/web-services/EnquiryModal';
 
 const FONT =
-  'var(--font-inter), "Inter", -apple-system, sans-serif';
+  'var(--font-inter), "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
 
 const BG = '#07080B';
 
 const KEYFRAMES = `
-  @keyframes pulse {
+  @keyframes webPulse {
     0%, 100% { opacity: 1; }
     50% { opacity: .42; }
   }
 
-  @keyframes heroGlow {
-    0%, 100% { opacity: .46; transform: scale(1); }
-    50% { opacity: .78; transform: scale(1.04); }
+  @keyframes webHeroGlow {
+    0%, 100% {
+      opacity: .46;
+      transform: scale(1);
+    }
+
+    50% {
+      opacity: .78;
+      transform: scale(1.04);
+    }
+  }
+
+  @media (max-width: 760px) {
+    .web-systems-shell {
+      padding-left: 18px !important;
+      padding-right: 18px !important;
+    }
+
+    .web-systems-panel {
+      padding-left: 24px !important;
+      padding-right: 24px !important;
+    }
+
+    .web-systems-footer {
+      padding-left: 18px !important;
+      padding-right: 18px !important;
+    }
   }
 `;
 
@@ -141,7 +165,7 @@ const FLOW = [
     number: '06',
     title: 'You see the operation',
     body:
-      'BrainBase can bring activity, priorities and operational context into one place.',
+      'BRΛINBΛSE can bring activity, priorities and operational context into one place.',
     color: '#6366F1',
   },
 ];
@@ -161,6 +185,7 @@ const DEPLOYMENTS = [
     ],
     color: '#8A4DFF',
     action: 'Discuss your website',
+    featured: false,
   },
   {
     label: 'Connected Web System',
@@ -179,19 +204,20 @@ const DEPLOYMENTS = [
     featured: true,
   },
   {
-    label: 'BrainBase Deployment',
+    label: 'BRΛINBΛSE Deployment',
     title: 'Build the system behind it.',
     description:
       'For businesses ready to move beyond the website into a broader connected operational platform.',
     includes: [
       'Everything in Connected Web System',
-      'BrainBase platform deployment',
+      'BRΛINBΛSE platform deployment',
       'Dashboards and reporting',
       'Custom operational workflows',
       'HLNΛ intelligence capability',
     ],
     color: '#A78BFA',
     action: 'Request deployment review',
+    featured: false,
   },
 ];
 
@@ -218,7 +244,7 @@ const PROCESS = [
     number: '04',
     title: 'Launch',
     body:
-      'Your new system goes live with hosting, monitoring and the operational workflows in place.',
+      'Your new system goes live with hosting, monitoring and the required operational workflows in place.',
   },
   {
     number: '05',
@@ -262,7 +288,7 @@ const MANAGED = [
   {
     title: 'Support',
     body:
-      'One point of contact across the website and the connected BrainBase environment.',
+      'One point of contact across the website and connected BRΛINBΛSE environment.',
     color: '#A78BFA',
   },
 ];
@@ -280,8 +306,10 @@ export default function WebSystemsPage() {
   const [hoveredFlow, setHoveredFlow] =
     useState<number | null>(null);
 
-  const [hoveredDeployment, setHoveredDeployment] =
-    useState<number | null>(null);
+  const [
+    hoveredDeployment,
+    setHoveredDeployment,
+  ] = useState<number | null>(null);
 
   return (
     <main
@@ -296,7 +324,10 @@ export default function WebSystemsPage() {
     >
       <style>{KEYFRAMES}</style>
 
-      {/* Background */}
+      {/* ================================================================
+          BACKGROUND
+      ================================================================= */}
+
       <div
         aria-hidden="true"
         style={{
@@ -316,6 +347,7 @@ export default function WebSystemsPage() {
       />
 
       <div
+        className="web-systems-shell"
         style={{
           maxWidth: 1180,
           margin: '0 auto',
@@ -324,8 +356,11 @@ export default function WebSystemsPage() {
           zIndex: 1,
         }}
       >
-        {/* Back */}
-        <div style={{ paddingTop: 28 }}>
+        <div
+          style={{
+            paddingTop: 28,
+          }}
+        >
           <Link
             href="/"
             style={{
@@ -334,13 +369,14 @@ export default function WebSystemsPage() {
               textDecoration: 'none',
             }}
           >
-            ← Back to BrainBase
+            ← Back to BRΛINBΛSE
           </Link>
         </div>
 
-        {/* ============================================================
+        {/* ================================================================
             HERO
-        ============================================================ */}
+        ================================================================= */}
+
         <section
           style={{
             minHeight: 630,
@@ -351,7 +387,6 @@ export default function WebSystemsPage() {
             flexWrap: 'wrap',
           }}
         >
-          {/* Left */}
           <div
             style={{
               flex: '1 1 470px',
@@ -367,7 +402,7 @@ export default function WebSystemsPage() {
             >
               <Image
                 src="/Brand/brainbase-logo-dark.svg"
-                alt="BrainBase"
+                alt="BRΛINBΛSE"
                 width={720}
                 height={150}
                 priority
@@ -402,7 +437,7 @@ export default function WebSystemsPage() {
                   boxShadow:
                     '0 0 8px rgba(138,77,255,.85)',
                   animation:
-                    'pulse 2.5s ease-in-out infinite',
+                    'webPulse 2.5s ease-in-out infinite',
                 }}
               />
 
@@ -416,7 +451,7 @@ export default function WebSystemsPage() {
                     'rgba(167,139,250,.78)',
                 }}
               >
-                Web Systems
+                BRΛINBΛSE Web Systems
               </span>
             </div>
 
@@ -452,14 +487,14 @@ export default function WebSystemsPage() {
             <p
               style={{
                 margin: '0 0 31px',
-                maxWidth: 530,
+                maxWidth: 550,
                 fontSize: 16,
                 lineHeight: 1.72,
                 color:
                   'rgba(226,232,240,.62)',
               }}
             >
-              BrainBase designs and builds modern
+              BRΛINBΛSE designs and builds modern
               websites that can connect directly to
               your leads, bookings, customer
               workflows and business systems.
@@ -564,7 +599,8 @@ export default function WebSystemsPage() {
             </div>
           </div>
 
-          {/* Right system visual */}
+          {/* SYSTEM VISUAL */}
+
           <div
             style={{
               flex: '1 1 400px',
@@ -581,7 +617,7 @@ export default function WebSystemsPage() {
                   'radial-gradient(circle, rgba(138,77,255,.14) 0%, transparent 70%)',
                 filter: 'blur(32px)',
                 animation:
-                  'heroGlow 6s ease-in-out infinite',
+                  'webHeroGlow 6s ease-in-out infinite',
                 pointerEvents: 'none',
               }}
             />
@@ -589,7 +625,7 @@ export default function WebSystemsPage() {
             <div
               style={{
                 position: 'relative',
-                padding: '24px',
+                padding: 24,
                 borderRadius: 20,
                 background:
                   'rgba(255,255,255,.021)',
@@ -623,13 +659,17 @@ export default function WebSystemsPage() {
                 >
                   BR
                   <span
-                    style={{ color: '#8A4DFF' }}
+                    style={{
+                      color: '#8A4DFF',
+                    }}
                   >
                     Λ
                   </span>
                   INB
                   <span
-                    style={{ color: '#8A4DFF' }}
+                    style={{
+                      color: '#8A4DFF',
+                    }}
                   >
                     Λ
                   </span>
@@ -684,7 +724,7 @@ export default function WebSystemsPage() {
 
               <div
                 style={{
-                  padding: '14px',
+                  padding: 14,
                   borderRadius: 11,
                   background:
                     'rgba(255,255,255,.019)',
@@ -754,7 +794,7 @@ export default function WebSystemsPage() {
               <Connector />
 
               <SystemLayer
-                title="BrainBase"
+                title="BRΛINBΛSE"
                 detail="Operations · Insight · Intelligence"
                 color="#6366F1"
               />
@@ -797,9 +837,10 @@ export default function WebSystemsPage() {
           </div>
         </section>
 
-        {/* ============================================================
+        {/* ================================================================
             SERVICES
-        ============================================================ */}
+        ================================================================= */}
+
         <section
           id="what-we-build"
           style={{
@@ -821,125 +862,150 @@ export default function WebSystemsPage() {
               gap: 11,
             }}
           >
-            {SERVICES.map((service, index) => {
-              const active =
-                hoveredService === index;
+            {SERVICES.map(
+              (service, index) => {
+                const active =
+                  hoveredService === index;
 
-              return (
-                <div
-                  key={service.title}
-                  onMouseEnter={() =>
-                    setHoveredService(index)
-                  }
-                  onMouseLeave={() =>
-                    setHoveredService(null)
-                  }
-                  style={{
-                    minHeight: 255,
-                    padding: '23px',
-                    borderRadius: 14,
-                    background: active
-                      ? `rgba(${hexToRgbStr(
-                          service.color,
-                        )}, .055)`
-                      : 'rgba(255,255,255,.018)',
-                    border: active
-                      ? `1px solid ${service.color}2C`
-                      : '1px solid rgba(255,255,255,.062)',
-                    transform: active
-                      ? 'translateY(-3px)'
-                      : 'translateY(0)',
-                    transition: 'all .17s',
-                  }}
-                >
+                return (
                   <div
+                    key={service.title}
+                    onMouseEnter={() =>
+                      setHoveredService(
+                        index,
+                      )
+                    }
+                    onMouseLeave={() =>
+                      setHoveredService(
+                        null,
+                      )
+                    }
                     style={{
-                      width: 35,
-                      height: 35,
-                      marginBottom: 18,
-                      borderRadius: 9,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      background:
-                        `${service.color}10`,
-                      border:
-                        `1px solid ${service.color}25`,
+                      minHeight: 255,
+                      padding: 23,
+                      borderRadius: 14,
+
+                      background: active
+                        ? `rgba(${hexToRgbStr(
+                            service.color,
+                          )}, .055)`
+                        : 'rgba(255,255,255,.018)',
+
+                      border: active
+                        ? `1px solid ${service.color}2C`
+                        : '1px solid rgba(255,255,255,.062)',
+
+                      transform: active
+                        ? 'translateY(-3px)'
+                        : 'translateY(0)',
+
+                      transition:
+                        'all .17s',
                     }}
                   >
-                    <span
+                    <div
                       style={{
-                        width: 7,
-                        height: 7,
-                        borderRadius: '50%',
-                        background: service.color,
-                        boxShadow:
-                          `0 0 8px ${service.color}80`,
+                        width: 35,
+                        height: 35,
+                        marginBottom: 18,
+                        borderRadius: 9,
+                        display: 'flex',
+                        alignItems:
+                          'center',
+                        justifyContent:
+                          'center',
+                        background:
+                          `${service.color}10`,
+                        border:
+                          `1px solid ${service.color}25`,
                       }}
-                    />
-                  </div>
-
-                  <h3
-                    style={{
-                      margin: '0 0 9px',
-                      fontSize: 14,
-                      fontWeight: 650,
-                      letterSpacing: '-.015em',
-                      color: '#F5F7FA',
-                    }}
-                  >
-                    {service.title}
-                  </h3>
-
-                  <p
-                    style={{
-                      minHeight: 76,
-                      margin: '0 0 17px',
-                      fontSize: 11,
-                      lineHeight: 1.65,
-                      color:
-                        'rgba(226,232,240,.51)',
-                    }}
-                  >
-                    {service.description}
-                  </p>
-
-                  <div
-                    style={{
-                      display: 'flex',
-                      flexWrap: 'wrap',
-                      gap: 5,
-                    }}
-                  >
-                    {service.tags.map(tag => (
+                    >
                       <span
-                        key={tag}
                         style={{
-                          padding: '3px 8px',
-                          borderRadius: 999,
-                          fontSize: 8,
-                          color: active
-                            ? service.color
-                            : 'rgba(255,255,255,.31)',
+                          width: 7,
+                          height: 7,
+                          borderRadius:
+                            '50%',
                           background:
-                            'rgba(255,255,255,.025)',
-                          border:
-                            '1px solid rgba(255,255,255,.055)',
+                            service.color,
+                          boxShadow:
+                            `0 0 8px ${service.color}80`,
                         }}
-                      >
-                        {tag}
-                      </span>
-                    ))}
+                      />
+                    </div>
+
+                    <h3
+                      style={{
+                        margin:
+                          '0 0 9px',
+                        fontSize: 14,
+                        fontWeight: 650,
+                        letterSpacing:
+                          '-.015em',
+                        color: '#F5F7FA',
+                      }}
+                    >
+                      {service.title}
+                    </h3>
+
+                    <p
+                      style={{
+                        minHeight: 76,
+                        margin:
+                          '0 0 17px',
+                        fontSize: 11,
+                        lineHeight: 1.65,
+                        color:
+                          'rgba(226,232,240,.51)',
+                      }}
+                    >
+                      {
+                        service.description
+                      }
+                    </p>
+
+                    <div
+                      style={{
+                        display: 'flex',
+                        flexWrap: 'wrap',
+                        gap: 5,
+                      }}
+                    >
+                      {service.tags.map(
+                        tag => (
+                          <span
+                            key={tag}
+                            style={{
+                              padding:
+                                '3px 8px',
+                              borderRadius:
+                                999,
+                              fontSize: 8,
+                              color: active
+                                ? service.color
+                                : 'rgba(255,255,255,.31)',
+                              background:
+                                'rgba(255,255,255,.025)',
+                              border:
+                                '1px solid rgba(255,255,255,.055)',
+                            }}
+                          >
+                            {tag}
+                          </span>
+                        ),
+                      )}
+                    </div>
                   </div>
-                </div>
-              );
-            })}
+                );
+              },
+            )}
           </div>
         </section>
 
-        {/* ============================================================
+        {/* ================================================================
             OUTCOMES
-        ============================================================ */}
+        ================================================================= */}
+
         <section
           style={{
             marginBottom: 96,
@@ -960,84 +1026,99 @@ export default function WebSystemsPage() {
               gap: 10,
             }}
           >
-            {OUTCOMES.map((item, index) => {
-              const active =
-                hoveredOutcome === index;
+            {OUTCOMES.map(
+              (item, index) => {
+                const active =
+                  hoveredOutcome === index;
 
-              return (
-                <div
-                  key={item.title}
-                  onMouseEnter={() =>
-                    setHoveredOutcome(index)
-                  }
-                  onMouseLeave={() =>
-                    setHoveredOutcome(null)
-                  }
-                  style={{
-                    padding: '20px',
-                    borderRadius: 12,
-                    background: active
-                      ? `rgba(${hexToRgbStr(
-                          item.color,
-                        )}, .045)`
-                      : 'rgba(255,255,255,.017)',
-                    border: active
-                      ? `1px solid ${item.color}25`
-                      : '1px solid rgba(255,255,255,.06)',
-                    transition: 'all .16s',
-                  }}
-                >
+                return (
                   <div
+                    key={item.title}
+                    onMouseEnter={() =>
+                      setHoveredOutcome(
+                        index,
+                      )
+                    }
+                    onMouseLeave={() =>
+                      setHoveredOutcome(
+                        null,
+                      )
+                    }
                     style={{
-                      marginBottom: 12,
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 8,
+                      padding: 20,
+                      borderRadius: 12,
+
+                      background: active
+                        ? `rgba(${hexToRgbStr(
+                            item.color,
+                          )}, .045)`
+                        : 'rgba(255,255,255,.017)',
+
+                      border: active
+                        ? `1px solid ${item.color}25`
+                        : '1px solid rgba(255,255,255,.06)',
+
+                      transition:
+                        'all .16s',
                     }}
                   >
-                    <span
+                    <div
                       style={{
-                        width: 6,
-                        height: 6,
-                        borderRadius: '50%',
-                        background: item.color,
-                        boxShadow:
-                          `0 0 7px ${item.color}70`,
-                      }}
-                    />
-
-                    <h3
-                      style={{
-                        margin: 0,
-                        fontSize: 12,
-                        fontWeight: 650,
-                        color: '#F5F7FA',
+                        marginBottom: 12,
+                        display: 'flex',
+                        alignItems:
+                          'center',
+                        gap: 8,
                       }}
                     >
-                      {item.title}
-                    </h3>
-                  </div>
+                      <span
+                        style={{
+                          width: 6,
+                          height: 6,
+                          borderRadius:
+                            '50%',
+                          background:
+                            item.color,
+                          boxShadow:
+                            `0 0 7px ${item.color}70`,
+                        }}
+                      />
 
-                  <p
-                    style={{
-                      margin: 0,
-                      fontSize: 10,
-                      lineHeight: 1.65,
-                      color:
-                        'rgba(226,232,240,.50)',
-                    }}
-                  >
-                    {item.body}
-                  </p>
-                </div>
-              );
-            })}
+                      <h3
+                        style={{
+                          margin: 0,
+                          fontSize: 12,
+                          fontWeight: 650,
+                          color:
+                            '#F5F7FA',
+                        }}
+                      >
+                        {item.title}
+                      </h3>
+                    </div>
+
+                    <p
+                      style={{
+                        margin: 0,
+                        fontSize: 10,
+                        lineHeight: 1.65,
+                        color:
+                          'rgba(226,232,240,.50)',
+                      }}
+                    >
+                      {item.body}
+                    </p>
+                  </div>
+                );
+              },
+            )}
           </div>
         </section>
 
-        {/* ============================================================
+        {/* ================================================================
             CONNECTED FLOW
-        ============================================================ */}
+        ================================================================= */}
+
         <section
           style={{
             marginBottom: 96,
@@ -1058,100 +1139,117 @@ export default function WebSystemsPage() {
               gap: 10,
             }}
           >
-            {FLOW.map((step, index) => {
-              const active =
-                hoveredFlow === index;
+            {FLOW.map(
+              (step, index) => {
+                const active =
+                  hoveredFlow === index;
 
-              return (
-                <div
-                  key={step.number}
-                  onMouseEnter={() =>
-                    setHoveredFlow(index)
-                  }
-                  onMouseLeave={() =>
-                    setHoveredFlow(null)
-                  }
-                  style={{
-                    padding: '20px',
-                    display: 'flex',
-                    gap: 15,
-                    borderRadius: 13,
-                    background: active
-                      ? `rgba(${hexToRgbStr(
-                          step.color,
-                        )}, .05)`
-                      : 'rgba(255,255,255,.017)',
-                    border: active
-                      ? `1px solid ${step.color}28`
-                      : '1px solid rgba(255,255,255,.06)',
-                    transform: active
-                      ? 'translateY(-2px)'
-                      : 'translateY(0)',
-                    transition: 'all .16s',
-                  }}
-                >
+                return (
                   <div
+                    key={step.number}
+                    onMouseEnter={() =>
+                      setHoveredFlow(
+                        index,
+                      )
+                    }
+                    onMouseLeave={() =>
+                      setHoveredFlow(
+                        null,
+                      )
+                    }
                     style={{
-                      width: 34,
-                      height: 34,
-                      flexShrink: 0,
-                      borderRadius: 9,
+                      padding: 20,
                       display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      background:
-                        `${step.color}10`,
-                      border:
-                        `1px solid ${step.color}25`,
-                      fontSize: 8,
-                      fontWeight: 700,
-                      color: step.color,
+                      gap: 15,
+                      borderRadius: 13,
+
+                      background: active
+                        ? `rgba(${hexToRgbStr(
+                            step.color,
+                          )}, .05)`
+                        : 'rgba(255,255,255,.017)',
+
+                      border: active
+                        ? `1px solid ${step.color}28`
+                        : '1px solid rgba(255,255,255,.06)',
+
+                      transform: active
+                        ? 'translateY(-2px)'
+                        : 'translateY(0)',
+
+                      transition:
+                        'all .16s',
                     }}
                   >
-                    {step.number}
-                  </div>
-
-                  <div>
-                    <h3
+                    <div
                       style={{
-                        margin: '0 0 5px',
-                        fontSize: 12,
-                        fontWeight: 650,
-                        color: '#F5F7FA',
+                        width: 34,
+                        height: 34,
+                        flexShrink: 0,
+                        borderRadius: 9,
+                        display: 'flex',
+                        alignItems:
+                          'center',
+                        justifyContent:
+                          'center',
+                        background:
+                          `${step.color}10`,
+                        border:
+                          `1px solid ${step.color}25`,
+                        fontSize: 8,
+                        fontWeight: 700,
+                        color: step.color,
                       }}
                     >
-                      {step.title}
-                    </h3>
+                      {step.number}
+                    </div>
 
-                    <p
-                      style={{
-                        margin: 0,
-                        fontSize: 10,
-                        lineHeight: 1.6,
-                        color:
-                          'rgba(226,232,240,.49)',
-                      }}
-                    >
-                      {step.body}
-                    </p>
+                    <div>
+                      <h3
+                        style={{
+                          margin:
+                            '0 0 5px',
+                          fontSize: 12,
+                          fontWeight: 650,
+                          color:
+                            '#F5F7FA',
+                        }}
+                      >
+                        {step.title}
+                      </h3>
+
+                      <p
+                        style={{
+                          margin: 0,
+                          fontSize: 10,
+                          lineHeight: 1.6,
+                          color:
+                            'rgba(226,232,240,.49)',
+                        }}
+                      >
+                        {step.body}
+                      </p>
+                    </div>
                   </div>
-                </div>
-              );
-            })}
+                );
+              },
+            )}
           </div>
         </section>
 
-        {/* ============================================================
+        {/* ================================================================
             REAL DEPLOYMENT
-        ============================================================ */}
+        ================================================================= */}
+
         <section
           style={{
             marginBottom: 96,
           }}
         >
           <div
+            className="web-systems-panel"
             style={{
-              padding: '42px',
+              padding: 42,
               borderRadius: 18,
               background:
                 'linear-gradient(135deg, rgba(34,197,94,.045), rgba(138,77,255,.02))',
@@ -1194,7 +1292,7 @@ export default function WebSystemsPage() {
                       boxShadow:
                         '0 0 6px #22C55E',
                       animation:
-                        'pulse 2.5s ease-in-out infinite',
+                        'webPulse 2.5s ease-in-out infinite',
                     }}
                   />
 
@@ -1207,7 +1305,7 @@ export default function WebSystemsPage() {
                       color: '#6EE7B7',
                     }}
                   >
-                    Live Deployment
+                    Real Deployment Example
                   </span>
                 </div>
 
@@ -1233,11 +1331,11 @@ export default function WebSystemsPage() {
                       'rgba(226,232,240,.56)',
                   }}
                 >
-                  A live example of a website
-                  extending into a connected client
-                  operation. Enquiries, leads,
-                  clients, sessions and follow-up
-                  work together through BrainBase.
+                  A real example of a website extending
+                  into a connected Client Operations
+                  deployment. Enquiries, leads, clients,
+                  sessions and follow-up work together
+                  through BRΛINBΛSE.
                 </p>
 
                 <div
@@ -1271,7 +1369,7 @@ export default function WebSystemsPage() {
                   </a>
 
                   <Link
-                    href="/for-coaches/demo"
+                    href="/client-operations/demo"
                     style={{
                       minHeight: 40,
                       padding: '0 16px',
@@ -1289,15 +1387,14 @@ export default function WebSystemsPage() {
                       fontWeight: 550,
                     }}
                   >
-                    View system walkthrough
+                    Explore the deployment →
                   </Link>
                 </div>
               </div>
 
-              {/* Deployment diagram */}
               <div
                 style={{
-                  padding: '22px',
+                  padding: 22,
                   borderRadius: 14,
                   background:
                     'rgba(7,8,11,.34)',
@@ -1345,9 +1442,9 @@ export default function WebSystemsPage() {
                     color: '#F59E0B',
                   },
                   {
-                    name: 'BrainBase',
+                    name: 'BRΛINBΛSE',
                     detail:
-                      'Operational system',
+                      'Operational platform',
                     color: '#A78BFA',
                   },
                 ].map((item, index) => (
@@ -1356,7 +1453,9 @@ export default function WebSystemsPage() {
                     style={{
                       padding: '10px 11px',
                       marginBottom:
-                        index === 4 ? 0 : 7,
+                        index === 4
+                          ? 0
+                          : 7,
                       display: 'flex',
                       alignItems: 'center',
                       gap: 10,
@@ -1372,7 +1471,8 @@ export default function WebSystemsPage() {
                         width: 5,
                         height: 5,
                         borderRadius: '50%',
-                        background: item.color,
+                        background:
+                          item.color,
                         boxShadow:
                           `0 0 5px ${item.color}60`,
                       }}
@@ -1384,7 +1484,8 @@ export default function WebSystemsPage() {
                           marginBottom: 1,
                           fontSize: 9,
                           fontWeight: 650,
-                          color: '#F5F7FA',
+                          color:
+                            '#F5F7FA',
                         }}
                       >
                         {item.name}
@@ -1407,9 +1508,10 @@ export default function WebSystemsPage() {
           </div>
         </section>
 
-        {/* ============================================================
-            DEPLOYMENTS
-        ============================================================ */}
+        {/* ================================================================
+            DEPLOYMENT OPTIONS
+        ================================================================= */}
+
         <section
           style={{
             marginBottom: 96,
@@ -1418,7 +1520,7 @@ export default function WebSystemsPage() {
           <SectionHeading
             eyebrow="Deployment Options"
             title="Start where it makes sense."
-            description="Not every business needs the full BrainBase platform on day one. The website can be the foundation and the connected system can grow from there."
+            description="Not every business needs the full BRΛINBΛSE platform on day one. The website can be the foundation and the connected system can grow from there."
             centred
           />
 
@@ -1433,21 +1535,31 @@ export default function WebSystemsPage() {
             {DEPLOYMENTS.map(
               (deployment, index) => {
                 const active =
-                  hoveredDeployment === index;
+                  hoveredDeployment ===
+                  index;
 
                 return (
                   <div
                     key={deployment.title}
                     onMouseEnter={() =>
-                      setHoveredDeployment(index)
+                      setHoveredDeployment(
+                        index,
+                      )
                     }
                     onMouseLeave={() =>
-                      setHoveredDeployment(null)
+                      setHoveredDeployment(
+                        null,
+                      )
                     }
                     style={{
                       position: 'relative',
-                      padding: '28px 25px',
+                      padding:
+                        '28px 25px',
                       borderRadius: 15,
+                      display: 'flex',
+                      flexDirection:
+                        'column',
+
                       background:
                         deployment.featured
                           ? `rgba(${hexToRgbStr(
@@ -1458,36 +1570,45 @@ export default function WebSystemsPage() {
                                 deployment.color,
                               )}, .035)`
                             : 'rgba(255,255,255,.018)',
+
                       border:
                         deployment.featured
                           ? `1px solid ${deployment.color}35`
                           : active
                             ? `1px solid ${deployment.color}28`
                             : '1px solid rgba(255,255,255,.065)',
+
                       transform: active
                         ? 'translateY(-3px)'
                         : 'translateY(0)',
-                      transition: 'all .17s',
+
+                      transition:
+                        'all .17s',
                     }}
                   >
                     {deployment.featured && (
                       <div
                         style={{
-                          position: 'absolute',
+                          position:
+                            'absolute',
                           top: 15,
                           right: 15,
-                          padding: '3px 8px',
-                          borderRadius: 999,
+                          padding:
+                            '3px 8px',
+                          borderRadius:
+                            999,
                           background:
                             'rgba(34,197,94,.08)',
                           border:
                             '1px solid rgba(34,197,94,.18)',
                           fontSize: 7,
                           fontWeight: 700,
-                          letterSpacing: '.09em',
+                          letterSpacing:
+                            '.09em',
                           textTransform:
                             'uppercase',
-                          color: '#6EE7B7',
+                          color:
+                            '#6EE7B7',
                         }}
                       >
                         Recommended
@@ -1499,9 +1620,12 @@ export default function WebSystemsPage() {
                         marginBottom: 8,
                         fontSize: 8,
                         fontWeight: 700,
-                        letterSpacing: '.10em',
-                        textTransform: 'uppercase',
-                        color: deployment.color,
+                        letterSpacing:
+                          '.10em',
+                        textTransform:
+                          'uppercase',
+                        color:
+                          deployment.color,
                       }}
                     >
                       {deployment.label}
@@ -1509,10 +1633,16 @@ export default function WebSystemsPage() {
 
                     <h3
                       style={{
-                        margin: '0 0 9px',
+                        margin:
+                          '0 0 9px',
+                        paddingRight:
+                          deployment.featured
+                            ? 85
+                            : 0,
                         fontSize: 18,
                         fontWeight: 650,
-                        letterSpacing: '-.02em',
+                        letterSpacing:
+                          '-.02em',
                         color: '#F5F7FA',
                       }}
                     >
@@ -1522,22 +1652,27 @@ export default function WebSystemsPage() {
                     <p
                       style={{
                         minHeight: 67,
-                        margin: '0 0 21px',
+                        margin:
+                          '0 0 21px',
                         fontSize: 11,
                         lineHeight: 1.6,
                         color:
                           'rgba(226,232,240,.49)',
                       }}
                     >
-                      {deployment.description}
+                      {
+                        deployment.description
+                      }
                     </p>
 
                     <div
                       style={{
                         marginBottom: 22,
                         display: 'flex',
-                        flexDirection: 'column',
+                        flexDirection:
+                          'column',
                         gap: 8,
+                        flex: 1,
                       }}
                     >
                       {deployment.includes.map(
@@ -1545,12 +1680,14 @@ export default function WebSystemsPage() {
                           <div
                             key={item}
                             style={{
-                              display: 'flex',
+                              display:
+                                'flex',
                               gap: 8,
                               alignItems:
                                 'flex-start',
                               fontSize: 10,
-                              lineHeight: 1.45,
+                              lineHeight:
+                                1.45,
                               color:
                                 'rgba(226,232,240,.56)',
                             }}
@@ -1608,14 +1745,16 @@ export default function WebSystemsPage() {
             }}
           >
             Project scope and investment depend on
-            the website, integrations and
-            operational requirements involved.
+            the website, integrations and operational
+            requirements involved. Any project costs
+            are scoped and quoted before work begins.
           </p>
         </section>
 
-        {/* ============================================================
+        {/* ================================================================
             PROCESS
-        ============================================================ */}
+        ================================================================= */}
+
         <section
           style={{
             marginBottom: 96,
@@ -1640,7 +1779,7 @@ export default function WebSystemsPage() {
               <div
                 key={step.number}
                 style={{
-                  padding: '20px',
+                  padding: 20,
                   borderRadius: 12,
                   background:
                     'rgba(255,255,255,.017)',
@@ -1688,13 +1827,15 @@ export default function WebSystemsPage() {
           </div>
         </section>
 
-        {/* ============================================================
+        {/* ================================================================
             MANAGED
-        ============================================================ */}
+        ================================================================= */}
+
         <section
+          className="web-systems-panel"
           style={{
             marginBottom: 96,
-            padding: '42px',
+            padding: 42,
             borderRadius: 18,
             background:
               'linear-gradient(135deg, rgba(138,77,255,.045), rgba(92,124,255,.012))',
@@ -1705,7 +1846,7 @@ export default function WebSystemsPage() {
           <div
             style={{
               marginBottom: 29,
-              maxWidth: 610,
+              maxWidth: 630,
             }}
           >
             <div
@@ -1719,7 +1860,7 @@ export default function WebSystemsPage() {
                   'rgba(167,139,250,.66)',
               }}
             >
-              Managed by BrainBase
+              Managed by BRΛINBΛSE
             </div>
 
             <h2
@@ -1745,7 +1886,7 @@ export default function WebSystemsPage() {
             >
               A website should not become another
               system your business has to maintain.
-              BrainBase can manage the technical
+              BRΛINBΛSE can manage the technical
               environment and continue improving the
               connected system over time.
             </p>
@@ -1763,7 +1904,7 @@ export default function WebSystemsPage() {
               <div
                 key={item.title}
                 style={{
-                  padding: '17px',
+                  padding: 17,
                   borderRadius: 10,
                   background:
                     'rgba(7,8,11,.25)',
@@ -1815,10 +1956,141 @@ export default function WebSystemsPage() {
           </div>
         </section>
 
-        {/* ============================================================
-            FINAL CTA
-        ============================================================ */}
+        {/* ================================================================
+            PLATFORM CONNECTION
+        ================================================================= */}
+
         <section
+          className="web-systems-panel"
+          style={{
+            marginBottom: 96,
+            padding: '42px',
+            borderRadius: 18,
+            background:
+              'linear-gradient(135deg, rgba(86,119,255,.045), rgba(138,77,255,.045))',
+            border:
+              '1px solid rgba(138,77,255,.13)',
+          }}
+        >
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns:
+                'repeat(auto-fit, minmax(280px, 1fr))',
+              gap: 36,
+              alignItems: 'center',
+            }}
+          >
+            <div>
+              <div
+                style={{
+                  marginBottom: 10,
+                  fontSize: 8,
+                  fontWeight: 700,
+                  letterSpacing: '.11em',
+                  textTransform: 'uppercase',
+                  color:
+                    'rgba(167,139,250,.68)',
+                }}
+              >
+                Part of BRΛINBΛSE
+              </div>
+
+              <h2
+                style={{
+                  margin: '0 0 12px',
+                  fontSize:
+                    'clamp(26px, 4vw, 36px)',
+                  lineHeight: 1.1,
+                  letterSpacing: '-.035em',
+                  fontWeight: 650,
+                  color: '#F5F7FA',
+                }}
+              >
+                The website does not have to be the
+                end of the project.
+              </h2>
+
+              <p
+                style={{
+                  margin: 0,
+                  maxWidth: 560,
+                  fontSize: 12,
+                  lineHeight: 1.7,
+                  color:
+                    'rgba(226,232,240,.54)',
+                }}
+              >
+                BRΛINBΛSE Web Systems can become the
+                customer-facing layer of a broader
+                operational platform — connecting
+                enquiries, clients, workflows,
+                dashboards, reporting and HLNΛ
+                intelligence where appropriate.
+              </p>
+            </div>
+
+            <div
+              style={{
+                display: 'flex',
+                justifyContent:
+                  'flex-end',
+                gap: 9,
+                flexWrap: 'wrap',
+              }}
+            >
+              <Link
+                href="/demo"
+                style={{
+                  minHeight: 41,
+                  padding: '0 18px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  borderRadius: 9,
+                  background:
+                    'rgba(255,255,255,.025)',
+                  border:
+                    '1px solid rgba(255,255,255,.08)',
+                  color:
+                    'rgba(245,247,250,.64)',
+                  textDecoration: 'none',
+                  fontSize: 11,
+                  fontWeight: 550,
+                }}
+              >
+                Explore BRΛINBΛSE
+              </Link>
+
+              <Link
+                href="/client-operations"
+                style={{
+                  minHeight: 41,
+                  padding: '0 18px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  borderRadius: 9,
+                  background:
+                    'rgba(138,77,255,.07)',
+                  border:
+                    '1px solid rgba(138,77,255,.18)',
+                  color: '#C4B5FD',
+                  textDecoration: 'none',
+                  fontSize: 11,
+                  fontWeight: 650,
+                }}
+              >
+                Client Operations →
+              </Link>
+            </div>
+          </div>
+        </section>
+
+        {/* ================================================================
+            FINAL CTA
+        ================================================================= */}
+
+        <section
+          className="web-systems-panel"
           style={{
             padding: '50px 42px',
             borderRadius: 19,
@@ -1831,7 +2103,7 @@ export default function WebSystemsPage() {
         >
           <div
             style={{
-              maxWidth: 660,
+              maxWidth: 680,
               margin: '0 auto',
             }}
           >
@@ -1860,14 +2132,14 @@ export default function WebSystemsPage() {
                 color: '#F5F7FA',
               }}
             >
-              Build something that can grow with
-              the business.
+              Build something that can grow with the
+              business.
             </h2>
 
             <p
               style={{
                 margin: '0 auto 25px',
-                maxWidth: 560,
+                maxWidth: 570,
                 fontSize: 12,
                 lineHeight: 1.72,
                 color:
@@ -1910,7 +2182,7 @@ export default function WebSystemsPage() {
               </button>
 
               <Link
-                href="/for-coaches/demo"
+                href="/demo"
                 style={{
                   minHeight: 41,
                   padding: '0 19px',
@@ -1928,20 +2200,26 @@ export default function WebSystemsPage() {
                   fontWeight: 550,
                 }}
               >
-                View a live system
+                Explore BRΛINBΛSE
               </Link>
             </div>
           </div>
         </section>
       </div>
 
-      {/* Footer */}
+      {/* ================================================================
+          FOOTER
+      ================================================================= */}
+
       <footer
+        className="web-systems-footer"
         style={{
           marginTop: 55,
           padding: '22px 32px',
           borderTop:
             '1px solid rgba(255,255,255,.05)',
+          position: 'relative',
+          zIndex: 1,
         }}
       >
         <div
@@ -1952,7 +2230,7 @@ export default function WebSystemsPage() {
             alignItems: 'center',
             justifyContent:
               'space-between',
-            gap: 12,
+            gap: 18,
             flexWrap: 'wrap',
           }}
         >
@@ -1963,18 +2241,52 @@ export default function WebSystemsPage() {
                 'rgba(255,255,255,.20)',
             }}
           >
-            BrainBase · Adelaide, Australia
+            © 2026 BRΛINBΛSE
           </span>
 
-          <span
+          <div
             style={{
-              fontSize: 9,
-              color:
-                'rgba(255,255,255,.16)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 16,
+              flexWrap: 'wrap',
             }}
           >
-            © 2026 BrainBase
-          </span>
+            <Link
+              href="/client-operations"
+              style={footerLinkStyle}
+            >
+              Client Operations
+            </Link>
+
+            <Link
+              href="/pricing"
+              style={footerLinkStyle}
+            >
+              Pricing
+            </Link>
+
+            <Link
+              href="/demo"
+              style={footerLinkStyle}
+            >
+              Demo
+            </Link>
+
+            <Link
+              href="/terms"
+              style={footerLinkStyle}
+            >
+              Terms
+            </Link>
+
+            <Link
+              href="/privacy"
+              style={footerLinkStyle}
+            >
+              Privacy
+            </Link>
+          </div>
         </div>
       </footer>
 
@@ -1988,9 +2300,11 @@ export default function WebSystemsPage() {
   );
 }
 
-/* ================================================================
-   HELPERS
-================================================================ */
+const footerLinkStyle = {
+  fontSize: 9,
+  color: 'rgba(255,255,255,.28)',
+  textDecoration: 'none',
+};
 
 function SystemLayer({
   title,
@@ -2020,7 +2334,8 @@ function SystemLayer({
           flexShrink: 0,
           borderRadius: '50%',
           background: color,
-          boxShadow: `0 0 7px ${color}70`,
+          boxShadow:
+            `0 0 7px ${color}70`,
         }}
       />
 

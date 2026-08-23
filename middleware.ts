@@ -23,7 +23,13 @@ const PUBLIC = [
   '/web-systems',
   '/api/auth',
   '/api/lead',
+
+  // Main client-operations pages
+  '/client-operations',
+
+  // Legacy redirects kept public
   '/for-coaches',
+
   '/request-demo',
   '/api/request-demo',
 ];
