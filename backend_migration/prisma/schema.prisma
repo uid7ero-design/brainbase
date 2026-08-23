@@ -23,6 +23,7 @@ model Organisation {
   plan       Plan     @default(TRIAL)
   status     OrgStatus @default(ACTIVE)
   settings   Json     @default("{}")
+  timezone   String?
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
