@@ -46,8 +46,69 @@ model Organisation {
   hlna_actions       HlnaAction[]
   hlna_briefings     HlnaBriefing[]
   evidence_records   EvidenceRecord[]
+  organisation_modules OrganisationModule[]
 
   @@map("organisations")
+}
+
+// ─── Capability entitlement (Phase F.4B) ────────────────────────────────
+// Module = a customer-facing BrainBase CAPABILITY (crm, organiser, ...),
+// never an external integration (Microsoft 365/Google/Instagram remain
+// governed entirely by lib/globalIntegrationAccess.ts, untouched here).
+// `key` is the durable identity — application code resolves capabilities
+// by key, never by an opaque id, so this small, rarely-inserted registry
+// deliberately has no separate surrogate id (unlike every business-data
+// model in this schema). `active` is the platform-wide kill switch —
+// distinct from any organisation's own entitlement, which lives entirely
+// in OrganisationModule.enabled below.
+// Named PlatformModule (not `Module`) because an unrelated, pre-existing
+// `enum Module { WASTE, DUMPING, FORECASTING, ... }` already exists in
+// this schema (a waste/local-government dashboard-domain concept, used
+// as a field type by several existing models) — this is a Prisma-
+// identifier-only collision, resolved by naming the new capability-
+// registry model distinctly. The underlying database table name is
+// unaffected: it remains `modules` via @@map below, exactly matching
+// the locked SQL DDL in scripts/create-modules.sql.
+model PlatformModule {
+  key         String   @id
+  name        String
+  description String?
+  active      Boolean  @default(true)
+  created_at  DateTime @default(now()) @db.Timestamptz(6)
+  updated_at  DateTime @updatedAt @db.Timestamptz(6)
+
+  organisation_modules OrganisationModule[]
+
+  @@map("modules")
+}
+
+// Per-organisation capability entitlement + behaviour configuration.
+// No row = not entitled. enabled = false = not entitled (identical
+// effect to a missing row — a row's mere existence never implies
+// access). `config` is for module-specific BEHAVIOUR only, never
+// integration credential/connection storage. Both foreign keys use
+// Restrict (not Cascade) deliberately: organisation/module metadata
+// must never disappear implicitly as a side effect of deleting an
+// organisation or a module — see scripts/create-organisation-
+// modules.sql for the full rationale. `@updatedAt` here is a Prisma-
+// Client-side convenience only (matching Organisation's own existing
+// use of it above) — the underlying DDL has no database trigger, since
+// every write in this repository goes through the raw SQL client
+// (lib/db.ts), not Prisma Client.
+model OrganisationModule {
+  id              String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  organisation_id String
+  module_key      String
+  enabled         Boolean  @default(false)
+  config          Json     @default("{}")
+  created_at      DateTime @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime @updatedAt @db.Timestamptz(6)
+
+  organisation Organisation   @relation(fields: [organisation_id], references: [id], onDelete: Restrict)
+  module       PlatformModule @relation(fields: [module_key], references: [key], onDelete: Restrict)
+
+  @@unique([organisation_id, module_key])
+  @@map("organisation_modules")
 }
 
 model User {
