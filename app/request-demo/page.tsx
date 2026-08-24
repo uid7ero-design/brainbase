@@ -1103,6 +1103,48 @@ export default function RequestDemoPage() {
                   />
                 </Field>
 
+                <div
+                  style={{
+                    marginBottom: 18,
+                    padding: '12px 14px',
+                    borderRadius: 9,
+                    background:
+                      'rgba(255,255,255,.018)',
+                    border:
+                      '1px solid rgba(255,255,255,.06)',
+                    fontSize: 10.5,
+                    lineHeight: 1.6,
+                    color:
+                      'rgba(226,232,240,.42)',
+                  }}
+                >
+                  Brainbase (ABN 32 207 559 504),
+                  trading as BRΛINBΛSE, collects
+                  the information in this form so we
+                  can review your enquiry, contact
+                  you and discuss where BRΛINBΛSE
+                  may fit your operation. We may use
+                  service providers to host and
+                  process this information. Enquiry
+                  information may be retained for up
+                  to 24 months unless it becomes
+                  part of an ongoing customer
+                  relationship or is required for
+                  another lawful purpose. Submitting
+                  this form does not subscribe you
+                  to marketing. See our{' '}
+                  <Link
+                    href="/privacy"
+                    style={{
+                      color:
+                        'rgba(196,181,253,.75)',
+                    }}
+                  >
+                    Privacy Policy
+                  </Link>{' '}
+                  for details.
+                </div>
+
                 {error && (
                   <div
                     role="alert"

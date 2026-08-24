@@ -3451,6 +3451,37 @@ export default function DemoPage() {
           </Link>
         </div>
       </section>
+
+      <div
+        style={{
+          margin: '32px 0 40px',
+          textAlign: 'center',
+          display: 'flex',
+          justifyContent: 'center',
+          gap: 14,
+          fontSize: 10,
+        }}
+      >
+        <Link
+          href="/privacy"
+          style={{
+            color: 'rgba(255,255,255,.28)',
+            textDecoration: 'none',
+          }}
+        >
+          Privacy
+        </Link>
+
+        <Link
+          href="/terms"
+          style={{
+            color: 'rgba(255,255,255,.28)',
+            textDecoration: 'none',
+          }}
+        >
+          Terms
+        </Link>
+      </div>
     </main>
   )
 }

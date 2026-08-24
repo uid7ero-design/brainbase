@@ -1,87 +1,259 @@
 import Link from 'next/link';
 
-export const metadata = { title: 'Terms of Service — Brainbase' };
+export const metadata = {
+  title: 'Terms of Use',
+  description:
+    'The website terms of use for Brainbase (trading as BRΛINBΛSE), covering use of thebrainbase.com.au.',
+};
 
-const FONT = "var(--font-inter), -apple-system, sans-serif";
+const FONT =
+  'var(--font-inter), "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
   return (
-    <section style={{ marginBottom: 32 }}>
-      <h2 style={{ fontSize: 16, fontWeight: 700, color: '#F4F4F5', margin: '0 0 10px', letterSpacing: '-0.01em' }}>{title}</h2>
-      <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.60)', lineHeight: 1.75 }}>{children}</div>
+    <section style={{ marginBottom: 34 }}>
+      <h2
+        style={{
+          fontSize: 16,
+          fontWeight: 700,
+          color: '#F5F7FA',
+          margin: '0 0 10px',
+          letterSpacing: '-.01em',
+        }}
+      >
+        {title}
+      </h2>
+
+      <div
+        style={{
+          fontSize: 13.5,
+          color: 'rgba(226,232,240,.62)',
+          lineHeight: 1.75,
+        }}
+      >
+        {children}
+      </div>
     </section>
   );
 }
 
+function List({ items }: { items: React.ReactNode[] }) {
+  return (
+    <ul
+      style={{
+        margin: '10px 0 0',
+        paddingLeft: 20,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 6,
+      }}
+    >
+      {items.map((item, index) => (
+        <li key={index}>{item}</li>
+      ))}
+    </ul>
+  );
+}
+
+const linkStyle = { color: '#A78BFA' };
+
 export default function TermsPage() {
   return (
-    <div style={{ minHeight: '100vh', background: '#08090C', color: '#F4F4F5', fontFamily: FONT, padding: '48px 24px 80px' }}>
+    <div
+      style={{
+        minHeight: '100vh',
+        background: '#07080B',
+        color: '#F5F7FA',
+        fontFamily: FONT,
+        padding: '48px 24px 90px',
+      }}
+    >
       <div style={{ maxWidth: 720, margin: '0 auto' }}>
-
-        <Link href="/" style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)', textDecoration: 'none', letterSpacing: '0.04em', textTransform: 'uppercase' }}>
-          ← Back
+        <Link
+          href="/"
+          style={{
+            fontSize: 11,
+            color: 'rgba(255,255,255,.34)',
+            textDecoration: 'none',
+          }}
+        >
+          ← Back to BRΛINBΛSE
         </Link>
 
-        <div style={{ marginTop: 32, marginBottom: 40 }}>
-          <h1 style={{ fontSize: 28, fontWeight: 700, margin: '0 0 8px', letterSpacing: '-0.02em' }}>Terms of Service</h1>
-          <p style={{ margin: 0, fontSize: 13, color: 'rgba(255,255,255,0.35)' }}>Last updated: 29 April 2026</p>
+        <div style={{ marginTop: 30, marginBottom: 40 }}>
+          <h1
+            style={{
+              fontSize: 30,
+              fontWeight: 700,
+              margin: '0 0 8px',
+              letterSpacing: '-.03em',
+            }}
+          >
+            Terms of Use
+          </h1>
+
+          <p style={{ margin: 0, fontSize: 12.5, color: 'rgba(255,255,255,.35)' }}>
+            Last updated: 24 August 2026
+          </p>
         </div>
 
-        <Section title="1. Acceptance of Terms">
-          By accessing or using Brainbase ("the Service"), you agree to be bound by these Terms of Service. If you do not agree, do not use the Service. These terms apply to all users, administrators, and organisations using the platform.
+        <Section title="1. Acceptance of terms">
+          <p style={{ margin: 0 }}>
+            By accessing or using thebrainbase.com.au (the
+            &quot;Website&quot;), you agree to these website Terms of Use.
+            If you do not agree, please do not use the Website.
+          </p>
         </Section>
 
-        <Section title="2. Description of Service">
-          Brainbase is a voice-first AI command centre for municipal council operations. The Service provides dashboards, data analysis, integrations, and AI-powered insights for operational data including waste management, fleet operations, and service delivery. Access is granted to verified organisations only.
+        <Section title="2. About the website">
+          <p style={{ margin: 0 }}>
+            This Website is operated by Brainbase (ABN 32 207 559 504),
+            trading as BRΛINBΛSE (&quot;we&quot;, &quot;us&quot;,
+            &quot;our&quot;). It provides information about BRΛINBΛSE, an
+            operational platform, including example content, demonstration
+            environments, pricing information and a way to get in touch
+            with us.
+          </p>
+
+          <p style={{ margin: '10px 0 0' }}>
+            These website Terms of Use apply only to your use of this
+            Website. They are not the contract for paid BRΛINBΛSE
+            services. Access to and use of the BRΛINBΛSE platform by
+            customers is governed separately by an agreed proposal, quote,
+            order form, BRΛINBΛSE Service Agreement, or other commercial
+            terms agreed directly with the customer.
+          </p>
         </Section>
 
-        <Section title="3. Authorised Use">
-          <p style={{ margin: '0 0 10px' }}>The Service is provided for authorised operational use within your organisation. You agree to:</p>
-          <ul style={{ margin: 0, paddingLeft: 20, display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <li>Use the Service only for lawful purposes and in accordance with these Terms</li>
-            <li>Maintain the confidentiality of login credentials and not share them with unauthorised persons</li>
-            <li>Not attempt to access data belonging to other organisations</li>
-            <li>Not use the Service to upload unlawful, harmful, or malicious content</li>
-            <li>Not attempt to reverse-engineer, decompile, or circumvent security controls</li>
-          </ul>
+        <Section title="3. Information only / no guaranteed availability">
+          <p style={{ margin: 0 }}>
+            Content on this Website — including feature descriptions,
+            example configurations, and pricing — is provided for general
+            information purposes and does not constitute a binding offer.
+            The availability of specific capabilities may vary by
+            deployment, configuration, or over time. We may update or
+            change Website content at any time.
+          </p>
         </Section>
 
-        <Section title="4. Data and Privacy">
-          Operational data uploaded to the Service is stored securely and scoped to your organisation. We do not sell or share your operational data with third parties except as required by law or to provide the Service (including AI processing via Anthropic). Please review our <Link href="/privacy" style={{ color: '#A78BFA' }}>Privacy Policy</Link> for full details.
+        <Section title="4. Intellectual property">
+          <p style={{ margin: 0 }}>
+            The Website, including its design, text, graphics, the
+            BRΛINBΛSE and HLNΛ names and marks, and underlying software,
+            is owned by or licensed to Brainbase and protected by
+            applicable intellectual property laws. You may not copy,
+            reproduce or reuse Website content beyond your own personal,
+            non-commercial reference, without our permission.
+          </p>
         </Section>
 
-        <Section title="5. AI-Generated Content">
-          The Service uses artificial intelligence to generate insights, summaries, and recommendations. AI-generated content is provided for informational purposes only and should not be relied upon as the sole basis for operational or financial decisions. You remain responsible for verifying AI-generated outputs against source data.
+        <Section title="5. Acceptable use">
+          <p style={{ margin: 0 }}>You agree not to:</p>
+
+          <List
+            items={[
+              'Misuse the Website or attempt to gain unauthorised access to it',
+              'Interfere with the security, integrity or normal functioning of the Website',
+              'Use automated tools to scrape or extract Website content beyond standard search engine indexing',
+              'Submit unlawful, harmful or misleading content through any form on the Website',
+              'Misrepresent your identity or authority when submitting an enquiry',
+            ]}
+          />
         </Section>
 
-        <Section title="6. Intellectual Property">
-          The Service, including its software, design, and proprietary algorithms, is owned by Brainbase and protected by applicable intellectual property laws. Uploading data to the Service does not transfer ownership of that data to Brainbase. You retain all rights to your operational data.
+        <Section title="6. Third-party links and services">
+          <p style={{ margin: 0 }}>
+            The Website may link to or reference third-party websites and
+            services. We do not control, and are not responsible for, the
+            content, policies or practices of third-party sites.
+          </p>
         </Section>
 
-        <Section title="7. Service Availability">
-          We aim to provide continuous availability but do not guarantee uninterrupted access. Scheduled maintenance, infrastructure updates, or circumstances beyond our control may cause downtime. We will communicate planned maintenance in advance where possible.
+        <Section title="7. Demo and example data">
+          <p style={{ margin: 0 }}>
+            Any platform demonstration, dashboard or example environment
+            shown on the Website uses simulated or example data unless
+            otherwise stated. It is provided to illustrate how BRΛINBΛSE
+            could be configured, and does not represent live production
+            data, real customers, or a guarantee of identical functionality
+            in every deployment.
+          </p>
         </Section>
 
-        <Section title="8. Limitation of Liability">
-          To the fullest extent permitted by law, Brainbase shall not be liable for indirect, incidental, special, or consequential damages arising from your use of the Service, including reliance on AI-generated insights. Our total liability shall not exceed the fees paid by your organisation in the preceding three months.
+        <Section title="8. AI-generated and demo content">
+          <p style={{ margin: 0 }}>
+            Some content or responses shown on the Website, including
+            demonstration HLNΛ interactions, may be generated or assisted
+            by artificial intelligence and are provided for illustrative
+            purposes. They should not be relied upon as professional,
+            financial, legal or operational advice.
+          </p>
         </Section>
 
-        <Section title="9. Termination">
-          We reserve the right to suspend or terminate access to the Service for any organisation that breaches these Terms, upon reasonable notice where practicable. You may terminate your organisation's access at any time by contacting us.
+        <Section title="9. Website availability">
+          <p style={{ margin: 0 }}>
+            We aim to keep the Website available and functioning correctly
+            but do not guarantee uninterrupted or error-free access. The
+            Website may be unavailable at times for maintenance, updates,
+            or reasons outside our control.
+          </p>
         </Section>
 
-        <Section title="10. Changes to Terms">
-          We may update these Terms from time to time. We will notify administrators of material changes by email or in-app notice. Continued use of the Service after changes take effect constitutes acceptance.
+        <Section title="10. Liability">
+          <p style={{ margin: 0 }}>
+            To the maximum extent permitted by law, we exclude all
+            liability for loss or damage arising from your use of, or
+            inability to use, the Website. Nothing in these terms excludes,
+            restricts or modifies any consumer guarantee, right or remedy
+            under the Australian Consumer Law, or any other right that
+            cannot lawfully be excluded, restricted or modified.
+          </p>
         </Section>
 
-        <Section title="11. Governing Law">
-          These Terms are governed by the laws of South Australia, Australia. Any disputes shall be subject to the exclusive jurisdiction of the courts of South Australia.
+        <Section title="11. Privacy">
+          <p style={{ margin: 0 }}>
+            Our collection and handling of personal information through
+            the Website is described in our{' '}
+            <Link href="/privacy" style={linkStyle}>
+              Privacy Policy
+            </Link>
+            .
+          </p>
         </Section>
 
-        <Section title="12. Contact">
-          For questions about these Terms, contact us at <a href="mailto:legal@brainbase.app" style={{ color: '#A78BFA' }}>legal@brainbase.app</a>.
+        <Section title="12. Changes to the website and these terms">
+          <p style={{ margin: 0 }}>
+            We may update the Website or these Terms of Use from time to
+            time. Changes take effect once published. Continued use of the
+            Website after changes are published constitutes acceptance of
+            the updated terms.
+          </p>
         </Section>
 
+        <Section title="13. Governing law">
+          <p style={{ margin: 0 }}>
+            These terms are governed by the laws of South Australia,
+            Australia, and you submit to the non-exclusive jurisdiction of
+            the courts of South Australia.
+          </p>
+        </Section>
+
+        <Section title="14. Contact">
+          <p style={{ margin: 0 }}>
+            For questions about these terms, contact Brainbase (trading as
+            BRΛINBΛSE) at{' '}
+            <a href="mailto:hello@thebrainbase.com.au" style={linkStyle}>
+              hello@thebrainbase.com.au
+            </a>
+            .
+          </p>
+        </Section>
       </div>
     </div>
   );
