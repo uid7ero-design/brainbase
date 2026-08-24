@@ -32,6 +32,9 @@ const PUBLIC = [
 
   '/request-demo',
   '/api/request-demo',
+
+  // Business-card QR landing page
+  '/connect',
 ];
 
 export async function middleware(req: NextRequest) {
