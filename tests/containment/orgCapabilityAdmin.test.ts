@@ -336,3 +336,62 @@ describe('SECURITY / CONTAINMENT', () => {
     expect(adminClientSource).not.toMatch(/TopNav/)
   })
 })
+
+describe('AdminClient.tsx — capability toggle pending-state regression (Phase F.6N)', () => {
+  // Phase F.6M discovery: toggleCapability() fired its refetch
+  // (getOrganisationCapabilities) without awaiting it, so the
+  // useTransition() pending state (isCapabilityPending) could settle
+  // independently of the refresh actually completing — leaving the
+  // capability section visibly stuck (dimmed/disabled) until a hard
+  // browser refresh, even though the underlying entitlement write
+  // always succeeded. This is a SOURCE-LEVEL containment check, not a
+  // behavioural/rendered test — this repo has no React component-
+  // rendering test infrastructure (no @testing-library/react or
+  // equivalent dependency exists anywhere in package.json). It proves
+  // the specific fire-and-forget code shape that caused the bug is
+  // gone and the corrected shape is present; it does NOT independently
+  // prove the runtime race is resolved — that requires the manual
+  // browser smoke test described in the Phase F.6N report.
+  const ADMIN_CLIENT_SOURCE = fs.readFileSync(
+    path.resolve(__dirname, '../../app/admin/orgs/AdminClient.tsx'),
+    'utf-8',
+  )
+  function stripAdminComments(src: string): string {
+    return src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+  }
+  const ADMIN_CODE = stripAdminComments(ADMIN_CLIENT_SOURCE)
+
+  function toggleCapabilityBody(): string {
+    const start = ADMIN_CODE.indexOf('function toggleCapability(')
+    expect(start, 'expected to find toggleCapability(...)').toBeGreaterThan(-1)
+    const end = ADMIN_CODE.indexOf('\n  }\n', start)
+    return ADMIN_CODE.slice(start, end)
+  }
+
+  it('the capability refetch is awaited, not fired-and-forgotten', () => {
+    const body = toggleCapabilityBody()
+    expect(body).toMatch(/await getOrganisationCapabilities\(orgId\)/)
+    // The old fire-and-forget shape must not remain anywhere in this function.
+    expect(body).not.toMatch(/getOrganisationCapabilities\(orgId\)\s*\n\s*\.then\(/)
+  })
+
+  it('the mutation and the refetch are both awaited inside the same try block, so one tracked async operation spans the full write-then-read sequence', () => {
+    const body = toggleCapabilityBody()
+    expect(body).toMatch(/try\s*\{[\s\S]*await setOrganisationCapability\([\s\S]*await getOrganisationCapabilities\([\s\S]*\}\s*catch/)
+  })
+
+  it('a rejection from either the mutation or the refetch is caught and surfaces the existing safe, generic capability error state', () => {
+    const body = toggleCapabilityBody()
+    expect(body).toMatch(/catch\s*\{\s*setCapabilitiesError\(/)
+  })
+
+  it('local capability state is only replaced after the refetch resolves — never optimistically updated', () => {
+    const body = toggleCapabilityBody()
+    expect(body).toMatch(/const caps = await getOrganisationCapabilities\(orgId\);\s*\n\s*setCapabilities\(caps\)/)
+  })
+
+  it('the toggle function still returns early on an ordinary mutation failure without proceeding to the refetch', () => {
+    const body = toggleCapabilityBody()
+    expect(body).toMatch(/if \(!result\.ok\) \{ setCapabilitiesError\(result\.error\); return; \}/)
+  })
+})

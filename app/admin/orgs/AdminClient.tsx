@@ -65,12 +65,15 @@ export default function AdminClient({ orgs: initial, users: initialUsers }: Prop
     if (!editOrg) return;
     const orgId = editOrg.id;
     startCapabilityTransition(async () => {
-      const result = await setOrganisationCapability(orgId, capabilityKey, enabled);
-      if (!result.ok) { setCapabilitiesError(result.error); return; }
-      setCapabilitiesError('');
-      getOrganisationCapabilities(orgId)
-        .then(setCapabilities)
-        .catch(() => setCapabilitiesError('Unable to load capabilities.'));
+      try {
+        const result = await setOrganisationCapability(orgId, capabilityKey, enabled);
+        if (!result.ok) { setCapabilitiesError(result.error); return; }
+        setCapabilitiesError('');
+        const caps = await getOrganisationCapabilities(orgId);
+        setCapabilities(caps);
+      } catch {
+        setCapabilitiesError('Unable to update capability.');
+      }
     });
   }
 
