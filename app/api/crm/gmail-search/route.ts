@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getValidAccessToken } from '@/lib/gmail/tokens';
-import { requireSession, unauthorized } from '@/lib/org';
+import { requireSession, unauthorized, forbidden } from '@/lib/org';
+import { requireCapability, CapabilityDatabaseError } from '@/lib/capabilities/requireCapability';
 
 const BASE = 'https://gmail.googleapis.com/gmail/v1/users/me';
 
@@ -22,7 +23,14 @@ function relativeTime(ms: number): string {
  * Returns Gmail messages to/from the given email address.
  */
 export async function GET(req: NextRequest) {
-  try { await requireSession(); } catch { return unauthorized(); }
+  let session;
+  try { session = await requireSession(); } catch { return unauthorized(); }
+  try {
+    await requireCapability(session.organisationId, 'crm');
+  } catch (err) {
+    if (err instanceof CapabilityDatabaseError) return NextResponse.json({ error: 'Unable to verify CRM access.' }, { status: 503 });
+    return forbidden();
+  }
 
   const email = req.nextUrl.searchParams.get('email');
   if (!email) return NextResponse.json({ error: 'email param required.' }, { status: 400 });

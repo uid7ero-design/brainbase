@@ -1,12 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import sql from '@/lib/db';
-import { requireSession, unauthorized } from '@/lib/org';
+import { requireSession, unauthorized, forbidden } from '@/lib/org';
+import { requireCapability, CapabilityDatabaseError } from '@/lib/capabilities/requireCapability';
 
 const TYPES = ['call','email','note','meeting'] as const;
 
 export async function GET(req: NextRequest) {
   let session;
   try { session = await requireSession(); } catch { return unauthorized(); }
+  try {
+    await requireCapability(session.organisationId, 'crm');
+  } catch (err) {
+    if (err instanceof CapabilityDatabaseError) return NextResponse.json({ error: 'Unable to verify CRM access.' }, { status: 503 });
+    return forbidden();
+  }
 
   const { searchParams } = req.nextUrl;
   const contactId = searchParams.get('contactId');
@@ -40,6 +47,12 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   let session;
   try { session = await requireSession(); } catch { return unauthorized(); }
+  try {
+    await requireCapability(session.organisationId, 'crm');
+  } catch (err) {
+    if (err instanceof CapabilityDatabaseError) return NextResponse.json({ error: 'Unable to verify CRM access.' }, { status: 503 });
+    return forbidden();
+  }
 
   const body = await req.json();
   const { type, subject, body: actBody, activity_date, contact_id, company_id, deal_id } = body;
