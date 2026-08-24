@@ -33,7 +33,7 @@ export async function PATCH(req: NextRequest) {
   try {
     const rows = await sql`
       UPDATE organisations SET name = ${name}, slug = ${slug}
-      WHERE id = ${id}::uuid RETURNING *
+      WHERE id = ${id} RETURNING *
     `;
     if (rows.length === 0) return NextResponse.json({ error: 'Not found.' }, { status: 404 });
     return NextResponse.json({ org: rows[0] });
@@ -53,12 +53,12 @@ export async function DELETE(req: NextRequest) {
   const id = new URL(req.url).searchParams.get('id');
   if (!id) return NextResponse.json({ error: 'id is required.' }, { status: 400 });
 
-  const [check] = await sql`SELECT COUNT(*)::int AS n FROM users WHERE organisation_id = ${id}::uuid`;
+  const [check] = await sql`SELECT COUNT(*)::int AS n FROM users WHERE organisation_id = ${id}`;
   if ((check.n as number) > 0)
     return NextResponse.json({ error: `Cannot delete: ${check.n} user(s) still assigned. Reassign or delete them first.` }, { status: 409 });
 
   try {
-    await sql`DELETE FROM organisations WHERE id = ${id}::uuid`;
+    await sql`DELETE FROM organisations WHERE id = ${id}`;
     return NextResponse.json({ success: true });
   } catch (err: unknown) {
     const msg = (err as Error).message ?? '';
