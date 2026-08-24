@@ -1,12 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import sql from '@/lib/db';
-import { requireSession, unauthorized } from '@/lib/org';
+import { requireSession, unauthorized, forbidden } from '@/lib/org';
+import { requireCapability, CapabilityDatabaseError } from '@/lib/capabilities/requireCapability';
 
 const STAGES = ['lead','qualified','proposal','negotiation','closed_won','closed_lost'] as const;
 
 export async function GET(req: NextRequest) {
   let session;
   try { session = await requireSession(); } catch { return unauthorized(); }
+  try {
+    await requireCapability(session.organisationId, 'crm');
+  } catch (err) {
+    if (err instanceof CapabilityDatabaseError) return NextResponse.json({ error: 'Unable to verify CRM access.' }, { status: 503 });
+    return forbidden();
+  }
 
   const stage = req.nextUrl.searchParams.get('stage');
 
@@ -31,6 +38,12 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   let session;
   try { session = await requireSession(); } catch { return unauthorized(); }
+  try {
+    await requireCapability(session.organisationId, 'crm');
+  } catch (err) {
+    if (err instanceof CapabilityDatabaseError) return NextResponse.json({ error: 'Unable to verify CRM access.' }, { status: 503 });
+    return forbidden();
+  }
 
   const body = await req.json();
   const { title, value, stage = 'lead', probability, expected_close, company_id, contact_id, assigned_to, notes } = body;

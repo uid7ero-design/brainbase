@@ -1,10 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import sql from '@/lib/db';
-import { requireSession, unauthorized } from '@/lib/org';
+import { requireSession, unauthorized, forbidden } from '@/lib/org';
+import { requireCapability, CapabilityDatabaseError } from '@/lib/capabilities/requireCapability';
 
 export async function GET() {
   let session;
   try { session = await requireSession(); } catch { return unauthorized(); }
+  try {
+    await requireCapability(session.organisationId, 'crm');
+  } catch (err) {
+    if (err instanceof CapabilityDatabaseError) return NextResponse.json({ error: 'Unable to verify CRM access.' }, { status: 503 });
+    return forbidden();
+  }
 
   const companies = await sql`
     SELECT
@@ -26,6 +33,12 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   let session;
   try { session = await requireSession(); } catch { return unauthorized(); }
+  try {
+    await requireCapability(session.organisationId, 'crm');
+  } catch (err) {
+    if (err instanceof CapabilityDatabaseError) return NextResponse.json({ error: 'Unable to verify CRM access.' }, { status: 503 });
+    return forbidden();
+  }
 
   const body = await req.json();
   const { name, website, industry, company_size, phone, address, notes } = body;
