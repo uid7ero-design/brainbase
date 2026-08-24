@@ -6,7 +6,7 @@ const sql = neon(process.env.DATABASE_URL);
 await sql.query(`
   CREATE TABLE IF NOT EXISTS crm_companies (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    organisation_id UUID NOT NULL REFERENCES organisations(id),
+    organisation_id TEXT NOT NULL REFERENCES organisations(id),
     name            TEXT NOT NULL,
     website         TEXT,
     industry        TEXT,
@@ -14,7 +14,7 @@ await sql.query(`
     phone           TEXT,
     address         TEXT,
     notes           TEXT,
-    created_by      UUID REFERENCES users(id),
+    created_by      TEXT REFERENCES users(id),
     created_at      TIMESTAMPTZ DEFAULT NOW(),
     updated_at      TIMESTAMPTZ DEFAULT NOW()
   )
@@ -25,7 +25,7 @@ console.log('✓ crm_companies');
 await sql.query(`
   CREATE TABLE IF NOT EXISTS crm_contacts (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    organisation_id UUID NOT NULL REFERENCES organisations(id),
+    organisation_id TEXT NOT NULL REFERENCES organisations(id),
     company_id      UUID REFERENCES crm_companies(id) ON DELETE SET NULL,
     first_name      TEXT NOT NULL,
     last_name       TEXT NOT NULL,
@@ -33,7 +33,7 @@ await sql.query(`
     phone           TEXT,
     job_title       TEXT,
     notes           TEXT,
-    created_by      UUID REFERENCES users(id),
+    created_by      TEXT REFERENCES users(id),
     created_at      TIMESTAMPTZ DEFAULT NOW(),
     updated_at      TIMESTAMPTZ DEFAULT NOW()
   )
@@ -44,7 +44,7 @@ console.log('✓ crm_contacts');
 await sql.query(`
   CREATE TABLE IF NOT EXISTS crm_deals (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    organisation_id UUID NOT NULL REFERENCES organisations(id),
+    organisation_id TEXT NOT NULL REFERENCES organisations(id),
     company_id      UUID REFERENCES crm_companies(id) ON DELETE SET NULL,
     contact_id      UUID REFERENCES crm_contacts(id) ON DELETE SET NULL,
     title           TEXT NOT NULL,
@@ -53,9 +53,9 @@ await sql.query(`
                       CHECK (stage IN ('lead','qualified','proposal','negotiation','closed_won','closed_lost')),
     probability     INTEGER DEFAULT 0 CHECK (probability BETWEEN 0 AND 100),
     expected_close  DATE,
-    assigned_to     UUID REFERENCES users(id),
+    assigned_to     TEXT REFERENCES users(id),
     notes           TEXT,
-    created_by      UUID REFERENCES users(id),
+    created_by      TEXT REFERENCES users(id),
     created_at      TIMESTAMPTZ DEFAULT NOW(),
     updated_at      TIMESTAMPTZ DEFAULT NOW()
   )
@@ -66,7 +66,7 @@ console.log('✓ crm_deals');
 await sql.query(`
   CREATE TABLE IF NOT EXISTS crm_activities (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    organisation_id UUID NOT NULL REFERENCES organisations(id),
+    organisation_id TEXT NOT NULL REFERENCES organisations(id),
     contact_id      UUID REFERENCES crm_contacts(id) ON DELETE SET NULL,
     company_id      UUID REFERENCES crm_companies(id) ON DELETE SET NULL,
     deal_id         UUID REFERENCES crm_deals(id) ON DELETE SET NULL,
@@ -74,7 +74,7 @@ await sql.query(`
     subject         TEXT NOT NULL,
     body            TEXT,
     activity_date   TIMESTAMPTZ DEFAULT NOW(),
-    created_by      UUID REFERENCES users(id),
+    created_by      TEXT REFERENCES users(id),
     created_at      TIMESTAMPTZ DEFAULT NOW()
   )
 `);
