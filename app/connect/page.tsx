@@ -24,6 +24,46 @@ export default function ConnectPage() {
         overflow: 'hidden',
       }}
     >
+      <style>{`
+        @keyframes bbConnectGlow {
+          0%, 100% { opacity: .38; }
+          50% { opacity: .62; }
+        }
+
+        .bb-connect-primary,
+        .bb-connect-secondary,
+        .bb-connect-path {
+          transition: transform .15s ease, box-shadow .15s ease,
+            background .15s ease, border-color .15s ease;
+        }
+
+        .bb-connect-primary:hover {
+          transform: translateY(-1px);
+          box-shadow: 0 14px 36px rgba(106,61,255,.30);
+        }
+
+        .bb-connect-primary:active {
+          transform: translateY(0);
+        }
+
+        .bb-connect-secondary:hover {
+          background: rgba(255,255,255,.055);
+          border-color: rgba(255,255,255,.16);
+        }
+
+        .bb-connect-path:hover {
+          transform: translateY(-1px);
+          background: rgba(255,255,255,.032);
+          border-color: rgba(255,255,255,.12);
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+          .bb-connect-glow {
+            animation: none !important;
+          }
+        }
+      `}</style>
+
       <div
         aria-hidden="true"
         style={{
@@ -34,8 +74,8 @@ export default function ConnectPage() {
           background: `
             radial-gradient(
               ellipse 72% 46% at 50% -6%,
-              rgba(138,77,255,.14) 0%,
-              rgba(86,119,255,.035) 42%,
+              rgba(138,77,255,.12) 0%,
+              rgba(86,119,255,.03) 42%,
               transparent 72%
             )
           `,
@@ -50,7 +90,8 @@ export default function ConnectPage() {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          padding: '48px 22px',
+          padding:
+            '24px 20px max(24px, env(safe-area-inset-bottom))',
         }}
       >
         <div
@@ -64,11 +105,30 @@ export default function ConnectPage() {
 
           <div
             style={{
+              position: 'relative',
               display: 'flex',
               justifyContent: 'center',
-              marginBottom: 22,
+              marginBottom: 18,
             }}
           >
+            <div
+              aria-hidden="true"
+              className="bb-connect-glow"
+              style={{
+                position: 'absolute',
+                left: '50%',
+                top: '50%',
+                width: 260,
+                height: 260,
+                transform: 'translate(-50%, -50%)',
+                borderRadius: '50%',
+                background:
+                  'radial-gradient(circle, rgba(138,77,255,.22) 0%, rgba(86,119,255,.10) 42%, transparent 72%)',
+                filter: 'blur(26px)',
+                animation: 'bbConnectGlow 6s ease-in-out infinite',
+              }}
+            />
+
             <Image
               src="/Brand/brainbase-logo-dark.svg"
               alt="BRΛINBΛSE"
@@ -76,9 +136,10 @@ export default function ConnectPage() {
               height={114}
               priority
               style={{
+                position: 'relative',
                 display: 'block',
-                width: 220,
-                maxWidth: '72vw',
+                width: 250,
+                maxWidth: '76vw',
                 height: 'auto',
                 transform: 'translateX(-3.5%)',
               }}
@@ -89,10 +150,11 @@ export default function ConnectPage() {
 
           <p
             style={{
-              margin: '0 0 22px',
-              fontSize: 11.5,
+              margin: '0 0 18px',
+              fontSize: 12,
               lineHeight: 1.5,
-              color: 'rgba(255,255,255,.32)',
+              color: 'rgba(226,232,240,.40)',
+              fontStyle: 'italic',
             }}
           >
             Scanned from a BRΛINBΛSE card? You&apos;re in the right place.
@@ -106,7 +168,7 @@ export default function ConnectPage() {
               alignItems: 'center',
               gap: 8,
               padding: '5px 11px',
-              marginBottom: 20,
+              marginBottom: 18,
               borderRadius: 999,
               background: 'rgba(138,77,255,.07)',
               border: '1px solid rgba(138,77,255,.18)',
@@ -139,10 +201,10 @@ export default function ConnectPage() {
 
           <h1
             style={{
-              margin: '0 0 16px',
-              fontSize: 'clamp(30px, 8vw, 40px)',
-              lineHeight: 1.08,
-              letterSpacing: '-.04em',
+              margin: '0 0 14px',
+              fontSize: 'clamp(29px, 7.6vw, 38px)',
+              lineHeight: 1.1,
+              letterSpacing: '-.038em',
               fontWeight: 650,
               color: '#F5F7FA',
             }}
@@ -166,11 +228,11 @@ export default function ConnectPage() {
 
           <p
             style={{
-              margin: '0 auto 28px',
-              maxWidth: 360,
-              fontSize: 14,
-              lineHeight: 1.65,
-              color: 'rgba(226,232,240,.60)',
+              margin: '0 auto 24px',
+              maxWidth: 340,
+              fontSize: 13.5,
+              lineHeight: 1.6,
+              color: 'rgba(226,232,240,.58)',
             }}
           >
             Start with the capabilities you need, connect the systems you
@@ -184,18 +246,21 @@ export default function ConnectPage() {
               display: 'flex',
               flexDirection: 'column',
               gap: 10,
-              marginBottom: 26,
+              marginBottom: 20,
             }}
           >
             <Link
               href="/demo"
+              className="bb-connect-primary"
               style={{
+                width: '100%',
+                boxSizing: 'border-box',
                 minHeight: 52,
                 padding: '0 22px',
                 display: 'inline-flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                borderRadius: 11,
+                borderRadius: 12,
                 background:
                   'linear-gradient(100deg, #6A3DFF 0%, #8A4DFF 55%, #5677FF 100%)',
                 color: '#FFFFFF',
@@ -210,13 +275,16 @@ export default function ConnectPage() {
 
             <Link
               href="/request-demo"
+              className="bb-connect-secondary"
               style={{
+                width: '100%',
+                boxSizing: 'border-box',
                 minHeight: 50,
                 padding: '0 22px',
                 display: 'inline-flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                borderRadius: 11,
+                borderRadius: 12,
                 border: '1px solid rgba(255,255,255,.10)',
                 background: 'rgba(255,255,255,.03)',
                 color: 'rgba(245,247,250,.76)',
@@ -236,22 +304,23 @@ export default function ConnectPage() {
               display: 'grid',
               gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
               gap: 8,
-              marginBottom: 30,
+              marginBottom: 26,
             }}
           >
             <Link
               href="/client-operations"
+              className="bb-connect-path"
               style={{
                 minHeight: 44,
-                padding: '0 12px',
+                padding: '0 10px',
                 display: 'inline-flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 borderRadius: 9,
                 border: '1px solid rgba(255,255,255,.07)',
-                background: 'rgba(255,255,255,.018)',
-                color: 'rgba(226,232,240,.62)',
-                fontSize: 12,
+                background: 'rgba(255,255,255,.016)',
+                color: 'rgba(226,232,240,.58)',
+                fontSize: 11.5,
                 fontWeight: 550,
                 textDecoration: 'none',
               }}
@@ -261,17 +330,18 @@ export default function ConnectPage() {
 
             <Link
               href="/web-systems"
+              className="bb-connect-path"
               style={{
                 minHeight: 44,
-                padding: '0 12px',
+                padding: '0 10px',
                 display: 'inline-flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 borderRadius: 9,
                 border: '1px solid rgba(255,255,255,.07)',
-                background: 'rgba(255,255,255,.018)',
-                color: 'rgba(226,232,240,.62)',
-                fontSize: 12,
+                background: 'rgba(255,255,255,.016)',
+                color: 'rgba(226,232,240,.58)',
+                fontSize: 11.5,
                 fontWeight: 550,
                 textDecoration: 'none',
               }}
@@ -282,19 +352,33 @@ export default function ConnectPage() {
 
           {/* CONTACT */}
 
-          <a
-            href="mailto:hello@thebrainbase.com.au"
-            style={{
-              display: 'inline-block',
-              marginBottom: 22,
-              fontSize: 13,
-              fontWeight: 550,
-              color: '#C4B5FD',
-              textDecoration: 'none',
-            }}
-          >
-            hello@thebrainbase.com.au
-          </a>
+          <div style={{ marginBottom: 20 }}>
+            <div
+              style={{
+                marginBottom: 5,
+                fontSize: 8.5,
+                fontWeight: 700,
+                letterSpacing: '.11em',
+                textTransform: 'uppercase',
+                color: 'rgba(255,255,255,.24)',
+              }}
+            >
+              Email BRΛINBΛSE
+            </div>
+
+            <a
+              href="mailto:hello@thebrainbase.com.au"
+              style={{
+                display: 'inline-block',
+                fontSize: 13,
+                fontWeight: 550,
+                color: '#C4B5FD',
+                textDecoration: 'none',
+              }}
+            >
+              hello@thebrainbase.com.au
+            </a>
+          </div>
 
           {/* LEGAL */}
 
@@ -308,14 +392,14 @@ export default function ConnectPage() {
           >
             <Link
               href="/privacy"
-              style={{ color: 'rgba(255,255,255,.28)', textDecoration: 'none' }}
+              style={{ color: 'rgba(255,255,255,.26)', textDecoration: 'none' }}
             >
               Privacy
             </Link>
 
             <Link
               href="/terms"
-              style={{ color: 'rgba(255,255,255,.28)', textDecoration: 'none' }}
+              style={{ color: 'rgba(255,255,255,.26)', textDecoration: 'none' }}
             >
               Terms
             </Link>

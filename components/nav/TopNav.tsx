@@ -1569,6 +1569,9 @@ export default function TopNav({
   if (
     pathname?.startsWith(
       '/tennis',
+    ) ||
+    pathname?.startsWith(
+      '/connect',
     )
   ) {
     return null;
