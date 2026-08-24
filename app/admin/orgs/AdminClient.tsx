@@ -113,16 +113,27 @@ export default function AdminClient({ orgs: initial, users: initialUsers }: Prop
     e.preventDefault();
     if (!editOrg) return;
     setSaving(true); setError(''); setSuccess('');
-    const res = await fetch(`/api/admin/orgs?id=${editOrg.id}`, {
-      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(editOrgForm),
-    });
-    const data = await res.json();
-    if (!res.ok) { flash(data.error ?? 'Failed.', true); setSaving(false); return; }
-    setOrgs(p => p.map(o => o.id === editOrg.id ? data.org : o));
-    setEditOrg(null);
-    flash(`Organisation "${data.org.name}" updated.`);
-    setSaving(false);
+    try {
+      const res = await fetch(`/api/admin/orgs?id=${editOrg.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(editOrgForm),
+      });
+      // Tolerate a non-JSON response body (e.g. an uncontrolled server
+      // failure) instead of letting res.json() throw and strand the
+      // saving state — never treat that as success.
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data) {
+        flash(data?.error ?? 'Unable to save organisation.', true);
+        return;
+      }
+      setOrgs(p => p.map(o => o.id === editOrg.id ? data.org : o));
+      setEditOrg(null);
+      flash(`Organisation "${data.org.name}" updated.`);
+    } catch {
+      flash('Unable to save organisation.', true);
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function deleteOrg(org: Org) {
