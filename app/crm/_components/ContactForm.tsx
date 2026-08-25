@@ -10,24 +10,8 @@ type Contact = {
   job_title?: string | null;
   company_id?: string | null;
   notes?: string | null;
-  coaching_type?: string | null;
-  date_of_birth?: string | null;
-  emergency_contact_name?: string | null;
-  emergency_contact_phone?: string | null;
-  guardian_name?: string | null;
-  guardian_phone?: string | null;
 };
 type Company = { id: string; name: string };
-
-function ageFromDob(dob: string | null | undefined): number | null {
-  if (!dob) return null;
-  const today = new Date();
-  const birth = new Date(dob);
-  let age = today.getFullYear() - birth.getFullYear();
-  const m = today.getMonth() - birth.getMonth();
-  if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--;
-  return age;
-}
 
 export default function ContactForm({ initial, onSaved }: { initial?: Contact; onSaved: (c: Contact) => void }) {
   const [form, setForm]       = useState<Contact>(initial ?? {});
@@ -53,9 +37,6 @@ export default function ContactForm({ initial, onSaved }: { initial?: Contact; o
     onSaved(data.contact);
   }
 
-  const age = ageFromDob(form.date_of_birth);
-  const isMinor = age !== null && age < 18;
-
   return (
     <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
@@ -72,45 +53,6 @@ export default function ContactForm({ initial, onSaved }: { initial?: Contact; o
           {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
       </div>
-
-      <div>
-        <label style={lbl}>Coaching Type</label>
-        <select value={form.coaching_type ?? ''} onChange={set('coaching_type')} style={sel}>
-          <option value="">— Not set —</option>
-          <option value="PRIVATE">Private</option>
-          <option value="GROUP">Group</option>
-        </select>
-      </div>
-
-      <div>
-        <label style={lbl}>Date of Birth</label>
-        <input
-          type="date"
-          value={form.date_of_birth ?? ''}
-          onChange={set('date_of_birth')}
-          style={{ ...sel, colorScheme: 'dark' }}
-        />
-        {age !== null && (
-          <span style={{ fontSize: 11, color: isMinor ? '#fbbf24' : 'rgba(255,255,255,.35)', marginTop: 4, display: 'block' }}>
-            {isMinor ? `Age ${age} — guardian details required` : `Age ${age}`}
-          </span>
-        )}
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-        <Field label="Emergency Contact Name"  value={form.emergency_contact_name  ?? ''} onChange={set('emergency_contact_name')}  />
-        <Field label="Emergency Contact Phone" value={form.emergency_contact_phone ?? ''} onChange={set('emergency_contact_phone')} />
-      </div>
-
-      {isMinor && (
-        <div style={{ borderTop: '1px solid rgba(251,191,36,.15)', paddingTop: 16 }}>
-          <div style={{ ...lbl, color: '#fbbf24', marginBottom: 12 }}>Guardian Details</div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <Field label="Guardian Name"  value={form.guardian_name  ?? ''} onChange={set('guardian_name')}  />
-            <Field label="Guardian Phone" value={form.guardian_phone ?? ''} onChange={set('guardian_phone')} />
-          </div>
-        </div>
-      )}
 
       <div>
         <label style={lbl}>Notes</label>

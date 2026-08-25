@@ -15,7 +15,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
   const rows = await sql`
     UPDATE tennis_leads SET status = ${status}
-    WHERE id = ${id}::uuid AND organisation_id = ${orgId}::uuid
+    WHERE id = ${id}::uuid AND organisation_id = ${orgId}
     RETURNING id, status
   `
   if (!rows[0]) return NextResponse.json({ error: 'Not found' }, { status: 404 })

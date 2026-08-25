@@ -30,7 +30,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       session_times = ${body.session_times},
       next_action   = ${body.next_action},
       updated_at    = NOW()
-    WHERE id = ${id}::uuid AND organisation_id = ${body.orgId}::uuid
+    WHERE id = ${id}::uuid AND organisation_id = ${body.orgId}
     RETURNING id, name, email, phone, status, address, age, program, session_times, next_action, last_contacted_at
   `
   if (!rows[0]) return NextResponse.json({ error: 'Not found' }, { status: 404 })

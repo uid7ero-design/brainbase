@@ -1,13 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import sql from '@/lib/db';
-import { getSession } from '@/lib/session';
+import { requireRole } from '@/lib/org';
 
 function forbidden() { return NextResponse.json({ error: 'Forbidden' }, { status: 403 }); }
 
 /** GET /api/admin/orgs — list all organisations */
 export async function GET() {
-  const session = await getSession();
-  if (!session || session.role !== 'super_admin') return forbidden();
+  try { await requireRole('super_admin'); } catch { return forbidden(); }
 
   const orgs = await sql`SELECT id, name, slug, created_at FROM organisations ORDER BY created_at DESC`;
   return NextResponse.json({ orgs });
@@ -15,8 +14,7 @@ export async function GET() {
 
 /** PATCH /api/admin/orgs?id=… — update name/slug */
 export async function PATCH(req: NextRequest) {
-  const session = await getSession();
-  if (!session || session.role !== 'super_admin') return forbidden();
+  try { await requireRole('super_admin'); } catch { return forbidden(); }
 
   const id = new URL(req.url).searchParams.get('id');
   if (!id) return NextResponse.json({ error: 'id is required.' }, { status: 400 });
@@ -47,8 +45,7 @@ export async function PATCH(req: NextRequest) {
 
 /** DELETE /api/admin/orgs?id=… — remove organisation */
 export async function DELETE(req: NextRequest) {
-  const session = await getSession();
-  if (!session || session.role !== 'super_admin') return forbidden();
+  try { await requireRole('super_admin'); } catch { return forbidden(); }
 
   const id = new URL(req.url).searchParams.get('id');
   if (!id) return NextResponse.json({ error: 'id is required.' }, { status: 400 });
@@ -71,8 +68,7 @@ export async function DELETE(req: NextRequest) {
 
 /** POST /api/admin/orgs — create organisation */
 export async function POST(req: NextRequest) {
-  const session = await getSession();
-  if (!session || session.role !== 'super_admin') return forbidden();
+  try { await requireRole('super_admin'); } catch { return forbidden(); }
 
   const body = await req.json().catch(() => null);
   if (!body) return NextResponse.json({ error: 'Invalid JSON.' }, { status: 400 });

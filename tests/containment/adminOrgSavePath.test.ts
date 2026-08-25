@@ -22,16 +22,25 @@ import type { NextRequest } from 'next/server'
 // directly), and saveOrg (2) via source-level containment assertions,
 // since this repo has no React component-rendering test
 // infrastructure — none was added here.
+//
+// Clients 2.0 Phase A (F.7S) — the route's authorization was
+// subsequently hardened from a raw getSession()+JWT-role check to the
+// canonical requireRole('super_admin') (DB-revalidated) pattern used
+// everywhere else in the app. The mocking strategy below was updated
+// to mock @/lib/org directly (the repo's established convention for
+// requireRole-based routes — see tests/containment/leadsCrossOrg.test.ts)
+// rather than @/lib/session; this does not change what the tests
+// prove about the ::uuid fix, since requireRole is mocked out
+// entirely and the business-logic sql call indices are unaffected.
 
 function asNextRequest(req: Request): NextRequest {
   return req as unknown as NextRequest
 }
 
-const getSessionMock = vi.fn()
-vi.mock('@/lib/session', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/lib/session')>()
-  return { ...actual, getSession: (...args: unknown[]) => getSessionMock(...args) }
-})
+const requireRoleMock = vi.fn()
+vi.mock('@/lib/org', () => ({
+  requireRole: (...args: unknown[]) => requireRoleMock(...args),
+}))
 
 let responseQueue: unknown[][] = []
 let callCount = 0
@@ -52,7 +61,7 @@ function sqlCallText(index: number): string {
   return (args[0] as TemplateStringsArray).join(' ')
 }
 
-const { PATCH, DELETE } = await import('@/app/api/admin/orgs/route')
+const { GET, PATCH, DELETE, POST } = await import('@/app/api/admin/orgs/route')
 
 const SUPER_ADMIN = { userId: 'u1', organisationId: 'brainbase-org', role: 'super_admin', name: 'James' }
 
@@ -64,11 +73,11 @@ const SUPER_ADMIN = { userId: 'u1', organisationId: 'brainbase-org', role: 'supe
 const CUID_SHAPED_ID = 'clx8f9a2b0000abc123def456'
 
 beforeEach(() => {
-  getSessionMock.mockReset()
+  requireRoleMock.mockReset()
   sqlMock.mockReset()
   responseQueue = []
   callCount = 0
-  getSessionMock.mockResolvedValue(SUPER_ADMIN)
+  requireRoleMock.mockResolvedValue(SUPER_ADMIN)
 })
 
 describe('PATCH /api/admin/orgs — TEXT id contract (Phase F.6R)', () => {
@@ -121,13 +130,53 @@ describe('PATCH /api/admin/orgs — TEXT id contract (Phase F.6R)', () => {
   })
 
   it('still rejects a non-super_admin caller before any DB access', async () => {
-    getSessionMock.mockResolvedValue({ userId: 'u2', role: 'manager' })
+    requireRoleMock.mockRejectedValue(new Error('Forbidden'))
     const req = asNextRequest(new Request(`http://localhost/api/admin/orgs?id=${CUID_SHAPED_ID}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: 'X', slug: 'x' }),
     }))
     const res = await PATCH(req)
+    expect(res.status).toBe(403)
+    expect(sqlMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('GET/POST /api/admin/orgs — DB-revalidated authorization (Phase F.7S)', () => {
+  it('GET calls the canonical requireRole(\'super_admin\') gate rather than trusting a raw JWT role claim', async () => {
+    queue([{ id: CUID_SHAPED_ID, name: 'Org', slug: 'org', created_at: '2026-01-01' }])
+    const res = await GET()
+    expect(res.status).toBe(200)
+    expect(requireRoleMock).toHaveBeenCalledWith('super_admin')
+  })
+
+  it('GET rejects when requireRole throws — a stale JWT role alone is no longer sufficient', async () => {
+    requireRoleMock.mockRejectedValue(new Error('Forbidden'))
+    const res = await GET()
+    expect(res.status).toBe(403)
+    expect(sqlMock).not.toHaveBeenCalled()
+  })
+
+  it('POST calls the canonical requireRole(\'super_admin\') gate and still creates an organisation on success', async () => {
+    queue([{ id: CUID_SHAPED_ID, name: 'New Org', slug: 'new-org' }])
+    const req = asNextRequest(new Request('http://localhost/api/admin/orgs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'New Org', slug: 'new-org' }),
+    }))
+    const res = await POST(req)
+    expect(res.status).toBe(201)
+    expect(requireRoleMock).toHaveBeenCalledWith('super_admin')
+  })
+
+  it('POST rejects when requireRole throws — a stale JWT role alone is no longer sufficient', async () => {
+    requireRoleMock.mockRejectedValue(new Error('Forbidden'))
+    const req = asNextRequest(new Request('http://localhost/api/admin/orgs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'New Org', slug: 'new-org' }),
+    }))
+    const res = await POST(req)
     expect(res.status).toBe(403)
     expect(sqlMock).not.toHaveBeenCalled()
   })
@@ -160,6 +209,14 @@ describe('DELETE /api/admin/orgs — TEXT id contract (Phase F.6R)', () => {
     expect(res.status).toBe(409)
     const body = await res.json()
     expect(body.error).toMatch(/2 user/i)
+  })
+
+  it('still rejects a non-super_admin caller before any DB access', async () => {
+    requireRoleMock.mockRejectedValue(new Error('Forbidden'))
+    const req = asNextRequest(new Request(`http://localhost/api/admin/orgs?id=${CUID_SHAPED_ID}`, { method: 'DELETE' }))
+    const res = await DELETE(req)
+    expect(res.status).toBe(403)
+    expect(sqlMock).not.toHaveBeenCalled()
   })
 })
 
