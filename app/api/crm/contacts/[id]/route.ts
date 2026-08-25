@@ -52,11 +52,7 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
   const { id } = await params;
 
   const body = await req.json();
-  const {
-    first_name, last_name, email, phone, job_title, company_id, notes,
-    coaching_type, date_of_birth, emergency_contact_name, emergency_contact_phone,
-    guardian_name, guardian_phone,
-  } = body;
+  const { first_name, last_name, email, phone, job_title, company_id, notes } = body;
   if (!first_name?.trim() || !last_name?.trim()) {
     return NextResponse.json({ error: 'First and last name are required.' }, { status: 400 });
   }
@@ -66,10 +62,6 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
       first_name = ${first_name.trim()}, last_name = ${last_name.trim()},
       email = ${email ?? null}, phone = ${phone ?? null}, job_title = ${job_title ?? null},
       company_id = ${company_id ?? null}, notes = ${notes ?? null},
-      coaching_type = ${coaching_type ?? null}, date_of_birth = ${date_of_birth ?? null},
-      emergency_contact_name = ${emergency_contact_name ?? null},
-      emergency_contact_phone = ${emergency_contact_phone ?? null},
-      guardian_name = ${guardian_name ?? null}, guardian_phone = ${guardian_phone ?? null},
       updated_at = NOW()
     WHERE id = ${id} AND organisation_id = ${session.organisationId}
     RETURNING *
