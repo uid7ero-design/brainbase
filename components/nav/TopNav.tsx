@@ -10,6 +10,7 @@ type Session = {
   name: string;
   avatarUrl?: string;
   enabledModules?: string[];
+  enabledCapabilities?: string[];
 } | null;
 
 const FONT =
@@ -205,16 +206,19 @@ const OPS_ITEMS = [
   },
   {
     label: 'CRM',
-    href: '/admin/founder',
+    href: '/crm',
     description:
-      'Business pipeline & client management',
+      'Companies, contacts, deals & activities',
+    capabilityKey: 'crm',
   },
 ];
 
 function OpsDropdown({
   pathname,
+  enabledCapabilities,
 }: {
   pathname: string;
+  enabledCapabilities: string[];
 }) {
   const [open, setOpen] =
     useState(false);
@@ -224,7 +228,20 @@ function OpsDropdown({
       null,
     );
 
-  const isActive = OPS_ITEMS.some(item =>
+  // Items without a capabilityKey are always shown (Waste/Fleet/Social
+  // predate the capability system and aren't gated by it); an item with
+  // a capabilityKey is shown only once that capability is confirmed
+  // enabled for the organisation, so CRM never advertises a dead end to
+  // an organisation that doesn't have it.
+  const items = OPS_ITEMS.filter(
+    item =>
+      !item.capabilityKey ||
+      enabledCapabilities.includes(
+        item.capabilityKey,
+      ),
+  );
+
+  const isActive = items.some(item =>
     pathname.startsWith(item.href),
   );
 
@@ -349,7 +366,7 @@ function OpsDropdown({
             }}
           />
 
-          {OPS_ITEMS.map(item => {
+          {items.map(item => {
             const itemActive =
               pathname.startsWith(
                 item.href,
@@ -1112,6 +1129,7 @@ function AppNav({
     name,
     avatarUrl,
     enabledModules = [],
+    enabledCapabilities = [],
   } = session;
 
   const isManager = [
@@ -1266,6 +1284,9 @@ function AppNav({
             {isManager && (
               <OpsDropdown
                 pathname={pathname}
+                enabledCapabilities={
+                  enabledCapabilities
+                }
               />
             )}
 
@@ -1523,6 +1544,9 @@ export default function TopNav({
           enabledModules?: {
             key: string;
           }[];
+          enabledCapabilities?: {
+            key: string;
+          }[];
         }>;
       })
       .then(d => {
@@ -1542,6 +1566,14 @@ export default function TopNav({
                   (m: {
                     key: string;
                   }) => m.key,
+                ),
+                enabledCapabilities: (
+                  d.enabledCapabilities ??
+                  []
+                ).map(
+                  (c: {
+                    key: string;
+                  }) => c.key,
                 ),
               }
             : null,
