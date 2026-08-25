@@ -106,6 +106,7 @@ export default async function RootLayout({
     role: string;
     name: string;
     avatarUrl?: string;
+    enabledCapabilities?: string[];
   } | null = null;
 
   let secureMode = false;
@@ -142,10 +143,32 @@ export default async function RootLayout({
       */
     }
 
+    // Same projection /api/me exposes — UX data only, not an
+    // authorization boundary (the API/page-level capability checks
+    // remain the real enforcement). Kept in its own try/catch so a
+    // failure here can never affect the rest of the session.
+    let enabledCapabilities: string[] = [];
+    try {
+      const capabilityRows = await sql`
+        SELECT m.key
+        FROM organisation_modules om
+        JOIN modules m ON m.key = om.module_key
+        WHERE om.organisation_id = ${session.organisationId}
+          AND om.enabled = true
+          AND m.active = true
+      `;
+      enabledCapabilities = (
+        capabilityRows as { key: string }[]
+      ).map(r => r.key);
+    } catch {
+      /* UX projection only — fail closed to an empty list. */
+    }
+
     serverSession = {
       role: session.role,
       name: session.name,
       avatarUrl,
+      enabledCapabilities,
     };
   }
 
