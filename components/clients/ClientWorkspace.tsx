@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import Link from 'next/link'
 
 const FONT = "var(--font-inter),-apple-system,sans-serif"
 
@@ -19,6 +20,14 @@ export type Lead = {
 export type Opportunity = {
   key: string; label: string; description: string
   items: { id: string; name: string; detail: string; type: 'contact' | 'lead' }[]
+}
+
+export type PlatformModule = { key: string; name: string; description: string | null }
+
+export type Implementation = {
+  id: string; name: string; service_type: string | null
+  stage: string; health: string; next_action: string | null
+  target_launch_date: string | null; actual_launch_date: string | null
 }
 
 type Tab = 'contacts' | 'leads' | 'opportunities'
@@ -41,6 +50,20 @@ const LEAD_STATUS: Record<string, { bg: string; color: string; border: string; l
 
 const LEAD_STATUS_ORDER = ['new', 'contacted', 'booked', 'closed']
 const CONTACT_STATUS_ORDER = ['lead', 'contacted', 'active', 'inactive']
+
+// Mirrors app/admin/implementations/page.tsx's own STAGE_LABEL/HEALTH_META
+// exactly, so an implementation reads identically whether viewed here or
+// in the canonical admin tool.
+const STAGE_LABEL: Record<string, string> = {
+  planning: 'Planning', discovery: 'Discovery', setup: 'Setup', build: 'Build',
+  client_review: 'Client Review', testing: 'Testing', ready_to_launch: 'Ready to Launch',
+  live: 'Live', on_hold: 'On Hold', cancelled: 'Cancelled',
+}
+const HEALTH_META: Record<string, { label: string; color: string }> = {
+  on_track: { label: 'On Track', color: '#34d399' },
+  at_risk:  { label: 'At Risk',  color: '#f59e0b' },
+  blocked:  { label: 'Blocked',  color: '#f87171' },
+}
 
 function badge(style: { bg: string; color: string; border: string }, label: string) {
   return (
@@ -421,13 +444,98 @@ function OpportunitiesTab({ opportunities }: { opportunities: Opportunity[] }) {
   )
 }
 
+// ── Account overview (Clients 2.0 B2) ───────────────────────────────────────
+//
+// Read-only account-level context, shown above the existing Contacts/Leads/
+// Opportunities tabs rather than as a fourth tab — Products/Implementations
+// describe the BrainBase client account itself, not an operational tenant
+// dataset the way Contacts/Leads/Opportunities are. No create/update/delete
+// controls exist here; management happens in the canonical admin surfaces
+// this section links out to.
+
+function AccountOverview({ modules, implementations }: { modules: PlatformModule[]; implementations: Implementation[] }) {
+  const cardStyle: React.CSSProperties = {
+    background: 'rgba(255,255,255,.025)', border: '1px solid rgba(255,255,255,.07)',
+    borderRadius: 14, padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 12,
+  }
+  const sectionHeader: React.CSSProperties = {
+    fontSize: 11, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase',
+    color: 'rgba(255,255,255,.35)',
+  }
+  const emptyStyle: React.CSSProperties = { fontSize: 12, color: 'rgba(255,255,255,.22)' }
+
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 24 }}>
+      {/* BrainBase Platform */}
+      <div style={cardStyle}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span style={sectionHeader}>BrainBase Platform</span>
+          <Link href="/admin/orgs" style={{ fontSize: 11, color: 'rgba(255,255,255,.30)', textDecoration: 'none' }}>
+            Manage in Admin →
+          </Link>
+        </div>
+        {modules.length === 0 ? (
+          <div style={emptyStyle}>No platform modules enabled</div>
+        ) : (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {modules.map(m => (
+              <span key={m.key} title={m.description ?? undefined} style={{
+                fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 20,
+                background: 'rgba(99,102,241,.10)', color: '#a5b4fc',
+                border: '1px solid rgba(99,102,241,.22)',
+              }}>
+                {m.name}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Implementations */}
+      <div style={cardStyle}>
+        <span style={sectionHeader}>Implementations</span>
+        {implementations.length === 0 ? (
+          <div style={emptyStyle}>No implementations recorded</div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {implementations.map(impl => {
+              const health = HEALTH_META[impl.health] ?? HEALTH_META.on_track
+              return (
+                <Link key={impl.id} href={`/admin/implementations/${impl.id}`} style={{
+                  display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none',
+                  padding: '8px 10px', borderRadius: 8, background: 'rgba(255,255,255,.02)',
+                  border: '1px solid rgba(255,255,255,.05)',
+                }}>
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: health.color, flexShrink: 0 }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: '#F5F7FA', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {impl.name}
+                    </div>
+                    <div style={{ fontSize: 10, color: 'rgba(255,255,255,.30)', marginTop: 1 }}>
+                      {STAGE_LABEL[impl.stage] ?? impl.stage}
+                      {impl.service_type ? ` · ${impl.service_type}` : ''}
+                      {impl.next_action ? ` · → ${impl.next_action}` : ''}
+                    </div>
+                  </div>
+                </Link>
+              )
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ── Root workspace ────────────────────────────────────────────────────────────
 
-export default function ClientWorkspace({ orgId, contacts, leads, opportunities }: {
+export default function ClientWorkspace({ orgId, contacts, leads, opportunities, modules, implementations }: {
   orgId: string
   contacts: Contact[]
   leads: Lead[]
   opportunities: Opportunity[]
+  modules: PlatformModule[]
+  implementations: Implementation[]
 }) {
   const [tab, setTab] = useState<Tab>('contacts')
 
@@ -451,6 +559,8 @@ export default function ClientWorkspace({ orgId, contacts, leads, opportunities 
 
   return (
     <div style={{ width: '100%', maxWidth: 1100, margin: '0 auto', padding: '24px 24px 64px', fontFamily: FONT }}>
+      <AccountOverview modules={modules} implementations={implementations} />
+
       {/* Tab bar */}
       <div style={{
         display: 'flex', gap: 4, marginBottom: 20,

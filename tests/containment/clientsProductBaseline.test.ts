@@ -7,10 +7,15 @@ import path from 'path'
 // redesign begins (see the F.7X discovery report). This file protects the
 // page-level architecture: authorization, the list query contract, and
 // tenant scoping on the detail page, plus explicit boundary assertions
-// proving Clients does not depend on CRM or Founder OS persistence, and a
-// deliberately-temporary baseline assertion that it does not yet consume
-// implementations/organisation_modules (expected to change in Phase B2 —
-// see the dedicated describe block below for why that's intentional).
+// proving Clients does not depend on CRM or Founder OS persistence.
+//
+// Phase B2 (F.8C) intentionally invalidated the B1 "does not yet consume
+// implementations/organisation_modules" baseline block — see the
+// "B2: Clients now reads..." describe block below (formerly "B1 BASELINE"),
+// updated to assert the new, correctly-scoped read paths instead of their
+// absence. tests/containment/clientsPortfolioAwareness.test.ts carries the
+// more detailed B2 coverage (join-multiplication protection, implementation-
+// summary selection, module enabled-filtering, UI rendering).
 //
 // Static source-text assertions for the two server-component pages —
 // this project has no jsdom/React Testing Library harness, and Next.js's
@@ -186,35 +191,42 @@ describe('Clients does not depend on Founder-OS-owned persistence/API concepts',
   })
 })
 
-// ── K. Pre-B2 baseline: no implementations/modules consumption yet ───────
+// ── K. B2: Clients now reads implementations + organisation_modules ──────
 
-describe('B1 BASELINE (intentionally temporary) — Clients does not yet read implementations or organisation_modules', () => {
-  // This describe block captures the PRE-Phase-B2 state on purpose. The
-  // F.7X discovery report's recommended Phase B2 slice is specifically
-  // "surface implementations + organisation_modules data in Clients" —
-  // so these exact assertions are EXPECTED to be removed/updated as part
-  // of implementing B2, not a regression to preserve indefinitely. Their
-  // purpose is to make that future removal an obvious, intentional edit
-  // (grep for "B1 BASELINE" when B2 lands) rather than something that
-  // looks like an unexplained, unreviewed change to test coverage.
+describe('B2 (F.8C) — Clients now reads implementations and organisation_modules, correctly scoped', () => {
+  // Formerly "B1 BASELINE" — this describe block previously asserted the
+  // ABSENCE of implementations/organisation_modules reads. Phase B2
+  // deliberately introduced them (portfolio/account-overview awareness),
+  // so this block now asserts their PRESENCE with correct scoping instead.
+  // Deeper B2-specific coverage (join-multiplication protection,
+  // implementation-summary selection, enabled-only module filtering, UI
+  // rendering) lives in clientsPortfolioAwareness.test.ts.
 
-  it('app/clients/page.tsx does not query implementations or organisation_modules', () => {
-    expect(CLIENTS_LIST_SOURCE).not.toContain('implementations')
-    expect(CLIENTS_LIST_SOURCE).not.toContain('organisation_modules')
+  it('app/clients/page.tsx now queries both implementations and organisation_modules', () => {
+    expect(CLIENTS_LIST_SOURCE).toContain('FROM implementations')
+    expect(CLIENTS_LIST_SOURCE).toContain('FROM organisation_modules')
   })
 
-  it('app/clients/[id]/page.tsx does not query implementations or organisation_modules', () => {
-    expect(CLIENTS_DETAIL_SOURCE).not.toContain('implementations')
-    expect(CLIENTS_DETAIL_SOURCE).not.toContain('organisation_modules')
+  it('app/clients/[id]/page.tsx now queries both implementations and organisation_modules, each scoped by organisation_id = ${oid}', () => {
+    expect(CLIENTS_DETAIL_SOURCE).toContain('FROM implementations')
+    expect(CLIENTS_DETAIL_SOURCE).toContain('FROM organisation_modules')
+    const implBlockStart = CLIENTS_DETAIL_SOURCE.indexOf('FROM implementations')
+    const implBlockEnd = CLIENTS_DETAIL_SOURCE.indexOf('`.catch', implBlockStart)
+    expect(CLIENTS_DETAIL_SOURCE.slice(implBlockStart, implBlockEnd)).toContain('WHERE organisation_id = ${oid}')
+
+    const modBlockStart = CLIENTS_DETAIL_SOURCE.indexOf('FROM organisation_modules')
+    const modBlockEnd = CLIENTS_DETAIL_SOURCE.indexOf('`.catch', modBlockStart)
+    expect(CLIENTS_DETAIL_SOURCE.slice(modBlockStart, modBlockEnd)).toContain('om.organisation_id = ${oid}')
   })
 
-  it('components/clients/ClientWorkspace.tsx does not reference implementations or organisation_modules', () => {
-    expect(CLIENT_WORKSPACE_SOURCE).not.toContain('implementations')
-    expect(CLIENT_WORKSPACE_SOURCE).not.toContain('organisation_modules')
+  it('components/clients/ClientWorkspace.tsx now references both implementations and organisation modules via typed props, not a direct query (it is a client component)', () => {
+    expect(CLIENT_WORKSPACE_SOURCE).toContain('export type Implementation')
+    expect(CLIENT_WORKSPACE_SOURCE).toContain('export type PlatformModule')
+    expect(CLIENT_WORKSPACE_SOURCE).not.toMatch(/await sql`/)
   })
 
-  it('neither page calls checkCapability/requireCapability — Clients access remains purely role-based pre-B2', () => {
-    expect(CLIENTS_LIST_SOURCE).not.toMatch(/checkCapability|requireCapability/)
-    expect(CLIENTS_DETAIL_SOURCE).not.toMatch(/checkCapability|requireCapability/)
+  it('neither page CALLS checkCapability(/requireCapability( — Clients access remains purely role-based, unchanged by B2 (the detail page comment mentions requireCapability.ts by name as documentation only, not an invocation, so this checks for an actual call rather than a bare substring)', () => {
+    expect(CLIENTS_LIST_SOURCE).not.toMatch(/checkCapability\(|requireCapability\(/)
+    expect(CLIENTS_DETAIL_SOURCE).not.toMatch(/checkCapability\(|requireCapability\(/)
   })
 })
