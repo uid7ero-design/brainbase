@@ -130,6 +130,24 @@ describe('Primary-implementation selection is explicit and deterministic (docume
     expect(CLIENTS_LIST_SOURCE).toContain('SELECT organisation_id, COUNT(*)::int AS count')
     expect(CLIENTS_LIST_SOURCE).toContain('implementationCount')
   })
+
+  // Remediation (F.8E) — the assertion above only proves the WORD
+  // "implementationCount" appears somewhere in the file (e.g. the type
+  // field, the Map merge line); it does not exercise the actual "+N more"
+  // UI presentation and would keep passing even if that JSX block were
+  // deleted entirely (independently reproduced during this remediation:
+  // deleting the block left all 76 prior B1/B2 Clients tests green). This
+  // test asserts the real user-facing contract instead: when a client has
+  // more than one implementation, the card must show how many additional
+  // ones exist beyond the primary one shown.
+  it('the ClientCard multi-implementation presentation exists: condition implementationCount > 1, displayed count implementationCount - 1, rendered with "more"', () => {
+    expect(CLIENTS_LIST_SOURCE).toContain('org.implementationCount > 1')
+    expect(CLIENTS_LIST_SOURCE).toContain('org.implementationCount - 1')
+    const moreLineStart = CLIENTS_LIST_SOURCE.indexOf('org.implementationCount - 1')
+    expect(moreLineStart, 'expected to find the "+N more" line').toBeGreaterThan(-1)
+    const moreLineEnd = CLIENTS_LIST_SOURCE.indexOf('\n', moreLineStart)
+    expect(CLIENTS_LIST_SOURCE.slice(moreLineStart, moreLineEnd)).toContain('more')
+  })
 })
 
 // ── 8/9/10. ClientWorkspace renders the account overview ─────────────────
