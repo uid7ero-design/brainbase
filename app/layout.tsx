@@ -13,6 +13,7 @@ import SessionProvider from '@/components/session/SessionProvider';
 import OrgSwitcher from '@/components/admin/OrgSwitcher';
 import { ThemeProvider } from '@/components/theme/ThemeProvider';
 import ClarityLoader from '@/components/analytics/ClarityLoader';
+import { Analytics } from '@vercel/analytics/next';
 
 import { getSession } from '@/lib/session';
 import sql from '@/lib/db';
@@ -231,6 +232,7 @@ export default async function RootLayout({
         </ThemeProvider>
 
         <ClarityLoader />
+        <Analytics />
       </body>
     </html>
   );
