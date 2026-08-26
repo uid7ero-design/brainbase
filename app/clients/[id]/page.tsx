@@ -3,7 +3,7 @@ import Link from 'next/link'
 import { requireRole } from '@/lib/org'
 import sql from '@/lib/db'
 import ClientWorkspace, {
-  type Contact, type Lead, type Opportunity, type PlatformModule, type Implementation,
+  type Contact, type Lead, type Opportunity, type PlatformModule, type Implementation, type Person,
 } from '@/components/clients/ClientWorkspace'
 
 export const dynamic = 'force-dynamic'
@@ -15,12 +15,12 @@ export default async function ClientSpacePage({ params }: { params: Promise<{ id
 
   const { id: oid } = await params
 
-  const orgs = await sql`SELECT id, name FROM organisations WHERE id = ${oid} LIMIT 1`
+  const orgs = await sql`SELECT id, name, status, plan FROM organisations WHERE id = ${oid} LIMIT 1`
     .catch((err) => { console.error('[CLIENT SPACE ERROR] org lookup failed:', err); return []; })
   if (!orgs[0]) notFound()
-  const org = orgs[0] as { id: string; name: string }
+  const org = orgs[0] as { id: string; name: string; status: string; plan: string }
 
-  const [contacts, leads, modules, implementations] = await Promise.all([
+  const [contacts, leads, modules, implementations, people] = await Promise.all([
     sql`
       SELECT id, name, email, phone, status, address, age, program,
              session_times, next_action, last_contacted_at, created_at
@@ -55,6 +55,15 @@ export default async function ClientSpacePage({ params }: { params: Promise<{ id
       WHERE organisation_id = ${oid}
       ORDER BY updated_at DESC
     `.catch((err) => { console.error('[CLIENT SPACE ERROR] implementations query failed:', err); return []; }) as Promise<Implementation[]>,
+    // BrainBase account-user visibility — who has access to this
+    // organisation's account, not the tenant's own CRM/coaching contacts.
+    // Never joined against contacts/tennis_leads or any crm_* table.
+    sql`
+      SELECT id, name, email, role, last_login_at
+      FROM users
+      WHERE organisation_id = ${oid}
+      ORDER BY last_login_at DESC NULLS LAST
+    `.catch((err) => { console.error('[CLIENT SPACE ERROR] people query failed:', err); return []; }) as Promise<Person[]>,
   ])
 
   const now = Date.now()
@@ -113,7 +122,7 @@ export default async function ClientSpacePage({ params }: { params: Promise<{ id
 
   return (
     <>
-      <ClientBanner orgName={org.name} />
+      <ClientBanner orgName={org.name} status={org.status} plan={org.plan} />
       <ClientWorkspace
         orgId={oid}
         contacts={contacts as Contact[]}
@@ -121,12 +130,23 @@ export default async function ClientSpacePage({ params }: { params: Promise<{ id
         opportunities={opportunities}
         modules={modules}
         implementations={implementations}
+        people={people}
       />
     </>
   )
 }
 
-function ClientBanner({ orgName }: { orgName: string }) {
+const STATUS_LABEL: Record<string, { label: string; color: string }> = {
+  ACTIVE:    { label: 'Active',    color: '#4ade80' },
+  SUSPENDED: { label: 'Suspended', color: '#fbbf24' },
+  CHURNED:   { label: 'Churned',   color: '#f87171' },
+}
+const PLAN_LABEL: Record<string, string> = {
+  TRIAL: 'Trial', STARTER: 'Starter', PROFESSIONAL: 'Professional', ENTERPRISE: 'Enterprise',
+}
+
+function ClientBanner({ orgName, status, plan }: { orgName: string; status: string; plan: string }) {
+  const st = STATUS_LABEL[status] ?? STATUS_LABEL.ACTIVE
   return (
     <div style={{
       position: 'sticky', top: 52, zIndex: 90,
@@ -143,6 +163,16 @@ function ClientBanner({ orgName }: { orgName: string }) {
         }} />
         <span style={{ fontSize: 12, color: 'rgba(255,255,255,.55)', letterSpacing: '.01em' }}>Viewing</span>
         <span style={{ fontSize: 12, fontWeight: 600, color: '#c4b5fd' }}>{orgName}</span>
+        <span style={{
+          fontSize: 10, fontWeight: 600, padding: '1px 8px', borderRadius: 20,
+          background: `${st.color}1A`, color: st.color, border: `1px solid ${st.color}38`,
+          letterSpacing: '.02em',
+        }}>
+          {st.label}
+        </span>
+        <span style={{ fontSize: 10, color: 'rgba(255,255,255,.30)', letterSpacing: '.02em' }}>
+          {PLAN_LABEL[plan] ?? plan}
+        </span>
       </div>
       <Link href="/clients" style={{
         fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,.38)',

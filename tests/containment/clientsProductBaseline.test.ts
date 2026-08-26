@@ -139,7 +139,7 @@ describe('app/clients/[id]/page.tsx — tenant scoping on both datasets', () => 
   })
 
   it('the organisation lookup itself (for the banner) is also scoped by id, not a bare SELECT of every org', () => {
-    expect(CLIENTS_DETAIL_SOURCE).toContain('SELECT id, name FROM organisations WHERE id = ${oid} LIMIT 1')
+    expect(CLIENTS_DETAIL_SOURCE).toContain('SELECT id, name, status, plan FROM organisations WHERE id = ${oid} LIMIT 1')
   })
 })
 
@@ -170,7 +170,9 @@ describe('Clients does not reference CRM persistence or API concepts (boundary t
 // ── J. Founder OS separation ─────────────────────────────────────────────
 
 describe('Clients does not depend on Founder-OS-owned persistence/API concepts', () => {
-  const FORBIDDEN_FOUNDER_TERMS = ['/api/admin/founder-', 'client_onboarding', 'client_pipeline']
+  const FORBIDDEN_FOUNDER_TERMS = [
+    '/api/admin/founder-', 'client_onboarding', 'client_pipeline', 'web_service_leads', 'managed_services',
+  ]
 
   it('app/clients/page.tsx contains no Founder OS table/route reference', () => {
     for (const term of FORBIDDEN_FOUNDER_TERMS) {
@@ -228,5 +230,39 @@ describe('B2 (F.8C) — Clients now reads implementations and organisation_modul
   it('neither page CALLS checkCapability(/requireCapability( — Clients access remains purely role-based, unchanged by B2 (the detail page comment mentions requireCapability.ts by name as documentation only, not an invocation, so this checks for an actual call rather than a bare substring)', () => {
     expect(CLIENTS_LIST_SOURCE).not.toMatch(/checkCapability\(|requireCapability\(/)
     expect(CLIENTS_DETAIL_SOURCE).not.toMatch(/checkCapability\(|requireCapability\(/)
+  })
+})
+
+// ── L. B3: organisation status/plan + account People, correctly scoped ──
+
+describe('B3 (F.9B) — Clients now reads organisation status/plan and account People', () => {
+  it('app/clients/page.tsx selects o.status and o.plan in the org aggregate query', () => {
+    expect(CLIENTS_LIST_SOURCE).toContain('o.status,')
+    expect(CLIENTS_LIST_SOURCE).toContain('o.plan,')
+  })
+
+  it('app/clients/[id]/page.tsx selects status and plan in the id-scoped organisation lookup', () => {
+    expect(CLIENTS_DETAIL_SOURCE).toContain('SELECT id, name, status, plan FROM organisations WHERE id = ${oid} LIMIT 1')
+  })
+
+  it('app/clients/[id]/page.tsx now queries users (People), scoped by organisation_id = ${oid}', () => {
+    expect(CLIENTS_DETAIL_SOURCE).toContain('FROM users')
+    const start = CLIENTS_DETAIL_SOURCE.indexOf('FROM users')
+    const end = CLIENTS_DETAIL_SOURCE.indexOf('`.catch', start)
+    const block = CLIENTS_DETAIL_SOURCE.slice(start, end)
+    expect(block).toContain('WHERE organisation_id = ${oid}')
+    expect(block).toContain('ORDER BY last_login_at DESC NULLS LAST')
+  })
+
+  it('the People query selects exactly the required canonical fields', () => {
+    expect(CLIENTS_DETAIL_SOURCE).toContain('SELECT id, name, email, role, last_login_at')
+  })
+
+  it('the People query is never joined into the list-page org/users/tennis_leads aggregate — it lives only in app/clients/[id]/page.tsx', () => {
+    expect(CLIENTS_LIST_SOURCE).not.toContain('last_login_at')
+  })
+
+  it('components/clients/ClientWorkspace.tsx defines a Person type for account-user visibility', () => {
+    expect(CLIENT_WORKSPACE_SOURCE).toContain('export type Person')
   })
 })

@@ -241,7 +241,9 @@ describe('Regression: Contacts/Leads/Opportunities remain exactly the existing t
 
 describe('Regression: CRM and Founder OS separation remain intact after B2', () => {
   const FORBIDDEN_CRM_TERMS = ['crm_companies', 'crm_contacts', 'crm_deals', 'crm_activities', '/api/crm/']
-  const FORBIDDEN_FOUNDER_TERMS = ['/api/admin/founder-', 'client_onboarding', 'client_pipeline']
+  const FORBIDDEN_FOUNDER_TERMS = [
+    '/api/admin/founder-', 'client_onboarding', 'client_pipeline', 'web_service_leads', 'managed_services',
+  ]
 
   it('no touched file references CRM persistence/API concepts', () => {
     for (const src of [CLIENTS_LIST_SOURCE, CLIENTS_DETAIL_SOURCE, CLIENT_WORKSPACE_SOURCE]) {
@@ -253,5 +255,126 @@ describe('Regression: CRM and Founder OS separation remain intact after B2', () 
     for (const src of [CLIENTS_LIST_SOURCE, CLIENTS_DETAIL_SOURCE, CLIENT_WORKSPACE_SOURCE]) {
       for (const term of FORBIDDEN_FOUNDER_TERMS) expect(src).not.toContain(term)
     }
+  })
+})
+
+// ── Clients 2.0 B3 (F.9B) — organisation status/plan + account People ────
+
+describe('B3 — the People query is explicitly scoped, ordered, and never corrupts existing aggregates', () => {
+  it('selects exactly id, name, email, role, last_login_at from users', () => {
+    expect(CLIENTS_DETAIL_SOURCE).toContain('SELECT id, name, email, role, last_login_at')
+    expect(CLIENTS_DETAIL_SOURCE).toContain('FROM users')
+  })
+
+  it('is scoped WHERE organisation_id = ${oid}, within the same query block (not a bare substring elsewhere in the file)', () => {
+    const start = CLIENTS_DETAIL_SOURCE.indexOf('FROM users')
+    const end = CLIENTS_DETAIL_SOURCE.indexOf('`.catch', start)
+    const block = CLIENTS_DETAIL_SOURCE.slice(start, end)
+    expect(block).toContain('WHERE organisation_id = ${oid}')
+  })
+
+  it('orders by last_login_at DESC NULLS LAST — most recently active first, users who have never logged in last', () => {
+    const start = CLIENTS_DETAIL_SOURCE.indexOf('FROM users')
+    const end = CLIENTS_DETAIL_SOURCE.indexOf('`.catch', start)
+    const block = CLIENTS_DETAIL_SOURCE.slice(start, end)
+    expect(block).toContain('ORDER BY last_login_at DESC NULLS LAST')
+  })
+
+  it('does not cast organisation_id or oid to ::uuid', () => {
+    const start = CLIENTS_DETAIL_SOURCE.indexOf('FROM users')
+    const end = CLIENTS_DETAIL_SOURCE.indexOf('`.catch', start)
+    const block = CLIENTS_DETAIL_SOURCE.slice(start, end)
+    expect(block).not.toMatch(/::uuid/)
+  })
+
+  it('the users query is a separate Promise.all element, appended after contacts/leads/modules/implementations — not joined into any existing query', () => {
+    const contactsIndex = CLIENTS_DETAIL_SOURCE.indexOf('FROM contacts')
+    const usersIndex = CLIENTS_DETAIL_SOURCE.indexOf('FROM users')
+    const implIndex = CLIENTS_DETAIL_SOURCE.indexOf('FROM implementations')
+    const modIndex = CLIENTS_DETAIL_SOURCE.indexOf('FROM organisation_modules')
+    expect(usersIndex).toBeGreaterThan(contactsIndex)
+    expect(usersIndex).toBeGreaterThan(implIndex)
+    expect(usersIndex).toBeGreaterThan(modIndex)
+  })
+
+  it('the list-page org/users/tennis_leads aggregate query is not extended with a People/users-detail query — People only exists on the detail page', () => {
+    const orgBlockStart = CLIENTS_LIST_SOURCE.indexOf('FROM organisations o')
+    const orgBlockEnd = CLIENTS_LIST_SOURCE.indexOf('`.catch', orgBlockStart)
+    const orgBlock = CLIENTS_LIST_SOURCE.slice(orgBlockStart, orgBlockEnd)
+    expect(orgBlock).not.toContain('role')
+    expect(orgBlock).not.toContain('last_login_at')
+  })
+})
+
+describe('B3 — organisation status and plan are visibly rendered, not merely selected', () => {
+  it('app/clients/page.tsx renders a status label derived from org.status (not just selected into the query/type)', () => {
+    expect(CLIENTS_LIST_SOURCE).toContain('STATUS_LABEL[org.status]')
+  })
+
+  it('app/clients/page.tsx renders a plan label derived from org.plan', () => {
+    expect(CLIENTS_LIST_SOURCE).toContain('PLAN_LABEL[org.plan]')
+  })
+
+  it('app/clients/[id]/page.tsx (ClientBanner) renders status and plan labels derived from the real org record, not the list page alone', () => {
+    expect(CLIENTS_DETAIL_SOURCE).toContain('STATUS_LABEL[status]')
+    expect(CLIENTS_DETAIL_SOURCE).toContain('PLAN_LABEL[plan]')
+  })
+
+  it('uses only the three real canonical status values and four real canonical plan values — no invented lifecycle state or derived health/account score', () => {
+    for (const src of [CLIENTS_LIST_SOURCE, CLIENTS_DETAIL_SOURCE]) {
+      expect(src).toContain('ACTIVE')
+      expect(src).toContain('SUSPENDED')
+      expect(src).toContain('CHURNED')
+      expect(src).toContain('TRIAL')
+      expect(src).toContain('STARTER')
+      expect(src).toContain('PROFESSIONAL')
+      expect(src).toContain('ENTERPRISE')
+    }
+  })
+})
+
+describe('B3 — ClientWorkspace renders a read-only People card', () => {
+  it('renders a "People" section', () => {
+    expect(CLIENT_WORKSPACE_SOURCE).toContain('>People</span>')
+  })
+
+  it('renders name, email, role, and a last-login presentation for each person', () => {
+    expect(CLIENT_WORKSPACE_SOURCE).toContain('person.name')
+    expect(CLIENT_WORKSPACE_SOURCE).toContain('person.email')
+    expect(CLIENT_WORKSPACE_SOURCE).toContain('ROLE_LABEL[person.role]')
+    expect(CLIENT_WORKSPACE_SOURCE).toContain('lastSeen(person.last_login_at)')
+  })
+
+  it('never fabricates activity for a null last_login_at — the lastSeen() helper returns a truthful "Never signed in" string instead of inventing a date', () => {
+    const start = CLIENT_WORKSPACE_SOURCE.indexOf('function lastSeen(')
+    const end = CLIENT_WORKSPACE_SOURCE.indexOf('\n}', start)
+    const block = CLIENT_WORKSPACE_SOURCE.slice(start, end)
+    expect(block).toContain("if (!ts) return 'Never signed in'")
+  })
+
+  it('shows a truthful empty state when the organisation has zero users', () => {
+    expect(CLIENT_WORKSPACE_SOURCE).toContain('No users on this account')
+  })
+
+  it('links to the canonical /admin/users surface for management, rather than duplicating user management here', () => {
+    expect(CLIENT_WORKSPACE_SOURCE).toContain('href="/admin/users"')
+  })
+
+  it('the People card sits inside the same read-only AccountOverview render block already proven to contain no fetch/button/input/select/onChange (see the account-overview-is-strictly-read-only suite above) — reconfirmed explicitly for the People-specific render code', () => {
+    const start = CLIENT_WORKSPACE_SOURCE.indexOf('{/* People')
+    const end = CLIENT_WORKSPACE_SOURCE.indexOf('\n// ── Root workspace', start)
+    expect(start, 'expected to find the People card JSX comment').toBeGreaterThan(-1)
+    const block = CLIENT_WORKSPACE_SOURCE.slice(start, end)
+    expect(block).not.toContain('fetch(')
+    expect(block).not.toContain('<button')
+    expect(block).not.toContain('onClick')
+    expect(block).not.toContain('<input')
+    expect(block).not.toContain('<select')
+    expect(block).not.toContain('onChange')
+    expect(block).not.toMatch(/method:\s*'(POST|PATCH|DELETE)'/)
+  })
+
+  it('the Tab union remains exactly the three existing values — People was not added as a fourth tab', () => {
+    expect(CLIENT_WORKSPACE_SOURCE).toContain("type Tab = 'contacts' | 'leads' | 'opportunities'")
   })
 })
