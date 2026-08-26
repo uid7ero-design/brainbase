@@ -7,6 +7,11 @@ export const dynamic = 'force-dynamic'
 
 const FONT = "var(--font-inter), -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
 
+type PortfolioModule = { key: string; name: string }
+type PrimaryImplementation = {
+  id: string; name: string; stage: string; health: string; next_action: string | null
+}
+
 type ClientOrg = {
   id: string
   name: string
@@ -14,27 +19,86 @@ type ClientOrg = {
   created_at: string
   userCount: number
   leadCount: number
+  modules: PortfolioModule[]
+  implementationCount: number
+  primaryImplementation: PrimaryImplementation | null
 }
 
 export default async function ClientsPage() {
   let session
   try { session = await requireRole('super_admin') } catch { redirect('/dashboard') }
 
-  const orgs = (await sql`
-    SELECT
-      o.id,
-      o.name,
-      o.slug,
-      o.created_at,
-      COUNT(DISTINCT u.id)::int  AS "userCount",
-      COUNT(DISTINCT tl.id)::int AS "leadCount"
-    FROM organisations o
-    LEFT JOIN users u ON u.organisation_id = o.id
-    LEFT JOIN tennis_leads tl ON tl.organisation_id = o.id
-    WHERE o.id != ${session.organisationId}
-    GROUP BY o.id
-    ORDER BY o.name ASC
-  `.catch(() => [])) as ClientOrg[]
+  // Three independent, non-multiplying queries (Clients 2.0 B2). Portfolio
+  // context (modules/implementations) is fetched separately from the org/
+  // users/tennis_leads aggregate below and merged in JS by organisation_id
+  // — joining any of these directly into that aggregate would multiply
+  // userCount/leadCount by however many module or implementation rows an
+  // org has, silently corrupting both counts.
+  const [orgs, moduleRows, primaryImplRows, implCountRows] = await Promise.all([
+    sql`
+      SELECT
+        o.id,
+        o.name,
+        o.slug,
+        o.created_at,
+        COUNT(DISTINCT u.id)::int  AS "userCount",
+        COUNT(DISTINCT tl.id)::int AS "leadCount"
+      FROM organisations o
+      LEFT JOIN users u ON u.organisation_id = o.id
+      LEFT JOIN tennis_leads tl ON tl.organisation_id = o.id
+      WHERE o.id != ${session.organisationId}
+      GROUP BY o.id
+      ORDER BY o.name ASC
+    `.catch(() => []) as Promise<Omit<ClientOrg, 'modules' | 'implementationCount' | 'primaryImplementation'>[]>,
+    sql`
+      SELECT om.organisation_id, m.key, m.name
+      FROM organisation_modules om
+      JOIN modules m ON m.key = om.module_key
+      WHERE om.enabled = true AND m.active = true
+      ORDER BY m.name ASC
+    `.catch(() => []) as Promise<{ organisation_id: string; key: string; name: string }[]>,
+    // DISTINCT ON picks exactly one deterministic "primary" implementation
+    // per organisation: the most recently updated non-cancelled
+    // implementation, falling back to the most recently updated cancelled
+    // one if that org has no non-cancelled implementations. This never
+    // silently hides the existence of multiple implementations — the
+    // separate implementationCount below carries the true total.
+    sql`
+      SELECT DISTINCT ON (organisation_id)
+        organisation_id, id, name, stage, health, next_action
+      FROM implementations
+      ORDER BY organisation_id, (stage <> 'cancelled') DESC, updated_at DESC
+    `.catch(() => []) as Promise<(PrimaryImplementation & { organisation_id: string })[]>,
+    sql`
+      SELECT organisation_id, COUNT(*)::int AS count
+      FROM implementations
+      GROUP BY organisation_id
+    `.catch(() => []) as Promise<{ organisation_id: string; count: number }[]>,
+  ])
+
+  const modulesByOrg = new Map<string, PortfolioModule[]>()
+  for (const row of moduleRows) {
+    const list = modulesByOrg.get(row.organisation_id) ?? []
+    list.push({ key: row.key, name: row.name })
+    modulesByOrg.set(row.organisation_id, list)
+  }
+
+  const primaryImplByOrg = new Map<string, PrimaryImplementation>()
+  for (const row of primaryImplRows) {
+    primaryImplByOrg.set(row.organisation_id, {
+      id: row.id, name: row.name, stage: row.stage, health: row.health, next_action: row.next_action,
+    })
+  }
+
+  const implCountByOrg = new Map<string, number>()
+  for (const row of implCountRows) implCountByOrg.set(row.organisation_id, row.count)
+
+  const portfolio: ClientOrg[] = orgs.map(org => ({
+    ...org,
+    modules: modulesByOrg.get(org.id) ?? [],
+    implementationCount: implCountByOrg.get(org.id) ?? 0,
+    primaryImplementation: primaryImplByOrg.get(org.id) ?? null,
+  }))
 
   return (
     <div style={{ width: '100%', maxWidth: 960, margin: '0 auto', padding: '40px 24px 80px', fontFamily: FONT }}>
@@ -47,7 +111,7 @@ export default async function ClientsPage() {
         </p>
       </div>
 
-      {orgs.length === 0 ? (
+      {portfolio.length === 0 ? (
         <div style={{
           background: 'rgba(255,255,255,.03)',
           border: '1px solid rgba(255,255,255,.07)',
@@ -59,7 +123,7 @@ export default async function ClientsPage() {
         </div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 14 }}>
-          {orgs.map(org => (
+          {portfolio.map(org => (
             <ClientCard key={org.id} org={org} />
           ))}
         </div>
@@ -68,10 +132,16 @@ export default async function ClientsPage() {
   )
 }
 
+const HEALTH_COLOR: Record<string, string> = {
+  on_track: '#4ade80', at_risk: '#fbbf24', blocked: '#f87171',
+}
+
 function ClientCard({ org }: { org: ClientOrg }) {
   const initials = org.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()
   const age = Math.floor((Date.now() - new Date(org.created_at).getTime()) / 86400000)
   const ageLabel = age === 0 ? 'Today' : age === 1 ? '1 day ago' : `${age}d ago`
+  const impl = org.primaryImplementation
+  const healthColor = impl ? (HEALTH_COLOR[impl.health] ?? '#a1a1aa') : '#a1a1aa'
 
   return (
     <div style={{
@@ -112,6 +182,45 @@ function ClientCard({ org }: { org: ClientOrg }) {
           <div style={{ fontSize: 10, color: 'rgba(255,255,255,.28)', marginTop: 3, textTransform: 'uppercase', letterSpacing: '.08em' }}>Leads</div>
         </div>
       </div>
+
+      {/* Platform modules + implementation summary — omitted entirely when
+          empty to keep the compact card restrained; the full truthful
+          empty state lives in the workspace account overview instead. */}
+      {(org.modules.length > 0 || impl) && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {org.modules.length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {org.modules.map(m => (
+                <span key={m.key} style={{
+                  fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 20,
+                  background: 'rgba(99,102,241,.10)', color: '#a5b4fc',
+                  border: '1px solid rgba(99,102,241,.22)', letterSpacing: '.02em',
+                }}>
+                  {m.name}
+                </span>
+              ))}
+            </div>
+          )}
+          {impl && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11 }}>
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: healthColor, flexShrink: 0 }} />
+              <span style={{ color: 'rgba(255,255,255,.45)', textTransform: 'capitalize' }}>
+                {impl.stage.replace('_', ' ')}
+              </span>
+              {org.implementationCount > 1 && (
+                <span style={{ color: 'rgba(255,255,255,.22)' }}>+{org.implementationCount - 1} more</span>
+              )}
+              {impl.next_action && (
+                <span style={{
+                  color: 'rgba(251,191,36,.70)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                }}>
+                  → {impl.next_action}
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* CTA */}
       <Link

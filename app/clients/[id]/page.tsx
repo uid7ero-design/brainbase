@@ -2,7 +2,9 @@ import { redirect, notFound } from 'next/navigation'
 import Link from 'next/link'
 import { requireRole } from '@/lib/org'
 import sql from '@/lib/db'
-import ClientWorkspace, { type Contact, type Lead, type Opportunity } from '@/components/clients/ClientWorkspace'
+import ClientWorkspace, {
+  type Contact, type Lead, type Opportunity, type PlatformModule, type Implementation,
+} from '@/components/clients/ClientWorkspace'
 
 export const dynamic = 'force-dynamic'
 
@@ -18,7 +20,7 @@ export default async function ClientSpacePage({ params }: { params: Promise<{ id
   if (!orgs[0]) notFound()
   const org = orgs[0] as { id: string; name: string }
 
-  const [contacts, leads] = await Promise.all([
+  const [contacts, leads, modules, implementations] = await Promise.all([
     sql`
       SELECT id, name, email, phone, status, address, age, program,
              session_times, next_action, last_contacted_at, created_at
@@ -35,6 +37,24 @@ export default async function ClientSpacePage({ params }: { params: Promise<{ id
       WHERE organisation_id = ${oid}
       ORDER BY created_at DESC
     `.catch((err) => { console.error('[CLIENT SPACE ERROR] leads query failed:', err); return []; }),
+    // BrainBase Platform modules enabled for this organisation — the same
+    // entitlement decision lib/capabilities/requireCapability.ts enforces
+    // (module_key enabled for the org AND the module itself still active),
+    // read directly here since this is a read-only summary display, not an
+    // access-control check.
+    sql`
+      SELECT m.key, m.name, m.description
+      FROM organisation_modules om
+      JOIN modules m ON m.key = om.module_key
+      WHERE om.organisation_id = ${oid} AND om.enabled = true AND m.active = true
+      ORDER BY m.name ASC
+    `.catch((err) => { console.error('[CLIENT SPACE ERROR] modules query failed:', err); return []; }) as Promise<PlatformModule[]>,
+    sql`
+      SELECT id, name, service_type, stage, health, next_action, target_launch_date, actual_launch_date
+      FROM implementations
+      WHERE organisation_id = ${oid}
+      ORDER BY updated_at DESC
+    `.catch((err) => { console.error('[CLIENT SPACE ERROR] implementations query failed:', err); return []; }) as Promise<Implementation[]>,
   ])
 
   const now = Date.now()
@@ -99,6 +119,8 @@ export default async function ClientSpacePage({ params }: { params: Promise<{ id
         contacts={contacts as Contact[]}
         leads={leads as Lead[]}
         opportunities={opportunities}
+        modules={modules}
+        implementations={implementations}
       />
     </>
   )
