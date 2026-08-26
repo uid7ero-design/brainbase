@@ -71,7 +71,7 @@ export default async function ClientsPage() {
       SELECT DISTINCT ON (organisation_id)
         organisation_id, id, name, stage, health, next_action
       FROM implementations
-      ORDER BY organisation_id, (stage <> 'cancelled') DESC, updated_at DESC
+      ORDER BY organisation_id, (stage <> 'cancelled') DESC, updated_at DESC, id ASC
     `.catch(() => []) as Promise<(PrimaryImplementation & { organisation_id: string })[]>,
     sql`
       SELECT organisation_id, COUNT(*)::int AS count
@@ -148,6 +148,11 @@ const STATUS_LABEL: Record<string, { label: string; color: string }> = {
   SUSPENDED: { label: 'Suspended', color: '#fbbf24' },
   CHURNED:  { label: 'Churned',   color: '#f87171' },
 }
+// Neutral fallback for any status value outside the three canonical
+// OrgStatus enum values above — deliberately not styled as Active
+// (green) or any real status, so an unrecognised/future value never
+// silently reads as healthy.
+const UNKNOWN_STATUS = { label: 'Unknown', color: '#a1a1aa' }
 const PLAN_LABEL: Record<string, string> = {
   TRIAL: 'Trial', STARTER: 'Starter', PROFESSIONAL: 'Professional', ENTERPRISE: 'Enterprise',
 }
@@ -187,7 +192,7 @@ function ClientCard({ org }: { org: ClientOrg }) {
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
           {(() => {
-            const st = STATUS_LABEL[org.status] ?? STATUS_LABEL.ACTIVE
+            const st = STATUS_LABEL[org.status] ?? UNKNOWN_STATUS
             return (
               <span style={{
                 fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 20,

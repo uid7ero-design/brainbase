@@ -472,9 +472,10 @@ function lastSeen(ts: string | null): string {
   return `Last seen ${d}d ago`
 }
 
-function AccountOverview({ modules, implementations, people }: {
-  modules: PlatformModule[]; implementations: Implementation[]; people: Person[]
+function AccountOverview({ modules, implementations, people, peopleTotal }: {
+  modules: PlatformModule[]; implementations: Implementation[]; people: Person[]; peopleTotal: number
 }) {
+  const additionalPeople = Math.max(0, peopleTotal - people.length)
   const cardStyle: React.CSSProperties = {
     background: 'rgba(255,255,255,.025)', border: '1px solid rgba(255,255,255,.07)',
     borderRadius: 14, padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 12,
@@ -575,6 +576,9 @@ function AccountOverview({ modules, implementations, people }: {
                 </div>
               </div>
             ))}
+            {additionalPeople > 0 && (
+              <div style={{ fontSize: 10, color: 'rgba(255,255,255,.22)' }}>+{additionalPeople} more</div>
+            )}
           </div>
         )}
       </div>
@@ -584,7 +588,7 @@ function AccountOverview({ modules, implementations, people }: {
 
 // ── Root workspace ────────────────────────────────────────────────────────────
 
-export default function ClientWorkspace({ orgId, contacts, leads, opportunities, modules, implementations, people }: {
+export default function ClientWorkspace({ orgId, contacts, leads, opportunities, modules, implementations, people, peopleTotal }: {
   orgId: string
   contacts: Contact[]
   leads: Lead[]
@@ -592,6 +596,7 @@ export default function ClientWorkspace({ orgId, contacts, leads, opportunities,
   modules: PlatformModule[]
   implementations: Implementation[]
   people: Person[]
+  peopleTotal: number
 }) {
   const [tab, setTab] = useState<Tab>('contacts')
 
@@ -615,7 +620,7 @@ export default function ClientWorkspace({ orgId, contacts, leads, opportunities,
 
   return (
     <div style={{ width: '100%', maxWidth: 1100, margin: '0 auto', padding: '24px 24px 64px', fontFamily: FONT }}>
-      <AccountOverview modules={modules} implementations={implementations} people={people} />
+      <AccountOverview modules={modules} implementations={implementations} people={people} peopleTotal={peopleTotal} />
 
       {/* Tab bar */}
       <div style={{
