@@ -30,6 +30,12 @@ export type Implementation = {
   target_launch_date: string | null; actual_launch_date: string | null
 }
 
+// BrainBase account-user visibility — who has access to this account.
+// Never the tenant's own CRM/coaching contacts.
+export type Person = {
+  id: string; name: string; email: string | null; role: string; last_login_at: string | null
+}
+
 type Tab = 'contacts' | 'leads' | 'opportunities'
 
 // ── Styles ───────────────────────────────────────────────────────────────────
@@ -453,7 +459,22 @@ function OpportunitiesTab({ opportunities }: { opportunities: Opportunity[] }) {
 // controls exist here; management happens in the canonical admin surfaces
 // this section links out to.
 
-function AccountOverview({ modules, implementations }: { modules: PlatformModule[]; implementations: Implementation[] }) {
+const ROLE_LABEL: Record<string, string> = {
+  SUPER_ADMIN: 'Super Admin', ADMIN: 'Admin', MANAGER: 'Manager', ANALYST: 'Analyst', VIEWER: 'Viewer',
+}
+
+// Truthful last-login presentation for the People card — never fabricated
+// where last_login_at is null.
+function lastSeen(ts: string | null): string {
+  if (!ts) return 'Never signed in'
+  const d = Math.floor((Date.now() - new Date(ts).getTime()) / 86400000)
+  if (d <= 0) return 'Last seen today'
+  return `Last seen ${d}d ago`
+}
+
+function AccountOverview({ modules, implementations, people }: {
+  modules: PlatformModule[]; implementations: Implementation[]; people: Person[]
+}) {
   const cardStyle: React.CSSProperties = {
     background: 'rgba(255,255,255,.025)', border: '1px solid rgba(255,255,255,.07)',
     borderRadius: 14, padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 12,
@@ -465,7 +486,7 @@ function AccountOverview({ modules, implementations }: { modules: PlatformModule
   const emptyStyle: React.CSSProperties = { fontSize: 12, color: 'rgba(255,255,255,.22)' }
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 24 }}>
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14, marginBottom: 24 }}>
       {/* BrainBase Platform */}
       <div style={cardStyle}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -523,19 +544,54 @@ function AccountOverview({ modules, implementations }: { modules: PlatformModule
           </div>
         )}
       </div>
+
+      {/* People — read-only account-user visibility. No invite/create/
+          delete/deactivate/role-change control exists here; management
+          happens at /admin/users. */}
+      <div style={cardStyle}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span style={sectionHeader}>People</span>
+          <Link href="/admin/users" style={{ fontSize: 11, color: 'rgba(255,255,255,.30)', textDecoration: 'none' }}>
+            Manage in Admin →
+          </Link>
+        </div>
+        {people.length === 0 ? (
+          <div style={emptyStyle}>No users on this account</div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {people.map(person => (
+              <div key={person.id} style={{
+                padding: '8px 10px', borderRadius: 8, background: 'rgba(255,255,255,.02)',
+                border: '1px solid rgba(255,255,255,.05)',
+              }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: '#F5F7FA', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {person.name}
+                </div>
+                <div style={{ fontSize: 10, color: 'rgba(255,255,255,.30)', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {person.email ?? 'No email'} · {ROLE_LABEL[person.role] ?? person.role}
+                </div>
+                <div style={{ fontSize: 10, color: 'rgba(255,255,255,.22)', marginTop: 1 }}>
+                  {lastSeen(person.last_login_at)}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   )
 }
 
 // ── Root workspace ────────────────────────────────────────────────────────────
 
-export default function ClientWorkspace({ orgId, contacts, leads, opportunities, modules, implementations }: {
+export default function ClientWorkspace({ orgId, contacts, leads, opportunities, modules, implementations, people }: {
   orgId: string
   contacts: Contact[]
   leads: Lead[]
   opportunities: Opportunity[]
   modules: PlatformModule[]
   implementations: Implementation[]
+  people: Person[]
 }) {
   const [tab, setTab] = useState<Tab>('contacts')
 
@@ -559,7 +615,7 @@ export default function ClientWorkspace({ orgId, contacts, leads, opportunities,
 
   return (
     <div style={{ width: '100%', maxWidth: 1100, margin: '0 auto', padding: '24px 24px 64px', fontFamily: FONT }}>
-      <AccountOverview modules={modules} implementations={implementations} />
+      <AccountOverview modules={modules} implementations={implementations} people={people} />
 
       {/* Tab bar */}
       <div style={{

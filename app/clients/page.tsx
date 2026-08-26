@@ -17,6 +17,8 @@ type ClientOrg = {
   name: string
   slug: string | null
   created_at: string
+  status: string
+  plan: string
   userCount: number
   leadCount: number
   modules: PortfolioModule[]
@@ -41,6 +43,8 @@ export default async function ClientsPage() {
         o.name,
         o.slug,
         o.created_at,
+        o.status,
+        o.plan,
         COUNT(DISTINCT u.id)::int  AS "userCount",
         COUNT(DISTINCT tl.id)::int AS "leadCount"
       FROM organisations o
@@ -136,6 +140,18 @@ const HEALTH_COLOR: Record<string, string> = {
   on_track: '#4ade80', at_risk: '#fbbf24', blocked: '#f87171',
 }
 
+// Human-readable presentation of the canonical Organisation status/plan
+// enums (prisma/schema.prisma OrgStatus/Plan). No derived/invented state —
+// these are the only three status values and four plan values that exist.
+const STATUS_LABEL: Record<string, { label: string; color: string }> = {
+  ACTIVE:   { label: 'Active',    color: '#4ade80' },
+  SUSPENDED: { label: 'Suspended', color: '#fbbf24' },
+  CHURNED:  { label: 'Churned',   color: '#f87171' },
+}
+const PLAN_LABEL: Record<string, string> = {
+  TRIAL: 'Trial', STARTER: 'Starter', PROFESSIONAL: 'Professional', ENTERPRISE: 'Enterprise',
+}
+
 function ClientCard({ org }: { org: ClientOrg }) {
   const initials = org.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()
   const age = Math.floor((Date.now() - new Date(org.created_at).getTime()) / 86400000)
@@ -161,13 +177,30 @@ function ClientCard({ org }: { org: ClientOrg }) {
         }}>
           {initials}
         </div>
-        <div>
+        <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 15, fontWeight: 600, color: '#F5F7FA', letterSpacing: '-.01em' }}>
             {org.name}
           </div>
           <div style={{ fontSize: 11, color: 'rgba(255,255,255,.28)', marginTop: 2 }}>
             Added {ageLabel}
           </div>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
+          {(() => {
+            const st = STATUS_LABEL[org.status] ?? STATUS_LABEL.ACTIVE
+            return (
+              <span style={{
+                fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 20,
+                background: `${st.color}1A`, color: st.color, border: `1px solid ${st.color}38`,
+                letterSpacing: '.02em', whiteSpace: 'nowrap',
+              }}>
+                {st.label}
+              </span>
+            )
+          })()}
+          <span style={{ fontSize: 10, color: 'rgba(255,255,255,.28)', letterSpacing: '.02em' }}>
+            {PLAN_LABEL[org.plan] ?? org.plan}
+          </span>
         </div>
       </div>
 
