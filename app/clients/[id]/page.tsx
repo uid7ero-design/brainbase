@@ -58,13 +58,22 @@ export default async function ClientSpacePage({ params }: { params: Promise<{ id
     // BrainBase account-user visibility — who has access to this
     // organisation's account, not the tenant's own CRM/coaching contacts.
     // Never joined against contacts/tennis_leads or any crm_* table.
+    // Bounded to a preview of 8 (Clients 2.0 B4) — COUNT(*) OVER() carries
+    // the true total in the same query so the card can render a truthful
+    // "+N more" without a second query or inferring the total from the
+    // limited result length. name/id tie-breakers keep row order stable
+    // for users who share last_login_at (most commonly: multiple users
+    // who have never signed in, i.e. last_login_at IS NULL).
     sql`
-      SELECT id, name, email, role, last_login_at
+      SELECT id, name, email, role, last_login_at, COUNT(*) OVER()::int AS total_count
       FROM users
       WHERE organisation_id = ${oid}
-      ORDER BY last_login_at DESC NULLS LAST
-    `.catch((err) => { console.error('[CLIENT SPACE ERROR] people query failed:', err); return []; }) as Promise<Person[]>,
+      ORDER BY last_login_at DESC NULLS LAST, name ASC, id ASC
+      LIMIT 8
+    `.catch((err) => { console.error('[CLIENT SPACE ERROR] people query failed:', err); return []; }) as Promise<(Person & { total_count: number })[]>,
   ])
+
+  const peopleTotal = people[0]?.total_count ?? 0
 
   const now = Date.now()
 
@@ -130,7 +139,8 @@ export default async function ClientSpacePage({ params }: { params: Promise<{ id
         opportunities={opportunities}
         modules={modules}
         implementations={implementations}
-        people={people}
+        people={people.map(({ id, name, email, role, last_login_at }) => ({ id, name, email, role, last_login_at }))}
+        peopleTotal={peopleTotal}
       />
     </>
   )
@@ -141,12 +151,17 @@ const STATUS_LABEL: Record<string, { label: string; color: string }> = {
   SUSPENDED: { label: 'Suspended', color: '#fbbf24' },
   CHURNED:   { label: 'Churned',   color: '#f87171' },
 }
+// Neutral fallback for any status value outside the three canonical
+// OrgStatus enum values above — deliberately not styled as Active
+// (green) or any real status, so an unrecognised/future value never
+// silently reads as healthy.
+const UNKNOWN_STATUS = { label: 'Unknown', color: '#a1a1aa' }
 const PLAN_LABEL: Record<string, string> = {
   TRIAL: 'Trial', STARTER: 'Starter', PROFESSIONAL: 'Professional', ENTERPRISE: 'Enterprise',
 }
 
 function ClientBanner({ orgName, status, plan }: { orgName: string; status: string; plan: string }) {
-  const st = STATUS_LABEL[status] ?? STATUS_LABEL.ACTIVE
+  const st = STATUS_LABEL[status] ?? UNKNOWN_STATUS
   return (
     <div style={{
       position: 'sticky', top: 52, zIndex: 90,

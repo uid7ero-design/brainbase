@@ -378,3 +378,177 @@ describe('B3 — ClientWorkspace renders a read-only People card', () => {
     expect(CLIENT_WORKSPACE_SOURCE).toContain("type Tab = 'contacts' | 'leads' | 'opportunities'")
   })
 })
+
+// ── Clients 2.0 B4 (F.10C) — determinism hardening ────────────────────────
+//
+// Companion coverage to the B3 suite above. Rather than duplicate the B3
+// substring assertions (which still hold — they match on a prefix of the
+// now-longer query text), this section proves the specific B4 contracts:
+// the neutral Unknown status fallback (visibly rendered, not merely
+// selected), the bounded People preview + truthful total, deterministic
+// People ordering through a full id tie-breaker, and the deterministic
+// primary-implementation id tie-breaker. Each assertion is scoped to the
+// actual behavior-bearing function/query block, not a whole-file substring,
+// so it cannot be satisfied by an unused constant, a comment, or an
+// unrelated occurrence elsewhere in the file.
+
+describe('B4 — neutral Unknown status fallback, not Active', () => {
+  function clientCardBlock(): string {
+    const start = CLIENTS_LIST_SOURCE.indexOf('function ClientCard(')
+    expect(start, 'expected to find function ClientCard(').toBeGreaterThan(-1)
+    return CLIENTS_LIST_SOURCE.slice(start)
+  }
+
+  function clientBannerBlock(): string {
+    const start = CLIENTS_DETAIL_SOURCE.indexOf('function ClientBanner(')
+    expect(start, 'expected to find function ClientBanner(').toBeGreaterThan(-1)
+    return CLIENTS_DETAIL_SOURCE.slice(start)
+  }
+
+  it('UNKNOWN_STATUS is defined with label "Unknown" and a color distinct from the Active green (#4ade80) in both files', () => {
+    for (const src of [CLIENTS_LIST_SOURCE, CLIENTS_DETAIL_SOURCE]) {
+      const start = src.indexOf('const UNKNOWN_STATUS')
+      const end = src.indexOf('\n', start)
+      expect(start, 'expected to find const UNKNOWN_STATUS').toBeGreaterThan(-1)
+      const line = src.slice(start, end)
+      expect(line).toContain("label: 'Unknown'")
+      expect(line).not.toContain('#4ade80')
+    }
+  })
+
+  it('ClientCard (list page) resolves the status badge via STATUS_LABEL[org.status] ?? UNKNOWN_STATUS, not STATUS_LABEL.ACTIVE', () => {
+    const block = clientCardBlock()
+    expect(block).toContain('STATUS_LABEL[org.status] ?? UNKNOWN_STATUS')
+    expect(block).not.toContain('STATUS_LABEL[org.status] ?? STATUS_LABEL.ACTIVE')
+  })
+
+  it('ClientCard visibly renders the resolved label ({st.label}) inside the status badge span, not just the lookup', () => {
+    const block = clientCardBlock()
+    const lookupIndex = block.indexOf('STATUS_LABEL[org.status] ?? UNKNOWN_STATUS')
+    const labelIndex = block.indexOf('{st.label}', lookupIndex)
+    const badgeEnd = block.indexOf('</span>', labelIndex)
+    expect(lookupIndex).toBeGreaterThan(-1)
+    expect(labelIndex).toBeGreaterThan(lookupIndex)
+    expect(badgeEnd).toBeGreaterThan(labelIndex)
+  })
+
+  it('ClientBanner (detail page) resolves the status badge via STATUS_LABEL[status] ?? UNKNOWN_STATUS, not STATUS_LABEL.ACTIVE', () => {
+    const block = clientBannerBlock()
+    expect(block).toContain('STATUS_LABEL[status] ?? UNKNOWN_STATUS')
+    expect(block).not.toContain('STATUS_LABEL[status] ?? STATUS_LABEL.ACTIVE')
+  })
+
+  it('ClientBanner visibly renders the resolved label ({st.label}) inside the status badge span, not just the lookup', () => {
+    const block = clientBannerBlock()
+    const lookupIndex = block.indexOf('STATUS_LABEL[status] ?? UNKNOWN_STATUS')
+    const labelIndex = block.indexOf('{st.label}', lookupIndex)
+    const badgeEnd = block.indexOf('</span>', labelIndex)
+    expect(lookupIndex).toBeGreaterThan(-1)
+    expect(labelIndex).toBeGreaterThan(lookupIndex)
+    expect(badgeEnd).toBeGreaterThan(labelIndex)
+  })
+})
+
+describe('B4 — People query is bounded with a truthful COUNT(*) OVER() total', () => {
+  function peopleQueryBlock(): string {
+    const start = CLIENTS_DETAIL_SOURCE.indexOf('SELECT id, name, email, role, last_login_at')
+    const end = CLIENTS_DETAIL_SOURCE.indexOf('`.catch', start)
+    expect(start, 'expected to find the people SELECT clause').toBeGreaterThan(-1)
+    return CLIENTS_DETAIL_SOURCE.slice(start, end)
+  }
+
+  it('selects COUNT(*) OVER()::int AS total_count in the same query as the bounded rows', () => {
+    expect(peopleQueryBlock()).toContain('COUNT(*) OVER()::int AS total_count')
+  })
+
+  it('remains scoped WHERE organisation_id = ${oid}', () => {
+    expect(peopleQueryBlock()).toContain('WHERE organisation_id = ${oid}')
+  })
+
+  it('orders by the exact full contract: last_login_at DESC NULLS LAST, name ASC, id ASC', () => {
+    expect(peopleQueryBlock()).toContain('ORDER BY last_login_at DESC NULLS LAST, name ASC, id ASC')
+  })
+
+  it('is bounded with LIMIT 8', () => {
+    expect(peopleQueryBlock()).toContain('LIMIT 8')
+  })
+
+  it('derives peopleTotal from the query\'s own total_count, not from the limited result length', () => {
+    expect(CLIENTS_DETAIL_SOURCE).toContain('const peopleTotal = people[0]?.total_count ?? 0')
+    expect(CLIENTS_DETAIL_SOURCE).not.toMatch(/peopleTotal\s*=\s*people\.length/)
+  })
+
+  it('passes peopleTotal to ClientWorkspace as a separate prop from the (unmodified) people array', () => {
+    expect(CLIENTS_DETAIL_SOURCE).toContain('peopleTotal={peopleTotal}')
+  })
+})
+
+describe('B4 — "+N more" People preview is derived from peopleTotal - people.length and rendered only when positive', () => {
+  function accountOverviewBlock(): string {
+    const start = CLIENT_WORKSPACE_SOURCE.indexOf('function AccountOverview(')
+    const end = CLIENT_WORKSPACE_SOURCE.indexOf('\n// ── Root workspace', start)
+    expect(start, 'expected to find function AccountOverview(').toBeGreaterThan(-1)
+    expect(end, 'expected to find the Root workspace boundary after AccountOverview').toBeGreaterThan(start)
+    return CLIENT_WORKSPACE_SOURCE.slice(start, end)
+  }
+
+  it('AccountOverview accepts peopleTotal and computes additionalPeople = Math.max(0, peopleTotal - people.length)', () => {
+    const block = accountOverviewBlock()
+    expect(block).toContain('peopleTotal: number')
+    expect(block).toContain('const additionalPeople = Math.max(0, peopleTotal - people.length)')
+  })
+
+  it('renders "+N more" inside the People card only when additionalPeople > 0', () => {
+    const start = CLIENT_WORKSPACE_SOURCE.indexOf('{/* People')
+    const end = CLIENT_WORKSPACE_SOURCE.indexOf('\n// ── Root workspace', start)
+    expect(start, 'expected to find the People card JSX comment').toBeGreaterThan(-1)
+    const block = CLIENT_WORKSPACE_SOURCE.slice(start, end)
+    expect(block).toContain('additionalPeople > 0')
+    expect(block).toContain('{additionalPeople} more')
+  })
+
+  it('zero/≤8 users never show a misleading additional count — the "+N more" block is gated by a strict additionalPeople > 0 conditional, not rendered unconditionally', () => {
+    const start = CLIENT_WORKSPACE_SOURCE.indexOf('{/* People')
+    const end = CLIENT_WORKSPACE_SOURCE.indexOf('\n// ── Root workspace', start)
+    const block = CLIENT_WORKSPACE_SOURCE.slice(start, end)
+    expect(block).toContain('{additionalPeople > 0 && (')
+  })
+
+  it('People remains read-only after the B4 change — no fetch/button/input/select/onChange anywhere in AccountOverview', () => {
+    const block = accountOverviewBlock()
+    expect(block).not.toContain('fetch(')
+    expect(block).not.toContain('<button')
+    expect(block).not.toContain('onClick')
+    expect(block).not.toContain('<input')
+    expect(block).not.toContain('<select')
+    expect(block).not.toContain('onChange')
+  })
+
+  it('/admin/users remains the sole management link for People', () => {
+    expect(CLIENT_WORKSPACE_SOURCE).toContain('href="/admin/users"')
+  })
+})
+
+describe('B4 — primary-implementation DISTINCT ON selection has a final deterministic id ASC tie-breaker', () => {
+  function implementationSelectionBlock(): string {
+    const start = CLIENTS_LIST_SOURCE.indexOf('SELECT DISTINCT ON (organisation_id)')
+    const end = CLIENTS_LIST_SOURCE.indexOf('`.catch', start)
+    expect(start, 'expected to find SELECT DISTINCT ON (organisation_id)').toBeGreaterThan(-1)
+    return CLIENTS_LIST_SOURCE.slice(start, end)
+  }
+
+  it('the ordering contract is complete through the final id ASC tie-breaker, within the DISTINCT ON query block itself', () => {
+    const block = implementationSelectionBlock()
+    expect(block).toContain(
+      "ORDER BY organisation_id, (stage <> 'cancelled') DESC, updated_at DESC, id ASC"
+    )
+  })
+
+  it('organisation_id remains the leftmost ordering expression and the non-cancelled/updated_at preferences are unchanged', () => {
+    const block = implementationSelectionBlock()
+    const orderIndex = block.indexOf('ORDER BY organisation_id')
+    expect(orderIndex).toBeGreaterThan(-1)
+    expect(block.indexOf("(stage <> 'cancelled') DESC")).toBeGreaterThan(orderIndex)
+    expect(block.indexOf('updated_at DESC')).toBeGreaterThan(block.indexOf("(stage <> 'cancelled') DESC"))
+  })
+})
