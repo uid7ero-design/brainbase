@@ -49,6 +49,7 @@ model Organisation {
   sporting_activities    SportingActivity[]
   web_service_leads      WebServiceLead[]
   organisation_modules   OrganisationModule[]
+  events                 Event[]
 
   @@map("organisations")
 }
@@ -132,6 +133,7 @@ model User {
   dashboard_configs DashboardConfig[]
   saved_views       SavedView[]
   uploads           Upload[]
+  events_created    Event[]
   organisation      Organisation      @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
 
   @@index([organisation_id])
@@ -885,6 +887,114 @@ model tennis_leads {
 
   @@index([created_at(sort: Desc)], map: "idx_tennis_leads_created")
   @@index([organisation_id], map: "idx_tennis_leads_org")
+}
+
+// ─── Events & Ticketing (Phase 1 — staff-only foundation) ──────────────
+// A new, deliberately independent domain — NOT built on the tennis
+// Session/SessionInstance/Booking models (those model a recurring weekly
+// coaching-class calendar, not a ticketed one-off/multi-date event with
+// per-type capacity and pricing tiers) and NOT related to
+// BinMaintenanceJob (an unrelated ops-ticket vertical). See the Phase 1
+// architecture audit for the full rationale. Written via the raw SQL
+// client (lib/db.ts), matching the dominant repository convention for
+// general-purpose organisation-scoped domains (auth, organiser, CRM) —
+// these Prisma models exist for documentation/type-shape purposes, same
+// as Session/Booking/contacts/tennis_leads above.
+//
+// Phase 1 scope: staff-authenticated management of Event/EventSession/
+// EventTicketType only. No public/attendee-facing surface, no
+// EventOrder/EventAttendee/EventCheckIn models, no payment processing,
+// no QR/check-in, and no audit-log or CRM integration exist yet.
+// `price_cents` on EventTicketType is intentionally-unused domain
+// preparation only in this phase — a zero price is a fully valid ticket
+// type.
+//
+// Tenant integrity is enforced at the database level, not only in
+// application code: Event carries a UNIQUE(id, organisation_id)
+// constraint, and both child tables' event relation is a COMPOSITE
+// foreign key against (id, organisation_id) rather than a plain
+// event_id-only FK — so a session or ticket type physically cannot
+// reference an event belonging to a different organisation; the
+// database rejects the row outright rather than relying solely on every
+// caller remembering to filter by organisation_id.
+model Event {
+  id              String            @id @default(dbgenerated("(gen_random_uuid())::text"))
+  organisation_id String
+  name            String
+  slug            String
+  description     String?
+  venue           String?
+  status          EventStatus       @default(DRAFT)
+  starts_at       DateTime          @db.Timestamptz(6)
+  ends_at         DateTime          @db.Timestamptz(6)
+  timezone        String
+  created_by      String?
+  created_at      DateTime          @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime          @updatedAt @db.Timestamptz(6)
+
+  organisation    Organisation      @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
+  creator         User?             @relation(fields: [created_by], references: [id], onDelete: SetNull)
+  event_sessions  EventSession[]
+  ticket_types    EventTicketType[]
+
+  // Slug uniqueness is per-organisation only, not global — Phase 1 has
+  // no public URL surface that would require a global namespace. If a
+  // future public-routing phase resolves events by slug alone (without
+  // an organisation segment in the URL), this contract must be
+  // revisited before that phase ships.
+  @@unique([id, organisation_id])
+  @@unique([organisation_id, slug])
+  @@index([organisation_id])
+  @@index([organisation_id, status])
+  @@map("events")
+}
+
+model EventSession {
+  id              String       @id @default(dbgenerated("(gen_random_uuid())::text"))
+  event_id        String
+  organisation_id String
+  name            String
+  starts_at       DateTime     @db.Timestamptz(6)
+  ends_at         DateTime     @db.Timestamptz(6)
+  capacity        Int
+  created_at      DateTime     @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime     @updatedAt @db.Timestamptz(6)
+
+  // Composite FK against events(id, organisation_id) — see the Event
+  // model's own comment above for why this, not a plain event_id FK.
+  event           Event        @relation(fields: [event_id, organisation_id], references: [id, organisation_id], onDelete: Cascade)
+
+  @@index([event_id])
+  @@index([organisation_id])
+  @@map("event_sessions")
+}
+
+model EventTicketType {
+  id              String       @id @default(dbgenerated("(gen_random_uuid())::text"))
+  event_id        String
+  organisation_id String
+  name            String
+  description     String?
+  price_cents     Int          @default(0)
+  capacity        Int
+  active           Boolean     @default(true)
+  sort_order      Int          @default(0)
+  created_at      DateTime     @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime     @updatedAt @db.Timestamptz(6)
+
+  // Composite FK against events(id, organisation_id) — see the Event
+  // model's own comment above for why this, not a plain event_id FK.
+  event           Event        @relation(fields: [event_id, organisation_id], references: [id, organisation_id], onDelete: Cascade)
+
+  @@index([event_id])
+  @@index([organisation_id])
+  @@map("event_ticket_types")
+}
+
+enum EventStatus {
+  DRAFT
+  PUBLISHED
+  CANCELLED
 }
 
 enum Plan {
