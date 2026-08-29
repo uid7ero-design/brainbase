@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
+import RegistrationsPanel from './RegistrationsPanel';
 
 const FONT = 'var(--font-inter),-apple-system,sans-serif';
 
@@ -102,6 +103,7 @@ export default function EventDetailClient({ eventId, canManage }: { eventId: str
       <EventOverview event={event} canManage={canManage} onSaved={reload} />
       <SessionsPanel eventId={eventId} sessions={sessions} canManage={canManage} onChanged={reload} />
       <TicketTypesPanel eventId={eventId} ticketTypes={ticketTypes} canManage={canManage} onChanged={reload} />
+      <RegistrationsPanel eventId={eventId} />
     </div>
   );
 }

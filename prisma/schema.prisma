@@ -1081,6 +1081,7 @@ model Event {
   creator         User?             @relation(fields: [created_by], references: [id], onDelete: SetNull)
   event_sessions  EventSession[]
   ticket_types    EventTicketType[]
+  orders          EventOrder[]
 
   // Slug uniqueness is per-organisation only, not global — Phase 1 has
   // no public URL surface that would require a global namespace. If a
@@ -1108,7 +1109,15 @@ model EventSession {
   // Composite FK against events(id, organisation_id) — see the Event
   // model's own comment above for why this, not a plain event_id FK.
   event           Event        @relation(fields: [event_id, organisation_id], references: [id, organisation_id], onDelete: Cascade)
+  order_items     EventOrderItem[]
 
+  // Phase 2 addition (additive-only, no behavioural change to Phase 1):
+  // backs a composite FK from event_order_items(event_session_id,
+  // organisation_id) — the same pattern events(id, organisation_id)
+  // already uses for event_sessions/event_ticket_types themselves — so a
+  // registration physically cannot select a session belonging to a
+  // different organisation.
+  @@unique([id, organisation_id])
   @@index([event_id])
   @@index([organisation_id])
   @@map("event_sessions")
@@ -1130,10 +1139,111 @@ model EventTicketType {
   // Composite FK against events(id, organisation_id) — see the Event
   // model's own comment above for why this, not a plain event_id FK.
   event           Event        @relation(fields: [event_id, organisation_id], references: [id, organisation_id], onDelete: Cascade)
+  order_items     EventOrderItem[]
 
+  // Phase 2 addition (additive-only, no behavioural change to Phase 1):
+  // backs a composite FK from event_order_items(ticket_type_id,
+  // organisation_id) — same rationale as EventSession's own addition
+  // above.
+  @@unique([id, organisation_id])
   @@index([event_id])
   @@index([organisation_id])
   @@map("event_ticket_types")
+}
+
+// ─── Events & Ticketing (Phase 2 — public free registration) ───────────
+// Adds only what a free, publicly-submitted registration needs:
+// EventOrder (the purchaser + submission), EventOrderItem (which ticket
+// type/session and how many), EventAttendee (one row per attendee named
+// on the order). Deliberately no QR/token/check-in fields (Phase 3+), no
+// payment gateway fields, no email-send bookkeeping.
+//
+// `status` on EventOrder follows Event.status's own precedent: a plain
+// Prisma String backed by TEXT + CHECK in SQL, not a Prisma enum — see
+// that model's comment for the full rationale (no native Postgres enum
+// type exists for this column).
+//
+// Tenant integrity extends the exact Phase 1 composite-FK chain:
+// events(id, organisation_id) -> event_orders(id, organisation_id) ->
+// event_order_items(id, organisation_id) -> event_attendees. Every
+// parent/child link in this chain is a composite FK on
+// (foreign_id, organisation_id), never a plain foreign_id-only FK, so a
+// row anywhere in this chain whose organisation_id doesn't match its
+// parent is physically un-insertable at the database level. The one
+// exception is denormalized convenience columns (event_id on
+// EventOrderItem/EventAttendee, order_id on EventAttendee) — these are
+// always derived server-side from an already-tenant-verified chain, and
+// mirror Phase 1's own precedent of not additionally FK-enforcing every
+// denormalized column beyond the organisation boundary itself.
+model EventOrder {
+  id              String           @id @default(dbgenerated("(gen_random_uuid())::text"))
+  organisation_id String
+  event_id        String
+  purchaser_name  String
+  purchaser_email String
+  purchaser_phone String?
+  status          String           @default("PENDING")
+  // Always 0 for every order the Phase 2 public flow creates — Phase 2
+  // is free-only. Exists now so a later paid-orders phase needs no
+  // schema change; nothing in Phase 2 ever writes a non-zero value, and
+  // the public route independently re-derives (never trusts) pricing
+  // from EventTicketType.price_cents server-side.
+  total_cents     Int              @default(0)
+  created_at      DateTime         @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime         @updatedAt @db.Timestamptz(6)
+
+  event           Event            @relation(fields: [event_id, organisation_id], references: [id, organisation_id], onDelete: Cascade)
+  order_items     EventOrderItem[]
+
+  @@unique([id, organisation_id])
+  @@index([organisation_id])
+  @@index([event_id])
+  @@map("event_orders")
+}
+
+model EventOrderItem {
+  id               String          @id @default(dbgenerated("(gen_random_uuid())::text"))
+  organisation_id  String
+  order_id         String
+  event_id         String
+  event_session_id String?
+  ticket_type_id   String
+  quantity         Int
+  // Always 0 in Phase 2 — see EventOrder.total_cents's comment.
+  unit_price_cents Int             @default(0)
+  created_at       DateTime        @default(now()) @db.Timestamptz(6)
+
+  order            EventOrder      @relation(fields: [order_id, organisation_id], references: [id, organisation_id], onDelete: Cascade)
+  ticket_type      EventTicketType @relation(fields: [ticket_type_id, organisation_id], references: [id, organisation_id], onDelete: Restrict)
+  session          EventSession?   @relation(fields: [event_session_id, organisation_id], references: [id, organisation_id], onDelete: Restrict)
+  attendees        EventAttendee[]
+
+  @@unique([id, organisation_id])
+  @@index([organisation_id])
+  @@index([order_id])
+  @@index([ticket_type_id])
+  @@index([event_session_id])
+  @@map("event_order_items")
+}
+
+model EventAttendee {
+  id              String         @id @default(dbgenerated("(gen_random_uuid())::text"))
+  organisation_id String
+  event_id        String
+  order_id        String
+  order_item_id   String
+  attendee_name   String
+  attendee_email  String?
+  created_at      DateTime       @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime       @updatedAt @db.Timestamptz(6)
+
+  order_item      EventOrderItem @relation(fields: [order_item_id, organisation_id], references: [id, organisation_id], onDelete: Cascade)
+
+  @@index([organisation_id])
+  @@index([event_id])
+  @@index([order_id])
+  @@index([order_item_id])
+  @@map("event_attendees")
 }
 
 enum Plan {
