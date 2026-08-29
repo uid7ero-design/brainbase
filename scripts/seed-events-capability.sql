@@ -1,0 +1,62 @@
+-- Events & Ticketing capability registry seed — registers exactly one
+-- platform-wide row in public.modules: key = 'events'. Run once,
+-- manually, against the target database, AFTER scripts/create-modules.sql
+-- (this script inserts into that table) and independently of
+-- scripts/create-events.sql (this script does not touch the events/
+-- event_sessions/event_ticket_types tables at all). NOT run automatically
+-- by this task.
+--
+-- Context: scripts/seed-modules-registry.sql (the prior capability-
+-- registry seed) explicitly registered only 'crm' and 'organiser', and
+-- its own comment records that 'events'/'ticketing' were found NOT ready
+-- for registration at that time, pending "its own design pass". The
+-- Events & Ticketing Phase 0 architecture audit and this Phase 1
+-- implementation are that design pass. This script is the natural
+-- follow-on registration for the single capability key Phase 1 actually
+-- needs — it does not re-open or re-litigate any of the other capability
+-- keys that prior script's comment listed as not-ready (bookings,
+-- tennis, any waste/dashboard area, HLNA/chat, uploads, any integration
+-- provider, Founder OS, admin, reporting remain exactly as undecided as
+-- before; this script says nothing about any of them).
+--
+-- Purpose: REGISTRY seeding only, identical in kind to
+-- scripts/seed-modules-registry.sql — it makes the 'events' capability
+-- exist as a concept the platform is aware of. It grants nothing to any
+-- organisation. No organisation becomes entitled to Events & Ticketing
+-- as a result of running this script — that is organisation_modules'
+-- job, deliberately left untouched here, and remains a separate, later,
+-- explicitly authorized step performed through the existing super_admin
+-- /admin/orgs capability-toggle UI (app/actions/orgModules.ts), exactly
+-- as it already works for every other registered capability. Running
+-- this script only makes an "Events" row appear in that toggle UI as an
+-- option — still defaulted to disabled for every organisation.
+--
+-- Idempotency: ON CONFLICT (key) DO NOTHING, using modules' own primary
+-- key as the conflict target. Safe to re-run; a second execution changes
+-- nothing. Deliberately DO NOTHING rather than DO UPDATE, matching
+-- scripts/seed-modules-registry.sql's own rationale — this script seeds
+-- an initial registry row, it does not own ongoing edits to name/
+-- description/active for a key that already exists.
+--
+-- active = true: the platform-wide kill switch (see
+-- scripts/create-modules.sql) — true means the capability is available
+-- for use platform-wide, subject entirely to each organisation's own
+-- organisation_modules.enabled entitlement, which remains independently
+-- false (not entitled) for every organisation until a super_admin
+-- explicitly enables it for a specific org.
+--
+-- Additive only: exactly one INSERT statement, into modules only. No
+-- UPDATE, no DELETE, no DDL, no organisation_modules row, no
+-- organisation id, no application/runtime logic.
+--
+-- ROLLBACK: DELETE FROM modules WHERE key = 'events'; — safe only if no
+-- organisation_modules row yet references it (the FK from
+-- organisation_modules.module_key to modules.key uses ON DELETE
+-- RESTRICT, so Postgres itself will refuse this delete once any
+-- organisation has been entitled — see scripts/create-organisation-
+-- modules.sql). Not executed by this script — recorded here for the
+-- record only.
+
+INSERT INTO modules (key, name, description, active) VALUES
+  ('events', 'Events & Ticketing', 'Event, session and ticket-type management for organisation-hosted events.', true)
+ON CONFLICT (key) DO NOTHING;
