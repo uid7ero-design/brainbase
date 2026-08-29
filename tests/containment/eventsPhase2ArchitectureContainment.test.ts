@@ -79,9 +79,15 @@ describe('Events Phase 2 containment — no QR/payment/email/CRM/audit scope cre
     })
   }
 
-  it('package.json has no new QR/payment dependency', () => {
+  // qrcode/jsqr were explicitly authorized in a LATER, dedicated pass
+  // (Phase 3 digital tickets + check-in — see
+  // tests/containment/eventsPhase3Ticketing.test.ts). This Phase 2
+  // containment suite's own boundary predates that authorization; what
+  // it still correctly guards is that Phase 2 itself never added a
+  // payment dependency, which remains true and remains prohibited.
+  it('package.json has no payment dependency', () => {
     const pkg = read('package.json')
-    expect(pkg).not.toMatch(/"qrcode"|"jsbarcode"|"stripe"|"paypal"|"square"/i)
+    expect(pkg).not.toMatch(/"jsbarcode"|"stripe"|"paypal"|"square"/i)
   })
 
   it('no attendee/order/check-in QR-token column exists in the Phase 2 SQL script (deferred to Phase 3)', () => {

@@ -1,8 +1,8 @@
 'use client';
 
-import { Panel, SectionHeader, EmptyState, StatusBadge, orderStatusTone, rowCardStyle, TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED } from '../_components/ui';
+import { Panel, SectionHeader, EmptyState, StatusBadge, orderStatusTone, rowCardStyle, TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED, BORDER_SOFT } from '../_components/ui';
 
-export type Attendee = { id: string; name: string; email: string | null };
+export type Attendee = { id: string; name: string; email: string | null; checked_in_at: string | null };
 export type OrderRow = {
   id: string;
   purchaser_name: string;
@@ -54,13 +54,25 @@ export default function RegistrationsPanel({ orders, error }: { orders: OrderRow
                 <RegField label="Purchaser" value={o.purchaser_name} sub={o.purchaser_email} />
                 <RegField label="Ticket" value={`${o.ticket_type_name ?? 'Unknown ticket type'} × ${o.quantity}`} />
                 {o.session_name && <RegField label="Session" value={o.session_name} />}
-                {o.attendees.length > 0 && (
-                  <RegField label="Attendees" value={o.attendees.map(a => a.name).join(', ')} />
-                )}
                 <RegField label="Registered" value={new Date(o.created_at).toLocaleString()} />
               </div>
               <StatusBadge label={o.status} tone={orderStatusTone(o.status)} />
             </div>
+
+            {o.attendees.length > 0 && (
+              <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${BORDER_SOFT}`, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {o.attendees.map(a => (
+                  <div key={a.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, fontSize: 12.5 }}>
+                    <span style={{ color: TEXT_PRIMARY, fontWeight: 500 }}>{a.name}</span>
+                    {a.checked_in_at ? (
+                      <span style={{ color: '#4ADE80', fontWeight: 600 }}>Checked in · {new Date(a.checked_in_at).toLocaleTimeString()}</span>
+                    ) : (
+                      <span style={{ color: TEXT_MUTED }}>Not checked in</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         ))}
       </div>

@@ -164,10 +164,14 @@ describe('Events architecture containment — no public/attendee-facing surface 
   // What remains true and worth protecting here is narrower: Phase 1's
   // OWN staff-only route/page set gained no NEW public entry of its
   // own as a side effect of Phase 2 landing.
-  it('no unexpected public surface exists beyond the documented Phase 2 additions (app/api/public/events, app/e)', () => {
+  // 'tickets' (app/api/public/tickets/[token]) was added in Phase 3 —
+  // the digital ticket lookup, explicitly authorized alongside app/t —
+  // this list is not stale, it now names both documented public API
+  // additions. Anything beyond these two remains unexpected.
+  it('no unexpected public surface exists beyond the documented Phase 2/Phase 3 additions (app/api/public/events, app/api/public/tickets, app/e, app/t)', () => {
     const publicApiDir = path.join(process.cwd(), 'app/api/public')
     const entries = fs.existsSync(publicApiDir) ? fs.readdirSync(publicApiDir) : []
-    expect(entries).toEqual(['events'])
+    expect(entries.slice().sort()).toEqual(['events', 'tickets'])
   })
 
   it('middleware.ts was not modified to add a public /events entry — Phase 1 has no public route', () => {

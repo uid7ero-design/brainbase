@@ -27,7 +27,7 @@ export async function GET(_req: Request, { params }: Ctx) {
       tt.id AS ticket_type_id, tt.name AS ticket_type_name,
       es.id AS event_session_id, es.name AS session_name,
       COALESCE(
-        json_agg(json_build_object('id', ea.id, 'name', ea.attendee_name, 'email', ea.attendee_email))
+        json_agg(json_build_object('id', ea.id, 'name', ea.attendee_name, 'email', ea.attendee_email, 'checked_in_at', ea.checked_in_at))
           FILTER (WHERE ea.id IS NOT NULL),
         '[]'
       ) AS attendees

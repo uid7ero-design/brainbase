@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import Link from 'next/link';
-import { Calendar, Clock, MapPin, ArrowLeft } from 'lucide-react';
+import { Calendar, Clock, MapPin, ArrowLeft, ScanLine } from 'lucide-react';
 import KpiCard from '@/components/dashboard/ui/KpiCard';
 import RegistrationsPanel, { type OrderRow } from './RegistrationsPanel';
 import { ARTWORK_ACCEPT_ATTR, MAX_ARTWORK_MB, isAllowedArtworkMimeType } from '@/lib/events/artworkConstants';
@@ -151,6 +151,12 @@ export default function EventDetailClient({ eventId, canManage }: { eventId: str
   const remainingCapacity = Math.max(0, totalTicketCapacity - attendeeCount);
   const registrationRate = orders && totalTicketCapacity > 0 ? Math.round((attendeeCount / totalTicketCapacity) * 100) : null;
   const statusAccent = event.status === 'PUBLISHED' ? '#4ADE80' : event.status === 'CANCELLED' ? '#F87171' : '#9ca3af';
+  // Live attendance metrics (section 13) — derived entirely from the
+  // orders data already loaded for the KPI strip/RegistrationsPanel
+  // above; no new query, no realtime sockets, just the same fetch a
+  // normal page reload already re-runs.
+  const checkedInCount = nonCancelledOrders.flatMap(o => o.attendees).filter(a => a.checked_in_at).length;
+  const checkInRate = attendeeCount > 0 ? Math.round((checkedInCount / attendeeCount) * 100) : null;
 
   return (
     <div style={{ padding: 32, fontFamily: FONT, color: TEXT_PRIMARY, maxWidth: 1140, margin: '0 auto' }}>
@@ -167,6 +173,12 @@ export default function EventDetailClient({ eventId, canManage }: { eventId: str
       <div style={{ display: 'flex', gap: 12, marginTop: 20, flexWrap: 'wrap' }}>
         <KpiCard label="Orders" value={orders ? orderCount : '—'} accentColor="#8A4DFF" theme="dark" loading={orders === null} />
         <KpiCard label="Attendees" value={orders ? attendeeCount : '—'} accentColor="#A78BFA" theme="dark" loading={orders === null} />
+        <KpiCard
+          label="Checked In"
+          value={orders ? checkedInCount : '—'}
+          accentColor="#4ADE80" theme="dark" loading={orders === null}
+          sub={orders && checkInRate !== null ? `${checkInRate}% · ${attendeeCount - checkedInCount} remaining` : undefined}
+        />
         <KpiCard label="Ticket Capacity" value={totalTicketCapacity} accentColor="#06B6D4" theme="dark" />
         <KpiCard
           label="Remaining"
@@ -337,7 +349,14 @@ function EventOverview({ event, canManage, onSaved }: { event: EventDetail; canM
                 <div style={{ fontSize: 12, color: TEXT_MUTED, marginTop: 4 }}>/{event.slug}</div>
               </div>
             </div>
-            {canManage && <button onClick={() => setEditing(true)} style={secondaryBtnStyle}>Edit</button>}
+            {canManage && (
+              <div style={{ display: 'flex', gap: 8 }}>
+                <Link href={`/events/${event.id}/check-in`} style={{ ...secondaryBtnStyle, display: 'inline-flex', alignItems: 'center', gap: 6, textDecoration: 'none' }}>
+                  <ScanLine size={14} /> Check-in
+                </Link>
+                <button onClick={() => setEditing(true)} style={secondaryBtnStyle}>Edit</button>
+              </div>
+            )}
           </div>
 
           <div style={{ display: 'flex', gap: 20, marginTop: 16, flexWrap: 'wrap', fontSize: 13, color: TEXT_SECONDARY }}>

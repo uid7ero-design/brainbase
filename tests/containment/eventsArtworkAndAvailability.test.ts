@@ -358,11 +358,17 @@ describe('Events artwork/availability pass — no new storage subsystem introduc
   })
 })
 
-describe('Events artwork/availability pass — no Phase 3 scope creep', () => {
+// QR/check-in were explicitly authorized in a LATER, dedicated pass
+// (Phase 3 — digital tickets + check-in, see
+// tests/containment/eventsPhase3Ticketing.test.ts for that pass's own
+// containment coverage). This describe block covered the artwork/
+// availability pass specifically, before that authorization existed;
+// it no longer asserts QR/check-in absence, but still guards against
+// anything that pass never sanctioned (payment/email/CRM/audit).
+describe('Events artwork/availability pass — no payment/email/CRM/audit scope creep', () => {
   for (const file of TOUCHED_FILES) {
-    it(`${file} has no QR/check-in/payment/email/CRM/audit code`, () => {
+    it(`${file} has no payment/email/CRM/audit code`, () => {
       const code = stripComments(read(file))
-      expect(code).not.toMatch(/qrcode|checkin|check-in|barcode/i)
       expect(code).not.toMatch(/stripe|paypal|square|checkout\.session|payment_intent/i)
       expect(code).not.toMatch(/resend|sendEmail|nodemailer/i)
       expect(code).not.toMatch(/audit_logs|AuditLog/)

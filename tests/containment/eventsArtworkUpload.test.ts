@@ -353,9 +353,12 @@ describe('Event artwork upload — architecture containment', () => {
       expect(code).not.toMatch(/base64/i)
     })
 
-    it(`${file} has no QR/check-in/payment/email/CRM/audit code`, () => {
+    // QR/check-in were explicitly authorized in a LATER, dedicated pass
+    // (Phase 3 — see tests/containment/eventsPhase3Ticketing.test.ts for
+    // that pass's own containment coverage); this upload-feature pass's
+    // own scope boundary was narrower, and never covered those.
+    it(`${file} has no payment/email/CRM/audit code`, () => {
       const code = stripComments(read(file))
-      expect(code).not.toMatch(/qrcode|checkin|check-in|barcode/i)
       expect(code).not.toMatch(/stripe|paypal|square|checkout\.session|payment_intent/i)
       expect(code).not.toMatch(/resend|sendEmail|nodemailer/i)
       expect(code).not.toMatch(/audit_logs|AuditLog/)
