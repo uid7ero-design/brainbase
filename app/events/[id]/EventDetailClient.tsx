@@ -1,10 +1,11 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { Calendar, Clock, MapPin, ArrowLeft } from 'lucide-react';
 import KpiCard from '@/components/dashboard/ui/KpiCard';
 import RegistrationsPanel, { type OrderRow } from './RegistrationsPanel';
+import { ARTWORK_ACCEPT_ATTR, MAX_ARTWORK_MB, isAllowedArtworkMimeType } from '@/lib/events/artworkConstants';
 import {
   FONT, TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED, VIOLET_SOFT,
   Panel, SectionHeader, EmptyState, StatusBadge, eventStatusTone, capacityTone,
@@ -240,10 +241,62 @@ function EventOverview({ event, canManage, onSaved }: { event: EventDetail; canM
   const [name, setName] = useState(event.name);
   const [venue, setVenue] = useState(event.venue ?? '');
   const [description, setDescription] = useState(event.description ?? '');
-  const [artworkUrl, setArtworkUrl] = useState(event.artwork_url ?? '');
   const [status, setStatus] = useState(event.status);
   const [startsAt, setStartsAt] = useState(toLocalInput(event.starts_at));
   const [endsAt, setEndsAt] = useState(toLocalInput(event.ends_at));
+
+  // Artwork upload/remove are immediate, independent actions against
+  // their own dedicated endpoint (app/api/events/[id]/artwork/route.ts)
+  // — not part of this form's batched PATCH — so they persist right
+  // away regardless of whether the rest of the form is ever saved,
+  // matching the same pattern app/api/account/avatar/route.ts already
+  // established. onSaved() re-fetches the event, which is what actually
+  // updates event.artwork_url everywhere it's read (this component,
+  // the compact header thumbnail, the public page on its next load).
+  const [artworkUploading, setArtworkUploading] = useState(false);
+  const [artworkRemoving, setArtworkRemoving] = useState(false);
+  const [artworkError, setArtworkError] = useState<string | null>(null);
+  const artworkFileInputRef = useRef<HTMLInputElement>(null);
+
+  async function handleArtworkFile(file: File) {
+    setArtworkError(null);
+    if (!isAllowedArtworkMimeType(file.type)) {
+      setArtworkError('Only JPEG, PNG, or WebP images are allowed.');
+      return;
+    }
+    if (file.size > MAX_ARTWORK_MB * 1024 * 1024) {
+      setArtworkError(`File too large — max ${MAX_ARTWORK_MB}MB.`);
+      return;
+    }
+    setArtworkUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await fetch(`/api/events/${event.id}/artwork`, { method: 'POST', body: fd });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) { setArtworkError(body.error ?? `Upload failed (${res.status}).`); return; }
+      onSaved();
+    } catch {
+      setArtworkError('Upload failed. Please try again.');
+    } finally {
+      setArtworkUploading(false);
+    }
+  }
+
+  async function handleRemoveArtwork() {
+    setArtworkError(null);
+    setArtworkRemoving(true);
+    try {
+      const res = await fetch(`/api/events/${event.id}/artwork`, { method: 'DELETE' });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) { setArtworkError(body.error ?? `Failed to remove (${res.status}).`); return; }
+      onSaved();
+    } catch {
+      setArtworkError('Failed to remove. Please try again.');
+    } finally {
+      setArtworkRemoving(false);
+    }
+  }
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
@@ -254,7 +307,7 @@ function EventOverview({ event, canManage, onSaved }: { event: EventDetail; canM
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          name, venue: venue || null, description: description || null, artwork_url: artworkUrl.trim() || null, status,
+          name, venue: venue || null, description: description || null, status,
           starts_at: new Date(startsAt).toISOString(), ends_at: new Date(endsAt).toISOString(),
         }),
       });
@@ -317,19 +370,26 @@ function EventOverview({ event, canManage, onSaved }: { event: EventDetail; canM
 
           <div>
             <div style={fieldStyle}>Event artwork</div>
-            <div style={{ fontSize: 11.5, color: TEXT_MUTED, marginBottom: 6 }}>
-              A link to an image already hosted somewhere (your website, an image host, etc.) — this app does not host uploaded files.
-            </div>
-            <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start', flexWrap: 'wrap' }}>
-              <input
-                type="url" placeholder="https://…" className="bb-evt-input" value={artworkUrl}
-                onChange={e => setArtworkUrl(e.target.value)} style={{ ...inputStyle, flex: 1, minWidth: 220 }}
-              />
-              {artworkUrl.trim() && (
-                <button type="button" onClick={() => setArtworkUrl('')} style={secondaryBtnStyle}>Remove</button>
+            {event.artwork_url && <ArtworkPreview key={event.artwork_url} src={event.artwork_url} alt="Event artwork preview" />}
+            <input
+              ref={artworkFileInputRef} type="file" accept={ARTWORK_ACCEPT_ATTR} style={{ display: 'none' }}
+              onChange={e => { const f = e.target.files?.[0]; if (f) handleArtworkFile(f); e.target.value = ''; }}
+            />
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginTop: event.artwork_url ? 10 : 6 }}>
+              <button
+                type="button" style={secondaryBtnStyle} disabled={artworkUploading}
+                onClick={() => artworkFileInputRef.current?.click()}
+              >
+                {artworkUploading ? 'Uploading…' : event.artwork_url ? 'Replace image' : 'Upload image'}
+              </button>
+              {event.artwork_url && (
+                <DangerButton ariaLabel="Remove event artwork" onClick={handleRemoveArtwork} disabled={artworkRemoving}>
+                  {artworkRemoving ? 'Removing…' : 'Remove'}
+                </DangerButton>
               )}
             </div>
-            {artworkUrl.trim() && <ArtworkPreview key={artworkUrl} src={artworkUrl.trim()} alt="Artwork preview" />}
+            <div style={{ fontSize: 11, color: TEXT_MUTED, marginTop: 6 }}>JPEG, PNG, or WebP · up to {MAX_ARTWORK_MB}MB</div>
+            {artworkError && <div role="alert" style={{ color: '#FCA5A5', fontSize: 12, marginTop: 6 }}>{artworkError}</div>}
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>

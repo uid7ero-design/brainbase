@@ -344,9 +344,17 @@ describe('Events artwork/availability pass — no new storage subsystem introduc
     })
   }
 
-  it('package.json gained no new storage/upload dependency', () => {
+  // @vercel/blob was deliberately added in a LATER, explicitly-scoped
+  // pass (the production-safe artwork upload phase) as the platform's
+  // own already-selected storage direction — see
+  // docs/architecture/decisions/0001-data-hub-ingestion-foundation.md §9
+  // and lib/events/blobStorage.ts's own header comment. This test file
+  // covers the earlier URL-reference-only pass and no longer asserts its
+  // absence; it still guards against any OTHER, non-approved storage
+  // dependency ever sneaking in.
+  it('package.json has no non-approved storage/upload dependency (S3, Cloudinary, multer, etc.) — @vercel/blob is the one deliberately approved exception, added in a later pass', () => {
     const pkg = read('package.json')
-    expect(pkg).not.toMatch(/"@vercel\/blob"|"aws-sdk"|"cloudinary"|"multer"|"formidable"|"uploadthing"/i)
+    expect(pkg).not.toMatch(/"aws-sdk"|"cloudinary"|"multer"|"formidable"|"uploadthing"/i)
   })
 })
 
