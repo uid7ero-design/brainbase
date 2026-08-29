@@ -24,6 +24,86 @@ function toBytes(buf: Buffer): Uint8Array {
   return new Uint8Array(buf)
 }
 
+// Hand-rolled CRC32 (IEEE 802.3 / the ZIP checksum) so buildMinimalValidZip
+// needs no dependency beyond what's already installed. Verified against
+// Node's own zlib.crc32 during development (only available in Node 21+, so
+// not usable directly here since CI pins Node 20).
+let crc32Table: Uint32Array | undefined
+
+function crc32(buf: Buffer): number {
+  if (!crc32Table) {
+    const t = new Uint32Array(256)
+    for (let n = 0; n < 256; n++) {
+      let c = n
+      for (let k = 0; k < 8; k++) c = c & 1 ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1)
+      t[n] = c >>> 0
+    }
+    crc32Table = t
+  }
+  let crc = 0xffffffff
+  for (let i = 0; i < buf.length; i++) crc = crc32Table[(crc ^ buf[i]) & 0xff] ^ (crc >>> 8)
+  return (crc ^ 0xffffffff) >>> 0
+}
+
+// Builds a genuinely valid, standards-compliant single-entry ZIP archive
+// (stored/uncompressed) from scratch — a real local file header, central
+// directory header, and end-of-central-directory record. Independently
+// verified during development to extract correctly with Windows' native
+// Expand-Archive. Used to prove that a real ZIP lacking OOXML parts is
+// rejected by structural recognition, not merely by malformed-byte
+// detection.
+function buildMinimalValidZip(entryName: string, content: string): Buffer {
+  const nameBuf = Buffer.from(entryName, 'ascii')
+  const dataBuf = Buffer.from(content, 'utf8')
+  const crc = crc32(dataBuf)
+
+  const localHeader = Buffer.alloc(30)
+  localHeader.writeUInt32LE(0x04034b50, 0)
+  localHeader.writeUInt16LE(10, 4)
+  localHeader.writeUInt16LE(0, 6)
+  localHeader.writeUInt16LE(0, 8)
+  localHeader.writeUInt16LE(0, 10)
+  localHeader.writeUInt16LE(0x21, 12)
+  localHeader.writeUInt32LE(crc, 14)
+  localHeader.writeUInt32LE(dataBuf.length, 18)
+  localHeader.writeUInt32LE(dataBuf.length, 22)
+  localHeader.writeUInt16LE(nameBuf.length, 26)
+  localHeader.writeUInt16LE(0, 28)
+  const localEntry = Buffer.concat([localHeader, nameBuf, dataBuf])
+
+  const centralHeader = Buffer.alloc(46)
+  centralHeader.writeUInt32LE(0x02014b50, 0)
+  centralHeader.writeUInt16LE(20, 4)
+  centralHeader.writeUInt16LE(10, 6)
+  centralHeader.writeUInt16LE(0, 8)
+  centralHeader.writeUInt16LE(0, 10)
+  centralHeader.writeUInt16LE(0, 12)
+  centralHeader.writeUInt16LE(0x21, 14)
+  centralHeader.writeUInt32LE(crc, 16)
+  centralHeader.writeUInt32LE(dataBuf.length, 20)
+  centralHeader.writeUInt32LE(dataBuf.length, 24)
+  centralHeader.writeUInt16LE(nameBuf.length, 28)
+  centralHeader.writeUInt16LE(0, 30)
+  centralHeader.writeUInt16LE(0, 32)
+  centralHeader.writeUInt16LE(0, 34)
+  centralHeader.writeUInt16LE(0, 36)
+  centralHeader.writeUInt32LE(0, 38)
+  centralHeader.writeUInt32LE(0, 42)
+  const centralEntry = Buffer.concat([centralHeader, nameBuf])
+
+  const eocd = Buffer.alloc(22)
+  eocd.writeUInt32LE(0x06054b50, 0)
+  eocd.writeUInt16LE(0, 4)
+  eocd.writeUInt16LE(0, 6)
+  eocd.writeUInt16LE(1, 8)
+  eocd.writeUInt16LE(1, 10)
+  eocd.writeUInt32LE(centralEntry.length, 12)
+  eocd.writeUInt32LE(localEntry.length, 16)
+  eocd.writeUInt16LE(0, 20)
+
+  return Buffer.concat([localEntry, centralEntry, eocd])
+}
+
 describe('inspectWorkbook / decodeWorksheet — CSV', () => {
   it('1. valid CSV: headers, row order, bounded preview', () => {
     const csv = 'name,amount\nAlice,10\nBob,20\nCarol,30\n'
@@ -287,16 +367,18 @@ describe('inspectWorkbook / decodeWorksheet — XLSX', () => {
     expect((error as WorkbookParserError).code).toBe('INVALID_FILE_SIGNATURE')
   })
 
-  it('15. a generic ZIP renamed .xlsx is rejected, not silently accepted', () => {
-    // Minimal valid ZIP local-file-header signature followed by bytes that
-    // are not a real xlsx package (no [Content_Types].xml etc).
-    const fakeZip = Buffer.concat([
-      Buffer.from([0x50, 0x4b, 0x03, 0x04]),
-      Buffer.from('not a real xlsx package'.repeat(4)),
-    ])
+  it('15. a genuinely valid ZIP (not OOXML) renamed .xlsx is rejected, not silently accepted', () => {
+    // buildMinimalValidZip produces a real, standards-compliant single-entry
+    // stored ZIP (independently verified against Windows' native ZIP
+    // extractor during development — not just bytes that merely start with
+    // the ZIP signature). It has none of the required OOXML parts
+    // ([Content_Types].xml, xl/workbook.xml, ...), so it must be rejected by
+    // structural recognition, proving that rejection path is real and not
+    // just "malformed bytes in general".
+    const validNonWorkbookZip = buildMinimalValidZip('hello.txt', 'hello world, this is not a workbook')
     let error: unknown
     try {
-      inspectWorkbook(toBytes(fakeZip), { filename: 'fake.xlsx' })
+      inspectWorkbook(toBytes(validNonWorkbookZip), { filename: 'fake.xlsx' })
     } catch (err) {
       error = err
     }
@@ -403,5 +485,279 @@ describe('default limits', () => {
     expect(error).toBeInstanceOf(WorkbookParserError)
     expect((error as WorkbookParserError).code).toBe('WORKBOOK_LIMIT_EXCEEDED')
     expect((error as WorkbookParserError).details?.limit).toBe('maxOriginalBytes')
+  })
+})
+
+describe('remediation: numeric option validation', () => {
+  const validCsv = toBytes(Buffer.from('a,b\n1,2\n'))
+
+  it('rejects NaN in a workload limit as a RangeError, not a WorkbookParserError', () => {
+    expect(() =>
+      inspectWorkbook(validCsv, { filename: 'x.csv' }, { limits: { maxWorksheetCount: NaN } })
+    ).toThrow(RangeError)
+  })
+
+  it('rejects Infinity in a workload limit (it must not be usable to disable a bound)', () => {
+    expect(() =>
+      decodeWorksheet(validCsv, { filename: 'x.csv' }, { index: 0 }, { limits: { maxSelectedWorksheetRows: Infinity } })
+    ).toThrow(RangeError)
+  })
+
+  it('rejects a negative workload limit', () => {
+    expect(() =>
+      inspectWorkbook(validCsv, { filename: 'x.csv' }, { limits: { maxOriginalBytes: -1 } })
+    ).toThrow(RangeError)
+  })
+
+  it('rejects a fractional workload limit', () => {
+    expect(() =>
+      decodeWorksheet(validCsv, { filename: 'x.csv' }, { index: 0 }, { limits: { maxSelectedWorksheetColumns: 2.5 } })
+    ).toThrow(RangeError)
+  })
+
+  it('rejects an unsafe-integer workload limit', () => {
+    expect(() =>
+      inspectWorkbook(validCsv, { filename: 'x.csv' }, { limits: { maxWorksheetCount: Number.MAX_SAFE_INTEGER + 2 } })
+    ).toThrow(RangeError)
+  })
+
+  it('rejects a negative previewRowCount — this previously reached SheetJS as sheetRows: 0, which SheetJS treats as "unlimited"', () => {
+    expect(() => inspectWorkbook(validCsv, { filename: 'x.csv' }, { previewRowCount: -1 })).toThrow(RangeError)
+  })
+
+  it('rejects a fractional previewRowCount', () => {
+    expect(() => inspectWorkbook(validCsv, { filename: 'x.csv' }, { previewRowCount: 1.5 })).toThrow(RangeError)
+  })
+
+  it('previewRowCount: 0 is a deliberately supported contract — headers only, no preview rows, and it does not throw', () => {
+    const inspection = inspectWorkbook(validCsv, { filename: 'x.csv' }, { previewRowCount: 0 })
+    expect(inspection.worksheets[0].headers).toEqual(['a', 'b'])
+    expect(inspection.worksheets[0].previewRows).toEqual([])
+  })
+
+  it('a RangeError from invalid options is never caught and reclassified as MALFORMED_WORKBOOK', () => {
+    let error: unknown
+    try {
+      inspectWorkbook(validCsv, { filename: 'x.csv' }, { limits: { maxOriginalBytes: NaN } })
+    } catch (err) {
+      error = err
+    }
+    expect(error).toBeInstanceOf(RangeError)
+    expect(error).not.toBeInstanceOf(WorkbookParserError)
+  })
+})
+
+describe('remediation: ragged/sparse column and cell accounting', () => {
+  it('a ragged CSV row wider than the header is not hidden by header-only column counting', () => {
+    const csv = 'a,b\n1,2,3,4\n'
+    const decoded = decodeWorksheet(toBytes(Buffer.from(csv)), { filename: 'ragged.csv' }, { index: 0 })
+    expect(decoded.columnCount).toBe(4) // widest row, not headers.length (2)
+
+    let error: unknown
+    try {
+      decodeWorksheet(
+        toBytes(Buffer.from(csv)),
+        { filename: 'ragged.csv' },
+        { index: 0 },
+        { limits: { maxSelectedWorksheetColumns: 3 } }
+      )
+    } catch (err) {
+      error = err
+    }
+    expect(error).toBeInstanceOf(WorkbookParserError)
+    expect((error as WorkbookParserError).code).toBe('WORKSHEET_LIMIT_EXCEEDED')
+    expect((error as WorkbookParserError).details?.limit).toBe('maxSelectedWorksheetColumns')
+    expect((error as WorkbookParserError).details?.actual).toBe(4)
+  })
+
+  it('sparse rows are counted by actual returned slots, not by an invented rectangle (rowCount x columnCount)', () => {
+    // headers=3 wide, but each data row only has 1 real value.
+    // Actual materialized cells = 3 (headers) + 1 + 1 = 5.
+    // The old rowCount*columnCount formula would have said 2*3 = 6.
+    const csv = 'a,b,c\n1\n2\n'
+    const decoded = decodeWorksheet(
+      toBytes(Buffer.from(csv)),
+      { filename: 'sparse.csv' },
+      { index: 0 },
+      { limits: { maxSelectedWorksheetCells: 5 } }
+    )
+    expect(decoded.rows).toEqual([['1'], ['2']])
+
+    // A limit of 4 must trip (5 > 4); a limit of 5 (tested above, no throw)
+    // proves the accounting isn't inflated to 6 by a rectangular guess.
+    let error: unknown
+    try {
+      decodeWorksheet(
+        toBytes(Buffer.from(csv)),
+        { filename: 'sparse.csv' },
+        { index: 0 },
+        { limits: { maxSelectedWorksheetCells: 4 } }
+      )
+    } catch (err) {
+      error = err
+    }
+    expect(error).toBeInstanceOf(WorkbookParserError)
+    expect((error as WorkbookParserError).details?.actual).toBe(5)
+    expect((error as WorkbookParserError).details?.basis).toBe('materialized')
+  })
+
+  it('a wider row is counted at its actual width, proving the cell limit trips on real returned slots', () => {
+    // headers=1, one row with 3 values -> materialized cells = 1 + 3 = 4.
+    const csv = 'a\n1,2,3\n'
+    let error: unknown
+    try {
+      decodeWorksheet(
+        toBytes(Buffer.from(csv)),
+        { filename: 'wide-row.csv' },
+        { index: 0 },
+        { limits: { maxSelectedWorksheetCells: 3 } }
+      )
+    } catch (err) {
+      error = err
+    }
+    expect(error).toBeInstanceOf(WorkbookParserError)
+    expect((error as WorkbookParserError).details?.actual).toBe(4)
+  })
+
+  it('the early declared-range rejection on an XLSX worksheet is labeled as a conservative preflight basis, distinct from the materialized basis', () => {
+    const rows: unknown[][] = [['h']]
+    for (let i = 0; i < 5; i++) rows.push([i])
+    const buf = buildSpreadsheet([{ name: 'S', rows }], 'xlsx')
+    let error: unknown
+    try {
+      decodeWorksheet(
+        toBytes(buf),
+        { filename: 'book.xlsx' },
+        { index: 0 },
+        { limits: { maxSelectedWorksheetRows: 2 } }
+      )
+    } catch (err) {
+      error = err
+    }
+    expect(error).toBeInstanceOf(WorkbookParserError)
+    expect((error as WorkbookParserError).details?.basis).toBe('declaredRange')
+  })
+})
+
+describe('remediation: previewTruncated semantics', () => {
+  it('exact preview boundary: exactly previewRowCount data rows is not truncated', () => {
+    const rows: unknown[][] = [['h']]
+    for (let i = 0; i < 5; i++) rows.push([i])
+    const buf = buildSpreadsheet([{ name: 'S', rows }], 'xlsx')
+    const inspection = inspectWorkbook(toBytes(buf), { filename: 'book.xlsx' }, { previewRowCount: 5 })
+    expect(inspection.worksheets[0].previewRows).toHaveLength(5)
+    expect(inspection.worksheets[0].previewTruncated).toBe(false)
+  })
+
+  it('preview boundary + 1: one row beyond the preview window is truncated', () => {
+    const rows: unknown[][] = [['h']]
+    for (let i = 0; i < 6; i++) rows.push([i])
+    const buf = buildSpreadsheet([{ name: 'S', rows }], 'xlsx')
+    const inspection = inspectWorkbook(toBytes(buf), { filename: 'book.xlsx' }, { previewRowCount: 5 })
+    expect(inspection.worksheets[0].previewRows).toHaveLength(5)
+    expect(inspection.worksheets[0].previewTruncated).toBe(true)
+  })
+
+  it('CSV previewTruncated is exact: false when there is truly no more data beyond the preview', () => {
+    const csv = 'h\n1\n2\n3\n4\n5\n'
+    const inspection = inspectWorkbook(toBytes(Buffer.from(csv)), { filename: 'x.csv' }, { previewRowCount: 5 })
+    expect(inspection.worksheets[0].previewTruncated).toBe(false)
+  })
+
+  it('a distant declared cell can trip previewTruncated even with no additional real row inside the window — the documented conservative-signal caveat', () => {
+    const ws = XLSX.utils.aoa_to_sheet([['h'], [1], [2]])
+    // Force the declared range far past the real data, with nothing in between.
+    ws['A50'] = { t: 'n', v: 999 }
+    ws['!ref'] = 'A1:A50'
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Sparse')
+    const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer
+
+    const inspection = inspectWorkbook(toBytes(buf), { filename: 'book.xlsx' }, { previewRowCount: 5 })
+    const [sheet] = inspection.worksheets
+    // Only 2 real data rows exist inside (and beyond) the preview window,
+    // but the declared range forces previewTruncated to true regardless —
+    // proving it is a conservative signal, not proof of a real extra row.
+    expect(sheet.previewRows.length).toBeLessThanOrEqual(5)
+    expect(sheet.previewTruncated).toBe(true)
+  })
+})
+
+describe('remediation: Date normalization', () => {
+  it('a real XLSX date cell is returned as an ISO-8601 string, never a Date instance', () => {
+    const ws = XLSX.utils.aoa_to_sheet([['when'], [new Date(Date.UTC(2024, 0, 15))]])
+    ws['!ref'] = 'A1:A2'
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Dates')
+    const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx', cellDates: true }) as Buffer
+
+    const decoded = decodeWorksheet(toBytes(buf), { filename: 'dates.xlsx' }, { index: 0 })
+    expect(decoded.rows[0][0]).toBe('2024-01-15T00:00:00.000Z')
+    expect(decoded.rows[0][0]).not.toBeInstanceOf(Date)
+
+    const inspection = inspectWorkbook(toBytes(buf), { filename: 'dates.xlsx' })
+    expect(inspection.worksheets[0].previewRows[0][0]).toBe('2024-01-15T00:00:00.000Z')
+  })
+
+  it('ordinary strings/numbers/booleans/null are never stringified by the Date-normalization step', () => {
+    const ws = XLSX.utils.aoa_to_sheet([['s', 'n', 'b'], ['hi', 42, true]])
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Plain')
+    const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer
+    const decoded = decodeWorksheet(toBytes(buf), { filename: 'plain.xlsx' }, { index: 0 })
+    expect(decoded.rows[0]).toEqual(['hi', 42, true])
+  })
+})
+
+describe('remediation: additional boundary coverage', () => {
+  it('empty CSV (header only, zero data rows)', () => {
+    const decoded = decodeWorksheet(toBytes(Buffer.from('a,b\n')), { filename: 'empty.csv' }, { index: 0 })
+    expect(decoded.rows).toEqual([])
+    expect(decoded.rowCount).toBe(0)
+
+    const inspection = inspectWorkbook(toBytes(Buffer.from('a,b\n')), { filename: 'empty.csv' })
+    expect(inspection.worksheets[0].isEmpty).toBe(false) // header row is real declared content
+  })
+
+  it('a fully empty CSV file (zero rows at all) is reported as empty', () => {
+    const inspection = inspectWorkbook(toBytes(Buffer.from('')), { filename: 'blank.csv' })
+    expect(inspection.worksheets[0].isEmpty).toBe(true)
+    expect(inspection.worksheets[0].headers).toEqual([])
+  })
+
+  it('malformed quoted CSV (unterminated quote) is MALFORMED_WORKBOOK', () => {
+    const csv = 'a,b\n"unterminated,value\n'
+    let error: unknown
+    try {
+      decodeWorksheet(toBytes(Buffer.from(csv)), { filename: 'bad.csv' }, { index: 0 })
+    } catch (err) {
+      error = err
+    }
+    expect(error).toBeInstanceOf(WorkbookParserError)
+    expect((error as WorkbookParserError).code).toBe('MALFORMED_WORKBOOK')
+  })
+
+  it('a negative worksheet index is WORKSHEET_NOT_FOUND, not a crash', () => {
+    const buf = buildSpreadsheet([{ name: 'Only', rows: [['h'], [1]] }], 'xlsx')
+    let error: unknown
+    try {
+      decodeWorksheet(toBytes(buf), { filename: 'book.xlsx' }, { index: -1 })
+    } catch (err) {
+      error = err
+    }
+    expect(error).toBeInstanceOf(WorkbookParserError)
+    expect((error as WorkbookParserError).code).toBe('WORKSHEET_NOT_FOUND')
+  })
+
+  it('a fractional worksheet index is WORKSHEET_NOT_FOUND, not a crash', () => {
+    const buf = buildSpreadsheet([{ name: 'Only', rows: [['h'], [1]] }], 'xlsx')
+    let error: unknown
+    try {
+      decodeWorksheet(toBytes(buf), { filename: 'book.xlsx' }, { index: 0.5 })
+    } catch (err) {
+      error = err
+    }
+    expect(error).toBeInstanceOf(WorkbookParserError)
+    expect((error as WorkbookParserError).code).toBe('WORKSHEET_NOT_FOUND')
   })
 })

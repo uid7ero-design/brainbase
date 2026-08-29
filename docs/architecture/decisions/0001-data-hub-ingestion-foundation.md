@@ -56,12 +56,19 @@ Both take `input: WorkbookInput` (`{ filename, mimeType? }`) because
 format classification is required to decide *how* to parse the bytes at
 all, in either operation.
 
-The parser returns only plain data (strings, numbers, booleans, arrays,
-`null`) — it never exposes a mutable SheetJS `WorkBook`/`WorkSheet`
-object to callers. It contains no BrainBase schema detection, column
-mapping, or import logic; `lib/schema-detector.ts` and
-`lib/column-mapper.ts` remain the layer above it, operating on the plain
-rows this module returns, and are not imported by it.
+The parser returns only serialization-safe plain values (strings,
+numbers, booleans, `null`, and plain arrays/objects of those) — it never
+exposes a mutable SheetJS `WorkBook`/`WorkSheet` object to callers, and no
+`Date` instance can escape either. SheetJS's `cellDates: true` can hand
+back a JavaScript `Date`; every such value is normalized to an ISO-8601
+UTC string (`Date.toISOString()`) before it reaches a caller, in both
+`inspectWorkbook`'s previews and `decodeWorksheet`'s rows/headers. An
+invalid `Date` (SheetJS can produce one from a malformed date serial)
+normalizes to `null` rather than letting `toISOString()` throw. This
+module contains no BrainBase schema detection, column mapping, or import
+logic; `lib/schema-detector.ts` and `lib/column-mapper.ts` remain the
+layer above it, operating on the plain rows this module returns, and are
+not imported by it.
 
 ## 4. Identity
 
@@ -92,9 +99,15 @@ that belongs above the parser (5A.2+), not a fact the parser can know.
   input metadata but never consulted for classification or gating.
 - XLSX requires the ZIP local-file-header signature (`PK\x03\x04`), then
   successful structural recognition by SheetJS (non-zero worksheet
-  count). Signature alone is insufficient — every ZIP file shares that
-  signature — so a generic ZIP renamed `.xlsx` is rejected at the
-  structural-recognition step, as `MALFORMED_WORKBOOK`.
+  count). **Signature alone is insufficient** — every ZIP file shares
+  that signature, so a *genuinely valid* ZIP archive that isn't an OOXML
+  workbook still passes it and is only rejected at the
+  structural-recognition step, as `MALFORMED_WORKBOOK`. This is proven
+  with a real, standards-compliant ZIP fixture (hand-built with a correct
+  local file header, central directory, and end-of-central-directory
+  record — independently verified to extract correctly with a real ZIP
+  tool during development), not merely with malformed bytes that happen
+  to start with the right 4 bytes.
 - XLS requires the OLE/Compound-File signature
   (`D0 CF 11 E0 A1 B1 1A E1`), then successful structural recognition.
 - CSV has no magic-byte signature. The closest pre-parse gate is
@@ -106,6 +119,19 @@ that belongs above the parser (5A.2+), not a fact the parser can know.
   evaluating its formula (`1+1`) would produce, and asserting the cached
   value is what's returned. This is a statement about the installed
   SheetJS Community Edition's actual behavior, not a stronger guarantee.
+- **Numeric parser options are validated before they can influence
+  parsing.** `maxOriginalBytes`, `maxWorksheetCount`,
+  `maxSelectedWorksheetRows`, `maxSelectedWorksheetColumns`, and
+  `maxSelectedWorksheetCells` must each be a positive safe integer;
+  `previewRowCount` must be a nonnegative safe integer (`0` is a
+  deliberately supported "headers only, no preview" contract — it is not
+  the same thing as an *unvalidated* negative value, which previously
+  reached SheetJS's `sheetRows` option as `0` and was misinterpreted as
+  "unlimited"). `NaN`, `Infinity`, negative values, fractional values, and
+  unsafe integers are all rejected. Invalid configuration is a programmer
+  error: it throws `RangeError` directly, outside of and never caught by
+  any of this module's parsing `try`/`catch` blocks, so it can never be
+  reclassified as `MALFORMED_WORKBOOK`.
 
 ## 7. Resource limits (approved 5A.1 defaults)
 
@@ -113,19 +139,51 @@ that belongs above the parser (5A.2+), not a fact the parser can know.
 |---|---|---|
 | Original file bytes | 20 MiB | Before any parsing, in both `inspectWorkbook` and `decodeWorksheet` |
 | Worksheet count | 50 | After a cheap `bookSheets: true` metadata-only read, before any cell data is decoded |
-| Selected worksheet rows | 100,000 | `decodeWorksheet`, checked against declared range first (cheap, early rejection), then against actual materialized rows (authoritative) |
+| Selected worksheet rows | 100,000 | `decodeWorksheet`, checked against declared range first (cheap, conservative preflight), then against actual materialized rows (authoritative) |
 | Selected worksheet columns | 1,000 | Same as above |
 | Selected worksheet cells | 2,000,000 | Same as above |
 
-`declaredRangeRows`/`declaredRangeColumns` on `WorksheetInspection` come
-from the worksheet's declared dimension metadata (SheetJS's `!ref` /
-`!fullref`), not from actually counting populated cells. They are
-metadata / an early-rejection signal, not a guarantee of real content —
-a sparse worksheet can declare a large range with few real values, and
-this phase does not attempt to distinguish that case. **This phase does
-not implement an exact workbook-wide row/cell limit** (i.e. summed across
-all worksheets) — only per-selected-worksheet limits, per the approved
-5A.1 scope.
+**Two distinct, deliberately-labeled bases exist for these checks** (each
+`WorkbookParserError`'s `details.basis` says which one tripped):
+
+- **`"declaredRange"`** — a cheap, intentionally conservative preflight
+  gate using the worksheet's *declared* rectangular dimension (SheetJS's
+  `!ref`/`!fullref`), before any row is materialized. It is a rectangular
+  estimate (declared rows × declared columns for the cell check), not a
+  measurement of real content — a sparse worksheet can declare a large
+  range with few real values. It is kept because it is a useful defense
+  even though it is approximate, not removed merely for being
+  conservative.
+- **`"materialized"`** — the authoritative, post-decode check, computed
+  from what `decodeWorksheet` actually returns:
+  - **columns**: the widest row actually returned — `max(headers.length,
+    every decoded data row's length)` — not `headers.length` alone. CSV
+    permits ragged rows, so a later row with more fields than the header
+    must not bypass this limit merely because the header was narrow.
+  - **cells**: `headers.length + sum(row.length for every decoded data
+    row)` — the actual number of value slots retained in the returned
+    `DecodedWorksheet`. This deliberately does not invent values for
+    absent rectangular positions in a sparse/ragged table (it is *not*
+    `rowCount × columnCount`), so a worksheet with a wide header but
+    mostly-empty rows is never over-counted, and a worksheet with a
+    narrow header but a genuinely wide row is never under-counted.
+
+`declaredRangeRows`/`declaredRangeColumns` on `WorksheetInspection` are
+exposed as metadata for the same reason: a preflight/early-rejection
+signal, never a guarantee of actually-populated rows/columns. **This
+phase does not implement an exact workbook-wide row/cell limit** (i.e.
+summed across all worksheets) — only per-selected-worksheet limits, per
+the approved 5A.1 scope.
+
+**`previewTruncated` is also a conservative signal, not a data
+guarantee.** For CSV it is exact (parsing counts real rows, so it is
+literally "there is at least one more row"). For XLS/XLSX it is derived
+from whether the worksheet's declared range extends beyond the bounded
+preview window (SheetJS's `!fullref` marker) — it does **not** by itself
+prove another populated data row exists; a single real cell declared far
+beyond the preview window can trip it with no additional real content in
+between. No unbounded parse was added to make this flag exact for
+XLS/XLSX, per the approved containment for this phase.
 
 Legacy `.xls` (BIFF8) is a single sequential stream, not independently
 addressable ZIP entries like `.xlsx`. Empirically, SheetJS's `sheets`
