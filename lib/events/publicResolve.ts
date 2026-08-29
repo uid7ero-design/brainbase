@@ -9,6 +9,10 @@ export type PublicEvent = {
   slug: string;
   description: string | null;
   venue: string | null;
+  // Externally-hosted image URL, approved as a public-safe field — see
+  // scripts/add-events-artwork.sql. Not internal storage metadata: it
+  // is the exact same value the organiser typed into the event editor.
+  artwork_url: string | null;
   starts_at: Date | string;
   ends_at: Date | string;
   timezone: string;
@@ -50,7 +54,7 @@ export async function resolvePublicEvent(
   if (!capability.allowed) return { ok: false };
 
   const eventRows = await sql`
-    SELECT id, organisation_id, name, slug, description, venue, starts_at, ends_at, timezone
+    SELECT id, organisation_id, name, slug, description, venue, artwork_url, starts_at, ends_at, timezone
     FROM events
     WHERE organisation_id = ${organisationId} AND slug = ${eventSlug} AND status = 'PUBLISHED'
     LIMIT 1

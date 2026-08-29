@@ -112,16 +112,32 @@ function formatTime(iso: string, timeZone: string): string {
 function formatPrice(cents: number): string {
   return cents === 0 ? 'Free' : `$${(cents / 100).toFixed(2)}`;
 }
+// "280 places remaining" — sentence case, never the all-caps "280
+// REMAINING" the uppercase-transform styling used to force onto this
+// same text.
+function formatPlacesRemaining(remaining: number): string {
+  return `${remaining} place${remaining === 1 ? '' : 's'} remaining`;
+}
 
-function availabilitySummary(ticketTypes: PublicTicketType[]): { label: string; tone: 'ok' | 'low' | 'none' } {
-  if (ticketTypes.length === 0) return { label: 'Registration not currently open', tone: 'none' };
-  const totalCapacity = ticketTypes.reduce((sum, t) => sum + t.capacity, 0);
-  const totalRemaining = ticketTypes.reduce((sum, t) => sum + t.remaining, 0);
-  if (totalRemaining <= 0) return { label: 'Sold out', tone: 'none' };
-  if (totalRemaining <= Math.max(3, Math.round(totalCapacity * 0.15))) {
-    return { label: `Almost full — ${totalRemaining} place${totalRemaining === 1 ? '' : 's'} remaining`, tone: 'low' };
-  }
-  return { label: `${totalRemaining} place${totalRemaining === 1 ? '' : 's'} remaining`, tone: 'ok' };
+// Deliberately never adds/combines remaining quantities across ticket
+// types (or, previously, across ticket types and sessions) into one
+// synthetic "overall remaining" number — those are genuinely different
+// capacity pools (e.g. Adult Guest vs. Student, or a ticket type vs. a
+// session), and summing them produced a meaningless total at best. This
+// is also the fix for a real defect: a bigint/string type mismatch in
+// the underlying SQL (see lib/events/publicEventDetail.ts's own
+// comment) meant a prior version of this reduce() over `t.remaining`
+// silently did STRING CONCATENATION instead of addition, rendering a
+// malformed value like "0280147 places remaining". The correct fix is
+// not just casting the type — it's to never combine independent
+// capacity pools into one figure at all. Each ticket type's and each
+// session's own remaining count is still shown independently, right on
+// its own choice card, exactly where it's meaningful.
+function availabilityState(ticketTypes: PublicTicketType[]): { label: string; tone: 'ok' | 'soldout' | 'neutral' } {
+  if (ticketTypes.length === 0) return { label: 'Registration not currently open', tone: 'neutral' };
+  const anyAvailable = ticketTypes.some(t => t.remaining > 0);
+  if (!anyAvailable) return { label: 'Sold out', tone: 'soldout' };
+  return { label: 'Tickets available', tone: 'ok' };
 }
 
 function EventHeader() {
@@ -160,7 +176,7 @@ export default function PublicEventClient({
   const selectedTicketType = ticketTypes.find(t => t.id === ticketTypeId);
   const selectedSession = sessions.find(s => s.id === sessionId);
   const maxQuantity = selectedTicketType ? Math.max(0, Math.min(selectedTicketType.remaining, 20)) : 0;
-  const availability = availabilitySummary(ticketTypes);
+  const availability = availabilityState(ticketTypes);
 
   function setQuantityAndResizeAttendees(next: number) {
     setQuantity(next);
@@ -256,6 +272,8 @@ export default function PublicEventClient({
           <div style={{ position: 'relative' }}>
             <div className="bb-event-glow-orb" aria-hidden="true" />
             <div style={{ position: 'relative', zIndex: 1 }}>
+              {event.artwork_url && <EventArtwork src={event.artwork_url} alt={`${event.name} artwork`} />}
+
               <div style={{
                 display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 700,
                 letterSpacing: '.09em', textTransform: 'uppercase', color: VIOLET_SOFT, marginBottom: 14,
@@ -282,9 +300,9 @@ export default function PublicEventClient({
               <div style={{
                 display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 12.5, fontWeight: 600,
                 padding: '7px 13px', borderRadius: 999,
-                border: `1px solid ${availability.tone === 'none' ? 'rgba(248,113,113,.3)' : availability.tone === 'low' ? 'rgba(245,158,11,.3)' : 'rgba(74,222,128,.28)'}`,
-                background: availability.tone === 'none' ? 'rgba(248,113,113,.08)' : availability.tone === 'low' ? 'rgba(245,158,11,.08)' : 'rgba(74,222,128,.08)',
-                color: availability.tone === 'none' ? RED : availability.tone === 'low' ? '#FBBF24' : GREEN,
+                border: `1px solid ${availability.tone === 'soldout' ? 'rgba(248,113,113,.3)' : availability.tone === 'neutral' ? BORDER : 'rgba(74,222,128,.28)'}`,
+                background: availability.tone === 'soldout' ? 'rgba(248,113,113,.08)' : availability.tone === 'neutral' ? 'rgba(255,255,255,.03)' : 'rgba(74,222,128,.08)',
+                color: availability.tone === 'soldout' ? RED : availability.tone === 'neutral' ? TEXT_SECONDARY : GREEN,
               }}>
                 <Users size={13} /> {availability.label}
               </div>
@@ -437,6 +455,29 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
+// event.artwork_url is a staff-pasted external URL (see
+// scripts/add-events-artwork.sql), never verified server-side to
+// actually resolve to an image — so this renders nothing at all rather
+// than a broken-image icon if the URL 404s or the host refuses to load.
+// A plain <img>, not next/image: the source is an arbitrary external
+// host chosen per-event by the organiser, not a configurable, bounded
+// set of remote origins next/image's own allow-list expects.
+function EventArtwork({ src, alt }: { src: string; alt: string }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) return null;
+  return (
+    <div style={{
+      position: 'relative', width: '100%', aspectRatio: '16 / 9', borderRadius: 18, overflow: 'hidden',
+      border: `1px solid ${BORDER}`, marginBottom: 22, background: 'rgba(255,255,255,.02)',
+      boxShadow: '0 14px 40px rgba(0,0,0,.35), 0 0 0 1px rgba(138,77,255,.07)',
+    }}>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={src} alt={alt} onError={() => setFailed(true)} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+      <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, rgba(7,8,11,0) 55%, rgba(7,8,11,.5) 100%)', pointerEvents: 'none' }} aria-hidden="true" />
+    </div>
+  );
+}
+
 function MetaRow({ icon, text }: { icon: React.ReactNode; text: string }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 9, fontSize: 14, color: TEXT_SECONDARY }}>
@@ -472,11 +513,8 @@ function TicketOption({
             {formatPrice(ticket.price_cents)}
           </div>
         </div>
-        <div style={{
-          marginTop: 9, fontSize: 11, fontWeight: 600, letterSpacing: '.03em', textTransform: 'uppercase',
-          color: soldOut ? RED : TEXT_MUTED,
-        }}>
-          {soldOut ? 'Sold out' : `${ticket.remaining} remaining`}
+        <div style={{ marginTop: 9, fontSize: 11.5, fontWeight: 600, color: soldOut ? RED : TEXT_MUTED }}>
+          {soldOut ? 'Sold out' : formatPlacesRemaining(ticket.remaining)}
         </div>
       </div>
     </label>
@@ -495,11 +533,8 @@ function SessionOption({
         <div style={{ fontSize: 12, color: TEXT_SECONDARY, marginTop: 3 }}>
           {formatTime(session.starts_at, timezone)} – {formatTime(session.ends_at, timezone)}
         </div>
-        <div style={{
-          marginTop: 6, fontSize: 11, fontWeight: 600, letterSpacing: '.03em', textTransform: 'uppercase',
-          color: soldOut ? RED : TEXT_MUTED,
-        }}>
-          {soldOut ? 'Sold out' : `${session.remaining} remaining`}
+        <div style={{ marginTop: 6, fontSize: 11.5, fontWeight: 600, color: soldOut ? RED : TEXT_MUTED }}>
+          {soldOut ? 'Sold out' : formatPlacesRemaining(session.remaining)}
         </div>
       </div>
     </label>

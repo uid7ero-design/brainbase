@@ -17,6 +17,7 @@ type EventDetail = {
   slug: string;
   description: string | null;
   venue: string | null;
+  artwork_url: string | null;
   status: 'DRAFT' | 'PUBLISHED' | 'CANCELLED';
   starts_at: string;
   ends_at: string;
@@ -184,6 +185,37 @@ export default function EventDetailClient({ eventId, canManage }: { eventId: str
   );
 }
 
+// ─── Artwork (staff-pasted external URL — see scripts/add-events-artwork.sql) ─
+// Plain <img>, not next/image: the source is an arbitrary external host
+// chosen per-event by the organiser, not a bounded set of remote origins
+// next/image's own allow-list expects. Both components render nothing
+// (not a broken-image icon) if the URL fails to load — it was never
+// verified server-side to actually resolve to an image.
+
+function ArtworkThumb({ src, alt }: { src: string; alt: string }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) return null;
+  return (
+    <div style={{ width: 64, height: 64, borderRadius: 10, overflow: 'hidden', border: '1px solid rgba(255,255,255,.08)', flex: 'none' }}>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={src} alt={alt} onError={() => setFailed(true)} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+    </div>
+  );
+}
+
+function ArtworkPreview({ src, alt }: { src: string; alt: string }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) {
+    return <div style={{ marginTop: 8, fontSize: 11.5, color: '#FCA5A5' }}>Could not load a preview for this URL.</div>;
+  }
+  return (
+    <div style={{ marginTop: 10, width: 220, aspectRatio: '16 / 9', borderRadius: 10, overflow: 'hidden', border: '1px solid rgba(255,255,255,.08)' }}>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={src} alt={alt} onError={() => setFailed(true)} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+    </div>
+  );
+}
+
 // ─── Capacity pill (shared by Sessions + Ticket Types rows) ───────────
 
 function CapacityPill({ registered, capacity }: { registered: number | null; capacity: number }) {
@@ -208,6 +240,7 @@ function EventOverview({ event, canManage, onSaved }: { event: EventDetail; canM
   const [name, setName] = useState(event.name);
   const [venue, setVenue] = useState(event.venue ?? '');
   const [description, setDescription] = useState(event.description ?? '');
+  const [artworkUrl, setArtworkUrl] = useState(event.artwork_url ?? '');
   const [status, setStatus] = useState(event.status);
   const [startsAt, setStartsAt] = useState(toLocalInput(event.starts_at));
   const [endsAt, setEndsAt] = useState(toLocalInput(event.ends_at));
@@ -221,7 +254,7 @@ function EventOverview({ event, canManage, onSaved }: { event: EventDetail; canM
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          name, venue: venue || null, description: description || null, status,
+          name, venue: venue || null, description: description || null, artwork_url: artworkUrl.trim() || null, status,
           starts_at: new Date(startsAt).toISOString(), ends_at: new Date(endsAt).toISOString(),
         }),
       });
@@ -241,12 +274,15 @@ function EventOverview({ event, canManage, onSaved }: { event: EventDetail; canM
       {!editing ? (
         <>
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                <h1 style={{ fontSize: 21, fontWeight: 700, margin: 0, letterSpacing: '-.01em' }}>{event.name}</h1>
-                <StatusBadge label={event.status} tone={eventStatusTone(event.status)} />
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14, minWidth: 0 }}>
+              {event.artwork_url && <ArtworkThumb src={event.artwork_url} alt={`${event.name} artwork`} />}
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                  <h1 style={{ fontSize: 21, fontWeight: 700, margin: 0, letterSpacing: '-.01em' }}>{event.name}</h1>
+                  <StatusBadge label={event.status} tone={eventStatusTone(event.status)} />
+                </div>
+                <div style={{ fontSize: 12, color: TEXT_MUTED, marginTop: 4 }}>/{event.slug}</div>
               </div>
-              <div style={{ fontSize: 12, color: TEXT_MUTED, marginTop: 4 }}>/{event.slug}</div>
             </div>
             {canManage && <button onClick={() => setEditing(true)} style={secondaryBtnStyle}>Edit</button>}
           </div>
@@ -278,6 +314,24 @@ function EventOverview({ event, canManage, onSaved }: { event: EventDetail; canM
             <label style={fieldStyle}>Venue<input className="bb-evt-input" value={venue} onChange={e => setVenue(e.target.value)} style={inputStyle} /></label>
           </div>
           <label style={fieldStyle}>Description<textarea className="bb-evt-input" value={description} onChange={e => setDescription(e.target.value)} style={{ ...inputStyle, minHeight: 60 }} /></label>
+
+          <div>
+            <div style={fieldStyle}>Event artwork</div>
+            <div style={{ fontSize: 11.5, color: TEXT_MUTED, marginBottom: 6 }}>
+              A link to an image already hosted somewhere (your website, an image host, etc.) — this app does not host uploaded files.
+            </div>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+              <input
+                type="url" placeholder="https://…" className="bb-evt-input" value={artworkUrl}
+                onChange={e => setArtworkUrl(e.target.value)} style={{ ...inputStyle, flex: 1, minWidth: 220 }}
+              />
+              {artworkUrl.trim() && (
+                <button type="button" onClick={() => setArtworkUrl('')} style={secondaryBtnStyle}>Remove</button>
+              )}
+            </div>
+            {artworkUrl.trim() && <ArtworkPreview key={artworkUrl} src={artworkUrl.trim()} alt="Artwork preview" />}
+          </div>
+
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
             <label style={fieldStyle}>Starts<input required type="datetime-local" className="bb-evt-input" value={startsAt} onChange={e => setStartsAt(e.target.value)} style={inputStyle} /></label>
             <label style={fieldStyle}>Ends<input required type="datetime-local" className="bb-evt-input" value={endsAt} onChange={e => setEndsAt(e.target.value)} style={inputStyle} /></label>

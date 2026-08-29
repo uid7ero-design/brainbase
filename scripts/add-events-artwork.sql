@@ -1,0 +1,56 @@
+-- Events & Ticketing — optional event artwork/poster field. Run once,
+-- manually, against the target database, AFTER scripts/create-events.sql
+-- (this script's ALTER TABLE requires the events table to already
+-- exist). NOT run automatically by this task — follows the same
+-- manual-authorization discipline as every schema-creation script in
+-- this repository.
+--
+-- Purpose: adds exactly one nullable column, events.artwork_url, so an
+-- event can optionally reference an already-hosted image (a poster/
+-- banner) to display on both the public booking page and the
+-- authenticated event detail header.
+--
+-- Architecture decision — URL reference, not a byte-upload/storage
+-- subsystem: this codebase has no production-grade file/blob storage
+-- configured (no @vercel/blob dependency, no BLOB_READ_WRITE_TOKEN —
+-- see docs/architecture/decisions/0001-data-hub-ingestion-foundation.md
+-- §9, which already documents this as a known, unprovisioned gap). The
+-- only *working* upload pattern elsewhere in this codebase (avatar
+-- photos, blog cover images — see app/api/account/avatar/route.ts,
+-- app/api/tennis/blog/upload-image/route.ts) writes bytes to the local
+-- filesystem under public/ via fs.writeFile, which works in local dev
+-- but is NOT safe to replicate here: Vercel's serverless runtime has a
+-- read-only, non-persistent filesystem outside /tmp, so a real
+-- production deploy would silently lose every uploaded poster. Rather
+-- than introduce a new instance of that already-known-unsafe pattern,
+-- or store image bytes as base64 in this column (explicitly out of
+-- scope per the implementation brief), this column stores a plain
+-- externally-hosted URL — structurally identical to the existing
+-- BlogPost.cover_image_url / users.avatar_url precedent (both are just
+-- nullable String columns, agnostic to how they were populated). Staff
+-- paste a link to an image already hosted somewhere (their own site, an
+-- image host, etc.) rather than uploading bytes through this app. True
+-- byte-upload can be layered on top of this same column later, once
+-- Vercel Blob (or an equivalent) is actually provisioned — no schema
+-- change would be needed at that point, only a new upload route that
+-- writes the resulting hosted URL into this same column.
+--
+-- Idempotency: IF NOT EXISTS guard. Safe to re-run; a second execution
+-- changes nothing. No row is inserted or updated by this script — every
+-- existing event's artwork_url starts NULL (no artwork), which the
+-- public/backend UI both already render as an intentional "no artwork"
+-- state, not a broken image.
+--
+-- Additive only: one nullable column on the existing events table. Does
+-- not touch event_sessions, event_ticket_types, event_orders,
+-- event_order_items, event_attendees, organisations, users, modules,
+-- organisation_modules, or any other existing table or row.
+--
+-- ROLLBACK: this column carries no constraint, index, or inbound
+-- reference from any other table — safe to drop at any time:
+--
+--   ALTER TABLE events DROP COLUMN IF EXISTS artwork_url;
+--
+-- (Not executed by this script — recorded here for the record only.)
+
+ALTER TABLE events ADD COLUMN IF NOT EXISTS artwork_url TEXT;

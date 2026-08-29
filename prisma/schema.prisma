@@ -1060,6 +1060,11 @@ model Event {
   slug            String
   description     String?
   venue           String?
+  // Externally-hosted image URL, not an upload — see
+  // scripts/add-events-artwork.sql's header comment for why (no
+  // production-grade blob storage is configured in this codebase).
+  // Structurally identical to BlogPost.cover_image_url / users.avatar_url.
+  artwork_url     String?
   // TEXT with a CHECK constraint in scripts/create-events.sql
   // ('DRAFT'|'PUBLISHED'|'CANCELLED'), not a native Postgres enum type —
   // modelled as a plain String, matching every other raw-SQL-only

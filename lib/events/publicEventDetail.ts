@@ -26,6 +26,9 @@ export type PublicEventDetail = {
     slug: string;
     description: string | null;
     venue: string | null;
+    // Externally-hosted image URL — approved public-safe field, see
+    // scripts/add-events-artwork.sql and PublicEvent's own comment.
+    artwork_url: string | null;
     starts_at: string;
     ends_at: string;
     timezone: string;
@@ -57,6 +60,22 @@ export type PublicEventDetailResult =
 // write-time, not a read-time, guarantee), and is clamped to a minimum
 // of 0 for display even if a legacy discrepancy ever produced a
 // negative value.
+//
+// Both "remaining" expressions below are explicitly cast to ::int.
+// Root cause of a real bug this fixes: Postgres's SUM(int) returns
+// bigint, so tt.capacity - COALESCE(SUM(...), 0) is bigint arithmetic
+// throughout, and GREATEST(bigint, 0) is itself bigint. The Neon
+// serverless driver returns bigint columns as JS strings (not numbers)
+// by default, since not every bigint value round-trips safely through
+// a JS number — so `remaining` was a STRING at runtime despite
+// PublicTicketType/PublicSession's own `remaining: number` type lying
+// about it. That silently turned PublicEventClient's
+// `.reduce((sum, t) => sum + t.remaining, 0)` into STRING
+// CONCATENATION (0 + "280" + "147" -> "0280147", not 427) — the exact
+// malformed "0280147 places remaining" defect this pass was asked to
+// investigate. Casting to ::int here makes the driver return a real
+// JS number, fixing the type at its source for every caller, not just
+// the one call site that happened to reduce() over it.
 export async function getPublicEventDetail(
   organisationSlug: string,
   eventSlug: string,
@@ -77,7 +96,7 @@ export async function getPublicEventDetail(
             WHERE oi.event_session_id = es.id AND oi.organisation_id = ${organisationId} AND eo.status <> 'CANCELLED'
           ), 0),
           0
-        ) AS remaining
+        )::int AS remaining
       FROM event_sessions es
       WHERE es.event_id = ${event.id} AND es.organisation_id = ${organisationId}
       ORDER BY es.starts_at
@@ -93,7 +112,7 @@ export async function getPublicEventDetail(
             WHERE oi.ticket_type_id = tt.id AND oi.organisation_id = ${organisationId} AND eo.status <> 'CANCELLED'
           ), 0),
           0
-        ) AS remaining
+        )::int AS remaining
       FROM event_ticket_types tt
       WHERE tt.event_id = ${event.id} AND tt.organisation_id = ${organisationId} AND tt.active = true
       ORDER BY tt.sort_order, tt.created_at
@@ -108,6 +127,7 @@ export async function getPublicEventDetail(
         slug: event.slug,
         description: event.description,
         venue: event.venue,
+        artwork_url: event.artwork_url,
         starts_at: new Date(event.starts_at).toISOString(),
         ends_at: new Date(event.ends_at).toISOString(),
         timezone: event.timezone,
