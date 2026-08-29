@@ -168,7 +168,18 @@ model ImportBatch {
   content_type            String
   size_bytes              Int
   // Server-computed, authoritative. Never accepted from a client.
-  sha256                  String
+  // NULLABLE (5A.2C-R1): under the direct browser-to-private-Blob
+  // protocol (initiate -> create pending ImportBatch -> browser uploads
+  // -> finalize -> server retrieves bytes -> hash computed), this is
+  // genuinely unknown at batch creation (AWAITING_UPLOAD/PROCESSING).
+  // The one truthful invariant — status = 'READY' requires a non-NULL
+  // sha256 — is enforced by a SQL CHECK constraint
+  // (import_batches_ready_requires_sha256 in
+  // scripts/create-import-batches.sql) that Prisma cannot express
+  // directly in this Prisma version; do not weaken the SQL to compensate
+  // for that — the constraint is the actual enforcement, this comment is
+  // documentation only.
+  sha256                  String?
   storage_provider        String
   // Immutable, server-generated. Never client-controlled. See ADR.
   storage_key             String    @unique
@@ -176,7 +187,8 @@ model ImportBatch {
   // AWAITING_UPLOAD | PROCESSING | READY | FAILED | DELETION_PENDING.
   // Physical-file/storage/inspection lifecycle ONLY — worksheet-level
   // aggregate outcomes (partial/complete) are derived from child Upload
-  // rows at read time, never stored here.
+  // rows at read time, never stored here. size_bytes >= 0 is also a
+  // SQL-only CHECK (import_batches_size_bytes_check) for the same reason.
   status                  String    @default("AWAITING_UPLOAD")
   // Tenant-scoped start-upload idempotency (see @@unique below). NULL for
   // a request that didn't supply one — many NULLs per tenant are allowed.
@@ -235,6 +247,16 @@ model Upload {
   // A row with lineage_kind = 'DATA_HUB' is a canonical worksheet within
   // import_batch_id; a legacy row (lineage_kind = 'LEGACY', the default)
   // is entirely unaffected by every field below.
+  //
+  // Coherence between lineage_kind and import_batch_id/worksheet_index/
+  // canonical_status (LEGACY => all three NULL; DATA_HUB => all three
+  // NOT NULL) and the two non-negative invariants below (worksheet_index,
+  // attempt_count) are enforced by SQL CHECK constraints
+  // (uploads_lineage_coherence_check, uploads_worksheet_index_nonneg_check,
+  // uploads_attempt_count_nonneg_check in scripts/create-import-batches.sql)
+  // that this Prisma version cannot express directly — do not weaken the
+  // SQL to compensate; these comments are documentation only, not the
+  // enforcement itself.
   import_batch_id       String?
   // Zero-based, authoritative — matches lib/data-hub/workbookParser.ts's
   // decodeWorksheet contract exactly. worksheet_name is descriptive only.
