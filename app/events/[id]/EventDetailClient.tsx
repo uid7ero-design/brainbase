@@ -48,27 +48,38 @@ export default function EventDetailClient({ eventId, canManage }: { eventId: str
   const [notFound, setNotFoundState] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    setError(null);
-    const res = await fetch(`/api/events/${eventId}`);
-    if (res.status === 404) {
-      setNotFoundState(true);
-      return;
-    }
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      setError(body.error ?? `Failed to load event (${res.status}).`);
-      return;
-    }
-    const body = await res.json();
-    setEvent(body.event);
-    setSessions(body.event_sessions ?? []);
-    setTicketTypes(body.ticket_types ?? []);
-  }, [eventId]);
+  // Fetch is inlined directly in the effect (rather than called out to a
+  // separately memoized function) so mount-time loading isn't a
+  // synchronous "call a state-setting function from an effect" pattern —
+  // reload() below just bumps reloadKey to re-run this same effect on
+  // demand (e.g. after a mutation), instead of exposing a callable
+  // load() reference for callers to invoke directly.
+  const [reloadKey, setReloadKey] = useState(0);
+  const reload = useCallback(() => setReloadKey(k => k + 1), []);
 
   useEffect(() => {
-    load();
-  }, [load]);
+    let cancelled = false;
+    (async () => {
+      setError(null);
+      const res = await fetch(`/api/events/${eventId}`);
+      if (res.status === 404) {
+        if (!cancelled) setNotFoundState(true);
+        return;
+      }
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        if (!cancelled) setError(body.error ?? `Failed to load event (${res.status}).`);
+        return;
+      }
+      const body = await res.json();
+      if (!cancelled) {
+        setEvent(body.event);
+        setSessions(body.event_sessions ?? []);
+        setTicketTypes(body.ticket_types ?? []);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [eventId, reloadKey]);
 
   if (notFound) {
     return (
@@ -88,9 +99,9 @@ export default function EventDetailClient({ eventId, canManage }: { eventId: str
       <Link href="/events" style={{ color: '#a78bfa', fontSize: 12, textDecoration: 'none' }}>← Back to Events</Link>
       {error && <div style={{ color: '#ef4444', fontSize: 13, margin: '12px 0' }}>{error}</div>}
 
-      <EventOverview event={event} canManage={canManage} onSaved={load} />
-      <SessionsPanel eventId={eventId} sessions={sessions} canManage={canManage} onChanged={load} />
-      <TicketTypesPanel eventId={eventId} ticketTypes={ticketTypes} canManage={canManage} onChanged={load} />
+      <EventOverview event={event} canManage={canManage} onSaved={reload} />
+      <SessionsPanel eventId={eventId} sessions={sessions} canManage={canManage} onChanged={reload} />
+      <TicketTypesPanel eventId={eventId} ticketTypes={ticketTypes} canManage={canManage} onChanged={reload} />
     </div>
   );
 }

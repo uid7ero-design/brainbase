@@ -56,27 +56,40 @@ export default function EventsListClient({ canManage }: { canManage: boolean }) 
     }
   });
 
-  const load = useCallback(async () => {
-    setError(null);
-    try {
-      const res = await fetch(API);
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        setError(body.error ?? `Failed to load events (${res.status}).`);
-        setEvents([]);
-        return;
-      }
-      const body = await res.json();
-      setEvents(body.events ?? []);
-    } catch {
-      setError('Failed to load events.');
-      setEvents([]);
-    }
-  }, []);
+  // Fetch is inlined directly in the effect (rather than called out to a
+  // separately memoized function) so mount-time loading isn't a
+  // synchronous "call a state-setting function from an effect" pattern —
+  // reload() below just bumps reloadKey to re-run this same effect on
+  // demand (e.g. after a mutation), instead of exposing a callable
+  // load() reference for callers to invoke directly.
+  const [reloadKey, setReloadKey] = useState(0);
+  const reload = useCallback(() => setReloadKey(k => k + 1), []);
 
   useEffect(() => {
-    load();
-  }, [load]);
+    let cancelled = false;
+    (async () => {
+      setError(null);
+      try {
+        const res = await fetch(API);
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          if (!cancelled) {
+            setError(body.error ?? `Failed to load events (${res.status}).`);
+            setEvents([]);
+          }
+          return;
+        }
+        const body = await res.json();
+        if (!cancelled) setEvents(body.events ?? []);
+      } catch {
+        if (!cancelled) {
+          setError('Failed to load events.');
+          setEvents([]);
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [reloadKey]);
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
@@ -109,7 +122,7 @@ export default function EventsListClient({ canManage }: { canManage: boolean }) 
       setDescription('');
       setStartsAt('');
       setEndsAt('');
-      await load();
+      reload();
     } catch {
       setFormError('Failed to create event.');
     } finally {
