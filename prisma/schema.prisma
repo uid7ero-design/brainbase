@@ -136,6 +136,7 @@ model User {
   saved_views       SavedView[]
   uploads           Upload[]
   events_created    Event[]
+  event_attendees_checked_in EventAttendee[]
   organisation      Organisation      @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
 
   @@index([organisation_id])
@@ -1239,15 +1240,32 @@ model EventAttendee {
   order_item_id   String
   attendee_name   String
   attendee_email  String?
+  // Phase 3 — see scripts/add-events-ticketing.sql's header comment for
+  // the full rationale (nullable, why no separate ticket-status column,
+  // 256-bit-entropy generation contract).
+  ticket_token          String?
+  checked_in_at         DateTime? @db.Timestamptz(6)
+  checked_in_by_user_id String?
   created_at      DateTime       @default(now()) @db.Timestamptz(6)
   updated_at      DateTime       @updatedAt @db.Timestamptz(6)
 
   order_item      EventOrderItem @relation(fields: [order_item_id, organisation_id], references: [id, organisation_id], onDelete: Cascade)
+  checked_in_by   User?          @relation(fields: [checked_in_by_user_id], references: [id], onDelete: SetNull)
 
+  // ticket_token also carries a UNIQUE constraint in the live SQL — a
+  // partial index (WHERE ticket_token IS NOT NULL, since the column is
+  // nullable during backfill), which Prisma's schema DSL cannot express
+  // natively. See scripts/add-events-ticketing.sql for the actual
+  // CREATE UNIQUE INDEX; this @@index is documentation of the indexed
+  // column only, not the full live constraint (same "Prisma mirrors,
+  // raw SQL is authoritative" convention this schema already follows
+  // for Event.status's CHECK constraint).
+  @@index([ticket_token])
   @@index([organisation_id])
   @@index([event_id])
   @@index([order_id])
   @@index([order_item_id])
+  @@index([checked_in_by_user_id])
   @@map("event_attendees")
 }
 

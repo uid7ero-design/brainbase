@@ -1,9 +1,23 @@
+import { randomBytes } from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import sql from '@/lib/db';
 import { resolvePublicEvent } from '@/lib/events/publicResolve';
 import { validatePublicRegistrationInput, type PublicRegistrationInput } from '@/lib/events/publicValidation';
 import { checkRateLimit } from '@/lib/rateLimit';
 import { getClientIp } from '@/lib/clientIp';
+
+// Same generation contract as lib/tokens.ts's createToken() — 256 bits
+// of entropy per attendee, generated server-side only, never
+// client-supplied. Not imported from lib/tokens.ts directly: that
+// module writes to the separate email_tokens table (its own
+// user_id/type/expires_at/used_at shape); ticket_token is a plain
+// column on the row this route is already inserting, and generating it
+// inline keeps the R1 concurrency-safe transaction below untouched
+// (see its own comment) — one more SELECTed column on the existing
+// final INSERT, nothing structural.
+function generateTicketToken(): string {
+  return randomBytes(32).toString('hex');
+}
 
 type Ctx = { params: Promise<{ organisationSlug: string; eventSlug: string }> };
 
@@ -93,6 +107,11 @@ export async function POST(req: NextRequest, { params }: Ctx) {
   // driver behaviour this code does not want to depend on).
   const attendeeNames = validated.attendees.map(a => a.name);
   const attendeeEmails = validated.attendees.map(a => a.email ?? '');
+  // One token per attendee, generated once here and passed through as
+  // a third parallel array to the same UNNEST(...) the names/emails
+  // already use below — never derived from (or influenced by) any
+  // client-supplied value.
+  const ticketTokens = validated.attendees.map(() => generateTicketToken());
 
   // ── Concurrency-safe order creation (R1 remediation) ─────────────────
   //
@@ -211,10 +230,10 @@ export async function POST(req: NextRequest, { params }: Ctx) {
               FROM ins_order
               RETURNING id, order_id
             )
-            INSERT INTO event_attendees (organisation_id, event_id, order_id, order_item_id, attendee_name, attendee_email)
-            SELECT ${organisationId}, ${event.id}, ins_item.order_id, ins_item.id, a.name, NULLIF(a.email, '')
-            FROM ins_item, UNNEST(${attendeeNames}::text[], ${attendeeEmails}::text[]) AS a(name, email)
-            RETURNING order_id
+            INSERT INTO event_attendees (organisation_id, event_id, order_id, order_item_id, attendee_name, attendee_email, ticket_token)
+            SELECT ${organisationId}, ${event.id}, ins_item.order_id, ins_item.id, a.name, NULLIF(a.email, ''), a.token
+            FROM ins_item, UNNEST(${attendeeNames}::text[], ${attendeeEmails}::text[], ${ticketTokens}::text[]) AS a(name, email, token)
+            RETURNING order_id, attendee_name, ticket_token
           `,
         ])
       : await sql.transaction([
@@ -247,10 +266,10 @@ export async function POST(req: NextRequest, { params }: Ctx) {
               FROM ins_order
               RETURNING id, order_id
             )
-            INSERT INTO event_attendees (organisation_id, event_id, order_id, order_item_id, attendee_name, attendee_email)
-            SELECT ${organisationId}, ${event.id}, ins_item.order_id, ins_item.id, a.name, NULLIF(a.email, '')
-            FROM ins_item, UNNEST(${attendeeNames}::text[], ${attendeeEmails}::text[]) AS a(name, email)
-            RETURNING order_id
+            INSERT INTO event_attendees (organisation_id, event_id, order_id, order_item_id, attendee_name, attendee_email, ticket_token)
+            SELECT ${organisationId}, ${event.id}, ins_item.order_id, ins_item.id, a.name, NULLIF(a.email, ''), a.token
+            FROM ins_item, UNNEST(${attendeeNames}::text[], ${attendeeEmails}::text[], ${ticketTokens}::text[]) AS a(name, email, token)
+            RETURNING order_id, attendee_name, ticket_token
           `,
         ]);
   } catch (err) {
@@ -265,7 +284,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     );
   }
 
-  const insertResult = transactionResults[transactionResults.length - 1] as { order_id: string }[];
+  const insertResult = transactionResults[transactionResults.length - 1] as { order_id: string; attendee_name: string; ticket_token: string }[];
   if (!insertResult.length) {
     return NextResponse.json(
       { error: 'This ticket type is no longer available in the requested quantity.' },
@@ -274,8 +293,13 @@ export async function POST(req: NextRequest, { params }: Ctx) {
   }
 
   const orderId = insertResult[0].order_id;
+  // One ticket per attendee row actually inserted — the client builds
+  // each link as /t/${ticket_token} (see app/t/[token]/page.tsx); no
+  // absolute URL is constructed server-side here, avoiding a dependency
+  // on knowing this deployment's own public origin.
+  const tickets = insertResult.map(row => ({ attendee_name: row.attendee_name, ticket_token: row.ticket_token }));
   return NextResponse.json(
-    { confirmation_reference: orderId, quantity: validated.quantity },
+    { confirmation_reference: orderId, quantity: validated.quantity, tickets },
     { status: 201 },
   );
 }
