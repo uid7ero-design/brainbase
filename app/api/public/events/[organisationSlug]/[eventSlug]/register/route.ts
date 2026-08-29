@@ -94,113 +94,186 @@ export async function POST(req: NextRequest, { params }: Ctx) {
   const attendeeNames = validated.attendees.map(a => a.name);
   const attendeeEmails = validated.attendees.map(a => a.email ?? '');
 
-  // ── Atomic, concurrency-safe order creation ──────────────────────────
-  // A single compound SQL statement (Postgres executes one INSERT/CTE
-  // chain like this as one atomic unit — no `sql.transaction()` wrapper
-  // is needed or used here, since this genuinely is one statement, not
-  // several):
-  //   1. `locked_tt` takes a FOR UPDATE row lock on the ticket type,
-  //      serialising concurrent registration attempts for the SAME
-  //      ticket type — a second concurrent request blocks here until
-  //      the first's statement commits or rolls back, then re-reads
-  //      committed state, closing the classic check-then-insert race a
-  //      plain "SELECT count, compare, INSERT" would have.
-  //   2. `sold_tt` sums quantities already committed against that
-  //      ticket type (excluding cancelled orders).
-  //   3. `ins_order` inserts the order — but its INSERT...SELECT is
-  //      itself gated by the capacity WHERE clause, so if capacity is
-  //      exceeded, ins_order inserts ZERO rows (no orphan order).
-  //   4. `ins_item` inserts the order item by selecting FROM ins_order —
-  //      if ins_order produced no row, ins_item produces no row either
-  //      (no orphan item).
-  //   5. The final INSERT into event_attendees selects FROM ins_item —
-  //      if ins_item produced no row, this produces no rows either (no
-  //      orphan attendees).
-  // Because every step downstream of the capacity check is a SELECT
-  // FROM the previous step's own result set (never an unconditional
-  // INSERT), an empty capacity check propagates all the way through:
-  // either everything is created, or nothing is — there is no
-  // intermediate state where an order exists without its item(s), or an
-  // item exists without its attendee(s). If the WHERE clause result is
-  // empty, `rows.length` below is 0 and the whole statement still
-  // committed successfully (an empty result set is not a SQL error) —
-  // exactly zero rows were ever written.
-  const rows = validated.event_session_id
-    ? await sql`
-        WITH locked_tt AS (
-          SELECT capacity FROM event_ticket_types WHERE id = ${validated.ticket_type_id} AND organisation_id = ${organisationId} FOR UPDATE
-        ),
-        sold_tt AS (
-          SELECT COALESCE(SUM(oi.quantity), 0) AS qty
-          FROM event_order_items oi
-          JOIN event_orders eo ON eo.id = oi.order_id AND eo.organisation_id = oi.organisation_id
-          WHERE oi.ticket_type_id = ${validated.ticket_type_id} AND oi.organisation_id = ${organisationId} AND eo.status <> 'CANCELLED'
-        ),
-        locked_sess AS (
-          SELECT capacity FROM event_sessions WHERE id = ${validated.event_session_id} AND organisation_id = ${organisationId} FOR UPDATE
-        ),
-        sold_sess AS (
-          SELECT COALESCE(SUM(oi.quantity), 0) AS qty
-          FROM event_order_items oi
-          JOIN event_orders eo ON eo.id = oi.order_id AND eo.organisation_id = oi.organisation_id
-          WHERE oi.event_session_id = ${validated.event_session_id} AND oi.organisation_id = ${organisationId} AND eo.status <> 'CANCELLED'
-        ),
-        ins_order AS (
-          INSERT INTO event_orders (organisation_id, event_id, purchaser_name, purchaser_email, purchaser_phone, status, total_cents)
-          SELECT ${organisationId}, ${event.id}, ${validated.purchaser_name}, ${validated.purchaser_email}, ${validated.purchaser_phone}, 'CONFIRMED', 0
-          FROM locked_tt, sold_tt, locked_sess, sold_sess
-          WHERE sold_tt.qty + ${validated.quantity} <= locked_tt.capacity
-            AND sold_sess.qty + ${validated.quantity} <= locked_sess.capacity
-          RETURNING id
-        ),
-        ins_item AS (
-          INSERT INTO event_order_items (organisation_id, order_id, event_id, ticket_type_id, event_session_id, quantity, unit_price_cents)
-          SELECT ${organisationId}, ins_order.id, ${event.id}, ${validated.ticket_type_id}, ${validated.event_session_id}, ${validated.quantity}, 0
-          FROM ins_order
-          RETURNING id, order_id
-        )
-        INSERT INTO event_attendees (organisation_id, event_id, order_id, order_item_id, attendee_name, attendee_email)
-        SELECT ${organisationId}, ${event.id}, ins_item.order_id, ins_item.id, a.name, NULLIF(a.email, '')
-        FROM ins_item, UNNEST(${attendeeNames}::text[], ${attendeeEmails}::text[]) AS a(name, email)
-        RETURNING order_id
-      `
-    : await sql`
-        WITH locked_tt AS (
-          SELECT capacity FROM event_ticket_types WHERE id = ${validated.ticket_type_id} AND organisation_id = ${organisationId} FOR UPDATE
-        ),
-        sold_tt AS (
-          SELECT COALESCE(SUM(oi.quantity), 0) AS qty
-          FROM event_order_items oi
-          JOIN event_orders eo ON eo.id = oi.order_id AND eo.organisation_id = oi.organisation_id
-          WHERE oi.ticket_type_id = ${validated.ticket_type_id} AND oi.organisation_id = ${organisationId} AND eo.status <> 'CANCELLED'
-        ),
-        ins_order AS (
-          INSERT INTO event_orders (organisation_id, event_id, purchaser_name, purchaser_email, purchaser_phone, status, total_cents)
-          SELECT ${organisationId}, ${event.id}, ${validated.purchaser_name}, ${validated.purchaser_email}, ${validated.purchaser_phone}, 'CONFIRMED', 0
-          FROM locked_tt, sold_tt
-          WHERE sold_tt.qty + ${validated.quantity} <= locked_tt.capacity
-          RETURNING id
-        ),
-        ins_item AS (
-          INSERT INTO event_order_items (organisation_id, order_id, event_id, ticket_type_id, event_session_id, quantity, unit_price_cents)
-          SELECT ${organisationId}, ins_order.id, ${event.id}, ${validated.ticket_type_id}, NULL, ${validated.quantity}, 0
-          FROM ins_order
-          RETURNING id, order_id
-        )
-        INSERT INTO event_attendees (organisation_id, event_id, order_id, order_item_id, attendee_name, attendee_email)
-        SELECT ${organisationId}, ${event.id}, ins_item.order_id, ins_item.id, a.name, NULLIF(a.email, '')
-        FROM ins_item, UNNEST(${attendeeNames}::text[], ${attendeeEmails}::text[]) AS a(name, email)
-        RETURNING order_id
-      `;
+  // ── Concurrency-safe order creation (R1 remediation) ─────────────────
+  //
+  // R1 CONTEXT: the original Phase 2 design ran ONE compound statement
+  // containing the FOR UPDATE lock, the sold-quantity aggregate, and the
+  // guarded inserts all together. Independent review proved against
+  // real PostgreSQL 16 that this oversells: under READ COMMITTED, a
+  // single SQL statement takes ONE snapshot at statement start. FOR
+  // UPDATE's EvalPlanQual mechanism re-fetches only the SPECIFIC locked
+  // row once the lock is granted — it does NOT advance the snapshot for
+  // the REST of that same statement, including an aggregate subquery
+  // over a different table (event_order_items/event_orders). A second
+  // registrant's statement could therefore correctly wait for the first
+  // registrant's lock, correctly see the ticket type's current capacity
+  // value once unblocked, and STILL compute a stale (pre-commit) sold
+  // quantity from its own original snapshot — oversell.
+  //
+  // THE FIX: split the lock acquisition and the capacity-gated insert
+  // into GENUINELY SEPARATE SQL statements, submitted together via
+  // sql.transaction() (see lib/db.ts's own comment and CONFIG.md for why
+  // this driver's transaction() is the right primitive here). Per
+  // PostgreSQL's own per-STATEMENT (not per-transaction) READ COMMITTED
+  // snapshot rule, each element of a sql.transaction([...]) array is a
+  // distinct statement that gets its OWN fresh snapshot when it begins
+  // — so the capacity-gated insert statement, submitted after the lock
+  // statement(s), correctly observes any commit that happened while we
+  // were blocked waiting for the lock (which by definition is every
+  // commit that could possibly conflict with us, since FOR UPDATE
+  // cannot unblock until the prior holder's transaction has committed
+  // or rolled back). Verified empirically against real Postgres 16 via
+  // scripts/tests/verify-events-phase2-concurrency.sh — see that file
+  // for the reproducible harness this fix was proven against, including
+  // the specific forced-blocking scenario that reproduced the original
+  // defect 4/4 times and no longer reproduces it after this change.
+  //
+  // Statement sequence (fixed, deterministic order — see LOCK ORDER
+  // below):
+  //   1. Lock the ticket type row (FOR UPDATE).
+  //   2. (session-bound only) Lock the session row (FOR UPDATE) —
+  //      always AFTER the ticket-type lock, in every code path, so two
+  //      concurrent registrations selecting the same pair of rows can
+  //      never deadlock by acquiring them in opposite orders.
+  //   3. A standalone, fresh sold-ticket-type-quantity read. This
+  //      statement begins only after step 1 has completed, so under
+  //      READ COMMITTED it gets its own snapshot taken at that later
+  //      point — it exists purely to build a precise "N remaining"
+  //      conflict message; it does not itself gate anything (that would
+  //      still be non-interactive — see below).
+  //   4. (session-bound only) The same, for the session.
+  //   5. The actual capacity gate: a WITH-chain INSERT (order -> item ->
+  //      attendees) whose own embedded aggregate subqueries are
+  //      evaluated as part of THIS statement — which, being submitted
+  //      after the lock statement(s), also gets a fresh, post-lock
+  //      snapshot. This is what actually prevents the oversell; step 3
+  //      is diagnostic only. Every insert downstream of the capacity
+  //      WHERE clause still SELECTs FROM the previous step's own result
+  //      set (never an unconditional INSERT), so an empty capacity
+  //      check still propagates all the way through with zero orphan
+  //      rows, exactly as before.
+  //
+  // sql.transaction() is "non-interactive": every statement in the
+  // array is built and submitted up front, in one HTTP request, with no
+  // opportunity for application code to branch on one statement's
+  // result before constructing the next. That is why step 5 must still
+  // carry its own embedded capacity check (a fixed, unconditional
+  // statement whose OWN WHERE clause decides whether it inserts
+  // anything) rather than JS code deciding, after reading step 3's
+  // result, whether to submit step 5 at all.
+  let transactionResults: unknown[];
+  try {
+    transactionResults = validated.event_session_id
+      ? await sql.transaction([
+          sql`SELECT capacity FROM event_ticket_types WHERE id = ${validated.ticket_type_id} AND organisation_id = ${organisationId} FOR UPDATE`,
+          sql`SELECT capacity FROM event_sessions WHERE id = ${validated.event_session_id} AND organisation_id = ${organisationId} FOR UPDATE`,
+          sql`
+            SELECT COALESCE(SUM(oi.quantity), 0)::int AS qty
+            FROM event_order_items oi
+            JOIN event_orders eo ON eo.id = oi.order_id AND eo.organisation_id = oi.organisation_id
+            WHERE oi.ticket_type_id = ${validated.ticket_type_id} AND oi.organisation_id = ${organisationId} AND eo.status <> 'CANCELLED'
+          `,
+          sql`
+            SELECT COALESCE(SUM(oi.quantity), 0)::int AS qty
+            FROM event_order_items oi
+            JOIN event_orders eo ON eo.id = oi.order_id AND eo.organisation_id = oi.organisation_id
+            WHERE oi.event_session_id = ${validated.event_session_id} AND oi.organisation_id = ${organisationId} AND eo.status <> 'CANCELLED'
+          `,
+          sql`
+            WITH sold_tt AS (
+              SELECT COALESCE(SUM(oi.quantity), 0) AS qty
+              FROM event_order_items oi
+              JOIN event_orders eo ON eo.id = oi.order_id AND eo.organisation_id = oi.organisation_id
+              WHERE oi.ticket_type_id = ${validated.ticket_type_id} AND oi.organisation_id = ${organisationId} AND eo.status <> 'CANCELLED'
+            ),
+            sold_sess AS (
+              SELECT COALESCE(SUM(oi.quantity), 0) AS qty
+              FROM event_order_items oi
+              JOIN event_orders eo ON eo.id = oi.order_id AND eo.organisation_id = oi.organisation_id
+              WHERE oi.event_session_id = ${validated.event_session_id} AND oi.organisation_id = ${organisationId} AND eo.status <> 'CANCELLED'
+            ),
+            ins_order AS (
+              -- No FOR UPDATE needed here: the ticket-type/session rows
+              -- are already locked by this transaction's own earlier
+              -- statements above, and that lock is held for the whole
+              -- transaction — a plain read of their current capacity is
+              -- already guaranteed exclusive and fresh.
+              INSERT INTO event_orders (organisation_id, event_id, purchaser_name, purchaser_email, purchaser_phone, status, total_cents)
+              SELECT ${organisationId}, ${event.id}, ${validated.purchaser_name}, ${validated.purchaser_email}, ${validated.purchaser_phone}, 'CONFIRMED', 0
+              FROM sold_tt, sold_sess
+              WHERE sold_tt.qty + ${validated.quantity} <= (SELECT capacity FROM event_ticket_types WHERE id = ${validated.ticket_type_id} AND organisation_id = ${organisationId})
+                AND sold_sess.qty + ${validated.quantity} <= (SELECT capacity FROM event_sessions WHERE id = ${validated.event_session_id} AND organisation_id = ${organisationId})
+              RETURNING id
+            ),
+            ins_item AS (
+              INSERT INTO event_order_items (organisation_id, order_id, event_id, ticket_type_id, event_session_id, quantity, unit_price_cents)
+              SELECT ${organisationId}, ins_order.id, ${event.id}, ${validated.ticket_type_id}, ${validated.event_session_id}, ${validated.quantity}, 0
+              FROM ins_order
+              RETURNING id, order_id
+            )
+            INSERT INTO event_attendees (organisation_id, event_id, order_id, order_item_id, attendee_name, attendee_email)
+            SELECT ${organisationId}, ${event.id}, ins_item.order_id, ins_item.id, a.name, NULLIF(a.email, '')
+            FROM ins_item, UNNEST(${attendeeNames}::text[], ${attendeeEmails}::text[]) AS a(name, email)
+            RETURNING order_id
+          `,
+        ])
+      : await sql.transaction([
+          sql`SELECT capacity FROM event_ticket_types WHERE id = ${validated.ticket_type_id} AND organisation_id = ${organisationId} FOR UPDATE`,
+          sql`
+            SELECT COALESCE(SUM(oi.quantity), 0)::int AS qty
+            FROM event_order_items oi
+            JOIN event_orders eo ON eo.id = oi.order_id AND eo.organisation_id = oi.organisation_id
+            WHERE oi.ticket_type_id = ${validated.ticket_type_id} AND oi.organisation_id = ${organisationId} AND eo.status <> 'CANCELLED'
+          `,
+          sql`
+            WITH sold_tt AS (
+              SELECT COALESCE(SUM(oi.quantity), 0) AS qty
+              FROM event_order_items oi
+              JOIN event_orders eo ON eo.id = oi.order_id AND eo.organisation_id = oi.organisation_id
+              WHERE oi.ticket_type_id = ${validated.ticket_type_id} AND oi.organisation_id = ${organisationId} AND eo.status <> 'CANCELLED'
+            ),
+            ins_order AS (
+              -- No FOR UPDATE needed here — see the session-bound branch's
+              -- identical comment above.
+              INSERT INTO event_orders (organisation_id, event_id, purchaser_name, purchaser_email, purchaser_phone, status, total_cents)
+              SELECT ${organisationId}, ${event.id}, ${validated.purchaser_name}, ${validated.purchaser_email}, ${validated.purchaser_phone}, 'CONFIRMED', 0
+              FROM sold_tt
+              WHERE sold_tt.qty + ${validated.quantity} <= (SELECT capacity FROM event_ticket_types WHERE id = ${validated.ticket_type_id} AND organisation_id = ${organisationId})
+              RETURNING id
+            ),
+            ins_item AS (
+              INSERT INTO event_order_items (organisation_id, order_id, event_id, ticket_type_id, event_session_id, quantity, unit_price_cents)
+              SELECT ${organisationId}, ins_order.id, ${event.id}, ${validated.ticket_type_id}, NULL, ${validated.quantity}, 0
+              FROM ins_order
+              RETURNING id, order_id
+            )
+            INSERT INTO event_attendees (organisation_id, event_id, order_id, order_item_id, attendee_name, attendee_email)
+            SELECT ${organisationId}, ${event.id}, ins_item.order_id, ins_item.id, a.name, NULLIF(a.email, '')
+            FROM ins_item, UNNEST(${attendeeNames}::text[], ${attendeeEmails}::text[]) AS a(name, email)
+            RETURNING order_id
+          `,
+        ]);
+  } catch (err) {
+    // A DB/transaction failure (lock timeout, connection error, an
+    // actual constraint violation) must fail safely — never leak SQL,
+    // lock state, organisation ids, or capability internals to an
+    // anonymous caller.
+    console.error('[public register] transaction failed', err);
+    return NextResponse.json(
+      { error: 'Registration could not be completed. Please try again.' },
+      { status: 500 },
+    );
+  }
 
-  if (!rows.length) {
+  const insertResult = transactionResults[transactionResults.length - 1] as { order_id: string }[];
+  if (!insertResult.length) {
     return NextResponse.json(
       { error: 'This ticket type is no longer available in the requested quantity.' },
       { status: 409 },
     );
   }
 
-  const orderId = rows[0].order_id as string;
+  const orderId = insertResult[0].order_id;
   return NextResponse.json(
     { confirmation_reference: orderId, quantity: validated.quantity },
     { status: 201 },
