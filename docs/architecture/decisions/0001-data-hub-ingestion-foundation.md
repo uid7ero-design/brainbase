@@ -214,6 +214,138 @@ parse in an isolated worker/process with an enforceable memory and time
 boundary. Whichever is chosen must be decided and implemented before
 5A.2's canonical endpoint accepts untrusted uploads.
 
+## 8a. Decompression boundary implemented (5A.2D)
+
+Section 8's requirement is now met by `lib/data-hub/workbookArchiveGuard.ts`
+(`assertSafeXlsxArchive`), called from both `inspectWorkbook` and
+`decodeWorksheet` for every `"xlsx"`-classified input, before either
+function's first call into SheetJS. Neither function makes any assumption
+that the other has already run — each independently awaits the guard.
+`"xls"` (legacy BIFF8, a single sequential stream, not a ZIP archive) is
+deliberately never subjected to this guard — no ZIP-decompression vector
+exists for that format. `"csv"` never touches it either.
+
+**Concrete risk confirmed before implementation.** Direct inspection of
+the installed `cfb`/`xlsx@0.18.5` source (not vendor documentation) showed:
+`cfb`'s ZIP reader (`parse_zip`) unconditionally decompresses *every*
+central-directory entry before `sheets`/`bookSheets`/`sheetRows` have any
+effect — those options limit later worksheet *materialization* only, never
+decompression itself (a correction to this file's own §7 wording, which
+previously overclaimed that `sheets: [index]` "genuinely decodes only the
+selected sheet" for xlsx; see the corrected comment at the `xlsxAdapter.read`
+call site in `decodeSpreadsheetWorksheet`). Because this application never
+registers Node's native `zlib` with `cfb` (`CFB.use_zlib` is never called
+anywhere in this codebase), decompression runs through `cfb`'s pure-JS
+`inflate()`, whose output buffer is allocated directly from each entry's
+*declared* uncompressed size (`Buffer.allocUnsafe(usz)`) with no cap — a
+tiny, standards-shaped `.xlsx` file can declare an arbitrary uncompressed
+size and trigger that allocation the instant `XLSX.read` is called, before
+this module's pre-existing raw/logical limits (§8 above) have any chance to
+run. The pre-existing 20 MiB raw-input cap does not neutralize this: a
+realistic ~1000:1 single-layer DEFLATE ratio against a 20 MiB compressed
+input still yields ~20 GB decompressed, and a declared-size lie requires no
+real compression ratio at all.
+
+**Why metadata-only inspection is insufficient.** A central-directory-only
+preflight (reading declared sizes without verifying them) cannot detect a
+declared-size lie — the entire vulnerability *is* a declared value with no
+relationship to genuine content. `assertSafeXlsxArchive` therefore performs
+bounded, streamed, actual decompression of every entry through `yauzl`
+(`yauzl@3.4.0`, direct dependency; `pend@1.2.0` its only transitive
+dependency), counting real decompressed bytes as they arrive (never
+buffering or concatenating them) and verifying CRC-32 incrementally
+(`node:zlib`'s native `crc32`, added in Node 20.15/22.2, when available —
+mirroring the exact same fallback pattern `yauzl` itself uses internally —
+falling back to the `crc-32` npm package otherwise, already present
+transitively via `xlsx -> cfb -> crc-32` and declared here directly rather
+than relied upon implicitly).
+
+**Initial accepted ZIP contract (intentionally narrow).** Accepts:
+single-disk, non-ZIP64, STORED/DEFLATE entries, ASCII-only archive paths, no
+archive/entry comments, no data descriptors. Rejects everything else
+(ZIP64, data descriptors, traditional/strong encryption, multi-disk,
+unsupported compression methods, comments, unsafe or colliding names,
+structurally ambiguous layout). This contract may be widened later with
+evidence; it must never be silently broadened.
+
+**Central/local header equivalence and range safety.** For every entry,
+the module reads the *local* file header (via `yauzl`'s own
+`readLocalFileHeaderPromise`, which reads from the same original buffer —
+no independent ZIP parsing is implemented here) and verifies it agrees with
+the *central* directory's declared compression method, flags, CRC-32,
+compressed size, uncompressed size, and raw filename bytes (compared as
+raw `Buffer`s, never as decoded strings — proven by a dedicated test using
+two ASCII names differing only by case, which a case-insensitive or
+decoded-string comparison would incorrectly treat as equal). A small,
+narrowly-scoped independent parse of the end-of-central-directory record
+(fixed-position, since this module's zero-comment policy makes that
+position unambiguous) cross-checks entry count/size/comment-length against
+`yauzl`'s own interpretation, closing the specific class of risk where two
+different parsers could interpret the same bytes as two different
+archives — this also transparently rejects materially trailing data or a
+concatenated second archive whose declared comment length doesn't match
+its actual trailing bytes, with no separate case needed. Every entry's
+computed byte range is checked against every other entry's range (rejecting
+duplicate local-header offsets and overlaps) and against the central
+directory's own start offset.
+
+**Required limits (all inclusive — value == limit passes, limit + 1
+fails):** `maxArchiveEntryCount` 1000; `maxCompressedEntryBytes` 20 MiB;
+`maxDeclaredEntryUncompressedBytes` / `maxActualEntryUncompressedBytes` 64
+MiB each; `maxDeclaredAggregateUncompressedBytes` /
+`maxActualAggregateUncompressedBytes` 128 MiB each; `maxFilenameBytes` 512;
+`maxExtraFieldBytes` 4 KiB; `archiveCommentBytes` / `entryCommentBytes` 0.
+Compression **ratio** is deliberately not a hard limit — a legitimate,
+highly-repetitive `.xlsx` (e.g. a column of a repeated constant across
+100k rows) can compress at extreme ratios while remaining absolutely
+small; the absolute byte caps above are the real, false-positive-resistant
+safety boundary.
+
+**Async public contract.** `inspectWorkbook` and `decodeWorksheet` are now
+`async`, returning `Promise<WorkbookInspection>` /
+`Promise<DecodedWorksheet>` respectively (CSV/XLS decoding remains
+internally synchronous; only the public contract changed). 5A.2D discovery
+confirmed zero production callers of either function existed at the time of
+this change, making it the correct moment to make the contract consistently
+Promise-based rather than adding a parallel sync/async API surface.
+
+**Triple-decompression transitional cost, accepted.** Every public XLSX
+operation already called `XLSX.read` twice before this phase (once via
+`bookSheets: true` for sheet-name inventory, once for the actual
+materialization pass — both already fully re-decompress the archive, per
+the `cfb` finding above). Adding this module's own bounded validation pass
+makes it three decompression passes total — a ~50% marginal increase, not
+a doubling from a 1x baseline. This module never retains a full
+decompressed entry's bytes (proven by a dedicated static containment test
+asserting the source contains no chunk-accumulation pattern), keeping its
+own peak memory bounded by the streaming chunk size regardless of an
+entry's declared or actual size. Combining this security slice with a
+broader optimization to remove one of the two pre-existing SheetJS passes
+was explicitly deferred, not attempted, in 5A.2D.
+
+**Residual exposure — not solved here.** This module protects only
+`lib/data-hub/workbookParser.ts`'s two public entry points. It does **not**
+protect, and 5A.2D made no changes to: `services/upload.ts` (the live
+`/data` upload pipeline), `app/api/files/upload/route.ts`,
+`app/api/onboarding/upload/route.ts`, or
+`app/api/organiser/boards/[boardId]/import/route.ts` — all of which call
+`xlsx`'s `XLSX.read`/`sheet_to_json` directly today and remain equally
+exposed to the same decompression risk until a later 5A.3 adoption phase
+reconciles them against the canonical parser. This phase does not claim
+application-wide XLSX protection.
+
+**SheetJS 0.18.5 dependency-security prerequisite — separately gating
+canonical endpoint exposure.** This module closes the ZIP-decompression
+boundary specifically. It does **not** make SheetJS's own XLSX/XLS parsing
+of already-decompressed content generally secure against every other class
+of parser defect. A canonical, untrusted-upload-facing ingestion endpoint
+built on `lib/data-hub/workbookParser.ts` remains blocked pending a
+separately evidenced decision on the `xlsx@0.18.5` dependency line
+(upgrade, replacement, or an explicitly accepted-risk decision) — this
+phase does not authorize or perform that upgrade. This applies to `"xls"`
+input as much as `"xlsx"`, since the archive guard is never applied to the
+legacy format at all.
+
 ## 9. Durable storage decision (direction for 5A.2)
 
 No durable file-storage capability exists anywhere in the codebase today

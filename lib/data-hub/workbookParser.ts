@@ -1,6 +1,16 @@
 import { createHash } from "node:crypto";
 import { parse as parseCsvSync } from "csv-parse/sync";
 import * as XLSX from "xlsx";
+import { assertSafeXlsxArchive, ArchiveGuardError } from "./workbookArchiveGuard";
+
+// The sole seam between this module and SheetJS's XLSX.read. Every XLSX.read
+// call in this file goes through xlsxAdapter.read rather than calling
+// XLSX.read directly, so tests can instrument it (e.g. `vi.spyOn(xlsxAdapter,
+// 'read')`) to prove that a rejected archive never reaches SheetJS at all —
+// without redesigning this module for general dependency injection.
+export const xlsxAdapter = {
+  read: (bytes: Uint8Array, opts: XLSX.ParsingOptions): XLSX.WorkBook => XLSX.read(bytes, opts),
+};
 
 // Data Hub workbook parsing/identity foundation (Phase 5A.1).
 //
@@ -34,7 +44,17 @@ export type WorkbookParserErrorCode =
   | "MALFORMED_WORKBOOK"
   | "WORKBOOK_LIMIT_EXCEEDED"
   | "WORKSHEET_LIMIT_EXCEEDED"
-  | "WORKSHEET_NOT_FOUND";
+  | "WORKSHEET_NOT_FOUND"
+  // 5A.2D — the XLSX archive/decompression boundary (workbookArchiveGuard.ts).
+  // ARCHIVE_LIMIT_EXCEEDED: a resource-budget cap was exceeded (entry
+  // count, compressed/uncompressed bytes, filename/extra-field length).
+  // UNSAFE_ARCHIVE: the archive's structure itself is unsafe/ambiguous
+  // (encryption, unsupported compression, ZIP64, data descriptors, unsafe
+  // or colliding names, central/local disagreement, CRC mismatch,
+  // overlapping/duplicate ranges, disallowed comments, multi-disk) even
+  // though it may be well *within* every resource budget.
+  | "ARCHIVE_LIMIT_EXCEEDED"
+  | "UNSAFE_ARCHIVE";
 
 export interface WorkbookParserErrorDetails {
   limit?: string;
@@ -267,6 +287,26 @@ function validateSignature(format: WorkbookFormat, bytes: Uint8Array): void {
   }
 }
 
+// 5A.2D mandatory call order: this must run — and its returned promise must
+// resolve successfully — before xlsxAdapter.read is ever called for an
+// "xlsx"-classified input. It never runs for "xls" (BIFF8 is a single
+// sequential stream, not a ZIP archive with independently-decompressible
+// entries — no ZIP-bomb vector exists there) or "csv" (no archive at all).
+// Any ArchiveGuardError is translated into the public WorkbookParserError
+// contract; any other error propagates as-is (there should be none —
+// assertSafeXlsxArchive's own contract is to only ever throw
+// ArchiveGuardError or a RangeError from its own limit validation).
+async function assertGuardedXlsxArchive(bytes: Uint8Array): Promise<void> {
+  try {
+    await assertSafeXlsxArchive(bytes);
+  } catch (err) {
+    if (err instanceof ArchiveGuardError) {
+      throw new WorkbookParserError(err.code, err.message, err.details, err.cause);
+    }
+    throw err;
+  }
+}
+
 function computeSha256(bytes: Uint8Array): string {
   return createHash("sha256").update(bytes).digest("hex");
 }
@@ -338,7 +378,7 @@ function computeMaterializedCellCount(headers: string[], rows: unknown[][]): num
 function readSheetNamesOnly(bytes: Uint8Array): string[] {
   let wb: XLSX.WorkBook;
   try {
-    wb = XLSX.read(bytes, { type: "buffer", bookSheets: true });
+    wb = xlsxAdapter.read(bytes, { type: "buffer", bookSheets: true });
   } catch (err) {
     throw new WorkbookParserError(
       "MALFORMED_WORKBOOK",
@@ -425,7 +465,7 @@ function inspectSpreadsheetWorksheets(
 ): WorksheetInspection[] {
   let wb: XLSX.WorkBook;
   try {
-    wb = XLSX.read(bytes, {
+    wb = xlsxAdapter.read(bytes, {
       type: "buffer",
       sheetRows: previewRowCount + 1, // + header row
       cellDates: true,
@@ -483,12 +523,20 @@ function readVisibilities(wb: XLSX.WorkBook, count: number): WorksheetVisibility
  * Inspects a workbook's structure: format, content identity (SHA-256), and
  * an ordered, bounded-preview inventory of every worksheet. Does not return
  * full row sets, and does not perform BrainBase schema detection.
+ *
+ * Async (5A.2D): for "xlsx" input, the archive/decompression boundary
+ * (assertGuardedXlsxArchive) must resolve successfully before any SheetJS
+ * call — see the mandatory call order documented on that function. There
+ * were zero production callers of this function at the time of that change
+ * (verified during 5A.2D discovery), making this the correct time to make
+ * the public contract consistently Promise-based rather than adding a
+ * separate sync/async pair of entry points.
  */
-export function inspectWorkbook(
+export async function inspectWorkbook(
   bytes: Uint8Array,
   input: WorkbookInput,
   options: InspectWorkbookOptions = {}
-): WorkbookInspection {
+): Promise<WorkbookInspection> {
   const limits: WorkbookLimits = { ...DEFAULT_WORKBOOK_LIMITS, ...options.limits };
   const previewRowCount = options.previewRowCount ?? DEFAULT_PREVIEW_ROW_COUNT;
   validateLimits(limits);
@@ -508,6 +556,10 @@ export function inspectWorkbook(
 
   if (format === "csv") {
     return { format, sha256, worksheets: [inspectCsvWorksheet(bytes, previewRowCount)] };
+  }
+
+  if (format === "xlsx") {
+    await assertGuardedXlsxArchive(bytes);
   }
 
   const sheetNames = readSheetNamesOnly(bytes);
@@ -628,11 +680,22 @@ function decodeSpreadsheetWorksheet(
 
   let wb: XLSX.WorkBook;
   try {
-    // For xlsx (ZIP-entry-based), this genuinely decodes only the selected
-    // sheet. For legacy xls (a single sequential BIFF8 stream), SheetJS
-    // still parses the whole stream internally regardless of this option —
-    // documented in the ADR, not claimed otherwise here.
-    wb = XLSX.read(bytes, { type: "buffer", sheets: [index], cellDates: true, cellHTML: false });
+    // CORRECTION (5A.2D): the `sheets` option limits which worksheet SheetJS
+    // materializes into cell objects for xlsx — it does NOT limit ZIP
+    // decompression. cfb (the ZIP reader xlsx bundles) decompresses every
+    // entry in the archive unconditionally, before this option has any
+    // effect at all (verified directly against the installed cfb source;
+    // see the ADR's "5A.2D" section). This file's previous claim that xlsx
+    // "genuinely decodes only the selected sheet" was true only for that
+    // later materialization stage, never for decompression itself. The real
+    // decompression-cost/safety boundary is assertGuardedXlsxArchive, run
+    // before every xlsx call site in this module — by the time xlsxAdapter
+    // .read runs here, the archive has already been proven safe to
+    // decompress in full. For legacy xls (a single sequential BIFF8 stream,
+    // not independently addressable ZIP entries), SheetJS parses the whole
+    // stream regardless of this option either way — unaffected by 5A.2D,
+    // since the archive guard is never applied to xls (see decodeWorksheet).
+    wb = xlsxAdapter.read(bytes, { type: "buffer", sheets: [index], cellDates: true, cellHTML: false });
   } catch (err) {
     throw new WorkbookParserError(
       "MALFORMED_WORKBOOK",
@@ -680,13 +743,19 @@ function decodeSpreadsheetWorksheet(
  * index. Independent of inspectWorkbook — re-validates format/signature and
  * worksheet count itself, since it makes no assumption that inspection ran
  * first. Never falls back to worksheet 0 on an out-of-range index.
+ *
+ * Async (5A.2D): for "xlsx" input, the archive/decompression boundary must
+ * resolve successfully before any SheetJS call, exactly as in
+ * inspectWorkbook — this function is independent of inspectWorkbook and
+ * therefore independently guarded; it never relies on inspectWorkbook
+ * having run (or having validated the archive) first.
  */
-export function decodeWorksheet(
+export async function decodeWorksheet(
   bytes: Uint8Array,
   input: WorkbookInput,
   selection: WorksheetSelection,
   options: DecodeWorksheetOptions = {}
-): DecodedWorksheet {
+): Promise<DecodedWorksheet> {
   const limits: WorkbookLimits = { ...DEFAULT_WORKBOOK_LIMITS, ...options.limits };
   validateLimits(limits);
 
@@ -704,5 +773,10 @@ export function decodeWorksheet(
   if (format === "csv") {
     return decodeCsvWorksheet(bytes, selection.index, limits);
   }
+
+  if (format === "xlsx") {
+    await assertGuardedXlsxArchive(bytes);
+  }
+
   return decodeSpreadsheetWorksheet(bytes, selection.index, limits);
 }

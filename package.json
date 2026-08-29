@@ -17,6 +17,7 @@
     "autoprefixer": "^10.5.0",
     "bcryptjs": "^3.0.3",
     "chokidar": "^5.0.0",
+    "crc-32": "1.2.2",
     "csv-parse": "^5.5.6",
     "html2canvas": "^1.4.1",
     "jose": "^6.2.2",
@@ -35,6 +36,7 @@
     "sharp": "^0.34.5",
     "three": "^0.184.0",
     "xlsx": "^0.18.5",
+    "yauzl": "3.4.0",
     "zustand": "^5.0.12"
   },
   "devDependencies": {
@@ -44,6 +46,7 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/yauzl": "3.4.0",
     "eslint": "^9",
     "eslint-config-next": "16.2.4",
     "prisma": "^5.22.0",
