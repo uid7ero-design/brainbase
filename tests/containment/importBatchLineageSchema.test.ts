@@ -8,29 +8,44 @@ import path from 'path'
 // These are static source-text assertions against the Prisma schema and
 // the migration file. They lock in the intended shape so a future edit
 // can't silently drift from what was reviewed — they do NOT prove the
-// migration's runtime behavior. In particular, "the migration text
-// contains an IF NOT EXISTS guard" is NOT equivalent to "the migration
-// is safe against schema drift" — a same-named-but-differently-defined
-// pre-existing object can satisfy a name-only guard while enforcing
-// nothing (this was independently reproduced during 5A.2C review as a
-// real bypass: a non-unique same-named index, and an unrelated FK with
-// the same name, both passed a bare "IF NOT EXISTS"/name check).
+// migration's runtime behavior against a real PostgreSQL catalog.
 //
-// The actual constraints/FKs/idempotency/drift-rejection behavior was
-// validated separately against disposable PostgreSQL 16 containers,
-// destroyed after use: the clean-path migration applied twice
-// (idempotent), 20 behavioral invariant proofs, and 8 adversarial drift
-// scenarios (same-name FK on another table; wrong-definition same-name
-// FK on the intended table; non-unique same-name worksheet index;
-// wrong-columns same-name worksheet index; under-scoped idempotency
-// constraint; wrong-type pre-existing uploads column; wrong-shape
-// pre-existing import_batches table; weakened same-name CHECK) — all of
-// which the remediated migration correctly rejects with a RAISE
-// EXCEPTION rather than silently accepting. See the 5A.2C-R1
-// remediation report for exact commands/output.
+// The migration's actual behavior (constraint enforcement, drift
+// rejection, idempotent re-run) is proven separately, repeatably, by
+// scripts/tests/verify-import-batches-migration.sh against disposable
+// Docker postgres:16 containers — 11 normal-path scenarios and 15
+// adversarial drift scenarios (see that file's own scenario list). Run
+// it with `bash scripts/tests/verify-import-batches-migration.sh`.
+//
+// This file exists in its current (5A.2C-R3) form because two prior
+// review rounds (5A.2C-R1, then Codex's R2 pass) each found a real
+// PostgreSQL regression that the *previous* version of this static
+// suite did not catch:
+//   - R1's assert_*() helpers returned a boolean that a bare `PERFORM`
+//     caller silently discarded — a fully-absent required CHECK/FK on a
+//     pre-existing table caused no error and no creation.
+//   - R2 additionally found the composite FK's match type was never
+//     validated, so changing it to MATCH FULL (semantically incompatible
+//     with legacy rows that have exactly one NULL FK column) passed.
+// R3 replaced the two-branch assert_*/PERFORM design with a single set
+// of void-returning pg_temp.ensure_*() helpers that create-if-absent or
+// validate-and-RAISE-if-present, with no discardable boolean and no
+// separate "new table" vs "pre-existing table" code path. The tests
+// below protect that redesign specifically, in addition to the original
+// shape assertions.
 
 const SCHEMA = fs.readFileSync(path.resolve(__dirname, '../../prisma/schema.prisma'), 'utf-8')
 const MIGRATION = fs.readFileSync(path.resolve(__dirname, '../../scripts/create-import-batches.sql'), 'utf-8')
+const HARNESS_PATH = path.resolve(__dirname, '../../scripts/tests/verify-import-batches-migration.sh')
+
+const ENSURE_HELPERS = [
+  'ensure_column',
+  'ensure_check',
+  'ensure_unique_constraint',
+  'ensure_primary_key',
+  'ensure_fk',
+  'ensure_unique_index',
+]
 
 function blockScope(source: string, startMarker: string, endMarker: string): string {
   const start = source.indexOf(startMarker)
@@ -38,6 +53,10 @@ function blockScope(source: string, startMarker: string, endMarker: string): str
   const end = source.indexOf(endMarker, start)
   expect(end).toBeGreaterThan(start)
   return source.slice(start, end)
+}
+
+function helperBody(helper: string): string {
+  return blockScope(MIGRATION, `CREATE OR REPLACE FUNCTION pg_temp.${helper}(`, '$fn$;')
 }
 
 describe('ImportBatch — Prisma model shape', () => {
@@ -65,7 +84,7 @@ describe('ImportBatch — Prisma model shape', () => {
     expect(block).not.toMatch(/sha256\s+String\??\s+@unique/)
   })
 
-  it('sha256 is nullable — the authoritative hash is not known at batch creation under the direct-to-Blob protocol (5A.2C-R1 fix)', () => {
+  it('sha256 is nullable — the authoritative hash is not known at batch creation under the direct-to-Blob protocol', () => {
     const sha256Line = block.split('\n').find(l => /^\s*sha256\s/.test(l))
     expect(sha256Line).toBeDefined()
     expect(sha256Line).toMatch(/sha256\s+String\?/)
@@ -125,6 +144,10 @@ describe('Upload — additive canonical worksheet-lineage fields', () => {
     expect(block).toMatch(/lineage_kind\s+String\s+@default\("LEGACY"\)/)
   })
 
+  it('attempt_count is NOT NULL with a safe default', () => {
+    expect(block).toMatch(/attempt_count\s+Int\s+@default\(0\)/)
+  })
+
   it('the seven existing legacy domain relations remain intact, untouched', () => {
     for (const relation of [
       'debtor_accounts    DebtorAccount[]',
@@ -150,187 +173,208 @@ describe('Upload — additive canonical worksheet-lineage fields', () => {
   })
 })
 
-describe('scripts/create-import-batches.sql — migration content', () => {
-  it('creates import_batches only if truly absent (to_regclass probe), not a bare CREATE TABLE IF NOT EXISTS', () => {
-    expect(MIGRATION).toContain("to_regclass('public.import_batches') IS NULL")
-    expect(MIGRATION).not.toContain('CREATE TABLE IF NOT EXISTS import_batches')
+describe('scripts/create-import-batches.sql — ensure_* drift-safety design (5A.2C-R3)', () => {
+  it('defines all six ensure_* helpers, void-returning, and no assert_*/boolean-returning helper remains', () => {
+    for (const helper of ENSURE_HELPERS) {
+      expect(MIGRATION).toContain(`CREATE OR REPLACE FUNCTION pg_temp.${helper}(`)
+      expect(helperBody(helper)).toMatch(/RETURNS void LANGUAGE plpgsql/)
+    }
+    // R1's discardable-boolean design must be fully gone, not merely
+    // renamed — a reintroduced assert_* helper or a PERFORM of one would
+    // resurrect the exact silent-absence bug this redesign fixed.
+    expect(MIGRATION).not.toMatch(/CREATE (OR REPLACE )?FUNCTION pg_temp\.assert_/)
+    expect(MIGRATION).not.toMatch(/\bPERFORM\s+(pg_temp\.)?assert_/i)
+    expect(MIGRATION).not.toMatch(/RETURNS\s+boolean/i)
   })
 
-  it('uses TEXT ids with no database-side default, matching uploads.id\'s Prisma-managed convention — not create-implementations.sql\'s raw-SQL gen_random_uuid()::text convention', () => {
-    expect(MIGRATION).toMatch(/id\s+TEXT\s+PRIMARY KEY,/)
-    expect(MIGRATION).not.toMatch(/import_batches[\s\S]{0,400}gen_random_uuid\(\)/)
+  it('every ensure_* call site is a SELECT statement, not a PERFORM — leaves no discardable result a caller could ignore', () => {
+    const callLines = MIGRATION
+      .split('\n')
+      .filter(l => /pg_temp\.ensure_(column|check|unique_constraint|primary_key|fk|unique_index)\(/.test(l))
+      .filter(l => !l.trim().startsWith('CREATE') && !l.trim().startsWith('DROP'))
+    expect(callLines.length).toBeGreaterThanOrEqual(30)
+    for (const line of callLines) {
+      expect(line.trim()).toMatch(/^SELECT pg_temp\.ensure_/)
+    }
+    expect(MIGRATION).not.toMatch(/\bPERFORM\s+pg_temp\.ensure_/)
   })
 
-  it('organisation_id has NO ON DELETE clause on its FK line — deliberately NO ACTION, not CASCADE (tombstone-first Blob deletion)', () => {
-    const orgFkLine = MIGRATION.split('\n').find(l => /organisation_id\s+TEXT\s+NOT NULL REFERENCES organisations\(id\)/.test(l))
-    expect(orgFkLine).toBeDefined()
-    expect(orgFkLine).not.toContain('ON DELETE')
+  it('does not branch into a separate "new table" vs "pre-existing table" code path — a single ensure_* sequence runs unconditionally either way', () => {
+    expect(MIGRATION).not.toMatch(/IF\s+to_regclass\('public\.import_batches'\)\s+IS NULL THEN/)
+    expect(MIGRATION).not.toMatch(/\bELSE\b[\s\S]*assert_column/)
   })
 
-  it('uploaded_by references users(id) ON DELETE SET NULL', () => {
-    expect(MIGRATION).toMatch(/uploaded_by\s+TEXT\s+REFERENCES users\(id\) ON DELETE SET NULL/)
+  it('ensure_fk validates confmatchtype and rejects anything but MATCH SIMPLE (\'s\') — MATCH FULL would reject legacy rows with exactly one NULL FK column', () => {
+    const body = helperBody('ensure_fk')
+    expect(body).toContain('confmatchtype')
+    expect(body).toMatch(/confmatchtype\s+IS DISTINCT FROM\s+'s'/)
+    expect(body).toMatch(/RAISE EXCEPTION/)
   })
 
-  it('content_type is CHECK-constrained to exactly the 3 supported 5A.1 formats', () => {
-    expect(MIGRATION).toContain("CHECK (content_type IN ('csv', 'xls', 'xlsx'))")
+  it('ensure_fk rejects a NOT VALID foreign key (convalidated = false) — structurally identical to a real one but never confirmed against pre-existing rows', () => {
+    const body = helperBody('ensure_fk')
+    expect(body).toContain('convalidated')
+    expect(body).toMatch(/IF NOT r\.convalidated THEN\s*\n\s*RAISE EXCEPTION/)
   })
 
-  it('size_bytes has a non-negative CHECK', () => {
-    expect(MIGRATION).toMatch(/size_bytes\s+INTEGER\s+NOT NULL CHECK \(size_bytes >= 0\)/)
+  it('ensure_primary_key validates structurally via pg_constraint/pg_attribute, not by constraint name', () => {
+    const body = helperBody('ensure_primary_key')
+    expect(body).toContain("contype = 'p'")
+    expect(body).toContain('conkey')
+    expect(body).toContain('pg_attribute')
+    expect(body).toMatch(/RAISE EXCEPTION/)
   })
 
-  it('sha256 is nullable and has NO NOT NULL constraint anywhere in the create-path (5A.2C-R1 fix)', () => {
-    const createBlock = blockScope(MIGRATION, 'CREATE TABLE import_batches (', 'CONSTRAINT import_batches_ready_requires_sha256')
-    expect(createBlock).toMatch(/sha256\s+TEXT\s+CHECK/)
-    expect(createBlock).not.toMatch(/sha256\s+TEXT\s+NOT NULL/)
+  it('import_batches PRIMARY KEY on (id) is established/validated via ensure_primary_key', () => {
+    expect(MIGRATION).toMatch(/SELECT pg_temp\.ensure_primary_key\('import_batches',\s*ARRAY\['id'\],/)
   })
 
-  it('READY status requires a non-NULL sha256 — the one truthful state invariant (5A.2C-R1 fix)', () => {
+  it('validates the required defaults: status, lineage_kind, attempt_count, created_at, updated_at', () => {
+    expect(MIGRATION).toContain(
+      "ensure_column('import_batches', 'status', 'text', false, '''AWAITING_UPLOAD''::text',"
+    )
+    expect(MIGRATION).toContain(
+      "ensure_column('uploads', 'lineage_kind', 'text', false, '''LEGACY''::text',"
+    )
+    expect(MIGRATION).toContain(
+      "ensure_column('uploads', 'attempt_count', 'integer', false, '0',"
+    )
+    expect(MIGRATION).toContain(
+      "ensure_column('import_batches', 'created_at', 'timestamp with time zone', false, 'now()',"
+    )
+    expect(MIGRATION).toContain(
+      "ensure_column('import_batches', 'updated_at', 'timestamp with time zone', false, 'now()',"
+    )
+  })
+
+  it('exhaustively covers every ImportBatch column from the current Prisma model via ensure_column — not a stale hardcoded subset', () => {
+    const block = blockScope(SCHEMA, 'model ImportBatch {', '@@map("import_batches")')
+    const columns = block
+      .split('\n')
+      .map(l => l.trim())
+      .filter(l => /^[a-z_][a-zA-Z0-9_]*\s+(String|Int|Boolean|DateTime)\??\s/.test(l) || /^[a-z_][a-zA-Z0-9_]*\s+(String|Int|Boolean|DateTime)\??$/.test(l))
+      .map(l => l.split(/\s+/)[0])
+    // Sanity floor: guards against the regex above silently matching
+    // nothing (which would make the loop below vacuously pass).
+    expect(columns.length).toBeGreaterThanOrEqual(17)
+    for (const column of columns) {
+      expect(MIGRATION, `ensure_column(...) call missing for import_batches.${column}`).toContain(
+        `ensure_column('import_batches', '${column}'`
+      )
+    }
+  })
+
+  it('exhaustively covers all 12 additive Upload columns via ensure_column', () => {
+    const additiveColumns = [
+      'import_batch_id', 'worksheet_index', 'worksheet_name', 'worksheet_visibility',
+      'worksheet_is_empty', 'lineage_kind', 'canonical_status', 'last_attempt_at',
+      'attempt_count', 'last_failure_code', 'last_failure_message', 'last_failure_retryable',
+    ]
+    for (const column of additiveColumns) {
+      expect(MIGRATION, `ensure_column(...) call missing for uploads.${column}`).toContain(
+        `ensure_column('uploads', '${column}'`
+      )
+    }
+  })
+
+  it('establishes/validates every required import_batches and uploads CHECK constraint via ensure_check', () => {
+    for (const conname of [
+      'import_batches_content_type_check',
+      'import_batches_size_bytes_check',
+      'import_batches_sha256_check',
+      'import_batches_status_check',
+      'import_batches_expected_sha256_check',
+      'import_batches_storage_deletion_status_check',
+      'import_batches_ready_requires_sha256',
+    ]) {
+      expect(MIGRATION).toContain(`ensure_check('import_batches', '${conname}'`)
+    }
+    for (const conname of [
+      'uploads_worksheet_visibility_check',
+      'uploads_lineage_kind_check',
+      'uploads_canonical_status_check',
+      'uploads_worksheet_index_nonneg_check',
+      'uploads_attempt_count_nonneg_check',
+      'uploads_lineage_coherence_check',
+    ]) {
+      expect(MIGRATION).toContain(`ensure_check('uploads', '${conname}'`)
+    }
+  })
+
+  it('establishes/validates every required unique invariant via ensure_unique_constraint / ensure_unique_index', () => {
+    expect(MIGRATION).toContain("ensure_unique_constraint('import_batches', 'import_batches_id_organisation_id_key'")
+    expect(MIGRATION).toContain("ensure_unique_constraint('import_batches', 'import_batches_storage_key_key'")
+    expect(MIGRATION).toContain("ensure_unique_constraint('import_batches', 'import_batches_organisation_id_idempotency_key_key'")
+    expect(MIGRATION).toContain("ensure_unique_index('uploads', 'uploads_import_batch_worksheet_key'")
+  })
+
+  it('establishes/validates both import_batches foreign keys and the composite uploads tenant FK via ensure_fk', () => {
+    expect(MIGRATION).toContain("ensure_fk('import_batches', 'import_batches_organisation_id_fkey'")
+    expect(MIGRATION).toContain("ensure_fk('import_batches', 'import_batches_uploaded_by_fkey'")
+    expect(MIGRATION).toContain("ensure_fk('uploads', 'uploads_import_batch_org_fkey'")
+  })
+
+  it('READY status requires a non-NULL sha256 — the one truthful state invariant', () => {
     expect(MIGRATION).toContain('import_batches_ready_requires_sha256')
     expect(MIGRATION).toMatch(/CHECK \(status <> 'READY' OR sha256 IS NOT NULL\)/)
   })
 
-  it('sha256 is NOT declared as globally unique anywhere in the migration', () => {
-    expect(MIGRATION).not.toMatch(/sha256\s+TEXT\s+.*UNIQUE/)
-    expect(MIGRATION).not.toMatch(/UNIQUE\s*\(\s*sha256\s*\)/)
-  })
-
-  it('expected_sha256 is named distinctly from sha256 and documented as non-authoritative', () => {
-    expect(MIGRATION).toContain('expected_sha256')
-    expect(MIGRATION).toMatch(/NON-authoritative/)
-  })
-
-  it('status is CHECK-constrained to physical-file/storage/inspection lifecycle values ONLY — no worksheet aggregate outcome (COMPLETE/PARTIALLY_COMPLETE) leaks into batch status', () => {
-    const statusBlock = blockScope(MIGRATION, "status                  TEXT        NOT NULL DEFAULT 'AWAITING_UPLOAD'", ')')
-    expect(statusBlock).toContain('AWAITING_UPLOAD')
-    expect(statusBlock).toContain('PROCESSING')
-    expect(statusBlock).toContain('READY')
-    expect(statusBlock).toContain('FAILED')
-    expect(statusBlock).toContain('DELETION_PENDING')
-    expect(statusBlock).not.toContain('COMPLETE')
-    expect(statusBlock).not.toContain('PARTIALLY_COMPLETE')
-  })
-
-  it('has tenant-scoped idempotency uniqueness: UNIQUE (organisation_id, idempotency_key)', () => {
-    expect(MIGRATION).toContain('UNIQUE (organisation_id, idempotency_key)')
-  })
-
-  it('has the composite tenant invariant: UNIQUE (id, organisation_id) on import_batches, and a structurally-validated composite FK from uploads', () => {
-    expect(MIGRATION).toContain('UNIQUE (id, organisation_id)')
-    expect(MIGRATION).toMatch(/FOREIGN KEY \(import_batch_id, organisation_id\)\s*\n\s*REFERENCES import_batches \(id, organisation_id\)/)
-  })
-
-  it('validates the composite FK structurally (assert_fk: table/columns/reference/delete-rule), not a bare name-only guard — the exact bypass previously reproduced', () => {
-    expect(MIGRATION).toContain("pg_temp.assert_fk('uploads', 'uploads_import_batch_org_fkey'")
-    // The helper itself must check referenced table, ordered source/ref columns, and delete rule — not conname alone.
-    const helperBlock = blockScope(MIGRATION, 'CREATE OR REPLACE FUNCTION pg_temp.assert_fk(', '$fn$;')
-    expect(helperBlock).toContain('confrelid')
-    expect(helperBlock).toContain('conkey')
-    expect(helperBlock).toContain('confkey')
-    expect(helperBlock).toContain('confdeltype')
-    expect(helperBlock).toContain('RAISE EXCEPTION')
-  })
-
-  it('has worksheet-identity uniqueness via a structurally-validated unique index (uniqueness, columns, no partial predicate) — not a bare CREATE UNIQUE INDEX IF NOT EXISTS', () => {
-    expect(MIGRATION).toContain("pg_temp.assert_unique_index('uploads', 'uploads_import_batch_worksheet_key'")
-    const helperBlock = blockScope(MIGRATION, 'CREATE OR REPLACE FUNCTION pg_temp.assert_unique_index(', '$fn$;')
-    // Must actually ENFORCE uniqueness (a RAISE tied to indisunique), not
-    // merely select the column into a record and never check it —
-    // string presence of "indisunique" alone is not sufficient proof.
-    expect(helperBlock).toMatch(/IF NOT r\.indisunique THEN\s*\n\s*RAISE EXCEPTION/)
-    expect(helperBlock).toContain('indpred')
-    expect(helperBlock).toContain('indexprs')
-    expect(helperBlock).toContain('RAISE EXCEPTION')
-  })
-
-  it('canonical_status excludes IMPORTING — no durable in-progress state', () => {
-    const canonicalBlock = blockScope(MIGRATION, "'uploads_canonical_status_check'", 'IN (')
-    expect(MIGRATION).toContain('AWAITING_CONFIRMATION')
-    expect(MIGRATION).toContain('INELIGIBLE')
-    expect(MIGRATION).toContain('SKIPPED')
-    const statusVocabBlock = blockScope(MIGRATION, "canonical_status IN (", ')')
-    expect(statusVocabBlock).toContain('IMPORTED')
-    expect(statusVocabBlock).not.toContain('IMPORTING')
-    expect(canonicalBlock).toBeDefined()
-  })
-
-  it('lineage_kind is NOT NULL with a safe default and a closed CHECK vocabulary', () => {
-    expect(MIGRATION).toMatch(/lineage_kind TEXT NOT NULL DEFAULT 'LEGACY'/)
-    expect(MIGRATION).toContain("lineage_kind IN ('LEGACY', 'DATA_HUB')")
-  })
-
-  it('has non-negative CHECKs for worksheet_index and attempt_count on uploads (5A.2C-R1 fix)', () => {
-    expect(MIGRATION).toContain('uploads_worksheet_index_nonneg_check')
-    expect(MIGRATION).toMatch(/CHECK \(worksheet_index IS NULL OR worksheet_index >= 0\)/)
-    expect(MIGRATION).toContain('uploads_attempt_count_nonneg_check')
-    expect(MIGRATION).toMatch(/CHECK \(attempt_count >= 0\)/)
-  })
-
-  it('enforces LEGACY/DATA_HUB coherence: LEGACY rows carry no canonical identity, DATA_HUB rows carry all of it (5A.2C-R1 fix)', () => {
-    expect(MIGRATION).toContain('uploads_lineage_coherence_check')
-    const coherenceBlock = blockScope(MIGRATION, 'uploads_lineage_coherence_check', 'END $$;')
-    expect(coherenceBlock).toContain("lineage_kind = 'LEGACY'")
+  it('enforces LEGACY/DATA_HUB coherence: LEGACY rows carry no canonical identity, DATA_HUB rows carry all of it', () => {
+    const coherenceBlock = blockScope(MIGRATION, 'uploads_lineage_coherence_check', ');')
+    expect(coherenceBlock).toContain("lineage_kind = ''LEGACY''")
     expect(coherenceBlock).toContain('import_batch_id IS NULL')
     expect(coherenceBlock).toContain('worksheet_index IS NULL')
     expect(coherenceBlock).toContain('canonical_status IS NULL')
-    expect(coherenceBlock).toContain("lineage_kind = 'DATA_HUB'")
+    expect(coherenceBlock).toContain("lineage_kind = ''DATA_HUB''")
     expect(coherenceBlock).toContain('import_batch_id IS NOT NULL')
     expect(coherenceBlock).toContain('worksheet_index IS NOT NULL')
     expect(coherenceBlock).toContain('canonical_status IS NOT NULL')
-    // Deliberately NOT required for DATA_HUB rows — descriptive metadata,
-    // not identity (name), or not architecturally mandatory for every row
-    // (visibility/emptiness).
-    expect(coherenceBlock).not.toContain('worksheet_name IS NOT NULL')
-    expect(coherenceBlock).not.toContain('worksheet_visibility IS NOT NULL')
-    expect(coherenceBlock).not.toContain('worksheet_is_empty IS NOT NULL')
   })
 
-  it('has tombstone/delete-support fields: deleted_at, storage_deletion_status, storage_deleted_at', () => {
-    expect(MIGRATION).toContain('deleted_at              TIMESTAMPTZ')
-    expect(MIGRATION).toContain('storage_deletion_status TEXT')
-    expect(MIGRATION).toContain('storage_deleted_at      TIMESTAMPTZ')
-  })
-
-  it('validates every critical import_batches column via assert_column when the table already exists — not a silent CREATE TABLE IF NOT EXISTS no-op', () => {
-    const validateBranch = blockScope(MIGRATION, 'ELSE', 'END IF;\nEND $$;\n\nCREATE INDEX IF NOT EXISTS idx_import_batches_org_created')
-    for (const column of [
-      'id', 'organisation_id', 'uploaded_by', 'original_filename', 'content_type',
-      'size_bytes', 'sha256', 'storage_provider', 'storage_key', 'status',
-      'idempotency_key', 'expected_sha256', 'deleted_at', 'storage_deletion_status',
-      'storage_deleted_at',
-    ]) {
-      expect(validateBranch).toContain(`assert_column('import_batches', '${column}'`)
+  it('schema-qualifies every critical DDL target as public.<table> — never relies on search_path', () => {
+    const criticalTargets = [
+      'CREATE TABLE IF NOT EXISTS public.import_batches',
+      'ALTER TABLE public.import_batches ADD COLUMN id TEXT NOT NULL',
+      'ALTER TABLE public.import_batches ADD PRIMARY KEY (id)',
+      'REFERENCES public.organisations (id)',
+      'REFERENCES public.users (id) ON DELETE SET NULL',
+      'REFERENCES public.import_batches (id, organisation_id)',
+      'CREATE INDEX IF NOT EXISTS idx_import_batches_org_created ON public.import_batches',
+      'CREATE INDEX IF NOT EXISTS idx_import_batches_status      ON public.import_batches',
+      'ALTER TABLE public.uploads ADD COLUMN import_batch_id TEXT',
+      'CREATE INDEX IF NOT EXISTS idx_uploads_import_batch ON public.uploads',
+      'CREATE UNIQUE INDEX uploads_import_batch_worksheet_key ON public.uploads',
+    ]
+    for (const target of criticalTargets) {
+      expect(MIGRATION, `expected schema-qualified DDL target: ${target}`).toContain(target)
     }
   })
 
-  it('validates every critical uploads column via assert_column even when the column already exists — ADD COLUMN IF NOT EXISTS alone is insufficient', () => {
-    for (const column of [
-      'import_batch_id', 'worksheet_index', 'worksheet_name', 'worksheet_visibility',
-      'worksheet_is_empty', 'lineage_kind', 'canonical_status', 'last_attempt_at',
-      'attempt_count', 'last_failure_code', 'last_failure_message', 'last_failure_retryable',
-    ]) {
-      expect(MIGRATION).toContain(`assert_column('uploads', '${column}'`)
+  it('never issues an unqualified ALTER/CREATE TABLE, CREATE INDEX, or REFERENCES against import_batches/uploads/organisations/users outside the pg_temp helper bodies', () => {
+    // Strip the six helper function bodies first — their catalog lookups
+    // legitimately use nspname = 'public' as a string literal (not a
+    // schema-qualified SQL identifier), which would otherwise be an
+    // unrelated false positive for this check.
+    let activeOnly = MIGRATION
+    for (const helper of ENSURE_HELPERS) {
+      const start = activeOnly.indexOf(`CREATE OR REPLACE FUNCTION pg_temp.${helper}(`)
+      const end = activeOnly.indexOf('$fn$;', start) + '$fn$;'.length
+      activeOnly = activeOnly.slice(0, start) + activeOnly.slice(end)
     }
-  })
+    activeOnly = activeOnly.split('\n').filter(l => !l.trim().startsWith('--')).join('\n')
 
-  it('every uploads column addition is gated by an explicit existence probe, not a bare ADD COLUMN IF NOT EXISTS relied on alone', () => {
-    const addColumnLines = MIGRATION.split('\n').filter(l => /^\s*ALTER TABLE uploads ADD COLUMN \w/.test(l))
-    expect(addColumnLines.length).toBeGreaterThanOrEqual(11)
-    // Each such ALTER TABLE line must be preceded by its own existence check.
-    for (const line of addColumnLines) {
-      const idx = MIGRATION.indexOf(line)
-      const preceding = MIGRATION.slice(Math.max(0, idx - 300), idx)
-      expect(preceding).toMatch(/NOT EXISTS \(SELECT 1 FROM information_schema\.columns/)
-    }
+    expect(activeOnly).not.toMatch(/\bALTER TABLE (import_batches|uploads)\b/)
+    expect(activeOnly).not.toMatch(/\bCREATE TABLE(?: IF NOT EXISTS)? (import_batches|uploads)\b/)
+    expect(activeOnly).not.toMatch(/\bCREATE (?:UNIQUE )?INDEX[^\n]*? ON (import_batches|uploads)\b/)
+    expect(activeOnly).not.toMatch(/REFERENCES (organisations|users|import_batches)\s*\(/)
   })
 
   it('validation helper functions live in pg_temp (session-scoped) and are explicitly dropped at the end — no permanent migration-framework objects persist', () => {
     expect(MIGRATION).toMatch(/CREATE (OR REPLACE )?FUNCTION pg_temp\./)
     expect(MIGRATION).not.toMatch(/CREATE (OR REPLACE )?FUNCTION public\./)
-    expect(MIGRATION).toContain('DROP FUNCTION IF EXISTS pg_temp.assert_column')
-    expect(MIGRATION).toContain('DROP FUNCTION IF EXISTS pg_temp.assert_check')
-    expect(MIGRATION).toContain('DROP FUNCTION IF EXISTS pg_temp.assert_fk')
-    expect(MIGRATION).toContain('DROP FUNCTION IF EXISTS pg_temp.assert_unique_index')
+    for (const helper of ENSURE_HELPERS) {
+      expect(MIGRATION).toContain(`DROP FUNCTION IF EXISTS pg_temp.${helper}`)
+    }
   })
 
   it('does not touch/drop/rewrite any existing constraint or column, and performs no backfill UPDATE', () => {
@@ -338,5 +382,20 @@ describe('scripts/create-import-batches.sql — migration content', () => {
     const activeSql = MIGRATION.split('\n').filter(l => !l.trim().startsWith('--')).join('\n')
     expect(activeSql).not.toMatch(/^\s*DROP\s+(COLUMN|TABLE)\s/im)
     expect(activeSql).not.toMatch(/^\s*UPDATE\s/im)
+  })
+})
+
+describe('scripts/tests/verify-import-batches-migration.sh — repeatable behavioral harness (5A.2C-R3)', () => {
+  it('exists as a standalone, Docker-only script requiring no npm dependency or local psql client', () => {
+    expect(fs.existsSync(HARNESS_PATH)).toBe(true)
+    const harness = fs.readFileSync(HARNESS_PATH, 'utf-8')
+    expect(harness).toMatch(/docker (run|exec)/)
+    expect(harness).toMatch(/command -v docker/)
+    // Always cleans up its own disposable container, even on failure.
+    expect(harness).toMatch(/trap\s+cleanup\s+EXIT/)
+  })
+
+  it('is referenced from the migration file so a future reviewer finds it without searching', () => {
+    expect(MIGRATION).toContain('verify-import-batches-migration.sh')
   })
 })
