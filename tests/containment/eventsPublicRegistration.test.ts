@@ -349,14 +349,14 @@ describe('Public registration — transaction structure (R1: split lock / post-l
   it('non-session registration submits exactly 3 statements to the transaction: lock, diagnostic count, capacity-gated insert', async () => {
     queue(ORG_ROW, PUBLISHED_EVENT_ROW, FREE_ACTIVE_TICKET_TYPE_ROW)
     await registerRoute.POST(req(VALID_BODY), CTX)
-    const queries = transactionMock.mock.calls[0][0] as unknown[]
+    const queries = (transactionMock.mock.calls[0] as unknown as unknown[])[0] as unknown[]
     expect(queries).toHaveLength(3)
   })
 
   it('session-bound registration submits exactly 5 statements: ticket-type lock, session lock, 2 diagnostic counts, capacity-gated insert', async () => {
     queue(ORG_ROW, PUBLISHED_EVENT_ROW, FREE_ACTIVE_TICKET_TYPE_ROW, SESSION_ROW)
     await registerRoute.POST(req({ ...VALID_BODY, event_session_id: 'sess-1' }), CTX)
-    const queries = transactionMock.mock.calls[0][0] as unknown[]
+    const queries = (transactionMock.mock.calls[0] as unknown as unknown[])[0] as unknown[]
     expect(queries).toHaveLength(5)
   })
 
