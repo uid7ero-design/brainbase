@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import sql from '@/lib/db';
 import { authorizeEventsRequest } from '@/lib/events/authorize';
-import { validateEventInput, toIsoString, type EventInput } from '@/lib/events/validation';
+import { validateEventInput, toIsoString, mergeField, type EventInput } from '@/lib/events/validation';
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -46,15 +46,22 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
   // Validate the merged (existing + patch) shape — a partial PATCH must
   // never be able to leave the row in a state a POST couldn't have
   // created (e.g. ends_at before starts_at via a one-field patch).
+  //
+  // Merged by property presence (mergeField), not `??` — an omitted key
+  // preserves the existing value, but an explicit `null` for an optional
+  // field (description/venue) must actually clear it rather than being
+  // silently discarded. A `null` sent for a required field (name/slug/
+  // timezone/status/starts_at/ends_at) is not specially rejected here;
+  // it flows into validateEventInput() below, which already rejects it.
   const merged: EventInput = {
-    name: body.name ?? existing.name,
-    slug: body.slug ?? existing.slug,
-    description: body.description ?? existing.description,
-    venue: body.venue ?? existing.venue,
-    status: body.status ?? existing.status,
-    starts_at: body.starts_at ?? toIsoString(existing.starts_at),
-    ends_at: body.ends_at ?? toIsoString(existing.ends_at),
-    timezone: body.timezone ?? existing.timezone,
+    name: mergeField(body, 'name', existing.name),
+    slug: mergeField(body, 'slug', existing.slug),
+    description: mergeField(body, 'description', existing.description),
+    venue: mergeField(body, 'venue', existing.venue),
+    status: mergeField(body, 'status', existing.status),
+    starts_at: mergeField(body, 'starts_at', toIsoString(existing.starts_at)),
+    ends_at: mergeField(body, 'ends_at', toIsoString(existing.ends_at)),
+    timezone: mergeField(body, 'timezone', existing.timezone),
   };
   const error = validateEventInput(merged);
   if (error) return NextResponse.json({ error }, { status: 400 });

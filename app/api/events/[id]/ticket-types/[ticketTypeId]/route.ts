@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import sql from '@/lib/db';
 import { authorizeEventsRequest } from '@/lib/events/authorize';
-import { validateEventTicketTypeInput, type EventTicketTypeInput } from '@/lib/events/validation';
+import { validateEventTicketTypeInput, mergeField, type EventTicketTypeInput } from '@/lib/events/validation';
 
 type Ctx = { params: Promise<{ id: string; ticketTypeId: string }> };
 
@@ -26,13 +26,17 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
     return NextResponse.json({ error: 'Invalid body.' }, { status: 400 });
   }
 
+  // Merged by property presence (mergeField), not `??` — see
+  // app/api/events/[id]/route.ts's PATCH for the same rationale. Here it
+  // matters for `description`, the one nullable field on this entity: an
+  // explicit `null` must clear it, not be silently discarded.
   const merged: EventTicketTypeInput = {
-    name: body.name ?? existing.name,
-    description: body.description ?? existing.description,
-    price_cents: body.price_cents ?? existing.price_cents,
-    capacity: body.capacity ?? existing.capacity,
-    active: body.active ?? existing.active,
-    sort_order: body.sort_order ?? existing.sort_order,
+    name: mergeField(body, 'name', existing.name),
+    description: mergeField(body, 'description', existing.description),
+    price_cents: mergeField(body, 'price_cents', existing.price_cents),
+    capacity: mergeField(body, 'capacity', existing.capacity),
+    active: mergeField(body, 'active', existing.active),
+    sort_order: mergeField(body, 'sort_order', existing.sort_order),
   };
   const error = validateEventTicketTypeInput(merged);
   if (error) return NextResponse.json({ error }, { status: 400 });

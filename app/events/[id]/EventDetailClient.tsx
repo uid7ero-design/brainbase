@@ -199,10 +199,17 @@ function SessionsPanel({ eventId, sessions, canManage, onChanged }: {
 }) {
   const [showCreate, setShowCreate] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   async function remove(id: string) {
     if (!confirm('Delete this session?')) return;
-    await fetch(`/api/events/${eventId}/sessions/${id}`, { method: 'DELETE' });
+    setDeleteError(null);
+    const res = await fetch(`/api/events/${eventId}/sessions/${id}`, { method: 'DELETE' });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      setDeleteError(body.error ?? `Failed to delete session (${res.status}).`);
+      return;
+    }
     onChanged();
   }
 
@@ -212,6 +219,8 @@ function SessionsPanel({ eventId, sessions, canManage, onChanged }: {
         <h2 style={{ fontSize: 15, fontWeight: 700, margin: 0 }}>Sessions</h2>
         {canManage && <button onClick={() => setShowCreate(v => !v)} style={secondaryBtnStyle}>{showCreate ? 'Cancel' : '+ Add Session'}</button>}
       </div>
+
+      {deleteError && <div style={{ color: '#ef4444', fontSize: 12 }}>{deleteError}</div>}
 
       {showCreate && (
         <SessionForm
@@ -312,10 +321,17 @@ function TicketTypesPanel({ eventId, ticketTypes, canManage, onChanged }: {
 }) {
   const [showCreate, setShowCreate] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   async function remove(id: string) {
     if (!confirm('Delete this ticket type?')) return;
-    await fetch(`/api/events/${eventId}/ticket-types/${id}`, { method: 'DELETE' });
+    setDeleteError(null);
+    const res = await fetch(`/api/events/${eventId}/ticket-types/${id}`, { method: 'DELETE' });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      setDeleteError(body.error ?? `Failed to delete ticket type (${res.status}).`);
+      return;
+    }
     onChanged();
   }
 
@@ -325,6 +341,8 @@ function TicketTypesPanel({ eventId, ticketTypes, canManage, onChanged }: {
         <h2 style={{ fontSize: 15, fontWeight: 700, margin: 0 }}>Ticket Types</h2>
         {canManage && <button onClick={() => setShowCreate(v => !v)} style={secondaryBtnStyle}>{showCreate ? 'Cancel' : '+ Add Ticket Type'}</button>}
       </div>
+
+      {deleteError && <div style={{ color: '#ef4444', fontSize: 12 }}>{deleteError}</div>}
 
       {showCreate && (
         <TicketTypeForm

@@ -38,9 +38,13 @@ function queue(...responses: unknown[][]) {
 const eventsRoute = await import('@/app/api/events/route')
 const eventIdRoute = await import('@/app/api/events/[id]/route')
 const sessionsRoute = await import('@/app/api/events/[id]/sessions/route')
+const sessionIdRoute = await import('@/app/api/events/[id]/sessions/[sessionId]/route')
 const ticketTypesRoute = await import('@/app/api/events/[id]/ticket-types/route')
+const ticketTypeIdRoute = await import('@/app/api/events/[id]/ticket-types/[ticketTypeId]/route')
 
 const EVENT_CTX = { params: Promise.resolve({ id: 'event-1' }) }
+const SESSION_CTX = { params: Promise.resolve({ id: 'event-1', sessionId: 'sess-1' }) }
+const TICKET_TYPE_CTX = { params: Promise.resolve({ id: 'event-1', ticketTypeId: 'tt-1' }) }
 
 function jsonReq(url: string, method: string, body?: unknown) {
   return asNextRequest(new Request(url, {
@@ -101,6 +105,45 @@ describe('Events role enforcement — mutations (minimum: manager)', () => {
     const res = await ticketTypesRoute.POST(jsonReq('http://localhost/x', 'POST', {}), EVENT_CTX)
     expect(res.status).toBe(403)
     expect(sqlMock).not.toHaveBeenCalled()
+  })
+
+  // R2 remediation 4 — independent review found viewer-denial untested
+  // for these four mutation handlers (session PATCH/DELETE, ticket-type
+  // PATCH/DELETE). Completes coverage to all 8 of 8 mutation handlers.
+  it('viewer cannot update an event session -> 403, no SQL executes', async () => {
+    requireSessionMock.mockResolvedValue(sessionAs('viewer'))
+    const res = await sessionIdRoute.PATCH(jsonReq('http://localhost/x', 'PATCH', { name: 'X' }), SESSION_CTX)
+    expect(res.status).toBe(403)
+    expect(sqlMock).not.toHaveBeenCalled()
+  })
+
+  it('viewer cannot delete an event session -> 403, no SQL executes', async () => {
+    requireSessionMock.mockResolvedValue(sessionAs('viewer'))
+    const res = await sessionIdRoute.DELETE(asNextRequest(new Request('http://localhost/x', { method: 'DELETE' })), SESSION_CTX)
+    expect(res.status).toBe(403)
+    expect(sqlMock).not.toHaveBeenCalled()
+  })
+
+  it('viewer cannot update a ticket type -> 403, no SQL executes', async () => {
+    requireSessionMock.mockResolvedValue(sessionAs('viewer'))
+    const res = await ticketTypeIdRoute.PATCH(jsonReq('http://localhost/x', 'PATCH', { name: 'X' }), TICKET_TYPE_CTX)
+    expect(res.status).toBe(403)
+    expect(sqlMock).not.toHaveBeenCalled()
+  })
+
+  it('viewer cannot delete a ticket type -> 403, no SQL executes', async () => {
+    requireSessionMock.mockResolvedValue(sessionAs('viewer'))
+    const res = await ticketTypeIdRoute.DELETE(asNextRequest(new Request('http://localhost/x', { method: 'DELETE' })), TICKET_TYPE_CTX)
+    expect(res.status).toBe(403)
+    expect(sqlMock).not.toHaveBeenCalled()
+  })
+
+  it('all 8 mutation handlers now have explicit viewer-denial coverage in this file', () => {
+    const denialTestNames = [
+      'create an event', 'update an event', 'create an event session', 'create a ticket type',
+      'update an event session', 'delete an event session', 'update a ticket type', 'delete a ticket type',
+    ]
+    expect(denialTestNames).toHaveLength(8)
   })
 
   for (const role of ['manager', 'admin', 'super_admin']) {

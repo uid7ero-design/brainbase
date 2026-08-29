@@ -84,6 +84,14 @@ describe('Cross-tenant isolation — events', () => {
     const call = sqlMock.mock.calls[0] as unknown as unknown[]
     const text = (call[0] as TemplateStringsArray).join(' ')
     expect(text).not.toMatch(/UPDATE/i)
+    // R2 remediation 5 — prove the ownership query actually binds the
+    // caller's own organisationId (not just that *a* query ran and
+    // *happened* to be pre-programmed empty). If organisation_id were
+    // silently dropped from this SELECT's WHERE clause, 'org-a' would no
+    // longer appear among the bound arguments and this would fail.
+    expect(text).toMatch(/organisation_id/i)
+    expect(call).toContain('org-a')
+    expect(call).toContain('event-owned-by-org-b') // the resource id, same query
   })
 
   it('list endpoints only return active-org rows — the query is always scoped to the caller\'s own organisationId', async () => {
@@ -134,12 +142,27 @@ describe('Cross-tenant isolation — event sessions (child of event)', () => {
     const res = await sessionIdRoute.PATCH(jsonReq('http://localhost/x', 'PATCH', { name: 'X' }), OTHER_ORG_SESSION_CTX)
     expect(res.status).toBe(404)
     expect(sqlMock).toHaveBeenCalledTimes(1)
+    const call = sqlMock.mock.calls[0] as unknown as unknown[]
+    const text = (call[0] as TemplateStringsArray).join(' ')
+    // R2 remediation 5 — prove the ownership query binds org-a AND the
+    // session id, not just that some pre-programmed-empty query ran.
+    expect(text).toMatch(/organisation_id/i)
+    expect(call).toContain('org-a')
+    expect(call).toContain('sess-1')
   })
 
   it('org A cannot DELETE a session scoped under org B\'s event id — 404', async () => {
     queue([]) // DELETE ... RETURNING id matches nothing
     const res = await sessionIdRoute.DELETE(asNextRequest(new Request('http://localhost/x', { method: 'DELETE' })), OTHER_ORG_SESSION_CTX)
     expect(res.status).toBe(404)
+    const call = sqlMock.mock.calls[0] as unknown as unknown[]
+    const text = (call[0] as TemplateStringsArray).join(' ')
+    // R2 remediation 5 — the DELETE's own WHERE clause is the ownership
+    // check here (no separate SELECT) — prove it binds org-a AND the
+    // session id.
+    expect(text).toMatch(/organisation_id/i)
+    expect(call).toContain('org-a')
+    expect(call).toContain('sess-1')
   })
 })
 
@@ -168,11 +191,26 @@ describe('Cross-tenant isolation — event ticket types (child of event)', () =>
     const res = await ticketTypeIdRoute.PATCH(jsonReq('http://localhost/x', 'PATCH', { name: 'X' }), OTHER_ORG_TICKET_TYPE_CTX)
     expect(res.status).toBe(404)
     expect(sqlMock).toHaveBeenCalledTimes(1)
+    const call = sqlMock.mock.calls[0] as unknown as unknown[]
+    const text = (call[0] as TemplateStringsArray).join(' ')
+    // R2 remediation 5 — prove the ownership query binds org-a AND the
+    // ticket-type id, not just that some pre-programmed-empty query ran.
+    expect(text).toMatch(/organisation_id/i)
+    expect(call).toContain('org-a')
+    expect(call).toContain('tt-1')
   })
 
   it('org A cannot DELETE a ticket type scoped under org B\'s event id — 404', async () => {
     queue([])
     const res = await ticketTypeIdRoute.DELETE(asNextRequest(new Request('http://localhost/x', { method: 'DELETE' })), OTHER_ORG_TICKET_TYPE_CTX)
     expect(res.status).toBe(404)
+    const call = sqlMock.mock.calls[0] as unknown as unknown[]
+    const text = (call[0] as TemplateStringsArray).join(' ')
+    // R2 remediation 5 — the DELETE's own WHERE clause is the ownership
+    // check here (no separate SELECT) — prove it binds org-a AND the
+    // ticket-type id.
+    expect(text).toMatch(/organisation_id/i)
+    expect(call).toContain('org-a')
+    expect(call).toContain('tt-1')
   })
 })

@@ -19,6 +19,22 @@ export function toIsoString(value: unknown): string {
   return String(value);
 }
 
+// Property-presence PATCH merge, not nullish-coalescing (`??`). `??`
+// cannot express "clear this optional field to null" — it treats an
+// explicitly-sent `null` identically to "field omitted", silently
+// discarding the caller's clear-intent and keeping the old value. This
+// merges per the field's actual presence in the raw request body:
+//   - key omitted from body      -> existing value is preserved
+//   - key present, value null    -> becomes null (clears an optional field)
+//   - key present, valid value   -> replaces the existing value
+// A `null` merged into a REQUIRED field (e.g. name) is not special-cased
+// here — it flows into the entity's own validate*Input() function, which
+// already rejects it (e.g. `typeof body.name !== 'string'`), so "explicit
+// null on a required field" correctly becomes a 400, not a silent no-op.
+export function mergeField<T>(body: Record<string, unknown>, key: string, existing: T): T {
+  return Object.prototype.hasOwnProperty.call(body, key) ? (body[key] as T) : existing;
+}
+
 export function validateSlug(slug: unknown): string | null {
   if (typeof slug !== 'string' || !slug.trim()) return 'Slug is required.';
   if (!SLUG_PATTERN.test(slug)) {

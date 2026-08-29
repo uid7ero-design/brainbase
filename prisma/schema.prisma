@@ -924,7 +924,16 @@ model Event {
   slug            String
   description     String?
   venue           String?
-  status          EventStatus       @default(DRAFT)
+  // TEXT with a CHECK constraint in scripts/create-events.sql
+  // ('DRAFT'|'PUBLISHED'|'CANCELLED'), not a native Postgres enum type —
+  // modelled as a plain String, matching every other raw-SQL-only
+  // status-like column in this schema (Booking.status,
+  // SessionInstance.status, contacts.status). A genuine Prisma `enum`
+  // here would imply a native DB enum type that does not exist; the
+  // canonical vocabulary/default contract lives in
+  // lib/events/validation.ts's EVENT_STATUSES, which every write path
+  // validates against before this column is ever touched.
+  status          String            @default("DRAFT")
   starts_at       DateTime          @db.Timestamptz(6)
   ends_at         DateTime          @db.Timestamptz(6)
   timezone        String
@@ -989,12 +998,6 @@ model EventTicketType {
   @@index([event_id])
   @@index([organisation_id])
   @@map("event_ticket_types")
-}
-
-enum EventStatus {
-  DRAFT
-  PUBLISHED
-  CANCELLED
 }
 
 enum Plan {
