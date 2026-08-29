@@ -563,24 +563,250 @@ describe('structure', () => {
     await expect(assertSafeXlsxArchive(new Uint8Array(zip))).rejects.toMatchObject({ code: 'MALFORMED_WORKBOOK' })
   })
 
-  it('a complete second archive concatenated after a first is safely and consistently interpreted as just the second archive — not a divergent-parser bypass', async () => {
-    // This module's EOCD search and yauzl's own EOCD search use the same
-    // backward-scan-for-signature algorithm, so both independently find the
-    // SAME (rightmost/trailing) EOCD here — the second archive's own,
-    // completely valid one. Both therefore agree the archive is just
-    // "b.txt", and yauzl only ever reads central-directory entries starting
-    // from that agreed offset onward — the first archive's bytes are inert,
-    // unreachable padding before it, never decompressed or trusted by
-    // either interpretation. This is empirically NOT the divergent-
-    // interpretation risk this module's EOCD-agreement cross-check exists
-    // to close (see the "materially trailing GARBAGE" test above, which IS
-    // rejected, precisely because trailing bytes that are NOT themselves a
-    // complete, self-consistent archive break the comment-length
-    // consistency check).
+  it('a complete second archive concatenated after a first is REJECTED — R0\'s claim that this "resolves safely as just the second archive" was wrong and has been corrected (R1 remediation, Codex finding)', async () => {
+    // R0's comment asserted this concatenation was safe because "both [this
+    // module's EOCD search and yauzl's] independently find the SAME
+    // (rightmost/trailing) EOCD" and therefore "agree the archive is just
+    // b.txt". That claim was never actually verified against real bytes —
+    // it is false. Verified during R1 remediation, directly and
+    // independently:
+    //
+    //   - This module's own EOCD search DOES find the second archive's
+    //     real, rightmost EOCD correctly (R0's claim was right about that
+    //     much) — but the second archive's OWN central-directory-offset
+    //     field was written assuming it starts at byte 0 of its own
+    //     standalone file. Once a first archive's bytes are prepended, that
+    //     declared offset no longer equals (this module's own
+    //     independently-computed eocdOffset - centralDirectorySize): the
+    //     central-directory extent invariant added in this remediation
+    //     (Section 9/10) now correctly rejects exactly this mismatch, as
+    //     UNSAFE_ARCHIVE, before yauzl is ever asked to open the buffer.
+    //   - Called directly (bypassing this module, for evidence only): yauzl
+    //     itself does NOT reject this — it happily proceeds using the
+    //     second archive's un-adjusted offset, which (purely by coincidence
+    //     of both test archives being built to an identical byte length in
+    //     this specific construction) lands back inside the FIRST archive's
+    //     own byte range and silently returns entries read from the wrong
+    //     archive's data, with no error at all. This is the real, live
+    //     divergent-interpretation risk this module exists to close — R0's
+    //     "both agree" comment was an unverified assumption, not a fact.
+    //
+    // The corrected, evidence-based conclusion: this concatenation must be
+    // (and now is) rejected. See the "leading bytes" test below for the
+    // other half of Section 11's investigation.
     const first = buildZip([{ name: 'a.txt', data: Buffer.from('x') }])
     const second = buildZip([{ name: 'b.txt', data: Buffer.from('y') }])
     const concatenated = Buffer.concat([first, second])
-    await expect(assertSafeXlsxArchive(new Uint8Array(concatenated))).resolves.toBeUndefined()
+    await expect(assertSafeXlsxArchive(new Uint8Array(concatenated))).rejects.toMatchObject({ code: 'UNSAFE_ARCHIVE' })
+  })
+
+  it('arbitrary leading bytes before an otherwise-valid, unmodified archive are rejected (self-extractor-style stub layout)', async () => {
+    // A real self-extracting archive typically prepends a stub (e.g. an
+    // EXE) in front of an otherwise complete, internally-self-consistent
+    // ZIP without rewriting any of the ZIP's own internal offsets — a
+    // well-behaved universal ZIP reader is expected to compute a base-
+    // offset adjustment by cross-referencing the found EOCD position
+    // against the ZIP's own declared (pre-stub) central-directory offset.
+    // Verified directly during R1 remediation: yauzl performs NO such
+    // adjustment — it takes the declared centralDirectoryOffset literally
+    // as an absolute position in the buffer it was given, and fails
+    // outright ("invalid central directory file header signature") once
+    // leading bytes shift that position. This module's own central-
+    // directory extent invariant independently rejects the same bytes
+    // first, before yauzl is ever invoked, for the identical structural
+    // reason as the concatenation case above: the declared
+    // centralDirectoryOffset no longer equals (eocdOffset -
+    // centralDirectorySize) once leading bytes are prepended. Both facts
+    // corroborate the same conclusion; this module's own check is what
+    // actually produces the rejection in production, since it always runs
+    // before yauzl is given the bytes at all.
+    const zip = buildZip([{ name: 'a.txt', data: Buffer.from('x') }])
+    const withLeadingStub = Buffer.concat([Buffer.alloc(64, 0x41), zip])
+    await expect(assertSafeXlsxArchive(new Uint8Array(withLeadingStub))).rejects.toMatchObject({ code: 'UNSAFE_ARCHIVE' })
+  })
+
+  // Multiple/ambiguous EOCD signatures (Section 11, case D): not separately
+  // constructible under this contract. A decoy EOCD signature could only
+  // plausibly hide inside a real archive's own comment region — but this
+  // module's zero-length-comment policy (archiveCommentBytes: 0) already
+  // rejects any archive with a nonzero comment outright, and any bytes
+  // appended after a real, honest, zero-comment archive are exactly the
+  // "materially trailing data" scenario already covered and rejected above
+  // (via the comment-length/actual-trailing-bytes consistency check in
+  // parseEndOfCentralDirectory). There is no way to construct a "multiple
+  // EOCD" ambiguity under this narrow contract that isn't already one of
+  // the two cases covered by dedicated tests elsewhere in this file — no
+  // separate test is added for this case, per Section 11's "where safely
+  // constructible" qualifier.
+})
+
+describe('general-purpose flag policy (R1 remediation, Codex blocker #1)', () => {
+  it('valid, all-zero flags are accepted for both STORED and DEFLATE entries', async () => {
+    const stored = buildZip([{ name: 'a.txt', data: Buffer.from('x'), method: 0 }])
+    await expect(assertSafeXlsxArchive(new Uint8Array(stored))).resolves.toBeUndefined()
+    const deflated = buildZip([{ name: 'a.txt', data: Buffer.from('hello world'), method: 8 }])
+    await expect(assertSafeXlsxArchive(new Uint8Array(deflated))).resolves.toBeUndefined()
+  })
+
+  it('0x2000 (masking of values) agreeing between central and local headers is rejected — the exact bypass Codex independently proved against R0', async () => {
+    const zip = buildZip([{ name: 'a.txt', data: Buffer.from('x'), flags: 0x2000 }])
+    await expect(assertSafeXlsxArchive(new Uint8Array(zip))).rejects.toMatchObject({ code: 'UNSAFE_ARCHIVE' })
+  })
+
+  it('0x2000 set ONLY on the local header (central header flags remain 0) is independently rejected', async () => {
+    const zip = buildZip([{ name: 'a.txt', data: Buffer.from('x'), localOverride: { generalPurposeBitFlag: 0x2000 } }])
+    await expect(assertSafeXlsxArchive(new Uint8Array(zip))).rejects.toMatchObject({ code: 'UNSAFE_ARCHIVE' })
+  })
+
+  it('0x2000 set ONLY on the central header (local header flags remain 0) is independently rejected', async () => {
+    const zip = buildZip([{ name: 'a.txt', data: Buffer.from('x'), centralOverride: { generalPurposeBitFlag: 0x2000 } }])
+    await expect(assertSafeXlsxArchive(new Uint8Array(zip))).rejects.toMatchObject({ code: 'UNSAFE_ARCHIVE' })
+  })
+
+  it('0x0040 (strong encryption) is rejected by THIS module as UNSAFE_ARCHIVE — not merely left to fall through to yauzl/CFB behavior', async () => {
+    const zip = buildZip([{ name: 'a.txt', data: Buffer.from('x'), flags: 0x0040 }])
+    await expect(assertSafeXlsxArchive(new Uint8Array(zip))).rejects.toMatchObject({ code: 'UNSAFE_ARCHIVE' })
+  })
+
+  it('encryption (0x0001) is rejected', async () => {
+    const zip = buildZip([{ name: 'a.txt', data: Buffer.from('x'), method: 8, flags: 0x0001 }])
+    await expect(assertSafeXlsxArchive(new Uint8Array(zip))).rejects.toMatchObject({ code: 'UNSAFE_ARCHIVE' })
+  })
+
+  it('a trailing data descriptor (0x0008) is rejected', async () => {
+    const zip = buildZip([{ name: 'a.txt', data: Buffer.from('x'), flags: 0x0008 }])
+    await expect(assertSafeXlsxArchive(new Uint8Array(zip))).rejects.toMatchObject({ code: 'UNSAFE_ARCHIVE' })
+  })
+
+  it('an unknown/unnamed disallowed flag bit fails closed — the generic allow-mask check, not a named one-off check, is what catches it', async () => {
+    // 0x0400 (bit 10) is reserved/unused by the ZIP spec and has no named
+    // check anywhere in this module — it is caught purely because it is
+    // not part of KNOWN_ALLOWED_GENERAL_PURPOSE_FLAGS (0x0000).
+    const zip = buildZip([{ name: 'a.txt', data: Buffer.from('x'), flags: 0x0400 }])
+    await expect(assertSafeXlsxArchive(new Uint8Array(zip))).rejects.toMatchObject({ code: 'UNSAFE_ARCHIVE' })
+  })
+})
+
+describe('local ZIP64 extra field (R1 remediation, Codex blocker #2)', () => {
+  const zip64Extra = (() => {
+    const buf = Buffer.alloc(4)
+    buf.writeUInt16LE(0x0001, 0)
+    buf.writeUInt16LE(0, 2) // zero-length payload
+    return buf
+  })()
+
+  it('a ZIP64 extra field present ONLY on the local header (central extra field is empty) is rejected', async () => {
+    const zip = buildZip([{ name: 'a.txt', data: Buffer.from('x'), localOverride: { extraField: zip64Extra } }])
+    await expect(assertSafeXlsxArchive(new Uint8Array(zip))).rejects.toMatchObject({ code: 'UNSAFE_ARCHIVE' })
+  })
+
+  it('an empty-payload local ZIP64 extra field is rejected — presence of the id alone is the violation, independent of payload content', async () => {
+    // zip64Extra above already has a zero-length payload; this test exists
+    // to name that fact explicitly per Section 6's requirement.
+    const zip = buildZip([{ name: 'a.txt', data: Buffer.from('x'), localOverride: { extraField: zip64Extra } }])
+    await expect(assertSafeXlsxArchive(new Uint8Array(zip))).rejects.toMatchObject({ code: 'UNSAFE_ARCHIVE' })
+  })
+
+  it('a ZIP64 extra field present ONLY on the central header (local extra field is empty) is independently rejected', async () => {
+    const zip = buildZip([{ name: 'a.txt', data: Buffer.from('x'), centralOverride: { extraField: zip64Extra } }])
+    await expect(assertSafeXlsxArchive(new Uint8Array(zip))).rejects.toMatchObject({ code: 'UNSAFE_ARCHIVE' })
+  })
+
+  it('a malformed/truncated local extra field (declared data size exceeds the buffer) is MALFORMED_WORKBOOK', async () => {
+    // header id (2 bytes) + declared dataSize=100 (2 bytes), but zero actual
+    // payload bytes follow — yauzl's own parseExtraFields throws on this.
+    const truncated = Buffer.alloc(4)
+    truncated.writeUInt16LE(0x9999, 0) // some unrelated, made-up id
+    truncated.writeUInt16LE(100, 2) // declares 100 payload bytes that don't exist
+    const zip = buildZip([{ name: 'a.txt', data: Buffer.from('x'), localOverride: { extraField: truncated } }])
+    await expect(assertSafeXlsxArchive(new Uint8Array(zip))).rejects.toMatchObject({ code: 'MALFORMED_WORKBOOK' })
+  })
+
+  it('a local extra field with trailing bytes too short to form a complete field header is MALFORMED_WORKBOOK — stricter than yauzl\'s own silent-padding tolerance', async () => {
+    // A single well-formed field (id+size+0-byte payload = 4 bytes) followed
+    // by 2 stray bytes that cannot form another complete 4-byte header.
+    // yauzl's own parseExtraFields would silently stop and return one field
+    // without erroring; this module's stricter framing-consumption check
+    // rejects the leftover bytes instead.
+    const wellFormed = Buffer.alloc(4)
+    wellFormed.writeUInt16LE(0x9999, 0)
+    wellFormed.writeUInt16LE(0, 2)
+    const withStrayBytes = Buffer.concat([wellFormed, Buffer.from([0xaa, 0xbb])])
+    const zip = buildZip([{ name: 'a.txt', data: Buffer.from('x'), localOverride: { extraField: withStrayBytes } }])
+    await expect(assertSafeXlsxArchive(new Uint8Array(zip))).rejects.toMatchObject({ code: 'MALFORMED_WORKBOOK' })
+  })
+
+  it('a normal, non-ZIP64 local extra field (well-formed, fully consumed) is accepted', async () => {
+    const extendedTimestamp = Buffer.alloc(9)
+    extendedTimestamp.writeUInt16LE(0x5455, 0) // "extended timestamp" — a real, common, benign extra field id
+    extendedTimestamp.writeUInt16LE(5, 2)
+    extendedTimestamp.writeUInt8(0x01, 4)
+    extendedTimestamp.writeUInt32LE(0, 5)
+    const zip = buildZip([{ name: 'a.txt', data: Buffer.from('x'), localOverride: { extraField: extendedTimestamp } }])
+    await expect(assertSafeXlsxArchive(new Uint8Array(zip))).resolves.toBeUndefined()
+  })
+
+  it('central ZIP64 remains rejected when the local header also independently carries it (regression: pre-existing R0 behavior preserved)', async () => {
+    const zip = buildZip([
+      { name: 'a.txt', data: Buffer.from('x'), localOverride: { extraField: zip64Extra }, centralOverride: { extraField: zip64Extra } },
+    ])
+    await expect(assertSafeXlsxArchive(new Uint8Array(zip))).rejects.toMatchObject({ code: 'UNSAFE_ARCHIVE' })
+  })
+})
+
+describe('EOCD single-disk fields (R1 remediation, IMPORTANT finding)', () => {
+  it('central-directory-start-disk != 0 is rejected', async () => {
+    const zip = buildZip([{ name: 'a.txt', data: Buffer.from('x') }], { centralDirectoryStartDiskOverride: 1 })
+    await expect(assertSafeXlsxArchive(new Uint8Array(zip))).rejects.toMatchObject({ code: 'UNSAFE_ARCHIVE' })
+  })
+
+  it('entries-on-this-disk != total entry count is rejected', async () => {
+    const zip = buildZip([{ name: 'a.txt', data: Buffer.from('x') }], { entriesOnThisDiskOverride: 0 })
+    await expect(assertSafeXlsxArchive(new Uint8Array(zip))).rejects.toMatchObject({ code: 'UNSAFE_ARCHIVE' })
+  })
+
+  it('valid single-disk EOCD field values (disk=0, central-directory-start-disk=0, entries-on-this-disk==total) are accepted', async () => {
+    const zip = buildZip([
+      { name: 'a.txt', data: Buffer.from('x') },
+      { name: 'b.txt', data: Buffer.from('y') },
+    ])
+    await expect(assertSafeXlsxArchive(new Uint8Array(zip))).resolves.toBeUndefined()
+  })
+})
+
+describe('central-directory size / extent invariant (R1 remediation, IMPORTANT finding)', () => {
+  it('the exact offset+size==eocdOffset relationship holds for, and is accepted on, a genuinely valid archive (regression control)', async () => {
+    const zip = buildZip([
+      { name: 'a.txt', data: Buffer.from('x') },
+      { name: 'b.txt', data: Buffer.from('y') },
+    ])
+    await expect(assertSafeXlsxArchive(new Uint8Array(zip))).resolves.toBeUndefined()
+  })
+
+  it('a declared central-directory size one byte too SMALL (leaves a gap before the EOCD) is rejected', async () => {
+    const zip = buildZip([{ name: 'a.txt', data: Buffer.from('x') }])
+    // Determine the real size by re-deriving it: rebuild without override and
+    // diff isn't available here, so instead directly assert the smallest
+    // possible corruption — decrementing by 1 relative to the correct value
+    // computed by the builder's own default (no override) means we must
+    // supply an explicit override smaller than that default. We do this by
+    // reading back the real value the builder would have used: the archive's
+    // own un-overridden EOCD central-directory-size field, minus one.
+    const realSize = zip.readUInt32LE(zip.length - 22 + 12)
+    const corrupted = buildZip([{ name: 'a.txt', data: Buffer.from('x') }], { centralDirectorySizeOverride: realSize - 1 })
+    await expect(assertSafeXlsxArchive(new Uint8Array(corrupted))).rejects.toMatchObject({ code: 'UNSAFE_ARCHIVE' })
+  })
+
+  it('a declared central-directory size one byte too LARGE (overlaps into the EOCD record itself) is rejected', async () => {
+    const zip = buildZip([{ name: 'a.txt', data: Buffer.from('x') }])
+    const realSize = zip.readUInt32LE(zip.length - 22 + 12)
+    const corrupted = buildZip([{ name: 'a.txt', data: Buffer.from('x') }], { centralDirectorySizeOverride: realSize + 1 })
+    await expect(assertSafeXlsxArchive(new Uint8Array(corrupted))).rejects.toMatchObject({ code: 'UNSAFE_ARCHIVE' })
+  })
+
+  it('an extreme, near-uint32-max declared central-directory size (representable but grossly out of bounds) is rejected via the explicit bounds check', async () => {
+    const zip = buildZip([{ name: 'a.txt', data: Buffer.from('x') }], { centralDirectorySizeOverride: 0xfffffff0 })
+    await expect(assertSafeXlsxArchive(new Uint8Array(zip))).rejects.toMatchObject({ code: 'UNSAFE_ARCHIVE' })
   })
 })
 
@@ -636,6 +862,23 @@ describe('call order / SheetJS non-invocation proof', () => {
     await expect(decodeWorksheet(new Uint8Array(zip), { filename: 'book.xlsx' }, { index: 0 })).rejects.toMatchObject({
       code: 'ARCHIVE_LIMIT_EXCEEDED',
       details: { limit: 'maxArchiveEntryCount' },
+    })
+    expect(readSpy).not.toHaveBeenCalled()
+  })
+
+  it('inspectWorkbook: a 0x2000-flagged archive never reaches XLSX.read (R1 remediation)', async () => {
+    const zip = buildZip([{ name: 'a.txt', data: Buffer.from('x'), flags: 0x2000 }])
+    await expect(inspectWorkbook(new Uint8Array(zip), { filename: 'book.xlsx' })).rejects.toMatchObject({ code: 'UNSAFE_ARCHIVE' })
+    expect(readSpy).not.toHaveBeenCalled()
+  })
+
+  it('decodeWorksheet: a local-only-ZIP64-extra-field archive never reaches XLSX.read (R1 remediation)', async () => {
+    const zip64Extra = Buffer.alloc(4)
+    zip64Extra.writeUInt16LE(0x0001, 0)
+    zip64Extra.writeUInt16LE(0, 2)
+    const zip = buildZip([{ name: 'a.txt', data: Buffer.from('x'), localOverride: { extraField: zip64Extra } }])
+    await expect(decodeWorksheet(new Uint8Array(zip), { filename: 'book.xlsx' }, { index: 0 })).rejects.toMatchObject({
+      code: 'UNSAFE_ARCHIVE',
     })
     expect(readSpy).not.toHaveBeenCalled()
   })

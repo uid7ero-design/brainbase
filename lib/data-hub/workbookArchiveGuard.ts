@@ -188,16 +188,90 @@ const ZIP64_EOCD_LOCATOR_SIGNATURE = 0x07064b50;
 const ZIP64_EOCD_LOCATOR_SIZE = 20;
 const ZIP64_EXTRA_FIELD_ID = 0x0001;
 
-// General-purpose bit flags this module explicitly inspects.
+// ---------------------------------------------------------------------------
+// General-purpose bit flag policy (R1 remediation).
+//
+// R0 checked only two named bits (encrypted, data descriptor) and let
+// everything else — including 0x2000 ("masking of values", used with
+// strong/central-directory encryption) — through unexamined, as long as the
+// central and local copies agreed with each other. Codex independently
+// proved a 0x2000 archive (central and local agreeing) passed this guard
+// while CFB's own hardcoded rejection mask, `flags & 0x2041` (bits 0/6/13 =
+// encrypted, strong-encryption, masked-values), throws on it — a real
+// divergent-interpretation gap between this guard and the thing it protects.
+//
+// Fixed with an explicit ALLOW-list rather than an ever-growing deny-list:
+// KNOWN_ALLOWED_GENERAL_PURPOSE_FLAGS is 0x0000 — no bit is allowed. This is
+// not an arbitrary strict default; it is the empirically-observed value for
+// EVERY entry in the two only real xlsx byte-streams available in this
+// repository: (a) SheetJS's own `XLSX.write` output (used throughout this
+// test suite) and (b) the one real, non-generated fixture checked into the
+// repo, public/fleet-dummy-data.xlsx (verified directly against both via
+// yauzl during this remediation). Neither ever sets the DEFLATE
+// compression-sub-type bits (1-2) or the UTF-8-name bit (11); both are
+// genuinely optional per the ZIP spec (DEFLATE decodes identically
+// regardless of the advisory sub-type bits, and our contract already
+// requires ASCII-only names, which are valid UTF-8 by construction whether
+// or not the bit is set). Widening this mask to admit a specific additional
+// bit is a legitimate future contract change, but it must be made the same
+// way this one was: with a real byte-level fixture proving the bit is both
+// necessary and safe, never by assumption. `flags & ~KNOWN_ALLOWED_...`
+// nonzero is rejected regardless of which bit it is — a bit this module
+// doesn't yet have a name for is exactly as disallowed as one it does.
+const KNOWN_ALLOWED_GENERAL_PURPOSE_FLAGS = 0x0000;
+
+// Named subset of the disallowed space, checked first only so the rejection
+// reason is specific and stable for diagnostics/tests — every one of these
+// is already covered by (and would still be rejected by) the generic
+// allow-mask check below even if this module never named it.
 const GPBF_ENCRYPTED = 0x0001;
 const GPBF_DATA_DESCRIPTOR = 0x0008;
 const GPBF_STRONG_ENCRYPTION = 0x0040;
+const GPBF_MASKED_VALUES = 0x2000; // "masking of values" — used with strong/central-directory encryption; the exact bit Codex proved bypassed R0.
+
+function assertAllowedGeneralPurposeFlags(flags: number, headerLabel: "central" | "local"): void {
+  if (flags & GPBF_ENCRYPTED) {
+    throw new ArchiveGuardError("UNSAFE_ARCHIVE", `Encrypted archive entries are not accepted (${headerLabel} header).`);
+  }
+  if (flags & GPBF_DATA_DESCRIPTOR) {
+    throw new ArchiveGuardError(
+      "UNSAFE_ARCHIVE",
+      `Archive entries using a trailing data descriptor are not accepted (${headerLabel} header).`
+    );
+  }
+  if (flags & GPBF_STRONG_ENCRYPTION) {
+    throw new ArchiveGuardError("UNSAFE_ARCHIVE", `Archive entries using strong encryption are not accepted (${headerLabel} header).`);
+  }
+  if (flags & GPBF_MASKED_VALUES) {
+    throw new ArchiveGuardError(
+      "UNSAFE_ARCHIVE",
+      `Archive entries using masked central-directory values are not accepted (${headerLabel} header).`
+    );
+  }
+  if ((flags & ~KNOWN_ALLOWED_GENERAL_PURPOSE_FLAGS) !== 0) {
+    throw new ArchiveGuardError(
+      "UNSAFE_ARCHIVE",
+      `Archive entry uses a disallowed general-purpose flag combination: 0x${flags.toString(16)} (${headerLabel} header).`
+    );
+  }
+}
 
 interface EndOfCentralDirectory {
+  /** Offset +4: number of THIS disk. */
   diskNumber: number;
+  /** Offset +6: number of the disk where the central directory STARTS. R0 never parsed this field at all. */
+  centralDirectoryStartDisk: number;
+  /** Offset +8: total entries in the central directory ON THIS DISK. R0 never parsed this field at all. */
+  entriesOnThisDisk: number;
+  /** Offset +10: total entries in the central directory, across all disks. */
   entryCount: number;
+  /** Offset +12: size, in bytes, of the central directory. R0 never parsed this field at all. */
+  centralDirectorySize: number;
+  /** Offset +16: offset of the start of the central directory. */
   centralDirectoryOffset: number;
   commentLength: number;
+  /** The absolute byte position at which this record's own signature was found — needed to validate the central-directory extent below. */
+  eocdOffset: number;
 }
 
 function toNodeBuffer(bytes: Uint8Array): Buffer {
@@ -246,9 +320,13 @@ function parseEndOfCentralDirectory(buffer: Buffer): EndOfCentralDirectory {
 
   return {
     diskNumber: buffer.readUInt16LE(eocdOffset + 4),
+    centralDirectoryStartDisk: buffer.readUInt16LE(eocdOffset + 6),
+    entriesOnThisDisk: buffer.readUInt16LE(eocdOffset + 8),
     entryCount: buffer.readUInt16LE(eocdOffset + 10),
+    centralDirectorySize: buffer.readUInt32LE(eocdOffset + 12),
     centralDirectoryOffset: buffer.readUInt32LE(eocdOffset + 16),
     commentLength,
+    eocdOffset,
   };
 }
 
@@ -259,12 +337,7 @@ function parseEndOfCentralDirectory(buffer: Buffer): EndOfCentralDirectory {
 // ---------------------------------------------------------------------------
 
 function assertDeclaredEntry(entry: yauzl.Entry, limits: ArchiveLimits): void {
-  if (entry.generalPurposeBitFlag & GPBF_ENCRYPTED) {
-    throw new ArchiveGuardError("UNSAFE_ARCHIVE", "Encrypted archive entries are not accepted.");
-  }
-  if (entry.generalPurposeBitFlag & GPBF_DATA_DESCRIPTOR) {
-    throw new ArchiveGuardError("UNSAFE_ARCHIVE", "Archive entries using a trailing data descriptor are not accepted.");
-  }
+  assertAllowedGeneralPurposeFlags(entry.generalPurposeBitFlag, "central");
   if (entry.compressionMethod !== 0 && entry.compressionMethod !== 8) {
     throw new ArchiveGuardError("UNSAFE_ARCHIVE", `Unsupported archive compression method: ${entry.compressionMethod}.`);
   }
@@ -299,9 +372,85 @@ function assertDeclaredEntry(entry: yauzl.Entry, limits: ArchiveLimits): void {
       actual: entry.uncompressedSize,
     });
   }
+  // CENTRAL copy only — entry.extraFields is yauzl's own parse of the
+  // central directory's extra-field bytes. This does NOT see the LOCAL
+  // header's own, independent extra-field bytes; see
+  // assertLocalExtraFieldSafe below for why that copy needs its own,
+  // equally-strict check.
   for (const extraField of entry.extraFields) {
     if (extraField.id === ZIP64_EXTRA_FIELD_ID) {
-      throw new ArchiveGuardError("UNSAFE_ARCHIVE", "ZIP64 archive entries are not accepted by the initial archive contract.");
+      throw new ArchiveGuardError("UNSAFE_ARCHIVE", "ZIP64 archive entries are not accepted by the initial archive contract (central header).");
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Local extra-field safety (R1 remediation, Codex blocker #2).
+//
+// R0 only ever inspected the CENTRAL directory's extra fields for a ZIP64
+// id (0x0001). Codex independently constructed an archive whose CENTRAL
+// extra field was clean but whose LOCAL header carried its own ZIP64 extra
+// field — accepted by R0, since nothing ever parsed the local header's own
+// extra-field bytes at all (yauzl's `readLocalFileHeaderPromise` returns
+// them as a raw, unparsed `extraField: Buffer` — see @types/yauzl). Central
+// and local extra fields are two independent byte regions in a real ZIP;
+// equal *sizes* (checked elsewhere) says nothing about equal *contents*.
+//
+// This calls yauzl's own exported `parseExtraFields` — the exact function
+// yauzl uses internally to build `entry.extraFields` for the central copy —
+// rather than hand-rolling a second extra-field parser. This is
+// deliberately not "our own general extra-field parser": it is reuse of
+// yauzl's one implementation, applied to a byte region yauzl itself never
+// runs it against. yauzl's parseExtraFields throws a plain Error if a
+// declared per-field data size would run past the supplied buffer
+// (truncated framing) — that throw propagates up to assertSafeXlsxArchive's
+// outer catch and is correctly reclassified as MALFORMED_WORKBOOK there,
+// the same bucket a truncated EOCD/central-directory record falls into.
+//
+// yauzl's loop additionally tolerates a *trailing* 1-3 stray bytes that
+// don't form a complete 4-byte field header at all (its `while (i <
+// buffer.length - 3)` condition simply stops, rather than erroring) — a
+// real-world padding convention some writers use. This module's own
+// contract is stricter: the declared extraFieldLength must be fully and
+// exactly consumed by whole fields, with zero leftover bytes, or the
+// framing is treated as malformed (MALFORMED_WORKBOOK) rather than
+// silently tolerated. There is no legitimate reason for a genuine OOXML
+// writer's extra field region to end mid-header, and admitting that
+// ambiguity here would reopen exactly the kind of "two readers, two
+// interpretations" gap this whole module exists to close.
+// ---------------------------------------------------------------------------
+
+function parseAndValidateExtraFields(extraFieldBuffer: Buffer, headerLabel: "central" | "local"): yauzl.ExtraField[] {
+  let fields: yauzl.ExtraField[];
+  try {
+    fields = yauzl.parseExtraFields(extraFieldBuffer);
+  } catch (err) {
+    throw new ArchiveGuardError(
+      "MALFORMED_WORKBOOK",
+      `An archive entry's ${headerLabel} extra field is malformed or truncated.`,
+      undefined,
+      err
+    );
+  }
+  const consumedBytes = fields.reduce((sum, field) => sum + 4 + field.data.length, 0);
+  if (consumedBytes !== extraFieldBuffer.length) {
+    throw new ArchiveGuardError(
+      "MALFORMED_WORKBOOK",
+      `An archive entry's ${headerLabel} extra field has trailing bytes that do not form a complete field.`
+    );
+  }
+  return fields;
+}
+
+function assertLocalExtraFieldSafe(localHeader: yauzl.LocalFileHeader): void {
+  const fields = parseAndValidateExtraFields(localHeader.extraField, "local");
+  for (const extraField of fields) {
+    if (extraField.id === ZIP64_EXTRA_FIELD_ID) {
+      // Rejected unconditionally — including an empty-payload ZIP64 field
+      // (data.length === 0) — per the initial contract: the mere presence
+      // of a ZIP64 extra field id is the policy violation, independent of
+      // whether the central directory's own sizes already fit in 32 bits.
+      throw new ArchiveGuardError("UNSAFE_ARCHIVE", "ZIP64 archive entries are not accepted by the initial archive contract (local header).");
     }
   }
 }
@@ -511,6 +660,35 @@ function streamAndVerifyEntry(
 // record.
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Reclassification of specific, known yauzl-internal rejections (R1
+// remediation).
+//
+// yauzl performs a small number of its own hardcoded structural checks
+// DURING central-directory entry parsing — before this module's own
+// assertDeclaredEntry ever runs on the resulting Entry — and reports a
+// rejection as a plain, uncoded `Error` on the zipfile's 'error' event.
+// Left unhandled, that plain Error would fall into the generic
+// MALFORMED_WORKBOOK catch-all below, even though the actual reason is a
+// specific, well-understood safety violation this module has its own
+// stable UNSAFE_ARCHIVE classification for. Reproduced directly during R1
+// remediation: a 0x0040 (strong-encryption) entry never reaches
+// assertDeclaredEntry at all — yauzl's own `if (entry.generalPurposeBitFlag
+// & 0x40) return emitErrorAndAutoClose(...)` fires first. This function
+// inspects (never re-throws or exposes) yauzl's raw message only to choose
+// the correct PUBLIC classification; the raw string itself is never part of
+// the public error contract (see WorkbookParserError in workbookParser.ts,
+// which never surfaces `cause`).
+// ---------------------------------------------------------------------------
+
+function reclassifyKnownYauzlError(err: unknown): ArchiveGuardError | null {
+  if (!(err instanceof Error)) return null;
+  if (err.message === "strong encryption is not supported") {
+    return new ArchiveGuardError("UNSAFE_ARCHIVE", "Archive entries using strong encryption are not accepted.", undefined, err);
+  }
+  return null;
+}
+
 function readNextEntry(zipfile: yauzl.ZipFile): Promise<yauzl.Entry | null> {
   return new Promise((resolve, reject) => {
     const onEntry = (entry: yauzl.Entry) => {
@@ -558,6 +736,47 @@ export async function assertSafeXlsxArchive(bytes: Uint8Array, limitsOverride?: 
   if (eocd.diskNumber !== 0) {
     throw new ArchiveGuardError("UNSAFE_ARCHIVE", "Multi-disk archives are not accepted.");
   }
+  // R0 checked only "number of THIS disk" and left the other two
+  // single-disk EOCD fields ("disk where the central directory starts" and
+  // "entries on this disk") entirely unparsed and unchecked — Codex
+  // independently reproduced acceptance of an archive with an invalid value
+  // in one of these. A genuinely single-disk archive has all three fields
+  // mutually consistent by construction (0, 0, entryCount); requiring that
+  // explicitly, rather than only the first field, closes the gap.
+  if (eocd.centralDirectoryStartDisk !== 0) {
+    throw new ArchiveGuardError("UNSAFE_ARCHIVE", "Multi-disk archives are not accepted (central directory does not start on disk 0).");
+  }
+  if (eocd.entriesOnThisDisk !== eocd.entryCount) {
+    throw new ArchiveGuardError(
+      "UNSAFE_ARCHIVE",
+      "Multi-disk archives are not accepted (entries on this disk does not match the total entry count)."
+    );
+  }
+  // Central-directory extent invariant (R1 remediation): the central
+  // directory must occupy the EXACT declared byte interval immediately
+  // preceding the EOCD record this module independently selected — no gap,
+  // no overlap, no ambiguity about where it starts or ends. This is not an
+  // invented tolerance-free rule for its own sake: it is empirically
+  // verified (during this remediation, against both a fresh SheetJS-written
+  // xlsx and the real public/fleet-dummy-data.xlsx fixture already in this
+  // repo) to hold exactly for genuinely valid archives, and it is also the
+  // exact mechanism that rejects a naive "ZIP A || ZIP B" concatenation
+  // without any bespoke concatenation-detection logic: the trailing
+  // archive's own EOCD declares a centralDirectoryOffset relative to ITS
+  // OWN original standalone byte layout, which no longer equals
+  // (eocdOffset - centralDirectorySize) once a leading archive's bytes have
+  // been prepended. See the "concatenated archive" test for the empirical
+  // evidence this claim is based on, including a direct comparison against
+  // yauzl's own (unguarded) behavior on the same bytes.
+  if (eocd.centralDirectoryOffset > buffer.length || eocd.centralDirectorySize > buffer.length) {
+    throw new ArchiveGuardError("UNSAFE_ARCHIVE", "The archive's declared central-directory offset or size exceeds the archive's actual length.");
+  }
+  if (eocd.centralDirectoryOffset + eocd.centralDirectorySize !== eocd.eocdOffset) {
+    throw new ArchiveGuardError(
+      "UNSAFE_ARCHIVE",
+      "The archive's central directory does not occupy the exact interval preceding its end-of-central-directory record."
+    );
+  }
   if (eocd.commentLength !== limits.archiveCommentBytes) {
     throw new ArchiveGuardError("UNSAFE_ARCHIVE", "Archive comments are not accepted.");
   }
@@ -578,6 +797,8 @@ export async function assertSafeXlsxArchive(bytes: Uint8Array, limitsOverride?: 
     });
   } catch (err) {
     if (err instanceof ArchiveGuardError) throw err;
+    const reclassified = reclassifyKnownYauzlError(err);
+    if (reclassified) throw reclassified;
     throw new ArchiveGuardError("MALFORMED_WORKBOOK", "The archive could not be structurally interpreted.", undefined, err);
   }
 
@@ -642,6 +863,17 @@ export async function assertSafeXlsxArchive(bytes: Uint8Array, limitsOverride?: 
           }
         );
       }
+      // Independent of the central-copy flag check in assertDeclaredEntry
+      // (and independent of the *equality* check inside
+      // assertLocalCentralEquivalence just below) — both call sites share
+      // the same KNOWN_ALLOWED_GENERAL_PURPOSE_FLAGS mask, so a disallowed
+      // value is caught here even in the case assertLocalCentralEquivalence
+      // alone could not: central and local agreeing on a disallowed value.
+      assertAllowedGeneralPurposeFlags(localHeader.generalPurposeBitFlag, "local");
+      // Independent of the central-copy ZIP64 check in assertDeclaredEntry
+      // — see assertLocalExtraFieldSafe's own header comment for why the
+      // central and local extra-field byte regions must each be checked.
+      assertLocalExtraFieldSafe(localHeader);
       assertLocalCentralEquivalence(entry, localHeader);
 
       const span: EntrySpan = { start: entry.relativeOffsetOfLocalHeader, end: localHeader.fileDataStart + entry.compressedSize };
@@ -652,6 +884,8 @@ export async function assertSafeXlsxArchive(bytes: Uint8Array, limitsOverride?: 
     }
   } catch (err) {
     if (err instanceof ArchiveGuardError) throw err;
+    const reclassified = reclassifyKnownYauzlError(err);
+    if (reclassified) throw reclassified;
     throw new ArchiveGuardError("MALFORMED_WORKBOOK", "The archive could not be structurally interpreted.", undefined, err);
   } finally {
     zipfile.close();

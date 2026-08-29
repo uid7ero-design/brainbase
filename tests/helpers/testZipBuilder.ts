@@ -55,6 +55,12 @@ export interface BuildZipOptions {
   entryCountOverride?: number;
   /** Override the EOCD's declared central-directory offset. Default: real offset. */
   centralDirectoryOffsetOverride?: number;
+  /** Override the EOCD's declared "disk where the central directory starts" field (offset +6). Default: 0. */
+  centralDirectoryStartDiskOverride?: number;
+  /** Override the EOCD's declared "entries on this disk" field (offset +8). Default: real entry count. */
+  entriesOnThisDiskOverride?: number;
+  /** Override the EOCD's declared central-directory size field (offset +12). Default: real size. */
+  centralDirectorySizeOverride?: number;
   /** Prepend a fabricated ZIP64 end-of-central-directory locator immediately before the EOCD. */
   fakeZip64Locator?: boolean;
 }
@@ -154,10 +160,10 @@ export function buildZip(entries: ZipEntrySpec[], options: BuildZipOptions = {})
   const eocd = Buffer.alloc(22);
   eocd.writeUInt32LE(0x06054b50, 0);
   eocd.writeUInt16LE(options.diskNumberOverride ?? 0, 4);
-  eocd.writeUInt16LE(0, 6);
-  eocd.writeUInt16LE(entryCount, 8);
+  eocd.writeUInt16LE(options.centralDirectoryStartDiskOverride ?? 0, 6);
+  eocd.writeUInt16LE(options.entriesOnThisDiskOverride ?? entryCount, 8);
   eocd.writeUInt16LE(entryCount, 10);
-  eocd.writeUInt32LE(centralData.length, 12);
+  eocd.writeUInt32LE(options.centralDirectorySizeOverride ?? centralData.length, 12);
   eocd.writeUInt32LE(centralDirectoryOffset, 16);
   eocd.writeUInt16LE(comment.length, 20);
 

@@ -45,10 +45,19 @@ before it writes a single migration.
 `lib/data-hub/workbookParser.ts` exposes two independent, stateless, pure
 functions — deliberately not one eager "parse everything" API:
 
-- `inspectWorkbook(bytes, input, options?) -> WorkbookInspection` — format,
-  content identity, and a bounded-preview inventory of every worksheet.
-- `decodeWorksheet(bytes, input, selection, options?) -> DecodedWorksheet`
+- `inspectWorkbook(bytes, input, options?) -> Promise<WorkbookInspection>` —
+  format, content identity, and a bounded-preview inventory of every
+  worksheet.
+- `decodeWorksheet(bytes, input, selection, options?) -> Promise<DecodedWorksheet>`
   — full decode of exactly one worksheet, selected by index.
+
+Both are `async` (5A.2D) specifically because an "xlsx"-classified input
+must first pass through `assertSafeXlsxArchive` (Section 8) — a genuinely
+asynchronous, streaming operation — before either function may call
+`XLSX.read`. CSV/XLS decoding remains internally synchronous; the public
+contract is uniformly `Promise`-based regardless of format, so callers
+never need to know which input format triggered the async archive-guard
+path.
 
 Both functions independently classify format and validate signature —
 neither assumes the other ran first, and neither shares mutable state.
@@ -282,9 +291,13 @@ narrowly-scoped independent parse of the end-of-central-directory record
 position unambiguous) cross-checks entry count/size/comment-length against
 `yauzl`'s own interpretation, closing the specific class of risk where two
 different parsers could interpret the same bytes as two different
-archives — this also transparently rejects materially trailing data or a
-concatenated second archive whose declared comment length doesn't match
-its actual trailing bytes, with no separate case needed. Every entry's
+archives — this transparently rejects materially trailing data (a real
+archive followed by bytes that are not themselves a complete, honest
+archive) via the comment-length/actual-trailing-bytes consistency check.
+**A concatenated second complete archive is a distinct case, rejected by a
+different mechanism — see Section 8b, which corrects this paragraph's
+original (incorrect) claim that the comment-length check alone was
+sufficient for that case too.** Every entry's
 computed byte range is checked against every other entry's range (rejecting
 duplicate local-header offsets and overlaps) and against the central
 directory's own start offset.
@@ -345,6 +358,142 @@ separately evidenced decision on the `xlsx@0.18.5` dependency line
 phase does not authorize or perform that upgrade. This applies to `"xls"`
 input as much as `"xlsx"`, since the archive guard is never applied to the
 legacy format at all.
+
+## 8b. Security remediation after independent review (5A.2D-R1)
+
+An independent (Codex) review of the 5A.2D-R0 candidate proved two
+concrete bypasses and identified two further structural gaps. All four
+are fixed in this remediation; none required any change to the
+architecture, dependency, or limit values recorded in Section 8a.
+
+**Blocker 1 — general-purpose flag policy.** R0 checked only two named
+bits (encrypted `0x0001`, data descriptor `0x0008`) and let everything
+else — including `0x2000` ("masking of values," used with strong/
+central-directory encryption) — through unexamined as long as the
+central and local copies agreed with each other. Codex independently
+constructed an archive with `0x2000` set consistently on both headers
+and proved it passed R0's guard even though `cfb`'s own hardcoded
+rejection mask (`flags & 0x2041` — bits 0/6/13) throws on it. Fixed with
+an explicit ALLOW-list, `KNOWN_ALLOWED_GENERAL_PURPOSE_FLAGS = 0x0000`,
+rather than an ever-growing deny-list — `flags & ~KNOWN_ALLOWED_...`
+nonzero is rejected regardless of which bit it is, so an unnamed future
+bit fails closed by construction. `0x0000` is not an arbitrary strict
+default: it is the empirically-observed value for every entry in both
+real xlsx byte-streams available in this repository (SheetJS's own
+`XLSX.write` output and the checked-in `public/fleet-dummy-data.xlsx`),
+verified directly against both during this remediation. Widening this
+mask later requires the same kind of real-byte evidence, never
+assumption. Applied independently to both the central directory's Entry
+and the local header — not merely relied on via the pre-existing
+central/local equality check — so that a value the two headers happen to
+*agree* on (the realistic bypass shape) is still caught. A related,
+Codex-anticipated risk was also found and fixed during this remediation:
+`yauzl` itself throws its own uncoded `Error("strong encryption is not
+supported")` for `0x0040` *during central-directory parsing*, before this
+module's own per-entry check ever runs — left unhandled, that would have
+surfaced as a generic `MALFORMED_WORKBOOK` rather than this module's own
+specific `UNSAFE_ARCHIVE` classification. A narrow, internal (never
+publicly exposed) reclassification step now attributes that one specific,
+well-understood `yauzl` message to `UNSAFE_ARCHIVE`.
+
+**Blocker 2 — local ZIP64 extra field.** R0 only ever inspected the
+*central* directory's extra fields for a ZIP64 id (`0x0001`) — the
+*local* header's own, independent extra-field bytes (returned raw and
+unparsed by `yauzl`'s `readLocalFileHeaderPromise`) were never examined
+at all. Codex independently constructed an archive with a clean central
+extra field but a local-only ZIP64 extra field and proved it passed.
+Fixed by calling `yauzl`'s own exported `parseExtraFields` — the exact
+function `yauzl` uses internally to build the central copy's
+`entry.extraFields` — against the local header's raw extra-field bytes.
+This is reuse of `yauzl`'s one implementation applied to a byte region it
+never runs it against, not a second hand-rolled extra-field parser.
+Rejected unconditionally, including an empty-payload ZIP64 field: the
+mere presence of the id is the policy violation. `yauzl`'s own
+`parseExtraFields` throws on a declared field size that runs past the
+buffer (truncated framing); this module additionally requires the
+declared extra-field length to be *exactly* consumed by whole fields,
+with zero leftover bytes — stricter than `yauzl`'s own silent tolerance
+of a trailing 1-3-byte pad, because there is no legitimate reason for a
+genuine OOXML writer's extra field region to end mid-header, and
+admitting that ambiguity would reopen the same "two readers, two
+interpretations" class of risk this module exists to close.
+
+**Important finding 1 — incomplete EOCD single-disk validation.** R0
+parsed and checked only "number of this disk" (EOCD offset +4). Two
+further single-disk fields were never parsed at all: "disk where the
+central directory starts" (offset +6) and "entries on this disk" (offset
++8). Codex independently reproduced acceptance of an archive with an
+invalid value in one of these. Both are now parsed and required to hold
+their single-disk values (`0` and `entryCount` respectively).
+
+**Important finding 2 — central-directory size/extent invariant.** The
+EOCD's central-directory-size field (offset +12) was never parsed at
+all, so nothing verified that the central directory actually occupies the
+exact byte interval this module (and `yauzl`, independently) believes it
+does. Fixed by requiring `centralDirectoryOffset + centralDirectorySize
+== eocdOffset` exactly (plus explicit bounds checks against the buffer's
+actual length) — verified empirically during this remediation, against
+both real xlsx fixtures already referenced above, to hold exactly for
+genuinely valid archives before being adopted as a hard invariant. No
+tolerance was introduced (a mutation proof, `R7`, empirically confirmed
+that even a generously-sized 4096-byte tolerance window silently
+re-admits a dangerous concatenated archive once the constituent archives
+are small enough — the correct fix is exact equality, not a bounded
+slack).
+
+**Concatenation/leading-byte investigation — corrected policy, with
+evidence.** R0's `workbookArchiveGuard.test.ts` asserted, without
+verifying it, that a complete second archive concatenated after a first
+"resolves safely, interpreted as just the second archive." That claim
+was independently checked during this remediation and found to be
+**false**: it assumed `yauzl` and this module's own EOCD search always
+"agree" on the trailing archive, but never actually exercised `yauzl` in
+isolation to confirm it. Directly verified, both facts:
+
+- This module's own newly-added central-directory extent invariant
+  (Important finding 2) correctly rejects a naive `ZIP A || ZIP B`
+  concatenation: the second archive's own declared
+  `centralDirectoryOffset` is relative to *its own* original standalone
+  byte layout, which no longer equals `(eocdOffset - centralDirectorySize)`
+  in the combined buffer once a first archive's bytes are prepended.
+- Called directly, bypassing this module (for evidence only): `yauzl`
+  itself does **not** reject this case. It proceeds using the second
+  archive's un-adjusted (and therefore wrong) offset, which — purely by
+  coincidence of both test archives being built to an identical byte
+  length — happened to land back inside the *first* archive's own byte
+  range, silently returning entries read from the wrong archive's data
+  with no error at all. This is the real, live divergent-interpretation
+  risk this module exists to close; R0's "both agree" comment was an
+  unverified assumption, not a fact.
+
+The equivalent "arbitrary leading bytes || ZIP" case (self-extractor-style
+stub layout) was also directly verified: `yauzl` does **not** perform any
+base-offset adjustment for a shifted archive and fails outright ("invalid
+central directory file header signature") once leading bytes shift the
+declared central-directory position — this module's own extent invariant
+independently rejects the identical bytes first, before `yauzl` is ever
+given them, for the same structural reason as the concatenation case.
+Both concatenation-family test cases are now corrected to assert
+rejection, with this evidence recorded directly in the test file.
+"Multiple/ambiguous EOCD signatures" (a third variant considered) is not
+separately constructible under this module's zero-comment contract — any
+byte sequence that could hide a decoy EOCD signature is already covered
+by the "materially trailing data" case, since a genuine comment (the only
+place a decoy could plausibly live) is unconditionally rejected before
+that question could even arise.
+
+**No architecture change.** All four fixes above are additions to the
+same design recorded in Section 8a — no dependency changed
+(`yauzl@3.4.0` / `@types/yauzl@3.4.0` / `crc-32@1.2.2`, unchanged), no
+limit value changed, and the bounded-streamed-validation-before-SheetJS
+architecture is unchanged. Mutation-proved (temporarily, never committed):
+loosening the flag allow-mask broadly; permitting `0x2000` specifically;
+disabling local ZIP64-extra detection; skipping either new EOCD
+single-disk check; disabling the central-directory extent reconciliation;
+and weakening that reconciliation to a tolerance window instead of exact
+equality — each caused a real, previously-passing test to fail, then was
+reverted and reconfirmed clean before this remediation was committed.
+
 
 ## 9. Durable storage decision (direction for 5A.2)
 
