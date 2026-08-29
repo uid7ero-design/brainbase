@@ -1,11 +1,9 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Panel, SectionHeader, EmptyState, StatusBadge, orderStatusTone, rowCardStyle, TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED } from '../_components/ui';
 
-const FONT = 'var(--font-inter),-apple-system,sans-serif';
-
-type Attendee = { id: string; name: string; email: string | null };
-type OrderRow = {
+export type Attendee = { id: string; name: string; email: string | null };
+export type OrderRow = {
   id: string;
   purchaser_name: string;
   purchaser_email: string;
@@ -25,69 +23,57 @@ type OrderRow = {
 // UI (Phase 2 deferred cancellation entirely — see the implementation
 // report). viewer+ can see this panel; there is nothing to mutate here
 // yet, so no manager-only affordance exists.
-export default function RegistrationsPanel({ eventId }: { eventId: string }) {
-  const [orders, setOrders] = useState<OrderRow[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      setError(null);
-      try {
-        const res = await fetch(`/api/events/${eventId}/orders`);
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          if (!cancelled) setError(body.error ?? `Failed to load registrations (${res.status}).`);
-          return;
-        }
-        const body = await res.json();
-        if (!cancelled) setOrders(body.orders ?? []);
-      } catch {
-        if (!cancelled) setError('Failed to load registrations.');
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [eventId]);
-
-  const totalAttendees = orders?.reduce((sum, o) => sum + o.quantity, 0) ?? 0;
+//
+// Orders are fetched once by the parent (EventDetailClient) rather than
+// here, so the same data can also drive the KPI strip and the per-
+// session/per-ticket-type "registered" counts without a second network
+// round trip to the same endpoint.
+export default function RegistrationsPanel({ orders, error }: { orders: OrderRow[] | null; error: string | null }) {
+  const nonCancelled = orders?.filter(o => o.status !== 'CANCELLED') ?? [];
+  const orderCount = new Set(nonCancelled.map(o => o.id)).size;
+  const totalAttendees = nonCancelled.reduce((sum, o) => sum + o.quantity, 0);
 
   return (
-    <div style={panelStyle}>
-      <div style={panelHeaderStyle}>
-        <h2 style={{ fontSize: 15, fontWeight: 700, margin: 0 }}>Registrations</h2>
-        {orders && <span style={{ fontSize: 12, color: '#9ca3af' }}>{orders.length} order{orders.length === 1 ? '' : 's'} · {totalAttendees} attendee{totalAttendees === 1 ? '' : 's'}</span>}
-      </div>
+    <Panel style={{ marginTop: 20 }}>
+      <SectionHeader
+        title="Registrations"
+        sub={orders && `${orderCount} order${orderCount === 1 ? '' : 's'} · ${totalAttendees} attendee${totalAttendees === 1 ? '' : 's'}`}
+      />
 
-      {error && <div style={{ color: '#ef4444', fontSize: 12 }}>{error}</div>}
-      {orders === null && !error && <div style={{ fontSize: 13, color: '#9ca3af' }}>Loading…</div>}
-      {orders !== null && orders.length === 0 && <div style={{ fontSize: 13, color: '#9ca3af' }}>No registrations yet.</div>}
+      {error && <div role="alert" style={{ color: '#FCA5A5', fontSize: 12, marginBottom: 12 }}>{error}</div>}
+      {orders === null && !error && <div style={{ fontSize: 13, color: TEXT_MUTED }}>Loading…</div>}
+      {orders !== null && orders.length === 0 && (
+        <EmptyState title="No registrations yet" body="Registrations will appear here as people reserve tickets." />
+      )}
 
-      {orders?.map(o => (
-        <div key={o.order_item_id} style={rowStyle}>
-          <div>
-            <div style={{ fontWeight: 600, fontSize: 13 }}>{o.purchaser_name} <span style={{ color: '#9ca3af', fontWeight: 400 }}>({o.purchaser_email})</span></div>
-            <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 2 }}>
-              {o.ticket_type_name ?? 'Unknown ticket type'} × {o.quantity}
-              {o.session_name ? ` · ${o.session_name}` : ''} · {new Date(o.created_at).toLocaleString()} · {o.status}
-            </div>
-            {o.attendees.length > 0 && (
-              <div style={{ fontSize: 12, color: '#d1d5db', marginTop: 4 }}>
-                Attendees: {o.attendees.map(a => a.name).join(', ')}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {orders?.map(o => (
+          <div key={o.order_item_id} style={rowCardStyle}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 24, flex: 1, minWidth: 260 }}>
+                <RegField label="Purchaser" value={o.purchaser_name} sub={o.purchaser_email} />
+                <RegField label="Ticket" value={`${o.ticket_type_name ?? 'Unknown ticket type'} × ${o.quantity}`} />
+                {o.session_name && <RegField label="Session" value={o.session_name} />}
+                {o.attendees.length > 0 && (
+                  <RegField label="Attendees" value={o.attendees.map(a => a.name).join(', ')} />
+                )}
+                <RegField label="Registered" value={new Date(o.created_at).toLocaleString()} />
               </div>
-            )}
+              <StatusBadge label={o.status} tone={orderStatusTone(o.status)} />
+            </div>
           </div>
-        </div>
-      ))}
-    </div>
+        ))}
+      </div>
+    </Panel>
   );
 }
 
-const panelStyle: React.CSSProperties = {
-  background: 'rgba(255,255,255,.03)', border: '1px solid rgba(255,255,255,.08)',
-  borderRadius: 12, padding: 20, marginTop: 20, display: 'flex', flexDirection: 'column', gap: 12,
-  fontFamily: FONT, color: '#e5e7eb',
-};
-const panelHeaderStyle: React.CSSProperties = { display: 'flex', alignItems: 'center', justifyContent: 'space-between' };
-const rowStyle: React.CSSProperties = {
-  padding: '10px 12px', background: 'rgba(255,255,255,.02)', border: '1px solid rgba(255,255,255,.06)', borderRadius: 8,
-};
+function RegField({ label, value, sub }: { label: string; value: string; sub?: string }) {
+  return (
+    <div style={{ minWidth: 120 }}>
+      <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: '.05em', textTransform: 'uppercase', color: TEXT_MUTED, marginBottom: 3 }}>{label}</div>
+      <div style={{ fontSize: 13, color: TEXT_PRIMARY, fontWeight: 500 }}>{value}</div>
+      {sub && <div style={{ fontSize: 12, color: TEXT_SECONDARY, marginTop: 1 }}>{sub}</div>}
+    </div>
+  );
+}
