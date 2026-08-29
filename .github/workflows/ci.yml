@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - run: npm ci
+
+      # Blocking: repo is currently TypeScript-clean; keep this a genuine gate.
+      - run: npx tsc --noEmit
+
+      # Blocking: full containment suite, minus the three files with a
+      # verified pre-existing baseline of 18 failures (Phase 5A.0A discovery).
+      # Any failure outside these exact three files fails the build.
+      - run: >
+          npx vitest run
+          --exclude tests/containment/clientDayOverviewStaticCheck.test.ts
+          --exclude tests/containment/dashboardPolishStaticCheck.test.ts
+          --exclude tests/containment/tennisSessionReactivateCancelledInstance.test.ts
+
+      # Non-blocking: origin/main carries a pre-existing tracked-source lint
+      # backlog (verified in Phase 5A.0A discovery) that predates this CI gate.
+      # Reported for visibility; remediation is separate, follow-up work.
+      # Not a target to hit or preserve — just why this step doesn't gate yet.
+      - run: npx eslint .
+        continue-on-error: true
