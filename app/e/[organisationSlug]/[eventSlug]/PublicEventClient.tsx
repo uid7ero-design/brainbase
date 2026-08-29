@@ -175,7 +175,7 @@ export default function PublicEventClient({
   const [attendeeNames, setAttendeeNames] = useState<string[]>(['']);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [confirmation, setConfirmation] = useState<{ reference: string; quantity: number } | null>(null);
+  const [confirmation, setConfirmation] = useState<{ reference: string; quantity: number; tickets: { attendee_name: string; ticket_token: string }[] } | null>(null);
 
   const selectedTicketType = ticketTypes.find(t => t.id === ticketTypeId);
   const selectedSession = sessions.find(s => s.id === sessionId);
@@ -215,7 +215,7 @@ export default function PublicEventClient({
         setError(body.error ?? `Registration failed (${res.status}).`);
         return;
       }
-      setConfirmation({ reference: body.confirmation_reference, quantity: body.quantity });
+      setConfirmation({ reference: body.confirmation_reference, quantity: body.quantity, tickets: body.tickets ?? [] });
     } catch {
       setError('Registration failed. Please try again.');
     } finally {
@@ -255,8 +255,31 @@ export default function PublicEventClient({
               <div style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 13, color: VIOLET_SOFT, wordBreak: 'break-all' }}>{confirmation.reference}</div>
             </div>
 
+            {confirmation.tickets.length > 0 && (
+              <div style={{ textAlign: 'left', marginBottom: 20 }}>
+                <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: TEXT_MUTED, marginBottom: 8 }}>
+                  Your ticket{confirmation.tickets.length === 1 ? '' : 's'}
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {confirmation.tickets.map(t => (
+                    <a
+                      key={t.ticket_token} href={`/t/${t.ticket_token}`} target="_blank" rel="noopener noreferrer"
+                      style={{
+                        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10,
+                        border: `1px solid ${BORDER}`, borderRadius: 10, padding: '10px 14px', textDecoration: 'none',
+                        background: 'rgba(255,255,255,.02)', color: TEXT_PRIMARY, fontSize: 13, fontWeight: 600,
+                      }}
+                    >
+                      {t.attendee_name}
+                      <span style={{ color: VIOLET_SOFT, fontSize: 12, fontWeight: 700 }}>View ticket →</span>
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <p style={{ fontSize: 12, color: TEXT_MUTED, lineHeight: 1.6, margin: 0 }}>
-              Keep this confirmation reference for your records. No email or ticket has been sent — digital ticket delivery isn&rsquo;t part of this phase yet.
+              Keep this confirmation reference for your records. No email has been sent — bookmark this page or save your ticket link{confirmation.tickets.length === 1 ? '' : 's'} above.
             </p>
           </div>
         </main>

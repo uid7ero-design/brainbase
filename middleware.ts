@@ -45,6 +45,13 @@ const PUBLIC = [
   // staff management pages public. '/e' cannot collide with '/events'
   // under that same prefix rule, by construction.
   '/e',
+
+  // Public Events & Ticketing Phase 3: /t/[ticketToken] — the digital
+  // ticket page. Same reasoning as '/e' above: a deliberately separate
+  // one-character prefix, chosen specifically so it cannot collide with
+  // (or accidentally expose) '/events' or any staff management route —
+  // see the Phase 3 report's public-route-safety section.
+  '/t',
 ];
 
 export async function middleware(req: NextRequest) {
