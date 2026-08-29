@@ -36,6 +36,7 @@ model Organisation {
   hlna_briefings         HlnaBriefing[]
   hlna_insights          HlnaInsight[]
   illegal_dumping        IllegalDumping[]
+  import_batches         ImportBatch[]
   metrics                Metric[]
   missed_collections     MissedCollection[]
   newsletter_subscribers NewsletterSubscriber[]
@@ -130,12 +131,95 @@ model User {
   audit_logs        AuditLog[]
   briefings         Briefing[]
   dashboard_configs DashboardConfig[]
+  import_batches    ImportBatch[]
   saved_views       SavedView[]
   uploads           Upload[]
   organisation      Organisation      @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
 
   @@index([organisation_id])
   @@map("users")
+}
+
+// Data Hub 5A.2C — canonical durable ingestion lineage: one physical
+// uploaded file / storage-and-inspection event. Deliberately does NOT
+// become the new home for worksheet-level meaning — the existing Upload
+// model gains additive, nullable canonical fields instead (see below),
+// so Upload's seven existing domain FK relations (Metric, IllegalDumping,
+// MissedCollection, DebtorAccount, ServiceRequest, HlnaInsight,
+// EvidenceRecord) keep pointing at valid Upload rows — canonical or
+// legacy — with zero schema change to any of those seven relations.
+// See docs/architecture/decisions/0001-data-hub-ingestion-foundation.md.
+//
+// organisation_id deliberately has NO onDelete (Postgres default: NO
+// ACTION) — NOT Cascade, unlike Upload.organisation_id below. This row
+// anchors a durable external Blob object via storage_key; a synchronous
+// Cascade on organisation deletion would hard-delete this row (and lose
+// storage_key) before any tombstone-first Blob-cleanup step could run,
+// permanently orphaning the object with no way to find it again. This
+// matches implementations.organisation_id's existing NO ACTION
+// convention (scripts/create-implementations.sql) for the same reason:
+// deleting an organisation that still has external-resource lineage
+// attached must fail loudly, not silently cascade it away.
+model ImportBatch {
+  id                      String    @id @default(cuid())
+  organisation_id         String
+  uploaded_by             String?
+  original_filename       String
+  content_type            String
+  size_bytes              Int
+  // Server-computed, authoritative. Never accepted from a client.
+  // NULLABLE (5A.2C-R1): under the direct browser-to-private-Blob
+  // protocol (initiate -> create pending ImportBatch -> browser uploads
+  // -> finalize -> server retrieves bytes -> hash computed), this is
+  // genuinely unknown at batch creation (AWAITING_UPLOAD/PROCESSING).
+  // The one truthful invariant — status = 'READY' requires a non-NULL
+  // sha256 — is enforced by a SQL CHECK constraint
+  // (import_batches_ready_requires_sha256 in
+  // scripts/create-import-batches.sql) that Prisma cannot express
+  // directly in this Prisma version; do not weaken the SQL to compensate
+  // for that — the constraint is the actual enforcement, this comment is
+  // documentation only.
+  sha256                  String?
+  storage_provider        String
+  // Immutable, server-generated. Never client-controlled. See ADR.
+  storage_key             String    @unique
+  storage_etag            String?
+  // AWAITING_UPLOAD | PROCESSING | READY | FAILED | DELETION_PENDING.
+  // Physical-file/storage/inspection lifecycle ONLY — worksheet-level
+  // aggregate outcomes (partial/complete) are derived from child Upload
+  // rows at read time, never stored here. size_bytes >= 0 is also a
+  // SQL-only CHECK (import_batches_size_bytes_check) for the same reason.
+  status                  String    @default("AWAITING_UPLOAD")
+  // Tenant-scoped start-upload idempotency (see @@unique below). NULL for
+  // a request that didn't supply one — many NULLs per tenant are allowed.
+  idempotency_key         String?
+  // Client-declared, NON-authoritative — a hint only, never trusted for
+  // integrity. `sha256` above is the sole server-computed authoritative
+  // value; these two fields must never be confused for one another.
+  expected_sha256         String?
+  created_at              DateTime  @default(now())
+  updated_at              DateTime  @updatedAt
+  // Tombstone lifecycle support (delete/cron behaviour implemented later,
+  // not in this slice) — deletedAt marks intent-to-delete and blocks new
+  // confirmations; storage_deletion_status/storage_deleted_at track the
+  // separate, possibly-retried Blob-side deletion outcome so storage_key
+  // is retained until that succeeds.
+  deleted_at              DateTime?
+  storage_deletion_status String?
+  storage_deleted_at      DateTime?
+
+  organisation Organisation @relation(fields: [organisation_id], references: [id])
+  uploader     User?        @relation(fields: [uploaded_by], references: [id], onDelete: SetNull)
+  uploads      Upload[]
+
+  // Required by canonical Upload's composite tenant-scoped FK — makes it
+  // structurally impossible for a worksheet row to reference another
+  // tenant's batch.
+  @@unique([id, organisation_id])
+  @@unique([organisation_id, idempotency_key])
+  @@index([organisation_id, created_at])
+  @@index([status])
+  @@map("import_batches")
 }
 
 model Upload {
@@ -158,6 +242,46 @@ model Upload {
   metadata           Json               @default("{}")
   created_at         DateTime           @default(now())
   updated_at         DateTime           @updatedAt
+  // ── Data Hub 5A.2C canonical worksheet lineage (additive, nullable) ──
+  // All NULL/defaulted for every legacy row — zero backfill required.
+  // A row with lineage_kind = 'DATA_HUB' is a canonical worksheet within
+  // import_batch_id; a legacy row (lineage_kind = 'LEGACY', the default)
+  // is entirely unaffected by every field below.
+  //
+  // Coherence between lineage_kind and import_batch_id/worksheet_index/
+  // canonical_status (LEGACY => all three NULL; DATA_HUB => all three
+  // NOT NULL) and the two non-negative invariants below (worksheet_index,
+  // attempt_count) are enforced by SQL CHECK constraints
+  // (uploads_lineage_coherence_check, uploads_worksheet_index_nonneg_check,
+  // uploads_attempt_count_nonneg_check in scripts/create-import-batches.sql)
+  // that this Prisma version cannot express directly — do not weaken the
+  // SQL to compensate; these comments are documentation only, not the
+  // enforcement itself.
+  import_batch_id       String?
+  // Zero-based, authoritative — matches lib/data-hub/workbookParser.ts's
+  // decodeWorksheet contract exactly. worksheet_name is descriptive only.
+  worksheet_index       Int?
+  worksheet_name        String?
+  // 'visible' | 'hidden' | 'veryHidden' — parser fact, not policy.
+  worksheet_visibility  String?
+  worksheet_is_empty    Boolean?
+  // 'LEGACY' | 'DATA_HUB' — the discriminator. NOT NULL with a safe
+  // default so no row is ever ambiguous about which lineage it belongs to.
+  lineage_kind          String             @default("LEGACY")
+  // Canonical durable worksheet lifecycle only — deliberately NOT the
+  // same vocabulary as the legacy `status` enum above, and deliberately
+  // excludes IMPORTING (no durable in-progress state; see ADR/Pass 3).
+  // AWAITING_CONFIRMATION | INELIGIBLE | SKIPPED | IMPORTED, or NULL for
+  // a legacy row.
+  canonical_status      String?
+  // Retry/attempt history, kept separate from canonical_status so a
+  // pre-transaction validation/mapping failure can never be confused
+  // with a partially-committed domain import.
+  last_attempt_at       DateTime?
+  attempt_count         Int                @default(0)
+  last_failure_code     String?
+  last_failure_message  String?
+  last_failure_retryable Boolean?
   debtor_accounts    DebtorAccount[]
   evidence_records   EvidenceRecord[]
   hlna_insights      HlnaInsight[]
@@ -167,11 +291,23 @@ model Upload {
   service_requests   ServiceRequest[]
   organisation       Organisation       @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
   user               User?              @relation(fields: [user_id], references: [id])
+  // Composite tenant-scoped FK — a MATCH SIMPLE constraint, so any row
+  // with import_batch_id = NULL (every legacy row) is entirely exempt
+  // from this check by Postgres's own FK semantics. For a canonical row
+  // (both columns set), this makes it structurally impossible to
+  // reference an ImportBatch belonging to a different organisation_id.
+  import_batch       ImportBatch?       @relation(fields: [import_batch_id, organisation_id], references: [id, organisation_id])
 
   @@index([organisation_id])
   @@index([schema_type])
   @@index([status])
   @@index([created_at(sort: Desc)])
+  // Canonical worksheet identity. import_batch_id/worksheet_index are
+  // NULL on every legacy row, and Postgres's standard UNIQUE semantics
+  // treat each NULL as distinct — so all legacy rows coexist under this
+  // constraint without conflict; only two genuinely-identical canonical
+  // (import_batch_id, worksheet_index) pairs are ever rejected.
+  @@unique([import_batch_id, worksheet_index])
   @@map("uploads")
 }
 
