@@ -56,6 +56,10 @@ const EVENT_PAGE_CSS = `
 @media (max-width: 640px) {
   .bb-event-main { padding: 24px 16px 72px; }
 }
+.bb-event-artwork-img { max-height: 560px; }
+@media (max-width: 640px) {
+  .bb-event-artwork-img { max-height: 460px; }
+}
 .bb-radio-card { position: relative; display: block; cursor: pointer; border-radius: 12px; }
 .bb-radio-card input { position: absolute; opacity: 0; width: 1px; height: 1px; pointer-events: none; }
 .bb-radio-card-inner {
@@ -462,18 +466,34 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 // A plain <img>, not next/image: the source is an arbitrary external
 // host chosen per-event by the organiser, not a configurable, bounded
 // set of remote origins next/image's own allow-list expects.
+//
+// Deliberately no fixed aspect-ratio box / object-fit: cover — that
+// cropped portrait posters badly. Instead: the frame spans the full
+// column width (so its dark panel/border/shadow always reads as an
+// intentional "poster frame", even for a narrow portrait image with
+// visible side padding) but has NO fixed height — a flex container
+// with no explicit height simply hugs its tallest child, so the
+// frame's height always equals the image's own rendered height. The
+// image itself uses object-fit: contain with both max-width: 100% and
+// a CSS-only max-height cap (.bb-event-artwork-img, 560px desktop /
+// 460px mobile — media queries can't live in inline styles), which is
+// enough on its own for the browser to compute the largest size
+// preserving aspect ratio within both bounds — no JS orientation
+// detection, no distortion, no crop, ever.
 function EventArtwork({ src, alt }: { src: string; alt: string }) {
   const [failed, setFailed] = useState(false);
   if (failed) return null;
   return (
     <div style={{
-      position: 'relative', width: '100%', aspectRatio: '16 / 9', borderRadius: 18, overflow: 'hidden',
-      border: `1px solid ${BORDER}`, marginBottom: 22, background: 'rgba(255,255,255,.02)',
-      boxShadow: '0 14px 40px rgba(0,0,0,.35), 0 0 0 1px rgba(138,77,255,.07)',
+      width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center',
+      borderRadius: 18, overflow: 'hidden', border: `1px solid ${BORDER}`, marginBottom: 22,
+      background: 'rgba(255,255,255,.02)', boxShadow: '0 14px 40px rgba(0,0,0,.35), 0 0 0 1px rgba(138,77,255,.07)',
     }}>
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={src} alt={alt} onError={() => setFailed(true)} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-      <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, rgba(7,8,11,0) 55%, rgba(7,8,11,.5) 100%)', pointerEvents: 'none' }} aria-hidden="true" />
+      <img
+        src={src} alt={alt} onError={() => setFailed(true)} className="bb-event-artwork-img"
+        style={{ display: 'block', width: 'auto', height: 'auto', maxWidth: '100%', objectFit: 'contain' }}
+      />
     </div>
   );
 }

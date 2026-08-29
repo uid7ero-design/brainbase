@@ -80,16 +80,20 @@ beforeEach(() => {
 
 // ─── Byte fixtures — real magic-byte signatures, not just declared MIME ──
 
-function jpegBytes(): Uint8Array {
+// Uint8Array<ArrayBuffer> (not the unparameterized, wider Uint8Array
+// default of ArrayBufferLike) — File/BlobPart require the narrower
+// form; these are always constructed from a plain number array, so a
+// real, non-shared ArrayBuffer is guaranteed underneath either way.
+function jpegBytes(): Uint8Array<ArrayBuffer> {
   return new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
 }
-function pngBytes(): Uint8Array {
+function pngBytes(): Uint8Array<ArrayBuffer> {
   return new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
 }
-function webpBytes(): Uint8Array {
+function webpBytes(): Uint8Array<ArrayBuffer> {
   return new Uint8Array([0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x45, 0x42, 0x50, 0, 0, 0, 0, 0, 0, 0, 0])
 }
-function plainTextBytes(): Uint8Array {
+function plainTextBytes(): Uint8Array<ArrayBuffer> {
   return new TextEncoder().encode('this is not an image, just plain text padding to be a plausible size')
 }
 
