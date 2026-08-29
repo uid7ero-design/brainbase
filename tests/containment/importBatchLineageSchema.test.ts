@@ -230,20 +230,25 @@ describe('scripts/create-import-batches.sql — ensure_* drift-safety design (5A
   })
 
   it('validates the required defaults: status, lineage_kind, attempt_count, created_at, updated_at', () => {
+    // Exact per-column default-contract coverage (including the
+    // p_check_default flag) is asserted exhaustively by the dedicated
+    // "explicit default contracts (5A.2C-R4)" describe block below —
+    // this test just locks in that these five specific defaults remain
+    // wired through ensure_column's current signature.
     expect(MIGRATION).toContain(
-      "ensure_column('import_batches', 'status', 'text', false, '''AWAITING_UPLOAD''::text',"
+      "ensure_column('import_batches', 'status', 'text', false, true, '''AWAITING_UPLOAD''::text',"
     )
     expect(MIGRATION).toContain(
-      "ensure_column('uploads', 'lineage_kind', 'text', false, '''LEGACY''::text',"
+      "ensure_column('uploads', 'lineage_kind', 'text', false, true, '''LEGACY''::text',"
     )
     expect(MIGRATION).toContain(
-      "ensure_column('uploads', 'attempt_count', 'integer', false, '0',"
+      "ensure_column('uploads', 'attempt_count', 'integer', false, true, '0',"
     )
     expect(MIGRATION).toContain(
-      "ensure_column('import_batches', 'created_at', 'timestamp with time zone', false, 'now()',"
+      "ensure_column('import_batches', 'created_at', 'timestamp with time zone', false, true, 'now()',"
     )
     expect(MIGRATION).toContain(
-      "ensure_column('import_batches', 'updated_at', 'timestamp with time zone', false, 'now()',"
+      "ensure_column('import_batches', 'updated_at', 'timestamp with time zone', false, true, 'now()',"
     )
   })
 
@@ -382,6 +387,188 @@ describe('scripts/create-import-batches.sql — ensure_* drift-safety design (5A
     const activeSql = MIGRATION.split('\n').filter(l => !l.trim().startsWith('--')).join('\n')
     expect(activeSql).not.toMatch(/^\s*DROP\s+(COLUMN|TABLE)\s/im)
     expect(activeSql).not.toMatch(/^\s*UPDATE\s/im)
+  })
+})
+
+// Data Hub 5A.2C-R4 — explicit default-contract remediation.
+//
+// WHY THIS BLOCK EXISTS: Codex's R3 push-gate review found that
+// ensure_column's single p_expected_default parameter was ambiguous —
+// NULL meant both "don't check the default" and (for every genuinely
+// no-default column) "must have no default," so an unexpected database
+// default silently survived migration re-application. Two concrete
+// exploits were reproduced and confirmed live against a disposable
+// Postgres container before this fix: import_batches.sha256 acquiring
+// DEFAULT repeat('0', 64) (fabricating an authoritative hash for every
+// new row), and uploads.import_batch_id acquiring DEFAULT 'bogus-batch'
+// (silently attaching legacy uploads to a batch that was never
+// intended). ensure_column now takes p_check_default (boolean) and
+// p_expected_default (text) as independent parameters — NULL can only
+// ever mean "this column must have no database default," never "skip
+// validation." Every 5A.2C-owned column below passes p_check_default =
+// true.
+describe('scripts/create-import-batches.sql — explicit default contracts (5A.2C-R4)', () => {
+  it('ensure_column separates "should the default be checked?" from "what should it be?" — NULL can no longer mean both "skip validation" and "must be NULL"', () => {
+    const body = helperBody('ensure_column')
+    expect(body).toContain('p_check_default boolean')
+    expect(body).toContain('p_expected_default text')
+    expect(body).toMatch(/IF p_check_default THEN/)
+    // The old ambiguous single-parameter gate must be fully gone — it is
+    // exactly how Codex's R3 push-gate findings slipped past R3's own
+    // test suite (an unexpected default on sha256/import_batch_id was
+    // never checked at all, because NULL was read as "skip").
+    expect(body).not.toMatch(/IF p_expected_default IS NOT NULL THEN/)
+  })
+
+  type DefaultContract = { table: string; column: string; type: string; nullable: boolean; expectedDefault: string }
+
+  // The explicit, per-column default contract required by 5A.2C-R4.
+  // expectedDefault is the exact literal SQL source text passed as
+  // p_expected_default at the real call site: the string `NULL` means
+  // "must have NO database default"; otherwise it's the exact quoted
+  // canonical default text Postgres reports back (verified empirically
+  // against a live catalog, not guessed). Every column from the current
+  // Prisma model must appear in one of these two lists — the
+  // exhaustiveness tests below fail loudly if the model ever adds a
+  // column without a matching entry here.
+  const IMPORT_BATCH_DEFAULT_CONTRACTS: DefaultContract[] = [
+    { table: 'import_batches', column: 'id', type: 'text', nullable: false, expectedDefault: 'NULL' },
+    { table: 'import_batches', column: 'organisation_id', type: 'text', nullable: false, expectedDefault: 'NULL' },
+    { table: 'import_batches', column: 'uploaded_by', type: 'text', nullable: true, expectedDefault: 'NULL' },
+    { table: 'import_batches', column: 'original_filename', type: 'text', nullable: false, expectedDefault: 'NULL' },
+    { table: 'import_batches', column: 'content_type', type: 'text', nullable: false, expectedDefault: 'NULL' },
+    { table: 'import_batches', column: 'size_bytes', type: 'integer', nullable: false, expectedDefault: 'NULL' },
+    { table: 'import_batches', column: 'sha256', type: 'text', nullable: true, expectedDefault: 'NULL' },
+    { table: 'import_batches', column: 'storage_provider', type: 'text', nullable: false, expectedDefault: 'NULL' },
+    { table: 'import_batches', column: 'storage_key', type: 'text', nullable: false, expectedDefault: 'NULL' },
+    { table: 'import_batches', column: 'storage_etag', type: 'text', nullable: true, expectedDefault: 'NULL' },
+    { table: 'import_batches', column: 'status', type: 'text', nullable: false, expectedDefault: "'''AWAITING_UPLOAD''::text'" },
+    { table: 'import_batches', column: 'idempotency_key', type: 'text', nullable: true, expectedDefault: 'NULL' },
+    { table: 'import_batches', column: 'expected_sha256', type: 'text', nullable: true, expectedDefault: 'NULL' },
+    { table: 'import_batches', column: 'created_at', type: 'timestamp with time zone', nullable: false, expectedDefault: "'now()'" },
+    { table: 'import_batches', column: 'updated_at', type: 'timestamp with time zone', nullable: false, expectedDefault: "'now()'" },
+    { table: 'import_batches', column: 'deleted_at', type: 'timestamp with time zone', nullable: true, expectedDefault: 'NULL' },
+    { table: 'import_batches', column: 'storage_deletion_status', type: 'text', nullable: true, expectedDefault: 'NULL' },
+    { table: 'import_batches', column: 'storage_deleted_at', type: 'timestamp with time zone', nullable: true, expectedDefault: 'NULL' },
+  ]
+
+  const UPLOAD_DEFAULT_CONTRACTS: DefaultContract[] = [
+    { table: 'uploads', column: 'import_batch_id', type: 'text', nullable: true, expectedDefault: 'NULL' },
+    { table: 'uploads', column: 'worksheet_index', type: 'integer', nullable: true, expectedDefault: 'NULL' },
+    { table: 'uploads', column: 'worksheet_name', type: 'text', nullable: true, expectedDefault: 'NULL' },
+    { table: 'uploads', column: 'worksheet_visibility', type: 'text', nullable: true, expectedDefault: 'NULL' },
+    { table: 'uploads', column: 'worksheet_is_empty', type: 'boolean', nullable: true, expectedDefault: 'NULL' },
+    { table: 'uploads', column: 'lineage_kind', type: 'text', nullable: false, expectedDefault: "'''LEGACY''::text'" },
+    { table: 'uploads', column: 'canonical_status', type: 'text', nullable: true, expectedDefault: 'NULL' },
+    { table: 'uploads', column: 'last_attempt_at', type: 'timestamp with time zone', nullable: true, expectedDefault: 'NULL' },
+    { table: 'uploads', column: 'attempt_count', type: 'integer', nullable: false, expectedDefault: "'0'" },
+    { table: 'uploads', column: 'last_failure_code', type: 'text', nullable: true, expectedDefault: 'NULL' },
+    { table: 'uploads', column: 'last_failure_message', type: 'text', nullable: true, expectedDefault: 'NULL' },
+    { table: 'uploads', column: 'last_failure_retryable', type: 'boolean', nullable: true, expectedDefault: 'NULL' },
+  ]
+
+  function expectedCallSubstring(c: DefaultContract): string {
+    return `ensure_column('${c.table}', '${c.column}', '${c.type}', ${c.nullable}, true, ${c.expectedDefault},`
+  }
+
+  it('every ImportBatch column from the current Prisma model has an explicit default-contract entry — not silently skipped', () => {
+    const block = blockScope(SCHEMA, 'model ImportBatch {', '@@map("import_batches")')
+    const columns = block
+      .split('\n')
+      .map(l => l.trim())
+      .filter(l => /^[a-z_][a-zA-Z0-9_]*\s+(String|Int|Boolean|DateTime)\??\s/.test(l) || /^[a-z_][a-zA-Z0-9_]*\s+(String|Int|Boolean|DateTime)\??$/.test(l))
+      .map(l => l.split(/\s+/)[0])
+    expect(columns.length).toBeGreaterThanOrEqual(17)
+    const contractedColumns = new Set(IMPORT_BATCH_DEFAULT_CONTRACTS.map(c => c.column))
+    for (const column of columns) {
+      expect(contractedColumns.has(column), `no explicit default contract for import_batches.${column}`).toBe(true)
+    }
+  })
+
+  it('every additive Upload column has an explicit default-contract entry', () => {
+    const additiveColumns = [
+      'import_batch_id', 'worksheet_index', 'worksheet_name', 'worksheet_visibility',
+      'worksheet_is_empty', 'lineage_kind', 'canonical_status', 'last_attempt_at',
+      'attempt_count', 'last_failure_code', 'last_failure_message', 'last_failure_retryable',
+    ]
+    const contractedColumns = new Set(UPLOAD_DEFAULT_CONTRACTS.map(c => c.column))
+    for (const column of additiveColumns) {
+      expect(contractedColumns.has(column), `no explicit default contract for uploads.${column}`).toBe(true)
+    }
+  })
+
+  it('the migration enforces exactly the classified default contract for every ImportBatch column, with default checking explicitly switched on', () => {
+    for (const contract of IMPORT_BATCH_DEFAULT_CONTRACTS) {
+      const expected = expectedCallSubstring(contract)
+      expect(MIGRATION, `expected call fragment: ${expected}`).toContain(expected)
+    }
+  })
+
+  it('the migration enforces exactly the classified default contract for every additive Upload column, with default checking explicitly switched on', () => {
+    for (const contract of UPLOAD_DEFAULT_CONTRACTS) {
+      const expected = expectedCallSubstring(contract)
+      expect(MIGRATION, `expected call fragment: ${expected}`).toContain(expected)
+    }
+  })
+
+  it('sha256 is explicitly protected as NO DATABASE DEFAULT — the exact Codex R3 push-gate finding (fabricated authoritative hash)', () => {
+    expect(MIGRATION).toContain("ensure_column('import_batches', 'sha256', 'text', true, true, NULL,")
+  })
+
+  it('import_batch_id is explicitly protected as NO DATABASE DEFAULT — the exact Codex R3 push-gate finding (fabricated tenant/batch linkage)', () => {
+    expect(MIGRATION).toContain("ensure_column('uploads', 'import_batch_id', 'text', true, true, NULL,")
+  })
+
+  it('status has its exact required default explicitly protected', () => {
+    expect(MIGRATION).toContain("ensure_column('import_batches', 'status', 'text', false, true, '''AWAITING_UPLOAD''::text',")
+  })
+
+  it('lineage_kind has its exact required default explicitly protected', () => {
+    expect(MIGRATION).toContain("ensure_column('uploads', 'lineage_kind', 'text', false, true, '''LEGACY''::text',")
+  })
+
+  it('attempt_count has its exact required default explicitly protected', () => {
+    expect(MIGRATION).toContain("ensure_column('uploads', 'attempt_count', 'integer', false, true, '0',")
+  })
+
+  it('every ensure_column call site explicitly switches on default checking (p_check_default = true right after the nullability argument)', () => {
+    const callLines = MIGRATION.split('\n').filter(l => /^SELECT pg_temp\.ensure_column\(/.test(l.trim()))
+    expect(callLines.length).toBe(IMPORT_BATCH_DEFAULT_CONTRACTS.length + UPLOAD_DEFAULT_CONTRACTS.length)
+    for (const line of callLines) {
+      expect(line, `expected ", true," immediately after the nullability argument in: ${line}`).toMatch(/(true|false),\s*true,/)
+    }
+  })
+
+  it('the DROP FUNCTION signature for ensure_column matches its updated 7-argument shape', () => {
+    expect(MIGRATION).toContain('DROP FUNCTION IF EXISTS pg_temp.ensure_column(text, text, text, boolean, boolean, text, text);')
+  })
+})
+
+describe('scripts/tests/verify-import-batches-migration.sh — default-contract drift scenarios (5A.2C-R4)', () => {
+  it('covers unexpected-default drift across every required category: authoritative data, tenant/identity linkage, non-authoritative metadata, state, application-generated identity, and a representative nullable-metadata field', () => {
+    const harness = fs.readFileSync(HARNESS_PATH, 'utf-8')
+    for (const marker of [
+      "sha256 SET DEFAULT repeat",
+      "import_batch_id SET DEFAULT 'bogus-batch'",
+      "expected_sha256 SET DEFAULT repeat",
+      "canonical_status SET DEFAULT 'AWAITING_CONFIRMATION'",
+      'gen_random_uuid()::text',
+      "storage_etag SET DEFAULT 'unexpected-etag'",
+    ]) {
+      expect(harness, `expected harness to reference: ${marker}`).toContain(marker)
+    }
+  })
+
+  it('covers missing-required-default and wrong-required-default drift for status, lineage_kind, and attempt_count', () => {
+    const harness = fs.readFileSync(HARNESS_PATH, 'utf-8')
+    for (const marker of [
+      'status DROP DEFAULT',
+      'lineage_kind DROP DEFAULT',
+      'attempt_count DROP DEFAULT',
+      "status SET DEFAULT 'FAILED'",
+    ]) {
+      expect(harness, `expected harness to reference: ${marker}`).toContain(marker)
+    }
   })
 })
 

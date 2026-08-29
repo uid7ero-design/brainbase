@@ -86,12 +86,29 @@
 -- ═══════════════════════════════════════════════════════════════════
 
 -- Ensures one column exists with the exact expected type/nullability/
--- (optional) default. Absent -> executes p_add_column_sql (the caller's
+-- default contract. Absent -> executes p_add_column_sql (the caller's
 -- exact ADD COLUMN statement, which fails loudly if existing rows can't
 -- satisfy it). Present -> validates; RAISEs on any mismatch.
+--
+-- p_check_default and p_expected_default are DELIBERATELY separate
+-- parameters (5A.2C-R4 fix) — collapsing "should the default be
+-- checked?" into "is expected_default NULL?" is ambiguous and unsafe:
+-- NULL cannot simultaneously mean both "skip this check" and "this
+-- column must have NO database default" without one of those two real,
+-- distinct intentions going unenforced. Concretely, an unrelated,
+-- unexpected DEFAULT added out-of-band to a column that was always
+-- meant to have none (e.g. import_batches.sha256 acquiring
+-- DEFAULT repeat('0', 64), fabricating an authoritative hash for every
+-- new row) passed silently under the old single-parameter design,
+-- because NULL was being used for both meanings at once. Every
+-- 5A.2C-owned column call below passes p_check_default = true; the only
+-- question left per-column is whether p_expected_default is NULL
+-- ("must have no database default") or an exact canonical string
+-- ("must have exactly this default").
 CREATE OR REPLACE FUNCTION pg_temp.ensure_column(
   p_table text, p_column text, p_expected_type text, p_expected_nullable boolean,
-  p_expected_default text, -- NULL means "no default requirement to check"
+  p_check_default boolean, -- false = default contract intentionally out of scope for this call
+  p_expected_default text, -- meaningful only when p_check_default; NULL = "must have NO database default", otherwise the exact canonical default expected
   p_add_column_sql text
 ) RETURNS void LANGUAGE plpgsql AS $fn$
 DECLARE
@@ -117,7 +134,7 @@ BEGIN
       p_table, p_column, r.is_nullable, (CASE WHEN p_expected_nullable THEN 'YES' ELSE 'NO' END);
   END IF;
 
-  IF p_expected_default IS NOT NULL THEN
+  IF p_check_default THEN
     SELECT pg_get_expr(ad.adbin, ad.adrelid) INTO actual_default
       FROM pg_attrdef ad
       JOIN pg_attribute a ON a.attrelid = ad.adrelid AND a.attnum = ad.adnum
@@ -127,7 +144,7 @@ BEGIN
 
     IF actual_default IS DISTINCT FROM p_expected_default THEN
       RAISE EXCEPTION 'Migration drift: public.%.% default is % but % was expected',
-        p_table, p_column, COALESCE(actual_default, 'NULL (no default)'), p_expected_default;
+        p_table, p_column, COALESCE(actual_default, 'NULL (no default)'), COALESCE(p_expected_default, 'NULL (no default)');
     END IF;
   END IF;
 END;
@@ -370,41 +387,41 @@ $fn$;
 -- independently ensured — there is no separate "whole table" branch.
 CREATE TABLE IF NOT EXISTS public.import_batches ();
 
-SELECT pg_temp.ensure_column('import_batches', 'id', 'text', false, NULL,
+SELECT pg_temp.ensure_column('import_batches', 'id', 'text', false, true, NULL,
   'ALTER TABLE public.import_batches ADD COLUMN id TEXT NOT NULL');
-SELECT pg_temp.ensure_column('import_batches', 'organisation_id', 'text', false, NULL,
+SELECT pg_temp.ensure_column('import_batches', 'organisation_id', 'text', false, true, NULL,
   'ALTER TABLE public.import_batches ADD COLUMN organisation_id TEXT NOT NULL');
-SELECT pg_temp.ensure_column('import_batches', 'uploaded_by', 'text', true, NULL,
+SELECT pg_temp.ensure_column('import_batches', 'uploaded_by', 'text', true, true, NULL,
   'ALTER TABLE public.import_batches ADD COLUMN uploaded_by TEXT');
-SELECT pg_temp.ensure_column('import_batches', 'original_filename', 'text', false, NULL,
+SELECT pg_temp.ensure_column('import_batches', 'original_filename', 'text', false, true, NULL,
   'ALTER TABLE public.import_batches ADD COLUMN original_filename TEXT NOT NULL');
-SELECT pg_temp.ensure_column('import_batches', 'content_type', 'text', false, NULL,
+SELECT pg_temp.ensure_column('import_batches', 'content_type', 'text', false, true, NULL,
   'ALTER TABLE public.import_batches ADD COLUMN content_type TEXT NOT NULL');
-SELECT pg_temp.ensure_column('import_batches', 'size_bytes', 'integer', false, NULL,
+SELECT pg_temp.ensure_column('import_batches', 'size_bytes', 'integer', false, true, NULL,
   'ALTER TABLE public.import_batches ADD COLUMN size_bytes INTEGER NOT NULL');
-SELECT pg_temp.ensure_column('import_batches', 'sha256', 'text', true, NULL,
+SELECT pg_temp.ensure_column('import_batches', 'sha256', 'text', true, true, NULL,
   'ALTER TABLE public.import_batches ADD COLUMN sha256 TEXT');
-SELECT pg_temp.ensure_column('import_batches', 'storage_provider', 'text', false, NULL,
+SELECT pg_temp.ensure_column('import_batches', 'storage_provider', 'text', false, true, NULL,
   'ALTER TABLE public.import_batches ADD COLUMN storage_provider TEXT NOT NULL');
-SELECT pg_temp.ensure_column('import_batches', 'storage_key', 'text', false, NULL,
+SELECT pg_temp.ensure_column('import_batches', 'storage_key', 'text', false, true, NULL,
   'ALTER TABLE public.import_batches ADD COLUMN storage_key TEXT NOT NULL');
-SELECT pg_temp.ensure_column('import_batches', 'storage_etag', 'text', true, NULL,
+SELECT pg_temp.ensure_column('import_batches', 'storage_etag', 'text', true, true, NULL,
   'ALTER TABLE public.import_batches ADD COLUMN storage_etag TEXT');
-SELECT pg_temp.ensure_column('import_batches', 'status', 'text', false, '''AWAITING_UPLOAD''::text',
+SELECT pg_temp.ensure_column('import_batches', 'status', 'text', false, true, '''AWAITING_UPLOAD''::text',
   'ALTER TABLE public.import_batches ADD COLUMN status TEXT NOT NULL DEFAULT ''AWAITING_UPLOAD''');
-SELECT pg_temp.ensure_column('import_batches', 'idempotency_key', 'text', true, NULL,
+SELECT pg_temp.ensure_column('import_batches', 'idempotency_key', 'text', true, true, NULL,
   'ALTER TABLE public.import_batches ADD COLUMN idempotency_key TEXT');
-SELECT pg_temp.ensure_column('import_batches', 'expected_sha256', 'text', true, NULL,
+SELECT pg_temp.ensure_column('import_batches', 'expected_sha256', 'text', true, true, NULL,
   'ALTER TABLE public.import_batches ADD COLUMN expected_sha256 TEXT');
-SELECT pg_temp.ensure_column('import_batches', 'created_at', 'timestamp with time zone', false, 'now()',
+SELECT pg_temp.ensure_column('import_batches', 'created_at', 'timestamp with time zone', false, true, 'now()',
   'ALTER TABLE public.import_batches ADD COLUMN created_at TIMESTAMPTZ NOT NULL DEFAULT now()');
-SELECT pg_temp.ensure_column('import_batches', 'updated_at', 'timestamp with time zone', false, 'now()',
+SELECT pg_temp.ensure_column('import_batches', 'updated_at', 'timestamp with time zone', false, true, 'now()',
   'ALTER TABLE public.import_batches ADD COLUMN updated_at TIMESTAMPTZ NOT NULL DEFAULT now()');
-SELECT pg_temp.ensure_column('import_batches', 'deleted_at', 'timestamp with time zone', true, NULL,
+SELECT pg_temp.ensure_column('import_batches', 'deleted_at', 'timestamp with time zone', true, true, NULL,
   'ALTER TABLE public.import_batches ADD COLUMN deleted_at TIMESTAMPTZ');
-SELECT pg_temp.ensure_column('import_batches', 'storage_deletion_status', 'text', true, NULL,
+SELECT pg_temp.ensure_column('import_batches', 'storage_deletion_status', 'text', true, true, NULL,
   'ALTER TABLE public.import_batches ADD COLUMN storage_deletion_status TEXT');
-SELECT pg_temp.ensure_column('import_batches', 'storage_deleted_at', 'timestamp with time zone', true, NULL,
+SELECT pg_temp.ensure_column('import_batches', 'storage_deleted_at', 'timestamp with time zone', true, true, NULL,
   'ALTER TABLE public.import_batches ADD COLUMN storage_deleted_at TIMESTAMPTZ');
 
 SELECT pg_temp.ensure_primary_key('import_batches', ARRAY['id'],
@@ -473,29 +490,29 @@ CREATE INDEX IF NOT EXISTS idx_import_batches_status      ON public.import_batch
 -- zero backfill required.
 -- ═══════════════════════════════════════════════════════════════════
 
-SELECT pg_temp.ensure_column('uploads', 'import_batch_id', 'text', true, NULL,
+SELECT pg_temp.ensure_column('uploads', 'import_batch_id', 'text', true, true, NULL,
   'ALTER TABLE public.uploads ADD COLUMN import_batch_id TEXT');
-SELECT pg_temp.ensure_column('uploads', 'worksheet_index', 'integer', true, NULL,
+SELECT pg_temp.ensure_column('uploads', 'worksheet_index', 'integer', true, true, NULL,
   'ALTER TABLE public.uploads ADD COLUMN worksheet_index INTEGER');
-SELECT pg_temp.ensure_column('uploads', 'worksheet_name', 'text', true, NULL,
+SELECT pg_temp.ensure_column('uploads', 'worksheet_name', 'text', true, true, NULL,
   'ALTER TABLE public.uploads ADD COLUMN worksheet_name TEXT');
-SELECT pg_temp.ensure_column('uploads', 'worksheet_visibility', 'text', true, NULL,
+SELECT pg_temp.ensure_column('uploads', 'worksheet_visibility', 'text', true, true, NULL,
   'ALTER TABLE public.uploads ADD COLUMN worksheet_visibility TEXT');
-SELECT pg_temp.ensure_column('uploads', 'worksheet_is_empty', 'boolean', true, NULL,
+SELECT pg_temp.ensure_column('uploads', 'worksheet_is_empty', 'boolean', true, true, NULL,
   'ALTER TABLE public.uploads ADD COLUMN worksheet_is_empty BOOLEAN');
-SELECT pg_temp.ensure_column('uploads', 'lineage_kind', 'text', false, '''LEGACY''::text',
+SELECT pg_temp.ensure_column('uploads', 'lineage_kind', 'text', false, true, '''LEGACY''::text',
   'ALTER TABLE public.uploads ADD COLUMN lineage_kind TEXT NOT NULL DEFAULT ''LEGACY''');
-SELECT pg_temp.ensure_column('uploads', 'canonical_status', 'text', true, NULL,
+SELECT pg_temp.ensure_column('uploads', 'canonical_status', 'text', true, true, NULL,
   'ALTER TABLE public.uploads ADD COLUMN canonical_status TEXT');
-SELECT pg_temp.ensure_column('uploads', 'last_attempt_at', 'timestamp with time zone', true, NULL,
+SELECT pg_temp.ensure_column('uploads', 'last_attempt_at', 'timestamp with time zone', true, true, NULL,
   'ALTER TABLE public.uploads ADD COLUMN last_attempt_at TIMESTAMPTZ');
-SELECT pg_temp.ensure_column('uploads', 'attempt_count', 'integer', false, '0',
+SELECT pg_temp.ensure_column('uploads', 'attempt_count', 'integer', false, true, '0',
   'ALTER TABLE public.uploads ADD COLUMN attempt_count INTEGER NOT NULL DEFAULT 0');
-SELECT pg_temp.ensure_column('uploads', 'last_failure_code', 'text', true, NULL,
+SELECT pg_temp.ensure_column('uploads', 'last_failure_code', 'text', true, true, NULL,
   'ALTER TABLE public.uploads ADD COLUMN last_failure_code TEXT');
-SELECT pg_temp.ensure_column('uploads', 'last_failure_message', 'text', true, NULL,
+SELECT pg_temp.ensure_column('uploads', 'last_failure_message', 'text', true, true, NULL,
   'ALTER TABLE public.uploads ADD COLUMN last_failure_message TEXT');
-SELECT pg_temp.ensure_column('uploads', 'last_failure_retryable', 'boolean', true, NULL,
+SELECT pg_temp.ensure_column('uploads', 'last_failure_retryable', 'boolean', true, true, NULL,
   'ALTER TABLE public.uploads ADD COLUMN last_failure_retryable BOOLEAN');
 
 SELECT pg_temp.ensure_check('uploads', 'uploads_worksheet_visibility_check',
@@ -555,7 +572,7 @@ SELECT pg_temp.ensure_unique_index('uploads', 'uploads_import_batch_worksheet_ke
 
 CREATE INDEX IF NOT EXISTS idx_uploads_import_batch ON public.uploads(import_batch_id);
 
-DROP FUNCTION IF EXISTS pg_temp.ensure_column(text, text, text, boolean, text, text);
+DROP FUNCTION IF EXISTS pg_temp.ensure_column(text, text, text, boolean, boolean, text, text);
 DROP FUNCTION IF EXISTS pg_temp.ensure_check(text, text, text, text);
 DROP FUNCTION IF EXISTS pg_temp.ensure_unique_constraint(text, text, text, text);
 DROP FUNCTION IF EXISTS pg_temp.ensure_primary_key(text, text[], text);

@@ -38,6 +38,7 @@ FAILURES=()
 
 cleanup() {
   docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
+  rm -f "${DIAG_OUT:-}" 2>/dev/null || true
 }
 trap cleanup EXIT
 
@@ -54,14 +55,21 @@ fi
 echo "Starting disposable postgres:16-alpine ($CONTAINER)..."
 docker run -d --name "$CONTAINER" -e POSTGRES_PASSWORD=test -e POSTGRES_DB=testdb postgres:16-alpine >/dev/null
 
+READY=0
 for i in $(seq 1 30); do
-  if docker exec "$CONTAINER" pg_isready -U postgres >/dev/null 2>&1; then break; fi
+  if docker exec "$CONTAINER" pg_isready -U postgres >/dev/null 2>&1; then READY=1; break; fi
   sleep 1
 done
+if [ "$READY" -ne 1 ]; then
+  echo "ERROR: postgres in $CONTAINER did not become ready within 30s." >&2
+  exit 2
+fi
+
+DIAG_OUT="/tmp/harness_last_out.$$.txt"
 
 psql_exec() {
   # Runs SQL via stdin inside the container. Returns psql's exit code.
-  docker exec -i "$CONTAINER" psql -X -q -U postgres -d testdb -v ON_ERROR_STOP=1 >/tmp/harness_last_out.txt 2>&1
+  docker exec -i "$CONTAINER" psql -X -q -U postgres -d testdb -v ON_ERROR_STOP=1 >"$DIAG_OUT" 2>&1
 }
 
 reset_db() {
@@ -117,7 +125,7 @@ SQL
 }
 
 apply_migration() {
-  docker exec -i "$CONTAINER" psql -X -q -U postgres -d testdb -v ON_ERROR_STOP=1 < "$MIGRATION" >/tmp/harness_last_out.txt 2>&1
+  docker exec -i "$CONTAINER" psql -X -q -U postgres -d testdb -v ON_ERROR_STOP=1 < "$MIGRATION" >"$DIAG_OUT" 2>&1
 }
 
 expect_success() {
@@ -127,7 +135,7 @@ expect_success() {
     PASS=$((PASS + 1))
   else
     echo "  FAIL (expected success, got error): $desc"
-    sed 's/^/    /' /tmp/harness_last_out.txt
+    sed 's/^/    /' "$DIAG_OUT"
     FAIL=$((FAIL + 1))
     FAILURES+=("$desc")
   fi
@@ -152,7 +160,7 @@ expect_migration_success() {
     PASS=$((PASS + 1))
   else
     echo "  FAIL (migration unexpectedly failed): $desc"
-    sed 's/^/    /' /tmp/harness_last_out.txt
+    sed 's/^/    /' "$DIAG_OUT"
     FAIL=$((FAIL + 1))
     FAILURES+=("$desc")
   fi
@@ -313,6 +321,76 @@ reset_db; bootstrap
 expect_success "26 setup: import_batches pre-exists with a NOT VALID organisation FK and a pre-existing row that already violates it" \
   "CREATE TABLE import_batches (id TEXT PRIMARY KEY, organisation_id TEXT NOT NULL, uploaded_by TEXT REFERENCES users(id) ON DELETE SET NULL, original_filename TEXT NOT NULL, content_type TEXT NOT NULL, size_bytes INTEGER NOT NULL, sha256 TEXT, storage_provider TEXT NOT NULL, storage_key TEXT NOT NULL UNIQUE, storage_etag TEXT, status TEXT NOT NULL DEFAULT 'AWAITING_UPLOAD', idempotency_key TEXT, expected_sha256 TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), deleted_at TIMESTAMPTZ, storage_deletion_status TEXT, storage_deleted_at TIMESTAMPTZ, UNIQUE(id, organisation_id), UNIQUE(organisation_id, idempotency_key)); INSERT INTO import_batches (id, organisation_id, original_filename, content_type, size_bytes, storage_provider, storage_key) VALUES ('batch-orphan','org-does-not-exist','x.xlsx','xlsx',10,'vercel-blob','k-orphan'); ALTER TABLE import_batches ADD CONSTRAINT import_batches_organisation_id_fkey FOREIGN KEY (organisation_id) REFERENCES organisations(id) NOT VALID;"
 expect_migration_failure "26. NOT VALID foreign key (structurally correct, but never confirmed against a pre-existing violating row) is rejected"
+
+echo ""
+echo "=== DEFAULT-CONTRACT DRIFT SCENARIOS (5A.2C-R4) ==="
+# ensure_column's p_check_default/p_expected_default separation (R4) means
+# NULL can no longer be read as "skip validation" — it must mean "this
+# column must have NO database default." These scenarios reproduce
+# Codex's exact R3 push-gate findings (27, 28) plus every other category
+# from the same defect class: an unexpected DEFAULT quietly added to a
+# column whose entire safety property is that the application (or SQL
+# CHECK logic elsewhere) fully controls its value, never Postgres.
+
+reset_db; bootstrap
+expect_migration_success "27 setup: clean migration establishes the baseline schema"
+expect_success "27 setup: add an unexpected fabricated default to import_batches.sha256" \
+  "ALTER TABLE import_batches ALTER COLUMN sha256 SET DEFAULT repeat('0', 64);"
+expect_migration_failure "27. unexpected import_batches.sha256 default (fabricated authoritative hash) is rejected"
+
+reset_db; bootstrap
+expect_migration_success "28 setup: clean migration establishes the baseline schema"
+expect_success "28 setup: add an unexpected default to uploads.import_batch_id" \
+  "ALTER TABLE uploads ALTER COLUMN import_batch_id SET DEFAULT 'bogus-batch';"
+expect_migration_failure "28. unexpected uploads.import_batch_id default (fabricated tenant/batch linkage) is rejected"
+
+reset_db; bootstrap
+expect_migration_success "29 setup: clean migration establishes the baseline schema"
+expect_success "29 setup: add an unexpected default to import_batches.expected_sha256" \
+  "ALTER TABLE import_batches ALTER COLUMN expected_sha256 SET DEFAULT repeat('a', 64);"
+expect_migration_failure "29. unexpected import_batches.expected_sha256 default (client-hint field) is rejected"
+
+reset_db; bootstrap
+expect_migration_success "30 setup: clean migration establishes the baseline schema"
+expect_success "30 setup: add an unexpected, allowed-vocabulary-looking default to uploads.canonical_status" \
+  "ALTER TABLE uploads ALTER COLUMN canonical_status SET DEFAULT 'AWAITING_CONFIRMATION';"
+expect_migration_failure "30. unexpected uploads.canonical_status default is rejected"
+
+reset_db; bootstrap
+expect_migration_success "31 setup: clean migration establishes the baseline schema"
+expect_success "31 setup: drop import_batches.status's required default" \
+  "ALTER TABLE import_batches ALTER COLUMN status DROP DEFAULT;"
+expect_migration_failure "31. required import_batches.status default missing is rejected"
+
+reset_db; bootstrap
+expect_migration_success "32 setup: clean migration establishes the baseline schema"
+expect_success "32 setup: drop uploads.lineage_kind's required default" \
+  "ALTER TABLE uploads ALTER COLUMN lineage_kind DROP DEFAULT;"
+expect_migration_failure "32. required uploads.lineage_kind default missing is rejected"
+
+reset_db; bootstrap
+expect_migration_success "33 setup: clean migration establishes the baseline schema"
+expect_success "33 setup: drop uploads.attempt_count's required default" \
+  "ALTER TABLE uploads ALTER COLUMN attempt_count DROP DEFAULT;"
+expect_migration_failure "33. required uploads.attempt_count default missing is rejected"
+
+reset_db; bootstrap
+expect_migration_success "34 setup: clean migration establishes the baseline schema"
+expect_success "34 setup: change import_batches.status's default to an unexpected value" \
+  "ALTER TABLE import_batches ALTER COLUMN status SET DEFAULT 'FAILED';"
+expect_migration_failure "34. wrong import_batches.status default (FAILED instead of AWAITING_UPLOAD) is rejected"
+
+reset_db; bootstrap
+expect_migration_success "35 setup: clean migration establishes the baseline schema"
+expect_success "35 setup: add an unexpected SQL default to the application-generated import_batches.id column (Prisma supplies cuid() app-side; no DB default was ever intended)" \
+  "ALTER TABLE import_batches ALTER COLUMN id SET DEFAULT gen_random_uuid()::text;"
+expect_migration_failure "35. unexpected SQL default on the application-generated id column is rejected"
+
+reset_db; bootstrap
+expect_migration_success "36 setup: clean migration establishes the baseline schema"
+expect_success "36 setup: add an unexpected default to the nullable-metadata column import_batches.storage_etag (representative of the broader no-default nullable/tombstone/failure category)" \
+  "ALTER TABLE import_batches ALTER COLUMN storage_etag SET DEFAULT 'unexpected-etag';"
+expect_migration_failure "36. unexpected default on a representative nullable-metadata column (storage_etag) is rejected"
 
 echo ""
 echo "=== SUMMARY: $PASS passed, $FAIL failed ==="
