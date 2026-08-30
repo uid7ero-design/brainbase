@@ -17,7 +17,15 @@ export async function GET() {
 
   if (!orgId) return NextResponse.json({ orgId: null, orgName: null });
 
-  const [org] = await sql`SELECT name FROM organisations WHERE id = ${orgId}::uuid LIMIT 1`;
+  // organisations.id is TEXT (confirmed Production schema — see
+  // app/api/admin/orgs/route.ts's own identical fix, adminOrgSavePath
+  // test suite), never uuid — an explicit ::uuid cast on one side of
+  // an equality comparison against a TEXT column has no matching
+  // operator in Postgres and fails outright, regardless of whether the
+  // id string happens to be UUID-shaped (LD Tennis's is; a cuid like
+  // City of Onkaparinga's is not, but even LD Tennis's genuinely
+  // UUID-shaped id failed this comparison before this fix).
+  const [org] = await sql`SELECT name FROM organisations WHERE id = ${orgId} LIMIT 1`;
   return NextResponse.json({ orgId, orgName: org?.name ?? null });
 }
 
@@ -29,7 +37,9 @@ export async function POST(req: NextRequest) {
   const { orgId } = await req.json() as { orgId: string };
   if (!orgId) return NextResponse.json({ error: 'orgId required' }, { status: 400 });
 
-  const [org] = await sql`SELECT id, name FROM organisations WHERE id = ${orgId}::uuid LIMIT 1`;
+  // See the GET handler's own comment — organisations.id is TEXT, no
+  // ::uuid cast.
+  const [org] = await sql`SELECT id, name FROM organisations WHERE id = ${orgId} LIMIT 1`;
   if (!org) return NextResponse.json({ error: 'Organisation not found' }, { status: 404 });
 
   const jar = await cookies();

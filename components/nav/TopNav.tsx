@@ -513,6 +513,12 @@ const ADMIN_ITEMS = [
       'Roles, access & invitations',
   },
   {
+    label: 'Client Events',
+    href: '/admin/client-events',
+    description:
+      'Platform-wide event oversight across client organisations',
+  },
+  {
     label: 'Pipeline',
     href: '/admin/pipeline',
     description:
