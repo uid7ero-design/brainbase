@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect } from "react";
+import Link from "next/link";
 
 export default function Nav() {
   const [scrolled, setScrolled] = useState(false);
@@ -22,6 +23,7 @@ export default function Nav() {
             <a href="#coaching" className="hover:text-white transition-colors">Coaching</a>
             <a href="#about" className="hover:text-white transition-colors">About</a>
             <a href="/tennis/blog" className="hover:text-white transition-colors">Blog</a>
+            <Link href="/e/ld-tennis" className="hover:text-white transition-colors">Events</Link>
           </div>
           <div className="flex items-center gap-3">
             <a href="/tennis/book" className="hidden md:block text-sm font-semibold text-green-400 hover:text-green-300 transition-colors">

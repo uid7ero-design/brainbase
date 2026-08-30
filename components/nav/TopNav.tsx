@@ -211,6 +211,13 @@ const OPS_ITEMS = [
       'Companies, contacts, deals & activities',
     capabilityKey: 'crm',
   },
+  {
+    label: 'Events',
+    href: '/events',
+    description:
+      'Publish events, manage registrations & ticketing',
+    capabilityKey: 'events',
+  },
 ];
 
 function OpsDropdown({

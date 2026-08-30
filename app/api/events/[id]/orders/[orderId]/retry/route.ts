@@ -40,14 +40,27 @@ type TicketTypeRow = { id: string; name: string; active: boolean; price_cents: n
 // uses the order's own already-stored stripe_account_id, never
 // re-derived from the organisation's current Connect settings — the
 // identical principle the refund route already applies.
-export async function POST(req: Request, { params }: Ctx) {
+export async function POST(_req: Request, { params }: Ctx) {
   const auth = await authorizeEventsRequest('manager');
   if (!auth.ok) return auth.response;
   const { session } = auth;
   const { id: eventId, orderId } = await params;
 
-  const eventRows = await sql`SELECT id, status FROM events WHERE id = ${eventId} AND organisation_id = ${session.organisationId} LIMIT 1`;
-  const event = eventRows[0] as { id: string; status: string } | undefined;
+  // Step 7 remediation: organisation/event slugs for the branded
+  // return URLs below are resolved HERE, server-side, from the same
+  // tenant-scoped query that already verifies event ownership —
+  // never from the request body. There is deliberately no slug input
+  // read anywhere in this route at all, so there is nothing for a
+  // hostile/mismatched client value to override: the only slugs that
+  // can ever reach createCheckoutSession()'s success/cancel URLs are
+  // the ones this organisation's own database rows actually have.
+  const eventRows = await sql`
+    SELECT e.id, e.status, e.slug AS event_slug, o.slug AS org_slug
+    FROM events e JOIN organisations o ON o.id = e.organisation_id
+    WHERE e.id = ${eventId} AND e.organisation_id = ${session.organisationId}
+    LIMIT 1
+  `;
+  const event = eventRows[0] as { id: string; status: string; event_slug: string; org_slug: string } | undefined;
   if (!event) return NextResponse.json({ error: 'Not found.' }, { status: 404 });
   if (event.status === 'CANCELLED') {
     return NextResponse.json({ error: 'This event has been cancelled.' }, { status: 409 });
@@ -147,25 +160,14 @@ export async function POST(req: Request, { params }: Ctx) {
   const proto = h.get('x-forwarded-proto') ?? (host.startsWith('localhost') ? 'http' : 'https');
   const origin = `${proto}://${host}`;
 
-  // organisationSlug/eventSlug are only needed for the success/cancel
-  // return URLs' path — safe to read from the request body since they
-  // are never used for anything tenant/authorization-relevant (the
-  // event/order lookups above already resolved and verified everything
-  // by session-derived organisationId, not by anything in this body).
-  let body: { organisationSlug?: unknown; eventSlug?: unknown } = {};
-  try {
-    body = await req.json();
-  } catch {
-    // no body is fine — fall back to a generic return target below
-  }
-  const orgSlug = typeof body.organisationSlug === 'string' ? body.organisationSlug : null;
-  const eventSlug = typeof body.eventSlug === 'string' ? body.eventSlug : null;
-  const successUrl = orgSlug && eventSlug
-    ? `${origin}/e/${orgSlug}/${eventSlug}/checkout/success?session_id={CHECKOUT_SESSION_ID}`
-    : `${origin}/events/${eventId}?checkout=retry-success`;
-  const cancelUrl = orgSlug && eventSlug
-    ? `${origin}/e/${orgSlug}/${eventSlug}?checkout=cancelled`
-    : `${origin}/events/${eventId}`;
+  // Always the branded public return flow (§7) — event.org_slug/
+  // event.event_slug came from the tenant-scoped query above, never
+  // from client input, so there is no generic manager-route fallback
+  // to fall back to: an authoritative slug pair is available on every
+  // request that reaches this point (an event with no slug cannot
+  // exist — slug is NOT NULL in this schema).
+  const successUrl = `${origin}/e/${event.org_slug}/${event.event_slug}/checkout/success?session_id={CHECKOUT_SESSION_ID}`;
+  const cancelUrl = `${origin}/e/${event.org_slug}/${event.event_slug}?checkout=cancelled`;
 
   try {
     const { sessionId, url } = await createCheckoutSession({
