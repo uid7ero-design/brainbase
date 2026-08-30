@@ -83,8 +83,8 @@ function AskInput({ onSend }) {
   );
 }
 
-/** @param {{ enabledCapabilities?: string[] }} props */
-export default function BrainBase({ enabledCapabilities = [] }) {
+/** @param {{ enabledCapabilities?: string[], isSuperAdmin?: boolean }} props */
+export default function BrainBase({ enabledCapabilities = [], isSuperAdmin = false }) {
   const router   = useRouter();
   const helena   = useHelena();
   const spotify  = useSpotify();
@@ -400,7 +400,7 @@ export default function BrainBase({ enabledCapabilities = [] }) {
 
       {/* ── Main shell ──────────────────────────────────────────────────── */}
       <div style={{ flex: 1, display: "flex", overflow: "hidden", position: "relative", zIndex: 10 }}>
-        <LeftSidebar open={sidebarOpen} onToggle={toggleSidebar} />
+        <LeftSidebar open={sidebarOpen} onToggle={toggleSidebar} isSuperAdmin={isSuperAdmin} />
 
         {/* ── Command Hub centre ─────────────────────────────────────────── */}
         <div style={{ flex: 1, position: "relative", overflow: "hidden", display: "flex", flexDirection: "column" }}>

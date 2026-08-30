@@ -39,9 +39,11 @@ describe('app/dashboard/page.tsx — Brainbase org resolves to Founder OS', () =
     const lastReturn = pageSource.slice(pageSource.lastIndexOf('return <BrainBase'))
     // Now carries the server-computed enabledCapabilities prop (feeds the
     // client dashboard's capability-gated "Your Tools" entry point — see
-    // moduleAccessCard.test.ts) rather than no props at all; still the
-    // same unconditional generic-shell fallthrough for variant === null.
-    expect(lastReturn).toContain('return <BrainBase enabledCapabilities={enabledCapabilities} />')
+    // moduleAccessCard.test.ts) and isSuperAdmin (feeds LeftSidebar's own
+    // role-gated Admin entry — see navPersonaCoverage.test.ts) rather than
+    // no props at all; still the same unconditional generic-shell
+    // fallthrough for variant === null.
+    expect(lastReturn).toContain("return <BrainBase enabledCapabilities={enabledCapabilities} isSuperAdmin={session.role === 'super_admin'} />")
   })
 })
 

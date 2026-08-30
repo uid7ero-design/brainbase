@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
@@ -226,6 +227,29 @@ function OpsDropdown({
   const [open, setOpen] =
     useState(false);
 
+  // The panel is portaled to document.body (see below) so its own
+  // position must be computed in viewport coordinates rather than
+  // relying on CSS `position: absolute` against this wrapper — the
+  // centre nav row it lives in has `overflowX: 'auto'` (added for
+  // horizontal scroll on a crowded nav), and ANY ancestor with overflow
+  // other than 'visible' clips ALL descendants that paint outside its
+  // box — including absolutely-positioned ones — regardless of what
+  // element establishes their own containing block. That silently
+  // clipped this panel to invisible (confirmed in a real browser: the
+  // panel existed in the DOM with correct computed styles, but was
+  // rendered with zero visible pixels) even though `open` and the item
+  // list were both completely correct. A portal is the only fix that
+  // is actually robust to this — position:fixed alone does not reliably
+  // escape an ancestor's overflow clip while the element remains a DOM
+  // descendant of that ancestor.
+  const wrapperRef =
+    useRef<HTMLDivElement>(null);
+
+  const [coords, setCoords] =
+    useState<{ top: number; left: number } | null>(
+      null,
+    );
+
   const timerRef =
     useRef<ReturnType<typeof setTimeout> | null>(
       null,
@@ -253,6 +277,16 @@ function OpsDropdown({
       clearTimeout(timerRef.current);
     }
 
+    const rect =
+      wrapperRef.current?.getBoundingClientRect();
+
+    if (rect) {
+      setCoords({
+        top: rect.bottom + 10,
+        left: rect.left,
+      });
+    }
+
     setOpen(true);
   }
 
@@ -265,6 +299,7 @@ function OpsDropdown({
 
   return (
     <div
+      ref={wrapperRef}
       style={{
         position: 'relative',
         flexShrink: 0,
@@ -334,12 +369,18 @@ function OpsDropdown({
         </svg>
       </button>
 
-      {open && (
+      {open &&
+        coords &&
+        typeof document !==
+          'undefined' &&
+        createPortal(
         <div
+          onMouseEnter={handleEnter}
+          onMouseLeave={handleLeave}
           style={{
-            position: 'absolute',
-            top: 'calc(100% + 10px)',
-            left: 0,
+            position: 'fixed',
+            top: coords.top,
+            left: coords.left,
             background:
               'rgba(7,5,16,.98)',
             border:
@@ -495,7 +536,8 @@ function OpsDropdown({
               →
             </span>
           </Link>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );
@@ -544,6 +586,18 @@ function AdminDropdown({
   const [open, setOpen] =
     useState(false);
 
+  // Portaled to document.body for the same reason OpsDropdown's panel
+  // is — see that component's own comment. The centre nav row's
+  // overflowX:'auto' silently clips this panel to invisible otherwise,
+  // even though `open` and ADMIN_ITEMS are both completely correct.
+  const wrapperRef =
+    useRef<HTMLDivElement>(null);
+
+  const [coords, setCoords] =
+    useState<{ top: number; left: number } | null>(
+      null,
+    );
+
   const timerRef =
     useRef<ReturnType<typeof setTimeout> | null>(
       null,
@@ -561,6 +615,16 @@ function AdminDropdown({
       clearTimeout(timerRef.current);
     }
 
+    const rect =
+      wrapperRef.current?.getBoundingClientRect();
+
+    if (rect) {
+      setCoords({
+        top: rect.bottom + 10,
+        left: rect.left,
+      });
+    }
+
     setOpen(true);
   }
 
@@ -574,6 +638,7 @@ function AdminDropdown({
 
   return (
     <div
+      ref={wrapperRef}
       style={{
         position: 'relative',
         flexShrink: 0,
@@ -643,12 +708,18 @@ function AdminDropdown({
         </svg>
       </button>
 
-      {open && (
+      {open &&
+        coords &&
+        typeof document !==
+          'undefined' &&
+        createPortal(
         <div
+          onMouseEnter={handleEnter}
+          onMouseLeave={handleLeave}
           style={{
-            position: 'absolute',
-            top: 'calc(100% + 10px)',
-            left: 0,
+            position: 'fixed',
+            top: coords.top,
+            left: coords.left,
             background:
               'rgba(7,5,16,.98)',
             border:
@@ -747,7 +818,8 @@ function AdminDropdown({
               </Link>
             );
           })}
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );
