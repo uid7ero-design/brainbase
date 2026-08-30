@@ -16,6 +16,7 @@ import ClarityLoader from '@/components/analytics/ClarityLoader';
 
 import { getSession } from '@/lib/session';
 import sql from '@/lib/db';
+import { resolveDashboardVariant } from '@/lib/dashboard/clientDashboard';
 
 const geistSans = Geist({
   variable: '--font-geist-sans',
@@ -107,6 +108,7 @@ export default async function RootLayout({
     name: string;
     avatarUrl?: string;
     enabledCapabilities?: string[];
+    dashboardVariant?: 'ld-tennis' | 'brainbase-hq' | null;
   } | null = null;
 
   let secureMode = false;
@@ -164,11 +166,22 @@ export default async function RootLayout({
       /* UX projection only — fail closed to an empty list. */
     }
 
+    // Same resolver app/dashboard/page.tsx already uses to decide between
+    // the Founder OS redirect, TennisDashboard, and the generic
+    // OrganisationDashboard — reused here (not reinvented) so TopNav's
+    // tenant classification can never disagree with the actual routing
+    // decision. Slug-driven, never a hardcoded org id/env var.
+    const dashboardVariant = await resolveDashboardVariant(
+      session.organisationId,
+      session.role,
+    );
+
     serverSession = {
       role: session.role,
       name: session.name,
       avatarUrl,
       enabledCapabilities,
+      dashboardVariant,
     };
   }
 

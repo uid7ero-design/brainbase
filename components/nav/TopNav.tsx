@@ -11,6 +11,7 @@ type Session = {
   avatarUrl?: string;
   enabledModules?: string[];
   enabledCapabilities?: string[];
+  dashboardVariant?: 'ld-tennis' | 'brainbase-hq' | null;
 } | null;
 
 const FONT =
@@ -81,13 +82,15 @@ function NavItem({
 // ─── HLNA hero item ──────────────────────────────────────────────────────────
 
 function HlnaItem({
+  href,
   active,
 }: {
+  href: string;
   active: boolean;
 }) {
   return (
     <Link
-      href="/dashboard"
+      href={href}
       style={{
         display: 'flex',
         alignItems: 'center',
@@ -1128,22 +1131,37 @@ function AppNav({
     role,
     name,
     avatarUrl,
-    enabledModules = [],
     enabledCapabilities = [],
+    dashboardVariant = null,
   } = session;
-
-  const isManager = [
-    'manager',
-    'admin',
-    'super_admin',
-  ].includes(role);
 
   const isSuperAdmin =
     role === 'super_admin';
 
-  const isClientOrg =
-    !isSuperAdmin &&
-    enabledModules.length === 0;
+  // Tenant classification reuses the exact same slug-driven resolver
+  // app/dashboard/page.tsx already uses to pick between the Founder OS
+  // redirect, TennisDashboard, and the generic organisation dashboard
+  // (see lib/dashboard/clientDashboard.ts, wired in server-side in
+  // app/layout.tsx) — not a second, independent classification system.
+  //
+  // Previously this branch was chosen by checking whether the caller was
+  // a non-super-admin AND had zero rows back from the (separately
+  // broken) enabledModules query — since that query always throws and
+  // fails closed to an empty array, that old condition was functionally
+  // true for every non-super-admin session on every organisation, so
+  // every generic tenant (Emma's School Test Organisation included) was
+  // silently receiving LD Tennis's bespoke Leads/SquAd/Sessions/
+  // Requests/Blog menu.
+  const isLdTennis =
+    dashboardVariant === 'ld-tennis';
+
+  const isBrainbaseHQ =
+    dashboardVariant === 'brainbase-hq';
+
+  const hasEvents =
+    enabledCapabilities.includes(
+      'events',
+    );
 
   const initials = name
     .split(' ')
@@ -1195,9 +1213,17 @@ function AppNav({
           minWidth: 0,
         }}
       >
-        {isClientOrg ? (
+        {isLdTennis ? (
           <>
+            {/* LD Tennis keeps its bespoke HLNA entry pointing at
+                /dashboard (its own TennisDashboard, not the generic
+                /hlna workspace) — audited this phase and left
+                unchanged rather than guessed at, since LD Tennis is a
+                distinct bespoke product and there's no live LD Tennis
+                session available this phase to confirm /hlna's
+                tenant-aware chat is even part of its intended flow. */}
             <HlnaItem
+              href="/dashboard"
               active={
                 pathname ===
                 '/dashboard'
@@ -1254,7 +1280,18 @@ function AppNav({
               />
             )}
 
-            {isManager && (
+            {/* Command Centre, Operations, Reports and Data are
+                Brainbase-internal tooling — gated on isBrainbaseHQ
+                (super_admin at the Brainbase org specifically), not the
+                broader isManager role check every tenant's own
+                manager/admin staff also satisfy. Previously gated by
+                isManager alone, which couldn't distinguish Brainbase's
+                own staff from a client tenant's staff who happen to
+                hold the same role — the same class of problem as the
+                broken tenant heuristic this phase replaced above — so
+                every manager-role client-tenant user (Emma included)
+                saw these too. */}
+            {isBrainbaseHQ && (
               <NavItem
                 href="/command"
                 label="Command"
@@ -1264,12 +1301,52 @@ function AppNav({
               />
             )}
 
+            {/* Generic tenant dashboard entry — not shown for
+                Brainbase HQ super_admin, who already has an
+                equivalent entry point via Founder OS above (and
+                whose own /dashboard just redirects back to
+                /admin/founder). Dashboard and Command Centre
+                (/command) are separate concepts; this does not
+                replace it. */}
+            {!isBrainbaseHQ && (
+              <NavItem
+                href="/dashboard"
+                label="Dashboard"
+                active={
+                  pathname ===
+                  '/dashboard'
+                }
+              />
+            )}
+
+            {/* Canonical HLNA destination is now the dedicated
+                /hlna workspace (Phase C.2B), not /dashboard — the
+                old link was only ever correct because /dashboard
+                used to render the HLNA-flavoured BrainBase shell;
+                now that /dashboard is the organisation dashboard
+                (Phase C.2C), pointing HLNA at it would land users on
+                the wrong page. */}
             <HlnaItem
-              active={
-                pathname ===
-                '/dashboard'
-              }
+              href="/hlna"
+              active={pathname.startsWith(
+                '/hlna',
+              )}
             />
+
+            {/* Surfaced only once the organisation's real `events`
+                capability is confirmed enabled (enabledCapabilities,
+                the same trusted m.key = om.module_key projection
+                used elsewhere) — never guessed, never hardcoded to a
+                specific org. */}
+            {hasEvents && (
+              <NavItem
+                href="/events"
+                label="Events & Ticketing"
+                active={pathname.startsWith(
+                  '/events',
+                )}
+              />
+            )}
 
             {isSuperAdmin && (
               <NavItem
@@ -1281,7 +1358,7 @@ function AppNav({
               />
             )}
 
-            {isManager && (
+            {isBrainbaseHQ && (
               <OpsDropdown
                 pathname={pathname}
                 enabledCapabilities={
@@ -1290,7 +1367,7 @@ function AppNav({
               />
             )}
 
-            {isManager && (
+            {isBrainbaseHQ && (
               <NavItem
                 href="/reports"
                 label="Reports"
@@ -1300,7 +1377,7 @@ function AppNav({
               />
             )}
 
-            {isManager && (
+            {isBrainbaseHQ && (
               <NavItem
                 href="/data"
                 label="Data"

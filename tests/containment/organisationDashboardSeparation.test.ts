@@ -187,13 +187,15 @@ describe('Phase C.2C — Events & Ticketing / module discoverability', () => {
     expect(cardSource).toMatch(/if \(entries\.length === 0\) return null;/);
   });
 
-  it('this dashboard-local Events card does not itself solve the global missing TopNav Events entry — that remains C.2D scope', () => {
-    // Documentation guard: confirms this phase did not touch TopNav/
-    // LeftSidebar as a side effect of adding dashboard-local discovery.
+  // Originally: "this dashboard-local Events card does not itself solve
+  // the global missing TopNav Events entry — that remains C.2D scope",
+  // asserting TopNav/LeftSidebar had zero /events reference. Phase C.2D
+  // has now landed that global entry, so this is updated to confirm it
+  // arrived correctly rather than pinning the pre-C.2D gap.
+  it('the global TopNav Events entry landed in C.2D, capability-gated, alongside this dashboard-local card', () => {
     const topNav = read('components/nav/TopNav.tsx');
-    const sidebar = read('components/layout/LeftSidebar.jsx');
-    expect(topNav).not.toMatch(/['"]\/events['"]/);
-    expect(sidebar).not.toMatch(/['"]\/events['"]/);
+    expect(topNav).toMatch(/['"]\/events['"]/);
+    expect(topNav).toMatch(/hasEvents/);
   });
 });
 

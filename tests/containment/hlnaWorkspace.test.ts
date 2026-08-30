@@ -325,18 +325,23 @@ describe('Phase C.2B/C.2B.1 — routing/navigation containment', () => {
     expect(clientDashboard).not.toContain('hlna');
   });
 
-  it('TopNav.tsx is untouched this phase — HlnaItem still hardcoded to /dashboard, no /hlna reference', () => {
+  // These two tests originally pinned "TopNav/LeftSidebar are untouched,
+  // HLNA still points at /dashboard" as this phase's (C.2B/C.2B.1)
+  // explicit boundary. Phase C.2D deliberately changed that — the
+  // canonical HLNA nav destination is now /hlna — so these are updated to
+  // assert the new, intentional state rather than the old one.
+  it('TopNav.tsx canonical HLNA destination is /hlna (Phase C.2D), never a route into HelenaWorkspace source directly', () => {
     const topNav = fs.readFileSync(path.join(root, 'components/nav/TopNav.tsx'), 'utf-8');
-    expect(topNav).not.toMatch(/['"]\/hlna['"]/);
+    expect(topNav).toMatch(/['"]\/hlna['"]/);
     expect(topNav).not.toContain('HelenaWorkspace');
   });
 
-  it('LeftSidebar.jsx is untouched this phase — no route reference to /hlna', () => {
+  it('LeftSidebar.jsx HLNA entry routes to /hlna (Phase C.2D)', () => {
     const sidebar = fs.readFileSync(path.join(root, 'components/layout/LeftSidebar.jsx'), 'utf-8');
     // Note: lib/hlna/departmentConfigs is a pre-existing, unrelated import
     // that itself contains the substring "/hlna" as a path segment — check
     // for an actual quoted route reference, not a bare substring.
-    expect(sidebar).not.toMatch(/['"]\/hlna['"]/);
+    expect(sidebar).toMatch(/['"]\/hlna['"]/);
     expect(sidebar).not.toContain('HelenaWorkspace');
   });
 
