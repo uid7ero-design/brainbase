@@ -52,6 +52,16 @@ import {
 // mistaken for the live guarantee — that guarantee is `token` being
 // mandatory and always explicit, never env-resolved.
 //
+// R1 remediation: precisely because `storeId` has no live effect on
+// this auth path, a mismatched `{ storeId: CORRECT, token: TOKEN_FOR_A_
+// DIFFERENT_STORE }` config would previously construct successfully
+// and silently target the wrong store on every call. verifyToken
+// StoreIdConsistency() below closes that gap at construction time: it
+// extracts the store id actually encoded in the token (via a small
+// local parser matching the SDK's own verified parsing logic — see
+// that function's comment) and fails closed if it does not match the
+// supplied storeId, before the RawFileStore object is ever returned.
+//
 // A second verification finding: PutBlobResult (the resolved value of
 // put()) never includes a `size` field at all, confirming the
 // architecture's assumption that PUT must report size from the
@@ -66,10 +76,22 @@ import {
 // other bad-request-shaped failure. isPutConflict() below is a
 // narrow, explicitly-scoped exception to "prefer typed errors over
 // message matching": message matching is used here only because no
-// typed mechanism exists for this one case. It fails CLOSED — a
-// non-matching message (e.g. the message shape changes in some future
-// SDK version) falls through to PROVIDER_FAILURE, never to a false
-// ALREADY_EXISTS and never to a silently-swallowed success.
+// typed mechanism exists for this one case.
+//
+// Collision classification currently depends on backend-provided
+// free-text wording — the "already exists" substring is a message
+// Vercel's API returns at request time, not a string baked into the
+// installed @vercel/blob package. Pinning @vercel/blob@2.8.0 pins the
+// SDK's code paths; it does NOT pin this server-side response text,
+// which can change independently of any client library version. This
+// check still fails CLOSED: a non-matching message degrades
+// classification to PROVIDER_FAILURE, never to a silent overwrite and
+// never to a swallowed failure. A future controlled live-integration
+// test against the real provisioned private store — verifying the
+// actual collision response text — is a pending pre-live-exposure
+// integration-gate item (5A.2G or a later phase, before this adapter
+// is ever reachable from a production API route), not work completed
+// here.
 
 export const VERCEL_BLOB_PRIVATE_PROVIDER = "vercel-blob-private" as const;
 
@@ -95,6 +117,78 @@ function requireNonEmptyString(name: string, value: unknown): string {
     );
   }
   return value;
+}
+
+// ─── Token / storeId self-consistency (5A.2F-R1 remediation) ─────────
+//
+// Verified directly from the installed @vercel/blob 2.8.0 source
+// (node_modules/@vercel/blob/dist/chunk-QMTUXFZH.cjs):
+//
+//   function parseStoreIdFromReadWriteToken(token) {
+//     const [, , , storeId = ""] = token.split("_");
+//     return storeId;
+//   }
+//   function normalizeStoreId(storeId) {
+//     return storeId.startsWith("store_") ? storeId.slice("store_".length) : storeId;
+//   }
+//
+// A Vercel Blob read-write token is shaped
+// `vercel_blob_rw_<storeId>_<secret>`: splitting on "_" and taking
+// index 3 recovers the store id segment the SDK itself will actually
+// use to route every call (see resolveBlobAuth in the same file),
+// independently of whatever `storeId` option is passed alongside it.
+//
+// This is a local re-implementation, not an SDK import: the package's
+// public entry point (`@vercel/blob`'s package.json `exports["."]`,
+// backed by dist/index.d.ts) re-exports parseStoreIdFromDelegationToken
+// and parseStoreIdFromPresignedUrl, but never parseStoreIdFromRead
+// WriteToken — that helper is internal to the compiled chunk and not a
+// stable public API of the package, so it is not imported here.
+function extractTokenStoreId(token: string): string {
+  const parts = token.split("_");
+  return parts[3] ?? "";
+}
+
+// Mirrors the SDK's own `normalizeStoreId` (same source file, see
+// above): a manually-supplied storeId may carry a "store_" prefix (the
+// shape Vercel's dashboard/env vars such as `BLOB_STORE_ID` use), while
+// the segment embedded inside a token never does. Both sides of the
+// comparison in verifyTokenStoreIdConsistency() must be normalized the
+// same way, or a correctly-matched pair would be misreported as
+// inconsistent.
+function normalizeStoreId(storeId: string): string {
+  return storeId.startsWith("store_") ? storeId.slice("store_".length) : storeId;
+}
+
+// Defense-in-depth the SDK itself does not provide (see the module
+// comment's "R1 remediation" note above): when `token` is supplied —
+// this adapter's only auth path — @vercel/blob derives the real target
+// store from the token and never consults `options.storeId` at all.
+// Without this check, a config like `{ storeId: CORRECT_DATAHUB_STORE,
+// token: TOKEN_FOR_SOME_OTHER_STORE }` would construct successfully
+// today and silently target the wrong store on every call. This
+// function verifies the caller-supplied storeId actually matches what
+// the token itself encodes, and fails closed — throws a plain
+// configuration Error — on any mismatch, or on a token so malformed
+// that no store id segment can be recovered at all. The token value
+// itself is never included in a thrown message; only the (non-secret)
+// store id segments are, when useful for debugging.
+function verifyTokenStoreIdConsistency(storeId: string, token: string): void {
+  const tokenStoreId = extractTokenStoreId(token);
+  if (tokenStoreId.length === 0) {
+    throw new Error(
+      "createVercelBlobFileStore: the supplied token is not a recognizable Vercel Blob " +
+        "read-write token (no store id segment could be extracted from it). Refusing to " +
+        "construct rather than risk targeting an unintended store."
+    );
+  }
+  if (normalizeStoreId(storeId) !== tokenStoreId) {
+    throw new Error(
+      `createVercelBlobFileStore: configured storeId "${storeId}" does not match the store id ` +
+        `encoded in the supplied token ("${tokenStoreId}"). Refusing to construct rather than ` +
+        "risk targeting the wrong Blob store."
+    );
+  }
 }
 
 // Narrow, documented exception to "prefer typed errors over message
@@ -124,6 +218,7 @@ function concatChunks(chunks: Uint8Array[], totalLength: number): Uint8Array {
 export function createVercelBlobFileStore(config: VercelBlobFileStoreConfig): RawFileStore {
   const storeId = requireNonEmptyString("storeId", config?.storeId);
   const token = requireNonEmptyString("token", config?.token);
+  verifyTokenStoreIdConsistency(storeId, token);
 
   // Defined once and used by both the public head() method and get()'s
   // internal HEAD-before-GET precheck, deliberately as a plain closure

@@ -44,8 +44,17 @@ const { createVercelBlobFileStore, VERCEL_BLOB_PRIVATE_PROVIDER } = await import
 );
 const { RawFileStoreError } = await import("@/lib/data-hub/storage/rawFileStore");
 
-const FAKE_STORE_ID = "store_test_datahub";
-const FAKE_TOKEN = "test-token";
+// A structurally-valid-looking (never real) Vercel Blob read-write
+// token, shaped `vercel_blob_rw_<storeId>_<secret>` per the verified
+// real SDK format (node_modules/@vercel/blob/dist/chunk-QMTUXFZH.cjs,
+// function parseStoreIdFromReadWriteToken). FAKE_STORE_ID intentionally
+// carries the "store_" prefix convention (the shape Vercel's dashboard/
+// env vars such as BLOB_STORE_ID use) to exercise the adapter's
+// storeId-normalization when comparing against the token's embedded,
+// unprefixed segment — the two must still be recognized as consistent.
+const FAKE_DATAHUB_STORE_SEGMENT = "testdatahubstore123";
+const FAKE_STORE_ID = `store_${FAKE_DATAHUB_STORE_SEGMENT}`;
+const FAKE_TOKEN = `vercel_blob_rw_${FAKE_DATAHUB_STORE_SEGMENT}_fakeSecretNeverReal0000`;
 
 function makeStore() {
   return createVercelBlobFileStore({ storeId: FAKE_STORE_ID, token: FAKE_TOKEN });
@@ -555,5 +564,141 @@ describe("vercelBlobFileStore — construction fails closed on missing configura
   it("never falls back to a default store when construction is attempted with undefined config fields", () => {
     // @ts-expect-error deliberately omitting required fields
     expect(() => createVercelBlobFileStore({})).toThrow();
+  });
+});
+
+// ─── TOKEN / STOREID SELF-CONSISTENCY (5A.2F-R1 remediation) ─────────
+//
+// The installed @vercel/blob 2.8.0 SDK derives the actual target store
+// from the `token` string itself whenever a token is supplied, and
+// never consults `options.storeId` on that path (verified from
+// node_modules/@vercel/blob/dist/chunk-QMTUXFZH.cjs — see the module
+// comment in vercelBlobFileStore.ts). These tests exercise the real
+// verifyTokenStoreIdConsistency() logic (not mocked away) to prove a
+// mismatched or malformed { storeId, token } pair is rejected at
+// construction time, before any provider call is possible.
+
+describe("vercelBlobFileStore — token/storeId self-consistency", () => {
+  it("A. a consistent storeId/token pair succeeds", () => {
+    expect(() => createVercelBlobFileStore({ storeId: FAKE_STORE_ID, token: FAKE_TOKEN })).not.toThrow();
+  });
+
+  it("B. a token encoding a different store id than the supplied storeId throws at construction", () => {
+    const mismatchedToken = "vercel_blob_rw_someTOTALLYdifferentStore999_fakeSecretNeverReal0000";
+    expect(() => createVercelBlobFileStore({ storeId: FAKE_STORE_ID, token: mismatchedToken })).toThrow();
+  });
+
+  it("C. a malformed token (no extractable store id segment) throws at construction", () => {
+    const malformedToken = "totallymalformedtokenwithnounderscores";
+    expect(() => createVercelBlobFileStore({ storeId: FAKE_STORE_ID, token: malformedToken })).toThrow();
+  });
+
+  it("D. empty token is still rejected (regression)", () => {
+    expect(() => createVercelBlobFileStore({ storeId: FAKE_STORE_ID, token: "" })).toThrow();
+  });
+
+  it("E. empty storeId is still rejected (regression)", () => {
+    expect(() => createVercelBlobFileStore({ storeId: "", token: FAKE_TOKEN })).toThrow();
+  });
+
+  it("F. the mismatch error message does not contain the fake token string used", () => {
+    const mismatchedToken = "vercel_blob_rw_someTOTALLYdifferentStore999_superSecretPortionNeverLogged";
+    let thrown: unknown;
+    try {
+      createVercelBlobFileStore({ storeId: FAKE_STORE_ID, token: mismatchedToken });
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toBeInstanceOf(Error);
+    const message = (thrown as Error).message;
+    expect(message).not.toContain(mismatchedToken);
+    expect(message).not.toContain("superSecretPortionNeverLogged");
+  });
+
+  it("G. construction failure (mismatch or malformed) never results in any provider call", () => {
+    const mismatchedToken = "vercel_blob_rw_someTOTALLYdifferentStore999_fakeSecretNeverReal0000";
+    expect(() => createVercelBlobFileStore({ storeId: FAKE_STORE_ID, token: mismatchedToken })).toThrow();
+
+    const malformedToken = "totallymalformedtokenwithnounderscores";
+    expect(() => createVercelBlobFileStore({ storeId: FAKE_STORE_ID, token: malformedToken })).toThrow();
+
+    expect(putMock).not.toHaveBeenCalled();
+    expect(headMock).not.toHaveBeenCalled();
+    expect(getMock).not.toHaveBeenCalled();
+    expect(delMock).not.toHaveBeenCalled();
+  });
+});
+
+// ─── PUT byte-conversion fidelity for offset/sliced views ────────────
+
+describe("vercelBlobFileStore — put byte-conversion fidelity", () => {
+  it("put() sends exactly the offset view's bytes, never the whole backing ArrayBuffer", async () => {
+    putMock.mockResolvedValue({ pathname: "org_a/importbatch_b", contentType: "x", etag: "e" });
+    const store = makeStore();
+
+    // One larger backing ArrayBuffer with distinct, recognizable
+    // prefix/payload/suffix byte regions.
+    const prefix = [0xaa, 0xaa, 0xaa, 0xaa];
+    const payload = [0x01, 0x02, 0x03, 0x04, 0x05];
+    const suffix = [0xbb, 0xbb, 0xbb, 0xbb];
+    const backing = new Uint8Array([...prefix, ...payload, ...suffix]).buffer;
+
+    // A VIEW into just the payload region: non-zero byteOffset, and a
+    // byteLength smaller than the full backing buffer — an actual
+    // "slice" view, not the whole buffer.
+    const view = new Uint8Array(backing, prefix.length, payload.length);
+
+    await store.put("org_a/importbatch_b", view);
+
+    const sentBody = putMock.mock.calls[0][1] as Buffer;
+    // This assertion is what would FAIL if the implementation
+    // regressed to something like Buffer.from(body.buffer) (whole
+    // backing-buffer conversion, ignoring byteOffset/byteLength).
+    expect(Buffer.isBuffer(sentBody)).toBe(true);
+    expect(sentBody.byteLength).toBe(payload.length);
+    expect(Array.from(sentBody)).toEqual(payload);
+    expect(sentBody.includes(0xaa)).toBe(false);
+    expect(sentBody.includes(0xbb)).toBe(false);
+  });
+});
+
+// ─── ZERO-BYTE COVERAGE ───────────────────────────────────────────────
+
+describe("vercelBlobFileStore — zero-byte objects", () => {
+  it("put() accepts a zero-byte body; provider receives a zero-length body; result.size === 0", async () => {
+    putMock.mockResolvedValue({ pathname: "org_a/importbatch_b", contentType: "x", etag: "e" });
+    const store = makeStore();
+    const result = await store.put("org_a/importbatch_b", new Uint8Array(0));
+    const sentBody = putMock.mock.calls[0][1] as Buffer;
+    expect(sentBody.byteLength).toBe(0);
+    expect(result.size).toBe(0);
+  });
+
+  it("head() accepts provider metadata reporting size:0 as valid, not PROVIDER_FAILURE", async () => {
+    headMock.mockResolvedValue(headResult({ size: 0 }));
+    const store = makeStore();
+    const result = await store.head("org_a/importbatch_b");
+    expect(result).toEqual({
+      provider: "vercel-blob-private",
+      size: 0,
+      contentType: "application/octet-stream",
+      etag: "etag-1",
+    });
+  });
+
+  it("get() succeeds for a zero-byte object: HEAD size:0, stream yields zero bytes, maxBytes:0", async () => {
+    headMock.mockResolvedValue(headResult({ size: 0 }));
+    getMock.mockResolvedValue(getResult([], { size: 0 }));
+    const store = makeStore();
+    const result = await store.get("org_a/importbatch_b", { maxBytes: 0 });
+    expect(result.metadata.size).toBe(0);
+    expect(result.body.byteLength).toBe(0);
+  });
+
+  it("get() with maxBytes:0 against a non-empty HEAD-declared object rejects with SIZE_LIMIT before ever calling GET", async () => {
+    headMock.mockResolvedValue(headResult({ size: 1 }));
+    const store = makeStore();
+    await expect(store.get("org_a/importbatch_b", { maxBytes: 0 })).rejects.toMatchObject({ code: "SIZE_LIMIT" });
+    expect(getMock).not.toHaveBeenCalled();
   });
 });

@@ -994,7 +994,13 @@ mistaken for the operative guarantee.
   during streaming (not only checked afterward), then a final
   actual-vs-declared size check. A `maxBytes` violation triggers a
   best-effort stream cancellation; a cancellation failure never masks
-  the real size-limit error.
+  the real size-limit error. `maxBytes` is enforced as a running,
+  per-received-chunk application-level ceiling — the adapter checks
+  immediately after each chunk and cancels on violation, but this
+  cannot prevent the underlying stream from delivering a single chunk
+  larger than `maxBytes` before application code has a chance to
+  observe it; this is not a hard process-memory or OS-level allocation
+  cap.
 - `delete`: explicit `storeId`/`token`, the canonical key verbatim, no
   URL construction, no wildcard/prefix deletion. Idempotent on a
   missing object.
@@ -1010,9 +1016,35 @@ from other "bad request" failures. Conflict detection therefore relies
 on a narrow, explicitly-scoped message-substring check, which is
 intentionally the one exception to this codebase's general preference
 for typed-error detection over string matching — used only because no
-typed mechanism exists for this specific case. It fails closed: if the
-check doesn't match, the failure is reported as a generic provider
-failure rather than a false "already exists" or a swallowed error.
+typed mechanism exists for this specific case.
+
+Collision classification currently depends on backend-provided
+free-text wording. That wording is a Vercel API response string
+returned at request time, not something baked into the installed
+`@vercel/blob` package — pinning `@vercel/blob@2.8.0` pins the SDK's
+code paths, it does not pin this server-side response text, which can
+change independently of any client library version. The check still
+fails closed: a wording change would degrade classification from
+`ALREADY_EXISTS` to `PROVIDER_FAILURE`, never to a silent overwrite and
+never to a swallowed failure. A future controlled live-integration test
+that verifies the actual collision response against the real
+provisioned private store, before this adapter is ever exposed via a
+production API route, is recorded here as a pending 5A.2G / pre-live-
+exposure integration-gate item — not as work already done.
+
+**Token/storeId self-consistency (5A.2F-R1 remediation):** the
+verified property above — that `storeId` has no live effect on the
+token auth path — means a mismatched `{ storeId, token }` pair (a
+correct storeId paired with a token for a different store) would
+otherwise construct successfully and silently target the wrong store.
+`createVercelBlobFileStore` now extracts the store id actually encoded
+in the token (a small local parser matching the SDK's own verified
+`vercel_blob_rw_<storeId>_<secret>` token format — not an SDK import,
+since this helper is not part of the package's public API surface) and
+throws a plain configuration error at construction time if it does not
+match the supplied `storeId`, or if the token is too malformed for a
+store id segment to be recovered at all. The thrown message never
+includes the token value.
 
 **Deferred to 5A.2G:** resolving the Data Hub store's env vars and
 constructing this adapter (the composition root), wiring it into the
