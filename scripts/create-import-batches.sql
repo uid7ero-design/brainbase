@@ -424,6 +424,21 @@ SELECT pg_temp.ensure_column('import_batches', 'storage_deletion_status', 'text'
 SELECT pg_temp.ensure_column('import_batches', 'storage_deleted_at', 'timestamp with time zone', true, true, NULL,
   'ALTER TABLE public.import_batches ADD COLUMN storage_deleted_at TIMESTAMPTZ');
 
+-- Data Hub 5A.2G.0 — additive attempt/failure metadata, ahead of the
+-- 5A.2G.1 initiate/finalize service layer. Naming/type conventions
+-- copied directly from uploads.last_attempt_at/attempt_count/
+-- last_failure_code/last_failure_message/last_failure_retryable above.
+SELECT pg_temp.ensure_column('import_batches', 'last_attempt_at', 'timestamp with time zone', true, true, NULL,
+  'ALTER TABLE public.import_batches ADD COLUMN last_attempt_at TIMESTAMPTZ');
+SELECT pg_temp.ensure_column('import_batches', 'attempt_count', 'integer', false, true, '0',
+  'ALTER TABLE public.import_batches ADD COLUMN attempt_count INTEGER NOT NULL DEFAULT 0');
+SELECT pg_temp.ensure_column('import_batches', 'last_failure_code', 'text', true, true, NULL,
+  'ALTER TABLE public.import_batches ADD COLUMN last_failure_code TEXT');
+SELECT pg_temp.ensure_column('import_batches', 'last_failure_message', 'text', true, true, NULL,
+  'ALTER TABLE public.import_batches ADD COLUMN last_failure_message TEXT');
+SELECT pg_temp.ensure_column('import_batches', 'last_failure_retryable', 'boolean', true, true, NULL,
+  'ALTER TABLE public.import_batches ADD COLUMN last_failure_retryable BOOLEAN');
+
 SELECT pg_temp.ensure_primary_key('import_batches', ARRAY['id'],
   'ALTER TABLE public.import_batches ADD PRIMARY KEY (id)');
 
@@ -456,6 +471,69 @@ SELECT pg_temp.ensure_check('import_batches', 'import_batches_storage_deletion_s
 SELECT pg_temp.ensure_check('import_batches', 'import_batches_ready_requires_sha256',
   'CHECK (((status <> ''READY''::text) OR (sha256 IS NOT NULL)))',
   $sql$ALTER TABLE public.import_batches ADD CONSTRAINT import_batches_ready_requires_sha256 CHECK (status <> 'READY' OR sha256 IS NOT NULL)$sql$);
+
+-- ═══════════════════════════════════════════════════════════════════
+-- Data Hub 5A.2G.0 — attempt/failure metadata CHECK constraints.
+--
+-- MIGRATION SAFETY: import_batches_failure_retryable_status_check below
+-- requires last_failure_retryable IS NOT NULL exactly when
+-- status = 'FAILED'. A straightforward `ALTER TABLE ... ADD CONSTRAINT`
+-- validates that predicate against every existing row at add-time — and
+-- this table may already contain a status='FAILED' row created before
+-- this migration phase ever ran, i.e. with last_failure_retryable NULL
+-- (the column didn't exist yet). This was verified directly against a
+-- disposable Postgres 16 container before writing this migration: a pre-
+-- existing FAILED row with last_failure_retryable NULL causes a naive
+-- `ADD CONSTRAINT ... CHECK (status = 'FAILED' AND last_failure_retryable
+-- IS NOT NULL OR ...)` to fail with "check constraint ... is violated by
+-- some row" — it does NOT succeed silently, and it does NOT skip the
+-- offending row.
+--
+-- Chosen fix: option (a) — a minimal, targeted, self-limiting, idempotent
+-- backfill of ONLY the new nullable column, for ONLY rows already in the
+-- FAILED state, run once immediately before the CHECK is added. It sets
+-- last_failure_retryable = true (a conservative "assume it might be
+-- retryable; an operator can inspect and correct it" default — never
+-- false, which would permanently foreclose a retry that might have
+-- succeeded) for any row where status = 'FAILED' AND
+-- last_failure_retryable IS NULL. This is NOT the general "backfill
+-- meaningful data" this migration otherwise avoids: it is narrowly typed
+-- to satisfy a brand-new nullability rule on a brand-new column, exactly
+-- analogous to how uploads.lineage_kind/canonical_status were introduced
+-- with safe defaults for existing rows in 5A.2C. The UPDATE is idempotent
+-- (its own WHERE clause excludes every row it has already corrected) and
+-- never touches last_failure_code/last_failure_message or any unrelated
+-- column. Options (b) (NOT VALID + separate VALIDATE CONSTRAINT) and (c)
+-- (a weaker predicate enforced only in application code) were considered
+-- and rejected as unnecessary once (a) was confirmed safe and minimal.
+--
+-- Full failure-field coherence (also requiring last_failure_code/
+-- last_failure_message non-NULL exactly when status='FAILED') is
+-- DELIBERATELY NOT enforced by a DB CHECK in this phase: unlike a boolean
+-- retryability flag, a safe backfill value for a pre-existing FAILED
+-- row's code/message would mean fabricating diagnostic text that was
+-- never actually recorded — a materially different (and unsafe) kind of
+-- backfill from the conservative boolean default above. That coherence
+-- is left to application logic in the 5A.2G.1 service layer, not a DB
+-- CHECK, per option (c).
+SELECT pg_temp.ensure_check('import_batches', 'import_batches_attempt_count_nonneg_check',
+  'CHECK ((attempt_count >= 0))',
+  'ALTER TABLE public.import_batches ADD CONSTRAINT import_batches_attempt_count_nonneg_check CHECK (attempt_count >= 0)');
+
+-- Targeted, idempotent, self-limiting backfill — see the migration-safety
+-- note above. Must run before import_batches_failure_retryable_status_check
+-- is added below.
+UPDATE public.import_batches
+  SET last_failure_retryable = true
+  WHERE status = 'FAILED' AND last_failure_retryable IS NULL;
+
+SELECT pg_temp.ensure_check('import_batches', 'import_batches_failure_retryable_status_check',
+  'CHECK ((((status = ''FAILED''::text) AND (last_failure_retryable IS NOT NULL)) OR ((status <> ''FAILED''::text) AND (last_failure_retryable IS NULL))))',
+  $sql$ALTER TABLE public.import_batches ADD CONSTRAINT import_batches_failure_retryable_status_check CHECK (status = 'FAILED' AND last_failure_retryable IS NOT NULL OR status <> 'FAILED' AND last_failure_retryable IS NULL)$sql$);
+
+SELECT pg_temp.ensure_check('import_batches', 'import_batches_failure_message_length_check',
+  'CHECK (((last_failure_message IS NULL) OR (char_length(last_failure_message) <= 500)))',
+  'ALTER TABLE public.import_batches ADD CONSTRAINT import_batches_failure_message_length_check CHECK (last_failure_message IS NULL OR char_length(last_failure_message) <= 500)');
 
 -- Required by the composite tenant-scoped FK from uploads below.
 SELECT pg_temp.ensure_unique_constraint('import_batches', 'import_batches_id_organisation_id_key',
@@ -581,6 +659,15 @@ DROP FUNCTION IF EXISTS pg_temp.ensure_unique_index(text, text, text[], text);
 
 -- Rollback (not run automatically — keep for reference if this needs to
 -- be reverted):
+--   ALTER TABLE public.import_batches DROP CONSTRAINT IF EXISTS import_batches_failure_message_length_check;
+--   ALTER TABLE public.import_batches DROP CONSTRAINT IF EXISTS import_batches_failure_retryable_status_check;
+--   ALTER TABLE public.import_batches DROP CONSTRAINT IF EXISTS import_batches_attempt_count_nonneg_check;
+--   ALTER TABLE public.import_batches
+--     DROP COLUMN IF EXISTS last_attempt_at,
+--     DROP COLUMN IF EXISTS attempt_count,
+--     DROP COLUMN IF EXISTS last_failure_code,
+--     DROP COLUMN IF EXISTS last_failure_message,
+--     DROP COLUMN IF EXISTS last_failure_retryable;
 --   ALTER TABLE public.uploads DROP CONSTRAINT IF EXISTS uploads_import_batch_org_fkey;
 --   ALTER TABLE public.uploads DROP CONSTRAINT IF EXISTS uploads_lineage_coherence_check;
 --   ALTER TABLE public.uploads DROP CONSTRAINT IF EXISTS uploads_attempt_count_nonneg_check;
