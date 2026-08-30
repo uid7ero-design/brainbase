@@ -3,8 +3,13 @@ import { getAuthSession } from '@/lib/authSession'
 import sql from '@/lib/db'
 import BrainBase from '@/components/BrainBase'
 import TennisDashboard from '@/components/dashboard/TennisDashboard'
+import OrganisationDashboard from '@/components/dashboard/OrganisationDashboard'
 import { resolveDashboardVariant } from '@/lib/dashboard/clientDashboard'
 import { greetingLine, currentAdelaideHour } from '@/lib/dashboard/greeting'
+
+async function q<T>(query: Promise<T>, fallback: T): Promise<T> {
+  return query.catch(() => fallback)
+}
 
 export default async function DashboardPage() {
   // getAuthSession() re-validates against the DB (cross-org-reassignment
@@ -122,5 +127,57 @@ export default async function DashboardPage() {
     )
   }
 
-  return <BrainBase />
+  // Generic tenant fallthrough (Phase C.2C) — the organisation dashboard,
+  // not <BrainBase />. Real, organisation-scoped data only: the same
+  // waste_records/fleet_metrics/service_requests query shape already
+  // proven in app/dashboard/overview/page.tsx (untouched by this phase),
+  // and the same correct m.key = om.module_key capability join already
+  // used in app/api/me/route.ts and app/api/chat/route.ts's Phase C.2B.3
+  // tenant-identity block — not the separate, known-broken m.id =
+  // om.module_id enabledModules query. Every query fails closed to an
+  // empty/zero fallback; OrganisationDashboard only renders a section
+  // when its own data genuinely has rows for this organisation.
+  const oid = session.organisationId
+
+  const [orgRow, capRows, wasteRows, fleetRows, srRows] = await Promise.all([
+    q(sql`SELECT name FROM organisations WHERE id = ${oid} LIMIT 1`, []),
+    q(sql`
+      SELECT m.key, m.name
+      FROM organisation_modules om
+      JOIN modules m ON m.key = om.module_key
+      WHERE om.organisation_id = ${oid} AND om.enabled = true AND m.active = true
+      ORDER BY m.name
+    `, []),
+    q(sql`
+      SELECT
+        COALESCE(SUM(cost),0)::float               AS total_cost,
+        COALESCE(SUM(tonnes),0)::float              AS total_tonnes,
+        COALESCE(AVG(contamination_rate),0)::float  AS avg_contamination
+      FROM waste_records WHERE organisation_id = ${oid}
+    `, []),
+    q(sql`
+      SELECT
+        COALESCE(SUM(fuel),0)::float        AS total_fuel,
+        COALESCE(SUM(maintenance),0)::float AS total_maintenance,
+        COALESCE(SUM(wages),0)::float       AS total_wages,
+        COALESCE(SUM(defects),0)::bigint    AS total_defects,
+        COUNT(DISTINCT vehicle_id)::bigint  AS vehicle_count
+      FROM fleet_metrics WHERE organisation_id = ${oid}
+    `, []),
+    q(sql`
+      SELECT status, COUNT(*)::bigint AS count, COALESCE(AVG(days_open),0)::float AS avg_days
+      FROM service_requests WHERE organisation_id = ${oid}
+      GROUP BY status
+    `, []),
+  ])
+
+  return (
+    <OrganisationDashboard
+      orgName={(orgRow[0] as { name?: string } | undefined)?.name}
+      enabledCapabilities={(capRows as { key: string }[]).map(r => r.key)}
+      waste={(wasteRows[0] ?? {}) as Record<string, number>}
+      fleet={(fleetRows[0] ?? {}) as Record<string, number>}
+      serviceRequests={srRows as { status: string; count: number; avg_days: number }[]}
+    />
+  )
 }
