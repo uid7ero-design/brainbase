@@ -105,6 +105,19 @@ export function orderStatusTone(status: string): Tone {
   return 'neutral';
 }
 
+// Phase 4 — payment_status is a distinct dimension from status above
+// (see scripts/add-events-payments.sql); NOT_REQUIRED (every free
+// order) deliberately renders no badge at all rather than a "Free"
+// badge competing for attention next to the order status badge — see
+// RegistrationsPanel's own usage.
+export function paymentStatusTone(paymentStatus: string): Tone {
+  if (paymentStatus === 'PAID') return 'success';
+  if (paymentStatus === 'PENDING') return 'warning';
+  if (paymentStatus === 'REFUNDED') return 'neutral';
+  if (paymentStatus === 'FAILED' || paymentStatus === 'EXPIRED') return 'danger';
+  return 'neutral';
+}
+
 // ─── Buttons ─────────────────────────────────────────────────────────
 
 export const primaryBtnStyle: React.CSSProperties = {

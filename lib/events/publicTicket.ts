@@ -34,6 +34,17 @@ export type PublicTicketResult =
 // clause below is still explicit about it for defense in depth) both
 // collapse to the same { ok: false } — a caller can never distinguish
 // "wrong token" from "token exists, wrong tenant".
+//
+// Phase 4 payment gating needs no change here: ticket_token is only
+// ever set by lib/events/stripe.ts's issueTicketTokensForPaidOrder(),
+// which only runs once a Checkout Session's own payment_status is
+// genuinely 'paid' (see that file's handleCheckoutSessionCompleted
+// comment) — a PENDING/FAILED/EXPIRED paid order therefore never has a
+// row this query can find at all, and a REFUNDED order's existing
+// token still resolves but correctly reports CANCELLED below, since a
+// refund also sets the owning order's `status` to CANCELLED (§23's
+// explicit "refund also cancels tickets" choice — see the refund
+// route's own comment).
 export async function getPublicTicketDetail(ticketToken: string): Promise<PublicTicketResult> {
   if (!ticketToken || typeof ticketToken !== 'string') return { ok: false };
 

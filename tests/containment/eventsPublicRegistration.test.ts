@@ -267,8 +267,8 @@ describe('Public registration — ticket type / session ownership and business r
       ...VALID_BODY,
       price_cents: 999999, total_cents: 999999, organisation_id: 'org-b', organisationId: 'org-b', role: 'super_admin',
     }), CTX)
-    // Non-session path: 0=org, 1=event, 2=ticket-type, 3=lock, 4=diagnostic count, 5=capacity-gated insert.
-    const insertArgs = callArgs(5)
+    // Non-session path: 0=org, 1=event, 2=ticket-type, 3=active-questions lookup, 4=lock, 5=diagnostic count, 6=capacity-gated insert.
+    const insertArgs = callArgs(6)
     expect(insertArgs).not.toContain(999999)
     expect(insertArgs).not.toContain('org-b')
   })
@@ -363,8 +363,10 @@ describe('Public registration — transaction structure (R1: split lock / post-l
   it('mutation proof — the ticket-type lock statement acquires FOR UPDATE and is NOT itself an aggregate/count statement (lock and count are genuinely separate statements, not merged)', async () => {
     queue(ORG_ROW, PUBLISHED_EVENT_ROW, FREE_ACTIVE_TICKET_TYPE_ROW)
     await registerRoute.POST(req(VALID_BODY), CTX)
-    // 0=org, 1=event, 2=ticket-type, 3=lock ticket type, 4=diagnostic count, 5=insert.
-    const lockText = callText(3)
+    // 0=org, 1=event, 2=ticket-type, 3=active-questions lookup (Phase 4B,
+    // §5 — runs once, before the transaction, to validate any submitted
+    // responses), 4=lock ticket type, 5=diagnostic count, 6=insert.
+    const lockText = callText(4)
     expect(lockText).toMatch(/FOR UPDATE/i)
     expect(lockText).toMatch(/event_ticket_types/i)
     expect(lockText).not.toMatch(/SUM\(/i)
@@ -374,7 +376,7 @@ describe('Public registration — transaction structure (R1: split lock / post-l
   it('mutation proof — the diagnostic sold-quantity count is a standalone statement, submitted AFTER the lock statement, containing no FOR UPDATE and no INSERT', async () => {
     queue(ORG_ROW, PUBLISHED_EVENT_ROW, FREE_ACTIVE_TICKET_TYPE_ROW)
     await registerRoute.POST(req(VALID_BODY), CTX)
-    const countText = callText(4)
+    const countText = callText(5)
     expect(countText).toMatch(/SUM\(/i)
     expect(countText).not.toMatch(/FOR UPDATE/i)
     expect(countText).not.toMatch(/INSERT INTO/i)
@@ -383,7 +385,7 @@ describe('Public registration — transaction structure (R1: split lock / post-l
   it('mutation proof A — the capacity-gated insert statement gates on ticket-type capacity via a fresh (post-lock) sold-quantity comparison', async () => {
     queue(ORG_ROW, PUBLISHED_EVENT_ROW, FREE_ACTIVE_TICKET_TYPE_ROW)
     await registerRoute.POST(req(VALID_BODY), CTX)
-    const insertText = callText(5)
+    const insertText = callText(6)
     expect(insertText).toMatch(/INSERT INTO event_orders/i)
     expect(insertText).toMatch(/sold_tt\.qty \+ .* <= \(SELECT capacity FROM event_ticket_types/i)
   })
@@ -391,19 +393,19 @@ describe('Public registration — transaction structure (R1: split lock / post-l
   it('mutation proof B — when a session is selected, the ticket-type lock is acquired BEFORE the session lock (deterministic lock order), and the insert ALSO gates on session capacity', async () => {
     queue(ORG_ROW, PUBLISHED_EVENT_ROW, FREE_ACTIVE_TICKET_TYPE_ROW, SESSION_ROW)
     await registerRoute.POST(req({ ...VALID_BODY, event_session_id: 'sess-1' }), CTX)
-    // 0=org, 1=event, 2=ticket-type, 3=session, 4=lock tt, 5=lock session, 6=diag tt, 7=diag sess, 8=insert.
-    expect(callText(4)).toMatch(/FOR UPDATE/i)
-    expect(callText(4)).toMatch(/event_ticket_types/i)
+    // 0=org, 1=event, 2=ticket-type, 3=session, 4=active-questions lookup, 5=lock tt, 6=lock session, 7=diag tt, 8=diag sess, 9=insert.
     expect(callText(5)).toMatch(/FOR UPDATE/i)
-    expect(callText(5)).toMatch(/event_sessions/i)
-    const insertText = callText(8)
+    expect(callText(5)).toMatch(/event_ticket_types/i)
+    expect(callText(6)).toMatch(/FOR UPDATE/i)
+    expect(callText(6)).toMatch(/event_sessions/i)
+    const insertText = callText(9)
     expect(insertText).toMatch(/sold_sess\.qty \+ .* <= \(SELECT capacity FROM event_sessions/i)
   })
 
   it('mutation proof C — order, item, and attendee creation all happen inside the SAME capacity-gated insert statement (never split across separate writes)', async () => {
     queue(ORG_ROW, PUBLISHED_EVENT_ROW, FREE_ACTIVE_TICKET_TYPE_ROW)
     await registerRoute.POST(req(VALID_BODY), CTX)
-    const text = callText(5)
+    const text = callText(6)
     expect(text).toMatch(/INSERT INTO event_orders/i)
     expect(text).toMatch(/INSERT INTO event_order_items/i)
     expect(text).toMatch(/INSERT INTO event_attendees/i)
@@ -412,7 +414,7 @@ describe('Public registration — transaction structure (R1: split lock / post-l
   it('the capacity-gated insert never runs unconditionally — the order insert itself SELECTs FROM the sold-quantity CTE that carries the WHERE gate', async () => {
     queue(ORG_ROW, PUBLISHED_EVENT_ROW, FREE_ACTIVE_TICKET_TYPE_ROW)
     await registerRoute.POST(req(VALID_BODY), CTX)
-    const text = callText(5)
+    const text = callText(6)
     const orderInsertIndex = text.search(/INSERT INTO event_orders/i)
     const afterOrderInsert = text.slice(orderInsertIndex)
     expect(afterOrderInsert.slice(0, 400)).toMatch(/FROM sold_tt/i)

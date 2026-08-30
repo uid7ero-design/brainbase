@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Image from 'next/image';
 import { Calendar, Clock, MapPin, Users, Minus, Plus, CheckCircle2, Ticket } from 'lucide-react';
-import type { PublicEventDetail, PublicSession, PublicTicketType } from '@/lib/events/publicEventDetail';
+import type { PublicEventDetail, PublicSession, PublicTicketType, PublicQuestion } from '@/lib/events/publicEventDetail';
 
 const FONT = 'var(--font-inter), "Inter", -apple-system, sans-serif';
 
@@ -116,6 +116,16 @@ function formatTime(iso: string, timeZone: string): string {
 function formatPrice(cents: number): string {
   return cents === 0 ? 'Free' : `$${(cents / 100).toFixed(2)}`;
 }
+// Exported (not just used inline) so it's directly unit-testable — see
+// tests/containment/eventsPublicCheckoutTotal.test.ts. Integer cents
+// in, integer cents out; never floating-point dollars at any point.
+// This is the exact same formula the checkout route computes
+// server-side (`ticketType.price_cents * validated.quantity`) — kept
+// here only for DISPLAY, so the number shown always matches what
+// Stripe is actually charged, for any quantity, not just quantity 1.
+export function computeSelectionTotalCents(unitPriceCents: number, quantity: number): number {
+  return unitPriceCents * quantity;
+}
 // "280 places remaining" — sentence case, never the all-caps "280
 // REMAINING" the uppercase-transform styling used to force onto this
 // same text.
@@ -159,12 +169,22 @@ export default function PublicEventClient({
   organisationSlug,
   eventSlug,
   detail,
+  checkoutCancelled,
 }: {
   organisationSlug: string;
   eventSlug: string;
   detail: PublicEventDetail;
+  checkoutCancelled: boolean;
 }) {
-  const { event, sessions, ticket_types: ticketTypes } = detail;
+  const { event, sessions, ticket_types: ticketTypes, questions } = detail;
+  // Phase 4B §5 — the two scopes always render as two separate blocks
+  // (never interleaved): ORDER questions once, under "Booking details";
+  // ATTENDEE questions once per attendee, under each attendee's own
+  // name field. This grouping is also why QuestionsPanel's manager-side
+  // reorder only swaps within a scope group — crossing the boundary
+  // wouldn't change anything visible here.
+  const orderQuestions = questions.filter(q => q.scope === 'ORDER');
+  const attendeeQuestions = questions.filter(q => q.scope === 'ATTENDEE');
 
   const [ticketTypeId, setTicketTypeId] = useState(ticketTypes[0]?.id ?? '');
   const [sessionId, setSessionId] = useState('');
@@ -173,6 +193,13 @@ export default function PublicEventClient({
   const [purchaserEmail, setPurchaserEmail] = useState('');
   const [purchaserPhone, setPurchaserPhone] = useState('');
   const [attendeeNames, setAttendeeNames] = useState<string[]>(['']);
+  // Keyed by question id. orderAnswers is a single record (once per
+  // booking); attendeeAnswers is one record per attendee, resized in
+  // lockstep with attendeeNames by the same setQuantityAndResizeAttendees
+  // below, so a quantity change never leaves an attendee's answers
+  // pointing at the wrong array index.
+  const [orderAnswers, setOrderAnswers] = useState<Record<string, unknown>>({});
+  const [attendeeAnswers, setAttendeeAnswers] = useState<Record<string, unknown>[]>([{}]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmation, setConfirmation] = useState<{ reference: string; quantity: number; tickets: { attendee_name: string; ticket_token: string }[] } | null>(null);
@@ -181,6 +208,19 @@ export default function PublicEventClient({
   const selectedSession = sessions.find(s => s.id === sessionId);
   const maxQuantity = selectedTicketType ? Math.max(0, Math.min(selectedTicketType.remaining, 20)) : 0;
   const availability = availabilityState(ticketTypes);
+  const isPaidSelection = (selectedTicketType?.price_cents ?? 0) > 0;
+  const totalCents = computeSelectionTotalCents(selectedTicketType?.price_cents ?? 0, quantity);
+
+  // Running step counter (rather than hand-computed arithmetic per
+  // label) so inserting/removing an optional step — sessions, booking
+  // details — can never desynchronise the numbers shown elsewhere.
+  let stepCounter = 1;
+  const stepTicket = stepCounter++;
+  const stepSession = sessions.length > 0 ? stepCounter++ : null;
+  const stepQuantity = stepCounter++;
+  const stepPurchaser = stepCounter++;
+  const stepOrderQuestions = orderQuestions.length > 0 ? stepCounter++ : null;
+  const stepAttendee = stepCounter++;
 
   function setQuantityAndResizeAttendees(next: number) {
     setQuantity(next);
@@ -189,15 +229,67 @@ export default function PublicEventClient({
       while (arr.length < next) arr.push('');
       return arr;
     });
+    setAttendeeAnswers(prev => {
+      const arr = prev.slice(0, next);
+      while (arr.length < next) arr.push({});
+      return arr;
+    });
   }
 
+  // Structural-shape builder for the wire format lib/events/
+  // publicValidation.ts's parseResponsesArray() expects — only
+  // questions the visitor actually has a value for are included (an
+  // untouched optional field simply never appears in the array, rather
+  // than being sent as an explicit null); the server treats a missing
+  // entry for a required question as "not answered" either way.
+  function buildResponses(qs: PublicQuestion[], answers: Record<string, unknown>) {
+    return qs.filter(q => q.id in answers).map(q => ({ question_id: q.id, answer: answers[q.id] }));
+  }
+
+  // Client-side required-field enforcement is UX only — the server
+  // (lib/events/registrationQuestions.ts's validateSubmittedResponses)
+  // is authoritative and re-checks every one of these independently.
+  // Native HTML `required` already covers SHORT_TEXT/LONG_TEXT/
+  // SINGLE_SELECT (an empty <select>/<input> blocks submission) and
+  // YES_NO (two radios sharing one `name`, each marked required — the
+  // browser treats the whole group as satisfied once either is
+  // checked). MULTI_SELECT has no native equivalent for "at least one
+  // checkbox in this set must be checked", so it's the one case that
+  // needs an explicit pre-submit check here.
+  function findMissingRequiredMultiSelect(): string | null {
+    for (const q of orderQuestions) {
+      if (q.field_type !== 'MULTI_SELECT' || !q.required) continue;
+      const value = orderAnswers[q.id];
+      if (!Array.isArray(value) || value.length === 0) return `${q.label} is required.`;
+    }
+    for (let i = 0; i < attendeeAnswers.length; i++) {
+      for (const q of attendeeQuestions) {
+        if (q.field_type !== 'MULTI_SELECT' || !q.required) continue;
+        const value = attendeeAnswers[i]?.[q.id];
+        if (!Array.isArray(value) || value.length === 0) return `${q.label} is required for Attendee ${i + 1}.`;
+      }
+    }
+    return null;
+  }
+
+  // Free ticket types post to /register and land on the in-page
+  // confirmation state below, unchanged from Phase 2/3. A paid ticket
+  // type (price_cents > 0) instead posts to /checkout, which reserves
+  // capacity and returns a Stripe-hosted Checkout URL — the browser is
+  // redirected there directly; there is no local "confirmation" state
+  // for a paid submission, since nothing is confirmed yet (§5: only the
+  // webhook, after Stripe redirects back to /checkout/success, can
+  // confirm payment).
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (submitting) return;
     setError(null);
+    const missing = findMissingRequiredMultiSelect();
+    if (missing) { setError(missing); return; }
     setSubmitting(true);
+    const paid = (selectedTicketType?.price_cents ?? 0) > 0;
     try {
-      const res = await fetch(`/api/public/events/${organisationSlug}/${eventSlug}/register`, {
+      const res = await fetch(`/api/public/events/${organisationSlug}/${eventSlug}/${paid ? 'checkout' : 'register'}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -207,18 +299,24 @@ export default function PublicEventClient({
           purchaser_name: purchaserName,
           purchaser_email: purchaserEmail,
           purchaser_phone: purchaserPhone || undefined,
-          attendees: attendeeNames.map(name => ({ name })),
+          attendees: attendeeNames.map((name, i) => ({ name, responses: buildResponses(attendeeQuestions, attendeeAnswers[i] ?? {}) })),
+          order_responses: buildResponses(orderQuestions, orderAnswers),
         }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setError(body.error ?? `Registration failed (${res.status}).`);
+        setError(body.error ?? `${paid ? 'Checkout' : 'Registration'} failed (${res.status}).`);
+        setSubmitting(false);
         return;
       }
+      if (paid) {
+        window.location.href = body.checkout_url;
+        return; // leave `submitting` true — the page is navigating away
+      }
       setConfirmation({ reference: body.confirmation_reference, quantity: body.quantity, tickets: body.tickets ?? [] });
+      setSubmitting(false);
     } catch {
-      setError('Registration failed. Please try again.');
-    } finally {
+      setError(`${paid ? 'Checkout' : 'Registration'} failed. Please try again.`);
       setSubmitting(false);
     }
   }
@@ -346,7 +444,7 @@ export default function PublicEventClient({
               ) : (
                 <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
                   <fieldset style={{ border: 'none', margin: 0, padding: 0 }}>
-                    <StepLabel index={1} text="Choose ticket" />
+                    <StepLabel index={stepTicket} text="Choose ticket" />
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                       {ticketTypes.map(t => (
                         <TicketOption
@@ -361,7 +459,7 @@ export default function PublicEventClient({
 
                   {sessions.length > 0 && (
                     <fieldset style={{ border: 'none', margin: 0, padding: 0 }}>
-                      <StepLabel index={2} text="Choose session" />
+                      <StepLabel index={stepSession as number} text="Choose session" />
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                         <label className="bb-radio-card">
                           <input type="radio" name="event-session" value="" checked={sessionId === ''} onChange={() => setSessionId('')} />
@@ -377,7 +475,7 @@ export default function PublicEventClient({
                   )}
 
                   <fieldset style={{ border: 'none', margin: 0, padding: 0 }}>
-                    <StepLabel index={sessions.length > 0 ? 3 : 2} text="Quantity" />
+                    <StepLabel index={stepQuantity} text="Quantity" />
                     <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                       <button
                         type="button" aria-label="Decrease quantity" className="bb-event-stepper-btn"
@@ -404,7 +502,7 @@ export default function PublicEventClient({
                   </fieldset>
 
                   <fieldset style={{ border: 'none', margin: 0, padding: 0 }}>
-                    <StepLabel index={sessions.length > 0 ? 4 : 3} text="Purchaser details" />
+                    <StepLabel index={stepPurchaser} text="Purchaser details" />
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                       <Field label="Name">
                         <input required value={purchaserName} onChange={e => setPurchaserName(e.target.value)} className="bb-event-input" autoComplete="name" />
@@ -418,20 +516,76 @@ export default function PublicEventClient({
                     </div>
                   </fieldset>
 
-                  <fieldset style={{ border: 'none', margin: 0, padding: 0 }}>
-                    <StepLabel index={sessions.length > 0 ? 5 : 4} text="Attendee details" />
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                      {attendeeNames.map((name, i) => (
-                        <Field key={i} label={`Attendee ${i + 1}`}>
-                          <input
-                            required value={name}
-                            onChange={e => setAttendeeNames(prev => prev.map((n, idx) => (idx === i ? e.target.value : n)))}
-                            className="bb-event-input"
+                  {orderQuestions.length > 0 && (
+                    <fieldset style={{ border: 'none', margin: 0, padding: 0 }}>
+                      <StepLabel index={stepOrderQuestions as number} text="Booking details" />
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                        {orderQuestions.map(q => (
+                          <QuestionField
+                            key={q.id}
+                            question={q}
+                            value={orderAnswers[q.id]}
+                            onChange={v => setOrderAnswers(prev => ({ ...prev, [q.id]: v }))}
                           />
-                        </Field>
+                        ))}
+                      </div>
+                    </fieldset>
+                  )}
+
+                  <fieldset style={{ border: 'none', margin: 0, padding: 0 }}>
+                    <StepLabel index={stepAttendee} text="Attendee details" />
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: attendeeQuestions.length > 0 ? 14 : 12 }}>
+                      {attendeeNames.map((name, i) => (
+                        <div
+                          key={i}
+                          style={attendeeQuestions.length > 0
+                            ? { border: `1px solid ${BORDER_SOFT}`, borderRadius: 10, padding: 12, display: 'flex', flexDirection: 'column', gap: 12 }
+                            : undefined}
+                        >
+                          <Field label={`Attendee ${i + 1}`}>
+                            <input
+                              required value={name}
+                              onChange={e => setAttendeeNames(prev => prev.map((n, idx) => (idx === i ? e.target.value : n)))}
+                              className="bb-event-input"
+                            />
+                          </Field>
+                          {attendeeQuestions.map(q => (
+                            <QuestionField
+                              key={q.id}
+                              question={q}
+                              value={attendeeAnswers[i]?.[q.id]}
+                              onChange={v => setAttendeeAnswers(prev => prev.map((a, idx) => (idx === i ? { ...a, [q.id]: v } : a)))}
+                            />
+                          ))}
+                        </div>
                       ))}
                     </div>
                   </fieldset>
+
+                  {selectedTicketType && (
+                    <div style={{
+                      display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
+                      borderTop: `1px solid ${BORDER_SOFT}`, paddingTop: 14, fontSize: 13,
+                    }}>
+                      <span style={{ color: TEXT_SECONDARY }}>
+                        {isPaidSelection
+                          ? `${quantity} × ${formatPrice(selectedTicketType.price_cents)}`
+                          : `${quantity} ticket${quantity === 1 ? '' : 's'}`}
+                      </span>
+                      <span style={{ fontWeight: 700, fontSize: 15, color: isPaidSelection ? VIOLET_SOFT : GREEN }}>
+                        {isPaidSelection ? `Total ${formatPrice(totalCents)}` : 'Free'}
+                      </span>
+                    </div>
+                  )}
+
+                  {checkoutCancelled && !error && (
+                    <div role="alert" style={{
+                      fontSize: 13, color: TEXT_SECONDARY, background: 'rgba(255,255,255,.03)',
+                      border: `1px solid ${BORDER}`, borderRadius: 9, padding: '10px 12px', lineHeight: 1.5,
+                    }}>
+                      Payment was not completed.
+                    </div>
+                  )}
 
                   {error && (
                     <div role="alert" style={{
@@ -444,7 +598,9 @@ export default function PublicEventClient({
 
                   <button type="submit" disabled={submitting || maxQuantity <= 0} className="bb-event-cta">
                     {submitting && <span className="bb-event-spin" aria-hidden="true" />}
-                    {submitting ? 'Confirming…' : 'Confirm registration'}
+                    {submitting
+                      ? (isPaidSelection ? 'Redirecting to payment…' : 'Confirming…')
+                      : (isPaidSelection ? `Pay ${formatPrice(totalCents)}` : 'Confirm registration')}
                   </button>
                 </form>
               )}
@@ -479,6 +635,70 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       {label}
       {children}
     </label>
+  );
+}
+
+// Phase 4B §5 — renders one registration question, for either scope
+// (the caller passes the right value/onChange for ORDER vs a specific
+// attendee's slot in ATTENDEE). Native HTML `required` covers every
+// field type except MULTI_SELECT — see findMissingRequiredMultiSelect's
+// own comment above for why that one case needs a manual pre-submit
+// check instead.
+function QuestionField({ question, value, onChange }: { question: PublicQuestion; value: unknown; onChange: (v: unknown) => void }) {
+  const label = question.required ? question.label : `${question.label} (optional)`;
+  const groupName = `q-${question.id}`;
+  return (
+    <Field label={label}>
+      {question.help_text && <span style={{ fontSize: 11.5, color: TEXT_MUTED, fontWeight: 400 }}>{question.help_text}</span>}
+      {question.field_type === 'SHORT_TEXT' && (
+        <input
+          required={question.required} maxLength={300} value={(value as string) ?? ''}
+          onChange={e => onChange(e.target.value)} className="bb-event-input"
+        />
+      )}
+      {question.field_type === 'LONG_TEXT' && (
+        <textarea
+          required={question.required} maxLength={4000} value={(value as string) ?? ''}
+          onChange={e => onChange(e.target.value)} className="bb-event-input" style={{ minHeight: 72, resize: 'vertical' }}
+        />
+      )}
+      {question.field_type === 'YES_NO' && (
+        <div style={{ display: 'flex', gap: 16 }}>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, color: TEXT_PRIMARY, fontWeight: 400 }}>
+            <input type="radio" required={question.required} name={groupName} checked={value === true} onChange={() => onChange(true)} /> Yes
+          </label>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, color: TEXT_PRIMARY, fontWeight: 400 }}>
+            <input type="radio" required={question.required} name={groupName} checked={value === false} onChange={() => onChange(false)} /> No
+          </label>
+        </div>
+      )}
+      {question.field_type === 'SINGLE_SELECT' && (
+        <select
+          required={question.required} value={(value as string) ?? ''}
+          onChange={e => onChange(e.target.value || undefined)} className="bb-event-input"
+        >
+          <option value="">Select…</option>
+          {(question.options ?? []).map(o => <option key={o} value={o}>{o}</option>)}
+        </select>
+      )}
+      {question.field_type === 'MULTI_SELECT' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+          {(question.options ?? []).map(o => {
+            const selected = Array.isArray(value) ? (value as string[]) : [];
+            const checked = selected.includes(o);
+            return (
+              <label key={o} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13, color: TEXT_PRIMARY, fontWeight: 400 }}>
+                <input
+                  type="checkbox" checked={checked}
+                  onChange={e => onChange(e.target.checked ? [...selected, o] : selected.filter(x => x !== o))}
+                />
+                {o}
+              </label>
+            );
+          })}
+        </div>
+      )}
+    </Field>
   );
 }
 

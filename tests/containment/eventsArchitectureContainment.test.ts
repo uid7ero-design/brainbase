@@ -119,9 +119,13 @@ describe('Events architecture containment — no payment dependency', () => {
     })
   }
 
-  it('package.json has no new payment dependency', () => {
+  // Stripe was explicitly authorized in a later, dedicated pass (Phase
+  // 4 paid tickets) — this Phase 1 boundary predates that
+  // authorization. What it still correctly guards is that no OTHER
+  // payment provider was ever added.
+  it('package.json has no payment dependency other than the authorized Stripe integration', () => {
     const pkg = read('package.json')
-    expect(pkg).not.toMatch(/"stripe"|"paypal"|"square"/i)
+    expect(pkg).not.toMatch(/"paypal"|"square"/i)
   })
 })
 

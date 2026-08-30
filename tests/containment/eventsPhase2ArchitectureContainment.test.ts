@@ -46,10 +46,26 @@ describe('Events Phase 2 containment — no QR/payment/email/CRM/audit scope cre
       expect(code).not.toMatch(/qrcode|jsbarcode|bwip|getUserMedia|barcode/i)
     })
 
-    it(`${file} has no payment gateway dependency`, () => {
-      const code = stripComments(read(file))
-      expect(code).not.toMatch(/stripe|paypal|square|checkout\.session|payment_intent/i)
-    })
+    // Stripe was explicitly authorized in a LATER, dedicated pass
+    // (Phase 4 paid tickets — see the Phase 4 payments test file for
+    // its own full architecture-containment suite, including that no
+    // SECOND payment provider was added). This Phase 2 file list
+    // includes two files Phase 4 legitimately modified to add payment
+    // awareness (the backend orders route now surfaces
+    // payment_status/stripe_payment_intent_id-derived fields; the
+    // registrations panel now shows payment badges and a refund
+    // action) — the check below still runs for every OTHER file in
+    // this list, which remain genuinely payment-free.
+    const paymentAuthorizedInPhase4 = [
+      'app/api/events/[id]/orders/route.ts',
+      'app/events/[id]/RegistrationsPanel.tsx',
+    ]
+    if (!paymentAuthorizedInPhase4.includes(file)) {
+      it(`${file} has no payment gateway dependency`, () => {
+        const code = stripComments(read(file))
+        expect(code).not.toMatch(/stripe|paypal|square|checkout\.session|payment_intent/i)
+      })
+    }
 
     it(`${file} sends no email`, () => {
       const code = stripComments(read(file))
@@ -81,13 +97,14 @@ describe('Events Phase 2 containment — no QR/payment/email/CRM/audit scope cre
 
   // qrcode/jsqr were explicitly authorized in a LATER, dedicated pass
   // (Phase 3 digital tickets + check-in — see
-  // tests/containment/eventsPhase3Ticketing.test.ts). This Phase 2
-  // containment suite's own boundary predates that authorization; what
-  // it still correctly guards is that Phase 2 itself never added a
-  // payment dependency, which remains true and remains prohibited.
-  it('package.json has no payment dependency', () => {
+  // tests/containment/eventsPhase3Ticketing.test.ts), and stripe in a
+  // still-later one (Phase 4 paid tickets — see the Phase 4 payments
+  // test file). This Phase 2 containment suite's own boundary predates
+  // both authorizations; what it still correctly guards is that NO
+  // OTHER payment provider was ever added alongside Stripe.
+  it('package.json has no payment dependency other than the authorized Stripe integration', () => {
     const pkg = read('package.json')
-    expect(pkg).not.toMatch(/"jsbarcode"|"stripe"|"paypal"|"square"/i)
+    expect(pkg).not.toMatch(/"jsbarcode"|"paypal"|"square"/i)
   })
 
   it('no attendee/order/check-in QR-token column exists in the Phase 2 SQL script (deferred to Phase 3)', () => {

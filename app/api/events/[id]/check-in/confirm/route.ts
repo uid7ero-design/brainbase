@@ -57,8 +57,9 @@ export async function POST(req: NextRequest, { params }: Ctx) {
 
   const result = await confirmCheckIn(session.organisationId, id, identifier, session.userId);
   if (!result.ok) {
-    const status = result.reason === 'cancelled' ? 409 : 404;
-    return NextResponse.json({ error: result.reason === 'cancelled' ? 'Ticket cancelled.' : 'Ticket not valid.', reason: result.reason }, { status });
+    const status = result.reason === 'not_found' ? 404 : 409;
+    const message = result.reason === 'cancelled' ? 'Ticket cancelled.' : result.reason === 'unpaid' ? 'Payment not completed.' : 'Ticket not valid.';
+    return NextResponse.json({ error: message, reason: result.reason }, { status });
   }
   return NextResponse.json({ first: result.first, attendee: result.attendee }, { status: result.first ? 200 : 409 });
 }

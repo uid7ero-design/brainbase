@@ -52,6 +52,7 @@ export default function AdminAside({ name }: { name: string }) {
         <div style={section}>Platform</div>
         <a href="/admin/orgs"          style={link('/admin/orgs')}>Organisations</a>
         <a href="/admin/users"         style={link('/admin/users')}>Users</a>
+        <Link href="/admin/client-events" style={link('/admin/client-events')}>Client Events</Link>
         <a href="/admin/agent-runs"    style={link('/admin/agent-runs')}>Agent Runs</a>
         <a href="/admin/agent-test"    style={link('/admin/agent-test')}>Agent Test</a>
       </nav>

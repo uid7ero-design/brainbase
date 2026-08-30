@@ -91,17 +91,31 @@ export default function AdminClient({ orgs: initial, users: initialUsers }: Prop
   async function createOrg(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true); setError(''); setSuccess('');
-    const res = await fetch('/api/admin/orgs', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(orgForm),
-    });
-    const data = await res.json();
-    if (!res.ok) { flash(data.error ?? 'Failed.', true); setSaving(false); return; }
-    setOrgs(p => [data.org, ...p]);
-    setOrgForm({ name: '', slug: '' });
-    flash(`Organisation "${data.org.name}" created.`);
-    setSaving(false);
-    router.refresh();
+    try {
+      const res = await fetch('/api/admin/orgs', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(orgForm),
+      });
+      // Tolerate a non-JSON response body (e.g. an uncontrolled server
+      // failure) instead of letting res.json() throw and strand the
+      // "Creating…" state — never treat that as success. Same fix as
+      // saveOrg below already has; createOrg previously lacked both
+      // this AND any try/catch/finally at all, which is exactly what
+      // let a failed create hang forever instead of showing an error.
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data) {
+        flash(data?.error ?? 'Unable to create organisation.', true);
+        return;
+      }
+      setOrgs(p => [data.org, ...p]);
+      setOrgForm({ name: '', slug: '' });
+      flash(`Organisation "${data.org.name}" created.`);
+      router.refresh();
+    } catch {
+      flash('Unable to create organisation.', true);
+    } finally {
+      setSaving(false);
+    }
   }
 
   function openEditOrg(org: Org) {
@@ -148,17 +162,27 @@ export default function AdminClient({ orgs: initial, users: initialUsers }: Prop
   async function createUser(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true); setError(''); setSuccess('');
-    const res = await fetch('/api/admin/users', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(userForm),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) { flash(data.error ?? 'Failed.', true); setSaving(false); return; }
-    setUsers(p => [data.user, ...p]);
-    setUserForm({ username: '', password: '', name: '', email: '', role: 'manager', organisationId: '' });
-    flash(`User "${data.user.username}" created.`);
-    setSaving(false);
-    router.refresh();
+    // Same fix as createOrg above (see its own comment): wrapped in
+    // try/catch/finally so a network-level failure (fetch() itself
+    // throwing) can never strand the "Creating…" state — the
+    // res.json().catch(() => ({})) tolerance already existed here, but
+    // that alone didn't cover a rejected fetch() promise.
+    try {
+      const res = await fetch('/api/admin/users', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(userForm),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { flash(data.error ?? 'Failed.', true); return; }
+      setUsers(p => [data.user, ...p]);
+      setUserForm({ username: '', password: '', name: '', email: '', role: 'manager', organisationId: '' });
+      flash(`User "${data.user.username}" created.`);
+      router.refresh();
+    } catch {
+      flash('Unable to create user.', true);
+    } finally {
+      setSaving(false);
+    }
   }
 
   function openEditUser(user: User) {

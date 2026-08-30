@@ -11,6 +11,7 @@ type Session = {
   avatarUrl?: string;
   enabledModules?: string[];
   enabledCapabilities?: string[];
+  dashboardVariant?: 'ld-tennis' | 'brainbase-hq' | null;
 } | null;
 
 const FONT =
@@ -53,6 +54,7 @@ function NavItem({
         transition:
           'color .14s, background .14s, border-color .14s',
         whiteSpace: 'nowrap',
+        flexShrink: 0,
       }}
       onMouseEnter={e => {
         if (active) return;
@@ -106,6 +108,7 @@ function HlnaItem({
           ? '0 0 14px rgba(139,92,246,.18)'
           : 'none',
         transition: 'all .18s',
+        flexShrink: 0,
       }}
       onMouseEnter={e => {
         if (active) return;
@@ -264,6 +267,7 @@ function OpsDropdown({
     <div
       style={{
         position: 'relative',
+        flexShrink: 0,
       }}
       onMouseEnter={handleEnter}
       onMouseLeave={handleLeave}
@@ -513,6 +517,12 @@ const ADMIN_ITEMS = [
       'Roles, access & invitations',
   },
   {
+    label: 'Client Events',
+    href: '/admin/client-events',
+    description:
+      'Platform-wide event oversight across client organisations',
+  },
+  {
     label: 'Pipeline',
     href: '/admin/pipeline',
     description:
@@ -566,6 +576,7 @@ function AdminDropdown({
     <div
       style={{
         position: 'relative',
+        flexShrink: 0,
       }}
       onMouseEnter={handleEnter}
       onMouseLeave={handleLeave}
@@ -826,6 +837,7 @@ function SquadItem({
         transition:
           'color .14s, background .14s, border-color .14s',
         whiteSpace: 'nowrap',
+        flexShrink: 0,
       }}
       onMouseEnter={e => {
         if (active) return;
@@ -1130,7 +1142,10 @@ function AppNav({
     avatarUrl,
     enabledModules = [],
     enabledCapabilities = [],
+    dashboardVariant = null,
   } = session;
+
+  const isLdTennis = dashboardVariant === 'ld-tennis';
 
   const isManager = [
     'manager',
@@ -1184,7 +1199,14 @@ function AppNav({
         }}
       />
 
-      {/* Centre navigation */}
+      {/* Centre navigation — overflowX auto + flexShrink:0 on every item
+          (see each item's own style below) is the smallest fix for a
+          crowded/narrow nav: items keep their natural, legible width and
+          the row scrolls horizontally instead of squeezing/clipping pill
+          text unreadable. scrollbarWidth/msOverflowStyle hide the
+          scrollbar chrome (Firefox/older Edge) without needing a
+          stylesheet; WebKit browsers show a slim default scrollbar, which
+          is an acceptable, non-blocking affordance here. */}
       <div
         style={{
           display: 'flex',
@@ -1193,6 +1215,10 @@ function AppNav({
           gap: 2,
           flex: 1,
           minWidth: 0,
+          overflowX: 'auto',
+          overflowY: 'hidden',
+          scrollbarWidth: 'none',
+          msOverflowStyle: 'none',
         }}
       >
         {isClientOrg ? (
@@ -1204,28 +1230,72 @@ function AppNav({
               }
             />
 
-            <NavItem
-              href="/dashboard/leads"
-              label="Leads"
-              active={pathname.startsWith(
-                '/dashboard/leads',
-              )}
-            />
+            {/*
+              Events is a first-class, always-visible pill here (never
+              behind a hover-only dropdown) because a client
+              organisation's nav — unlike the internal-staff branch
+              below — has no Operations dropdown to bury it in at all.
+              Gated by the real enabledCapabilities projection, same as
+              every other capability-gated entry in this file.
+            */}
+            {enabledCapabilities.includes(
+              'events',
+            ) && (
+              <NavItem
+                href="/events"
+                label="Events"
+                active={pathname.startsWith(
+                  '/events',
+                )}
+              />
+            )}
 
-            <SquadItem
-              active={pathname.startsWith(
-                '/dashboard/contacts',
-              )}
-            />
+            {/*
+              Leads/Squad(Contacts)/Sessions/Blog are LD Tennis's own
+              coaching-business tools (tennis_leads, the "Program"/
+              "Session Times" contact fields, the tennis session-type
+              catalogue, and the /api/tennis/blog namespace — none of
+              this is generic client data). Gated on dashboardVariant,
+              the SAME slug-driven resolver app/dashboard/page.tsx
+              already uses to render TennisDashboard instead of the
+              generic BrainBase shell for this one organisation — not a
+              new capability, not a hardcoded organisation id. A generic
+              client organisation (e.g. School Test Organisation) never
+              matches 'ld-tennis' and correctly never sees these.
+            */}
+            {isLdTennis && (
+              <>
+                <NavItem
+                  href="/dashboard/leads"
+                  label="Leads"
+                  active={pathname.startsWith(
+                    '/dashboard/leads',
+                  )}
+                />
 
-            <NavItem
-              href="/dashboard/sessions"
-              label="Sessions"
-              active={pathname.startsWith(
-                '/dashboard/sessions',
-              )}
-            />
+                <SquadItem
+                  active={pathname.startsWith(
+                    '/dashboard/contacts',
+                  )}
+                />
 
+                <NavItem
+                  href="/dashboard/sessions"
+                  label="Sessions"
+                  active={pathname.startsWith(
+                    '/dashboard/sessions',
+                  )}
+                />
+              </>
+            )}
+
+            {/*
+              Requests (client_pipeline) is a genuine platform-global
+              channel — feature requests/issues/feedback from ANY
+              BrainBase client to the BrainBase founder, not tied to
+              tennis or any other vertical — so it stays visible for
+              every client organisation, not just LD Tennis.
+            */}
             <NavItem
               href="/dashboard/pipeline"
               label="Requests"
@@ -1234,13 +1304,15 @@ function AppNav({
               )}
             />
 
-            <NavItem
-              href="/dashboard/blog"
-              label="Blog"
-              active={pathname.startsWith(
-                '/dashboard/blog',
-              )}
-            />
+            {isLdTennis && (
+              <NavItem
+                href="/dashboard/blog"
+                label="Blog"
+                active={pathname.startsWith(
+                  '/dashboard/blog',
+                )}
+              />
+            )}
           </>
         ) : (
           <>
@@ -1287,6 +1359,26 @@ function AppNav({
                 enabledCapabilities={
                   enabledCapabilities
                 }
+              />
+            )}
+
+            {/*
+              Promoted out of the Operations dropdown to its own
+              always-visible pill — a hover-only menu entry isn't
+              discoverable enough for a major module. Same
+              enabledCapabilities gate as every other capability-gated
+              entry in this file; never shown to an organisation
+              without the events capability.
+            */}
+            {enabledCapabilities.includes(
+              'events',
+            ) && (
+              <NavItem
+                href="/events"
+                label="Events"
+                active={pathname.startsWith(
+                  '/events',
+                )}
               />
             )}
 
@@ -1547,6 +1639,10 @@ export default function TopNav({
           enabledCapabilities?: {
             key: string;
           }[];
+          dashboardVariant?:
+            | 'ld-tennis'
+            | 'brainbase-hq'
+            | null;
         }>;
       })
       .then(d => {
@@ -1575,6 +1671,9 @@ export default function TopNav({
                     key: string;
                   }) => c.key,
                 ),
+                dashboardVariant:
+                  d.dashboardVariant ??
+                  null,
               }
             : null,
         );

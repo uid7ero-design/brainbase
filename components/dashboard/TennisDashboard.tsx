@@ -7,6 +7,7 @@ import TodaysSchedule, {
   type TodaySessionInstance,
 } from './TodaysSchedule'
 import { HlnaOrb } from '@/components/brand/HlnaOrb'
+import { ModuleAccessCard } from './ModuleAccessCard'
 import type { SessionTypeRow } from '@/lib/sessionDisplay'
 
 const FONT =
@@ -94,6 +95,7 @@ export type Props = {
   leadsPerDay: { day: string; leads: number }[]
   todaysSessions: TodaySessionInstance[]
   sessionTypes: SessionTypeRow[]
+  enabledCapabilities?: string[]
 }
 
 function StatCard({
@@ -259,6 +261,7 @@ export default function TennisDashboard({
   leadsPerDay,
   todaysSessions,
   sessionTypes,
+  enabledCapabilities = [],
 }: Props) {
   const todayLabel = new Date().toLocaleDateString('en-AU', {
     weekday: 'long',
@@ -324,6 +327,11 @@ export default function TennisDashboard({
             <span>→</span>
           </Link>
         </section>
+
+        {/* Module access — capability-gated entry points (e.g. Events &
+            Ticketing). Renders nothing when no module is enabled — see
+            ModuleAccessCard's own comment. */}
+        <ModuleAccessCard enabledCapabilities={enabledCapabilities} />
 
         {/* KPIs */}
         <section className="bb-kpi-grid">

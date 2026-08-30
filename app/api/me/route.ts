@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import sql from '@/lib/db';
 import { getSession } from '@/lib/session';
+import { resolveDashboardVariant } from '@/lib/dashboard/clientDashboard';
 
 export async function GET() {
   const session = await getSession();
@@ -67,6 +68,13 @@ export async function GET() {
     // UX projection only — fail closed to an empty list, never leak the error.
   }
 
+  // Same slug-driven resolver app/dashboard/page.tsx and app/layout.tsx
+  // already use to pick the bespoke client experience (if any) an
+  // organisation owns — reused here so TopNav's client-fetch fallback
+  // (this endpoint) can gate LD-Tennis-specific nav items with the same
+  // rule the server-rendered path already applies via serverSession.
+  const dashboardVariant = await resolveDashboardVariant(session.organisationId, session.role);
+
   return NextResponse.json({
     userId:         session.userId,
     organisationId: session.organisationId ?? null,
@@ -76,5 +84,6 @@ export async function GET() {
     org:            org ?? null,
     enabledModules,
     enabledCapabilities,
+    dashboardVariant,
   });
 }
