@@ -32,25 +32,32 @@ export async function POST(_req: Request, { params }: Ctx) {
   if (!eventRows.length) return NextResponse.json({ error: 'Not found.' }, { status: 404 });
 
   const orderRows = await sql`
-    SELECT id, payment_status, stripe_payment_intent_id
+    SELECT id, payment_status, stripe_payment_intent_id, stripe_account_id
     FROM event_orders
     WHERE id = ${orderId} AND event_id = ${eventId} AND organisation_id = ${session.organisationId}
     LIMIT 1
   `;
-  const order = orderRows[0] as { id: string; payment_status: string; stripe_payment_intent_id: string | null } | undefined;
+  const order = orderRows[0] as { id: string; payment_status: string; stripe_payment_intent_id: string | null; stripe_account_id: string | null } | undefined;
   if (!order) return NextResponse.json({ error: 'Not found.' }, { status: 404 });
 
-  if (order.payment_status !== 'PAID' || !order.stripe_payment_intent_id) {
+  if (order.payment_status !== 'PAID' || !order.stripe_payment_intent_id || !order.stripe_account_id) {
     return NextResponse.json({ error: 'Only a paid order can be refunded.' }, { status: 409 });
   }
 
+  // Phase 4A (§18): refunds against the order's own HISTORICAL
+  // stripe_account_id — recorded once, at reservation time — never
+  // the organisation's CURRENT Connect settings. If an organisation
+  // ever reconnects/changes its account, an old order's refund still
+  // correctly targets the account that actually holds that specific
+  // charge (see EventOrder.stripe_account_id's schema comment).
+  //
   // DB state is written ONLY after Stripe confirms the refund
   // succeeded — never before (§22's explicit "update payment/order
   // state only after provider confirms success"). If Stripe's call
   // fails, this route returns an error and the order remains PAID,
   // exactly as it was; nothing is left in an ambiguous intermediate
   // state.
-  const refundResult = await createRefund(order.stripe_payment_intent_id);
+  const refundResult = await createRefund(order.stripe_payment_intent_id, order.stripe_account_id);
   if (!refundResult.ok) {
     return NextResponse.json({ error: refundResult.error }, { status: 502 });
   }
