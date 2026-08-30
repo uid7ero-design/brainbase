@@ -71,6 +71,18 @@ vi.mock('@/lib/events/stripe', () => ({
   StripeNotConfiguredError: MockStripeNotConfiguredError,
 }))
 
+// Phase 4A — every checkout attempt now goes through the Connect
+// eligibility gate first; mocked as eligible-by-default here so the
+// pre-existing Phase 4 checkout/refund tests (written before Connect
+// existed) keep exercising exactly what they always did. Connect's OWN
+// behaviour (ineligible orgs, account-id propagation, etc.) is covered
+// in tests/containment/eventsPhase4AConnect.test.ts, not duplicated
+// here.
+const checkPaidTicketingEligibilityMock = vi.fn()
+vi.mock('@/lib/events/stripeConnect', () => ({
+  checkPaidTicketingEligibility: (...args: unknown[]) => checkPaidTicketingEligibilityMock(...args),
+}))
+
 function queue(...responses: unknown[][]) { responseQueue = responses; callCount = 0 }
 function sessionAs(role: string, organisationId = 'org-a') { return { userId: 'staff-1', organisationId, role } }
 function jsonReq(url: string, method: string, body?: unknown) {
@@ -102,6 +114,7 @@ beforeEach(() => {
   constructWebhookEventMock.mockReset()
   processStripeWebhookEventMock.mockReset()
   createRefundMock.mockReset()
+  checkPaidTicketingEligibilityMock.mockReset()
   responseQueue = []
   callCount = 0
   transactionFinalResult = [{ order_id: 'order-1' }]
@@ -110,6 +123,7 @@ beforeEach(() => {
   requireCapabilityMock.mockResolvedValue({ key: 'events', config: {} })
   checkRateLimitMock.mockReturnValue(true)
   createCheckoutSessionMock.mockResolvedValue({ sessionId: 'cs_test_123', url: 'https://checkout.stripe.com/pay/cs_test_123' })
+  checkPaidTicketingEligibilityMock.mockResolvedValue({ eligible: true, accountId: 'acct_test_org_a' })
 })
 
 // ─── Paid checkout reservation route ────────────────────────────────
@@ -403,14 +417,14 @@ describe('Refund route — permissions and provider-confirms-first ordering', ()
   })
 
   it('an order that is not PAID is rejected -> 409, Stripe never called', async () => {
-    queue([{ id: 'event-1' }], [{ id: 'order-1', payment_status: 'PENDING', stripe_payment_intent_id: null }])
+    queue([{ id: 'event-1' }], [{ id: 'order-1', payment_status: 'PENDING', stripe_payment_intent_id: null, stripe_account_id: null }])
     const res = await refundRoute.POST(refundReq(), CTX)
     expect(res.status).toBe(409)
     expect(createRefundMock).not.toHaveBeenCalled()
   })
 
   it('if Stripe refund fails, DB state is NOT updated and a 502 is returned', async () => {
-    queue([{ id: 'event-1' }], [{ id: 'order-1', payment_status: 'PAID', stripe_payment_intent_id: 'pi_1' }])
+    queue([{ id: 'event-1' }], [{ id: 'order-1', payment_status: 'PAID', stripe_payment_intent_id: 'pi_1', stripe_account_id: 'acct_org_a' }])
     createRefundMock.mockResolvedValue({ ok: false, error: 'card issuer declined' })
     const res = await refundRoute.POST(refundReq(), CTX)
     expect(res.status).toBe(502)
@@ -418,11 +432,11 @@ describe('Refund route — permissions and provider-confirms-first ordering', ()
   })
 
   it('on Stripe success, DB is updated to REFUNDED/CANCELLED — and only after Stripe confirmed', async () => {
-    queue([{ id: 'event-1' }], [{ id: 'order-1', payment_status: 'PAID', stripe_payment_intent_id: 'pi_1' }], [{ id: 'order-1' }])
+    queue([{ id: 'event-1' }], [{ id: 'order-1', payment_status: 'PAID', stripe_payment_intent_id: 'pi_1', stripe_account_id: 'acct_org_a' }], [{ id: 'order-1' }])
     createRefundMock.mockResolvedValue({ ok: true })
     const res = await refundRoute.POST(refundReq(), CTX)
     expect(res.status).toBe(200)
-    expect(createRefundMock).toHaveBeenCalledWith('pi_1')
+    expect(createRefundMock).toHaveBeenCalledWith('pi_1', 'acct_org_a')
     expect(sqlMock).toHaveBeenCalledTimes(3)
   })
 
