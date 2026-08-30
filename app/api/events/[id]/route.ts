@@ -58,6 +58,7 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
     slug: mergeField(body, 'slug', existing.slug),
     description: mergeField(body, 'description', existing.description),
     venue: mergeField(body, 'venue', existing.venue),
+    artwork_url: mergeField(body, 'artwork_url', existing.artwork_url),
     status: mergeField(body, 'status', existing.status),
     starts_at: mergeField(body, 'starts_at', toIsoString(existing.starts_at)),
     ends_at: mergeField(body, 'ends_at', toIsoString(existing.ends_at)),
@@ -72,6 +73,7 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
         name = ${merged.name as string}, slug = ${merged.slug as string},
         description = ${(merged.description as string | null) ?? null},
         venue = ${(merged.venue as string | null) ?? null},
+        artwork_url = ${(merged.artwork_url as string | null) || null},
         status = ${merged.status as string},
         starts_at = ${merged.starts_at as string}, ends_at = ${merged.ends_at as string},
         timezone = ${merged.timezone as string}, updated_at = now()

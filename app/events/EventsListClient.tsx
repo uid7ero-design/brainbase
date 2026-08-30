@@ -2,9 +2,14 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
+import { Calendar, MapPin, ChevronRight } from 'lucide-react';
 import KpiCard from '@/components/dashboard/ui/KpiCard';
+import {
+  FONT, TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED, VIOLET_SOFT,
+  Panel, EmptyState, StatusBadge, eventStatusTone,
+  primaryBtnStyle, fieldStyle, inputStyle, EventsSharedStyles,
+} from './_components/ui';
 
-const FONT = 'var(--font-inter),-apple-system,sans-serif';
 const API = '/api/events';
 
 type EventRow = {
@@ -26,12 +31,6 @@ function slugify(name: string) {
     .trim()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '');
-}
-
-function statusColour(status: EventRow['status']) {
-  if (status === 'PUBLISHED') return '#10b981';
-  if (status === 'CANCELLED') return '#ef4444';
-  return '#9ca3af';
 }
 
 export default function EventsListClient({ canManage }: { canManage: boolean }) {
@@ -133,123 +132,125 @@ export default function EventsListClient({ canManage }: { canManage: boolean }) 
   const total = events?.length ?? 0;
   const published = events?.filter(e => e.status === 'PUBLISHED').length ?? 0;
   const draft = events?.filter(e => e.status === 'DRAFT').length ?? 0;
+  // "Upcoming" is derivable purely from starts_at, already present on
+  // every row — no new query. Registrations/attendee totals are NOT
+  // currently returned by GET /api/events (only session_count/
+  // ticket_type_count are), so that KPI is intentionally omitted here
+  // rather than adding a new aggregate query — see the R1/UI-polish
+  // report's backend-change confirmation.
+  const upcoming = events?.filter(e => e.status !== 'CANCELLED' && new Date(e.starts_at) > new Date()).length ?? 0;
 
   return (
-    <div style={{ padding: 32, fontFamily: FONT, color: '#e5e7eb', maxWidth: 1100, margin: '0 auto' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>Events &amp; Ticketing</h1>
+    <div style={{ padding: 32, fontFamily: FONT, color: TEXT_PRIMARY, maxWidth: 1140, margin: '0 auto' }}>
+      <EventsSharedStyles />
+
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, marginBottom: 24, flexWrap: 'wrap' }}>
+        <div>
+          <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0, letterSpacing: '-.01em' }}>Events</h1>
+          <p style={{ fontSize: 13, color: TEXT_MUTED, margin: '5px 0 0' }}>Create, manage and monitor registrations</p>
+        </div>
         {canManage && (
-          <button
-            onClick={() => setShowCreate(v => !v)}
-            style={{
-              background: '#7C3AED', color: '#fff', border: 'none', borderRadius: 8,
-              padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer',
-            }}
-          >
+          <button onClick={() => setShowCreate(v => !v)} style={primaryBtnStyle}>
             {showCreate ? 'Cancel' : '+ Create Event'}
           </button>
         )}
       </div>
 
       <div style={{ display: 'flex', gap: 12, marginBottom: 24, flexWrap: 'wrap' }}>
-        <KpiCard label="Total Events" value={events ? total : '—'} accentColor="#7C3AED" theme="dark" loading={events === null} />
-        <KpiCard label="Published" value={events ? published : '—'} accentColor="#10b981" theme="dark" loading={events === null} />
+        <KpiCard label="Total Events" value={events ? total : '—'} accentColor="#8A4DFF" theme="dark" loading={events === null} />
+        <KpiCard label="Published" value={events ? published : '—'} accentColor="#4ADE80" theme="dark" loading={events === null} />
+        <KpiCard label="Upcoming" value={events ? upcoming : '—'} accentColor="#A78BFA" theme="dark" loading={events === null} />
         <KpiCard label="Draft" value={events ? draft : '—'} accentColor="#9ca3af" theme="dark" loading={events === null} />
       </div>
 
       {showCreate && canManage && (
-        <form
-          onSubmit={handleCreate}
-          style={{
-            background: 'rgba(255,255,255,.03)', border: '1px solid rgba(255,255,255,.08)',
-            borderRadius: 12, padding: 20, marginBottom: 24, display: 'flex', flexDirection: 'column', gap: 12,
-          }}
-        >
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        <Panel style={{ marginBottom: 24 }}>
+          <form onSubmit={handleCreate} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <label style={fieldStyle}>
+                Name
+                <input required className="bb-evt-input" value={name} onChange={e => { setName(e.target.value); if (!slugTouched) setSlug(slugify(e.target.value)); }} style={inputStyle} />
+              </label>
+              <label style={fieldStyle}>
+                Slug
+                <input required className="bb-evt-input" value={slug} onChange={e => { setSlug(e.target.value); setSlugTouched(true); }} style={inputStyle} />
+              </label>
+            </div>
             <label style={fieldStyle}>
-              Name
-              <input required value={name} onChange={e => { setName(e.target.value); if (!slugTouched) setSlug(slugify(e.target.value)); }} style={inputStyle} />
+              Venue
+              <input className="bb-evt-input" value={venue} onChange={e => setVenue(e.target.value)} style={inputStyle} />
             </label>
             <label style={fieldStyle}>
-              Slug
-              <input required value={slug} onChange={e => { setSlug(e.target.value); setSlugTouched(true); }} style={inputStyle} />
+              Description
+              <textarea className="bb-evt-input" value={description} onChange={e => setDescription(e.target.value)} style={{ ...inputStyle, minHeight: 60 }} />
             </label>
-          </div>
-          <label style={fieldStyle}>
-            Venue
-            <input value={venue} onChange={e => setVenue(e.target.value)} style={inputStyle} />
-          </label>
-          <label style={fieldStyle}>
-            Description
-            <textarea value={description} onChange={e => setDescription(e.target.value)} style={{ ...inputStyle, minHeight: 60 }} />
-          </label>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <label style={fieldStyle}>
-              Starts
-              <input required type="datetime-local" value={startsAt} onChange={e => setStartsAt(e.target.value)} style={inputStyle} />
-            </label>
-            <label style={fieldStyle}>
-              Ends
-              <input required type="datetime-local" value={endsAt} onChange={e => setEndsAt(e.target.value)} style={inputStyle} />
-            </label>
-          </div>
-          <div style={{ fontSize: 11, color: '#9ca3af' }}>Timezone: {timezone}</div>
-          {formError && <div style={{ color: '#ef4444', fontSize: 12 }}>{formError}</div>}
-          <button
-            type="submit"
-            disabled={saving}
-            style={{
-              alignSelf: 'flex-start', background: '#7C3AED', color: '#fff', border: 'none',
-              borderRadius: 8, padding: '8px 20px', fontSize: 13, fontWeight: 600,
-              cursor: saving ? 'default' : 'pointer', opacity: saving ? 0.6 : 1,
-            }}
-          >
-            {saving ? 'Creating…' : 'Create Event'}
-          </button>
-        </form>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <label style={fieldStyle}>
+                Starts
+                <input required type="datetime-local" className="bb-evt-input" value={startsAt} onChange={e => setStartsAt(e.target.value)} style={inputStyle} />
+              </label>
+              <label style={fieldStyle}>
+                Ends
+                <input required type="datetime-local" className="bb-evt-input" value={endsAt} onChange={e => setEndsAt(e.target.value)} style={inputStyle} />
+              </label>
+            </div>
+            <div style={{ fontSize: 11, color: TEXT_MUTED }}>Timezone: {timezone}</div>
+            {formError && <div role="alert" style={{ color: '#FCA5A5', fontSize: 12 }}>{formError}</div>}
+            <button type="submit" disabled={saving} style={{ ...primaryBtnStyle, alignSelf: 'flex-start', opacity: saving ? 0.6 : 1, cursor: saving ? 'default' : 'pointer' }}>
+              {saving ? 'Creating…' : 'Create Event'}
+            </button>
+          </form>
+        </Panel>
       )}
 
-      {error && <div style={{ color: '#ef4444', fontSize: 13, marginBottom: 16 }}>{error}</div>}
+      {error && <div role="alert" style={{ color: '#FCA5A5', fontSize: 13, marginBottom: 16 }}>{error}</div>}
 
-      <div style={{ background: 'rgba(255,255,255,.03)', border: '1px solid rgba(255,255,255,.08)', borderRadius: 12, overflow: 'hidden' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-          <thead>
-            <tr style={{ textAlign: 'left', background: 'rgba(255,255,255,.02)' }}>
-              {['Name', 'Starts', 'Venue', 'Status', 'Sessions', 'Ticket Types'].map(h => (
-                <th key={h} style={{ padding: '10px 14px', fontWeight: 600, color: '#9ca3af', fontSize: 11, letterSpacing: '.06em', textTransform: 'uppercase' }}>{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {events === null && (
-              <tr><td colSpan={6} style={{ padding: 20, textAlign: 'center', color: '#9ca3af' }}>Loading…</td></tr>
-            )}
-            {events !== null && events.length === 0 && (
-              <tr><td colSpan={6} style={{ padding: 20, textAlign: 'center', color: '#9ca3af' }}>No events yet.</td></tr>
-            )}
-            {events?.map(ev => (
-              <tr key={ev.id} style={{ borderTop: '1px solid rgba(255,255,255,.06)' }}>
-                <td style={{ padding: '10px 14px' }}>
-                  <Link href={`/events/${ev.id}`} style={{ color: '#a78bfa', textDecoration: 'none', fontWeight: 600 }}>{ev.name}</Link>
-                </td>
-                <td style={{ padding: '10px 14px', color: '#d1d5db' }}>{new Date(ev.starts_at).toLocaleString()}</td>
-                <td style={{ padding: '10px 14px', color: '#d1d5db' }}>{ev.venue ?? '—'}</td>
-                <td style={{ padding: '10px 14px' }}>
-                  <span style={{ color: statusColour(ev.status), fontWeight: 600 }}>{ev.status}</span>
-                </td>
-                <td style={{ padding: '10px 14px', color: '#d1d5db' }}>{ev.session_count}</td>
-                <td style={{ padding: '10px 14px', color: '#d1d5db' }}>{ev.ticket_type_count}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <Panel style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {events === null && (
+          <div style={{ padding: '28px 16px', textAlign: 'center', color: TEXT_MUTED, fontSize: 13 }}>Loading…</div>
+        )}
+        {events !== null && events.length === 0 && (
+          <EmptyState
+            title="No events yet"
+            body="Create your first event to start accepting registrations."
+          />
+        )}
+        {events?.map(ev => (
+          <Link key={ev.id} href={`/events/${ev.id}`} style={{ textDecoration: 'none', color: 'inherit' }}>
+            <div className="bb-evt-row" style={{
+              padding: '14px 16px', background: 'rgba(255,255,255,.02)', border: '1px solid rgba(255,255,255,.06)',
+              borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap',
+            }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                  <span style={{ fontWeight: 700, fontSize: 14, color: TEXT_PRIMARY }}>{ev.name}</span>
+                  <StatusBadge label={ev.status} tone={eventStatusTone(ev.status)} />
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginTop: 7, fontSize: 12, color: TEXT_SECONDARY, flexWrap: 'wrap' }}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                    <Calendar size={12} color={VIOLET_SOFT} /> {new Date(ev.starts_at).toLocaleString()}
+                  </span>
+                  {ev.venue && (
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                      <MapPin size={12} color={VIOLET_SOFT} /> {ev.venue}
+                    </span>
+                  )}
+                </div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 'none' }}>
+                <span style={metaPillStyle}>{ev.session_count} session{ev.session_count === 1 ? '' : 's'}</span>
+                <span style={metaPillStyle}>{ev.ticket_type_count} ticket type{ev.ticket_type_count === 1 ? '' : 's'}</span>
+                <ChevronRight size={16} color={TEXT_MUTED} aria-hidden="true" />
+              </div>
+            </div>
+          </Link>
+        ))}
+      </Panel>
     </div>
   );
 }
 
-const fieldStyle: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: '#9ca3af' };
-const inputStyle: React.CSSProperties = {
-  background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.1)', borderRadius: 6,
-  padding: '7px 10px', color: '#e5e7eb', fontSize: 13, fontFamily: FONT,
+const metaPillStyle: React.CSSProperties = {
+  fontSize: 11, fontWeight: 600, color: TEXT_MUTED, background: 'rgba(255,255,255,.04)',
+  border: '1px solid rgba(255,255,255,.07)', borderRadius: 999, padding: '3px 10px', whiteSpace: 'nowrap',
 };
