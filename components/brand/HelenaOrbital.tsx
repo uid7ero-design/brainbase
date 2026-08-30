@@ -37,10 +37,35 @@ import { useEffect, useId, useRef, useState } from 'react';
 
 export type HelenaVisualState = 'idle' | 'listening' | 'thinking' | 'speaking' | 'error';
 
+/**
+ * Ref-based amplitude bridge for production use — mirrors the existing
+ * `speechRef` contract on `components/brand/HlnaOrb.jsx`: the parent hands
+ * in an empty ref, this component assigns a callback to `.current`, and
+ * the caller invokes that callback with a 0..1 level on every pulse (e.g.
+ * `hooks/useHelena.js`'s `speechPulseRef`, updated during TTS playback).
+ * This intentionally bypasses React state/re-renders — the callback writes
+ * directly to a handful of DOM node `style` properties — so a synthetic
+ * pulse arriving every animation frame during playback never causes a
+ * parent re-render, matching how HlnaOrb already avoids that today.
+ */
+export type HelenaOrbitalSpeechRef = React.MutableRefObject<((level: number) => void) | null>;
+
 export interface HelenaOrbitalProps {
   state?: HelenaVisualState;
-  /** 0..1. Drives core/halo/ring-energy/sphere response in 'speaking' (dominant) and lightly in 'listening'. */
+  /**
+   * 0..1, manual/dev-showcase mode only. Drives core/halo/ring-energy/
+   * sphere response in 'speaking' (dominant) and lightly in 'listening'
+   * via React re-render + CSS transition. For production use, prefer
+   * `speechRef` instead — the two are not meant to be used together.
+   */
   audioLevel?: number;
+  /**
+   * Production mode: a ref this component assigns an imperative pulse
+   * callback to (see `HelenaOrbitalSpeechRef` above). Only meaningful
+   * while `state === 'speaking'`. Leave undefined in dev-showcase/manual
+   * mode — use the `audioLevel` prop there instead.
+   */
+  speechRef?: HelenaOrbitalSpeechRef;
   size?: number;
   className?: string;
 }
@@ -444,6 +469,7 @@ const ORBITAL_CSS = `
 export function HelenaOrbital({
   state = 'idle',
   audioLevel = 0,
+  speechRef,
   size = 96,
   className,
 }: HelenaOrbitalProps) {
@@ -611,6 +637,95 @@ export function HelenaOrbital({
     return '';
   }
 
+  // ── Production speech-pulse bridge (speechRef) ──────────────────────────
+  // Same shape as core/halo/ring/sphere's own render-time formulas above,
+  // just applied via direct DOM mutation instead of a React style prop —
+  // see HelenaOrbitalSpeechRef's doc comment for why. The callback is
+  // rebuilt whenever `state` changes (so it always knows the current
+  // state without reading a ref during render), and "rising vs falling"
+  // is tracked with a plain closure variable local to this callback
+  // instance — not React state, not a ref read during render; it only
+  // ever runs from an external caller's pulse invocation, never from
+  // render itself, so there's no purity concern.
+  // Individually-named refs (not refs indexed off a wrapping object literal)
+  // — this codebase's React Compiler lint rules only recognise a ref used
+  // directly as `ref={someRef}` in JSX; `ref={someObject.middle}` is
+  // rejected as a "ref access during render" even though `.middle` is
+  // itself just a ref, not a `.current` read. Matches every other ref in
+  // this file already being declared this way.
+  const audioScaleElRef = useRef<SVGGElement | null>(null);
+  const haloElRef = useRef<SVGCircleElement | null>(null);
+  const glowElRef = useRef<HTMLDivElement | null>(null);
+  const ringEnergyInnerRef = useRef<SVGGElement | null>(null);
+  const ringEnergyMiddleRef = useRef<SVGGElement | null>(null);
+  const ringEnergyOuterRef = useRef<SVGGElement | null>(null);
+  const sphereInnerRef = useRef<SVGCircleElement | null>(null);
+  const sphereMiddleRef = useRef<SVGCircleElement | null>(null);
+  const sphereOuterRef = useRef<SVGCircleElement | null>(null);
+
+  useEffect(() => {
+    if (!speechRef) return;
+    // Built fresh inside the effect (not render) purely for iteration
+    // convenience below — reading refs here is fine, this only ever runs
+    // from an effect/callback, never from render.
+    const ringEnergyEls: Record<RingName, SVGGElement | null> = {
+      inner: ringEnergyInnerRef.current,
+      middle: ringEnergyMiddleRef.current,
+      outer: ringEnergyOuterRef.current,
+    };
+    const sphereEls: Record<RingName, SVGCircleElement | null> = {
+      inner: sphereInnerRef.current,
+      middle: sphereMiddleRef.current,
+      outer: sphereOuterRef.current,
+    };
+    const sphereGlowColor: Record<RingName, string> = { outer: PURPLE_GLOW, middle: VIOLET_GLOW, inner: CYAN_GLOW };
+    let lastBoost = 0;
+    speechRef.current = (rawLevel: number) => {
+      // Only meaningful while actually speaking — if the app calls this
+      // after Helena has moved on (e.g. a late/queued pulse), ignore it
+      // rather than fighting whatever state HelenaOrbital has since
+      // rendered. The closure is rebuilt on every state change (dep array
+      // below), so this always reflects the current state.
+      if (state !== 'speaking') return;
+      const lvl = Math.max(0, Math.min(1, rawLevel));
+      const boost = Math.sqrt(lvl);
+      const rising = boost >= lastBoost;
+      lastBoost = boost;
+      const durationMs = rising ? ATTACK_MS : DECAY_MS;
+      const ease = rising ? ATTACK_EASE : DECAY_EASE;
+
+      if (audioScaleElRef.current) {
+        audioScaleElRef.current.style.transform = `scale(${1 + boost * 0.16})`;
+        audioScaleElRef.current.style.transition = `transform ${durationMs}ms ${ease}`;
+      }
+      if (haloElRef.current) {
+        haloElRef.current.style.opacity = String(0.3 + boost * 0.65);
+        haloElRef.current.style.transform = `scale(${1 + boost * 0.55})`;
+        haloElRef.current.style.transition = `opacity ${durationMs}ms ${ease} 15ms, transform ${durationMs}ms ${ease} 15ms`;
+      }
+      if (glowElRef.current) {
+        glowElRef.current.style.opacity = String(Math.min(1, GLOW_BY_STATE.speaking.opacity + boost * 0.08));
+      }
+      (Object.keys(PROPAGATION_DELAY_MS) as RingName[]).forEach((ring) => {
+        const el = ringEnergyEls[ring];
+        if (!el) return;
+        el.style.scale = String(1 + boost * RING_WAVE_MAX_SCALE[ring]);
+        el.style.transition = `scale ${durationMs}ms ${ease} ${PROPAGATION_DELAY_MS[ring]}ms`;
+      });
+      (Object.keys(SPHERE_PROPAGATION_DELAY_MS) as RingName[]).forEach((ring) => {
+        const el = sphereEls[ring];
+        if (!el) return;
+        el.style.scale = String(1 + boost * 0.08);
+        el.style.filter = `drop-shadow(0 0 ${(SPHERE_GLOW_PX.speaking ?? 3) + boost * 3}px ${sphereGlowColor[ring]})`;
+        el.style.transition = `scale ${durationMs}ms ${ease} ${SPHERE_PROPAGATION_DELAY_MS[ring]}ms, filter .3s ease`;
+      });
+    };
+    return () => {
+      if (speechRef.current) speechRef.current = null;
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state, speechRef]);
+
   return (
     <div
       className={['hlo-root', className].filter(Boolean).join(' ')}
@@ -621,6 +736,7 @@ export function HelenaOrbital({
 
       {/* Ambient glow layer behind the mark — restrained, state-tinted. */}
       <div
+        ref={glowElRef}
         aria-hidden="true"
         data-hlo-state-transition
         className={isThinking ? 'hlo-glow-spike-active' : isListening ? 'hlo-listen-glow-pulse-active' : undefined}
@@ -668,7 +784,7 @@ export function HelenaOrbital({
               rotate via keyframe). Three independent transform-related
               properties on three elements — none override each other. */}
           <g className={isThinking ? 'hlo-ring-wobble hlo-ring-wobble-active' : 'hlo-ring-wobble'}>
-            <g className={ringEnergyClass('outer')} style={ringEnergyStyle('outer')}>
+            <g ref={ringEnergyOuterRef} className={ringEnergyClass('outer')} style={ringEnergyStyle('outer')}>
               <g
                 className="hlo-ring-group hlo-spin-cw"
                 style={{ animationDuration: `${speeds.outer}s` }}
@@ -676,6 +792,7 @@ export function HelenaOrbital({
               >
                 <circle cx={CX} cy={CY} r={R_OUTER} fill="none" stroke={`url(#${uid}-orbit)`} strokeWidth={1.4} vectorEffect="non-scaling-stroke" opacity={0.85} />
                 <circle
+                  ref={sphereOuterRef}
                   data-hlo-sphere="outer"
                   className={sphereClass('outer').trim() || undefined}
                   cx={CX}
@@ -702,7 +819,7 @@ export function HelenaOrbital({
           </g>
 
           <g className={isThinking ? 'hlo-ring-wobble hlo-ring-wobble-active' : 'hlo-ring-wobble'}>
-            <g className={ringEnergyClass('middle')} style={ringEnergyStyle('middle')}>
+            <g ref={ringEnergyMiddleRef} className={ringEnergyClass('middle')} style={ringEnergyStyle('middle')}>
               <g
                 className="hlo-ring-group hlo-spin-ccw"
                 style={{ animationDuration: `${speeds.middle}s` }}
@@ -710,6 +827,7 @@ export function HelenaOrbital({
               >
                 <circle cx={CX} cy={CY} r={R_MIDDLE} fill="none" stroke={`url(#${uid}-orbit)`} strokeWidth={1.4} vectorEffect="non-scaling-stroke" opacity={0.85} />
                 <circle
+                  ref={sphereMiddleRef}
                   data-hlo-sphere="middle"
                   className={sphereClass('middle').trim() || undefined}
                   cx={CX + R_MIDDLE}
@@ -736,7 +854,7 @@ export function HelenaOrbital({
           </g>
 
           <g className={isThinking ? 'hlo-ring-wobble hlo-ring-wobble-active' : 'hlo-ring-wobble'}>
-            <g className={ringEnergyClass('inner')} style={ringEnergyStyle('inner')}>
+            <g ref={ringEnergyInnerRef} className={ringEnergyClass('inner')} style={ringEnergyStyle('inner')}>
               <g
                 className="hlo-ring-group hlo-spin-cw"
                 style={{ animationDuration: `${speeds.inner}s` }}
@@ -744,6 +862,7 @@ export function HelenaOrbital({
               >
                 <circle cx={CX} cy={CY} r={R_INNER} fill="none" stroke={`url(#${uid}-orbit)`} strokeWidth={1.4} vectorEffect="non-scaling-stroke" opacity={0.85} />
                 <circle
+                  ref={sphereInnerRef}
                   data-hlo-sphere="inner"
                   className={sphereClass('inner').trim() || undefined}
                   cx={CX}
@@ -785,6 +904,7 @@ export function HelenaOrbital({
           {/* Speaking halo — audioLevel-driven, smoothed via CSS transition,
               plus the one-shot thinking→speaking ignition expansion. */}
           <circle
+            ref={haloElRef}
             className={transitionFx === 'ignition' ? 'hlo-ignition-halo-active' : undefined}
             cx={CX}
             cy={CY}
@@ -823,6 +943,7 @@ export function HelenaOrbital({
               ignition flash each own a different property/element and
               compose instead of overriding one another. */}
           <g
+            ref={audioScaleElRef}
             className="hlo-audio-scale"
             style={{ transform: `scale(${coreExtraScale})`, transition: `transform ${pulseDurationMs}ms ${pulseEase}` }}
           >

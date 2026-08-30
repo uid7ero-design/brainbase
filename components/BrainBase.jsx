@@ -9,6 +9,7 @@ import { useTasks } from "../hooks/useTasks";
 import { useCalendar } from "../hooks/useCalendar";
 import { useAppStore } from "../lib/state/useAppStore";
 import { HlnaOrb } from "./brand/HlnaOrb";
+import { HelenaOrbital } from "./brand/HelenaOrbital";
 import { LeftSidebar } from "./layout/LeftSidebar";
 import { FloatingCard } from "./cards/FloatingCard";
 import { ActivityPanel } from "./panels/ActivityPanel";
@@ -45,6 +46,27 @@ const ORB_STATE_LABEL = {
   speaking:   { label: 'SPEAKING',   color: '#A78BFA' },
   alert:      { label: 'DETECTING',  color: '#FB7185' },
 };
+
+// Phase C — Hybrid Orbit / HelenaOrbital integration.
+// Flip to false to instantly revert the main Helena orb to the legacy
+// HlnaOrb visual without touching anything else below.
+const USE_HELENA_ORBITAL = true;
+
+// Maps the existing, authoritative useHelena.js phase machine (orbPhase:
+// 'idle'|'listening'|'processing'|'speaking') plus the pre-existing
+// dashboard-anomaly override (orbAlert, from useAppStore, set by
+// InsightBanner) onto HelenaOrbital's HelenaVisualState. This relabels the
+// same signals ORB_STATE_LABEL already keys off of — no new state, no new
+// transitions. 'error' reflects the existing orbAlert override, preserved
+// for visual parity with the prior 'alert' HlnaOrb state; useHelena.js
+// exposes no genuine voice/API error phase today (see Phase C report).
+function mapHelenaPhaseToVisualState(orbPhase, orbAlert) {
+  if (orbAlert) return 'error';
+  if (orbPhase === 'processing') return 'thinking';
+  if (orbPhase === 'speaking') return 'speaking';
+  if (orbPhase === 'listening') return 'listening';
+  return 'idle';
+}
 
 function AskInput({ onSend }) {
   const [val, setVal] = useState('');
@@ -243,6 +265,7 @@ export default function BrainBase() {
 
   const orbState     = orbAlert ? 'alert' : helena.orbPhase;
   const orbLabel     = ORB_STATE_LABEL[orbState] ?? ORB_STATE_LABEL.idle;
+  const helenaVisualState = mapHelenaPhaseToVisualState(helena.orbPhase, orbAlert);
   const activeModColor = activeModule ? (MODULE_COLORS[activeModule] ?? '#A78BFA') : '#A78BFA';
   const activeModName  = enabledModules.find(m => m.key === activeModule)?.name ?? 'Select module';
 
@@ -500,7 +523,11 @@ export default function BrainBase() {
                       transition: "background 0.8s", pointerEvents: "none",
                       top: "50%", left: "50%", transform: "translate(-50%, -50%)",
                     }} />
-                    <HlnaOrb size={120} state={orbState} speechRef={orbSpeechRef} />
+                    {USE_HELENA_ORBITAL ? (
+                      <HelenaOrbital size={120} state={helenaVisualState} speechRef={orbSpeechRef} />
+                    ) : (
+                      <HlnaOrb size={120} state={orbState} speechRef={orbSpeechRef} />
+                    )}
                   </div>
 
                   {/* ── Active intelligence content ── */}

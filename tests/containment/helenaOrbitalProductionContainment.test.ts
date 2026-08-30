@@ -2,20 +2,21 @@ import { describe, it, expect } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 
-// Phase B is showcase-only. This guards the containment rules from Phase B's
-// brief: no production Helena surface was repointed at the new component,
-// no new animation dependency was introduced, BrainGraphPanel was left
-// alone, and no Data Hub 5A.2F file was coupled into the Hybrid Orbit work.
-describe('Phase B — production/scope containment', () => {
+// Phase B was showcase-only; Phase C (see helenaOrbitalPhaseC.test.ts)
+// deliberately, narrowly wires HelenaOrbital into BrainBase.jsx only. This
+// guards the containment rules that still hold after both phases: every
+// OTHER HlnaOrb call site stays untouched, no new animation dependency was
+// introduced, BrainGraphPanel was left alone, and no Data Hub 5A.2F file
+// was coupled into the Hybrid Orbit work.
+describe('Phase B/C — production/scope containment', () => {
   const root = path.resolve(__dirname, '../..');
 
-  it('BrainBase.jsx still renders the existing production HlnaOrb, unchanged', () => {
+  it('BrainBase.jsx still imports the legacy HlnaOrb as a fallback', () => {
     const source = fs.readFileSync(path.join(root, 'components/BrainBase.jsx'), 'utf-8');
     expect(source).toContain('import { HlnaOrb } from "./brand/HlnaOrb"');
-    expect(source).not.toContain('HelenaOrbital');
   });
 
-  it('no existing HlnaOrb call site was repointed at HelenaOrbital', () => {
+  it('no OTHER HlnaOrb call site was repointed at HelenaOrbital (Phase C is BrainBase.jsx-only)', () => {
     const callSites = [
       'app/login/page.tsx',
       'app/signup/page.tsx',
@@ -26,7 +27,7 @@ describe('Phase B — production/scope containment', () => {
     ];
     for (const rel of callSites) {
       const source = fs.readFileSync(path.join(root, rel), 'utf-8');
-      expect(source, `${rel} should not import HelenaOrbital in Phase B`).not.toContain('HelenaOrbital');
+      expect(source, `${rel} should not import HelenaOrbital`).not.toContain('HelenaOrbital');
     }
   });
 
