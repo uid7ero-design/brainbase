@@ -393,6 +393,73 @@ expect_success "36 setup: add an unexpected default to the nullable-metadata col
 expect_migration_failure "36. unexpected default on a representative nullable-metadata column (storage_etag) is rejected"
 
 echo ""
+echo "=== 5A.2G.0 ATTEMPT/FAILURE METADATA SCENARIOS ==="
+# Data Hub 5A.2G.0 — ImportBatch attempt/failure metadata. The critical
+# scenario here (37) is the pre-existing-FAILED-row migration-safety
+# question: does the migration safely apply to a database that already
+# has a status='FAILED' ImportBatch row from before these columns/
+# constraints existed? Scenario 1 above ("clean migration applies")
+# already re-validates the whole extended migration file — including
+# these new columns/constraints/backfill — against a freshly-created
+# 5A.2C-era schema (satisfying the "full historical schema shape"
+# compatibility requirement), so it is not repeated here.
+
+reset_db; bootstrap
+expect_success "37 setup: import_batches pre-exists in its exact pre-5A.2G.0 shape (no attempt/failure columns at all) with an existing FAILED row — simulating a row that predates this migration phase" \
+  "CREATE TABLE import_batches (id TEXT PRIMARY KEY, organisation_id TEXT NOT NULL REFERENCES organisations(id), uploaded_by TEXT REFERENCES users(id) ON DELETE SET NULL, original_filename TEXT NOT NULL, content_type TEXT NOT NULL, size_bytes INTEGER NOT NULL, sha256 TEXT, storage_provider TEXT NOT NULL, storage_key TEXT NOT NULL UNIQUE, storage_etag TEXT, status TEXT NOT NULL DEFAULT 'AWAITING_UPLOAD', idempotency_key TEXT, expected_sha256 TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), deleted_at TIMESTAMPTZ, storage_deletion_status TEXT, storage_deleted_at TIMESTAMPTZ, UNIQUE(id, organisation_id), UNIQUE(organisation_id, idempotency_key)); INSERT INTO import_batches (id, organisation_id, original_filename, content_type, size_bytes, storage_provider, storage_key, status, sha256) VALUES ('old-failed-batch', 'org-a', 'old.xlsx', 'xlsx', 10, 'vercel-blob', 'k-old-failed', 'FAILED', repeat('b',64));"
+expect_migration_success "37. THE PRE-EXISTING-FAILED-ROW MIGRATION-SAFETY SCENARIO: migration safely applies despite a pre-existing FAILED row with no attempt/failure columns — the targeted backfill (option a) prevents the naive CHECK-constraint failure"
+expect_success "37b. the pre-existing FAILED row was backfilled to attempt_count=0 and last_failure_retryable=true, while last_attempt_at/last_failure_code/last_failure_message correctly remain NULL (no fabricated diagnostic text)" \
+  "SELECT 1/CASE WHEN (SELECT attempt_count FROM import_batches WHERE id='old-failed-batch') = 0 AND (SELECT last_failure_retryable FROM import_batches WHERE id='old-failed-batch') = true AND (SELECT last_attempt_at FROM import_batches WHERE id='old-failed-batch') IS NULL AND (SELECT last_failure_code FROM import_batches WHERE id='old-failed-batch') IS NULL AND (SELECT last_failure_message FROM import_batches WHERE id='old-failed-batch') IS NULL THEN 1 ELSE 0 END;"
+
+reset_db; bootstrap
+expect_success "38 setup: import_batches pre-exists in its exact pre-5A.2G.0 shape with an existing NON-FAILED (AWAITING_UPLOAD) row" \
+  "CREATE TABLE import_batches (id TEXT PRIMARY KEY, organisation_id TEXT NOT NULL REFERENCES organisations(id), uploaded_by TEXT REFERENCES users(id) ON DELETE SET NULL, original_filename TEXT NOT NULL, content_type TEXT NOT NULL, size_bytes INTEGER NOT NULL, sha256 TEXT, storage_provider TEXT NOT NULL, storage_key TEXT NOT NULL UNIQUE, storage_etag TEXT, status TEXT NOT NULL DEFAULT 'AWAITING_UPLOAD', idempotency_key TEXT, expected_sha256 TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), deleted_at TIMESTAMPTZ, storage_deletion_status TEXT, storage_deleted_at TIMESTAMPTZ, UNIQUE(id, organisation_id), UNIQUE(organisation_id, idempotency_key)); INSERT INTO import_batches (id, organisation_id, original_filename, content_type, size_bytes, storage_provider, storage_key) VALUES ('old-pending-batch', 'org-a', 'old2.xlsx', 'xlsx', 10, 'vercel-blob', 'k-old-pending');"
+expect_migration_success "38. migration applies cleanly to a pre-existing NON-FAILED row"
+expect_success "38b. the pre-existing NON-FAILED row stays fully NULL/zero for every new column — the backfill correctly excludes it" \
+  "SELECT 1/CASE WHEN (SELECT attempt_count FROM import_batches WHERE id='old-pending-batch') = 0 AND (SELECT last_failure_retryable FROM import_batches WHERE id='old-pending-batch') IS NULL AND (SELECT last_attempt_at FROM import_batches WHERE id='old-pending-batch') IS NULL AND (SELECT last_failure_code FROM import_batches WHERE id='old-pending-batch') IS NULL AND (SELECT last_failure_message FROM import_batches WHERE id='old-pending-batch') IS NULL THEN 1 ELSE 0 END;"
+
+reset_db; bootstrap
+expect_migration_success "39 setup: clean migration establishes the 5A.2G.0 schema"
+expect_success "39. all five new columns exist with the correct types" \
+  "SELECT 1/CASE WHEN (SELECT data_type FROM information_schema.columns WHERE table_name='import_batches' AND column_name='last_attempt_at') = 'timestamp with time zone' AND (SELECT data_type FROM information_schema.columns WHERE table_name='import_batches' AND column_name='attempt_count') = 'integer' AND (SELECT data_type FROM information_schema.columns WHERE table_name='import_batches' AND column_name='last_failure_code') = 'text' AND (SELECT data_type FROM information_schema.columns WHERE table_name='import_batches' AND column_name='last_failure_message') = 'text' AND (SELECT data_type FROM information_schema.columns WHERE table_name='import_batches' AND column_name='last_failure_retryable') = 'boolean' THEN 1 ELSE 0 END;"
+
+expect_success "40. attempt_count defaults to exactly 0 for a newly-inserted row" \
+  "INSERT INTO import_batches (id, organisation_id, original_filename, content_type, size_bytes, storage_provider, storage_key) VALUES ('b40','org-a','d.xlsx','xlsx',10,'vercel-blob','k40'); SELECT 1/CASE WHEN (SELECT attempt_count FROM import_batches WHERE id='b40') = 0 THEN 1 ELSE 0 END;"
+
+expect_failure "41. attempt_count = -1 is rejected" \
+  "INSERT INTO import_batches (id, organisation_id, original_filename, content_type, size_bytes, storage_provider, storage_key, attempt_count) VALUES ('b41','org-a','e.xlsx','xlsx',10,'vercel-blob','k41', -1);"
+
+expect_success "42. a valid attempt_count (3) is accepted" \
+  "INSERT INTO import_batches (id, organisation_id, original_filename, content_type, size_bytes, storage_provider, storage_key, attempt_count) VALUES ('b42','org-a','f.xlsx','xlsx',10,'vercel-blob','k42', 3);"
+
+expect_failure "43. a non-FAILED (AWAITING_UPLOAD) row with last_failure_retryable = true is rejected" \
+  "INSERT INTO import_batches (id, organisation_id, original_filename, content_type, size_bytes, storage_provider, storage_key, last_failure_retryable) VALUES ('b43','org-a','g.xlsx','xlsx',10,'vercel-blob','k43', true);"
+
+expect_failure "44. a non-FAILED (AWAITING_UPLOAD) row with last_failure_retryable = false is rejected" \
+  "INSERT INTO import_batches (id, organisation_id, original_filename, content_type, size_bytes, storage_provider, storage_key, last_failure_retryable) VALUES ('b44','org-a','h.xlsx','xlsx',10,'vercel-blob','k44', false);"
+
+expect_success "45. a FAILED row with last_failure_retryable = true is accepted" \
+  "INSERT INTO import_batches (id, organisation_id, original_filename, content_type, size_bytes, storage_provider, storage_key, status, last_failure_retryable) VALUES ('b45','org-a','i.xlsx','xlsx',10,'vercel-blob','k45','FAILED', true);"
+
+expect_success "46. a FAILED row with last_failure_retryable = false is accepted" \
+  "INSERT INTO import_batches (id, organisation_id, original_filename, content_type, size_bytes, storage_provider, storage_key, status, last_failure_retryable) VALUES ('b46','org-a','j.xlsx','xlsx',10,'vercel-blob','k46','FAILED', false);"
+
+expect_failure "46b. a FAILED row with last_failure_retryable omitted (NULL) is rejected" \
+  "INSERT INTO import_batches (id, organisation_id, original_filename, content_type, size_bytes, storage_provider, storage_key, status) VALUES ('b46b','org-a','j2.xlsx','xlsx',10,'vercel-blob','k46b','FAILED');"
+
+expect_success "47. a last_failure_message of exactly 500 characters is accepted" \
+  "INSERT INTO import_batches (id, organisation_id, original_filename, content_type, size_bytes, storage_provider, storage_key, status, last_failure_retryable, last_failure_message) VALUES ('b47','org-a','k.xlsx','xlsx',10,'vercel-blob','k47','FAILED', true, repeat('x', 500));"
+
+expect_failure "48. a last_failure_message of 501 characters is rejected" \
+  "INSERT INTO import_batches (id, organisation_id, original_filename, content_type, size_bytes, storage_provider, storage_key, status, last_failure_retryable, last_failure_message) VALUES ('b48','org-a','l.xlsx','xlsx',10,'vercel-blob','k48','FAILED', true, repeat('x', 501));"
+
+expect_success "49 setup: insert a fully-populated attempt/failure metadata row" \
+  "INSERT INTO import_batches (id, organisation_id, original_filename, content_type, size_bytes, storage_provider, storage_key, status, last_failure_retryable, last_failure_code, last_failure_message, attempt_count, last_attempt_at) VALUES ('b49','org-a','m.xlsx','xlsx',10,'vercel-blob','k49','FAILED', false, 'HASH_MISMATCH', 'sha256 did not match expected value', 2, now());"
+expect_migration_success "49b. rerunning the migration after real populated attempt/failure metadata already exists succeeds (idempotent)"
+expect_success "49c. the populated metadata is preserved unchanged by the rerun — the backfill's WHERE clause correctly excludes it" \
+  "SELECT 1/CASE WHEN (SELECT attempt_count FROM import_batches WHERE id='b49') = 2 AND (SELECT last_failure_retryable FROM import_batches WHERE id='b49') = false AND (SELECT last_failure_code FROM import_batches WHERE id='b49') = 'HASH_MISMATCH' AND (SELECT last_failure_message FROM import_batches WHERE id='b49') = 'sha256 did not match expected value' AND (SELECT last_attempt_at FROM import_batches WHERE id='b49') IS NOT NULL THEN 1 ELSE 0 END;"
+
+echo ""
 echo "=== SUMMARY: $PASS passed, $FAIL failed ==="
 if [ "$FAIL" -gt 0 ]; then
   echo "Failed checks:"
