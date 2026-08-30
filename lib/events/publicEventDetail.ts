@@ -84,6 +84,15 @@ export async function getPublicEventDetail(
   if (!resolved.ok) return { ok: false };
   const { organisationId, event } = resolved;
 
+  // Phase 4: the sold-quantity subtraction now also excludes a pending
+  // paid reservation whose expires_at has passed — mirroring exactly
+  // the same predicate the paid checkout route's own capacity-gated
+  // transaction uses to decide what actually blocks a new reservation
+  // (see that route's comment). This is a read-only display estimate
+  // (see this function's own header comment on "remaining" already);
+  // keeping the two predicates identical just means the number shown
+  // here doesn't visibly disagree with what the write path will do a
+  // moment later.
   const [sessionRows, ticketTypeRows] = await Promise.all([
     sql`
       SELECT
@@ -93,7 +102,8 @@ export async function getPublicEventDetail(
             SELECT SUM(oi.quantity)
             FROM event_order_items oi
             JOIN event_orders eo ON eo.id = oi.order_id AND eo.organisation_id = oi.organisation_id
-            WHERE oi.event_session_id = es.id AND oi.organisation_id = ${organisationId} AND eo.status <> 'CANCELLED'
+            WHERE oi.event_session_id = es.id AND oi.organisation_id = ${organisationId}
+              AND eo.status <> 'CANCELLED' AND (eo.payment_status <> 'PENDING' OR eo.expires_at > NOW())
           ), 0),
           0
         )::int AS remaining
@@ -109,7 +119,8 @@ export async function getPublicEventDetail(
             SELECT SUM(oi.quantity)
             FROM event_order_items oi
             JOIN event_orders eo ON eo.id = oi.order_id AND eo.organisation_id = oi.organisation_id
-            WHERE oi.ticket_type_id = tt.id AND oi.organisation_id = ${organisationId} AND eo.status <> 'CANCELLED'
+            WHERE oi.ticket_type_id = tt.id AND oi.organisation_id = ${organisationId}
+              AND eo.status <> 'CANCELLED' AND (eo.payment_status <> 'PENDING' OR eo.expires_at > NOW())
           ), 0),
           0
         )::int AS remaining

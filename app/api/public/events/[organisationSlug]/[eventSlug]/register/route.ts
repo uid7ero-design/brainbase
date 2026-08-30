@@ -1,23 +1,10 @@
-import { randomBytes } from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import sql from '@/lib/db';
 import { resolvePublicEvent } from '@/lib/events/publicResolve';
 import { validatePublicRegistrationInput, type PublicRegistrationInput } from '@/lib/events/publicValidation';
 import { checkRateLimit } from '@/lib/rateLimit';
 import { getClientIp } from '@/lib/clientIp';
-
-// Same generation contract as lib/tokens.ts's createToken() — 256 bits
-// of entropy per attendee, generated server-side only, never
-// client-supplied. Not imported from lib/tokens.ts directly: that
-// module writes to the separate email_tokens table (its own
-// user_id/type/expires_at/used_at shape); ticket_token is a plain
-// column on the row this route is already inserting, and generating it
-// inline keeps the R1 concurrency-safe transaction below untouched
-// (see its own comment) — one more SELECTed column on the existing
-// final INSERT, nothing structural.
-function generateTicketToken(): string {
-  return randomBytes(32).toString('hex');
-}
+import { generateTicketToken } from '@/lib/events/ticketToken';
 
 type Ctx = { params: Promise<{ organisationSlug: string; eventSlug: string }> };
 
@@ -68,9 +55,13 @@ export async function POST(req: NextRequest, { params }: Ctx) {
   // never trusted from the request. The ticket type (and session, if
   // selected) must belong to THIS resolved event and organisation; the
   // ticket type must be active; and its price must be exactly zero —
-  // Phase 2 is free-only, so a paid ticket type is rejected outright
-  // rather than the route ever proceeding with (or trusting) a
-  // non-zero price.
+  // this route is the free-registration path only (see this file's own
+  // header). A paid ticket type is rejected outright rather than the
+  // route ever proceeding with (or trusting) a non-zero price; the
+  // public UI never calls this route for a paid ticket type — see
+  // app/api/public/events/[organisationSlug]/[eventSlug]/checkout/
+  // route.ts (Phase 4) for the Stripe-backed paid path. This check
+  // remains as defense in depth against a bypassed/direct API call.
   const ticketTypeRows = await sql`
     SELECT id, active, price_cents FROM event_ticket_types
     WHERE id = ${validated.ticket_type_id} AND organisation_id = ${organisationId} AND event_id = ${event.id}
@@ -84,7 +75,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     return NextResponse.json({ error: 'Selected ticket type is not currently available.' }, { status: 400 });
   }
   if (ticketType.price_cents !== 0) {
-    return NextResponse.json({ error: 'This ticket type requires payment, which is not yet supported.' }, { status: 400 });
+    return NextResponse.json({ error: 'This ticket type requires payment. Use the checkout flow instead.' }, { status: 400 });
   }
 
   if (validated.event_session_id) {
