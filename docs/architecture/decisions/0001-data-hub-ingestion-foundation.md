@@ -794,3 +794,141 @@ streaming-with-a-hard-counter discipline already proven in 5A.2D's
 `workbookArchiveGuard`). **5A.2G** remains the direct-upload
 initiate/finalize API work, including the separate browser-direct-upload
 capability that RawFileStore deliberately excludes.
+
+### 13a. Framing hardening (5A.2E-R2 remediation)
+
+An independent implementation review of the original candidate found
+one BLOCKER-adjacent class of defect and several IMPORTANT gaps, all
+confined to `TestFileStore`'s on-disk framing — none required changing
+`RawFileStore`'s public interface, `InMemoryFileStore`, or the
+publication/concurrency architecture in Section 13 above, which were
+independently re-verified as correct and left untouched.
+
+Why the framed single-file representation exists at all, honestly
+addressed: an in-memory metadata index alongside filesystem-stored
+content would have avoided the entire parsing surface below, since
+nothing in this test-only, process-lifetime-scoped store needs metadata
+to survive a process restart or be read by a separate process. The
+format was already committed when this was raised; hardening it in
+place — rather than redesigning it out from under an otherwise-correct
+publication algorithm — is the narrowly scoped fix this remediation
+performs. This framing is test-only. It is not, and must never become,
+a Production object format — nothing about it is a candidate for what
+a real provider adapter's storage representation should look like.
+
+Maximum header size: `MAX_HEADER_BYTES = 2048`. The framed header's
+schema is small and fixed (`{ size: number, contentType?: string up to
+255 chars }`); a worst-case encoding is comfortably under 1 KiB, so 2048
+bytes leaves generous headroom without being an arbitrary huge ceiling.
+The declared 4-byte length prefix is bounds-checked against this
+constant, and independently cross-checked against the file's real,
+OS-reported size (via `fstat`) — both BEFORE any allocation is sized
+from the declared value. This closes the exact defect an independent
+review empirically reproduced: a corrupted 4-byte file claiming a
+~2 GiB header length previously caused an immediate, unbounded
+`Buffer.alloc(headerLength)` with zero validation.
+
+`contentType` bound: `MAX_CONTENT_TYPE_LENGTH = 255` (defined on
+`RawFileStore`, enforced by `validateContentType`) — this is the one
+variable-length field ever embedded in the framed header, so bounding
+it is what makes `MAX_HEADER_BYTES` a meaningful, computable ceiling
+rather than an arbitrary guess. A caller supplying a longer value gets
+a plain `TypeError` (programmer/caller error), not a storage error code.
+
+Runtime metadata schema validation: `JSON.parse` alone proves only that
+on-disk bytes were valid JSON, never that they match the `FileHeader`
+shape — the original candidate performed a bare `as FileHeader` cast
+with no runtime check. Every parsed header is now validated: it must be
+a non-null, non-array object; `size` must be a non-negative safe
+integer; `contentType`, if present, must be a string within the bound
+above. Any violation is a malformed/corrupt framed object.
+
+Exact body-length reconciliation: for every successful `get()`, the
+file's real `fstat`-reported size must equal exactly
+`header-prefix + header + declared content length` — no fewer bytes
+(a truncated object) and no extra trailing bytes (hidden data past the
+declared length). Either violation is `PROVIDER_FAILURE`, never a
+silently truncated or silently over-read result. This check runs AFTER
+the `SIZE_LIMIT` check against `maxBytes`, so a genuine size-ceiling
+violation is never masked as corruption, and corruption is never
+misreported as a size-ceiling violation. `head()` does not perform this
+check — it never reads content at all, so body-length consistency is
+exclusively a `get()`-time concern; this is a deliberate scope decision,
+not an oversight.
+
+Content offset comes from the actual validated on-disk header length
+(returned alongside the parsed header by `readHeader`), never recomputed
+via `JSON.stringify(header)` re-serialization — the original candidate's
+fragile assumption that re-serializing a parsed header reproduces its
+original on-disk byte length. A dedicated regression test constructs a
+real, valid, schema-conforming header padded with insignificant JSON
+whitespace (a legal but non-canonical encoding) to prove this: the
+correct implementation still returns byte-exact content, while the
+fragile recomputation was confirmed (via mutation) to compute the wrong
+content offset and trip the body-length reconciliation check above.
+
+Component-level validation before canonical key construction:
+`buildImportBatchKey` now validates `organisationId`/`importBatchId`
+independently, as opaque single-segment identifiers, BEFORE
+interpolating them into the composed key — not only the composed
+result, as the original candidate did. This closes a real,
+independently-reproduced gap: a component containing `/` (e.g.
+`organisationId = "x/y"`) is never rejected by validating only the final
+string, because splitting on `/` turns it into additional
+individually-valid segments — `validateStorageKey` has no way to know
+those segments didn't come from a single component. A caller passing a
+malformed identifier now gets a plain `TypeError`, mirroring the
+existing `validateMaxBytes` discipline. Identifiers are validated as
+opaque safe strings, not coupled to Prisma's cuid format specifically.
+
+Filesystem errors normalized, including setup/read/close paths: two
+raw-error-leak paths beyond the already-fixed `EISDIR` case were found
+and closed. `ensureParentDir`'s `fs.mkdir` call is now wrapped and
+normalized to `PROVIDER_FAILURE` (previously unguarded — a
+permission-denied or similar failure propagated as a raw Node error
+straight out of `put()`). Both `head()` and `get()`'s handle-close step
+is now explicit rather than a bare `finally`, with deliberate
+precedence: if the primary read already failed, a subsequent close
+failure is swallowed and the primary (normalized) error wins; if the
+primary read succeeded but close then fails, the overall operation
+becomes `PROVIDER_FAILURE` rather than a silent, possibly-unsafe success.
+
+Lexical containment is not a symlink sandbox (wording correction): an
+earlier comment on `resolvePath` implied its containment re-check was
+meaningful defense-in-depth against escape. In fact it performs only
+lexical path resolution (no `fs.realpath`) — it correctly prevents the
+canonical key grammar from ever producing a traversing string, but it
+does NOT resolve or defend against an on-disk symlink placed inside
+root by another process/test beforehand. That class of hostile-local-
+machine precondition is explicitly outside this test-only adapter's
+threat model. Ordinary use — a fresh root this store itself populates —
+never introduces a symlink, since this module never creates one.
+Sandbox-grade hardening (`fs.realpath`, symlink-aware containment) was
+deliberately not added; it would be disproportionate for a reference
+adapter that can never run in Production (enforced by the constructor's
+own `process.env.VERCEL` guard).
+
+No change to hard-link publication architecture: the exclusive
+temp-write-then-`fs.link` mechanism, its no-overwrite and
+no-partial-visibility properties, and the concurrency contract tests
+proving both were independently re-verified during this remediation —
+including a fresh, independently-run reproduction of the rejected
+`rename()` design's exact failure mode — and were found correct as
+designed. Nothing in this mechanism changed.
+
+New regression coverage added in this remediation: fourteen malformed/
+corrupt framed-object cases (empty, oversized, truncated, and
+schema-invalid headers; wrong-typed/oversized `contentType`; truncated
+and over-long bodies), a dedicated resource-bound regression proving a
+tiny file with an astronomically large declared header length fails
+immediately without a large allocation attempt, a dedicated mkdir-
+failure normalization test using a real filesystem precondition (no
+mocking framework), a dedicated content-offset regression distinguishing
+the actual encoded header length from a re-serialization, explicit
+key-component-validation coverage (separator/traversal/unsafe-character
+values for both `organisationId` and `importBatchId`), a `maxBytes = 0`
+boundary case, a `Number.isSafeInteger` boundary case
+(`Number.MAX_SAFE_INTEGER + 1`), and a `Uint8Array` view with non-zero
+`byteOffset` over a shared `ArrayBuffer`, proving `InMemoryFileStore`'s
+defensive-copy semantics hold for an offset view, not only a
+freshly-constructed array.

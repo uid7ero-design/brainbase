@@ -25,6 +25,17 @@
 //     the database's own existing composite-FK tenant-scoping discipline
 //     (the same pattern already used by ImportBatch/Upload in 5A.2C). The
 //     storage layer validates key SYNTAX, never authorization.
+//
+// Hardening (5A.2E-R2 remediation, after independent implementation
+// review): buildImportBatchKey now validates organisationId/importBatchId
+// as opaque single-segment identifiers BEFORE composing the key, not only
+// the composed result — closing a component-injection gap where a value
+// containing '/' could silently reshape the namespace. maxBytes now
+// requires Number.isSafeInteger, not merely Number.isInteger. contentType
+// is now bounded (MAX_CONTENT_TYPE_LENGTH) since it is the one
+// variable-length field embedded in TestFileStore's on-disk framed
+// header — see that module for the corresponding header-size bound,
+// metadata schema validation, and exact body-length reconciliation.
 
 export type RawFileStoreErrorCode =
   | "NOT_FOUND"
@@ -139,6 +150,33 @@ export function validateStorageKey(key: string): void {
   }
 }
 
+// A single storage-key SEGMENT's own grammar, applied to each of
+// organisationId/importBatchId independently, BEFORE either is
+// interpolated into the composed key (5A.2E-R2 remediation). Validating
+// only the fully-composed key (as the original candidate did) leaves a
+// gap: a component containing '/' cannot escape the final grammar check
+// (since '/' itself is a valid separator and traversal segments are
+// still individually rejected — see validateStorageKey), but it CAN
+// silently reshape the intended two-segment namespace into three or
+// more segments, which is a real "component injection" class of bug
+// even though it happens to remain non-traversing and non-exploitable
+// given real cuid-shaped IDs. Component identifiers are deliberately
+// NOT coupled to Prisma's cuid format — this accepts any safe opaque
+// identifier, not specifically a cuid, so storage never depends on a
+// particular ID-generation library.
+const KEY_COMPONENT_PATTERN = /^[A-Za-z0-9_-]+$/;
+
+function validateKeyComponent(name: string, value: string): void {
+  if (typeof value !== "string" || value.length === 0) {
+    throw new TypeError(`${name} must be a non-empty string.`);
+  }
+  if (!KEY_COMPONENT_PATTERN.test(value)) {
+    throw new TypeError(
+      `${name} may only contain ASCII letters, digits, '_', and '-'; received ${JSON.stringify(value)}.`
+    );
+  }
+}
+
 /**
  * The single sanctioned way canonical code mints an ImportBatch storage
  * key. Deterministic, organisation-scoped, content-addressing-free (sha256
@@ -146,14 +184,18 @@ export function validateStorageKey(key: string): void {
  * two distinct ImportBatch rows may legitimately share identical bytes),
  * and carries no client-controlled fragment (never the original filename).
  * Grammar: "org_<organisationId>/importbatch_<importBatchId>".
+ *
+ * Both organisationId and importBatchId are validated as opaque,
+ * single-segment identifiers BEFORE composition (5A.2E-R2) — this is a
+ * programmer-facing TypeError, not RawFileStoreError/INVALID_KEY,
+ * because a caller passing a malformed ID is a caller bug, not a
+ * storage-domain failure (the same discipline already established for
+ * validateMaxBytes). The composed key is still independently re-checked
+ * via validateStorageKey below as defense-in-depth.
  */
 export function buildImportBatchKey(organisationId: string, importBatchId: string): string {
-  if (typeof organisationId !== "string" || organisationId.length === 0) {
-    throw new RawFileStoreError("INVALID_KEY", "organisationId must be a non-empty string.");
-  }
-  if (typeof importBatchId !== "string" || importBatchId.length === 0) {
-    throw new RawFileStoreError("INVALID_KEY", "importBatchId must be a non-empty string.");
-  }
+  validateKeyComponent("organisationId", organisationId);
+  validateKeyComponent("importBatchId", importBatchId);
   const key = `org_${organisationId}/importbatch_${importBatchId}`;
   validateStorageKey(key);
   return key;
@@ -161,8 +203,36 @@ export function buildImportBatchKey(organisationId: string, importBatchId: strin
 
 export function validateMaxBytes(maxBytes: number | undefined): number | undefined {
   if (maxBytes === undefined) return undefined;
-  if (!Number.isFinite(maxBytes) || !Number.isInteger(maxBytes) || maxBytes < 0) {
-    throw new TypeError(`maxBytes must be a non-negative integer; received ${String(maxBytes)}.`);
+  // Number.isSafeInteger (5A.2E-R2, was Number.isInteger) — Number.isInteger
+  // can return true for a value above 2^53 that is not exactly
+  // representable as a double, which could make maxBytes+1 arithmetic
+  // silently inaccurate for an absurd (>9 quadrillion) caller-supplied
+  // value. isSafeInteger's own definition already implies finite, so the
+  // separate Number.isFinite check is redundant but kept for clarity.
+  if (!Number.isFinite(maxBytes) || !Number.isSafeInteger(maxBytes) || maxBytes < 0) {
+    throw new TypeError(`maxBytes must be a non-negative safe integer; received ${String(maxBytes)}.`);
   }
   return maxBytes;
+}
+
+// The only variable-length field ever stored in TestFileStore's framed
+// on-disk header (5A.2E-R2). Bounded so the framing invariant "header
+// bytes are small and cheap to allocate/parse" holds unconditionally —
+// this is internal application metadata (a MIME-type-shaped string),
+// never workbook content, so a generous-for-MIME-types/tiny-in-absolute-
+// terms bound costs nothing real. A caller supplying something longer is
+// a programmer/caller error, not a storage-domain or provider failure.
+export const MAX_CONTENT_TYPE_LENGTH = 255;
+
+export function validateContentType(contentType: string | undefined): string | undefined {
+  if (contentType === undefined) return undefined;
+  if (typeof contentType !== "string") {
+    throw new TypeError(`contentType must be a string when provided; received ${typeof contentType}.`);
+  }
+  if (contentType.length > MAX_CONTENT_TYPE_LENGTH) {
+    throw new TypeError(
+      `contentType must be at most ${MAX_CONTENT_TYPE_LENGTH} characters; received ${contentType.length}.`
+    );
+  }
+  return contentType;
 }

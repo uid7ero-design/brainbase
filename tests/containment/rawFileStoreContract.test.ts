@@ -96,6 +96,28 @@ export function runRawFileStoreContractTests(
       expect(second.body[0]).toBe(2);
     });
 
+    // 5A.2E-R2 (Section 15.A): a Uint8Array VIEW with non-zero
+    // byteOffset over a larger, shared ArrayBuffer must still be copied
+    // correctly on both put() and get() — Uint8Array.prototype.slice()
+    // always allocates a new, independent buffer regardless of the
+    // source view's offset, but this was previously unexercised by any
+    // test.
+    it("5b. a Uint8Array view with non-zero byteOffset over a shared ArrayBuffer is copied correctly, not aliased", async () => {
+      const shared = new ArrayBuffer(20);
+      const full = new Uint8Array(shared);
+      full.set([9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 1, 2, 3, 4, 5, 9, 9, 9, 9, 9]);
+      const view = new Uint8Array(shared, 10, 5); // [1,2,3,4,5], offset 10, over a 20-byte buffer
+      await ctx.store.put("k5b", view);
+
+      // Mutate the ORIGINAL shared buffer (through a different view)
+      // after put() — if the store aliased the view instead of copying,
+      // this would corrupt the stored object.
+      full[10] = 99;
+
+      const { body } = await ctx.store.get("k5b");
+      expect(Array.from(body)).toEqual([1, 2, 3, 4, 5]);
+    });
+
     // 6. missing head -> null
     it("6. head() on a missing key returns null", async () => {
       const meta = await ctx.store.head("does-not-exist");
@@ -236,6 +258,24 @@ export function runRawFileStoreContractTests(
       await expect(ctx.store.get("k20", { maxBytes: 1.5 })).rejects.toBeInstanceOf(TypeError);
       await expect(ctx.store.get("k20", { maxBytes: NaN })).rejects.toBeInstanceOf(TypeError);
       await expect(ctx.store.get("k20", { maxBytes: Infinity })).rejects.toBeInstanceOf(TypeError);
+      // 5A.2E-R2 (Section 16): Number.isSafeInteger, not merely
+      // Number.isInteger — a value above 2^53 is "an integer" by
+      // Number.isInteger's own definition but not exactly representable.
+      await expect(
+        ctx.store.get("k20", { maxBytes: Number.MAX_SAFE_INTEGER + 1 })
+      ).rejects.toBeInstanceOf(TypeError);
+    });
+
+    // 5A.2E-R2 (Section 15.B): maxBytes === 0 is a real, meaningful
+    // boundary value, not merely "no limit" — previously unexercised by
+    // any test.
+    it("20b. maxBytes === 0: a zero-byte object succeeds, a non-empty object throws SIZE_LIMIT", async () => {
+      await ctx.store.put("k20b-empty", new Uint8Array(0));
+      const { body } = await ctx.store.get("k20b-empty", { maxBytes: 0 });
+      expect(body.byteLength).toBe(0);
+
+      await ctx.store.put("k20b-nonempty", new Uint8Array([1]));
+      await expect(ctx.store.get("k20b-nonempty", { maxBytes: 0 })).rejects.toMatchObject({ code: "SIZE_LIMIT" });
     });
 
     // 21. concurrent distinct-key writes succeed independently
@@ -353,6 +393,40 @@ describe("buildImportBatchKey", () => {
     const key = buildImportBatchKey("org1", "batch1");
     expect(key).not.toMatch(/\.(xlsx|xls|csv)$/i);
   });
+
+  // 5A.2E-R2: buildImportBatchKey now validates organisationId/
+  // importBatchId as opaque single-segment identifiers BEFORE
+  // composing the key, not only the composed result — closing the
+  // "component injection" gap where a value containing '/' could
+  // silently reshape the namespace without being caught by
+  // validateStorageKey's own grammar check on the final string.
+  const invalidComponents = [
+    "x/y",
+    "../escape",
+    "back\\slash",
+    "nul\0byte",
+    "colon:form",
+    "",
+    "unicodeé",
+    "white space",
+  ];
+
+  it("rejects an organisationId containing a separator/traversal/unsafe character before composing a key", () => {
+    for (const bad of invalidComponents) {
+      expect(() => buildImportBatchKey(bad, "batch1")).toThrow(TypeError);
+    }
+  });
+
+  it("rejects an importBatchId containing a separator/traversal/unsafe character before composing a key", () => {
+    for (const bad of invalidComponents) {
+      expect(() => buildImportBatchKey("org1", bad)).toThrow(TypeError);
+    }
+  });
+
+  it("a component containing '/' cannot reshape the two-segment namespace into three", () => {
+    expect(() => buildImportBatchKey("x/y", "batch1")).toThrow(TypeError);
+    expect(() => buildImportBatchKey("org1", "x/y")).toThrow(TypeError);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -423,6 +497,268 @@ describe("TestFileStore — raw filesystem error normalization", () => {
       const key = "a_directory_key";
       await fs.mkdir(path.join(root, key));
       await expect(store.get(key)).rejects.toMatchObject({ code: "PROVIDER_FAILURE" });
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 5A.2E-R2: TestFileStore on-disk framing hardening — malformed/corrupt
+// object regression tests (F1-F14). These are inherently filesystem/
+// framing-specific (InMemoryFileStore has no on-disk framing to corrupt)
+// and deliberately write raw, hand-constructed bytes directly beneath a
+// TestFileStore's root — bypassing put() entirely — to simulate disk
+// corruption or a malformed object the store itself never wrote. Every
+// case must fail as a normalized PROVIDER_FAILURE, never a raw
+// SyntaxError/RangeError/Node ErrnoException.
+// ---------------------------------------------------------------------------
+
+describe("TestFileStore — malformed/corrupt framed object handling", () => {
+  let root: string;
+  let store: TestFileStore;
+
+  beforeEach(async () => {
+    root = await fs.mkdtemp(path.join(os.tmpdir(), "rawfilestore-framing-"));
+    store = new TestFileStore(root);
+  });
+
+  afterEach(async () => {
+    await fs.rm(root, { recursive: true, force: true });
+  });
+
+  // Writes a raw framed-looking file with fully independent control over
+  // the declared length-prefix value, the actual header bytes present,
+  // and the actual content bytes present — so each corruption case can
+  // be isolated precisely, without going through encodeObject()/put().
+  async function writeRawFramedFile(
+    key: string,
+    declaredHeaderLength: number,
+    headerBytes: Buffer,
+    contentBytes: Buffer
+  ): Promise<string> {
+    const filePath = path.join(root, key);
+    const lengthPrefix = Buffer.alloc(4);
+    lengthPrefix.writeUInt32LE(declaredHeaderLength >>> 0, 0);
+    const fileBytes = Buffer.concat([lengthPrefix, headerBytes, contentBytes]);
+    await fs.writeFile(filePath, fileBytes);
+    return filePath;
+  }
+
+  async function expectBothNormalizedFailure(key: string): Promise<void> {
+    await expect(store.head(key)).rejects.toMatchObject({ code: "PROVIDER_FAILURE" });
+    await expect(store.get(key)).rejects.toMatchObject({ code: "PROVIDER_FAILURE" });
+    // Never a raw SyntaxError/RangeError/Node ErrnoException.
+    try {
+      await store.head(key);
+    } catch (err) {
+      expect(err).toBeInstanceOf(RawFileStoreError);
+      expect((err as Error).name).toBe("RawFileStoreError");
+    }
+  }
+
+  it("F1: header length = 0 is rejected", async () => {
+    await writeRawFramedFile("f1", 0, Buffer.alloc(0), Buffer.from("irrelevant"));
+    await expectBothNormalizedFailure("f1");
+  });
+
+  it("F2: header length > configured maximum is rejected before allocation", async () => {
+    // A GENUINELY valid, schema-conforming JSON header, padded with
+    // insignificant JSON whitespace (permitted between tokens per the
+    // JSON grammar) to exceed MAX_HEADER_BYTES on its own — this isolates
+    // the max-length check as the sole possible failure reason: the
+    // bytes are present in full (no truncation, so F3 cannot fire), and
+    // the JSON is both syntactically valid and schema-conforming (so
+    // neither "invalid JSON" nor "wrong shape" can fire either). If this
+    // rejection ever stopped happening, the only remaining explanation
+    // would be the max-length bound itself being gone or too permissive.
+    const padding = " ".repeat(3000);
+    const validButOversized = Buffer.from(`{"size":5,${padding}"contentType":"text/plain"}`, "utf8");
+    expect(validButOversized.byteLength).toBeGreaterThan(2048);
+    // Sanity: confirm this really would otherwise be accepted as valid,
+    // schema-conforming JSON (proves the test isolates ONLY the length
+    // bound, not an incidental secondary defect in the padding itself).
+    const parsed = JSON.parse(validButOversized.toString("utf8"));
+    expect(parsed).toEqual({ size: 5, contentType: "text/plain" });
+
+    await writeRawFramedFile("f2", validButOversized.byteLength, validButOversized, Buffer.from("hello"));
+    await expectBothNormalizedFailure("f2");
+  });
+
+  it("F3: header length claims bytes not present in the file", async () => {
+    await writeRawFramedFile("f3", 100, Buffer.alloc(10, 0x41), Buffer.alloc(0));
+    await expectBothNormalizedFailure("f3");
+  });
+
+  it("F4: invalid JSON in the header is rejected", async () => {
+    const bad = Buffer.from("not json", "utf8");
+    await writeRawFramedFile("f4", bad.byteLength, bad, Buffer.alloc(0));
+    await expectBothNormalizedFailure("f4");
+  });
+
+  it("F5: parsed JSON is null is rejected", async () => {
+    const bad = Buffer.from("null", "utf8");
+    await writeRawFramedFile("f5", bad.byteLength, bad, Buffer.alloc(0));
+    await expectBothNormalizedFailure("f5");
+  });
+
+  it("F6: parsed JSON is an array is rejected", async () => {
+    const bad = Buffer.from("[1,2,3]", "utf8");
+    await writeRawFramedFile("f6", bad.byteLength, bad, Buffer.alloc(0));
+    await expectBothNormalizedFailure("f6");
+  });
+
+  it("F7: missing size field is rejected", async () => {
+    const bad = Buffer.from(JSON.stringify({ contentType: "text/plain" }), "utf8");
+    await writeRawFramedFile("f7", bad.byteLength, bad, Buffer.alloc(0));
+    await expectBothNormalizedFailure("f7");
+  });
+
+  it("F8: negative size is rejected", async () => {
+    const bad = Buffer.from(JSON.stringify({ size: -1 }), "utf8");
+    await writeRawFramedFile("f8", bad.byteLength, bad, Buffer.alloc(0));
+    await expectBothNormalizedFailure("f8");
+  });
+
+  it("F9: fractional size is rejected", async () => {
+    const bad = Buffer.from(JSON.stringify({ size: 1.5 }), "utf8");
+    await writeRawFramedFile("f9", bad.byteLength, bad, Buffer.alloc(0));
+    await expectBothNormalizedFailure("f9");
+  });
+
+  it("F10: unsafe-integer size is rejected", async () => {
+    const bad = Buffer.from(`{"size":${Number.MAX_SAFE_INTEGER + 1}}`, "utf8");
+    await writeRawFramedFile("f10", bad.byteLength, bad, Buffer.alloc(0));
+    await expectBothNormalizedFailure("f10");
+  });
+
+  it("F11: contentType of the wrong type is rejected", async () => {
+    const bad = Buffer.from(JSON.stringify({ size: 5, contentType: 123 }), "utf8");
+    await writeRawFramedFile("f11", bad.byteLength, bad, Buffer.from("hello"));
+    await expectBothNormalizedFailure("f11");
+  });
+
+  it("F12: contentType exceeding the allowed maximum is rejected", async () => {
+    const bad = Buffer.from(JSON.stringify({ size: 5, contentType: "x".repeat(300) }), "utf8");
+    await writeRawFramedFile("f12", bad.byteLength, bad, Buffer.from("hello"));
+    await expectBothNormalizedFailure("f12");
+  });
+
+  it("F13: body shorter than declared size is rejected by get() (head() is unaffected, since it never reads content)", async () => {
+    const header = Buffer.from(JSON.stringify({ size: 100 }), "utf8");
+    await writeRawFramedFile("f13", header.byteLength, header, Buffer.alloc(10, 0x41));
+    // head() only reads the header, which is well-formed on its own —
+    // the body/header inconsistency is exclusively a get()-time concern
+    // (5A.2E-R2, Section 7: this is a deliberate scope decision, not an
+    // oversight — see the ADR).
+    await expect(store.head("f13")).resolves.toMatchObject({ size: 100 });
+    await expect(store.get("f13")).rejects.toMatchObject({ code: "PROVIDER_FAILURE" });
+  });
+
+  it("F14: body longer than declared size is rejected by get()", async () => {
+    const header = Buffer.from(JSON.stringify({ size: 5 }), "utf8");
+    await writeRawFramedFile("f14", header.byteLength, header, Buffer.alloc(20, 0x41));
+    await expect(store.head("f14")).resolves.toMatchObject({ size: 5 });
+    await expect(store.get("f14")).rejects.toMatchObject({ code: "PROVIDER_FAILURE" });
+  });
+
+  // 5A.2E-R2, Section 8/19 (mutation R5): a REAL, valid, schema-conforming
+  // header padded with insignificant JSON whitespace (well under
+  // MAX_HEADER_BYTES, so the size-bound check does not fire) has an
+  // on-disk encoded length that DIFFERS from what
+  // JSON.stringify(JSON.parse(headerBytes)) would recompute (the parsed
+  // object re-serializes to its compact canonical form, discarding the
+  // padding). If content-start were computed via that fragile
+  // re-serialization instead of the actual validated on-disk header
+  // length, reads would begin at the wrong file offset and return
+  // corrupted/misaligned content — this proves readHeader's returned
+  // headerLength (not a JSON.stringify recomputation) is what actually
+  // determines the content offset.
+  it("content offset is derived from the actual encoded header length, not a JSON.stringify recomputation of the parsed header", async () => {
+    const paddedHeader = Buffer.from('{"size":5,     "contentType":"text/plain"}', "utf8");
+    const compactReserialized = Buffer.from(JSON.stringify({ size: 5, contentType: "text/plain" }), "utf8");
+    // Sanity: confirm this test actually exercises a real discrepancy —
+    // if padding ever stopped differing in length from the compact
+    // form, this test would silently prove nothing.
+    expect(paddedHeader.byteLength).not.toBe(compactReserialized.byteLength);
+
+    const realContent = Buffer.from([10, 20, 30, 40, 50]);
+    await writeRawFramedFile("offset-check", paddedHeader.byteLength, paddedHeader, realContent);
+
+    const { metadata, body } = await store.get("offset-check");
+    expect(metadata.size).toBe(5);
+    expect(Array.from(body)).toEqual([10, 20, 30, 40, 50]);
+  });
+
+  it("every successful get() satisfies metadata.size === body.byteLength (regression: this was previously violated by F13/F14-shaped corruption)", async () => {
+    await store.put("consistent", new Uint8Array([1, 2, 3, 4, 5]));
+    const { metadata, body } = await store.get("consistent");
+    expect(metadata.size).toBe(body.byteLength);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 5A.2E-R2, Section 13: dedicated resource-bound regression test for the
+// exact defect R2 independently reproduced (a corrupted 4-byte file
+// claiming a ~2 GiB header length caused an immediate, unbounded
+// Buffer.alloc(headerLength) with zero validation). This test must NOT
+// attempt a real multi-gigabyte allocation itself — it proves the
+// production code rejects the claim before ever allocating for it, by
+// completing quickly against a file that is only a few bytes long.
+// ---------------------------------------------------------------------------
+
+describe("TestFileStore — resource-bound regression (5A.2E-R2)", () => {
+  it("a tiny file with a huge declared header length fails immediately as PROVIDER_FAILURE, without allocating anywhere close to the claim", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "rawfilestore-resourcebound-"));
+    try {
+      const store = new TestFileStore(root);
+      const filePath = path.join(root, "huge-header-claim");
+      const lengthPrefix = Buffer.alloc(4);
+      // 0xFFFFFFFE: ~4 GiB, astronomically larger than MAX_HEADER_BYTES
+      // and larger than the file itself (which is only 4 bytes total).
+      lengthPrefix.writeUInt32LE(0xfffffffe, 0);
+      await fs.writeFile(filePath, lengthPrefix); // file is ONLY the 4-byte prefix
+
+      const start = Date.now();
+      await expect(store.head("huge-header-claim")).rejects.toMatchObject({ code: "PROVIDER_FAILURE" });
+      const elapsedMs = Date.now() - start;
+      // A real ~4 GiB allocation attempt would be far slower (or throw a
+      // RangeError from Node's own Buffer size ceiling) than a bounds
+      // check that runs before any allocation — a generous 2s ceiling
+      // proves this was rejected cheaply, not after a large attempted
+      // allocation.
+      expect(elapsedMs).toBeLessThan(2000);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 5A.2E-R2, Section 14.A: deterministic mkdir failure normalization,
+// using real filesystem state (a plain file occupying the path where a
+// directory needs to be created) rather than a mocking framework.
+// ---------------------------------------------------------------------------
+
+describe("TestFileStore — mkdir failure normalization (5A.2E-R2)", () => {
+  it("put() normalizes a parent-directory creation failure to PROVIDER_FAILURE, never a raw Node error", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "rawfilestore-mkdirfail-"));
+    try {
+      // Create a plain FILE at "blocked" — this makes it impossible for
+      // fs.mkdir(recursive) to create a directory at that same path for
+      // key "blocked/child", since a non-directory already occupies it.
+      await fs.writeFile(path.join(root, "blocked"), "not a directory");
+      const store = new TestFileStore(root);
+      await expect(store.put("blocked/child", new Uint8Array([1]))).rejects.toMatchObject({
+        code: "PROVIDER_FAILURE",
+      });
+      try {
+        await store.put("blocked/child", new Uint8Array([1]));
+      } catch (err) {
+        expect(err).toBeInstanceOf(RawFileStoreError);
+        expect((err as Error).name).toBe("RawFileStoreError");
+        expect((err as Error).name).not.toMatch(/ENOTDIR|SystemError/i);
+      }
     } finally {
       await fs.rm(root, { recursive: true, force: true });
     }
