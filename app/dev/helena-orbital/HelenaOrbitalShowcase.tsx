@@ -84,6 +84,7 @@ export function HelenaOrbitalShowcase() {
         .hlo-force-reduced .hlo-listen-contract-outer-active,
         .hlo-force-reduced .hlo-listen-contract-middle-active,
         .hlo-force-reduced .hlo-listen-contract-inner-active,
+        .hlo-force-reduced .hlo-listen-glow-pulse-active,
         .hlo-force-reduced .hlo-think-sphere-spike-inner,
         .hlo-force-reduced .hlo-think-sphere-spike-middle,
         .hlo-force-reduced .hlo-think-sphere-spike-outer {

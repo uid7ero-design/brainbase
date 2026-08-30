@@ -67,13 +67,18 @@ describe('HelenaOrbital — Phase B.2 intensity pass', () => {
     expect(maxScale).toBeLessThanOrEqual(1.18);
   });
 
-  it('the thinking shudder amplitude is roughly 2-3px at large size', () => {
+  it('the thinking shudder has a small, bounded translation amplitude at large size', () => {
+    // B.2's 2-3px target was deliberately reduced further in B.4 ("reduce
+    // pure translation slightly, shift more of the perceived activity into
+    // coordinated core/ring/sphere response" — see helenaOrbitalMicroImpulse
+    // .test.ts for the current, more precise B.4 range). This test now only
+    // guards the outer bound (never regresses back toward a "shaking" feel).
     const kf = source.match(/@keyframes hloThinkShudder \{[\s\S]*?\n {2}\}/)?.[0] ?? '';
     const magnitudes = [...kf.matchAll(/(-?[\d.]+)px (-?[\d.]+)px/g)].map(
       ([, x, y]) => Math.hypot(Number(x), Number(y)),
     );
     expect(magnitudes.length).toBeGreaterThan(0);
-    expect(Math.max(...magnitudes)).toBeGreaterThanOrEqual(2);
+    expect(Math.max(...magnitudes)).toBeGreaterThan(0.5);
     expect(Math.max(...magnitudes)).toBeLessThanOrEqual(3.2);
   });
 

@@ -114,9 +114,9 @@ const SPHERE_GLOW_PX: Record<HelenaVisualState, number> = {
 
 const STATE_DESCRIPTION: Record<HelenaVisualState, string> = {
   idle: 'Calm baseline — slow independent orbits, low glow, gentle core breathing.',
-  listening: 'Attentive — an inward-focus pull moves outer→middle→inner toward the core, which brightens.',
-  thinking: 'Computational — intermittent impulses move core→ring→sphere outward: a shudder, a small ring squeeze, a brief sphere glow spike.',
-  speaking: 'The most alive state — energy visibly originates at the core and propagates outward through the rings to the spheres, in sync with audioLevel.',
+  listening: 'Attentive — a stronger inward-focus pull moves outer→middle→inner toward the core, which brightens at the peak of each cycle.',
+  thinking: 'Computational — brief, well-spaced impulses (not continuous shaking) move core→ring→sphere outward: a short shudder, a small ring squeeze, a brief sphere glow spike.',
+  speaking: 'The most alive state — energy originates at the core with a fast attack and softer decay (like a speech syllable) and propagates outward through the rings to the spheres, in sync with audioLevel.',
   error: 'Subdued — motion slows substantially, glow and core intensity drop, a restrained amber accent marks degradation.',
 };
 
@@ -157,106 +157,113 @@ const ORBITAL_CSS = `
     50%      { transform: scale(0.975); }
   }
 
-  /* Thinking "computational shudder" family — two short (~100-200ms) burst
-     windows per 3.0s cycle, long calm stretches between. translate/scale/
+  /* Thinking "computational impulse" family — Phase B.4: two short
+     (~140ms) single-peaked impulse clusters per 2.6s cycle, separated by
+     ~1.1s quiet gaps (was two ~120ms double-tap bursts per 3s cycle with
+     one gap as short as ~390ms in B.3 — under-target and part of why B.3
+     still read as "shake" rather than a discrete event). translate/scale/
      rotate are individual transform properties, so they compose with the
      core's other scale/rotation layers instead of overriding them. Values
      are in viewBox units, so they scale down proportionally at small
-     render sizes automatically. Amplitude trimmed in B.3 (was up to 2.4px)
-     so more of the perceived "impulse" comes from the coordinated
-     ring-squeeze/sphere-spike response below, not raw translation alone. */
+     render sizes automatically. Cluster A and cluster B use slightly
+     different magnitudes/directions (not identical) so consecutive
+     impulses don't look mechanically repeated — deterministic, no random
+     number generation, no extra timers. Amplitude trimmed further from B.3 so
+     more of the perceived "impulse" comes from the coordinated
+     ring-squeeze/trace/sphere response, not raw translation alone. */
   @keyframes hloThinkShudder {
-    0%, 73%   { translate: 0px 0px; }
-    75%       { translate: 1.8px -1.3px; }
-    77%       { translate: -0.9px 1px; }
-    79%, 90%  { translate: 0px 0px; }
-    92%       { translate: -1.5px -1.2px; }
-    94%       { translate: 0.7px 0.9px; }
-    96%, 100% { translate: 0px 0px; }
+    0%, 5.5%   { translate: 0px 0px; }
+    2.5%       { translate: 1.3px -0.9px; }
+    48%, 53.5% { translate: 0px 0px; }
+    50.5%      { translate: -1.4px -1px; }
+    100%       { translate: 0px 0px; }
   }
   @keyframes hloThinkCompress {
-    0%, 73%   { scale: 1; }
-    75%       { scale: 0.93; }
-    77%       { scale: 1.07; }
-    79%, 90%  { scale: 1; }
-    92%       { scale: 0.95; }
-    94%       { scale: 1.05; }
-    96%, 100% { scale: 1; }
+    0%, 5.5%   { scale: 1; }
+    2.5%       { scale: 0.958; }
+    48%, 53.5% { scale: 1; }
+    50.5%      { scale: 0.953; }
+    100%       { scale: 1; }
   }
   @keyframes hloRingWobble {
-    0%, 73%   { rotate: 0deg; }
-    75%       { rotate: 2.2deg; }
-    77%       { rotate: -1.4deg; }
-    79%, 90%  { rotate: 0deg; }
-    92%       { rotate: -1.8deg; }
-    94%       { rotate: 1.1deg; }
-    96%, 100% { rotate: 0deg; }
+    0%, 5.5%   { rotate: 0deg; }
+    2.5%       { rotate: 1.4deg; }
+    48%, 53.5% { rotate: 0deg; }
+    50.5%      { rotate: -1.6deg; }
+    100%       { rotate: 0deg; }
   }
   @keyframes hloThinkGlowSpike {
-    0%, 73%   { opacity: .72; }
-    75%       { opacity: 1;   }
-    77%, 90%  { opacity: .72; }
-    92%       { opacity: 1;   }
-    94%, 100% { opacity: .72; }
+    0%, 5.5%   { opacity: .74; }
+    2.5%       { opacity: 1;   }
+    48%, 53.5% { opacity: .74; }
+    50.5%      { opacity: 1;   }
+    100%       { opacity: .74; }
   }
   @keyframes hloThinkTraceFlicker {
-    0%, 73%   { opacity: .38; }
-    75%       { opacity: .95; }
-    77%, 90%  { opacity: .38; }
-    92%       { opacity: .85; }
-    94%, 100% { opacity: .38; }
+    0%, 5.5%   { opacity: .36; }
+    2.5%       { opacity: .96; }
+    48%, 53.5% { opacity: .36; }
+    50.5%      { opacity: .9;  }
+    100%       { opacity: .36; }
   }
 
   /* Thinking ring "squeeze" — the computational impulse propagating from
-     core toward the rings. Same 3s cycle/burst timing as the shudder
-     above, amplitude decreasing outward (processing impulse, not rubber
-     rings). Separate keyframe per ring because the amplitude differs. */
+     core toward the rings. Same 2.6s cycle/impulse timing as the shudder
+     above, amplitude decreasing outward — inner responds most, middle
+     somewhat, outer least (processing impulse, not rubber rings).
+     Separate keyframe per ring because the amplitude differs. */
   @keyframes hloThinkSqueezeInner {
-    0%, 73%   { scale: 1; }
-    75%       { scale: 0.982; }
-    77%       { scale: 1.015; }
-    79%, 90%  { scale: 1; }
-    92%       { scale: 0.985; }
-    94%       { scale: 1.012; }
-    96%, 100% { scale: 1; }
+    0%, 5.5%   { scale: 1; }
+    2.5%       { scale: 0.986; }
+    48%, 53.5% { scale: 1; }
+    50.5%      { scale: 0.988; }
+    100%       { scale: 1; }
   }
   @keyframes hloThinkSqueezeMiddle {
-    0%, 73%   { scale: 1; }
-    75%       { scale: 0.988; }
-    77%       { scale: 1.010; }
-    79%, 90%  { scale: 1; }
-    92%       { scale: 0.990; }
-    94%       { scale: 1.008; }
-    96%, 100% { scale: 1; }
+    0%, 5.5%   { scale: 1; }
+    2.5%       { scale: 0.991; }
+    48%, 53.5% { scale: 1; }
+    50.5%      { scale: 0.992; }
+    100%       { scale: 1; }
   }
   @keyframes hloThinkSqueezeOuter {
-    0%, 73%   { scale: 1; }
-    75%       { scale: 0.994; }
-    77%       { scale: 1.006; }
-    79%, 90%  { scale: 1; }
-    92%       { scale: 0.995; }
-    94%       { scale: 1.005; }
-    96%, 100% { scale: 1; }
+    0%, 5.5%   { scale: 1; }
+    2.5%       { scale: 0.995; }
+    48%, 53.5% { scale: 1; }
+    50.5%      { scale: 0.996; }
+    100%       { scale: 1; }
   }
   /* Thinking sphere response — a brief scale spike synced to the same
-     bursts, staggered inner→middle→outer via animation-delay so the
-     impulse visibly continues past the rings to the spheres. */
+     impulse clusters, staggered inner→middle→outer via animation-delay so
+     the impulse visibly continues past the rings to the spheres. */
   @keyframes hloThinkSphereSpike {
-    0%, 73%   { scale: 1; }
-    75%       { scale: 1.2; }
-    77%, 90%  { scale: 1; }
-    92%       { scale: 1.15; }
-    94%, 100% { scale: 1; }
+    0%, 5.5%   { scale: 1; }
+    2.5%       { scale: 1.18; }
+    48%, 53.5% { scale: 1; }
+    50.5%      { scale: 1.15; }
+    100%       { scale: 1; }
   }
 
   /* Listening inward-focus response — energy moving toward the core
      (outer contracts first, then middle, then inner), synced to the same
      2.4s cycle as the attention pulse via animation-delay. Amplitude
      decreases toward the centre (a gathering motion), opposite in both
-     direction and character to speaking's outward wave. */
-  @keyframes hloListenContractOuter  { 0%, 100% { scale: 1; } 45% { scale: 0.987; } }
-  @keyframes hloListenContractMiddle { 0%, 100% { scale: 1; } 45% { scale: 0.990; } }
-  @keyframes hloListenContractInner  { 0%, 100% { scale: 1; } 45% { scale: 0.993; } }
+     direction and character to speaking's outward wave. Strengthened in
+     Phase B.4 (was outer 1.3%/middle 1.0%/inner 0.7% — visual review
+     called listening the least distinct active state) so the contrast
+     with speaking reads at a glance rather than needing a side-by-side. */
+  @keyframes hloListenContractOuter  { 0%, 100% { scale: 1; } 45% { scale: 0.982; } }
+  @keyframes hloListenContractMiddle { 0%, 100% { scale: 1; } 45% { scale: 0.986; } }
+  @keyframes hloListenContractInner  { 0%, 100% { scale: 1; } 45% { scale: 0.990; } }
+  /* Core brightens at the inward-focus peak (~45%, matching the
+     contraction keyframes above) rather than via audioLevel — this is a
+     periodic "gathering" cue, not an amplitude response. Applied to the
+     ambient glow layer (ring/core's shared halo read) via a conditional
+     class, same pattern as hloThinkGlowSpike. */
+  @keyframes hloListenGlowPulse {
+    0%, 100% { opacity: .75; }
+    45%      { opacity: .92; }
+  }
 
   /* One-shot state-transition choreography — animation-iteration-count: 1,
      never repeating, cleared from the DOM shortly after the triggering
@@ -330,7 +337,7 @@ const ORBITAL_CSS = `
     transform-origin: 100px 100px;
   }
   .hlo-ring-wobble-active {
-    animation: hloRingWobble 3s ease-in-out infinite;
+    animation: hloRingWobble 2.6s ease-in-out infinite;
   }
   /* Dedicated per-ring radial-response layer — individual 'scale' property,
      sits between the wobble wrapper (rotate) and the spinning ring group
@@ -343,18 +350,19 @@ const ORBITAL_CSS = `
     transform-box: view-box;
     transform-origin: 100px 100px;
   }
-  .hlo-think-squeeze-inner-active  { animation: hloThinkSqueezeInner  3s ease-in-out infinite; }
-  .hlo-think-squeeze-middle-active { animation: hloThinkSqueezeMiddle 3s ease-in-out infinite; }
-  .hlo-think-squeeze-outer-active  { animation: hloThinkSqueezeOuter  3s ease-in-out infinite; }
+  .hlo-think-squeeze-inner-active  { animation: hloThinkSqueezeInner  2.6s ease-in-out infinite; }
+  .hlo-think-squeeze-middle-active { animation: hloThinkSqueezeMiddle 2.6s ease-in-out infinite; }
+  .hlo-think-squeeze-outer-active  { animation: hloThinkSqueezeOuter  2.6s ease-in-out infinite; }
   .hlo-listen-contract-outer-active  { animation: hloListenContractOuter  2.4s ease-in-out infinite; }
   .hlo-listen-contract-middle-active { animation: hloListenContractMiddle 2.4s ease-in-out infinite; animation-delay: .04s; }
   .hlo-listen-contract-inner-active  { animation: hloListenContractInner  2.4s ease-in-out infinite; animation-delay: .08s; }
+  .hlo-listen-glow-pulse-active { animation: hloListenGlowPulse 2.4s ease-in-out infinite; }
   .hlo-ignition-wave-inner  { animation: hloIgnitionRingWave .35s ease-out 1; animation-delay: ${PROPAGATION_DELAY_MS.inner}ms; }
   .hlo-ignition-wave-middle { animation: hloIgnitionRingWave .35s ease-out 1; animation-delay: ${PROPAGATION_DELAY_MS.middle}ms; }
   .hlo-ignition-wave-outer  { animation: hloIgnitionRingWave .35s ease-out 1; animation-delay: ${PROPAGATION_DELAY_MS.outer}ms; }
-  .hlo-think-sphere-spike-inner  { animation: hloThinkSphereSpike 3s ease-in-out infinite; }
-  .hlo-think-sphere-spike-middle { animation: hloThinkSphereSpike 3s ease-in-out infinite; animation-delay: .015s; }
-  .hlo-think-sphere-spike-outer  { animation: hloThinkSphereSpike 3s ease-in-out infinite; animation-delay: .03s; }
+  .hlo-think-sphere-spike-inner  { animation: hloThinkSphereSpike 2.6s ease-in-out infinite; }
+  .hlo-think-sphere-spike-middle { animation: hloThinkSphereSpike 2.6s ease-in-out infinite; animation-delay: .015s; }
+  .hlo-think-sphere-spike-outer  { animation: hloThinkSphereSpike 2.6s ease-in-out infinite; animation-delay: .03s; }
   .hlo-ignition-sphere-inner  { animation: hloIgnitionSphereBurst .3s ease-out 1; animation-delay: ${SPHERE_PROPAGATION_DELAY_MS.inner}ms; }
   .hlo-ignition-sphere-middle { animation: hloIgnitionSphereBurst .3s ease-out 1; animation-delay: ${SPHERE_PROPAGATION_DELAY_MS.middle}ms; }
   .hlo-ignition-sphere-outer  { animation: hloIgnitionSphereBurst .3s ease-out 1; animation-delay: ${SPHERE_PROPAGATION_DELAY_MS.outer}ms; }
@@ -363,7 +371,7 @@ const ORBITAL_CSS = `
     transform-origin: 100px 100px;
   }
   .hlo-think-pulse-active {
-    animation: hloThinkCompress 3s ease-in-out infinite;
+    animation: hloThinkCompress 2.6s ease-in-out infinite;
   }
   .hlo-shudder {
     transform-box: view-box;
@@ -371,15 +379,15 @@ const ORBITAL_CSS = `
   }
   .hlo-shudder-active {
     animation-name: hloThinkShudder;
-    animation-duration: 3s;
+    animation-duration: 2.6s;
     animation-timing-function: ease-in-out;
     animation-iteration-count: infinite;
   }
   .hlo-glow-spike-active {
-    animation: hloThinkGlowSpike 3s ease-in-out infinite;
+    animation: hloThinkGlowSpike 2.6s ease-in-out infinite;
   }
   .hlo-trace-flicker-active {
-    animation: hloThinkTraceFlicker 3s ease-in-out infinite;
+    animation: hloThinkTraceFlicker 2.6s ease-in-out infinite;
   }
   .hlo-ignition-halo-active {
     animation: hloIgnitionHalo .45s ease-out 1;
@@ -405,6 +413,7 @@ const ORBITAL_CSS = `
     .hlo-glow-spike-active, .hlo-trace-flicker-active,
     .hlo-think-squeeze-inner-active, .hlo-think-squeeze-middle-active, .hlo-think-squeeze-outer-active,
     .hlo-listen-contract-outer-active, .hlo-listen-contract-middle-active, .hlo-listen-contract-inner-active,
+    .hlo-listen-glow-pulse-active,
     .hlo-think-sphere-spike-inner, .hlo-think-sphere-spike-middle, .hlo-think-sphere-spike-outer {
       animation: none !important;
     }
@@ -452,14 +461,48 @@ export function HelenaOrbital({
   // CSS transition (not a rAF loop) so jitter in the source signal is
   // absorbed visually rather than producing per-frame jumps, and rotation
   // speed is never reassigned every frame from amplitude.
-  const speakingBoost = isSpeaking ? level : 0;
+  //
+  // Phase B.4: sqrt(level) rather than level itself — a linear ramp made
+  // low-mid audioLevel (~0.2-0.4) feel like "nothing happens until it's
+  // high" even though it technically had no hard threshold. sqrt keeps the
+  // same 0→1 endpoints (so the approved max scale is unchanged) but gives
+  // low-mid values a noticeably stronger response: sqrt(0.3)≈0.55,
+  // sqrt(0.5)≈0.71, sqrt(0.8)≈0.89.
+  const speakingBoost = isSpeaking ? Math.sqrt(level) : 0;
   const listeningBoost = isListening ? level * 0.35 : 0;
-  // audioLevel 1 → core scale ~1.16 (within the 1.14-1.18 target band).
+  // audioLevel 1 → core scale ~1.16 (within the 1.14-1.18 target band —
+  // unchanged ceiling, only the response curve below it changed).
   const coreExtraScale = 1 + speakingBoost * 0.16 + listeningBoost * 0.03;
   const haloOpacity = isSpeaking ? 0.3 + speakingBoost * 0.65 : 0;
   const haloScale = 1 + speakingBoost * 0.55;
   const glowOpacity = Math.min(1, glow.opacity + speakingBoost * 0.08);
   const sphereGlowPx = (SPHERE_GLOW_PX[state] ?? SPHERE_GLOW_PX.idle) + speakingBoost * 3;
+
+  // ── Speech-cadence pulse envelope (attack sharper than decay) ──────────
+  // "Adjusting state when a prop changes" — React's own sanctioned pattern
+  // for deriving a value from a change between renders (see
+  // react.dev/reference/react/useState#storing-information-from-previous-renders):
+  // a setState call directly in the render body, guarded by a comparison,
+  // rather than a ref read (which this codebase's React Compiler lint
+  // rules correctly reject as a render-purity violation — ref values
+  // aren't meant to be read during render). React bails out and re-renders
+  // with the updated value before anything commits, so there's no extra
+  // visible frame, no timer, no rAF. Rising (audioLevel increasing) gets a
+  // fast, front-loaded easing; falling (audioLevel decreasing) gets a
+  // longer, gentler one — turning a symmetric bloom into something closer
+  // to a speech syllable's fast-attack/soft-decay shape.
+  const [prevSpeakingBoost, setPrevSpeakingBoost] = useState(speakingBoost);
+  const [rising, setRising] = useState(true);
+  if (speakingBoost !== prevSpeakingBoost) {
+    setRising(speakingBoost >= prevSpeakingBoost);
+    setPrevSpeakingBoost(speakingBoost);
+  }
+  const ATTACK_MS = 110; // within the suggested 80-140ms
+  const DECAY_MS = 300; // within the suggested 220-380ms
+  const ATTACK_EASE = 'cubic-bezier(0.16, 1, 0.3, 1)'; // steep, front-loaded rise
+  const DECAY_EASE = 'ease-out'; // quick initial release, gentle settle
+  const pulseDurationMs = isSpeaking ? (rising ? ATTACK_MS : DECAY_MS) : 220;
+  const pulseEase = isSpeaking ? (rising ? ATTACK_EASE : DECAY_EASE) : 'ease-out';
 
   const glowExt = Math.round(size * 0.4);
   const blurPx = Math.max(6, Math.round(size * 0.18));
@@ -529,16 +572,18 @@ export function HelenaOrbital({
   // ── Per-ring energy response (core→ring→sphere propagation) ────────────
   // Speaking: audioLevel-driven radial "pressure wave", staggered purely
   // via CSS transition-delay — no JS timers, no per-frame updates. Ring
-  // rotation speed itself is untouched by any of this.
+  // rotation speed itself is untouched by any of this. Uses the same
+  // attack/decay pulse envelope as the core (§3), so the whole wave shares
+  // one consistent speech-like rhythm rather than each layer having its
+  // own independent, symmetrical timing.
   const RING_WAVE_MAX_SCALE: Record<RingName, number> = { inner: 0.02, middle: 0.02, outer: 0.025 };
-  const RING_WAVE_DURATION_MS: Record<RingName, number> = { inner: 160, middle: 170, outer: 180 };
 
   function ringEnergyStyle(ring: RingName): React.CSSProperties | undefined {
     if (transitionFx === 'ignition') return undefined; // one-shot wave class takes over instead
     if (isSpeaking) {
       return {
         scale: 1 + speakingBoost * RING_WAVE_MAX_SCALE[ring],
-        transition: `scale ${RING_WAVE_DURATION_MS[ring]}ms ease-out ${PROPAGATION_DELAY_MS[ring]}ms`,
+        transition: `scale ${pulseDurationMs}ms ${pulseEase} ${PROPAGATION_DELAY_MS[ring]}ms`,
       } as React.CSSProperties;
     }
     return undefined;
@@ -555,7 +600,7 @@ export function HelenaOrbital({
     if (isSpeaking) {
       return {
         scale: 1 + speakingBoost * 0.08,
-        transition: `scale 150ms ease-out ${SPHERE_PROPAGATION_DELAY_MS[ring]}ms`,
+        transition: `scale ${pulseDurationMs}ms ${pulseEase} ${SPHERE_PROPAGATION_DELAY_MS[ring]}ms`,
       } as React.CSSProperties;
     }
     return undefined;
@@ -578,14 +623,14 @@ export function HelenaOrbital({
       <div
         aria-hidden="true"
         data-hlo-state-transition
-        className={isThinking ? 'hlo-glow-spike-active' : undefined}
+        className={isThinking ? 'hlo-glow-spike-active' : isListening ? 'hlo-listen-glow-pulse-active' : undefined}
         style={{
           position: 'absolute',
           inset: -glowExt,
           borderRadius: '50%',
           background: `radial-gradient(circle at 50% 50%, ${glow.color} 0%, transparent 70%)`,
           filter: `blur(${blurPx}px)`,
-          opacity: isThinking ? undefined : glowOpacity,
+          opacity: isThinking || isListening ? undefined : glowOpacity,
           transition: 'opacity .6s ease, background .6s ease',
           pointerEvents: 'none',
         }}
@@ -753,7 +798,9 @@ export function HelenaOrbital({
               transform: `scale(${haloScale})`,
               transformBox: 'view-box',
               transformOrigin: '100px 100px',
-              transition: 'opacity .22s ease-out, transform .22s ease-out',
+              // Halo follows the core by a small fixed delay (core reacts
+              // "first and most strongly" per §4) rather than moving in lockstep.
+              transition: `opacity ${pulseDurationMs}ms ${pulseEase} 15ms, transform ${pulseDurationMs}ms ${pulseEase} 15ms`,
             }}
           />
 
@@ -777,7 +824,7 @@ export function HelenaOrbital({
               compose instead of overriding one another. */}
           <g
             className="hlo-audio-scale"
-            style={{ transform: `scale(${coreExtraScale})`, transition: 'transform .22s ease-out' }}
+            style={{ transform: `scale(${coreExtraScale})`, transition: `transform ${pulseDurationMs}ms ${pulseEase}` }}
           >
             <g className={shudderClass}>
               <g className={isThinking ? 'hlo-think-pulse hlo-think-pulse-active' : 'hlo-think-pulse'}>
