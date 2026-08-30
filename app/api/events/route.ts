@@ -42,12 +42,13 @@ export async function POST(req: NextRequest) {
   try {
     const rows = await sql`
       INSERT INTO events (
-        organisation_id, name, slug, description, venue, status,
+        organisation_id, name, slug, description, venue, artwork_url, status,
         starts_at, ends_at, timezone, created_by
       ) VALUES (
         ${session.organisationId}, ${(body.name as string).trim()}, ${body.slug as string},
         ${(body.description as string | undefined)?.trim() || null},
         ${(body.venue as string | undefined)?.trim() || null},
+        ${(body.artwork_url as string | undefined)?.trim() || null},
         ${(body.status as string | undefined) ?? 'DRAFT'},
         ${body.starts_at as string}, ${body.ends_at as string}, ${body.timezone as string},
         ${session.userId}

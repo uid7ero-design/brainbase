@@ -63,11 +63,31 @@ export type EventInput = {
   slug?: unknown;
   description?: unknown;
   venue?: unknown;
+  artwork_url?: unknown;
   status?: unknown;
   starts_at?: unknown;
   ends_at?: unknown;
   timezone?: unknown;
 };
+
+// artwork_url is a reference to an already-hosted image (see
+// scripts/add-events-artwork.sql), never an uploaded file — this
+// codebase has no byte-upload path for it, so validation is limited to
+// "does this look like a plausible http(s) URL", not a MIME/content
+// check (there are no bytes here to inspect). null/undefined clears or
+// leaves the field alone respectively — see mergeField()'s own contract.
+const MAX_ARTWORK_URL_LENGTH = 2048;
+
+export function validateArtworkUrl(value: unknown): string | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== 'string') return 'Artwork URL must be a string.';
+  if (value.length > MAX_ARTWORK_URL_LENGTH) return 'Artwork URL is too long.';
+  if (value.trim() === '') return null; // treated as "no artwork" by callers, not an error
+  if (!/^https:\/\/.+/i.test(value) && !/^http:\/\/.+/i.test(value)) {
+    return 'Artwork URL must start with http:// or https://.';
+  }
+  return null;
+}
 
 export const EVENT_STATUSES = ['DRAFT', 'PUBLISHED', 'CANCELLED'] as const;
 export type EventStatus = (typeof EVENT_STATUSES)[number];
@@ -85,6 +105,9 @@ export function validateEventInput(body: EventInput): string | null {
   if (typeof body.timezone !== 'string' || !isValidTimezone(body.timezone)) {
     return 'A valid IANA timezone is required (e.g. "Australia/Adelaide").';
   }
+
+  const artworkError = validateArtworkUrl(body.artwork_url);
+  if (artworkError) return artworkError;
 
   const starts = new Date(body.starts_at as string);
   const ends = new Date(body.ends_at as string);
