@@ -291,6 +291,11 @@ export function ChatPanel({
   layout = 'floating',
   emptyStateTitle = 'Ask HLNΛ about your dashboards, data, or operations.',
   emptyStateHint = 'Try: "What are our top cost drivers?" or "Explain the waste contamination trend"',
+  // Phase C.2B.2 — docked mode only. Bounds the panel to a deliberate
+  // conversation card instead of filling the entire right column edge to
+  // edge. Ignored in 'floating' mode (BrainBase.jsx unaffected).
+  maxWidth = 860,
+  maxHeight = '74vh',
 }) {
   const [input, setInput]                 = useState('');
   const [pipelineStep, setPipelineStep]   = useState(0);
@@ -376,12 +381,12 @@ export function ChatPanel({
 
   return (
     <div style={docked ? {
-      position: "relative", width: "100%", height: "100%",
+      position: "relative", width: "100%", maxWidth, height: "100%", maxHeight,
       display: "flex", flexDirection: "column",
       borderRadius: 14, overflow: "hidden",
       background: "rgba(7, 7, 16, 0.97)",
       border: "1px solid rgba(124,58,237,0.18)",
-      boxShadow: "0 0 0 1px rgba(124,58,237,0.05)",
+      boxShadow: "0 0 0 1px rgba(124,58,237,0.05), 0 24px 60px rgba(0,0,0,0.45)",
       fontFamily: FONT,
     } : {
       position: "fixed", bottom: 86, right: 20,

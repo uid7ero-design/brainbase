@@ -118,7 +118,18 @@ export default function HelenaWorkspace() {
 
   return (
     <div style={{
-      height: "100vh", overflow: "hidden",
+      // Phase C.2B.2: app/layout.tsx renders the global TopNav (a <nav>,
+      // ~52px tall in its single-row state) as a plain sibling before
+      // {children} — not inside a flex container that would give this page
+      // the true remaining height. A flat 100vh here stacks additively on
+      // top of TopNav and produces ~52px of page-level scroll overflow
+      // (confirmed live via getBoundingClientRect: html.scrollHeight 1191
+      // vs window.innerHeight 1138). BrainBase.jsx has this same pattern —
+      // this fix is scoped to this file only. If TopNav's height changes
+      // (e.g. it wraps to two rows, or the super_admin org-impersonation
+      // banner is showing) this approximation would need revisiting; a
+      // fully robust fix belongs in app/layout.tsx, out of scope here.
+      height: "calc(100vh - 52px)", overflow: "hidden",
       background: "radial-gradient(ellipse 130% 90% at 50% 0%, #07050F 0%, #050309 50%, #020205 100%)",
       fontFamily: FONT, position: "relative", display: "flex", flexDirection: "column",
     }}>
@@ -244,6 +255,8 @@ export default function HelenaWorkspace() {
             onSend={helena.sendMessage}
             emptyStateTitle="Ask HLNΛ about your organisation."
             emptyStateHint="What would you like help with?"
+            maxWidth={isNarrow ? '100%' : 860}
+            maxHeight={isNarrow ? '100%' : '74vh'}
           />
         </div>
       </div>
@@ -272,8 +285,11 @@ export default function HelenaWorkspace() {
           min-width: 0;
           display: flex;
           flex-direction: column;
-          padding: 16px 16px 16px 0;
+          align-items: center;
+          justify-content: center;
+          padding: 24px;
           min-height: 0;
+          overflow: hidden;
         }
         @media ${NARROW_QUERY} {
           .hlna-split {
@@ -290,8 +306,9 @@ export default function HelenaWorkspace() {
           .hlna-right {
             flex: 1;
             width: 100%;
-            padding: 0 12px 12px;
-            min-height: 420px;
+            padding: 12px;
+            min-height: 460px;
+            overflow: visible;
           }
         }
       `}</style>
