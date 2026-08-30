@@ -1,5 +1,5 @@
 ﻿'use client';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { DEPARTMENT_LIST } from "../../lib/hlna/departmentConfigs";
 import { CYAN } from "../../lib/utils/constants";
@@ -738,7 +738,7 @@ const SIDEBAR_NAV = [
   },
 ];
 
-export function LeftSidebar({ open, onToggle }) {
+export function LeftSidebar({ open, onToggle, isSuperAdmin = false }) {
   const { activeModule, setActiveModule, fireHelena, setChatOpen, activeDepartment, setActiveDepartment } = useAppStore();
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const pathname = usePathname();
@@ -746,6 +746,18 @@ export function LeftSidebar({ open, onToggle }) {
 
   const FONT   = "var(--font-inter), -apple-system, sans-serif";
   const PURPLE = "#A78BFA";
+
+  // 'admin' (-> /admin/orgs) is a founder-only tool — this component is
+  // only ever reached by a generic client organisation in normal use
+  // (super_admin redirects to /admin/founder; LD Tennis has its own
+  // TennisDashboard with no LeftSidebar at all), but a super_admin
+  // impersonating a client organisation DOES reach it with role still
+  // 'super_admin' — so this is gated on that flag, not simply removed,
+  // to keep working correctly for that case.
+  const sidebarNav = useMemo(
+    () => (isSuperAdmin ? SIDEBAR_NAV : SIDEBAR_NAV.filter(item => item?.key !== 'admin')),
+    [isSuperAdmin],
+  );
 
   function isNavActive(item) {
     if (!item) return false;
@@ -795,7 +807,7 @@ export function LeftSidebar({ open, onToggle }) {
       {/* Collapsed: icon-only */}
       {!open && (
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", paddingTop: 52, gap: 2 }}>
-          {SIDEBAR_NAV.filter(Boolean).map(item => {
+          {sidebarNav.filter(Boolean).map(item => {
             const active = isNavActive(item);
             return (
               <button key={item.key} onClick={() => handleNavClick(item)} title={item.label} style={{
@@ -819,7 +831,7 @@ export function LeftSidebar({ open, onToggle }) {
           {/* Primary nav */}
           <div style={{ padding: "0 8px 4px", flexShrink: 0 }}>
             <div style={{ fontSize: 8, fontWeight: 800, color: "rgba(255,255,255,.18)", letterSpacing: ".14em", padding: "0 6px 6px", textTransform: "uppercase" }}>Command</div>
-            {SIDEBAR_NAV.map((item, i) => {
+            {sidebarNav.map((item, i) => {
               if (!item) return (
                 <div key={`d${i}`} style={{ height: 1, background: "rgba(255,255,255,.05)", margin: "4px 4px 6px" }} />
               );

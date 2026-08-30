@@ -145,5 +145,5 @@ export default async function DashboardPage() {
     )
   }
 
-  return <BrainBase enabledCapabilities={enabledCapabilities} />
+  return <BrainBase enabledCapabilities={enabledCapabilities} isSuperAdmin={session.role === 'super_admin'} />
 }

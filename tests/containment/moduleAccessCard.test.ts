@@ -79,7 +79,7 @@ describe('ModuleAccessCard — client dashboard "Your Tools" entry', () => {
 describe('Client dashboard mounting — School Test Organisation (BrainBase shell) and LD Tennis (TennisDashboard)', () => {
   it('BrainBase.jsx (the generic client shell every non-LD-Tennis, non-Brainbase-HQ organisation lands on at /dashboard) imports ModuleAccessCard and passes through its own enabledCapabilities prop', () => {
     expect(brainBaseSource).toContain("import { ModuleAccessCard } from \"./dashboard/ModuleAccessCard\"")
-    expect(brainBaseSource).toContain('function BrainBase({ enabledCapabilities = [] })')
+    expect(brainBaseSource).toContain('function BrainBase({ enabledCapabilities = [], isSuperAdmin = false })')
     expect(brainBaseSource).toMatch(/<ModuleAccessCard enabledCapabilities=\{enabledCapabilities\} \/>/)
   })
 
@@ -91,7 +91,7 @@ describe('Client dashboard mounting — School Test Organisation (BrainBase shel
 
   it('app/dashboard/page.tsx passes the server-computed enabledCapabilities into both dashboard variants', () => {
     expect(pageSource).toMatch(/<TennisDashboard[\s\S]{0,900}enabledCapabilities=\{enabledCapabilities\}/)
-    expect(pageSource).toContain('<BrainBase enabledCapabilities={enabledCapabilities} />')
+    expect(pageSource).toContain("<BrainBase enabledCapabilities={enabledCapabilities} isSuperAdmin={session.role === 'super_admin'} />")
   })
 })
 
