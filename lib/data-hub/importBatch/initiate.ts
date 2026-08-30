@@ -72,19 +72,26 @@ export interface InitiateClientInput {
    * characters after normalization, or the request is rejected. */
   expectedSha256?: string;
   /**
-   * Optional (this service's own design choice, documented here): a
-   * request with NO idempotency key never dedups/replays against any
-   * other row — Postgres treats every NULL in the
-   * (organisation_id, idempotency_key) unique constraint as distinct, so
-   * omitting it simply means "always create a new batch". Supplying one
-   * enables the full replay/idempotency-conflict behavior below. Trimmed;
-   * the TRIMMED value is what gets persisted; a resulting empty/
-   * whitespace-only string is rejected; bounded to 1-128 JS UTF-16 code
-   * units after trimming (the DB column itself has no length CHECK — this
-   * is the sole enforcement); otherwise treated as a fully opaque exact
-   * string (no lowercasing, no Unicode normalization).
+   * REQUIRED at this service's own boundary (remediation: previously
+   * optional). A missing/undefined/null/non-string/empty/whitespace-only
+   * key — or one whose TRIMMED length exceeds 128 UTF-16 code units — is
+   * rejected with INVALID_REQUEST before any Prisma call, token mint, or
+   * storage operation. This is a service-layer contract only: the
+   * `idempotency_key` DATABASE COLUMN itself remains nullable (see
+   * scripts/create-import-batches.sql — no migration accompanies this
+   * change) because Postgres unique-constraint semantics treat every NULL
+   * in the (organisation_id, idempotency_key) compound unique key as
+   * distinct-from-every-other-NULL, which would silently and completely
+   * disable the insert-first/P2002 duplicate-detection mechanism below for
+   * any row created with a NULL key. Requiring a real key at this
+   * function's boundary is what actually closes that gap for this dark
+   * service; the column stays permissive for any other historical/future
+   * flow until a separate, explicit migration decision addresses it.
+   * Trimmed; the TRIMMED value is what gets persisted; bounded to 1-128 JS
+   * UTF-16 code units after trimming; otherwise treated as a fully opaque
+   * exact string (no lowercasing, no Unicode normalization).
    */
-  idempotencyKey?: string;
+  idempotencyKey: string;
 }
 
 export interface ImportBatchIdentity {
@@ -133,8 +140,14 @@ function normalizeExpectedSha256(raw: string | undefined): { ok: true; value: st
   return { ok: true, value: normalized };
 }
 
-function normalizeIdempotencyKey(raw: string | undefined): { ok: true; value: string | null } | { ok: false } {
-  if (raw === undefined) return { ok: true, value: null };
+// `raw` is typed `unknown` deliberately: the InitiateClientInput type says
+// `idempotencyKey: string` (required), but an untyped/JS caller (or an
+// `as any` cast) can still hand this function `undefined`, `null`, or any
+// non-string value at runtime — TypeScript's static type offers zero
+// protection against that. This function is therefore the actual runtime
+// enforcement boundary, not the type declaration.
+function normalizeIdempotencyKey(raw: unknown): { ok: true; value: string } | { ok: false } {
+  if (typeof raw !== "string") return { ok: false };
   const trimmed = raw.trim();
   if (trimmed.length < IDEMPOTENCY_KEY_MIN_LENGTH || trimmed.length > IDEMPOTENCY_KEY_MAX_LENGTH) {
     return { ok: false };
@@ -362,13 +375,8 @@ export async function initiateImportBatch(
     });
   } catch (err) {
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
-      if (idempotencyKey === null) {
-        // A P2002 on the compound (organisation_id, idempotency_key)
-        // unique key cannot occur for a NULL key — Postgres treats every
-        // NULL as distinct. Reaching here would indicate a different,
-        // unexpected constraint conflict; do not silently reinterpret it.
-        throw err;
-      }
+      // idempotencyKey is guaranteed non-null/non-empty here — validated
+      // above, before this insert was ever attempted (Step 3 remediation).
       return resolveReplay(organisationId, userId, idempotencyKey, fingerprint);
     }
     throw err;

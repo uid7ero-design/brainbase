@@ -77,6 +77,12 @@ describe("Data Hub importBatch — no barrel/index.ts anywhere in the new tree",
         "directUploadAuth.ts",
         "initiate.ts",
         "finalize.ts",
+        // finalizeInternal.ts (remediation, Finding 2): the low-level
+        // claim/completion persistence primitives, deliberately named with
+        // "Internal" so its restricted-importer contract is visible from
+        // the filename alone — see its own header comment and
+        // finalizeImportBatch.test.ts's dedicated containment proof.
+        "finalizeInternal.ts",
         "staleReclaim.ts",
       ])
     );

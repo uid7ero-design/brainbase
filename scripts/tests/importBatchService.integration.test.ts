@@ -82,9 +82,9 @@ let sharedStore: InstanceType<typeof import("@/lib/data-hub/storage/inMemoryFile
 
 let initiateImportBatch: typeof import("@/lib/data-hub/importBatch/initiate").initiateImportBatch;
 let finalizeImportBatch: typeof import("@/lib/data-hub/importBatch/finalize").finalizeImportBatch;
-let claimForFinalize: typeof import("@/lib/data-hub/importBatch/finalize").claimForFinalize;
-let completeReadyForFinalize: typeof import("@/lib/data-hub/importBatch/finalize").completeReadyForFinalize;
-let completeFailedForFinalize: typeof import("@/lib/data-hub/importBatch/finalize").completeFailedForFinalize;
+let claimForFinalize: typeof import("@/lib/data-hub/importBatch/finalizeInternal").claimForFinalize;
+let completeReadyForFinalize: typeof import("@/lib/data-hub/importBatch/finalizeInternal").completeReadyForFinalize;
+let completeFailedForFinalize: typeof import("@/lib/data-hub/importBatch/finalizeInternal").completeFailedForFinalize;
 let reclaimStaleImportBatches: typeof import("@/lib/data-hub/importBatch/staleReclaim").reclaimStaleImportBatches;
 let buildImportBatchKey: typeof import("@/lib/data-hub/storage/rawFileStore").buildImportBatchKey;
 
@@ -93,12 +93,12 @@ beforeAll(async () => {
   sharedStore = new InMemoryFileStore();
 
   ({ initiateImportBatch } = await import("@/lib/data-hub/importBatch/initiate"));
+  ({ finalizeImportBatch } = await import("@/lib/data-hub/importBatch/finalize"));
   ({
-    finalizeImportBatch,
     claimForFinalize,
     completeReadyForFinalize,
     completeFailedForFinalize,
-  } = await import("@/lib/data-hub/importBatch/finalize"));
+  } = await import("@/lib/data-hub/importBatch/finalizeInternal"));
   ({ reclaimStaleImportBatches } = await import("@/lib/data-hub/importBatch/staleReclaim"));
   ({ buildImportBatchKey } = await import("@/lib/data-hub/storage/rawFileStore"));
 

@@ -38,9 +38,17 @@ describe("finalize — xlsx-free import graph (static containment)", () => {
   });
 
   it("never writes size_bytes anywhere (SQL SET target containment)", () => {
-    const code = stripComments(read("lib/data-hub/importBatch/finalize.ts"));
+    // Remediation (Finding 2): the actual UPDATE ... SET statements moved
+    // from finalize.ts into finalizeInternal.ts (claimForFinalize /
+    // completeReadyForFinalize / completeFailedForFinalize) — this
+    // invariant must follow the SQL to wherever it now lives, not stay
+    // pinned to finalize.ts's own source text.
+    const combined = [
+      stripComments(read("lib/data-hub/importBatch/finalize.ts")),
+      stripComments(read("lib/data-hub/importBatch/finalizeInternal.ts")),
+    ].join("\n");
     // Extract every UPDATE ... SET ... region and check none sets size_bytes.
-    const updateBlocks = code.match(/UPDATE import_batches[\s\S]*?WHERE/g) ?? [];
+    const updateBlocks = combined.match(/UPDATE import_batches[\s\S]*?WHERE/g) ?? [];
     expect(updateBlocks.length).toBeGreaterThan(0);
     for (const block of updateBlocks) {
       expect(block).not.toMatch(/size_bytes\s*=/);
@@ -376,6 +384,173 @@ describe("finalizeImportBatch — READY completion fence (Step 21)", () => {
     await finalizeImportBatch({ organisationId: "org-1" }, "batch-1");
     const [, ...values] = sqlMock.mock.calls[1];
     expect(values).toContain(7);
+  });
+});
+
+// ─── Remediation (Finding 2): finalize.ts export-surface + finalizeInternal
+// import-containment ─────────────────────────────────────────────────────
+//
+// finalize.ts used to export claimForFinalize/completeReadyForFinalize/
+// completeFailedForFinalize/ClaimedRow directly under a "testing seam, not
+// part of the public contract" comment — TypeScript export visibility plus
+// a comment were the only barriers. The remediation moved these low-level
+// persistence primitives into lib/data-hub/importBatch/finalizeInternal.ts.
+// The tests below prove: (A) finalize.ts's own export surface no longer
+// includes them under any name; (B)-(E) finalizeInternal.ts is imported by
+// no production module anywhere in the repo except finalize.ts itself
+// (repo-wide, with explicit zero-importer checks under app/**, app/api/**,
+// and components/**); (F) no barrel/index.ts exists anywhere in
+// lib/data-hub/importBatch/; (G) finalizeInternal.ts is referenced by no
+// cron/scheduler/automatic-trigger code path.
+
+describe("finalize.ts — export surface no longer includes the low-level primitives (Finding 2)", () => {
+  const code = read("lib/data-hub/importBatch/finalize.ts");
+
+  it("does not export claimForFinalize, completeReadyForFinalize, completeFailedForFinalize, or ClaimedRow under their own names", () => {
+    expect(code).not.toMatch(/export\s+(async\s+function|interface|type|const)\s+claimForFinalize\b/);
+    expect(code).not.toMatch(/export\s+(async\s+function|interface|type|const)\s+completeReadyForFinalize\b/);
+    expect(code).not.toMatch(/export\s+(async\s+function|interface|type|const)\s+completeFailedForFinalize\b/);
+    expect(code).not.toMatch(/export\s+(interface|type)\s+ClaimedRow\b/);
+  });
+
+  it("does not re-export those same names (or any alias of them) from finalizeInternal under a different name", () => {
+    // Covers `export { claimForFinalize as X }`, `export { claimForFinalize }`,
+    // and `export * from "./finalizeInternal"` — any of these would expose
+    // the same low-level capability from finalize.ts's own module surface,
+    // even if the local export declaration itself doesn't literally say
+    // "claimForFinalize" as its own name.
+    expect(code).not.toMatch(/export\s*\{[^}]*\b(claimForFinalize|completeReadyForFinalize|completeFailedForFinalize|ClaimedRow)\b[^}]*\}/);
+    expect(code).not.toMatch(/export\s*\*\s*from\s*["']\.\/finalizeInternal["']/);
+  });
+
+  it("imports the three primitives from finalizeInternal (not duplicating the SQL locally) and does not define ClaimedRow itself", () => {
+    expect(code).toMatch(/from\s+["']\.\/finalizeInternal["']/);
+    expect(code).toMatch(/\bclaimForFinalize\b/);
+    expect(code).toMatch(/\bcompleteReadyForFinalize\b/);
+    expect(code).toMatch(/\bcompleteFailedForFinalize\b/);
+    expect(code).not.toMatch(/interface\s+ClaimedRow\b/);
+  });
+
+  it("finalize.ts's only production-facing exports are finalizeImportBatch plus its high-level context/result types", () => {
+    const exportNames = Array.from(code.matchAll(/^export\s+(?:async\s+function|interface|type|const)\s+([A-Za-z0-9_]+)/gm)).map(
+      (m) => m[1]
+    );
+    expect(new Set(exportNames)).toEqual(
+      new Set(["FinalizeTrustedContext", "FinalizeClaimFailureReason", "FinalizeImportBatchResult", "finalizeImportBatch"])
+    );
+  });
+});
+
+describe("finalizeInternal.ts — repo-wide import containment (Finding 2)", () => {
+  const ROOT = process.cwd();
+  const EXCLUDED_DIR_NAMES = new Set(["node_modules", ".git", ".next", "dist", "build", "coverage", ".vercel"]);
+
+  function walkAll(dir: string, exts: string[]): string[] {
+    const results: string[] = [];
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return results;
+    }
+    for (const entry of entries) {
+      if (EXCLUDED_DIR_NAMES.has(entry.name)) continue;
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        results.push(...walkAll(full, exts));
+      } else if (exts.some((ext) => entry.name.endsWith(ext))) {
+        results.push(full);
+      }
+    }
+    return results;
+  }
+
+  // Real import/require-statement parsing (not a bare substring search) so
+  // a comment or unrelated prose mentioning "finalizeInternal" can never
+  // produce a false positive, and so a genuine import is never missed
+  // regardless of how its surrounding import clause is formatted.
+  function importsFinalizeInternal(code: string): boolean {
+    const patterns = [
+      /import\s+[\s\S]*?\s+from\s+["']([^"']+)["']/g, // import ... from "..."
+      /import\s*\(\s*["']([^"']+)["']\s*\)/g, // dynamic import("...")
+      /require\(\s*["']([^"']+)["']\s*\)/g, // require("...")
+      /export\s+[\s\S]*?\s+from\s+["']([^"']+)["']/g, // export ... from "..."
+    ];
+    for (const pattern of patterns) {
+      pattern.lastIndex = 0;
+      let match: RegExpExecArray | null;
+      while ((match = pattern.exec(code))) {
+        const source = match[1];
+        if (/(^|\/)finalizeInternal(\.ts)?$/.test(source)) return true;
+      }
+    }
+    return false;
+  }
+
+  // This file (finalizeImportBatch.test.ts) is deliberately excluded from
+  // its own scan below — its OWN source text contains the literal regex
+  // patterns used to detect an import of "finalizeInternal" (as string
+  // literals inside those patterns themselves), which would otherwise trip
+  // this very check against itself. Mirrors the identical self-exclusion
+  // precedent in dataHubImportBatchDarkness.test.ts.
+  const SELF_PATH = path.join(ROOT, "tests", "containment", "finalizeImportBatch.test.ts");
+
+  function findImporters(dir: string): string[] {
+    const full = path.join(ROOT, dir);
+    if (!fs.existsSync(full)) return [];
+    const files = walkAll(full, [".ts", ".tsx"]).filter((file) => file !== SELF_PATH);
+    return files
+      .filter((file) => importsFinalizeInternal(fs.readFileSync(file, "utf8")))
+      .map((file) => path.relative(ROOT, file).split(path.sep).join("/"));
+  }
+
+  it("no file under app/** imports finalizeInternal.ts", () => {
+    expect(findImporters("app")).toEqual([]);
+  });
+
+  it("no file under app/api/** imports finalizeInternal.ts", () => {
+    expect(findImporters("app/api")).toEqual([]);
+  });
+
+  it("no file under components/** imports finalizeInternal.ts", () => {
+    expect(findImporters("components")).toEqual([]);
+  });
+
+  it("repo-wide, the ONLY importers of finalizeInternal.ts are finalize.ts itself and the real-Postgres attempt-fencing integration test", () => {
+    const importers = new Set<string>();
+    for (const dir of ["app", "components", "lib", "scripts", "services", "hooks", "modules", "store", "types", "tests"]) {
+      for (const file of findImporters(dir)) importers.add(file);
+    }
+    expect(importers).toEqual(
+      new Set([
+        "lib/data-hub/importBatch/finalize.ts",
+        "scripts/tests/importBatchService.integration.test.ts",
+      ])
+    );
+  });
+
+  it("is not referenced by any cron/scheduler/automatic-trigger code path (no non-test file outside the importBatch module itself mentions it)", () => {
+    const offenders: string[] = [];
+    for (const dir of ["app", "scripts", "components"]) {
+      const full = path.join(ROOT, dir);
+      if (!fs.existsSync(full)) continue;
+      const files = walkAll(full, [".ts", ".tsx"]).filter((f) => !f.endsWith(".test.ts") && !f.endsWith(".test.tsx"));
+      for (const file of files) {
+        if (fs.readFileSync(file, "utf8").includes("finalizeInternal")) {
+          offenders.push(path.relative(ROOT, file).split(path.sep).join("/"));
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+});
+
+describe("lib/data-hub/importBatch/ — no barrel/index.ts (Finding 2, re-confirmed here)", () => {
+  it("contains no index.ts / index.tsx", () => {
+    const dir = path.join(process.cwd(), "lib", "data-hub", "importBatch");
+    const entries = fs.readdirSync(dir);
+    expect(entries).not.toContain("index.ts");
+    expect(entries).not.toContain("index.tsx");
   });
 });
 
