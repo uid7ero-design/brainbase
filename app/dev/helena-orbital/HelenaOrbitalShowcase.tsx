@@ -42,6 +42,8 @@ export function HelenaOrbitalShowcase() {
         .hlo-force-reduced .hlo-core-pulse,
         .hlo-force-reduced .hlo-attention,
         .hlo-force-reduced .hlo-system,
+        .hlo-force-reduced .hlo-ring-wobble-active,
+        .hlo-force-reduced .hlo-think-pulse-active,
         .hlo-force-reduced .hlo-shudder-active,
         .hlo-force-reduced .hlo-glow-spike-active,
         .hlo-force-reduced .hlo-trace-flicker-active {
@@ -49,6 +51,12 @@ export function HelenaOrbitalShowcase() {
         }
         .hlo-force-reduced .hlo-shudder-active {
           translate: none !important;
+        }
+        .hlo-force-reduced .hlo-think-pulse-active {
+          scale: none !important;
+        }
+        .hlo-force-reduced .hlo-ring-wobble-active {
+          rotate: none !important;
         }
       `}</style>
 
