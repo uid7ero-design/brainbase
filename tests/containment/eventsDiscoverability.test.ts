@@ -16,34 +16,71 @@ function stripComments(src: string): string {
 
 // ─── Authenticated discoverability ─────────────────────────────────────
 
-describe('TopNav — Events entry follows the exact same capability-gating pattern as every other module', () => {
+// Root-cause fix (visible-navigation defect investigation): Events was
+// previously ONLY reachable via OPS_ITEMS inside the hover-only
+// Operations dropdown, which itself is rendered ONLY in AppNav's
+// non-isClientOrg branch. Because app/layout.tsx's serverSession never
+// populates enabledModules (it only ever sets role/name/avatarUrl/
+// enabledCapabilities — see that file), and AppNav derives
+// isClientOrg = !isSuperAdmin && enabledModules.length === 0, EVERY
+// non-super-admin authenticated user unconditionally takes the
+// isClientOrg branch — a branch that had no Events entry, and no
+// Operations dropdown, at all. This is what made Events genuinely
+// invisible for LD Tennis (confirmed against a real DEV session:
+// role "manager", enabledCapabilities ["crm","events"], yet the old
+// isClientOrg branch rendered HLNA/Leads/Squad/Sessions/Requests/Blog
+// only). The fix does not touch the (separately broken, out-of-scope)
+// enabledModules/isClientOrg computation itself — it adds a
+// capability-gated Events entry directly to BOTH branches of AppNav,
+// so Events is visible regardless of which branch a session resolves
+// to, and promotes it out of the Operations dropdown into an
+// always-visible pill in the non-client branch too (a hover-only menu
+// entry is not sufficiently discoverable for a major module).
+describe('TopNav — Events is a first-class, always-visible entry in BOTH AppNav branches', () => {
   const code = stripComments(read('components/nav/TopNav.tsx'))
 
-  it('OPS_ITEMS includes an Events entry routing to /events, gated by the existing "events" capability key', () => {
+  it('OPS_ITEMS no longer contains Events — it was promoted out of the hover-only Operations dropdown', () => {
     const opsStart = code.indexOf('const OPS_ITEMS')
     const opsBody = code.slice(opsStart, code.indexOf('\n];', opsStart))
-    expect(opsBody).toMatch(/label:\s*'Events'/)
-    expect(opsBody).toMatch(/href:\s*'\/events'/)
-    expect(opsBody).toMatch(/capabilityKey:\s*'events'/)
+    expect(opsBody).not.toMatch(/label:\s*'Events'/)
   })
 
-  it('uses the SAME generic filter mechanism CRM already relies on — no special-cased branch for Events or for any organisation', () => {
-    // The filter itself (items.filter(item => !item.capabilityKey ||
-    // enabledCapabilities.includes(item.capabilityKey))) is shared code
-    // that already runs for every OPS_ITEMS entry — proving Events sits
-    // in that same array (previous test) is what proves it goes through
-    // this identical, un-special-cased mechanism. This test additionally
-    // confirms no LD-Tennis (or any other organisation) special case was
-    // introduced anywhere near it.
-    const opsStart = code.indexOf('const OPS_ITEMS')
-    const dropdownEnd = code.indexOf('function OpsDropdown')
-    const region = code.slice(opsStart, code.indexOf('\n}', code.indexOf('const items = OPS_ITEMS.filter', dropdownEnd)))
-    expect(region).not.toMatch(/ld-tennis|LD Tennis|ld_tennis/i)
-    expect(region).toMatch(/enabledCapabilities\.includes\(\s*item\.capabilityKey/)
+  it('an always-visible Events NavItem, gated by enabledCapabilities, exists in the isClientOrg branch (the branch LD Tennis actually renders)', () => {
+    const clientBranchStart = code.indexOf('isClientOrg ? (')
+    const clientBranchEnd = code.indexOf(') : (', clientBranchStart)
+    expect(clientBranchStart).toBeGreaterThan(-1)
+    const region = code.slice(clientBranchStart, clientBranchEnd)
+    expect(region).toMatch(/enabledCapabilities\.includes\(\s*'events'\s*,?\s*\)/)
+    expect(region).toMatch(/href="\/events"/)
+    expect(region).toMatch(/label="Events"/)
+  })
+
+  it('an always-visible Events NavItem, gated by enabledCapabilities, also exists in the non-client (internal-staff) branch — not only inside the Operations dropdown', () => {
+    const clientBranchEnd = code.indexOf(') : (')
+    // A comment-free anchor: stripComments() already removed the JSX
+    // comment that used to mark this boundary in the raw source, so
+    // this slices up to the first real token of the far-right cluster
+    // (the compact logo's wrapper width) instead.
+    const nonClientBranchEnd = code.indexOf('width: 185,', clientBranchEnd)
+    const region = code.slice(clientBranchEnd, nonClientBranchEnd)
+    expect(region).toMatch(/enabledCapabilities\.includes\(\s*'events'\s*,?\s*\)/)
+    expect(region).toMatch(/href="\/events"/)
+    expect(region).toMatch(/label="Events"/)
+  })
+
+  it('href is exactly /events in both branches — never a different or LD-Tennis-specific route', () => {
+    const matches = code.match(/href="\/events"/g) ?? []
+    expect(matches.length).toBeGreaterThanOrEqual(2)
+    expect(code).not.toMatch(/href="\/events\/ld-tennis|href="\/dashboard\/events/)
+  })
+
+  it('uses the SAME generic capability-gating mechanism CRM already relies on — no special-cased branch for Events or for any organisation', () => {
+    expect(code).not.toMatch(/ld-tennis|LD Tennis|ld_tennis/i)
   })
 
   it('no second/parallel navigation or capability system was introduced — Events reuses enabledCapabilities, the exact prop TopNav already receives from the session', () => {
     expect(code).toMatch(/enabledCapabilities\?:\s*string\[\]/)
+    expect(code).toMatch(/enabledCapabilities\s*=\s*\[\]/)
   })
 })
 
@@ -170,6 +207,50 @@ describe('LD Tennis public site — Events link, not a hardcoded event', () => {
     const code = stripComments(read('app/tennis/components/Nav.tsx'))
     expect(code).toMatch(/href="\/e\/ld-tennis"/)
     expect(code).not.toMatch(/year-12-graduation/)
+  })
+})
+
+// Root-cause fix: the desktop link list (Coaching/About/Blog/Events)
+// previously sat inside a bare `hidden md:flex` wrapper with NO mobile
+// fallback at all — on any viewport narrower than Tailwind's md
+// breakpoint, none of those links (Events included) were reachable,
+// and there was no hamburger/menu toggle anywhere in the component. A
+// browser observation of "the source has the link but I can't see or
+// reach it" on a phone-width viewport would be entirely explained by
+// this — distinct from (and in addition to) the authenticated-nav
+// root cause above.
+describe('LD Tennis public site — mobile fallback for the desktop-only link row', () => {
+  const code = stripComments(read('app/tennis/components/Nav.tsx'))
+
+  it('the desktop link row (including Events) is still gated behind md: (unchanged) — this alone would hide it on mobile without a fallback', () => {
+    expect(code).toMatch(/hidden md:flex items-center gap-6/)
+  })
+
+  it('a hamburger/menu toggle button now exists, visible only below md:, with open/close state', () => {
+    const buttonStart = code.indexOf('<button')
+    expect(buttonStart).toBeGreaterThan(-1)
+    const buttonBlock = code.slice(buttonStart, code.indexOf('</button>', buttonStart))
+    expect(buttonBlock).toMatch(/md:hidden/)
+    expect(buttonBlock).toMatch(/aria-label=/)
+    expect(buttonBlock).toMatch(/aria-expanded=\{mobileOpen\}/)
+    expect(buttonBlock).toMatch(/onClick=\{\(\) => setMobileOpen/)
+  })
+
+  it('the mobile menu panel is md:hidden (never shown once the desktop row is already visible) and contains an Events link to the same /e/ld-tennis destination', () => {
+    const panelStart = code.indexOf('{mobileOpen && (')
+    expect(panelStart).toBeGreaterThan(-1)
+    const panelBody = code.slice(panelStart, code.indexOf('\n      )}', panelStart))
+    expect(panelBody).toMatch(/md:hidden/)
+    expect(panelBody).toMatch(/href="\/e\/ld-tennis"/)
+    expect(panelBody).toMatch(/>Events</)
+  })
+
+  it('every link in the mobile panel closes the menu on click (setMobileOpen(false)) so navigating away doesn\'t leave a stale open menu behind', () => {
+    const panelStart = code.indexOf('{mobileOpen && (')
+    const panelBody = code.slice(panelStart, code.indexOf('\n      )}', panelStart))
+    const linkCount = (panelBody.match(/<a |<Link /g) ?? []).length
+    const closeCount = (panelBody.match(/setMobileOpen\(false\)/g) ?? []).length
+    expect(closeCount).toBe(linkCount)
   })
 })
 

@@ -211,13 +211,6 @@ const OPS_ITEMS = [
       'Companies, contacts, deals & activities',
     capabilityKey: 'crm',
   },
-  {
-    label: 'Events',
-    href: '/events',
-    description:
-      'Publish events, manage registrations & ticketing',
-    capabilityKey: 'events',
-  },
 ];
 
 function OpsDropdown({
@@ -1211,6 +1204,26 @@ function AppNav({
               }
             />
 
+            {/*
+              Events is a first-class, always-visible pill here (never
+              behind a hover-only dropdown) because a client
+              organisation's nav — unlike the internal-staff branch
+              below — has no Operations dropdown to bury it in at all.
+              Gated by the real enabledCapabilities projection, same as
+              every other capability-gated entry in this file.
+            */}
+            {enabledCapabilities.includes(
+              'events',
+            ) && (
+              <NavItem
+                href="/events"
+                label="Events"
+                active={pathname.startsWith(
+                  '/events',
+                )}
+              />
+            )}
+
             <NavItem
               href="/dashboard/leads"
               label="Leads"
@@ -1294,6 +1307,26 @@ function AppNav({
                 enabledCapabilities={
                   enabledCapabilities
                 }
+              />
+            )}
+
+            {/*
+              Promoted out of the Operations dropdown to its own
+              always-visible pill — a hover-only menu entry isn't
+              discoverable enough for a major module. Same
+              enabledCapabilities gate as every other capability-gated
+              entry in this file; never shown to an organisation
+              without the events capability.
+            */}
+            {enabledCapabilities.includes(
+              'events',
+            ) && (
+              <NavItem
+                href="/events"
+                label="Events"
+                active={pathname.startsWith(
+                  '/events',
+                )}
               />
             )}
 
