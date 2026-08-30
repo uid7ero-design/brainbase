@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { HelenaOrbital, STATE_DESCRIPTION, type HelenaVisualState } from '@/components/brand/HelenaOrbital';
 
 // Manual-control design QA showcase only. Deliberately has zero connection
@@ -21,10 +21,41 @@ const TOKENS = {
   cyan: '#00D4FF',
 };
 
+// A representative amplitude pattern for the dev-only "Pulse speaking"
+// button — not real audio, just a bounded sequence of manual audioLevel
+// values so a reviewer can see the energy-wave respond without dragging
+// the slider by hand. [delayMs, level] pairs, played once per click.
+const PULSE_PATTERN: Array<[number, number]> = [
+  [0, 0.15],
+  [140, 0.6],
+  [260, 0.35],
+  [420, 0.9],
+  [600, 0.5],
+  [780, 1],
+  [1000, 0.4],
+  [1200, 0.7],
+  [1450, 0.1],
+  [1650, 0],
+];
+
 export function HelenaOrbitalShowcase() {
   const [state, setState] = useState<HelenaVisualState>('idle');
   const [audioLevel, setAudioLevel] = useState(0);
   const [forceReducedMotion, setForceReducedMotion] = useState(false);
+  const pulseTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+
+  // Bounded, self-cleaning: clears any in-flight pulse's timers before
+  // starting a new one, and on unmount. No interval, no rAF loop.
+  useEffect(() => () => pulseTimersRef.current.forEach(clearTimeout), []);
+
+  function pulseSpeaking() {
+    pulseTimersRef.current.forEach(clearTimeout);
+    pulseTimersRef.current = [];
+    setState('speaking');
+    pulseTimersRef.current = PULSE_PATTERN.map(([delay, level]) =>
+      setTimeout(() => setAudioLevel(level), delay),
+    );
+  }
 
   return (
     <div
@@ -46,13 +77,31 @@ export function HelenaOrbitalShowcase() {
         .hlo-force-reduced .hlo-think-pulse-active,
         .hlo-force-reduced .hlo-shudder-active,
         .hlo-force-reduced .hlo-glow-spike-active,
-        .hlo-force-reduced .hlo-trace-flicker-active {
+        .hlo-force-reduced .hlo-trace-flicker-active,
+        .hlo-force-reduced .hlo-think-squeeze-inner-active,
+        .hlo-force-reduced .hlo-think-squeeze-middle-active,
+        .hlo-force-reduced .hlo-think-squeeze-outer-active,
+        .hlo-force-reduced .hlo-listen-contract-outer-active,
+        .hlo-force-reduced .hlo-listen-contract-middle-active,
+        .hlo-force-reduced .hlo-listen-contract-inner-active,
+        .hlo-force-reduced .hlo-think-sphere-spike-inner,
+        .hlo-force-reduced .hlo-think-sphere-spike-middle,
+        .hlo-force-reduced .hlo-think-sphere-spike-outer {
           animation: none !important;
         }
         .hlo-force-reduced .hlo-shudder-active {
           translate: none !important;
         }
-        .hlo-force-reduced .hlo-think-pulse-active {
+        .hlo-force-reduced .hlo-think-pulse-active,
+        .hlo-force-reduced .hlo-think-squeeze-inner-active,
+        .hlo-force-reduced .hlo-think-squeeze-middle-active,
+        .hlo-force-reduced .hlo-think-squeeze-outer-active,
+        .hlo-force-reduced .hlo-listen-contract-outer-active,
+        .hlo-force-reduced .hlo-listen-contract-middle-active,
+        .hlo-force-reduced .hlo-listen-contract-inner-active,
+        .hlo-force-reduced .hlo-think-sphere-spike-inner,
+        .hlo-force-reduced .hlo-think-sphere-spike-middle,
+        .hlo-force-reduced .hlo-think-sphere-spike-outer {
           scale: none !important;
         }
         .hlo-force-reduced .hlo-ring-wobble-active {
@@ -111,6 +160,25 @@ export function HelenaOrbitalShowcase() {
             }}
           >
             Cycle states →
+          </button>
+
+          {/* Dev-only: drives a representative amplitude pattern so the
+              B.3 energy-wave is easy to review without hand-dragging the
+              slider. Not real audio, not a microphone. */}
+          <button
+            type="button"
+            onClick={pulseSpeaking}
+            style={{
+              padding: '8px 16px',
+              borderRadius: 999,
+              border: `1px dashed ${TOKENS.violet}`,
+              background: 'transparent',
+              color: TOKENS.violet,
+              fontSize: 13,
+              cursor: 'pointer',
+            }}
+          >
+            Pulse speaking
           </button>
         </section>
 

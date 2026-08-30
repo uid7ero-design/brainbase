@@ -98,7 +98,11 @@ describe('HelenaOrbital — Phase B.2 intensity pass', () => {
   });
 
   it('every one-shot transition animation is explicitly bounded to a single iteration, never infinite', () => {
-    for (const cls of ['.hlo-ignition-active', '.hlo-ignition-halo-active', '.hlo-focus-pulse-active', '.hlo-energy-burst-active']) {
+    // .hlo-ignition-active is intentionally not in this list — the core
+    // ignition flash is driven directly on .hlo-core-pulse via a combined
+    // animation-name list (see the dedicated bug-class test below), not a
+    // separate wrapper class.
+    for (const cls of ['.hlo-ignition-halo-active', '.hlo-focus-pulse-active', '.hlo-energy-burst-active']) {
       const rule = source.match(new RegExp(`${cls.replace('.', '\\.')}\\s*\\{[\\s\\S]*?\\}`));
       expect(rule, `${cls} rule not found`).not.toBeNull();
       const body = rule![0];

@@ -31,18 +31,55 @@ describe('HelenaOrbital — reduced-motion behaviour', () => {
       '.hlo-shudder-active',
       '.hlo-glow-spike-active',
       '.hlo-trace-flicker-active',
+      // B.3 energy-propagation additions — all repeating, all must stop.
+      '.hlo-think-squeeze-inner-active',
+      '.hlo-think-squeeze-middle-active',
+      '.hlo-think-squeeze-outer-active',
+      '.hlo-listen-contract-outer-active',
+      '.hlo-listen-contract-middle-active',
+      '.hlo-listen-contract-inner-active',
+      '.hlo-think-sphere-spike-inner',
+      '.hlo-think-sphere-spike-middle',
+      '.hlo-think-sphere-spike-outer',
     ]) {
       expect(block, `${cls} not disabled under reduced motion`).toContain(cls);
     }
     expect(block).toMatch(/animation:\s*none\s*!important/);
   });
 
-  it('also clears the thinking shudder/compression/wobble individual transform properties under reduced motion', () => {
+  it('also clears the thinking/listening individual transform properties (translate/scale/rotate) under reduced motion', () => {
+    // B.3 shares these reset rules across many selectors in one comma
+    // list (e.g. ".hlo-think-pulse-active, .hlo-think-squeeze-inner-active,
+    // ... { scale: none !important; }"), so check that each class appears
+    // in the selector list of *some* rule whose body resets the expected
+    // property — not that it owns a standalone rule.
     const start = source.indexOf('@media (prefers-reduced-motion: reduce)');
     const block = source.slice(start, source.indexOf('`;', start));
-    expect(block).toMatch(/\.hlo-shudder-active\s*\{\s*translate:\s*none\s*!important;?\s*\}/);
-    expect(block).toMatch(/\.hlo-think-pulse-active\s*\{\s*scale:\s*none\s*!important;?\s*\}/);
-    expect(block).toMatch(/\.hlo-ring-wobble-active\s*\{\s*rotate:\s*none\s*!important;?\s*\}/);
+    const rules = [...block.matchAll(/([^{}]+)\{([^{}]+)\}/g)].map((m) => ({ selector: m[1], body: m[2] }));
+
+    const expectClassResets = (cls: string, prop: string) => {
+      const match = rules.find((r) => r.selector.includes(cls) && new RegExp(`${prop}:\\s*none\\s*!important`).test(r.body));
+      expect(match, `${cls} does not have a rule resetting ${prop} to none !important`).toBeDefined();
+    };
+
+    expectClassResets('.hlo-shudder-active', 'translate');
+    expectClassResets('.hlo-think-pulse-active', 'scale');
+    expectClassResets('.hlo-ring-wobble-active', 'rotate');
+    // B.3 additions: thinking ring-squeeze/sphere-spike and listening
+    // inward-contraction must also reset scale under reduced motion.
+    for (const cls of [
+      '.hlo-think-squeeze-inner-active',
+      '.hlo-think-squeeze-middle-active',
+      '.hlo-think-squeeze-outer-active',
+      '.hlo-listen-contract-outer-active',
+      '.hlo-listen-contract-middle-active',
+      '.hlo-listen-contract-inner-active',
+      '.hlo-think-sphere-spike-inner',
+      '.hlo-think-sphere-spike-middle',
+      '.hlo-think-sphere-spike-outer',
+    ]) {
+      expectClassResets(cls, 'scale');
+    }
   });
 
   it('does not suppress the bounded, non-repeating one-shot transition flashes', () => {
@@ -52,7 +89,20 @@ describe('HelenaOrbital — reduced-motion behaviour', () => {
     // animation:none block rather than disabled.
     const start = source.indexOf('@media (prefers-reduced-motion: reduce)');
     const block = source.slice(start, source.indexOf('`;', start));
-    for (const cls of ['.hlo-ignition-active', '.hlo-ignition-halo-active', '.hlo-focus-pulse-active', '.hlo-energy-burst-active']) {
+    for (const cls of [
+      '.hlo-ignition-active',
+      '.hlo-ignition-halo-active',
+      '.hlo-focus-pulse-active',
+      '.hlo-energy-burst-active',
+      // B.3: the ring-wave/sphere-burst that ride along with ignition are
+      // just as bounded/one-shot as the rest of the sequence.
+      '.hlo-ignition-wave-inner',
+      '.hlo-ignition-wave-middle',
+      '.hlo-ignition-wave-outer',
+      '.hlo-ignition-sphere-inner',
+      '.hlo-ignition-sphere-middle',
+      '.hlo-ignition-sphere-outer',
+    ]) {
       expect(block, `${cls} should not appear in the reduced-motion suppression block`).not.toContain(cls);
     }
   });
