@@ -49,6 +49,13 @@ const UUID_SHAPED_ID = '123e4567-e89b-12d3-a456-426614174000';
 const UPPERCASE_ROLE = 'MANAGER';
 const LOWERCASE_ROLE = 'manager';
 
+// Synthetic, computed (not a quoted literal) — exists purely to satisfy the
+// route's own ">= 8 characters" length check; sql is fully mocked below, so
+// this value is never hashed, stored, or compared against anything real.
+// Built with .repeat() rather than a string literal so it doesn't read as a
+// plausible real password sitting next to a fixture email address.
+const TEST_PASSWORD = 'x'.repeat(12);
+
 function patchRequest(body: unknown, id: string = UUID_SHAPED_ID): NextRequest {
   return asNextRequest(new Request(`http://localhost/api/admin/users?id=${id}`, {
     method: 'PATCH',
@@ -253,7 +260,7 @@ describe('POST /api/admin/users — role enum casing on creation', () => {
 
   it('still rejects an invalid role on create', async () => {
     getSessionMock.mockResolvedValue(superAdminSession);
-    const res = await POST(postRequest({ username: 'newcoach', password: 'longenoughpw', name: 'New Coach', role: 'owner', organisationId: 'ld-tennis-org' }));
+    const res = await POST(postRequest({ username: 'newcoach', password: TEST_PASSWORD, name: 'New Coach', role: 'owner', organisationId: 'ld-tennis-org' }));
     expect(res.status).toBe(400);
     expect(sqlMock).not.toHaveBeenCalled();
   });
@@ -262,7 +269,7 @@ describe('POST /api/admin/users — role enum casing on creation', () => {
     getSessionMock.mockResolvedValue(superAdminSession);
     sqlMock.mockResolvedValueOnce([{ id: 'new-id', email: 'newcoach@example.com', name: 'New Coach', role: UPPERCASE_ROLE, organisation_id: 'ld-tennis-org', email_verified: false, created_at: new Date().toISOString() }]);
 
-    const res = await POST(postRequest({ username: 'newcoach', password: 'longenoughpw', name: 'New Coach', role: LOWERCASE_ROLE, organisationId: 'ld-tennis-org' }));
+    const res = await POST(postRequest({ username: 'newcoach', password: TEST_PASSWORD, name: 'New Coach', role: LOWERCASE_ROLE, organisationId: 'ld-tennis-org' }));
     expect(res.status).toBe(201);
     const data = await res.json();
     expect(data.user.role).toBe('manager');
@@ -276,7 +283,7 @@ describe('POST /api/admin/users — role enum casing on creation', () => {
     getSessionMock.mockResolvedValue(superAdminSession);
     sqlMock.mockResolvedValueOnce([{ id: 'new-id', email: 'newcoach@example.com', name: 'New Coach', role: UPPERCASE_ROLE, organisation_id: 'ld-tennis-org', email_verified: false, created_at: new Date().toISOString() }]);
 
-    const res = await POST(postRequest({ username: 'newcoach', password: 'longenoughpw', name: 'New Coach', role: 'MaNaGeR', organisationId: 'ld-tennis-org' }));
+    const res = await POST(postRequest({ username: 'newcoach', password: TEST_PASSWORD, name: 'New Coach', role: 'MaNaGeR', organisationId: 'ld-tennis-org' }));
     expect(res.status).toBe(201);
 
     const insertCallArgs = sqlMock.mock.calls[0];
@@ -287,7 +294,7 @@ describe('POST /api/admin/users — role enum casing on creation', () => {
     getSessionMock.mockResolvedValue(superAdminSession);
     sqlMock.mockResolvedValueOnce([{ id: 'new-id', email: 'newcoach@example.com', name: 'New Coach', role: UPPERCASE_ROLE, organisation_id: 'ld-tennis-org', email_verified: false, created_at: new Date().toISOString() }]);
 
-    await POST(postRequest({ username: 'newcoach', password: 'longenoughpw', name: 'New Coach', role: LOWERCASE_ROLE, organisationId: 'ld-tennis-org' }));
+    await POST(postRequest({ username: 'newcoach', password: TEST_PASSWORD, name: 'New Coach', role: LOWERCASE_ROLE, organisationId: 'ld-tennis-org' }));
 
     const insertSql = (sqlMock.mock.calls[0][0] as string[]).join('');
     expect(insertSql).toContain('gen_random_uuid()::text');
@@ -315,7 +322,7 @@ describe('POST /api/admin/users — username/email column contract (root-cause f
     getSessionMock.mockResolvedValue(superAdminSession);
     sqlMock.mockResolvedValueOnce([{ id: 'new-id', username: 'jane.smith', email: 'jane@council.gov.au', name: 'Jane Smith', role: UPPERCASE_ROLE, organisation_id: 'ld-tennis-org', email_verified: false, created_at: new Date().toISOString() }]);
 
-    const res = await POST(postRequest({ username: 'jane.smith', email: 'jane@council.gov.au', password: 'longenoughpw', name: 'Jane Smith', role: LOWERCASE_ROLE, organisationId: 'ld-tennis-org' }));
+    const res = await POST(postRequest({ username: 'jane.smith', email: 'jane@council.gov.au', password: TEST_PASSWORD, name: 'Jane Smith', role: LOWERCASE_ROLE, organisationId: 'ld-tennis-org' }));
     expect(res.status).toBe(201);
 
     const insertSql = (sqlMock.mock.calls[0][0] as string[]).join('');
@@ -327,7 +334,7 @@ describe('POST /api/admin/users — username/email column contract (root-cause f
 
   it('username is required — a request with only an email (no username) is rejected before any DB call, matching the form\'s own required={f.key !== \'email\'} contract', async () => {
     getSessionMock.mockResolvedValue(superAdminSession)
-    const res = await POST(postRequest({ email: 'jane@council.gov.au', password: 'longenoughpw', name: 'Jane Smith', role: LOWERCASE_ROLE, organisationId: 'ld-tennis-org' }))
+    const res = await POST(postRequest({ email: 'jane@council.gov.au', password: TEST_PASSWORD, name: 'Jane Smith', role: LOWERCASE_ROLE, organisationId: 'ld-tennis-org' }))
     expect(res.status).toBe(400)
     expect(sqlMock).not.toHaveBeenCalled()
   })
@@ -336,7 +343,7 @@ describe('POST /api/admin/users — username/email column contract (root-cause f
     getSessionMock.mockResolvedValue(superAdminSession)
     sqlMock.mockResolvedValueOnce([{ id: 'new-id', username: 'jane.smith', email: null, name: 'Jane Smith', role: UPPERCASE_ROLE, organisation_id: 'ld-tennis-org', email_verified: false, created_at: new Date().toISOString() }])
 
-    const res = await POST(postRequest({ username: 'jane.smith', password: 'longenoughpw', name: 'Jane Smith', role: LOWERCASE_ROLE, organisationId: 'ld-tennis-org' }))
+    const res = await POST(postRequest({ username: 'jane.smith', password: TEST_PASSWORD, name: 'Jane Smith', role: LOWERCASE_ROLE, organisationId: 'ld-tennis-org' }))
     expect(res.status).toBe(201)
     const insertArgs = sqlMock.mock.calls[0]
     expect(insertArgs).toContain(null)
@@ -346,7 +353,7 @@ describe('POST /api/admin/users — username/email column contract (root-cause f
     getSessionMock.mockResolvedValue(superAdminSession)
     sqlMock.mockResolvedValueOnce([{ id: 'new-id', username: 'jane.smith', email: null, name: 'Jane Smith', role: UPPERCASE_ROLE, organisation_id: 'ld-tennis-org', email_verified: false, created_at: new Date().toISOString() }])
 
-    await POST(postRequest({ username: 'jane.smith', password: 'longenoughpw', name: 'Jane Smith', role: LOWERCASE_ROLE, organisationId: 'ld-tennis-org' }))
+    await POST(postRequest({ username: 'jane.smith', password: TEST_PASSWORD, name: 'Jane Smith', role: LOWERCASE_ROLE, organisationId: 'ld-tennis-org' }))
     const insertSql = (sqlMock.mock.calls[0][0] as string[]).join('')
     expect(insertSql).toMatch(/now\(\)/)
   })
@@ -355,7 +362,7 @@ describe('POST /api/admin/users — username/email column contract (root-cause f
     getSessionMock.mockResolvedValue(superAdminSession)
     sqlMock.mockRejectedValueOnce(new Error('duplicate key value violates unique constraint "users_username_key"'))
 
-    const res = await POST(postRequest({ username: 'jane.smith', password: 'longenoughpw', name: 'Jane Smith', role: LOWERCASE_ROLE, organisationId: 'ld-tennis-org' }))
+    const res = await POST(postRequest({ username: 'jane.smith', password: TEST_PASSWORD, name: 'Jane Smith', role: LOWERCASE_ROLE, organisationId: 'ld-tennis-org' }))
     expect(res.status).toBe(409)
     const body = await res.json()
     expect(body.error).toMatch(/Username already taken/)
@@ -365,7 +372,7 @@ describe('POST /api/admin/users — username/email column contract (root-cause f
     getSessionMock.mockResolvedValue(superAdminSession)
     sqlMock.mockRejectedValueOnce(new Error('null value in column "username" of relation "users" violates not-null constraint'))
 
-    const res = await POST(postRequest({ username: 'jane.smith', password: 'longenoughpw', name: 'Jane Smith', role: LOWERCASE_ROLE, organisationId: 'ld-tennis-org' }))
+    const res = await POST(postRequest({ username: 'jane.smith', password: TEST_PASSWORD, name: 'Jane Smith', role: LOWERCASE_ROLE, organisationId: 'ld-tennis-org' }))
     expect(res.status).toBe(500)
     const body = await res.json()
     expect(typeof body.error).toBe('string')
@@ -377,7 +384,7 @@ describe('POST /api/admin/users — username/email column contract (root-cause f
     const { createToken } = await import('@/lib/tokens')
     vi.mocked(createToken).mockRejectedValueOnce(new Error('relation "email_tokens" does not exist'))
 
-    const res = await POST(postRequest({ username: 'jane.smith', email: 'jane@council.gov.au', password: 'longenoughpw', name: 'Jane Smith', role: LOWERCASE_ROLE, organisationId: 'ld-tennis-org' }))
+    const res = await POST(postRequest({ username: 'jane.smith', email: 'jane@council.gov.au', password: TEST_PASSWORD, name: 'Jane Smith', role: LOWERCASE_ROLE, organisationId: 'ld-tennis-org' }))
     expect(res.status).toBe(201)
     const body = await res.json()
     expect(body.user.username).toBe('jane.smith')
