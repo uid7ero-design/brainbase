@@ -6,6 +6,7 @@ import { validatePublicRegistrationInput, type PublicRegistrationInput } from '@
 import { checkRateLimit } from '@/lib/rateLimit';
 import { getClientIp } from '@/lib/clientIp';
 import { createCheckoutSession, RESERVATION_WINDOW_SECONDS, StripeNotConfiguredError } from '@/lib/events/stripe';
+import { checkPaidTicketingEligibility } from '@/lib/events/stripeConnect';
 
 type Ctx = { params: Promise<{ organisationSlug: string; eventSlug: string }> };
 
@@ -63,6 +64,17 @@ export async function POST(req: NextRequest, { params }: Ctx) {
   const resolved = await resolvePublicEvent(organisationSlug, eventSlug);
   if (!resolved.ok) return NextResponse.json({ error: 'Event not available.' }, { status: 404 });
   const { organisationId, event } = resolved;
+
+  // Phase 4A paid-ticketing gate (§10): checked before anything else
+  // that would consume capacity — an anonymous purchaser gets a clean,
+  // generic rejection (never Brainbase's own internal Connect-status
+  // wording; that belongs only in the authenticated backend UI) rather
+  // than a reservation that could never actually be paid for.
+  const eligibility = await checkPaidTicketingEligibility(organisationId);
+  if (!eligibility.eligible) {
+    return NextResponse.json({ error: 'Paid tickets are not currently available for this event.' }, { status: 503 });
+  }
+  const connectedAccountId = eligibility.accountId;
 
   // This route is the PAID path only — price must be > 0. A free
   // ticket type must go through the free-registration route instead
@@ -144,11 +156,11 @@ export async function POST(req: NextRequest, { params }: Ctx) {
             ins_order AS (
               INSERT INTO event_orders (
                 organisation_id, event_id, purchaser_name, purchaser_email, purchaser_phone,
-                status, total_cents, payment_status, payment_provider, currency, expires_at
+                status, total_cents, payment_status, payment_provider, currency, expires_at, stripe_account_id
               )
               SELECT
                 ${organisationId}, ${event.id}, ${validated.purchaser_name}, ${validated.purchaser_email}, ${validated.purchaser_phone},
-                'PENDING', ${totalCents}, 'PENDING', 'stripe', ${ticketType.currency}, NOW() + make_interval(secs => ${RESERVATION_WINDOW_SECONDS})
+                'PENDING', ${totalCents}, 'PENDING', 'stripe', ${ticketType.currency}, NOW() + make_interval(secs => ${RESERVATION_WINDOW_SECONDS}), ${connectedAccountId}
               FROM sold_tt, sold_sess
               WHERE sold_tt.qty + ${validated.quantity} <= (SELECT capacity FROM event_ticket_types WHERE id = ${validated.ticket_type_id} AND organisation_id = ${organisationId})
                 AND sold_sess.qty + ${validated.quantity} <= (SELECT capacity FROM event_sessions WHERE id = ${validated.event_session_id} AND organisation_id = ${organisationId})
@@ -179,11 +191,11 @@ export async function POST(req: NextRequest, { params }: Ctx) {
             ins_order AS (
               INSERT INTO event_orders (
                 organisation_id, event_id, purchaser_name, purchaser_email, purchaser_phone,
-                status, total_cents, payment_status, payment_provider, currency, expires_at
+                status, total_cents, payment_status, payment_provider, currency, expires_at, stripe_account_id
               )
               SELECT
                 ${organisationId}, ${event.id}, ${validated.purchaser_name}, ${validated.purchaser_email}, ${validated.purchaser_phone},
-                'PENDING', ${totalCents}, 'PENDING', 'stripe', ${ticketType.currency}, NOW() + make_interval(secs => ${RESERVATION_WINDOW_SECONDS})
+                'PENDING', ${totalCents}, 'PENDING', 'stripe', ${ticketType.currency}, NOW() + make_interval(secs => ${RESERVATION_WINDOW_SECONDS}), ${connectedAccountId}
               FROM sold_tt
               WHERE sold_tt.qty + ${validated.quantity} <= (SELECT capacity FROM event_ticket_types WHERE id = ${validated.ticket_type_id} AND organisation_id = ${organisationId})
               RETURNING id
@@ -238,6 +250,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
       purchaserEmail: validated.purchaser_email,
       successUrl: `${origin}/e/${organisationSlug}/${eventSlug}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
       cancelUrl: `${origin}/e/${organisationSlug}/${eventSlug}?checkout=cancelled`,
+      connectedAccountId,
     });
 
     await sql`UPDATE event_orders SET stripe_checkout_session_id = ${sessionId} WHERE id = ${orderId}`;

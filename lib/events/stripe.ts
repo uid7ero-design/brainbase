@@ -56,6 +56,12 @@ export type CreateCheckoutSessionInput = {
   purchaserEmail: string;
   successUrl: string;
   cancelUrl: string;
+  // Phase 4A — the organisation's connected Stripe account (§11/§13).
+  // Required, never optional: this route is only ever reached once
+  // lib/events/stripeConnect.ts's checkPaidTicketingEligibility() has
+  // already confirmed one exists, so a caller passing an empty value
+  // here would be a genuine bug, not a legitimate "no Connect" case.
+  connectedAccountId: string;
 };
 
 // Server-calculated price/quantity/currency only — every value passed
@@ -67,30 +73,41 @@ export type CreateCheckoutSessionInput = {
 // metadata" allows. purchaser_email is passed to Stripe as the
 // Checkout Session's own `customer_email` (which Stripe needs for its
 // own receipt/UX), not smuggled into metadata.
+//
+// Phase 4A: `{ stripeAccount: input.connectedAccountId }` as the
+// SECOND argument (a request OPTION, not a body field) is Stripe's
+// documented direct-charge pattern (see this file's own §12 comment
+// on the charge-model decision) — Brainbase's platform key acts AS
+// the connected account for this one call, so the resulting Checkout
+// Session, its PaymentIntent, and the eventual charge all belong to
+// the CLIENT's own Stripe account, not Brainbase's platform account.
 export async function createCheckoutSession(input: CreateCheckoutSessionInput): Promise<{ sessionId: string; url: string }> {
   const stripe = getStripeClient();
-  const session = await stripe.checkout.sessions.create({
-    mode: 'payment',
-    customer_email: input.purchaserEmail,
-    line_items: [
-      {
-        price_data: {
-          currency: input.currency.toLowerCase(),
-          product_data: { name: input.ticketTypeName },
-          unit_amount: input.unitAmountCents,
+  const session = await stripe.checkout.sessions.create(
+    {
+      mode: 'payment',
+      customer_email: input.purchaserEmail,
+      line_items: [
+        {
+          price_data: {
+            currency: input.currency.toLowerCase(),
+            product_data: { name: input.ticketTypeName },
+            unit_amount: input.unitAmountCents,
+          },
+          quantity: input.quantity,
         },
-        quantity: input.quantity,
+      ],
+      metadata: {
+        event_order_id: input.orderId,
+        organisation_id: input.organisationId,
+        event_id: input.eventId,
       },
-    ],
-    metadata: {
-      event_order_id: input.orderId,
-      organisation_id: input.organisationId,
-      event_id: input.eventId,
+      expires_at: Math.floor(Date.now() / 1000) + RESERVATION_WINDOW_SECONDS,
+      success_url: input.successUrl,
+      cancel_url: input.cancelUrl,
     },
-    expires_at: Math.floor(Date.now() / 1000) + RESERVATION_WINDOW_SECONDS,
-    success_url: input.successUrl,
-    cancel_url: input.cancelUrl,
-  });
+    { stripeAccount: input.connectedAccountId },
+  );
   if (!session.url) throw new Error('Stripe did not return a Checkout Session URL.');
   return { sessionId: session.id, url: session.url };
 }
@@ -109,19 +126,30 @@ export function constructWebhookEvent(rawBody: string, signature: string): Strip
 }
 
 // Issues a fresh ticket_token for every attendee on `orderId` that
-// doesn't already have one. Guarded entirely by its OWN condition
-// (`ticket_token IS NULL`), never by whether the caller's preceding
-// order-status UPDATE reported a row — see this function's call sites'
-// comments for why: a crash between the order-flip UPDATE and this
-// call, followed by a Stripe webhook retry, must still correctly issue
-// tokens exactly once, even though the order-flip UPDATE's own
-// idempotency guard (`payment_status = 'PENDING'`) would by then
-// already show 0 rows affected on the retry. One UNNEST-based
-// multi-row UPDATE, matching the register route's own parallel-array
-// convention — not a loop of per-row UPDATEs, so token issuance for an
-// order with several attendees is one round trip, not N.
+// doesn't already have one — but ONLY if that order is genuinely
+// payment_status = 'PAID' right now, re-checked in this function's OWN
+// query rather than trusted from the caller. Called unconditionally
+// after the order-flip UPDATE regardless of whether THAT UPDATE
+// reported a row, for crash-recovery (a crash between the flip and
+// this call, followed by a webhook retry, must still issue tokens
+// exactly once, even though the flip's own idempotency guard would by
+// then already show 0 rows on the retry — because the order is
+// already correctly PAID). The payment_status re-check here is what
+// keeps that safe now that this function can also be reached when the
+// flip legitimately did NOT apply — e.g. a Phase 4A Connect-account
+// mismatch (§15/§16): without this guard, a wrong-account event could
+// still cause tokens to be issued for an order that was never actually
+// paid, silently defeating the account-match guard on the UPDATE
+// above. One UNNEST-based multi-row UPDATE, matching the register
+// route's own parallel-array convention — not a loop of per-row
+// UPDATEs, so token issuance for an order with several attendees is
+// one round trip, not N.
 async function issueTicketTokensForPaidOrder(orderId: string): Promise<void> {
-  const rows = await sql`SELECT id FROM event_attendees WHERE order_id = ${orderId} AND ticket_token IS NULL`;
+  const rows = await sql`
+    SELECT ea.id FROM event_attendees ea
+    JOIN event_orders eo ON eo.id = ea.order_id AND eo.organisation_id = ea.organisation_id
+    WHERE ea.order_id = ${orderId} AND ea.ticket_token IS NULL AND eo.payment_status = 'PAID'
+  `;
   if (!rows.length) return;
   const ids = rows.map(r => (r as { id: string }).id);
   const tokens = ids.map(() => generateTicketToken());
@@ -145,21 +173,42 @@ export type WebhookProcessResult = { handled: boolean; type: string };
 // separate processed-event-ids table. See this file's own module
 // comment and lib/events/checkIn.ts's confirmCheckIn() for the
 // identical pattern this reuses.
+//
+// Phase 4A tenant reconciliation (§15/§16): `event.account` is Stripe
+// Connect's own field identifying WHICH connected account produced
+// this event — present whenever the platform receives an event scoped
+// to a connected account (as every event this system now cares about
+// is, since every paid order is Connect-attributed). Every handler
+// below requires the target order's OWN stored stripe_account_id
+// (set once, at reservation time — see the checkout route) to equal
+// this value, folded into the SAME atomic UPDATE as every other guard
+// — not a separate check-then-write. A webhook event genuinely signed
+// by Stripe but scoped to connected account A can therefore never
+// mutate an order whose payment was actually processed under a
+// DIFFERENT connected account B, even if both orders happen to share
+// the same stripe_checkout_session_id lookup path (they cannot in
+// practice, since session ids are globally unique to one account, but
+// the account-match guard makes this true by construction rather than
+// by that coincidence alone). An event with no `event.account` at all
+// (a genuine platform-level event) never matches any real paid order,
+// since every Phase 4A paid order always has a non-NULL
+// stripe_account_id — `stripe_account_id = NULL` is never true in SQL.
 export async function processStripeWebhookEvent(event: Stripe.Event): Promise<WebhookProcessResult> {
+  const eventAccount = event.account ?? null;
   switch (event.type) {
     case 'checkout.session.completed': {
       const session = event.data.object as Stripe.Checkout.Session;
-      await handleCheckoutSessionCompleted(session);
+      await handleCheckoutSessionCompleted(session, eventAccount);
       return { handled: true, type: event.type };
     }
     case 'checkout.session.expired': {
       const session = event.data.object as Stripe.Checkout.Session;
-      await handleCheckoutSessionExpired(session);
+      await handleCheckoutSessionExpired(session, eventAccount);
       return { handled: true, type: event.type };
     }
     case 'payment_intent.payment_failed': {
       const intent = event.data.object as Stripe.PaymentIntent;
-      await handlePaymentIntentFailed(intent);
+      await handlePaymentIntentFailed(intent, eventAccount);
       return { handled: true, type: event.type };
     }
     default:
@@ -197,7 +246,7 @@ export async function processStripeWebhookEvent(event: Stripe.Event): Promise<We
 // runs afterward regardless of whether the flip itself matched a row
 // this time — see issueTicketTokensForPaidOrder's own comment for why
 // that must not be conditioned on the flip's result.
-async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session): Promise<void> {
+async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session, eventAccount: string | null): Promise<void> {
   if (session.payment_status !== 'paid') return;
   const orderId = session.metadata?.event_order_id;
   if (!orderId) return;
@@ -208,6 +257,7 @@ async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session):
     SET status = 'CONFIRMED', payment_status = 'PAID', paid_at = now(),
         stripe_payment_intent_id = COALESCE(${paymentIntentId}, stripe_payment_intent_id)
     WHERE id = ${orderId} AND stripe_checkout_session_id = ${session.id} AND payment_status = 'PENDING'
+      AND stripe_account_id = ${eventAccount}
   `;
 
   await issueTicketTokensForPaidOrder(orderId);
@@ -218,13 +268,14 @@ async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session):
 // release mechanism; the capacity-query-side time check (see the
 // checkout route's own comment) is the half that still protects
 // against this webhook being delayed or never arriving at all.
-async function handleCheckoutSessionExpired(session: Stripe.Checkout.Session): Promise<void> {
+async function handleCheckoutSessionExpired(session: Stripe.Checkout.Session, eventAccount: string | null): Promise<void> {
   const orderId = session.metadata?.event_order_id;
   if (!orderId) return;
   await sql`
     UPDATE event_orders
     SET status = 'CANCELLED', payment_status = 'EXPIRED'
     WHERE id = ${orderId} AND stripe_checkout_session_id = ${session.id} AND payment_status = 'PENDING'
+      AND stripe_account_id = ${eventAccount}
   `;
 }
 
@@ -238,11 +289,12 @@ async function handleCheckoutSessionExpired(session: Stripe.Checkout.Session): P
 // (successful-so-far) pass — for a genuinely failed attempt that never
 // reached that point, this UPDATE simply matches no row, which is
 // correct: the reservation still releases via expiry as normal.
-async function handlePaymentIntentFailed(intent: Stripe.PaymentIntent): Promise<void> {
+async function handlePaymentIntentFailed(intent: Stripe.PaymentIntent, eventAccount: string | null): Promise<void> {
   await sql`
     UPDATE event_orders
     SET status = 'CANCELLED', payment_status = 'FAILED'
     WHERE stripe_payment_intent_id = ${intent.id} AND payment_status = 'PENDING'
+      AND stripe_account_id = ${eventAccount}
   `;
 }
 
@@ -256,10 +308,17 @@ export type CreateRefundResult = { ok: true } | { ok: false; error: string };
 // Stripe is the source of truth for whether the refund actually
 // succeeded; DB state is only written by the caller after this
 // resolves `ok: true` (see the refund route), never before.
-export async function createRefund(paymentIntentId: string): Promise<CreateRefundResult> {
+//
+// Phase 4A (§18): `connectedAccountId` MUST be the order's own
+// HISTORICAL stripe_account_id (see EventOrder.stripe_account_id's
+// schema comment), never the organisation's current setting — passed
+// through as the same `{ stripeAccount: ... }` request option
+// createCheckoutSession uses, so the refund is issued against the
+// exact account that actually processed the original charge.
+export async function createRefund(paymentIntentId: string, connectedAccountId: string): Promise<CreateRefundResult> {
   try {
     const stripe = getStripeClient();
-    await stripe.refunds.create({ payment_intent: paymentIntentId });
+    await stripe.refunds.create({ payment_intent: paymentIntentId }, { stripeAccount: connectedAccountId });
     return { ok: true };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : 'Refund failed.' };
