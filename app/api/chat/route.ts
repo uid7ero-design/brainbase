@@ -6,6 +6,7 @@ import { readConfig } from '../../../lib/brain/config';
 import { getAuthSession } from '../../../lib/authSession';
 import { DB_SCHEMA, executeQuery, formatQueryResult } from '../../../lib/hlna/dataEngine';
 import { buildModuleContext } from '../../../lib/hlna/modules';
+import { buildTenantIdentity, type TenantCapability } from '../../../lib/hlna/tenantIdentity';
 import { route as routeToAgent } from '@/lib/agents/agentRouter';
 import * as insightAgent   from '@/lib/agents/insightAgent';
 import * as actionAgent    from '@/lib/agents/actionAgent';
@@ -44,9 +45,14 @@ Examples of what you help with:
 
 Always base answers on available data. If data is missing, say so clearly.`;
 
-const SYSTEM = `You are Helena — a sophisticated AI assistant for Brainbase, a voice-first executive command centre for municipal council operations.
-
-CRITICAL RULE: Respond with a valid JSON object ONLY. No text before or after the JSON. No markdown code blocks.
+// Phase C.2B.3: the identity line that used to open this prompt
+// ("...a voice-first executive command centre for municipal council
+// operations") is now composed separately by buildTenantIdentity()
+// (lib/hlna/tenantIdentity.ts), tenant-aware instead of hardcoded — see
+// buildSystem() below. SYSTEM_RULES holds everything that is genuinely
+// generic BrainBase behaviour (JSON contract, personality, capabilities,
+// data-response rules) — nothing here assumes a municipal/council tenant.
+const SYSTEM_RULES = `CRITICAL RULE: Respond with a valid JSON object ONLY. No text before or after the JSON. No markdown code blocks.
 
 Required JSON schema (all fields mandatory):
 {
@@ -64,16 +70,9 @@ You can control the dashboard: open/close panels, navigate sections, remember fa
 Spotify: when asked to play, pause, skip, go back, or about what's playing, use spotify_control with target play/pause/next/prev. For status questions, answer from context and use action none.
 Tasks: when asked to add a task, use task_add with the task description as target. When asked to complete/mark done, use task_complete with partial text as target. When asked to clear done tasks, use task_clear.
 
-Dashboard navigation: this is a municipal council operations platform with 12 service dashboards. To navigate to one, use action "navigate" with the slug as target. Available dashboards:
-fleet, waste, water, roads, parks, environment, labour, facilities, logistics, supply, depot, construction.
+Dashboard navigation: if this organisation has operational dashboard sections enabled, you can navigate between them. To navigate to one, use action "navigate" with the slug as target. Recognised dashboard slugs (only relevant if enabled for this organisation): fleet, waste, water, roads, parks, environment, labour, facilities, logistics, supply, depot, construction. Do not assume any of these are enabled or relevant unless the [Active department] context below names one, the user asks about one by name, or [Current dashboard] context is present.
 
-Input: "Take me to fleet" or "Open the fleet dashboard" or "Go to vehicles"
-{"response":"Opening Fleet dashboard now.","intent":"navigation","action":"navigate","target":"fleet","memory_update":null}
-
-Input: "Show me waste" or "Go to waste management" or "Open waste"
-{"response":"Navigating to Waste Management.","intent":"navigation","action":"navigate","target":"waste","memory_update":null}
-
-Dashboard questions: when the user asks about data or metrics on the current dashboard (e.g. "what's our fuel spend?", "which zone has the highest contamination?", "how many vehicles are overdue?"), read the [Current dashboard] context and answer with specific figures. Be concise and cite numbers directly.
+Dashboard questions: when the user asks about data or metrics on the current dashboard (e.g. "what's our top spend category?", "which area needs attention?", "what's overdue?"), read the [Current dashboard] context and answer with specific figures. Be concise and cite numbers directly.
 CRITICAL: The [Current dashboard] context IS the live data feed. Never say you cannot see, read, or access data — if [Current dashboard] is present, use it and answer directly. If a specific figure is not in the context, say what you do know and flag what is not available.
 
 Data analysis: when you have access to the query_database tool, use it for any question requiring live data beyond what's in the dashboard context — trend analysis, cross-period comparisons, anomaly investigation, cost driver breakdowns, etc. After receiving query results, synthesise the ANALYTICS section into your spoken response. Cite specific numbers. Lead with the headline finding, then 2-3 supporting facts, then a recommendation if relevant.
@@ -95,22 +94,13 @@ Input: "Remember I prefer morning briefings"
 Input: "Pause the music"
 {"response":"Pausing your music.","intent":"command","action":"spotify_control","target":"pause","memory_update":null}
 
-Input: "Why are missed bins increasing?"
-{"response":"Based on the data, missed bin collections have risen 18% since January — highest in the Marden and Heathpool zones. The main driver is route capacity: collections per run dropped from 420 to 348 while scheduled lifts stayed flat. I'd recommend a route audit for those two suburbs before the next collection cycle.","intent":"answer","action":"none","target":"none","memory_update":null}
-
-Input: "Show cost drivers this month"
-{"response":"Fuel is your top cost driver at 34% of fleet spend, followed by wages at 28%. Maintenance jumped 22% month-on-month — TRK-002 and TRK-008 are the outliers there. Total operational cost sits at $412,000 against a $380,000 budget.","intent":"answer","action":"none","target":"none","memory_update":null}
-
-Input: "Summarise performance"
-{"response":"Fleet availability is at 88%, below the 92% target — TRK-002 extended downtime is the main drag. Waste contamination averages 9.2% across suburbs, with Heathpool at 13.7%, well above the 8% threshold. Service request resolution is on track at 94% closed within SLA. Three actions need your attention: overdue servicing on 6 vehicles, the Heathpool contamination spike, and the fuel overspend.","intent":"answer","action":"none","target":"none","memory_update":null}
-
 Calendar: when asked about today's schedule, read events from [Google Calendar — today's events] context and answer conversationally. When asked to create/add/schedule a calendar event, use calendar_create. The target MUST be pipe-separated: "TITLE|YYYY-MM-DD|HH:MM|DURATION_MINUTES". If date is not specified use today. If time is not specified omit it (leave blank between pipes). Duration defaults to 60 minutes if unspecified.
 
 Notes: when asked to save, create, write, or store a note, document, or file, use note_create. The target MUST be pipe-separated: "TITLE|FOLDER|content". FOLDER is optional (leave blank for root vault). Content is the body of the note — write it in full. NEVER say you saved a file without using note_create.
 
 Confidence-aware language: adapt your certainty of expression based on the data confidence level provided in context.
-- High confidence (≥30 rows): use assertive, direct language. "Costs are up 14%." "The main driver is…" "This suburb is the outlier."
-- Medium confidence (5–29 rows): use balanced language. "Costs appear to be up around 14%." "The likely driver is…" "This suburb looks like the outlier."
+- High confidence (≥30 rows): use assertive, direct language. "Costs are up 14%." "The main driver is…" "This is the outlier."
+- Medium confidence (5–29 rows): use balanced language. "Costs appear to be up around 14%." "The likely driver is…" "This looks like the outlier."
 - Low confidence (<5 rows): use cautious language. "With limited data, costs may be trending up." "It's not yet clear — more data would help." Do not make strong claims.
 If no confidence level is specified, default to Medium.
 
@@ -121,11 +111,32 @@ DATA RESPONSE RULES — mandatory for all data, operations, and analytics questi
 - Active voice always: "I analysed...", "I found...", "I recommend..." — never passive constructions
 
 Data question response structure (write as flowing speech, no literal section headers):
-1. Name the specific entity (suburb name, vehicle ID, service type) and its exact metric
+1. Name the specific entity (record/asset name, ID, or category) and its exact metric
 2. Explain the operational implication in one sentence
 3. State the risk if unaddressed in one sentence
 4. Give a concrete action naming the exact entity
-Always reference at least 2 specific named entities from the data. Banned phrases: "multiple areas", "several suburbs", "various locations", "generally speaking", "overall trend".`;
+Always reference at least 2 specific named entities from the data. Banned phrases: "multiple areas", "several locations", "various items", "generally speaking", "overall trend".`;
+
+// Phase C.2B.3: municipal/legacy-dashboard vocabulary and examples,
+// appended only when buildSystem() has a genuine department selection to
+// key off (see below) — the one existing, reliable signal (post-C.2B.2)
+// that this operator is actually inside the legacy department-dashboard
+// shell, since `department` is only ever forwarded once a user has
+// genuinely picked one via LeftSidebar's own department switcher.
+const LEGACY_DASHBOARD_CONTEXT = `Input: "Take me to fleet" or "Open the fleet dashboard" or "Go to vehicles"
+{"response":"Opening Fleet dashboard now.","intent":"navigation","action":"navigate","target":"fleet","memory_update":null}
+
+Input: "Show me waste" or "Go to waste management" or "Open waste"
+{"response":"Navigating to Waste Management.","intent":"navigation","action":"navigate","target":"waste","memory_update":null}
+
+Input: "Why are missed bins increasing?"
+{"response":"Based on the data, missed bin collections have risen 18% since January — highest in the Marden and Heathpool zones. The main driver is route capacity: collections per run dropped from 420 to 348 while scheduled lifts stayed flat. I'd recommend a route audit for those two suburbs before the next collection cycle.","intent":"answer","action":"none","target":"none","memory_update":null}
+
+Input: "Show cost drivers this month"
+{"response":"Fuel is your top cost driver at 34% of fleet spend, followed by wages at 28%. Maintenance jumped 22% month-on-month — TRK-002 and TRK-008 are the outliers there. Total operational cost sits at $412,000 against a $380,000 budget.","intent":"answer","action":"none","target":"none","memory_update":null}
+
+Input: "Summarise performance"
+{"response":"Fleet availability is at 88%, below the 92% target — TRK-002 extended downtime is the main drag. Waste contamination averages 9.2% across suburbs, with Heathpool at 13.7%, well above the 8% threshold. Service request resolution is on track at 94% closed within SLA. Three actions need your attention: overdue servicing on 6 vehicles, the Heathpool contamination spike, and the fuel overspend.","intent":"answer","action":"none","target":"none","memory_update":null}`;
 
 // ─── Tool definitions ─────────────────────────────────────────────────────────
 
@@ -247,6 +258,7 @@ function buildSystem(
   liveDataContext?: string,
   orgId?: string, moduleKey?: string, userContext?: string, viewMode?: string,
   department?: string,
+  orgName?: string, enabledCapabilities?: TenantCapability[],
 ): string {
   const isLDTennis = !!orgId && LD_TENNIS_ORG_ID && orgId === LD_TENNIS_ORG_ID;
   console.log('HLNA orgId:', orgId);
@@ -258,7 +270,8 @@ function buildSystem(
     return s;
   }
 
-  let s = SYSTEM;
+  let s = buildTenantIdentity(orgName, enabledCapabilities ?? []);
+  s += `\n\n${SYSTEM_RULES}`;
   if (moduleKey?.trim()) {
     const ctx = buildModuleContext(moduleKey);
     if (ctx) s += `\n\n${ctx}`;
@@ -271,6 +284,12 @@ The operator is currently viewing the ${department} department dashboard.
 CRITICAL — when using query_database, only return data for the ${department} department unless the user explicitly asks for cross-department analysis.
 ${queryHint}
 Do NOT surface metrics or data from other departments in this context (e.g. no contamination rates when viewing Fleet, no vehicle downtime when viewing Waste) unless directly asked.`;
+    // A genuine department selection (see hooks/useHelena.js / Phase
+    // C.2B.2) is the one existing, reliable signal that this operator is
+    // actually inside the legacy municipal-style dashboard shell — only
+    // then is it appropriate to surface its domain-specific navigation
+    // examples and vocabulary. Never included by default.
+    s += `\n\n${LEGACY_DASHBOARD_CONTEXT}`;
   }
   if (userContext?.trim()) {
     s += `\n\n[Operator profile]\n${userContext}\nAdapt your response focus: super_admin/admin → strategic summary, cost impact, cross-module trends; manager → operational alerts, specific actions, detail; viewer → clear plain-English summary, no jargon.`;
@@ -339,11 +358,14 @@ async function callClaude(
   userContext?: string,
   viewMode?: string,
   department?: string,
+  orgName?: string,
+  enabledCapabilities?: TenantCapability[],
 ): Promise<{ text: string; analysis: QueryAnalysis | null }> {
   const systemContent = buildSystem(
     memoryContext, spotifyContext, brainContext,
     taskContext, calendarContext, dashboardContext, liveDataContext,
     orgId, moduleKey, userContext, viewMode, department,
+    orgName, enabledCapabilities,
   );
   const tools = (orgId && !(LD_TENNIS_ORG_ID && orgId === LD_TENNIS_ORG_ID)) ? buildDataTools(orgId) : undefined;
 
@@ -617,6 +639,38 @@ export async function POST(req: NextRequest) {
   }
   console.log('[CHAT] orgId:', orgId);
 
+  // Tenant identity/capability context for the system prompt (Phase
+  // C.2B.3) — derived server-side from the trusted, auth-resolved orgId,
+  // never trusted from client input, per this phase's brief. Same join
+  // shape already used by app/api/me/route.ts's enabledCapabilities block
+  // and app/dashboard/page.tsx's ModuleAccessCard query (m.key =
+  // om.module_key — NOT the separate, known-broken m.id = om.module_id
+  // enabledModules query in app/api/me/route.ts, which this deliberately
+  // does not reuse). UX/context projection only — fails closed to a
+  // neutral identity, never blocks the chat response.
+  let orgName: string | undefined;
+  let enabledCapabilities: TenantCapability[] = [];
+  try {
+    const [orgRow] = await sql`SELECT name FROM organisations WHERE id = ${orgId} LIMIT 1`;
+    orgName = orgRow?.name as string | undefined;
+  } catch {
+    // Neutral identity fallback — see lib/hlna/tenantIdentity.ts.
+  }
+  try {
+    const capRows = await sql`
+      SELECT m.key, m.name
+      FROM organisation_modules om
+      JOIN modules m ON m.key = om.module_key
+      WHERE om.organisation_id = ${orgId}
+        AND om.enabled = true
+        AND m.active = true
+      ORDER BY m.name
+    `;
+    enabledCapabilities = capRows as TenantCapability[];
+  } catch {
+    // Neutral "no capabilities enabled" fallback — see lib/hlna/tenantIdentity.ts.
+  }
+
   const {
     messages, memoryContext, spotifyContext, taskContext, calendarContext, dashboardContext, moduleKey, viewMode, department,
   } = await req.json() as {
@@ -684,6 +738,7 @@ export async function POST(req: NextRequest) {
       messages, memoryContext, spotifyContext, brainContext,
       taskContext, calendarContext, dashboardContext, liveDataContext,
       orgId, moduleKey, userContext, viewMode, department,
+      orgName, enabledCapabilities,
     );
     raw      = result.text;
     analysis = result.analysis;
@@ -694,6 +749,7 @@ export async function POST(req: NextRequest) {
       const sys = buildSystem(
         memoryContext, spotifyContext, brainContext, taskContext, calendarContext,
         dashboardContext, liveDataContext, undefined, moduleKey, userContext, viewMode, department,
+        orgName, enabledCapabilities,
       );
       raw = await callOllama(messages, sys);
     } catch (ollamaErr) {
