@@ -293,4 +293,93 @@ describe('POST /api/admin/users — role enum casing on creation', () => {
     expect(insertSql).toContain('gen_random_uuid()::text');
     expect(insertSql).not.toContain('::uuid');
   });
+})
+
+// Root-cause regression suite — "School Test Organisation" task.
+// users.username (NOT NULL, UNIQUE, no database-level default) and
+// users.updated_at (NOT NULL, no database-level default — User's
+// Prisma model is a plain `@updatedAt`, never `@dbgenerated(...)`,
+// exactly the same class of defect app/api/admin/orgs/route.ts's own
+// POST handler had for organisations.id/.updated_at) were both
+// previously OMITTED from this route's raw SQL INSERT. Confirmed
+// against real DEV: the create-user form (AdminClient.tsx) has always
+// had genuinely separate Username and Email inputs, but the route
+// collapsed them into one value and used it as `email` only — never
+// writing anything to the `username` column at all — causing every
+// user-creation attempt to fail with a real not-null-constraint
+// violation.
+describe('POST /api/admin/users — username/email column contract (root-cause fix)', () => {
+  beforeEach(() => { getSessionMock.mockReset(); sqlMock.mockReset(); });
+
+  it('username and email are written to their own separate columns — email is optional and independent of username', async () => {
+    getSessionMock.mockResolvedValue(superAdminSession);
+    sqlMock.mockResolvedValueOnce([{ id: 'new-id', username: 'jane.smith', email: 'jane@council.gov.au', name: 'Jane Smith', role: UPPERCASE_ROLE, organisation_id: 'ld-tennis-org', email_verified: false, created_at: new Date().toISOString() }]);
+
+    const res = await POST(postRequest({ username: 'jane.smith', email: 'jane@council.gov.au', password: 'longenoughpw', name: 'Jane Smith', role: LOWERCASE_ROLE, organisationId: 'ld-tennis-org' }));
+    expect(res.status).toBe(201);
+
+    const insertSql = (sqlMock.mock.calls[0][0] as string[]).join('');
+    expect(insertSql).toContain('INSERT INTO users (id, username, email, password_hash, name, role, organisation_id, email_verified, updated_at)');
+    const insertArgs = sqlMock.mock.calls[0]
+    expect(insertArgs).toContain('jane.smith')
+    expect(insertArgs).toContain('jane@council.gov.au')
+  })
+
+  it('username is required — a request with only an email (no username) is rejected before any DB call, matching the form\'s own required={f.key !== \'email\'} contract', async () => {
+    getSessionMock.mockResolvedValue(superAdminSession)
+    const res = await POST(postRequest({ email: 'jane@council.gov.au', password: 'longenoughpw', name: 'Jane Smith', role: LOWERCASE_ROLE, organisationId: 'ld-tennis-org' }))
+    expect(res.status).toBe(400)
+    expect(sqlMock).not.toHaveBeenCalled()
+  })
+
+  it('email is genuinely optional — a username-only account (no email) still succeeds', async () => {
+    getSessionMock.mockResolvedValue(superAdminSession)
+    sqlMock.mockResolvedValueOnce([{ id: 'new-id', username: 'jane.smith', email: null, name: 'Jane Smith', role: UPPERCASE_ROLE, organisation_id: 'ld-tennis-org', email_verified: false, created_at: new Date().toISOString() }])
+
+    const res = await POST(postRequest({ username: 'jane.smith', password: 'longenoughpw', name: 'Jane Smith', role: LOWERCASE_ROLE, organisationId: 'ld-tennis-org' }))
+    expect(res.status).toBe(201)
+    const insertArgs = sqlMock.mock.calls[0]
+    expect(insertArgs).toContain(null)
+  })
+
+  it('the INSERT supplies updated_at explicitly (now()) — the other column with no database-level default', async () => {
+    getSessionMock.mockResolvedValue(superAdminSession)
+    sqlMock.mockResolvedValueOnce([{ id: 'new-id', username: 'jane.smith', email: null, name: 'Jane Smith', role: UPPERCASE_ROLE, organisation_id: 'ld-tennis-org', email_verified: false, created_at: new Date().toISOString() }])
+
+    await POST(postRequest({ username: 'jane.smith', password: 'longenoughpw', name: 'Jane Smith', role: LOWERCASE_ROLE, organisationId: 'ld-tennis-org' }))
+    const insertSql = (sqlMock.mock.calls[0][0] as string[]).join('')
+    expect(insertSql).toMatch(/now\(\)/)
+  })
+
+  it('a username collision (unique-constraint violation) is reported as "Username already taken", distinguishing it from an email collision', async () => {
+    getSessionMock.mockResolvedValue(superAdminSession)
+    sqlMock.mockRejectedValueOnce(new Error('duplicate key value violates unique constraint "users_username_key"'))
+
+    const res = await POST(postRequest({ username: 'jane.smith', password: 'longenoughpw', name: 'Jane Smith', role: LOWERCASE_ROLE, organisationId: 'ld-tennis-org' }))
+    expect(res.status).toBe(409)
+    const body = await res.json()
+    expect(body.error).toMatch(/Username already taken/)
+  })
+
+  it('an unexpected database error still returns a real JSON error body — never a bare re-throw', async () => {
+    getSessionMock.mockResolvedValue(superAdminSession)
+    sqlMock.mockRejectedValueOnce(new Error('null value in column "username" of relation "users" violates not-null constraint'))
+
+    const res = await POST(postRequest({ username: 'jane.smith', password: 'longenoughpw', name: 'Jane Smith', role: LOWERCASE_ROLE, organisationId: 'ld-tennis-org' }))
+    expect(res.status).toBe(500)
+    const body = await res.json()
+    expect(typeof body.error).toBe('string')
+  })
+
+  it('a failure in the verification-email step (createToken throwing — e.g. a missing email_tokens table, confirmed against real DEV) does NOT fail the request — the user row is already committed and this is a non-fatal side effect', async () => {
+    getSessionMock.mockResolvedValue(superAdminSession)
+    sqlMock.mockResolvedValueOnce([{ id: 'new-id', username: 'jane.smith', email: 'jane@council.gov.au', name: 'Jane Smith', role: UPPERCASE_ROLE, organisation_id: 'ld-tennis-org', email_verified: false, created_at: new Date().toISOString() }])
+    const { createToken } = await import('@/lib/tokens')
+    vi.mocked(createToken).mockRejectedValueOnce(new Error('relation "email_tokens" does not exist'))
+
+    const res = await POST(postRequest({ username: 'jane.smith', email: 'jane@council.gov.au', password: 'longenoughpw', name: 'Jane Smith', role: LOWERCASE_ROLE, organisationId: 'ld-tennis-org' }))
+    expect(res.status).toBe(201)
+    const body = await res.json()
+    expect(body.user.username).toBe('jane.smith')
+  })
 });

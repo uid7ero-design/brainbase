@@ -383,6 +383,8 @@ describe('Privacy (§6) — response data never reaches ticket URLs, QR payloads
     'lib/events/publicTicket.ts',
     'lib/events/qr.ts',
     'lib/events/stripe.ts',
+    'app/t/[token]/page.tsx',
+    'app/api/public/tickets/[token]/route.ts',
   ]
 
   for (const relPath of filesThatMustNeverReferenceResponses) {
@@ -408,6 +410,41 @@ describe('Privacy (§6) — response data never reaches ticket URLs, QR payloads
     const src = fs.readFileSync(path.join(process.cwd(), 'lib/events/publicEventDetail.ts'), 'utf8')
     expect(src).toMatch(/PublicQuestion/)
     expect(src).not.toMatch(/event_registration_responses/)
+  })
+})
+
+describe('Public ticket detail (defense in depth) — allow-listed shape survives an over-broad DB row', () => {
+  // getPublicTicketDetail's SELECT never joins event_registration_responses
+  // today (proven statically above), but this asserts the second,
+  // independent layer of protection: even if a future edit to that SELECT
+  // accidentally widened it to a row carrying response-shaped columns, the
+  // function's return value is a fixed, explicit allow-list literal (see
+  // publicTicket.ts's own `return { ok: true, detail: { ... } }`), never a
+  // spread of the raw row — so an over-broad row still cannot reach the
+  // public ticket page or API.
+  it('getPublicTicketDetail never surfaces registration-response-shaped fields, even if the underlying row carried them', async () => {
+    const { getPublicTicketDetail } = await import('@/lib/events/publicTicket')
+    queue([{
+      attendee_name: 'Test Student', checked_in_at: null, order_status: 'CONFIRMED',
+      event_name: 'Test Event', venue: 'Hall', artwork_url: null,
+      starts_at: new Date('2026-12-01T09:00:00Z'), ends_at: new Date('2026-12-01T11:00:00Z'), timezone: 'UTC',
+      ticket_type_name: 'General',
+      session_name: null, session_starts_at: null, session_ends_at: null,
+      // simulated leak surface — fields this function must never surface
+      dietary_requirements: 'No dietary requirements',
+      responses: [{ question_id: 'aq-1', answer: 'Vegan' }],
+      special_requests: 'Aisle seat',
+    }])
+
+    const result = await getPublicTicketDetail('tok-1')
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error('unreachable')
+    const json = JSON.stringify(result.detail)
+    expect(json).not.toMatch(/dietary|accessib|special request|Vegan|Aisle seat/i)
+    expect(Object.keys(result.detail).sort()).toEqual(
+      ['attendee_name', 'checked_in_at', 'event', 'session', 'status', 'ticket_type_name'],
+    )
   })
 })
 

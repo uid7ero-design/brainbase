@@ -106,9 +106,19 @@ export async function POST(req: NextRequest) {
 
   const { username, password, name, organisationId } = body;
   const role: string | undefined = typeof body.role === 'string' ? body.role.toLowerCase() : body.role;
-  const emailVal = (username ?? body.email)?.trim().toLowerCase();
+  // users.username (a short handle — the create-user form's own
+  // "Username" field, e.g. "jane.smith") and users.email (a real
+  // address — the form's separate, OPTIONAL "Email" field) are two
+  // genuinely distinct, separately-collected columns: username NOT
+  // NULL + UNIQUE, email nullable + UNIQUE. This previously collapsed
+  // them into one value (falling email back onto username, then never
+  // writing to the username column at all) — a stale leftover from
+  // before the form had two separate inputs, confirmed by
+  // AdminClient.tsx's own createUser form JSX already rendering both.
+  const usernameVal = username?.trim();
+  const emailVal = typeof body.email === 'string' && body.email.trim() ? body.email.trim().toLowerCase() : null;
 
-  if (!emailVal)                         return NextResponse.json({ error: 'Email is required.' }, { status: 400 });
+  if (!usernameVal)                      return NextResponse.json({ error: 'Username is required.' }, { status: 400 });
   if (!password || password.length < 8)  return NextResponse.json({ error: 'password must be at least 8 characters.' }, { status: 400 });
   if (!name?.trim())                     return NextResponse.json({ error: 'name is required.' }, { status: 400 });
   if (!ROLES.includes(role as Role))     return NextResponse.json({ error: `role must be one of: ${ROLES.join(', ')}.` }, { status: 400 });
@@ -118,34 +128,65 @@ export async function POST(req: NextRequest) {
 
   try {
     // users.role is a real Postgres enum (UserRole) with uppercase-only
-    // labels — see the matching comment in PATCH above.
+    // labels — see the matching comment in PATCH above. username and
+    // updated_at are both NOT NULL with NO database-level default
+    // (confirmed via information_schema.columns against DEV) —
+    // User.updated_at's Prisma model is a plain `@updatedAt`, a
+    // Prisma-Client-only mechanism never translated into an actual
+    // Postgres DEFAULT, matching the exact same class of defect
+    // app/api/admin/orgs/route.ts's own POST handler had (organisations
+    // .id/.updated_at) — this raw SQL INSERT must supply both itself.
     const rows = await sql`
-      INSERT INTO users (id, email, password_hash, name, role, organisation_id, email_verified)
+      INSERT INTO users (id, username, email, password_hash, name, role, organisation_id, email_verified, updated_at)
       VALUES (
         gen_random_uuid()::text,
+        ${usernameVal},
         ${emailVal},
         ${passwordHash},
         ${name.trim()},
         ${(role as string).toUpperCase()},
         ${organisationId},
-        false
+        false,
+        now()
       )
-      RETURNING id, email, name, role, organisation_id, email_verified, created_at
+      RETURNING id, username, email, name, role, organisation_id, email_verified, created_at
     `;
     const user = { ...rows[0], role: (rows[0].role as string).toLowerCase() };
 
-    const token = await createToken(rows[0].id as string, 'verify', 24 * 60 * 60_000);
-    const { subject, html } = verificationEmail(name.trim(), token);
-    await sendEmail({ to: emailVal, subject, html }).catch(err =>
-      console.error('[users] verification email failed:', err),
-    );
+    // A verification email only makes sense if the user was actually
+    // given a real address — email is optional (the form's own
+    // required={f.key !== 'email'} already reflects this), so a
+    // username-only account (no email) simply skips this step rather
+    // than emailing an invented/fallback address.
+    //
+    // The user row above is already committed at this point (a plain
+    // INSERT auto-commits; this is not wrapped in a transaction with
+    // what follows) — so a failure in this step must never be allowed
+    // to make the route report the whole request as failed. Both
+    // createToken() and sendEmail() are wrapped in the SAME try/catch
+    // (not just sendEmail(), as before) — confirmed against real DEV
+    // that createToken() can itself throw (the environment's
+    // email_tokens table does not currently exist), which previously
+    // escaped to the outer catch and returned a 500 for an operation
+    // that had, in fact, already succeeded.
+    if (emailVal) {
+      try {
+        const token = await createToken(rows[0].id as string, 'verify', 24 * 60 * 60_000);
+        const { subject, html } = verificationEmail(name.trim(), token);
+        await sendEmail({ to: emailVal, subject, html });
+      } catch (err) {
+        console.error('[users] verification email failed (user was still created):', err);
+      }
+    }
 
     return NextResponse.json({ user }, { status: 201 });
   } catch (err: unknown) {
     const msg = (err as Error).message ?? '';
     if (msg.includes('unique') || msg.includes('duplicate')) {
-      return NextResponse.json({ error: 'Email already taken.' }, { status: 409 });
+      const field = msg.includes('username') ? 'Username' : 'Email';
+      return NextResponse.json({ error: `${field} already taken.` }, { status: 409 });
     }
-    throw err;
+    console.error('[admin users] create failed', err);
+    return NextResponse.json({ error: `Create failed: ${msg}` }, { status: 500 });
   }
 }
