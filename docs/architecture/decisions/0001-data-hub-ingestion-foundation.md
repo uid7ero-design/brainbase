@@ -555,3 +555,242 @@ by this phase.
 
 None of these are fixed by this phase. They are recorded here so 5A.2/5A.3
 planning does not need to rediscover them.
+
+## 13. RawFileStore — storage contract and local/test foundation (5A.2E)
+
+`lib/data-hub/storage/rawFileStore.ts` establishes the minimum durable
+object-storage abstraction so a future private Vercel Blob adapter
+(5A.2F) can be built without redesign, and so the eventual
+initiate/finalize ImportBatch lifecycle (5A.2G) can depend on a stable
+contract rather than a concrete provider. It knows nothing about HTTP,
+organisations, ImportBatch rows, or the workbook parser.
+
+Interface (preserved exactly as reviewed):
+
+    interface RawFileStore {
+      readonly provider: string
+      put(key, body: Uint8Array, opts?: { contentType? }): Promise<RawFilePutResult>
+      head(key): Promise<RawFileMetadata | null>
+      get(key, opts?: { maxBytes? }): Promise<{ metadata, body: Uint8Array }>
+      delete(key): Promise<void>
+    }
+
+put() is Uint8Array only — no AsyncIterable/streaming input. This was
+deliberately narrowed during independent architecture review: the
+committed direct-browser-to-private-Blob protocol (Section 9) means
+canonical Production code never calls RawFileStore.put() with uploaded
+workbook bytes at all — the browser writes directly to the provider via
+a separate, not-yet-built direct-upload capability (own module in
+5A.2F/5A.2G, entirely outside RawFileStore). put() exists for test-
+fixture seeding and any reference/reconciliation writes only. No
+identified caller ever needed streaming input, so it was not added.
+
+Provider identity: every implementation exposes a stable, explicit
+`provider` string (`"memory"`, `"test-fs"`; a future Blob adapter would
+use e.g. `"vercel-blob"`). It is never inferred from environment and
+never left for a caller to supply.
+
+Canonical key construction: `buildImportBatchKey(organisationId,
+importBatchId)` is the single sanctioned way canonical code mints a
+storage key. Grammar: `org_<organisationId>/importbatch_<importBatchId>`
+— ASCII letters/digits/underscore/hyphen segments joined by `/`, no
+leading/trailing slash, no `.`/`..` segment, no empty segment, no
+backslash, no NUL, no colon (rules out Windows drive forms). Never
+embeds the original filename (untrusted, unsafe-character-bearing
+client input) and never embeds SHA-256 (explicitly non-unique per the
+5A.2C ImportBatch schema's own idempotency design — two distinct
+ImportBatch rows may legitimately share identical bytes).
+
+Key validation (`validateStorageKey`) enforces this same grammar
+independently and identically inside every RawFileStore implementation
+— not only relied upon via the builder — so a caller that bypasses the
+builder, or a future bug in it, still cannot produce a key one
+implementation accepts and another rejects. Proven by a shared
+invalid-key matrix test run against both implementations.
+
+Tenant isolation boundary: RawFileStore remains tenant-agnostic. No
+operation accepts an `organisationId` parameter. Isolation is enforced
+one layer up, by `buildImportBatchKey`'s organisation-scoped namespace
+plus the database's existing composite-FK tenant-scoping discipline
+(the same pattern already used by ImportBatch/Upload in 5A.2C). The
+storage layer validates key syntax, never authorization.
+
+No-overwrite semantics: `put()` on an existing key always throws
+ALREADY_EXISTS, including for byte-identical content. There is no
+read-compare-write, no hash comparison, and no silent-success-on-retry
+behavior. RawFileStore does not implement API/import idempotency —
+ImportBatch/API orchestration owns retry/idempotency semantics (the
+5A.2C schema's own `idempotency_key` column exists for exactly this
+purpose, one layer above storage).
+
+Idempotent delete: `delete()` returns `void`. A missing key is success,
+not an error — repeated deletes are always safe. This matches live-
+verified current `@vercel/blob` behavior: `del()` on the real provider
+already returns `void` and is documented as never throwing when the
+target doesn't exist; inventing a `{ deleted: boolean }` return would
+require every implementation to fabricate a distinction the actual
+target provider does not natively expose.
+
+Minimized five-code error model: `NOT_FOUND` (get() on a missing key —
+head() returns `null` instead, deliberately asymmetric with the real
+Blob SDK's own head()-throws/get()-returns-null convention, chosen for
+internal consistency and documented as a required adapter-side
+translation point for 5A.2F), `ALREADY_EXISTS`, `INVALID_KEY`,
+`SIZE_LIMIT`, `PROVIDER_FAILURE`. `INTEGRITY_FAILURE` was considered and
+rejected — no identified caller in this phase; content-integrity
+verification is finalize's own sha256 computation over already-
+retrieved bytes, not a storage-layer concern. No raw filesystem/provider
+error object, class, or message is ever required by a caller to
+determine behavior — every implementation normalizes its own errors
+before they cross the interface (proven by a dedicated EISDIR-forcing
+test against the filesystem implementation, which also caught and fixed
+a real gap: `get()`'s read path originally had no `catch` clause at all
+and would have leaked a raw Node `ErrnoException` for any error
+surfacing only once a read is attempted, e.g. opening a directory
+succeeds but reading it throws EISDIR).
+
+Bounded get()/maxBytes requirement: `get(key, { maxBytes })` enforces a
+hard ceiling on materialized bytes. This exists because a future direct-
+upload flow lets an untrusted browser place an object into storage
+*before* the parser ever sees it — finalize must not blindly download an
+arbitrarily large stored object into memory and only discover
+`bytes.byteLength > maxOriginalBytes` afterward. The intended application
+flow is head() first (cheap, checks declared size against policy) then
+get() with the same maxBytes — but maxBytes still exists and is still
+enforced independently at get() time even after a successful head(),
+because head()'s reported size must never be blindly trusted as an
+unconditional license to materialize without limit (a provider
+inconsistency, or in the filesystem implementation a declared-vs-actual
+mismatch, must not silently produce an over-limit result). The
+filesystem implementation enforces this by reading at most
+`maxBytes + 1` content bytes regardless of the object's declared size —
+never allocating a buffer sized to the untrusted/declared length — and
+treats actually reading more than `maxBytes` bytes as SIZE_LIMIT even
+when the declared header size looked acceptable. `maxBytes` itself is
+validated as a finite, non-negative integer; a malformed value throws a
+plain `TypeError`, not a sixth storage error code — this is a programmer
+error, not a domain failure, mirroring the identical discipline already
+established for `WorkbookLimits` validation in `workbookParser.ts`.
+
+contentType is non-authoritative, opaque metadata: preserved exactly as
+given at put() time, returned as-is by head()/get(), never parsed,
+validated, or used for authorization, and never fabricated when absent.
+Live verification of `@vercel/blob`'s `put()` shows its own `contentType`
+option "by default... extracted from the pathname's extension" — since
+canonical keys are deliberately opaque and extension-free, a future Blob
+adapter cannot rely on that fallback and must always pass `contentType`
+explicitly when known.
+
+etag is optional and never fabricated: both reference implementations
+leave it `undefined` because neither has a genuine provider-native
+etag. No implementation computes a hash of the content merely to
+populate this field — a fabricated etag would let a contract test pass
+while proving nothing about real provider parity, and could tempt a
+future caller into trusting a same-shaped-but-meaningless value as if
+it were provider-authoritative.
+
+uploadedAt and SHA-256/expectedSha256 are excluded entirely from
+RawFileMetadata — no identified caller needs them from the storage
+layer. ImportBatch already owns `created_at`/`updated_at` independently
+(set by the database, not the storage provider), and `sha256` remains
+exclusively finalize's own server-computed value over retrieved bytes,
+never anything storage reports.
+
+In-memory vs. filesystem test roles: `InMemoryFileStore` (`provider =
+"memory"`) is a Map-backed implementation with zero I/O and zero
+filesystem/network/environment dependence — it proves the contract's
+*logical* semantics (no-overwrite, idempotent delete, cross-key
+isolation) with no I/O flakiness, but a Map's "no overwrite" is
+trivially true by construction and can never prove anything about a
+genuine OS-level race. `TestFileStore` (`provider = "test-fs"`) is the
+only implementation that exercises *real* atomic-write/no-overwrite-race
+semantics a Map cannot simulate. Both are needed; neither substitutes
+for the other.
+
+TestFileStore is explicitly TEST-ONLY, never a Production storage
+adapter. This is enforced two ways: (1) naming/location — its module
+name and this documentation make clear it is a reference/test
+implementation, never presented as a Blob-adapter candidate; (2) a hard
+runtime guard — its constructor throws immediately if
+`process.env.VERCEL` is set, so it fails loudly rather than silently
+degrading if ever accidentally wired into a Vercel deployment. No
+environment-based provider auto-selection exists anywhere: there is no
+`getDefaultStore()`, no `NODE_ENV`-based switch, and no configuration
+infrastructure. Every caller must receive a concrete RawFileStore
+instance via explicit dependency injection (a function/constructor
+parameter), matching this repository's existing convention of explicit,
+per-call primitives (`requireRole()`, the `sql` tagged template) rather
+than a hidden DI container or module-global singleton.
+
+Filesystem publication algorithm — the mechanism proving both required
+safety properties. An earlier draft considered `rename(tempPath,
+finalPath)` for exclusive publish and rejected it: POSIX `rename()`
+silently REPLACES an existing destination — it is atomic with respect to
+visibility, but it is NOT exclusive, and two concurrent writers to the
+same key using `rename()` would have the second writer's rename
+silently clobber the first, with no error raised to either caller. This
+was proven, not merely reasoned about: temporarily reintroducing
+`rename()` in place of the real mechanism (mutation M11) reliably
+reproduced exactly this failure across repeated runs, with the shared
+concurrency test (write-collision + one-winner-one-ALREADY_EXISTS)
+failing every time.
+
+The mechanism actually used: every write is (1) fully assembled
+in-memory as a single length-prefixed-JSON-header-plus-content buffer
+and written to a uniquely-named temporary file in the same directory as
+the final destination (`fs.writeFile(tempPath, framed, { flag: "wx" })`),
+then (2) published by calling `fs.link(tempPath, finalPath)` — a hard
+link, not a rename. POSIX (and Windows NTFS, which Node maps to
+`CreateHardLink`) specifies `link()` as atomic and exclusive: for any set
+of concurrent `link()` calls targeting the same destination name, the
+filesystem guarantees exactly one succeeds and every other fails with
+EEXIST. This is the same "atomic exclusive publish via hard link"
+technique long used by other file-based systems needing this exact
+guarantee (e.g. Maildir-style safe delivery).
+
+  Property A (no silent overwrite race): proven by the shared
+  concurrent-same-key-write contract test (two writers race `put()` on
+  the same key; exactly one must succeed, the other must receive
+  ALREADY_EXISTS, and the final stored bytes must exactly equal one
+  complete submitted payload, never mixed/truncated). Confirmed passing
+  reliably across repeated runs on the real mechanism, and confirmed
+  reliably FAILING when weakened back to `rename()` (mutation M11).
+
+  Property B (no partial visibility): the final key's path does not
+  exist as a directory entry at all until `link()` succeeds, and by the
+  time `link()` is attempted, the temp file it points at is already
+  fully written and closed — there is no window in which the final path
+  can be observed with partial content, because it has exactly two
+  states: absent, or complete. Proven by a dedicated concurrent
+  reader-vs-writer contract test that polls `get()`/`head()` in a tight
+  loop for the entire duration of a large (200 KB) concurrent write and
+  asserts every single observation was either NOT_FOUND or the complete,
+  byte-exact object — never partial. Confirmed reliably FAILING when the
+  publish step was mutated to write directly to the final path in
+  chunks with an artificial delay between them (mutation M12), which
+  produced an observable partially-written object at the final key
+  during the write.
+
+  A candidate `open(finalPath, "wx")`-then-write-directly-to-final-path
+  design (proposed during architecture review as a simpler alternative)
+  was considered and rejected: opening a file exclusively at its final
+  name and then writing content across one or more subsequent `write()`
+  calls creates exactly the same partial-visibility window this
+  algorithm eliminates — the final path already exists (empty or
+  partially written) the instant `open()` succeeds, before any content
+  has landed. The temp-file-then-link design avoids this entirely by
+  never giving the final path an identity until the content behind it
+  is already complete.
+
+This phase exposes no new canonical endpoints, does not touch
+`services/upload.ts` or any existing upload route, does not modify the
+Prisma schema or migration SQL, and does not connect to Production/Neon
+or Vercel Blob. **5A.2F** remains the private Vercel Blob adapter
+implementing this exact `RawFileStore` interface (its `head()` must
+translate the real SDK's `BlobNotFoundError` throw into this contract's
+`null`-on-missing convention; its `get()` must translate the real SDK's
+`ReadableStream` into a `maxBytes`-bounded `Uint8Array` using the same
+streaming-with-a-hard-counter discipline already proven in 5A.2D's
+`workbookArchiveGuard`). **5A.2G** remains the direct-upload
+initiate/finalize API work, including the separate browser-direct-upload
+capability that RawFileStore deliberately excludes.
