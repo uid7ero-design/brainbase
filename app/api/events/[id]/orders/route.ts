@@ -24,6 +24,7 @@ export async function GET(_req: Request, { params }: Ctx) {
     SELECT
       eo.id, eo.purchaser_name, eo.purchaser_email, eo.purchaser_phone, eo.status, eo.created_at,
       eo.payment_status, eo.total_cents, eo.currency, eo.paid_at, eo.refunded_at, eo.stripe_payment_intent_id IS NOT NULL AS refundable,
+      eo.expires_at, (eo.payment_status = 'PENDING' AND eo.expires_at IS NOT NULL AND eo.expires_at <= NOW()) AS is_expired_pending,
       oi.id AS order_item_id, oi.quantity,
       tt.id AS ticket_type_id, tt.name AS ticket_type_name,
       es.id AS event_session_id, es.name AS session_name,

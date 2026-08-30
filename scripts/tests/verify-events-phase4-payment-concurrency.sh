@@ -348,6 +348,83 @@ expect_eq "E. exactly one of two concurrent session-bound paid reservations hold
   "SELECT COALESCE(SUM(quantity),0) FROM event_order_items WHERE event_session_id='sess-e';" "1"
 
 echo ""
+echo "=== F: retry-payment capacity reacquisition (§A.2) ==="
+# Mirrors app/api/events/[id]/orders/[orderId]/retry/route.ts's own
+# atomic UPDATE exactly: excludes the order being retried from the
+# "sold" aggregate (it is the SAME demand being re-confirmed, not new
+# demand), then extends expires_at only if capacity still allows it.
+order_id_for() {
+  echo "SELECT id FROM event_orders WHERE purchaser_name = '$1';" | psql_query | tr -d '[:space:]'
+}
+
+retry_sql() {
+  local order_id="$1" tt_id="$2" qty="$3"
+  cat <<SQL
+BEGIN;
+SELECT capacity FROM event_ticket_types WHERE id = '$tt_id' AND organisation_id = 'org-a' FOR UPDATE;
+WITH sold_tt AS (
+  SELECT COALESCE(SUM(oi.quantity), 0) AS qty FROM event_order_items oi JOIN event_orders eo ON eo.id = oi.order_id AND eo.organisation_id = oi.organisation_id
+  WHERE oi.ticket_type_id = '$tt_id' AND oi.organisation_id = 'org-a' AND eo.id <> '$order_id'
+    AND eo.status <> 'CANCELLED' AND (eo.payment_status <> 'PENDING' OR eo.expires_at > NOW())
+)
+UPDATE event_orders eo
+SET expires_at = NOW() + interval '30 minutes', stripe_checkout_session_id = NULL
+FROM sold_tt
+WHERE eo.id = '$order_id' AND eo.organisation_id = 'org-a' AND eo.payment_status = 'PENDING'
+  AND sold_tt.qty + $qty <= (SELECT capacity FROM event_ticket_types WHERE id = '$tt_id' AND organisation_id = 'org-a')
+RETURNING eo.id;
+COMMIT;
+SQL
+}
+
+reset_db; bootstrap
+expect_success "F setup: capacity=1 paid ticket type" \
+  "INSERT INTO event_ticket_types (id, event_id, organisation_id, name, price_cents, capacity, active) VALUES ('tt-f', 'event-1', 'org-a', 'Premium', 2500, 1, true);"
+expect_success "F1. reserve the one slot (order-f1, still-valid expires_at)" \
+  "$(reserve_ticket_type_sql tt-f order-f1 1)"
+ORDER_F1_ID="$(order_id_for order-f1)"
+expect_success "F2. retrying the SAME still-valid order succeeds (self-exclusion means it never conflicts with itself)" \
+  "$(retry_sql "$ORDER_F1_ID" tt-f 1)"
+expect_eq "F2b. capacity still shows exactly 1 held (not 2 — retry never double-counts)" \
+  "SELECT COALESCE(SUM(quantity),0) FROM event_order_items WHERE ticket_type_id='tt-f';" "1"
+
+reset_db; bootstrap
+expect_success "F3 setup: capacity=1 paid ticket type" \
+  "INSERT INTO event_ticket_types (id, event_id, organisation_id, name, price_cents, capacity, active) VALUES ('tt-f3', 'event-1', 'org-a', 'Premium', 2500, 1, true);"
+expect_success "F3. seed an EXPIRED PENDING reservation (order-f3)" \
+  "$(reserve_ticket_type_sql tt-f3 order-f3 1 "NOW() - interval '1 minute'")"
+ORDER_F3_ID="$(order_id_for order-f3)"
+expect_success "F4. retrying the expired order reacquires capacity — no one else is competing for it" \
+  "$(retry_sql "$ORDER_F3_ID" tt-f3 1)"
+expect_eq "F4b. the retried order's expires_at is now in the future again (reacquired, not still expired)" \
+  "SELECT (expires_at > NOW())::text FROM event_orders WHERE id='$ORDER_F3_ID';" "true"
+
+reset_db; bootstrap
+expect_success "F5 setup: capacity=1 paid ticket type" \
+  "INSERT INTO event_ticket_types (id, event_id, organisation_id, name, price_cents, capacity, active) VALUES ('tt-f5', 'event-1', 'org-a', 'Premium', 2500, 1, true);"
+expect_success "F5. seed an EXPIRED PENDING reservation (order-f5)" \
+  "$(reserve_ticket_type_sql tt-f5 order-f5 1 "NOW() - interval '1 minute'")"
+ORDER_F5_ID="$(order_id_for order-f5)"
+expect_success "F6. a DIFFERENT fresh reservation takes the now-free capacity first" \
+  "$(reserve_ticket_type_sql tt-f5 order-f5-competitor 1)"
+expect_success "F7. retrying the original expired order now correctly finds NO available capacity (0 rows, no error) — cannot oversell" \
+  "$(retry_sql "$ORDER_F5_ID" tt-f5 1)"
+expect_eq "F7b. the original order's expires_at is still in the past — retry did NOT reacquire it" \
+  "SELECT (expires_at > NOW())::text FROM event_orders WHERE id='$ORDER_F5_ID';" "false"
+expect_eq "F7c. capacity still shows exactly 1 (the competitor's), never 2" \
+  "SELECT COALESCE(SUM(quantity),0) FROM event_order_items oi JOIN event_orders eo ON eo.id=oi.order_id WHERE oi.ticket_type_id='tt-f5' AND eo.status<>'CANCELLED' AND (eo.payment_status<>'PENDING' OR eo.expires_at>NOW());" "1"
+
+echo ""
+echo "=== G: concurrent retry vs. a brand-new reservation racing for the same last slot ==="
+reset_db; bootstrap
+echo "INSERT INTO event_ticket_types (id, event_id, organisation_id, name, price_cents, capacity, active) VALUES ('tt-g', 'event-1', 'org-a', 'Premium', 2500, 1, true);" | psql_exec >/dev/null 2>&1
+echo "$(reserve_ticket_type_sql tt-g order-g 1 "NOW() - interval '1 minute'")" | psql_exec >/dev/null 2>&1
+ORDER_G_ID="$(order_id_for order-g)"
+run_concurrent_pair "$(retry_sql "$ORDER_G_ID" tt-g 1)" "$(reserve_ticket_type_sql tt-g NewBuyer-g 1)"
+expect_eq "G. exactly one of {retry the expired order, a brand-new reservation} wins the single last slot" \
+  "SELECT COALESCE(SUM(quantity),0) FROM event_order_items oi JOIN event_orders eo ON eo.id=oi.order_id WHERE oi.ticket_type_id='tt-g' AND eo.status<>'CANCELLED' AND (eo.payment_status<>'PENDING' OR eo.expires_at>NOW());" "1"
+
+echo ""
 echo "=== CONCURRENCY (blocking gate) — repeated genuine race, no forced delay ==="
 TOTAL_PASS=0
 TOTAL_FAIL=0

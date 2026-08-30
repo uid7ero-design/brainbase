@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import {
   Panel, SectionHeader, EmptyState, StatusBadge, orderStatusTone, paymentStatusTone, rowCardStyle,
-  TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED, BORDER_SOFT, DangerButton,
+  TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED, BORDER_SOFT, DangerButton, secondaryBtnStyle,
 } from '../_components/ui';
 
 function formatAmount(cents: number, currency: string): string {
@@ -28,6 +28,13 @@ export type OrderRow = {
   paid_at: string | null;
   refunded_at: string | null;
   refundable: boolean;
+  // Phase 4 remediation — §A.4. expires_at is only ever non-null while
+  // payment_status = 'PENDING'; is_expired_pending is computed
+  // server-side (comparing against the DB's own NOW(), never the
+  // browser's clock) so the "expired" label can never disagree with
+  // what the capacity aggregate itself already treats as released.
+  expires_at: string | null;
+  is_expired_pending: boolean;
   order_item_id: string;
   quantity: number;
   ticket_type_id: string | null;
@@ -58,24 +65,70 @@ export default function RegistrationsPanel({
   const orderCount = new Set(nonCancelled.map(o => o.id)).size;
   const totalAttendees = nonCancelled.reduce((sum, o) => sum + o.quantity, 0);
   const [refundingId, setRefundingId] = useState<string | null>(null);
-  const [refundError, setRefundError] = useState<string | null>(null);
+  const [retryingId, setRetryingId] = useState<string | null>(null);
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   async function refund(orderId: string) {
     if (!confirm('Refund this order in full via Stripe? This also cancels the tickets.')) return;
-    setRefundError(null);
+    setActionError(null);
     setRefundingId(orderId);
     try {
       const res = await fetch(`/api/events/${eventId}/orders/${orderId}/refund`, { method: 'POST' });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setRefundError(body.error ?? `Refund failed (${res.status}).`);
+        setActionError(body.error ?? `Refund failed (${res.status}).`);
         return;
       }
       onRefunded();
     } catch {
-      setRefundError('Refund failed. Please try again.');
+      setActionError('Refund failed. Please try again.');
     } finally {
       setRefundingId(null);
+    }
+  }
+
+  // §A.1 — cancel an abandoned/incomplete PENDING reservation. Manager-
+  // only, destructive (releases the reservation for good), so it goes
+  // through the same confirm() pattern as refund above.
+  async function cancelPending(orderId: string) {
+    if (!confirm('Cancel this pending registration? This releases the reserved tickets.')) return;
+    setActionError(null);
+    setCancellingId(orderId);
+    try {
+      const res = await fetch(`/api/events/${eventId}/orders/${orderId}/cancel`, { method: 'POST' });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setActionError(body.error ?? `Cancel failed (${res.status}).`);
+        return;
+      }
+      onRefunded();
+    } catch {
+      setActionError('Cancel failed. Please try again.');
+    } finally {
+      setCancellingId(null);
+    }
+  }
+
+  // §A.2 — retry payment for a still-PENDING order. Not destructive
+  // (no confirm() needed): it either succeeds and opens a fresh Stripe
+  // Checkout in a new tab, or fails cleanly with no state change.
+  async function retryPayment(orderId: string) {
+    setActionError(null);
+    setRetryingId(orderId);
+    try {
+      const res = await fetch(`/api/events/${eventId}/orders/${orderId}/retry`, { method: 'POST' });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setActionError(body.error ?? `Retry failed (${res.status}).`);
+        return;
+      }
+      window.open(body.checkout_url, '_blank', 'noopener,noreferrer');
+      onRefunded();
+    } catch {
+      setActionError('Retry failed. Please try again.');
+    } finally {
+      setRetryingId(null);
     }
   }
 
@@ -87,7 +140,7 @@ export default function RegistrationsPanel({
       />
 
       {error && <div role="alert" style={{ color: '#FCA5A5', fontSize: 12, marginBottom: 12 }}>{error}</div>}
-      {refundError && <div role="alert" style={{ color: '#FCA5A5', fontSize: 12, marginBottom: 12 }}>{refundError}</div>}
+      {actionError && <div role="alert" style={{ color: '#FCA5A5', fontSize: 12, marginBottom: 12 }}>{actionError}</div>}
       {orders === null && !error && <div style={{ fontSize: 13, color: TEXT_MUTED }}>Loading…</div>}
       {orders !== null && orders.length === 0 && (
         <EmptyState title="No registrations yet" body="Registrations will appear here as people reserve tickets." />
@@ -109,6 +162,8 @@ export default function RegistrationsPanel({
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                 {o.payment_status === 'NOT_REQUIRED' ? (
                   <StatusBadge label="Free" tone="neutral" />
+                ) : o.payment_status === 'PENDING' && o.is_expired_pending ? (
+                  <StatusBadge label="Pending payment (expired)" tone="danger" />
                 ) : (
                   <StatusBadge label={o.payment_status === 'PENDING' ? 'Pending payment' : o.payment_status} tone={paymentStatusTone(o.payment_status)} />
                 )}
@@ -121,6 +176,24 @@ export default function RegistrationsPanel({
                   >
                     {refundingId === o.id ? 'Refunding…' : 'Refund'}
                   </DangerButton>
+                )}
+                {canManage && o.payment_status === 'PENDING' && (
+                  <>
+                    <button
+                      onClick={() => retryPayment(o.id)}
+                      disabled={retryingId === o.id}
+                      style={{ ...secondaryBtnStyle, opacity: retryingId === o.id ? 0.6 : 1 }}
+                    >
+                      {retryingId === o.id ? 'Starting…' : 'Retry payment'}
+                    </button>
+                    <DangerButton
+                      ariaLabel={`Cancel pending registration for ${o.purchaser_name}`}
+                      onClick={() => cancelPending(o.id)}
+                      disabled={cancellingId === o.id}
+                    >
+                      {cancellingId === o.id ? 'Cancelling…' : 'Cancel registration'}
+                    </DangerButton>
+                  </>
                 )}
               </div>
             </div>

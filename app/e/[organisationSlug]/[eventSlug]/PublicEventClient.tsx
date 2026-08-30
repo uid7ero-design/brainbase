@@ -116,6 +116,16 @@ function formatTime(iso: string, timeZone: string): string {
 function formatPrice(cents: number): string {
   return cents === 0 ? 'Free' : `$${(cents / 100).toFixed(2)}`;
 }
+// Exported (not just used inline) so it's directly unit-testable — see
+// tests/containment/eventsPublicCheckoutTotal.test.ts. Integer cents
+// in, integer cents out; never floating-point dollars at any point.
+// This is the exact same formula the checkout route computes
+// server-side (`ticketType.price_cents * validated.quantity`) — kept
+// here only for DISPLAY, so the number shown always matches what
+// Stripe is actually charged, for any quantity, not just quantity 1.
+export function computeSelectionTotalCents(unitPriceCents: number, quantity: number): number {
+  return unitPriceCents * quantity;
+}
 // "280 places remaining" — sentence case, never the all-caps "280
 // REMAINING" the uppercase-transform styling used to force onto this
 // same text.
@@ -184,6 +194,7 @@ export default function PublicEventClient({
   const maxQuantity = selectedTicketType ? Math.max(0, Math.min(selectedTicketType.remaining, 20)) : 0;
   const availability = availabilityState(ticketTypes);
   const isPaidSelection = (selectedTicketType?.price_cents ?? 0) > 0;
+  const totalCents = computeSelectionTotalCents(selectedTicketType?.price_cents ?? 0, quantity);
 
   function setQuantityAndResizeAttendees(next: number) {
     setQuantity(next);
@@ -450,6 +461,22 @@ export default function PublicEventClient({
                     </div>
                   </fieldset>
 
+                  {selectedTicketType && (
+                    <div style={{
+                      display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
+                      borderTop: `1px solid ${BORDER_SOFT}`, paddingTop: 14, fontSize: 13,
+                    }}>
+                      <span style={{ color: TEXT_SECONDARY }}>
+                        {isPaidSelection
+                          ? `${quantity} × ${formatPrice(selectedTicketType.price_cents)}`
+                          : `${quantity} ticket${quantity === 1 ? '' : 's'}`}
+                      </span>
+                      <span style={{ fontWeight: 700, fontSize: 15, color: isPaidSelection ? VIOLET_SOFT : GREEN }}>
+                        {isPaidSelection ? `Total ${formatPrice(totalCents)}` : 'Free'}
+                      </span>
+                    </div>
+                  )}
+
                   {checkoutCancelled && !error && (
                     <div role="alert" style={{
                       fontSize: 13, color: TEXT_SECONDARY, background: 'rgba(255,255,255,.03)',
@@ -472,7 +499,7 @@ export default function PublicEventClient({
                     {submitting && <span className="bb-event-spin" aria-hidden="true" />}
                     {submitting
                       ? (isPaidSelection ? 'Redirecting to payment…' : 'Confirming…')
-                      : (isPaidSelection ? `Pay ${formatPrice(selectedTicketType?.price_cents ?? 0)}` : 'Confirm registration')}
+                      : (isPaidSelection ? `Pay ${formatPrice(totalCents)}` : 'Confirm registration')}
                   </button>
                 </form>
               )}
