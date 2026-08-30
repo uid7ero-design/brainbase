@@ -53,6 +53,7 @@ function NavItem({
         transition:
           'color .14s, background .14s, border-color .14s',
         whiteSpace: 'nowrap',
+        flexShrink: 0,
       }}
       onMouseEnter={e => {
         if (active) return;
@@ -106,6 +107,7 @@ function HlnaItem({
           ? '0 0 14px rgba(139,92,246,.18)'
           : 'none',
         transition: 'all .18s',
+        flexShrink: 0,
       }}
       onMouseEnter={e => {
         if (active) return;
@@ -264,6 +266,7 @@ function OpsDropdown({
     <div
       style={{
         position: 'relative',
+        flexShrink: 0,
       }}
       onMouseEnter={handleEnter}
       onMouseLeave={handleLeave}
@@ -572,6 +575,7 @@ function AdminDropdown({
     <div
       style={{
         position: 'relative',
+        flexShrink: 0,
       }}
       onMouseEnter={handleEnter}
       onMouseLeave={handleLeave}
@@ -832,6 +836,7 @@ function SquadItem({
         transition:
           'color .14s, background .14s, border-color .14s',
         whiteSpace: 'nowrap',
+        flexShrink: 0,
       }}
       onMouseEnter={e => {
         if (active) return;
@@ -1190,7 +1195,14 @@ function AppNav({
         }}
       />
 
-      {/* Centre navigation */}
+      {/* Centre navigation — overflowX auto + flexShrink:0 on every item
+          (see each item's own style below) is the smallest fix for a
+          crowded/narrow nav: items keep their natural, legible width and
+          the row scrolls horizontally instead of squeezing/clipping pill
+          text unreadable. scrollbarWidth/msOverflowStyle hide the
+          scrollbar chrome (Firefox/older Edge) without needing a
+          stylesheet; WebKit browsers show a slim default scrollbar, which
+          is an acceptable, non-blocking affordance here. */}
       <div
         style={{
           display: 'flex',
@@ -1199,6 +1211,10 @@ function AppNav({
           gap: 2,
           flex: 1,
           minWidth: 0,
+          overflowX: 'auto',
+          overflowY: 'hidden',
+          scrollbarWidth: 'none',
+          msOverflowStyle: 'none',
         }}
       >
         {isClientOrg ? (

@@ -14,7 +14,29 @@ export default async function DashboardPage() {
   // an authenticated request reaches this far for any non-public route, so
   // this catch is a defensive fallback, not the primary path.
   let session
-  try { session = await getAuthSession() } catch { return <BrainBase /> }
+  try { session = await getAuthSession() } catch { return <BrainBase enabledCapabilities={[]} /> }
+
+  // Server-side capability projection for the client dashboard's "Your
+  // Tools" entry (ModuleAccessCard) — same query app/api/me/route.ts's own
+  // enabledCapabilities block already runs, computed here too so the entry
+  // point is present in the initial server-rendered page rather than
+  // appearing only after a client-side fetch resolves. Fails closed to an
+  // empty list, same discipline as api/me — a query failure must never
+  // block the dashboard itself from rendering.
+  let enabledCapabilities: string[] = []
+  try {
+    const capRows = await sql`
+      SELECT m.key
+      FROM organisation_modules om
+      JOIN modules m ON m.key = om.module_key
+      WHERE om.organisation_id = ${session.organisationId}
+        AND om.enabled = true
+        AND m.active = true
+    `
+    enabledCapabilities = capRows.map(r => r.key as string)
+  } catch {
+    // UX projection only — fail closed, never block the dashboard render.
+  }
 
   // Server-side only, organisation-scoped (+ role for Brainbase HQ),
   // slug-driven — never a user ID, never hostname, never a value the
@@ -118,9 +140,10 @@ export default async function DashboardPage() {
         leadsPerDay={leadsPerDay as Parameters<typeof TennisDashboard>[0]['leadsPerDay']}
         todaysSessions={todaysInstances as Parameters<typeof TennisDashboard>[0]['todaysSessions']}
         sessionTypes={sessionTypes as Parameters<typeof TennisDashboard>[0]['sessionTypes']}
+        enabledCapabilities={enabledCapabilities}
       />
     )
   }
 
-  return <BrainBase />
+  return <BrainBase enabledCapabilities={enabledCapabilities} />
 }
