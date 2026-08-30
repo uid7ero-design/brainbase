@@ -16,6 +16,7 @@ import ClarityLoader from '@/components/analytics/ClarityLoader';
 
 import { getSession } from '@/lib/session';
 import sql from '@/lib/db';
+import { resolveDashboardVariant } from '@/lib/dashboard/clientDashboard';
 
 const geistSans = Geist({
   variable: '--font-geist-sans',
@@ -107,6 +108,7 @@ export default async function RootLayout({
     name: string;
     avatarUrl?: string;
     enabledCapabilities?: string[];
+    dashboardVariant?: 'ld-tennis' | 'brainbase-hq' | null;
   } | null = null;
 
   let secureMode = false;
@@ -164,11 +166,29 @@ export default async function RootLayout({
       /* UX projection only — fail closed to an empty list. */
     }
 
+    // Which bespoke client experience (if any) this organisation owns —
+    // the SAME slug-driven resolver app/dashboard/page.tsx already uses to
+    // pick TennisDashboard vs the generic BrainBase shell. Reused here
+    // (not a new capability, not a new concept) so TopNav can gate
+    // LD-Tennis-specific nav items (Leads/Squad/Sessions/Blog — tennis
+    // coaching-roster features, not generic client tools) the same way
+    // the dashboard body itself already distinguishes LD Tennis from
+    // every other client organisation. Never a hardcoded organisation id
+    // — driven entirely by the organisation's own slug, resolved
+    // server-side from the authenticated session.
+    let dashboardVariant: 'ld-tennis' | 'brainbase-hq' | null = null;
+    try {
+      dashboardVariant = await resolveDashboardVariant(session.organisationId, session.role);
+    } catch {
+      /* UX projection only — fail closed to no bespoke variant. */
+    }
+
     serverSession = {
       role: session.role,
       name: session.name,
       avatarUrl,
       enabledCapabilities,
+      dashboardVariant,
     };
   }
 

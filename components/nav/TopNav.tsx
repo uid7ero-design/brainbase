@@ -11,6 +11,7 @@ type Session = {
   avatarUrl?: string;
   enabledModules?: string[];
   enabledCapabilities?: string[];
+  dashboardVariant?: 'ld-tennis' | 'brainbase-hq' | null;
 } | null;
 
 const FONT =
@@ -1141,7 +1142,10 @@ function AppNav({
     avatarUrl,
     enabledModules = [],
     enabledCapabilities = [],
+    dashboardVariant = null,
   } = session;
+
+  const isLdTennis = dashboardVariant === 'ld-tennis';
 
   const isManager = [
     'manager',
@@ -1246,28 +1250,52 @@ function AppNav({
               />
             )}
 
-            <NavItem
-              href="/dashboard/leads"
-              label="Leads"
-              active={pathname.startsWith(
-                '/dashboard/leads',
-              )}
-            />
+            {/*
+              Leads/Squad(Contacts)/Sessions/Blog are LD Tennis's own
+              coaching-business tools (tennis_leads, the "Program"/
+              "Session Times" contact fields, the tennis session-type
+              catalogue, and the /api/tennis/blog namespace — none of
+              this is generic client data). Gated on dashboardVariant,
+              the SAME slug-driven resolver app/dashboard/page.tsx
+              already uses to render TennisDashboard instead of the
+              generic BrainBase shell for this one organisation — not a
+              new capability, not a hardcoded organisation id. A generic
+              client organisation (e.g. School Test Organisation) never
+              matches 'ld-tennis' and correctly never sees these.
+            */}
+            {isLdTennis && (
+              <>
+                <NavItem
+                  href="/dashboard/leads"
+                  label="Leads"
+                  active={pathname.startsWith(
+                    '/dashboard/leads',
+                  )}
+                />
 
-            <SquadItem
-              active={pathname.startsWith(
-                '/dashboard/contacts',
-              )}
-            />
+                <SquadItem
+                  active={pathname.startsWith(
+                    '/dashboard/contacts',
+                  )}
+                />
 
-            <NavItem
-              href="/dashboard/sessions"
-              label="Sessions"
-              active={pathname.startsWith(
-                '/dashboard/sessions',
-              )}
-            />
+                <NavItem
+                  href="/dashboard/sessions"
+                  label="Sessions"
+                  active={pathname.startsWith(
+                    '/dashboard/sessions',
+                  )}
+                />
+              </>
+            )}
 
+            {/*
+              Requests (client_pipeline) is a genuine platform-global
+              channel — feature requests/issues/feedback from ANY
+              BrainBase client to the BrainBase founder, not tied to
+              tennis or any other vertical — so it stays visible for
+              every client organisation, not just LD Tennis.
+            */}
             <NavItem
               href="/dashboard/pipeline"
               label="Requests"
@@ -1276,13 +1304,15 @@ function AppNav({
               )}
             />
 
-            <NavItem
-              href="/dashboard/blog"
-              label="Blog"
-              active={pathname.startsWith(
-                '/dashboard/blog',
-              )}
-            />
+            {isLdTennis && (
+              <NavItem
+                href="/dashboard/blog"
+                label="Blog"
+                active={pathname.startsWith(
+                  '/dashboard/blog',
+                )}
+              />
+            )}
           </>
         ) : (
           <>
@@ -1609,6 +1639,10 @@ export default function TopNav({
           enabledCapabilities?: {
             key: string;
           }[];
+          dashboardVariant?:
+            | 'ld-tennis'
+            | 'brainbase-hq'
+            | null;
         }>;
       })
       .then(d => {
@@ -1637,6 +1671,9 @@ export default function TopNav({
                     key: string;
                   }) => c.key,
                 ),
+                dashboardVariant:
+                  d.dashboardVariant ??
+                  null,
               }
             : null,
         );
