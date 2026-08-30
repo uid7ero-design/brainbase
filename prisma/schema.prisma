@@ -192,6 +192,20 @@ model ImportBatch {
   // aggregate outcomes (partial/complete) are derived from child Upload
   // rows at read time, never stored here. size_bytes >= 0 is also a
   // SQL-only CHECK (import_batches_size_bytes_check) for the same reason.
+  //
+  // READY SEMANTICS (5A.2G.0) — READY means ONLY that the physical
+  // source file has completed the Data Hub physical finalization stage
+  // (durably stored in Blob, authoritative sha256 computed and recorded
+  // — see import_batches_ready_requires_sha256 above).
+  //
+  // READY does NOT mean: worksheet contents have been parsed; worksheet
+  // contents have been validated; XLSX content is trusted; it is
+  // automatically safe to call XLSX.read (or any equivalent parser entry
+  // point) against this file. Parsing an untrusted archive is a distinct,
+  // separately-guarded operation — see
+  // docs/architecture/decisions/0001-data-hub-ingestion-foundation.md,
+  // Section 8 ("Security limitation — explicitly not solved here") and
+  // Section 8a ("Decompression boundary implemented (5A.2D)").
   status                  String    @default("AWAITING_UPLOAD")
   // Tenant-scoped start-upload idempotency (see @@unique below). NULL for
   // a request that didn't supply one — many NULLs per tenant are allowed.
@@ -210,6 +224,25 @@ model ImportBatch {
   deleted_at              DateTime?
   storage_deletion_status String?
   storage_deleted_at      DateTime?
+  // Attempt/failure metadata (5A.2G.0) — added ahead of the 5A.2G.1
+  // initiate/finalize service layer so a FAILED batch's retry safety can
+  // be durably recorded from day one. Naming/type conventions copied
+  // directly from Upload's own analogous fields above. last_attempt_at
+  // has no database default (set by application code on each attempt).
+  // attempt_count defaults to 0 so every pre-existing/new row starts
+  // coherent with zero backfill. last_failure_code/last_failure_message/
+  // last_failure_retryable have no database default and are NULLABLE —
+  // whether they are non-NULL is governed by
+  // import_batches_failure_retryable_status_check (last_failure_retryable
+  // only) below, not by column-level nullability alone. See
+  // scripts/create-import-batches.sql for the exact CHECK constraints
+  // and the pre-existing-FAILED-row migration-safety backfill they
+  // required.
+  last_attempt_at         DateTime?
+  attempt_count           Int       @default(0)
+  last_failure_code       String?
+  last_failure_message    String?
+  last_failure_retryable  Boolean?
 
   organisation Organisation @relation(fields: [organisation_id], references: [id])
   uploader     User?        @relation(fields: [uploaded_by], references: [id], onDelete: SetNull)

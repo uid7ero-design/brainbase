@@ -114,6 +114,51 @@ describe('ImportBatch — Prisma model shape', () => {
   })
 })
 
+// Data Hub 5A.2G.0 — ImportBatch attempt/failure metadata. A small,
+// additive, schema-only pre-slice ahead of the 5A.2G.1 initiate/finalize
+// service layer, so a FAILED batch's retry safety (transient vs.
+// permanently terminal) can be durably recorded from day one.
+describe('ImportBatch — attempt/failure metadata (5A.2G.0)', () => {
+  const block = blockScope(SCHEMA, 'model ImportBatch {', '@@map("import_batches")')
+
+  it('adds all five attempt/failure metadata fields', () => {
+    for (const field of [
+      'last_attempt_at', 'attempt_count', 'last_failure_code',
+      'last_failure_message', 'last_failure_retryable',
+    ]) {
+      expect(block).toContain(field)
+    }
+  })
+
+  it('last_attempt_at is nullable with no database default', () => {
+    const line = block.split('\n').find(l => /^\s*last_attempt_at\s/.test(l))
+    expect(line).toBeDefined()
+    expect(line).toMatch(/last_attempt_at\s+DateTime\?/)
+    expect(line).not.toContain('@default')
+  })
+
+  it('attempt_count is NOT NULL with a default of 0', () => {
+    expect(block).toMatch(/attempt_count\s+Int\s+@default\(0\)/)
+  })
+
+  it('last_failure_code, last_failure_message, and last_failure_retryable are nullable with no database default — nullability alone does not encode the FAILED-status coherence rule, the SQL CHECK constraint does', () => {
+    for (const field of ['last_failure_code', 'last_failure_message', 'last_failure_retryable']) {
+      const line = block.split('\n').find(l => new RegExp(`^\\s*${field}\\s`).test(l))
+      expect(line, `${field} should be declared on ImportBatch`).toBeDefined()
+      expect(line).toMatch(/\?/)
+      expect(line).not.toContain('@default')
+    }
+  })
+
+  it('documents READY semantics prominently near the status field, referencing the Data Hub ADR by name — loose phrase match, not brittle exact-text, per this file\'s own convention', () => {
+    expect(block).toMatch(/READY SEMANTICS/)
+    expect(block).toContain('READY does NOT mean')
+    expect(block.toLowerCase()).toContain('xlsx.read')
+    expect(block).toContain('0001-data-hub-ingestion-foundation.md')
+    expect(block).toContain('Section 8')
+  })
+})
+
 describe('Upload — additive canonical worksheet-lineage fields', () => {
   const block = blockScope(SCHEMA, 'model Upload {', '@@map("uploads")')
 
@@ -291,6 +336,9 @@ describe('scripts/create-import-batches.sql — ensure_* drift-safety design (5A
       'import_batches_expected_sha256_check',
       'import_batches_storage_deletion_status_check',
       'import_batches_ready_requires_sha256',
+      'import_batches_attempt_count_nonneg_check',
+      'import_batches_failure_retryable_status_check',
+      'import_batches_failure_message_length_check',
     ]) {
       expect(MIGRATION).toContain(`ensure_check('import_batches', '${conname}'`)
     }
@@ -382,11 +430,79 @@ describe('scripts/create-import-batches.sql — ensure_* drift-safety design (5A
     }
   })
 
-  it('does not touch/drop/rewrite any existing constraint or column, and performs no backfill UPDATE', () => {
+  it('does not touch/drop/rewrite any existing constraint or column, and performs no backfill UPDATE beyond the single, narrowly-scoped 5A.2G.0 migration-safety fix', () => {
     // Rollback section (commented reference only) is exempt from this check.
     const activeSql = MIGRATION.split('\n').filter(l => !l.trim().startsWith('--')).join('\n')
     expect(activeSql).not.toMatch(/^\s*DROP\s+(COLUMN|TABLE)\s/im)
-    expect(activeSql).not.toMatch(/^\s*UPDATE\s/im)
+    // 5A.2C forbade every UPDATE outright. 5A.2G.0 legitimately needs
+    // exactly one: the targeted, idempotent, self-limiting
+    // last_failure_retryable backfill for pre-existing FAILED rows (see
+    // the dedicated describe block below for why it's safe and why it's
+    // the ONLY UPDATE this migration may ever contain). Anything beyond
+    // this one exact statement would be a general backfill, which this
+    // migration must never perform.
+    const updateStatements = activeSql
+      .split(';')
+      .map(s => s.trim())
+      .filter(s => /^UPDATE\s/i.test(s))
+    expect(updateStatements.length).toBe(1)
+    expect(updateStatements[0]).toMatch(
+      /^UPDATE\s+public\.import_batches\s+SET\s+last_failure_retryable\s*=\s*true\s+WHERE\s+status\s*=\s*'FAILED'\s+AND\s+last_failure_retryable\s+IS\s+NULL$/i
+    )
+  })
+})
+
+describe('scripts/create-import-batches.sql — attempt/failure metadata CHECK constraints and migration-safety backfill (5A.2G.0)', () => {
+  it('attempt_count >= 0 is enforced', () => {
+    // Two separate toContain checks (not one string spanning the
+    // call-site's line break) so this assertion is agnostic to LF vs
+    // CRLF line endings, matching this file's own established style for
+    // multi-line ensure_check/ensure_column call sites elsewhere.
+    expect(MIGRATION).toContain("ensure_check('import_batches', 'import_batches_attempt_count_nonneg_check',")
+    expect(MIGRATION).toContain("'CHECK ((attempt_count >= 0))'")
+  })
+
+  it('last_failure_retryable is required non-NULL exactly when status = FAILED, and required NULL otherwise', () => {
+    const checkBlock = blockScope(
+      MIGRATION,
+      "ensure_check('import_batches', 'import_batches_failure_retryable_status_check'",
+      ');'
+    )
+    expect(checkBlock).toContain("status = ''FAILED''")
+    expect(checkBlock).toContain('last_failure_retryable IS NOT NULL')
+    expect(checkBlock).toContain("status <> ''FAILED''")
+    expect(checkBlock).toContain('last_failure_retryable IS NULL')
+  })
+
+  it('last_failure_message is bounded to 500 characters when present', () => {
+    expect(MIGRATION).toContain("ensure_check('import_batches', 'import_batches_failure_message_length_check',")
+    expect(MIGRATION).toContain("'CHECK (((last_failure_message IS NULL) OR (char_length(last_failure_message) <= 500)))'")
+  })
+
+  it('backfills last_failure_retryable = true ONLY for pre-existing FAILED rows with a NULL value — the exact, minimal fix for the pre-existing-FAILED-row migration-safety hazard, not a general backfill', () => {
+    const activeSql = MIGRATION.split('\n').filter(l => !l.trim().startsWith('--')).join('\n')
+    const backfillStatement = activeSql
+      .split(';')
+      .map(s => s.trim())
+      .find(s => /^UPDATE\s+public\.import_batches/i.test(s))
+    expect(backfillStatement, 'expected the targeted last_failure_retryable backfill UPDATE to exist').toBeDefined()
+    expect(backfillStatement).toContain('SET last_failure_retryable = true')
+    expect(backfillStatement).toContain("WHERE status = 'FAILED' AND last_failure_retryable IS NULL")
+  })
+
+  it('runs the backfill BEFORE the failure-retryable/status CHECK is added, so a pre-existing FAILED row is corrected before the constraint could reject it', () => {
+    const backfillIndex = MIGRATION.indexOf('SET last_failure_retryable = true')
+    const checkIndex = MIGRATION.indexOf("ensure_check('import_batches', 'import_batches_failure_retryable_status_check'")
+    expect(backfillIndex).toBeGreaterThan(-1)
+    expect(checkIndex).toBeGreaterThan(-1)
+    expect(backfillIndex).toBeLessThan(checkIndex)
+  })
+
+  it('documents the pre-existing-FAILED-row migration-safety decision inline, including why options (b)/(c) were not chosen', () => {
+    const decisionBlock = blockScope(MIGRATION, 'MIGRATION SAFETY:', 'SELECT pg_temp.ensure_check(\'import_batches\', \'import_batches_attempt_count_nonneg_check\'')
+    expect(decisionBlock).toMatch(/option \(a\)/i)
+    expect(decisionBlock.toLowerCase()).toContain('disposable postgres')
+    expect(decisionBlock).toMatch(/idempotent/i)
   })
 })
 
@@ -450,6 +566,12 @@ describe('scripts/create-import-batches.sql — explicit default contracts (5A.2
     { table: 'import_batches', column: 'deleted_at', type: 'timestamp with time zone', nullable: true, expectedDefault: 'NULL' },
     { table: 'import_batches', column: 'storage_deletion_status', type: 'text', nullable: true, expectedDefault: 'NULL' },
     { table: 'import_batches', column: 'storage_deleted_at', type: 'timestamp with time zone', nullable: true, expectedDefault: 'NULL' },
+    // 5A.2G.0 — attempt/failure metadata.
+    { table: 'import_batches', column: 'last_attempt_at', type: 'timestamp with time zone', nullable: true, expectedDefault: 'NULL' },
+    { table: 'import_batches', column: 'attempt_count', type: 'integer', nullable: false, expectedDefault: "'0'" },
+    { table: 'import_batches', column: 'last_failure_code', type: 'text', nullable: true, expectedDefault: 'NULL' },
+    { table: 'import_batches', column: 'last_failure_message', type: 'text', nullable: true, expectedDefault: 'NULL' },
+    { table: 'import_batches', column: 'last_failure_retryable', type: 'boolean', nullable: true, expectedDefault: 'NULL' },
   ]
 
   const UPLOAD_DEFAULT_CONTRACTS: DefaultContract[] = [
