@@ -37,7 +37,10 @@ describe('HelenaOrbital — locked orbital geometry', () => {
   it('associates each sphere with a distinct ring radius (not all on the outer ring)', () => {
     // Each ring group's <g> must contain exactly one ring stroke circle (R_OUTER/R_MIDDLE/R_INNER)
     // and exactly one sphere circle, keeping the 1:1 sphere-to-ring mapping structurally true.
-    const ringBlocks = source.match(/data-hlo-ring="(outer|middle|inner)"[\s\S]*?<\/g>\s*<\/g>/g) ?? [];
+    // Phase B.1 flattened the old per-ring breathing wrapper, so a ring
+    // block is now just the single <g data-hlo-ring="..."> ... </g> — one
+    // closing tag, not a nested pair.
+    const ringBlocks = source.match(/<g[^>]*data-hlo-ring="(outer|middle|inner)"[^>]*>[\s\S]*?<\/g>/g) ?? [];
     expect(ringBlocks).toHaveLength(3);
     for (const block of ringBlocks) {
       const sphereMatches = block.match(/data-hlo-sphere=/g) ?? [];

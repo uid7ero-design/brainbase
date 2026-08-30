@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { HelenaOrbital, type HelenaVisualState } from '@/components/brand/HelenaOrbital';
+import { HelenaOrbital, STATE_DESCRIPTION, type HelenaVisualState } from '@/components/brand/HelenaOrbital';
 
 // Manual-control design QA showcase only. Deliberately has zero connection
 // to production Helena: no chat API, no browser speech recognition, no mic
@@ -41,8 +41,14 @@ export function HelenaOrbitalShowcase() {
         .hlo-force-reduced .hlo-spin-ccw,
         .hlo-force-reduced .hlo-core-pulse,
         .hlo-force-reduced .hlo-attention,
-        .hlo-force-reduced .hlo-breathe {
+        .hlo-force-reduced .hlo-system,
+        .hlo-force-reduced .hlo-shudder-active,
+        .hlo-force-reduced .hlo-glow-spike-active,
+        .hlo-force-reduced .hlo-trace-flicker-active {
           animation: none !important;
+        }
+        .hlo-force-reduced .hlo-shudder-active {
+          translate: none !important;
         }
       `}</style>
 
@@ -59,7 +65,7 @@ export function HelenaOrbitalShowcase() {
         </header>
 
         {/* State controls */}
-        <section style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 24 }}>
+        <section style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 12, alignItems: 'center' }}>
           {STATES.map((s) => (
             <button
               key={s}
@@ -81,7 +87,28 @@ export function HelenaOrbitalShowcase() {
               {s}
             </button>
           ))}
+
+          {/* Dev-only convenience for reviewing state transitions in sequence. */}
+          <button
+            type="button"
+            onClick={() => setState(STATES[(STATES.indexOf(state) + 1) % STATES.length])}
+            style={{
+              padding: '8px 16px',
+              borderRadius: 999,
+              border: `1px dashed ${TOKENS.border}`,
+              background: 'transparent',
+              color: TOKENS.textMuted,
+              fontSize: 13,
+              cursor: 'pointer',
+            }}
+          >
+            Cycle states →
+          </button>
         </section>
+
+        <p style={{ fontSize: 12.5, color: TOKENS.textMuted, maxWidth: 620, marginBottom: 24, minHeight: 18 }}>
+          {STATE_DESCRIPTION[state]}
+        </p>
 
         {/* Audio level + reduced-motion controls */}
         <section

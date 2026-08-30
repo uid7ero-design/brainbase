@@ -17,13 +17,28 @@ describe('HelenaOrbital — reduced-motion behaviour', () => {
     expect(source).toMatch(/@media \(prefers-reduced-motion: reduce\)/);
   });
 
-  it('stops all continuous ring, trace and core animations under reduced motion', () => {
+  it('stops all continuous ring, trace, core, breathing and shudder animations under reduced motion', () => {
     const start = source.indexOf('@media (prefers-reduced-motion: reduce)');
     const block = source.slice(start, source.indexOf('`;', start));
-    for (const cls of ['.hlo-spin-cw', '.hlo-spin-ccw', '.hlo-core-pulse', '.hlo-attention', '.hlo-breathe']) {
+    for (const cls of [
+      '.hlo-spin-cw',
+      '.hlo-spin-ccw',
+      '.hlo-core-pulse',
+      '.hlo-attention',
+      '.hlo-system',
+      '.hlo-shudder-active',
+      '.hlo-glow-spike-active',
+      '.hlo-trace-flicker-active',
+    ]) {
       expect(block, `${cls} not disabled under reduced motion`).toContain(cls);
     }
     expect(block).toMatch(/animation:\s*none\s*!important/);
+  });
+
+  it('also clears the thinking shudder translate under reduced motion', () => {
+    const start = source.indexOf('@media (prefers-reduced-motion: reduce)');
+    const block = source.slice(start, source.indexOf('`;', start));
+    expect(block).toMatch(/\.hlo-shudder-active\s*\{\s*translate:\s*none\s*!important;?\s*\}/);
   });
 
   it('keeps a non-repeating opacity/filter transition available for state changes under reduced motion', () => {
