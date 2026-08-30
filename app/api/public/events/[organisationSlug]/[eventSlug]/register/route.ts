@@ -5,6 +5,7 @@ import { validatePublicRegistrationInput, type PublicRegistrationInput } from '@
 import { checkRateLimit } from '@/lib/rateLimit';
 import { getClientIp } from '@/lib/clientIp';
 import { generateTicketToken } from '@/lib/events/ticketToken';
+import { listActiveQuestions, validateSubmittedResponses, flattenOrderAnswers, flattenAttendeeAnswers } from '@/lib/events/registrationQuestions';
 
 type Ctx = { params: Promise<{ organisationSlug: string; eventSlug: string }> };
 
@@ -89,6 +90,22 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     }
   }
 
+  // Phase 4B §5/§8 — server-side authoritative response validation,
+  // against the event's own CURRENT active question list, BEFORE the
+  // capacity-gated transaction runs. A rejected response (missing
+  // required answer, unknown question_id, wrong shape) must never
+  // reserve capacity or create an order — this check happens strictly
+  // before any DB write.
+  const activeQuestions = await listActiveQuestions(organisationId, event.id);
+  const validatedResponses = validateSubmittedResponses(
+    activeQuestions,
+    validated.order_responses,
+    validated.attendees.map(a => a.responses),
+  );
+  if (typeof validatedResponses === 'string') {
+    return NextResponse.json({ error: validatedResponses }, { status: 400 });
+  }
+
   // Attendee names/emails are passed as parallel arrays and expanded
   // server-side via UNNEST — empty string (not SQL NULL) represents "no
   // attendee email", converted back to NULL via NULLIF in the SELECT, to
@@ -101,8 +118,27 @@ export async function POST(req: NextRequest, { params }: Ctx) {
   // One token per attendee, generated once here and passed through as
   // a third parallel array to the same UNNEST(...) the names/emails
   // already use below — never derived from (or influenced by) any
-  // client-supplied value.
+  // client-supplied value. These tokens are NOT "issued" yet in any
+  // meaningful sense: they exist only as in-memory JS strings until
+  // the same atomic statement below actually inserts the attendee rows
+  // that carry them. If that statement's transaction rolls back (for
+  // ANY reason, including a response-insert failure — see below), none
+  // of these strings were ever written anywhere, so no token is ever
+  // exposed to the caller or becomes look-up-able at /t/[token].
   const ticketTokens = validated.attendees.map(() => generateTicketToken());
+
+  // Phase 4B correctness remediation — response persistence is folded
+  // into the SAME atomic capacity-gated statement below, rather than a
+  // separate write after the transaction commits. Flattened here (pure
+  // array-building, no DB access) so the values are ready to interpolate
+  // into the transaction's own SQL. Attendee-scoped answers are
+  // correlated to their attendee by ticket_token — a value already
+  // known here, before any row exists — NOT by the row's own generated
+  // id (which doesn't exist until the INSERT runs) and NOT by RETURNING
+  // row order (which Postgres does not guarantee matches SELECT input
+  // order). See the transaction's own comment for the full reasoning.
+  const orderResponseFlat = flattenOrderAnswers(validatedResponses.orderAnswers);
+  const attendeeResponseFlat = flattenAttendeeAnswers(validatedResponses.attendeeAnswers, ticketTokens);
 
   // ── Concurrency-safe order creation (R1 remediation) ─────────────────
   //
@@ -221,10 +257,52 @@ export async function POST(req: NextRequest, { params }: Ctx) {
               FROM ins_order
               RETURNING id, order_id
             )
-            INSERT INTO event_attendees (organisation_id, event_id, order_id, order_item_id, attendee_name, attendee_email, ticket_token)
-            SELECT ${organisationId}, ${event.id}, ins_item.order_id, ins_item.id, a.name, NULLIF(a.email, ''), a.token
-            FROM ins_item, UNNEST(${attendeeNames}::text[], ${attendeeEmails}::text[], ${ticketTokens}::text[]) AS a(name, email, token)
-            RETURNING order_id, attendee_name, ticket_token
+            ins_attendees AS (
+              INSERT INTO event_attendees (organisation_id, event_id, order_id, order_item_id, attendee_name, attendee_email, ticket_token)
+              SELECT ${organisationId}, ${event.id}, ins_item.order_id, ins_item.id, a.name, NULLIF(a.email, ''), a.token
+              FROM ins_item, UNNEST(${attendeeNames}::text[], ${attendeeEmails}::text[], ${ticketTokens}::text[]) AS a(name, email, token)
+              RETURNING id, order_id, attendee_name, ticket_token
+            ),
+            -- Phase 4B correctness remediation — response persistence is
+            -- folded into THIS SAME statement rather than a separate
+            -- post-transaction write. Both CTEs below are driven FROM
+            -- ins_order / ins_attendees, so if the capacity gate above
+            -- rejected the reservation (ins_order/ins_item/ins_attendees
+            -- all produce zero rows), these also naturally produce zero
+            -- rows — "no order" and "no responses" fall out of the same
+            -- WHERE-gated chain with no extra conditional logic. If
+            -- either INSERT below hits a genuine error (e.g. an FK
+            -- violation on question_id), Postgres aborts the WHOLE
+            -- statement — everything "inserted" earlier in this same
+            -- statement is rolled back too, since none of it was ever
+            -- part of a separately committed statement. This is what
+            -- makes capacity/order/attendees/responses genuinely atomic:
+            -- clauses of ONE statement, not a sequence of separately
+            -- committed ones. Attendee-scoped answers are correlated by
+            -- ticket_token (known before any row exists), never by the
+            -- attendee row's own generated id or by RETURNING row order.
+            ins_order_responses AS (
+              INSERT INTO event_registration_responses
+                (organisation_id, event_id, question_id, order_id, attendee_id, question_label_snapshot, field_type_snapshot, answer)
+              SELECT ${organisationId}, ${event.id}, r.question_id, io.id, NULL, r.label, r.field_type, r.answer_json::jsonb
+              FROM ins_order io, UNNEST(${orderResponseFlat.questionIds}::text[], ${orderResponseFlat.labels}::text[], ${orderResponseFlat.fieldTypes}::text[], ${orderResponseFlat.answersJson}::text[])
+                AS r(question_id, label, field_type, answer_json)
+              RETURNING id
+            ),
+            ins_attendee_responses AS (
+              INSERT INTO event_registration_responses
+                (organisation_id, event_id, question_id, order_id, attendee_id, question_label_snapshot, field_type_snapshot, answer)
+              SELECT ${organisationId}, ${event.id}, r.question_id, ia.order_id, ia.id, r.label, r.field_type, r.answer_json::jsonb
+              FROM ins_attendees ia
+              JOIN UNNEST(${attendeeResponseFlat.correlationKeys}::text[], ${attendeeResponseFlat.questionIds}::text[], ${attendeeResponseFlat.labels}::text[], ${attendeeResponseFlat.fieldTypes}::text[], ${attendeeResponseFlat.answersJson}::text[])
+                AS r(ticket_token, question_id, label, field_type, answer_json)
+                ON r.ticket_token = ia.ticket_token
+              RETURNING id
+            )
+            SELECT ia.id, ia.order_id, ia.attendee_name, ia.ticket_token
+            FROM ins_attendees ia
+            WHERE (SELECT count(*) FROM ins_order_responses) >= 0
+              AND (SELECT count(*) FROM ins_attendee_responses) >= 0
           `,
         ])
       : await sql.transaction([
@@ -256,11 +334,53 @@ export async function POST(req: NextRequest, { params }: Ctx) {
               SELECT ${organisationId}, ins_order.id, ${event.id}, ${validated.ticket_type_id}, NULL, ${validated.quantity}, 0
               FROM ins_order
               RETURNING id, order_id
+            ),
+            ins_attendees AS (
+              INSERT INTO event_attendees (organisation_id, event_id, order_id, order_item_id, attendee_name, attendee_email, ticket_token)
+              SELECT ${organisationId}, ${event.id}, ins_item.order_id, ins_item.id, a.name, NULLIF(a.email, ''), a.token
+              FROM ins_item, UNNEST(${attendeeNames}::text[], ${attendeeEmails}::text[], ${ticketTokens}::text[]) AS a(name, email, token)
+              RETURNING id, order_id, attendee_name, ticket_token
+            ),
+            -- Phase 4B correctness remediation — response persistence is
+            -- folded into THIS SAME statement rather than a separate
+            -- post-transaction write. Both CTEs below are driven FROM
+            -- ins_order / ins_attendees, so if the capacity gate above
+            -- rejected the reservation (ins_order/ins_item/ins_attendees
+            -- all produce zero rows), these also naturally produce zero
+            -- rows — "no order" and "no responses" fall out of the same
+            -- WHERE-gated chain with no extra conditional logic. If
+            -- either INSERT below hits a genuine error (e.g. an FK
+            -- violation on question_id), Postgres aborts the WHOLE
+            -- statement — everything "inserted" earlier in this same
+            -- statement is rolled back too, since none of it was ever
+            -- part of a separately committed statement. This is what
+            -- makes capacity/order/attendees/responses genuinely atomic:
+            -- clauses of ONE statement, not a sequence of separately
+            -- committed ones. Attendee-scoped answers are correlated by
+            -- ticket_token (known before any row exists), never by the
+            -- attendee row's own generated id or by RETURNING row order.
+            ins_order_responses AS (
+              INSERT INTO event_registration_responses
+                (organisation_id, event_id, question_id, order_id, attendee_id, question_label_snapshot, field_type_snapshot, answer)
+              SELECT ${organisationId}, ${event.id}, r.question_id, io.id, NULL, r.label, r.field_type, r.answer_json::jsonb
+              FROM ins_order io, UNNEST(${orderResponseFlat.questionIds}::text[], ${orderResponseFlat.labels}::text[], ${orderResponseFlat.fieldTypes}::text[], ${orderResponseFlat.answersJson}::text[])
+                AS r(question_id, label, field_type, answer_json)
+              RETURNING id
+            ),
+            ins_attendee_responses AS (
+              INSERT INTO event_registration_responses
+                (organisation_id, event_id, question_id, order_id, attendee_id, question_label_snapshot, field_type_snapshot, answer)
+              SELECT ${organisationId}, ${event.id}, r.question_id, ia.order_id, ia.id, r.label, r.field_type, r.answer_json::jsonb
+              FROM ins_attendees ia
+              JOIN UNNEST(${attendeeResponseFlat.correlationKeys}::text[], ${attendeeResponseFlat.questionIds}::text[], ${attendeeResponseFlat.labels}::text[], ${attendeeResponseFlat.fieldTypes}::text[], ${attendeeResponseFlat.answersJson}::text[])
+                AS r(ticket_token, question_id, label, field_type, answer_json)
+                ON r.ticket_token = ia.ticket_token
+              RETURNING id
             )
-            INSERT INTO event_attendees (organisation_id, event_id, order_id, order_item_id, attendee_name, attendee_email, ticket_token)
-            SELECT ${organisationId}, ${event.id}, ins_item.order_id, ins_item.id, a.name, NULLIF(a.email, ''), a.token
-            FROM ins_item, UNNEST(${attendeeNames}::text[], ${attendeeEmails}::text[], ${ticketTokens}::text[]) AS a(name, email, token)
-            RETURNING order_id, attendee_name, ticket_token
+            SELECT ia.id, ia.order_id, ia.attendee_name, ia.ticket_token
+            FROM ins_attendees ia
+            WHERE (SELECT count(*) FROM ins_order_responses) >= 0
+              AND (SELECT count(*) FROM ins_attendee_responses) >= 0
           `,
         ]);
   } catch (err) {
@@ -275,7 +395,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     );
   }
 
-  const insertResult = transactionResults[transactionResults.length - 1] as { order_id: string; attendee_name: string; ticket_token: string }[];
+  const insertResult = transactionResults[transactionResults.length - 1] as { id: string; order_id: string; attendee_name: string; ticket_token: string }[];
   if (!insertResult.length) {
     return NextResponse.json(
       { error: 'This ticket type is no longer available in the requested quantity.' },
@@ -284,6 +404,13 @@ export async function POST(req: NextRequest, { params }: Ctx) {
   }
 
   const orderId = insertResult[0].order_id;
+  // Responses were already written INSIDE the transaction above (see
+  // its own comment) — by the time this code runs, the transaction has
+  // either fully committed (order + items + attendees + responses all
+  // together) or the whole thing was rolled back and the catch block
+  // above already returned a 500. There is no remaining window where a
+  // registration succeeds with responses silently missing.
+
   // One ticket per attendee row actually inserted — the client builds
   // each link as /t/${ticket_token} (see app/t/[token]/page.tsx); no
   // absolute URL is constructed server-side here, avoiding a dependency

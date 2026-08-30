@@ -32,9 +32,20 @@ export type PublicRegistrationInput = {
   purchaser_email?: unknown;
   purchaser_phone?: unknown;
   attendees?: unknown;
+  // Phase 4B — §5/§9. Structural shape only is checked here (an array
+  // of { question_id, answer } pairs); whether each question_id
+  // actually belongs to this event, is required, and whether `answer`
+  // matches that question's field_type is validated separately by
+  // lib/events/registrationQuestions.ts's validateSubmittedResponses(),
+  // which needs the event's own live question list — unavailable to
+  // this pure, DB-free function. Never trusted as "the request has no
+  // opinion on which questions exist": that authority lives entirely
+  // server-side, per §5's explicit "server remains authoritative"
+  // requirement.
+  order_responses?: unknown;
 };
 
-export type ValidatedAttendee = { name: string; email: string | null };
+export type ValidatedAttendee = { name: string; email: string | null; responses: { question_id: string; answer: unknown }[] };
 
 export type ValidatedRegistration = {
   ticket_type_id: string;
@@ -44,7 +55,26 @@ export type ValidatedRegistration = {
   purchaser_email: string;
   purchaser_phone: string | null;
   attendees: ValidatedAttendee[];
+  order_responses: { question_id: string; answer: unknown }[];
 };
+
+// Structural-only: every entry must be a plain object with a
+// non-empty string question_id. `answer` itself is deliberately left
+// as `unknown` here — its permissible shape depends entirely on the
+// field_type of whichever question question_id turns out to
+// reference, which this function has no way to know.
+function parseResponsesArray(value: unknown): string | { question_id: string; answer: unknown }[] {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) return 'Invalid response list.';
+  const out: { question_id: string; answer: unknown }[] = [];
+  for (const raw of value) {
+    if (typeof raw !== 'object' || raw === null) return 'Invalid response entry.';
+    const r = raw as { question_id?: unknown; answer?: unknown };
+    if (typeof r.question_id !== 'string' || !r.question_id.trim()) return 'Invalid response entry.';
+    out.push({ question_id: r.question_id, answer: r.answer });
+  }
+  return out;
+}
 
 // Returns a human-readable error string on failure, or the validated,
 // normalised input on success. Never throws — every branch is a
@@ -97,15 +127,20 @@ export function validatePublicRegistrationInput(
   const attendees: ValidatedAttendee[] = [];
   for (const raw of body.attendees) {
     if (typeof raw !== 'object' || raw === null) return 'Invalid attendee details.';
-    const a = raw as { name?: unknown; email?: unknown };
+    const a = raw as { name?: unknown; email?: unknown; responses?: unknown };
     if (!isNonEmptyString(a.name, MAX_NAME_LENGTH)) return 'Each attendee requires a name.';
     let email: string | null = null;
     if (a.email !== undefined && a.email !== null && a.email !== '') {
       if (!isValidEmail(a.email)) return 'Invalid attendee email.';
       email = (a.email as string).trim();
     }
-    attendees.push({ name: (a.name as string).trim(), email });
+    const attendeeResponses = parseResponsesArray(a.responses);
+    if (typeof attendeeResponses === 'string') return attendeeResponses;
+    attendees.push({ name: (a.name as string).trim(), email, responses: attendeeResponses });
   }
+
+  const orderResponses = parseResponsesArray(body.order_responses);
+  if (typeof orderResponses === 'string') return orderResponses;
 
   return {
     ticket_type_id: body.ticket_type_id.trim(),
@@ -115,5 +150,6 @@ export function validatePublicRegistrationInput(
     purchaser_email: (body.purchaser_email as string).trim(),
     purchaser_phone: purchaserPhone,
     attendees,
+    order_responses: orderResponses,
   };
 }

@@ -1,6 +1,7 @@
 import 'server-only';
 import sql from '@/lib/db';
 import { resolvePublicEvent } from '@/lib/events/publicResolve';
+import { listActiveQuestions, type FieldType, type QuestionScope } from '@/lib/events/registrationQuestions';
 
 export type PublicSession = {
   id: string;
@@ -20,6 +21,24 @@ export type PublicTicketType = {
   remaining: number;
 };
 
+// Phase 4B §5/§6 — the question DEFINITION (what to ask, and how) is
+// itself public-safe: it's exactly the form the visitor is about to
+// fill in. Never includes `active` (this list is already active-only,
+// see listActiveQuestions) and never anything response-shaped —
+// answers/responses are never part of this public detail fetch at all
+// (§6: never expose one registrant's answers to another, or to an
+// anonymous visitor who hasn't submitted anything).
+export type PublicQuestion = {
+  id: string;
+  label: string;
+  help_text: string | null;
+  field_type: FieldType;
+  required: boolean;
+  scope: QuestionScope;
+  options: string[] | null;
+  sort_order: number;
+};
+
 export type PublicEventDetail = {
   event: {
     name: string;
@@ -35,6 +54,7 @@ export type PublicEventDetail = {
   };
   sessions: PublicSession[];
   ticket_types: PublicTicketType[];
+  questions: PublicQuestion[];
 };
 
 export type PublicEventDetailResult =
@@ -93,7 +113,7 @@ export async function getPublicEventDetail(
   // keeping the two predicates identical just means the number shown
   // here doesn't visibly disagree with what the write path will do a
   // moment later.
-  const [sessionRows, ticketTypeRows] = await Promise.all([
+  const [sessionRows, ticketTypeRows, questionRows] = await Promise.all([
     sql`
       SELECT
         es.id, es.name, es.starts_at, es.ends_at, es.capacity,
@@ -128,6 +148,7 @@ export async function getPublicEventDetail(
       WHERE tt.event_id = ${event.id} AND tt.organisation_id = ${organisationId} AND tt.active = true
       ORDER BY tt.sort_order, tt.created_at
     `,
+    listActiveQuestions(organisationId, event.id),
   ]);
 
   return {
@@ -145,6 +166,10 @@ export async function getPublicEventDetail(
       },
       sessions: sessionRows as unknown as PublicSession[],
       ticket_types: ticketTypeRows as unknown as PublicTicketType[],
+      questions: questionRows.map(q => ({
+        id: q.id, label: q.label, help_text: q.help_text, field_type: q.field_type,
+        required: q.required, scope: q.scope, options: q.options, sort_order: q.sort_order,
+      })),
     },
   };
 }

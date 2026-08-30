@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { Calendar, Clock, MapPin, ArrowLeft, ScanLine } from 'lucide-react';
 import KpiCard from '@/components/dashboard/ui/KpiCard';
 import RegistrationsPanel, { type OrderRow } from './RegistrationsPanel';
+import QuestionsPanel from './QuestionsPanel';
 import { ARTWORK_ACCEPT_ATTR, MAX_ARTWORK_MB, isAllowedArtworkMimeType } from '@/lib/events/artworkConstants';
 import {
   FONT, TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED, VIOLET_SOFT,
@@ -226,6 +227,7 @@ export default function EventDetailClient({ eventId, canManage }: { eventId: str
 
       <SessionsPanel eventId={eventId} sessions={sessions} orders={orders} canManage={canManage} onChanged={reload} timezone={event.timezone} />
       <TicketTypesPanel eventId={eventId} ticketTypes={ticketTypes} orders={orders} canManage={canManage} onChanged={reload} />
+      <QuestionsPanel eventId={eventId} canManage={canManage} />
       <RegistrationsPanel eventId={eventId} orders={orders} error={ordersError} canManage={canManage} onRefunded={reload} />
     </div>
   );

@@ -7,6 +7,7 @@ import { checkRateLimit } from '@/lib/rateLimit';
 import { getClientIp } from '@/lib/clientIp';
 import { createCheckoutSession, RESERVATION_WINDOW_SECONDS, StripeNotConfiguredError } from '@/lib/events/stripe';
 import { checkPaidTicketingEligibility } from '@/lib/events/stripeConnect';
+import { listActiveQuestions, validateSubmittedResponses, writeRegistrationResponses } from '@/lib/events/registrationQuestions';
 
 type Ctx = { params: Promise<{ organisationSlug: string; eventSlug: string }> };
 
@@ -108,6 +109,19 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     }
   }
 
+  // Phase 4B §5/§8 — identical server-authoritative validation as the
+  // free registration route (see that file's own comment), run before
+  // any capacity is reserved for this paid attempt either.
+  const activeQuestions = await listActiveQuestions(organisationId, event.id);
+  const validatedResponses = validateSubmittedResponses(
+    activeQuestions,
+    validated.order_responses,
+    validated.attendees.map(a => a.responses),
+  );
+  if (typeof validatedResponses === 'string') {
+    return NextResponse.json({ error: validatedResponses }, { status: 400 });
+  }
+
   const attendeeNames = validated.attendees.map(a => a.name);
   const attendeeEmails = validated.attendees.map(a => a.email ?? '');
   const totalCents = ticketType.price_cents * validated.quantity;
@@ -175,7 +189,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
             INSERT INTO event_attendees (organisation_id, event_id, order_id, order_item_id, attendee_name, attendee_email)
             SELECT ${organisationId}, ${event.id}, ins_item.order_id, ins_item.id, a.name, NULLIF(a.email, '')
             FROM ins_item, UNNEST(${attendeeNames}::text[], ${attendeeEmails}::text[]) AS a(name, email)
-            RETURNING order_id
+            RETURNING id, order_id
           `,
         ])
       : await sql.transaction([
@@ -209,7 +223,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
             INSERT INTO event_attendees (organisation_id, event_id, order_id, order_item_id, attendee_name, attendee_email)
             SELECT ${organisationId}, ${event.id}, ins_item.order_id, ins_item.id, a.name, NULLIF(a.email, '')
             FROM ins_item, UNNEST(${attendeeNames}::text[], ${attendeeEmails}::text[]) AS a(name, email)
-            RETURNING order_id
+            RETURNING id, order_id
           `,
         ]);
   } catch (err) {
@@ -217,7 +231,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     return NextResponse.json({ error: 'Checkout could not be started. Please try again.' }, { status: 500 });
   }
 
-  const insertResult = transactionResults[transactionResults.length - 1] as { order_id: string }[];
+  const insertResult = transactionResults[transactionResults.length - 1] as { id: string; order_id: string }[];
   if (!insertResult.length) {
     return NextResponse.json(
       { error: 'This ticket type is no longer available in the requested quantity.' },
@@ -225,6 +239,23 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     );
   }
   const orderId = insertResult[0].order_id;
+
+  // Phase 4B §8 — responses MUST be persisted before the Stripe
+  // redirect: they need to survive the browser leaving and coming back,
+  // and retry payment (which never re-touches attendees/responses, see
+  // that route) must never need to recreate them. Unlike the free
+  // route, a write failure here is treated as fatal — the reservation
+  // is released with the exact same compensating-cancellation pattern
+  // already used below for a Stripe Checkout Session creation failure,
+  // rather than sending an anonymous purchaser into a paid checkout
+  // whose attendee-requirement answers are already lost.
+  try {
+    await writeRegistrationResponses(organisationId, event.id, orderId, insertResult.map(row => row.id), validatedResponses);
+  } catch (err) {
+    console.error('[public checkout] response write failed, releasing reservation', err, { orderId });
+    await sql`UPDATE event_orders SET status = 'CANCELLED', payment_status = 'FAILED' WHERE id = ${orderId} AND payment_status = 'PENDING'`;
+    return NextResponse.json({ error: 'Checkout could not be started. Please try again.' }, { status: 500 });
+  }
 
   // ── Stripe Checkout Session creation ────────────────────────────────
   //
