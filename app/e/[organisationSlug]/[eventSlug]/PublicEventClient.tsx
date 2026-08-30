@@ -159,10 +159,12 @@ export default function PublicEventClient({
   organisationSlug,
   eventSlug,
   detail,
+  checkoutCancelled,
 }: {
   organisationSlug: string;
   eventSlug: string;
   detail: PublicEventDetail;
+  checkoutCancelled: boolean;
 }) {
   const { event, sessions, ticket_types: ticketTypes } = detail;
 
@@ -181,6 +183,7 @@ export default function PublicEventClient({
   const selectedSession = sessions.find(s => s.id === sessionId);
   const maxQuantity = selectedTicketType ? Math.max(0, Math.min(selectedTicketType.remaining, 20)) : 0;
   const availability = availabilityState(ticketTypes);
+  const isPaidSelection = (selectedTicketType?.price_cents ?? 0) > 0;
 
   function setQuantityAndResizeAttendees(next: number) {
     setQuantity(next);
@@ -191,13 +194,22 @@ export default function PublicEventClient({
     });
   }
 
+  // Free ticket types post to /register and land on the in-page
+  // confirmation state below, unchanged from Phase 2/3. A paid ticket
+  // type (price_cents > 0) instead posts to /checkout, which reserves
+  // capacity and returns a Stripe-hosted Checkout URL — the browser is
+  // redirected there directly; there is no local "confirmation" state
+  // for a paid submission, since nothing is confirmed yet (§5: only the
+  // webhook, after Stripe redirects back to /checkout/success, can
+  // confirm payment).
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (submitting) return;
     setError(null);
     setSubmitting(true);
+    const paid = (selectedTicketType?.price_cents ?? 0) > 0;
     try {
-      const res = await fetch(`/api/public/events/${organisationSlug}/${eventSlug}/register`, {
+      const res = await fetch(`/api/public/events/${organisationSlug}/${eventSlug}/${paid ? 'checkout' : 'register'}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -212,13 +224,18 @@ export default function PublicEventClient({
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setError(body.error ?? `Registration failed (${res.status}).`);
+        setError(body.error ?? `${paid ? 'Checkout' : 'Registration'} failed (${res.status}).`);
+        setSubmitting(false);
         return;
       }
+      if (paid) {
+        window.location.href = body.checkout_url;
+        return; // leave `submitting` true — the page is navigating away
+      }
       setConfirmation({ reference: body.confirmation_reference, quantity: body.quantity, tickets: body.tickets ?? [] });
+      setSubmitting(false);
     } catch {
-      setError('Registration failed. Please try again.');
-    } finally {
+      setError(`${paid ? 'Checkout' : 'Registration'} failed. Please try again.`);
       setSubmitting(false);
     }
   }
@@ -433,6 +450,15 @@ export default function PublicEventClient({
                     </div>
                   </fieldset>
 
+                  {checkoutCancelled && !error && (
+                    <div role="alert" style={{
+                      fontSize: 13, color: TEXT_SECONDARY, background: 'rgba(255,255,255,.03)',
+                      border: `1px solid ${BORDER}`, borderRadius: 9, padding: '10px 12px', lineHeight: 1.5,
+                    }}>
+                      Payment was not completed.
+                    </div>
+                  )}
+
                   {error && (
                     <div role="alert" style={{
                       fontSize: 13, color: '#FCA5A5', background: 'rgba(239,68,68,.08)',
@@ -444,7 +470,9 @@ export default function PublicEventClient({
 
                   <button type="submit" disabled={submitting || maxQuantity <= 0} className="bb-event-cta">
                     {submitting && <span className="bb-event-spin" aria-hidden="true" />}
-                    {submitting ? 'Confirming…' : 'Confirm registration'}
+                    {submitting
+                      ? (isPaidSelection ? 'Redirecting to payment…' : 'Confirming…')
+                      : (isPaidSelection ? `Pay ${formatPrice(selectedTicketType?.price_cents ?? 0)}` : 'Confirm registration')}
                   </button>
                 </form>
               )}
