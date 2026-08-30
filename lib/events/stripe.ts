@@ -38,12 +38,23 @@ export class StripeNotConfiguredError extends Error {
 }
 
 // Reservation hold window — see scripts/add-events-payments.sql's
-// `expires_at` comment. 30 minutes is also Stripe Checkout's own
-// documented MINIMUM allowed `expires_at` (30 min to 24h from
-// creation), so this is the shortest window achievable while still
-// keeping the internal DB reservation and Stripe's own session expiry
-// exactly aligned, per the brief's explicit §8 preference.
-export const RESERVATION_WINDOW_SECONDS = 30 * 60;
+// `expires_at` comment. Stripe Checkout's own documented MINIMUM
+// allowed `expires_at` is exactly 30 minutes from Checkout SESSION
+// CREATION (30 min to 24h) — not from whenever THIS server computed
+// the timestamp it sends. Those two moments are never quite the same
+// instant: by the time Stripe's own servers actually create the
+// session, the DB reservation transaction and network round trip
+// have already used up some of that budget, so a value computed as
+// exactly `now + 30 minutes` reliably arrives at Stripe already a
+// little short of its own floor — confirmed empirically in live
+// Stripe test mode (`The 'expires_at' timestamp must be at least 30
+// minutes from Checkout Session creation.`, reproducible on every
+// attempt). One extra minute of buffer is generously more than that
+// latency ever needs, while still being "30 minutes" in every
+// product/UX sense the brief's §8 cares about; the internal DB
+// reservation's own `expires_at` uses this exact same constant, so
+// the two stay aligned as designed.
+export const RESERVATION_WINDOW_SECONDS = 31 * 60;
 
 export type CreateCheckoutSessionInput = {
   organisationId: string;
