@@ -37,6 +37,14 @@ describe("failureTaxonomy — code sets", () => {
         "CONFIGURATION_ERROR",
         "RECLAIM_NOT_ALLOWED",
         "OWNERSHIP_LOST",
+        // 5A.2H.1 — worksheet inspection/persistence service outcome codes
+        // (lib/data-hub/importBatch/inspectWorksheets.ts). None of these is
+        // ever written to any DB row — see that module's own header comment.
+        "BATCH_NOT_FOUND",
+        "BATCH_NOT_READY",
+        "STORAGE_INTEGRITY_MISMATCH",
+        "PARSER_REJECTED",
+        "PERSISTENCE_CONFLICT",
       ])
     );
   });

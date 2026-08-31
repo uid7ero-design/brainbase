@@ -30,6 +30,15 @@ export type PersistedFailureCode =
   | "PROVIDER_FAILURE"
   | "STALE_RECLAIMED";
 
+// 5A.2H.1 addition — five new caller-only outcome codes for the worksheet
+// inspection/persistence service (lib/data-hub/importBatch/
+// inspectWorksheets.ts). None of these is ever written to any DB row —
+// that service never writes to ImportBatch's own columns on any path, and
+// never persists a failure/outcome code onto the Upload rows it creates.
+// STORAGE_NOT_FOUND and PROVIDER_FAILURE (both already declared above as
+// PersistedFailureCode members, owned by the physical finalize lifecycle)
+// are reused by that same service as caller-facing outcome codes rather
+// than duplicated under new names — see that module's own header comment.
 export type CallerOnlyOutcomeCode =
   | "INVALID_REQUEST"
   | "IDEMPOTENCY_CONFLICT"
@@ -37,7 +46,12 @@ export type CallerOnlyOutcomeCode =
   | "INVALID_STATE"
   | "CONFIGURATION_ERROR"
   | "RECLAIM_NOT_ALLOWED"
-  | "OWNERSHIP_LOST";
+  | "OWNERSHIP_LOST"
+  | "BATCH_NOT_FOUND"
+  | "BATCH_NOT_READY"
+  | "STORAGE_INTEGRITY_MISMATCH"
+  | "PARSER_REJECTED"
+  | "PERSISTENCE_CONFLICT";
 
 export type FailureCode = PersistedFailureCode | CallerOnlyOutcomeCode;
 
@@ -60,6 +74,11 @@ export const CALLER_ONLY_OUTCOME_CODES: readonly CallerOnlyOutcomeCode[] = [
   "CONFIGURATION_ERROR",
   "RECLAIM_NOT_ALLOWED",
   "OWNERSHIP_LOST",
+  "BATCH_NOT_FOUND",
+  "BATCH_NOT_READY",
+  "STORAGE_INTEGRITY_MISMATCH",
+  "PARSER_REJECTED",
+  "PERSISTENCE_CONFLICT",
 ];
 
 export function isPersistedFailureCode(code: string): code is PersistedFailureCode {
@@ -169,6 +188,14 @@ const MESSAGE_TEMPLATES: Record<FailureCode, string> = {
   RECLAIM_NOT_ALLOWED: "This import batch cannot currently be reclaimed.",
   OWNERSHIP_LOST:
     "This attempt no longer owns the import batch — a newer attempt or an automatic reclaim has already taken over.",
+  // 5A.2H.1 — worksheet inspection/persistence service outcome codes.
+  BATCH_NOT_FOUND: "No matching import batch was found for this organisation.",
+  BATCH_NOT_READY: "The import batch has not yet completed physical upload processing.",
+  STORAGE_INTEGRITY_MISMATCH:
+    "The uploaded file's content does not match its recorded checksum and cannot be safely inspected.",
+  PARSER_REJECTED: "The uploaded file could not be safely parsed as a workbook.",
+  PERSISTENCE_CONFLICT:
+    "The worksheet lineage already recorded for this import batch does not match what was just inspected. No changes were made.",
 };
 
 const MAX_MESSAGE_LENGTH = 500;
