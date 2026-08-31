@@ -2,6 +2,13 @@ import { createHash } from "node:crypto";
 import { parse as parseCsvSync } from "csv-parse/sync";
 import * as XLSX from "xlsx";
 import { assertSafeXlsxArchive, ArchiveGuardError } from "./workbookArchiveGuard";
+import { MAX_SOURCE_FILE_BYTES } from "./limits";
+import {
+  classifyFormat as classifyFormatFromFilename,
+  validateSignature as validateSignatureBytes,
+  FileSignatureError,
+  type WorkbookFormat as SignatureWorkbookFormat,
+} from "./fileSignatures";
 
 // The sole seam between this module and SheetJS's XLSX.read. Every XLSX.read
 // call in this file goes through xlsxAdapter.read rather than calling
@@ -27,7 +34,10 @@ export const xlsxAdapter = {
 // array/object of those) — never a Date instance and never a mutable SheetJS
 // WorkBook/WorkSheet object. See normalizeCellValue.
 
-export type WorkbookFormat = "csv" | "xls" | "xlsx";
+// Re-exported from fileSignatures.ts (5A.2G.1 extraction) rather than
+// declared here a second time — see that module's header comment for why
+// this type now lives in the xlsx-free module.
+export type WorkbookFormat = SignatureWorkbookFormat;
 
 export type WorksheetVisibility = "visible" | "hidden" | "veryHidden";
 
@@ -102,7 +112,10 @@ export interface WorkbookLimits {
 // decompression: SheetJS remains a fully in-memory parser regardless of
 // these values.
 export const DEFAULT_WORKBOOK_LIMITS: WorkbookLimits = {
-  maxOriginalBytes: 20 * 1024 * 1024, // 20 MiB
+  // Sourced from lib/data-hub/limits.ts's single canonical
+  // MAX_SOURCE_FILE_BYTES (5A.2G.1) rather than a second, independently
+  // maintained 20 MiB literal — see that module's header comment.
+  maxOriginalBytes: MAX_SOURCE_FILE_BYTES,
   maxWorksheetCount: 50,
   maxSelectedWorksheetRows: 100_000,
   maxSelectedWorksheetColumns: 1_000,
@@ -214,38 +227,26 @@ function validatePreviewRowCount(previewRowCount: number): void {
   assertNonNegativeSafeInteger(previewRowCount, "previewRowCount");
 }
 
-const ZIP_SIGNATURE = [0x50, 0x4b, 0x03, 0x04];
-const OLE_SIGNATURE = [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1];
-
-function matchesSignature(bytes: Uint8Array, signature: number[]): boolean {
-  if (bytes.length < signature.length) return false;
-  for (let i = 0; i < signature.length; i++) {
-    if (bytes[i] !== signature[i]) return false;
-  }
-  return true;
-}
-
-function containsNulByte(bytes: Uint8Array): boolean {
-  for (let i = 0; i < bytes.length; i++) {
-    if (bytes[i] === 0) return true;
-  }
-  return false;
-}
+// The real classification/signature logic now lives in fileSignatures.ts
+// (5A.2G.1 extraction, xlsx-free) so finalize.ts can reuse it without
+// pulling xlsx into its import graph — see that module's header comment.
+// These two thin wrappers exist only to translate FileSignatureError into
+// this module's own public WorkbookParserError contract (exact same codes,
+// messages, and details every existing caller/test already depends on) —
+// no format/signature logic is duplicated here.
 
 // Format is classified from filename/extension only. MIME is intentionally
 // never consulted here — a browser-supplied MIME type is untrusted advisory
 // metadata, not a basis for deciding how to parse the bytes.
 function classifyFormat(input: WorkbookInput): WorkbookFormat {
-  const match = /\.([a-z0-9]+)$/i.exec(input.filename.trim());
-  const extension = match?.[1]?.toLowerCase();
-  if (extension === "csv") return "csv";
-  if (extension === "xls") return "xls";
-  if (extension === "xlsx") return "xlsx";
-  throw new WorkbookParserError(
-    "UNSUPPORTED_FILE_TYPE",
-    "Only .csv, .xls, and .xlsx files are supported.",
-    { extension: extension ?? null }
-  );
+  try {
+    return classifyFormatFromFilename(input);
+  } catch (err) {
+    if (err instanceof FileSignatureError) {
+      throw new WorkbookParserError(err.code, err.message, err.details);
+    }
+    throw err;
+  }
 }
 
 // Signature validation rejects an obviously wrong file cheaply, before any
@@ -256,34 +257,13 @@ function classifyFormat(input: WorkbookInput): WorkbookFormat {
 // readSheetNamesOnly; proven with a real, independently-verified ZIP fixture
 // in the test suite, not just malformed bytes).
 function validateSignature(format: WorkbookFormat, bytes: Uint8Array): void {
-  if (format === "xlsx") {
-    if (!matchesSignature(bytes, ZIP_SIGNATURE)) {
-      throw new WorkbookParserError(
-        "INVALID_FILE_SIGNATURE",
-        "The file does not have a valid XLSX (ZIP) signature.",
-        { expectedFormat: "xlsx" }
-      );
+  try {
+    validateSignatureBytes(format, bytes);
+  } catch (err) {
+    if (err instanceof FileSignatureError) {
+      throw new WorkbookParserError(err.code, err.message, err.details);
     }
-    return;
-  }
-  if (format === "xls") {
-    if (!matchesSignature(bytes, OLE_SIGNATURE)) {
-      throw new WorkbookParserError(
-        "INVALID_FILE_SIGNATURE",
-        "The file does not have a valid legacy XLS (OLE) signature.",
-        { expectedFormat: "xls" }
-      );
-    }
-    return;
-  }
-  // CSV has no magic-byte signature. The closest equivalent pre-parse gate
-  // is rejecting content that is obviously not text.
-  if (containsNulByte(bytes)) {
-    throw new WorkbookParserError(
-      "INVALID_FILE_SIGNATURE",
-      "The file contains binary content and cannot be parsed as CSV.",
-      { expectedFormat: "csv" }
-    );
+    throw err;
   }
 }
 
