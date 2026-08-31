@@ -721,6 +721,31 @@ export default function Home() {
                   command, BrainBase.jsx's fallback) still loads it as its
                   own ORB_SRC; only this page's homepage-hero usage of it
                   is replaced. See components/brand/HeroOrbitMark.tsx. */}
+
+              {/* Phase D.3.1A — broad, soft dimming layer (page-local,
+                  OrbitalBackground itself untouched) covering the mark's
+                  lower zone through the HLNA card below it. Live review
+                  found a few of the static asset's own larger "sphere"
+                  nodes near this whole area competing slightly with the
+                  primary visual. Deliberately low opacity and wide/soft —
+                  this softens emphasis, it does not remove the node
+                  system or flatten the background. */}
+              <div
+                aria-hidden="true"
+                style={{
+                  position: 'absolute',
+                  left: '50%',
+                  top: '60%',
+                  transform: 'translate(-50%, -50%)',
+                  width: 820,
+                  height: 620,
+                  maxWidth: '145vw',
+                  maxHeight: '110vw',
+                  pointerEvents: 'none',
+                  background: 'radial-gradient(ellipse, rgba(7,8,11,.38) 0%, rgba(7,8,11,.2) 45%, transparent 74%)',
+                }}
+              />
+
               <div
                 style={{
                   width: '100%',
@@ -758,6 +783,11 @@ export default function Home() {
                   }}
                 />
 
+                {/* D.3.1A — reduced from 480px/.16 peak opacity: at full
+                    size/strength this read as a soft second core sitting
+                    underneath HeroOrbitMark's own crisp one. Smaller and
+                    dimmer now so it stays a halo hugging the mark's rings
+                    rather than an independently-legible blob. */}
                 <div
                   aria-hidden="true"
                   style={{
@@ -765,23 +795,27 @@ export default function Home() {
                     left: '50%',
                     top: '50%',
                     transform: 'translate(-50%, -50%)',
-                    width: 480,
-                    height: 480,
-                    maxWidth: '85vw',
-                    maxHeight: '85vw',
+                    width: 360,
+                    height: 360,
+                    maxWidth: '70vw',
+                    maxHeight: '70vw',
                     borderRadius: '50%',
-                    background: 'radial-gradient(circle, rgba(138,77,255,.16) 0%, rgba(88,68,220,.06) 40%, transparent 70%)',
-                    filter: 'blur(28px)',
+                    background: 'radial-gradient(circle, rgba(138,77,255,.10) 0%, rgba(88,68,220,.04) 40%, transparent 68%)',
+                    filter: 'blur(24px)',
                     animation: 'glowPulse 7s ease-in-out infinite',
                   }}
                 />
 
+                {/* D.3.1A — nudged right + up from dead-centre: live
+                    review found the mark reading as slightly too central/
+                    low. Subtle offset (under 7% of its own size), not a
+                    repositioning of the whole visual zone. */}
                 <div
                   style={{
                     position: 'absolute',
                     left: '50%',
                     top: '50%',
-                    transform: 'translate(-50%, -50%)',
+                    transform: 'translate(calc(-50% + 26px), calc(-50% - 20px))',
                   }}
                 >
                   <HeroOrbitMark size={400} className="bb-hero-orbit-mark" />
