@@ -160,9 +160,16 @@ describe('Phase D.1 — replaced surfaces no longer reference the old lens-style
     }
   })
 
-  it('login page still preserves its ambient HlnaOrb background untouched (atmospheric, out of scope this phase)', () => {
-    expect(loginSource).toContain("import { HlnaOrb } from '@/components/brand/HlnaOrb'")
-    expect(loginSource).toMatch(/<HlnaOrb/)
+  // Updated during Phase D.3 (Orbital Background + Atmospheric Branding):
+  // the "out of scope this phase" atmospheric background work this test
+  // originally deferred has now landed — see orbitalBackground.test.ts for
+  // the dedicated suite. login's decorative idle HlnaOrb (purely ambient,
+  // no functional wiring) was replaced with the shared OrbitalBackground
+  // component.
+  it('login page now uses OrbitalBackground for its atmospheric background (Phase D.3), no longer the decorative idle HlnaOrb', () => {
+    expect(loginSource).toContain("import { OrbitalBackground } from '@/components/brand/OrbitalBackground'")
+    expect(loginSource).toMatch(/<OrbitalBackground/)
+    expect(loginSource).not.toContain('<HlnaOrb')
   })
 })
 
@@ -174,10 +181,14 @@ describe('Phase D.1 — scope containment', () => {
     expect(chatRoute).not.toContain('BrainBaseWordmark')
   })
 
-  it('does not introduce OrbitalBackground', () => {
+  // Updated during Phase D.3: OrbitalBackground now legitimately exists
+  // and is adopted on login/signup/homepage/connect — see
+  // orbitalBackground.test.ts. What still holds from this Phase D.1
+  // containment check: TopNav (chrome, not a background surface) and
+  // HelenaWorkspace (deliberately NOT adopted — see D.3's own containment
+  // reasoning) never reference it.
+  it('OrbitalBackground is not introduced into TopNav or HelenaWorkspace — chrome and the living-Helena workspace are not atmospheric-background surfaces', () => {
     expect(topNavSource).not.toContain('OrbitalBackground')
-    expect(loginSource).not.toContain('OrbitalBackground')
-    expect(homepageSource).not.toContain('OrbitalBackground')
     expect(hlnaWorkspaceSource).not.toContain('OrbitalBackground')
   })
 })
@@ -206,9 +217,13 @@ describe('Phase D.2 — secondary public surfaces use BrainBaseWordmark, not the
 })
 
 describe('Phase D.2 — ambient/assistant HlnaOrb usage is preserved where it existed', () => {
-  it('signup keeps its ambient HlnaOrb background untouched', () => {
-    expect(signupSource).toContain("import { HlnaOrb } from '@/components/brand/HlnaOrb'")
-    expect(signupSource).toMatch(/<HlnaOrb/)
+  // Updated during Phase D.3: signup mirrors login's treatment (see
+  // orbitalBackground.test.ts) — its decorative idle HlnaOrb was replaced
+  // with the shared OrbitalBackground component, same as login.
+  it('signup now uses OrbitalBackground for its atmospheric background (Phase D.3), no longer the decorative idle HlnaOrb', () => {
+    expect(signupSource).toContain("import { OrbitalBackground } from '@/components/brand/OrbitalBackground'")
+    expect(signupSource).toMatch(/<OrbitalBackground/)
+    expect(signupSource).not.toContain('<HlnaOrb')
   })
 
   it('demo keeps its two functional assistant-state HlnaOrb instances untouched (state driven by `thinking`)', () => {

@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { BrainBaseWordmark } from '@/components/brand/BrainBaseWordmark';
+import { OrbitalBackground } from '@/components/brand/OrbitalBackground';
 
 export const metadata = {
   title: 'Connect',
@@ -64,22 +65,18 @@ export default function ConnectPage() {
         }
       `}</style>
 
-      <div
-        aria-hidden="true"
-        style={{
-          position: 'fixed',
-          inset: 0,
-          zIndex: 0,
-          pointerEvents: 'none',
-          background: `
-            radial-gradient(
-              ellipse 72% 46% at 50% -6%,
-              rgba(138,77,255,.12) 0%,
-              rgba(86,119,255,.03) 42%,
-              transparent 72%
-            )
-          `,
-        }}
+      {/* Hybrid Orbit atmosphere — Phase D.3. 'veil' (nebula wash only, no
+          rings/asset/animation surface): this is a minimal, single-purpose
+          card page — the fuller 'field' treatment would overdesign it.
+          Replaces the old bespoke fixed radial-gradient wash. The separate
+          .bb-connect-glow pulse behind the wordmark below is left as-is —
+          it's a deliberate, page-specific accent framing the logo, not
+          atmospheric background. */}
+      <OrbitalBackground
+        variant="veil"
+        intensity="low"
+        placement="center"
+        style={{ position: 'fixed' }}
       />
 
       <div

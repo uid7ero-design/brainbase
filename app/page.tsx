@@ -5,6 +5,8 @@ import Link from 'next/link';
 
 import CommandDemo from '@/components/CommandDemo';
 import { BrainBaseWordmark } from '@/components/brand/BrainBaseWordmark';
+import { OrbitalBackground } from '@/components/brand/OrbitalBackground';
+import { HeroOrbitMark } from '@/components/brand/HeroOrbitMark';
 
 const FONT =
   'var(--font-inter), "Inter", -apple-system, sans-serif';
@@ -14,16 +16,6 @@ const BG = '#07080B';
 const KEYFRAMES = `
   html {
     scroll-behavior: smooth;
-  }
-
-  @keyframes orbFloat {
-    0%, 100% {
-      transform: translateY(0px) scale(1);
-    }
-
-    50% {
-      transform: translateY(-9px) scale(1.016);
-    }
   }
 
   @keyframes glowPulse {
@@ -101,7 +93,8 @@ const KEYFRAMES = `
   }
 
   @media (max-width: 680px) {
-    .bb-home-shell {
+    .bb-home-shell,
+    .bb-home-hero-inner {
       padding-left: 18px !important;
       padding-right: 18px !important;
     }
@@ -110,6 +103,11 @@ const KEYFRAMES = `
       min-height: auto !important;
       padding-top: 62px !important;
       padding-bottom: 72px !important;
+    }
+
+    .bb-hero-orbit-mark {
+      width: 260px !important;
+      height: 260px !important;
     }
 
     .bb-home-path-grid,
@@ -417,46 +415,73 @@ export default function Home() {
     >
       <style>{KEYFRAMES}</style>
 
-      <div
-        aria-hidden="true"
-        style={{
-          position: 'fixed',
-          inset: 0,
-          pointerEvents: 'none',
-          zIndex: 0,
-          background: `
-            radial-gradient(
-              ellipse 72% 48% at 50% -5%,
-              rgba(138,77,255,.13) 0%,
-              rgba(74,54,180,.045) 38%,
-              transparent 72%
-            )
-          `,
-        }}
+      {/* Hybrid Orbit atmosphere — Phase D.3, tuned in D.3.1, made
+          persistent/page-level in D.3.1B. Previously scoped to just the
+          hero section; now a single fixed layer behind the whole page
+          (position:fixed via the style override, inset:0, zIndex 0) so
+          content scrolls normally above it instead of the atmosphere
+          being a one-off hero graphic that cuts abruptly to flat black
+          below. Intensity is NOT varied here — OrbitalBackground itself
+          stays at one setting for the whole page (per instruction: one
+          shared instance, not duplicated/re-tuned per section). The
+          "gets quieter further down the page" effect is achieved entirely
+          by the zone scrims below progressively obscuring more of this
+          same fixed layer as they scroll into view — not by touching this
+          component or its props. */}
+      <OrbitalBackground
+        variant="field"
+        intensity="high"
+        placement="top-right"
+        style={{ position: 'fixed' }}
       />
 
-      <div
-        className="bb-home-shell"
+      {/* ==================================================================
+          1. HERO — Phase D.3.1: pulled out of bb-home-shell's maxWidth:1220
+          constraint so the section (and OrbitalBackground within it) can
+          span the full available viewport width — the previous nested
+          structure boxed the atmosphere/artwork in at 1220px minus 64px of
+          padding, which is why the old hero visual clipped rather than
+          simply cropping naturally at the edges. Content itself still sits
+          inside its own maxWidth:1220 inner wrapper immediately below, so
+          readable width is unchanged — only the section's background layer
+          now reaches the true viewport edges.
+      =================================================================== */}
+
+      <section
+        className="bb-home-hero"
         style={{
-          maxWidth: 1220,
-          margin: '0 auto',
-          padding: '0 32px 96px',
+          minHeight: 'calc(100vh - 52px)',
+          display: 'flex',
+          alignItems: 'center',
+          padding: '50px 0 78px',
           position: 'relative',
-          zIndex: 1,
+          overflow: 'hidden',
         }}
       >
-        {/* ================================================================
-            1. HERO
-        ================================================================= */}
-
-        <section
-          className="bb-home-hero"
+        {/* Content-safe mask (D.3.1) — fades the atmosphere out behind the
+            headline/copy/CTA column so decorative rings/nodes never
+            compete with glyphs, while leaving it at full strength toward
+            the right (where the hero visual now carries the primary
+            visual weight) and the outer edges. */}
+        <div
+          aria-hidden="true"
           style={{
-            minHeight: 'calc(100vh - 52px)',
-            display: 'flex',
-            alignItems: 'center',
-            padding: '50px 0 78px',
+            position: 'absolute',
+            inset: 0,
+            pointerEvents: 'none',
+            background: 'linear-gradient(90deg, rgba(7,8,11,.82) 0%, rgba(7,8,11,.58) 32%, rgba(7,8,11,.18) 52%, transparent 66%)',
+          }}
+        />
+
+        <div
+          className="bb-home-hero-inner"
+          style={{
+            maxWidth: 1220,
+            margin: '0 auto',
+            padding: '0 32px',
+            width: '100%',
             position: 'relative',
+            zIndex: 1,
           }}
         >
           <div
@@ -466,6 +491,8 @@ export default function Home() {
               gap: 64,
               alignItems: 'center',
               width: '100%',
+              position: 'relative',
+              zIndex: 1,
             }}
           >
             <div style={{ maxWidth: 620, position: 'relative', zIndex: 2 }}>
@@ -693,15 +720,67 @@ export default function Home() {
                 transform: 'translateY(-10px)',
               }}
             >
+              {/* Phase D.3.1 — replaces this page's standalone raster
+                  lens-style hero <img> (public/hlna-orb-only.webp, a
+                  camera-aperture-looking asset predating and conflicting
+                  with Hybrid Orbit) with HeroOrbitMark: a dedicated,
+                  static/presentational SVG built from the same approved
+                  master mark geometry OrbitalBackground and HelenaOrbital
+                  both derive from — not a fourth visual system, and never
+                  interactive/stateful (no listening/thinking/speaking),
+                  so it can't be mistaken for Helena actually being
+                  present. The webp asset itself is untouched/not deleted
+                  — components/brand/HlnaOrb.jsx (the functional assistant
+                  visual used elsewhere: MicButton, IntelRail, demo,
+                  command, BrainBase.jsx's fallback) still loads it as its
+                  own ORB_SRC; only this page's homepage-hero usage of it
+                  is replaced. See components/brand/HeroOrbitMark.tsx. */}
+
+              {/* Phase D.3.1A — broad, soft dimming layer (page-local,
+                  OrbitalBackground itself untouched) covering the mark's
+                  lower zone through the HLNA card below it. Live review
+                  found a few of the static asset's own larger "sphere"
+                  nodes near this whole area competing slightly with the
+                  primary visual. Deliberately low opacity and wide/soft —
+                  this softens emphasis, it does not remove the node
+                  system or flatten the background. */}
+              <div
+                aria-hidden="true"
+                style={{
+                  position: 'absolute',
+                  left: '50%',
+                  top: '60%',
+                  transform: 'translate(-50%, -50%)',
+                  width: 820,
+                  height: 620,
+                  maxWidth: '145vw',
+                  maxHeight: '110vw',
+                  pointerEvents: 'none',
+                  background: 'radial-gradient(ellipse, rgba(7,8,11,.38) 0%, rgba(7,8,11,.2) 45%, transparent 74%)',
+                }}
+              />
+
               <div
                 style={{
                   width: '100%',
                   maxWidth: 530,
+                  height: 420,
                   position: 'relative',
-                  display: 'flex',
-                  justifyContent: 'center',
                 }}
               >
+                {/* Local scrim (D.3.1) — OrbitalBackground's own baked-in
+                    "core" glow (from the static asset) sat directly behind
+                    this exact zone, reading as a second bright orb next to
+                    HeroOrbitMark's core. This clears OrbitalBackground's
+                    bleed-through in just this local box (painted first, so
+                    everything below still renders on top of it) rather
+                    than repositioning/weakening OrbitalBackground globally
+                    — the surrounding rings/stars stay fully visible.
+                    All three layers below share the exact same absolute-
+                    center anchor so they align on top of one another,
+                    rather than mixing absolutely-positioned glow layers
+                    with a normal-flow-sized mark (which is what produced
+                    two visibly offset orbs the first time). */}
                 <div
                   aria-hidden="true"
                   style={{
@@ -709,32 +788,58 @@ export default function Home() {
                     left: '50%',
                     top: '50%',
                     transform: 'translate(-50%, -50%)',
-                    width: 620,
-                    height: 620,
-                    maxWidth: '90vw',
-                    maxHeight: '90vw',
+                    width: 1000,
+                    height: 1000,
+                    maxWidth: '140vw',
+                    maxHeight: '140vw',
                     borderRadius: '50%',
-                    background: 'radial-gradient(circle, rgba(138,77,255,.15) 0%, rgba(88,68,220,.06) 38%, transparent 68%)',
-                    filter: 'blur(28px)',
+                    background: 'radial-gradient(circle, rgba(7,8,11,.85) 0%, rgba(7,8,11,.55) 38%, rgba(7,8,11,.2) 58%, transparent 76%)',
+                  }}
+                />
+
+                {/* D.3.1A — reduced from 480px/.16 peak opacity: at full
+                    size/strength this read as a soft second core sitting
+                    underneath HeroOrbitMark's own crisp one. Smaller and
+                    dimmer now so it stays a halo hugging the mark's rings
+                    rather than an independently-legible blob. */}
+                <div
+                  aria-hidden="true"
+                  style={{
+                    position: 'absolute',
+                    left: '50%',
+                    top: '50%',
+                    transform: 'translate(-50%, -50%)',
+                    width: 360,
+                    height: 360,
+                    maxWidth: '70vw',
+                    maxHeight: '70vw',
+                    borderRadius: '50%',
+                    background: 'radial-gradient(circle, rgba(138,77,255,.10) 0%, rgba(88,68,220,.04) 40%, transparent 68%)',
+                    filter: 'blur(24px)',
                     animation: 'glowPulse 7s ease-in-out infinite',
                   }}
                 />
 
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src="/hlna-orb-only.webp"
-                  alt="HLNΛ intelligence engine"
+                {/* D.3.1A nudged the mark +26px right / -20px up from
+                    dead-centre. D.3.1B: live measurement (getBoundingClientRect)
+                    showed that +26px put the mark's own centre-X 26px right
+                    of the HLNA card's centre-X below it — enough to read as
+                    two separate things rather than one vertical group.
+                    Reduced to +8px: still a small intentional rightward
+                    bias (preserving overall right-side visual weight,
+                    per instruction), but close enough that mark and card
+                    now read as one aligned group. Vertical nudge (-20px)
+                    is unaffected — that was never the alignment issue. */}
+                <div
                   style={{
-                    width: '100%',
-                    display: 'block',
-                    objectFit: 'contain',
-                    position: 'relative',
-                    zIndex: 1,
-                    animation: 'orbFloat 6s ease-in-out infinite',
-                    opacity: 0.94,
-                    filter: 'drop-shadow(0 0 38px rgba(120,80,255,.45)) drop-shadow(0 0 100px rgba(70,100,255,.22))',
+                    position: 'absolute',
+                    left: '50%',
+                    top: '50%',
+                    transform: 'translate(calc(-50% + 8px), calc(-50% - 20px))',
                   }}
-                />
+                >
+                  <HeroOrbitMark size={400} className="bb-hero-orbit-mark" />
+                </div>
               </div>
 
               <div
@@ -780,11 +885,66 @@ export default function Home() {
               </div>
             </div>
           </div>
-        </section>
+        </div>
+      </section>
 
-        {/* PLATFORM STATEMENT */}
+      {/* Phase D.3.1B introduced persistent atmosphere via three
+          independently-gradiented full-bleed "zone" wrappers below the
+          hero. D.3.1C: live scroll QA found visible brightness seams at
+          every zone boundary — root cause confirmed by measuring each
+          zone's actual rendered height: Zone 1 was 1668px tall fading
+          .35->.68 (≈.0002 opacity/px), Zone 2 was 3094px tall fading
+          .68->.85 (≈.00006 opacity/px, ~3.6x slower), Zone 3 was 1092px
+          tall fading .85->.95 (≈.00009 opacity/px, sped back up again).
+          The colour VALUES matched exactly at each boundary, but the fade
+          RATE didn't — each zone independently spans 0%->100% of its own
+          gradient over its own arbitrary, content-driven height, so the
+          fade curve's slope was discontinuous at every seam even though
+          its value wasn't. Fixed by replacing the three independent
+          scrims with ONE continuous veil: a single absolutely-positioned
+          div (inset:0, so its height matches its container's actual
+          content height automatically — never a hardcoded pixel value)
+          holding one multi-stop gradient spanning the entire below-hero
+          region in one unbroken curve. OrbitalBackground remains the
+          single page-level fixed layer from D.3.1B, untouched here — only
+          how much of it shows through changes, and now as one smooth
+          function of scroll position rather than three independent ones.
+          The outer wrapper still breaks out to 100vw (calc(50% - 50vw),
+          safe because <main> sets overflow:'hidden') so the veil reaches
+          the true viewport edges; the inner bb-home-shell keeps the exact
+          same maxWidth:1220/padding/centring it always had — no section's
+          own JSX/layout is touched, only what sits behind it. */}
 
-        <section
+      <div
+        style={{
+          position: 'relative',
+          width: '100vw',
+          marginLeft: 'calc(50% - 50vw)',
+        }}
+      >
+        <div
+          aria-hidden="true"
+          style={{
+            position: 'absolute',
+            inset: 0,
+            pointerEvents: 'none',
+            background: 'linear-gradient(180deg, rgba(7,8,11,.28) 0%, rgba(7,8,11,.52) 30%, rgba(7,8,11,.80) 65%, rgba(7,8,11,.93) 100%)',
+          }}
+        />
+
+        <div
+          className="bb-home-shell"
+          style={{
+            maxWidth: 1220,
+            margin: '0 auto',
+            padding: '0 32px 96px',
+            position: 'relative',
+            zIndex: 1,
+          }}
+        >
+          {/* PLATFORM STATEMENT */}
+
+          <section
           style={{
             marginBottom: 104,
             padding: '28px 30px',
@@ -1909,18 +2069,37 @@ export default function Home() {
             </div>
           </div>
         </section>
-      </div>
+        </div>
 
-      {/* FOOTER */}
+        {/* FOOTER — D.3.1D: moved INSIDE the same continuous-veil wrapper
+            (previously a sibling after it, separated by this footer's own
+            72px marginTop). That 72px gap sat entirely outside both the
+            veil (which ended at the wrapper's previous bottom edge) and
+            the footer's own background (which didn't start until after
+            the margin) — live DOM measurement confirmed it precisely:
+            veil ended at y=7222, footer began at y=7294, a 72px band
+            where neither covered the fixed OrbitalBackground, letting it
+            show through completely undimmed — the visible band. Now that
+            footer lives inside the wrapper, the veil's own inset:0 sizing
+            (which derives from real content height, not a hardcoded
+            value) automatically extends over the footer too, and the
+            72px marginTop is just internal breathing room within the
+            veiled area rather than a hole in it. The footer's own
+            separate near-opaque background (D.3.1B/C: rgba(5,6,10,.9-.94))
+            is removed entirely — the veil, now reaching all the way to
+            the footer's own bottom edge, already provides the "nearly
+            black" darkening on its own; a second independent background
+            here would be exactly the "second atmospheric treatment"
+            section 4 says to avoid. */}
 
-      <footer
-        style={{
-          borderTop: '1px solid rgba(255,255,255,.05)',
-          marginTop: 72,
-          position: 'relative',
-          zIndex: 1,
-        }}
-      >
+        <footer
+          style={{
+            borderTop: '1px solid rgba(255,255,255,.05)',
+            marginTop: 72,
+            position: 'relative',
+            zIndex: 1,
+          }}
+        >
         <div
           className="bb-home-footer"
           style={{
@@ -1974,6 +2153,7 @@ export default function Home() {
           </div>
         </div>
       </footer>
+      </div>
     </main>
   );
 }
