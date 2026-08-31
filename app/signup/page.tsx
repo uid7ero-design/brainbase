@@ -2,10 +2,10 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 
 import { HlnaOrb } from '@/components/brand/HlnaOrb';
+import { BrainBaseWordmark } from '@/components/brand/BrainBaseWordmark';
 
 const FONT =
   'var(--font-inter), Inter, -apple-system, sans-serif';
@@ -308,28 +308,8 @@ export default function SignupPage() {
                 overflow: 'visible',
               }}
             >
-              <Image
-                src="/Brand/brainbase-logo-dark.svg"
-                alt="BrainBase"
-                width={700}
-                height={158}
-                priority
-                style={{
-                  display: 'block',
-
-                  width: 525,
-
-                  maxWidth: '138%',
-
-                  height: 'auto',
-
-                  /*
-                    Same optical correction
-                    used on login.
-                  */
-                  transform:
-                    'translateX(-3.5%)',
-                }}
+              <BrainBaseWordmark
+                width={280}
               />
             </div>
           </div>

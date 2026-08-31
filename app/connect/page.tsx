@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import Image from 'next/image';
+import { BrainBaseWordmark } from '@/components/brand/BrainBaseWordmark';
 
 export const metadata = {
   title: 'Connect',
@@ -129,19 +129,11 @@ export default function ConnectPage() {
               }}
             />
 
-            <Image
-              src="/Brand/brainbase-logo-dark.svg"
-              alt="BRΛINBΛSE"
-              width={500}
-              height={114}
-              priority
+            <BrainBaseWordmark
+              width={250}
               style={{
                 position: 'relative',
-                display: 'block',
-                width: 250,
                 maxWidth: '76vw',
-                height: 'auto',
-                transform: 'translateX(-3.5%)',
               }}
             />
           </div>

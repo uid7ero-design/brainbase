@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import Image from 'next/image';
+import { BrainBaseWordmark } from '@/components/brand/BrainBaseWordmark';
 
 const FONT =
   'var(--font-inter), "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
@@ -340,19 +340,9 @@ export default function ClientOperations() {
                 overflow: 'visible',
               }}
             >
-              <Image
-                src="/Brand/brainbase-logo-dark.svg"
-                alt="BRΛINBΛSE"
-                width={760}
-                height={170}
-                priority
-                style={{
-                  display: 'block',
-                  width: 395,
-                  maxWidth: '112%',
-                  height: 'auto',
-                  transform: 'translateX(-3.5%)',
-                }}
+              <BrainBaseWordmark
+                width={280}
+                style={{ maxWidth: '112%' }}
               />
             </div>
           </div>
