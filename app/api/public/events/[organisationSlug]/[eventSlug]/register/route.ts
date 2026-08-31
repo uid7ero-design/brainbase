@@ -257,7 +257,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
               SELECT ${organisationId}, ins_order.id, ${event.id}, ${validated.ticket_type_id}, ${validated.event_session_id}, ${validated.quantity}, 0
               FROM ins_order
               RETURNING id, order_id
-            )
+            ),
             ins_attendees AS (
               INSERT INTO event_attendees (organisation_id, event_id, order_id, order_item_id, attendee_name, attendee_email, ticket_token)
               SELECT ${organisationId}, ${event.id}, ins_item.order_id, ins_item.id, a.name, NULLIF(a.email, ''), a.token

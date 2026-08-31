@@ -57,9 +57,11 @@ vi.mock('@/lib/events/stripeConnect', () => ({
 // registration-response persistence behaviour they were written to
 // prove, not incidentally coupled to however many internal queries CRM
 // sync happens to issue.
+const syncEventOrderContactMock = vi.fn().mockResolvedValue(undefined)
+const recordEventBookingActivityMock = vi.fn().mockResolvedValue(undefined)
 vi.mock('@/lib/crm/eventSync', () => ({
-  syncEventOrderContact: vi.fn().mockResolvedValue(undefined),
-  recordEventBookingActivity: vi.fn().mockResolvedValue(undefined),
+  syncEventOrderContact: (...args: unknown[]) => syncEventOrderContactMock(...args),
+  recordEventBookingActivity: (...args: unknown[]) => recordEventBookingActivityMock(...args),
 }))
 
 const createCheckoutSessionMock = vi.fn()
@@ -119,6 +121,8 @@ beforeEach(() => {
   checkRateLimitMock.mockReset()
   checkPaidTicketingEligibilityMock.mockReset()
   createCheckoutSessionMock.mockReset()
+  syncEventOrderContactMock.mockClear()
+  recordEventBookingActivityMock.mockClear()
   responseQueue = []
   callCount = 0
   failResponsesInsert = false
@@ -468,5 +472,118 @@ describe('Manager view (§7) — orders route includes snapshot-based responses,
     expect(src).toMatch(/field_type_snapshot/)
     expect(src).toMatch(/r\.organisation_id = ea\.organisation_id/)
     expect(src).toMatch(/r\.organisation_id = eo\.organisation_id/)
+  })
+})
+
+// Production hotfix regression coverage — a real incident: the session-
+// bound branch of the free-registration transaction had a missing comma
+// between the ins_item and ins_attendees CTEs, causing every session-
+// bound registration to fail with a Postgres syntax error (42601). Every
+// test in this file mocks sql.transaction() away entirely, so NONE of
+// them can prove the actual SQL text parses — that real-Postgres proof
+// lives in scripts/tests/verify-events-session-bound-registration.sh
+// (which also reproduces the original broken SQL to confirm it would
+// have caught this exact bug). What THIS suite proves instead — the
+// things a mock CAN legitimately prove — is the route's own
+// orchestration around that SQL: it reaches the session-bound branch at
+// all when event_session_id is present, the response still carries a
+// ticket, capacity-rejection (empty transaction result) still returns
+// 409 without ever touching CRM, CRM sync is only ever invoked AFTER the
+// transaction has already resolved successfully (never before, never on
+// failure), and the pre-existing non-session-bound path is unaffected by
+// any of this.
+describe('Session-bound free registration — the exact path that broke in Production (§ hotfix regression)', () => {
+  const SESSION_TICKET_TYPE_ROW = [{ id: 'tt-1', active: true, price_cents: 0 }]
+  const SESSION_ROW = [{ id: 'sess-1' }]
+  const NO_QUESTIONS: unknown[] = []
+
+  function sessionBoundBody(overrides: Record<string, unknown> = {}) {
+    return {
+      ticket_type_id: 'tt-1',
+      event_session_id: 'sess-1',
+      quantity: 1,
+      purchaser_name: 'Jane',
+      purchaser_email: 'jane@example.com',
+      attendees: [{ name: 'Jane' }],
+      ...overrides,
+    }
+  }
+
+  it('a session-bound booking reaches and uses the session-bound transaction branch, and succeeds end to end (order id, quantity, and a ticket_token in the response)', async () => {
+    queue(ORG_ROW, PUBLISHED_EVENT_ROW, SESSION_TICKET_TYPE_ROW, SESSION_ROW, NO_QUESTIONS)
+    const res = await registerRoute.POST(req(REG_URL, sessionBoundBody()), CTX)
+    const body = await res.json()
+
+    expect(res.status).toBe(201)
+    expect(body.confirmation_reference).toBe('order-1')
+    expect(body.quantity).toBe(1)
+    expect(body.tickets).toEqual([{ attendee_name: 'Attendee One', ticket_token: 'tok-1' }])
+
+    // Proves the route actually took the session-bound branch (5
+    // statements: 2 FOR UPDATE locks + 2 diagnostic counts + the big
+    // insert) rather than silently falling back to the non-session
+    // shape (3 statements) — the specific distinction this whole bug
+    // lived inside.
+    expect(transactionMock).toHaveBeenCalledTimes(1)
+    const submittedStatements = (transactionMock.mock.calls[0] as unknown as [unknown[]])[0]
+    expect(submittedStatements).toHaveLength(5)
+  })
+
+  it('an unknown/mismatched session id is rejected before any reservation is attempted (400, transaction never reached)', async () => {
+    queue(ORG_ROW, PUBLISHED_EVENT_ROW, SESSION_TICKET_TYPE_ROW, [] /* session lookup: not found */)
+    const res = await registerRoute.POST(req(REG_URL, sessionBoundBody()), CTX)
+    expect(res.status).toBe(400)
+    expect(transactionMock).not.toHaveBeenCalled()
+    expect(syncEventOrderContactMock).not.toHaveBeenCalled()
+  })
+
+  it('capacity rejection (transaction returns an empty result) on the session-bound branch -> 409, and CRM sync is never invoked', async () => {
+    transactionFinalResult = [] // the capacity-gated INSERT matched zero rows
+    queue(ORG_ROW, PUBLISHED_EVENT_ROW, SESSION_TICKET_TYPE_ROW, SESSION_ROW, NO_QUESTIONS)
+    const res = await registerRoute.POST(req(REG_URL, sessionBoundBody()), CTX)
+    expect(res.status).toBe(409)
+    expect(syncEventOrderContactMock).not.toHaveBeenCalled()
+    expect(recordEventBookingActivityMock).not.toHaveBeenCalled()
+  })
+
+  it('CRM sync is invoked only AFTER the session-bound transaction has already resolved successfully — never before, and never if it fails', async () => {
+    const callOrder: string[] = []
+    transactionMock.mockImplementationOnce(async () => {
+      callOrder.push('transaction')
+      return [[], [], [], [], transactionFinalResult]
+    })
+    syncEventOrderContactMock.mockImplementationOnce(async () => { callOrder.push('syncEventOrderContact') })
+    recordEventBookingActivityMock.mockImplementationOnce(async () => { callOrder.push('recordEventBookingActivity') })
+
+    queue(ORG_ROW, PUBLISHED_EVENT_ROW, SESSION_TICKET_TYPE_ROW, SESSION_ROW, NO_QUESTIONS)
+    const res = await registerRoute.POST(req(REG_URL, sessionBoundBody()), CTX)
+
+    expect(res.status).toBe(201)
+    expect(callOrder).toEqual(['transaction', 'syncEventOrderContact', 'recordEventBookingActivity'])
+  })
+
+  it('if the session-bound transaction rejects (e.g. the real syntax-error class of failure), CRM sync is never reached and the response is a safe generic 500', async () => {
+    transactionMock.mockImplementationOnce(async () => { throw new Error('simulated: syntax error at or near "ins_attendees"') })
+    queue(ORG_ROW, PUBLISHED_EVENT_ROW, SESSION_TICKET_TYPE_ROW, SESSION_ROW, NO_QUESTIONS)
+    const res = await registerRoute.POST(req(REG_URL, sessionBoundBody()), CTX)
+    const body = await res.json()
+
+    expect(res.status).toBe(500)
+    expect(body.error).toBe('Registration could not be completed. Please try again.')
+    expect(body.error).not.toMatch(/syntax error|ins_attendees|NeonDbError/) // never leak raw SQL/driver detail to the caller
+    expect(syncEventOrderContactMock).not.toHaveBeenCalled()
+    expect(recordEventBookingActivityMock).not.toHaveBeenCalled()
+  })
+
+  it('the pre-existing NON-session-bound path is unaffected — still succeeds, still uses the 3-statement (non-session) array', async () => {
+    queue(ORG_ROW, PUBLISHED_EVENT_ROW, FREE_ACTIVE_TICKET_TYPE_ROW, NO_QUESTIONS)
+    const res = await registerRoute.POST(req(REG_URL, {
+      ticket_type_id: 'tt-1', quantity: 1, purchaser_name: 'Jane', purchaser_email: 'jane@example.com',
+      attendees: [{ name: 'Jane' }],
+    }), CTX)
+    expect(res.status).toBe(201)
+    expect(transactionMock).toHaveBeenCalledTimes(1)
+    const submittedStatements = (transactionMock.mock.calls[0] as unknown as [unknown[]])[0]
+    expect(submittedStatements).toHaveLength(3)
   })
 })
