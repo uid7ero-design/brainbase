@@ -888,34 +888,56 @@ export default function Home() {
         </div>
       </section>
 
-      {/* Phase D.3.1B — persistent atmosphere zones. OrbitalBackground is
-          now a single page-level fixed layer (see its new placement near
-          the top of <main>) rather than scoped to the hero section alone.
-          Below the hero, three full-bleed "zone" wrappers (each breaking
-          out to 100vw via the standard calc(50% - 50vw) trick — safe here
-          because <main> already sets overflow:'hidden') each carry a
-          vertical gradient scrim that progressively obscures more of the
-          fixed atmosphere the further down the page they sit, so the
-          transition out of the hero is gradual rather than an abrupt cut
-          to flat black. Every zone's own inner content wrapper keeps the
-          exact same maxWidth:1220/padding/centring bb-home-shell always
-          had — no section's own JSX/layout below this point is touched,
-          only which wrapper contains it. */}
+      {/* Phase D.3.1B introduced persistent atmosphere via three
+          independently-gradiented full-bleed "zone" wrappers below the
+          hero. D.3.1C: live scroll QA found visible brightness seams at
+          every zone boundary — root cause confirmed by measuring each
+          zone's actual rendered height: Zone 1 was 1668px tall fading
+          .35->.68 (≈.0002 opacity/px), Zone 2 was 3094px tall fading
+          .68->.85 (≈.00006 opacity/px, ~3.6x slower), Zone 3 was 1092px
+          tall fading .85->.95 (≈.00009 opacity/px, sped back up again).
+          The colour VALUES matched exactly at each boundary, but the fade
+          RATE didn't — each zone independently spans 0%->100% of its own
+          gradient over its own arbitrary, content-driven height, so the
+          fade curve's slope was discontinuous at every seam even though
+          its value wasn't. Fixed by replacing the three independent
+          scrims with ONE continuous veil: a single absolutely-positioned
+          div (inset:0, so its height matches its container's actual
+          content height automatically — never a hardcoded pixel value)
+          holding one multi-stop gradient spanning the entire below-hero
+          region in one unbroken curve. OrbitalBackground remains the
+          single page-level fixed layer from D.3.1B, untouched here — only
+          how much of it shows through changes, and now as one smooth
+          function of scroll position rather than three independent ones.
+          The outer wrapper still breaks out to 100vw (calc(50% - 50vw),
+          safe because <main> sets overflow:'hidden') so the veil reaches
+          the true viewport edges; the inner bb-home-shell keeps the exact
+          same maxWidth:1220/padding/centring it always had — no section's
+          own JSX/layout is touched, only what sits behind it. */}
 
       <div
         style={{
           position: 'relative',
           width: '100vw',
           marginLeft: 'calc(50% - 50vw)',
-          background: 'linear-gradient(180deg, rgba(7,8,11,.35) 0%, rgba(7,8,11,.68) 100%)',
         }}
       >
+        <div
+          aria-hidden="true"
+          style={{
+            position: 'absolute',
+            inset: 0,
+            pointerEvents: 'none',
+            background: 'linear-gradient(180deg, rgba(7,8,11,.28) 0%, rgba(7,8,11,.52) 30%, rgba(7,8,11,.80) 65%, rgba(7,8,11,.93) 100%)',
+          }}
+        />
+
         <div
           className="bb-home-shell"
           style={{
             maxWidth: 1220,
             margin: '0 auto',
-            padding: '0 32px',
+            padding: '0 32px 96px',
             position: 'relative',
             zIndex: 1,
           }}
@@ -1246,27 +1268,6 @@ export default function Home() {
             </div>
           </div>
         </section>
-        </div>
-      </div>
-
-      <div
-        style={{
-          position: 'relative',
-          width: '100vw',
-          marginLeft: 'calc(50% - 50vw)',
-          background: 'linear-gradient(180deg, rgba(7,8,11,.68) 0%, rgba(7,8,11,.85) 100%)',
-        }}
-      >
-        <div
-          className="bb-home-shell"
-          style={{
-            maxWidth: 1220,
-            margin: '0 auto',
-            padding: '0 32px',
-            position: 'relative',
-            zIndex: 1,
-          }}
-        >
 
         {/* ================================================================
             5. CAPABILITIES
@@ -1850,27 +1851,6 @@ export default function Home() {
             </div>
           </div>
         </section>
-        </div>
-      </div>
-
-      <div
-        style={{
-          position: 'relative',
-          width: '100vw',
-          marginLeft: 'calc(50% - 50vw)',
-          background: 'linear-gradient(180deg, rgba(7,8,11,.85) 0%, rgba(7,8,11,.95) 100%)',
-        }}
-      >
-        <div
-          className="bb-home-shell"
-          style={{
-            maxWidth: 1220,
-            margin: '0 auto',
-            padding: '0 32px 96px',
-            position: 'relative',
-            zIndex: 1,
-          }}
-        >
 
         {/* ================================================================
             11. STARTING POINTS
@@ -2092,13 +2072,15 @@ export default function Home() {
         </div>
       </div>
 
-      {/* FOOTER — D.3.1B: near-opaque background so the persistent fixed
+      {/* FOOTER — near-opaque background so the persistent fixed
           atmosphere never competes with footer navigation — "nearly black
-          with faint residual depth" rather than fully flat. .90 (not
-          higher) deliberately leaves a little more of the fixed
-          atmosphere visible than Zone 3's own darkest stop (.95), so the
-          footer doesn't read as a harder cutoff than the gradient above
-          it already established. */}
+          with faint residual depth" rather than fully flat. D.3.1C:
+          raised from .90 to .94 — the continuous veil's own final stop is
+          .93 at its 100% mark (right where the footer begins), so .90
+          would have been a step BACK toward brighter right at the
+          boundary (a visible seam of its own). .94 continues the same
+          monotonic darkening the veil already established, rather than
+          reversing it. */}
 
       <footer
         style={{
@@ -2106,7 +2088,7 @@ export default function Home() {
           marginTop: 72,
           position: 'relative',
           zIndex: 1,
-          background: 'rgba(5,6,10,.90)',
+          background: 'rgba(5,6,10,.94)',
         }}
       >
         <div
