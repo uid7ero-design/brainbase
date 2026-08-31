@@ -76,6 +76,7 @@ describe('.vercelignore — Clients rule is scoped to the repository root only',
       'backend_migration',
       'scripts/clear-bin-maintenance.ts',
       '"Waste Intelligence Dashboard"',
+      'app/dev',
     ]
     const actualNonEmptyLines = LINES.map(l => l.trimEnd()).filter(l => l.length > 0)
     expect(actualNonEmptyLines).toEqual(expectedLines)

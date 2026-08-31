@@ -35,15 +35,18 @@ describe('app/dashboard/page.tsx — Brainbase org resolves to Founder OS', () =
     expect(pageSource).toContain('<TennisDashboard')
   })
 
-  it('3. any other organisation (variant === null) still falls through to the generic BrainBase shell', () => {
-    const lastReturn = pageSource.slice(pageSource.lastIndexOf('return <BrainBase'))
-    // Now carries the server-computed enabledCapabilities prop (feeds the
-    // client dashboard's capability-gated "Your Tools" entry point — see
-    // moduleAccessCard.test.ts) and isSuperAdmin (feeds LeftSidebar's own
-    // role-gated Admin entry — see navPersonaCoverage.test.ts) rather than
-    // no props at all; still the same unconditional generic-shell
-    // fallthrough for variant === null.
-    expect(lastReturn).toContain("return <BrainBase enabledCapabilities={enabledCapabilities} isSuperAdmin={session.role === 'super_admin'} />")
+  // Updated during the D.2.3 origin/main reconciliation merge: per that
+  // task's explicit instruction, the generic (variant === null)
+  // fallthrough now renders OrganisationDashboard (Phase C.2C — see
+  // organisationDashboardSeparation.test.ts for the dedicated suite),
+  // not <BrainBase enabledCapabilities={...} isSuperAdmin={...} />.
+  // BrainBase.jsx's own enabledCapabilities/isSuperAdmin prop-threading
+  // (into ModuleAccessCard and LeftSidebar respectively) remains
+  // structurally correct — see moduleAccessCard.test.ts and
+  // navPersonaCoverage.test.ts — it is simply no longer this call site;
+  // its one remaining caller is the session-less auth-failure fallback.
+  it('3. any other organisation (variant === null) still falls through to the generic dashboard shell (OrganisationDashboard, as of Phase C.2C)', () => {
+    expect(pageSource).toMatch(/<OrganisationDashboard[\s\S]{0,300}enabledCapabilities=\{enabledCapabilities\}/)
   })
 })
 

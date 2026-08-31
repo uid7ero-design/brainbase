@@ -14,3 +14,4 @@ app/api/ops
 backend_migration
 scripts/clear-bin-maintenance.ts
 "Waste Intelligence Dashboard"
+app/dev

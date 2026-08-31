@@ -32,52 +32,58 @@ const layoutSource = read('app/layout.tsx')
 const apiMeSource = read('app/api/me/route.ts')
 const resolverSource = read('lib/dashboard/clientDashboard.ts')
 
+// Updated during the D.2.3 origin/main reconciliation merge: this whole
+// describe block originally anchored on an `isClientOrg ? ( ... ) : ( ... )`
+// ternary that no longer exists — C.2D's rewrite (already the architecture
+// on this branch before the merge) replaced isClientOrg with dashboardVariant
+// -driven isLdTennis/isBrainbaseHQ classification, and the ternary itself
+// became `isLdTennis ? ( <LD Tennis's own bespoke nav> ) : ( <shared branch:
+// generic clients AND Brainbase-internal staff together, each item
+// individually gated within it> )`. Leads/Squad/Sessions/Blog are written
+// directly inside the isLdTennis-true branch itself (not wrapped in a
+// redundant `isLdTennis && (...)` gate inside a broader "client" branch,
+// since the surrounding branch is already only reached when isLdTennis is
+// true) — so the correct assertion is narrower and stronger than before:
+// these items must appear ONLY inside that branch, and NOWHERE else in the
+// file (not "gated", but branch-exclusive). The underlying protection this
+// test exists for — a generic client organisation never receives LD
+// Tennis's coaching-business tools — is unchanged and still verified below.
 describe('TopNav — LD-Tennis-specific nav items are gated on dashboardVariant, not shown to every client org', () => {
-  const clientBranchStart = topNavSource.indexOf('isClientOrg ? (')
+  const clientBranchStart = topNavSource.indexOf('isLdTennis ? (')
   const clientBranchEnd = topNavSource.indexOf(') : (', clientBranchStart)
   const clientRegion = topNavSource.slice(clientBranchStart, clientBranchEnd)
+  const sharedBranchEnd = topNavSource.indexOf('width: 185,', clientBranchEnd)
+  const sharedRegion = topNavSource.slice(clientBranchEnd, sharedBranchEnd)
 
-  it('Leads, Squad (Contacts), and Sessions are only rendered inside an isLdTennis-gated block', () => {
-    const gateIdx = clientRegion.indexOf('isLdTennis && (')
-    expect(gateIdx).toBeGreaterThan(-1)
-    const restOfRegion = clientRegion.slice(gateIdx)
-    const gateBlockEnd = restOfRegion.indexOf('\n            )}')
-    const gateBlock = restOfRegion.slice(0, gateBlockEnd)
-    expect(gateBlock).toMatch(/href="\/dashboard\/leads"/)
-    expect(gateBlock).toMatch(/<SquadItem/)
-    expect(gateBlock).toMatch(/href="\/dashboard\/sessions"/)
+  it('Leads, Squad (Contacts), and Sessions are rendered inside the isLdTennis-true branch', () => {
+    expect(clientRegion).toMatch(/href="\/dashboard\/leads"/)
+    expect(clientRegion).toMatch(/<SquadItem/)
+    expect(clientRegion).toMatch(/href="\/dashboard\/sessions"/)
   })
 
-  it('Leads/Squad/Sessions never appear in the client branch OUTSIDE an isLdTennis gate', () => {
-    // Every occurrence of each destination/component must be preceded,
-    // within a short window, by the isLdTennis gate — i.e. there is
-    // exactly one occurrence of each, and it is the gated one already
-    // verified above.
-    expect((clientRegion.match(/href="\/dashboard\/leads"/g) ?? []).length).toBe(1)
-    expect((clientRegion.match(/<SquadItem/g) ?? []).length).toBe(1)
-    expect((clientRegion.match(/href="\/dashboard\/sessions"/g) ?? []).length).toBe(1)
+  it('Leads/Squad/Sessions never appear in the shared (generic-client + internal-staff) branch at all', () => {
+    expect(sharedRegion).not.toMatch(/href="\/dashboard\/leads"/)
+    expect(sharedRegion).not.toMatch(/<SquadItem/)
+    expect(sharedRegion).not.toMatch(/href="\/dashboard\/sessions"/)
+    // Exactly one occurrence of each across the whole file — the one
+    // inside the isLdTennis branch already verified above.
+    expect((topNavSource.match(/href="\/dashboard\/leads"/g) ?? []).length).toBe(1)
+    expect((topNavSource.match(/<SquadItem/g) ?? []).length).toBe(1)
+    expect((topNavSource.match(/href="\/dashboard\/sessions"/g) ?? []).length).toBe(1)
   })
 
-  it('Blog is also gated on isLdTennis (the /api/tennis/blog namespace is LD Tennis-specific, not a generic client tool)', () => {
-    const blogIdx = clientRegion.indexOf('href="/dashboard/blog"')
-    expect(blogIdx).toBeGreaterThan(-1)
-    const precedingGate = clientRegion.lastIndexOf('isLdTennis && (', blogIdx)
+  it('Blog is also isLdTennis-exclusive (the /api/tennis/blog namespace is LD Tennis-specific, not a generic client tool)', () => {
+    expect(clientRegion).toMatch(/href="\/dashboard\/blog"/)
+    expect(sharedRegion).not.toMatch(/href="\/dashboard\/blog"/)
+    expect((topNavSource.match(/href="\/dashboard\/blog"/g) ?? []).length).toBe(1)
+  })
+
+  it('Requests (client_pipeline — a platform-global feedback/issue channel to BrainBase, not tennis-specific) is present in BOTH branches: unconditionally for LD Tennis, and !isBrainbaseHQ-gated for the shared branch (visible to generic clients, hidden from Brainbase HQ staff)', () => {
+    expect(clientRegion).toMatch(/href="\/dashboard\/pipeline"/)
+    const sharedRequestsIdx = sharedRegion.indexOf('href="/dashboard/pipeline"')
+    expect(sharedRequestsIdx).toBeGreaterThan(-1)
+    const precedingGate = sharedRegion.lastIndexOf('{!isBrainbaseHQ && (', sharedRequestsIdx)
     expect(precedingGate).toBeGreaterThan(-1)
-    // No unrelated closing of the gate between the gate opening and Blog.
-    const between = clientRegion.slice(precedingGate, blogIdx)
-    expect((between.match(/\)\}/g) ?? []).length).toBe(0)
-  })
-
-  it('Requests (client_pipeline — a platform-global feedback/issue channel to BrainBase, not tennis-specific) remains visible for every client organisation, unconditional on isLdTennis', () => {
-    const requestsIdx = clientRegion.indexOf('href="/dashboard/pipeline"')
-    expect(requestsIdx).toBeGreaterThan(-1)
-    const nearestGateBefore = clientRegion.lastIndexOf('isLdTennis && (', requestsIdx)
-    const nearestGateCloseBefore = clientRegion.lastIndexOf(')}', requestsIdx)
-    // If a gate opened before Requests, it must already have closed
-    // before Requests appears — Requests itself is never inside one.
-    if (nearestGateBefore > -1) {
-      expect(nearestGateCloseBefore).toBeGreaterThan(nearestGateBefore)
-    }
   })
 
   it('Events remains gated purely by enabledCapabilities, never by isLdTennis or dashboardVariant', () => {
@@ -92,7 +98,7 @@ describe('TopNav — LD-Tennis-specific nav items are gated on dashboardVariant,
 
 describe('dashboardVariant plumbing — reused existing resolver, no hardcoded organisation, no new capability invented', () => {
   it('TopNav derives isLdTennis from a dashboardVariant session field, not a hardcoded organisation id/slug', () => {
-    expect(topNavSource).toMatch(/const isLdTennis = dashboardVariant === 'ld-tennis'/)
+    expect(topNavSource).toMatch(/const isLdTennis =\s*dashboardVariant === 'ld-tennis';/)
     expect(topNavSource).not.toMatch(/school-test-organisation/i)
     expect(topNavSource).not.toMatch(/organisationId\s*===\s*['"]/)
   })

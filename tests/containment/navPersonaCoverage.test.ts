@@ -39,6 +39,28 @@ import path from 'path'
 // super_admin impersonating a client organisation still reaches this
 // same shell with role/isSuperAdmin still true and should keep it.
 
+// UPDATED WHOLESALE during the D.2.3 origin/main reconciliation merge.
+// The isClientOrg heuristic this file originally targeted no longer
+// exists — C.2D's rewrite (already the architecture on this branch
+// before the merge) replaced it with dashboardVariant-driven
+// isLdTennis/isBrainbaseHQ classification, and AppNav's top-level
+// branch pair became `isLdTennis ? ( <LD Tennis's own bespoke nav,
+// fully separate> ) : ( <SHARED branch: generic clients AND
+// Brainbase-internal staff together, each item individually gated
+// within it by isBrainbaseHQ/isSuperAdmin/hasEvents/!isBrainbaseHQ> )`.
+// This is a real architectural difference from the old two-way
+// isClientOrg split this file assumed, not just a renaming: a generic
+// client (Persona 2) and Brainbase HQ staff (Persona 1) now render from
+// the SAME JSX region, distinguished only by which individual gates
+// evaluate true for their session — so "founder items are physically
+// absent from the client region" is no longer the right assertion for
+// Persona 2; "founder items are individually gated behind
+// isBrainbaseHQ/isSuperAdmin, both of which are false for a generic
+// client" is. isManager is gone entirely (superseded by the narrower,
+// org-identity-aware isBrainbaseHQ — see components/nav/TopNav.tsx's own
+// comment on that gate, and tests/containment/founderNavDropdownRegression
+// .test.ts for the dedicated dropdown-gating suite).
+
 function read(relPath: string): string {
   return fs.readFileSync(path.join(process.cwd(), relPath), 'utf8').replace(/\r\n/g, '\n')
 }
@@ -48,23 +70,23 @@ function stripComments(src: string): string {
 
 const topNavSource = stripComments(read('components/nav/TopNav.tsx'))
 
-const clientBranchStart = topNavSource.indexOf('isClientOrg ? (')
-const clientBranchEnd = topNavSource.indexOf(') : (', clientBranchStart)
-const clientRegion = topNavSource.slice(clientBranchStart, clientBranchEnd)
-const staffRegion = topNavSource.slice(clientBranchEnd, topNavSource.indexOf('width: 185,', clientBranchEnd))
+const ldTennisBranchStart = topNavSource.indexOf('isLdTennis ? (')
+const ldTennisBranchEnd = topNavSource.indexOf(') : (', ldTennisBranchStart)
+const ldTennisRegion = topNavSource.slice(ldTennisBranchStart, ldTennisBranchEnd)
+// The shared branch: rendered for every session that is not LD Tennis —
+// generic clients AND Brainbase HQ staff together, distinguished only by
+// per-item gates within it.
+const sharedRegion = topNavSource.slice(ldTennisBranchEnd, topNavSource.indexOf('width: 185,', ldTennisBranchEnd))
 
 describe('Persona 1 — Founder / super_admin: Operations and Admin dropdowns are populated, independent of enabledModules', () => {
-  it('OpsDropdown is rendered for isManager (true for super_admin) — only in the non-client (staff) branch', () => {
-    expect(staffRegion).toMatch(/\{isManager && \(\s*\n\s*<OpsDropdown/)
-    // Never referenced inside the client-org branch — a client-org
-    // session (including a manager-role client, e.g. LD Tennis) must
-    // never reach OpsDropdown at all.
-    expect(clientRegion).not.toContain('OpsDropdown')
+  it('OpsDropdown is rendered for isBrainbaseHQ (narrower than the old isManager check — implies super_admin at the Brainbase org specifically) — only in the shared branch, never in the LD Tennis branch', () => {
+    expect(sharedRegion).toMatch(/\{isBrainbaseHQ && \(\s*\n\s*<OpsDropdown/)
+    expect(ldTennisRegion).not.toContain('OpsDropdown')
   })
 
-  it('AdminDropdown is rendered for isSuperAdmin — only in the non-client (staff) branch', () => {
-    expect(staffRegion).toMatch(/\{isSuperAdmin && \(\s*\n\s*<AdminDropdown/)
-    expect(clientRegion).not.toContain('AdminDropdown')
+  it('AdminDropdown is rendered for isSuperAdmin — only in the shared branch, never in the LD Tennis branch', () => {
+    expect(sharedRegion).toMatch(/\{isSuperAdmin && \(\s*\n\s*<AdminDropdown/)
+    expect(ldTennisRegion).not.toContain('AdminDropdown')
   })
 
   it('OPS_ITEMS contains the expected founder Operations entries — Waste, Fleet, Social (unconditional) and CRM (capability-gated)', () => {
@@ -98,66 +120,70 @@ describe('Persona 1 — Founder / super_admin: Operations and Admin dropdowns ar
     expect(dropdownsSource).not.toMatch(/enabledModules/)
   })
 
-  it("isSuperAdmin forces isClientOrg to false regardless of enabledModules — a founder session can never fall into the client-org branch even if enabledModules happened to be non-empty (defensive: enabledModules is currently always empty due to a separate, pre-existing organisation_modules.module_id/modules.id schema mismatch bug)", () => {
-    expect(topNavSource).toMatch(/const isClientOrg =\s*\n\s*!isSuperAdmin &&\s*\n\s*enabledModules\.length === 0;/)
+  it('isBrainbaseHQ and isLdTennis are mutually-exclusive derivations of the SAME single dashboardVariant field (DashboardVariant = \'ld-tennis\' | \'brainbase-hq\' | null — see lib/dashboard/clientDashboard.ts), so a founder/super_admin session can never simultaneously satisfy both, or fall into the LD Tennis branch while also being Brainbase HQ; and per that resolver\'s own role gate (dashboardVariantForSlug: \'brainbase-hq\' requires role === \'super_admin\', asserted directly in clientDashboardResolver.test.ts), isBrainbaseHQ can only ever be true for an actual super_admin session — never merely because enabledModules/enabledCapabilities happened to be non-empty (defensive: enabledModules is currently always empty due to a separate, pre-existing organisation_modules.module_id/modules.id schema mismatch bug)', () => {
+    expect(topNavSource).toMatch(/const isLdTennis =\s*dashboardVariant === 'ld-tennis';/)
+    expect(topNavSource).toMatch(/const isBrainbaseHQ =\s*dashboardVariant === 'brainbase-hq';/)
   })
 
-  it('Founder-only pills (Founder OS, Clients) are gated on isSuperAdmin, never on enabledModules, and only ever appear in the staff branch', () => {
-    expect(staffRegion).toMatch(/\{isSuperAdmin && \(\s*\n\s*<NavItem\s*\n\s*href="\/admin\/founder"/)
-    expect(staffRegion).toMatch(/\{isSuperAdmin && \(\s*\n\s*<NavItem\s*\n\s*href="\/clients"/)
-    expect(clientRegion).not.toMatch(/href="\/admin\/founder"|href="\/clients"/)
+  it('Founder-only pills (Founder OS, Clients) are gated on isSuperAdmin, never on enabledModules, and only ever appear in the shared branch, never the LD Tennis branch', () => {
+    expect(sharedRegion).toMatch(/\{isSuperAdmin && \(\s*\n\s*<NavItem\s*\n\s*href="\/admin\/founder"/)
+    expect(sharedRegion).toMatch(/\{isSuperAdmin && \(\s*\n\s*<NavItem\s*\n\s*href="\/clients"/)
+    expect(ldTennisRegion).not.toMatch(/href="\/admin\/founder"|href="\/clients"/)
   })
 })
 
 describe('Persona 2 — generic client manager (e.g. School Test Organisation): no founder items leak in', () => {
-  it('the client-org branch never references any founder-only surface: OpsDropdown, AdminDropdown, Founder OS, Clients, Reports, Data, Command', () => {
-    expect(clientRegion).not.toContain('OpsDropdown')
-    expect(clientRegion).not.toContain('AdminDropdown')
-    expect(clientRegion).not.toMatch(/href="\/admin\/founder"|href="\/clients"|href="\/reports"|href="\/data"|href="\/command"/)
+  it('every founder-only surface (OpsDropdown, AdminDropdown, Founder OS, Clients, Reports, Data, Command) that appears in the shared branch is individually gated behind isBrainbaseHQ or isSuperAdmin — both false for a generic client — rather than being physically confined to a separate region (there is no separate region any more; a generic client and Brainbase HQ staff share this exact branch)', () => {
+    for (const marker of ['<OpsDropdown', '<AdminDropdown']) {
+      const idx = sharedRegion.indexOf(marker)
+      expect(idx, `${marker} not found in the shared branch`).toBeGreaterThan(-1)
+      const preceding = sharedRegion.slice(Math.max(0, idx - 60), idx)
+      expect(preceding, `${marker} must be immediately preceded by an isBrainbaseHQ/isSuperAdmin gate`).toMatch(/\{is(BrainbaseHQ|SuperAdmin) && \(/)
+    }
+    for (const href of ['/admin/founder', '/clients', '/reports', '/data', '/command']) {
+      const idx = sharedRegion.indexOf(`href="${href}"`)
+      expect(idx, `href="${href}" not found in the shared branch`).toBeGreaterThan(-1)
+      const gateIdx = sharedRegion.lastIndexOf('{is', idx)
+      expect(gateIdx, `href="${href}" not preceded by an is*-gate`).toBeGreaterThan(-1)
+      expect(sharedRegion.slice(gateIdx, idx)).toMatch(/\{is(BrainbaseHQ|SuperAdmin) && \(/)
+    }
   })
 
-  it('Events remains visible when enabledCapabilities includes it, and Requests remains unconditional — the two items a generic client IS meant to see', () => {
-    expect(clientRegion).toMatch(/enabledCapabilities\.includes\(\s*\n?\s*'events',?\s*\n?\s*\)/)
-    expect(clientRegion).toMatch(/href="\/dashboard\/pipeline"[\s\S]{0,60}label="Requests"/)
+  it('Events remains visible when enabledCapabilities includes it (via hasEvents), and Requests remains visible unconditional on isLdTennis (gated only on !isBrainbaseHQ) — the two items a generic client IS meant to see in the shared branch', () => {
+    expect(sharedRegion).toMatch(/\{hasEvents && \(/)
+    expect(sharedRegion).toMatch(/href="\/dashboard\/pipeline"[\s\S]{0,80}label="Requests"/)
+    const requestsIdx = sharedRegion.indexOf('href="/dashboard/pipeline"')
+    expect(sharedRegion.lastIndexOf('{!isBrainbaseHQ && (', requestsIdx)).toBeGreaterThan(-1)
   })
 
-  it('Squad, Sessions, Leads, and Blog are absent unless isLdTennis — a generic client organisation never sees them (proven in clientNavOwnership.test.ts; re-asserted here as part of full persona coverage)', () => {
-    const leadsIdx = clientRegion.indexOf('href="/dashboard/leads"')
-    const sessionsIdx = clientRegion.indexOf('href="/dashboard/sessions"')
-    const blogIdx = clientRegion.indexOf('href="/dashboard/blog"')
-    expect(clientRegion.lastIndexOf('isLdTennis && (', leadsIdx)).toBeGreaterThan(-1)
-    expect(clientRegion.lastIndexOf('isLdTennis && (', sessionsIdx)).toBeGreaterThan(-1)
-    expect(clientRegion.lastIndexOf('isLdTennis && (', blogIdx)).toBeGreaterThan(-1)
-    expect(clientRegion).toContain('<SquadItem')
-    const squadIdx = clientRegion.indexOf('<SquadItem')
-    expect(clientRegion.lastIndexOf('isLdTennis && (', squadIdx)).toBeGreaterThan(-1)
+  it('Squad, Sessions, Leads, and Blog do not exist anywhere in the shared branch — a generic client organisation never sees them, because these items are written only inside the isLdTennis-true branch (proven exhaustively in clientNavOwnership.test.ts; re-asserted here as part of full persona coverage)', () => {
+    expect(sharedRegion).not.toMatch(/href="\/dashboard\/leads"/)
+    expect(sharedRegion).not.toContain('<SquadItem')
+    expect(sharedRegion).not.toMatch(/href="\/dashboard\/sessions"/)
+    expect(sharedRegion).not.toMatch(/href="\/dashboard\/blog"/)
   })
 })
 
 describe('Persona 3 — LD Tennis manager: full tennis navigation retained, founder tools never leak in', () => {
-  it('LD Tennis (a manager-role client organisation) takes the SAME client-org branch as any other client — isManager being true never grants access to OpsDropdown/AdminDropdown, which exist only in the staff branch', () => {
-    // isClientOrg = !isSuperAdmin && enabledModules.length === 0 — LD
-    // Tennis's manager session has isSuperAdmin=false and (like every
-    // organisation, due to the separate enabledModules bug)
-    // enabledModules=[], so isClientOrg is true regardless of isManager.
-    expect(topNavSource).toMatch(/const isClientOrg =\s*\n\s*!isSuperAdmin &&\s*\n\s*enabledModules\.length === 0;/)
-    expect(clientRegion).not.toContain('OpsDropdown')
-    expect(clientRegion).not.toContain('AdminDropdown')
+  it('LD Tennis takes the isLdTennis-true branch, which structurally never references OpsDropdown/AdminDropdown at all — regardless of the LD Tennis user\'s own role (manager or super_admin), since dashboardVariant is a single value and \'ld-tennis\'/\'brainbase-hq\' are mutually exclusive, an LD-Tennis-org session can never also be isBrainbaseHQ, and the founder-tool gates live only in the OTHER (shared) branch this session never reaches', () => {
+    expect(topNavSource).toMatch(/const isLdTennis =\s*dashboardVariant === 'ld-tennis';/)
+    expect(ldTennisRegion).not.toContain('OpsDropdown')
+    expect(ldTennisRegion).not.toContain('AdminDropdown')
   })
 
   it('Leads, Squad, Sessions, Blog, Requests, and Events are all reachable for isLdTennis (proven functionally in clientNavOwnership.test.ts; asserted here as part of full persona coverage)', () => {
-    expect(clientRegion).toMatch(/isLdTennis && \(/)
-    expect(clientRegion).toContain('href="/dashboard/leads"')
-    expect(clientRegion).toContain('<SquadItem')
-    expect(clientRegion).toContain('href="/dashboard/sessions"')
-    expect(clientRegion).toContain('href="/dashboard/blog"')
-    expect(clientRegion).toContain('href="/dashboard/pipeline"')
-    expect(clientRegion).toMatch(/enabledCapabilities\.includes\(\s*\n?\s*'events',?\s*\n?\s*\)/)
+    expect(ldTennisRegion).toMatch(/isLdTennis && \(/)
+    expect(ldTennisRegion).toContain('href="/dashboard/leads"')
+    expect(ldTennisRegion).toContain('<SquadItem')
+    expect(ldTennisRegion).toContain('href="/dashboard/sessions"')
+    expect(ldTennisRegion).toContain('href="/dashboard/blog"')
+    expect(ldTennisRegion).toContain('href="/dashboard/pipeline"')
+    expect(ldTennisRegion).toMatch(/enabledCapabilities\.includes\(\s*\n?\s*'events',?\s*\n?\s*\)/)
   })
 
   it('no founder Admin tool (AdminDropdown, /admin/founder, /clients) is reachable from LD Tennis\'s branch', () => {
-    expect(clientRegion).not.toContain('AdminDropdown')
-    expect(clientRegion).not.toMatch(/href="\/admin\/founder"|href="\/clients"/)
+    expect(ldTennisRegion).not.toContain('AdminDropdown')
+    expect(ldTennisRegion).not.toMatch(/href="\/admin\/founder"|href="\/clients"/)
   })
 })
 
@@ -175,9 +201,32 @@ describe('LeftSidebar — the client dashboard shell\'s own Admin leak (found du
     expect(sidebarSource).not.toMatch(/\{SIDEBAR_NAV\.(filter|map)/)
   })
 
-  it('isSuperAdmin is threaded from the server-resolved session (app/dashboard/page.tsx) through BrainBase.jsx into LeftSidebar — never a client-side guess, never hardcoded', () => {
-    expect(pageSource).toMatch(/<BrainBase enabledCapabilities=\{enabledCapabilities\} isSuperAdmin=\{session\.role === 'super_admin'\} \/>/)
+  // Updated during the D.2.3 origin/main reconciliation merge: per the
+  // task's own explicit instruction (app/dashboard/page.tsx section),
+  // the generic /dashboard fallthrough now renders OrganisationDashboard
+  // (Phase C.2C), not <BrainBase enabledCapabilities={...}
+  // isSuperAdmin={...} /> — so BrainBase.jsx (and therefore LeftSidebar)
+  // is no longer reachable from the normal, session-resolved generic
+  // client path this test originally targeted. It IS still imported and
+  // rendered, but only as app/dashboard/page.tsx's pre-session-resolution
+  // auth-failure fallback (see organisationDashboardSeparation.test.ts),
+  // where no session/role has been resolved at all yet — so there is
+  // nothing to thread isSuperAdmin from at that point. The two checks
+  // below replace the single prior one: (1) BrainBase.jsx's own
+  // prop-threading into LeftSidebar remains structurally correct,
+  // independent of who currently calls it, so it is ready to receive a
+  // real isSuperAdmin value from any future caller; (2) the one call
+  // site that still exists today never claims isSuperAdmin=true it
+  // hasn't earned — it omits the prop entirely, which defaults to
+  // false (fail-closed: Admin can never leak from a session-less
+  // fallback render).
+  it('BrainBase.jsx still correctly threads an isSuperAdmin prop through into LeftSidebar (component signature and prop-threading both structurally intact)', () => {
     expect(brainBaseSource).toContain('function BrainBase({ enabledCapabilities = [], isSuperAdmin = false })')
     expect(brainBaseSource).toContain('<LeftSidebar open={sidebarOpen} onToggle={toggleSidebar} isSuperAdmin={isSuperAdmin} />')
+  })
+
+  it('BrainBase.jsx is no longer the generic /dashboard fallthrough target — its only remaining render site (the pre-session-resolution auth-failure fallback) never passes isSuperAdmin, so it always defaults to false and Admin can never leak from that fallback', () => {
+    expect(pageSource).toMatch(/<BrainBase enabledCapabilities=\{\[\]\} \/>/)
+    expect(pageSource).not.toMatch(/<BrainBase[^>]*isSuperAdmin/)
   })
 })

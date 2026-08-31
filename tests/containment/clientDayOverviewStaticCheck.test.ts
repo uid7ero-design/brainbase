@@ -23,9 +23,14 @@ describe('app/dashboard/page.tsx — dashboard resolution', () => {
     expect(pageSource).toContain("import { getAuthSession } from '@/lib/authSession'")
   })
 
-  it('the BrainBase fallback is preserved for any organisation the resolver does not recognise', () => {
-    const lastReturn = pageSource.slice(pageSource.lastIndexOf('return <BrainBase'))
-    expect(lastReturn).toContain('return <BrainBase />')
+  // Updated during the D.2.3 origin/main reconciliation merge: the
+  // generic-resolver fallback is OrganisationDashboard (Phase C.2C — see
+  // organisationDashboardSeparation.test.ts), not <BrainBase />. BrainBase
+  // itself is still preserved, but only as the pre-session-resolution
+  // auth-failure fallback (see navPersonaCoverage.test.ts).
+  it('the dashboard fallback for any organisation the resolver does not recognise is OrganisationDashboard (Phase C.2C), and BrainBase remains preserved as the separate auth-failure fallback', () => {
+    expect(pageSource).toMatch(/<OrganisationDashboard/)
+    expect(pageSource).toMatch(/catch \{ return <BrainBase enabledCapabilities=\{\[\]\} \/> \}/)
   })
 
   it('no user ID (Luke, or any hardcoded id) appears anywhere in the routing logic', () => {

@@ -708,7 +708,15 @@ function CalendarWidget() {
 // ── Main sidebar ─────────────────────────────────────────────────────────────
 const SIDEBAR_NAV = [
   {
-    key: 'hlna',  label: 'HLNA',  type: 'module', module: null,
+    // Phase C.2D: canonical HLNA destination is now the dedicated /hlna
+    // workspace, not the old activeModule=null + push('/dashboard')
+    // behaviour that predates it. LeftSidebar.jsx is legacy-only — only
+    // reachable via BrainBase.jsx, itself only rendered from
+    // app/dashboard/page.tsx's auth-failure catch fallback, not any
+    // normal authenticated route (generic /dashboard, /hlna, LD Tennis,
+    // Founder OS) — fixed for correctness/hygiene per this phase's
+    // requirement, not because this path is expected to be hit.
+    key: 'hlna',  label: 'HLNA',  type: 'link', href: '/hlna',
     icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M12 2C8.13 2 5 5.13 5 9c0 3.5 2.5 5.5 4.5 7.5L12 20l2.5-3.5C16.5 14.5 19 12.5 19 9c0-3.87-3.13-7-7-7z"/><circle cx="12" cy="9" r="2.5"/></svg>,
   },
   {

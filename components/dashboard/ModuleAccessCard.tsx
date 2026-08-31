@@ -27,6 +27,11 @@ type ModuleEntry = {
   cta: string;
 };
 
+// Phase C.2C — added the crm/organiser entries alongside the existing
+// events one so this card covers every capability key that genuinely
+// exists in `modules` today (confirmed via a read-only audit: crm, events,
+// organiser are the only three rows). Same pattern, same verified real
+// routes (/crm, /organiser) — not a guess.
 const MODULE_ENTRIES: ModuleEntry[] = [
   {
     key: 'events',
@@ -34,6 +39,20 @@ const MODULE_ENTRIES: ModuleEntry[] = [
     description: 'Create and manage events, registrations and tickets',
     href: '/events',
     cta: 'Open Events',
+  },
+  {
+    key: 'crm',
+    title: 'CRM',
+    description: 'Companies, contacts, deals and activities',
+    href: '/crm',
+    cta: 'Open CRM',
+  },
+  {
+    key: 'organiser',
+    title: 'Organiser',
+    description: 'Boards and tasks for your organisation',
+    href: '/organiser',
+    cta: 'Open Organiser',
   },
 ];
 

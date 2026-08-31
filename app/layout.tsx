@@ -166,16 +166,14 @@ export default async function RootLayout({
       /* UX projection only — fail closed to an empty list. */
     }
 
-    // Which bespoke client experience (if any) this organisation owns —
-    // the SAME slug-driven resolver app/dashboard/page.tsx already uses to
-    // pick TennisDashboard vs the generic BrainBase shell. Reused here
-    // (not a new capability, not a new concept) so TopNav can gate
-    // LD-Tennis-specific nav items (Leads/Squad/Sessions/Blog — tennis
-    // coaching-roster features, not generic client tools) the same way
-    // the dashboard body itself already distinguishes LD Tennis from
-    // every other client organisation. Never a hardcoded organisation id
-    // — driven entirely by the organisation's own slug, resolved
-    // server-side from the authenticated session.
+    // Same resolver app/dashboard/page.tsx already uses to decide between
+    // the Founder OS redirect, TennisDashboard, and the generic
+    // OrganisationDashboard — reused here (not reinvented) so TopNav's
+    // tenant classification can never disagree with the actual routing
+    // decision. Slug-driven, never a hardcoded org id/env var. Wrapped in
+    // its own try/catch, same fail-closed discipline as every other
+    // DB-derived field above, so a resolver failure degrades to no
+    // bespoke variant rather than blocking the page.
     let dashboardVariant: 'ld-tennis' | 'brainbase-hq' | null = null;
     try {
       dashboardVariant = await resolveDashboardVariant(session.organisationId, session.role);

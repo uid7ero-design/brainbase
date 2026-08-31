@@ -45,8 +45,23 @@ describe('TopNav — Events is a first-class, always-visible entry in BOTH AppNa
     expect(opsBody).not.toMatch(/label:\s*'Events'/)
   })
 
-  it('an always-visible Events NavItem, gated by enabledCapabilities, exists in the isClientOrg branch (the branch LD Tennis actually renders)', () => {
-    const clientBranchStart = code.indexOf('isClientOrg ? (')
+  // Updated during the D.2.3 origin/main reconciliation merge: the
+  // isClientOrg heuristic this comment block above describes is gone —
+  // C.2D replaced it with dashboardVariant-driven isLdTennis/isBrainbaseHQ
+  // classification (see tenantAwareNavigation.test.ts/clientNavOwnership
+  // .test.ts). AppNav's top-level branch pair is now `isLdTennis ? ( ... )
+  // : ( ... )` — the true side is LD Tennis's own bespoke nav, the false
+  // side is shared by every other session (generic clients AND
+  // Brainbase-internal staff together, individually gated within it by
+  // isBrainbaseHQ/isSuperAdmin/hasEvents). The semantic guarantee this
+  // describe block protects — Events is capability-gated and reachable
+  // from both branches, never buried only in the Operations dropdown —
+  // still holds; only the anchor text changed. Note the label text also
+  // legitimately differs per branch: 'Events' in the LD Tennis branch
+  // (mirroring generic clients' own always-visible pill), 'Events &
+  // Ticketing' in the shared branch (a fuller label there's room for).
+  it('an always-visible Events NavItem, gated by enabledCapabilities, exists in the isLdTennis branch (the branch LD Tennis actually renders)', () => {
+    const clientBranchStart = code.indexOf('isLdTennis ? (')
     const clientBranchEnd = code.indexOf(') : (', clientBranchStart)
     expect(clientBranchStart).toBeGreaterThan(-1)
     const region = code.slice(clientBranchStart, clientBranchEnd)
@@ -55,17 +70,17 @@ describe('TopNav — Events is a first-class, always-visible entry in BOTH AppNa
     expect(region).toMatch(/label="Events"/)
   })
 
-  it('an always-visible Events NavItem, gated by enabledCapabilities, also exists in the non-client (internal-staff) branch — not only inside the Operations dropdown', () => {
+  it('an always-visible Events NavItem, gated by enabledCapabilities (via the hasEvents variable), also exists in the shared generic-client + internal-staff branch — not only inside the Operations dropdown', () => {
     const clientBranchEnd = code.indexOf(') : (')
-    // A comment-free anchor: stripComments() already removed the JSX
-    // comment that used to mark this boundary in the raw source, so
-    // this slices up to the first real token of the far-right cluster
-    // (the compact logo's wrapper width) instead.
     const nonClientBranchEnd = code.indexOf('width: 185,', clientBranchEnd)
     const region = code.slice(clientBranchEnd, nonClientBranchEnd)
-    expect(region).toMatch(/enabledCapabilities\.includes\(\s*'events'\s*,?\s*\)/)
+    // hasEvents is declared once, above AppNav's return, as exactly
+    // enabledCapabilities.includes('events') — asserted separately below —
+    // so checking the gate uses hasEvents here is equivalent to checking
+    // the raw enabledCapabilities call inline.
+    expect(region).toMatch(/\{hasEvents && \(/)
     expect(region).toMatch(/href="\/events"/)
-    expect(region).toMatch(/label="Events"/)
+    expect(region).toMatch(/label="Events & Ticketing"/)
   })
 
   it('href is exactly /events in both branches — never a different or LD-Tennis-specific route', () => {
@@ -81,18 +96,22 @@ describe('TopNav — Events is a first-class, always-visible entry in BOTH AppNa
     // independent pass; see the "generic client navigation" describe
     // block below). What must remain true is narrower and still checked
     // here directly: Events itself, in both AppNav branches, is gated
-    // purely by enabledCapabilities, with no ld-tennis/organisation
-    // special-case anywhere near its own NavItem.
-    const clientBranchStart = code.indexOf('isClientOrg ? (')
+    // purely by enabledCapabilities (directly, or via the hasEvents
+    // variable that is itself nothing but enabledCapabilities.includes
+    // ('events')), with no ld-tennis/organisation special-case anywhere
+    // near its own NavItem.
+    expect(code).toMatch(/const hasEvents =\s*\n?\s*enabledCapabilities\.includes\(\s*\n?\s*'events',?\s*\n?\s*\);/)
+
+    const clientBranchStart = code.indexOf('isLdTennis ? (')
     const clientBranchEnd = code.indexOf(') : (', clientBranchStart)
     const clientRegion = code.slice(clientBranchStart, clientBranchStart + code.indexOf('label="Events"', clientBranchStart) - clientBranchStart + 40)
     expect(clientRegion).not.toMatch(/ld-tennis|LD Tennis|ld_tennis/i)
 
     const nonClientBranchEnd = code.indexOf('width: 185,', clientBranchEnd)
-    const eventsIdxNonClient = code.indexOf('label="Events"', clientBranchEnd)
+    const eventsIdxNonClient = code.indexOf('label="Events & Ticketing"', clientBranchEnd)
     expect(eventsIdxNonClient).toBeGreaterThan(-1)
     expect(eventsIdxNonClient).toBeLessThan(nonClientBranchEnd)
-    const eventsBlockStart = code.lastIndexOf('{enabledCapabilities.includes', eventsIdxNonClient)
+    const eventsBlockStart = code.lastIndexOf('{hasEvents && (', eventsIdxNonClient)
     const nonClientEventsRegion = code.slice(eventsBlockStart, eventsIdxNonClient + 40)
     expect(nonClientEventsRegion).not.toMatch(/ld-tennis|LD Tennis|ld_tennis/i)
   })

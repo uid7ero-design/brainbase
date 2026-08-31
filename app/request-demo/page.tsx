@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import Image from 'next/image';
+import { BrainBaseWordmark } from '@/components/brand/BrainBaseWordmark';
 
 const FONT =
   'var(--font-inter), "Inter", -apple-system, sans-serif';
@@ -406,17 +406,9 @@ export default function RequestDemoPage() {
                 margin: '0 auto 34px',
               }}
             >
-              <Image
-                src="/Brand/brainbase-logo-dark.svg"
-                alt="BRΛINBΛSE"
-                width={600}
-                height={140}
-                priority
-                style={{
-                  display: 'block',
-                  width: '100%',
-                  height: 'auto',
-                }}
+              <BrainBaseWordmark
+                width={260}
+                style={{ maxWidth: '100%' }}
               />
             </div>
 
@@ -561,17 +553,9 @@ export default function RequestDemoPage() {
                   justifyContent: 'center',
                 }}
               >
-                <Image
-                  src="/Brand/brainbase-logo-dark.svg"
-                  alt="BRΛINBΛSE"
-                  width={680}
-                  height={150}
-                  priority
-                  style={{
-                    display: 'block',
-                    width: '100%',
-                    height: 'auto',
-                  }}
+                <BrainBaseWordmark
+                  width={260}
+                  style={{ maxWidth: '100%' }}
                 />
               </div>
 

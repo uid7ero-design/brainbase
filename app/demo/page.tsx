@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import { HlnaOrb } from '@/components/brand/HlnaOrb'
+import { BrainBaseWordmark } from '@/components/brand/BrainBaseWordmark'
 
 const FONT =
   'var(--font-inter), "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
@@ -3093,9 +3094,8 @@ export default function DemoPage() {
           href="/"
           className="bb-logo"
         >
-          <img
-            src="/Brand/brainbase-logo-dark.svg"
-            alt="BRΛINBΛSE"
+          <BrainBaseWordmark
+            width={140}
           />
         </Link>
 

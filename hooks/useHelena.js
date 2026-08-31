@@ -327,7 +327,16 @@ export function useHelena() {
                              || (typeof window !== 'undefined' ? getContextForPath(window.location.pathname) : ''),
           moduleKey:        useAppStore.getState().activeModule || undefined,
           viewMode:         useAppStore.getState().viewMode || 'executive',
-          department:       useAppStore.getState().activeDepartment || 'waste',
+          // Only forward department context once a user has genuinely
+          // chosen one (via LeftSidebar's department switcher) — the
+          // 'waste' fallback here used to run unconditionally, since
+          // activeDepartment's own store default is 'waste', not falsy.
+          // That silently told /api/chat "the operator is viewing the
+          // Waste dashboard" for every org/session, including ones with no
+          // waste module at all. See Phase C.2B.2 report.
+          department:       useAppStore.getState().departmentSelected
+                             ? useAppStore.getState().activeDepartment
+                             : undefined,
         }),
       });
       const data = await res.json();

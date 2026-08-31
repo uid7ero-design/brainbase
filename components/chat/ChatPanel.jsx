@@ -282,7 +282,21 @@ function AnalysisCard({ analysis }) {
   );
 }
 
-export function ChatPanel({ messages, responding, transcript, onSend, onClose }) {
+export function ChatPanel({
+  messages, responding, transcript, onSend, onClose,
+  // Phase C.2B.1 — additive, backward-compatible: default 'floating' keeps
+  // every existing call site (components/BrainBase.jsx) pixel-identical.
+  // 'docked' is used only by components/helena/HelenaWorkspace.jsx's
+  // always-visible right-column conversation panel.
+  layout = 'floating',
+  emptyStateTitle = 'Ask HLNΛ about your dashboards, data, or operations.',
+  emptyStateHint = 'Try: "What are our top cost drivers?" or "Explain the waste contamination trend"',
+  // Phase C.2B.2 — docked mode only. Bounds the panel to a deliberate
+  // conversation card instead of filling the entire right column edge to
+  // edge. Ignored in 'floating' mode (BrainBase.jsx unaffected).
+  maxWidth = 860,
+  maxHeight = '74vh',
+}) {
   const [input, setInput]                 = useState('');
   const [pipelineStep, setPipelineStep]   = useState(0);
   const [openEvidence, setOpenEvidence]   = useState(() => new Set());
@@ -363,8 +377,18 @@ export function ChatPanel({ messages, responding, transcript, onSend, onClose })
     onSend(t);
   };
 
+  const docked = layout === 'docked';
+
   return (
-    <div style={{
+    <div style={docked ? {
+      position: "relative", width: "100%", maxWidth, height: "100%", maxHeight,
+      display: "flex", flexDirection: "column",
+      borderRadius: 14, overflow: "hidden",
+      background: "rgba(7, 7, 16, 0.97)",
+      border: "1px solid rgba(124,58,237,0.18)",
+      boxShadow: "0 0 0 1px rgba(124,58,237,0.05), 0 24px 60px rgba(0,0,0,0.45)",
+      fontFamily: FONT,
+    } : {
       position: "fixed", bottom: 86, right: 20,
       width: "min(520px, calc(100vw - 40px))", zIndex: 60,
       display: "flex", flexDirection: "column",
@@ -414,35 +438,39 @@ export function ChatPanel({ messages, responding, transcript, onSend, onClose })
         >
           SAVED BRIEFINGS
         </a>
-        <div style={{ fontSize: 9, color: "rgba(255,255,255,0.18)", letterSpacing: "0.06em", textTransform: "uppercase" }}>
-          ESC TO CLOSE
-        </div>
-        <button
-          onClick={onClose}
-          style={{
-            width: 24, height: 24, borderRadius: 6,
-            background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)",
-            color: "rgba(255,255,255,0.38)", fontSize: 11, cursor: "pointer",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            transition: "all 0.2s", fontFamily: FONT,
-          }}
-          onMouseEnter={e => { e.currentTarget.style.background = "rgba(255,255,255,0.08)"; e.currentTarget.style.color = "rgba(255,255,255,0.75)"; }}
-          onMouseLeave={e => { e.currentTarget.style.background = "rgba(255,255,255,0.04)"; e.currentTarget.style.color = "rgba(255,255,255,0.38)"; }}
-        >
-          ✕
-        </button>
+        {!docked && (
+          <div style={{ fontSize: 9, color: "rgba(255,255,255,0.18)", letterSpacing: "0.06em", textTransform: "uppercase" }}>
+            ESC TO CLOSE
+          </div>
+        )}
+        {onClose && (
+          <button
+            onClick={onClose}
+            style={{
+              width: 24, height: 24, borderRadius: 6,
+              background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)",
+              color: "rgba(255,255,255,0.38)", fontSize: 11, cursor: "pointer",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              transition: "all 0.2s", fontFamily: FONT,
+            }}
+            onMouseEnter={e => { e.currentTarget.style.background = "rgba(255,255,255,0.08)"; e.currentTarget.style.color = "rgba(255,255,255,0.75)"; }}
+            onMouseLeave={e => { e.currentTarget.style.background = "rgba(255,255,255,0.04)"; e.currentTarget.style.color = "rgba(255,255,255,0.38)"; }}
+          >
+            ✕
+          </button>
+        )}
       </div>
 
       {/* Messages */}
-      <div style={{ maxHeight: 340, overflowY: "auto", padding: "12px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ ...(docked ? { flex: 1 } : { maxHeight: 340 }), overflowY: "auto", padding: "12px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
         {messages.length === 0 && !responding && (
           <div style={{ textAlign: "center", padding: "28px 0" }}>
             <div style={{ fontSize: 22, color: "rgba(124,58,237,0.45)", marginBottom: 8, letterSpacing: "0.1em" }}>◈</div>
             <div style={{ fontSize: 11, color: "rgba(255,255,255,0.25)", letterSpacing: "0.04em" }}>
-              Ask HLNΛ about your dashboards, data, or operations.
+              {emptyStateTitle}
             </div>
             <div style={{ fontSize: 10, color: "rgba(255,255,255,0.15)", marginTop: 6 }}>
-              Try: "What are our top cost drivers?" or "Explain the waste contamination trend"
+              {emptyStateHint}
             </div>
           </div>
         )}

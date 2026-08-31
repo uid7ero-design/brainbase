@@ -89,9 +89,19 @@ describe('Client dashboard mounting — School Test Organisation (BrainBase shel
     expect(tennisSource).toMatch(/<ModuleAccessCard enabledCapabilities=\{enabledCapabilities\} \/>/)
   })
 
-  it('app/dashboard/page.tsx passes the server-computed enabledCapabilities into both dashboard variants', () => {
+  // Updated during the D.2.3 origin/main reconciliation merge: the
+  // generic fallthrough no longer renders <BrainBase enabledCapabilities
+  // ={...} isSuperAdmin={...} /> — Phase C.2C replaced it with
+  // OrganisationDashboard (see organisationDashboardSeparation.test.ts),
+  // which is what actually renders on this branch for every non-LD-
+  // Tennis, non-Brainbase-HQ organisation today. BrainBase.jsx's own
+  // enabledCapabilities-forwarding to ModuleAccessCard (asserted above)
+  // remains structurally correct — it is simply no longer reached from
+  // this call site; its one remaining caller is the session-less
+  // auth-failure fallback (see navPersonaCoverage.test.ts).
+  it('app/dashboard/page.tsx passes the server-computed enabledCapabilities into both dashboard variants that are actually reachable today (TennisDashboard and OrganisationDashboard)', () => {
     expect(pageSource).toMatch(/<TennisDashboard[\s\S]{0,900}enabledCapabilities=\{enabledCapabilities\}/)
-    expect(pageSource).toContain("<BrainBase enabledCapabilities={enabledCapabilities} isSuperAdmin={session.role === 'super_admin'} />")
+    expect(pageSource).toMatch(/<OrganisationDashboard[\s\S]{0,300}enabledCapabilities=\{enabledCapabilities\}/)
   })
 })
 

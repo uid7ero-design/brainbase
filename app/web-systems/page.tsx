@@ -2,9 +2,9 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import Image from 'next/image';
 
 import EnquiryModal from '@/components/web-services/EnquiryModal';
+import { BrainBaseWordmark } from '@/components/brand/BrainBaseWordmark';
 
 const FONT =
   'var(--font-inter), "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
@@ -346,13 +346,9 @@ export default function WebSystemsPage() {
         >
           <div style={{ flex: '1 1 470px', maxWidth: 600 }}>
             <div style={{ width: 330, maxWidth: '86vw', marginBottom: 29 }}>
-              <Image
-                src="/Brand/brainbase-logo-dark.svg"
-                alt="BRΛINBΛSE"
-                width={720}
-                height={150}
-                priority
-                style={{ display: 'block', width: '100%', height: 'auto' }}
+              <BrainBaseWordmark
+                width={280}
+                style={{ maxWidth: '100%' }}
               />
             </div>
 
