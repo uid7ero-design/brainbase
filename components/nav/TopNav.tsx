@@ -2,8 +2,8 @@
 
 import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
-import Image from 'next/image';
 import { usePathname } from 'next/navigation';
+import { BrainBaseWordmark } from '@/components/brand/BrainBaseWordmark';
 
 type Session = {
   role: string;
@@ -808,29 +808,8 @@ function Logo({
         overflow: 'visible',
       }}
     >
-      <Image
-        src="/Brand/brainbase-logo-dark.svg"
-        alt="BRΛINBΛSE"
-        width={300}
-        height={68}
-        priority
-        style={{
-          display: 'block',
-          width: visualWidth,
-          height: 'auto',
-          maxWidth: 'none',
-
-          /*
-            Compensates for whitespace
-            inside the SVG artwork.
-          */
-          transform: compact
-            ? 'scale(1.10)'
-            : 'none',
-
-          transformOrigin:
-            'center center',
-        }}
+      <BrainBaseWordmark
+        width={visualWidth}
       />
     </Link>
   );

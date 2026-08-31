@@ -2,9 +2,9 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import Image from 'next/image';
 
 import CommandDemo from '@/components/CommandDemo';
+import { BrainBaseWordmark } from '@/components/brand/BrainBaseWordmark';
 
 const FONT =
   'var(--font-inter), "Inter", -apple-system, sans-serif';
@@ -458,19 +458,9 @@ export default function Home() {
           >
             <div style={{ maxWidth: 620, position: 'relative', zIndex: 2 }}>
               <div style={{ marginBottom: 31, display: 'inline-flex', alignItems: 'center' }}>
-                <Image
-                  src="/Brand/brainbase-logo-dark.svg"
-                  alt="BRΛINBΛSE"
-                  width={500}
-                  height={114}
-                  priority
-                  style={{
-                    display: 'block',
-                    width: 355,
-                    maxWidth: '90vw',
-                    height: 'auto',
-                    transform: 'translateX(-3.5%)',
-                  }}
+                <BrainBaseWordmark
+                  width={280}
+                  style={{ maxWidth: '90vw' }}
                 />
               </div>
 
@@ -1933,18 +1923,9 @@ export default function Home() {
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 18, flexWrap: 'wrap' }}>
-            <Image
-              src="/Brand/brainbase-logo-dark.svg"
-              alt="BRΛINBΛSE"
-              width={180}
-              height={42}
-              style={{
-                display: 'block',
-                width: 125,
-                height: 'auto',
-                opacity: 0.70,
-                transform: 'translateX(-3.5%)',
-              }}
+            <BrainBaseWordmark
+              width={100}
+              style={{ opacity: 0.70 }}
             />
 
             <span style={{ fontSize: 10, color: 'rgba(255,255,255,.30)' }}>

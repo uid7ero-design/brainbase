@@ -32,6 +32,7 @@ import { useEffect, useRef, useState } from "react";
 import { useHelena } from "../../hooks/useHelena";
 import { useAppStore } from "../../lib/state/useAppStore";
 import { HelenaOrbital } from "../brand/HelenaOrbital";
+import { BrainBaseWordmark } from "../brand/BrainBaseWordmark";
 import { ChatPanel } from "../chat/ChatPanel";
 import { HelenaMic } from "./HelenaMic";
 import { BrainGraphPanel } from "../panels/BrainGraphPanel";
@@ -164,11 +165,10 @@ export default function HelenaWorkspace() {
       }}>
         <a
           href="/dashboard"
+          aria-label="BRΛINBΛSE home"
           style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0, textDecoration: "none" }}
         >
-          <span style={{ fontSize: 14, fontWeight: 700, letterSpacing: ".04em", color: "#F5F7FA", userSelect: "none", whiteSpace: "nowrap" }}>
-            BR<span style={{ color: "#A78BFA" }}>Λ</span>INBASE
-          </span>
+          <BrainBaseWordmark width={116} />
           <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: ".22em", color: "rgba(167,139,250,.55)", textTransform: "uppercase" }}>
             HLNΛ
           </span>

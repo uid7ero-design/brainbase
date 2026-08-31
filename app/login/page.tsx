@@ -3,11 +3,11 @@
 import { useState, useEffect } from 'react';
 import { useActionState } from 'react';
 import { useRouter } from 'next/navigation';
-import Image from 'next/image';
 import Link from 'next/link';
 
 import { login } from '@/app/actions/auth';
 import { HlnaOrb } from '@/components/brand/HlnaOrb';
+import { BrainBaseWordmark } from '@/components/brand/BrainBaseWordmark';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -178,28 +178,8 @@ export default function LoginPage() {
                 overflow: 'visible',
               }}
             >
-              <Image
-                src="/Brand/brainbase-logo-dark.svg"
-                alt="BrainBase"
-                width={700}
-                height={158}
-                priority
-                style={{
-                  display: 'block',
-
-                  width: 525,
-
-                  maxWidth: '138%',
-
-                  height: 'auto',
-
-                  /*
-                    Optical adjustment for the actual artwork
-                    inside the SVG.
-                  */
-                  transform:
-                    'translateX(-3.5%)',
-                }}
+              <BrainBaseWordmark
+                width={280}
               />
             </div>
           </div>
