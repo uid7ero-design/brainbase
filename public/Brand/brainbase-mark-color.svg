@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512"><defs>
+<linearGradient id="orbitGrad" x1="8%" y1="8%" x2="92%" y2="92%">
+  <stop offset="0" stop-color="#A855F7"/>
+  <stop offset="0.48" stop-color="#7C5CFF"/>
+  <stop offset="1" stop-color="#00D4FF"/>
+</linearGradient>
+<radialGradient id="coreGrad" cx="34%" cy="27%" r="78%">
+  <stop offset="0" stop-color="#FFFFFF"/>
+  <stop offset="0.18" stop-color="#F2EDFF"/>
+  <stop offset="0.42" stop-color="#B56CFF"/>
+  <stop offset="0.72" stop-color="#6576FF"/>
+  <stop offset="1" stop-color="#00D4FF"/>
+</radialGradient>
+<filter id="coreGlow" x="-220%" y="-220%" width="540%" height="540%">
+  <feGaussianBlur stdDeviation="8" result="b1"/><feGaussianBlur stdDeviation="2.2" result="b2"/>
+  <feMerge><feMergeNode in="b1"/><feMergeNode in="b2"/><feMergeNode in="SourceGraphic"/></feMerge>
+</filter>
+<filter id="nodeGlow" x="-180%" y="-180%" width="460%" height="460%">
+  <feGaussianBlur stdDeviation="2.2" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+</filter>
+</defs>
+<g>
+  <circle cx="256" cy="256" r="164" fill="none" stroke="url(#orbitGrad)" stroke-width="3.0"/>
+  <circle cx="256" cy="256" r="124" fill="none" stroke="url(#orbitGrad)" stroke-width="3.0" stroke-linecap="round" stroke-dasharray="615.50 163.61" transform="rotate(-74 256 256)"/>
+  <circle cx="256" cy="256" r="84" fill="none" stroke="url(#orbitGrad)" stroke-width="3.0" stroke-linecap="round" stroke-dasharray="432.79 95.00" transform="rotate(18 256 256)"/>
+  <circle cx="134.12" cy="146.26" r="10.5" fill="#A855F7" filter="url(#nodeGlow)"/>
+  <circle cx="132.30" cy="247.35" r="8.5" fill="#7C5CFF" filter="url(#nodeGlow)"/>
+  <circle cx="318.42" cy="312.21" r="9.5" fill="#00D4FF" filter="url(#nodeGlow)"/>
+  <circle cx="256" cy="256" r="34" fill="url(#coreGrad)" filter="url(#coreGlow)"/>
+</g></svg>

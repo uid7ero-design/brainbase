@@ -161,11 +161,22 @@ describe('Surface adoption — homepage', () => {
     expect((homepageSource.match(/<OrbitalBackground/g) ?? []).length).toBe(1)
   })
 
-  it('the hero content grid is explicitly given its own stacking context (position+zIndex) above the background — otherwise an absolutely-positioned background sibling paints above unpositioned normal-flow content', () => {
-    const orbitalIdx = homepageSource.indexOf('<OrbitalBackground')
-    const gridDivRegion = homepageSource.slice(orbitalIdx, orbitalIdx + 400)
-    expect(gridDivRegion).toMatch(/position:\s*'relative'/)
-    expect(gridDivRegion).toMatch(/zIndex:\s*1/)
+  // Updated during Phase D.3.1: a content-safe mask div (also
+  // aria-hidden/pointer-events:none, part of the same stacking level as
+  // OrbitalBackground) was inserted between OrbitalBackground and the
+  // content wrapper, so the wrapper is no longer within a fixed small
+  // window right after the <OrbitalBackground> tag — anchored on the
+  // bb-home-hero-inner class instead, which is the actual element that
+  // needs (and has) the explicit stacking context.
+  it('the hero content wrapper is explicitly given its own stacking context (position+zIndex) above the background — otherwise an absolutely-positioned background sibling paints above unpositioned normal-flow content', () => {
+    // className="bb-home-hero-inner" (the JSX usage), not the earlier bare
+    // ".bb-home-hero-inner" CSS-selector text inside the KEYFRAMES constant
+    // defined above the component.
+    const innerIdx = homepageSource.indexOf('className="bb-home-hero-inner"')
+    expect(innerIdx, 'expected a bb-home-hero-inner JSX element').toBeGreaterThan(-1)
+    const innerRegion = homepageSource.slice(innerIdx, innerIdx + 400)
+    expect(innerRegion).toMatch(/position:\s*'relative'/)
+    expect(innerRegion).toMatch(/zIndex:\s*1/)
   })
 })
 

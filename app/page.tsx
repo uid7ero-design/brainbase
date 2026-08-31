@@ -6,6 +6,7 @@ import Link from 'next/link';
 import CommandDemo from '@/components/CommandDemo';
 import { BrainBaseWordmark } from '@/components/brand/BrainBaseWordmark';
 import { OrbitalBackground } from '@/components/brand/OrbitalBackground';
+import { HeroOrbitMark } from '@/components/brand/HeroOrbitMark';
 
 const FONT =
   'var(--font-inter), "Inter", -apple-system, sans-serif';
@@ -15,16 +16,6 @@ const BG = '#07080B';
 const KEYFRAMES = `
   html {
     scroll-behavior: smooth;
-  }
-
-  @keyframes orbFloat {
-    0%, 100% {
-      transform: translateY(0px) scale(1);
-    }
-
-    50% {
-      transform: translateY(-9px) scale(1.016);
-    }
   }
 
   @keyframes glowPulse {
@@ -102,7 +93,8 @@ const KEYFRAMES = `
   }
 
   @media (max-width: 680px) {
-    .bb-home-shell {
+    .bb-home-shell,
+    .bb-home-hero-inner {
       padding-left: 18px !important;
       padding-right: 18px !important;
     }
@@ -111,6 +103,11 @@ const KEYFRAMES = `
       min-height: auto !important;
       padding-top: 62px !important;
       padding-bottom: 72px !important;
+    }
+
+    .bb-hero-orbit-mark {
+      width: 260px !important;
+      height: 260px !important;
     }
 
     .bb-home-path-grid,
@@ -418,38 +415,61 @@ export default function Home() {
     >
       <style>{KEYFRAMES}</style>
 
-      <div
-        className="bb-home-shell"
+      {/* ==================================================================
+          1. HERO — Phase D.3.1: pulled out of bb-home-shell's maxWidth:1220
+          constraint so the section (and OrbitalBackground within it) can
+          span the full available viewport width — the previous nested
+          structure boxed the atmosphere/artwork in at 1220px minus 64px of
+          padding, which is why the old hero visual clipped rather than
+          simply cropping naturally at the edges. Content itself still sits
+          inside its own maxWidth:1220 inner wrapper immediately below, so
+          readable width is unchanged — only the section's background layer
+          now reaches the true viewport edges.
+      =================================================================== */}
+
+      <section
+        className="bb-home-hero"
         style={{
-          maxWidth: 1220,
-          margin: '0 auto',
-          padding: '0 32px 96px',
+          minHeight: 'calc(100vh - 52px)',
+          display: 'flex',
+          alignItems: 'center',
+          padding: '50px 0 78px',
           position: 'relative',
-          zIndex: 1,
+          overflow: 'hidden',
         }}
       >
-        {/* ================================================================
-            1. HERO
-        ================================================================= */}
+        {/* Hybrid Orbit atmosphere — Phase D.3, tuned in D.3.1. Strongest
+            expression on the site: homepage is the primary "this is
+            Hybrid Orbit" surface. Scoped to the hero section only (not
+            page-wide) so content further down the page stays clean. */}
+        <OrbitalBackground variant="field" intensity="high" placement="top-right" />
 
-        <section
-          className="bb-home-hero"
+        {/* Content-safe mask (D.3.1) — fades the atmosphere out behind the
+            headline/copy/CTA column so decorative rings/nodes never
+            compete with glyphs, while leaving it at full strength toward
+            the right (where the hero visual now carries the primary
+            visual weight) and the outer edges. */}
+        <div
+          aria-hidden="true"
           style={{
-            minHeight: 'calc(100vh - 52px)',
-            display: 'flex',
-            alignItems: 'center',
-            padding: '50px 0 78px',
+            position: 'absolute',
+            inset: 0,
+            pointerEvents: 'none',
+            background: 'linear-gradient(90deg, rgba(7,8,11,.82) 0%, rgba(7,8,11,.58) 32%, rgba(7,8,11,.18) 52%, transparent 66%)',
+          }}
+        />
+
+        <div
+          className="bb-home-hero-inner"
+          style={{
+            maxWidth: 1220,
+            margin: '0 auto',
+            padding: '0 32px',
+            width: '100%',
             position: 'relative',
-            overflow: 'hidden',
+            zIndex: 1,
           }}
         >
-          {/* Hybrid Orbit atmosphere — Phase D.3. Strongest expression on
-              the site: homepage is the primary "this is Hybrid Orbit"
-              surface. Scoped to the hero section only (not page-wide) so
-              content further down the page stays clean. Replaces the old
-              plain fixed radial-gradient wash. */}
-          <OrbitalBackground variant="field" intensity="high" placement="top-right" />
-
           <div
             style={{
               display: 'grid',
@@ -686,15 +706,42 @@ export default function Home() {
                 transform: 'translateY(-10px)',
               }}
             >
+              {/* Phase D.3.1 — replaces this page's standalone raster
+                  lens-style hero <img> (public/hlna-orb-only.webp, a
+                  camera-aperture-looking asset predating and conflicting
+                  with Hybrid Orbit) with HeroOrbitMark: a dedicated,
+                  static/presentational SVG built from the same approved
+                  master mark geometry OrbitalBackground and HelenaOrbital
+                  both derive from — not a fourth visual system, and never
+                  interactive/stateful (no listening/thinking/speaking),
+                  so it can't be mistaken for Helena actually being
+                  present. The webp asset itself is untouched/not deleted
+                  — components/brand/HlnaOrb.jsx (the functional assistant
+                  visual used elsewhere: MicButton, IntelRail, demo,
+                  command, BrainBase.jsx's fallback) still loads it as its
+                  own ORB_SRC; only this page's homepage-hero usage of it
+                  is replaced. See components/brand/HeroOrbitMark.tsx. */}
               <div
                 style={{
                   width: '100%',
                   maxWidth: 530,
+                  height: 420,
                   position: 'relative',
-                  display: 'flex',
-                  justifyContent: 'center',
                 }}
               >
+                {/* Local scrim (D.3.1) — OrbitalBackground's own baked-in
+                    "core" glow (from the static asset) sat directly behind
+                    this exact zone, reading as a second bright orb next to
+                    HeroOrbitMark's core. This clears OrbitalBackground's
+                    bleed-through in just this local box (painted first, so
+                    everything below still renders on top of it) rather
+                    than repositioning/weakening OrbitalBackground globally
+                    — the surrounding rings/stars stay fully visible.
+                    All three layers below share the exact same absolute-
+                    center anchor so they align on top of one another,
+                    rather than mixing absolutely-positioned glow layers
+                    with a normal-flow-sized mark (which is what produced
+                    two visibly offset orbs the first time). */}
                 <div
                   aria-hidden="true"
                   style={{
@@ -702,32 +749,43 @@ export default function Home() {
                     left: '50%',
                     top: '50%',
                     transform: 'translate(-50%, -50%)',
-                    width: 620,
-                    height: 620,
-                    maxWidth: '90vw',
-                    maxHeight: '90vw',
+                    width: 1000,
+                    height: 1000,
+                    maxWidth: '140vw',
+                    maxHeight: '140vw',
                     borderRadius: '50%',
-                    background: 'radial-gradient(circle, rgba(138,77,255,.15) 0%, rgba(88,68,220,.06) 38%, transparent 68%)',
+                    background: 'radial-gradient(circle, rgba(7,8,11,.85) 0%, rgba(7,8,11,.55) 38%, rgba(7,8,11,.2) 58%, transparent 76%)',
+                  }}
+                />
+
+                <div
+                  aria-hidden="true"
+                  style={{
+                    position: 'absolute',
+                    left: '50%',
+                    top: '50%',
+                    transform: 'translate(-50%, -50%)',
+                    width: 480,
+                    height: 480,
+                    maxWidth: '85vw',
+                    maxHeight: '85vw',
+                    borderRadius: '50%',
+                    background: 'radial-gradient(circle, rgba(138,77,255,.16) 0%, rgba(88,68,220,.06) 40%, transparent 70%)',
                     filter: 'blur(28px)',
                     animation: 'glowPulse 7s ease-in-out infinite',
                   }}
                 />
 
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src="/hlna-orb-only.webp"
-                  alt="HLNΛ intelligence engine"
+                <div
                   style={{
-                    width: '100%',
-                    display: 'block',
-                    objectFit: 'contain',
-                    position: 'relative',
-                    zIndex: 1,
-                    animation: 'orbFloat 6s ease-in-out infinite',
-                    opacity: 0.94,
-                    filter: 'drop-shadow(0 0 38px rgba(120,80,255,.45)) drop-shadow(0 0 100px rgba(70,100,255,.22))',
+                    position: 'absolute',
+                    left: '50%',
+                    top: '50%',
+                    transform: 'translate(-50%, -50%)',
                   }}
-                />
+                >
+                  <HeroOrbitMark size={400} className="bb-hero-orbit-mark" />
+                </div>
               </div>
 
               <div
@@ -773,8 +831,19 @@ export default function Home() {
               </div>
             </div>
           </div>
-        </section>
+        </div>
+      </section>
 
+      <div
+        className="bb-home-shell"
+        style={{
+          maxWidth: 1220,
+          margin: '0 auto',
+          padding: '0 32px 96px',
+          position: 'relative',
+          zIndex: 1,
+        }}
+      >
         {/* PLATFORM STATEMENT */}
 
         <section
