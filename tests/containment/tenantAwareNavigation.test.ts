@@ -211,9 +211,18 @@ describe('Phase C.2D — containment', () => {
     expect(orgDashboard).not.toContain('dashboardVariant')
   })
 
-  it('the separate founder-nav-dropdown-clipping hotfix is not referenced or duplicated here', () => {
-    expect(topNavSource).not.toContain('panelPos')
-    expect(topNavSource).not.toContain('triggerRef')
+  // Originally: "the separate founder-nav-dropdown-clipping hotfix is not
+  // referenced or duplicated here", asserting TopNav had zero panelPos/
+  // triggerRef presence — correct for C.2D, whose scope deliberately
+  // excluded that hotfix. Phase C.2F integrated the verified fix from
+  // hotfix/founder-nav-dropdown-clipping (commit 26d4596) into this
+  // branch's TopNav.tsx (see tests/containment/
+  // founderNavDropdownRegression.test.ts for the dedicated coverage of
+  // that fix itself) — updated here to confirm the integration landed
+  // rather than pinning the pre-C.2F absence.
+  it('the founder-nav-dropdown-clipping fix was integrated in C.2F, not left as a separate unmerged hotfix', () => {
+    expect(topNavSource).toContain('panelPos')
+    expect(topNavSource).toContain('triggerRef')
   })
 
   it('/dashboard still renders OrganisationDashboard for the generic fallthrough (C.2C untouched)', () => {

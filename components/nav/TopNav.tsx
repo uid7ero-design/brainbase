@@ -226,6 +226,19 @@ function OpsDropdown({
   const [open, setOpen] =
     useState(false);
 
+  // Hotfix (founder nav dropdown clipping, ported from
+  // hotfix/founder-nav-dropdown-clipping commit 26d4596): render the
+  // panel position:'fixed' from the trigger's own measured screen
+  // position rather than position:'absolute' relative to this wrapper.
+  // Fixed positioning lays out against the viewport, not this (or any)
+  // ancestor, so it can't be clipped by any overflow constraint an
+  // ancestor row does or later comes to have.
+  const [panelPos, setPanelPos] =
+    useState<{ top: number; left: number } | null>(null);
+
+  const triggerRef =
+    useRef<HTMLDivElement | null>(null);
+
   const timerRef =
     useRef<ReturnType<typeof setTimeout> | null>(
       null,
@@ -253,6 +266,11 @@ function OpsDropdown({
       clearTimeout(timerRef.current);
     }
 
+    const rect = triggerRef.current?.getBoundingClientRect();
+    if (rect) {
+      setPanelPos({ top: rect.bottom + 10, left: rect.left });
+    }
+
     setOpen(true);
   }
 
@@ -265,6 +283,7 @@ function OpsDropdown({
 
   return (
     <div
+      ref={triggerRef}
       style={{
         position: 'relative',
       }}
@@ -333,12 +352,14 @@ function OpsDropdown({
         </svg>
       </button>
 
-      {open && (
+      {open && panelPos && (
         <div
+          onMouseEnter={handleEnter}
+          onMouseLeave={handleLeave}
           style={{
-            position: 'absolute',
-            top: 'calc(100% + 10px)',
-            left: 0,
+            position: 'fixed',
+            top: panelPos.top,
+            left: panelPos.left,
             background:
               'rgba(7,5,16,.98)',
             border:
@@ -537,6 +558,17 @@ function AdminDropdown({
   const [open, setOpen] =
     useState(false);
 
+  // Hotfix (founder nav dropdown clipping, ported from
+  // hotfix/founder-nav-dropdown-clipping commit 26d4596) — same fix as
+  // OpsDropdown above: position:'fixed' from a measured trigger rect
+  // instead of position:'absolute', so the panel can't be clipped by
+  // any ancestor overflow constraint.
+  const [panelPos, setPanelPos] =
+    useState<{ top: number; left: number } | null>(null);
+
+  const triggerRef =
+    useRef<HTMLDivElement | null>(null);
+
   const timerRef =
     useRef<ReturnType<typeof setTimeout> | null>(
       null,
@@ -554,6 +586,11 @@ function AdminDropdown({
       clearTimeout(timerRef.current);
     }
 
+    const rect = triggerRef.current?.getBoundingClientRect();
+    if (rect) {
+      setPanelPos({ top: rect.bottom + 10, left: rect.left });
+    }
+
     setOpen(true);
   }
 
@@ -567,6 +604,7 @@ function AdminDropdown({
 
   return (
     <div
+      ref={triggerRef}
       style={{
         position: 'relative',
       }}
@@ -635,12 +673,14 @@ function AdminDropdown({
         </svg>
       </button>
 
-      {open && (
+      {open && panelPos && (
         <div
+          onMouseEnter={handleEnter}
+          onMouseLeave={handleLeave}
           style={{
-            position: 'absolute',
-            top: 'calc(100% + 10px)',
-            left: 0,
+            position: 'fixed',
+            top: panelPos.top,
+            left: panelPos.left,
             background:
               'rgba(7,5,16,.98)',
             border:
