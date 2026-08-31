@@ -8,6 +8,7 @@ import { getClientIp } from '@/lib/clientIp';
 import { createCheckoutSession, RESERVATION_WINDOW_SECONDS, StripeNotConfiguredError } from '@/lib/events/stripe';
 import { checkPaidTicketingEligibility } from '@/lib/events/stripeConnect';
 import { listActiveQuestions, validateSubmittedResponses, writeRegistrationResponses } from '@/lib/events/registrationQuestions';
+import { syncEventOrderContact } from '@/lib/crm/eventSync';
 
 type Ctx = { params: Promise<{ organisationSlug: string; eventSlug: string }> };
 
@@ -256,6 +257,25 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     await sql`UPDATE event_orders SET status = 'CANCELLED', payment_status = 'FAILED' WHERE id = ${orderId} AND payment_status = 'PENDING'`;
     return NextResponse.json({ error: 'Checkout could not be started. Please try again.' }, { status: 500 });
   }
+
+  // Events -> CRM sync (Phase 5) — after the order + responses have
+  // committed, BEFORE the Stripe redirect. Payment is still PENDING at
+  // this point (matching Phase 5's paid-registration behaviour spec:
+  // "create/update/reuse purchaser CRM contact if safe to do so...
+  // payment may still be PENDING"). Deliberately NOT recording a
+  // booking activity here yet — that happens once Stripe actually
+  // confirms payment (see lib/events/stripe.ts's webhook handlers),
+  // so the activity reflects a real payment outcome rather than an
+  // as-yet-unpaid reservation. Best-effort and never throws (see
+  // lib/crm/eventSync.ts) — a CRM failure here must never cancel the
+  // reservation or block the Stripe redirect below.
+  await syncEventOrderContact({
+    organisationId,
+    orderId,
+    purchaserName: validated.purchaser_name,
+    purchaserEmail: validated.purchaser_email,
+    purchaserPhone: validated.purchaser_phone,
+  });
 
   // ── Stripe Checkout Session creation ────────────────────────────────
   //

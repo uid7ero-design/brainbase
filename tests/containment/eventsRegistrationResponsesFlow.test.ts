@@ -49,6 +49,19 @@ vi.mock('@/lib/events/stripeConnect', () => ({
   checkPaidTicketingEligibility: (...args: unknown[]) => checkPaidTicketingEligibilityMock(...args),
 }))
 
+// Phase 5 — Events -> CRM sync is a separate, orthogonal concern with
+// its own dedicated coverage (tests/containment/crmEventSyncBoundary.test.ts,
+// crmEventSyncPrivacy.test.ts, scripts/tests/verify-events-crm-sync-
+// concurrency.sh). Mocked away here as a no-op so this file's atomic-
+// transaction-shape assertions continue to reflect ONLY the
+// registration-response persistence behaviour they were written to
+// prove, not incidentally coupled to however many internal queries CRM
+// sync happens to issue.
+vi.mock('@/lib/crm/eventSync', () => ({
+  syncEventOrderContact: vi.fn().mockResolvedValue(undefined),
+  recordEventBookingActivity: vi.fn().mockResolvedValue(undefined),
+}))
+
 const createCheckoutSessionMock = vi.fn()
 class MockStripeNotConfiguredError extends Error {}
 vi.mock('@/lib/events/stripe', () => ({

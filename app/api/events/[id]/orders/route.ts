@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import sql from '@/lib/db';
 import { authorizeEventsRequest } from '@/lib/events/authorize';
+import { checkCapability } from '@/lib/capabilities/requireCapability';
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -39,6 +40,7 @@ export async function GET(_req: Request, { params }: Ctx) {
     SELECT
       eo.id, eo.purchaser_name, eo.purchaser_email, eo.purchaser_phone, eo.status, eo.created_at,
       eo.payment_status, eo.total_cents, eo.currency, eo.paid_at, eo.refunded_at, eo.stripe_payment_intent_id IS NOT NULL AS refundable,
+      eo.crm_contact_id,
       eo.expires_at, (eo.payment_status = 'PENDING' AND eo.expires_at IS NOT NULL AND eo.expires_at <= NOW()) AS is_expired_pending,
       oi.id AS order_item_id, oi.quantity,
       tt.id AS ticket_type_id, tt.name AS ticket_type_name,
@@ -74,5 +76,13 @@ export async function GET(_req: Request, { params }: Ctx) {
     ORDER BY eo.created_at DESC
   `;
 
-  return NextResponse.json({ orders });
+  // Phase 5 — whether the "View CRM Contact" action may render at all is
+  // decided server-side, once, here: crm_enabled reflects this
+  // organisation's OWN CRM capability entitlement (not a global
+  // modules-row check — see lib/capabilities/requireCapability.ts).
+  // Never exposed on any public endpoint — this route is viewer+
+  // staff-authenticated only (see this file's own header comment).
+  const crmCapability = await checkCapability(session.organisationId, 'crm');
+
+  return NextResponse.json({ orders, crm_enabled: crmCapability.allowed });
 }

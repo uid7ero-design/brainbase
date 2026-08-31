@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import sql from '@/lib/db';
 import { authorizeEventsRequest } from '@/lib/events/authorize';
 import { createRefund } from '@/lib/events/stripe';
+import { recordEventBookingActivity } from '@/lib/crm/eventSync';
 
 type Ctx = { params: Promise<{ id: string; orderId: string }> };
 
@@ -80,6 +81,31 @@ export async function POST(_req: Request, { params }: Ctx) {
     // manager requests). The money-side refund already succeeded and
     // is not reversed; report success rather than a misleading error.
     return NextResponse.json({ ok: true, note: 'Refund processed by Stripe; order state was already updated by a concurrent request.' });
+  }
+
+  // Events -> CRM sync (Phase 5) — best-effort, never throws (see
+  // lib/crm/eventSync.ts). Updates the order's existing booking
+  // activity, if one exists, to reflect REFUNDED — never deletes the
+  // CRM contact, and no-ops silently if CRM is disabled or the order
+  // was never linked to a contact.
+  const detailRows = await sql`
+    SELECT eo.total_cents, eo.currency, e.name AS event_name,
+      (SELECT COALESCE(SUM(oi.quantity), 0)::int FROM event_order_items oi WHERE oi.order_id = eo.id) AS quantity
+    FROM event_orders eo
+    JOIN events e ON e.id = eo.event_id AND e.organisation_id = eo.organisation_id
+    WHERE eo.id = ${orderId} AND eo.organisation_id = ${session.organisationId}
+  `;
+  const detail = detailRows[0] as { total_cents: number; currency: string; event_name: string; quantity: number } | undefined;
+  if (detail) {
+    await recordEventBookingActivity({
+      organisationId: session.organisationId,
+      orderId,
+      eventName: detail.event_name,
+      quantity: detail.quantity,
+      totalCents: detail.total_cents,
+      currency: detail.currency,
+      paymentStatus: 'REFUNDED',
+    });
   }
 
   return NextResponse.json({ ok: true });

@@ -57,6 +57,18 @@ vi.mock('@/lib/capabilities/requireCapability', async (importOriginal) => {
 const checkRateLimitMock = vi.fn()
 vi.mock('@/lib/rateLimit', () => ({ checkRateLimit: (...args: unknown[]) => checkRateLimitMock(...args) }))
 
+// Phase 5 — Events -> CRM sync is a separate, orthogonal concern with
+// its own dedicated coverage (tests/containment/crmEventSyncBoundary.test.ts,
+// crmEventSyncPrivacy.test.ts, scripts/tests/verify-events-crm-sync-
+// concurrency.sh). Mocked away here as a no-op so this file's existing
+// sqlMock call-count assertions continue to reflect ONLY the ticketing
+// behaviour they were written to prove, not incidentally coupled to
+// however many internal queries CRM sync happens to issue.
+vi.mock('@/lib/crm/eventSync', () => ({
+  syncEventOrderContact: vi.fn().mockResolvedValue(undefined),
+  recordEventBookingActivity: vi.fn().mockResolvedValue(undefined),
+}))
+
 function queue(...responses: unknown[][]) { responseQueue = responses; callCount = 0 }
 function sessionAs(role: string, organisationId = 'org-a') { return { userId: 'staff-1', organisationId, role } }
 function jsonReq(url: string, method: string, body?: unknown) {

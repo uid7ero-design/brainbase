@@ -74,6 +74,12 @@ export default function EventDetailClient({ eventId, canManage }: { eventId: str
 
   const [orders, setOrders] = useState<OrderRow[] | null>(null);
   const [ordersError, setOrdersError] = useState<string | null>(null);
+  // Phase 5 — decided server-side by GET /api/events/[id]/orders itself
+  // (this organisation's real CRM capability entitlement, never assumed
+  // client-side). Defaults false until the first successful fetch, so
+  // "View CRM Contact" never flashes visible before it's actually known
+  // to be allowed.
+  const [crmEnabled, setCrmEnabled] = useState(false);
 
   // Fetch is inlined directly in the effect (rather than called out to a
   // separately memoized function) so mount-time loading isn't a
@@ -124,7 +130,10 @@ export default function EventDetailClient({ eventId, canManage }: { eventId: str
           return;
         }
         const body = await res.json();
-        if (!cancelled) setOrders(body.orders ?? []);
+        if (!cancelled) {
+          setOrders(body.orders ?? []);
+          setCrmEnabled(body.crm_enabled === true);
+        }
       } catch {
         if (!cancelled) setOrdersError('Failed to load registrations.');
       }
@@ -228,7 +237,7 @@ export default function EventDetailClient({ eventId, canManage }: { eventId: str
       <SessionsPanel eventId={eventId} sessions={sessions} orders={orders} canManage={canManage} onChanged={reload} timezone={event.timezone} />
       <TicketTypesPanel eventId={eventId} ticketTypes={ticketTypes} orders={orders} canManage={canManage} onChanged={reload} />
       <QuestionsPanel eventId={eventId} canManage={canManage} />
-      <RegistrationsPanel eventId={eventId} orders={orders} error={ordersError} canManage={canManage} onRefunded={reload} />
+      <RegistrationsPanel eventId={eventId} orders={orders} error={ordersError} canManage={canManage} crmEnabled={crmEnabled} onRefunded={reload} />
     </div>
   );
 }

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import {
   Panel, SectionHeader, EmptyState, StatusBadge, orderStatusTone, paymentStatusTone, rowCardStyle,
   TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED, BORDER_SOFT, DangerButton, secondaryBtnStyle,
@@ -32,6 +33,13 @@ export type OrderRow = {
   paid_at: string | null;
   refunded_at: string | null;
   refundable: boolean;
+  // Phase 5 — set once Events -> CRM sync (lib/crm/eventSync.ts) has
+  // resolved/created a purchaser contact for this order; null for every
+  // order created before this phase, and for any order created while
+  // CRM was disabled for this organisation. Only ever meaningful
+  // alongside the parent's own crm_enabled flag — see RegistrationsPanel
+  // below, never rendered or linked to on its own.
+  crm_contact_id: string | null;
   // Phase 4 remediation — §A.4. expires_at is only ever non-null while
   // payment_status = 'PENDING'; is_expired_pending is computed
   // server-side (comparing against the DB's own NOW(), never the
@@ -70,9 +78,9 @@ function formatAnswerValue(value: unknown): string {
 // re-fetch after a successful refund, the same reload() callback every
 // other mutating panel in this module already uses.
 export default function RegistrationsPanel({
-  eventId, orders, error, canManage, onRefunded,
+  eventId, orders, error, canManage, crmEnabled, onRefunded,
 }: {
-  eventId: string; orders: OrderRow[] | null; error: string | null; canManage: boolean; onRefunded: () => void;
+  eventId: string; orders: OrderRow[] | null; error: string | null; canManage: boolean; crmEnabled: boolean; onRefunded: () => void;
 }) {
   const nonCancelled = orders?.filter(o => o.status !== 'CANCELLED') ?? [];
   const orderCount = new Set(nonCancelled.map(o => o.id)).size;
@@ -201,6 +209,22 @@ export default function RegistrationsPanel({
                   <StatusBadge label={o.payment_status === 'PENDING' ? 'Pending payment' : o.payment_status} tone={paymentStatusTone(o.payment_status)} />
                 )}
                 <StatusBadge label={o.status} tone={orderStatusTone(o.status)} />
+                {/* Phase 5 — only when CRM is enabled for this
+                    organisation AND this specific order has a resolved
+                    link (both server-decided, never assumed client-side
+                    — see EventDetailClient's crmEnabled fetch and
+                    app/api/events/[id]/orders/route.ts's crm_enabled/
+                    crm_contact_id fields). canManage gates this the same
+                    as every other action in this row; CRM's own access
+                    model has no further per-user split beyond being an
+                    authenticated, entitled org member (see
+                    lib/capabilities/requireCapability.ts), which
+                    canManage + crmEnabled together already establish. */}
+                {canManage && crmEnabled && o.crm_contact_id && (
+                  <Link href={`/crm/contacts/${o.crm_contact_id}`} style={secondaryBtnStyle}>
+                    View CRM Contact
+                  </Link>
+                )}
                 {canManage && o.payment_status === 'PAID' && o.refundable && (
                   <DangerButton
                     ariaLabel={`Refund order for ${o.purchaser_name}`}

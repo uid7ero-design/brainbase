@@ -2,6 +2,7 @@ import 'server-only';
 import Stripe from 'stripe';
 import sql from '@/lib/db';
 import { generateTicketToken } from './ticketToken';
+import { recordEventBookingActivityForOrder } from '@/lib/crm/eventSync';
 
 // ── Architecture ─────────────────────────────────────────────────────
 //
@@ -272,6 +273,15 @@ async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session, 
   `;
 
   await issueTicketTokensForPaidOrder(orderId);
+  // Events -> CRM sync (Phase 5) — best-effort, never throws (see
+  // lib/crm/eventSync.ts). Resolves organisationId/event name/quantity/
+  // amount/payment state itself from the order's now-updated row and
+  // upserts (never duplicates) the one deterministic booking activity
+  // for this order. Called unconditionally, regardless of whether the
+  // UPDATE above actually matched a row this time — a retried webhook
+  // for an order already PAID still re-reads the (unchanged) current
+  // state and performs a no-op-shaped upsert, which is correct.
+  await recordEventBookingActivityForOrder(orderId);
 }
 
 // Releases a reservation's held capacity the moment Stripe reports the
@@ -288,6 +298,7 @@ async function handleCheckoutSessionExpired(session: Stripe.Checkout.Session, ev
     WHERE id = ${orderId} AND stripe_checkout_session_id = ${session.id} AND payment_status = 'PENDING'
       AND stripe_account_id = ${eventAccount}
   `;
+  await recordEventBookingActivityForOrder(orderId);
 }
 
 // Best-effort only (see scripts/add-events-payments.sql's comment on
@@ -301,12 +312,15 @@ async function handleCheckoutSessionExpired(session: Stripe.Checkout.Session, ev
 // reached that point, this UPDATE simply matches no row, which is
 // correct: the reservation still releases via expiry as normal.
 async function handlePaymentIntentFailed(intent: Stripe.PaymentIntent, eventAccount: string | null): Promise<void> {
-  await sql`
+  const updated = (await sql`
     UPDATE event_orders
     SET status = 'CANCELLED', payment_status = 'FAILED'
     WHERE stripe_payment_intent_id = ${intent.id} AND payment_status = 'PENDING'
       AND stripe_account_id = ${eventAccount}
-  `;
+    RETURNING id
+  `) as { id: string }[];
+  const orderId = updated[0]?.id;
+  if (orderId) await recordEventBookingActivityForOrder(orderId);
 }
 
 export type CreateRefundResult = { ok: true } | { ok: false; error: string };
