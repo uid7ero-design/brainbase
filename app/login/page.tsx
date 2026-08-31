@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
 import { login } from '@/app/actions/auth';
-import { HlnaOrb } from '@/components/brand/HlnaOrb';
+import { OrbitalBackground } from '@/components/brand/OrbitalBackground';
 import { BrainBaseWordmark } from '@/components/brand/BrainBaseWordmark';
 
 export default function LoginPage() {
@@ -79,50 +79,28 @@ export default function LoginPage() {
         padding: '24px 16px',
       }}
     >
-      {/* Ambient background */}
+      {/* Hybrid Orbit atmosphere — Phase D.3. Replaces the old ambient
+          gradient + decorative idle HlnaOrb (purely ambient there: static
+          state="idle", aria-hidden, no ref/functional wiring). intensity
+          ="low" (not the default "medium") because at full strength the
+          asset's own bright core glow sat directly behind the sign-in
+          card, reading too close to "a giant assistant orb" for a quiet
+          auth page — confirmed via live QA. */}
+      <OrbitalBackground variant="field" intensity="low" placement="center" />
+
+      {/* Content-safe vignette: darkens the centre where the form sits
+          without touching OrbitalBackground itself, so the orbital field
+          stays fully visible at the edges but never competes with
+          readability directly behind the card. */}
       <div
         aria-hidden="true"
         style={{
           position: 'absolute',
-
           inset: 0,
-
           pointerEvents: 'none',
-
-          background: `
-            radial-gradient(
-              circle at 50% 35%,
-              rgba(106,61,255,.13) 0%,
-              rgba(41,163,255,.05) 30%,
-              transparent 62%
-            )
-          `,
+          background: 'radial-gradient(circle at 50% 47%, rgba(7,8,11,.68) 0%, rgba(7,8,11,.24) 30%, transparent 58%)',
         }}
       />
-
-      {/* HLNA ambient orb */}
-      <div
-        aria-hidden="true"
-        style={{
-          position: 'absolute',
-
-          left: '50%',
-
-          top: '47%',
-
-          transform:
-            'translate(-50%, -50%)',
-
-          opacity: 0.22,
-
-          pointerEvents: 'none',
-        }}
-      >
-        <HlnaOrb
-          size={620}
-          state="idle"
-        />
-      </div>
 
       <section
         style={{

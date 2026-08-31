@@ -5,6 +5,7 @@ import Link from 'next/link';
 
 import CommandDemo from '@/components/CommandDemo';
 import { BrainBaseWordmark } from '@/components/brand/BrainBaseWordmark';
+import { OrbitalBackground } from '@/components/brand/OrbitalBackground';
 
 const FONT =
   'var(--font-inter), "Inter", -apple-system, sans-serif';
@@ -418,24 +419,6 @@ export default function Home() {
       <style>{KEYFRAMES}</style>
 
       <div
-        aria-hidden="true"
-        style={{
-          position: 'fixed',
-          inset: 0,
-          pointerEvents: 'none',
-          zIndex: 0,
-          background: `
-            radial-gradient(
-              ellipse 72% 48% at 50% -5%,
-              rgba(138,77,255,.13) 0%,
-              rgba(74,54,180,.045) 38%,
-              transparent 72%
-            )
-          `,
-        }}
-      />
-
-      <div
         className="bb-home-shell"
         style={{
           maxWidth: 1220,
@@ -457,8 +440,16 @@ export default function Home() {
             alignItems: 'center',
             padding: '50px 0 78px',
             position: 'relative',
+            overflow: 'hidden',
           }}
         >
+          {/* Hybrid Orbit atmosphere — Phase D.3. Strongest expression on
+              the site: homepage is the primary "this is Hybrid Orbit"
+              surface. Scoped to the hero section only (not page-wide) so
+              content further down the page stays clean. Replaces the old
+              plain fixed radial-gradient wash. */}
+          <OrbitalBackground variant="field" intensity="high" placement="top-right" />
+
           <div
             style={{
               display: 'grid',
@@ -466,6 +457,8 @@ export default function Home() {
               gap: 64,
               alignItems: 'center',
               width: '100%',
+              position: 'relative',
+              zIndex: 1,
             }}
           >
             <div style={{ maxWidth: 620, position: 'relative', zIndex: 2 }}>

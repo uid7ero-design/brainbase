@@ -4,7 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 
-import { HlnaOrb } from '@/components/brand/HlnaOrb';
+import { OrbitalBackground } from '@/components/brand/OrbitalBackground';
 import { BrainBaseWordmark } from '@/components/brand/BrainBaseWordmark';
 
 const FONT =
@@ -208,50 +208,21 @@ export default function SignupPage() {
         padding: '24px 16px',
       }}
     >
-      {/* Ambient background */}
+      {/* Hybrid Orbit atmosphere — Phase D.3. Mirrors login's treatment
+          exactly (this page mirrors login's architecture, and login's own
+          intensity/vignette pairing was tuned via live QA — see that
+          file's comment for why intensity is "low" here too). */}
+      <OrbitalBackground variant="field" intensity="low" placement="center" />
+
       <div
         aria-hidden="true"
         style={{
           position: 'absolute',
-
           inset: 0,
-
           pointerEvents: 'none',
-
-          background: `
-            radial-gradient(
-              circle at 50% 35%,
-              rgba(106,61,255,.13) 0%,
-              rgba(41,163,255,.05) 30%,
-              transparent 62%
-            )
-          `,
+          background: 'radial-gradient(circle at 50% 48%, rgba(7,8,11,.68) 0%, rgba(7,8,11,.24) 30%, transparent 58%)',
         }}
       />
-
-      {/* HLNA ambient orb */}
-      <div
-        aria-hidden="true"
-        style={{
-          position: 'absolute',
-
-          left: '50%',
-
-          top: '48%',
-
-          transform:
-            'translate(-50%, -50%)',
-
-          opacity: 0.20,
-
-          pointerEvents: 'none',
-        }}
-      >
-        <HlnaOrb
-          size={640}
-          state="idle"
-        />
-      </div>
 
       <section
         style={{
