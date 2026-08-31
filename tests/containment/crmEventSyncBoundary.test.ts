@@ -222,26 +222,26 @@ describe('call sites — CRM sync happens AFTER the booking transaction/UPDATE, 
     expect(stripeSessionIdx).toBeGreaterThan(syncCallIdx)
   })
 
-  it('lib/events/stripe.ts: syncBookingActivityForOrder is called after each webhook handler\'s own UPDATE statement, not before', () => {
+  it('lib/events/stripe.ts: recordEventBookingActivityForOrder is called after each webhook handler\'s own UPDATE statement, not before', () => {
     const source = read('lib/events/stripe.ts')
     const completedUpdateIdx = source.indexOf("SET status = 'CONFIRMED', payment_status = 'PAID'")
-    const completedSyncIdx = source.indexOf('await syncBookingActivityForOrder(orderId);\n}')
+    const completedSyncIdx = source.indexOf('await recordEventBookingActivityForOrder(orderId);\n}')
     expect(completedSyncIdx).toBeGreaterThan(completedUpdateIdx)
 
     const expiredUpdateIdx = source.indexOf("SET status = 'CANCELLED', payment_status = 'EXPIRED'")
-    const expiredSyncIdx = source.indexOf('await syncBookingActivityForOrder(orderId);\n}', expiredUpdateIdx)
+    const expiredSyncIdx = source.indexOf('await recordEventBookingActivityForOrder(orderId);\n}', expiredUpdateIdx)
     expect(expiredSyncIdx).toBeGreaterThan(expiredUpdateIdx)
   })
 
-  it('cancel and refund routes call recordEventBookingActivity only after their own conditional UPDATE has matched a row', () => {
+  it('cancel and refund routes call recordEventBookingActivityForOrder only after their own conditional UPDATE has matched a row', () => {
     const cancelSource = read('app/api/events/[id]/orders/[orderId]/cancel/route.ts')
     const cancelUpdateIdx = cancelSource.indexOf("SET status = 'CANCELLED', payment_status = 'EXPIRED'")
-    const cancelSyncIdx = cancelSource.indexOf('await recordEventBookingActivity(')
+    const cancelSyncIdx = cancelSource.indexOf('await recordEventBookingActivityForOrder(')
     expect(cancelSyncIdx).toBeGreaterThan(cancelUpdateIdx)
 
     const refundSource = read('app/api/events/[id]/orders/[orderId]/refund/route.ts')
     const refundUpdateIdx = refundSource.indexOf("SET payment_status = 'REFUNDED'")
-    const refundSyncIdx = refundSource.indexOf('await recordEventBookingActivity(')
+    const refundSyncIdx = refundSource.indexOf('await recordEventBookingActivityForOrder(')
     expect(refundSyncIdx).toBeGreaterThan(refundUpdateIdx)
   })
 })

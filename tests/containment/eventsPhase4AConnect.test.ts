@@ -56,6 +56,7 @@ vi.mock('@/lib/capabilities/requireCapability', async (importOriginal) => {
 vi.mock('@/lib/crm/eventSync', () => ({
   syncEventOrderContact: vi.fn().mockResolvedValue(undefined),
   recordEventBookingActivity: vi.fn().mockResolvedValue(undefined),
+  recordEventBookingActivityForOrder: vi.fn().mockResolvedValue(undefined),
 }))
 
 // Partial mock (importOriginal): only getStripeClient is overridden —

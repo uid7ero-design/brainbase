@@ -69,6 +69,7 @@ vi.mock('@/lib/rateLimit', () => ({ checkRateLimit: (...args: unknown[]) => chec
 vi.mock('@/lib/crm/eventSync', () => ({
   syncEventOrderContact: vi.fn().mockResolvedValue(undefined),
   recordEventBookingActivity: vi.fn().mockResolvedValue(undefined),
+  recordEventBookingActivityForOrder: vi.fn().mockResolvedValue(undefined),
 }))
 
 const createCheckoutSessionMock = vi.fn()
