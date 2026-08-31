@@ -2070,27 +2070,36 @@ export default function Home() {
           </div>
         </section>
         </div>
-      </div>
 
-      {/* FOOTER — near-opaque background so the persistent fixed
-          atmosphere never competes with footer navigation — "nearly black
-          with faint residual depth" rather than fully flat. D.3.1C:
-          raised from .90 to .94 — the continuous veil's own final stop is
-          .93 at its 100% mark (right where the footer begins), so .90
-          would have been a step BACK toward brighter right at the
-          boundary (a visible seam of its own). .94 continues the same
-          monotonic darkening the veil already established, rather than
-          reversing it. */}
+        {/* FOOTER — D.3.1D: moved INSIDE the same continuous-veil wrapper
+            (previously a sibling after it, separated by this footer's own
+            72px marginTop). That 72px gap sat entirely outside both the
+            veil (which ended at the wrapper's previous bottom edge) and
+            the footer's own background (which didn't start until after
+            the margin) — live DOM measurement confirmed it precisely:
+            veil ended at y=7222, footer began at y=7294, a 72px band
+            where neither covered the fixed OrbitalBackground, letting it
+            show through completely undimmed — the visible band. Now that
+            footer lives inside the wrapper, the veil's own inset:0 sizing
+            (which derives from real content height, not a hardcoded
+            value) automatically extends over the footer too, and the
+            72px marginTop is just internal breathing room within the
+            veiled area rather than a hole in it. The footer's own
+            separate near-opaque background (D.3.1B/C: rgba(5,6,10,.9-.94))
+            is removed entirely — the veil, now reaching all the way to
+            the footer's own bottom edge, already provides the "nearly
+            black" darkening on its own; a second independent background
+            here would be exactly the "second atmospheric treatment"
+            section 4 says to avoid. */}
 
-      <footer
-        style={{
-          borderTop: '1px solid rgba(255,255,255,.05)',
-          marginTop: 72,
-          position: 'relative',
-          zIndex: 1,
-          background: 'rgba(5,6,10,.94)',
-        }}
-      >
+        <footer
+          style={{
+            borderTop: '1px solid rgba(255,255,255,.05)',
+            marginTop: 72,
+            position: 'relative',
+            zIndex: 1,
+          }}
+        >
         <div
           className="bb-home-footer"
           style={{
@@ -2144,6 +2153,7 @@ export default function Home() {
           </div>
         </div>
       </footer>
+      </div>
     </main>
   );
 }

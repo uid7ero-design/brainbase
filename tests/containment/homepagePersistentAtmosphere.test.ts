@@ -125,10 +125,32 @@ describe('Intensity by page depth — one continuous veil (not independent zone 
     expect(mainRegion).toMatch(/overflow:\s*'hidden'/)
   })
 
-  it('the footer gets a near-opaque (but not fully solid) background so the atmosphere never competes with footer navigation, while still leaving a faint residual hint per "nearly black with faint residual depth"', () => {
+  // Updated during Phase D.3.1D: live DOM measurement found a 72px gap
+  // between the veil wrapper's old bottom edge and the footer's own start
+  // (exactly the footer's own marginTop:72) where neither the veil nor
+  // the footer's separate background covered the fixed OrbitalBackground
+  // — a visible undimmed band. Fixed by moving <footer> INSIDE the same
+  // full-bleed veil wrapper (so the veil's inset:0 sizing automatically
+  // extends over it, closing the gap) and removing the footer's own
+  // separate background entirely — a second independent background would
+  // itself be "a second atmospheric treatment", which the task explicitly
+  // avoids. The veil now reaches the footer's own bottom edge directly.
+  it('footer is inside the same continuous-veil wrapper (not a sibling after it) and no longer carries its own separate background — the veil itself now reaches the footer', () => {
+    const shellCloseIdx = homepageCode.indexOf('</section>\n        </div>')
     const footerIdx = homepageCode.indexOf('<footer')
-    const footerRegion = homepageCode.slice(footerIdx, footerIdx + 300)
-    expect(footerRegion).toMatch(/background:\s*'rgba\(5,6,10,\.9\d?\)'/)
+    const outerWrapperCloseIdx = homepageCode.lastIndexOf('</div>')
+    expect(shellCloseIdx).toBeGreaterThan(-1)
+    expect(footerIdx).toBeGreaterThan(shellCloseIdx)
+    // The outer 100vw wrapper's closing </div> comes AFTER </footer>, not before it.
+    expect(outerWrapperCloseIdx).toBeGreaterThan(homepageCode.indexOf('</footer>'))
+    const footerOpenRegion = homepageCode.slice(footerIdx, footerIdx + 300)
+    expect(footerOpenRegion).not.toMatch(/background:\s*'rgba\(5,6,10,/)
+  })
+
+  it('no unaccounted gap remains between content and footer — the footer\'s own marginTop is preserved as internal breathing room, not removed, since it now sits safely inside the veiled wrapper', () => {
+    const footerIdx = homepageCode.indexOf('<footer')
+    const footerRegion = homepageCode.slice(footerIdx, footerIdx + 200)
+    expect(footerRegion).toMatch(/marginTop:\s*72/)
   })
 
   it('existing sections\' own internal JSX/content is untouched — this phase only changed which wrapper contains them (spot-check a few distinctive, unmodified section headings)', () => {
@@ -136,6 +158,23 @@ describe('Intensity by page depth — one continuous veil (not independent zone 
     expect(homepageCode).toContain('Capabilities')
     expect(homepageCode).toContain('Starting Points')
     expect(homepageCode).toContain('One connected operational platform.')
+  })
+
+  it('footer content is fully preserved — wordmark, nav links, legal links, and copyright all still present, semantic <footer> structure unchanged', () => {
+    const footerIdx = homepageCode.indexOf('<footer')
+    const footerCloseIdx = homepageCode.indexOf('</footer>', footerIdx)
+    const footerRegion = homepageCode.slice(footerIdx, footerCloseIdx)
+    expect(footerRegion).toContain('BrainBaseWordmark')
+    expect(footerRegion).toContain('Client Operations')
+    expect(footerRegion).toContain('Web Systems')
+    expect(footerRegion).toContain('Pricing')
+    expect(footerRegion).toContain('Privacy')
+    expect(footerRegion).toContain('Terms')
+    expect(footerRegion).toContain('© 2026 BRΛINBΛSE')
+  })
+
+  it('still exactly one OrbitalBackground instance on the homepage (page-level, fixed) — the footer fix did not introduce a second one', () => {
+    expect((homepageSource.match(/<OrbitalBackground/g) ?? []).length).toBe(1)
   })
 })
 
