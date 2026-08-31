@@ -152,11 +152,23 @@ describe('Surface adoption — homepage', () => {
     expect(homepageSource).toMatch(/<OrbitalBackground/)
   })
 
-  it('is scoped to the hero section (not a page-wide fixed layer) so content further down the page stays clean, per the "not every page has a giant glowing orb" acceptance bar', () => {
-    const heroStart = homepageSource.indexOf("className=\"bb-home-hero\"")
-    const orbitalIdx = homepageSource.indexOf('<OrbitalBackground', heroStart)
+  // Updated during Phase D.3.1B: OrbitalBackground was deliberately
+  // promoted from a hero-scoped layer to a single persistent page-level
+  // fixed layer (position:'fixed' via the style override), per explicit
+  // instruction — the previous "scoped to hero, cuts to flat black below"
+  // behaviour is exactly what this phase replaced. "Not every page has a
+  // giant glowing orb" still holds: it's one shared instance (not
+  // duplicated per section), and page-local scrims (see the "Persistent
+  // atmosphere" describe block below) progressively obscure it further
+  // down the page — see homepageHeroRefinement.test.ts for that coverage.
+  it('is a single page-level fixed layer — before the hero section in source order, not nested inside it — with exactly one usage on the whole homepage', () => {
+    const orbitalIdx = homepageSource.indexOf('<OrbitalBackground')
+    const heroStart = homepageSource.indexOf('className="bb-home-hero"')
+    expect(orbitalIdx).toBeGreaterThan(-1)
     expect(heroStart).toBeGreaterThan(-1)
-    expect(orbitalIdx).toBeGreaterThan(heroStart)
+    expect(orbitalIdx).toBeLessThan(heroStart)
+    const orbitalRegion = homepageSource.slice(orbitalIdx, orbitalIdx + 300)
+    expect(orbitalRegion).toMatch(/position:\s*'fixed'/)
     // Only one usage on the whole homepage.
     expect((homepageSource.match(/<OrbitalBackground/g) ?? []).length).toBe(1)
   })

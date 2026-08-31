@@ -415,6 +415,26 @@ export default function Home() {
     >
       <style>{KEYFRAMES}</style>
 
+      {/* Hybrid Orbit atmosphere — Phase D.3, tuned in D.3.1, made
+          persistent/page-level in D.3.1B. Previously scoped to just the
+          hero section; now a single fixed layer behind the whole page
+          (position:fixed via the style override, inset:0, zIndex 0) so
+          content scrolls normally above it instead of the atmosphere
+          being a one-off hero graphic that cuts abruptly to flat black
+          below. Intensity is NOT varied here — OrbitalBackground itself
+          stays at one setting for the whole page (per instruction: one
+          shared instance, not duplicated/re-tuned per section). The
+          "gets quieter further down the page" effect is achieved entirely
+          by the zone scrims below progressively obscuring more of this
+          same fixed layer as they scroll into view — not by touching this
+          component or its props. */}
+      <OrbitalBackground
+        variant="field"
+        intensity="high"
+        placement="top-right"
+        style={{ position: 'fixed' }}
+      />
+
       {/* ==================================================================
           1. HERO — Phase D.3.1: pulled out of bb-home-shell's maxWidth:1220
           constraint so the section (and OrbitalBackground within it) can
@@ -438,12 +458,6 @@ export default function Home() {
           overflow: 'hidden',
         }}
       >
-        {/* Hybrid Orbit atmosphere — Phase D.3, tuned in D.3.1. Strongest
-            expression on the site: homepage is the primary "this is
-            Hybrid Orbit" surface. Scoped to the hero section only (not
-            page-wide) so content further down the page stays clean. */}
-        <OrbitalBackground variant="field" intensity="high" placement="top-right" />
-
         {/* Content-safe mask (D.3.1) — fades the atmosphere out behind the
             headline/copy/CTA column so decorative rings/nodes never
             compete with glyphs, while leaving it at full strength toward
@@ -806,16 +820,22 @@ export default function Home() {
                   }}
                 />
 
-                {/* D.3.1A — nudged right + up from dead-centre: live
-                    review found the mark reading as slightly too central/
-                    low. Subtle offset (under 7% of its own size), not a
-                    repositioning of the whole visual zone. */}
+                {/* D.3.1A nudged the mark +26px right / -20px up from
+                    dead-centre. D.3.1B: live measurement (getBoundingClientRect)
+                    showed that +26px put the mark's own centre-X 26px right
+                    of the HLNA card's centre-X below it — enough to read as
+                    two separate things rather than one vertical group.
+                    Reduced to +8px: still a small intentional rightward
+                    bias (preserving overall right-side visual weight,
+                    per instruction), but close enough that mark and card
+                    now read as one aligned group. Vertical nudge (-20px)
+                    is unaffected — that was never the alignment issue. */}
                 <div
                   style={{
                     position: 'absolute',
                     left: '50%',
                     top: '50%',
-                    transform: 'translate(calc(-50% + 26px), calc(-50% - 20px))',
+                    transform: 'translate(calc(-50% + 8px), calc(-50% - 20px))',
                   }}
                 >
                   <HeroOrbitMark size={400} className="bb-hero-orbit-mark" />
@@ -868,19 +888,41 @@ export default function Home() {
         </div>
       </section>
 
+      {/* Phase D.3.1B — persistent atmosphere zones. OrbitalBackground is
+          now a single page-level fixed layer (see its new placement near
+          the top of <main>) rather than scoped to the hero section alone.
+          Below the hero, three full-bleed "zone" wrappers (each breaking
+          out to 100vw via the standard calc(50% - 50vw) trick — safe here
+          because <main> already sets overflow:'hidden') each carry a
+          vertical gradient scrim that progressively obscures more of the
+          fixed atmosphere the further down the page they sit, so the
+          transition out of the hero is gradual rather than an abrupt cut
+          to flat black. Every zone's own inner content wrapper keeps the
+          exact same maxWidth:1220/padding/centring bb-home-shell always
+          had — no section's own JSX/layout below this point is touched,
+          only which wrapper contains it. */}
+
       <div
-        className="bb-home-shell"
         style={{
-          maxWidth: 1220,
-          margin: '0 auto',
-          padding: '0 32px 96px',
           position: 'relative',
-          zIndex: 1,
+          width: '100vw',
+          marginLeft: 'calc(50% - 50vw)',
+          background: 'linear-gradient(180deg, rgba(7,8,11,.35) 0%, rgba(7,8,11,.68) 100%)',
         }}
       >
-        {/* PLATFORM STATEMENT */}
+        <div
+          className="bb-home-shell"
+          style={{
+            maxWidth: 1220,
+            margin: '0 auto',
+            padding: '0 32px',
+            position: 'relative',
+            zIndex: 1,
+          }}
+        >
+          {/* PLATFORM STATEMENT */}
 
-        <section
+          <section
           style={{
             marginBottom: 104,
             padding: '28px 30px',
@@ -1204,6 +1246,27 @@ export default function Home() {
             </div>
           </div>
         </section>
+        </div>
+      </div>
+
+      <div
+        style={{
+          position: 'relative',
+          width: '100vw',
+          marginLeft: 'calc(50% - 50vw)',
+          background: 'linear-gradient(180deg, rgba(7,8,11,.68) 0%, rgba(7,8,11,.85) 100%)',
+        }}
+      >
+        <div
+          className="bb-home-shell"
+          style={{
+            maxWidth: 1220,
+            margin: '0 auto',
+            padding: '0 32px',
+            position: 'relative',
+            zIndex: 1,
+          }}
+        >
 
         {/* ================================================================
             5. CAPABILITIES
@@ -1787,6 +1850,27 @@ export default function Home() {
             </div>
           </div>
         </section>
+        </div>
+      </div>
+
+      <div
+        style={{
+          position: 'relative',
+          width: '100vw',
+          marginLeft: 'calc(50% - 50vw)',
+          background: 'linear-gradient(180deg, rgba(7,8,11,.85) 0%, rgba(7,8,11,.95) 100%)',
+        }}
+      >
+        <div
+          className="bb-home-shell"
+          style={{
+            maxWidth: 1220,
+            margin: '0 auto',
+            padding: '0 32px 96px',
+            position: 'relative',
+            zIndex: 1,
+          }}
+        >
 
         {/* ================================================================
             11. STARTING POINTS
@@ -2005,9 +2089,16 @@ export default function Home() {
             </div>
           </div>
         </section>
+        </div>
       </div>
 
-      {/* FOOTER */}
+      {/* FOOTER — D.3.1B: near-opaque background so the persistent fixed
+          atmosphere never competes with footer navigation — "nearly black
+          with faint residual depth" rather than fully flat. .90 (not
+          higher) deliberately leaves a little more of the fixed
+          atmosphere visible than Zone 3's own darkest stop (.95), so the
+          footer doesn't read as a harder cutoff than the gradient above
+          it already established. */}
 
       <footer
         style={{
@@ -2015,6 +2106,7 @@ export default function Home() {
           marginTop: 72,
           position: 'relative',
           zIndex: 1,
+          background: 'rgba(5,6,10,.90)',
         }}
       >
         <div
