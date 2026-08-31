@@ -319,7 +319,7 @@ export default function CheckInClient({ eventId }: { eventId: string }) {
           <ResultBanner
             tone="danger"
             icon={<XCircle size={40} />}
-            title={result.reason === 'cancelled' ? 'Ticket cancelled' : 'Ticket not valid'}
+            title={result.reason === 'cancelled' ? 'Ticket cancelled' : result.reason === 'unpaid' ? 'Payment not completed' : 'Ticket not valid'}
           />
           <p style={{ fontSize: 13, color: TEXT_SECONDARY, margin: '8px 0 0' }}>{result.message}</p>
           <button onClick={resetToIdle} style={{ ...primaryBtnStyle, width: '100%', minHeight: 52, fontSize: 15, marginTop: 20 }}>Try again</button>

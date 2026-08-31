@@ -103,16 +103,22 @@ describe('Phase D.1 — /hlna keeps HelenaOrbital for the living assistant; the 
 })
 
 describe('Phase D.1 — tenant-aware nav remains intact', () => {
-  it('isLdTennis / isBrainbaseHQ classification, Dashboard/HLNA/Events entries, and the C.2F dropdown positioning fix are all still present', () => {
+  it('isLdTennis / isBrainbaseHQ classification, Dashboard/HLNA/Events entries, and the dropdown positioning fix are all still present', () => {
     expect(topNavSource).toMatch(/dashboardVariant\s*===\s*'ld-tennis'/)
     expect(topNavSource).toMatch(/dashboardVariant\s*===\s*'brainbase-hq'/)
     expect(topNavSource).toContain('href="/dashboard"')
     expect(topNavSource).toMatch(/<HlnaItem\s*\n\s*href="\/hlna"/)
     expect(topNavSource).toContain('href="/events"')
     expect(topNavSource).toContain('hasEvents')
-    // C.2F dropdown positioning fix.
-    expect(topNavSource).toContain('panelPos')
-    expect(topNavSource).toContain('triggerRef')
+    // Dropdown positioning fix — superseded during the D.2.3 origin/main
+    // reconciliation: C.2F's own plain-position:'fixed' implementation
+    // (panelPos/triggerRef) was replaced with origin/main's independently-
+    // developed createPortal(..., document.body) implementation (coords/
+    // wrapperRef), judged strictly more robust — see
+    // founderNavDropdownRegression.test.ts for the dedicated suite.
+    expect(topNavSource).toContain('coords')
+    expect(topNavSource).toContain('wrapperRef')
+    expect(topNavSource).toContain('createPortal')
     expect(topNavSource).toMatch(/position:\s*'fixed'/)
   })
 

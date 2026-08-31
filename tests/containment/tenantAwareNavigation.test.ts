@@ -171,7 +171,7 @@ describe('Phase C.2D — LeftSidebar (legacy-only path)', () => {
     // reach it (proven already by organisationDashboardSeparation.test.ts's
     // routing-matrix tests).
     const dashboardPageSource = read('app/dashboard/page.tsx')
-    expect(dashboardPageSource).toMatch(/catch \{ return <BrainBase \/> \}/)
+    expect(dashboardPageSource).toMatch(/catch \{ return <BrainBase enabledCapabilities=\{\[\]\} \/> \}/)
   })
 })
 
@@ -220,9 +220,19 @@ describe('Phase C.2D — containment', () => {
   // founderNavDropdownRegression.test.ts for the dedicated coverage of
   // that fix itself) — updated here to confirm the integration landed
   // rather than pinning the pre-C.2F absence.
-  it('the founder-nav-dropdown-clipping fix was integrated in C.2F, not left as a separate unmerged hotfix', () => {
-    expect(topNavSource).toContain('panelPos')
-    expect(topNavSource).toContain('triggerRef')
+  //
+  // Updated AGAIN during the D.2.3 origin/main reconciliation merge:
+  // C.2F's own plain-position:'fixed' implementation (panelPos/
+  // triggerRef) was itself replaced with origin/main's independently-
+  // developed createPortal(..., document.body) implementation (coords/
+  // wrapperRef) — judged strictly more robust by the reconciliation
+  // audit. The invariant this test protects — SOME dropdown-positioning
+  // fix is integrated, not left as a separate unmerged hotfix — still
+  // holds; only the specific mechanism's names changed.
+  it('a founder-nav-dropdown-positioning fix is integrated directly into TopNav.tsx, not left as a separate unmerged hotfix', () => {
+    expect(topNavSource).toContain('coords')
+    expect(topNavSource).toContain('wrapperRef')
+    expect(topNavSource).toContain('createPortal')
   })
 
   it('/dashboard still renders OrganisationDashboard for the generic fallthrough (C.2C untouched)', () => {

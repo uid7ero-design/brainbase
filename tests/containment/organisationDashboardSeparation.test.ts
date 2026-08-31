@@ -50,7 +50,11 @@ describe('Phase C.2C — /dashboard routing matrix', () => {
 
   it('BrainBase is still imported — retained for the pre-session-resolution auth-failure fallback only, not deleted', () => {
     expect(pageSource).toMatch(/import BrainBase from '@\/components\/BrainBase'/);
-    expect(pageSource).toMatch(/catch \{ return <BrainBase \/> \}/);
+    // D.2.3 reconciliation: the fallback now explicitly passes an empty
+    // enabledCapabilities array (BrainBase.jsx's own prop signature
+    // requires it, see the containment describe block below) rather than
+    // relying on a default-props render with zero props at all.
+    expect(pageSource).toMatch(/catch \{ return <BrainBase enabledCapabilities=\{\[\]\} \/> \}/);
   });
 
   it('the fallthrough derives orgId strictly after the brainbase-hq and ld-tennis branches have already returned/redirected — it cannot swallow either', () => {
@@ -156,17 +160,27 @@ describe('Phase C.2C — real, organisation-scoped data only', () => {
   });
 
   it('enabled capabilities use the CORRECT existing join (m.key = om.module_key), never the known-broken m.id = om.module_id enabledModules query', () => {
-    const fallthroughStart = pageSource.indexOf('const oid = session.organisationId');
-    const fallthroughBody = pageSource.slice(fallthroughStart);
-    expect(fallthroughBody).toMatch(/JOIN modules m ON m\.key = om\.module_key/);
-    expect(fallthroughBody).not.toMatch(/JOIN modules m ON m\.id = om\.module_id/);
+    // D.2.3 reconciliation: the generic fallthrough no longer re-queries
+    // enabledCapabilities locally — it reuses the SAME m.key = om.module_key
+    // projection already computed once, near the top of the function, for
+    // the /api/me-parity capability block every branch (including
+    // TennisDashboard) shares. Checking the whole file (rather than
+    // slicing from the fallthrough onward) still proves the correct join
+    // is the one in effect for the fallthrough, since it's the only
+    // capability query in the file at all now.
+    expect(pageSource).toMatch(/JOIN modules m ON m\.key = om\.module_key/);
+    expect(pageSource).not.toMatch(/JOIN modules m ON m\.id = om\.module_id/);
   });
 
   it('every fallthrough query fails closed to an empty/zero fallback (never throws, never blocks the dashboard render)', () => {
-    const fallthroughStart = pageSource.indexOf('const [orgRow, capRows');
+    const fallthroughStart = pageSource.indexOf('const [orgRow, wasteRows');
+    expect(fallthroughStart, 'expected the generic-fallthrough Promise.all destructure').toBeGreaterThan(-1);
     const fallthroughBody = pageSource.slice(fallthroughStart);
     const qCalls = fallthroughBody.match(/q\(sql`/g) ?? [];
-    expect(qCalls.length).toBeGreaterThanOrEqual(5); // org name, capabilities, waste, fleet, service requests
+    // org name, waste, fleet, service requests — capabilities is no
+    // longer re-queried here (deduplicated against the top-of-function
+    // projection asserted above), so the floor drops from 5 to 4.
+    expect(qCalls.length).toBeGreaterThanOrEqual(4);
   });
 });
 
@@ -218,9 +232,9 @@ describe('Phase C.2C — containment', () => {
     expect(sidebar).not.toContain('OrganisationDashboard');
   });
 
-  it('components/BrainBase.jsx is byte-for-byte untouched this phase (still not deleted, still importable)', () => {
+  it('components/BrainBase.jsx is not deleted and remains importable — no longer byte-for-byte untouched as of the D.2.3 origin/main reconciliation, which legitimately threaded an isSuperAdmin prop through it into LeftSidebar (see navPersonaCoverage.test.ts\'s LeftSidebar describe block), but it still never imports/renders OrganisationDashboard', () => {
     const brainBase = read('components/BrainBase.jsx');
-    expect(brainBase).toMatch(/export default function BrainBase\(\)/);
+    expect(brainBase).toMatch(/export default function BrainBase\(\{ enabledCapabilities = \[\], isSuperAdmin = false \}\)/);
     expect(brainBase).not.toContain('OrganisationDashboard');
   });
 

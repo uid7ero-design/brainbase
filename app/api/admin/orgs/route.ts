@@ -82,8 +82,25 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'slug must be lowercase alphanumeric with hyphens.' }, { status: 400 });
 
   try {
+    // organisations.id and .updated_at both have NO database-level
+    // default — Organisation.id's Prisma model declares
+    // `@default(cuid())` (not `@default(dbgenerated(...))`) and
+    // .updated_at uses plain `@updatedAt`, both of which are
+    // APPLICATION-side defaults Prisma Client applies itself; neither
+    // exists as an actual Postgres DEFAULT expression on the column
+    // (confirmed via information_schema.columns against DEV:
+    // column_default is null for both, and both are NOT NULL). A raw
+    // SQL INSERT that omits them — as this one previously did — always
+    // fails with "null value in column ... violates not-null
+    // constraint", unconditionally, for every organisation creation
+    // attempt. gen_random_uuid()::text for id matches the exact
+    // convention every other raw-SQL-inserted TEXT primary key in this
+    // codebase already uses; now() for updated_at matches created_at's
+    // own already-working default pattern.
     const rows = await sql`
-      INSERT INTO organisations (name, slug) VALUES (${name}, ${slug}) RETURNING *
+      INSERT INTO organisations (id, name, slug, updated_at)
+      VALUES (gen_random_uuid()::text, ${name}, ${slug}, now())
+      RETURNING *
     `;
     return NextResponse.json({ org: rows[0] }, { status: 201 });
   } catch (err: unknown) {
@@ -91,6 +108,16 @@ export async function POST(req: NextRequest) {
     if (msg.includes('unique') || msg.includes('duplicate')) {
       return NextResponse.json({ error: 'An organisation with that slug already exists.' }, { status: 409 });
     }
-    throw err;
+    // Never re-throw into Next.js's own generic error handling here —
+    // that previously produced an EMPTY response body (confirmed
+    // against real DEV), which made the client's res.json() call throw
+    // its own parse error downstream, permanently stranding the
+    // "Creating…" UI state (see AdminClient.tsx's createOrg — now
+    // fixed to tolerate this too, but this route should never rely on
+    // that as its only safety net). Always return a real JSON error
+    // body, matching the DELETE handler's own established convention
+    // in this same file.
+    console.error('[admin orgs] create failed', err);
+    return NextResponse.json({ error: `Create failed: ${msg}` }, { status: 500 });
   }
 }

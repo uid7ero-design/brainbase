@@ -19,7 +19,29 @@ export default async function DashboardPage() {
   // an authenticated request reaches this far for any non-public route, so
   // this catch is a defensive fallback, not the primary path.
   let session
-  try { session = await getAuthSession() } catch { return <BrainBase /> }
+  try { session = await getAuthSession() } catch { return <BrainBase enabledCapabilities={[]} /> }
+
+  // Server-side capability projection for the client dashboard's "Your
+  // Tools" entry (ModuleAccessCard) — same query app/api/me/route.ts's own
+  // enabledCapabilities block already runs, computed here too so the entry
+  // point is present in the initial server-rendered page rather than
+  // appearing only after a client-side fetch resolves. Fails closed to an
+  // empty list, same discipline as api/me — a query failure must never
+  // block the dashboard itself from rendering.
+  let enabledCapabilities: string[] = []
+  try {
+    const capRows = await sql`
+      SELECT m.key
+      FROM organisation_modules om
+      JOIN modules m ON m.key = om.module_key
+      WHERE om.organisation_id = ${session.organisationId}
+        AND om.enabled = true
+        AND m.active = true
+    `
+    enabledCapabilities = capRows.map(r => r.key as string)
+  } catch {
+    // UX projection only — fail closed, never block the dashboard render.
+  }
 
   // Server-side only, organisation-scoped (+ role for Brainbase HQ),
   // slug-driven — never a user ID, never hostname, never a value the
@@ -123,6 +145,7 @@ export default async function DashboardPage() {
         leadsPerDay={leadsPerDay as Parameters<typeof TennisDashboard>[0]['leadsPerDay']}
         todaysSessions={todaysInstances as Parameters<typeof TennisDashboard>[0]['todaysSessions']}
         sessionTypes={sessionTypes as Parameters<typeof TennisDashboard>[0]['sessionTypes']}
+        enabledCapabilities={enabledCapabilities}
       />
     )
   }
@@ -130,24 +153,19 @@ export default async function DashboardPage() {
   // Generic tenant fallthrough (Phase C.2C) — the organisation dashboard,
   // not <BrainBase />. Real, organisation-scoped data only: the same
   // waste_records/fleet_metrics/service_requests query shape already
-  // proven in app/dashboard/overview/page.tsx (untouched by this phase),
-  // and the same correct m.key = om.module_key capability join already
-  // used in app/api/me/route.ts and app/api/chat/route.ts's Phase C.2B.3
-  // tenant-identity block — not the separate, known-broken m.id =
-  // om.module_id enabledModules query. Every query fails closed to an
-  // empty/zero fallback; OrganisationDashboard only renders a section
-  // when its own data genuinely has rows for this organisation.
+  // proven in app/dashboard/overview/page.tsx (untouched by this phase).
+  // enabledCapabilities is already computed above (same m.key = om.module_key
+  // join api/me and api/chat use — not the separate, known-broken m.id =
+  // om.module_id enabledModules query), so it isn't re-queried here; main's
+  // isSuperAdmin prop is dropped too — super_admin sessions never reach this
+  // branch (redirected to Founder OS above), so OrganisationDashboard has no
+  // use for it. Every query fails closed to an empty/zero fallback;
+  // OrganisationDashboard only renders a section when its own data
+  // genuinely has rows for this organisation.
   const oid = session.organisationId
 
-  const [orgRow, capRows, wasteRows, fleetRows, srRows] = await Promise.all([
+  const [orgRow, wasteRows, fleetRows, srRows] = await Promise.all([
     q(sql`SELECT name FROM organisations WHERE id = ${oid} LIMIT 1`, []),
-    q(sql`
-      SELECT m.key, m.name
-      FROM organisation_modules om
-      JOIN modules m ON m.key = om.module_key
-      WHERE om.organisation_id = ${oid} AND om.enabled = true AND m.active = true
-      ORDER BY m.name
-    `, []),
     q(sql`
       SELECT
         COALESCE(SUM(cost),0)::float               AS total_cost,
@@ -174,7 +192,7 @@ export default async function DashboardPage() {
   return (
     <OrganisationDashboard
       orgName={(orgRow[0] as { name?: string } | undefined)?.name}
-      enabledCapabilities={(capRows as { key: string }[]).map(r => r.key)}
+      enabledCapabilities={enabledCapabilities}
       waste={(wasteRows[0] ?? {}) as Record<string, number>}
       fleet={(fleetRows[0] ?? {}) as Record<string, number>}
       serviceRequests={srRows as { status: string; count: number; avg_days: number }[]}

@@ -170,11 +170,16 @@ export default async function RootLayout({
     // the Founder OS redirect, TennisDashboard, and the generic
     // OrganisationDashboard — reused here (not reinvented) so TopNav's
     // tenant classification can never disagree with the actual routing
-    // decision. Slug-driven, never a hardcoded org id/env var.
-    const dashboardVariant = await resolveDashboardVariant(
-      session.organisationId,
-      session.role,
-    );
+    // decision. Slug-driven, never a hardcoded org id/env var. Wrapped in
+    // its own try/catch, same fail-closed discipline as every other
+    // DB-derived field above, so a resolver failure degrades to no
+    // bespoke variant rather than blocking the page.
+    let dashboardVariant: 'ld-tennis' | 'brainbase-hq' | null = null;
+    try {
+      dashboardVariant = await resolveDashboardVariant(session.organisationId, session.role);
+    } catch {
+      /* UX projection only — fail closed to no bespoke variant. */
+    }
 
     serverSession = {
       role: session.role,

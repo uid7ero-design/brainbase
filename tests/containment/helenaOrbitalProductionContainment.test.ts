@@ -58,11 +58,6 @@ describe('Phase B/C — production/scope containment', () => {
   });
 
   it('the Data Hub 5A.2F ADR present on this baseline was not modified/emptied', () => {
-    // Only the ADR ships on origin/main at the time this branch was cut —
-    // lib/data-hub/storage/vercelBlobFileStore.ts and its containment test
-    // live exclusively on the separate, unmerged
-    // feat/datahub-5a2f-private-blob-adapter branch and are therefore
-    // structurally absent here, not just untouched.
     const adr = fs.readFileSync(
       path.join(root, 'docs/architecture/decisions/0001-data-hub-ingestion-foundation.md'),
       'utf-8',
@@ -70,8 +65,19 @@ describe('Phase B/C — production/scope containment', () => {
     expect(adr.length).toBeGreaterThan(0);
   });
 
-  it('the unmerged 5A.2F storage adapter was not pulled onto this branch', () => {
-    expect(fs.existsSync(path.join(root, 'lib/data-hub/storage/vercelBlobFileStore.ts'))).toBe(false);
-    expect(fs.existsSync(path.join(root, 'tests/containment/vercelBlobFileStore.test.ts'))).toBe(false);
+  // Updated during the D.2.3 origin/main reconciliation merge: at the time
+  // this branch was originally cut, lib/data-hub/storage/vercelBlobFileStore.ts
+  // lived only on the separate, unmerged feat/datahub-5a2f-private-blob-adapter
+  // branch, so this test asserted its absence. origin/main has since merged
+  // that work in its own right (feat(data-hub): add private Vercel Blob file
+  // store, and a follow-up hardening commit) — it is now first-class,
+  // intentionally-pulled-in main functionality, not a scope leak from the
+  // Hybrid Orbit/HelenaOrbital work this file otherwise guards. The
+  // containment guarantee that actually matters — Hybrid Orbit's own scoped
+  // files never reference it — is already covered by the 'Hybrid Orbit files
+  // do not reference the Data Hub 5A.2F implementation' test above.
+  it('the Data Hub 5A.2F storage adapter, now merged via origin/main, is untouched by Hybrid Orbit scope', () => {
+    expect(fs.existsSync(path.join(root, 'lib/data-hub/storage/vercelBlobFileStore.ts'))).toBe(true);
+    expect(fs.existsSync(path.join(root, 'tests/containment/vercelBlobFileStore.test.ts'))).toBe(true);
   });
 });

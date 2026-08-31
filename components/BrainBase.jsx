@@ -23,6 +23,7 @@ import { ChatPanel } from "./chat/ChatPanel";
 import { MicButton } from "./voice/MicButton";
 import { MorningBriefing } from "./hlna/MorningBriefing";
 import { RecommendedActions } from "./hlna/RecommendedActions";
+import { ModuleAccessCard } from "./dashboard/ModuleAccessCard";
 import { CommandSuggestions } from "./hlna/CommandSuggestions";
 import { KEYFRAMES } from "../lib/utils/constants";
 import { getDeptConfig } from "../lib/hlna/departmentConfigs";
@@ -104,7 +105,8 @@ function AskInput({ onSend }) {
   );
 }
 
-export default function BrainBase() {
+/** @param {{ enabledCapabilities?: string[], isSuperAdmin?: boolean }} props */
+export default function BrainBase({ enabledCapabilities = [], isSuperAdmin = false }) {
   const router   = useRouter();
   const helena   = useHelena();
   const spotify  = useSpotify();
@@ -421,7 +423,7 @@ export default function BrainBase() {
 
       {/* ── Main shell ──────────────────────────────────────────────────── */}
       <div style={{ flex: 1, display: "flex", overflow: "hidden", position: "relative", zIndex: 10 }}>
-        <LeftSidebar open={sidebarOpen} onToggle={toggleSidebar} />
+        <LeftSidebar open={sidebarOpen} onToggle={toggleSidebar} isSuperAdmin={isSuperAdmin} />
 
         {/* ── Command Hub centre ─────────────────────────────────────────── */}
         <div style={{ flex: 1, position: "relative", overflow: "hidden", display: "flex", flexDirection: "column" }}>
@@ -655,6 +657,12 @@ export default function BrainBase() {
 
                 </div>
               </div>
+
+              {/* Module access — capability-gated entry points (e.g. Events
+                  & Ticketing) for whatever this organisation is actually
+                  entitled to. Renders nothing when no module is enabled —
+                  see ModuleAccessCard's own comment. */}
+              <ModuleAccessCard enabledCapabilities={enabledCapabilities} />
 
               {/* ② RECOMMENDED ACTIONS */}
               <RecommendedActions />

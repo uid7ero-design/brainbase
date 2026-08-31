@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { Calendar, Clock, MapPin, ArrowLeft, ScanLine } from 'lucide-react';
 import KpiCard from '@/components/dashboard/ui/KpiCard';
 import RegistrationsPanel, { type OrderRow } from './RegistrationsPanel';
+import QuestionsPanel from './QuestionsPanel';
 import { ARTWORK_ACCEPT_ATTR, MAX_ARTWORK_MB, isAllowedArtworkMimeType } from '@/lib/events/artworkConstants';
 import {
   FONT, TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED, VIOLET_SOFT,
@@ -158,6 +159,21 @@ export default function EventDetailClient({ eventId, canManage }: { eventId: str
   const checkedInCount = nonCancelledOrders.flatMap(o => o.attendees).filter(a => a.checked_in_at).length;
   const checkInRate = attendeeCount > 0 ? Math.round((checkedInCount / attendeeCount) * 100) : null;
 
+  // Revenue KPIs (§21) — server-calculated DB values only (every
+  // figure here is total_cents already written by the payment-gated
+  // order rows this same fetch already loaded; nothing is recomputed
+  // client-side beyond simple aggregation). Deliberately basic: gross
+  // revenue, paid-order count, pending-payment count, refunded amount
+  // — no accounting/P&L reporting.
+  const paidOrders = orders?.filter(o => o.payment_status === 'PAID') ?? [];
+  const pendingPaymentOrders = orders?.filter(o => o.payment_status === 'PENDING') ?? [];
+  const refundedOrders = orders?.filter(o => o.payment_status === 'REFUNDED') ?? [];
+  const grossRevenueCents = paidOrders.reduce((sum, o) => sum + o.total_cents, 0);
+  const refundedCents = refundedOrders.reduce((sum, o) => sum + o.total_cents, 0);
+  const revenueCurrency = paidOrders[0]?.currency ?? orders?.find(o => o.payment_status !== 'NOT_REQUIRED')?.currency ?? 'AUD';
+  const hasPaidTicketTypes = ticketTypes.some(t => t.price_cents > 0);
+  const formatMoney = (cents: number) => new Intl.NumberFormat('en-AU', { style: 'currency', currency: revenueCurrency }).format(cents / 100);
+
   return (
     <div style={{ padding: 32, fontFamily: FONT, color: TEXT_PRIMARY, maxWidth: 1140, margin: '0 auto' }}>
       <EventsSharedStyles />
@@ -189,11 +205,30 @@ export default function EventDetailClient({ eventId, canManage }: { eventId: str
         />
         <KpiCard label="Sessions" value={sessions.length} accentColor="#FBBF24" theme="dark" />
         <KpiCard label="Status" value={event.status} accentColor={statusAccent} theme="dark" />
+        {hasPaidTicketTypes && (
+          <>
+            <KpiCard
+              label="Revenue"
+              value={orders ? formatMoney(grossRevenueCents) : '—'}
+              accentColor="#4ADE80" theme="dark" loading={orders === null}
+              sub={orders ? `${paidOrders.length} paid order${paidOrders.length === 1 ? '' : 's'}` : undefined}
+            />
+            <KpiCard
+              label="Pending Payment"
+              value={orders ? pendingPaymentOrders.length : '—'}
+              accentColor="#FBBF24" theme="dark" loading={orders === null}
+            />
+            {refundedOrders.length > 0 && (
+              <KpiCard label="Refunded" value={formatMoney(refundedCents)} accentColor="#F87171" theme="dark" sub={`${refundedOrders.length} order${refundedOrders.length === 1 ? '' : 's'}`} />
+            )}
+          </>
+        )}
       </div>
 
       <SessionsPanel eventId={eventId} sessions={sessions} orders={orders} canManage={canManage} onChanged={reload} timezone={event.timezone} />
       <TicketTypesPanel eventId={eventId} ticketTypes={ticketTypes} orders={orders} canManage={canManage} onChanged={reload} />
-      <RegistrationsPanel orders={orders} error={ordersError} />
+      <QuestionsPanel eventId={eventId} canManage={canManage} />
+      <RegistrationsPanel eventId={eventId} orders={orders} error={ordersError} canManage={canManage} onRefunded={reload} />
     </div>
   );
 }

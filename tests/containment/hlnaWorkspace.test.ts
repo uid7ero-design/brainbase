@@ -309,11 +309,20 @@ describe('ChatPanel — docked layout mode (Phase C.2B.1)', () => {
 describe('Phase C.2B/C.2B.1 — routing/navigation containment', () => {
   const root = path.resolve(__dirname, '../..');
 
-  it('app/dashboard/page.tsx variant logic is untouched — brainbase-hq still redirects, ld-tennis still renders TennisDashboard, fallthrough still renders BrainBase', () => {
+  // The `return <BrainBase />` fallthrough check below was already stale
+  // before the D.2.3 origin/main reconciliation: Phase C.2C (which landed
+  // on this branch after this C.2B-era test was written) replaced the
+  // generic fallthrough with OrganisationDashboard — see
+  // organisationDashboardSeparation.test.ts for the dedicated suite
+  // covering that. Corrected here to check the two things this
+  // describe block actually cares about (routing/containment, not the
+  // fallthrough's specific target component) plus the real current
+  // fallback text.
+  it('app/dashboard/page.tsx variant logic is untouched — brainbase-hq still redirects, ld-tennis still renders TennisDashboard, and BrainBase remains reachable as the pre-session-resolution auth-failure fallback', () => {
     const dashboardPage = fs.readFileSync(path.join(root, 'app/dashboard/page.tsx'), 'utf-8');
     expect(dashboardPage).toMatch(/redirect\('\/admin\/founder'\)/);
     expect(dashboardPage).toMatch(/<TennisDashboard/);
-    expect(dashboardPage).toMatch(/return <BrainBase \/>/);
+    expect(dashboardPage).toMatch(/catch \{ return <BrainBase enabledCapabilities=\{\[\]\} \/> \}/);
     expect(dashboardPage).not.toContain('HelenaWorkspace');
     expect(dashboardPage).not.toContain('/hlna');
   });

@@ -7,7 +7,7 @@ import KpiCard from '@/components/dashboard/ui/KpiCard';
 import {
   FONT, TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED, VIOLET_SOFT,
   Panel, EmptyState, StatusBadge, eventStatusTone,
-  primaryBtnStyle, fieldStyle, inputStyle, EventsSharedStyles,
+  primaryBtnStyle, secondaryBtnStyle, fieldStyle, inputStyle, EventsSharedStyles,
 } from './_components/ui';
 
 const API = '/api/events';
@@ -150,9 +150,14 @@ export default function EventsListClient({ canManage }: { canManage: boolean }) 
           <p style={{ fontSize: 13, color: TEXT_MUTED, margin: '5px 0 0' }}>Create, manage and monitor registrations</p>
         </div>
         {canManage && (
-          <button onClick={() => setShowCreate(v => !v)} style={primaryBtnStyle}>
-            {showCreate ? 'Cancel' : '+ Create Event'}
-          </button>
+          <div style={{ display: 'flex', gap: 10 }}>
+            <Link href="/events/payments" style={{ ...secondaryBtnStyle, textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>
+              Payments
+            </Link>
+            <button onClick={() => setShowCreate(v => !v)} style={primaryBtnStyle}>
+              {showCreate ? 'Cancel' : '+ Create Event'}
+            </button>
+          </div>
         )}
       </div>
 

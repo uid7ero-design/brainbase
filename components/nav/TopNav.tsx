@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { BrainBaseWordmark } from '@/components/brand/BrainBaseWordmark';
@@ -54,6 +55,7 @@ function NavItem({
         transition:
           'color .14s, background .14s, border-color .14s',
         whiteSpace: 'nowrap',
+        flexShrink: 0,
       }}
       onMouseEnter={e => {
         if (active) return;
@@ -109,6 +111,7 @@ function HlnaItem({
           ? '0 0 14px rgba(139,92,246,.18)'
           : 'none',
         transition: 'all .18s',
+        flexShrink: 0,
       }}
       onMouseEnter={e => {
         if (active) return;
@@ -226,18 +229,28 @@ function OpsDropdown({
   const [open, setOpen] =
     useState(false);
 
-  // Hotfix (founder nav dropdown clipping, ported from
-  // hotfix/founder-nav-dropdown-clipping commit 26d4596): render the
-  // panel position:'fixed' from the trigger's own measured screen
-  // position rather than position:'absolute' relative to this wrapper.
-  // Fixed positioning lays out against the viewport, not this (or any)
-  // ancestor, so it can't be clipped by any overflow constraint an
-  // ancestor row does or later comes to have.
-  const [panelPos, setPanelPos] =
-    useState<{ top: number; left: number } | null>(null);
+  // The panel is portaled to document.body (see below) so its own
+  // position must be computed in viewport coordinates rather than
+  // relying on CSS `position: absolute` against this wrapper — the
+  // centre nav row it lives in has `overflowX: 'auto'` (added for
+  // horizontal scroll on a crowded nav), and ANY ancestor with overflow
+  // other than 'visible' clips ALL descendants that paint outside its
+  // box — including absolutely-positioned ones — regardless of what
+  // element establishes their own containing block. That silently
+  // clipped this panel to invisible (confirmed in a real browser: the
+  // panel existed in the DOM with correct computed styles, but was
+  // rendered with zero visible pixels) even though `open` and the item
+  // list were both completely correct. A portal is the only fix that
+  // is actually robust to this — position:fixed alone does not reliably
+  // escape an ancestor's overflow clip while the element remains a DOM
+  // descendant of that ancestor.
+  const wrapperRef =
+    useRef<HTMLDivElement>(null);
 
-  const triggerRef =
-    useRef<HTMLDivElement | null>(null);
+  const [coords, setCoords] =
+    useState<{ top: number; left: number } | null>(
+      null,
+    );
 
   const timerRef =
     useRef<ReturnType<typeof setTimeout> | null>(
@@ -266,9 +279,14 @@ function OpsDropdown({
       clearTimeout(timerRef.current);
     }
 
-    const rect = triggerRef.current?.getBoundingClientRect();
+    const rect =
+      wrapperRef.current?.getBoundingClientRect();
+
     if (rect) {
-      setPanelPos({ top: rect.bottom + 10, left: rect.left });
+      setCoords({
+        top: rect.bottom + 10,
+        left: rect.left,
+      });
     }
 
     setOpen(true);
@@ -283,9 +301,10 @@ function OpsDropdown({
 
   return (
     <div
-      ref={triggerRef}
+      ref={wrapperRef}
       style={{
         position: 'relative',
+        flexShrink: 0,
       }}
       onMouseEnter={handleEnter}
       onMouseLeave={handleLeave}
@@ -352,14 +371,18 @@ function OpsDropdown({
         </svg>
       </button>
 
-      {open && panelPos && (
+      {open &&
+        coords &&
+        typeof document !==
+          'undefined' &&
+        createPortal(
         <div
           onMouseEnter={handleEnter}
           onMouseLeave={handleLeave}
           style={{
             position: 'fixed',
-            top: panelPos.top,
-            left: panelPos.left,
+            top: coords.top,
+            left: coords.left,
             background:
               'rgba(7,5,16,.98)',
             border:
@@ -515,7 +538,8 @@ function OpsDropdown({
               →
             </span>
           </Link>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );
@@ -535,6 +559,12 @@ const ADMIN_ITEMS = [
     href: '/admin/users',
     description:
       'Roles, access & invitations',
+  },
+  {
+    label: 'Client Events',
+    href: '/admin/client-events',
+    description:
+      'Platform-wide event oversight across client organisations',
   },
   {
     label: 'Pipeline',
@@ -558,16 +588,17 @@ function AdminDropdown({
   const [open, setOpen] =
     useState(false);
 
-  // Hotfix (founder nav dropdown clipping, ported from
-  // hotfix/founder-nav-dropdown-clipping commit 26d4596) — same fix as
-  // OpsDropdown above: position:'fixed' from a measured trigger rect
-  // instead of position:'absolute', so the panel can't be clipped by
-  // any ancestor overflow constraint.
-  const [panelPos, setPanelPos] =
-    useState<{ top: number; left: number } | null>(null);
+  // Portaled to document.body for the same reason OpsDropdown's panel
+  // is — see that component's own comment. The centre nav row's
+  // overflowX:'auto' silently clips this panel to invisible otherwise,
+  // even though `open` and ADMIN_ITEMS are both completely correct.
+  const wrapperRef =
+    useRef<HTMLDivElement>(null);
 
-  const triggerRef =
-    useRef<HTMLDivElement | null>(null);
+  const [coords, setCoords] =
+    useState<{ top: number; left: number } | null>(
+      null,
+    );
 
   const timerRef =
     useRef<ReturnType<typeof setTimeout> | null>(
@@ -586,9 +617,14 @@ function AdminDropdown({
       clearTimeout(timerRef.current);
     }
 
-    const rect = triggerRef.current?.getBoundingClientRect();
+    const rect =
+      wrapperRef.current?.getBoundingClientRect();
+
     if (rect) {
-      setPanelPos({ top: rect.bottom + 10, left: rect.left });
+      setCoords({
+        top: rect.bottom + 10,
+        left: rect.left,
+      });
     }
 
     setOpen(true);
@@ -604,9 +640,10 @@ function AdminDropdown({
 
   return (
     <div
-      ref={triggerRef}
+      ref={wrapperRef}
       style={{
         position: 'relative',
+        flexShrink: 0,
       }}
       onMouseEnter={handleEnter}
       onMouseLeave={handleLeave}
@@ -673,14 +710,18 @@ function AdminDropdown({
         </svg>
       </button>
 
-      {open && panelPos && (
+      {open &&
+        coords &&
+        typeof document !==
+          'undefined' &&
+        createPortal(
         <div
           onMouseEnter={handleEnter}
           onMouseLeave={handleLeave}
           style={{
             position: 'fixed',
-            top: panelPos.top,
-            left: panelPos.left,
+            top: coords.top,
+            left: coords.left,
             background:
               'rgba(7,5,16,.98)',
             border:
@@ -779,7 +820,8 @@ function AdminDropdown({
               </Link>
             );
           })}
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );
@@ -848,6 +890,7 @@ function SquadItem({
         transition:
           'color .14s, background .14s, border-color .14s',
         whiteSpace: 'nowrap',
+        flexShrink: 0,
       }}
       onMouseEnter={e => {
         if (active) return;
@@ -1221,7 +1264,14 @@ function AppNav({
         }}
       />
 
-      {/* Centre navigation */}
+      {/* Centre navigation — overflowX auto + flexShrink:0 on every item
+          (see each item's own style below) is the smallest fix for a
+          crowded/narrow nav: items keep their natural, legible width and
+          the row scrolls horizontally instead of squeezing/clipping pill
+          text unreadable. scrollbarWidth/msOverflowStyle hide the
+          scrollbar chrome (Firefox/older Edge) without needing a
+          stylesheet; WebKit browsers show a slim default scrollbar, which
+          is an acceptable, non-blocking affordance here. */}
       <div
         style={{
           display: 'flex',
@@ -1230,6 +1280,10 @@ function AppNav({
           gap: 2,
           flex: 1,
           minWidth: 0,
+          overflowX: 'auto',
+          overflowY: 'hidden',
+          scrollbarWidth: 'none',
+          msOverflowStyle: 'none',
         }}
       >
         {isLdTennis ? (
@@ -1249,28 +1303,72 @@ function AppNav({
               }
             />
 
-            <NavItem
-              href="/dashboard/leads"
-              label="Leads"
-              active={pathname.startsWith(
-                '/dashboard/leads',
-              )}
-            />
+            {/*
+              Events is a first-class, always-visible pill here (never
+              behind a hover-only dropdown) because a client
+              organisation's nav — unlike the internal-staff branch
+              below — has no Operations dropdown to bury it in at all.
+              Gated by the real enabledCapabilities projection, same as
+              every other capability-gated entry in this file.
+            */}
+            {enabledCapabilities.includes(
+              'events',
+            ) && (
+              <NavItem
+                href="/events"
+                label="Events"
+                active={pathname.startsWith(
+                  '/events',
+                )}
+              />
+            )}
 
-            <SquadItem
-              active={pathname.startsWith(
-                '/dashboard/contacts',
-              )}
-            />
+            {/*
+              Leads/Squad(Contacts)/Sessions/Blog are LD Tennis's own
+              coaching-business tools (tennis_leads, the "Program"/
+              "Session Times" contact fields, the tennis session-type
+              catalogue, and the /api/tennis/blog namespace — none of
+              this is generic client data). Gated on dashboardVariant,
+              the SAME slug-driven resolver app/dashboard/page.tsx
+              already uses to render TennisDashboard instead of the
+              generic BrainBase shell for this one organisation — not a
+              new capability, not a hardcoded organisation id. A generic
+              client organisation (e.g. School Test Organisation) never
+              matches 'ld-tennis' and correctly never sees these.
+            */}
+            {isLdTennis && (
+              <>
+                <NavItem
+                  href="/dashboard/leads"
+                  label="Leads"
+                  active={pathname.startsWith(
+                    '/dashboard/leads',
+                  )}
+                />
 
-            <NavItem
-              href="/dashboard/sessions"
-              label="Sessions"
-              active={pathname.startsWith(
-                '/dashboard/sessions',
-              )}
-            />
+                <SquadItem
+                  active={pathname.startsWith(
+                    '/dashboard/contacts',
+                  )}
+                />
 
+                <NavItem
+                  href="/dashboard/sessions"
+                  label="Sessions"
+                  active={pathname.startsWith(
+                    '/dashboard/sessions',
+                  )}
+                />
+              </>
+            )}
+
+            {/*
+              Requests (client_pipeline) is a genuine platform-global
+              channel — feature requests/issues/feedback from ANY
+              BrainBase client to the BrainBase founder, not tied to
+              tennis or any other vertical — so it stays visible for
+              every client organisation, not just LD Tennis.
+            */}
             <NavItem
               href="/dashboard/pipeline"
               label="Requests"
@@ -1279,13 +1377,15 @@ function AppNav({
               )}
             />
 
-            <NavItem
-              href="/dashboard/blog"
-              label="Blog"
-              active={pathname.startsWith(
-                '/dashboard/blog',
-              )}
-            />
+            {isLdTennis && (
+              <NavItem
+                href="/dashboard/blog"
+                label="Blog"
+                active={pathname.startsWith(
+                  '/dashboard/blog',
+                )}
+              />
+            )}
           </>
         ) : (
           <>
@@ -1351,6 +1451,28 @@ function AppNav({
                 '/hlna',
               )}
             />
+
+            {/* Requests (client_pipeline) is a genuine platform-global
+                channel — feature requests/issues/feedback from ANY
+                BrainBase client to the BrainBase founder, not tied to
+                LD Tennis or any other vertical — so it stays visible
+                for every generic client organisation. Restored during
+                the D.2.3 origin/main reconciliation: C.2D's rewrite
+                had folded it into the isLdTennis-only bundle alongside
+                Leads/Squad/Sessions/Blog, silently dropping it for
+                every non-LD-Tennis client. Not shown to Brainbase HQ
+                staff — they are the request's recipient, not its
+                sender — same !isBrainbaseHQ gate as the Dashboard
+                entry above. */}
+            {!isBrainbaseHQ && (
+              <NavItem
+                href="/dashboard/pipeline"
+                label="Requests"
+                active={pathname.startsWith(
+                  '/dashboard/pipeline',
+                )}
+              />
+            )}
 
             {/* Surfaced only once the organisation's real `events`
                 capability is confirmed enabled (enabledCapabilities,
@@ -1643,6 +1765,10 @@ export default function TopNav({
           enabledCapabilities?: {
             key: string;
           }[];
+          dashboardVariant?:
+            | 'ld-tennis'
+            | 'brainbase-hq'
+            | null;
         }>;
       })
       .then(d => {
@@ -1671,6 +1797,9 @@ export default function TopNav({
                     key: string;
                   }) => c.key,
                 ),
+                dashboardVariant:
+                  d.dashboardVariant ??
+                  null,
               }
             : null,
         );

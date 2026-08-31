@@ -162,8 +162,20 @@ describe('Ticket identity — server-generated, unique, never client-supplied', 
 describe('Ticket identity — architecture containment (register route)', () => {
   const routeSrc = stripComments(read('app/api/public/events/[organisationSlug]/[eventSlug]/register/route.ts'))
 
+  // Phase 4: the generator itself moved to lib/events/ticketToken.ts (a
+  // small extraction so the Stripe webhook's paid-order token issuance
+  // — see lib/events/stripe.ts — uses the exact same function, not a
+  // second independent implementation). The register route now imports
+  // it rather than defining it inline; both assertions below together
+  // still prove the same thing the single inline check used to.
   it('ticket_token is generated via randomBytes(32).toString(\'hex\') — never derived from a sequential/predictable id', () => {
-    expect(routeSrc).toMatch(/randomBytes\(32\)\.toString\('hex'\)/)
+    const generatorSrc = stripComments(read('lib/events/ticketToken.ts'))
+    expect(generatorSrc).toMatch(/randomBytes\(32\)\.toString\('hex'\)/)
+  })
+
+  it('the register route imports the shared token generator rather than defining its own', () => {
+    expect(routeSrc).toMatch(/import \{ generateTicketToken \} from '@\/lib\/events\/ticketToken'/)
+    expect(routeSrc).not.toMatch(/randomBytes/)
   })
 
   it('the R1 concurrency-safe capacity gate is textually unchanged — lock statements and capacity WHERE clauses are still present', () => {
@@ -186,7 +198,7 @@ describe('Public ticket — GET /api/public/tickets/[token]', () => {
   const TICKET_CTX = { params: Promise.resolve({ token: 'tok-1' }) }
 
   const VALID_ROW = [{
-    attendee_name: 'Jane Attendee', checked_in_at: null, order_status: 'CONFIRMED',
+    attendee_name: 'Jane Attendee', checked_in_at: null, order_status: 'CONFIRMED', payment_status: 'NOT_REQUIRED',
     event_name: 'Graduation', venue: 'Hall', artwork_url: 'https://example.com/a.jpg',
     starts_at: new Date('2026-12-01T10:00:00Z'), ends_at: new Date('2026-12-01T12:00:00Z'), timezone: 'Australia/Adelaide',
     ticket_type_name: 'GA', session_name: 'Morning', session_starts_at: new Date('2026-12-01T10:00:00Z'), session_ends_at: new Date('2026-12-01T11:00:00Z'),
@@ -272,7 +284,7 @@ describe('Check-in confirm — permissions', () => {
     queue(
       [{ id: 'event-1' }], // ownership
       [{ id: 'att-1' }], // UPDATE succeeded (first check-in)
-      [{ id: 'att-1', attendee_name: 'A', checked_in_at: '2026-01-01T10:00:00.000Z', order_status: 'CONFIRMED', ticket_type_name: null, session_name: null }], // resolve
+      [{ id: 'att-1', attendee_name: 'A', checked_in_at: '2026-01-01T10:00:00.000Z', order_status: 'CONFIRMED', payment_status: 'NOT_REQUIRED', ticket_type_name: null, session_name: null }], // resolve
     )
     const res = await confirmRoute.POST(confirmReq({ ticket_token: 'tok' }), EVENT_CTX)
     expect(res.status).toBe(200)
@@ -314,7 +326,7 @@ describe('Check-in confirm — first scan vs duplicate scan', () => {
     queue(
       [{ id: 'event-1' }],
       [{ id: 'att-1' }],
-      [{ id: 'att-1', attendee_name: 'A', checked_in_at: '2026-01-01T10:00:00.000Z', order_status: 'CONFIRMED', ticket_type_name: 'GA', session_name: null }],
+      [{ id: 'att-1', attendee_name: 'A', checked_in_at: '2026-01-01T10:00:00.000Z', order_status: 'CONFIRMED', payment_status: 'NOT_REQUIRED', ticket_type_name: 'GA', session_name: null }],
     )
     const res = await confirmRoute.POST(confirmReq({ ticket_token: 'tok' }), EVENT_CTX)
     expect(res.status).toBe(200)
@@ -327,7 +339,7 @@ describe('Check-in confirm — first scan vs duplicate scan', () => {
     queue(
       [{ id: 'event-1' }],
       [], // UPDATE matches zero rows — already checked in
-      [{ id: 'att-1', attendee_name: 'A', checked_in_at: ORIGINAL_TS, order_status: 'CONFIRMED', ticket_type_name: 'GA', session_name: null }],
+      [{ id: 'att-1', attendee_name: 'A', checked_in_at: ORIGINAL_TS, order_status: 'CONFIRMED', payment_status: 'NOT_REQUIRED', ticket_type_name: 'GA', session_name: null }],
     )
     const res = await confirmRoute.POST(confirmReq({ ticket_token: 'tok' }), EVENT_CTX)
     expect(res.status).toBe(409)
@@ -340,7 +352,7 @@ describe('Check-in confirm — first scan vs duplicate scan', () => {
     queue(
       [{ id: 'event-1' }],
       [], // UPDATE matches zero rows — the WHERE clause's own status <> 'CANCELLED' excludes it
-      [{ id: 'att-1', attendee_name: 'A', checked_in_at: null, order_status: 'CANCELLED', ticket_type_name: 'GA', session_name: null }],
+      [{ id: 'att-1', attendee_name: 'A', checked_in_at: null, order_status: 'CANCELLED', payment_status: 'NOT_REQUIRED', ticket_type_name: 'GA', session_name: null }],
     )
     const res = await confirmRoute.POST(confirmReq({ ticket_token: 'tok' }), EVENT_CTX)
     expect(res.status).toBe(409)
@@ -361,7 +373,7 @@ describe('Check-in undo — manager+ required, resets state correctly', () => {
   })
 
   it('manager can undo a check-in — 200, checked_in_at cleared', async () => {
-    queue([{ id: 'event-1' }], [{ id: 'att-1' }], [{ id: 'att-1', attendee_name: 'A', checked_in_at: null, order_status: 'CONFIRMED', ticket_type_name: null, session_name: null }])
+    queue([{ id: 'event-1' }], [{ id: 'att-1' }], [{ id: 'att-1', attendee_name: 'A', checked_in_at: null, order_status: 'CONFIRMED', payment_status: 'NOT_REQUIRED', ticket_type_name: null, session_name: null }])
     const res = await undoRoute.POST(undoReq({ attendee_id: 'att-1' }), EVENT_CTX)
     expect(res.status).toBe(200)
     const body = await res.json()
@@ -384,7 +396,7 @@ describe('Check-in undo — manager+ required, resets state correctly', () => {
 describe('Check-in resolve/search — viewer+ read-only', () => {
   it('viewer CAN resolve a ticket (read-only, same data already visible via GET orders)', async () => {
     requireSessionMock.mockResolvedValue(sessionAs('viewer'))
-    queue([{ id: 'event-1' }], [{ id: 'att-1', attendee_name: 'A', checked_in_at: null, order_status: 'CONFIRMED', ticket_type_name: null, session_name: null }])
+    queue([{ id: 'event-1' }], [{ id: 'att-1', attendee_name: 'A', checked_in_at: null, order_status: 'CONFIRMED', payment_status: 'NOT_REQUIRED', ticket_type_name: null, session_name: null }])
     const res = await resolveRoute.POST(jsonReq('http://localhost/x', 'POST', { ticket_token: 'tok' }), EVENT_CTX)
     expect(res.status).toBe(200)
   })

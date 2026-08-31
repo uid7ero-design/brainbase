@@ -932,3 +932,123 @@ boundary case, a `Number.isSafeInteger` boundary case
 `byteOffset` over a shared `ArrayBuffer`, proving `InMemoryFileStore`'s
 defensive-copy semantics hold for an offset view, not only a
 freshly-constructed array.
+
+## 14. Private Vercel Blob adapter (5A.2F)
+
+`lib/data-hub/storage/vercelBlobFileStore.ts` implements `RawFileStore`
+against a **dedicated, PRIVATE** Vercel Blob store, provisioned
+separately from — and never shared with — the pre-existing store Events
+& Ticketing already uses for public artwork (`lib/events/blobStorage.ts`).
+
+**Why a second store, not one shared store.** Vercel Blob's access mode
+(public vs. private) is fixed per-store at creation time and cannot be
+mixed within one store. Events' store is, and remains, public (its
+artwork must be servable to anonymous visitors on the public booking
+page). Data Hub's files are internal business data and must be private.
+These two requirements are permanently incompatible within a single
+store, so Data Hub was given its own store rather than reusing Events'.
+The two stores' env vars are distinguished by prefix at the
+infrastructure level (Events uses the project's default `BLOB_*` names;
+Data Hub's store was connected with a custom prefix) — this ADR
+documents that convention exists, not the values themselves.
+
+**Explicit configuration, no default-store resolution.**
+`createVercelBlobFileStore({ storeId, token })` takes both as required,
+non-optional constructor arguments. Neither is read from `process.env`
+by this module — the composition root (5A.2G) resolves the Data Hub
+store's env vars and passes them in explicitly. This is a deliberate
+choice, not an oversight: with two Blob stores connected to one Vercel
+project, the installed SDK's own default credential/store resolution
+(OIDC + `BLOB_STORE_ID`, or a bare `BLOB_READ_WRITE_TOKEN` env lookup)
+has no way to know which store a caller means, and will silently
+resolve to whichever store's env vars happen to be ambient. Making both
+values explicit, required constructor inputs — never optional, never
+env-sourced inside this module — removes that ambiguity structurally:
+a missing value fails the adapter's construction outright rather than
+falling back to a default store.
+
+A verified, non-obvious property of the installed SDK (`@vercel/blob`
+2.8.0): when a `token` option is supplied to `put`/`head`/`get`/`del`,
+the SDK derives the actual target store from the token itself, not from
+any `storeId` option passed alongside it — `storeId` only has live
+effect on the OIDC-credential auth path, which this adapter never uses.
+Consequently `token` being mandatory and always explicit is what
+actually guarantees every call reaches the Data Hub store under the
+currently installed SDK version; `storeId` is still passed explicitly
+on every call as documented intent and defense-in-depth against a
+future SDK version changing this precedence, but should not be
+mistaken for the operative guarantee.
+
+**Per-operation behavior:**
+- `put`: `access: 'private'`, `allowOverwrite: false`,
+  `addRandomSuffix: false`, explicit `storeId`/`token`. The canonical
+  `RawFileStore` key is used as the Blob pathname verbatim — no
+  generated suffix, no filename, no hash appended. If the provider ever
+  returns a pathname different from the requested key, the put is
+  treated as a provider failure rather than trusted.
+- `head`: explicit `storeId`/`token`; the installed SDK's `head()` does
+  not accept an `access` option at all (confirmed from the installed
+  package's own type declarations) — only `get()` requires one.
+- `get`: HEAD-first, with an early size-ceiling rejection before any
+  body stream is opened, then a hard running-byte ceiling enforced
+  during streaming (not only checked afterward), then a final
+  actual-vs-declared size check. A `maxBytes` violation triggers a
+  best-effort stream cancellation; a cancellation failure never masks
+  the real size-limit error. `maxBytes` is enforced as a running,
+  per-received-chunk application-level ceiling — the adapter checks
+  immediately after each chunk and cancels on violation, but this
+  cannot prevent the underlying stream from delivering a single chunk
+  larger than `maxBytes` before application code has a chance to
+  observe it; this is not a hard process-memory or OS-level allocation
+  cap.
+- `delete`: explicit `storeId`/`token`, the canonical key verbatim, no
+  URL construction, no wildcard/prefix deletion. Idempotent on a
+  missing object.
+- All provider failure modes normalize to the existing five
+  `RawFileStoreErrorCode` values; no raw SDK error or SDK-specific
+  error class ever escapes this adapter.
+
+**Known limitation, accepted as-is:** the installed SDK exports no
+dedicated error class for a same-pathname overwrite conflict (the
+`allowOverwrite: false` case) — that server-side failure surfaces as
+the SDK's generic base error class, indistinguishable at the type level
+from other "bad request" failures. Conflict detection therefore relies
+on a narrow, explicitly-scoped message-substring check, which is
+intentionally the one exception to this codebase's general preference
+for typed-error detection over string matching — used only because no
+typed mechanism exists for this specific case.
+
+Collision classification currently depends on backend-provided
+free-text wording. That wording is a Vercel API response string
+returned at request time, not something baked into the installed
+`@vercel/blob` package — pinning `@vercel/blob@2.8.0` pins the SDK's
+code paths, it does not pin this server-side response text, which can
+change independently of any client library version. The check still
+fails closed: a wording change would degrade classification from
+`ALREADY_EXISTS` to `PROVIDER_FAILURE`, never to a silent overwrite and
+never to a swallowed failure. A future controlled live-integration test
+that verifies the actual collision response against the real
+provisioned private store, before this adapter is ever exposed via a
+production API route, is recorded here as a pending 5A.2G / pre-live-
+exposure integration-gate item — not as work already done.
+
+**Token/storeId self-consistency (5A.2F-R1 remediation):** the
+verified property above — that `storeId` has no live effect on the
+token auth path — means a mismatched `{ storeId, token }` pair (a
+correct storeId paired with a token for a different store) would
+otherwise construct successfully and silently target the wrong store.
+`createVercelBlobFileStore` now extracts the store id actually encoded
+in the token (a small local parser matching the SDK's own verified
+`vercel_blob_rw_<storeId>_<secret>` token format — not an SDK import,
+since this helper is not part of the package's public API surface) and
+throws a plain configuration error at construction time if it does not
+match the supplied `storeId`, or if the token is too malformed for a
+store id segment to be recovered at all. The thrown message never
+includes the token value.
+
+**Deferred to 5A.2G:** resolving the Data Hub store's env vars and
+constructing this adapter (the composition root), wiring it into the
+ImportBatch initiate/finalize lifecycle, and any direct-browser-upload
+protocol. This phase is the storage adapter only — no schema change, no
+API route, no live Blob call (all behavior is proven via a fully
+mocked `@vercel/blob`).

@@ -24,8 +24,10 @@ export async function generateMetadata({ params }: { params: Promise<Params> }):
 
 export default async function PublicEventPage({
   params,
+  searchParams,
 }: {
   params: Promise<Params>;
+  searchParams: Promise<{ checkout?: string }>;
 }) {
   const { organisationSlug, eventSlug } = await params;
   const result = await getCachedEventDetail(organisationSlug, eventSlug);
@@ -35,11 +37,19 @@ export default async function PublicEventPage({
   // not-found page, no distinguishing detail.
   if (!result.ok) notFound();
 
+  // Read server-side (not via client-side useSearchParams, which would
+  // force this whole page into a Suspense boundary — see the reset-
+  // password page's own established pattern for when that IS needed).
+  // §16: a cancelled Stripe Checkout returns here with a clear message,
+  // never a duplicate reservation attempt.
+  const { checkout } = await searchParams;
+
   return (
     <PublicEventClient
       organisationSlug={organisationSlug}
       eventSlug={eventSlug}
       detail={result.detail}
+      checkoutCancelled={checkout === 'cancelled'}
     />
   );
 }

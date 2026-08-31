@@ -263,6 +263,18 @@ const CAPABILITIES = [
       </svg>
     ),
   },
+  {
+    title: 'Events & Ticketing',
+    description:
+      'Publish events with multiple free and paid ticket types, manage registrations, and issue digital tickets with QR check-in. Stripe Connect settles payments directly to your own bank account.',
+    color: '#FBBF24',
+    icon: (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M3 8a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v2a2 2 0 0 0 0 4v2a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-2a2 2 0 0 0 0-4z" />
+        <path d="M13 5v14" strokeDasharray="2 2" />
+      </svg>
+    ),
+  },
 ];
 
 const CONFIG_EXAMPLES = [
