@@ -57,6 +57,21 @@ vi.mock('@/lib/capabilities/requireCapability', async (importOriginal) => {
 const checkRateLimitMock = vi.fn()
 vi.mock('@/lib/rateLimit', () => ({ checkRateLimit: (...args: unknown[]) => checkRateLimitMock(...args) }))
 
+// Phase 5 — Events -> CRM sync is a separate, orthogonal concern with
+// its own dedicated coverage (tests/containment/crmEventSyncBoundary.test.ts,
+// crmEventSyncPrivacy.test.ts, scripts/tests/verify-events-crm-sync-
+// concurrency.sh). Mocked away here as a no-op so this file's existing
+// sqlMock call-count assertions — including the vi.doUnmock('@/lib/
+// events/stripe') + vi.resetModules() real-implementation webhook tests
+// further down — continue to reflect ONLY the payment/webhook behaviour
+// they were written to prove, not incidentally coupled to however many
+// internal queries CRM sync happens to issue.
+vi.mock('@/lib/crm/eventSync', () => ({
+  syncEventOrderContact: vi.fn().mockResolvedValue(undefined),
+  recordEventBookingActivity: vi.fn().mockResolvedValue(undefined),
+  recordEventBookingActivityForOrder: vi.fn().mockResolvedValue(undefined),
+}))
+
 const createCheckoutSessionMock = vi.fn()
 const constructWebhookEventMock = vi.fn()
 const processStripeWebhookEventMock = vi.fn()

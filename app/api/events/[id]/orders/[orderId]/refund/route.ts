@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import sql from '@/lib/db';
 import { authorizeEventsRequest } from '@/lib/events/authorize';
 import { createRefund } from '@/lib/events/stripe';
+import { recordEventBookingActivityForOrder } from '@/lib/crm/eventSync';
 
 type Ctx = { params: Promise<{ id: string; orderId: string }> };
 
@@ -81,6 +82,16 @@ export async function POST(_req: Request, { params }: Ctx) {
     // is not reversed; report success rather than a misleading error.
     return NextResponse.json({ ok: true, note: 'Refund processed by Stripe; order state was already updated by a concurrent request.' });
   }
+
+  // Events -> CRM sync (Phase 5) — best-effort, never throws (see
+  // lib/crm/eventSync.ts). Reads the order's own now-REFUNDED row
+  // (payment_status was just set above) and updates its existing
+  // booking activity, if one exists, to reflect that — never deletes
+  // the CRM contact, and no-ops silently if CRM is disabled or the
+  // order was never linked to a contact. Every CRM-related sql call
+  // this phase introduces lives behind lib/crm/eventSync.ts's own
+  // boundary — this route does not run its own separate lookup query.
+  await recordEventBookingActivityForOrder(orderId);
 
   return NextResponse.json({ ok: true });
 }

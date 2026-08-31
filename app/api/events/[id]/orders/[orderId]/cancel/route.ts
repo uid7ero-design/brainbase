@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import sql from '@/lib/db';
 import { authorizeEventsRequest } from '@/lib/events/authorize';
+import { recordEventBookingActivityForOrder } from '@/lib/crm/eventSync';
 
 type Ctx = { params: Promise<{ id: string; orderId: string }> };
 
@@ -66,6 +67,16 @@ export async function POST(_req: Request, { params }: Ctx) {
     // manager) between the read above and this UPDATE — not an error.
     return NextResponse.json({ ok: true, note: 'Order was already resolved by a concurrent update.' });
   }
+
+  // Events -> CRM sync (Phase 5) — best-effort, never throws (see
+  // lib/crm/eventSync.ts). Reads the order's own now-EXPIRED row
+  // (payment_status was just set above) and updates its existing
+  // booking activity, if one exists, to reflect that — never deletes
+  // the CRM contact itself, and no-ops silently if CRM is disabled or
+  // the order was never linked to a contact. Every CRM-related sql
+  // call this phase introduces lives behind lib/crm/eventSync.ts's own
+  // boundary — this route does not run its own separate lookup query.
+  await recordEventBookingActivityForOrder(orderId);
 
   return NextResponse.json({ ok: true });
 }

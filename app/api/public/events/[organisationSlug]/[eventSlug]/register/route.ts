@@ -6,6 +6,7 @@ import { checkRateLimit } from '@/lib/rateLimit';
 import { getClientIp } from '@/lib/clientIp';
 import { generateTicketToken } from '@/lib/events/ticketToken';
 import { listActiveQuestions, validateSubmittedResponses, flattenOrderAnswers, flattenAttendeeAnswers } from '@/lib/events/registrationQuestions';
+import { syncEventOrderContact, recordEventBookingActivity } from '@/lib/crm/eventSync';
 
 type Ctx = { params: Promise<{ organisationSlug: string; eventSlug: string }> };
 
@@ -410,6 +411,32 @@ export async function POST(req: NextRequest, { params }: Ctx) {
   // together) or the whole thing was rolled back and the catch block
   // above already returned a 500. There is no remaining window where a
   // registration succeeds with responses silently missing.
+
+  // Events -> CRM sync (Phase 5) — deliberately AFTER the booking
+  // transaction has already committed, never inside it: CRM must never
+  // hold up or fail a capacity-critical registration. Both calls are
+  // best-effort and never throw (see lib/crm/eventSync.ts) — a CRM
+  // failure here is logged and otherwise invisible; the registration
+  // response below is unconditional. Free registrations are always
+  // immediately CONFIRMED (no PENDING stage), so the booking activity
+  // is recorded in the same request rather than waiting for a later
+  // webhook, matching Phase 5's own free-registration behaviour spec.
+  await syncEventOrderContact({
+    organisationId,
+    orderId,
+    purchaserName: validated.purchaser_name,
+    purchaserEmail: validated.purchaser_email,
+    purchaserPhone: validated.purchaser_phone,
+  });
+  await recordEventBookingActivity({
+    organisationId,
+    orderId,
+    eventName: event.name,
+    quantity: validated.quantity,
+    totalCents: 0,
+    currency: 'AUD',
+    paymentStatus: 'NOT_REQUIRED',
+  });
 
   // One ticket per attendee row actually inserted — the client builds
   // each link as /t/${ticket_token} (see app/t/[token]/page.tsx); no

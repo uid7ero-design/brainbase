@@ -45,6 +45,20 @@ vi.mock('@/lib/capabilities/requireCapability', async (importOriginal) => {
   }
 })
 
+// Phase 5 — Events -> CRM sync is a separate, orthogonal concern with
+// its own dedicated coverage (tests/containment/crmEventSyncBoundary.test.ts,
+// crmEventSyncPrivacy.test.ts, scripts/tests/verify-events-crm-sync-
+// concurrency.sh). Mocked away here as a no-op so this file's real
+// webhook-handler-logic assertions (see the comment immediately below)
+// continue to reflect ONLY lib/events/stripe.ts's own webhook/DB
+// behaviour, not incidentally coupled to however many internal queries
+// CRM sync happens to issue.
+vi.mock('@/lib/crm/eventSync', () => ({
+  syncEventOrderContact: vi.fn().mockResolvedValue(undefined),
+  recordEventBookingActivity: vi.fn().mockResolvedValue(undefined),
+  recordEventBookingActivityForOrder: vi.fn().mockResolvedValue(undefined),
+}))
+
 // Partial mock (importOriginal): only getStripeClient is overridden —
 // processStripeWebhookEvent and its handlers run for REAL against the
 // mocked @/lib/db, which is the whole point of the §16 proof below
