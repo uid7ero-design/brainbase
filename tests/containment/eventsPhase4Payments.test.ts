@@ -452,7 +452,10 @@ describe('Refund route — permissions and provider-confirms-first ordering', ()
     const res = await refundRoute.POST(refundReq(), CTX)
     expect(res.status).toBe(200)
     expect(createRefundMock).toHaveBeenCalledWith('pi_1', 'acct_org_a')
-    expect(sqlMock).toHaveBeenCalledTimes(3)
+    // ownership + order lookup + UPDATE...RETURNING + Phase 6 audit_logs INSERT
+    // (lib/events/auditLog.ts's logRefunded, unmocked here, runs against the
+    // same @/lib/db mock as the route itself).
+    expect(sqlMock).toHaveBeenCalledTimes(4)
   })
 
   it('refund also cancels the order — REFUNDED tickets are never left as a valid scannable ticket (§23/§24)', () => {

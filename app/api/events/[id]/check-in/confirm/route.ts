@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import sql from '@/lib/db';
 import { authorizeEventsRequest } from '@/lib/events/authorize';
 import { confirmCheckIn, type AttendeeIdentifier } from '@/lib/events/checkIn';
+import { logCheckedIn } from '@/lib/events/auditLog';
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -61,5 +62,15 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     const message = result.reason === 'cancelled' ? 'Ticket cancelled.' : result.reason === 'unpaid' ? 'Payment not completed.' : 'Ticket not valid.';
     return NextResponse.json({ error: message, reason: result.reason }, { status });
   }
+
+  // Phase 6 §11 — audit history, best-effort, only on a genuinely NEW
+  // check-in (result.first) — a duplicate scan of an already-checked-in
+  // ticket must not log a second "checked in" entry for the same event.
+  if (result.first) {
+    const orderRows = await sql`SELECT order_id FROM event_attendees WHERE id = ${result.attendee.id} AND organisation_id = ${session.organisationId} LIMIT 1`;
+    const orderId = (orderRows[0] as { order_id: string } | undefined)?.order_id;
+    if (orderId) await logCheckedIn({ organisationId: session.organisationId, userId: session.userId, orderId, attendeeId: result.attendee.id });
+  }
+
   return NextResponse.json({ first: result.first, attendee: result.attendee }, { status: result.first ? 200 : 409 });
 }

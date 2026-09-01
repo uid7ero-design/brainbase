@@ -47,10 +47,34 @@ export async function GET(_req: Request, { params }: Ctx) {
       es.id AS event_session_id, es.name AS session_name,
       COALESCE(
         json_agg(json_build_object(
-          'id', ea.id, 'name', ea.attendee_name, 'email', ea.attendee_email, 'checked_in_at', ea.checked_in_at,
+          'id', ea.id, 'name', ea.attendee_name, 'email', ea.attendee_email,
+          'checked_in_at', ea.checked_in_at,
+          -- Phase 6 §10 — "checked_in_by where available". Resolved by
+          -- name via a LEFT JOIN (below) rather than exposing the raw
+          -- checked_in_by_user_id: a manager reading this panel wants
+          -- to know WHO checked someone in, not a bare id. Genuinely
+          -- NULL (not fabricated) whenever checked_in_by_user_id itself
+          -- is NULL — an attendee never checked in, or the checking-in
+          -- user's account was since deleted (checked_in_by_user_id is
+          -- ON DELETE SET NULL — see scripts/add-events-ticketing.sql).
+          'checked_in_by', cu.name,
+          -- Phase 6 §9 — exposes the existing ticket_token so a manager
+          -- can view/copy the real ticket link without needing a
+          -- separate lookup route. NULL for PENDING/CANCELLED/REFUNDED
+          -- attendees exactly as already established (see
+          -- lib/events/ticketToken.ts and the checkout/register routes)
+          -- — this SELECT does not change when a token exists, only
+          -- whether it is now included in this already-staff-only
+          -- response.
+          'ticket_token', ea.ticket_token,
           'responses', COALESCE((
             SELECT json_agg(json_build_object(
-              'question_id', r.question_id, 'label', r.question_label_snapshot, 'field_type', r.field_type_snapshot, 'answer', r.answer
+              -- Phase 6 §6 — 'id' (the response row's own PK) is included
+              -- so the manager UI can target PATCH
+              -- .../orders/[orderId]/responses/[responseId] for an edit;
+              -- every other field here is unchanged from before this
+              -- phase.
+              'id', r.id, 'question_id', r.question_id, 'label', r.question_label_snapshot, 'field_type', r.field_type_snapshot, 'answer', r.answer
             ) ORDER BY r.created_at)
             FROM event_registration_responses r
             WHERE r.attendee_id = ea.id AND r.organisation_id = ea.organisation_id
@@ -61,7 +85,7 @@ export async function GET(_req: Request, { params }: Ctx) {
       ) AS attendees,
       COALESCE((
         SELECT json_agg(json_build_object(
-          'question_id', r.question_id, 'label', r.question_label_snapshot, 'field_type', r.field_type_snapshot, 'answer', r.answer
+          'id', r.id, 'question_id', r.question_id, 'label', r.question_label_snapshot, 'field_type', r.field_type_snapshot, 'answer', r.answer
         ) ORDER BY r.created_at)
         FROM event_registration_responses r
         WHERE r.order_id = eo.id AND r.attendee_id IS NULL AND r.organisation_id = eo.organisation_id
@@ -71,6 +95,7 @@ export async function GET(_req: Request, { params }: Ctx) {
     LEFT JOIN event_ticket_types tt ON tt.id = oi.ticket_type_id AND tt.organisation_id = oi.organisation_id
     LEFT JOIN event_sessions es ON es.id = oi.event_session_id AND es.organisation_id = oi.organisation_id
     LEFT JOIN event_attendees ea ON ea.order_item_id = oi.id AND ea.organisation_id = oi.organisation_id
+    LEFT JOIN users cu ON cu.id = ea.checked_in_by_user_id
     WHERE eo.event_id = ${id} AND eo.organisation_id = ${session.organisationId}
     GROUP BY eo.id, oi.id, tt.id, tt.name, es.id, es.name
     ORDER BY eo.created_at DESC

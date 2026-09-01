@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import sql from '@/lib/db';
 import { authorizeEventsRequest } from '@/lib/events/authorize';
 import { undoCheckIn } from '@/lib/events/checkIn';
+import { logCheckInUndone } from '@/lib/events/auditLog';
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -42,5 +43,10 @@ export async function POST(req: NextRequest, { params }: Ctx) {
       { status: result.reason === 'not_checked_in' ? 409 : 404 },
     );
   }
+
+  const orderRows = await sql`SELECT order_id FROM event_attendees WHERE id = ${body.attendee_id} AND organisation_id = ${session.organisationId} LIMIT 1`;
+  const orderId = (orderRows[0] as { order_id: string } | undefined)?.order_id;
+  if (orderId) await logCheckInUndone({ organisationId: session.organisationId, userId: session.userId, orderId, attendeeId: body.attendee_id });
+
   return NextResponse.json({ attendee: result.attendee });
 }
