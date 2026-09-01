@@ -484,6 +484,151 @@ describe("integration — keyset pagination correctness", () => {
   });
 });
 
+// ─── 5A.2H.2 remediation — sub-millisecond pagination precision ─────────
+//
+// This is the permanent regression for the blocker the independent
+// adversarial review found: import_batches.created_at is a genuine
+// microsecond-precision TIMESTAMPTZ, but every OTHER fixture in this file
+// seeds created_at via a JS Date (through seedBatch/prisma.importBatch.create)
+// or a `new Date(...)` literal — which is inherently millisecond-precision
+// at the moment of construction, so it can never exercise the actual bug.
+// This fixture instead inserts rows via raw, parameterized SQL with an
+// explicit microsecond-bearing timestamp literal, bypassing the JS Date
+// type entirely at seed time, then independently proves (via Postgres's
+// own to_char output) that the distinct microseconds genuinely landed in
+// the column before ever calling listImportBatches.
+async function seedBatchWithRawTimestamp(
+  organisationId: string,
+  createdAtLiteral: string,
+  explicitId?: string
+): Promise<string> {
+  const id = explicitId ?? randomUUID();
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO import_batches (
+       id, organisation_id, original_filename, content_type, size_bytes,
+       sha256, storage_provider, storage_key, status, created_at
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::timestamptz)`,
+    id,
+    organisationId,
+    "sub-ms-fixture.csv",
+    "csv",
+    1,
+    "a".repeat(64),
+    "vercel-blob-private",
+    `datahub/${organisationId}/${id}`,
+    "READY",
+    createdAtLiteral
+  );
+  return id;
+}
+
+describe("integration — sub-millisecond pagination precision (5A.2H.2 remediation regression)", () => {
+  it("a full paginated traversal (limit=1) omits nothing and duplicates nothing when rows share a millisecond but differ only in microseconds", async () => {
+    const orgId = `org-submsprec-${randomUUID()}`;
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO organisations (id, name, slug) VALUES ($1, $1, $1) ON CONFLICT (id) DO NOTHING`,
+      orgId
+    );
+
+    // Three rows, all within the SAME millisecond (.123), differing only in
+    // the microsecond digits below it.
+    //
+    // The id<->timestamp pairing below is DELIBERATELY adversarial, not
+    // random: ids are assigned in ASCENDING order to DESCENDING
+    // timestamps (highest real created_at gets the SMALLEST id). This
+    // makes the traversal's completeness deterministic regardless of
+    // which precision the implementation actually orders by:
+    //   - correct (millisecond-truncated ORDER BY, this bucket ties):
+    //     falls through to id DESC -> deterministically idMax, idMid, idMin.
+    //   - buggy (raw-precision ORDER BY, as in the pre-remediation
+    //     candidate): returns highest-raw-timestamp first regardless of
+    //     id, which is idMin here — so the very next page's `id <
+    //     cursor.id` predicate can satisfy NO remaining row (idMin is
+    //     already the smallest), deterministically truncating the
+    //     traversal at 1 of 3 rows every run, not just probabilistically.
+    // This was independently verified: an earlier version of this test
+    // used unordered random ids and did NOT reliably catch a reintroduced
+    // raw-precision ORDER BY mutation (whether omission occurred depended
+    // on random id ordering vs. timestamp ordering, in this fixture
+    // roughly a 1-in-3 make-it-pass-by-luck failure mode) — this
+    // deterministic pairing was required to make the falsification proof
+    // (Section 16 of the 5A.2H.2 remediation spec) reliable.
+    const literals = [
+      "2026-05-01 00:00:00.123900+00", // highest real timestamp
+      "2026-05-01 00:00:00.123500+00",
+      "2026-05-01 00:00:00.123100+00", // lowest real timestamp
+    ];
+    const rawIds = [randomUUID(), randomUUID(), randomUUID()].sort(); // ascending
+    const [idMin, idMid, idMax] = rawIds;
+    const idsByDescendingTimestamp = [idMin, idMid, idMax];
+    const seededIds: string[] = [];
+    for (let i = 0; i < literals.length; i++) {
+      seededIds.push(await seedBatchWithRawTimestamp(orgId, literals[i], idsByDescendingTimestamp[i]));
+    }
+
+    // Prove the fixture genuinely retained distinct microseconds BEFORE
+    // exercising listImportBatches at all — via Postgres's own to_char,
+    // never via a JS Date round-trip (which is exactly what would erase
+    // the distinction this test depends on).
+    const rawRows = await prisma.$queryRawUnsafe<{ id: string; us: string }[]>(
+      `SELECT id, to_char(created_at, 'YYYY-MM-DD HH24:MI:SS.US') AS us
+       FROM import_batches WHERE organisation_id = $1 ORDER BY created_at ASC`,
+      orgId
+    );
+    expect(rawRows).toHaveLength(3);
+    const distinctMicrosecondValues = new Set(rawRows.map((r) => r.us));
+    expect(distinctMicrosecondValues.size).toBe(3);
+    for (const row of rawRows) {
+      expect(row.us.startsWith("2026-05-01 00:00:00.123")).toBe(true);
+    }
+
+    // Expected traversal order once all three collapse into ONE
+    // millisecond-truncated bucket: strictly id DESC among the tied rows
+    // (see read.ts's PRECISION note on listImportBatches — ORDER BY and
+    // the WHERE-clause cursor boundary both operate on
+    // date_trunc('milliseconds', created_at)).
+    const expectedOrder = [...seededIds].sort().reverse();
+
+    const collected: string[] = [];
+    let cursor: string | undefined;
+    for (let page = 0; page < 10; page++) {
+      const result = await listImportBatches({ organisationId: orgId, limit: 1, cursor });
+      expect(result.ok).toBe(true);
+      if (!result.ok) break;
+      collected.push(...result.batches.map((b) => b.id));
+      if (!result.hasNextPage) break;
+      cursor = result.nextCursor ?? undefined;
+    }
+
+    // The historical bug (pre-remediation): this traversal terminated after
+    // exactly 1 of the 3 rows, silently and permanently omitting the other
+    // two. Post-remediation: every row is visited exactly once.
+    expect(collected.length).toBe(3);
+    expect(new Set(collected).size).toBe(3);
+    expect(new Set(collected)).toEqual(new Set(seededIds));
+    expect(collected).toEqual(expectedOrder);
+  });
+
+  it("a single unpaginated call (limit >= row count) also returns every sub-millisecond-tied row exactly once", async () => {
+    const orgId = `org-submsprec2-${randomUUID()}`;
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO organisations (id, name, slug) VALUES ($1, $1, $1) ON CONFLICT (id) DO NOTHING`,
+      orgId
+    );
+    const literals = ["2026-05-02 12:00:00.500010+00", "2026-05-02 12:00:00.500990+00"];
+    const seededIds: string[] = [];
+    for (const literal of literals) {
+      seededIds.push(await seedBatchWithRawTimestamp(orgId, literal));
+    }
+
+    const result = await listImportBatches({ organisationId: orgId, limit: 200 });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.hasNextPage).toBe(false);
+    expect(new Set(result.batches.map((b) => b.id))).toEqual(new Set(seededIds));
+  });
+});
+
 // ─── 15/16 — cursor/limit validation ────────────────────────────────────
 
 describe("integration — cursor and limit validation", () => {
@@ -518,6 +663,64 @@ describe("integration — cursor and limit validation", () => {
   it("limit at exactly the max bound (200) is accepted", async () => {
     const result = await listImportBatches({ organisationId: "org-a", limit: 200 });
     expect(result.ok).toBe(true);
+  });
+
+  it("a cursor minted under tenant A returns only tenant B's own rows (or none) when submitted under tenant B's trusted context — never tenant A's rows", async () => {
+    const orgA = `org-cursorforge-a-${randomUUID()}`;
+    const orgB = `org-cursorforge-b-${randomUUID()}`;
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO organisations (id, name, slug) VALUES ($1, $1, $1), ($2, $2, $2) ON CONFLICT (id) DO NOTHING`,
+      orgA,
+      orgB
+    );
+    const aIds: string[] = [];
+    for (let i = 0; i < 3; i++) {
+      aIds.push(await seedBatch({ organisationId: orgA, createdAt: new Date(Date.UTC(2026, 3, 1, 0, 0, i)) }));
+    }
+    const bIds: string[] = [];
+    for (let i = 0; i < 3; i++) {
+      bIds.push(await seedBatch({ organisationId: orgB, createdAt: new Date(Date.UTC(2026, 3, 1, 0, 0, i)) }));
+    }
+
+    // Mint a real cursor under tenant A's own traversal.
+    const forgedFrom = await listImportBatches({ organisationId: orgA, limit: 1 });
+    expect(forgedFrom.ok).toBe(true);
+    if (!forgedFrom.ok) return;
+    expect(forgedFrom.hasNextPage).toBe(true);
+    const forgedCursor = forgedFrom.nextCursor;
+    expect(forgedCursor).toBeTruthy();
+
+    // Submit that identical cursor string under tenant B's trusted context.
+    const underB = await listImportBatches({ organisationId: orgB, limit: 200, cursor: forgedCursor ?? undefined });
+    expect(underB.ok).toBe(true);
+    if (!underB.ok) return;
+    const returnedIds = new Set(underB.batches.map((b) => b.id));
+    for (const id of aIds) {
+      expect(returnedIds.has(id)).toBe(false);
+    }
+    for (const id of returnedIds) {
+      expect(bIds).toContain(id);
+    }
+  });
+
+  it("a syntactically-valid but entirely fabricated cursor tuple (no corresponding row) repositions harmlessly — no error, no leak, no altered ordering", async () => {
+    const orgId = `org-cursorfab-${randomUUID()}`;
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO organisations (id, name, slug) VALUES ($1, $1, $1) ON CONFLICT (id) DO NOTHING`,
+      orgId
+    );
+    const realId = await seedBatch({ organisationId: orgId, createdAt: new Date("2026-04-15T00:00:00Z") });
+
+    const fabricated = Buffer.from(
+      JSON.stringify({ createdAt: new Date("2099-01-01T00:00:00Z").toISOString(), id: "does-not-exist-anywhere" }),
+      "utf8"
+    ).toString("base64url");
+
+    const result = await listImportBatches({ organisationId: orgId, limit: 200, cursor: fabricated });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.batches.map((b) => b.id)).toEqual([realId]);
+    expect(result.hasNextPage).toBe(false);
   });
 });
 

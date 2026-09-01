@@ -1398,6 +1398,37 @@ already-established traversal (case 13); pagination never crosses tenant
 even across a full multi-page walk (case 14); a malformed or
 structurally-wrong cursor yields `INVALID_CURSOR` (case 15/15b).
 
+**Pagination-precision remediation (post-review).** An independent
+adversarial review of the first candidate found that `created_at` is a
+genuine microsecond-precision `TIMESTAMPTZ`, while a JS `Date` — and
+therefore the cursor built from one — can only ever represent millisecond
+precision. Ordering by the raw column while comparing the `WHERE`-clause
+cursor boundary against that same raw column silently and permanently
+omitted rows whose real `created_at` fell strictly between the cursor's
+millisecond-truncated value and the next row's real value (reproduced
+against real Postgres: two `ImportBatch` rows created within the same
+millisecond for one organisation, a realistic condition under
+concurrent/rapid `initiate()` calls). Fixed by keeping the `ORDER BY` and
+the `WHERE`-clause cursor comparison at IDENTICAL precision: both now
+operate on `date_trunc('milliseconds', created_at)`, computed by Postgres
+itself and selected `AS created_at`, so the value that becomes a JS
+`Date` (for both the DTO's `createdAt` field and the next cursor) is
+already exactly millisecond-valued, leaving nothing for any driver-level
+rounding/truncation to disagree about on the next page's comparison.
+Because Prisma's query builder cannot express a function/expression in
+`orderBy`/`where` for a non-generated column, `listImportBatches` alone
+(no other H.2 operation needed this) uses a narrowly-scoped
+`prisma.$queryRaw` built via `Prisma.sql` composition — never
+`$queryRawUnsafe`, never string-built SQL; every value (`organisationId`,
+the cursor's truncated timestamp and id, and `limit + 1`) is bound as a
+real query parameter. Proven against real Postgres with a fixture seeded
+via raw SQL (never a JS `Date`/Prisma typed `create()`, which is exactly
+the blind spot that let the original bug through): rows sharing one
+millisecond but differing only in microseconds are traversed with zero
+omissions and zero duplicates; the same fixture, run against the
+pre-remediation code, reproducibly fails. No schema/migration change was
+required.
+
 **Worksheet ordering.** `listWorksheetsForBatch` orders strictly by
 `worksheet_index ASC` with no pagination — re-verified that
 `workbookParser.ts`'s `maxWorksheetCount` remains 50 as of this phase, so

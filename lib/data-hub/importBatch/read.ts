@@ -369,6 +369,35 @@ function validateLimit(limit: number | undefined): number | null {
  * id DESC tie-breaker), bounded and keyset-paginated. Excludes tombstoned
  * batches (deleted_at IS NOT NULL). Never performs a COUNT(*) — hasNextPage
  * is derived from fetching one extra row (limit + 1).
+ *
+ * PRECISION (5A.2H.2 remediation): import_batches.created_at is a
+ * microsecond-precision TIMESTAMPTZ, but a JS Date — and therefore the
+ * opaque cursor, which is built from one — can only ever represent
+ * millisecond precision; there is no sub-millisecond component to lose or
+ * keep. Ordering by the RAW column while comparing the WHERE-clause cursor
+ * boundary against that same raw column mixes two different precisions:
+ * two ImportBatch rows created for one organisation within the same
+ * millisecond (a realistic condition under concurrent/rapid initiate()
+ * calls) can then have a real row fall strictly between the cursor's
+ * millisecond-truncated value and the next row's real value, silently and
+ * permanently omitting it from the traversal. To keep the ORDER BY and the
+ * WHERE-clause cursor comparison at IDENTICAL precision, both are computed
+ * from date_trunc('milliseconds', created_at) — evaluated by Postgres
+ * itself and selected AS created_at, so the value that becomes a JS Date
+ * (for both the DTO's createdAt field and the next cursor) is already
+ * exactly millisecond-valued, leaving nothing for any driver-level
+ * rounding/truncation to disagree about on the next page's comparison.
+ * Prisma's query builder cannot express a function/expression in
+ * `orderBy`/`where` for a non-generated column, so this one operation uses
+ * a narrowly-scoped `prisma.$queryRaw` built via `Prisma.sql` composition
+ * — never `$queryRawUnsafe`, never string-built SQL. Every value
+ * (organisationId, the cursor's truncated timestamp and id, and limit + 1)
+ * is bound as a real, parameterized query argument, never interpolated as
+ * SQL text; `deleted_at IS NULL` and every column/table identifier are
+ * fixed literals written here, never caller-controlled. See
+ * tests/containment/worksheetReadService.test.ts for the static safety
+ * proof and scripts/tests/worksheetReadService.integration.test.ts's
+ * dedicated sub-millisecond regression test for the real-Postgres proof.
  */
 export async function listImportBatches(context: ListImportBatchesTrustedContext): Promise<ListImportBatchesResult> {
   const { organisationId, cursor, limit: rawLimit } = context;
@@ -386,31 +415,34 @@ export async function listImportBatches(context: ListImportBatchesTrustedContext
     }
   }
 
-  const where: Prisma.ImportBatchWhereInput = {
-    organisation_id: organisationId,
-    deleted_at: null,
-  };
-  if (cursorTuple) {
-    where.OR = [
-      { created_at: { lt: cursorTuple.createdAt } },
-      { created_at: cursorTuple.createdAt, id: { lt: cursorTuple.id } },
-    ];
-  }
+  // Both sides of this predicate deliberately use the SAME
+  // date_trunc('milliseconds', created_at) expression the ORDER BY below
+  // also uses — see the PRECISION note above. cursorTuple.createdAt is a
+  // plain JS Date (millisecond-exact by construction), bound as a real
+  // query parameter, never interpolated into the SQL text.
+  const cursorFragment = cursorTuple
+    ? Prisma.sql`AND (
+        date_trunc('milliseconds', created_at) < ${cursorTuple.createdAt}
+        OR (date_trunc('milliseconds', created_at) = ${cursorTuple.createdAt} AND id < ${cursorTuple.id})
+      )`
+    : Prisma.empty;
 
-  const rows = await prisma.importBatch.findMany({
-    where,
-    orderBy: [{ created_at: "desc" }, { id: "desc" }],
-    take: limit + 1,
-    select: {
-      id: true,
-      status: true,
-      original_filename: true,
-      content_type: true,
-      size_bytes: true,
-      created_at: true,
-      updated_at: true,
-    },
-  });
+  const rows = await prisma.$queryRaw<ImportBatchRow[]>(Prisma.sql`
+    SELECT
+      id,
+      status,
+      original_filename,
+      content_type,
+      size_bytes,
+      date_trunc('milliseconds', created_at) AS created_at,
+      updated_at
+    FROM import_batches
+    WHERE organisation_id = ${organisationId}
+      AND deleted_at IS NULL
+      ${cursorFragment}
+    ORDER BY date_trunc('milliseconds', created_at) DESC, id DESC
+    LIMIT ${limit + 1}
+  `);
 
   const hasNextPage = rows.length > limit;
   const page = rows.slice(0, limit);

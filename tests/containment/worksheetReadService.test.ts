@@ -158,11 +158,11 @@ describe("read — required tenant predicates (source-text containment)", () => 
     expect(whereClause).not.toMatch(/import_batch:\s*\{/);
   });
 
-  it("listImportBatches always restates organisation_id directly (never solely a nested relation filter)", () => {
+  it("listImportBatches always restates organisation_id directly in its raw-SQL WHERE clause (never solely a nested relation filter)", () => {
     const start = code.indexOf("export async function listImportBatches");
     const end = code.indexOf("export async function getWorksheet");
     const body = code.slice(start, end);
-    expect(body).toMatch(/organisation_id:\s*organisationId/);
+    expect(body).toMatch(/WHERE organisation_id = \$\{organisationId\}/);
   });
 
   it("every worksheet-shaped query explicitly filters lineage_kind = 'DATA_HUB' (never inferred from import_batch_id alone)", () => {
@@ -192,11 +192,11 @@ describe("read — tombstone policy (source-text containment)", () => {
     expect(body).toMatch(/deleted_at\s*!==\s*null/);
   });
 
-  it("listImportBatches filters deleted_at: null in its WHERE", () => {
+  it("listImportBatches filters deleted_at IS NULL in its raw-SQL WHERE", () => {
     const start = code.indexOf("export async function listImportBatches");
     const end = code.indexOf("export async function getWorksheet");
     const body = code.slice(start, end);
-    expect(body).toMatch(/deleted_at:\s*null/);
+    expect(body).toMatch(/AND deleted_at IS NULL/);
   });
 
   it("getWorksheet re-checks its parent batch's tombstone status via an explicit tenant-scoped ImportBatch lookup", () => {
@@ -225,20 +225,20 @@ describe("read — bounded pagination + deterministic ordering (source-text cont
     expect(code).toMatch(/MAX_LIST_LIMIT\s*=\s*200/);
   });
 
-  it("listImportBatches fetches limit + 1 to compute hasNextPage, never a COUNT(*)", () => {
+  it("listImportBatches fetches limit + 1 (raw-SQL LIMIT) to compute hasNextPage, never a COUNT(*)", () => {
     const start = code.indexOf("export async function listImportBatches");
     const end = code.indexOf("export async function getWorksheet");
     const body = code.slice(start, end);
-    expect(body).toMatch(/take:\s*limit\s*\+\s*1/);
+    expect(body).toMatch(/LIMIT \$\{limit \+ 1\}/);
     expect(body).not.toMatch(/\.count\(/);
     expect(body).not.toMatch(/COUNT\(\*\)/i);
   });
 
-  it("listImportBatches orders by created_at desc, id desc", () => {
+  it("listImportBatches orders by the SAME millisecond-normalized expression its WHERE-clause cursor boundary uses, DESC, id DESC", () => {
     const start = code.indexOf("export async function listImportBatches");
     const end = code.indexOf("export async function getWorksheet");
     const body = code.slice(start, end);
-    expect(body).toMatch(/orderBy:\s*\[\{\s*created_at:\s*["']desc["']\s*\},\s*\{\s*id:\s*["']desc["']\s*\}\]/);
+    expect(body).toMatch(/ORDER BY date_trunc\('milliseconds', created_at\) DESC, id DESC/);
   });
 
   it("listWorksheetsForBatch orders strictly by worksheet_index asc and has no pagination parameters", () => {
@@ -277,14 +277,70 @@ describe("read — cursor contract (source-text containment)", () => {
     expect(body).toMatch(/return null/);
   });
 
-  it("listImportBatches always reasserts organisation_id in the WHERE clause independent of any cursor value", () => {
+  it("listImportBatches always reasserts organisation_id in the raw-SQL WHERE clause independent of any cursor value (organisation_id appears before the cursorFragment interpolation)", () => {
     const start = code.indexOf("export async function listImportBatches");
     const end = code.indexOf("export async function getWorksheet");
     const body = code.slice(start, end);
-    const whereBlockStart = body.indexOf("const where:");
-    const whereBlockEnd = body.indexOf("if (cursorTuple)");
-    const whereBlock = body.slice(whereBlockStart, whereBlockEnd);
-    expect(whereBlock).toMatch(/organisation_id:\s*organisationId/);
+    const queryStart = body.indexOf("prisma.$queryRaw");
+    const cursorFragmentSiteStart = body.indexOf("${cursorFragment}", queryStart);
+    const beforeCursorFragment = body.slice(queryStart, cursorFragmentSiteStart);
+    expect(beforeCursorFragment).toMatch(/WHERE organisation_id = \$\{organisationId\}/);
+  });
+
+  it("the cursorFragment's own comparison values are bound query parameters (createdAt/id), never string-interpolated into SQL text", () => {
+    const start = code.indexOf("const cursorFragment");
+    const end = code.indexOf("prisma.$queryRaw", start);
+    const body = code.slice(start, end);
+    expect(body).toMatch(/\$\{cursorTuple\.createdAt\}/);
+    expect(body).toMatch(/\$\{cursorTuple\.id\}/);
+  });
+});
+
+describe("read — listImportBatches raw-SQL safety (5A.2H.2 pagination-precision remediation)", () => {
+  const code = read(SERVICE_PATH);
+  const start = code.indexOf("export async function listImportBatches");
+  const end = code.indexOf("export async function getWorksheet");
+  const body = code.slice(start, end);
+
+  it("never uses $queryRawUnsafe or any string-built SQL — only Prisma.sql tagged-template composition", () => {
+    expect(body).not.toMatch(/\$queryRawUnsafe/);
+    expect(body).not.toMatch(/\$executeRawUnsafe/);
+    expect(body).toMatch(/prisma\.\$queryRaw<ImportBatchRow\[\]>\(Prisma\.sql`/);
+  });
+
+  it("uses Prisma.sql/Prisma.empty for the conditional cursor fragment, never manual string concatenation of SQL", () => {
+    expect(body).toMatch(/Prisma\.sql`/);
+    expect(body).toMatch(/Prisma\.empty/);
+    expect(body).not.toMatch(/\+\s*["'`]\s*(WHERE|AND|SELECT)/i);
+  });
+
+  it("does not select any storage-internal or failure-metadata column in the summary list query", () => {
+    const queryStart = body.indexOf("prisma.$queryRaw");
+    const queryEnd = body.indexOf("`);", queryStart);
+    const sqlText = body.slice(queryStart, queryEnd);
+    expect(sqlText).not.toMatch(/storage_key|storage_provider|storage_etag|storage_deletion_status|storage_deleted_at/);
+    expect(sqlText).not.toMatch(/last_failure_code|last_failure_message|last_failure_retryable|sha256|uploaded_by/);
+  });
+
+  it("selects an explicit, named column list — never SELECT *", () => {
+    const queryStart = body.indexOf("prisma.$queryRaw");
+    const queryEnd = body.indexOf("`);", queryStart);
+    const sqlText = body.slice(queryStart, queryEnd);
+    expect(sqlText).not.toMatch(/SELECT\s*\*/i);
+    expect(sqlText).toMatch(/SELECT\s*\n\s*id,\s*\n\s*status,\s*\n\s*original_filename,\s*\n\s*content_type,\s*\n\s*size_bytes,/);
+  });
+
+  it("the millisecond-normalized expression appears in BOTH the SELECT/ORDER BY and the WHERE-clause cursor comparison — never mismatched precision on either side", () => {
+    const strippedBody = stripComments(body);
+    const occurrences = strippedBody.match(/date_trunc\('milliseconds', created_at\)/g) ?? [];
+    // SELECT ... AS created_at (1) + ORDER BY (1) + cursorFragment's two
+    // comparisons (2, only present when a cursor was supplied — but the
+    // SOURCE TEXT always contains both regardless of runtime branch) = 4.
+    expect(occurrences.length).toBe(4);
+  });
+
+  it("query results feed the existing explicit toSummaryDTO mapper — no raw row returned directly", () => {
+    expect(body).toMatch(/page\.map\(toSummaryDTO\)/);
   });
 });
 
@@ -345,6 +401,19 @@ describe("read — DTO shape containment (forbidden fields absent)", () => {
     for (const field of ["storedPath", "schemaType", "rowCount", "columnCount", "mimetype", "originalName"]) {
       expect(body).not.toMatch(new RegExp(field));
     }
+  });
+
+  it("WORKSHEET_SELECT / WorksheetRow / toWorksheetDTO never reference Upload.size_bytes (a legacy/sentinel field for DATA_HUB rows — distinct from ImportBatch's own, legitimately-exposed size_bytes)", () => {
+    for (const marker of ["const WORKSHEET_SELECT", "interface WorksheetRow", "function toWorksheetDTO"]) {
+      const start = code.indexOf(marker);
+      expect(start).toBeGreaterThan(-1);
+      const end = code.indexOf("\n}", start) + 2;
+      const body = code.slice(start, end);
+      expect(body).not.toMatch(/size_bytes/);
+    }
+    const dtoStart = code.indexOf("export interface WorksheetSummaryDTO");
+    const dtoEnd = code.indexOf("}", dtoStart);
+    expect(code.slice(dtoStart, dtoEnd)).not.toMatch(/sizeBytes|size_bytes/);
   });
 
   it("ImportBatchDetailDTO's own type declaration contains no storage internals", () => {
