@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { CapabilityIcon } from '@/components/brand/CapabilityIcon';
 
 const FONT = "var(--font-inter), -apple-system, sans-serif";
 
@@ -78,6 +79,10 @@ function ModuleCard({ entry }: { entry: ModuleEntry }) {
         transition: 'all .18s',
       }}
     >
+      {/* Decorative — the title text right below already gives every card an
+          accessible name, so the icon carries no separate aria-label. */}
+      <CapabilityIcon capability={entry.key} size="md" state={hover ? 'hover' : 'default'} />
+
       <span style={{ fontSize: 13, fontWeight: 700, color: hover ? '#E2D9F3' : '#D4D4D8', lineHeight: 1.35 }}>
         {entry.title}
       </span>

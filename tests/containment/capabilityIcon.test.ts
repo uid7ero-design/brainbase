@@ -101,20 +101,42 @@ describe('CapabilityIcon — does not duplicate business logic', () => {
   })
 })
 
-describe('CapabilityIcon — not wired into any live production surface yet (D.4 is audit + isolated POC only)', () => {
-  it('no production page/component imports CapabilityIcon', () => {
-    const candidates = [
-      'app/page.tsx',
-      'app/dashboard/page.tsx',
-      'components/dashboard/ModuleAccessCard.tsx',
-      'components/nav/TopNav.tsx',
-      'components/ops/Sidebar.tsx',
-      'components/dashboard/OrganisationDashboard.tsx',
-      'components/dashboard/TennisDashboard.tsx',
-    ]
-    for (const file of candidates) {
-      const src = read(file)
-      expect(src).not.toMatch(/CapabilityIcon/)
-    }
+describe('CapabilityIcon — production wiring boundary (Phase D.4.1: ModuleAccessCard only)', () => {
+  // D.4 shipped this component fully isolated (no call sites at all). D.4.1
+  // approved exactly ONE live call site — ModuleAccessCard — as the first
+  // rollout. Every other candidate surface named in the D.4 migration
+  // strategy stays untouched until its own phase; this test now protects
+  // that boundary going forward rather than a blanket "unused" claim.
+  it('components/dashboard/ModuleAccessCard.tsx is the approved production call site', () => {
+    const src = read('components/dashboard/ModuleAccessCard.tsx')
+    expect(src).toMatch(/import \{ CapabilityIcon \} from '@\/components\/brand\/CapabilityIcon'/)
+    expect(src).toMatch(/<CapabilityIcon capability=/)
+  })
+
+  it('TopNav is NOT yet a call site (deferred to D.4.2 per architecture decision)', () => {
+    const src = read('components/nav/TopNav.tsx')
+    expect(src).not.toMatch(/CapabilityIcon/)
+  })
+
+  it('ops Sidebar is NOT a call site — architecturally a separate, non-capability icon system by design', () => {
+    const src = read('components/ops/Sidebar.tsx')
+    expect(src).not.toMatch(/CapabilityIcon/)
+  })
+
+  it('the homepage remains untouched — marketing precedent, not a migration target', () => {
+    const src = read('app/page.tsx')
+    expect(src).not.toMatch(/CapabilityIcon/)
+  })
+
+  it('OrganisationDashboard and TennisDashboard do not import CapabilityIcon directly — any icon they render reaches them only through their existing ModuleAccessCard composition, not a second direct import', () => {
+    const orgDashboard = read('components/dashboard/OrganisationDashboard.tsx')
+    const tennisDashboard = read('components/dashboard/TennisDashboard.tsx')
+    expect(orgDashboard).not.toMatch(/import.*CapabilityIcon/)
+    expect(tennisDashboard).not.toMatch(/import.*CapabilityIcon/)
+    // Both already compose ModuleAccessCard directly (asserted in
+    // moduleAccessCard.test.ts) — confirmed here only as the precondition
+    // for why they legitimately render CapabilityIcon transitively.
+    expect(orgDashboard).toMatch(/ModuleAccessCard/)
+    expect(tennisDashboard).toMatch(/ModuleAccessCard/)
   })
 })
