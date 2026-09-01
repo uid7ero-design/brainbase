@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { BrainBaseWordmark } from '@/components/brand/BrainBaseWordmark';
+import { CapabilityIcon } from '@/components/brand/CapabilityIcon';
 
 type Session = {
   role: string;
@@ -24,10 +25,19 @@ function NavItem({
   href,
   label,
   active,
+  capability,
 }: {
   href: string;
   label: string;
   active: boolean;
+  /** Canonical capability id (e.g. 'events' | 'crm') for the ONLY items
+      that are genuinely gated by that capability elsewhere in this file
+      (the `hasEvents`/`hasCrm` checks the caller already performed to
+      decide whether to render this item at all). Omit for every generic/
+      HQ/bespoke item — NavItem does not gate on this prop itself, it only
+      chooses whether to render CapabilityIcon, so no entitlement logic is
+      duplicated here. */
+  capability?: string;
 }) {
   return (
     <Link
@@ -35,6 +45,7 @@ function NavItem({
       style={{
         display: 'flex',
         alignItems: 'center',
+        gap: 6,
         fontSize: 13,
         fontWeight: 500,
         letterSpacing: '-0.01em',
@@ -76,7 +87,15 @@ function NavItem({
           'transparent';
       }}
     >
-      {label}
+      {capability && (
+        <CapabilityIcon
+          capability={capability}
+          size="sm"
+          state={active ? 'active' : 'default'}
+          container={false}
+        />
+      )}
+      <span>{label}</span>
     </Link>
   );
 }
@@ -1329,6 +1348,7 @@ function AppNav({
               <NavItem
                 href="/events"
                 label="Events"
+                capability="events"
                 active={pathname.startsWith(
                   '/events',
                 )}
@@ -1345,6 +1365,7 @@ function AppNav({
               <NavItem
                 href="/crm"
                 label="CRM"
+                capability="crm"
                 active={pathname.startsWith(
                   '/crm',
                 )}
@@ -1511,6 +1532,7 @@ function AppNav({
               <NavItem
                 href="/events"
                 label="Events & Ticketing"
+                capability="events"
                 active={pathname.startsWith(
                   '/events',
                 )}
@@ -1525,6 +1547,7 @@ function AppNav({
               <NavItem
                 href="/crm"
                 label="CRM"
+                capability="crm"
                 active={pathname.startsWith(
                   '/crm',
                 )}

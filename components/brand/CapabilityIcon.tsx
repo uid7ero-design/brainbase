@@ -1,7 +1,9 @@
 import type { CSSProperties } from 'react';
 import { CalendarClock, LayoutGrid, Ticket, Users } from 'lucide-react';
 
-// Phase D.4 — proof-of-concept only, not wired into any live surface yet.
+// Phase D.4 — live production call sites: components/dashboard/
+// ModuleAccessCard.tsx (full container treatment) and, since D.4.2,
+// components/nav/TopNav.tsx (container={false} — see below).
 //
 // Maps a canonical capability ID (the SAME id `app/api/me/route.ts`'s
 // enabledCapabilities projection and components/dashboard/ModuleAccessCard's
@@ -33,6 +35,14 @@ export interface CapabilityIconProps {
   state?: CapabilityIconState;
   /** Accessible name for icon-only interactive contexts. Omit when a visible label already sits next to the icon (the icon stays aria-hidden). */
   label?: string;
+  /** Default true (the rounded-square background/border tile). Set false
+      for a dense context — e.g. a nav pill sitting directly before its own
+      text label — where the tile's fixed footprint reads as visibly
+      taller than the surrounding row (confirmed by rendering `size="sm"`
+      with its container at TopNav scale before adding this). false skips
+      the background/border/radius entirely and sizes the wrapper to
+      exactly the glyph itself — same colour/state logic, no bigger. */
+  container?: boolean;
   className?: string;
   style?: CSSProperties;
 }
@@ -68,13 +78,14 @@ export function CapabilityIcon({
   size = 'md',
   state = 'default',
   label,
+  container = true,
   className,
   style,
 }: CapabilityIconProps) {
   const mapped = CAPABILITY_ICON_MAP[capability];
   const Icon = mapped?.Icon ?? LayoutGrid;
   const accent = mapped?.color ?? NEUTRAL;
-  const { icon, container, radius } = SIZE_SCALE[size];
+  const { icon, container: containerSize, radius } = SIZE_SCALE[size];
 
   const disabled = state === 'disabled';
   const color = disabled ? 'rgba(255,255,255,.35)' : accent;
@@ -92,15 +103,15 @@ export function CapabilityIcon({
       aria-label={label}
       className={className}
       style={{
-        width: container,
-        height: container,
-        borderRadius: radius,
+        width: container ? containerSize : icon,
+        height: container ? containerSize : icon,
+        borderRadius: container ? radius : 0,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
         color,
-        background,
-        border,
+        background: container ? background : 'transparent',
+        border: container ? border : 'none',
         transition: 'background .15s, border-color .15s',
         opacity: disabled ? 0.6 : 1,
         ...style,

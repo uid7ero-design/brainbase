@@ -230,3 +230,32 @@ describe('LeftSidebar — the client dashboard shell\'s own Admin leak (found du
     expect(pageSource).not.toMatch(/<BrainBase[^>]*isSuperAdmin/)
   })
 })
+
+describe('Phase D.4.2 — capability icons across all three personas', () => {
+  it('Persona 2/3 (shared branch + LD Tennis branch): only Events and CRM NavItem entries carry a capability prop, using this file\'s own already-computed regions — no icon leaked onto a founder-only or LD-Tennis-bespoke item', () => {
+    const sharedCapabilityProps = sharedRegion.match(/capability="[a-zA-Z]+"/g) ?? []
+    const ldTennisCapabilityProps = ldTennisRegion.match(/capability="[a-zA-Z]+"/g) ?? []
+    expect(sharedCapabilityProps.length).toBe(2) // Events & Ticketing, CRM
+    expect(ldTennisCapabilityProps.length).toBe(2) // Events, CRM
+    for (const prop of [...sharedCapabilityProps, ...ldTennisCapabilityProps]) {
+      expect(prop === 'capability="events"' || prop === 'capability="crm"').toBe(true)
+    }
+  })
+
+  it('Persona 1 (Founder/super_admin): OPS_ITEMS\' own CRM entry (the Operations-dropdown internal shortcut) does NOT render CapabilityIcon — audited and deliberately left as a text-only dropdown row, a different pattern from the top-level pill', () => {
+    const start = topNavSource.indexOf('const OPS_ITEMS')
+    const opsBody = topNavSource.slice(start, topNavSource.indexOf('\n];', start))
+    expect(opsBody).toMatch(/label:\s*'CRM'/)
+    expect(opsBody).not.toMatch(/CapabilityIcon/)
+  })
+
+  it('Persona 1: no founder-only item (Founder OS, Clients, Reports, Data, Command, OpsDropdown, AdminDropdown) carries a capability prop', () => {
+    for (const href of ['/admin/founder', '/clients', '/reports', '/data', '/command']) {
+      const idx = sharedRegion.indexOf(`href="${href}"`)
+      expect(idx).toBeGreaterThan(-1)
+      const blockEnd = sharedRegion.indexOf('/>', idx)
+      const block = sharedRegion.slice(idx, blockEnd)
+      expect(block).not.toMatch(/capability=/)
+    }
+  })
+})

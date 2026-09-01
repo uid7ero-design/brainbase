@@ -196,3 +196,42 @@ describe('TopNav — CRM nav item is capability-driven, reachable by any client 
     expect((topNavSource.match(/label="CRM"/g) ?? []).length).toBe(2)
   })
 })
+
+// Phase D.4.2 — the top-level Events/CRM NavItems (both branches) now carry
+// a capability icon. Cross-checks that TopNav's icon identity matches
+// ModuleAccessCard's own mapping exactly — Events must never read as Ticket
+// in one surface and Calendar in the other, same for CRM's colour/glyph.
+describe('TopNav — CRM/Events capability icons match ModuleAccessCard\'s identity exactly (same capability id, same shared CapabilityIcon component)', () => {
+  const clientBranchStart = topNavSource.indexOf('isLdTennis ? (')
+  const clientBranchEnd = topNavSource.indexOf(') : (', clientBranchStart)
+  const clientRegion = topNavSource.slice(clientBranchStart, clientBranchEnd)
+  const sharedBranchEnd = topNavSource.indexOf('width: 185,', clientBranchEnd)
+  const sharedRegion = topNavSource.slice(clientBranchEnd, sharedBranchEnd)
+  const moduleAccessCard = read('components/dashboard/ModuleAccessCard.tsx')
+  const capabilityIcon = read('components/brand/CapabilityIcon.tsx')
+
+  it('both surfaces import the SAME CapabilityIcon component — no second icon mapping was created for TopNav', () => {
+    expect(topNavSource).toContain("import { CapabilityIcon } from '@/components/brand/CapabilityIcon'")
+    expect(moduleAccessCard).toContain("import { CapabilityIcon } from '@/components/brand/CapabilityIcon'")
+  })
+
+  it('the Events NavItem (both branches) is passed capability="events" — the same id CapabilityIcon.tsx maps to Ticket/amber for ModuleAccessCard', () => {
+    const sharedEventsIdx = sharedRegion.indexOf('label="Events & Ticketing"')
+    const clientEventsIdx = clientRegion.indexOf('label="Events"')
+    expect(sharedEventsIdx).toBeGreaterThan(-1)
+    expect(clientEventsIdx).toBeGreaterThan(-1)
+    expect(sharedRegion.slice(sharedEventsIdx, sharedEventsIdx + 100)).toContain('capability="events"')
+    expect(clientRegion.slice(clientEventsIdx, clientEventsIdx + 100)).toContain('capability="events"')
+    expect(capabilityIcon).toMatch(/events:\s*{\s*Icon:\s*Ticket,\s*color:\s*'#FBBF24'/)
+  })
+
+  it('the CRM NavItem (both branches) is passed capability="crm" — the same id CapabilityIcon.tsx maps to Users/violet for ModuleAccessCard', () => {
+    const sharedCrmIdx = sharedRegion.indexOf('label="CRM"')
+    const clientCrmIdx = clientRegion.indexOf('label="CRM"')
+    expect(sharedCrmIdx).toBeGreaterThan(-1)
+    expect(clientCrmIdx).toBeGreaterThan(-1)
+    expect(sharedRegion.slice(sharedCrmIdx, sharedCrmIdx + 80)).toContain('capability="crm"')
+    expect(clientRegion.slice(clientCrmIdx, clientCrmIdx + 80)).toContain('capability="crm"')
+    expect(capabilityIcon).toMatch(/crm:\s*{\s*Icon:\s*Users,\s*color:\s*'#8A4DFF'/)
+  })
+})
