@@ -36,6 +36,15 @@ export default async function ClientsPage() {
   // — joining any of these directly into that aggregate would multiply
   // userCount/leadCount by however many module or implementation rows an
   // org has, silently corrupting both counts.
+  //
+  // Excludes session.homeOrganisationId — the founder's own TRUE
+  // organisation, never the org_override-substituted session.organisationId
+  // — so "don't list my own workspace" means the founder's real home org,
+  // not whatever org they happen to be impersonating via OrgSwitcher at
+  // the moment /clients is loaded. Using session.organisationId here was
+  // the exact bug: while impersonating org X, this query excluded X
+  // instead of the founder's own org, making X (and only X) silently
+  // disappear from the chooser regardless of its own status/capabilities.
   const [orgs, moduleRows, primaryImplRows, implCountRows] = await Promise.all([
     sql`
       SELECT
@@ -50,7 +59,7 @@ export default async function ClientsPage() {
       FROM organisations o
       LEFT JOIN users u ON u.organisation_id = o.id
       LEFT JOIN tennis_leads tl ON tl.organisation_id = o.id
-      WHERE o.id != ${session.organisationId}
+      WHERE o.id != ${session.homeOrganisationId}
       GROUP BY o.id
       ORDER BY o.name ASC
     `.catch(() => []) as Promise<Omit<ClientOrg, 'modules' | 'implementationCount' | 'primaryImplementation'>[]>,

@@ -62,10 +62,23 @@ describe('userCount/leadCount are not corrupted by the new portfolio queries', (
 })
 
 // ── 4. /clients still excludes the caller's own organisation ─────────────
+//
+// Updated for the School-Test-Organisation-missing-from-/clients fix: the
+// exclusion must use session.homeOrganisationId (the founder's real,
+// un-overridden org), never session.organisationId (which lib/org.ts
+// substitutes with the org_override cookie's value for an actively-
+// impersonating super_admin). The old assertion here locked in the exact
+// bug — WHERE o.id != ${session.organisationId} silently excluded
+// whichever org a founder happened to be impersonating via OrgSwitcher at
+// the moment /clients was loaded, not their own workspace.
 
-describe('/clients still excludes the caller organisation (unchanged by B2)', () => {
-  it('the org aggregate query still filters WHERE o.id != session.organisationId', () => {
-    expect(CLIENTS_LIST_SOURCE).toContain('WHERE o.id != ${session.organisationId}')
+describe('/clients excludes the caller\'s TRUE home organisation, never the org_override-substituted one', () => {
+  it('the org aggregate query filters WHERE o.id != session.homeOrganisationId', () => {
+    expect(CLIENTS_LIST_SOURCE).toContain('WHERE o.id != ${session.homeOrganisationId}')
+  })
+
+  it('never filters by the override-aware session.organisationId', () => {
+    expect(CLIENTS_LIST_SOURCE).not.toContain('WHERE o.id != ${session.organisationId}')
   })
 })
 

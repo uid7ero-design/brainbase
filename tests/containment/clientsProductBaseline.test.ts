@@ -100,8 +100,9 @@ describe('app/clients/page.tsx — list query contract', () => {
     expect(CLIENTS_LIST_SOURCE).toContain('COUNT(DISTINCT tl.id)::int AS "leadCount"')
   })
 
-  it('excludes the caller\'s own organisation using session.organisationId, not a hardcoded id', () => {
-    expect(CLIENTS_LIST_SOURCE).toContain('WHERE o.id != ${session.organisationId}')
+  it('excludes the caller\'s own organisation using session.homeOrganisationId (the founder\'s TRUE org, unaffected by org_override impersonation), not a hardcoded id and not the override-substituted session.organisationId', () => {
+    expect(CLIENTS_LIST_SOURCE).toContain('WHERE o.id != ${session.homeOrganisationId}')
+    expect(CLIENTS_LIST_SOURCE).not.toContain('WHERE o.id != ${session.organisationId}')
   })
 
   it('selects exactly the fields the list UI depends on: id, name, slug, and the two joined counts', () => {
