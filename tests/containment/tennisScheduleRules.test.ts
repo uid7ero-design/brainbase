@@ -119,19 +119,43 @@ describe('reconcileFutureInstances — DB-mocked safety behaviour', () => {
   })
 
   it('extending: generates missing future instances up to the new horizon, calling enrolActiveLineagesIntoNewInstance for each new row', async () => {
-    sqlMock.mockImplementation((strings: TemplateStringsArray) => {
-      const text = strings.join('')
-      if (text.includes('INSERT INTO session_instances')) return Promise.resolve([{ id: 'new-inst-id' }])
-      if (text.includes('SELECT COUNT(*)::int AS cnt')) return Promise.resolve([{ cnt: 0 }])
-      return Promise.resolve([])
-    })
-    const result = await reconcileFutureInstances({
-      organisationId: 'org-a', sessionId: 'sess-1',
-      rules: { day_of_week: 1, start_date: '2026-08-17', end_mode: 'after_weeks', end_after_weeks: 3, end_date: null },
-      startTime: '17:00', durationMinutes: 60, maxCapacity: 8, sessionType: 'GROUP_TERM_JUNIOR',
-    })
-    expect(result.generated).toBeGreaterThan(0)
-    expect(enrolActiveLineagesMock).toHaveBeenCalled()
+    // reconcileFutureInstances() reads the real wall clock (`const today =
+    // new Date()`, lib/tennisSchedule.ts) with no injectable override, and
+    // the schedule below is a hardcoded 3-week window anchored to August
+    // 2026 (the same reference month every other test in this file already
+    // uses via the module-level TODAY constant). Left alone, this test
+    // silently breaks the moment real time passes that window — which is
+    // exactly what happened (see git history for this line). Freezing
+    // "today" to a fixed instant inside the window makes the assertion
+    // deterministic forever, independent of when the suite actually runs.
+    // Midday UTC (not local midnight, not August 17th/24th/31st exactly)
+    // avoids landing on a date boundary in either this repo's CI (UTC) or
+    // a developer machine on a different offset.
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-08-19T12:00:00Z'))
+    try {
+      sqlMock.mockImplementation((strings: TemplateStringsArray) => {
+        const text = strings.join('')
+        if (text.includes('INSERT INTO session_instances')) return Promise.resolve([{ id: 'new-inst-id' }])
+        if (text.includes('SELECT COUNT(*)::int AS cnt')) return Promise.resolve([{ cnt: 0 }])
+        return Promise.resolve([])
+      })
+      const result = await reconcileFutureInstances({
+        organisationId: 'org-a', sessionId: 'sess-1',
+        rules: { day_of_week: 1, start_date: '2026-08-17', end_mode: 'after_weeks', end_after_weeks: 3, end_date: null },
+        startTime: '17:00', durationMinutes: 60, maxCapacity: 8, sessionType: 'GROUP_TERM_JUNIOR',
+      })
+      // Regression guard: proves this assertion is now evaluated under the
+      // frozen system time above, not whatever the real wall clock is.
+      expect(vi.isFakeTimers()).toBe(true)
+      expect(result.generated).toBeGreaterThan(0)
+      expect(enrolActiveLineagesMock).toHaveBeenCalled()
+    } finally {
+      // Always restored, even on assertion failure, so a fake system time
+      // never leaks into a later test in this file or another file run in
+      // the same worker.
+      vi.useRealTimers()
+    }
   })
 
   it('shortening: a future instance outside the new schedule with a protected (paid) booking is left scheduled and reported as a conflict, not cancelled', async () => {
