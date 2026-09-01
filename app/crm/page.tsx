@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { CapabilityIcon } from '@/components/brand/CapabilityIcon';
 
 const CARD = '#0e1014'; const BORDER = '#1a1d24';
 const STAGE_COLORS: Record<string, string> = { lead: '#6b7280', qualified: '#60a5fa', proposal: '#a78bfa', negotiation: '#fbbf24', closed_won: '#34d399', closed_lost: '#f87171' };
@@ -36,7 +37,17 @@ export default function CrmOverviewPage() {
   return (
     <div style={{ maxWidth: 1000 }}>
       <div style={{ marginBottom: 28 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em', margin: 0 }}>CRM</h1>
+        {/* Module identity moment (Phase D.4.3) — the same Users/violet
+            CapabilityIcon already shown in ModuleAccessCard and TopNav for
+            this capability, decorative since the heading right beside it
+            already supplies the accessible name. This is the tenant's own
+            `crm` capability, distinct from BrainBase HQ's app/clients/**
+            and Founder OS's own internal "CRM clients" pipeline tracking —
+            neither of those gets this icon. */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <CapabilityIcon capability="crm" size="md" />
+          <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em', margin: 0 }}>CRM</h1>
+        </div>
         <p style={{ color: '#6b7280', fontSize: 13, margin: '4px 0 0' }}>Companies, contacts, deals & activities</p>
       </div>
 
