@@ -101,22 +101,35 @@ describe('CapabilityIcon — does not duplicate business logic', () => {
   })
 })
 
-describe('CapabilityIcon — production wiring boundary (Phase D.4.2: ModuleAccessCard + TopNav)', () => {
-  // D.4 shipped this component fully isolated. D.4.1 approved ModuleAccessCard
-  // as the first live call site. D.4.2 approved exactly one more: TopNav, for
-  // its genuinely capability-gated items only. Every other candidate surface
-  // named in the D.4 migration strategy stays untouched; this test protects
-  // that boundary going forward.
+describe('CapabilityIcon — production wiring boundary (Phase D.4.3: + Events/CRM module headers)', () => {
+  // D.4 shipped this component fully isolated. D.4.1 approved ModuleAccessCard.
+  // D.4.2 approved TopNav (capability-gated items only). D.4.3 approved exactly
+  // two more, both module-level page headers: EventsListClient.tsx and
+  // app/crm/page.tsx. Every other candidate surface named in the D.4 migration
+  // strategy/D.4.3 audit stays untouched; this test protects that boundary
+  // going forward.
   it('components/dashboard/ModuleAccessCard.tsx is an approved production call site', () => {
     const src = read('components/dashboard/ModuleAccessCard.tsx')
     expect(src).toMatch(/import \{ CapabilityIcon \} from '@\/components\/brand\/CapabilityIcon'/)
     expect(src).toMatch(/<CapabilityIcon capability=/)
   })
 
-  it('components/nav/TopNav.tsx is now an approved production call site (Phase D.4.2)', () => {
+  it('components/nav/TopNav.tsx is an approved production call site (Phase D.4.2)', () => {
     const src = read('components/nav/TopNav.tsx')
     expect(src).toMatch(/import \{ CapabilityIcon \} from '@\/components\/brand\/CapabilityIcon'/)
     expect(src).toMatch(/<CapabilityIcon\b/)
+  })
+
+  it('app/events/EventsListClient.tsx is now an approved production call site (Phase D.4.3) — the module landing page\'s own heading, capability="events"', () => {
+    const src = read('app/events/EventsListClient.tsx')
+    expect(src).toMatch(/import \{ CapabilityIcon \} from '@\/components\/brand\/CapabilityIcon'/)
+    expect(src).toMatch(/<CapabilityIcon capability="events"/)
+  })
+
+  it('app/crm/page.tsx is now an approved production call site (Phase D.4.3) — the module landing page\'s own heading, capability="crm"', () => {
+    const src = read('app/crm/page.tsx')
+    expect(src).toMatch(/import \{ CapabilityIcon \} from '@\/components\/brand\/CapabilityIcon'/)
+    expect(src).toMatch(/<CapabilityIcon capability="crm"/)
   })
 
   it('ops Sidebar is NOT a call site — architecturally a separate, non-capability icon system by design', () => {
@@ -139,6 +152,51 @@ describe('CapabilityIcon — production wiring boundary (Phase D.4.2: ModuleAcce
     // for why they legitimately render CapabilityIcon transitively.
     expect(orgDashboard).toMatch(/ModuleAccessCard/)
     expect(tennisDashboard).toMatch(/ModuleAccessCard/)
+  })
+})
+
+describe('CapabilityIcon — Phase D.4.3 secondary-surface audit boundary', () => {
+  it('app/organiser/page.tsx does NOT import CapabilityIcon — audited and deliberately left unimplemented: no capability gate exists on this route at all (role-gated only), and it shares components/ops/Sidebar.tsx chrome via WorkspaceShell, which is off-limits', () => {
+    const src = read('app/organiser/page.tsx')
+    expect(src).not.toMatch(/CapabilityIcon/)
+  })
+
+  it('app/dashboard/pipeline/page.tsx (Requests) does NOT import CapabilityIcon — audited: not a real capability, no `modules` row exists for it', () => {
+    const src = read('app/dashboard/pipeline/page.tsx')
+    expect(src).not.toMatch(/CapabilityIcon/)
+  })
+
+  it('public Events surfaces do NOT import CapabilityIcon — internal module identity stays off unauthenticated, tenant-branded pages', () => {
+    const publicFiles = [
+      'app/e/[organisationSlug]/PublicEventsHubClient.tsx',
+      'app/e/[organisationSlug]/[eventSlug]/PublicEventClient.tsx',
+      'app/e/[organisationSlug]/[eventSlug]/checkout/success/page.tsx',
+    ]
+    for (const file of publicFiles) {
+      const src = read(file)
+      expect(src).not.toMatch(/CapabilityIcon/)
+    }
+  })
+
+  it('BrainBase HQ\'s app/clients/** (internal customer-success tool) does NOT import CapabilityIcon as `crm` — a different concept from the tenant\'s own crm capability', () => {
+    const clientsPage = read('app/clients/page.tsx')
+    expect(clientsPage).not.toMatch(/CapabilityIcon/)
+  })
+
+  it('Founder OS\'s AdminClient.tsx "CRM clients" (founder pipeline) column does NOT import CapabilityIcon — a third, unrelated meaning of "CRM", never the tenant capability', () => {
+    const adminClient = read('app/admin/orgs/AdminClient.tsx')
+    expect(adminClient).not.toMatch(/CapabilityIcon/)
+  })
+
+  it('Events action/sub-screen icons (Calendar, MapPin, ChevronRight in EventsListClient.tsx; the check-in/payments/detail screens) are untouched — the identity icon addition did not replace or remove any existing action icon', () => {
+    const eventsListSrc = read('app/events/EventsListClient.tsx')
+    expect(eventsListSrc).toMatch(/import \{ Calendar, MapPin, ChevronRight \} from 'lucide-react'/)
+    const checkIn = read('app/events/[id]/check-in/CheckInClient.tsx')
+    const payments = read('app/events/payments/PaymentsClient.tsx')
+    const detail = read('app/events/[id]/EventDetailClient.tsx')
+    expect(checkIn).not.toMatch(/CapabilityIcon/)
+    expect(payments).not.toMatch(/CapabilityIcon/)
+    expect(detail).not.toMatch(/CapabilityIcon/)
   })
 })
 
