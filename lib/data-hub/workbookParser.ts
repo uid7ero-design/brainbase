@@ -438,6 +438,28 @@ function inspectCsvWorksheet(bytes: Uint8Array, previewRowCount: number): Worksh
   };
 }
 
+// KNOWN LIMITATION (5A.2H.1 discovery, documented not fixed — see
+// docs/architecture/decisions/0001-data-hub-ingestion-foundation.md's
+// 5A.2H.1 section for the full write-up): the `wb.Sheets` object SheetJS
+// hands back from a whole-workbook read is keyed by SHEET NAME, not
+// position. Below, `sheetNames.map((name, index) => { const ws =
+// wb.Sheets[name]; ... })` looks up each worksheet's cell object by that
+// name — so if a workbook contains two or more worksheets sharing an
+// identical name, `wb.Sheets[name]` resolves to the SAME (last-parsed,
+// same-named) physical sheet object for every colliding index. Concretely,
+// this means `isEmpty` (and any preview-derived content, for a caller that
+// materializes it) can reflect the WRONG physical sheet's content for a
+// duplicate-named worksheet's non-final index. `index`, `name`, and
+// `visibility` remain positionally correct regardless — `sheetNames` and
+// the `!Workbook.Sheets` visibility array are both consumed positionally,
+// never through this name-keyed dictionary. decodeWorksheet (below) does
+// NOT share this defect: it calls xlsxAdapter.read with an explicit
+// `sheets: [index]` option, so exactly one worksheet is ever materialized
+// per call — there is no multi-entry name-keyed dictionary in play for it
+// to collide within. This must be fixed before any future phase relies on
+// inspectWorkbook's own preview/isEmpty output for duplicate-named
+// worksheets; it is NOT fixed by this comment, and no broader
+// SheetJS/parser redesign is attempted here.
 function inspectSpreadsheetWorksheets(
   bytes: Uint8Array,
   sheetNames: string[],

@@ -103,7 +103,12 @@ echo "DATABASE_URL=$DATABASE_URL (disposable container only)"
 
 echo "Running the integration suite..."
 cd "$REPO_ROOT"
-npx vitest run --config vitest.integration.config.ts
+# Explicit file argument (5A.2H.1 addition): vitest.integration.config.ts's
+# `include` now also lists scripts/tests/inspectWorksheets.integration.test.ts
+# (a separate harness, its own bootstrap schema/enum types) — passing this
+# file explicitly ensures this script only ever collects its OWN spec,
+# regardless of what else `include` lists.
+npx vitest run --config vitest.integration.config.ts scripts/tests/importBatchService.integration.test.ts
 RESULT=$?
 
 if [ $RESULT -eq 0 ]; then
