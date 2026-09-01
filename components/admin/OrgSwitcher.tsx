@@ -105,9 +105,24 @@ export default function OrgSwitcher() {
       }
     }
     setBusy(false);
-    // Reload to pick up scoped data (nav capabilities, dashboard, every
-    // server-rendered page) under the newly active organisationId.
-    window.location.reload();
+    // Navigate to /dashboard rather than reloading whatever route the
+    // founder happened to be on — a founder switching orgs from, say,
+    // /admin/orgs would otherwise land back on an admin-only page inside
+    // the newly-active client org's context, with no obvious way to
+    // reach that org's own workspace. /dashboard is the SAME existing,
+    // generic client-landing route TopNav's own "Dashboard" link already
+    // points to for every organisation (components/nav/TopNav.tsx) — not
+    // a new route, and not app/clients/[id] (that page is a read-only
+    // founder summary, never the impersonated app itself). Its own
+    // existing routing logic (app/dashboard/page.tsx, via the equally
+    // org_override-aware getAuthSession() in lib/authSession.ts) already
+    // resolves the correct destination for whatever organisation is now
+    // active: OrganisationDashboard/TennisDashboard for a client org, or
+    // a further redirect to /admin/founder for Brainbase itself — which
+    // is exactly why the SAME target correctly serves both "switch into
+    // a client org" and "Return to Brainbase" without this component
+    // needing to know or hardcode either destination itself.
+    window.location.href = '/dashboard';
   }
 
   const isOverriding = !!state.activeOrgId;
@@ -128,6 +143,23 @@ export default function OrgSwitcher() {
         borderBottom: '1px solid rgba(255,255,255,.06)',
         color: isOverriding ? '#fff' : 'rgba(226,232,240,.7)',
         position: 'relative',
+        // Dropdown layering fix: this bar sits BEFORE TopNav in normal
+        // document flow (that's what fixed the original invisibility
+        // bug — see the header comment above), but TopNav's own header
+        // has an EXPLICIT zIndex: 100, which makes it establish its own
+        // stacking context. A position:relative ancestor with no
+        // explicit z-index of its own (z-index: auto) does NOT let its
+        // descendants (the dropdown below, zIndex: 50) outrank a LATER
+        // sibling's higher stacking context — z-index only arbitrates
+        // between siblings that both establish one. So the open
+        // dropdown, which extends downward past this bar's own height
+        // into the screen region TopNav occupies, was being painted
+        // UNDER TopNav. Giving THIS wrapper its own explicit z-index
+        // above TopNav's 100 makes the whole bar (and everything
+        // absolutely positioned inside it) its own higher-ranked
+        // stacking context, so the dropdown is no longer clipped —
+        // without moving anything back to position: fixed.
+        zIndex: 110,
       }}
     >
       <span style={{ opacity: isOverriding ? 0.75 : 0.5, textTransform: 'uppercase', fontSize: 10, letterSpacing: '.08em', fontWeight: 600 }}>
