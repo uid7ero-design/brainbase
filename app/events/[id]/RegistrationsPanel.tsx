@@ -6,6 +6,7 @@ import {
   Panel, SectionHeader, EmptyState, StatusBadge, orderStatusTone, paymentStatusTone, rowCardStyle,
   TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED, BORDER_SOFT, DangerButton, secondaryBtnStyle,
 } from '../_components/ui';
+import RegistrationDetail from './RegistrationDetail';
 
 function formatAmount(cents: number, currency: string): string {
   return new Intl.NumberFormat('en-AU', { style: 'currency', currency }).format(cents / 100);
@@ -14,8 +15,18 @@ function formatAmount(cents: number, currency: string): string {
 // Phase 4B §7 — question_label_snapshot/field_type_snapshot as-of
 // response time (never the live question), matching the API's own
 // snapshot-only read (see app/api/events/[id]/orders/route.ts).
-export type ResponseAnswer = { question_id: string; label: string; field_type: string; answer: unknown };
-export type Attendee = { id: string; name: string; email: string | null; checked_in_at: string | null; responses: ResponseAnswer[] };
+export type ResponseAnswer = { id: string; question_id: string; label: string; field_type: string; answer: unknown };
+export type Attendee = {
+  id: string; name: string; email: string | null; checked_in_at: string | null;
+  // Phase 6 §8/§9 — resolved display name of whoever checked this
+  // attendee in (null if never checked in, or if that user's account was
+  // since deleted); the attendee's own existing ticket_token, exposed so
+  // the manager UI can offer View/Copy without a new lookup route (never
+  // regenerated — see the ticket-view decision in this phase's report).
+  checked_in_by: string | null;
+  ticket_token: string | null;
+  responses: ResponseAnswer[];
+};
 export type OrderRow = {
   id: string;
   purchaser_name: string;
@@ -96,6 +107,20 @@ export default function RegistrationsPanel({
   const [expandedResponseIds, setExpandedResponseIds] = useState<Set<string>>(new Set());
   function toggleResponses(orderId: string) {
     setExpandedResponseIds(prev => {
+      const next = new Set(prev);
+      if (next.has(orderId)) next.delete(orderId); else next.add(orderId);
+      return next;
+    });
+  }
+
+  // Phase 6 §2/§15 — the full "registration detail" experience (editable
+  // purchaser/attendee/answers + internal notes), collapsed by default
+  // per order, separate from the quick read-only "View answers" toggle
+  // above so a manager who just wants to glance at answers isn't shown
+  // an edit form by default.
+  const [managingIds, setManagingIds] = useState<Set<string>>(new Set());
+  function toggleManaging(orderId: string) {
+    setManagingIds(prev => {
       const next = new Set(prev);
       if (next.has(orderId)) next.delete(orderId); else next.add(orderId);
       return next;
@@ -201,6 +226,11 @@ export default function RegistrationsPanel({
                     {responsesOpen ? 'Hide answers' : 'View answers'}
                   </button>
                 )}
+                {canManage && (
+                  <button onClick={() => toggleManaging(o.id)} style={secondaryBtnStyle}>
+                    {managingIds.has(o.id) ? 'Close registration detail' : 'Manage registration'}
+                  </button>
+                )}
                 {o.payment_status === 'NOT_REQUIRED' ? (
                   <StatusBadge label="Free" tone="neutral" />
                 ) : o.payment_status === 'PENDING' && o.is_expired_pending ? (
@@ -299,6 +329,10 @@ export default function RegistrationsPanel({
                   </div>
                 ))}
               </div>
+            )}
+
+            {managingIds.has(o.id) && (
+              <RegistrationDetail eventId={eventId} order={o} onChanged={onRefunded} />
             )}
           </div>
           );

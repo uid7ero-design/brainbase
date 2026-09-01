@@ -3,6 +3,7 @@ import sql from '@/lib/db';
 import { authorizeEventsRequest } from '@/lib/events/authorize';
 import { createRefund } from '@/lib/events/stripe';
 import { recordEventBookingActivityForOrder } from '@/lib/crm/eventSync';
+import { logRefunded } from '@/lib/events/auditLog';
 
 type Ctx = { params: Promise<{ id: string; orderId: string }> };
 
@@ -92,6 +93,12 @@ export async function POST(_req: Request, { params }: Ctx) {
   // this phase introduces lives behind lib/crm/eventSync.ts's own
   // boundary — this route does not run its own separate lookup query.
   await recordEventBookingActivityForOrder(orderId);
+
+  // Phase 6 §11 — best-effort audit entry, only on this request's OWN
+  // successful transition (not on the "already resolved concurrently"
+  // early-return above, which changed nothing here — matching the
+  // cancel route's identical rationale).
+  await logRefunded({ organisationId: session.organisationId, userId: session.userId, orderId });
 
   return NextResponse.json({ ok: true });
 }
