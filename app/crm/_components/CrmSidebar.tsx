@@ -10,6 +10,14 @@ const NAV_ITEMS = [
   { href: '/crm/contacts', label: 'Contacts' },
   { href: '/crm/deals', label: 'Deals' },
   { href: '/crm/activities', label: 'Activities' },
+  // Phase 6.2 — shown unconditionally here, matching every other entry
+  // in this sidebar (none of them do their own role/capability check —
+  // CrmLayout's own capability gate is what stands between an
+  // unentitled organisation and this whole sidebar). The page itself
+  // enforces admin+ role and the 'events' capability server-side; a
+  // non-admin who follows this link sees a clear "admins only" message
+  // rather than a raw 403.
+  { href: '/crm/events-backfill', label: 'Backfill Event Contacts' },
 ];
 
 export default function CrmSidebar() {

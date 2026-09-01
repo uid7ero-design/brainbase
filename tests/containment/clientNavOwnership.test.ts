@@ -143,3 +143,56 @@ describe('Tenant isolation is unaffected — this change is UI-visibility only, 
     expect(sessionsPage.length).toBeGreaterThan(0)
   })
 })
+
+// Phase 6.2 §10 — CRM was previously only reachable via OpsDropdown,
+// itself gated on isBrainbaseHQ (Brainbase's own staff only) — so a
+// client organisation with the crm capability enabled had no nav path
+// to CRM at all. The fix adds a standalone, capability-gated NavItem to
+// both the shared (generic client + Brainbase HQ staff) branch and the
+// isLdTennis branch, mirroring hasEvents/Events exactly. OpsDropdown's
+// own internal CRM shortcut is untouched — these are two independent
+// entries serving two different audiences, not a replacement.
+describe('TopNav — CRM nav item is capability-driven, reachable by any client organisation with crm enabled', () => {
+  const clientBranchStart = topNavSource.indexOf('isLdTennis ? (')
+  const clientBranchEnd = topNavSource.indexOf(') : (', clientBranchStart)
+  const clientRegion = topNavSource.slice(clientBranchStart, clientBranchEnd)
+  const sharedBranchEnd = topNavSource.indexOf('width: 185,', clientBranchEnd)
+  const sharedRegion = topNavSource.slice(clientBranchEnd, sharedBranchEnd)
+
+  it('hasCrm is derived from enabledCapabilities, not hardcoded to any organisation', () => {
+    expect(topNavSource).toMatch(/const hasCrm =\s*enabledCapabilities\.includes\(\s*'crm',?\s*\);/)
+  })
+
+  it('a top-level CRM NavItem, gated on hasCrm, is present in the shared branch (generic clients + Brainbase HQ staff)', () => {
+    const crmIdx = sharedRegion.indexOf('label="CRM"')
+    expect(crmIdx).toBeGreaterThan(-1)
+    const gateStart = sharedRegion.lastIndexOf('{hasCrm && (', crmIdx)
+    expect(gateStart).toBeGreaterThan(-1)
+    expect(sharedRegion.slice(gateStart, crmIdx)).not.toMatch(/isBrainbaseHQ/)
+  })
+
+  it('a top-level CRM NavItem, gated on hasCrm, is also present in the isLdTennis branch (parity with Events)', () => {
+    const crmIdx = clientRegion.indexOf('label="CRM"')
+    expect(crmIdx).toBeGreaterThan(-1)
+    const gateStart = clientRegion.lastIndexOf('{hasCrm && (', crmIdx)
+    expect(gateStart).toBeGreaterThan(-1)
+  })
+
+  it('the standalone CRM NavItem points at /crm, exactly matching the ModuleAccessCard dashboard card\'s own href', () => {
+    const moduleAccessCard = read('components/dashboard/ModuleAccessCard.tsx')
+    expect(sharedRegion).toMatch(/href="\/crm"/)
+    expect(moduleAccessCard).toMatch(/href:\s*'\/crm'/)
+  })
+
+  it('OpsDropdown\'s own internal CRM shortcut (Brainbase HQ staff only) is untouched — still exactly one OPS_ITEMS entry, still gated on isBrainbaseHQ, not removed or duplicated by this fix', () => {
+    expect((topNavSource.match(/label: 'CRM',/g) ?? []).length).toBe(1)
+    const opsDropdownGateIdx = topNavSource.indexOf('<OpsDropdown')
+    expect(opsDropdownGateIdx).toBeGreaterThan(-1)
+    const precedingGate = topNavSource.lastIndexOf('{isBrainbaseHQ && (', opsDropdownGateIdx)
+    expect(precedingGate).toBeGreaterThan(-1)
+  })
+
+  it('the new CRM NavItems appear exactly twice total (shared branch + isLdTennis branch) — no accidental third copy', () => {
+    expect((topNavSource.match(/label="CRM"/g) ?? []).length).toBe(2)
+  })
+})
