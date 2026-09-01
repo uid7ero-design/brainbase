@@ -1052,3 +1052,243 @@ ImportBatch initiate/finalize lifecycle, and any direct-browser-upload
 protocol. This phase is the storage adapter only — no schema change, no
 API route, no live Blob call (all behavior is proven via a fully
 mocked `@vercel/blob`).
+
+## 15. ImportBatch/Upload worksheet-lineage schema — as actually implemented (5A.2C)
+
+This section documents the schema exactly as it exists today
+(`scripts/create-import-batches.sql`), superseding any earlier
+aspirational framing without deleting the historical record above.
+
+`public.import_batches` is the canonical durable ingestion-lineage table:
+one row per physical uploaded file / storage-and-inspection event. Every
+column, CHECK constraint, unique constraint, unique index, and foreign
+key is applied idempotently by a single `pg_temp.ensure_*()` sequence
+(repeatable and fail-loud by construction — see that script's own header
+comment) rather than a one-shot `CREATE TABLE`. Key invariants:
+
+- `organisation_id` carries **NO** `ON DELETE` action (not `CASCADE`,
+  unlike `uploads.organisation_id`) — this row anchors a durable external
+  Blob object via `storage_key`; a synchronous cascade on organisation
+  deletion would hard-delete the row (and lose `storage_key`) before any
+  tombstone-first Blob-cleanup step could run.
+- `sha256` is nullable — under the direct browser-to-private-Blob
+  protocol, the authoritative hash is genuinely unknown until finalize
+  computes it. The one truthful invariant —
+  `status = 'READY'` requires `sha256 IS NOT NULL` — is enforced by the
+  `import_batches_ready_requires_sha256` CHECK constraint, not by
+  application code alone.
+- `expected_sha256` is a separate, client-declared, **non-authoritative**
+  hint column — never to be confused with `sha256`. Every consumer of
+  this schema (including 5A.2H.1's `inspectWorksheets.ts`) must reverify
+  against `sha256`, never `expected_sha256`.
+- `@@unique([id, organisation_id])` exists specifically to back a
+  composite tenant-scoped foreign key from `uploads` — see below.
+
+`public.uploads` gains additive, nullable canonical worksheet-lineage
+columns (`import_batch_id`, `worksheet_index`, `worksheet_name`,
+`worksheet_visibility`, `worksheet_is_empty`, `lineage_kind` — NOT NULL,
+default `'LEGACY'` — and `canonical_status`). Every existing row is
+`lineage_kind = 'LEGACY'` with all five canonical fields NULL, requiring
+zero backfill; a canonical row has `lineage_kind = 'DATA_HUB'` and all of
+`import_batch_id`/`worksheet_index`/`canonical_status` NOT NULL —
+enforced by `uploads_lineage_coherence_check`. `uploads`' seven existing
+domain FK relations (`Metric`, `IllegalDumping`, `MissedCollection`,
+`DebtorAccount`, `ServiceRequest`, `HlnaInsight`, `EvidenceRecord`) are
+untouched by this addition.
+
+Tenant integrity is structural, not merely conventional: the composite
+foreign key `uploads_import_batch_org_fkey` on
+`(import_batch_id, organisation_id)` references
+`import_batches (id, organisation_id)` as `MATCH SIMPLE` (Postgres's
+default) — a legacy row (`import_batch_id IS NULL`) is trivially exempt;
+a canonical row can never reference an `import_batches` row belonging to
+a different organisation, at the database level. Worksheet identity is
+likewise structural: `uploads_import_batch_worksheet_key`, a UNIQUE INDEX
+on `(import_batch_id, worksheet_index)` — Postgres treats every `NULL`
+pair as distinct, so all legacy rows coexist under it, while two
+genuinely-identical canonical `(import_batch_id, worksheet_index)` pairs
+are rejected outright. This is the exact database-level guarantee
+5A.2H.1's real-Postgres proof (Section 18) exercises directly.
+
+## 16. Attempt/failure metadata (5A.2G.0)
+
+Both `import_batches` and `uploads` gain independent, additive
+attempt/failure columns: `last_attempt_at`, `attempt_count` (default 0,
+`>= 0` CHECK), `last_failure_code`, `last_failure_message` (`<= 500`
+chars CHECK), `last_failure_retryable`. These are two **separate**
+tracking surfaces for two separate lifecycles — `import_batches`' own
+columns belong exclusively to the physical finalize lifecycle
+(initiate/finalize/staleReclaim); `uploads`' own columns are reserved for
+a **later**, still-unimplemented phase's worksheet-level import-attempt
+tracking. 5A.2H.1's `inspectWorksheets.ts` writes to neither: it never
+touches any `import_batches` column, and it deliberately leaves every new
+`uploads` row's own attempt/failure columns at their schema defaults
+(`attempt_count = 0`, the rest `NULL`) — see Section 18.
+
+`import_batches_failure_retryable_status_check` requires
+`last_failure_retryable IS NOT NULL` exactly when `status = 'FAILED'`,
+and `NULL` otherwise — a targeted, idempotent, self-limiting backfill
+(`last_failure_retryable = true` for any pre-existing FAILED row) runs
+immediately before this CHECK is added, so a migration over a database
+that already has FAILED rows does not fail the `ADD CONSTRAINT` scan.
+Full failure-field coherence (code/message also required exactly when
+`status = 'FAILED'`) is deliberately **not** a DB CHECK — fabricating
+backfill diagnostic text for a pre-existing row would be a materially
+different, unsafe kind of backfill; that coherence is left to the
+5A.2G.1 service layer.
+
+## 17. Dark direct-upload initiate/finalize architecture and READY semantics (5A.2G.1)
+
+`lib/data-hub/importBatch/initiate.ts` and `finalize.ts` implement the
+committed direct-browser-to-private-Blob protocol: `initiate` creates a
+pending `ImportBatch` row (`AWAITING_UPLOAD`) and mints a scoped
+direct-upload token via `directUploadAuth.ts`; the browser uploads
+directly to the Data Hub's private Vercel Blob store; `finalize`
+retrieves the bytes server-side, validates size/hash, runs format
+preflight, and transitions the row to `READY` or `FAILED`. Both are
+**dark, route-free, transport-independent services** — plain functions
+taking an already-trusted `{organisationId, userId?}` context, never
+resolving their own session/auth, never importing `lib/org.ts`'s
+`requireRole`/`requireSession` (those require a real Next.js request
+context these services must not depend on). There is no HTTP route
+anywhere in this phase; a future route wrapping either service MUST
+enforce `manager`+ authorization before ever calling it. Every lookup is
+tenant-scoped (`id` AND `organisation_id` together), never global.
+
+**READY semantics (load-bearing, restated precisely because later phases
+depend on it):** `status = 'READY'` means **only** that the physical
+source file has completed Data Hub's physical finalization stage —
+durably stored in Blob, with an authoritative `sha256` computed and
+recorded. READY does **not** mean worksheet contents have been parsed,
+validated, or are safe to feed to `XLSX.read` without independent
+re-verification. `finalize.ts` itself is deliberately **xlsx-free** — it
+imports only `fileSignatures.ts` and `workbookArchiveGuard.ts` for
+format preflight, and must never import `workbookParser.ts` at all (that
+module imports `xlsx` unconditionally at top level, so even importing an
+unrelated export would transitively pull `xlsx` into `finalize.ts`'s
+import graph). `initiate.ts`'s own insert-first idempotency (a
+`Prisma.PrismaClientKnownRequestError` with `code === 'P2002'` on the
+`(organisation_id, idempotency_key)` unique key, re-selected and
+hard-fingerprint-compared) and `finalize.ts`'s atomic claim/fencing
+scheme (`finalizeInternal.ts`'s `claimForFinalize` /
+`completeReadyForFinalize` / `completeFailedForFinalize`, each a single
+fully-predicated UPDATE keyed on `id` + `organisation_id` +
+`attempt_count` generation) are the load-bearing concurrency primitives
+5A.2H.1 depends on being already correct and already complete by the
+time it ever runs.
+
+## 18. Worksheet inspection/persistence service (5A.2H.1)
+
+`lib/data-hub/importBatch/inspectWorksheets.ts` is the first consumer
+that safely bridges from a `READY` `ImportBatch` to structural worksheet
+knowledge, persisted as canonical `uploads` rows
+(`lineage_kind = 'DATA_HUB'`). It is dark and route-free, exactly like
+`initiate.ts`/`finalize.ts` — there is **no runtime caller of any kind**
+in this slice (no route, no server action, no cron, no barrel export);
+a future caller must enforce `manager`+ authorization before invoking it.
+
+**Ownership split.** `ImportBatch` owns the one physical object (its
+`storage_key`, `sha256`, `size_bytes`); a `uploads` `DATA_HUB` row is a
+purely **logical** worksheet within that batch. This service never
+writes to any `ImportBatch` column, on any path, success or failure —
+the physical finalization lifecycle (Section 17) is already complete and
+historically fixed by the time this service runs.
+
+**Structural-only persistence.** Only `worksheet_index` (authoritative
+identity), `worksheet_name` (descriptive only), `worksheet_visibility`,
+`worksheet_is_empty`, and a derived `canonical_status` are persisted.
+Headers, preview rows, cell values, mapping data, validation results,
+schema classification, and row/column counts are never persisted by this
+slice — `row_count`/`column_count` are left `NULL`, never populated from
+`inspectWorkbook`'s `declaredRangeRows`/`declaredRangeColumns` (a
+preflight signal, not a real count).
+
+**`canonical_status` derivation:** visible AND non-empty →
+`AWAITING_CONFIRMATION`; hidden, veryHidden, or empty (any visibility) →
+`INELIGIBLE`. This slice never writes `SKIPPED` or `IMPORTED` — those are
+later, separate transitions a future phase performs.
+
+**Legacy `uploads` NOT-NULL compatibility fields**, all intentionally
+non-authoritative:
+- `original_name` — the physical filename combined with the worksheet's
+  own name/index, for display only; `worksheet_index` remains the sole
+  identity.
+- `mimetype` — derived from the **physical** `ImportBatch.content_type`
+  via a small fixed map; describes the physical source format, not a
+  worksheet-specific MIME object.
+- `size_bytes` — always exactly `0`. The physical object's real size
+  belongs exclusively to `ImportBatch`; duplicating it across every
+  worksheet row would create false accounting if anything ever sums
+  `uploads.size_bytes`. `0` is a legacy-compatibility sentinel, never a
+  measurement.
+- `stored_path` — a deterministic, **deliberately non-operable**
+  sentinel of the form `datahub-worksheet:<importBatchId>:<worksheetIndex>`.
+  It contains `:`, which `RawFileStore`'s own, unmodified
+  `validateStorageKey` rejects as `INVALID_KEY` — proven directly in
+  `tests/containment/inspectWorksheets.test.ts`. Physical object
+  ownership belongs exclusively to `ImportBatch`; this value can never be
+  mistaken for an operable storage key by `RawFileStore.head()`/`get()`/
+  `delete()`, by construction, without any special-cased carve-out in
+  `RawFileStore`'s own validation logic.
+
+**Mandatory SHA-256 re-verification.** Every invocation recomputes
+SHA-256 over the bytes actually retrieved from storage and compares
+against the batch's own persisted `sha256` column (never
+`expected_sha256`) — unconditionally, not configurable. A mismatch
+returns `STORAGE_INTEGRITY_MISMATCH` before any parsing is attempted.
+
+**Idempotency / divergence (`PERSISTENCE_CONFLICT`).** A fresh
+inspection derives an ordered, N-worksheet expected descriptor set on
+every call. Compared against any existing tenant-scoped `DATA_HUB`
+`uploads` rows for the batch: zero existing rows → first-time atomic
+`createMany` (Prisma, without `skipDuplicates`, so a genuine
+unique-constraint violation from a concurrent racer throws rather than
+being silently absorbed — a real `P2002` triggers a re-read and
+re-comparison, resolving to idempotent success only on an exact match);
+an exact N-row match → idempotent success, zero writes; any partial set,
+extra/out-of-range row, or same-index divergent metadata →
+`PERSISTENCE_CONFLICT`, **never** topped up, truncated, or overwritten.
+This five-case policy, and the real database-level unique index
+(`uploads_import_batch_worksheet_key`, Section 15) it depends on, are
+both proven against a real disposable Postgres container — see
+`scripts/tests/inspectWorksheets.integration.test.ts` /
+`scripts/tests/verify-inspect-worksheets.sh` — including a direct proof
+that a multi-row `createMany` batch containing one CHECK-violating or
+duplicate-index row rolls back in full, with zero rows landing.
+
+**No route, still.** As with Section 17, the standing `xlsx@0.18.5`
+route-exposure blocker (Section 8/8a/8b) remains unresolved. This slice
+does not change that: `inspectWorksheets.ts` is dark, has zero runtime
+callers, and no later phase may build a route that triggers fresh
+untrusted-workbook parsing until that blocker is separately, explicitly
+resolved.
+
+**Known, accepted limitation — duplicate worksheet names (not fixed
+here).** `workbookParser.ts`'s `inspectWorkbook` reads an entire
+workbook's cell data into `wb.Sheets`, a dictionary keyed by **sheet
+name**, not position. If two or more worksheets share an identical name,
+`wb.Sheets[name]` resolves to the same, last-parsed physical sheet object
+for every colliding index — so `isEmpty` (and, for any future caller
+that materializes it, preview content) can reflect the **wrong** physical
+sheet's content for a duplicate-named worksheet at a non-final colliding
+index. `index`, `name`, and `visibility` remain positionally correct
+regardless (both `sheetNames` and the workbook's visibility array are
+consumed positionally, never through the name-keyed dictionary).
+`decodeWorksheet` does **not** share this defect: it calls
+`xlsxAdapter.read` with an explicit `sheets: [index]` option, materializing
+exactly one worksheet per call, so there is no multi-entry name-keyed
+dictionary in play for it to collide within. Because this slice persists
+**no** preview content at all (structural-only, per above), the blast
+radius here is limited to a possibly-incorrect `canonical_status` (via
+`isEmpty`) for a duplicate-named worksheet — never a wrong index, name,
+or existence, and never actual data corruption. A genuine duplicate-named
+`.xlsx` fixture could not be constructed via SheetJS's own writer API
+during this phase's implementation (`XLSX.write`'s own internal
+`check_wb_names` validation rejects it outright, even when
+`wb.SheetNames` is hand-edited to bypass `book_append_sheet`'s own
+uniqueness guard) — see the code comment on `workbookParser.ts` (near
+`inspectSpreadsheetWorksheets`) and
+`tests/containment/inspectWorksheets.test.ts`'s own documented finding.
+**This is not fixed by this phase.** It must be fixed before any future
+phase relies on `inspectWorkbook`'s own preview/`isEmpty` output for a
+duplicate-named worksheet.
