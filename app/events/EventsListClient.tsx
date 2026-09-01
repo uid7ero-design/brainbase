@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { Calendar, MapPin, ChevronRight } from 'lucide-react';
 import KpiCard from '@/components/dashboard/ui/KpiCard';
+import { CapabilityIcon } from '@/components/brand/CapabilityIcon';
 import {
   FONT, TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED, VIOLET_SOFT,
   Panel, EmptyState, StatusBadge, eventStatusTone,
@@ -146,7 +147,14 @@ export default function EventsListClient({ canManage }: { canManage: boolean }) 
 
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, marginBottom: 24, flexWrap: 'wrap' }}>
         <div>
-          <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0, letterSpacing: '-.01em' }}>Events</h1>
+          {/* Module identity moment (Phase D.4.3) — the same Ticket/amber
+              CapabilityIcon already shown in ModuleAccessCard and TopNav for
+              this capability, decorative since the heading right beside it
+              already supplies the accessible name. */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <CapabilityIcon capability="events" size="md" />
+            <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0, letterSpacing: '-.01em' }}>Events</h1>
+          </div>
           <p style={{ fontSize: 13, color: TEXT_MUTED, margin: '5px 0 0' }}>Create, manage and monitor registrations</p>
         </div>
         {canManage && (
