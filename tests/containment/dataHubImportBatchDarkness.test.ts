@@ -90,6 +90,12 @@ describe("Data Hub importBatch — no barrel/index.ts anywhere in the new tree",
         // above, whose regex already covers this file by path-fragment —
         // this Set is the only edit this phase's darkness proof needs).
         "inspectWorksheets.ts",
+        // read.ts (5A.2H.2) — the dark tenant-safe worksheet/ImportBatch
+        // read services (getImportBatch/listImportBatches/getWorksheet/
+        // listWorksheetsForBatch). Still dark: no runtime caller exists
+        // yet — same regex coverage above, this Set is again the only
+        // edit this phase's darkness proof needs.
+        "read.ts",
       ])
     );
   });

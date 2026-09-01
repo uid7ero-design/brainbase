@@ -39,6 +39,16 @@ export type PersistedFailureCode =
 // PersistedFailureCode members, owned by the physical finalize lifecycle)
 // are reused by that same service as caller-facing outcome codes rather
 // than duplicated under new names — see that module's own header comment.
+// 5A.2H.2 addition — three new caller-only outcome codes for the dark
+// worksheet/ImportBatch read services (lib/data-hub/importBatch/read.ts).
+// BATCH_NOT_FOUND (already declared above, 5A.2H.1) is reused verbatim by
+// read.ts rather than duplicated — see that module's own header comment.
+// WORKSHEET_NOT_FOUND deliberately collapses "nonexistent id", "wrong
+// tenant", "LEGACY-lineage id", and "parent batch tombstoned" into one
+// single, indistinguishable outcome — a separate LINEAGE_MISMATCH or
+// TOMBSTONED code is deliberately NOT introduced, to avoid leaking which
+// of those cases actually applied. None of these three is ever written
+// to any DB row — read.ts performs no writes at all.
 export type CallerOnlyOutcomeCode =
   | "INVALID_REQUEST"
   | "IDEMPOTENCY_CONFLICT"
@@ -51,7 +61,10 @@ export type CallerOnlyOutcomeCode =
   | "BATCH_NOT_READY"
   | "STORAGE_INTEGRITY_MISMATCH"
   | "PARSER_REJECTED"
-  | "PERSISTENCE_CONFLICT";
+  | "PERSISTENCE_CONFLICT"
+  | "WORKSHEET_NOT_FOUND"
+  | "INVALID_CURSOR"
+  | "INVALID_LIMIT";
 
 export type FailureCode = PersistedFailureCode | CallerOnlyOutcomeCode;
 
@@ -79,6 +92,9 @@ export const CALLER_ONLY_OUTCOME_CODES: readonly CallerOnlyOutcomeCode[] = [
   "STORAGE_INTEGRITY_MISMATCH",
   "PARSER_REJECTED",
   "PERSISTENCE_CONFLICT",
+  "WORKSHEET_NOT_FOUND",
+  "INVALID_CURSOR",
+  "INVALID_LIMIT",
 ];
 
 export function isPersistedFailureCode(code: string): code is PersistedFailureCode {
@@ -196,6 +212,10 @@ const MESSAGE_TEMPLATES: Record<FailureCode, string> = {
   PARSER_REJECTED: "The uploaded file could not be safely parsed as a workbook.",
   PERSISTENCE_CONFLICT:
     "The worksheet lineage already recorded for this import batch does not match what was just inspected. No changes were made.",
+  // 5A.2H.2 — dark worksheet/ImportBatch read services outcome codes.
+  WORKSHEET_NOT_FOUND: "No matching worksheet was found for this import batch and organisation.",
+  INVALID_CURSOR: "The pagination cursor provided is not valid. Request the first page again without a cursor.",
+  INVALID_LIMIT: "The requested page size is not valid.",
 };
 
 const MAX_MESSAGE_LENGTH = 500;
