@@ -14,7 +14,7 @@ import OrgSwitcher from '@/components/admin/OrgSwitcher';
 import { ThemeProvider } from '@/components/theme/ThemeProvider';
 import ClarityLoader from '@/components/analytics/ClarityLoader';
 
-import { getSession } from '@/lib/session';
+import { requireSession } from '@/lib/org';
 import sql from '@/lib/db';
 import { resolveDashboardVariant } from '@/lib/dashboard/clientDashboard';
 
@@ -101,7 +101,24 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const session = await getSession();
+  // requireSession() (not the raw getSession() JWT decode) so that
+  // organisationId here already reflects an active super_admin
+  // org_override — otherwise every value derived below (enabledCapabilities,
+  // dashboardVariant) would always reflect the founder's OWN organisation
+  // regardless of impersonation, making TopNav's capability-gated nav
+  // items (Events, CRM) silently wrong while "viewing as" a client org.
+  // role/name/userId are still the real, logged-in person's own identity
+  // — impersonation changes which organisation's DATA is shown, never who
+  // the founder is. Falls back to null on any failure (no session, or an
+  // invalid/stale one) exactly like the previous getSession()-based
+  // check — requireSession() throws where getSession() would have
+  // resolved to null.
+  let session: Awaited<ReturnType<typeof requireSession>> | null = null;
+  try {
+    session = await requireSession();
+  } catch {
+    session = null;
+  }
 
   let serverSession: {
     role: string;

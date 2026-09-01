@@ -1,11 +1,21 @@
 import { NextResponse } from 'next/server';
 import sql from '@/lib/db';
-import { getSession } from '@/lib/session';
+import { requireSession } from '@/lib/org';
 import { resolveDashboardVariant } from '@/lib/dashboard/clientDashboard';
 
 export async function GET() {
-  const session = await getSession();
-  if (!session) return NextResponse.json({ role: null, name: null }, { status: 401 });
+  // requireSession() (not the raw getSession() JWT decode), for the
+  // exact same reason as app/layout.tsx's own identical switch: this is
+  // TopNav's client-fetch fallback path, and its enabledCapabilities/
+  // dashboardVariant projection must reflect an active super_admin
+  // org_override — otherwise the nav silently shows the founder's OWN
+  // capabilities while "viewing as" a client org instead of that org's.
+  let session;
+  try {
+    session = await requireSession();
+  } catch {
+    return NextResponse.json({ role: null, name: null }, { status: 401 });
+  }
 
   // Fetch extended profile + org info + enabled modules
   let profile: Record<string, unknown> | null = null;
