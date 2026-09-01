@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import sql from '@/lib/db';
-import { requireRole } from '@/lib/org';
+import { authorizeOrganiserRequest } from '@/lib/organiser/authorize';
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ itemId: string }> }) {
-  let session;
-  try { session = await requireRole('viewer'); } catch {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const auth = await authorizeOrganiserRequest('viewer');
+  if (!auth.ok) return auth.response;
+  const { session } = auth;
 
   const { itemId } = await params;
   const updates = await sql`
@@ -19,10 +18,9 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ite
 }
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ itemId: string }> }) {
-  let session;
-  try { session = await requireRole('viewer'); } catch {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const auth = await authorizeOrganiserRequest('viewer');
+  if (!auth.ok) return auth.response;
+  const { session } = auth;
 
   const { itemId } = await params;
   const itemRows = await sql`

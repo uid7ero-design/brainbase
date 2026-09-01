@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import sql from '@/lib/db';
-import { requireRole } from '@/lib/org';
+import { authorizeOrganiserRequest } from '@/lib/organiser/authorize';
 
 const TYPES = new Set(['text', 'number', 'date', 'status', 'checkbox']);
 
@@ -11,10 +11,9 @@ const DEFAULT_STATUS_OPTIONS = [
 ];
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ boardId: string }> }) {
-  let session;
-  try { session = await requireRole('viewer'); } catch {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const auth = await authorizeOrganiserRequest('viewer');
+  if (!auth.ok) return auth.response;
+  const { session } = auth;
 
   const { boardId } = await params;
   const board = await sql`

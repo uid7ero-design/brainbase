@@ -3,15 +3,14 @@ import { mkdir, writeFile } from 'fs/promises';
 import path from 'path';
 import { randomUUID } from 'crypto';
 import sql from '@/lib/db';
-import { requireRole } from '@/lib/org';
+import { authorizeOrganiserRequest } from '@/lib/organiser/authorize';
 
 const MAX_BYTES = 15 * 1024 * 1024; // 15 MB
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ itemId: string }> }) {
-  let session;
-  try { session = await requireRole('viewer'); } catch {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const auth = await authorizeOrganiserRequest('viewer');
+  if (!auth.ok) return auth.response;
+  const { session } = auth;
 
   const { itemId } = await params;
   const files = await sql`
@@ -24,10 +23,9 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ite
 }
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ itemId: string }> }) {
-  let session;
-  try { session = await requireRole('viewer'); } catch {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const auth = await authorizeOrganiserRequest('viewer');
+  if (!auth.ok) return auth.response;
+  const { session } = auth;
 
   const { itemId } = await params;
   const itemRows = await sql`

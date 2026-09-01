@@ -157,7 +157,14 @@ describe('Access-control parity preserved across the route move (middleware.ts l
 
   it('the Organiser API routes (data-layer tenancy) are unaffected by the route move — still session-organisation-scoped', () => {
     const boardsRoute = fs.readFileSync(path.resolve(__dirname, '../../app/api/organiser/boards/route.ts'), 'utf-8')
-    expect(boardsRoute).toContain("requireRole('viewer')")
+    // Phase D.4.4C — this route's authorization call changed from a bare
+    // requireRole('viewer') to authorizeOrganiserRequest('viewer'), a
+    // shared wrapper that additionally enforces the 'organiser' capability
+    // entitlement (see tests/containment/organiserCapabilityEnforcement
+    // .test.ts for the dedicated suite covering that new layer). The
+    // 'viewer' role floor this test protects is unchanged — the wrapper
+    // preserves it exactly, it just now also checks capability first.
+    expect(boardsRoute).toContain("authorizeOrganiserRequest('viewer')")
     expect(boardsRoute).toContain('WHERE b.organisation_id = ${session.organisationId}')
   })
 })
