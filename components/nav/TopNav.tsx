@@ -1225,6 +1225,18 @@ function AppNav({
       'events',
     );
 
+  // Phase 6.2 — same capability-driven pattern as hasEvents above.
+  // Previously CRM only appeared inside OpsDropdown, which is itself
+  // gated on isBrainbaseHQ (see below) — meaning a client organisation
+  // with the crm capability enabled had no way to reach CRM from this
+  // nav at all, regardless of entitlement. This flag drives a
+  // standalone, client-facing NavItem instead; OpsDropdown's own CRM
+  // entry (Brainbase HQ's internal ops shortcut) is untouched.
+  const hasCrm =
+    enabledCapabilities.includes(
+      'crm',
+    );
+
   const initials = name
     .split(' ')
     .map(
@@ -1319,6 +1331,22 @@ function AppNav({
                 label="Events"
                 active={pathname.startsWith(
                   '/events',
+                )}
+              />
+            )}
+
+            {/* Phase 6.2 — same capability gate as Events immediately
+                above; not currently expected to be true for LD Tennis,
+                but this branch shouldn't silently hide CRM from a
+                client whose org happens to be dashboardVariant
+                'ld-tennis' AND has crm enabled — capability-driven,
+                never variant-driven. */}
+            {hasCrm && (
+              <NavItem
+                href="/crm"
+                label="CRM"
+                active={pathname.startsWith(
+                  '/crm',
                 )}
               />
             )}
@@ -1485,6 +1513,20 @@ function AppNav({
                 label="Events & Ticketing"
                 active={pathname.startsWith(
                   '/events',
+                )}
+              />
+            )}
+
+            {/* Phase 6.2 — capability-driven, mirrors the Events item
+                immediately above exactly. Never gated on isBrainbaseHQ
+                or any organisation id/slug/name — any organisation
+                (client or Brainbase HQ) with crm enabled sees it. */}
+            {hasCrm && (
+              <NavItem
+                href="/crm"
+                label="CRM"
+                active={pathname.startsWith(
+                  '/crm',
                 )}
               />
             )}
