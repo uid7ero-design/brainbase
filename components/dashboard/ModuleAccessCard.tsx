@@ -69,7 +69,7 @@ function ModuleCard({ entry }: { entry: ModuleEntry }) {
         display: 'flex',
         flexDirection: 'column',
         gap: 8,
-        padding: '14px 16px',
+        padding: '12px 16px 14px',
         borderRadius: 11,
         textDecoration: 'none',
         fontFamily: FONT,
@@ -80,8 +80,12 @@ function ModuleCard({ entry }: { entry: ModuleEntry }) {
       }}
     >
       {/* Decorative — the title text right below already gives every card an
-          accessible name, so the icon carries no separate aria-label. */}
-      <CapabilityIcon capability={entry.key} size="md" state={hover ? 'hover' : 'default'} />
+          accessible name, so the icon carries no separate aria-label.
+          marginBottom trims the flex gap below just this element (8px -
+          2px = 6px) so the icon reads as grouped with the title, without
+          touching the title/description/CTA rhythm below, which keeps the
+          container's own 8px gap unchanged. */}
+      <CapabilityIcon capability={entry.key} size="md" state={hover ? 'hover' : 'default'} style={{ marginBottom: -2 }} />
 
       <span style={{ fontSize: 13, fontWeight: 700, color: hover ? '#E2D9F3' : '#D4D4D8', lineHeight: 1.35 }}>
         {entry.title}
