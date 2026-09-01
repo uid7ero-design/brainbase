@@ -122,15 +122,38 @@ describe('TopNav — Events is a first-class, always-visible entry in BOTH AppNa
   })
 })
 
-describe('Authenticated dashboard — no module-card/tile pattern exists to extend, and none was invented', () => {
-  it('the org-variant dashboard resolver has no generic module-card system (a closed set of bespoke per-organisation dashboards only)', () => {
+describe('Authenticated dashboard — Events participates in the generic ModuleAccessCard pattern, not a bespoke Events dashboard variant', () => {
+  // Phase D.4 introduced ModuleAccessCard (a real, generic module-card/tile
+  // pattern) after this describe block was first written — the premise
+  // "no module-card pattern exists" is now stale and has been replaced by
+  // this one: a pattern DOES exist, Events is one of its entries, and
+  // Phase D.4.1 wired CapabilityIcon into it without adding any second,
+  // Events-specific navigation/dashboard architecture alongside it.
+  it('the org-variant dashboard resolver still has no bespoke per-capability dashboard branch (a closed set of per-organisation dashboards only, never a per-module one)', () => {
     const code = stripComments(read('app/dashboard/page.tsx'))
-    // Confirms the dashboard remains its existing closed set of
-    // variants (brainbase-hq / ld-tennis / generic fallback) — no new
-    // "events" branch was added here, and no fourth special case was
-    // introduced for this integration pass.
     expect(code).not.toMatch(/variant === 'events'/)
     expect(code).not.toMatch(/EventsDashboard/)
+  })
+
+  it('Events is a real entry in the generic ModuleAccessCard pattern, not a parallel one-off component', () => {
+    const cardCode = stripComments(read('components/dashboard/ModuleAccessCard.tsx'))
+    const entriesStart = cardCode.indexOf('const MODULE_ENTRIES')
+    const entriesEnd = cardCode.indexOf('];', entriesStart)
+    const entriesBlock = cardCode.slice(entriesStart, entriesEnd)
+    expect(entriesBlock).toMatch(/key:\s*'events'/)
+    expect(entriesBlock).toMatch(/href:\s*'\/events'/)
+  })
+
+  it("Events' visibility inside ModuleAccessCard remains capability-gated, not unconditionally rendered", () => {
+    const cardCode = stripComments(read('components/dashboard/ModuleAccessCard.tsx'))
+    expect(cardCode).toMatch(/entries\s*=\s*MODULE_ENTRIES\.filter\(e => enabledCapabilities\.includes\(e\.key\)\)/)
+  })
+
+  it('no second/duplicate Events navigation architecture was introduced alongside ModuleAccessCard — TopNav\'s own existing Events link and gating are untouched', () => {
+    const topNavCode = stripComments(read('components/nav/TopNav.tsx'))
+    const eventsOccurrences = (topNavCode.match(/enabledCapabilities\.includes\(\s*\n?\s*'events',?\s*\n?\s*\)/g) ?? []).length
+    expect(eventsOccurrences).toBe(2)
+    expect(topNavCode).toMatch(/href="\/events"/)
   })
 })
 

@@ -105,6 +105,59 @@ describe('Client dashboard mounting — School Test Organisation (BrainBase shel
   })
 })
 
+describe('ModuleAccessCard — Phase D.4.1 CapabilityIcon wiring', () => {
+  it('imports and renders CapabilityIcon, passing only the canonical capability id — no icon/colour lookup logic duplicated locally', () => {
+    expect(cardSource).toContain("import { CapabilityIcon } from '@/components/brand/CapabilityIcon'")
+    expect(cardSource).toMatch(/<CapabilityIcon capability=\{entry\.key\}/)
+    // The capability id passed through is the same `entry.key` MODULE_ENTRIES
+    // and the enabledCapabilities filter already use — not a second,
+    // hand-picked identifier.
+    expect(cardSource).not.toMatch(/capability=["'](crm|events|organiser)["']/)
+  })
+
+  it('title/description/href/cta ownership stays entirely with ModuleAccessCard/MODULE_ENTRIES — CapabilityIcon receives no copy or routing props', () => {
+    const iconCallIdx = cardSource.indexOf('<CapabilityIcon capability=')
+    const iconCallEnd = cardSource.indexOf('/>', iconCallIdx)
+    const iconCall = cardSource.slice(iconCallIdx, iconCallEnd)
+    expect(iconCall).not.toMatch(/title=|description=|href=|cta=/)
+    // Title/description/CTA/href still come from the same MODULE_ENTRIES
+    // rows and entry.* accessors as before this phase.
+    expect(cardSource).toMatch(/\{entry\.title\}/)
+    expect(cardSource).toMatch(/\{entry\.description\}/)
+    expect(cardSource).toMatch(/\{entry\.cta\}/)
+    expect(cardSource).toMatch(/href=\{entry\.href\}/)
+  })
+
+  it('no entitlement/gating logic moved into CapabilityIcon — the enabledCapabilities filter still lives in ModuleAccessCard alone', () => {
+    const iconSource = fs.readFileSync(path.resolve(__dirname, '../../components/brand/CapabilityIcon.tsx'), 'utf-8')
+    // Comment-stripped: the header documents the shared `capability`
+    // id in prose (mentions enabledCapabilities to explain provenance),
+    // which is not the same as the component actually reading it.
+    const iconCode = iconSource.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1')
+    expect(iconCode).not.toMatch(/enabledCapabilities/)
+    expect(cardSource).toMatch(/entries\s*=\s*MODULE_ENTRIES\.filter\(e => enabledCapabilities\.includes\(e\.key\)\)/)
+  })
+
+  it('the icon is decorative (no aria-label passed) since the card title right below it already supplies an accessible name', () => {
+    const iconCallIdx = cardSource.indexOf('<CapabilityIcon capability=')
+    const iconCallEnd = cardSource.indexOf('/>', iconCallIdx)
+    const iconCall = cardSource.slice(iconCallIdx, iconCallEnd)
+    expect(iconCall).not.toMatch(/label=/)
+  })
+
+  it('an unmapped capability id would not crash the card — CapabilityIcon itself falls back to a neutral glyph rather than throwing', () => {
+    const iconSource = fs.readFileSync(path.resolve(__dirname, '../../components/brand/CapabilityIcon.tsx'), 'utf-8')
+    expect(iconSource).toMatch(/CAPABILITY_ICON_MAP\[capability\]/)
+    expect(iconSource).not.toMatch(/throw /)
+  })
+
+  it('existing card behaviour (capability gating, empty-state null return, non-hardcoded org) is unchanged by the icon wiring', () => {
+    expect(cardSource).toContain('if (entries.length === 0) return null')
+    expect(cardSource.toLowerCase()).not.toContain('ld-tennis')
+    expect(cardSource.toLowerCase()).not.toContain('school-test-organisation')
+  })
+})
+
 describe('TopNav — Events remains reachable when the authenticated nav is crowded/narrow', () => {
   it('the centre nav row scrolls horizontally instead of clipping/squeezing pill text when it does not fit', () => {
     const centreIdx = topNavSource.indexOf('{/* Centre navigation')
