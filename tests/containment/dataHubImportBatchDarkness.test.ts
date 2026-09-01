@@ -84,6 +84,12 @@ describe("Data Hub importBatch — no barrel/index.ts anywhere in the new tree",
         // finalizeImportBatch.test.ts's dedicated containment proof.
         "finalizeInternal.ts",
         "staleReclaim.ts",
+        // inspectWorksheets.ts (5A.2H.1) — the worksheet inspection/
+        // persistence service. Still dark: no runtime caller exists yet
+        // (see the "no app/** or app/api/** importer" describe block
+        // above, whose regex already covers this file by path-fragment —
+        // this Set is the only edit this phase's darkness proof needs).
+        "inspectWorksheets.ts",
       ])
     );
   });
