@@ -6,6 +6,20 @@ import sql from './db';
 export type OrgSession = {
   userId: string;
   organisationId: string;
+  // The caller's TRUE, un-overridden organisation (their own row in
+  // `users`) — identical to organisationId for every non-super_admin
+  // session, and for a super_admin session with no active org_override.
+  // Diverges from organisationId ONLY while a super_admin is actively
+  // impersonating another organisation via the org_override cookie
+  // (see below): organisationId becomes the impersonated org (so every
+  // existing tenant-scoped query keeps working unchanged while
+  // impersonating), while homeOrganisationId stays the founder's own
+  // real workspace. Exists specifically so "my own workspace" can be
+  // identified correctly regardless of what's currently being
+  // impersonated — see app/clients/page.tsx's own use of this field for
+  // the bug this was introduced to fix (a founder mid-impersonation of
+  // another org saw THAT org, not their own, excluded from /clients).
+  homeOrganisationId: string;
   role: Role;
   name: string;
 };
@@ -52,7 +66,8 @@ export async function requireSession(): Promise<OrgSession> {
 
   const role = (user.role as string).toLowerCase() as Role;
 
-  let organisationId = user.organisation_id as string;
+  const homeOrganisationId = user.organisation_id as string;
+  let organisationId = homeOrganisationId;
   if (role === 'super_admin') {
     const jar = await cookies();
     const override = jar.get('org_override')?.value;
@@ -62,6 +77,7 @@ export async function requireSession(): Promise<OrgSession> {
   return {
     userId: session.userId,
     organisationId,
+    homeOrganisationId,
     role,
     name: session.name,
   };
