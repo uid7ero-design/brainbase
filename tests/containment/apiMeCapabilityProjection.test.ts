@@ -10,12 +10,28 @@ import path from 'path'
 // — that the pre-existing, still-broken legacy enabledModules field/
 // query/try-catch/last_seen_at behaviour is completely untouched. No
 // authorization logic, no requireCapability()/checkCapability() call,
-// no session/org resolver change, no Production data change.
+// no Production data change.
+//
+// Session resolution mechanism (updated — super_admin org switcher UI
+// fix): this route now uses requireSession() (from lib/org.ts), not the
+// raw getSession() JWT decode, specifically so its organisationId
+// already reflects an active super_admin org_override. Before this
+// fix, TopNav's client-fetch fallback path (this very endpoint) always
+// projected the founder's OWN capabilities/dashboardVariant regardless
+// of impersonation — a real, separate bug from the org-switcher-
+// invisibility one, found while restoring the switcher UI (see that
+// phase's own report). requireSession() is mocked here wholesale
+// (matching every other route-level test's own established
+// convention, e.g. tests/containment/crmEventBackfill.test.ts) rather
+// than exercising its real DB/cookie internals — this file's own job is
+// proving THIS route's query shape, not requireSession()'s own
+// behaviour (see tests/containment/crmBackfillImpersonationAuthChain.test.ts
+// and tests/containment/orgHomeOrganisationId.test.ts for that).
 
-const getSessionMock = vi.fn()
-vi.mock('@/lib/session', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/lib/session')>()
-  return { ...actual, getSession: (...args: unknown[]) => getSessionMock(...args) }
+const requireSessionMock = vi.fn()
+vi.mock('@/lib/org', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/org')>()
+  return { ...actual, requireSession: (...args: unknown[]) => requireSessionMock(...args) }
 })
 
 let responseQueue: unknown[][] = []
@@ -54,7 +70,7 @@ function stripComments(src: string): string {
 }
 const CODE = stripComments(ROUTE_SOURCE)
 
-const SESSION = { userId: 'u1', organisationId: 'org-a', role: 'manager', name: 'Ada' }
+const SESSION = { userId: 'u1', organisationId: 'org-a', homeOrganisationId: 'org-a', role: 'manager', name: 'Ada' }
 
 // Fixed 4-response shape for the EXISTING shared try block, matching
 // the route's own call order: user lookup, org lookup, legacy
@@ -72,11 +88,11 @@ function queueFullRoute(capabilitiesResponse: unknown[]) {
 }
 
 beforeEach(() => {
-  getSessionMock.mockReset()
+  requireSessionMock.mockReset()
   sqlMock.mockClear()
   responseQueue = []
   callCount = 0
-  getSessionMock.mockResolvedValue(SESSION)
+  requireSessionMock.mockResolvedValue(SESSION)
 })
 
 describe('GET /api/me — enabledCapabilities projection (Phase F.6F)', () => {
@@ -166,7 +182,7 @@ describe('GET /api/me — enabledCapabilities projection (Phase F.6F)', () => {
   })
 
   it('14. a capability-query DB failure does not fail the request — response stays successful and enabledCapabilities = []', async () => {
-    getSessionMock.mockResolvedValue(SESSION)
+    requireSessionMock.mockResolvedValue(SESSION)
     // First 4 responses satisfy the existing shared block; the 5th
     // slot (capabilities) is never reached because we make the mock
     // reject specifically on its 5th invocation instead.
@@ -229,8 +245,11 @@ describe('GET /api/me — enabledCapabilities projection (Phase F.6F)', () => {
     expect(orgIdUsages).toBeGreaterThanOrEqual(4)
   })
 
-  it('19. the route does not import getAuthSession, requireSession, requireCapability, checkCapability, or cookies', () => {
-    expect(CODE).not.toMatch(/getAuthSession|requireSession|requireCapability|checkCapability|cookies\(\)/)
+  it('19. the route uses requireSession() (org_override-aware), never the raw getSession() JWT decode — so its organisationId reflects an active super_admin impersonation, matching app/layout.tsx\'s own identical fix. Still no requireCapability/checkCapability — this route remains a UX projection, not an authorization boundary', () => {
+    expect(CODE).toMatch(/import \{ requireSession \} from '@\/lib\/org'/)
+    expect(CODE).toContain('await requireSession()')
+    expect(CODE).not.toMatch(/getSession\(\)/)
+    expect(CODE).not.toMatch(/getAuthSession|requireCapability|checkCapability/)
   })
 
   it('20. enabledCapabilities never causes a 403, and is never used to gate the response status', async () => {
