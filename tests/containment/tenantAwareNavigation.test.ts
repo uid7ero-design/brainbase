@@ -242,3 +242,18 @@ describe('Phase C.2D — containment', () => {
     expect(dashboardPageSource).toMatch(/redirect\('\/admin\/founder'\)/)
   })
 })
+
+describe('Phase D.4.2 — capability icons did not touch the underlying gating this file protects', () => {
+  it('the hasEvents/hasCrm capability gates themselves are byte-identical in shape to before icon wiring — the icon is additive inside an already-gated NavItem, never a new gate', () => {
+    expect(topNavSource).toMatch(/const hasEvents =\s*\n?\s*enabledCapabilities\.includes\(\s*\n?\s*'events',?\s*\n?\s*\);/)
+    expect(topNavSource).toMatch(/const hasCrm =\s*\n?\s*enabledCapabilities\.includes\(\s*\n?\s*'crm',?\s*\n?\s*\);/)
+  })
+
+  it('no new capability id was introduced anywhere in TopNav.tsx — every capability="..." prop is events or crm, matching the two real gates above', () => {
+    const capabilityProps = topNavSource.match(/capability="[a-zA-Z]+"/g) ?? []
+    expect(capabilityProps.length).toBeGreaterThan(0)
+    for (const prop of capabilityProps) {
+      expect(['capability="events"', 'capability="crm"']).toContain(prop)
+    }
+  })
+})

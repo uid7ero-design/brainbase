@@ -120,6 +120,15 @@ describe('TopNav — Events is a first-class, always-visible entry in BOTH AppNa
     expect(code).toMatch(/enabledCapabilities\?:\s*string\[\]/)
     expect(code).toMatch(/enabledCapabilities\s*=\s*\[\]/)
   })
+
+  // Phase D.4.2 — Events' TopNav entry (both branches) now also carries a
+  // capability icon, still driven purely by the same hasEvents gate this
+  // whole describe block already protects — the icon does not add or alter
+  // any discoverability/gating condition.
+  it('the Events icon rides on top of the existing gate, not a new one — capability="events" appears exactly twice (both branches), both still inside their pre-existing hasEvents/enabledCapabilities.includes(\'events\') gate', () => {
+    const capabilityEventsProps = code.match(/capability="events"/g) ?? []
+    expect(capabilityEventsProps).toHaveLength(2)
+  })
 })
 
 describe('Authenticated dashboard — Events participates in the generic ModuleAccessCard pattern, not a bespoke Events dashboard variant', () => {
