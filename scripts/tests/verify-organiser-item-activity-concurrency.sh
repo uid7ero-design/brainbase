@@ -1,0 +1,597 @@
+#!/usr/bin/env bash
+# Organiser Phase D.4.5C-B — repeatable behavioral validation for atomic
+# item activity history (app/api/organiser/boards/[boardId]/items/route.ts
+# POST, app/api/organiser/items/[itemId]/route.ts PATCH/DELETE).
+#
+# WHY THIS EXISTS: D.4.5C-A's audit concluded that a race-safe item PATCH
+# needs a `FOR UPDATE`-locked "old" CTE combined with the UPDATE and the
+# organiser_activity INSERT in ONE writable-CTE statement — modeled
+# directly on the ALREADY-PROVEN, ALREADY-SHIPPED pattern in
+# app/api/public/events/[organisationSlug]/[eventSlug]/register/route.ts
+# (the "R1" fix) and this repo's own established harness convention
+# (scripts/tests/verify-events-phase2-concurrency.sh,
+# scripts/tests/verify-import-batches-migration.sh). Static/mocked tests
+# cannot prove MVCC/locking correctness by construction (no real
+# transaction, snapshot, or locking semantics in a mock) — this harness
+# exists specifically to make a regression in that correctness
+# mechanically detectable, exactly as the Events precedent already does
+# for its own comparable problem.
+#
+# WHAT THIS DOES: bootstraps a disposable postgres:16-alpine container
+# with the REAL organiser_boards/organiser_items/organiser_activity DDL
+# (extracted verbatim from app/api/admin/migrate/route.ts, steps 33/35/40,
+# plus the organiser_activity_sanitise_scalar function from step 41), then
+# executes the SAME structural SQL pattern the production item routes
+# submit (the old/updated/field_diff/custom_diff/activity_row writable-CTE
+# statement), via `docker exec ... psql`. Two genuinely concurrent psql
+# connections are used for the race scenarios, with a `pg_sleep()` CTE
+# injected right after the FOR UPDATE lock to force real overlap/blocking
+# — the same forced-blocking technique
+# scripts/tests/verify-events-phase2-concurrency.sh already established.
+#
+# WHAT THIS DOES NOT DO: it is not wired into CI (Docker is not part of
+# the standard CI workflow in this repo, matching every prior harness of
+# this kind). It requires only Docker. It never touches Production or any
+# already-running database — it creates and destroys its own disposable
+# container, and cleans up on exit even on failure (trap on EXIT).
+#
+# USAGE:
+#   bash scripts/tests/verify-organiser-item-activity-concurrency.sh
+#
+# Exits 0 if every check passes, non-zero and prints a summary of what
+# failed otherwise.
+
+set -uo pipefail
+
+CONTAINER="organiser-activity-harness-$$"
+PASS=0
+FAIL=0
+FAILURES=()
+
+cleanup() {
+  docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
+  rm -f "${OUT_A:-}" "${OUT_B:-}" 2>/dev/null || true
+}
+trap cleanup EXIT
+
+if ! command -v docker >/dev/null 2>&1; then
+  echo "ERROR: docker is required to run this harness." >&2
+  exit 2
+fi
+
+echo "Starting disposable postgres:16-alpine ($CONTAINER)..."
+docker run -d --name "$CONTAINER" -e POSTGRES_PASSWORD=test -e POSTGRES_DB=testdb postgres:16-alpine >/dev/null
+
+READY=0
+for i in $(seq 1 30); do
+  if docker exec "$CONTAINER" pg_isready -U postgres >/dev/null 2>&1; then READY=1; break; fi
+  sleep 1
+done
+if [ "$READY" -ne 1 ]; then
+  echo "ERROR: postgres in $CONTAINER did not become ready within 30s." >&2
+  exit 2
+fi
+
+OUT_A="/tmp-not-used-see-scratchpad"
+OUT_A="$(mktemp)"
+OUT_B="$(mktemp)"
+
+psql_exec() {
+  docker exec -i "$CONTAINER" psql -X -q -U postgres -d testdb -v ON_ERROR_STOP=1
+}
+psql_query() {
+  docker exec -i "$CONTAINER" psql -X -t -A -U postgres -d testdb -v ON_ERROR_STOP=1
+}
+reset_db() {
+  docker exec -i "$CONTAINER" psql -X -q -U postgres -d postgres -c "DROP DATABASE IF EXISTS testdb;" >/dev/null 2>&1
+  docker exec -i "$CONTAINER" psql -X -q -U postgres -d postgres -c "CREATE DATABASE testdb;" >/dev/null 2>&1
+}
+
+# ─── Real, unmodified DDL — extracted verbatim from the same source as
+# every other organiser_* table (app/api/admin/migrate/route.ts). ────────
+bootstrap() {
+  cat <<'SQL' | psql_exec
+CREATE TABLE organisations (id TEXT PRIMARY KEY, name TEXT NOT NULL, slug TEXT NOT NULL UNIQUE);
+CREATE TABLE users (id TEXT PRIMARY KEY, organisation_id TEXT NOT NULL REFERENCES organisations(id) ON DELETE CASCADE, username TEXT NOT NULL UNIQUE, name TEXT NOT NULL);
+
+CREATE TABLE organiser_boards (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  organisation_id TEXT NOT NULL REFERENCES organisations(id),
+  name            TEXT NOT NULL,
+  color           TEXT,
+  icon            TEXT,
+  position        INTEGER NOT NULL DEFAULT 0,
+  created_by      TEXT REFERENCES users(id),
+  created_at      TIMESTAMPTZ DEFAULT NOW(),
+  updated_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE organiser_groups (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  board_id        UUID NOT NULL REFERENCES organiser_boards(id) ON DELETE CASCADE,
+  organisation_id TEXT NOT NULL REFERENCES organisations(id),
+  name            TEXT NOT NULL,
+  color           TEXT,
+  position        INTEGER NOT NULL DEFAULT 0,
+  created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE organiser_items (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  board_id        UUID NOT NULL REFERENCES organiser_boards(id) ON DELETE CASCADE,
+  organisation_id TEXT NOT NULL REFERENCES organisations(id),
+  group_id        UUID REFERENCES organiser_groups(id) ON DELETE SET NULL,
+  parent_item_id  UUID REFERENCES organiser_items(id) ON DELETE CASCADE,
+  name            TEXT NOT NULL,
+  status          TEXT NOT NULL DEFAULT 'Not Started',
+  priority        TEXT,
+  owner           TEXT,
+  due_date        DATE,
+  notes           TEXT,
+  fields          JSONB NOT NULL DEFAULT '{}',
+  position        INTEGER NOT NULL DEFAULT 0,
+  created_at      TIMESTAMPTZ DEFAULT NOW(),
+  updated_at      TIMESTAMPTZ DEFAULT NOW()
+);
+ALTER TABLE organiser_items ADD COLUMN IF NOT EXISTS custom_values JSONB NOT NULL DEFAULT '{}';
+
+CREATE TABLE organiser_activity (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  organisation_id TEXT NOT NULL REFERENCES organisations(id),
+  board_id        UUID NOT NULL,
+  item_id         UUID,
+  actor_user_id   TEXT REFERENCES users(id) ON DELETE SET NULL,
+  actor_name      TEXT NOT NULL,
+  event_type      TEXT NOT NULL CHECK (event_type IN (
+                     'board.created', 'board.updated', 'board.deleted',
+                     'group.created', 'group.updated', 'group.deleted',
+                     'column.created', 'column.updated', 'column.deleted',
+                     'item.created', 'item.updated', 'item.moved', 'item.deleted',
+                     'comment.created',
+                     'file.added', 'file.deleted',
+                     'import.completed'
+                   )),
+  entity_type     TEXT NOT NULL CHECK (entity_type IN ('board', 'group', 'item', 'column', 'file', 'comment', 'import')),
+  entity_id       TEXT NOT NULL,
+  before_json     JSONB,
+  after_json      JSONB,
+  metadata_json   JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE OR REPLACE FUNCTION organiser_activity_sanitise_scalar(value jsonb)
+RETURNS jsonb
+LANGUAGE sql IMMUTABLE
+AS $f$
+  SELECT CASE
+    WHEN value IS NULL OR jsonb_typeof(value) = 'null' THEN value
+    WHEN jsonb_typeof(value) = 'string' THEN
+      to_jsonb(
+        CASE WHEN length(value #>> '{}') > 200
+          THEN left(value #>> '{}', 200) || '…(truncated)'
+          ELSE value #>> '{}'
+        END
+      )
+    WHEN jsonb_typeof(value) IN ('object', 'array') THEN
+      to_jsonb(
+        CASE WHEN length(value::text) > 200
+          THEN left(value::text, 200) || '…(truncated)'
+          ELSE value::text
+        END
+      )
+    ELSE value
+  END
+$f$;
+
+INSERT INTO organisations (id, name, slug) VALUES ('org-a', 'Org A', 'org-a'), ('org-b', 'Org B', 'org-b');
+INSERT INTO users (id, organisation_id, username, name) VALUES ('user-1', 'org-a', 'u1', 'James'), ('user-2', 'org-a', 'u2', 'Luke');
+INSERT INTO organiser_boards (id, organisation_id, name) VALUES ('11111111-1111-1111-1111-111111111111', 'org-a', 'Board A');
+INSERT INTO organiser_boards (id, organisation_id, name) VALUES ('22222222-2222-2222-2222-222222222222', 'org-b', 'Board B');
+SQL
+}
+
+expect_success() {
+  local desc="$1" sql="$2"
+  local out; out="$(echo "$sql" | psql_exec 2>&1)"
+  if [ $? -eq 0 ]; then
+    echo "  PASS: $desc"
+    PASS=$((PASS + 1))
+  else
+    echo "  FAIL (expected success, got error): $desc"
+    echo "$out" | sed 's/^/    /'
+    FAIL=$((FAIL + 1))
+    FAILURES+=("$desc")
+  fi
+}
+
+expect_eq() {
+  local desc="$1" sql="$2" want="$3"
+  local got
+  got="$(echo "$sql" | psql_query | tr -d '[:space:]')"
+  if [ "$got" = "$want" ]; then
+    echo "  PASS: $desc (got $got)"
+    PASS=$((PASS + 1))
+  else
+    echo "  FAIL: $desc (want $want, got $got)"
+    FAIL=$((FAIL + 1))
+    FAILURES+=("$desc")
+  fi
+}
+
+# ─── The PATCH statement, as REAL Postgres SQL text — mirrors, statement-
+# for-statement, exactly what app/api/organiser/items/[itemId]/route.ts's
+# PATCH submits as one writable-CTE statement.
+# $1=itemId $2=org $3=actorUserId $4=actorName
+# $5=hasGroupId $6=groupIdVal $7=hasParentId $8=parentIdVal
+# $9=hasDueDate $10=dueDate $11=name $12=status $13=priority $14=owner
+# $15=notes $16=position $17=hasCustomValues $18=customValuesJson
+# $19=inject (delay CTE injection point, empty in normal-path tests)
+patch_item_sql() {
+  local id="$1" org="$2" actor_id="$3" actor_name="$4"
+  local has_group="$5" group_val="$6" has_parent="$7" parent_val="$8"
+  local has_due="$9" due_val="${10}" name_val="${11}" status_val="${12}" priority_val="${13}" owner_val="${14}"
+  local notes_val="${15}" position_val="${16}" has_cv="${17}" cv_json="${18}" inject="${19:-}"
+  cat <<SQL
+WITH old AS MATERIALIZED (
+  SELECT id, board_id, group_id, parent_item_id, name, status, priority, owner, due_date, notes, position, custom_values
+  FROM organiser_items WHERE id = '$id' AND organisation_id = '$org' FOR UPDATE
+),
+$inject
+updated AS (
+  UPDATE organiser_items i SET
+    group_id       = CASE WHEN $has_group THEN $group_val ELSE old.group_id END,
+    parent_item_id = CASE WHEN $has_parent THEN $parent_val ELSE old.parent_item_id END,
+    due_date       = CASE WHEN $has_due THEN $due_val ELSE old.due_date END,
+    name           = COALESCE($name_val, old.name),
+    status         = COALESCE($status_val, old.status),
+    priority       = COALESCE($priority_val, old.priority),
+    owner          = COALESCE($owner_val, old.owner),
+    notes          = COALESCE($notes_val, old.notes),
+    position       = COALESCE($position_val, old.position),
+    custom_values  = CASE WHEN $has_cv THEN old.custom_values || '$cv_json'::jsonb ELSE old.custom_values END,
+    updated_at     = NOW()
+  FROM old${inject:+, delay}
+  WHERE i.id = old.id
+  RETURNING i.id, i.board_id, i.group_id, i.parent_item_id, i.name, i.status, i.priority, i.owner,
+            i.due_date::text AS due_date, i.notes, i.custom_values, i.position, i.updated_at
+),
+field_diff AS (
+  SELECT
+    jsonb_object_agg(f.key, f.old_val) FILTER (WHERE f.old_val IS DISTINCT FROM f.new_val) AS before_obj,
+    jsonb_object_agg(f.key, f.new_val) FILTER (WHERE f.old_val IS DISTINCT FROM f.new_val) AS after_obj,
+    bool_or(f.old_val IS DISTINCT FROM f.new_val) AS any_changed
+  FROM old, updated,
+  LATERAL (VALUES
+    ('group_id', organiser_activity_sanitise_scalar(to_jsonb(old.group_id)), organiser_activity_sanitise_scalar(to_jsonb(updated.group_id))),
+    ('parent_item_id', organiser_activity_sanitise_scalar(to_jsonb(old.parent_item_id)), organiser_activity_sanitise_scalar(to_jsonb(updated.parent_item_id))),
+    ('due_date', organiser_activity_sanitise_scalar(to_jsonb(old.due_date)), organiser_activity_sanitise_scalar(to_jsonb(updated.due_date))),
+    ('name', organiser_activity_sanitise_scalar(to_jsonb(old.name)), organiser_activity_sanitise_scalar(to_jsonb(updated.name))),
+    ('status', organiser_activity_sanitise_scalar(to_jsonb(old.status)), organiser_activity_sanitise_scalar(to_jsonb(updated.status))),
+    ('priority', organiser_activity_sanitise_scalar(to_jsonb(old.priority)), organiser_activity_sanitise_scalar(to_jsonb(updated.priority))),
+    ('owner', organiser_activity_sanitise_scalar(to_jsonb(old.owner)), organiser_activity_sanitise_scalar(to_jsonb(updated.owner))),
+    ('notes', organiser_activity_sanitise_scalar(to_jsonb(old.notes)), organiser_activity_sanitise_scalar(to_jsonb(updated.notes)))
+  ) AS f(key, old_val, new_val)
+),
+custom_diff AS (
+  SELECT
+    jsonb_object_agg(kv.key, organiser_activity_sanitise_scalar(old.custom_values -> kv.key)) FILTER (WHERE old.custom_values -> kv.key IS DISTINCT FROM kv.value) AS before_obj,
+    jsonb_object_agg(kv.key, organiser_activity_sanitise_scalar(kv.value)) FILTER (WHERE old.custom_values -> kv.key IS DISTINCT FROM kv.value) AS after_obj,
+    bool_or(old.custom_values -> kv.key IS DISTINCT FROM kv.value) AS any_changed
+  FROM old, jsonb_each('$cv_json'::jsonb) AS kv(key, value)
+),
+activity_row AS (
+  INSERT INTO organiser_activity (
+    organisation_id, board_id, item_id, actor_user_id, actor_name,
+    event_type, entity_type, entity_id, before_json, after_json, metadata_json
+  )
+  SELECT
+    '$org', updated.board_id, updated.id, '$actor_id', '$actor_name',
+    CASE WHEN old.group_id IS DISTINCT FROM updated.group_id OR old.parent_item_id IS DISTINCT FROM updated.parent_item_id
+      THEN 'item.moved' ELSE 'item.updated' END,
+    'item', updated.id::text,
+    COALESCE(field_diff.before_obj, '{}'::jsonb) ||
+      (CASE WHEN custom_diff.any_changed THEN jsonb_build_object('custom_values', custom_diff.before_obj) ELSE '{}'::jsonb END),
+    COALESCE(field_diff.after_obj, '{}'::jsonb) ||
+      (CASE WHEN custom_diff.any_changed THEN jsonb_build_object('custom_values', custom_diff.after_obj) ELSE '{}'::jsonb END),
+    '{}'::jsonb
+  FROM old, updated, field_diff, custom_diff
+  WHERE field_diff.any_changed IS TRUE OR custom_diff.any_changed IS TRUE
+  RETURNING id
+)
+SELECT updated.id, updated.status, updated.priority FROM updated;
+SQL
+}
+
+run_concurrent_pair() {
+  local sql_a="$1" sql_b="$2"
+  (echo "$sql_a" | docker exec -i "$CONTAINER" psql -X -U postgres -d testdb -v ON_ERROR_STOP=1 > "$OUT_A" 2>&1) &
+  local pid_a=$!
+  sleep 0.5
+  (echo "$sql_b" | docker exec -i "$CONTAINER" psql -X -U postgres -d testdb -v ON_ERROR_STOP=1 > "$OUT_B" 2>&1) &
+  local pid_b=$!
+  wait "$pid_a" "$pid_b"
+}
+
+echo ""
+echo "=== BOOTSTRAP ==="
+reset_db
+bootstrap
+echo "  bootstrap applied (real organiser_boards/organiser_items/organiser_activity DDL + sanitiser function)"
+
+echo ""
+echo "=== NORMAL PATH ==="
+echo "INSERT INTO organiser_items (id, board_id, organisation_id, name, status, priority) VALUES ('33333333-3333-3333-3333-333333333333', '11111111-1111-1111-1111-111111111111', 'org-a', 'Test Item', 'Not Started', 'Low');" | psql_exec >/dev/null
+
+expect_success "1. status-only PATCH succeeds" \
+  "$(patch_item_sql 33333333-3333-3333-3333-333333333333 org-a user-1 James false NULL false NULL false NULL NULL "'Working on it'" NULL NULL NULL NULL false '{}')"
+expect_eq "1b. status updated" \
+  "SELECT status FROM organiser_items WHERE id='33333333-3333-3333-3333-333333333333';" "Workingonit"
+expect_eq "1c. exactly one activity row, correct before/after" \
+  "SELECT (before_json->>'status') || '->' || (after_json->>'status') FROM organiser_activity;" "NotStarted->Workingonit"
+
+echo ""
+echo "=== POSITION-ONLY SUPPRESSION ==="
+expect_success "2. position-only PATCH succeeds" \
+  "$(patch_item_sql 33333333-3333-3333-3333-333333333333 org-a user-1 James false NULL false NULL false NULL NULL NULL NULL NULL NULL 7 false '{}')"
+expect_eq "2b. position updated" \
+  "SELECT position FROM organiser_items WHERE id='33333333-3333-3333-3333-333333333333';" "7"
+expect_eq "2c. still exactly one activity row (no new row for position-only)" \
+  "SELECT count(*) FROM organiser_activity;" "1"
+
+echo ""
+echo "=== SAME-VALUE SUPPRESSION ==="
+expect_success "3. same-value PATCH (status already 'Working on it') succeeds" \
+  "$(patch_item_sql 33333333-3333-3333-3333-333333333333 org-a user-1 James false NULL false NULL false NULL NULL "'Working on it'" NULL NULL NULL NULL false '{}')"
+expect_eq "3b. still exactly one activity row (no false-positive)" \
+  "SELECT count(*) FROM organiser_activity;" "1"
+
+echo ""
+echo "=== CUSTOM_VALUES DIFF ==="
+echo "UPDATE organiser_items SET custom_values='{\"a\":1,\"b\":2}'::jsonb WHERE id='33333333-3333-3333-3333-333333333333';" | psql_exec >/dev/null
+expect_success "4. custom_values partial-key update succeeds" \
+  "$(patch_item_sql 33333333-3333-3333-3333-333333333333 org-a user-1 James false NULL false NULL false NULL NULL NULL NULL NULL NULL NULL true '{"b":3}')"
+expect_eq "4b. merged custom_values correct ({a:1,b:3})" \
+  "SELECT custom_values FROM organiser_items WHERE id='33333333-3333-3333-3333-333333333333';" '{"a":1,"b":3}'
+expect_eq "4c. activity before/after custom_values diff is key-level only ({b:2}->{b:3})" \
+  "SELECT (before_json->'custom_values')::text || '->' || (after_json->'custom_values')::text FROM organiser_activity ORDER BY created_at DESC LIMIT 1;" '{"b":2}->{"b":3}'
+
+echo "UPDATE organiser_items SET custom_values='{\"a\":1,\"b\":2}'::jsonb WHERE id='33333333-3333-3333-3333-333333333333';" | psql_exec >/dev/null
+expect_success "5. custom_values same-value request produces no diff" \
+  "$(patch_item_sql 33333333-3333-3333-3333-333333333333 org-a user-1 James false NULL false NULL false NULL NULL NULL NULL NULL NULL NULL true '{"b":2}')"
+BEFORE_CNT="$(echo "SELECT count(*) FROM organiser_activity;" | psql_query | tr -d '[:space:]')"
+expect_eq "5b. no new activity row for same-value custom_values" "SELECT count(*) FROM organiser_activity;" "$BEFORE_CNT"
+
+expect_success "6. custom_values explicit null request records value->null" \
+  "$(patch_item_sql 33333333-3333-3333-3333-333333333333 org-a user-1 James false NULL false NULL false NULL NULL NULL NULL NULL NULL NULL true '{"b":null}')"
+expect_eq "6b. before=2 after=null" \
+  "SELECT (before_json->'custom_values')::text || '->' || (after_json->'custom_values')::text FROM organiser_activity ORDER BY created_at DESC LIMIT 1;" '{"b":2}->{"b":null}'
+
+echo ""
+echo "=== ITEM.MOVED CLASSIFICATION ==="
+echo "INSERT INTO organiser_groups (id, board_id, organisation_id, name) VALUES ('44444444-4444-4444-4444-444444444444', '11111111-1111-1111-1111-111111111111', 'org-a', 'Group X');" | psql_exec >/dev/null
+expect_success "7. group_id change -> item.moved" \
+  "$(patch_item_sql 33333333-3333-3333-3333-333333333333 org-a user-1 James true "'44444444-4444-4444-4444-444444444444'" false NULL false NULL NULL NULL NULL NULL NULL NULL false '{}')"
+expect_eq "7b. event_type is item.moved" \
+  "SELECT event_type FROM organiser_activity ORDER BY created_at DESC LIMIT 1;" "item.moved"
+
+echo "UPDATE organiser_items SET group_id = NULL WHERE id='33333333-3333-3333-3333-333333333333';" | psql_exec >/dev/null
+expect_success "8. group_id + status change together -> ONE item.moved with both diffs" \
+  "$(patch_item_sql 33333333-3333-3333-3333-333333333333 org-a user-1 James true "'44444444-4444-4444-4444-444444444444'" false NULL false NULL NULL "'Done'" NULL NULL NULL NULL false '{}')"
+expect_eq "8b. event_type is item.moved (not item.updated, not two rows)" \
+  "SELECT event_type FROM organiser_activity ORDER BY created_at DESC LIMIT 1;" "item.moved"
+expect_eq "8c. before/after diff contains BOTH group_id and status keys" \
+  "SELECT (before_json ? 'group_id' AND before_json ? 'status' AND after_json ? 'group_id' AND after_json ? 'status')::text FROM organiser_activity ORDER BY created_at DESC LIMIT 1;" "true"
+
+echo ""
+echo "=== DELETE ==="
+echo "INSERT INTO organiser_items (id, board_id, organisation_id, name, status) VALUES ('55555555-5555-5555-5555-555555555555', '11111111-1111-1111-1111-111111111111', 'org-a', 'Delete Me', 'Not Started');" | psql_exec >/dev/null
+DELETE_SQL="
+WITH deleted AS (
+  DELETE FROM organiser_items
+  WHERE id = '55555555-5555-5555-5555-555555555555' AND organisation_id = 'org-a'
+  RETURNING id, board_id, group_id, parent_item_id, name, status
+),
+activity_row AS (
+  INSERT INTO organiser_activity (organisation_id, board_id, item_id, actor_user_id, actor_name, event_type, entity_type, entity_id, before_json, after_json)
+  SELECT 'org-a', deleted.board_id, deleted.id, 'user-1', 'James', 'item.deleted', 'item', deleted.id::text,
+    jsonb_build_object('name', organiser_activity_sanitise_scalar(to_jsonb(deleted.name)), 'status', organiser_activity_sanitise_scalar(to_jsonb(deleted.status)), 'group_id', to_jsonb(deleted.group_id), 'parent_item_id', to_jsonb(deleted.parent_item_id)),
+    NULL
+  FROM deleted
+  RETURNING id
+)
+SELECT deleted.id FROM deleted;
+"
+expect_success "9. DELETE succeeds" "$DELETE_SQL"
+expect_eq "9b. item is gone" \
+  "SELECT count(*) FROM organiser_items WHERE id='55555555-5555-5555-5555-555555555555';" "0"
+expect_eq "9c. item.deleted activity row survives (no FK, row still queryable)" \
+  "SELECT event_type FROM organiser_activity WHERE entity_id='55555555-5555-5555-5555-555555555555';" "item.deleted"
+expect_eq "9d. before_json contains the identity summary" \
+  "SELECT before_json->>'name' FROM organiser_activity WHERE entity_id='55555555-5555-5555-5555-555555555555';" "DeleteMe"
+
+echo ""
+echo "=== CROSS-TENANT ==="
+echo "INSERT INTO organiser_items (id, board_id, organisation_id, name, status) VALUES ('66666666-6666-6666-6666-666666666666', '22222222-2222-2222-2222-222222222222', 'org-b', 'Org B Item', 'Not Started');" | psql_exec >/dev/null
+BEFORE_ACT="$(echo "SELECT count(*) FROM organiser_activity;" | psql_query | tr -d '[:space:]')"
+expect_success "10. cross-tenant PATCH (org-a session against org-b item) executes without error but matches zero rows" \
+  "$(patch_item_sql 66666666-6666-6666-6666-666666666666 org-a user-1 James false NULL false NULL false NULL NULL "'Hacked'" NULL NULL NULL NULL false '{}')"
+expect_eq "10b. org-b item untouched" \
+  "SELECT status FROM organiser_items WHERE id='66666666-6666-6666-6666-666666666666';" "NotStarted"
+expect_eq "10c. no new activity row from the cross-tenant attempt" \
+  "SELECT count(*) FROM organiser_activity;" "$BEFORE_ACT"
+
+echo ""
+echo "=== ATOMIC FAILURE — activity insert fails, mutation must roll back ==="
+echo "INSERT INTO organiser_items (id, board_id, organisation_id, name, status) VALUES ('77777777-7777-7777-7777-777777777777', '11111111-1111-1111-1111-111111111111', 'org-a', 'Atomic Test', 'Not Started');" | psql_exec >/dev/null
+# Force the activity INSERT's CHECK constraint to fail by injecting an
+# invalid event_type directly into the activity_row CTE (ad hoc, this
+# harness's own scratch copy only — never the real route file).
+BROKEN_SQL="
+WITH old AS MATERIALIZED (
+  SELECT id, board_id, status FROM organiser_items WHERE id = '77777777-7777-7777-7777-777777777777' AND organisation_id = 'org-a' FOR UPDATE
+),
+updated AS (
+  UPDATE organiser_items i SET status = 'Done', updated_at = NOW()
+  FROM old WHERE i.id = old.id
+  RETURNING i.id, i.board_id, i.status
+),
+activity_row AS (
+  INSERT INTO organiser_activity (organisation_id, board_id, item_id, actor_user_id, actor_name, event_type, entity_type, entity_id, before_json, after_json)
+  SELECT 'org-a', updated.board_id, updated.id, 'user-1', 'James', 'item.NOT_A_REAL_EVENT_TYPE', 'item', updated.id::text, '{}'::jsonb, '{}'::jsonb
+  FROM old, updated
+  RETURNING id
+)
+SELECT updated.status FROM updated;
+"
+OUT="$(echo "$BROKEN_SQL" | psql_exec 2>&1)"
+if [ $? -ne 0 ]; then
+  echo "  PASS: forced-invalid-event-type statement correctly rejected by CHECK constraint"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: forced-invalid statement unexpectedly succeeded"
+  FAIL=$((FAIL + 1))
+  FAILURES+=("forced-invalid statement should have failed")
+fi
+expect_eq "11. item mutation ROLLED BACK — status is still 'Not Started', not 'Done'" \
+  "SELECT status FROM organiser_items WHERE id='77777777-7777-7777-7777-777777777777';" "NotStarted"
+expect_eq "11b. no activity row was written either" \
+  "SELECT count(*) FROM organiser_activity WHERE item_id='77777777-7777-7777-7777-777777777777';" "0"
+
+echo ""
+echo "=== FAILED PRIMARY MUTATION -> NO ACTIVITY ROW (nonexistent item id) ==="
+BEFORE_ACT2="$(echo "SELECT count(*) FROM organiser_activity;" | psql_query | tr -d '[:space:]')"
+expect_success "12. PATCH against a nonexistent item id executes without SQL error" \
+  "$(patch_item_sql 99999999-9999-9999-9999-999999999999 org-a user-1 James false NULL false NULL false NULL NULL "'X'" NULL NULL NULL NULL false '{}')"
+expect_eq "12b. no activity row was created" \
+  "SELECT count(*) FROM organiser_activity;" "$BEFORE_ACT2"
+
+echo ""
+echo "=== DIFFERENT-FIELD CONCURRENCY (section 26) ==="
+reset_db; bootstrap
+echo "INSERT INTO organiser_items (id, board_id, organisation_id, name, status, priority) VALUES ('88888888-8888-8888-8888-888888888888', '11111111-1111-1111-1111-111111111111', 'org-a', 'Race Item', 'Not Started', 'Low');" | psql_exec >/dev/null
+SQL_DF_A="$(patch_item_sql 88888888-8888-8888-8888-888888888888 org-a user-1 James false NULL false NULL false NULL NULL "'Working on it'" NULL NULL NULL NULL false '{}' 'delay AS (SELECT pg_sleep(2) FROM old),')"
+SQL_DF_B="$(patch_item_sql 88888888-8888-8888-8888-888888888888 org-a user-2 Luke false NULL false NULL false NULL NULL NULL "'High'" NULL NULL NULL false '{}')"
+run_concurrent_pair "$SQL_DF_A" "$SQL_DF_B"
+echo "  (A held the row lock 2s changing status; B changed priority, blocked behind A, then proceeded)"
+expect_eq "13. final status is A's value" \
+  "SELECT status FROM organiser_items WHERE id='88888888-8888-8888-8888-888888888888';" "Workingonit"
+expect_eq "13b. final priority is B's value" \
+  "SELECT priority FROM organiser_items WHERE id='88888888-8888-8888-8888-888888888888';" "High"
+expect_eq "13c. exactly two activity rows (one per PATCH)" \
+  "SELECT count(*) FROM organiser_activity WHERE item_id='88888888-8888-8888-8888-888888888888';" "2"
+expect_eq "13d. A's row: status Not Started -> Working on it, NO stale/wrong before value" \
+  "SELECT (before_json->>'status') || '->' || (after_json->>'status') FROM organiser_activity WHERE item_id='88888888-8888-8888-8888-888888888888' AND event_type='item.updated' AND before_json ? 'status' ORDER BY created_at ASC LIMIT 1;" "NotStarted->Workingonit"
+expect_eq "13e. B's row: priority Low -> High, correctly observed the current (not stale) priority" \
+  "SELECT (before_json->>'priority') || '->' || (after_json->>'priority') FROM organiser_activity WHERE item_id='88888888-8888-8888-8888-888888888888' AND before_json ? 'priority' ORDER BY created_at ASC LIMIT 1;" "Low->High"
+echo "  Commit order: A committed first (held lock 2s from t=0), B blocked until ~t=2, committed second."
+echo "  Activity timeline: [A: status Not Started->Working on it] then [B: priority Low->High] — both correct, neither stale."
+
+echo ""
+echo "=== SAME-FIELD CONCURRENCY (section 27 — HARD GATE) ==="
+reset_db; bootstrap
+echo "INSERT INTO organiser_items (id, board_id, organisation_id, name, status) VALUES ('88888888-8888-8888-8888-888888888888', '11111111-1111-1111-1111-111111111111', 'org-a', 'Race Item 2', 'Not Started');" | psql_exec >/dev/null
+SQL_SF_A="$(patch_item_sql 88888888-8888-8888-8888-888888888888 org-a user-1 James false NULL false NULL false NULL NULL "'Working on it'" NULL NULL NULL NULL false '{}' 'delay AS (SELECT pg_sleep(2) FROM old),')"
+SQL_SF_B="$(patch_item_sql 88888888-8888-8888-8888-888888888888 org-a user-2 Luke false NULL false NULL false NULL NULL "'Done'" NULL NULL NULL NULL false '{}')"
+run_concurrent_pair "$SQL_SF_A" "$SQL_SF_B"
+echo "  Resulting activity chain (before->after per row, in commit order):"
+docker exec "$CONTAINER" psql -X -t -A -U postgres -d testdb -c \
+  "SELECT (before_json->>'status') || ' -> ' || (after_json->>'status') FROM organiser_activity WHERE item_id='88888888-8888-8888-8888-888888888888' ORDER BY created_at ASC;"
+FINAL_STATUS="$(echo "SELECT status FROM organiser_items WHERE id='88888888-8888-8888-8888-888888888888';" | psql_query | tr -d '[:space:]')"
+echo "  Final DB status: $FINAL_STATUS"
+# The hard invariant: the chain must be a VALID, connected sequence
+# (each row's before == the previous row's after, OR the first row's
+# before == the true original 'Not Started'), never two rows both
+# claiming to start from 'Not Started'.
+CHAIN_OK="$(docker exec "$CONTAINER" psql -X -t -A -U postgres -d testdb -c "
+WITH ordered AS (
+  SELECT before_json->>'status' AS b, after_json->>'status' AS a, created_at,
+         row_number() OVER (ORDER BY created_at ASC) AS rn
+  FROM organiser_activity WHERE item_id='88888888-8888-8888-8888-888888888888'
+),
+joined AS (
+  SELECT o1.rn, o1.b, o1.a, o2.a AS prev_a
+  FROM ordered o1 LEFT JOIN ordered o2 ON o2.rn = o1.rn - 1
+)
+SELECT bool_and(
+  (rn = 1 AND b = 'Not Started') OR (rn > 1 AND b = prev_a)
+) FROM joined;
+" | tr -d '[:space:]')"
+if [ "$CHAIN_OK" = "t" ]; then
+  echo "  PASS (HARD GATE): activity chain is a valid, connected sequence — no invalid fork"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL (HARD GATE): activity chain is INVALID — this is the exact bug this phase exists to prevent"
+  FAIL=$((FAIL + 1))
+  FAILURES+=("same-field concurrency chain invalid")
+fi
+expect_eq "14. exactly two activity rows" \
+  "SELECT count(*) FROM organiser_activity WHERE item_id='88888888-8888-8888-8888-888888888888';" "2"
+
+if [ "$FAIL" -eq 0 ]; then
+  echo ""
+  echo "=== MUTATION PROOF A (section 39.A) — remove FOR UPDATE, prove the harness detects it ==="
+  reset_db; bootstrap
+  echo "INSERT INTO organiser_items (id, board_id, organisation_id, name, status) VALUES ('88888888-8888-8888-8888-888888888888', '11111111-1111-1111-1111-111111111111', 'org-a', 'Mutation Item', 'Not Started');" | psql_exec >/dev/null
+  MUT_A_SQL_A="
+WITH old AS MATERIALIZED (
+  SELECT id, board_id, status FROM organiser_items WHERE id = '88888888-8888-8888-8888-888888888888' AND organisation_id = 'org-a'
+),
+delay AS (SELECT pg_sleep(2) FROM old),
+updated AS (
+  UPDATE organiser_items i SET status = 'Working on it', updated_at = NOW()
+  FROM old, delay WHERE i.id = old.id
+  RETURNING i.id, i.board_id, i.status
+),
+activity_row AS (
+  INSERT INTO organiser_activity (organisation_id, board_id, item_id, actor_user_id, actor_name, event_type, entity_type, entity_id, before_json, after_json)
+  SELECT 'org-a', updated.board_id, updated.id, 'user-1', 'James', 'item.updated', 'item', updated.id::text,
+    jsonb_build_object('status', old.status), jsonb_build_object('status', updated.status)
+  FROM old, updated WHERE old.status IS DISTINCT FROM updated.status RETURNING id
+)
+SELECT updated.status FROM updated;
+"
+  MUT_A_SQL_B="
+WITH old AS MATERIALIZED (
+  SELECT id, board_id, status FROM organiser_items WHERE id = '88888888-8888-8888-8888-888888888888' AND organisation_id = 'org-a'
+),
+updated AS (
+  UPDATE organiser_items i SET status = 'Done', updated_at = NOW()
+  FROM old WHERE i.id = old.id
+  RETURNING i.id, i.board_id, i.status
+),
+activity_row AS (
+  INSERT INTO organiser_activity (organisation_id, board_id, item_id, actor_user_id, actor_name, event_type, entity_type, entity_id, before_json, after_json)
+  SELECT 'org-a', updated.board_id, updated.id, 'user-2', 'Luke', 'item.updated', 'item', updated.id::text,
+    jsonb_build_object('status', old.status), jsonb_build_object('status', updated.status)
+  FROM old, updated WHERE old.status IS DISTINCT FROM updated.status RETURNING id
+)
+SELECT updated.status FROM updated;
+"
+  run_concurrent_pair "$MUT_A_SQL_A" "$MUT_A_SQL_B"
+  MUT_CHAIN_OK="$(docker exec "$CONTAINER" psql -X -t -A -U postgres -d testdb -c "
+WITH ordered AS (
+  SELECT before_json->>'status' AS b, after_json->>'status' AS a, created_at, row_number() OVER (ORDER BY created_at ASC) AS rn
+  FROM organiser_activity WHERE item_id='88888888-8888-8888-8888-888888888888'
+),
+joined AS (SELECT o1.rn, o1.b, o1.a, o2.a AS prev_a FROM ordered o1 LEFT JOIN ordered o2 ON o2.rn = o1.rn - 1)
+SELECT bool_and((rn = 1 AND b = 'Not Started') OR (rn > 1 AND b = prev_a)) FROM joined;
+" | tr -d '[:space:]')"
+  if [ "$MUT_CHAIN_OK" != "t" ]; then
+    echo "  PASS (mutation A correctly reintroduces the invalid-fork bug — harness is sensitive to removing FOR UPDATE): chain invalid as expected"
+    PASS=$((PASS + 1))
+  else
+    echo "  FAIL: mutation A (no FOR UPDATE) did NOT reproduce the invalid fork — harness may not be sensitive to this defect class"
+    FAIL=$((FAIL + 1))
+    FAILURES+=("mutation A did not reproduce the invalid fork")
+  fi
+fi
+
+echo ""
+echo "=== SUMMARY ==="
+echo "PASS: $PASS  FAIL: $FAIL"
+if [ "$FAIL" -gt 0 ]; then
+  echo "Failures:"
+  for f in "${FAILURES[@]}"; do echo "  - $f"; done
+  exit 1
+fi
+exit 0
