@@ -457,7 +457,7 @@ export default function PublicEventClient({
               )}
 
               {event.description && (
-                <p style={{ fontSize: 14.5, lineHeight: 1.7, color: TEXT_SECONDARY, margin: '0 0 22px', maxWidth: 480 }}>
+                <p style={{ fontSize: 14.5, lineHeight: 1.7, color: TEXT_SECONDARY, margin: institutional ? '0 0 18px' : '0 0 22px', maxWidth: 480 }}>
                   {event.description}
                 </p>
               )}
@@ -482,9 +482,9 @@ export default function PublicEventClient({
                   No tickets are currently available for this event.
                 </p>
               ) : (
-                <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
+                <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: institutional ? 18 : 22 }}>
                   <fieldset style={{ border: 'none', margin: 0, padding: 0 }}>
-                    <StepLabel index={stepTicket} text="Choose ticket" />
+                    <StepLabel index={stepTicket} text="Choose ticket" softer={institutional} />
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                       {ticketTypes.map(t => (
                         <TicketOption
@@ -499,7 +499,7 @@ export default function PublicEventClient({
 
                   {sessions.length > 0 && (
                     <fieldset style={{ border: 'none', margin: 0, padding: 0 }}>
-                      <StepLabel index={stepSession as number} text="Choose session" />
+                      <StepLabel index={stepSession as number} text="Choose session" softer={institutional} />
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                         <label className="bb-radio-card">
                           <input type="radio" name="event-session" value="" checked={sessionId === ''} onChange={() => setSessionId('')} />
@@ -515,7 +515,7 @@ export default function PublicEventClient({
                   )}
 
                   <fieldset style={{ border: 'none', margin: 0, padding: 0 }}>
-                    <StepLabel index={stepQuantity} text="Quantity" />
+                    <StepLabel index={stepQuantity} text="Quantity" softer={institutional} />
                     <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                       <button
                         type="button" aria-label="Decrease quantity" className="bb-event-stepper-btn"
@@ -542,7 +542,7 @@ export default function PublicEventClient({
                   </fieldset>
 
                   <fieldset style={{ border: 'none', margin: 0, padding: 0 }}>
-                    <StepLabel index={stepPurchaser} text="Purchaser details" />
+                    <StepLabel index={stepPurchaser} text="Purchaser details" softer={institutional} />
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                       <Field label="Name">
                         <input required value={purchaserName} onChange={e => setPurchaserName(e.target.value)} className="bb-event-input" autoComplete="name" />
@@ -558,7 +558,7 @@ export default function PublicEventClient({
 
                   {orderQuestions.length > 0 && (
                     <fieldset style={{ border: 'none', margin: 0, padding: 0 }}>
-                      <StepLabel index={stepOrderQuestions as number} text="Booking details" />
+                      <StepLabel index={stepOrderQuestions as number} text="Booking details" softer={institutional} />
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                         {orderQuestions.map(q => (
                           <QuestionField
@@ -573,7 +573,7 @@ export default function PublicEventClient({
                   )}
 
                   <fieldset style={{ border: 'none', margin: 0, padding: 0 }}>
-                    <StepLabel index={stepAttendee} text="Attendee details" />
+                    <StepLabel index={stepAttendee} text="Attendee details" softer={institutional} />
                     <div style={{ display: 'flex', flexDirection: 'column', gap: attendeeQuestions.length > 0 ? 14 : 12 }}>
                       {attendeeNames.map((name, i) => (
                         <div
@@ -653,15 +653,23 @@ export default function PublicEventClient({
   );
 }
 
-function StepLabel({ index, text }: { index: number; text: string }) {
+// `softer` (only ever passed true for the institutional theme — see call
+// sites) lightens the uppercase/letter-spacing/weight treatment a touch,
+// per the "step headings slightly lighter/less technical" polish ask.
+// An explicit prop, not a CSS-var token, because the difference here is
+// structural (font-weight/letter-spacing values, not colour) — this
+// component has no closure access to `institutional` (it's declared
+// outside PublicEventClient), and the default theme's own rendering
+// must stay byte-for-byte unchanged when the prop is omitted/false.
+function StepLabel({ index, text, softer }: { index: number; text: string; softer?: boolean }) {
   return (
     <div style={{
-      display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, fontWeight: 700, letterSpacing: '.06em',
+      display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, fontWeight: softer ? 600 : 700, letterSpacing: softer ? '.03em' : '.06em',
       textTransform: 'uppercase', color: TEXT_MUTED, marginBottom: 10,
     }}>
       <span style={{
         width: 18, height: 18, borderRadius: '50%', border: `1px solid ${BORDER}`, color: VIOLET_SOFT,
-        display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700,
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: softer ? 600 : 700,
       }}>
         {index}
       </span>
