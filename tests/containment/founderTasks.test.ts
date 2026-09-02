@@ -560,8 +560,15 @@ describe('Regression: Client Implementations next_action is untouched by Phase D
 // ── 13. No unrelated Organiser behaviour was changed ────────────────────────
 
 describe('Regression: the generic Organiser API is untouched by the Founder task adapter', () => {
-  it('organiser boards route still uses its own impersonation-aware requireRole auth, unchanged', () => {
-    expect(ORGANISER_BOARDS_ROUTE_SOURCE).toContain("requireRole('viewer')")
+  it('organiser boards route still uses its own impersonation-aware auth (viewer role floor), unchanged by the Founder task adapter', () => {
+    // Phase D.4.4C — the underlying auth call changed from a bare
+    // requireRole('viewer') to authorizeOrganiserRequest('viewer'), a
+    // shared wrapper that additionally enforces the 'organiser' capability
+    // entitlement (see tests/containment/organiserCapabilityEnforcement
+    // .test.ts). The 'viewer' role floor this test protects — and the
+    // guarantee that the Founder task adapter never touched this route —
+    // are both unchanged.
+    expect(ORGANISER_BOARDS_ROUTE_SOURCE).toContain("authorizeOrganiserRequest('viewer')")
   })
 
   it('the organiser boards route does not reference the new founder-specific adapter', () => {
