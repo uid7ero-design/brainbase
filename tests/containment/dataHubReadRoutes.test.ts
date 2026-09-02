@@ -29,6 +29,27 @@ function stripComments(src: string): string {
   return src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
 }
 
+// Slices out exactly one exported handler's own body — from its
+// `export async function <NAME>(` declaration up to (but not including)
+// the next top-level `export` statement (or end of file, for the last
+// handler). This is the SAME extraction pattern already used below for
+// the GET-body-parsing check; it exists as a shared helper specifically
+// so a per-handler auth/tenant-context assertion can be scoped to one
+// handler's own executable body rather than the whole file — a
+// whole-file `stripComments(code).toMatch(...)` check is satisfiable by
+// an UNRELATED sibling handler in the same file (e.g. the 5A.2I POST
+// handler that now shares app/api/data-hub/import-batches/route.ts with
+// this file's own H.3 GET handler) even if the handler actually under
+// test has been weakened or had its own gate removed entirely — that
+// false-pass is exactly the gap this helper closes.
+function extractHandlerBody(code: string, handlerName: "GET" | "POST" | "PUT" | "PATCH" | "DELETE"): string {
+  const marker = `export async function ${handlerName}(`;
+  const start = code.indexOf(marker);
+  if (start === -1) throw new Error(`No "${handlerName}" handler found in the given source.`);
+  const nextExportStart = code.indexOf("\nexport ", start + 1);
+  return nextExportStart === -1 ? code.slice(start) : code.slice(start, nextExportStart);
+}
+
 describe("H.3 route files exist at exactly the expected paths", () => {
   for (const relPath of ROUTE_FILES) {
     it(`${relPath} exists`, () => {
@@ -111,11 +132,21 @@ describe("H.3 routes — GET present; no PUT/PATCH/DELETE anywhere; no direct Pr
 describe("H.3 routes — authentication and trusted tenant context", () => {
   for (const relPath of ROUTE_FILES) {
     const code = read(relPath);
-    it(`${relPath} requires requireRole("manager")`, () => {
-      // Checked against comment-stripped code deliberately — a header
-      // comment merely mentioning requireRole("manager") in prose must
-      // NOT be sufficient to pass this check; only a real call counts.
-      expect(stripComments(code)).toMatch(/requireRole\(\s*["']manager["']\s*\)/);
+    it(`${relPath}'s GET handler requires requireRole("manager")`, () => {
+      // Scoped to GET's own handler body specifically, not the whole
+      // file: app/api/data-hub/import-batches/route.ts is shared with a
+      // 5A.2I POST handler, which has its own, separately-verified
+      // requireRole("manager") call (see
+      // dataHubInitiateFinalizeRoutes.test.ts). A whole-file check here
+      // would be satisfied by POST's own call even if GET's own gate
+      // were weakened or removed — this per-handler scoping is what
+      // actually proves the invariant for GET specifically. Checked
+      // against comment-stripped code deliberately — a header comment
+      // merely mentioning requireRole("manager") in prose must NOT be
+      // sufficient to pass this check; only a real call inside GET's own
+      // body counts.
+      const getBody = stripComments(extractHandlerBody(code, "GET"));
+      expect(getBody).toMatch(/requireRole\(\s*["']manager["']\s*\)/);
     });
     it(`${relPath} never reads organisationId/organisation_id from request input (searchParams, params, or headers)`, () => {
       // The only permitted source of tenant identity is
@@ -135,9 +166,7 @@ describe("H.3 routes — authentication and trusted tenant context", () => {
       // that handler's own, separate containment. The GET handler itself,
       // in every route file including this shared one, must remain
       // entirely body-free.
-      const getStart = code.indexOf("export async function GET(");
-      const nextExportStart = code.indexOf("\nexport ", getStart + 1);
-      const getBody = nextExportStart === -1 ? code.slice(getStart) : code.slice(getStart, nextExportStart);
+      const getBody = extractHandlerBody(code, "GET");
       expect(getBody).not.toMatch(/req\.json\(\)/);
       expect(getBody).not.toMatch(/req\.body/);
     });
