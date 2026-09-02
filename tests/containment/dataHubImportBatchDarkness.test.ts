@@ -36,41 +36,75 @@ function read(file: string): string {
 
 // 5A.2H.3 — the dark-to-live transition. H.2's own read services
 // (lib/data-hub/importBatch/read.ts) now have exactly four authorized
-// runtime importers: the four H.3 GET route files. Every OTHER file
-// under app/**/components/**, and every OTHER module under
-// lib/data-hub/importBatch/ (finalize.ts, initiate.ts, staleReclaim.ts,
-// inspectWorksheets.ts, etc. — none of which are read-only or safe to
-// expose), must remain completely unimported by any runtime caller. This
-// is intentionally an EXACT-SET assertion, not "some imports are now
-// allowed" — a new, unauthorized importer must fail this test just as
-// loudly as it would have before H.3 existed.
-const AUTHORIZED_H3_ROUTE_IMPORTERS = new Set([
-  path.join("app", "api", "data-hub", "import-batches", "route.ts"),
-  path.join("app", "api", "data-hub", "import-batches", "[id]", "route.ts"),
-  path.join("app", "api", "data-hub", "import-batches", "[id]", "worksheets", "route.ts"),
-  path.join("app", "api", "data-hub", "worksheets", "[id]", "route.ts"),
-]);
+// runtime importers: the four H.3 GET route files.
+//
+// 5A.2I — a SECOND dark-to-live transition, for exactly two more modules:
+// initiate.ts (POST /api/data-hub/import-batches) and finalize.ts
+// (POST /api/data-hub/import-batches/[id]/finalize). Both new routes also
+// import failureTaxonomy.ts directly (for getMessageTemplate, needed
+// because finalize's own FAILED/OWNERSHIP_LOST outcomes and a malformed-
+// JSON pre-check on initiate have no message text of their own to
+// forward) — a third, small, newly-authorized import surface.
+//
+// Every OTHER module under lib/data-hub/importBatch/ (finalizeInternal.ts,
+// staleReclaim.ts, inspectWorksheets.ts, directUploadAuth.ts,
+// compositionRoot.ts — none of which are safe to expose yet) must remain
+// completely unimported by any runtime caller under app/**/components/**.
+// This is an EXACT-SET assertion PER MODULE, not "some imports are now
+// allowed" — a new, unauthorized importer of ANY module in this tree
+// (including read/initiate/finalize/failureTaxonomy themselves gaining an
+// importer beyond their own authorized set) must fail this test just as
+// loudly as it would have before H.3/5A.2I existed.
+const H3_READ_ROUTE = {
+  collection: path.join("app", "api", "data-hub", "import-batches", "route.ts"),
+  batchDetail: path.join("app", "api", "data-hub", "import-batches", "[id]", "route.ts"),
+  worksheets: path.join("app", "api", "data-hub", "import-batches", "[id]", "worksheets", "route.ts"),
+  worksheetDetail: path.join("app", "api", "data-hub", "worksheets", "[id]", "route.ts"),
+};
+const H3_FINALIZE_ROUTE = path.join("app", "api", "data-hub", "import-batches", "[id]", "finalize", "route.ts");
 
-describe("Data Hub importBatch — exactly the four authorized H.3 routes import read.ts; nothing else imports any file in this tree (verified by static inspection)", () => {
+// Module name (as it appears in `.../importBatch/<name>`) -> the exact
+// set of app/**/components/** files authorized to import it.
+const AUTHORIZED_IMPORTERS_BY_MODULE: Record<string, Set<string>> = {
+  read: new Set([H3_READ_ROUTE.collection, H3_READ_ROUTE.batchDetail, H3_READ_ROUTE.worksheets, H3_READ_ROUTE.worksheetDetail]),
+  initiate: new Set([H3_READ_ROUTE.collection]),
+  finalize: new Set([H3_FINALIZE_ROUTE]),
+  failureTaxonomy: new Set([H3_READ_ROUTE.collection, H3_FINALIZE_ROUTE]),
+  // Explicitly still zero authorized importers each — must remain dark.
+  finalizeInternal: new Set(),
+  staleReclaim: new Set(),
+  inspectWorksheets: new Set(),
+  directUploadAuth: new Set(),
+  compositionRoot: new Set(),
+};
+
+describe("Data Hub importBatch — exactly the authorized H.3/5A.2I route set imports each module; nothing else imports any file in this tree (verified by static inspection)", () => {
   const candidateDirs = ["app", "components", "middleware.ts"];
 
-  it("every app/**/components/** importer of lib/data-hub/importBatch/read is exactly the authorized H.3 route set", () => {
-    const readImporters: string[] = [];
+  function findImportersOf(moduleName: string): Set<string> {
+    const importers = new Set<string>();
+    const pattern = new RegExp(`from\\s+["'][^"']*data-hub/importBatch/${moduleName}["']`);
     for (const dir of candidateDirs) {
       const full = path.join(ROOT, dir);
       const stat = fs.existsSync(full) ? fs.statSync(full) : null;
       const files = stat?.isDirectory() ? walk(full, [".ts", ".tsx"]) : stat?.isFile() ? [full] : [];
       for (const file of files) {
-        const code = read(file);
-        if (/from\s+["'][^"']*data-hub\/importBatch\/read["']/.test(code)) {
-          readImporters.push(path.relative(ROOT, file));
+        if (pattern.test(read(file))) {
+          importers.add(path.relative(ROOT, file));
         }
       }
     }
-    expect(new Set(readImporters)).toEqual(AUTHORIZED_H3_ROUTE_IMPORTERS);
-  });
+    return importers;
+  }
 
-  it("no app/**/components/** file imports any OTHER lib/data-hub/importBatch module (only read.ts may ever be imported, and only by the authorized route set above)", () => {
+  for (const [moduleName, expected] of Object.entries(AUTHORIZED_IMPORTERS_BY_MODULE)) {
+    it(`every app/**/components/** importer of lib/data-hub/importBatch/${moduleName} is exactly the authorized set`, () => {
+      expect(findImportersOf(moduleName)).toEqual(expected);
+    });
+  }
+
+  it("no app/**/components/** file imports any lib/data-hub/importBatch module NOT covered by the authorized-module map above", () => {
+    const knownModules = Object.keys(AUTHORIZED_IMPORTERS_BY_MODULE);
     const offenders: string[] = [];
     for (const dir of candidateDirs) {
       const full = path.join(ROOT, dir);
@@ -78,11 +112,14 @@ describe("Data Hub importBatch — exactly the four authorized H.3 routes import
       const files = stat?.isDirectory() ? walk(full, [".ts", ".tsx"]) : stat?.isFile() ? [full] : [];
       for (const file of files) {
         const code = read(file);
-        if (
-          /from\s+["'][^"']*data-hub\/importBatch[^"']*["']/.test(code) &&
-          !/from\s+["'][^"']*data-hub\/importBatch\/read["']/.test(code)
-        ) {
-          offenders.push(path.relative(ROOT, file));
+        const match = code.match(/from\s+["'][^"']*data-hub\/importBatch\/([A-Za-z]+)["']/g);
+        if (!match) continue;
+        for (const m of match) {
+          const nameMatch = m.match(/importBatch\/([A-Za-z]+)["']$/);
+          const name = nameMatch?.[1];
+          if (name && !knownModules.includes(name)) {
+            offenders.push(`${path.relative(ROOT, file)} -> importBatch/${name}`);
+          }
         }
       }
     }

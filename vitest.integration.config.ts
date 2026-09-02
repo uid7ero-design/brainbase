@@ -40,6 +40,13 @@ import path from 'path';
 // see scripts/tests/verify-datahub-read-routes.sh) is added alongside the
 // existing specs, for the same reason and with the same
 // explicit-file-argument isolation.
+//
+// 5A.2I addition: scripts/tests/dataHubInitiateFinalizeRoutes.integration.test.ts
+// (the two write routes exposing the dark initiate/finalize services'
+// own real-Postgres harness — see
+// scripts/tests/verify-datahub-initiate-finalize-routes.sh) is added
+// alongside the existing specs, for the same reason and with the same
+// explicit-file-argument isolation.
 export default defineConfig({
   test: {
     environment: 'node',
@@ -49,6 +56,7 @@ export default defineConfig({
       'scripts/tests/worksheetReadService.integration.test.ts',
       'scripts/tests/confirmImportLineageGuard.integration.test.ts',
       'scripts/tests/dataHubReadRoutes.integration.test.ts',
+      'scripts/tests/dataHubInitiateFinalizeRoutes.integration.test.ts',
     ],
     testTimeout: 30_000,
     hookTimeout: 30_000,

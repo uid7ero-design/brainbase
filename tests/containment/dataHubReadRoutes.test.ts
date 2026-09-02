@@ -51,13 +51,19 @@ describe("H.3 routes — no parser/storage/xlsx dependency, direct or transitive
       expect(stripped).not.toMatch(/compositionRoot/);
       expect(stripped).not.toMatch(/@vercel\/blob/);
     });
-    it(`${relPath} never imports finalize/initiate/inspectWorksheets/staleReclaim/legacy confirmImport`, () => {
-      expect(stripped).not.toMatch(/from\s+["'][^"']*importBatch\/finalize["']/);
-      expect(stripped).not.toMatch(/from\s+["'][^"']*importBatch\/initiate["']/);
+    it(`${relPath} never imports inspectWorksheets/staleReclaim/legacy confirmImport`, () => {
       expect(stripped).not.toMatch(/from\s+["'][^"']*importBatch\/inspectWorksheets["']/);
       expect(stripped).not.toMatch(/from\s+["'][^"']*importBatch\/staleReclaim["']/);
       expect(stripped).not.toMatch(/confirmImport/);
       expect(stripped).not.toMatch(/services\/upload/);
+    });
+    it(`${relPath} never imports finalize, and never imports initiate unless it is the 5A.2I collection route (own POST handler, separately containment-tested by dataHubInitiateFinalizeRoutes.test.ts)`, () => {
+      expect(stripped).not.toMatch(/from\s+["'][^"']*importBatch\/finalize["']/);
+      if (relPath === path.join("app", "api", "data-hub", "import-batches", "route.ts")) {
+        expect(stripped).toMatch(/from\s+["'][^"']*importBatch\/initiate["']/);
+      } else {
+        expect(stripped).not.toMatch(/from\s+["'][^"']*importBatch\/initiate["']/);
+      }
     });
     it(`${relPath} imports the H.2 read service and only that from the importBatch tree`, () => {
       expect(stripped).toMatch(/from\s+["']@\/lib\/data-hub\/importBatch\/read["']/);
@@ -65,21 +71,41 @@ describe("H.3 routes — no parser/storage/xlsx dependency, direct or transitive
   }
 });
 
-describe("H.3 routes — GET-only, no state-changing exports", () => {
+// app/api/data-hub/import-batches/route.ts is deliberately excluded from
+// the "no POST" assertion below — 5A.2I intentionally adds a POST
+// (initiate) handler alongside this pre-existing H.3 GET handler in the
+// SAME file. That handler's own write-shape/tenant/storage-authority
+// containment is proven separately, exhaustively, by
+// dataHubInitiateFinalizeRoutes.test.ts. Every other H.3 route file
+// remains genuinely GET-only, unaffected by 5A.2I.
+const COLLECTION_ROUTE = path.join("app", "api", "data-hub", "import-batches", "route.ts");
+
+describe("H.3 routes — GET present; no PUT/PATCH/DELETE anywhere; no direct Prisma writes", () => {
   for (const relPath of ROUTE_FILES) {
     const stripped = stripComments(read(relPath));
-    it(`${relPath} exports GET and no other HTTP method handler`, () => {
+    it(`${relPath} exports GET, and never PUT/PATCH/DELETE`, () => {
       expect(stripped).toMatch(/export\s+async\s+function\s+GET\s*\(/);
-      expect(stripped).not.toMatch(/export\s+(async\s+)?function\s+POST\s*\(/);
       expect(stripped).not.toMatch(/export\s+(async\s+)?function\s+PUT\s*\(/);
       expect(stripped).not.toMatch(/export\s+(async\s+)?function\s+PATCH\s*\(/);
       expect(stripped).not.toMatch(/export\s+(async\s+)?function\s+DELETE\s*\(/);
     });
-    it(`${relPath} performs no writes — no create/update/delete/upsert/createMany Prisma calls`, () => {
+    it(`${relPath} performs no direct writes — no create/update/delete/upsert/createMany Prisma calls in this file itself`, () => {
       expect(stripped).not.toMatch(/prisma\.\w+\.(create|update|delete|upsert|createMany|updateMany|deleteMany)\(/);
       expect(stripped).not.toMatch(/\$executeRaw/);
     });
   }
+
+  it("only the collection route (import-batches/route.ts) exports POST among the four H.3 route files", () => {
+    for (const relPath of ROUTE_FILES) {
+      const stripped = stripComments(read(relPath));
+      const hasPost = /export\s+async\s+function\s+POST\s*\(/.test(stripped);
+      if (relPath === COLLECTION_ROUTE) {
+        expect(hasPost).toBe(true);
+      } else {
+        expect(hasPost).toBe(false);
+      }
+    }
+  });
 });
 
 describe("H.3 routes — authentication and trusted tenant context", () => {
@@ -91,16 +117,29 @@ describe("H.3 routes — authentication and trusted tenant context", () => {
       // NOT be sufficient to pass this check; only a real call counts.
       expect(stripComments(code)).toMatch(/requireRole\(\s*["']manager["']\s*\)/);
     });
-    it(`${relPath} never reads organisationId/organisation_id from request input (searchParams, params, headers, or a parsed body)`, () => {
+    it(`${relPath} never reads organisationId/organisation_id from request input (searchParams, params, or headers)`, () => {
       // The only permitted source of tenant identity is
       // session.organisationId, obtained from requireRole's own return
       // value — never req.nextUrl.searchParams, never the dynamic route
-      // `params`, never req.headers, never a request body.
+      // `params`, never req.headers.
       expect(code).not.toMatch(/searchParams\.get\(\s*["']organi[sz]ation/i);
       expect(code).not.toMatch(/params\.organi[sz]ationId/i);
       expect(code).not.toMatch(/headers\.get\(\s*["']x-organi[sz]ation/i);
-      expect(code).not.toMatch(/req\.json\(\)/);
-      expect(code).not.toMatch(/req\.body/);
+    });
+    it(`${relPath}'s GET handler never parses a request body`, () => {
+      // Scoped to the GET function body specifically, not the whole file:
+      // app/api/data-hub/import-batches/route.ts is shared with a 5A.2I
+      // POST handler (added on top of this pre-existing H.3 GET), which
+      // legitimately parses a JSON request body for the initiate service's
+      // own input fields — see dataHubInitiateFinalizeRoutes.test.ts for
+      // that handler's own, separate containment. The GET handler itself,
+      // in every route file including this shared one, must remain
+      // entirely body-free.
+      const getStart = code.indexOf("export async function GET(");
+      const nextExportStart = code.indexOf("\nexport ", getStart + 1);
+      const getBody = nextExportStart === -1 ? code.slice(getStart) : code.slice(getStart, nextExportStart);
+      expect(getBody).not.toMatch(/req\.json\(\)/);
+      expect(getBody).not.toMatch(/req\.body/);
     });
     it(`${relPath} never uses homeOrganisationId`, () => {
       expect(stripComments(code)).not.toMatch(/homeOrganisationId/);
