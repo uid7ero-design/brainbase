@@ -4,17 +4,23 @@ import { useEffect, useRef, useState } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import Image from 'next/image';
 import { CheckCircle2, XCircle, Clock } from 'lucide-react';
+import { resolvePublicEventTheme } from '@/lib/events/publicEventTheme';
+import { InstitutionalHeader, InstitutionalFooter } from '@/components/publicEvents/InstitutionalChrome';
 
 const FONT = 'var(--font-inter), "Inter", -apple-system, sans-serif';
-const BG = '#07080B';
-const BORDER = 'rgba(255,255,255,.08)';
-const BORDER_SOFT = 'rgba(255,255,255,.06)';
-const VIOLET_SOFT = '#A78BFA';
-const TEXT_PRIMARY = '#F5F7FA';
-const TEXT_SECONDARY = 'rgba(226,232,240,.66)';
-const TEXT_MUTED = 'rgba(226,232,240,.42)';
-const GREEN = '#4ADE80';
-const RED = '#F87171';
+// See PublicEventClient.tsx's own identical comment: these are now the
+// matching `var(--bbpe-*)` strings (lib/events/publicEventTheme.ts)
+// rather than literal hex, so a non-branded organisation's rendering is
+// unchanged while a themed one re-skins for free.
+const BG = 'var(--bbpe-bg)';
+const BORDER = 'var(--bbpe-border)';
+const BORDER_SOFT = 'var(--bbpe-border-soft)';
+const VIOLET_SOFT = 'var(--bbpe-accent-soft)';
+const TEXT_PRIMARY = 'var(--bbpe-text-primary)';
+const TEXT_SECONDARY = 'var(--bbpe-text-secondary)';
+const TEXT_MUTED = 'var(--bbpe-text-muted)';
+const GREEN = 'var(--bbpe-green)';
+const RED = 'var(--bbpe-red)';
 
 type StatusResponse = {
   payment_status: string;
@@ -44,6 +50,10 @@ export default function CheckoutSuccessPage() {
   const params = useParams<{ organisationSlug: string; eventSlug: string }>();
   const searchParams = useSearchParams();
   const sessionId = searchParams.get('session_id');
+  // Public event branding (see lib/events/publicEventTheme.ts) — same
+  // resolver, same organisationSlug-only lookup, as PublicEventClient.
+  const theme = resolvePublicEventTheme(params.organisationSlug);
+  const institutional = theme.variant === 'institutional';
 
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -96,10 +106,14 @@ export default function CheckoutSuccessPage() {
   }, [sessionId]);
 
   return (
-    <div style={{ minHeight: '100vh', background: BG, color: TEXT_PRIMARY, fontFamily: FONT, display: 'flex', flexDirection: 'column' }}>
-      <header style={{ padding: '13px 20px', borderBottom: `1px solid ${BORDER_SOFT}` }}>
-        <Image src="/Brand/brainbase-logo-dark.svg" alt="BRΛINBΛSE" width={132} height={30} priority style={{ display: 'block', width: 120, height: 'auto' }} />
-      </header>
+    <div style={{ minHeight: '100vh', background: BG, color: TEXT_PRIMARY, fontFamily: FONT, display: 'flex', flexDirection: 'column', ...theme.cssVars }}>
+      {institutional ? (
+        <InstitutionalHeader theme={theme} />
+      ) : (
+        <header style={{ padding: '13px 20px', borderBottom: `1px solid ${BORDER_SOFT}` }}>
+          <Image src="/Brand/brainbase-logo-dark.svg" alt="BRΛINBΛSE" width={132} height={30} priority style={{ display: 'block', width: 120, height: 'auto' }} />
+        </header>
+      )}
 
       <main style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px 20px' }}>
         <div style={{ width: '100%', maxWidth: 480, border: `1px solid ${BORDER}`, borderRadius: 18, background: 'rgba(255,255,255,.02)', padding: '36px 28px', textAlign: 'center' }}>
@@ -116,6 +130,7 @@ export default function CheckoutSuccessPage() {
           )}
         </div>
       </main>
+      {institutional && <InstitutionalFooter theme={theme} />}
     </div>
   );
 }
