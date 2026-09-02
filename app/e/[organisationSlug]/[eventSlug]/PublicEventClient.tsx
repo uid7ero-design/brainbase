@@ -66,10 +66,36 @@ const EVENT_PAGE_CSS = `
 @media (max-width: 640px) {
   .bb-event-main { padding: 24px 16px 72px; }
 }
-.bb-event-artwork-img { max-height: 560px; }
-@media (max-width: 640px) {
-  .bb-event-artwork-img { max-height: 460px; }
-}
+/* Root cause of the portrait-poster crop bug: the previous rule fixed
+   max-height to 560px/460px — a bound sized for landscape/banner-shaped
+   artwork. Combined with width:auto;height:auto, a true portrait poster
+   (aspect ratio well under 1) hit THIS height cap before it ever reached
+   the column's own max-width, so it rendered far narrower than the
+   column offered (e.g. ~400px in a ~540px column) — the frame's own
+   background then showed as heavy letterboxing on both sides, and the
+   poster read as "cut down to fit a banner." width:100%;height:auto
+   removes that mismatch entirely: the image always fills its column's
+   width and its height is a pure function of its own intrinsic ratio —
+   no dual max-width/max-height race, no letterboxing, full artwork
+   always visible for portrait, landscape, or square alike.
+
+   Deliberately NO max-height (a prior revision of this fix used
+   max-height: 85vh as a "safety valve" — that was wrong: a perfectly
+   ordinary portrait poster (e.g. 1000x1400 at a ~540px column width)
+   renders ~756px tall, which EXCEEDS 85vh on any desktop viewport under
+   ~890px tall, silently reintroducing the exact letterboxing this fix
+   exists to remove. Intrinsic aspect ratio is the sole sizing authority
+   for this element; the page scrolling taller to show a tall portrait
+   poster in full is correct, expected behaviour, not a bug. Existing
+   upload validation (lib/events/validation.ts) already bounds file
+   type/size — pathological extreme-ratio images are a separate concern,
+   not one this presentation rule should trade normal posters away for.
+
+   object-fit is also removed as redundant: it only has an effect when an
+   element's box is independently constrained (e.g. by a competing
+   max-height); with none here, width/height alone fully determine the
+   rendered size — there is no box left for object-fit to "fit" into. */
+.bb-event-artwork-img { width: 100%; height: auto; max-width: 100%; display: block; }
 .bb-radio-card { position: relative; display: block; cursor: pointer; border-radius: 12px; }
 .bb-radio-card input { position: absolute; opacity: 0; width: 1px; height: 1px; pointer-events: none; }
 .bb-radio-card-inner {
@@ -759,33 +785,34 @@ function QuestionField({ question, value, onChange }: { question: PublicQuestion
 // host chosen per-event by the organiser, not a configurable, bounded
 // set of remote origins next/image's own allow-list expects.
 //
-// Deliberately no fixed aspect-ratio box / object-fit: cover — that
-// cropped portrait posters badly. Instead: the frame spans the full
-// column width (so its dark panel/border/shadow always reads as an
-// intentional "poster frame", even for a narrow portrait image with
-// visible side padding) but has NO fixed height — a flex container
-// with no explicit height simply hugs its tallest child, so the
-// frame's height always equals the image's own rendered height. The
-// image itself uses object-fit: contain with both max-width: 100% and
-// a CSS-only max-height cap (.bb-event-artwork-img, 560px desktop /
-// 460px mobile — media queries can't live in inline styles), which is
-// enough on its own for the browser to compute the largest size
-// preserving aspect ratio within both bounds — no JS orientation
-// detection, no distortion, no crop, ever.
+// Natural-aspect-ratio rendering, no cropping, no distortion, no forced
+// presentation shape: the image is `width: 100%; height: auto`
+// (.bb-event-artwork-img) — it always fills the column's own width, and
+// its rendered height is a pure function of its own intrinsic ratio.
+// That is the entire sizing algorithm; there is no competing max-height
+// constraint to race against it (a previous version paired width:auto
+// with a fixed 560px/460px max-height, which bound PORTRAIT posters by
+// height instead of width — rendering them dramatically narrower than
+// the column and leaving heavy letterboxing on both sides, which read
+// as "cropped to a banner shape"). The frame itself (border/shadow/
+// rounded corners) simply wraps whatever height the image produces — no
+// flex-centering needed, since the image is never narrower than its
+// container. No max-height at all — intrinsic aspect ratio is the sole
+// sizing authority for this element, including for tall portrait
+// posters; the page scrolling taller to show one in full is correct,
+// expected behaviour (see the CSS class's own comment for why an
+// earlier viewport-relative "safety valve" was removed as unnecessary
+// and actively wrong for ordinary portrait artwork).
 function EventArtwork({ src, alt }: { src: string; alt: string }) {
   const [failed, setFailed] = useState(false);
   if (failed) return null;
   return (
     <div style={{
-      width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center',
-      borderRadius: 18, overflow: 'hidden', border: `1px solid ${BORDER}`, marginBottom: 22,
+      width: '100%', borderRadius: 18, overflow: 'hidden', border: `1px solid ${BORDER}`, marginBottom: 22,
       background: 'var(--bbpe-section-bg)', boxShadow: '0 14px 40px rgba(0,0,0,.35), 0 0 0 1px rgba(var(--bbpe-accent-rgb),.07)',
     }}>
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={src} alt={alt} onError={() => setFailed(true)} className="bb-event-artwork-img"
-        style={{ display: 'block', width: 'auto', height: 'auto', maxWidth: '100%', objectFit: 'contain' }}
-      />
+      <img src={src} alt={alt} onError={() => setFailed(true)} className="bb-event-artwork-img" />
     </div>
   );
 }
