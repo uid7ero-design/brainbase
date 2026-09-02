@@ -84,6 +84,21 @@ import { getMessageTemplate, type FailureCode } from "./failureTaxonomy";
 const DEFAULT_LIST_LIMIT = 50;
 const MAX_LIST_LIMIT = 200;
 
+// 5A.2H.3 live-boundary hardening: a defensive upper bound on
+// listWorksheetsForBatch's result set. This module deliberately does NOT
+// import lib/data-hub/workbookParser.ts (that module imports `xlsx`
+// directly, and this module's whole point is to have zero transitive
+// xlsx dependency — see the module header). The value below is therefore
+// a duplicated LITERAL, not a shared import, kept in sync by convention
+// with that other module's own DEFAULT_WORKBOOK_LIMITS.maxWorksheetCount
+// (also 50 at time of writing) — re-verify both values agree before
+// relying on this bound as a hard guarantee. Under the current single
+// writer (inspectWorksheets.ts), a batch can never actually have more
+// than 50 DATA_HUB rows, so this `take` changes no valid H.2 behavior;
+// it exists purely so the bound is intrinsic to this module rather than
+// inherited-by-convention from a sibling it cannot safely import.
+const WORKSHEET_LIST_DEFENSIVE_BOUND = 50;
+
 export type ReadFailureCode = "BATCH_NOT_FOUND" | "WORKSHEET_NOT_FOUND" | "INVALID_CURSOR" | "INVALID_LIMIT";
 
 export type WorksheetVisibility = "visible" | "hidden" | "veryHidden";
@@ -512,6 +527,7 @@ export async function listWorksheetsForBatch(
     where: { import_batch_id: importBatchId, organisation_id: organisationId, lineage_kind: "DATA_HUB" },
     orderBy: { worksheet_index: "asc" },
     select: WORKSHEET_SELECT,
+    take: WORKSHEET_LIST_DEFENSIVE_BOUND,
   });
 
   return { ok: true, worksheets: rows.map(toWorksheetDTO) };

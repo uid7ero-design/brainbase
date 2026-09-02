@@ -1470,3 +1470,64 @@ with 5A.2H.1, the standing `xlsx@0.18.5` route-exposure blocker (Section
 `read.ts` never touches `xlsx` directly or transitively — but no future
 phase may add a route that re-triggers `inspectWorkbook`/parsing until
 that blocker is separately, explicitly resolved.
+
+## 20. Read-only Data Hub HTTP routes (5A.2H.3)
+
+The first live HTTP exposure of `read.ts`. Four `GET`-only routes under
+`app/api/data-hub/`: `import-batches` (list), `import-batches/[id]`
+(detail), `import-batches/[id]/worksheets` (list), `worksheets/[id]`
+(detail) — a thin, uniform adapter over the four 5A.2H.2 functions, with
+no new domain logic of its own.
+
+**Auth/role.** Every route requires `requireRole("manager")` — the same
+bar the legacy `/api/upload/history` sibling already sets for this class
+of upload/import metadata. `organisationId` is taken exclusively from
+the resolved session's own `organisationId` (already correctly
+resolving a `super_admin`'s active `org_override`/impersonation, exactly
+as every other tenant-scoped route in this repo relies on) — never
+`homeOrganisationId`, never anything derived from request input. No
+route accepts an organisation identifier from a query/path/body/header
+parameter at all.
+
+**Prerequisite.** This phase depends on 5A.2H.3-PRE's `confirmImport()`
+lineage guard (merged separately, `services/upload.ts`) having already
+closed the one concrete attack path the architecture review found:
+disclosing a `DATA_HUB` worksheet id through these routes and then
+submitting it to the unrelated legacy `/api/upload/confirm` endpoint.
+
+**Error mapping.** `BATCH_NOT_FOUND`/`WORKSHEET_NOT_FOUND` → 404,
+`INVALID_CURSOR`/`INVALID_LIMIT` → 400, an unmapped auth rejection → 401,
+`"Forbidden"` → 403, any unexpected throw → a generic 500 (never the raw
+error). Every H.2 message is passed through verbatim; no route
+introduces a new distinguishable outcome, so H.2's own wrong-tenant/
+nonexistent/LEGACY/tombstoned indistinguishability guarantee survives
+unchanged through the HTTP layer.
+
+**Live-boundary hardening.** `listWorksheetsForBatch` gained a defensive
+`take` bound (50, matching `workbookParser.ts`'s own
+`maxWorksheetCount` — duplicated as a literal, not imported, since that
+module pulls in `xlsx` and `read.ts` must not) now that the function has
+a live HTTP caller, even though the bound changes no currently-reachable
+behavior under the sole existing writer.
+
+**Cache.** Every response, success or error, sets
+`Cache-Control: private, no-store` — this is tenant-scoped operational
+metadata with no reason to be cached anywhere.
+
+**Darkness transition.** `tests/containment/dataHubImportBatchDarkness.test.ts`
+and `tests/containment/worksheetReadService.test.ts` were both narrowed
+from "zero importers of `read.ts`" to an exact-set assertion: precisely
+these four route files, and nothing else. A new
+`tests/containment/dataHubReadRoutes.test.ts` proves the routes
+themselves stay parser/storage/write-free and GET-only. A new
+`scripts/tests/dataHubReadRoutes.integration.test.ts` (via
+`scripts/tests/verify-datahub-read-routes.sh`) exercises the real route
+handlers against real Postgres, with only `lib/org`'s session resolution
+mocked — the tenant/lineage/tombstone/pagination boundary itself is
+never mocked — including the 5A.2H.2 sub-millisecond pagination
+regression re-proven through the actual HTTP path.
+
+**No schema, package, or `read.ts` behavioral change** beyond the one
+defensive `take` bound above. The standing `xlsx@0.18.5` blocker remains
+untouched and irrelevant — no route in this phase triggers parsing,
+storage access, or any write.

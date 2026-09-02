@@ -34,6 +34,12 @@ import path from 'path';
 // real-Postgres harness — see scripts/tests/verify-confirm-import-lineage-guard.sh)
 // is added alongside the existing specs, for the same reason and with the
 // same explicit-file-argument isolation.
+//
+// 5A.2H.3 addition: scripts/tests/dataHubReadRoutes.integration.test.ts
+// (the four read-only Data Hub HTTP routes' own real-Postgres harness —
+// see scripts/tests/verify-datahub-read-routes.sh) is added alongside the
+// existing specs, for the same reason and with the same
+// explicit-file-argument isolation.
 export default defineConfig({
   test: {
     environment: 'node',
@@ -42,6 +48,7 @@ export default defineConfig({
       'scripts/tests/inspectWorksheets.integration.test.ts',
       'scripts/tests/worksheetReadService.integration.test.ts',
       'scripts/tests/confirmImportLineageGuard.integration.test.ts',
+      'scripts/tests/dataHubReadRoutes.integration.test.ts',
     ],
     testTimeout: 30_000,
     hookTimeout: 30_000,

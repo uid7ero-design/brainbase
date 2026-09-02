@@ -34,10 +34,43 @@ function read(file: string): string {
   return fs.readFileSync(file, "utf8");
 }
 
-describe("Data Hub importBatch — no runtime caller exists yet (M28, verified by static inspection)", () => {
+// 5A.2H.3 — the dark-to-live transition. H.2's own read services
+// (lib/data-hub/importBatch/read.ts) now have exactly four authorized
+// runtime importers: the four H.3 GET route files. Every OTHER file
+// under app/**/components/**, and every OTHER module under
+// lib/data-hub/importBatch/ (finalize.ts, initiate.ts, staleReclaim.ts,
+// inspectWorksheets.ts, etc. — none of which are read-only or safe to
+// expose), must remain completely unimported by any runtime caller. This
+// is intentionally an EXACT-SET assertion, not "some imports are now
+// allowed" — a new, unauthorized importer must fail this test just as
+// loudly as it would have before H.3 existed.
+const AUTHORIZED_H3_ROUTE_IMPORTERS = new Set([
+  path.join("app", "api", "data-hub", "import-batches", "route.ts"),
+  path.join("app", "api", "data-hub", "import-batches", "[id]", "route.ts"),
+  path.join("app", "api", "data-hub", "import-batches", "[id]", "worksheets", "route.ts"),
+  path.join("app", "api", "data-hub", "worksheets", "[id]", "route.ts"),
+]);
+
+describe("Data Hub importBatch — exactly the four authorized H.3 routes import read.ts; nothing else imports any file in this tree (verified by static inspection)", () => {
   const candidateDirs = ["app", "components", "middleware.ts"];
 
-  it("no file under app/** or components/** imports from lib/data-hub/importBatch", () => {
+  it("every app/**/components/** importer of lib/data-hub/importBatch/read is exactly the authorized H.3 route set", () => {
+    const readImporters: string[] = [];
+    for (const dir of candidateDirs) {
+      const full = path.join(ROOT, dir);
+      const stat = fs.existsSync(full) ? fs.statSync(full) : null;
+      const files = stat?.isDirectory() ? walk(full, [".ts", ".tsx"]) : stat?.isFile() ? [full] : [];
+      for (const file of files) {
+        const code = read(file);
+        if (/from\s+["'][^"']*data-hub\/importBatch\/read["']/.test(code)) {
+          readImporters.push(path.relative(ROOT, file));
+        }
+      }
+    }
+    expect(new Set(readImporters)).toEqual(AUTHORIZED_H3_ROUTE_IMPORTERS);
+  });
+
+  it("no app/**/components/** file imports any OTHER lib/data-hub/importBatch module (only read.ts may ever be imported, and only by the authorized route set above)", () => {
     const offenders: string[] = [];
     for (const dir of candidateDirs) {
       const full = path.join(ROOT, dir);
@@ -45,18 +78,14 @@ describe("Data Hub importBatch — no runtime caller exists yet (M28, verified b
       const files = stat?.isDirectory() ? walk(full, [".ts", ".tsx"]) : stat?.isFile() ? [full] : [];
       for (const file of files) {
         const code = read(file);
-        if (/from\s+["'][^"']*data-hub\/importBatch[^"']*["']/.test(code)) {
+        if (
+          /from\s+["'][^"']*data-hub\/importBatch[^"']*["']/.test(code) &&
+          !/from\s+["'][^"']*data-hub\/importBatch\/read["']/.test(code)
+        ) {
           offenders.push(path.relative(ROOT, file));
         }
       }
     }
-    expect(offenders).toEqual([]);
-  });
-
-  it("no app/api route file imports from lib/data-hub/importBatch", () => {
-    const apiDir = path.join(ROOT, "app", "api");
-    const files = walk(apiDir, [".ts", ".tsx"]);
-    const offenders = files.filter((file) => /from\s+["'][^"']*data-hub\/importBatch[^"']*["']/.test(read(file)));
     expect(offenders).toEqual([]);
   });
 });
