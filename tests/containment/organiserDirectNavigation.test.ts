@@ -73,15 +73,23 @@ describe('Direct Organiser navigation exists, independent of /command', () => {
     expect(ORGANISER_PAGE_SOURCE).not.toContain('const CHANGES')
   })
 
-  it('the shared WorkspaceShell chrome (Sidebar/OpBar), still reused by the promoted /organiser page, carries no demo content of its own', () => {
+  it('WorkspaceShell (Command Centre/Bin Maintenance\'s own chrome) carries no demo content of its own — no longer reused by /organiser as of D.4.4E (see organiserShellBoundary.test.ts for the current-architecture assertion that /organiser renders OrganiserShell, not WorkspaceShell)', () => {
     expect(WORKSPACE_SHELL_SOURCE).not.toContain('Demo Environment')
     expect(WORKSPACE_SHELL_SOURCE).not.toContain('const ALERTS')
   })
 
-  it('components/ops/Sidebar.tsx (the persistent nav for the /command/* + /organiser workspace shell) exposes Organiser as a sibling of Command Centre, pointing at its canonical route', () => {
+  // Phase D.4.4E — Organiser was promoted to a first-class TopNav workspace
+  // (its own OrganiserShell/OrganiserRail, no longer nested inside the
+  // generic ops WorkspaceShell/Sidebar). components/ops/Sidebar.tsx no
+  // longer knows about Organiser at all — see
+  // tests/containment/opsSidebarOrganiserRemoval.test.ts for the dedicated
+  // suite proving that removal, and organiserShellBoundary.test.ts /
+  // clientNavOwnership.test.ts for the new TopNav-based entry point.
+  it('components/ops/Sidebar.tsx no longer references Organiser at all — it moved to a dedicated TopNav entry + OrganiserShell, not the generic ops shell', () => {
     const sidebarSource = fs.readFileSync(path.resolve(__dirname, '../../components/ops/Sidebar.tsx'), 'utf-8')
     expect(sidebarSource).toContain("{ icon: I.command,   label: 'Command Centre', href: '/command',     exact: true }")
-    expect(sidebarSource).toContain("{ icon: I.organiser, label: 'Organiser',      href: '/organiser', exact: false }")
+    expect(sidebarSource).not.toContain('Organiser')
+    expect(sidebarSource).not.toContain('/organiser')
   })
 })
 
@@ -154,7 +162,7 @@ describe('Organiser ?board= deep-link contract: safe fallback and tenancy preser
 // ── 8. Normal Organiser board selection still works ─────────────────────────
 
 describe('Normal (manual) Organiser board switching is untouched', () => {
-  it('BoardRail\'s onSelect still wires directly to setActiveId, unaffected by the deep-link addition', () => {
+  it('OrganiserRail\'s (formerly BoardRail, promoted in D.4.4E) onSelect still wires directly to setActiveId, unaffected by the deep-link addition or the shell extraction', () => {
     expect(ORGANISER_PAGE_SOURCE).toContain('onSelect={setActiveId} onCreate={createBoard} onRename={renameBoard} onDelete={deleteBoard}')
   })
 

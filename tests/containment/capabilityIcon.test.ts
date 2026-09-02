@@ -156,9 +156,23 @@ describe('CapabilityIcon — production wiring boundary (Phase D.4.3: + Events/C
 })
 
 describe('CapabilityIcon — Phase D.4.3 secondary-surface audit boundary', () => {
-  it('app/organiser/page.tsx does NOT import CapabilityIcon — audited and deliberately left unimplemented: no capability gate exists on this route at all (role-gated only), and it shares components/ops/Sidebar.tsx chrome via WorkspaceShell, which is off-limits', () => {
+  // Phase D.4.4E superseded the "deliberately left unimplemented" note
+  // below: Organiser is now a first-class TopNav item (capability="organiser"
+  // on the NavItem, asserted in the TopNav section further down) and has
+  // its own dedicated identity treatment in its rail header — see
+  // components/organiser/OrganiserRail.tsx and organiserShellBoundary.test.ts.
+  // app/organiser/page.tsx itself still does not import CapabilityIcon
+  // directly (the identity lives in OrganiserRail/TopNav, not the page
+  // body) — that narrower claim still holds and is asserted below.
+  it('app/organiser/page.tsx does not import CapabilityIcon directly — the module identity now lives in OrganiserRail\'s header and TopNav\'s NavItem, not the page body itself', () => {
     const src = read('app/organiser/page.tsx')
     expect(src).not.toMatch(/CapabilityIcon/)
+  })
+
+  it('components/organiser/OrganiserRail.tsx DOES import and render CapabilityIcon capability="organiser" — its module identity header, the one deliberate non-TopNav placement recommended by the D.4.4D-R audit', () => {
+    const src = read('components/organiser/OrganiserRail.tsx')
+    expect(src).toMatch(/import \{ CapabilityIcon \} from '@\/components\/brand\/CapabilityIcon'/)
+    expect(src).toMatch(/<CapabilityIcon\s*\n?\s*capability="organiser"/)
   })
 
   it('app/dashboard/pipeline/page.tsx (Requests) does NOT import CapabilityIcon — audited: not a real capability, no `modules` row exists for it', () => {
@@ -220,13 +234,16 @@ describe('CapabilityIcon — TopNav wiring specifics (Phase D.4.2)', () => {
   const topNavSource = read('components/nav/TopNav.tsx')
   const topNavCode = stripComments(topNavSource)
 
-  it('TopNav only ever passes a capability icon to genuinely capability-gated items — exactly 4 call sites (LD Tennis Events/CRM + generic Events & Ticketing/CRM), never Organiser (no TopNav item exists for it) and never a fourth capability', () => {
+  // Phase D.4.4E added Organiser as a third genuinely capability-gated
+  // TopNav item (LD Tennis + generic branches, mirroring Events/CRM) — the
+  // call-site count grows from 4 to 6 accordingly, and "organiser" is now
+  // a valid capability id here, not an excluded one.
+  it('TopNav only ever passes a capability icon to genuinely capability-gated items — exactly 6 call sites (LD Tennis Events/CRM/Organiser + generic Events & Ticketing/CRM/Organiser), never a fourth capability id', () => {
     const capabilityProps = topNavCode.match(/capability="[a-z]+"/g) ?? []
-    expect(capabilityProps).toHaveLength(4)
+    expect(capabilityProps).toHaveLength(6)
     for (const prop of capabilityProps) {
-      expect(prop === 'capability="events"' || prop === 'capability="crm"').toBe(true)
+      expect(['capability="events"', 'capability="crm"', 'capability="organiser"']).toContain(prop)
     }
-    expect(topNavCode).not.toMatch(/capability="organiser"/)
   })
 
   it('TopNav uses container={false} for every CapabilityIcon usage — the compact, un-boxed nav treatment, not ModuleAccessCard\'s full tile', () => {
