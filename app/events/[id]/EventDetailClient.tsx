@@ -65,7 +65,7 @@ function registeredQuantity(orders: OrderRow[], predicate: (o: OrderRow) => bool
   return orders.filter(o => o.status !== 'CANCELLED' && predicate(o)).reduce((sum, o) => sum + o.quantity, 0);
 }
 
-export default function EventDetailClient({ eventId, canManage }: { eventId: string; canManage: boolean }) {
+export default function EventDetailClient({ eventId, canManage, organisationSlug }: { eventId: string; canManage: boolean; organisationSlug: string | null }) {
   const [event, setEvent] = useState<EventDetail | null>(null);
   const [sessions, setSessions] = useState<EventSessionRow[]>([]);
   const [ticketTypes, setTicketTypes] = useState<TicketTypeRow[]>([]);
@@ -193,7 +193,7 @@ export default function EventDetailClient({ eventId, canManage }: { eventId: str
 
       {error && <div role="alert" style={{ color: '#FCA5A5', fontSize: 13, marginBottom: 16 }}>{error}</div>}
 
-      <EventOverview event={event} canManage={canManage} onSaved={reload} />
+      <EventOverview event={event} canManage={canManage} onSaved={reload} organisationSlug={organisationSlug} />
 
       <div style={{ display: 'flex', gap: 12, marginTop: 20, flexWrap: 'wrap' }}>
         <KpiCard label="Orders" value={orders ? orderCount : '—'} accentColor="#8A4DFF" theme="dark" loading={orders === null} />
@@ -290,10 +290,27 @@ const metaPillStyle: React.CSSProperties = {
 
 // ─── Overview / control header ─────────────────────────────────────
 
-function EventOverview({ event, canManage, onSaved }: { event: EventDetail; canManage: boolean; onSaved: () => void }) {
+function EventOverview({ event, canManage, onSaved, organisationSlug }: { event: EventDetail; canManage: boolean; onSaved: () => void; organisationSlug: string | null }) {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  // Part B — same existing public route, same window.location.origin
+  // pattern already established for ticket links (see
+  // RegistrationDetail.tsx's own ticketUrl()) — correct in every
+  // environment with no configuration to keep in sync. Never gated on
+  // event.status; see EventsListClient's identical "View public page"
+  // comment for why.
+  const [publicLinkCopied, setPublicLinkCopied] = useState(false);
+  function publicEventUrl(): string {
+    return `${window.location.origin}/e/${organisationSlug}/${event.slug}`;
+  }
+  async function copyPublicLink() {
+    try {
+      await navigator.clipboard.writeText(publicEventUrl());
+      setPublicLinkCopied(true);
+      setTimeout(() => setPublicLinkCopied(false), 1500);
+    } catch { /* clipboard unavailable — the link is still reachable via View public page */ }
+  }
   const [name, setName] = useState(event.name);
   const [venue, setVenue] = useState(event.venue ?? '');
   const [description, setDescription] = useState(event.description ?? '');
@@ -393,14 +410,35 @@ function EventOverview({ event, canManage, onSaved }: { event: EventDetail; canM
                 <div style={{ fontSize: 12, color: TEXT_MUTED, marginTop: 4 }}>/{event.slug}</div>
               </div>
             </div>
-            {canManage && (
-              <div style={{ display: 'flex', gap: 8 }}>
-                <Link href={`/events/${event.id}/check-in`} style={{ ...secondaryBtnStyle, display: 'inline-flex', alignItems: 'center', gap: 6, textDecoration: 'none' }}>
-                  <ScanLine size={14} /> Check-in
-                </Link>
-                <button onClick={() => setEditing(true)} style={secondaryBtnStyle}>Edit</button>
-              </div>
-            )}
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {/* Part B — always visible to anyone who can reach this
+                  internal screen at all (not canManage-gated): the
+                  target URL is the same one already publicly reachable
+                  to anyone on the internet, so there's nothing more
+                  privileged about viewing/copying it here than a viewer
+                  finding it themselves. */}
+              {organisationSlug && (
+                <>
+                  <a
+                    href={publicEventUrl()} target="_blank" rel="noopener noreferrer"
+                    style={{ ...secondaryBtnStyle, display: 'inline-flex', alignItems: 'center', textDecoration: 'none' }}
+                  >
+                    View public page
+                  </a>
+                  <button onClick={copyPublicLink} style={secondaryBtnStyle}>
+                    {publicLinkCopied ? 'Copied!' : 'Copy public link'}
+                  </button>
+                </>
+              )}
+              {canManage && (
+                <>
+                  <Link href={`/events/${event.id}/check-in`} style={{ ...secondaryBtnStyle, display: 'inline-flex', alignItems: 'center', gap: 6, textDecoration: 'none' }}>
+                    <ScanLine size={14} /> Check-in
+                  </Link>
+                  <button onClick={() => setEditing(true)} style={secondaryBtnStyle}>Edit</button>
+                </>
+              )}
+            </div>
           </div>
 
           <div style={{ display: 'flex', gap: 20, marginTop: 16, flexWrap: 'wrap', fontSize: 13, color: TEXT_SECONDARY }}>
