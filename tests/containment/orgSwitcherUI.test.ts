@@ -28,6 +28,19 @@ import path from 'path'
 // performs the org_override substitution — see
 // tests/containment/apiMeCapabilityProjection.test.ts's own updated
 // test 19 for the /api/me half of this proof.
+//
+// Production polish pass (dropdown layering + post-switch destination):
+// once visible, the dropdown itself was still being clipped by TopNav —
+// z-index alone doesn't help a descendant of a z-index:auto ancestor
+// outrank a LATER sibling's own explicit stacking context. Fixed by
+// giving the switcher bar's own wrapper an explicit z-index above
+// TopNav's 100 (see the dedicated describe block below) — still no
+// position: fixed anywhere. Separately, switching organisations used to
+// window.location.reload() the CURRENT route, stranding a founder who
+// switched from an admin-only page with no obvious way to reach the
+// newly-active org's own workspace; now navigates to /dashboard, the
+// same existing generic client-landing route already used everywhere
+// else in the app.
 
 function read(relPath: string): string {
   return fs.readFileSync(path.join(process.cwd(), relPath), 'utf8').replace(/\r\n/g, '\n')
@@ -44,13 +57,17 @@ describe('OrgSwitcher — visibility bug root cause is structurally closed, not 
     expect(orgSwitcherSource).not.toMatch(/position:\s*'fixed'/)
   })
 
-  it('the switcher bar carries no top-level z-index competing with TopNav\'s own zIndex: 100 nav bars — it is a normal-flow element, not an overlay', () => {
-    // The only zIndex in this file should be the small dropdown menu
-    // (z:50, deliberately BELOW TopNav's 100 — it only needs to sit
-    // above the switcher bar's own sibling content directly beneath
-    // it, never above the page's actual nav).
-    const zIndexMatches = [...orgSwitcherSource.matchAll(/zIndex:\s*(\d+)/g)].map(m => Number(m[1]))
-    expect(zIndexMatches.every(z => z < 100)).toBe(true)
+  it('the switcher bar remains a normal-flow element (position: relative, not fixed) — the invisibility fix itself is untouched by the later dropdown-layering fix', () => {
+    expect(orgSwitcherSource).toContain("position: 'relative',")
+    expect(orgSwitcherSource).not.toMatch(/position:\s*'fixed'/)
+  })
+
+  it('the switcher bar\'s own wrapper carries an explicit z-index ABOVE TopNav\'s zIndex: 100 — this is what lets its dropdown escape being clipped by TopNav\'s own stacking context, without moving the bar itself back to fixed positioning', () => {
+    const wrapperStart = orgSwitcherSource.indexOf('position: \'relative\',')
+    const wrapperZIndexRegion = orgSwitcherSource.slice(wrapperStart, wrapperStart + 400)
+    const match = wrapperZIndexRegion.match(/zIndex:\s*(\d+)/)
+    expect(match, 'expected an explicit zIndex near the wrapper\'s position: relative').not.toBeNull()
+    expect(Number(match![1])).toBeGreaterThan(100)
   })
 
   it('is mounted before TopNav in app/layout.tsx (unchanged position — a normal-flow element earlier in the DOM naturally pushes TopNav down)', () => {
@@ -59,6 +76,19 @@ describe('OrgSwitcher — visibility bug root cause is structurally closed, not 
     expect(switcherIdx).toBeGreaterThan(-1)
     expect(topNavIdx).toBeGreaterThan(-1)
     expect(switcherIdx).toBeLessThan(topNavIdx)
+  })
+
+  it('no ancestor in the render chain (html/body, app/globals.css) clips overflow — a raised z-index alone cannot un-clip a dropdown if a parent hides overflow', () => {
+    const globalsCss = read('app/globals.css')
+    const htmlBlock = globalsCss.slice(globalsCss.indexOf('html {'), globalsCss.indexOf('}', globalsCss.indexOf('html {')))
+    const bodyBlock = globalsCss.slice(globalsCss.indexOf('body {'), globalsCss.indexOf('}', globalsCss.indexOf('body {')))
+    expect(htmlBlock).not.toMatch(/overflow:\s*hidden/)
+    expect(bodyBlock).not.toMatch(/overflow:\s*hidden/)
+    // SessionProvider/ThemeProvider wrap OrgSwitcher directly in
+    // app/layout.tsx — confirm neither introduces its own clipping
+    // container between the dropdown and the page's own edges.
+    const sessionProvider = read('components/session/SessionProvider.tsx')
+    expect(sessionProvider).not.toMatch(/overflow:\s*['"]?hidden/)
   })
 })
 
@@ -107,10 +137,30 @@ describe('OrgSwitcher — reuses the existing /api/admin/impersonate backend exc
     expect((orgSwitcherSource.match(/switchOrg\(null\)/g) ?? []).length).toBeGreaterThanOrEqual(2) // top-bar button + dropdown menu item
   })
 
-  it('reloads the page after switching, so every server-rendered surface (including capability-gated nav) picks up the new organisationId', () => {
+  it('navigates to /dashboard after switching (both directions) — a full navigation, not a same-route reload, so every server-rendered surface (including capability-gated nav) picks up the new organisationId AND the founder lands somewhere navigable rather than stuck on whatever admin-only page they started from', () => {
     const start = orgSwitcherSource.indexOf('async function switchOrg')
     const block = orgSwitcherSource.slice(start)
-    expect(block).toContain('window.location.reload()')
+    expect(block).toContain("window.location.href = '/dashboard'")
+    expect(block).not.toContain('window.location.reload()')
+  })
+
+  it('/dashboard is the SAME existing generic client-landing route TopNav\'s own "Dashboard" nav link already points to — not a new or bespoke destination', () => {
+    const topNavSource = read('components/nav/TopNav.tsx')
+    expect((topNavSource.match(/href="\/dashboard"/g) ?? []).length).toBeGreaterThanOrEqual(2) // shared branch + isLdTennis branch
+  })
+
+  it('never redirects to /clients/[id] — that page is a read-only founder summary, never the impersonated app itself', () => {
+    const start = orgSwitcherSource.indexOf('async function switchOrg')
+    const block = orgSwitcherSource.slice(start)
+    expect(block).not.toMatch(/\/clients\//)
+  })
+
+  it('/dashboard itself resolves organisationId via getAuthSession() (lib/authSession.ts), which independently performs the same org_override substitution — so this single redirect target is already correct for both switching into a client org and returning to Brainbase, with no org-specific branching needed in OrgSwitcher itself', () => {
+    const dashboardPageSource = read('app/dashboard/page.tsx')
+    const authSessionSource = read('lib/authSession.ts')
+    expect(dashboardPageSource).toContain('getAuthSession()')
+    expect(authSessionSource).toMatch(/org_override/)
+    expect(authSessionSource).toMatch(/===\s*'super_admin'/)
   })
 })
 
