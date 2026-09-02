@@ -908,6 +908,59 @@ export async function POST() {
   await sql`CREATE INDEX IF NOT EXISTS idx_organiser_item_files_item    ON organiser_item_files(item_id)`;
   await sql`CREATE INDEX IF NOT EXISTS idx_organiser_item_updates_item  ON organiser_item_updates(item_id)`;
 
+  // Phase D.4.5B — organiser_activity. Append-only history/audit log for
+  // Organiser (see the D.4.5A audit report for the full design rationale).
+  // Deliberately NOT reusing the existing generic audit_logs table (staff-
+  // only system-of-record, single resource_type/resource_id pair — doesn't
+  // support Organiser's board+item-scoped query patterns cleanly). No FK
+  // from board_id/item_id/entity_id to any organiser entity table — every
+  // organiser_* entity table cascades hard on delete (see steps 34-39
+  // above), so a real FK here would destroy exactly the history rows that
+  // matter most (activity describing something that has since been
+  // deleted). organisation_id remains a real FK (tenant lifecycle, matches
+  // every other organiser_* table). actor_user_id uses ON DELETE SET NULL
+  // so a later user deletion never erases history — actor_name is always
+  // a point-in-time display-name snapshot, never re-derived by joining to
+  // users at read time. event_type/entity_type are CHECK-constrained
+  // (matching organiser_columns.type's own existing inline CHECK
+  // convention just above) rather than a Postgres ENUM, so extending the
+  // taxonomy later is a plain ALTER TABLE ... DROP/ADD CONSTRAINT, not an
+  // ALTER TYPE migration. This table starts empty — no backfill, no
+  // synthetic rows for pre-existing boards/items (see the D.4.5A audit's
+  // explicit "do not fabricate actor_name = 'Unknown'" instruction) — and
+  // nothing writes to it yet; D.4.5B is schema + shared helper only.
+  step('40. organiser_activity');
+  await sql`
+    CREATE TABLE IF NOT EXISTS organiser_activity (
+      id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      organisation_id TEXT NOT NULL REFERENCES organisations(id),
+      board_id        UUID NOT NULL,
+      item_id         UUID,
+      actor_user_id   TEXT REFERENCES users(id) ON DELETE SET NULL,
+      actor_name      TEXT NOT NULL,
+      event_type      TEXT NOT NULL CHECK (event_type IN (
+                         'board.created', 'board.updated', 'board.deleted',
+                         'group.created', 'group.updated', 'group.deleted',
+                         'column.created', 'column.updated', 'column.deleted',
+                         'item.created', 'item.updated', 'item.moved', 'item.deleted',
+                         'comment.created',
+                         'file.added', 'file.deleted',
+                         'import.completed'
+                       )),
+      entity_type     TEXT NOT NULL CHECK (entity_type IN ('board', 'group', 'item', 'column', 'file', 'comment', 'import')),
+      entity_id       TEXT NOT NULL,
+      before_json     JSONB,
+      after_json      JSONB,
+      metadata_json   JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+
+  await sql`CREATE INDEX IF NOT EXISTS idx_organiser_activity_org   ON organiser_activity(organisation_id, created_at DESC)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_organiser_activity_board ON organiser_activity(board_id, created_at DESC)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_organiser_activity_item  ON organiser_activity(item_id, created_at DESC)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_organiser_activity_actor ON organiser_activity(actor_user_id, created_at DESC)`;
+
   return NextResponse.json({ success: true, message: 'Migration complete.', steps });
 
   } catch (err: unknown) {
