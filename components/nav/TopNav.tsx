@@ -1256,6 +1256,16 @@ function AppNav({
       'crm',
     );
 
+  // Phase D.4.4E — same capability-driven pattern as hasEvents/hasCrm
+  // above. Organiser is a real, first-class workspace (its own TopNav
+  // entry, its own dedicated shell) now that D.4.4C enforces the
+  // capability server-side; gated purely on entitlement, never on
+  // dashboardVariant/isBrainbaseHQ/role, exactly like Events/CRM.
+  const hasOrganiser =
+    enabledCapabilities.includes(
+      'organiser',
+    );
+
   const initials = name
     .split(' ')
     .map(
@@ -1368,6 +1378,23 @@ function AppNav({
                 capability="crm"
                 active={pathname.startsWith(
                   '/crm',
+                )}
+              />
+            )}
+
+            {/* Phase D.4.4E — same capability gate as Events/CRM above;
+                not currently expected to be true for LD Tennis, but this
+                branch shouldn't silently hide Organiser from a client
+                whose org happens to be dashboardVariant 'ld-tennis' AND
+                has organiser enabled — capability-driven, never
+                variant-driven, same rule as Events/CRM. */}
+            {hasOrganiser && (
+              <NavItem
+                href="/organiser"
+                label="Organiser"
+                capability="organiser"
+                active={pathname.startsWith(
+                  '/organiser',
                 )}
               />
             )}
@@ -1550,6 +1577,26 @@ function AppNav({
                 capability="crm"
                 active={pathname.startsWith(
                   '/crm',
+                )}
+              />
+            )}
+
+            {/* Phase D.4.4E — capability-driven, mirrors the Events/CRM
+                items immediately above exactly. Never gated on
+                isBrainbaseHQ or any organisation id/slug/name — any
+                organisation (client or Brainbase HQ) with organiser
+                enabled sees it. Deliberately not inside OpsDropdown
+                (which is isBrainbaseHQ-only and would hide Organiser
+                from every entitled client tenant) and not a new "Tools"
+                dropdown — same direct-top-level-item precedent Phase 6.2
+                established for CRM. */}
+            {hasOrganiser && (
+              <NavItem
+                href="/organiser"
+                label="Organiser"
+                capability="organiser"
+                active={pathname.startsWith(
+                  '/organiser',
                 )}
               />
             )}

@@ -234,4 +234,66 @@ describe('TopNav — CRM/Events capability icons match ModuleAccessCard\'s ident
     expect(clientRegion.slice(clientCrmIdx, clientCrmIdx + 80)).toContain('capability="crm"')
     expect(capabilityIcon).toMatch(/crm:\s*{\s*Icon:\s*Users,\s*color:\s*'#8A4DFF'/)
   })
+
+  it('the Organiser NavItem (both branches) is passed capability="organiser" — the same id CapabilityIcon.tsx maps to CalendarClock/cyan for ModuleAccessCard', () => {
+    const sharedOrganiserIdx = sharedRegion.indexOf('label="Organiser"')
+    const clientOrganiserIdx = clientRegion.indexOf('label="Organiser"')
+    expect(sharedOrganiserIdx).toBeGreaterThan(-1)
+    expect(clientOrganiserIdx).toBeGreaterThan(-1)
+    expect(sharedRegion.slice(sharedOrganiserIdx, sharedOrganiserIdx + 100)).toContain('capability="organiser"')
+    expect(clientRegion.slice(clientOrganiserIdx, clientOrganiserIdx + 100)).toContain('capability="organiser"')
+    expect(capabilityIcon).toMatch(/organiser:\s*{\s*Icon:\s*CalendarClock,\s*color:\s*'#38BDF8'/)
+  })
+})
+
+// Phase D.4.4E — Organiser promoted to a first-class TopNav item, mirroring
+// the CRM fix above (Phase 6.2 §10) exactly: previously Organiser only
+// existed as a nav item nested inside the generic ops Sidebar (part of the
+// WorkspaceShell chrome /command and /organiser both used to share) — that
+// coupling is now gone entirely (see opsSidebarOrganiserRemoval.test.ts).
+// This adds a standalone, capability-gated NavItem to both the shared
+// (generic client + Brainbase HQ staff) branch and the isLdTennis branch.
+describe('TopNav — Organiser nav item is capability-driven, reachable by any client organisation with organiser enabled', () => {
+  const clientBranchStart = topNavSource.indexOf('isLdTennis ? (')
+  const clientBranchEnd = topNavSource.indexOf(') : (', clientBranchStart)
+  const clientRegion = topNavSource.slice(clientBranchStart, clientBranchEnd)
+  const sharedBranchEnd = topNavSource.indexOf('width: 185,', clientBranchEnd)
+  const sharedRegion = topNavSource.slice(clientBranchEnd, sharedBranchEnd)
+
+  it('hasOrganiser is derived from enabledCapabilities, not hardcoded to any organisation', () => {
+    expect(topNavSource).toMatch(/const hasOrganiser =\s*enabledCapabilities\.includes\(\s*'organiser',?\s*\);/)
+  })
+
+  it('a top-level Organiser NavItem, gated on hasOrganiser, is present in the shared branch (generic clients + Brainbase HQ staff)', () => {
+    const organiserIdx = sharedRegion.indexOf('label="Organiser"')
+    expect(organiserIdx).toBeGreaterThan(-1)
+    const gateStart = sharedRegion.lastIndexOf('{hasOrganiser && (', organiserIdx)
+    expect(gateStart).toBeGreaterThan(-1)
+    expect(sharedRegion.slice(gateStart, organiserIdx)).not.toMatch(/isBrainbaseHQ/)
+  })
+
+  it('a top-level Organiser NavItem, gated on hasOrganiser, is also present in the isLdTennis branch (parity with Events/CRM)', () => {
+    const organiserIdx = clientRegion.indexOf('label="Organiser"')
+    expect(organiserIdx).toBeGreaterThan(-1)
+    const gateStart = clientRegion.lastIndexOf('{hasOrganiser && (', organiserIdx)
+    expect(gateStart).toBeGreaterThan(-1)
+  })
+
+  it('the standalone Organiser NavItem points at /organiser — the same canonical route app/organiser/page.tsx serves', () => {
+    expect(sharedRegion).toMatch(/href="\/organiser"/)
+  })
+
+  it('Organiser is not gated on isBrainbaseHQ, isLdTennis, super_admin, or role — entitlement is the only condition, in both branches', () => {
+    const sharedIdx = sharedRegion.indexOf('label="Organiser"')
+    const sharedGateStart = sharedRegion.lastIndexOf('{hasOrganiser && (', sharedIdx)
+    expect(sharedRegion.slice(sharedGateStart, sharedIdx)).not.toMatch(/isBrainbaseHQ|isLdTennis|isSuperAdmin|role/)
+
+    const clientIdx = clientRegion.indexOf('label="Organiser"')
+    const clientGateStart = clientRegion.lastIndexOf('{hasOrganiser && (', clientIdx)
+    expect(clientRegion.slice(clientGateStart, clientIdx)).not.toMatch(/isBrainbaseHQ|isSuperAdmin|role/)
+  })
+
+  it('the new Organiser NavItems appear exactly twice total (shared branch + isLdTennis branch) — no accidental third copy, no new dropdown', () => {
+    expect((topNavSource.match(/label="Organiser"/g) ?? []).length).toBe(2)
+  })
 })

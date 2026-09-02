@@ -249,11 +249,54 @@ describe('Phase D.4.2 — capability icons did not touch the underlying gating t
     expect(topNavSource).toMatch(/const hasCrm =\s*\n?\s*enabledCapabilities\.includes\(\s*\n?\s*'crm',?\s*\n?\s*\);/)
   })
 
-  it('no new capability id was introduced anywhere in TopNav.tsx — every capability="..." prop is events or crm, matching the two real gates above', () => {
+  // Phase D.4.4E added a third real capability gate (hasOrganiser),
+  // mirroring hasEvents/hasCrm exactly — every capability="..." prop in
+  // this file is now one of events/crm/organiser, matching the three
+  // gates that actually exist.
+  it('no capability id beyond events/crm/organiser was introduced anywhere in TopNav.tsx — every capability="..." prop matches a real gate', () => {
     const capabilityProps = topNavSource.match(/capability="[a-zA-Z]+"/g) ?? []
     expect(capabilityProps.length).toBeGreaterThan(0)
     for (const prop of capabilityProps) {
-      expect(['capability="events"', 'capability="crm"']).toContain(prop)
+      expect(['capability="events"', 'capability="crm"', 'capability="organiser"']).toContain(prop)
     }
+  })
+})
+
+describe('Phase D.4.4E — Organiser is a direct, capability-gated TopNav item, same pattern as Events/CRM', () => {
+  it('hasOrganiser is derived from enabledCapabilities, not hardcoded to any organisation, dashboardVariant, or role', () => {
+    expect(topNavSource).toMatch(/const hasOrganiser =\s*\n?\s*enabledCapabilities\.includes\(\s*\n?\s*'organiser',?\s*\n?\s*\);/)
+  })
+
+  it('a top-level Organiser NavItem, gated on hasOrganiser, is present in the shared branch (generic clients + Brainbase HQ staff)', () => {
+    const elseBranchStart = topNavSource.indexOf('isLdTennis ? (')
+    const elseBranchIdx = topNavSource.indexOf(') : (', elseBranchStart)
+    const genericBranch = topNavSource.slice(elseBranchIdx)
+    const idx = genericBranch.indexOf('label="Organiser"')
+    expect(idx).toBeGreaterThan(-1)
+    const gateStart = genericBranch.lastIndexOf('{hasOrganiser && (', idx)
+    expect(gateStart).toBeGreaterThan(-1)
+    expect(genericBranch.slice(gateStart, idx)).not.toMatch(/isBrainbaseHQ|isSuperAdmin|role/)
+  })
+
+  it('a top-level Organiser NavItem, gated on hasOrganiser, is also present in the isLdTennis branch (parity with Events/CRM)', () => {
+    const ldTennisBlockStart = topNavSource.indexOf('{isLdTennis ? (')
+    const ldTennisBlockEnd = topNavSource.indexOf(') : (', ldTennisBlockStart)
+    const ldTennisBlock = topNavSource.slice(ldTennisBlockStart, ldTennisBlockEnd)
+    const idx = ldTennisBlock.indexOf('label="Organiser"')
+    expect(idx).toBeGreaterThan(-1)
+    const gateStart = ldTennisBlock.lastIndexOf('{hasOrganiser && (', idx)
+    expect(gateStart).toBeGreaterThan(-1)
+  })
+
+  it('the Organiser NavItem points at /organiser with prefix-based active matching', () => {
+    expect(topNavSource).toMatch(/href="\/organiser"[\s\S]{0,120}?active=\{[\s\S]{0,80}?pathname\.startsWith\(\s*\n?\s*'\/organiser',?\s*\n?\s*\)/)
+  })
+
+  it('Organiser appears exactly twice total (shared branch + isLdTennis branch) — not inside OpsDropdown, not a new dropdown', () => {
+    expect((topNavSource.match(/label="Organiser"/g) ?? []).length).toBe(2)
+    const opsDropdownStart = topNavSource.indexOf('function OpsDropdown')
+    const opsDropdownEnd = topNavSource.indexOf('function AdminDropdown', opsDropdownStart)
+    expect(topNavSource.slice(opsDropdownStart, opsDropdownEnd)).not.toContain('Organiser')
+    expect(topNavSource).not.toMatch(/const TOOLS_ITEMS|function ToolsDropdown/)
   })
 })

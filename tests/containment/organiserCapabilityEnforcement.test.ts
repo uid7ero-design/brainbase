@@ -301,14 +301,27 @@ describe('E. Tenant isolation — representative organiser routes still scope ev
   })
 })
 
-describe('G. ops Sidebar boundary — untouched in this phase, temporary discrepancy accepted, not asserted as final', () => {
-  it('components/ops/Sidebar.tsx is not part of this phase\'s diff — still exposes Organiser unconditionally, to be addressed in D.4.4D', () => {
+// Phase D.4.4E — supersedes the D.4.4C placeholder above (which explicitly
+// documented an ACCEPTED TEMPORARY discrepancy — a role-qualified but
+// unentitled user could still see the nav item and hit the denial screen
+// on click — and said "to be addressed in D.4.4D"). Organiser is now a
+// first-class TopNav capability item with its own dedicated OrganiserShell/
+// OrganiserRail workspace; it no longer appears in the generic ops
+// Sidebar at all. See tests/containment/opsSidebarOrganiserRemoval.test.ts
+// and organiserShellBoundary.test.ts for the dedicated suites covering
+// this new architecture in full; this block only re-confirms, in this
+// security-focused file, that the removal does not weaken the
+// server-side enforcement proven above (sections A/D/E) — navigation
+// visibility remains UX-only regardless of where the nav entry lives.
+describe('G. ops Sidebar no longer contains Organiser — the capability enforcement above remains authoritative regardless', () => {
+  it('components/ops/Sidebar.tsx contains no reference to Organiser at all', () => {
     const sidebarSource = read('components/ops/Sidebar.tsx')
-    // Still present, still inside the static, unfiltered SECTIONS array —
-    // this assertion documents the ACCEPTED TEMPORARY state (a role-
-    // qualified but unentitled user can still see the nav item, then hits
-    // this phase's new denial screen on click), not the desired end state.
-    expect(sidebarSource).toMatch(/label: 'Organiser',\s*href: '\/organiser'/)
-    expect(sidebarSource).not.toMatch(/enabledCapabilities/)
+    expect(sidebarSource).not.toContain('Organiser')
+    expect(sidebarSource).not.toContain('/organiser')
+  })
+
+  it('TopNav carries the new capability-gated Organiser entry instead, using the canonical key — never a substitute for the server-side enforcement proven in sections A/D/E above', () => {
+    const topNavSource = read('components/nav/TopNav.tsx')
+    expect(topNavSource).toMatch(/const hasOrganiser =\s*\n?\s*enabledCapabilities\.includes\(\s*\n?\s*'organiser',?\s*\n?\s*\);/)
   })
 })
