@@ -1292,3 +1292,181 @@ uniqueness guard) — see the code comment on `workbookParser.ts` (near
 **This is not fixed by this phase.** It must be fixed before any future
 phase relies on `inspectWorkbook`'s own preview/`isEmpty` output for a
 duplicate-named worksheet.
+
+## 19. Dark tenant-safe worksheet/ImportBatch read services (5A.2H.2)
+
+Four read-only, transport-independent service functions in
+`lib/data-hub/importBatch/read.ts` — `getImportBatch`, `listImportBatches`,
+`getWorksheet`, `listWorksheetsForBatch` — over `ImportBatch` and the
+`DATA_HUB`-lineage `Upload` rows 5A.2H.1's `inspectWorksheets.ts` already
+persists. Still dark: zero runtime callers anywhere in the repository
+(see `tests/containment/dataHubImportBatchDarkness.test.ts`, updated to
+list `read.ts`, and `tests/containment/worksheetReadService.test.ts`'s
+own darkness proof). Performs no writes, no storage/Blob access of any
+kind, and no workbook parsing — it never imports `workbookParser.ts`,
+`xlsx`, `rawFileStore.ts`, or `compositionRoot.ts`.
+
+**Trusted tenant context.** Exactly the same AUTH BOUNDARY discipline as
+`initiate.ts`/`finalize.ts`/`inspectWorksheets.ts`: every function accepts
+an already-resolved `organisationId` as a plain trusted parameter, never
+resolves its own session/cookies, and never imports `lib/org.ts`. A future
+route (5A.2H.3) must derive `organisationId` from a real authenticated
+session and must never accept it from request input.
+
+**Tenant isolation.** Every query restates `organisation_id` directly in
+its own `where` predicate — never solely through a nested relation
+filter. `getImportBatch`/`getWorksheet`'s parent-existence check/
+`listWorksheetsForBatch`'s parent-existence gate all use `ImportBatch`'s
+`@@unique([id, organisation_id])` compound key (the identical
+`id_organisation_id` lookup `inspectWorksheets.ts` already uses), so a
+wrong-tenant batch and a genuinely nonexistent batch id produce the
+identical `BATCH_NOT_FOUND` result. Proven adversarially against real
+Postgres — see `scripts/tests/worksheetReadService.integration.test.ts`,
+cases 1-8.
+
+**Mandatory lineage predicate.** Every worksheet-shaped query explicitly
+asserts `lineage_kind = 'DATA_HUB'` — never inferred merely from
+`import_batch_id` being non-null. `getWorksheet` predicates
+`id + organisation_id + lineage_kind` together in one query (never
+fetched by id alone and permission-checked afterward), so a nonexistent
+id, a wrong-tenant id, and a `LEGACY`-lineage id all collapse to the
+identical `WORKSHEET_NOT_FOUND` result — deliberately not a distinguishable
+`LINEAGE_MISMATCH` code, to avoid leaking which of those three cases
+applied. `failureTaxonomy.ts` gains three new `CallerOnlyOutcomeCode`
+members for this phase (`WORKSHEET_NOT_FOUND`, `INVALID_CURSOR`,
+`INVALID_LIMIT`), reusing the existing `BATCH_NOT_FOUND` verbatim;
+`BATCH_NOT_READY` (5A.2H.1's own code) is deliberately never repurposed
+for a read outcome, since read.ts does not require `READY` at all.
+
+**Tombstone policy.** `getImportBatch`/`listImportBatches` both exclude
+any batch with `deleted_at IS NOT NULL`, folding it into the identical
+`BATCH_NOT_FOUND` result rather than a separate `TOMBSTONED` code.
+`listWorksheetsForBatch`'s parent-existence gate is the same check, so a
+tombstoned parent yields `BATCH_NOT_FOUND` rather than an incorrectly
+empty worksheet list. `getWorksheet` additionally re-checks its own
+worksheet row's parent-batch tombstone status via a second, explicitly
+tenant-scoped `ImportBatch` lookup — a `DATA_HUB` worksheet whose parent
+has been tombstoned is never exposed, collapsing to the same
+`WORKSHEET_NOT_FOUND`. Proven against real Postgres (cases 23/23b/23c):
+a worksheet readable before its parent is tombstoned becomes
+`WORKSHEET_NOT_FOUND` immediately after.
+
+**Lifecycle read policy.** Batch reads are NOT restricted to `READY` —
+every non-tombstoned physical lifecycle state (`AWAITING_UPLOAD`,
+`PROCESSING`, `READY`, `FAILED`, `DELETION_PENDING`) is readable.
+`listWorksheetsForBatch` does not require `READY` either: a valid
+tenant-owned batch that has not yet had `inspectWorksheets` run against
+it simply returns an empty worksheets array, never an error. Worksheet
+metadata (visibility, isEmpty, canonicalStatus) is always returned
+truthfully and unfiltered — hidden/veryHidden/empty/`INELIGIBLE` rows are
+never silently dropped; any such filtering is a future caller's policy
+decision. `canonicalStatus` is modeled as the full four-value DB-valid
+union (`AWAITING_CONFIRMATION | INELIGIBLE | SKIPPED | IMPORTED`) even
+though 5A.2H.1 only ever writes the first two today, so a future writer
+of `SKIPPED`/`IMPORTED` requires no `read.ts` type change (proven
+representable/readable in case 20, seeded directly since no writer of
+those two values exists yet).
+
+**Explicit DTO sanitization.** `ImportBatchSummaryDTO`,
+`ImportBatchDetailDTO`, and `WorksheetSummaryDTO` are built via explicit,
+field-by-field mapping functions — never a raw Prisma model returned or
+spread. Storage internals (`storage_key`/`storage_provider`/
+`storage_etag`/`storage_deletion_status`/`storage_deleted_at`), the
+`DATA_HUB` `stored_path` sentinel, and every legacy-only `Upload` field
+(`schema_type`, `module`, legacy `status`, `row_count`, `column_count`,
+`columns_detected`, `field_mappings`, `validation_errors`,
+`preview_rows`, `metadata`, `original_name`, `mimetype`, `size_bytes`)
+never leave this module — proven both statically
+(`tests/containment/worksheetReadService.test.ts`'s DTO-shape
+containment) and against real Postgres (case 25's own-key-set proof on
+every returned DTO). No join to `User` occurs — `uploadedBy` is exposed
+as a bare id only.
+
+**Batch pagination.** `listImportBatches` is bounded (default limit 50,
+max 200; `limit <= 0`, `limit > 200`, or a non-integer limit all yield
+`INVALID_LIMIT`) and keyset-paginated on `(created_at DESC, id DESC)`,
+never offset-based and never a `COUNT(*)` — `hasNextPage` is derived from
+fetching `limit + 1` rows. The opaque cursor encodes only the
+`(createdAt, id)` ordering tuple, never organisation identity;
+`organisation_id` always comes from the trusted context parameter and is
+reasserted in the `WHERE` clause independent of any cursor value, so a
+forged-but-well-formed cursor can only reposition a caller within their
+own already-tenant-scoped result set. Proven against real Postgres:
+multi-page traversal has no duplicates or omissions (case 12); a newer
+batch inserted between page requests does not corrupt an
+already-established traversal (case 13); pagination never crosses tenant
+even across a full multi-page walk (case 14); a malformed or
+structurally-wrong cursor yields `INVALID_CURSOR` (case 15/15b).
+
+**Pagination-precision remediation (post-review).** An independent
+adversarial review of the first candidate found that `created_at` is a
+genuine microsecond-precision `TIMESTAMPTZ`, while a JS `Date` — and
+therefore the cursor built from one — can only ever represent millisecond
+precision. Ordering by the raw column while comparing the `WHERE`-clause
+cursor boundary against that same raw column silently and permanently
+omitted rows whose real `created_at` fell strictly between the cursor's
+millisecond-truncated value and the next row's real value (reproduced
+against real Postgres: two `ImportBatch` rows created within the same
+millisecond for one organisation, a realistic condition under
+concurrent/rapid `initiate()` calls). Fixed by keeping the `ORDER BY` and
+the `WHERE`-clause cursor comparison at IDENTICAL precision: both now
+operate on `date_trunc('milliseconds', created_at)`, computed by Postgres
+itself and selected `AS created_at`, so the value that becomes a JS
+`Date` (for both the DTO's `createdAt` field and the next cursor) is
+already exactly millisecond-valued, leaving nothing for any driver-level
+rounding/truncation to disagree about on the next page's comparison.
+Because Prisma's query builder cannot express a function/expression in
+`orderBy`/`where` for a non-generated column, `listImportBatches` alone
+(no other H.2 operation needed this) uses a narrowly-scoped
+`prisma.$queryRaw` built via `Prisma.sql` composition — never
+`$queryRawUnsafe`, never string-built SQL; every value (`organisationId`,
+the cursor's truncated timestamp and id, and `limit + 1`) is bound as a
+real query parameter. Proven against real Postgres with a fixture seeded
+via raw SQL (never a JS `Date`/Prisma typed `create()`, which is exactly
+the blind spot that let the original bug through): rows sharing one
+millisecond but differing only in microseconds are traversed with zero
+omissions and zero duplicates; the same fixture, run against the
+pre-remediation code, reproducibly fails. No schema/migration change was
+required.
+
+**Worksheet ordering.** `listWorksheetsForBatch` orders strictly by
+`worksheet_index ASC` with no pagination — re-verified that
+`workbookParser.ts`'s `maxWorksheetCount` remains 50 as of this phase, so
+a single batch is structurally bounded to at most 50 `DATA_HUB` rows;
+`read.ts` does not import `workbookParser.ts` or enforce this bound
+itself.
+
+**Read-committed consistency.** No transaction is used anywhere in this
+module — none of the four operations combines multiple queries into an
+invariant that requires snapshot isolation. `listWorksheetsForBatch`'s
+two-step (parent-exists, then children) has a theoretical TOCTOU gap with
+5A.2K's not-yet-implemented deletion mechanics; the worst outcome is a
+possibly-stale-but-internally-consistent read, never a torn or
+cross-tenant one, since `createMany`/`update` statements are atomic under
+Postgres at the statement level.
+
+**Darkness.** No `app/**`, `components/**`, `app/api/**`, server action,
+cron, or webhook file references `read.ts` or any of its four exported
+function names — proven statically
+(`tests/containment/worksheetReadService.test.ts`) and by the updated
+`tests/containment/dataHubImportBatchDarkness.test.ts`'s repo-wide
+importer scan and expected-file-set check.
+
+**Legacy `confirmImport` untouched.** `services/upload.ts`'s
+`confirmImport()`/`getUploadHistory()` still have no `lineage_kind`
+filtering, exactly as flagged at 5A.2H.2's own architecture-review stage
+— this phase does not touch that file. No `read.ts` function calls into
+the legacy upload pipeline, and no legacy code calls into `read.ts`.
+
+**H.3 handoff.** A future read-only HTTP route layer can build directly
+on these four functions without reimplementing tenant scoping, lineage
+scoping, pagination, ordering, DTO sanitization, or error semantics.
+H.3 still owns: HTTP authentication/authorization (`requireSession`/
+`requireRole`, per this repo's two-layer auth architecture), HTTP status
+mapping for the four read error codes, request-shape parsing into the
+cursor/limit types this module expects, and the response envelope. As
+with 5A.2H.1, the standing `xlsx@0.18.5` route-exposure blocker (Section
+8/8a/8b) remains unresolved and is entirely orthogonal to this phase —
+`read.ts` never touches `xlsx` directly or transitively — but no future
+phase may add a route that re-triggers `inspectWorkbook`/parsing until
+that blocker is separately, explicitly resolved.

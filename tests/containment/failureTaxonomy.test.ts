@@ -45,6 +45,11 @@ describe("failureTaxonomy — code sets", () => {
         "STORAGE_INTEGRITY_MISMATCH",
         "PARSER_REJECTED",
         "PERSISTENCE_CONFLICT",
+        // 5A.2H.2 — dark worksheet/ImportBatch read services
+        // (lib/data-hub/importBatch/read.ts) outcome codes.
+        "WORKSHEET_NOT_FOUND",
+        "INVALID_CURSOR",
+        "INVALID_LIMIT",
       ])
     );
   });

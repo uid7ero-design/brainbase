@@ -22,12 +22,19 @@ import path from 'path';
 // still invokes vitest with an explicit file argument (see both .sh
 // scripts) so either suite can be run independently without collecting
 // the other.
+//
+// 5A.2H.2 addition: scripts/tests/worksheetReadService.integration.test.ts
+// (the dark tenant-safe worksheet/ImportBatch read services' own
+// real-Postgres harness — see scripts/tests/verify-worksheet-read-service.sh)
+// is added alongside the existing two specs, for the same reason and with
+// the same explicit-file-argument isolation.
 export default defineConfig({
   test: {
     environment: 'node',
     include: [
       'scripts/tests/importBatchService.integration.test.ts',
       'scripts/tests/inspectWorksheets.integration.test.ts',
+      'scripts/tests/worksheetReadService.integration.test.ts',
     ],
     testTimeout: 30_000,
     hookTimeout: 30_000,
