@@ -961,6 +961,66 @@ export async function POST() {
   await sql`CREATE INDEX IF NOT EXISTS idx_organiser_activity_item  ON organiser_activity(item_id, created_at DESC)`;
   await sql`CREATE INDEX IF NOT EXISTS idx_organiser_activity_actor ON organiser_activity(actor_user_id, created_at DESC)`;
 
+  // Phase D.4.5C-B — Gate A resolution (see the phase report). The item
+  // routes' race-safe before/after capture happens entirely INSIDE one
+  // Postgres statement (a FOR UPDATE-locked "old" CTE + the UPDATE +
+  // the organiser_activity INSERT), so D.4.5B's TypeScript sanitisation
+  // helpers (which operate on JS values) can never see the true, locked
+  // "old" row — there is nothing in JS to sanitise before the statement
+  // executes. This small, pure SQL function is the same policy
+  // (MAX_ACTIVITY_STRING_LENGTH=200, the same '…(truncated)' marker,
+  // non-string objects/arrays stringified-and-truncated rather than
+  // walked further, primitives/null passed through) re-expressed in SQL
+  // so it can run inside that same statement. Parity with
+  // lib/organiser/activity.ts's sanitiseActivityFieldValue is proven,
+  // case-by-case, in tests/containment/organiserActivitySanitisationParity
+  // .test.ts and empirically via scripts/tests/
+  // verify-organiser-item-activity-concurrency.sh (real Postgres 16) —
+  // the one known, disclosed divergence is Unicode counting: Postgres's
+  // length()/left() count codepoints, JS's .length/.slice() count UTF-16
+  // code units, so text containing supplementary-plane characters (e.g.
+  // emoji outside the Basic Multilingual Plane) and exceeding 200 units
+  // truncates at a different point on each side — both sides still
+  // truncate safely with the same explicit marker, they just disagree on
+  // the exact cutoff for that narrow class of input. Not a Postgres ENUM;
+  // CREATE OR REPLACE is this function's own idempotent equivalent of the
+  // CREATE TABLE/INDEX IF NOT EXISTS convention used everywhere else in
+  // this file.
+  //
+  // Phase D.4.5C-M — this function is deployed here, ahead of the item
+  // route runtime callers that reference it (PR #98 / commit c925f99),
+  // specifically so the production database has both organiser_activity
+  // and this function available BEFORE any runtime code path can call
+  // either. No runtime caller of this function exists anywhere in this
+  // branch — see tests/containment/organiserActivitySanitisationParity
+  // .test.ts's own "zero runtime caller" coverage.
+  step('41. organiser_activity_sanitise_scalar');
+  await sql`
+    CREATE OR REPLACE FUNCTION organiser_activity_sanitise_scalar(value jsonb)
+    RETURNS jsonb
+    LANGUAGE sql IMMUTABLE
+    AS $f$
+      SELECT CASE
+        WHEN value IS NULL OR jsonb_typeof(value) = 'null' THEN value
+        WHEN jsonb_typeof(value) = 'string' THEN
+          to_jsonb(
+            CASE WHEN length(value #>> '{}') > 200
+              THEN left(value #>> '{}', 200) || '…(truncated)'
+              ELSE value #>> '{}'
+            END
+          )
+        WHEN jsonb_typeof(value) IN ('object', 'array') THEN
+          to_jsonb(
+            CASE WHEN length(value::text) > 200
+              THEN left(value::text, 200) || '…(truncated)'
+              ELSE value::text
+            END
+          )
+        ELSE value
+      END
+    $f$
+  `;
+
   return NextResponse.json({ success: true, message: 'Migration complete.', steps });
 
   } catch (err: unknown) {

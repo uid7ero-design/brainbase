@@ -202,8 +202,24 @@ describe('containment — no backfill, no existing-table changes, no unrelated s
     expect(step1Idx).toBeGreaterThan(-1)
     expect(step39Idx).toBeGreaterThan(step1Idx)
     expect(stepStart).toBeGreaterThan(step39Idx)
-    // No step numbered higher than 40 exists yet.
-    expect(CODE).not.toMatch(/step\('4[1-9]\./)
+  })
+
+  // Phase D.4.5C-B — this assertion originally read "No step numbered
+  // higher than 40 exists yet," a deliberate temporal boundary for the
+  // D.4.5B phase it was written in. D.4.5C-B is the separately-approved
+  // phase that legitimately advances that boundary by appending step 41
+  // (organiser_activity_sanitise_scalar — see
+  // organiserActivitySanitisationParity.test.ts for its own dedicated
+  // coverage) — the condition this assertion existed to guard against has
+  // expired, so the boundary is updated here rather than the assertion
+  // being weakened or deleted. Phase D.4.5C-M ports this exact boundary
+  // to the DB-foundation prep branch since step 41 is deployed here too.
+  it('step 41 (organiser_activity_sanitise_scalar) is the current highest step — no step numbered higher than 41 exists yet', () => {
+    const step40Idx = CODE.indexOf("step('40. organiser_activity')")
+    const step41Idx = CODE.indexOf("step('41. organiser_activity_sanitise_scalar')")
+    expect(step41Idx).toBeGreaterThan(step40Idx)
+    expect(CODE).not.toMatch(/step\('4[2-9]\./)
+    expect(CODE).not.toMatch(/step\('[5-9][0-9]\./)
   })
 
   it('does not reuse the existing generic audit_logs table — organiser_activity is its own table', () => {
