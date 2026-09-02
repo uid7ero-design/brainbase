@@ -3,29 +3,39 @@
 import { useState } from 'react';
 import { Calendar, Clock, MapPin, Users, Minus, Plus, CheckCircle2, Ticket } from 'lucide-react';
 import { BrainBaseWordmark } from '@/components/brand/BrainBaseWordmark';
+import { resolvePublicEventTheme } from '@/lib/events/publicEventTheme';
+import { InstitutionalHeader, InstitutionalHero, InstitutionalFooter } from '@/components/publicEvents/InstitutionalChrome';
 import type { PublicEventDetail, PublicSession, PublicTicketType, PublicQuestion } from '@/lib/events/publicEventDetail';
 
 const FONT = 'var(--font-inter), "Inter", -apple-system, sans-serif';
 
-// Hardcoded, always-dark tokens — deliberately NOT the ops-shell's
-// data-theme-driven CSS vars (app/globals.css). This is a public,
-// unauthenticated destination page; it must render identically
-// regardless of any staff member's light/dark toggle elsewhere in the
-// app (see components/theme/ThemeProvider.tsx), so it follows the same
-// "hardcode the dark palette" convention app/page.tsx already uses
-// rather than depending on a toggle that has nothing to do with this
-// page's visitors.
-const BG = '#07080B';
-const BORDER = 'rgba(255,255,255,.08)';
-const BORDER_SOFT = 'rgba(255,255,255,.06)';
-const VIOLET = '#8A4DFF';
-const VIOLET_SOFT = '#A78BFA';
-const VIOLET_GRADIENT = 'linear-gradient(100deg,#6A3DFF 0%,#8A4DFF 55%,#5677FF 100%)';
-const TEXT_PRIMARY = '#F5F7FA';
-const TEXT_SECONDARY = 'rgba(226,232,240,.66)';
-const TEXT_MUTED = 'rgba(226,232,240,.42)';
-const GREEN = '#4ADE80';
-const RED = '#F87171';
+// Public event branding (see lib/events/publicEventTheme.ts) — these
+// were previously hardcoded hex/rgba literals; they are now the exact
+// matching `var(--bbpe-*)` custom-property strings, set once via
+// `theme.cssVars` on this page's own root element below. Every existing
+// usage of these consts throughout this file (and the shared
+// EVENT_PAGE_CSS block) is therefore already theme-aware with no other
+// change required — a non-branded organisation gets `theme.cssVars`
+// equal to these exact original values, so its rendering is byte-for-
+// byte unchanged from before this pass. Deliberately still NOT the ops-
+// shell's data-theme-driven light/dark CSS vars (app/globals.css) — this
+// is a public, unauthenticated destination page that must render
+// identically regardless of any staff member's light/dark toggle
+// elsewhere in the app (see components/theme/ThemeProvider.tsx); the
+// per-organisation branding theme above is an orthogonal concern to that
+// toggle, not a replacement for the "always dark base" convention
+// app/page.tsx also uses.
+const BG = 'var(--bbpe-bg)';
+const BORDER = 'var(--bbpe-border)';
+const BORDER_SOFT = 'var(--bbpe-border-soft)';
+const VIOLET = 'var(--bbpe-accent)';
+const VIOLET_SOFT = 'var(--bbpe-accent-soft)';
+const VIOLET_GRADIENT = 'var(--bbpe-accent-gradient)';
+const TEXT_PRIMARY = 'var(--bbpe-text-primary)';
+const TEXT_SECONDARY = 'var(--bbpe-text-secondary)';
+const TEXT_MUTED = 'var(--bbpe-text-muted)';
+const GREEN = 'var(--bbpe-green)';
+const RED = 'var(--bbpe-red)';
 
 // Section-local CSS (same pattern app/page.tsx already uses for its own
 // `bb-home-*` classes) — needed for :checked/:focus-visible/:disabled
@@ -35,16 +45,16 @@ const RED = '#F87171';
 const EVENT_PAGE_CSS = `
 .bb-event-header {
   position: sticky; top: 0; z-index: 50;
-  background: rgba(7,8,11,.86); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+  background: var(--bbpe-bg-translucent); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
   border-bottom: 1px solid ${BORDER_SOFT};
 }
 .bb-event-glow-top {
   position: fixed; inset: 0 0 auto 0; height: 560px; pointer-events: none; z-index: 0;
-  background: radial-gradient(ellipse 70% 50% at 50% -10%, rgba(138,77,255,.14) 0%, rgba(74,54,180,.045) 40%, transparent 72%);
+  background: radial-gradient(ellipse 70% 50% at 50% -10%, rgba(var(--bbpe-accent-rgb),.14) 0%, rgba(var(--bbpe-accent-rgb),.045) 40%, transparent 72%);
 }
 .bb-event-glow-orb {
   position: absolute; top: -140px; right: -160px; width: 420px; height: 420px; border-radius: 50%;
-  background: radial-gradient(circle, rgba(138,77,255,.16) 0%, rgba(88,68,220,.05) 42%, transparent 70%);
+  background: radial-gradient(circle, rgba(var(--bbpe-accent-rgb),.16) 0%, rgba(var(--bbpe-accent-rgb),.05) 42%, transparent 70%);
   filter: blur(30px); animation: glowPulse 7s ease-in-out infinite; pointer-events: none; z-index: 0;
 }
 .bb-event-main { position: relative; z-index: 1; max-width: 1080px; margin: 0 auto; padding: 40px 20px 88px; }
@@ -67,8 +77,8 @@ const EVENT_PAGE_CSS = `
   transition: border-color .15s ease, background .15s ease, box-shadow .15s ease;
 }
 .bb-radio-card input:checked + .bb-radio-card-inner {
-  border-color: rgba(138,77,255,.55); background: rgba(138,77,255,.08);
-  box-shadow: 0 0 0 1px rgba(138,77,255,.25) inset;
+  border-color: rgba(var(--bbpe-accent-rgb),.55); background: rgba(var(--bbpe-accent-rgb),.08);
+  box-shadow: 0 0 0 1px rgba(var(--bbpe-accent-rgb),.25) inset;
 }
 .bb-radio-card input:focus-visible + .bb-radio-card-inner { outline: 2px solid ${VIOLET}; outline-offset: 2px; }
 .bb-radio-card input:disabled + .bb-radio-card-inner { opacity: .42; cursor: not-allowed; }
@@ -79,8 +89,8 @@ const EVENT_PAGE_CSS = `
 }
 .bb-event-input::placeholder { color: rgba(226,232,240,.32); }
 .bb-event-input:focus {
-  outline: none; border-color: rgba(138,77,255,.55); background: rgba(138,77,255,.05);
-  box-shadow: 0 0 0 3px rgba(124,58,237,.16);
+  outline: none; border-color: rgba(var(--bbpe-accent-rgb),.55); background: rgba(var(--bbpe-accent-rgb),.05);
+  box-shadow: 0 0 0 3px rgba(var(--bbpe-accent-rgb),.16);
 }
 .bb-event-input:disabled { opacity: .5; cursor: not-allowed; }
 .bb-event-stepper-btn {
@@ -88,13 +98,13 @@ const EVENT_PAGE_CSS = `
   background: rgba(255,255,255,.03); color: ${TEXT_PRIMARY}; display: inline-flex;
   align-items: center; justify-content: center; cursor: pointer; transition: border-color .15s ease, background .15s ease;
 }
-.bb-event-stepper-btn:hover:not(:disabled) { border-color: rgba(138,77,255,.4); background: rgba(138,77,255,.08); }
+.bb-event-stepper-btn:hover:not(:disabled) { border-color: rgba(var(--bbpe-accent-rgb),.4); background: rgba(var(--bbpe-accent-rgb),.08); }
 .bb-event-stepper-btn:focus-visible { outline: 2px solid ${VIOLET}; outline-offset: 2px; }
 .bb-event-stepper-btn:disabled { opacity: .35; cursor: not-allowed; }
 .bb-event-cta {
   width: 100%; border: none; border-radius: 11px; padding: 14px 20px; font-size: 14px; font-weight: 650;
   color: #fff; cursor: pointer; font-family: ${FONT}; background: ${VIOLET_GRADIENT};
-  box-shadow: 0 8px 26px rgba(106,61,255,.28); display: flex; align-items: center; justify-content: center; gap: 8px;
+  box-shadow: 0 8px 26px rgba(var(--bbpe-accent-rgb),.28); display: flex; align-items: center; justify-content: center; gap: 8px;
   transition: opacity .15s ease, transform .08s ease;
 }
 .bb-event-cta:disabled { opacity: .48; cursor: not-allowed; box-shadow: none; }
@@ -177,6 +187,13 @@ export default function PublicEventClient({
   checkoutCancelled: boolean;
 }) {
   const { event, sessions, ticket_types: ticketTypes, questions } = detail;
+  // Public event branding (see lib/events/publicEventTheme.ts) — a pure,
+  // synchronous lookup keyed only by the organisationSlug this component
+  // already receives as a prop; no new query, no schema change. Every
+  // organisation not in the registry gets `DEFAULT_THEME`, whose tokens
+  // are byte-identical to this file's original hardcoded palette.
+  const theme = resolvePublicEventTheme(organisationSlug);
+  const institutional = theme.variant === 'institutional';
   // Phase 4B §5 — the two scopes always render as two separate blocks
   // (never interleaved): ORDER questions once, under "Booking details";
   // ATTENDEE questions once per attendee, under each attendee's own
@@ -323,10 +340,10 @@ export default function PublicEventClient({
 
   if (confirmation) {
     return (
-      <div style={{ minHeight: '100vh', background: BG, color: TEXT_PRIMARY, fontFamily: FONT, position: 'relative', overflowX: 'hidden' }}>
+      <div style={{ minHeight: '100vh', background: BG, color: TEXT_PRIMARY, fontFamily: FONT, position: 'relative', overflowX: 'hidden', ...theme.cssVars }}>
         <style>{EVENT_PAGE_CSS}</style>
         <div className="bb-event-glow-top" aria-hidden="true" />
-        <EventHeader />
+        {institutional ? <InstitutionalHeader theme={theme} /> : <EventHeader />}
         <main className="bb-event-main" style={{ maxWidth: 560, display: 'flex', justifyContent: 'center' }}>
           <div style={{ width: '100%', border: `1px solid ${BORDER}`, borderRadius: 18, background: 'rgba(255,255,255,.02)', padding: '36px 28px', textAlign: 'center' }}>
             <div style={{
@@ -381,15 +398,28 @@ export default function PublicEventClient({
             </p>
           </div>
         </main>
+        {institutional && <InstitutionalFooter theme={theme} />}
       </div>
     );
   }
 
   return (
-    <div style={{ minHeight: '100vh', background: BG, color: TEXT_PRIMARY, fontFamily: FONT, position: 'relative', overflowX: 'hidden' }}>
+    <div style={{ minHeight: '100vh', background: BG, color: TEXT_PRIMARY, fontFamily: FONT, position: 'relative', overflowX: 'hidden', ...theme.cssVars }}>
       <style>{EVENT_PAGE_CSS}</style>
       <div className="bb-event-glow-top" aria-hidden="true" />
-      <EventHeader />
+      {institutional ? <InstitutionalHeader theme={theme} /> : <EventHeader />}
+      {institutional && (
+        <InstitutionalHero
+          eyebrow="Event"
+          title={event.name}
+          subtitle={
+            <>
+              {formatDate(event.starts_at, event.timezone)} · {formatTime(event.starts_at, event.timezone)}
+              {event.venue ? ` · ${event.venue}` : ''}
+            </>
+          }
+        />
+      )}
 
       <main className="bb-event-main">
         <div className="bb-event-grid">
@@ -399,22 +429,32 @@ export default function PublicEventClient({
             <div style={{ position: 'relative', zIndex: 1 }}>
               {event.artwork_url && <EventArtwork src={event.artwork_url} alt={`${event.name} artwork`} />}
 
-              <div style={{
-                display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 700,
-                letterSpacing: '.09em', textTransform: 'uppercase', color: VIOLET_SOFT, marginBottom: 14,
-              }}>
-                <Ticket size={13} /> Event
-              </div>
+              {/* The institutional variant already presented the eyebrow,
+                  title, and date/time/venue meta in the hero band above —
+                  repeating them here would be redundant, so this block
+                  (never EventHeader — see this file's own comment on
+                  EventHeader's untouched, org-agnostic contract) is the
+                  only piece conditionally skipped for that variant. */}
+              {!institutional && (
+                <>
+                  <div style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 700,
+                    letterSpacing: '.09em', textTransform: 'uppercase', color: VIOLET_SOFT, marginBottom: 14,
+                  }}>
+                    <Ticket size={13} /> Event
+                  </div>
 
-              <h1 style={{ fontSize: 34, fontWeight: 700, letterSpacing: '-.02em', lineHeight: 1.12, margin: '0 0 18px' }}>
-                {event.name}
-              </h1>
+                  <h1 style={{ fontSize: 34, fontWeight: 700, letterSpacing: '-.02em', lineHeight: 1.12, margin: '0 0 18px' }}>
+                    {event.name}
+                  </h1>
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 20 }}>
-                <MetaRow icon={<Calendar size={15} color={VIOLET_SOFT} />} text={formatDate(event.starts_at, event.timezone)} />
-                <MetaRow icon={<Clock size={15} color={VIOLET_SOFT} />} text={`${formatTime(event.starts_at, event.timezone)} – ${formatTime(event.ends_at, event.timezone)}`} />
-                {event.venue && <MetaRow icon={<MapPin size={15} color={VIOLET_SOFT} />} text={event.venue} />}
-              </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 20 }}>
+                    <MetaRow icon={<Calendar size={15} color={VIOLET_SOFT} />} text={formatDate(event.starts_at, event.timezone)} />
+                    <MetaRow icon={<Clock size={15} color={VIOLET_SOFT} />} text={`${formatTime(event.starts_at, event.timezone)} – ${formatTime(event.ends_at, event.timezone)}`} />
+                    {event.venue && <MetaRow icon={<MapPin size={15} color={VIOLET_SOFT} />} text={event.venue} />}
+                  </div>
+                </>
+              )}
 
               {event.description && (
                 <p style={{ fontSize: 14.5, lineHeight: 1.7, color: TEXT_SECONDARY, margin: '0 0 22px', maxWidth: 480 }}>
@@ -608,6 +648,7 @@ export default function PublicEventClient({
           </div>
         </div>
       </main>
+      {institutional && <InstitutionalFooter theme={theme} />}
     </div>
   );
 }
@@ -730,7 +771,7 @@ function EventArtwork({ src, alt }: { src: string; alt: string }) {
     <div style={{
       width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center',
       borderRadius: 18, overflow: 'hidden', border: `1px solid ${BORDER}`, marginBottom: 22,
-      background: 'rgba(255,255,255,.02)', boxShadow: '0 14px 40px rgba(0,0,0,.35), 0 0 0 1px rgba(138,77,255,.07)',
+      background: 'rgba(255,255,255,.02)', boxShadow: '0 14px 40px rgba(0,0,0,.35), 0 0 0 1px rgba(var(--bbpe-accent-rgb),.07)',
     }}>
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img

@@ -3,6 +3,8 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import { Calendar, MapPin, Ticket } from 'lucide-react';
+import { resolvePublicEventTheme } from '@/lib/events/publicEventTheme';
+import { InstitutionalHeader, InstitutionalFooter } from '@/components/publicEvents/InstitutionalChrome';
 import type { PublicHubEvent } from '@/lib/events/publicEventsHub';
 
 const FONT = 'var(--font-inter), "Inter", -apple-system, sans-serif';
@@ -15,15 +17,20 @@ const FONT = 'var(--font-inter), "Inter", -apple-system, sans-serif';
 // PublicEventClient.tsx: that file is a single-event booking page,
 // not a shared design-tokens module, and duplicating a handful of
 // hex/rgba literals here is simpler than introducing a new shared
-// import surface for them.
-const BG = '#07080B';
-const BORDER = 'rgba(255,255,255,.08)';
-const BORDER_SOFT = 'rgba(255,255,255,.06)';
-const VIOLET_SOFT = '#A78BFA';
-const TEXT_PRIMARY = '#F5F7FA';
-const TEXT_SECONDARY = 'rgba(226,232,240,.66)';
-const TEXT_MUTED = 'rgba(226,232,240,.42)';
-const GREEN = '#4ADE80';
+// import surface for them. These are now the matching `var(--bbpe-*)`
+// strings (see lib/events/publicEventTheme.ts) rather than literal hex
+// — same reasoning as PublicEventClient.tsx's own identical comment:
+// every existing usage below is already theme-aware for free, and a
+// non-branded organisation's `theme.cssVars` equal these exact original
+// values, so its rendering is unchanged.
+const BG = 'var(--bbpe-bg)';
+const BORDER = 'var(--bbpe-border)';
+const BORDER_SOFT = 'var(--bbpe-border-soft)';
+const VIOLET_SOFT = 'var(--bbpe-accent-soft)';
+const TEXT_PRIMARY = 'var(--bbpe-text-primary)';
+const TEXT_SECONDARY = 'var(--bbpe-text-secondary)';
+const TEXT_MUTED = 'var(--bbpe-text-muted)';
+const GREEN = 'var(--bbpe-green)';
 
 function formatDate(iso: string, timeZone: string): string {
   return new Intl.DateTimeFormat('en-AU', { day: 'numeric', month: 'long', year: 'numeric', timeZone }).format(new Date(iso));
@@ -41,20 +48,29 @@ export default function PublicEventsHubClient({
 }: {
   organisationSlug: string; organisationName: string; events: PublicHubEvent[];
 }) {
+  // Public event branding (see lib/events/publicEventTheme.ts) — same
+  // resolver, same organisationSlug-only lookup, as PublicEventClient.
+  const theme = resolvePublicEventTheme(organisationSlug);
+  const institutional = theme.variant === 'institutional';
+
   return (
-    <div style={{ minHeight: '100vh', background: BG, color: TEXT_PRIMARY, fontFamily: FONT }}>
-      <header style={{ position: 'sticky', top: 0, zIndex: 50, background: 'rgba(7,8,11,.86)', backdropFilter: 'blur(16px)', borderBottom: `1px solid ${BORDER_SOFT}` }}>
-        <div style={{ maxWidth: 1080, margin: '0 auto', padding: '13px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <Image src="/Brand/brainbase-logo-dark.svg" alt="BRΛINBΛSE" width={132} height={30} priority style={{ display: 'block', width: 120, height: 'auto' }} />
-          <span style={{ fontSize: 11, color: TEXT_MUTED, letterSpacing: '.03em', fontWeight: 500 }}>Powered by BrainBase</span>
-        </div>
-      </header>
+    <div style={{ minHeight: '100vh', background: BG, color: TEXT_PRIMARY, fontFamily: FONT, ...theme.cssVars }}>
+      {institutional ? (
+        <InstitutionalHeader theme={theme} />
+      ) : (
+        <header style={{ position: 'sticky', top: 0, zIndex: 50, background: 'rgba(7,8,11,.86)', backdropFilter: 'blur(16px)', borderBottom: `1px solid ${BORDER_SOFT}` }}>
+          <div style={{ maxWidth: 1080, margin: '0 auto', padding: '13px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Image src="/Brand/brainbase-logo-dark.svg" alt="BRΛINBΛSE" width={132} height={30} priority style={{ display: 'block', width: 120, height: 'auto' }} />
+            <span style={{ fontSize: 11, color: TEXT_MUTED, letterSpacing: '.03em', fontWeight: 500 }}>Powered by BrainBase</span>
+          </div>
+        </header>
+      )}
 
       <main style={{ maxWidth: 1080, margin: '0 auto', padding: '40px 20px 88px' }}>
         <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 700, letterSpacing: '.09em', textTransform: 'uppercase', color: VIOLET_SOFT, marginBottom: 10 }}>
           <Ticket size={13} /> Events
         </div>
-        <h1 style={{ fontSize: 30, fontWeight: 700, letterSpacing: '-.02em', margin: '0 0 32px' }}>{organisationName}</h1>
+        <h1 style={{ fontSize: 30, fontWeight: 700, letterSpacing: '-.02em', margin: '0 0 32px', fontFamily: institutional ? 'var(--bbpe-heading-font)' : undefined }}>{organisationName}</h1>
 
         {events.length === 0 ? (
           <div style={{ border: `1px solid ${BORDER}`, borderRadius: 16, background: 'rgba(255,255,255,.02)', padding: '48px 24px', textAlign: 'center' }}>
@@ -68,6 +84,7 @@ export default function PublicEventsHubClient({
           </div>
         )}
       </main>
+      {institutional && <InstitutionalFooter theme={theme} />}
     </div>
   );
 }
