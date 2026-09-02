@@ -116,7 +116,7 @@ export default function CheckoutSuccessPage() {
       )}
 
       <main style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px 20px' }}>
-        <div style={{ width: '100%', maxWidth: 480, border: `1px solid ${BORDER}`, borderRadius: 18, background: 'rgba(255,255,255,.02)', padding: '36px 28px', textAlign: 'center' }}>
+        <div style={{ width: '100%', maxWidth: 480, border: `1px solid ${BORDER}`, borderRadius: 18, background: 'var(--bbpe-card-bg)', boxShadow: 'var(--bbpe-card-shadow)', padding: '36px 28px', textAlign: 'center' }}>
           {!sessionId && <ErrorState message="Missing checkout reference." />}
           {sessionId && error && <ErrorState message={error} />}
           {sessionId && !error && !status && <ProcessingState />}
@@ -139,7 +139,12 @@ function IconCircle({ children, tone }: { children: React.ReactNode; tone: 'ok' 
   const colors = {
     ok: { fg: GREEN, bg: 'rgba(74,222,128,.12)', bd: 'rgba(74,222,128,.35)' },
     bad: { fg: RED, bg: 'rgba(248,113,113,.12)', bd: 'rgba(248,113,113,.35)' },
-    pending: { fg: VIOLET_SOFT, bg: 'rgba(138,77,255,.12)', bd: 'rgba(138,77,255,.35)' },
+    // Routed through the same --bbpe-accent-rgb var as `fg` (VIOLET_SOFT)
+    // itself, not a literal violet RGB triplet — for the institutional
+    // theme, fg resolves to dark gold, so this circle's own bg/border
+    // must track it rather than staying stuck on the old violet, which
+    // has no place in that theme's palette at all.
+    pending: { fg: VIOLET_SOFT, bg: 'rgba(var(--bbpe-accent-rgb),.12)', bd: 'rgba(var(--bbpe-accent-rgb),.35)' },
   }[tone];
   return (
     <div style={{
@@ -184,7 +189,7 @@ function ConfirmedState({ status }: { status: StatusResponse }) {
                 style={{
                   display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10,
                   border: `1px solid ${BORDER}`, borderRadius: 10, padding: '10px 14px', textDecoration: 'none',
-                  background: 'rgba(255,255,255,.02)', color: TEXT_PRIMARY, fontSize: 13, fontWeight: 600,
+                  background: 'var(--bbpe-section-bg)', color: TEXT_PRIMARY, fontSize: 13, fontWeight: 600,
                 }}
               >
                 {t.attendee_name}

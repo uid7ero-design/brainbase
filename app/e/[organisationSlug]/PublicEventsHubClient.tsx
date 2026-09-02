@@ -73,7 +73,7 @@ export default function PublicEventsHubClient({
         <h1 style={{ fontSize: 30, fontWeight: 700, letterSpacing: '-.02em', margin: '0 0 32px', fontFamily: institutional ? 'var(--bbpe-heading-font)' : undefined }}>{organisationName}</h1>
 
         {events.length === 0 ? (
-          <div style={{ border: `1px solid ${BORDER}`, borderRadius: 16, background: 'rgba(255,255,255,.02)', padding: '48px 24px', textAlign: 'center' }}>
+          <div style={{ border: `1px solid ${BORDER}`, borderRadius: 16, background: 'var(--bbpe-card-bg)', boxShadow: 'var(--bbpe-card-shadow)', padding: '48px 24px', textAlign: 'center' }}>
             <p style={{ fontSize: 15, color: TEXT_SECONDARY, margin: 0 }}>No upcoming events</p>
           </div>
         ) : (
@@ -96,11 +96,11 @@ function EventCard({ organisationSlug, event }: { organisationSlug: string; even
       href={`/e/${organisationSlug}/${event.slug}`}
       style={{
         display: 'flex', flexDirection: 'column', border: `1px solid ${BORDER}`, borderRadius: 14,
-        background: 'rgba(255,255,255,.02)', overflow: 'hidden', textDecoration: 'none', color: 'inherit',
+        background: 'var(--bbpe-card-bg)', boxShadow: 'var(--bbpe-card-shadow)', overflow: 'hidden', textDecoration: 'none', color: 'inherit',
         transition: 'border-color .15s ease',
       }}
     >
-      <div style={{ aspectRatio: '16 / 9', background: 'rgba(255,255,255,.03)', position: 'relative', overflow: 'hidden' }}>
+      <div style={{ aspectRatio: '16 / 9', background: 'var(--bbpe-section-bg)', position: 'relative', overflow: 'hidden' }}>
         {event.artwork_url ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={event.artwork_url} alt={event.name} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
