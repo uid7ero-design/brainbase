@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import * as XLSX from 'xlsx';
 import sql from '@/lib/db';
-import { requireRole } from '@/lib/org';
+import { authorizeOrganiserRequest } from '@/lib/organiser/authorize';
 
 // Headers that map to first-class organiser_items columns. Everything else in
 // the sheet is preserved verbatim in the `fields` JSONB column so no imported
@@ -23,10 +23,9 @@ function cellStr(v: unknown): string {
 }
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ boardId: string }> }) {
-  let session;
-  try { session = await requireRole('viewer'); } catch {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const auth = await authorizeOrganiserRequest('viewer');
+  if (!auth.ok) return auth.response;
+  const { session } = auth;
 
   const { boardId } = await params;
   const boardRows = await sql`

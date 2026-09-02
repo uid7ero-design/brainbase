@@ -144,7 +144,12 @@ export async function confirmImport(params: {
 }): Promise<{ imported_rows: number }> {
   const { upload_id, organisation_id, field_mappings } = params;
 
-  const upload = await prisma.upload.findFirst({ where: { id: upload_id, organisation_id } });
+  // 5A.2H.3-PRE: this legacy service must operate ONLY on legacy Upload
+  // rows. lineage_kind: "LEGACY" is asserted directly in the lookup
+  // (never fetch-by-id-then-check) so a DATA_HUB-lineage worksheet row
+  // collapses into the exact same "not found" outcome as a nonexistent
+  // or wrong-tenant id — never a distinguishable error.
+  const upload = await prisma.upload.findFirst({ where: { id: upload_id, organisation_id, lineage_kind: "LEGACY" } });
   if (!upload) throw new Error("Upload not found");
   if (upload.status === "IMPORTING" || upload.status === "COMPLETE") throw new Error("Upload already imported");
 

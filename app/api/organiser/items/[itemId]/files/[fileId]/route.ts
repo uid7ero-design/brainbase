@@ -2,13 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { unlink } from 'fs/promises';
 import path from 'path';
 import sql from '@/lib/db';
-import { requireRole } from '@/lib/org';
+import { authorizeOrganiserRequest } from '@/lib/organiser/authorize';
 
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ itemId: string; fileId: string }> }) {
-  let session;
-  try { session = await requireRole('viewer'); } catch {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const auth = await authorizeOrganiserRequest('viewer');
+  if (!auth.ok) return auth.response;
+  const { session } = auth;
 
   const { itemId, fileId } = await params;
 

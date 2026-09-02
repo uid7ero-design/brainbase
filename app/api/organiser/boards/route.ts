@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import sql from '@/lib/db';
-import { requireRole } from '@/lib/org';
+import { authorizeOrganiserRequest } from '@/lib/organiser/authorize';
 
 export async function GET() {
-  let session;
-  try { session = await requireRole('viewer'); } catch {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const auth = await authorizeOrganiserRequest('viewer');
+  if (!auth.ok) return auth.response;
+  const { session } = auth;
 
   const boards = await sql`
     SELECT
@@ -23,10 +22,9 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  let session;
-  try { session = await requireRole('viewer'); } catch {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const auth = await authorizeOrganiserRequest('viewer');
+  if (!auth.ok) return auth.response;
+  const { session } = auth;
 
   const body = await req.json().catch(() => null);
   const name = typeof body?.name === 'string' ? body.name.trim() : '';
