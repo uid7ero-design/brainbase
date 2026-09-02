@@ -70,7 +70,19 @@ describe("lib/data-hub/importBatch/ — no barrel/index.ts (re-confirmed here)",
   });
 });
 
-describe("read — repo-wide, no runtime caller exists yet", () => {
+// 5A.2H.3 — read.ts's runtime callers are no longer "none": exactly the
+// four authorized H.3 GET route files may import it. This is an
+// exact-set assertion (mirrored in
+// tests/containment/dataHubImportBatchDarkness.test.ts), not a weakened
+// "some imports are fine" check.
+const AUTHORIZED_H3_ROUTE_IMPORTERS = new Set([
+  path.join("app", "api", "data-hub", "import-batches", "route.ts"),
+  path.join("app", "api", "data-hub", "import-batches", "[id]", "route.ts"),
+  path.join("app", "api", "data-hub", "import-batches", "[id]", "worksheets", "route.ts"),
+  path.join("app", "api", "data-hub", "worksheets", "[id]", "route.ts"),
+]);
+
+describe("read — repo-wide, exactly the authorized H.3 routes are runtime callers", () => {
   const ROOT = process.cwd();
   function walk(dir: string, exts: string[]): string[] {
     const results: string[] = [];
@@ -88,22 +100,22 @@ describe("read — repo-wide, no runtime caller exists yet", () => {
     }
     return results;
   }
-  it("no file under app/**, app/api/**, or components/** imports read.ts", () => {
-    const offenders: string[] = [];
+  it("every app/**/components/** importer of read.ts is exactly the authorized H.3 route set", () => {
+    const importers: string[] = [];
     for (const dir of ["app", "components"]) {
       const full = path.join(ROOT, dir);
       if (!fs.existsSync(full)) continue;
       const files = walk(full, [".ts", ".tsx"]);
       for (const file of files) {
         if (/from\s+["'][^"']*data-hub\/importBatch\/read["']/.test(read(path.relative(ROOT, file)))) {
-          offenders.push(path.relative(ROOT, file));
+          importers.push(path.relative(ROOT, file));
         }
       }
     }
-    expect(offenders).toEqual([]);
+    expect(new Set(importers)).toEqual(AUTHORIZED_H3_ROUTE_IMPORTERS);
   });
 
-  it("no server action, cron, or webhook file (heuristic: any file outside lib/data-hub/importBatch and its own tests) references any of the four exported read function names", () => {
+  it("no server action, cron, or webhook file (heuristic: any file outside lib/data-hub/importBatch, its own tests, and the authorized H.3 routes) references any of the four exported read function names", () => {
     const offenders: string[] = [];
     const names = ["getImportBatch", "listImportBatches", "getWorksheet", "listWorksheetsForBatch"];
     for (const dir of ["app", "components", "scripts"]) {
@@ -112,6 +124,7 @@ describe("read — repo-wide, no runtime caller exists yet", () => {
       const files = walk(full, [".ts", ".tsx"]).filter((f) => !f.includes(`${path.sep}tests${path.sep}`));
       for (const file of files) {
         const relPath = path.relative(ROOT, file);
+        if (AUTHORIZED_H3_ROUTE_IMPORTERS.has(relPath)) continue;
         const code = read(relPath);
         if (names.some((name) => code.includes(name)) && /from\s+["'][^"']*data-hub\/importBatch\/read["']/.test(code)) {
           offenders.push(relPath);
