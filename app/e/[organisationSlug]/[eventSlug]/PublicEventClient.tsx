@@ -345,7 +345,7 @@ export default function PublicEventClient({
         <div className="bb-event-glow-top" aria-hidden="true" />
         {institutional ? <InstitutionalHeader theme={theme} /> : <EventHeader />}
         <main className="bb-event-main" style={{ maxWidth: 560, display: 'flex', justifyContent: 'center' }}>
-          <div style={{ width: '100%', border: `1px solid ${BORDER}`, borderRadius: 18, background: 'rgba(255,255,255,.02)', padding: '36px 28px', textAlign: 'center' }}>
+          <div style={{ width: '100%', border: `1px solid ${BORDER}`, borderRadius: 18, background: 'var(--bbpe-card-bg)', boxShadow: 'var(--bbpe-card-shadow)', padding: '36px 28px', textAlign: 'center' }}>
             <div style={{
               width: 56, height: 56, borderRadius: '50%', margin: '0 auto 18px', display: 'flex', alignItems: 'center', justifyContent: 'center',
               background: 'rgba(74,222,128,.12)', border: '1px solid rgba(74,222,128,.35)', boxShadow: '0 0 32px rgba(74,222,128,.18)',
@@ -357,7 +357,7 @@ export default function PublicEventClient({
               Your registration is confirmed for <strong style={{ color: TEXT_PRIMARY, fontWeight: 600 }}>{event.name}</strong>.
             </p>
 
-            <div style={{ textAlign: 'left', border: `1px solid ${BORDER_SOFT}`, borderRadius: 12, background: 'rgba(255,255,255,.02)', padding: 16, display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 20 }}>
+            <div style={{ textAlign: 'left', border: `1px solid ${BORDER_SOFT}`, borderRadius: 12, background: 'var(--bbpe-section-bg)', padding: 16, display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 20 }}>
               <ConfirmationRow label="Name" value={purchaserName} />
               <ConfirmationRow label="Tickets" value={`${confirmation.quantity} ticket${confirmation.quantity === 1 ? '' : 's'}${selectedTicketType ? ` · ${selectedTicketType.name}` : ''}`} />
               {selectedSession && <ConfirmationRow label="Session" value={selectedSession.name} />}
@@ -382,7 +382,7 @@ export default function PublicEventClient({
                       style={{
                         display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10,
                         border: `1px solid ${BORDER}`, borderRadius: 10, padding: '10px 14px', textDecoration: 'none',
-                        background: 'rgba(255,255,255,.02)', color: TEXT_PRIMARY, fontSize: 13, fontWeight: 600,
+                        background: 'var(--bbpe-section-bg)', color: TEXT_PRIMARY, fontSize: 13, fontWeight: 600,
                       }}
                     >
                       {t.attendee_name}
@@ -476,7 +476,7 @@ export default function PublicEventClient({
 
           {/* Right: booking card */}
           <div className="bb-event-booking-col">
-            <div style={{ border: `1px solid ${BORDER}`, borderRadius: 16, background: 'rgba(255,255,255,.025)', padding: 22 }}>
+            <div style={{ border: `1px solid ${BORDER}`, borderRadius: 16, background: 'var(--bbpe-card-bg)', boxShadow: 'var(--bbpe-card-shadow)', padding: 22 }}>
               {ticketTypes.length === 0 ? (
                 <p style={{ fontSize: 14, color: TEXT_SECONDARY, margin: 0, textAlign: 'center', padding: '24px 4px' }}>
                   No tickets are currently available for this event.
@@ -771,7 +771,7 @@ function EventArtwork({ src, alt }: { src: string; alt: string }) {
     <div style={{
       width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center',
       borderRadius: 18, overflow: 'hidden', border: `1px solid ${BORDER}`, marginBottom: 22,
-      background: 'rgba(255,255,255,.02)', boxShadow: '0 14px 40px rgba(0,0,0,.35), 0 0 0 1px rgba(var(--bbpe-accent-rgb),.07)',
+      background: 'var(--bbpe-section-bg)', boxShadow: '0 14px 40px rgba(0,0,0,.35), 0 0 0 1px rgba(var(--bbpe-accent-rgb),.07)',
     }}>
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img

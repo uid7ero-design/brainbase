@@ -18,28 +18,35 @@ import type { PublicEventTheme } from '@/lib/events/publicEventTheme';
 
 const FONT = 'var(--font-inter), "Inter", -apple-system, sans-serif';
 
+// Only ever rendered on the dark burgundy band (header/footer — never
+// on the light hero/content area), so it deliberately uses the `band*`
+// tokens, not the main `accent`/`bg` pair: the shield fills the same
+// colour as the band behind it (an outlined "cutout" emblem, a common
+// premium-branding treatment) with the brighter band-only gold for its
+// stroke/detail work, which would be too light to read as a crest on
+// the lighter `bg` the rest of the page now uses.
 export function GenericCrestMark({ shortName, size = 34 }: { shortName: string; size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 40 44" aria-hidden="true" style={{ flex: 'none' }}>
       <path
         d="M20 1 L37 7 V21 C37 32 30 40 20 43 C10 40 3 32 3 21 V7 Z"
-        fill="var(--bbpe-bg)"
-        stroke="var(--bbpe-accent)"
+        fill="var(--bbpe-band-bg)"
+        stroke="var(--bbpe-band-accent)"
         strokeWidth="1.4"
       />
       <path
         d="M20 5 L33 9.5 V21 C33 29.5 27.5 35.8 20 38.5 C12.5 35.8 7 29.5 7 21 V9.5 Z"
         fill="none"
-        stroke="var(--bbpe-accent)"
+        stroke="var(--bbpe-band-accent)"
         strokeWidth="0.6"
         opacity="0.55"
       />
-      <circle cx="20" cy="17" r="4.2" fill="none" stroke="var(--bbpe-accent-soft)" strokeWidth="1.1" />
-      <rect x="13" y="26" width="14" height="1.6" rx="0.8" fill="var(--bbpe-accent-soft)" />
+      <circle cx="20" cy="17" r="4.2" fill="none" stroke="var(--bbpe-band-accent)" strokeWidth="1.1" />
+      <rect x="13" y="26" width="14" height="1.6" rx="0.8" fill="var(--bbpe-band-accent)" />
       <text
         x="20" y="35" textAnchor="middle"
         fontFamily="Georgia, 'Times New Roman', serif" fontSize="7.5" fontWeight={700}
-        fill="var(--bbpe-accent-soft)" letterSpacing="0.5"
+        fill="var(--bbpe-band-accent)" letterSpacing="0.5"
       >
         {shortName}
       </text>
@@ -52,9 +59,9 @@ export function InstitutionalHeader({ theme }: { theme: PublicEventTheme }) {
     <header
       style={{
         position: 'sticky', top: 0, zIndex: 50,
-        background: 'var(--bbpe-bg-translucent)',
+        background: 'var(--bbpe-band-bg-translucent)',
         backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)',
-        borderBottom: '1px solid var(--bbpe-border)',
+        borderBottom: '1px solid var(--bbpe-band-border)',
       }}
     >
       <div style={{
@@ -66,13 +73,13 @@ export function InstitutionalHeader({ theme }: { theme: PublicEventTheme }) {
           <div style={{ minWidth: 0 }}>
             <div style={{
               fontFamily: 'var(--bbpe-heading-font)', fontSize: 16, fontWeight: 700,
-              color: 'var(--bbpe-text-primary)', letterSpacing: '.01em', lineHeight: 1.15,
+              color: 'var(--bbpe-band-text-primary)', letterSpacing: '.01em', lineHeight: 1.15,
               overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
             }}>
               {theme.brand.name}
             </div>
             {theme.brand.tagline && (
-              <div style={{ fontSize: 10.5, color: 'var(--bbpe-text-muted)', letterSpacing: '.06em', textTransform: 'uppercase' }}>
+              <div style={{ fontSize: 10.5, color: 'var(--bbpe-band-text-muted)', letterSpacing: '.06em', textTransform: 'uppercase' }}>
                 {theme.brand.tagline}
               </div>
             )}
@@ -86,7 +93,7 @@ export function InstitutionalHeader({ theme }: { theme: PublicEventTheme }) {
           <a
             href={theme.brand.websiteUrl} target="_blank" rel="noopener noreferrer"
             style={{
-              fontSize: 12.5, fontWeight: 600, color: 'var(--bbpe-accent-soft)', textDecoration: 'none',
+              fontSize: 12.5, fontWeight: 600, color: 'var(--bbpe-band-accent)', textDecoration: 'none',
               whiteSpace: 'nowrap', flex: 'none', fontFamily: FONT,
             }}
           >
@@ -134,14 +141,14 @@ export function InstitutionalHero({
 
 export function InstitutionalFooter({ theme }: { theme: PublicEventTheme }) {
   return (
-    <footer style={{ borderTop: '1px solid var(--bbpe-border)', marginTop: 48 }}>
+    <footer style={{ background: 'var(--bbpe-band-bg)', borderTop: '1px solid var(--bbpe-band-border)', marginTop: 48 }}>
       <div style={{
         maxWidth: 1080, margin: '0 auto', padding: '28px 20px',
         display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 16,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
           <GenericCrestMark shortName={theme.brand.shortName} size={24} />
-          <span style={{ fontFamily: 'var(--bbpe-heading-font)', fontSize: 13, fontWeight: 600, color: 'var(--bbpe-text-secondary)' }}>
+          <span style={{ fontFamily: 'var(--bbpe-heading-font)', fontSize: 13, fontWeight: 600, color: 'var(--bbpe-band-text-primary)' }}>
             {theme.brand.name}
           </span>
         </div>
@@ -149,12 +156,12 @@ export function InstitutionalFooter({ theme }: { theme: PublicEventTheme }) {
           {theme.brand.websiteUrl && (
             <a
               href={theme.brand.websiteUrl} target="_blank" rel="noopener noreferrer"
-              style={{ fontSize: 12, color: 'var(--bbpe-accent-soft)', textDecoration: 'none', fontFamily: FONT }}
+              style={{ fontSize: 12, color: 'var(--bbpe-band-accent)', textDecoration: 'none', fontFamily: FONT }}
             >
               Visit website
             </a>
           )}
-          <span style={{ fontSize: 10.5, color: 'var(--bbpe-text-muted)', fontFamily: FONT }}>
+          <span style={{ fontSize: 10.5, color: 'var(--bbpe-band-text-muted)', fontFamily: FONT }}>
             Registrations powered by BrainBase
           </span>
         </div>
