@@ -34,7 +34,7 @@ function slugify(name: string) {
     .replace(/^-+|-+$/g, '');
 }
 
-export default function EventsListClient({ canManage }: { canManage: boolean }) {
+export default function EventsListClient({ canManage, organisationSlug }: { canManage: boolean; organisationSlug: string | null }) {
   const [events, setEvents] = useState<EventRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
@@ -229,34 +229,63 @@ export default function EventsListClient({ canManage }: { canManage: boolean }) 
           />
         )}
         {events?.map(ev => (
-          <Link key={ev.id} href={`/events/${ev.id}`} style={{ textDecoration: 'none', color: 'inherit' }}>
-            <div className="bb-evt-row" style={{
-              padding: '14px 16px', background: 'rgba(255,255,255,.02)', border: '1px solid rgba(255,255,255,.06)',
-              borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap',
-            }}>
-              <div style={{ minWidth: 0 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                  <span style={{ fontWeight: 700, fontSize: 14, color: TEXT_PRIMARY }}>{ev.name}</span>
-                  <StatusBadge label={ev.status} tone={eventStatusTone(ev.status)} />
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginTop: 7, fontSize: 12, color: TEXT_SECONDARY, flexWrap: 'wrap' }}>
+          // Not a single wrapping <Link> anymore (Part B) — "View public
+          // page" needs its own click target, and an <a> nested inside
+          // another <a> is invalid HTML with unreliable click behaviour.
+          // The event name/meta area keeps the primary "go to management
+          // screen" Link; "View public page" is a sibling secondary
+          // action in the same row, never nested inside it.
+          <div key={ev.id} className="bb-evt-row" style={{
+            padding: '14px 16px', background: 'rgba(255,255,255,.02)', border: '1px solid rgba(255,255,255,.06)',
+            borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap',
+          }}>
+            <Link href={`/events/${ev.id}`} style={{ textDecoration: 'none', color: 'inherit', minWidth: 0, flex: 1 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                <span style={{ fontWeight: 700, fontSize: 14, color: TEXT_PRIMARY }}>{ev.name}</span>
+                <StatusBadge label={ev.status} tone={eventStatusTone(ev.status)} />
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginTop: 7, fontSize: 12, color: TEXT_SECONDARY, flexWrap: 'wrap' }}>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                  <Calendar size={12} color={VIOLET_SOFT} /> {new Date(ev.starts_at).toLocaleString()}
+                </span>
+                {ev.venue && (
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                    <Calendar size={12} color={VIOLET_SOFT} /> {new Date(ev.starts_at).toLocaleString()}
+                    <MapPin size={12} color={VIOLET_SOFT} /> {ev.venue}
                   </span>
-                  {ev.venue && (
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                      <MapPin size={12} color={VIOLET_SOFT} /> {ev.venue}
-                    </span>
-                  )}
-                </div>
+                )}
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 'none' }}>
-                <span style={metaPillStyle}>{ev.session_count} session{ev.session_count === 1 ? '' : 's'}</span>
-                <span style={metaPillStyle}>{ev.ticket_type_count} ticket type{ev.ticket_type_count === 1 ? '' : 's'}</span>
+            </Link>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 'none' }}>
+              <span style={metaPillStyle}>{ev.session_count} session{ev.session_count === 1 ? '' : 's'}</span>
+              <span style={metaPillStyle}>{ev.ticket_type_count} ticket type{ev.ticket_type_count === 1 ? '' : 's'}</span>
+              {/* Part B — the existing public route (app/e/[organisationSlug]/
+                  [eventSlug]/**), never a new one. A relative href resolves
+                  correctly in any environment on its own (Production
+                  custom domain, a Vercel preview URL, localhost) with no
+                  origin construction needed for plain navigation.
+                  Deliberately does NOT gate on ev.status: an unpublished
+                  event's own public route already decides how to respond
+                  (see that route's own not-found/unavailable handling) —
+                  this link only ever points at the real URL, never a
+                  preview-bypass of any kind. Hidden entirely (rather than
+                  shown disabled) when organisationSlug is unavailable, so
+                  a broken /e/null/... URL can never be constructed. */}
+              {organisationSlug && (
+                <a
+                  href={`/e/${organisationSlug}/${ev.slug}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={e => e.stopPropagation()}
+                  style={{ ...secondaryBtnStyle, padding: '5px 10px', fontSize: 11.5, textDecoration: 'none' }}
+                >
+                  View public page
+                </a>
+              )}
+              <Link href={`/events/${ev.id}`} aria-label={`Manage ${ev.name}`}>
                 <ChevronRight size={16} color={TEXT_MUTED} aria-hidden="true" />
-              </div>
+              </Link>
             </div>
-          </Link>
+          </div>
         ))}
       </Panel>
     </div>

@@ -1,6 +1,7 @@
 import { redirect, notFound } from 'next/navigation';
 import { requireRole } from '@/lib/org';
 import { checkCapability } from '@/lib/capabilities/requireCapability';
+import sql from '@/lib/db';
 import EventDetailClient from './EventDetailClient';
 
 export default async function EventDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -26,5 +27,17 @@ export default async function EventDetailPage({ params }: { params: Promise<{ id
   const { id } = await params;
   if (!id) notFound();
 
-  return <EventDetailClient eventId={id} canManage={session.role === 'manager' || session.role === 'admin' || session.role === 'super_admin'} />;
+  // Public event link (Part B) — see app/events/page.tsx's own
+  // identical comment for why this is a small, additive, read-only
+  // query here rather than a change to any existing Events API route.
+  const [orgRow] = await sql`SELECT slug FROM organisations WHERE id = ${session.organisationId} LIMIT 1`;
+  const organisationSlug = (orgRow?.slug as string | undefined) ?? null;
+
+  return (
+    <EventDetailClient
+      eventId={id}
+      canManage={session.role === 'manager' || session.role === 'admin' || session.role === 'super_admin'}
+      organisationSlug={organisationSlug}
+    />
+  );
 }

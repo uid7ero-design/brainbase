@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import {
-  TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED, BORDER_SOFT, secondaryBtnStyle, primaryBtnStyle,
-  DangerButton, fieldStyle, inputStyle,
+  TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED, BORDER_SOFT, ROW_BG, secondaryBtnStyle, primaryBtnStyle,
+  DangerButton, fieldStyle, inputStyle, rowCardStyle, StatusBadge,
 } from '../_components/ui';
 import type { OrderRow, Attendee, ResponseAnswer } from './RegistrationsPanel';
 
@@ -30,12 +30,24 @@ const sectionHeaderStyle: React.CSSProperties = {
   fontSize: 10.5, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: TEXT_MUTED, marginBottom: 8,
 };
 
-// Phase 6 — the "registration detail" experience this order row expands
-// into. Two clearly separated halves, per §5: everything the purchaser/
-// attendee themselves submitted (editable by a manager, but always
-// customer-originated content) vs. internal staff notes (manager-
-// authored, never shown publicly — see notes/route.ts's own comment on
-// why this is a new, Events-only table).
+const ghostBtnSm: React.CSSProperties = { ...secondaryBtnStyle, padding: '4px 10px', fontSize: 11 };
+
+// UX polish pass — Registration detail, refactored into five clearly
+// separated sections (Purchaser / Attendees / Booking answers /
+// Attendee answers / Internal staff notes), replacing the previous
+// two-bucket "customer-submitted" vs "notes" layout. No functional
+// change: every handler below (savePurchaser, saveAttendee,
+// saveResponse, the notes CRUD, ticket copy) is untouched — this pass
+// only reorganises how the same data/actions are presented. Action
+// hierarchy is now consistent throughout: primaryBtnStyle is reserved
+// for the one genuine "save/confirm" action inside whichever row is
+// currently in edit mode (or "Add note"); every other action (Edit,
+// View ticket, Copy link) uses the same small, visually-subordinate
+// ghost button style (ghostBtnSm) so no row competes with the section
+// around it. Each attendee/order card is its own rowCardStyle box
+// (shared ui.tsx primitive, already used throughout Events) so the
+// purchaser and each attendee read as clearly separate rows instead of
+// one long block of flex-wrapped spans.
 export default function RegistrationDetail({
   eventId, order, onChanged,
 }: {
@@ -114,10 +126,10 @@ export default function RegistrationDetail({
   function ResponseEditor({ r }: { r: ResponseAnswer }) {
     if (editingResponseId !== r.id) {
       return (
-        <div style={{ fontSize: 12.5, display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ fontSize: 12.5, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <span style={{ color: TEXT_SECONDARY }}>{r.label}: </span>
           <span style={{ color: TEXT_PRIMARY }}>{formatAnswer(r.answer)}</span>
-          <button onClick={() => startEditResponse(r)} style={{ ...secondaryBtnStyle, padding: '2px 8px', fontSize: 11 }}>Edit</button>
+          <button onClick={() => startEditResponse(r)} style={ghostBtnSm}>Edit</button>
         </div>
       );
     }
@@ -130,12 +142,12 @@ export default function RegistrationDetail({
             <option value="no">No</option>
           </select>
         ) : r.field_type === 'LONG_TEXT' ? (
-          <textarea value={responseForm} onChange={e => setResponseForm(e.target.value)} rows={2} style={{ ...inputStyle, padding: '6px 9px', fontSize: 12.5, minWidth: 220 }} />
+          <textarea value={responseForm} onChange={e => setResponseForm(e.target.value)} rows={2} style={{ ...inputStyle, padding: '6px 9px', fontSize: 12.5, minWidth: 220, maxWidth: '100%' }} />
         ) : (
-          <input value={responseForm} onChange={e => setResponseForm(e.target.value)} style={{ ...inputStyle, padding: '5px 9px', fontSize: 12.5, minWidth: 180 }} />
+          <input value={responseForm} onChange={e => setResponseForm(e.target.value)} style={{ ...inputStyle, padding: '5px 9px', fontSize: 12.5, minWidth: 180, maxWidth: '100%' }} />
         )}
         <button onClick={() => saveResponse(r)} disabled={busy} style={{ ...primaryBtnStyle, padding: '4px 10px', fontSize: 11 }}>Save</button>
-        <button onClick={() => setEditingResponseId(null)} style={{ ...secondaryBtnStyle, padding: '4px 10px', fontSize: 11 }}>Cancel</button>
+        <button onClick={() => setEditingResponseId(null)} style={ghostBtnSm}>Cancel</button>
       </div>
     );
   }
@@ -221,7 +233,7 @@ export default function RegistrationDetail({
 
   // ── Ticket view/copy — existing token only, never regenerated (see
   // this phase's ticket-view/resend investigation: reissuing a token
-  // would break any already-issued link/QR code with no recovery path).
+  // would break any already-issued link/QR code with no recovery path.
   const [copiedId, setCopiedId] = useState<string | null>(null);
   function ticketUrl(token: string): string {
     return `${window.location.origin}/t/${token}`;
@@ -234,113 +246,155 @@ export default function RegistrationDetail({
     } catch { /* clipboard unavailable — the visible link text is still selectable */ }
   }
 
-  const allResponses = [...order.order_responses, ...order.attendees.flatMap(a => a.responses)];
+  const attendeesWithResponses = order.attendees.filter(a => a.responses.length > 0);
 
   return (
     <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${BORDER_SOFT}`, display: 'flex', flexDirection: 'column', gap: 18 }}>
       {error && <div role="alert" style={{ color: '#FCA5A5', fontSize: 12 }}>{error}</div>}
 
+      {/* A. PURCHASER */}
       <div>
-        <div style={sectionHeaderStyle}>Customer-submitted information</div>
-
-        {/* Purchaser */}
-        <div style={{ marginBottom: 12 }}>
+        <div style={sectionHeaderStyle}>Purchaser</div>
+        <div style={rowCardStyle}>
           {!editingPurchaser ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 12.5, color: TEXT_PRIMARY, fontWeight: 500 }}>{order.purchaser_name}</span>
-              <span style={{ fontSize: 12, color: TEXT_SECONDARY }}>{order.purchaser_email}</span>
-              {order.purchaser_phone && <span style={{ fontSize: 12, color: TEXT_SECONDARY }}>{order.purchaser_phone}</span>}
-              <button onClick={() => setEditingPurchaser(true)} style={{ ...secondaryBtnStyle, padding: '3px 10px', fontSize: 11 }}>Edit purchaser</button>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: TEXT_PRIMARY }}>{order.purchaser_name}</div>
+                <div style={{ display: 'flex', gap: 12, marginTop: 3, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 12, color: TEXT_SECONDARY }}>{order.purchaser_email}</span>
+                  {order.purchaser_phone && <span style={{ fontSize: 12, color: TEXT_SECONDARY }}>{order.purchaser_phone}</span>}
+                </div>
+              </div>
+              <button onClick={() => setEditingPurchaser(true)} style={ghostBtnSm}>Edit purchaser</button>
             </div>
           ) : (
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-              <label style={{ ...fieldStyle, minWidth: 140 }}>Name
+              <label style={{ ...fieldStyle, minWidth: 140, flex: '1 1 140px' }}>Name
                 <input value={purchaserForm.name} onChange={e => setPurchaserForm(f => ({ ...f, name: e.target.value }))} style={inputStyle} />
               </label>
-              <label style={{ ...fieldStyle, minWidth: 180 }}>Email
+              <label style={{ ...fieldStyle, minWidth: 180, flex: '1 1 180px' }}>Email
                 <input value={purchaserForm.email} onChange={e => setPurchaserForm(f => ({ ...f, email: e.target.value }))} style={inputStyle} />
               </label>
-              <label style={{ ...fieldStyle, minWidth: 140 }}>Phone
+              <label style={{ ...fieldStyle, minWidth: 140, flex: '1 1 140px' }}>Phone
                 <input value={purchaserForm.phone} onChange={e => setPurchaserForm(f => ({ ...f, phone: e.target.value }))} style={inputStyle} />
               </label>
-              <button onClick={savePurchaser} disabled={busy} style={{ ...primaryBtnStyle, padding: '7px 14px' }}>Save</button>
-              <button onClick={() => { setEditingPurchaser(false); setPurchaserForm({ name: order.purchaser_name, email: order.purchaser_email, phone: order.purchaser_phone ?? '' }); }} style={secondaryBtnStyle}>Cancel</button>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button onClick={savePurchaser} disabled={busy} style={{ ...primaryBtnStyle, padding: '7px 14px' }}>Save</button>
+                <button onClick={() => { setEditingPurchaser(false); setPurchaserForm({ name: order.purchaser_name, email: order.purchaser_email, phone: order.purchaser_phone ?? '' }); }} style={secondaryBtnStyle}>Cancel</button>
+              </div>
             </div>
           )}
         </div>
+      </div>
 
-        {/* Attendees */}
-        {order.attendees.length > 0 && (
+      {/* B. ATTENDEES */}
+      {order.attendees.length > 0 && (
+        <div>
+          <div style={sectionHeaderStyle}>Attendees</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {order.attendees.map(a => (
-              <div key={a.id} style={{ fontSize: 12.5 }}>
+              <div key={a.id} style={rowCardStyle}>
                 {editingAttendeeId !== a.id ? (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                    <span style={{ color: TEXT_PRIMARY, fontWeight: 500 }}>{a.name}</span>
-                    {a.email && <span style={{ color: TEXT_SECONDARY }}>{a.email}</span>}
-                    {a.checked_in_at ? (
-                      <span style={{ color: '#4ADE80', fontWeight: 600 }}>
-                        Checked in · {new Date(a.checked_in_at).toLocaleTimeString()}{a.checked_in_by ? ` by ${a.checked_in_by}` : ''}
-                      </span>
-                    ) : (
-                      <span style={{ color: TEXT_MUTED }}>Not checked in</span>
-                    )}
-                    <button onClick={() => startEditAttendee(a)} style={{ ...secondaryBtnStyle, padding: '3px 10px', fontSize: 11 }}>Edit</button>
-                    {a.ticket_token && (
-                      <>
-                        <a href={ticketUrl(a.ticket_token)} target="_blank" rel="noopener noreferrer" style={{ ...secondaryBtnStyle, padding: '3px 10px', fontSize: 11, textDecoration: 'none', display: 'inline-block' }}>View ticket</a>
-                        <button onClick={() => copyTicketLink(a.ticket_token!, a.id)} style={{ ...secondaryBtnStyle, padding: '3px 10px', fontSize: 11 }}>
-                          {copiedId === a.id ? 'Copied!' : 'Copy link'}
-                        </button>
-                      </>
-                    )}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: 13, fontWeight: 600, color: TEXT_PRIMARY }}>{a.name}</span>
+                        <StatusBadge label={a.checked_in_at ? 'Checked in' : 'Not checked in'} tone={a.checked_in_at ? 'success' : 'neutral'} />
+                      </div>
+                      <div style={{ display: 'flex', gap: 12, marginTop: 3, flexWrap: 'wrap' }}>
+                        {a.email && <span style={{ fontSize: 12, color: TEXT_SECONDARY }}>{a.email}</span>}
+                        {a.checked_in_at && (
+                          <span style={{ fontSize: 11.5, color: TEXT_MUTED }}>
+                            {new Date(a.checked_in_at).toLocaleTimeString()}{a.checked_in_by ? ` · by ${a.checked_in_by}` : ''}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      <button onClick={() => startEditAttendee(a)} style={ghostBtnSm}>Edit</button>
+                      {a.ticket_token && (
+                        <>
+                          <a href={ticketUrl(a.ticket_token)} target="_blank" rel="noopener noreferrer" style={{ ...ghostBtnSm, textDecoration: 'none', display: 'inline-block' }}>View ticket</a>
+                          <button onClick={() => copyTicketLink(a.ticket_token!, a.id)} style={ghostBtnSm}>
+                            {copiedId === a.id ? 'Copied!' : 'Copy link'}
+                          </button>
+                        </>
+                      )}
+                    </div>
                   </div>
                 ) : (
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-                    <label style={{ ...fieldStyle, minWidth: 140 }}>Name
+                    <label style={{ ...fieldStyle, minWidth: 140, flex: '1 1 140px' }}>Name
                       <input value={attendeeForm.name} onChange={e => setAttendeeForm(f => ({ ...f, name: e.target.value }))} style={inputStyle} />
                     </label>
-                    <label style={{ ...fieldStyle, minWidth: 180 }}>Email
+                    <label style={{ ...fieldStyle, minWidth: 180, flex: '1 1 180px' }}>Email
                       <input value={attendeeForm.email} onChange={e => setAttendeeForm(f => ({ ...f, email: e.target.value }))} style={inputStyle} />
                     </label>
-                    <button onClick={() => saveAttendee(a.id)} disabled={busy} style={{ ...primaryBtnStyle, padding: '7px 14px' }}>Save</button>
-                    <button onClick={() => setEditingAttendeeId(null)} style={secondaryBtnStyle}>Cancel</button>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button onClick={() => saveAttendee(a.id)} disabled={busy} style={{ ...primaryBtnStyle, padding: '7px 14px' }}>Save</button>
+                      <button onClick={() => setEditingAttendeeId(null)} style={secondaryBtnStyle}>Cancel</button>
+                    </div>
                   </div>
                 )}
               </div>
             ))}
           </div>
-        )}
+        </div>
+      )}
 
-        {/* Registration answers */}
-        {allResponses.length > 0 && (
-          <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {allResponses.map(r => <ResponseEditor key={r.id} r={r} />)}
+      {/* C. BOOKING ANSWERS — order-scope responses only */}
+      {order.order_responses.length > 0 && (
+        <div>
+          <div style={sectionHeaderStyle}>Booking answers</div>
+          <div style={{ ...rowCardStyle, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {order.order_responses.map(r => <ResponseEditor key={r.id} r={r} />)}
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
+      {/* D. ATTENDEE ANSWERS — attendee-scope responses, grouped under
+          the attendee they belong to rather than a flat combined list. */}
+      {attendeesWithResponses.length > 0 && (
+        <div>
+          <div style={sectionHeaderStyle}>Attendee answers</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {attendeesWithResponses.map(a => (
+              <div key={a.id} style={rowCardStyle}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: TEXT_SECONDARY, marginBottom: 8 }}>{a.name}</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {a.responses.map(r => <ResponseEditor key={r.id} r={r} />)}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* E. INTERNAL STAFF NOTES — visually distinct from the
+          customer-submitted sections above (its own background tint),
+          so it always reads as manager-authored, never as part of what
+          the purchaser/attendee themselves submitted. */}
       <div>
         <div style={sectionHeaderStyle}>Internal staff notes</div>
         {notesError && <div role="alert" style={{ color: '#FCA5A5', fontSize: 12, marginBottom: 8 }}>{notesError}</div>}
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 10 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 8 }}>
           {notes === null && <div style={{ fontSize: 12, color: TEXT_MUTED }}>Loading notes…</div>}
           {notes !== null && notes.length === 0 && <div style={{ fontSize: 12, color: TEXT_MUTED }}>No internal notes yet.</div>}
           {notes?.map(n => (
-            <div key={n.id} style={{ background: 'rgba(255,255,255,.02)', border: `1px solid ${BORDER_SOFT}`, borderRadius: 8, padding: '9px 11px' }}>
+            <div key={n.id} style={{ background: ROW_BG, border: `1px solid ${BORDER_SOFT}`, borderRadius: 8, padding: '8px 10px' }}>
               {editingNoteId !== n.id ? (
                 <>
                   <div style={{ fontSize: 12.5, color: TEXT_PRIMARY, whiteSpace: 'pre-wrap' }}>{n.body}</div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6, fontSize: 11, color: TEXT_MUTED }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 5, fontSize: 10.5, color: TEXT_MUTED }}>
                     <span>{n.author_name_snapshot} · {new Date(n.created_at).toLocaleString()}{n.edited_at ? ' · edited' : ''}</span>
-                    <button onClick={() => startEditNote(n)} style={{ ...secondaryBtnStyle, padding: '2px 8px', fontSize: 10.5 }}>Edit</button>
+                    <button onClick={() => startEditNote(n)} style={{ ...ghostBtnSm, padding: '2px 7px', fontSize: 10 }}>Edit</button>
                     <DangerButton ariaLabel="Delete note" onClick={() => deleteNote(n.id)}>Delete</DangerButton>
                   </div>
                 </>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  <textarea value={editNoteBody} onChange={e => setEditNoteBody(e.target.value)} rows={2} style={{ ...inputStyle, fontSize: 12.5 }} />
+                  <textarea value={editNoteBody} onChange={e => setEditNoteBody(e.target.value)} rows={2} style={{ ...inputStyle, fontSize: 12.5, maxWidth: '100%' }} />
                   <div style={{ display: 'flex', gap: 8 }}>
                     <button onClick={() => saveNote(n.id)} style={{ ...primaryBtnStyle, padding: '5px 12px', fontSize: 11.5 }}>Save</button>
                     <button onClick={() => setEditingNoteId(null)} style={{ ...secondaryBtnStyle, padding: '5px 12px', fontSize: 11.5 }}>Cancel</button>
@@ -351,12 +405,17 @@ export default function RegistrationDetail({
           ))}
         </div>
 
-        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+        {/* A single-row input by default (vs. the previous 2-row
+            textarea) — visually recedes behind the notes list above it
+            rather than dominating the section; still a plain textarea
+            (not a genuinely single-line <input>) so a manager can still
+            paste/write a longer note, it just doesn't start out tall. */}
+        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', flexWrap: 'wrap' }}>
           <textarea
-            value={newNote} onChange={e => setNewNote(e.target.value)} placeholder="Add an internal note…" rows={2}
-            style={{ ...inputStyle, flex: 1, fontSize: 12.5 }}
+            value={newNote} onChange={e => setNewNote(e.target.value)} placeholder="Add an internal note…" rows={1}
+            style={{ ...inputStyle, flex: '1 1 220px', fontSize: 12.5, background: 'rgba(255,255,255,.02)', resize: 'vertical' }}
           />
-          <button onClick={addNote} disabled={addingNote || !newNote.trim()} style={{ ...primaryBtnStyle, opacity: addingNote || !newNote.trim() ? 0.6 : 1 }}>
+          <button onClick={addNote} disabled={addingNote || !newNote.trim()} style={{ ...primaryBtnStyle, padding: '7px 14px', opacity: addingNote || !newNote.trim() ? 0.6 : 1 }}>
             {addingNote ? 'Adding…' : 'Add note'}
           </button>
         </div>
