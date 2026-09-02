@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { BrainBaseWordmark } from '@/components/brand/BrainBaseWordmark';
 import { CapabilityIcon } from '@/components/brand/CapabilityIcon';
+import { resolvePublicEventTheme } from '@/lib/events/publicEventTheme';
 
 type Session = {
   role: string;
@@ -1935,13 +1936,35 @@ export default function TopNav({
       ? serverSession
       : fetchedSession;
 
+  // Public event pages (app/e/[organisationSlug]/**) for an
+  // institutional-themed organisation render their OWN branded header
+  // (InstitutionalHeader — see components/publicEvents/InstitutionalChrome.tsx)
+  // — this site-wide masthead would otherwise stack on top of it,
+  // leaving the visitor entering through what looks like a BrainBase
+  // marketing page rather than the organisation's own experience. Reuses
+  // the exact same resolvePublicEventTheme(organisationSlug) lookup
+  // every public-event component already calls — no new theme logic,
+  // no duplicated registry. A non-themed organisation's slug resolves to
+  // the default theme, so this condition never fires for it and TopNav
+  // renders exactly as before (see the DEFAULT_THEME safety requirement
+  // this check exists to preserve).
+  const publicEventOrgSlug =
+    pathname?.match(
+      /^\/e\/([^/]+)/,
+    )?.[1];
+
   if (
     pathname?.startsWith(
       '/tennis',
     ) ||
     pathname?.startsWith(
       '/connect',
-    )
+    ) ||
+    (publicEventOrgSlug &&
+      resolvePublicEventTheme(
+        publicEventOrgSlug,
+      ).variant ===
+        'institutional')
   ) {
     return null;
   }

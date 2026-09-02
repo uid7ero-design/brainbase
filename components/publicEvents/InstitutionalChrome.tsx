@@ -65,10 +65,10 @@ export function InstitutionalHeader({ theme }: { theme: PublicEventTheme }) {
       }}
     >
       <div style={{
-        maxWidth: 1080, margin: '0 auto', padding: '14px 20px',
+        maxWidth: 1080, margin: '0 auto', padding: '18px 20px',
         display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16,
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, minWidth: 0 }}>
           <GenericCrestMark shortName={theme.brand.shortName} />
           <div style={{ minWidth: 0 }}>
             <div style={{
@@ -117,7 +117,12 @@ export function InstitutionalHero({
       position: 'relative', borderBottom: '1px solid var(--bbpe-border)',
       background: 'linear-gradient(180deg, rgba(var(--bbpe-accent-rgb),.10) 0%, transparent 55%) var(--bbpe-bg)',
     }}>
-      <div style={{ maxWidth: 1080, margin: '0 auto', padding: '40px 20px 34px' }}>
+      {/* clamp(), not a fixed value or a media query — scales the hero's
+          vertical rhythm down on narrow viewports (roughly the 10-15%
+          tighter mobile spacing asked for) while keeping the original
+          desktop padding once the viewport is wide enough that `vw`
+          exceeds it. */}
+      <div style={{ maxWidth: 1080, margin: '0 auto', padding: 'clamp(28px, 7vw, 40px) 20px clamp(24px, 6vw, 34px)' }}>
         <div style={{
           display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 11, fontWeight: 700,
           letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--bbpe-accent-soft)', marginBottom: 12,
@@ -125,8 +130,12 @@ export function InstitutionalHero({
           <span style={{ width: 22, height: 1, background: 'var(--bbpe-accent)', display: 'inline-block' }} aria-hidden="true" />
           {eyebrow}
         </div>
+        {/* clamp() keeps the strong serif hierarchy at every width while
+            stopping a long event name from consuming most of the first
+            mobile viewport — 26px minimum still reads clearly larger
+            than the 14-16px body/meta text around it. */}
         <h1 style={{
-          fontFamily: 'var(--bbpe-heading-font)', fontSize: 32, fontWeight: 700, letterSpacing: '-.01em',
+          fontFamily: 'var(--bbpe-heading-font)', fontSize: 'clamp(26px, 6.5vw, 32px)', fontWeight: 700, letterSpacing: '-.01em',
           lineHeight: 1.15, margin: subtitle ? '0 0 10px' : 0, color: 'var(--bbpe-text-primary)', maxWidth: 720,
         }}>
           {title}
