@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { setAppHeaderExtraOffsetPx } from '@/lib/layout/headerOffset';
 
 type Org = { id: string; name: string; slug: string };
 type State = {
@@ -84,6 +85,28 @@ export default function OrgSwitcher() {
     document.addEventListener('mousedown', onClickOutside);
     return () => document.removeEventListener('mousedown', onClickOutside);
   }, []);
+
+  // Phase D.4.5C-W2 — this bar is the ONE source of "extra" height above
+  // TopNav that the shared --app-header-offset custom property (see
+  // lib/layout/headerOffset.ts) needs to account for. Measures this
+  // component's own rendered box (dropRef, already attached below for
+  // click-outside detection — no second ref needed) rather than
+  // hardcoding a guessed pixel value, since its height depends on font
+  // metrics/padding that shouldn't be duplicated as a second literal.
+  // Keyed on state.role: that's the only state transition that changes
+  // whether this bar renders at all (never/null while role is
+  // unresolved or non-super_admin, real content once resolved to
+  // 'super_admin') — the label text changing width while
+  // impersonating/switching doesn't change this single-line bar's
+  // height, so no other dependency is needed and no ResizeObserver is
+  // necessary.
+  useLayoutEffect(() => {
+    if (state.role === 'super_admin') {
+      setAppHeaderExtraOffsetPx(dropRef.current?.offsetHeight ?? 0);
+    } else {
+      setAppHeaderExtraOffsetPx(0);
+    }
+  }, [state.role]);
 
   if (state.role !== 'super_admin') return null;
 

@@ -110,7 +110,14 @@ describe('app/admin/web-services/page.tsx — sticky toolbar offset fix (top-cli
     const layout = fs.readFileSync(path.resolve(__dirname, '../../app/admin/layout.tsx'), 'utf-8')
     const aside = fs.readFileSync(path.resolve(__dirname, '../../components/admin/AdminAside.tsx'), 'utf-8')
     expect(layout).toContain("overflow: 'auto'")
-    expect(aside).toContain("position: 'sticky', top: 52")
+    // Phase D.4.5C-W2 — AdminAside's own header-offset mechanism moved
+    // from a hardcoded `top: 52` literal to the shared
+    // --app-header-offset custom property (see
+    // tests/containment/appHeaderOffset.test.ts for that migration's
+    // own dedicated coverage). This assertion's actual intent — this
+    // file's own fix does not touch AdminAside's sticky positioning —
+    // still holds; only the literal it checks for has moved.
+    expect(aside).toContain("position: 'sticky', top: APP_HEADER_OFFSET_VAR")
   })
 
   it('horizontal kanban scrolling protections remain intact alongside the offset fix', () => {

@@ -67,8 +67,19 @@ describe('OrganiserShell — presentation/layout only', () => {
     expect(shellCode).toMatch(/interface OrganiserShellProps \{\s*\n\s*rail: React\.ReactNode;\s*\n\s*children: React\.ReactNode;\s*\n\s*\}/)
   })
 
-  it('renders below the global 52px TopNav (position: fixed, top: 52 — the same convention WorkspaceShell already established, not a new offset)', () => {
-    expect(shellCode).toMatch(/position:\s*'fixed',\s*top:\s*52/)
+  // Phase D.4.5C-W2 — this assertion originally read a hardcoded
+  // `top: 52` literal. That was correct until super_admin sessions
+  // started rendering a real, non-zero-height OrgSwitcher bar above
+  // TopNav in normal document flow (see the D.4.5C-W1 audit), at which
+  // point the hardcoded literal silently stopped matching TopNav's
+  // real rendered position. Updated to assert use of the shared
+  // --app-header-offset primitive instead of the literal — see
+  // tests/containment/appHeaderOffset.test.ts for that primitive's own
+  // dedicated coverage — rather than the assertion being weakened or
+  // deleted.
+  it('renders below the app header stack via the shared --app-header-offset primitive (position: fixed, top: APP_HEADER_OFFSET_VAR — the same convention WorkspaceShell also uses, not a new offset)', () => {
+    expect(shellCode).toMatch(/import \{ APP_HEADER_OFFSET_VAR \} from '@\/lib\/layout\/headerOffset'/)
+    expect(shellCode).toMatch(/position:\s*'fixed',\s*top:\s*APP_HEADER_OFFSET_VAR/)
   })
 
   it('owns the rail+canvas flex layout directly — rail and children are siblings in one flex row, canvas gets flex:1/minWidth:0/overflow:hidden', () => {

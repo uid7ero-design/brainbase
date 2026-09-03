@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { APP_HEADER_OFFSET_VAR } from '@/lib/layout/headerOffset';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -228,7 +229,7 @@ export default function DeploymentsDashboard() {
         padding: '20px 28px 0',
         borderBottom: '1px solid rgba(255,255,255,.06)',
         background: 'rgba(7,8,11,.95)',
-        position: 'sticky', top: 52, zIndex: 50,
+        position: 'sticky', top: APP_HEADER_OFFSET_VAR, zIndex: 50,
       }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 16, gap: 16, flexWrap: 'wrap' }}>
           <div>
