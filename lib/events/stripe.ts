@@ -258,6 +258,31 @@ export async function processStripeWebhookEvent(event: Stripe.Event): Promise<We
 // runs afterward regardless of whether the flip itself matched a row
 // this time — see issueTicketTokensForPaidOrder's own comment for why
 // that must not be conditioned on the flip's result.
+// Phase C1.7: the UPDATE and its audit_logs entry are combined into ONE
+// atomic statement via a data-modifying CTE, in all three webhook
+// handlers below — deliberately NOT lib/events/auditLog.ts's normal
+// separate-statement, best-effort pattern (which is correct for a human
+// action that runs strictly after an already-committed mutation, but
+// wrong here). Two reasons this needed a different shape:
+//   1. Idempotency: Stripe redelivers webhook events, and every handler
+//      here already relies on a conditional UPDATE ... WHERE
+//      payment_status = 'PENDING' matching ZERO rows on a retry (see each
+//      handler's own long-standing comment on this). Routing the audit
+//      INSERT through `RETURNING` from that same CTE means a retry
+//      produces zero audit rows too, by construction — no separate
+//      idempotency check to get wrong, and no risk of the audit trail
+//      diverging from what actually happened to event_orders.
+//   2. Atomicity: a payment-state transition and the fact that it
+//      happened should not be observable as two independent writes that
+//      could partially fail — a single statement is atomic by
+//      definition, without needing sql.transaction() (whose queries,
+//      per lib/tennisSchedule.ts's own precedent, are a flat pre-built
+//      array — not well suited to "only insert if the first statement
+//      changed something").
+// user_id is always NULL (no authenticated actor initiated this — Stripe
+// did); after_state's "source": "stripe_webhook" is what makes that
+// explicit for anyone reading audit_logs later, distinguishing this row
+// from every human-actor entry lib/events/auditLog.ts writes.
 async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session, eventAccount: string | null): Promise<void> {
   if (session.payment_status !== 'paid') return;
   const orderId = session.metadata?.event_order_id;
@@ -265,11 +290,19 @@ async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session, 
   const paymentIntentId = typeof session.payment_intent === 'string' ? session.payment_intent : session.payment_intent?.id ?? null;
 
   await sql`
-    UPDATE event_orders
-    SET status = 'CONFIRMED', payment_status = 'PAID', paid_at = now(),
-        stripe_payment_intent_id = COALESCE(${paymentIntentId}, stripe_payment_intent_id)
-    WHERE id = ${orderId} AND stripe_checkout_session_id = ${session.id} AND payment_status = 'PENDING'
-      AND stripe_account_id = ${eventAccount}
+    WITH updated AS (
+      UPDATE event_orders
+      SET status = 'CONFIRMED', payment_status = 'PAID', paid_at = now(),
+          stripe_payment_intent_id = COALESCE(${paymentIntentId}, stripe_payment_intent_id)
+      WHERE id = ${orderId} AND stripe_checkout_session_id = ${session.id} AND payment_status = 'PENDING'
+        AND stripe_account_id = ${eventAccount}
+      RETURNING id, organisation_id
+    )
+    INSERT INTO audit_logs (id, organisation_id, user_id, action, resource_type, resource_id, before_state, after_state)
+    SELECT gen_random_uuid()::text, organisation_id, NULL, 'event_order.payment_succeeded', 'event_order', id,
+      '{"payment_status":"PENDING"}'::jsonb,
+      '{"source":"stripe_webhook","payment_status":"PAID","status":"CONFIRMED"}'::jsonb
+    FROM updated
   `;
 
   await issueTicketTokensForPaidOrder(orderId);
@@ -292,11 +325,22 @@ async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session, 
 async function handleCheckoutSessionExpired(session: Stripe.Checkout.Session, eventAccount: string | null): Promise<void> {
   const orderId = session.metadata?.event_order_id;
   if (!orderId) return;
+  // Phase C1.7: atomic UPDATE+audit CTE — see handleCheckoutSessionCompleted's
+  // comment above for the full rationale (idempotency via RETURNING,
+  // atomicity, system-actor representation).
   await sql`
-    UPDATE event_orders
-    SET status = 'CANCELLED', payment_status = 'EXPIRED'
-    WHERE id = ${orderId} AND stripe_checkout_session_id = ${session.id} AND payment_status = 'PENDING'
-      AND stripe_account_id = ${eventAccount}
+    WITH updated AS (
+      UPDATE event_orders
+      SET status = 'CANCELLED', payment_status = 'EXPIRED'
+      WHERE id = ${orderId} AND stripe_checkout_session_id = ${session.id} AND payment_status = 'PENDING'
+        AND stripe_account_id = ${eventAccount}
+      RETURNING id, organisation_id
+    )
+    INSERT INTO audit_logs (id, organisation_id, user_id, action, resource_type, resource_id, before_state, after_state)
+    SELECT gen_random_uuid()::text, organisation_id, NULL, 'event_order.payment_expired', 'event_order', id,
+      '{"payment_status":"PENDING"}'::jsonb,
+      '{"source":"stripe_webhook","payment_status":"EXPIRED","status":"CANCELLED"}'::jsonb
+    FROM updated
   `;
   await recordEventBookingActivityForOrder(orderId);
 }
@@ -312,12 +356,26 @@ async function handleCheckoutSessionExpired(session: Stripe.Checkout.Session, ev
 // reached that point, this UPDATE simply matches no row, which is
 // correct: the reservation still releases via expiry as normal.
 async function handlePaymentIntentFailed(intent: Stripe.PaymentIntent, eventAccount: string | null): Promise<void> {
+  // Phase C1.7: atomic UPDATE+audit CTE — see handleCheckoutSessionCompleted's
+  // comment above for the full rationale. This handler already returned
+  // `id` from its UPDATE (for recordEventBookingActivityForOrder below);
+  // the CTE now also returns organisation_id for the audit INSERT.
   const updated = (await sql`
-    UPDATE event_orders
-    SET status = 'CANCELLED', payment_status = 'FAILED'
-    WHERE stripe_payment_intent_id = ${intent.id} AND payment_status = 'PENDING'
-      AND stripe_account_id = ${eventAccount}
-    RETURNING id
+    WITH updated AS (
+      UPDATE event_orders
+      SET status = 'CANCELLED', payment_status = 'FAILED'
+      WHERE stripe_payment_intent_id = ${intent.id} AND payment_status = 'PENDING'
+        AND stripe_account_id = ${eventAccount}
+      RETURNING id, organisation_id
+    ),
+    logged AS (
+      INSERT INTO audit_logs (id, organisation_id, user_id, action, resource_type, resource_id, before_state, after_state)
+      SELECT gen_random_uuid()::text, organisation_id, NULL, 'event_order.payment_failed', 'event_order', id,
+        '{"payment_status":"PENDING"}'::jsonb,
+        '{"source":"stripe_webhook","payment_status":"FAILED","status":"CANCELLED"}'::jsonb
+      FROM updated
+    )
+    SELECT id FROM updated
   `) as { id: string }[];
   const orderId = updated[0]?.id;
   if (orderId) await recordEventBookingActivityForOrder(orderId);

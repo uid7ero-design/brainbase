@@ -521,7 +521,19 @@ describe('Phase 4 — architecture containment (no scope creep beyond the brief)
       expect(code).not.toMatch(/subscription|membership/i)
       expect(code).not.toMatch(/twilio|sms|sendSms/i)
       expect(code).not.toMatch(/crm_contacts|crm_companies|crm_deals|crm_activities/i)
-      expect(code).not.toMatch(/audit_logs|AuditLog/)
+      // Phase C1.7 (Foundation Repair, separately authorized): lib/events/
+      // stripe.ts now deliberately writes audit_logs entries for the three
+      // payment-state webhook transitions — see that file's own
+      // handleCheckoutSessionCompleted comment for why. This was a real,
+      // confirmed gap (a payment system with an audit trail for every
+      // human-initiated order action but none for the automated Stripe-
+      // driven transitions themselves), not scope creep against the
+      // original Phase 4 brief this suite otherwise still guards — every
+      // other file in PHASE4_FILES, and every other item in this list,
+      // remains untouched.
+      if (file !== 'lib/events/stripe.ts') {
+        expect(code).not.toMatch(/audit_logs|AuditLog/)
+      }
     })
   }
 
