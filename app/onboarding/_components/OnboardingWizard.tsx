@@ -9,6 +9,7 @@ import Step4FleetMapping from './steps/Step4FleetMapping';
 import Step5KeyQuestions from './steps/Step5KeyQuestions';
 import Step6SuccessMetrics from './steps/Step6SuccessMetrics';
 import Step7Review from './steps/Step7Review';
+import { APP_HEADER_OFFSET_VAR } from '@/lib/layout/headerOffset';
 
 const FONT = 'var(--font-inter), "Inter", -apple-system, sans-serif';
 
@@ -146,7 +147,7 @@ export default function OnboardingWizard({ organisationId, userId }: { organisat
 
       {/* Progress bar */}
       <div style={{
-        position: 'sticky', top: 52, zIndex: 90,
+        position: 'sticky', top: APP_HEADER_OFFSET_VAR, zIndex: 90,
         background: 'rgba(7,8,11,.96)', backdropFilter: 'blur(12px)',
         borderBottom: '1px solid rgba(255,255,255,.05)',
         padding: '16px 28px 14px',
