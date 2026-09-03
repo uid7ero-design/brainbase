@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
+import { CRM_CONTACT_CLASSIFICATIONS, CRM_CONTACT_CLASSIFICATION_LABELS, type CrmContactClassification } from '@/lib/crm/classification';
 
 type Contact = {
   id?: string;
@@ -10,6 +11,7 @@ type Contact = {
   job_title?: string | null;
   company_id?: string | null;
   notes?: string | null;
+  classification?: CrmContactClassification | null;
 };
 type Company = { id: string; name: string };
 
@@ -46,6 +48,22 @@ export default function ContactForm({ initial, onSaved }: { initial?: Contact; o
       <Field label="Email" value={form.email ?? ''} onChange={set('email')} />
       <Field label="Phone" value={form.phone ?? ''} onChange={set('phone')} />
       <Field label="Job Title" value={form.job_title ?? ''} onChange={set('job_title')} />
+      <div>
+        {/* Classification is optional — "Unclassified" (empty value)
+            submits as '', which both API routes (POST/PUT
+            /api/crm/contacts) treat identically to null. Never required:
+            see this field's own comment in lib/crm/classification.ts —
+            most existing contacts, and any contact a human creates
+            without picking one, are unclassified, which is a valid,
+            expected state, not an error. */}
+        <label style={lbl}>Classification</label>
+        <select value={form.classification ?? ''} onChange={set('classification')} style={sel}>
+          <option value="">— Unclassified —</option>
+          {CRM_CONTACT_CLASSIFICATIONS.map(value => (
+            <option key={value} value={value}>{CRM_CONTACT_CLASSIFICATION_LABELS[value]}</option>
+          ))}
+        </select>
+      </div>
       <div>
         <label style={lbl}>Company</label>
         <select value={form.company_id ?? ''} onChange={set('company_id')} style={sel}>

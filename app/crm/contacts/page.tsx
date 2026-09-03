@@ -1,25 +1,52 @@
 'use client';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import SlidePanel from '../_components/SlidePanel';
 import ContactForm from '../_components/ContactForm';
+import ClassificationBadge from '../_components/ClassificationBadge';
+import { CRM_CONTACT_CLASSIFICATIONS, CRM_CONTACT_CLASSIFICATION_LABELS, type CrmContactClassification } from '@/lib/crm/classification';
 
 const CARD = '#0e1014'; const BORDER = '#1a1d24';
 
-type Contact = { id: string; first_name: string; last_name: string; email: string | null; phone: string | null; job_title: string | null; company_name: string | null; activity_count: number };
+type Contact = {
+  id: string; first_name: string; last_name: string; email: string | null; phone: string | null;
+  job_title: string | null; company_name: string | null; activity_count: number;
+  classification: CrmContactClassification | null;
+};
+
+// 'ALL' and 'UNCLASSIFIED' are UI-only filter sentinels, not canonical
+// classification values (see lib/crm/classification.ts) — 'UNCLASSIFIED'
+// matches the same sentinel GET /api/crm/contacts already recognises
+// server-side (classification IS NULL); 'ALL' simply omits the query
+// param entirely.
+type FilterValue = 'ALL' | 'UNCLASSIFIED' | CrmContactClassification;
 
 export default function ContactsPage() {
+  const searchParams = useSearchParams();
+  // /crm/contacts?classification=EVENT_CONTACT pre-filters the list on
+  // load — the "Event Contacts" shortcut this phase asks for resolves
+  // to exactly this URL, reusing the SAME crm_contacts rows and the SAME
+  // list page, never a separate view/table.
+  const initialClassification = searchParams.get('classification');
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
   const [search, setSearch] = useState('');
+  const [classificationFilter, setClassificationFilter] = useState<FilterValue>(
+    initialClassification === 'UNCLASSIFIED' || (CRM_CONTACT_CLASSIFICATIONS as readonly string[]).includes(initialClassification ?? '')
+      ? (initialClassification as FilterValue)
+      : 'ALL',
+  );
 
-  async function load() {
-    const res = await fetch('/api/crm/contacts');
+  async function load(filter: FilterValue) {
+    setLoading(true);
+    const qs = filter === 'ALL' ? '' : `?classification=${encodeURIComponent(filter)}`;
+    const res = await fetch(`/api/crm/contacts${qs}`);
     if (res.ok) setContacts((await res.json()).contacts);
     setLoading(false);
   }
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(classificationFilter); }, [classificationFilter]);
 
   const filtered = contacts.filter(c => {
     const q = search.toLowerCase();
@@ -36,6 +63,17 @@ export default function ContactsPage() {
           <p style={{ color: '#6b7280', fontSize: 13, margin: '4px 0 0' }}>{contacts.length} total</p>
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
+          <select
+            value={classificationFilter}
+            onChange={e => setClassificationFilter(e.target.value as FilterValue)}
+            style={{ padding: '8px 12px', background: CARD, border: `1px solid ${BORDER}`, borderRadius: 8, color: '#f9fafb', fontSize: 13, outline: 'none' }}
+          >
+            <option value="ALL">All</option>
+            <option value="UNCLASSIFIED">Unclassified</option>
+            {CRM_CONTACT_CLASSIFICATIONS.map(value => (
+              <option key={value} value={value}>{CRM_CONTACT_CLASSIFICATION_LABELS[value]}</option>
+            ))}
+          </select>
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search…"
             style={{ padding: '8px 12px', background: CARD, border: `1px solid ${BORDER}`, borderRadius: 8, color: '#f9fafb', fontSize: 13, outline: 'none', width: 200 }} />
           <button onClick={() => setShowAdd(true)} style={btn('#1a6aff')}>+ Add Contact</button>
@@ -46,14 +84,14 @@ export default function ContactsPage() {
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ borderBottom: `1px solid ${BORDER}` }}>
-              {['Name', 'Company', 'Job Title', 'Email', 'Activities', ''].map(h => (
+              {['Name', 'Classification', 'Company', 'Job Title', 'Email', 'Activities', ''].map(h => (
                 <th key={h} style={th}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {loading && <tr><td colSpan={6} style={empty}>Loading…</td></tr>}
-            {!loading && filtered.length === 0 && <tr><td colSpan={6} style={empty}>No contacts yet.</td></tr>}
+            {loading && <tr><td colSpan={7} style={empty}>Loading…</td></tr>}
+            {!loading && filtered.length === 0 && <tr><td colSpan={7} style={empty}>No contacts yet.</td></tr>}
             {filtered.map((c, i) => (
               <tr key={c.id} style={{ borderBottom: i < filtered.length - 1 ? `1px solid ${BORDER}` : 'none' }}>
                 <td style={{ padding: '13px 16px' }}>
@@ -61,6 +99,7 @@ export default function ContactsPage() {
                     {c.first_name} {c.last_name}
                   </Link>
                 </td>
+                <td style={td}><ClassificationBadge classification={c.classification} /></td>
                 <td style={td}>
                   {c.company_name
                     ? <span style={{ color: '#9ca3af' }}>{c.company_name}</span>
@@ -79,7 +118,7 @@ export default function ContactsPage() {
       </div>
 
       <SlidePanel open={showAdd} onClose={() => setShowAdd(false)} title="Add Contact">
-        <ContactForm onSaved={() => { setShowAdd(false); load(); }} />
+        <ContactForm onSaved={() => { setShowAdd(false); load(classificationFilter); }} />
       </SlidePanel>
     </div>
   );

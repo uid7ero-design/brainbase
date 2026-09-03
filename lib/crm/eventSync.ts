@@ -1,5 +1,6 @@
 import sql from '@/lib/db';
 import { checkCapability } from '@/lib/capabilities/requireCapability';
+import { EVENT_CONTACT_CLASSIFICATION } from './classification';
 
 // Events -> CRM contact/activity sync. Deliberately best-effort relative
 // to the Events booking/payment flow: every exported function here
@@ -126,6 +127,17 @@ export interface SyncEventOrderContactInput {
 // Best-effort. Never throws. Resolves (does nothing) if CRM is disabled
 // for this organisation, if the DB is unreachable, or if any step
 // fails — logged, not surfaced, exactly like the rest of this file.
+//
+// CLASSIFICATION (see lib/crm/classification.ts): both INSERT branches
+// below set classification = EVENT_CONTACT_CLASSIFICATION, because they
+// only ever fire when creating a BRAND-NEW crm_contacts row (the "ins"
+// CTE's own WHERE NOT EXISTS, and the no-identity fallback, which always
+// inserts). A contact MATCHED to an existing row (the "existing" CTE) is
+// never written to at all — its classification, whatever it already is
+// (CLIENT, LEAD, SUPPLIER, PARTNER, OTHER, or NULL/unclassified), is
+// left completely untouched, by construction, not by an extra runtime
+// check. There is deliberately no UPDATE branch that could reclassify
+// an existing contact.
 export async function syncEventOrderContact(input: SyncEventOrderContactInput): Promise<void> {
   const { organisationId, orderId, purchaserName, purchaserEmail, purchaserPhone } = input;
 
@@ -164,8 +176,8 @@ export async function syncEventOrderContact(input: SyncEventOrderContactInput): 
           LIMIT 1
         ),
         ins AS (
-          INSERT INTO crm_contacts (organisation_id, first_name, last_name, email, phone, notes)
-          SELECT ${organisationId}, ${firstName}, ${lastName}, ${purchaserEmail ?? null}, ${purchaserPhone ?? null}, 'Events / Event Booking'
+          INSERT INTO crm_contacts (organisation_id, first_name, last_name, email, phone, notes, classification)
+          SELECT ${organisationId}, ${firstName}, ${lastName}, ${purchaserEmail ?? null}, ${purchaserPhone ?? null}, 'Events / Event Booking', ${EVENT_CONTACT_CLASSIFICATION}
           FROM lock_cte
           WHERE NOT EXISTS (SELECT 1 FROM existing)
           RETURNING id
@@ -179,8 +191,8 @@ export async function syncEventOrderContact(input: SyncEventOrderContactInput): 
       // create a fresh contact rather than silently dropping the
       // purchaser (per this Phase's own explicit instruction).
       rows = (await sql`
-        INSERT INTO crm_contacts (organisation_id, first_name, last_name, email, phone, notes)
-        VALUES (${organisationId}, ${firstName}, ${lastName}, ${purchaserEmail ?? null}, ${purchaserPhone ?? null}, 'Events / Event Booking')
+        INSERT INTO crm_contacts (organisation_id, first_name, last_name, email, phone, notes, classification)
+        VALUES (${organisationId}, ${firstName}, ${lastName}, ${purchaserEmail ?? null}, ${purchaserPhone ?? null}, 'Events / Event Booking', ${EVENT_CONTACT_CLASSIFICATION})
         RETURNING id
       `) as { id: string }[];
     }

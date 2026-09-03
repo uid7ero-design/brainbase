@@ -56,6 +56,44 @@ describe('crm_contacts canonical schema (scripts/crm-migrate.mjs)', () => {
   });
 });
 
+// Contact classification phase (scripts/add-crm-contact-classification.sql)
+// — classification is added by a SEPARATE, later ALTER TABLE, exactly
+// like crm_contact_id was added to event_orders by
+// scripts/add-events-crm-link.sql rather than baked into
+// crm-migrate.mjs's own original CREATE TABLE. This is checked as its
+// own describe block, not folded into the "canonical schema" one above,
+// for the same reason: the base migration's CREATE TABLE body is
+// intentionally NOT expected to define this column.
+describe('crm_contacts.classification (scripts/add-crm-contact-classification.sql)', () => {
+  const migrationSource = fs.readFileSync(
+    path.resolve(__dirname, '../../scripts/add-crm-contact-classification.sql'),
+    'utf-8',
+  );
+
+  it('adds classification as a nullable column with no default, additively (IF NOT EXISTS)', () => {
+    expect(migrationSource).toMatch(/ALTER TABLE crm_contacts\s+ADD COLUMN IF NOT EXISTS classification TEXT;/);
+    expect(migrationSource).not.toMatch(/classification TEXT[^;]*NOT NULL/);
+    expect(migrationSource).not.toMatch(/classification TEXT[^;]*DEFAULT/);
+  });
+
+  it('constrains classification to exactly the six canonical values or NULL, idempotently', () => {
+    expect(migrationSource).toContain('crm_contacts_classification_check');
+    expect(migrationSource).toMatch(/CHECK \(classification IS NULL OR classification IN \(/);
+    for (const value of ['CLIENT', 'LEAD', 'EVENT_CONTACT', 'SUPPLIER', 'PARTNER', 'OTHER']) {
+      expect(migrationSource).toContain(`'${value}'`);
+    }
+    expect(migrationSource).toMatch(/IF NOT EXISTS \(\s*SELECT 1 FROM pg_constraint WHERE conname = 'crm_contacts_classification_check'/);
+  });
+
+  it('adds a tenant-scoped (organisation_id-first) index', () => {
+    expect(migrationSource).toMatch(/CREATE INDEX IF NOT EXISTS idx_crm_contacts_classification\s+ON crm_contacts\(organisation_id, classification\);/);
+  });
+
+  it('performs no backfill/UPDATE of any kind — existing rows must remain NULL', () => {
+    expect(migrationSource.replace(/--.*$/gm, '')).not.toMatch(/UPDATE\s+crm_contacts/i);
+  });
+});
+
 function asNextRequest(req: Request): NextRequest {
   return req as unknown as NextRequest;
 }

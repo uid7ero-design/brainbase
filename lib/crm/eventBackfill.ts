@@ -1,6 +1,7 @@
 import sql from '@/lib/db';
 import { checkCapability } from '@/lib/capabilities/requireCapability';
 import { normalizeEmail, normalizePhone, splitPurchaserName, recordEventBookingActivityForOrder } from './eventSync';
+import { EVENT_CONTACT_CLASSIFICATION } from './classification';
 
 // Phase 6.2 — historical Events -> CRM backfill. Reuses the existing,
 // generic crm_contacts model (this file does NOT introduce a second
@@ -50,7 +51,13 @@ import { normalizeEmail, normalizePhone, splitPurchaserName, recordEventBookingA
 // links event_orders.crm_contact_id to it. An old event order's
 // purchaser_name spelled slightly differently than a CRM contact's
 // current, possibly-since-corrected name can never clobber the CRM
-// contact's own data.
+// contact's own data. The same rule now covers classification (see
+// lib/crm/classification.ts): the single INSERT site below sets
+// classification = EVENT_CONTACT_CLASSIFICATION only when creating a
+// brand-new row (WHERE cnt = 0); a matched existing contact's own
+// classification — CLIENT, LEAD, SUPPLIER, PARTNER, OTHER, or
+// NULL/unclassified — is never touched, by construction, exactly like
+// its name/email/phone.
 
 export type BackfillClassification = 'would_link_existing' | 'would_create_new' | 'skipped_insufficient_identity' | 'ambiguous';
 
@@ -254,8 +261,8 @@ export async function executeEventContactBackfill(organisationId: string): Promi
           SELECT COUNT(*)::int AS cnt FROM matches
         ),
         ins AS (
-          INSERT INTO crm_contacts (organisation_id, first_name, last_name, email, phone, notes)
-          SELECT ${organisationId}, ${firstName}, ${lastName}, ${order.purchaser_email ?? null}, ${order.purchaser_phone ?? null}, 'Events / Historical Backfill'
+          INSERT INTO crm_contacts (organisation_id, first_name, last_name, email, phone, notes, classification)
+          SELECT ${organisationId}, ${firstName}, ${lastName}, ${order.purchaser_email ?? null}, ${order.purchaser_phone ?? null}, 'Events / Historical Backfill', ${EVENT_CONTACT_CLASSIFICATION}
           FROM match_count WHERE cnt = 0
           RETURNING id
         )

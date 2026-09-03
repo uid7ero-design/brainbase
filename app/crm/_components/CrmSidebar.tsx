@@ -8,6 +8,16 @@ const NAV_ITEMS = [
   { href: '/crm', label: 'Overview', exact: true },
   { href: '/crm/companies', label: 'Companies' },
   { href: '/crm/contacts', label: 'Contacts' },
+  // Contact classification phase — a shortcut, not a second contacts
+  // store: same crm_contacts rows, same list page, same API, just a
+  // pre-applied ?classification=EVENT_CONTACT filter (see
+  // app/crm/contacts/page.tsx). Note: this sidebar's `active` check
+  // compares against usePathname() only (query strings are stripped),
+  // so this item never highlights as active even while viewing it —
+  // a pre-existing limitation of every item's shared active-detection
+  // logic here, not something specific to this one link; the link
+  // itself still navigates and filters correctly.
+  { href: '/crm/contacts?classification=EVENT_CONTACT', label: 'Event Contacts' },
   { href: '/crm/deals', label: 'Deals' },
   { href: '/crm/activities', label: 'Activities' },
   // Phase 6.2 — shown unconditionally here, matching every other entry

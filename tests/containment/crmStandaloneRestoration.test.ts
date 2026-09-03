@@ -182,7 +182,13 @@ describe('Restored list pages call the current, unchanged /api/crm/** contract',
     expect(CRM_COMPANIES_SOURCE).toContain("fetch('/api/crm/companies')")
   })
   it('Contacts list fetches /api/crm/contacts', () => {
-    expect(CRM_CONTACTS_SOURCE).toContain("fetch('/api/crm/contacts')")
+    // Contact classification phase added an optional ?classification=
+    // query param (lib/crm/classification.ts's own filter), so the fetch
+    // call became a template literal rather than the earlier plain
+    // string literal — the base endpoint contract this test guards is
+    // unchanged, matching the same template-literal style already used
+    // below for the Deals/Activities detail-route fetches.
+    expect(CRM_CONTACTS_SOURCE).toContain('fetch(`/api/crm/contacts')
   })
   it('Deals list fetches /api/crm/deals and PUTs stage changes to /api/crm/deals/${id}', () => {
     expect(CRM_DEALS_SOURCE).toContain("fetch('/api/crm/deals')")
