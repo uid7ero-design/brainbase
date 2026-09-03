@@ -23,6 +23,23 @@ type ClassificationPreviewResult = {
   rows: ClassificationPreviewRow[];
 };
 
+type ClassificationExecutionRow = {
+  contactId: string;
+  name: string;
+  outcome: 'updated' | 'skipped_already_classified' | 'skipped_no_marker' | 'skipped_no_order_link' | 'skipped_stale' | 'failed';
+  error?: string;
+};
+
+type ClassificationExecutionResult = {
+  success: boolean;
+  crmEnabled: boolean;
+  eligibleAtExecution: number;
+  updatedCount: number;
+  skippedCount: number;
+  updated: ClassificationExecutionRow[];
+  skipped: ClassificationExecutionRow[];
+};
+
 type PreviewResult = {
   crmEnabled: boolean;
   totalUnlinkedOrders: number;
@@ -71,15 +88,15 @@ export default function EventsBackfillPage() {
   const [forbidden, setForbidden] = useState(false);
 
   const [classificationPreview, setClassificationPreview] = useState<ClassificationPreviewResult | null>(null);
+  const [classificationExecution, setClassificationExecution] = useState<ClassificationExecutionResult | null>(null);
   const [classificationLoading, setClassificationLoading] = useState(false);
+  const [classificationExecuting, setClassificationExecuting] = useState(false);
   const [classificationError, setClassificationError] = useState<string | null>(null);
   const [classificationForbidden, setClassificationForbidden] = useState(false);
 
-  // Preview-only in this phase — there is no execute call here, and
-  // deliberately no confirm()/mutation path exists in this section at
-  // all (unlike runExecute() above). See
-  // lib/crm/eventContactClassificationBackfill.ts for the read-only
-  // eligibility logic this table reflects.
+  // See lib/crm/eventContactClassificationBackfill.ts for the
+  // eligibility logic this table reflects. GET is re-fetchable any
+  // number of times with zero side effects.
   async function runClassificationPreview() {
     setClassificationLoading(true); setClassificationError(null); setClassificationForbidden(false);
     try {
@@ -90,6 +107,29 @@ export default function EventsBackfillPage() {
       setClassificationPreview(body);
     } catch { setClassificationError('Preview failed. Please try again.'); }
     finally { setClassificationLoading(false); }
+  }
+
+  // Distinct from runExecute() above — this is the classification
+  // section's own execute flow, deliberately not mixed with the
+  // separate order-linking execution above it on this page. The server
+  // re-checks eligibility itself at execution time (a contact this
+  // preview shows as eligible may have been classified elsewhere in
+  // the meantime) — the confirm text says so plainly rather than
+  // implying the count on screen is a guaranteed outcome.
+  async function runClassificationExecute() {
+    if (!classificationPreview) return;
+    const summary = `Classify ${classificationPreview.eligibleCount} currently-eligible contact(s) as Event Contact? The server will re-check eligibility for each one right before writing it, so the actual count classified may be lower if anything changed since this preview. Contacts already classified as Client, Lead, Supplier, Partner, or Other are never overwritten.`;
+    if (!confirm(summary)) return;
+    setClassificationExecuting(true); setClassificationError(null);
+    try {
+      const res = await fetch('/api/crm/events-backfill/classification', { method: 'POST' });
+      if (res.status === 401 || res.status === 403) { setClassificationForbidden(true); return; }
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) { setClassificationError(body.error ?? `Execution failed (${res.status}).`); return; }
+      setClassificationExecution(body);
+      await runClassificationPreview();
+    } catch { setClassificationError('Execution failed. Please try again.'); }
+    finally { setClassificationExecuting(false); }
   }
 
   async function runPreview() {
@@ -236,7 +276,8 @@ export default function EventsBackfillPage() {
         <p style={{ color: '#6b7280', fontSize: 13, margin: '4px 0 14px', maxWidth: 620 }}>
           Finds existing CRM contacts with Events evidence (an intact &quot;Events / …&quot; note and a live linked
           order) that are still unclassified, so they can be reviewed before being marked as Event Contacts.
-          <strong style={{ color: '#9ca3af' }}> This preview makes no changes.</strong>
+          <strong style={{ color: '#9ca3af' }}> This preview makes no changes</strong> — nothing is classified until
+          you explicitly confirm the action below.
         </p>
 
         {classificationForbidden && (
@@ -248,9 +289,32 @@ export default function EventsBackfillPage() {
         {classificationError && <div role="alert" style={{ color: '#f87171', fontSize: 13, marginBottom: 16 }}>{classificationError}</div>}
 
         {!classificationForbidden && (
-          <button onClick={runClassificationPreview} disabled={classificationLoading} style={{ ...btn('#1a6aff', classificationLoading), marginBottom: 20 }}>
-            {classificationLoading ? 'Loading preview…' : classificationPreview ? 'Refresh preview' : 'Preview'}
-          </button>
+          <div style={{ display: 'flex', gap: 10, marginBottom: 20 }}>
+            <button
+              onClick={() => { setClassificationExecution(null); runClassificationPreview(); }}
+              disabled={classificationLoading}
+              style={btn('#1a6aff', classificationLoading)}
+            >
+              {classificationLoading ? 'Loading preview…' : classificationPreview ? 'Refresh preview' : 'Preview'}
+            </button>
+            {classificationPreview && classificationPreview.crmEnabled && classificationPreview.eligibleCount > 0 && (
+              <button onClick={runClassificationExecute} disabled={classificationExecuting} style={btn('#16a34a', classificationExecuting)}>
+                {classificationExecuting ? 'Classifying…' : `Classify as Event Contact (${classificationPreview.eligibleCount})`}
+              </button>
+            )}
+          </div>
+        )}
+
+        {classificationExecution && (
+          <div style={{ marginBottom: 20 }}>
+            <SummaryGrid
+              items={[
+                ['Eligible at execution', classificationExecution.eligibleAtExecution],
+                ['Classified', classificationExecution.updatedCount],
+                ['Skipped', classificationExecution.skippedCount],
+              ]}
+            />
+          </div>
         )}
 
         {classificationPreview && !classificationPreview.crmEnabled && (

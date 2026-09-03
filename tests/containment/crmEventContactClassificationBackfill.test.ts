@@ -121,11 +121,13 @@ describe('computeClassificationEligibility — the exact three-tier priority', (
 // ─────────────────────────────────────────────────────────────────────
 
 let calls: { text: string; values: unknown[] }[] = []
-let responseQueue: unknown[][] = []
+let responseQueue: (unknown[] | 'THROW')[] = []
 let callCount = 0
 const sqlMock = vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
   calls.push({ text: strings.join('?'), values })
-  return Promise.resolve(responseQueue[callCount++] ?? [])
+  const next = responseQueue[callCount++]
+  if (next === 'THROW') throw new Error('simulated DB failure')
+  return Promise.resolve(next ?? [])
 })
 vi.mock('@/lib/db', () => ({
   default: (...args: unknown[]) => (sqlMock as unknown as (...a: unknown[]) => unknown)(...(args as [TemplateStringsArray, ...unknown[]])),
@@ -148,11 +150,24 @@ vi.mock('@/lib/org', async (importOriginal) => {
   return { ...actual, requireSession: (...args: unknown[]) => requireSessionMock(...args) }
 })
 
-function queue(...responses: unknown[][]) { responseQueue = responses; callCount = 0; calls = [] }
+function queue(...responses: (unknown[] | 'THROW')[]) { responseQueue = responses; callCount = 0; calls = [] }
 function sessionAs(role: string, organisationId = 'org-a') { return { userId: 'staff-1', organisationId, role, name: 'Staff One' } }
 
-const { previewEventContactClassification } = await import('@/lib/crm/eventContactClassificationBackfill')
+const { previewEventContactClassification, executeEventContactClassification } = await import('@/lib/crm/eventContactClassificationBackfill')
 const route = await import('@/app/api/crm/events-backfill/classification/route')
+
+function eligibleCandidate(overrides: Partial<{
+  id: string; first_name: string; last_name: string; email: string | null;
+  notes: string | null; classification: string | null;
+  linked_order_count: number; event_activity_count: number;
+}> = {}) {
+  return {
+    id: 'contact-1', first_name: 'Jane', last_name: 'Doe', email: 'jane@example.invalid',
+    notes: 'Events / Event Booking', classification: null,
+    linked_order_count: 1, event_activity_count: 1,
+    ...overrides,
+  }
+}
 
 beforeEach(() => {
   sqlMock.mockClear()
@@ -240,6 +255,146 @@ describe('previewEventContactClassification — zero writes', () => {
 })
 
 // ─────────────────────────────────────────────────────────────────────
+// executeEventContactClassification — the actual write path
+// ─────────────────────────────────────────────────────────────────────
+
+describe('executeEventContactClassification — eligible contacts are classified', () => {
+  it('an eligible NULL contact (marker + live order link) is classified as EVENT_CONTACT, and the UPDATE/audit values are exactly right', async () => {
+    queue(
+      [eligibleCandidate()],
+      [{ updated_id: 'contact-1' }],
+    )
+    const result = await executeEventContactClassification('org-a', 'actor-1')
+    expect(result.crmEnabled).toBe(true)
+    expect(result.eligibleAtExecution).toBe(1)
+    expect(result.updatedCount).toBe(1)
+    expect(result.skippedCount).toBe(0)
+    expect(result.updated).toEqual([{ contactId: 'contact-1', name: 'Jane Doe', outcome: 'updated' }])
+
+    expect(calls).toHaveLength(2)
+    const writeCall = calls[1]
+    expect(writeCall.text).toMatch(/UPDATE\s+crm_contacts/i)
+    expect(writeCall.text).toContain('classification IS NULL')
+    expect(writeCall.values).toContain('EVENT_CONTACT')
+    expect(writeCall.values).toContain('contact-1')
+    expect(writeCall.values).toContain('org-a')
+    expect(writeCall.values).toContain('actor-1')
+    // The action/resource_type strings are literal SQL text (not
+    // interpolated values), so they appear in .text, not .values.
+    expect(writeCall.text).toContain('crm_contact.historical_classification_backfill')
+  })
+
+  it('CLIENT is never updated — zero write calls for a classified contact', async () => {
+    queue([eligibleCandidate({ classification: 'CLIENT' })])
+    const result = await executeEventContactClassification('org-a', 'actor-1')
+    expect(result.updatedCount).toBe(0)
+    expect(result.skipped).toEqual([{ contactId: 'contact-1', name: 'Jane Doe', outcome: 'skipped_already_classified' }])
+    expect(calls).toHaveLength(1) // candidate query only — no write attempted
+  })
+
+  it('LEAD is never updated', async () => {
+    queue([eligibleCandidate({ classification: 'LEAD' })])
+    const result = await executeEventContactClassification('org-a', 'actor-1')
+    expect(result.updatedCount).toBe(0)
+    expect(calls).toHaveLength(1)
+  })
+
+  it('SUPPLIER is never updated', async () => {
+    queue([eligibleCandidate({ classification: 'SUPPLIER' })])
+    const result = await executeEventContactClassification('org-a', 'actor-1')
+    expect(result.updatedCount).toBe(0)
+    expect(calls).toHaveLength(1)
+  })
+
+  it('PARTNER is never updated', async () => {
+    queue([eligibleCandidate({ classification: 'PARTNER' })])
+    const result = await executeEventContactClassification('org-a', 'actor-1')
+    expect(result.updatedCount).toBe(0)
+    expect(calls).toHaveLength(1)
+  })
+
+  it('OTHER is never updated', async () => {
+    queue([eligibleCandidate({ classification: 'OTHER' })])
+    const result = await executeEventContactClassification('org-a', 'actor-1')
+    expect(result.updatedCount).toBe(0)
+    expect(calls).toHaveLength(1)
+  })
+
+  it('a marker-only contact (no live order link) is skipped, no write attempted', async () => {
+    queue([eligibleCandidate({ linked_order_count: 0 })])
+    const result = await executeEventContactClassification('org-a', 'actor-1')
+    expect(result.updatedCount).toBe(0)
+    expect(result.skipped).toEqual([{ contactId: 'contact-1', name: 'Jane Doe', outcome: 'skipped_no_order_link' }])
+    expect(calls).toHaveLength(1)
+  })
+
+  it('a link-only contact (no notes marker) is skipped, no write attempted', async () => {
+    queue([eligibleCandidate({ notes: 'Unrelated note' })])
+    const result = await executeEventContactClassification('org-a', 'actor-1')
+    expect(result.updatedCount).toBe(0)
+    expect(result.skipped).toEqual([{ contactId: 'contact-1', name: 'Jane Doe', outcome: 'skipped_no_marker' }])
+    expect(calls).toHaveLength(1)
+  })
+
+  it('cross-tenant is impossible — the write statement is scoped to the same organisationId as the candidate query, never a different one', async () => {
+    queue(
+      [eligibleCandidate()],
+      [{ updated_id: 'contact-1' }],
+    )
+    await executeEventContactClassification('org-b', 'actor-1')
+    const writeCall = calls[1]
+    expect(writeCall.values).toContain('org-b')
+    expect(writeCall.values).not.toContain('org-a')
+  })
+
+  it('returns crmEnabled: false and issues zero SQL calls when the crm capability is disabled', async () => {
+    checkCapabilityMock.mockResolvedValue({ allowed: false, entitlement: null })
+    const result = await executeEventContactClassification('org-a', 'actor-1')
+    expect(result).toEqual({ crmEnabled: false, eligibleAtExecution: 0, updatedCount: 0, skippedCount: 0, updated: [], skipped: [] })
+    expect(sqlMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('executeEventContactClassification — stale-preview / concurrency safety', () => {
+  it('a contact eligible at query time but no longer NULL when the guarded UPDATE actually runs (classified by someone else in the gap) is reported as skipped_stale — no audit row, because the audit INSERT is chained FROM the UPDATE\'s own RETURNING', async () => {
+    queue(
+      [eligibleCandidate()],
+      [{ updated_id: null }], // RETURNING yielded nothing — the WHERE classification IS NULL guard did not match
+    )
+    const result = await executeEventContactClassification('org-a', 'actor-1')
+    expect(result.updatedCount).toBe(0)
+    expect(result.eligibleAtExecution).toBe(1) // it WAS eligible per the candidate query
+    expect(result.skipped).toEqual([{ contactId: 'contact-1', name: 'Jane Doe', outcome: 'skipped_stale' }])
+    // Exactly one write attempt was made (the guarded compound statement)
+    // — there is no separate audit-insert call to assert "didn't happen"
+    // because it's the SAME statement; its own RETURNING already proves
+    // nothing was inserted.
+    expect(calls).toHaveLength(2)
+  })
+
+  it('a thrown error on one contact is caught and reported as failed, without aborting the rest of the batch', async () => {
+    queue(
+      [eligibleCandidate({ id: 'contact-1' }), eligibleCandidate({ id: 'contact-2' })],
+      'THROW',
+      [{ updated_id: 'contact-2' }],
+    )
+    const result = await executeEventContactClassification('org-a', 'actor-1')
+    expect(result.skipped.find(s => s.contactId === 'contact-1')?.outcome).toBe('failed')
+    expect(result.updated.find(u => u.contactId === 'contact-2')).toBeDefined()
+  })
+})
+
+describe('executeEventContactClassification — idempotency', () => {
+  it('re-running against a contact whose classification the candidate query now reports as EVENT_CONTACT (i.e. already updated by a prior run) updates zero rows', async () => {
+    queue([eligibleCandidate({ classification: 'EVENT_CONTACT' })])
+    const result = await executeEventContactClassification('org-a', 'actor-1')
+    expect(result.updatedCount).toBe(0)
+    expect(result.skipped[0].outcome).toBe('skipped_already_classified')
+    expect(calls).toHaveLength(1) // only the read-only candidate query — no write attempted at all
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────
 // ROUTE — auth/capability gate
 // ─────────────────────────────────────────────────────────────────────
 
@@ -308,21 +463,126 @@ describe('GET /api/crm/events-backfill/classification — authorization', () => 
   })
 })
 
-// ─────────────────────────────────────────────────────────────────────
-// STATIC — no execution path exists yet, no registration-answer access
-// ─────────────────────────────────────────────────────────────────────
-
-describe('No execution/POST path exists in this phase', () => {
-  it('the route file exports GET only — no POST', () => {
-    const src = read('app/api/crm/events-backfill/classification/route.ts')
-    expect(src).toMatch(/export async function GET/)
-    expect(src).not.toMatch(/export async function POST/)
+describe('POST /api/crm/events-backfill/classification — authorization (same gate as GET)', () => {
+  it('unauthenticated -> 401, no DB call', async () => {
+    requireSessionMock.mockRejectedValue(new Error('Unauthorized'))
+    const res = await route.POST()
+    expect(res.status).toBe(401)
+    expect(sqlMock).not.toHaveBeenCalled()
   })
 
-  it('the library module has no exported execute/mutate function and no UPDATE/INSERT/DELETE anywhere', () => {
+  it('manager (below admin) -> 403, no DB call', async () => {
+    requireSessionMock.mockResolvedValue(sessionAs('manager'))
+    const res = await route.POST()
+    expect(res.status).toBe(403)
+    expect(sqlMock).not.toHaveBeenCalled()
+  })
+
+  it('viewer -> 403, no DB call', async () => {
+    requireSessionMock.mockResolvedValue(sessionAs('viewer'))
+    const res = await route.POST()
+    expect(res.status).toBe(403)
+    expect(sqlMock).not.toHaveBeenCalled()
+  })
+
+  it('admin without the events capability -> 403, no DB call', async () => {
+    requireCapabilityMock.mockImplementation(async (_org: string, key: string) => {
+      if (key === 'events') throw new Error('Forbidden')
+      return { key, config: {} }
+    })
+    const res = await route.POST()
+    expect(res.status).toBe(403)
+    expect(sqlMock).not.toHaveBeenCalled()
+  })
+
+  it('admin without the crm capability -> 403, no DB call', async () => {
+    requireCapabilityMock.mockImplementation(async (_org: string, key: string) => {
+      if (key === 'crm') throw new Error('Forbidden')
+      return { key, config: {} }
+    })
+    const res = await route.POST()
+    expect(res.status).toBe(403)
+    expect(sqlMock).not.toHaveBeenCalled()
+  })
+
+  it('admin+ with both capabilities executes and returns the expected summary shape, using the session\'s own userId as actor', async () => {
+    requireSessionMock.mockResolvedValue(sessionAs('admin', 'org-a'))
+    queue(
+      [eligibleCandidate()],
+      [{ updated_id: 'contact-1' }],
+    )
+    const res = await route.POST()
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body).toMatchObject({ success: true, crmEnabled: true, eligibleAtExecution: 1, updatedCount: 1, skippedCount: 0 })
+    const writeCall = calls[calls.length - 1]
+    expect(writeCall.values).toContain('staff-1') // sessionAs()'s own userId — the actor, never client-supplied
+  })
+
+  it('super_admin also passes the role check (role hierarchy)', async () => {
+    requireSessionMock.mockResolvedValue(sessionAs('super_admin'))
+    queue([])
+    const res = await route.POST()
+    expect(res.status).toBe(200)
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────
+// STATIC — execution path shape and safety
+// ─────────────────────────────────────────────────────────────────────
+
+describe('Execution path — static shape', () => {
+  it('the route file exports both GET and POST', () => {
+    const src = read('app/api/crm/events-backfill/classification/route.ts')
+    expect(src).toMatch(/export async function GET/)
+    expect(src).toMatch(/export async function POST/)
+  })
+
+  it('POST takes no parameter at all — no request body is ever parsed, so no client-supplied field (organisationId, candidate IDs, classification value) can influence it', () => {
+    const src = read('app/api/crm/events-backfill/classification/route.ts')
+    const postStart = src.indexOf('export async function POST')
+    const postBody = src.slice(postStart, src.indexOf('\n}', postStart))
+    expect(postBody).toMatch(/export async function POST\(\)/)
+    expect(postBody).not.toMatch(/\.json\(\)|req\.|request\.|searchParams|nextUrl/)
+    expect(postBody).toContain('auth.session.organisationId')
+    expect(postBody).toContain('auth.session.userId')
+  })
+
+  it('executeEventContactClassification accepts only organisationId and actorUserId — no candidate-id list, no classification override', () => {
+    const source = read('lib/crm/eventContactClassificationBackfill.ts')
+    const fnStart = source.indexOf('export async function executeEventContactClassification')
+    const fnSignatureEnd = source.indexOf('{', source.indexOf(')', fnStart))
+    const signature = source.slice(fnStart, fnSignatureEnd)
+    expect(signature).toContain('organisationId: string')
+    expect(signature).toContain('actorUserId: string')
+    expect(signature).not.toMatch(/contactIds|candidateIds|classification\s*:/i)
+  })
+
+  it('the only UPDATE anywhere in the library module targets crm_contacts guarded by "classification IS NULL", and the only INSERT targets audit_logs — never an unguarded contact write', () => {
     const src = read('lib/crm/eventContactClassificationBackfill.ts')
-    expect(src).not.toMatch(/export (async )?function execute/i)
-    expect(src).not.toMatch(/UPDATE\s+crm_contacts|INSERT\s+INTO\s+crm_contacts|DELETE\s+FROM\s+crm_contacts/i)
+    const updateMatches = [...src.matchAll(/UPDATE\s+crm_contacts/gi)]
+    expect(updateMatches.length).toBe(1)
+    const updateIdx = updateMatches[0].index ?? 0
+    const updateBlock = src.slice(updateIdx, src.indexOf('RETURNING id', updateIdx))
+    expect(updateBlock).toContain('classification IS NULL')
+
+    const insertMatches = [...src.matchAll(/INSERT INTO (\w+)/g)]
+    expect(insertMatches.map(m => m[1])).toEqual(['audit_logs'])
+    expect(src).not.toMatch(/INSERT INTO crm_contacts/i)
+    expect(src).not.toMatch(/DELETE FROM/i)
+  })
+
+  it('the audit INSERT is chained FROM the guarded UPDATE\'s own CTE (via "FROM upd") — it structurally cannot fire unless the UPDATE actually affected a row', () => {
+    const src = read('lib/crm/eventContactClassificationBackfill.ts')
+    const insertIdx = src.indexOf('INSERT INTO audit_logs')
+    const auditBlock = src.slice(insertIdx, src.indexOf('RETURNING id', insertIdx))
+    expect(auditBlock).toMatch(/FROM upd/)
+  })
+
+  it('the audit action/resource_type are exactly the specified values', () => {
+    const src = read('lib/crm/eventContactClassificationBackfill.ts')
+    expect(src).toContain("'crm_contact.historical_classification_backfill'")
+    expect(src).toContain("'crm_contact'")
   })
 })
 
@@ -339,10 +599,10 @@ describe('Registration answers are never referenced', () => {
 })
 
 // ─────────────────────────────────────────────────────────────────────
-// UI — Preview only, no Execute
+// UI — Preview + guarded Execute
 // ─────────────────────────────────────────────────────────────────────
 
-describe('app/crm/events-backfill/page.tsx — classification section is preview-only', () => {
+describe('app/crm/events-backfill/page.tsx — classification section: preview + guarded execute', () => {
   const pageSrc = read('app/crm/events-backfill/page.tsx')
 
   it('adds the "Classify existing Events contacts" section with a Preview action', () => {
@@ -351,17 +611,50 @@ describe('app/crm/events-backfill/page.tsx — classification section is preview
     expect(pageSrc).toContain("fetch('/api/crm/events-backfill/classification')")
   })
 
-  it('states plainly that the preview makes no changes', () => {
-    expect(pageSrc).toMatch(/This preview makes no changes\./)
+  it('states plainly that previewing alone makes no changes', () => {
+    expect(pageSrc).toMatch(/This preview makes no changes/)
   })
 
-  it('contains no Execute action, no confirm() dialog, and no POST call anywhere in the classification section', () => {
-    const sectionStart = pageSrc.indexOf('Classify existing Events contacts')
-    const sectionEnd = pageSrc.indexOf('function SummaryGrid')
-    const section = pageSrc.slice(sectionStart, sectionEnd)
-    expect(section).not.toMatch(/runClassificationExecute|classificationExecut/i)
-    expect(section).not.toContain('confirm(')
-    expect(section).not.toMatch(/method:\s*'POST'/)
+  it('runClassificationExecute has its own POST call and confirm() dialog, bounded precisely to its own function body (not the pre-existing order-linking runExecute() defined elsewhere in the same component)', () => {
+    const fnStart = pageSrc.indexOf('async function runClassificationExecute')
+    const fnEnd = pageSrc.indexOf('async function runPreview')
+    expect(fnStart).toBeGreaterThan(-1)
+    expect(fnEnd).toBeGreaterThan(fnStart)
+    const fnBody = pageSrc.slice(fnStart, fnEnd)
+    expect(fnBody).toContain('confirm(')
+    expect(fnBody).toMatch(/method:\s*'POST'/)
+    expect(fnBody).toContain("fetch('/api/crm/events-backfill/classification'")
+    // Does not call into (or reuse) the pre-existing order-linking
+    // handler — a genuinely separate flow, not a wrapper around it.
+    expect(fnBody).not.toMatch(/\brunExecute\(/)
+  })
+
+  it('the JSX renders an Execute button wired to runClassificationExecute', () => {
+    expect(pageSrc).toMatch(/onClick=\{runClassificationExecute\}/)
+  })
+
+  it('the Execute button is only rendered when eligibleCount > 0', () => {
+    const executeButtonIdx = pageSrc.indexOf('runClassificationExecute} disabled')
+    const guardWindow = pageSrc.slice(Math.max(0, executeButtonIdx - 300), executeButtonIdx)
+    expect(guardWindow).toContain('classificationPreview.eligibleCount > 0')
+  })
+
+  it('the confirm dialog text mentions the count, that eligibility is re-checked server-side, and that existing classifications are never overwritten', () => {
+    const confirmIdx = pageSrc.indexOf('const summary =')
+    const confirmText = pageSrc.slice(confirmIdx, pageSrc.indexOf('if (!confirm(summary))'))
+    expect(confirmText).toMatch(/eligibleCount/)
+    expect(confirmText).toMatch(/re-check/i)
+    expect(confirmText).toMatch(/never overwritten|never changed|not overwritten/i)
+  })
+
+  it('after execution, updated/skipped counts are displayed and the preview is automatically refreshed', () => {
+    const executeStart = pageSrc.indexOf('async function runClassificationExecute')
+    const executeEnd = pageSrc.indexOf('async function runPreview')
+    const executeFn = pageSrc.slice(executeStart, executeEnd)
+    expect(executeFn).toContain('setClassificationExecution(body)')
+    expect(executeFn).toContain('runClassificationPreview()')
+    expect(pageSrc).toContain('classificationExecution.updatedCount')
+    expect(pageSrc).toContain('classificationExecution.skippedCount')
   })
 
   it('renders the requested columns: Contact, Email, Current classification, Events evidence, Linked orders, Activities, Status', () => {
