@@ -1633,3 +1633,86 @@ route was added, changed, or exposed — `inspectWorksheets.ts` (and, by
 extension, `inspectWorkbook`) remains fully dark; this phase does not
 begin worksheet-inspection HTTP exposure, `DATA_HUB` confirmation/
 import, the canonical illegal-dumping importer, or deletion/retention.
+
+## 22. Dark canonical DATA_HUB confirmation + illegal-dumping transactional importer foundation (5A.2K.1)
+
+The first slice of the `DATA_HUB` confirmation/import step foreshadowed
+(and explicitly deferred) by Section 21: a dark, CSV-only,
+illegal-dumping-only service, `lib/data-hub/importBatch/
+confirmWorksheet.ts`, that takes one worksheet `Upload` row in
+`AWAITING_CONFIRMATION` whose parent `ImportBatch` is `READY`, re-verifies
+it against trusted database and storage state, decodes and maps its rows,
+and atomically commits the domain rows plus the worksheet's `IMPORTED`
+transition. Zero HTTP route, zero UI, zero runtime caller of any kind —
+see `tests/containment/confirmWorksheet.test.ts` and the exact-set
+addition to `tests/containment/dataHubImportBatchDarkness.test.ts` for the
+darkness proof.
+
+**Trusted-context-only boundary, unchanged discipline.** `confirmDataHubWorksheet`
+accepts exactly `{ organisationId, worksheetUploadId }`, mirroring every
+other `importBatch` service (Sections 17-20). Storage locator, worksheet
+identity beyond its primary key, lineage, and canonical status are all
+resolved from trusted database state — never accepted as caller input.
+Worksheet identity is resolved by `id` (primary key) only, reaffirming
+Section 21's "`worksheet_index`/row identity, never `worksheet_name`"
+principle at the confirmation layer too: two `Upload` rows sharing an
+identical `worksheet_name` on the same batch resolve independently,
+proven in `scripts/tests/confirmWorksheet.integration.test.ts`.
+
+**xlsx-freedom, a new independent module.** `lib/data-hub/csvOnlyDecoder.ts`
+duplicates only `workbookParser.ts`'s CSV-decode semantics (via
+`csv-parse/sync` directly), the same "physically separate the xlsx-free
+path from the xlsx-carrying path" discipline `fileSignatures.ts`
+established in Section 13 — never importing `workbookParser.ts` or
+`xlsx`, so this service carries zero transitive dependency on the
+standing public-parser-exposure question (Section 8/8a/8b). XLS/XLSX
+batches are deterministically rejected (`UNSUPPORTED_FORMAT`) against the
+`ImportBatch`'s own trusted `content_type` before any decode is
+attempted — never a fallback, never an attempt.
+
+**Atomic claim, no durable `IMPORTING` state.** The service performs all
+decode/validation/hash-verification work (storage `GET`, mandatory
+SHA-256 re-verification against the batch's own persisted `sha256`, CSV
+decode, illegal-dumping row mapping) strictly before opening any
+transaction. The transaction itself contains exactly two statements: a
+single conditional `tx.upload.updateMany` claim, whose own `WHERE` clause
+encodes `id`, `organisation_id`, `lineage_kind: 'DATA_HUB'`, and
+`canonical_status: 'AWAITING_CONFIRMATION'` in one predicate (never a
+separate `SELECT`-then-`UPDATE`), followed by `tx.illegalDumping.createMany`
+gated behind the claim's own row count. `uploads_canonical_status_check`
+(Section 15) structurally forbids any value outside
+`AWAITING_CONFIRMATION | INELIGIBLE | SKIPPED | IMPORTED` — there is no
+"IMPORTING" value this service could persist even transiently; the
+transaction boundary itself is the sole claim mechanism, proven
+concurrency-safe (two simultaneous confirmation attempts against the same
+worksheet converge to exactly one import, never a duplicate) in the real-Postgres
+integration harness.
+
+**Illegal-dumping mapper, deliberately not a general framework.**
+`lib/data-hub/importBatch/illegalDumpingMapper.ts` matches CSV columns by
+fixed, exact name only (`report_date`/`location`/`waste_type` required) —
+no caller-supplied field-mapping indirection, unlike the legacy
+`modules/dumping/index.ts` pipeline this replaces for the canonical path.
+This is CSV-first, illegal-dumping-only by explicit scope: XLS/XLSX
+canonical confirmation, every other domain's canonical importer, and any
+field-mapping UI are all future, separate work.
+
+**Real-Postgres falsification coverage.**
+`scripts/tests/confirmWorksheet.integration.test.ts` (run via
+`scripts/tests/verify-confirm-worksheet.sh`, the same disposable
+`postgres:16-alpine` container methodology as every harness in Sections
+13/17/18/19/20) proves, against the real unmodified service: wrong-tenant
+rejection, `LEGACY`-lineage rejection, the full `canonical_status`
+eligibility matrix, parent-batch-not-`READY`/tombstoned rejection,
+storage-locator authority (the service cannot be redirected to an
+attacker-planted key), mandatory hash re-verification, worksheet identity
+by id, atomic all-or-nothing rollback of the claim and domain write
+together on a mid-transaction failure, and the concurrent-claim race.
+
+**Scope discipline.** Production changes are confined to the three new
+files above plus two new `CallerOnlyOutcomeCode` additions to
+`failureTaxonomy.ts` (`WORKSHEET_NOT_ELIGIBLE`, `UNSUPPORTED_FORMAT`). No
+schema/migration change, no dependency change, no HTTP route, no UI. This
+phase does not implement XLS/XLSX canonical confirmation, any other
+domain's canonical importer, deletion/retention, or begin HTTP exposure
+of any dark Data Hub service — including this one.
