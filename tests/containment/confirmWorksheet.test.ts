@@ -174,6 +174,71 @@ describe("confirmWorksheet — the claim is a single conditional UPDATE, first i
   });
 });
 
+// ─── Zero-row claim structurally terminates before the domain write
+//     (5A.2K.1-R). Independent adversarial review found the PRIOR test
+//     above ("domain write is gated behind a claim.count check") proves
+//     only that the guard TEXT appears before createMany textually -- it
+//     cannot distinguish a real early return from the claim.count check
+//     being present-but-inert (e.g. its `return` silently removed/
+//     replaced), which is exactly the regression the review deterministically
+//     forced via a real-Postgres race in
+//     scripts/tests/confirmWorksheet.integration.test.ts. This test closes
+//     that specific gap with brace-scoped structural containment: it
+//     extracts the EXACT if (claim.count === 0) { ... } block (via balanced-
+//     brace matching, not a fixed-offset guess) and requires its own FINAL
+//     statement to be a `return`, so nothing inside that block can fall
+//     through toward the domain write below it. The real-Postgres test
+//     remains the authoritative proof of runtime behavior; this is a fast,
+//     permanent, source-level tripwire for the same defect class. ──────────
+
+function extractBalancedBlock(code: string, openBraceIndex: number): string {
+  let depth = 0;
+  for (let i = openBraceIndex; i < code.length; i++) {
+    if (code[i] === "{") depth++;
+    else if (code[i] === "}") {
+      depth--;
+      if (depth === 0) return code.slice(openBraceIndex, i + 1);
+    }
+  }
+  throw new Error("extractBalancedBlock: unbalanced braces starting at " + openBraceIndex);
+}
+
+describe("confirmWorksheet — zero-row claim (claim.count === 0) structurally terminates before the domain write (5A.2K.1-R)", () => {
+  const code = read(SERVICE_PATH);
+  const txBody = code.slice(
+    code.indexOf("prisma.$transaction(async (tx) => {"),
+    code.indexOf("\n  });", code.indexOf("prisma.$transaction("))
+  );
+  const IF_MARKER = "if (claim.count === 0) {";
+  const ifIdx = txBody.indexOf(IF_MARKER);
+  const openBraceIdx = ifIdx + IF_MARKER.length - 1;
+  const ifBlock = ifIdx >= 0 ? extractBalancedBlock(txBody, openBraceIdx) : "";
+
+  it("the if (claim.count === 0) block exists exactly once, brace-balanced", () => {
+    expect(ifIdx).toBeGreaterThanOrEqual(0);
+    expect(ifBlock.length).toBeGreaterThan(0);
+    expect(ifBlock.startsWith("{")).toBe(true);
+    expect(ifBlock.endsWith("}")).toBe(true);
+  });
+
+  it("the block's OWN final statement (not merely some statement anywhere before createMany) is a return — nothing inside this block can fall through", () => {
+    const inner = ifBlock.slice(1, -1).trim();
+    expect(inner.length).toBeGreaterThan(0);
+    const statements = inner
+      .split(";")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    expect(statements.length).toBeGreaterThan(0);
+    const lastStatement = statements[statements.length - 1];
+    expect(lastStatement.startsWith("return")).toBe(true);
+  });
+
+  it("the domain write (tx.illegalDumping.createMany) is reached only via the code that follows the if-block's own closing brace, never from inside it", () => {
+    const afterBlock = txBody.slice(openBraceIdx + ifBlock.length).trimStart();
+    expect(afterBlock.startsWith("await tx.illegalDumping.createMany(")).toBe(true);
+  });
+});
+
 // ─── No HTTP route / UI wiring exists yet (Section 38, re-confirmed here) ──
 
 describe("confirmWorksheet — repo-wide, no runtime caller exists yet (re-confirmed here, own dedicated proof)", () => {

@@ -49,6 +49,16 @@ if (!/^(localhost|127\.0\.0\.1)/.test(new URL(DATABASE_URL.replace(/^postgres(ql
 
 const prisma = new PrismaClient({ datasourceUrl: DATABASE_URL });
 
+// 5A.2K.1-R addition: the shared production Prisma singleton
+// (lib/prisma.ts), imported the SAME way confirmWorksheet.ts itself
+// imports it (`../../prisma` from lib/data-hub/importBatch/ resolves to
+// this exact module). Used ONLY by the zero-row-claim regression below to
+// spy on the service's own Step 1 eligibility read and inject a real,
+// deterministic concurrent state transition in the gap between that read
+// and the transaction's own conditional claim — never to fake/mock the
+// claim result itself.
+let productionPrisma: typeof import("@/lib/prisma").prisma;
+
 vi.doMock("@/lib/data-hub/importBatch/compositionRoot", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/data-hub/importBatch/compositionRoot")>();
   return {
@@ -66,6 +76,7 @@ beforeAll(async () => {
   sharedStore = new InMemoryFileStore();
   ({ confirmDataHubWorksheet } = await import("@/lib/data-hub/importBatch/confirmWorksheet"));
   ({ buildImportBatchKey } = await import("@/lib/data-hub/storage/rawFileStore"));
+  ({ prisma: productionPrisma } = await import("@/lib/prisma"));
 
   await prisma.$executeRawUnsafe(`
     INSERT INTO organisations (id, name, slug) VALUES
@@ -396,4 +407,106 @@ describe("integration — sequential idempotency", () => {
 
     expect(await domainRowsFor("org-a", worksheet.id)).toHaveLength(2);
   });
+});
+
+// ─── 11. Zero-row-claim regression (5A.2K.1-R) ───────────────────────────
+//
+// Independent adversarial review of the original 5A.2K.1 candidate found
+// that the transaction's zero-row-claim early return (claim.count === 0 ->
+// return early, never reach tx.illegalDumping.createMany) was correct in
+// production source, but UNCOVERED by any permanent test: none of the
+// tests above ever forces claim.count to genuinely be zero from a state
+// that was AWAITING_CONFIRMATION at Step 1's read. This test constructs
+// that exact TOCTOU deterministically (not probabilistically): it spies on
+// the REAL production Prisma singleton's upload.findFirst — the exact call
+// confirmWorksheet.ts's own Step 1 makes — lets the real read return
+// AWAITING_CONFIRMATION as normal, then, still inside the mock, performs a
+// real concurrent-caller-shaped UPDATE flipping the worksheet to SKIPPED
+// BEFORE returning control to confirmWorksheet.ts. By the time execution
+// reaches the transaction's own conditional claim UPDATE (WHERE
+// canonical_status = 'AWAITING_CONFIRMATION'), the row is genuinely
+// SKIPPED in the real database -- the claim genuinely affects zero rows,
+// for a real reason, not a mocked one.
+describe("integration — zero-row-claim regression (5A.2K.1-R, load-bearing)", () => {
+  it("worksheet transitions AWAITING_CONFIRMATION -> SKIPPED strictly between Step 1's read and the transaction's claim -> claim genuinely affects zero rows, domain createMany never executes, zero domain rows persist, worksheet remains SKIPPED (never reverted, never IMPORTED), and the outcome is the intended WORKSHEET_NOT_ELIGIBLE loser semantics — never a false success", async () => {
+    const { id: batchId } = await seedReadyBatch("org-a", VALID_CSV);
+    const worksheet = await seedWorksheet("org-a", batchId);
+
+    const originalFindFirst = productionPrisma.upload.findFirst.bind(productionPrisma.upload);
+    const findFirstSpy = vi
+      .spyOn(productionPrisma.upload, "findFirst")
+      .mockImplementationOnce(async (args: Parameters<typeof originalFindFirst>[0]) => {
+        const real = await originalFindFirst(args);
+        // The injected race: a concurrent caller (a separate confirmation
+        // attempt, an admin skip action, whatever the real cause) commits a
+        // real state transition here, strictly between the read this mock
+        // wraps and the transaction confirmDataHubWorksheet is about to
+        // open. Uses the test's OWN prisma client (a distinct connection),
+        // exactly as a genuinely concurrent process would.
+        await prisma.$executeRawUnsafe(`UPDATE uploads SET canonical_status = 'SKIPPED' WHERE id = $1`, worksheet.id);
+        return real;
+      });
+
+    let result: Awaited<ReturnType<typeof confirmDataHubWorksheet>>;
+    try {
+      result = await confirmDataHubWorksheet({ organisationId: "org-a", worksheetUploadId: worksheet.id });
+    } finally {
+      findFirstSpy.mockRestore();
+    }
+
+    // Intended loser semantics: WORKSHEET_NOT_ELIGIBLE, never a false
+    // success. (currentStatus inside the transaction is 'SKIPPED', not
+    // 'IMPORTED', so this is NOT the idempotent-success branch either.)
+    expect(result).toMatchObject({ ok: false, code: "WORKSHEET_NOT_ELIGIBLE" });
+
+    // The real-DB proof: domain createMany never executed (zero rows),
+    // and the worksheet was never reverted or force-advanced by this
+    // losing attempt -- it stays exactly SKIPPED, proving the claim
+    // predicate (canonical_status: 'AWAITING_CONFIRMATION') genuinely did
+    // not match and no domain write occurred as a side effect.
+    expect(await domainRowsFor("org-a", worksheet.id)).toHaveLength(0);
+    const refreshed = await worksheetById(worksheet.id);
+    expect(refreshed?.canonical_status).toBe("SKIPPED");
+  });
+});
+
+// ─── 12. 100,000-row boundary reliability (5A.2K.1-R) ────────────────────
+//
+// Independent adversarial review found Prisma's default 5000ms
+// interactive-transaction timeout fails well within the documented
+// CSV_ONLY_LIMITS.maxSelectedWorksheetRows (100,000-row) accepted
+// contract (empirically ~35,000-45,000 rows onward, always by 100,000).
+// confirmWorksheet.ts's Step 8 transaction now passes an explicit,
+// empirically-derived timeout (see the ADR's Section 23 for the
+// measurement record: 3 real-Postgres runs at 100,000 rows, ~8.2-8.5s
+// each). This is the permanent proof that the documented maximum accepted
+// workload actually completes: real decode, real mapping, real single
+// createMany, real commit, exactly 100,000 persisted rows, zero
+// duplicates, worksheet reaches IMPORTED, no transaction-timeout
+// exception. Takes several seconds against real Postgres -- this
+// integration suite is manually-run only (never part of the blocking
+// `npm test` CI suite; see this file's own header comment and
+// vitest.integration.config.ts), so this cost is acceptable here.
+describe("integration — 100,000-row boundary reliability (5A.2K.1-R)", () => {
+  it("a CSV at the documented 100,000-data-row ceiling (header row not counted, per csvOnlyDecoder.ts) imports completely: exactly 100,000 rows persisted, zero duplicates, worksheet IMPORTED, no timeout", async () => {
+    const rows = 100_000;
+    const parts: string[] = ["report_date,location,waste_type\n"];
+    for (let i = 0; i < rows; i++) {
+      parts.push(`2024-01-15,Main St ${i},tyres\n`);
+    }
+    const csv = Buffer.from(parts.join(""));
+
+    const { id: batchId } = await seedReadyBatch("org-a", csv);
+    const worksheet = await seedWorksheet("org-a", batchId);
+
+    const result = await confirmDataHubWorksheet({ organisationId: "org-a", worksheetUploadId: worksheet.id });
+
+    expect(result).toMatchObject({ ok: true, alreadyImported: false, importedRows: rows });
+    const persistedCount = await prisma.illegalDumping.count({
+      where: { organisation_id: "org-a", upload_id: worksheet.id },
+    });
+    expect(persistedCount).toBe(rows);
+    const refreshed = await worksheetById(worksheet.id);
+    expect(refreshed?.canonical_status).toBe("IMPORTED");
+  }, 60_000);
 });

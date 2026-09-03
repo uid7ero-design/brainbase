@@ -1716,3 +1716,112 @@ schema/migration change, no dependency change, no HTTP route, no UI. This
 phase does not implement XLS/XLSX canonical confirmation, any other
 domain's canonical importer, deletion/retention, or begin HTTP exposure
 of any dark Data Hub service — including this one.
+
+## 23. Zero-row-claim regression coverage + transaction-timeout hardening (5A.2K.1-R)
+
+Independent adversarial review of Section 22's candidate found two
+required-remediation-level gaps, both closed here on top of the same
+commit, without touching its production files.
+
+**Zero-row-claim regression coverage.** The review deterministically
+proved (real Postgres, not a mock) that removing `confirmWorksheet.ts`'s
+`claim.count === 0` early return produces a false success plus an
+orphaned domain row when a worksheet is concurrently transitioned away
+from `AWAITING_CONFIRMATION` between Step 1's eligibility read and the
+transaction's own claim — and that no existing permanent test (static or
+real-Postgres) caught it. Production source was already correct; the gap
+was in test coverage. Closed two ways:
+- `scripts/tests/confirmWorksheet.integration.test.ts` gained a permanent
+  real-Postgres regression that forces this exact TOCTOU deterministically
+  (not probabilistically): it spies on the shared production Prisma
+  singleton's own `upload.findFirst` — the exact call `confirmWorksheet.ts`
+  makes at Step 1 — lets the real read return, then performs a genuine
+  concurrent-shaped `UPDATE ... SET canonical_status = 'SKIPPED'` before
+  returning control, so the transaction's claim genuinely affects zero
+  rows for a real reason. Asserts the intended loser outcome
+  (`WORKSHEET_NOT_ELIGIBLE`), zero domain rows, and the worksheet
+  remaining `SKIPPED`.
+- `tests/containment/confirmWorksheet.test.ts` gained a brace-scoped
+  structural assertion (balanced-brace block extraction, not a
+  fixed-offset/text-precedes-text check) proving the `if (claim.count ===
+  0)` block's own FINAL statement is a `return` — closing the specific gap
+  the review identified in the pre-existing "guard text appears before
+  createMany" test, which could not distinguish a real early return from
+  the guard being present-but-inert.
+
+Both were falsified against the exact review-identified mutation
+(bypassing the early return) before being finalized: both failed as
+required, then production source was restored byte-for-byte before commit.
+
+**Transaction-timeout hardening.** The review found Prisma's default
+5000ms interactive-transaction timeout fails within the documented
+`CSV_ONLY_LIMITS.maxSelectedWorksheetRows` (100,000-row) contract.
+Reproduced independently against real Postgres (disposable local
+container, actual `confirmDataHubWorksheet` call path, unmodified at
+measurement time): row counts 1,000–45,000 all completed inside the
+default timeout; 60,000/80,000/100,000 all failed with the exact Prisma
+message `"the timeout for this transaction was 5000 ms"`, confirming the
+default interactive-transaction timeout (not a Postgres parameter-count
+or memory limit) as the actual limiting factor. Failure mode was already
+safe — real rollback, zero persisted domain rows, worksheet left exactly
+`AWAITING_CONFIRMATION` — but left the documented 100,000-row contract
+unable to reliably complete, via an unhandled/unsanitized exception.
+
+Exploratory measurement with a temporarily widened timeout (3 runs each
+at 50k/75k/100k rows, real Postgres) found true transaction durations of
+~4.1–4.3s (50k), ~6.1–6.3s (75k), and ~8.2–8.5s (100k) — all real
+`COMMIT`s, all rows persisted, no partial state. `confirmWorksheet.ts`'s
+Step 8 transaction now passes an explicit
+`{ timeout: IMPORT_TRANSACTION_TIMEOUT_MS }` (30,000ms) — over 3x headroom
+above the worst of the three 100,000-row measurements — replacing the
+5000ms default. `maxWait` (time to acquire/start the transaction, a
+queueing concern independent of row count) is left at Prisma's default;
+only the execution ceiling was widened. `createMany`'s existing
+single-call structure is unchanged — 100,000 rows completes reliably
+within the new bound with wide margin, so no chunking was introduced.
+A permanent real-Postgres regression
+(`scripts/tests/confirmWorksheet.integration.test.ts`) now seeds a full
+100,000-row CSV (the decoder's own row-limit boundary — the header row is
+not counted, see `csvOnlyDecoder.ts`) and asserts the import completes,
+all 100,000 rows are persisted exactly once, and the worksheet reaches
+`IMPORTED` — falsified against the pre-remediation 5000ms default before
+being finalized (failed as required), then the timeout fix restored.
+
+**Concurrency semantics unaffected.** Re-ran the zero-row-claim
+regression above, the two-simultaneous-callers race, and the
+mid-transaction-rollback/atomicity test after the timeout change — all
+pass unchanged. A wider execution ceiling changes nothing about which
+caller wins a race or whether a failed domain write still rolls back its
+claim together with it; it only gives a large, legitimately-running
+`createMany` more real time to finish before Prisma gives up on it.
+
+**Error-handling convention, unchanged and now documented explicitly.**
+`confirmWorksheet.ts` already had exactly one precedent for a genuinely
+unexpected mid-transaction Postgres failure (Section 22's
+CHECK-constraint-violation atomicity test, which asserts
+`.rejects.toThrow()` rather than a typed `FailureCode`). The
+now-eliminated-in-practice timeout error followed that same convention
+before this fix (an unhandled `PrismaClientKnownRequestError` propagating
+to the caller) and continues to on the rare residual case of a
+genuinely-unbounded infra failure beyond the new 30s ceiling. This is a
+deliberate, pre-existing dark-service convention, not a gap introduced
+here: expected/anticipated outcomes (tenant/lineage/status/parent-state/
+format/hash) go through the sanitized `FailureCode` taxonomy; genuinely
+unexpected internal failures are left to propagate raw, for a future HTTP
+route wrapper to catch and sanitize before this service is ever given a
+live caller. No new taxonomy member was added for this, since the
+realistic occurrence of this specific failure was eliminated by the
+timeout fix itself rather than converted into a typed outcome.
+
+**Scope discipline.** Changes are confined to: one
+`IMPORT_TRANSACTION_TIMEOUT_MS` constant and one `{ timeout: ... }` option
+on the existing `prisma.$transaction(...)` call in `confirmWorksheet.ts`
+(no change to claim predicates, claim ordering, domain payload,
+idempotency, tenant behavior, or lineage behavior); one new permanent test
+in each of the two existing K.1 test files; and this ADR section. No
+schema/migration change, no dependency change, no HTTP route, no UI, no
+change to `CSV_ONLY_LIMITS`/global parser row limits. The narrow
+parent-`READY` TOCTOU, duplicate-CSV-header-retains-last-occurrence
+behavior, and the duplicated CSV/workbook limit-constant debt — all
+previously classified informational/non-blocking — are explicitly
+untouched by this remediation.

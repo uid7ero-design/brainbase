@@ -51,6 +51,15 @@ import { getMessageTemplate, type FailureCode } from "./failureTaxonomy";
 // worksheet remains AWAITING_CONFIRMATION; if it commits, the worksheet is
 // IMPORTED atomically with its domain rows, in the same statement set.
 
+// Empirically-derived (5A.2K.1-R) bounded timeout for the Step 8
+// transaction, replacing Prisma's 5000ms default -- see the Step 8 comment
+// below and the ADR for the measurement record. 30s gives >3x headroom
+// over the worst of 3 real-Postgres runs at the documented 100,000-row
+// ceiling (~8.5s max observed locally), while remaining a genuinely
+// bounded (never unbounded/"infinite") ceiling appropriate for a still-
+// dark, HTTP-route-free service.
+const IMPORT_TRANSACTION_TIMEOUT_MS = 30_000;
+
 export interface ConfirmWorksheetTrustedContext {
   /** Trusted, already-authenticated caller context — never re-derived here. */
   organisationId: string;
@@ -179,7 +188,19 @@ export async function confirmDataHubWorksheet(
   // won the race; this attempt's own domain rows are never written, and
   // the transaction commits with no effect (a no-op UPDATE has nothing to
   // roll back). If it affects exactly one row, this attempt owns the
-  // claim, and the domain writes proceed in the SAME transaction. ----
+  // claim, and the domain writes proceed in the SAME transaction.
+  //
+  // EXPLICIT TRANSACTION TIMEOUT (5A.2K.1-R): Prisma's default interactive-
+  // transaction timeout is 5000ms, which is well inside the documented
+  // CSV_ONLY_LIMITS.maxSelectedWorksheetRows (100,000-row) accepted
+  // workload — empirically measured to start failing (real Postgres,
+  // disposable local container) between 45,000 and 60,000 rows, always by
+  // 100,000. IMPORT_TRANSACTION_TIMEOUT_MS is set from real measurement at
+  // the documented ceiling (100,000 rows: 3 runs, ~8.2-8.5s), not a guess —
+  // see docs/architecture/decisions/0001-data-hub-ingestion-foundation.md
+  // for the measurement record. maxWait (time to acquire/start the
+  // transaction) is left at Prisma's default; only the execution timeout
+  // is widened, since row count affects execution duration, not queueing. ----
   const result = await prisma.$transaction(async (tx) => {
     const claim = await tx.upload.updateMany({
       where: {
@@ -216,7 +237,7 @@ export async function confirmDataHubWorksheet(
     });
 
     return { claimed: true as const, importedRows: mappedRows.length };
-  });
+  }, { timeout: IMPORT_TRANSACTION_TIMEOUT_MS });
 
   if (!result.claimed) {
     if (result.currentStatus === "IMPORTED") {
