@@ -117,6 +117,114 @@ function sha256Of(bytes: Buffer): string {
   return createHash("sha256").update(bytes).digest("hex");
 }
 
+// 5A.2J.0 H.1-consequence proof — a genuinely duplicate-named worksheet
+// XLSX fixture, hand-built the same way as
+// tests/containment/workbookParser.test.ts's own duplicate-name fixtures
+// (SheetJS's own writer rejects duplicate names outright, so this cannot
+// be built via XLSX.utils.book_append_sheet/xlsxBytes above).
+function crc32ForFixture(buf: Buffer): number {
+  let table = crc32ForFixture.table;
+  if (!table) {
+    table = new Uint32Array(256);
+    for (let n = 0; n < 256; n++) {
+      let c = n;
+      for (let k = 0; k < 8; k++) c = c & 1 ? (0xedb88320 ^ (c >>> 1)) : c >>> 1;
+      table[n] = c >>> 0;
+    }
+    crc32ForFixture.table = table;
+  }
+  let crc = 0xffffffff;
+  for (let i = 0; i < buf.length; i++) crc = table[(crc ^ buf[i]) & 0xff] ^ (crc >>> 8);
+  return (crc ^ 0xffffffff) >>> 0;
+}
+crc32ForFixture.table = undefined as Uint32Array | undefined;
+
+function buildDuplicateNameWorksheetXlsx(): Buffer {
+  const entries: Array<{ name: string; content: string }> = [];
+  const nonEmptySheetXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><dimension ref="A1:A1"/><sheetData><row r="1"><c r="A1" t="n"><v>1</v></c></row></sheetData></worksheet>`;
+  const emptySheetXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><dimension ref="A1"/><sheetData/></worksheet>`;
+  entries.push({
+    name: "[Content_Types].xml",
+    content:
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>',
+  });
+  entries.push({
+    name: "_rels/.rels",
+    content:
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>',
+  });
+  entries.push({
+    name: "xl/workbook.xml",
+    content:
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Dup" sheetId="1" r:id="rId1"/><sheet name="Dup" sheetId="2" r:id="rId2"/></sheets></workbook>',
+  });
+  entries.push({
+    name: "xl/_rels/workbook.xml.rels",
+    content:
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/></Relationships>',
+  });
+  // index 0: genuinely NON-EMPTY — the case that was previously
+  // misclassified. index 1: genuinely empty (the colliding, last-parsed
+  // sheet whose content previously silently overwrote index 0's).
+  entries.push({ name: "xl/worksheets/sheet1.xml", content: nonEmptySheetXml });
+  entries.push({ name: "xl/worksheets/sheet2.xml", content: emptySheetXml });
+
+  const localParts: Buffer[] = [];
+  const centralParts: Buffer[] = [];
+  let offset = 0;
+  for (const { name, content } of entries) {
+    const nameBuf = Buffer.from(name, "ascii");
+    const dataBuf = Buffer.from(content, "utf8");
+    const crc = crc32ForFixture(dataBuf);
+    const localHeader = Buffer.alloc(30);
+    localHeader.writeUInt32LE(0x04034b50, 0);
+    localHeader.writeUInt16LE(10, 4);
+    localHeader.writeUInt16LE(0, 6);
+    localHeader.writeUInt16LE(0, 8);
+    localHeader.writeUInt16LE(0, 10);
+    localHeader.writeUInt16LE(0x21, 12);
+    localHeader.writeUInt32LE(crc, 14);
+    localHeader.writeUInt32LE(dataBuf.length, 18);
+    localHeader.writeUInt32LE(dataBuf.length, 22);
+    localHeader.writeUInt16LE(nameBuf.length, 26);
+    localHeader.writeUInt16LE(0, 28);
+    const localEntry = Buffer.concat([localHeader, nameBuf, dataBuf]);
+    localParts.push(localEntry);
+    const centralHeader = Buffer.alloc(46);
+    centralHeader.writeUInt32LE(0x02014b50, 0);
+    centralHeader.writeUInt16LE(20, 4);
+    centralHeader.writeUInt16LE(10, 6);
+    centralHeader.writeUInt16LE(0, 8);
+    centralHeader.writeUInt16LE(0, 10);
+    centralHeader.writeUInt16LE(0, 12);
+    centralHeader.writeUInt16LE(0x21, 14);
+    centralHeader.writeUInt32LE(crc, 16);
+    centralHeader.writeUInt32LE(dataBuf.length, 20);
+    centralHeader.writeUInt32LE(dataBuf.length, 24);
+    centralHeader.writeUInt16LE(nameBuf.length, 28);
+    centralHeader.writeUInt16LE(0, 30);
+    centralHeader.writeUInt16LE(0, 32);
+    centralHeader.writeUInt16LE(0, 34);
+    centralHeader.writeUInt16LE(0, 36);
+    centralHeader.writeUInt32LE(0, 38);
+    centralHeader.writeUInt32LE(offset, 42);
+    centralParts.push(Buffer.concat([centralHeader, nameBuf]));
+    offset += localEntry.length;
+  }
+  const localSection = Buffer.concat(localParts);
+  const centralSection = Buffer.concat(centralParts);
+  const eocd = Buffer.alloc(22);
+  eocd.writeUInt32LE(0x06054b50, 0);
+  eocd.writeUInt16LE(0, 4);
+  eocd.writeUInt16LE(0, 6);
+  eocd.writeUInt16LE(entries.length, 8);
+  eocd.writeUInt16LE(entries.length, 10);
+  eocd.writeUInt32LE(centralSection.length, 12);
+  eocd.writeUInt32LE(localSection.length, 16);
+  eocd.writeUInt16LE(0, 20);
+  return Buffer.concat([localSection, centralSection, eocd]);
+}
+
 // ─── Mocks ──────────────────────────────────────────────────────────────
 
 const importBatchFindUniqueMock = vi.fn();
@@ -416,6 +524,33 @@ describe("inspectWorksheets — real structural inspection", () => {
     const first = await runOnce();
     const second = await runOnce();
     expect(first).toEqual(second);
+  });
+
+  it("5A.2J.0 — a duplicate-named worksheet's genuinely non-empty physical index now maps to AWAITING_CONFIRMATION, not INELIGIBLE", async () => {
+    // Direct H.1-consequence proof for the workbookParser.ts fix: before
+    // 5A.2J.0, index 0 here (real content) would have inherited index 1's
+    // (empty, last-parsed, same-named) isEmpty=true via the collapsed
+    // name-keyed wb.Sheets lookup, and deriveCanonicalStatus would have
+    // silently, permanently classified it INELIGIBLE instead of
+    // AWAITING_CONFIRMATION. This is the narrowest existing H.1 test seam
+    // (mocked Prisma/storage, no real Postgres, no HTTP) — H.1 remains
+    // fully dark; this test never touches app/api/** or any route.
+    const { inspectWorksheets } = await freshService();
+    const body = buildDuplicateNameWorksheetXlsx();
+    importBatchFindUniqueMock.mockResolvedValue(
+      readyBatchRow({ content_type: "xlsx", original_filename: "dup.xlsx", sha256: sha256Of(body) })
+    );
+    storageGetMock.mockResolvedValue({ metadata: { provider: "vercel-blob-private", size: body.byteLength }, body });
+    uploadFindManyMock.mockResolvedValue([]);
+    uploadCreateManyMock.mockResolvedValue({ count: 2 });
+    const result = await inspectWorksheets({ organisationId: "org-1", importBatchId: "batch-1" });
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("expected ok result");
+    const worksheets = result.worksheets as unknown as Array<Record<string, unknown>>;
+    expect(worksheets.map((w) => [w.worksheetIndex, w.worksheetName, w.worksheetIsEmpty, w.canonicalStatus])).toEqual([
+      [0, "Dup", false, "AWAITING_CONFIRMATION"],
+      [1, "Dup", true, "INELIGIBLE"],
+    ]);
   });
 });
 

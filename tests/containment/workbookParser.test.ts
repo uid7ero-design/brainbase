@@ -104,6 +104,258 @@ function buildMinimalValidZip(entryName: string, content: string): Buffer {
   return Buffer.concat([localEntry, centralEntry, eocd])
 }
 
+// ---------------------------------------------------------------------------
+// 5A.2J.0 — duplicate-worksheet-name fixture builder.
+//
+// SheetJS's own writer (XLSX.utils.book_append_sheet, used by
+// buildSpreadsheet above) rejects a duplicate sheet name outright via its
+// internal check_wb_names validation — verified during the 5A.2J.0
+// discovery pass, including with wb.SheetNames hand-edited post-append,
+// which is still rejected at write time. A duplicate-named fixture can
+// therefore only be constructed by hand-building the OOXML package
+// directly (bypassing the writer entirely), reusing the same
+// from-scratch, store-mode ZIP mechanics as buildMinimalValidZip above
+// (real local file header + central directory + EOCD, extended here to a
+// multi-entry archive) and the same crc32 helper.
+// ---------------------------------------------------------------------------
+
+interface RawZipEntry {
+  name: string
+  content: string
+}
+
+function buildRawZip(entries: RawZipEntry[]): Buffer {
+  const localParts: Buffer[] = []
+  const centralParts: Buffer[] = []
+  let offset = 0
+  for (const { name, content } of entries) {
+    const nameBuf = Buffer.from(name, 'ascii')
+    const dataBuf = Buffer.from(content, 'utf8')
+    const crc = crc32(dataBuf)
+
+    const localHeader = Buffer.alloc(30)
+    localHeader.writeUInt32LE(0x04034b50, 0)
+    localHeader.writeUInt16LE(10, 4)
+    localHeader.writeUInt16LE(0, 6)
+    localHeader.writeUInt16LE(0, 8)
+    localHeader.writeUInt16LE(0, 10)
+    localHeader.writeUInt16LE(0x21, 12)
+    localHeader.writeUInt32LE(crc, 14)
+    localHeader.writeUInt32LE(dataBuf.length, 18)
+    localHeader.writeUInt32LE(dataBuf.length, 22)
+    localHeader.writeUInt16LE(nameBuf.length, 26)
+    localHeader.writeUInt16LE(0, 28)
+    const localEntry = Buffer.concat([localHeader, nameBuf, dataBuf])
+    localParts.push(localEntry)
+
+    const centralHeader = Buffer.alloc(46)
+    centralHeader.writeUInt32LE(0x02014b50, 0)
+    centralHeader.writeUInt16LE(20, 4)
+    centralHeader.writeUInt16LE(10, 6)
+    centralHeader.writeUInt16LE(0, 8)
+    centralHeader.writeUInt16LE(0, 10)
+    centralHeader.writeUInt16LE(0, 12)
+    centralHeader.writeUInt16LE(0x21, 14)
+    centralHeader.writeUInt32LE(crc, 16)
+    centralHeader.writeUInt32LE(dataBuf.length, 20)
+    centralHeader.writeUInt32LE(dataBuf.length, 24)
+    centralHeader.writeUInt16LE(nameBuf.length, 28)
+    centralHeader.writeUInt16LE(0, 30)
+    centralHeader.writeUInt16LE(0, 32)
+    centralHeader.writeUInt16LE(0, 34)
+    centralHeader.writeUInt16LE(0, 36)
+    centralHeader.writeUInt32LE(0, 38)
+    centralHeader.writeUInt32LE(offset, 42)
+    const centralEntry = Buffer.concat([centralHeader, nameBuf])
+    centralParts.push(centralEntry)
+
+    offset += localEntry.length
+  }
+
+  const localSection = Buffer.concat(localParts)
+  const centralSection = Buffer.concat(centralParts)
+  const eocd = Buffer.alloc(22)
+  eocd.writeUInt32LE(0x06054b50, 0)
+  eocd.writeUInt16LE(0, 4)
+  eocd.writeUInt16LE(0, 6)
+  eocd.writeUInt16LE(entries.length, 8)
+  eocd.writeUInt16LE(entries.length, 10)
+  eocd.writeUInt32LE(centralSection.length, 12)
+  eocd.writeUInt32LE(localSection.length, 16)
+  eocd.writeUInt16LE(0, 20)
+
+  return Buffer.concat([localSection, centralSection, eocd])
+}
+
+interface RawSheetSpec {
+  name: string
+  /** A single-cell numeric value at A1, or undefined for a genuinely empty sheet (dimension A1, no sheetData rows). */
+  cellValue?: number
+  hidden?: 0 | 1 | 2
+}
+
+const XLSX_WORKSHEET_XML_NS = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main'
+const XLSX_RELATIONSHIPS_NS = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships'
+const XLSX_PACKAGE_RELATIONSHIPS_NS = 'http://schemas.openxmlformats.org/package/2006/relationships'
+
+function rawSheetXml(spec: RawSheetSpec): string {
+  if (spec.cellValue === undefined) {
+    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="${XLSX_WORKSHEET_XML_NS}"><dimension ref="A1"/><sheetData/></worksheet>`
+  }
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="${XLSX_WORKSHEET_XML_NS}"><dimension ref="A1"/><sheetData><row r="1"><c r="A1" t="n"><v>${spec.cellValue}</v></c></row></sheetData></worksheet>`
+}
+
+/**
+ * Hand-builds a genuinely valid, minimal OOXML .xlsx package — bypassing
+ * SheetJS's own writer entirely — allowing worksheet names to collide,
+ * which the writer itself refuses to produce. Each physical sheet's
+ * content is independently addressable in the source XML by its own part
+ * (xl/worksheets/sheetN.xml), letting a test prove that inspection
+ * attributes each colliding index's OWN content rather than reusing a
+ * name-keyed lookup that silently substitutes a different physical sheet.
+ */
+function buildDuplicateNameXlsx(sheets: RawSheetSpec[]): Buffer {
+  const overrides = sheets
+    .map(
+      (_, i) =>
+        `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`
+    )
+    .join('')
+  const contentTypes = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>${overrides}</Types>`
+
+  const rootRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="${XLSX_PACKAGE_RELATIONSHIPS_NS}"><Relationship Id="rId1" Type="${XLSX_RELATIONSHIPS_NS}/officeDocument" Target="xl/workbook.xml"/></Relationships>`
+
+  const sheetEls = sheets
+    .map((s, i) => {
+      const stateAttr = s.hidden === 1 ? ' state="hidden"' : s.hidden === 2 ? ' state="veryHidden"' : ''
+      return `<sheet name="${s.name}" sheetId="${i + 1}" r:id="rId${i + 1}"${stateAttr}/>`
+    })
+    .join('')
+  const workbookXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="${XLSX_WORKSHEET_XML_NS}" xmlns:r="${XLSX_RELATIONSHIPS_NS}"><sheets>${sheetEls}</sheets></workbook>`
+
+  const relEls = sheets
+    .map((_, i) => `<Relationship Id="rId${i + 1}" Type="${XLSX_RELATIONSHIPS_NS}/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`)
+    .join('')
+  const workbookRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="${XLSX_PACKAGE_RELATIONSHIPS_NS}">${relEls}</Relationships>`
+
+  const entries: RawZipEntry[] = [
+    { name: '[Content_Types].xml', content: contentTypes },
+    { name: '_rels/.rels', content: rootRels },
+    { name: 'xl/workbook.xml', content: workbookXml },
+    { name: 'xl/_rels/workbook.xml.rels', content: workbookRels },
+  ]
+  sheets.forEach((s, i) => entries.push({ name: `xl/worksheets/sheet${i + 1}.xml`, content: rawSheetXml(s) }))
+  return buildRawZip(entries)
+}
+
+describe('duplicate worksheet names (5A.2J.0)', () => {
+  it('CASE A: index 0 non-empty, index 1 empty, same name — each index gets its own isEmpty', async () => {
+    const buf = buildDuplicateNameXlsx([
+      { name: 'Data', cellValue: 42 },
+      { name: 'Data' }, // empty
+    ])
+    const inspection = await inspectWorkbook(toBytes(buf), { filename: 'dup.xlsx' })
+    expect(inspection.worksheets.map(w => w.name)).toEqual(['Data', 'Data'])
+    expect(inspection.worksheets.map(w => w.index)).toEqual([0, 1])
+    expect(inspection.worksheets[0].isEmpty).toBe(false)
+    expect(inspection.worksheets[1].isEmpty).toBe(true)
+  })
+
+  it('CASE B: index 0 empty, index 1 non-empty, same name — the reverse ordering is equally correct', async () => {
+    const buf = buildDuplicateNameXlsx([
+      { name: 'Data' }, // empty
+      { name: 'Data', cellValue: 7 },
+    ])
+    const inspection = await inspectWorkbook(toBytes(buf), { filename: 'dup.xlsx' })
+    expect(inspection.worksheets[0].isEmpty).toBe(true)
+    expect(inspection.worksheets[1].isEmpty).toBe(false)
+  })
+
+  it('CASE C: duplicate names with DIFFERENT non-empty contents — each index inspects its own physical sheet', async () => {
+    const buf = buildDuplicateNameXlsx([
+      { name: 'Dup', cellValue: 111 },
+      { name: 'Dup', cellValue: 222 },
+    ])
+    const inspection = await inspectWorkbook(toBytes(buf), { filename: 'dup.xlsx' })
+    expect(inspection.worksheets[0].isEmpty).toBe(false)
+    expect(inspection.worksheets[1].isEmpty).toBe(false)
+    // headers[0] is the observable that distinguishes the two physical
+    // sheets — sheet_to_json's header:1 mode returns the sole row (there
+    // is no separate data row here) as the "header" row.
+    expect(inspection.worksheets[0].headers).toEqual(['111'])
+    expect(inspection.worksheets[1].headers).toEqual(['222'])
+
+    const decoded0 = await decodeWorksheet(toBytes(buf), { filename: 'dup.xlsx' }, { index: 0 })
+    const decoded1 = await decodeWorksheet(toBytes(buf), { filename: 'dup.xlsx' }, { index: 1 })
+    expect(decoded0.headers).toEqual(['111'])
+    expect(decoded1.headers).toEqual(['222'])
+  })
+
+  it('CASE D: three colliding names remain distinct at every index', async () => {
+    const buf = buildDuplicateNameXlsx([
+      { name: 'Trip', cellValue: 1 },
+      { name: 'Trip', cellValue: 2 },
+      { name: 'Trip', cellValue: 3 },
+    ])
+    const inspection = await inspectWorkbook(toBytes(buf), { filename: 'dup.xlsx' })
+    expect(inspection.worksheets.map(w => w.index)).toEqual([0, 1, 2])
+    expect(inspection.worksheets.map(w => w.name)).toEqual(['Trip', 'Trip', 'Trip'])
+    expect(inspection.worksheets.map(w => w.headers)).toEqual([['1'], ['2'], ['3']])
+  })
+
+  it('CASE E: a unique-name workbook is unaffected by the duplicate-name fix path', async () => {
+    const buf = buildSpreadsheet(
+      [
+        { name: 'Alpha', rows: [['h'], [1]] },
+        { name: 'Beta', rows: [['h'], [2]] },
+      ],
+      'xlsx'
+    )
+    const inspection = await inspectWorkbook(toBytes(buf), { filename: 'unique.xlsx' })
+    expect(inspection.worksheets.map(w => w.name)).toEqual(['Alpha', 'Beta'])
+    expect(inspection.worksheets.map(w => w.headers)).toEqual([['h'], ['h']])
+    expect(inspection.worksheets[0].isEmpty).toBe(false)
+    expect(inspection.worksheets[1].isEmpty).toBe(false)
+  })
+
+  it('visibility remains correctly attached to its own physical index under duplicate names', async () => {
+    const buf = buildDuplicateNameXlsx([
+      { name: 'Dup', cellValue: 1, hidden: 0 },
+      { name: 'Dup', cellValue: 2, hidden: 1 },
+      { name: 'Dup', cellValue: 3, hidden: 2 },
+    ])
+    const inspection = await inspectWorkbook(toBytes(buf), { filename: 'dup.xlsx' })
+    expect(inspection.worksheets.map(w => w.visibility)).toEqual(['visible', 'hidden', 'veryHidden'])
+    // Visibility is index-based (wb.Workbook.Sheets), never routed through
+    // the name-keyed content lookup this fix changes — confirmed still
+    // correct even when every colliding index's OWN content also differs.
+    expect(inspection.worksheets.map(w => w.headers)).toEqual([['1'], ['2'], ['3']])
+  })
+
+  it('declaredRangeRows/declaredRangeColumns are also correctly attributed per physical index, not just isEmpty', async () => {
+    const buf = buildDuplicateNameXlsx([
+      { name: 'Dup' }, // empty: no declared multi-cell range
+      { name: 'Dup', cellValue: 9 }, // non-empty: single-cell declared range
+    ])
+    const inspection = await inspectWorkbook(toBytes(buf), { filename: 'dup.xlsx' })
+    expect(inspection.worksheets[0].declaredRangeRows).toBeUndefined()
+    expect(inspection.worksheets[1].declaredRangeRows).toBe(1)
+    expect(inspection.worksheets[1].declaredRangeColumns).toBe(1)
+  })
+
+  it('inspectWorkbook does not persist row/column counts or preview payloads beyond the existing contract (no new fields invented)', async () => {
+    const buf = buildDuplicateNameXlsx([
+      { name: 'Dup', cellValue: 1 },
+      { name: 'Dup', cellValue: 2 },
+    ])
+    const inspection = await inspectWorkbook(toBytes(buf), { filename: 'dup.xlsx' })
+    const keys = Object.keys(inspection.worksheets[0]).sort()
+    expect(keys).toEqual(
+      ['declaredRangeColumns', 'declaredRangeRows', 'headers', 'index', 'isEmpty', 'name', 'previewRows', 'previewTruncated', 'visibility'].sort()
+    )
+  })
+})
+
 describe('inspectWorkbook / decodeWorksheet — CSV', () => {
   it('1. valid CSV: headers, row order, bounded preview', async () => {
     const csv = 'name,amount\nAlice,10\nBob,20\nCarol,30\n'
