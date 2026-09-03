@@ -206,19 +206,22 @@ describe('containment — no backfill, no existing-table changes, no unrelated s
 
   // Phase D.4.5C-B — this assertion originally read "No step numbered
   // higher than 40 exists yet," a deliberate temporal boundary for the
-  // D.4.5B phase it was written in. D.4.5C-B is the separately-approved
-  // phase that legitimately advances that boundary by appending step 41
-  // (organiser_activity_sanitise_scalar — see
-  // organiserActivitySanitisationParity.test.ts for its own dedicated
-  // coverage) — the condition this assertion existed to guard against has
-  // expired, so the boundary is updated here rather than the assertion
-  // being weakened or deleted. Phase D.4.5C-M ports this exact boundary
-  // to the DB-foundation prep branch since step 41 is deployed here too.
-  it('step 41 (organiser_activity_sanitise_scalar) is the current highest step — no step numbered higher than 41 exists yet', () => {
+  // D.4.5B phase it was written in, then advanced to 41 for D.4.5C-B/
+  // D.4.5C-M. The urgent CRM contact classification hotfix (wiring
+  // scripts/add-crm-contact-classification.sql into this route as step
+  // 42 — an unrelated, separately-approved phase, not organiser work)
+  // is the next legitimate advance: the condition this assertion exists
+  // to guard against — an UNPLANNED, unreviewed step sneaking in above
+  // the last one this phase's own audit accounted for — has not
+  // occurred; a real, separately-approved step was appended, so the
+  // boundary moves again rather than the assertion being weakened.
+  it('step 42 (crm_contacts.classification) is the current highest step — no step numbered higher than 42 exists yet', () => {
     const step40Idx = CODE.indexOf("step('40. organiser_activity')")
     const step41Idx = CODE.indexOf("step('41. organiser_activity_sanitise_scalar')")
+    const step42Idx = CODE.indexOf("step('42. crm_contacts.classification')")
     expect(step41Idx).toBeGreaterThan(step40Idx)
-    expect(CODE).not.toMatch(/step\('4[2-9]\./)
+    expect(step42Idx).toBeGreaterThan(step41Idx)
+    expect(CODE).not.toMatch(/step\('4[3-9]\./)
     expect(CODE).not.toMatch(/step\('[5-9][0-9]\./)
   })
 
