@@ -212,6 +212,63 @@ TOTAL_ROWS_AFTER="$(echo "SELECT COUNT(*) FROM crm_contacts;" | psql_query | tr 
 check "row count unchanged after re-apply (no rows added/removed by the migration itself)" "$TOTAL_ROWS_AFTER" "$TOTAL_ROWS_BEFORE"
 
 echo ""
+echo "=== SECTION: TARGETED ENDPOINT SQL — extracted verbatim from the real"
+echo "    route file, applied on TOP of the already-migrated state above ==="
+# app/api/admin/migrate/crm-contact-classification/route.ts is a THIRD
+# representation of this same migration (alongside the standalone .sql
+# file already proven above, and legacy step 42 in
+# app/api/admin/migrate/route.ts). tests/containment/
+# adminMigrateContactClassificationStep.test.ts already proves all three
+# are textually equivalent (same guard query, same six values, same
+# index) — this section additionally proves the ENDPOINT's own exact
+# statements, extracted from the real file, execute cleanly against a
+# real Postgres database that has already had the STANDALONE file's
+# version applied — i.e. that the two representations are not just
+# textually equivalent but genuinely cross-compatible/idempotent with
+# each other regardless of which one runs against Production first.
+CONSTRAINT_COUNT_BEFORE_ENDPOINT="$(echo "SELECT COUNT(*) FROM pg_constraint WHERE conname='crm_contacts_classification_check';" | psql_query | tr -d '[:space:]')"
+INDEX_COUNT_BEFORE_ENDPOINT="$(echo "SELECT COUNT(*) FROM pg_indexes WHERE indexname='idx_crm_contacts_classification';" | psql_query | tr -d '[:space:]')"
+TOTAL_ROWS_BEFORE_ENDPOINT="$(echo "SELECT COUNT(*) FROM crm_contacts;" | psql_query | tr -d '[:space:]')"
+
+ENDPOINT_OUTPUT="$(node -e '
+const fs = require("fs");
+const path = require("path");
+const src = fs.readFileSync(path.join(process.argv[1], "app", "api", "admin", "migrate", "crm-contact-classification", "route.ts"), "utf-8");
+const stmts = [...src.matchAll(/await sql`([\s\S]*?)`/g)].map(m => m[1]);
+process.stdout.write(stmts.join(";\n") + ";\n");
+' "$REPO_ROOT_NODE" | psql_exec 2>&1; echo "EXIT:$?")"
+if echo "$ENDPOINT_OUTPUT" | grep -q "EXIT:0"; then
+  echo "  PASS: targeted endpoint's exact extracted SQL applied cleanly on top of the standalone file's already-migrated state"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: targeted endpoint SQL failed to apply: $ENDPOINT_OUTPUT"
+  FAIL=$((FAIL + 1))
+  FAILURES+=("targeted endpoint SQL failed: $ENDPOINT_OUTPUT")
+fi
+
+CONSTRAINT_COUNT_AFTER_ENDPOINT="$(echo "SELECT COUNT(*) FROM pg_constraint WHERE conname='crm_contacts_classification_check';" | psql_query | tr -d '[:space:]')"
+check "no duplicate CHECK constraint after applying the endpoint's SQL" "$CONSTRAINT_COUNT_AFTER_ENDPOINT" "$CONSTRAINT_COUNT_BEFORE_ENDPOINT"
+INDEX_COUNT_AFTER_ENDPOINT="$(echo "SELECT COUNT(*) FROM pg_indexes WHERE indexname='idx_crm_contacts_classification';" | psql_query | tr -d '[:space:]')"
+check "no duplicate index after applying the endpoint's SQL" "$INDEX_COUNT_AFTER_ENDPOINT" "$INDEX_COUNT_BEFORE_ENDPOINT"
+TOTAL_ROWS_AFTER_ENDPOINT="$(echo "SELECT COUNT(*) FROM crm_contacts;" | psql_query | tr -d '[:space:]')"
+check "row count unchanged after applying the endpoint's SQL" "$TOTAL_ROWS_AFTER_ENDPOINT" "$TOTAL_ROWS_BEFORE_ENDPOINT"
+
+# One final, independent proof specifically for the endpoint's own SQL:
+# a fresh valid value and a fresh invalid value, run through the exact
+# same live table the endpoint's statements just touched.
+ENDPOINT_VALID="$(echo "INSERT INTO crm_contacts (organisation_id, first_name, last_name, classification) VALUES ('clx7q9k2e0000abcdorg1', 'Endpoint', 'Valid', 'SUPPLIER') RETURNING classification;" | psql_query 2>&1)"
+check "endpoint-migrated CHECK constraint accepts a valid value (SUPPLIER)" "$ENDPOINT_VALID" "SUPPLIER"
+ENDPOINT_INVALID="$(echo "INSERT INTO crm_contacts (organisation_id, first_name, last_name, classification) VALUES ('clx7q9k2e0000abcdorg1', 'Endpoint', 'Invalid', 'NOT_REAL');" | psql_exec 2>&1; echo "EXIT:$?")"
+if echo "$ENDPOINT_INVALID" | grep -q "crm_contacts_classification_check"; then
+  echo "  PASS: endpoint-migrated CHECK constraint rejects an invalid value"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: endpoint-migrated CHECK constraint did not reject an invalid value as expected"
+  FAIL=$((FAIL + 1))
+  FAILURES+=("endpoint-migrated CHECK constraint did not reject NOT_REAL: $ENDPOINT_INVALID")
+fi
+
+echo ""
 echo "=== SUMMARY ==="
 echo "  $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then
