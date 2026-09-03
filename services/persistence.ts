@@ -135,6 +135,19 @@ export async function createAlert(params: {
 
 // ── Audit log ─────────────────────────────────────────────────────────────────
 
+// Phase C1.8: DEPRECATED as the canonical audit-write path — kept in
+// place (it has no current callers, so leaving it costs nothing) rather
+// than deleted, but new commercial-suite writes should NOT call this.
+// See docs/architecture/decisions/0003-commercial-audit-wiring-standard.md
+// for the full reasoning: this helper is Prisma-Client-based, while every
+// general-purpose organisation-scoped write path — including every
+// Commercial Suite table this ADR anticipates — uses lib/db.ts's raw-SQL
+// `sql` client instead, and Prisma's own transaction boundary cannot be
+// combined with a raw-SQL sql.transaction() for the atomic writes that
+// standard requires. The canonical path is a raw-SQL INSERT INTO
+// audit_logs, following either lib/events/auditLog.ts's (best-effort,
+// separate-statement) or lib/events/stripe.ts's (atomic CTE) shape,
+// per-vertical.
 export async function writeAuditLog(params: {
   organisation_id: string;
   user_id?: string;
