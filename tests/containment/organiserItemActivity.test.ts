@@ -98,6 +98,70 @@ describe('POST /api/organiser/boards/[boardId]/items — item.created', () => {
     expect(text).toContain("'item'")
   })
 
+  // Phase D.4.5C-T/U — regression test for a real production incident:
+  // activity_row's SELECT referenced inserted.board_id, but the
+  // `inserted` CTE's RETURNING clause never listed board_id — Postgres
+  // rejected the whole statement ("column inserted.board_id does not
+  // exist"), and because POST has no try/catch, that became an
+  // unhandled HTTP 500 with an empty body. This mock-based suite never
+  // executes real SQL (see the file-header comment) so it could not
+  // catch this by itself — the empirical proof is
+  // scripts/tests/verify-organiser-item-activity-concurrency.sh's new
+  // P1-P9b checks against real PostgreSQL. This test is the cheap,
+  // Docker-free companion: it parses the real RETURNING clause and
+  // every `inserted.<column>` reference inside activity_row, and
+  // fails if any referenced column is missing from RETURNING — the
+  // exact invariant this whole class of bug violates.
+  it('every inserted.<column> reference inside activity_row has a matching column in the inserted CTE\'s RETURNING clause', () => {
+    const source = fs.readFileSync(path.resolve(__dirname, '../../app/api/organiser/boards/[boardId]/items/route.ts'), 'utf8')
+    const returningStart = source.indexOf('RETURNING', source.indexOf('INSERT INTO organiser_items'))
+    const returningEnd = source.indexOf('\n    ),', returningStart)
+    const returningClause = source.slice(returningStart, returningEnd)
+    const returningColumns = new Set(
+      returningClause
+        .replace('RETURNING', '')
+        .split(',')
+        .map(col => {
+          const aliasMatch = col.match(/AS\s+(\w+)\s*$/i)
+          if (aliasMatch) return aliasMatch[1]
+          return col.trim().split(/\s+/)[0].replace(/::\w+$/, '')
+        })
+        .map(col => col.trim())
+        .filter(Boolean)
+    )
+
+    const activityStart = source.indexOf('activity_row AS')
+    const activityFromIdx = source.indexOf('FROM inserted', activityStart)
+    const activityBlock = source.slice(activityStart, activityFromIdx)
+    const referenced = new Set(
+      [...activityBlock.matchAll(/inserted\.(\w+)/g)].map(m => m[1])
+    )
+
+    expect(referenced.size).toBeGreaterThan(0) // sanity: the regex itself matched something
+    for (const col of referenced) {
+      expect(returningColumns, `activity_row references inserted.${col}, but RETURNING does not include it — this is exactly the production 500 bug`).toContain(col)
+    }
+  })
+
+  // Phase D.4.5C-T/U — board_id had to be added to RETURNING (above) so
+  // activity_row could reference it, but board_id was never part of the
+  // { item: ... } response contract before this fix. The final SELECT
+  // uses an explicit column list (not `inserted.*`) specifically so
+  // adding board_id to RETURNING does not silently change what clients
+  // receive.
+  it('board_id does not leak into the final response SELECT — the response item contract is unchanged despite board_id now being in RETURNING', () => {
+    const source = fs.readFileSync(path.resolve(__dirname, '../../app/api/organiser/boards/[boardId]/items/route.ts'), 'utf8')
+    // The final SELECT is textually the LAST "SELECT" keyword in the
+    // template literal (activity_row's own SELECT ends with
+    // "RETURNING id" before this one begins).
+    const lastSelectIdx = source.lastIndexOf('SELECT')
+    expect(lastSelectIdx).toBeGreaterThan(-1) // sanity: found a SELECT at all
+    const templateEnd = source.indexOf('`;', lastSelectIdx)
+    const finalSelectBlock = source.slice(lastSelectIdx, templateEnd)
+    expect(finalSelectBlock).not.toMatch(/\bboard_id\b/)
+    expect(finalSelectBlock).not.toContain('inserted.*')
+  })
+
   it('after_json is a minimum identity summary (name/status/group_id/parent_item_id) — never a full-row dump', () => {
     const source = fs.readFileSync(path.resolve(__dirname, '../../app/api/organiser/boards/[boardId]/items/route.ts'), 'utf8')
     const activityStart = source.indexOf('activity_row AS')
