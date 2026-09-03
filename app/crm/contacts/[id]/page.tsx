@@ -5,12 +5,14 @@ import Link from 'next/link';
 import SlidePanel from '../../_components/SlidePanel';
 import ContactForm from '../../_components/ContactForm';
 import ActivityForm from '../../_components/ActivityForm';
+import ClassificationBadge from '../../_components/ClassificationBadge';
+import type { CrmContactClassification } from '@/lib/crm/classification';
 
 const CARD = '#0e1014'; const BORDER = '#1a1d24';
 const STAGE_COLORS: Record<string, string> = { lead:'#6b7280', qualified:'#60a5fa', proposal:'#a78bfa', negotiation:'#fbbf24', closed_won:'#34d399', closed_lost:'#f87171' };
 const TYPE_ICONS: Record<string, string>   = { call:'📞', email:'✉️', note:'📝', meeting:'🤝' };
 
-type Contact  = { id: string; first_name: string; last_name: string; email: string|null; phone: string|null; job_title: string|null; company_id: string|null; company_name: string|null; notes: string|null };
+type Contact  = { id: string; first_name: string; last_name: string; email: string|null; phone: string|null; job_title: string|null; company_id: string|null; company_name: string|null; notes: string|null; classification: CrmContactClassification | null };
 type Deal     = { id: string; title: string; value: number|null; stage: string; expected_close: string|null };
 type Activity = { id: string; type: string; subject: string; body: string|null; activity_date: string; created_by_name: string };
 type GmailMsg = { id: string; subject: string; from: string; time: string; snippet: string; imported?: boolean };
@@ -156,7 +158,8 @@ export default function ContactDetailPage() {
         {/* Right — contact info + activity feed */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
           <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: 20 }}>
-            <h2 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 4px' }}>{contact.first_name} {contact.last_name}</h2>
+            <h2 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 6px' }}>{contact.first_name} {contact.last_name}</h2>
+            <div style={{ marginBottom: contact.job_title ? 8 : 16 }}><ClassificationBadge classification={contact.classification} /></div>
             {contact.job_title && <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 16 }}>{contact.job_title}</div>}
             {contact.company_name && (
               <div style={{ marginBottom: 10 }}>

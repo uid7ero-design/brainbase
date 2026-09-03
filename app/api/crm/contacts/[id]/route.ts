@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import sql from '@/lib/db';
 import { requireSession, unauthorized, forbidden } from '@/lib/org';
 import { requireCapability, CapabilityDatabaseError } from '@/lib/capabilities/requireCapability';
+import { isValidCrmContactClassification } from '@/lib/crm/classification';
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -52,16 +53,25 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
   const { id } = await params;
 
   const body = await req.json();
-  const { first_name, last_name, email, phone, job_title, company_id, notes } = body;
+  const { first_name, last_name, email, phone, job_title, company_id, notes, classification } = body;
   if (!first_name?.trim() || !last_name?.trim()) {
     return NextResponse.json({ error: 'First and last name are required.' }, { status: 400 });
   }
+  // Same validation as POST /api/crm/contacts — see that route's own
+  // comment. This is the ONLY place a human (via ContactForm.tsx) can
+  // change an existing contact's classification; Events sync/backfill
+  // never reach this route and never UPDATE classification themselves.
+  if (classification !== null && classification !== undefined && classification !== '' && !isValidCrmContactClassification(classification)) {
+    return NextResponse.json({ error: 'Invalid classification.' }, { status: 400 });
+  }
+  const normalizedClassification = classification || null;
 
   const rows = await sql`
     UPDATE crm_contacts SET
       first_name = ${first_name.trim()}, last_name = ${last_name.trim()},
       email = ${email ?? null}, phone = ${phone ?? null}, job_title = ${job_title ?? null},
       company_id = ${company_id ?? null}, notes = ${notes ?? null},
+      classification = ${normalizedClassification},
       updated_at = NOW()
     WHERE id = ${id} AND organisation_id = ${session.organisationId}
     RETURNING *
