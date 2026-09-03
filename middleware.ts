@@ -6,6 +6,8 @@ import {
   SESSION_LIFETIME_MS,
   REFRESH_THRESHOLD_MS,
   COOKIE_OPTIONS,
+  roleGte,
+  type Role,
 } from '@/lib/session';
 
 const PUBLIC = [
@@ -94,16 +96,29 @@ export async function middleware(req: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  const role =
-    session.role?.toLowerCase() ?? '';
+  // Phase C1.6: session.role is an unvalidated string from a decrypted JWT
+  // (it can, in principle, hold any string — including 'analyst', which the
+  // real DB enum can produce but which app/session.ts's Role type only
+  // recently learned to recognise; see that file's own comment). Cast to
+  // Role for roleGte()'s type signature only — its actual runtime safety
+  // comes from failing closed (false) for anything not in ROLE_ORDER, the
+  // same guarantee requireRole()/lib/org.ts's server-side checks rely on.
+  const role = (session.role?.toLowerCase() ?? '') as Role;
 
-  // /admin and /clients — super_admin only
+  // Phase C1.6: both checks now use the SAME shared roleGte()/ROLE_ORDER
+  // lib/org.ts's requireRole() uses (imported from lib/session.ts, not
+  // duplicated here) — previously this file maintained its own, separate
+  // COMMAND_ROLES array that could silently drift from lib/org.ts's
+  // ordering. /admin and /clients remain effectively super_admin-only
+  // (roleGte against the top of the hierarchy is equivalent to an exact
+  // match, since nothing outranks it) — expressed via the shared helper
+  // instead of a bespoke equality check, for the same reason.
   if (
     (
       pathname.startsWith('/admin') ||
       pathname.startsWith('/clients')
     ) &&
-    role !== 'super_admin'
+    !roleGte(role, 'super_admin')
   ) {
     return NextResponse.redirect(
       new URL('/dashboard', req.url),
@@ -111,15 +126,9 @@ export async function middleware(req: NextRequest) {
   }
 
   // /command — manager, admin, super_admin only
-  const COMMAND_ROLES = [
-    'manager',
-    'admin',
-    'super_admin',
-  ];
-
   if (
     pathname.startsWith('/command') &&
-    !COMMAND_ROLES.includes(role)
+    !roleGte(role, 'manager')
   ) {
     return NextResponse.redirect(
       new URL('/dashboard', req.url),
