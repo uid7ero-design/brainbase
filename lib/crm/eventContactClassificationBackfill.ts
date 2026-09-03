@@ -1,7 +1,8 @@
 import sql from '@/lib/db';
 import { checkCapability } from '@/lib/capabilities/requireCapability';
+import { EVENT_CONTACT_CLASSIFICATION } from './classification';
 
-// Historical CRM contact classification — PREVIEW ONLY in this phase.
+// Historical CRM contact classification.
 // Deliberately a separate module from lib/crm/eventBackfill.ts: that
 // file's own scope is order-to-contact LINKING (does a crm_contacts row
 // exist / get created for a given event_orders row); this module's
@@ -55,9 +56,23 @@ import { checkCapability } from '@/lib/capabilities/requireCapability';
 // answer, no event_registration_responses/event_registration_questions
 // table, is referenced anywhere in this file.
 //
-// THIS FILE PERFORMS ZERO WRITES. No UPDATE, no INSERT, no DELETE.
-// Execution (an actual reclassification) is explicitly out of scope
-// for this phase and does not exist anywhere in this module.
+// EXECUTION (this phase): executeEventContactClassification() below
+// re-derives eligibility from the database itself, via the exact same
+// candidate query and the exact same computeClassificationEligibility()
+// function preview uses (fetchClassificationCandidates() is shared by
+// both, not duplicated) — it never trusts a client-supplied contact-id
+// list or a stale preview response as authority. Each eligible
+// contact's write is a single, guarded, atomic Postgres statement (a
+// compound CTE, the same technique already established in
+// lib/crm/eventSync.ts / lib/crm/eventBackfill.ts): the UPDATE only
+// succeeds if classification IS STILL NULL at that exact moment, and
+// the audit_logs INSERT is a CTE chained FROM that UPDATE's own RETURNING
+// — so if the guarded UPDATE affects zero rows (a contact was manually
+// classified in the gap between preview and execute, or by a concurrent
+// execute run), the audit INSERT structurally cannot fire either.
+// Nothing is ever left half-applied. Contacts are processed one at a
+// time, each independently caught, mirroring executeEventContactBackfill's
+// own established "one failure never aborts the rest of the batch" model.
 
 export interface ClassificationPreviewRow {
   contactId: string;
@@ -113,18 +128,23 @@ export function computeClassificationEligibility(input: {
   return { eligible: true, skipReason: null };
 }
 
-// Read-only. The candidate universe is deliberately broader than "NULL
-// classification contacts" — it is every contact in this organisation
-// with ANY Events evidence (notes marker OR a live order link),
-// regardless of current classification — so an already-classified
-// CLIENT/LEAD who also happens to have booked an event is visibly
-// reported as ineligible with its own reason, never silently absent
-// from the preview a reviewer is looking at.
-export async function previewEventContactClassification(organisationId: string): Promise<ClassificationPreviewResult> {
-  const capability = await checkCapability(organisationId, 'crm');
-  if (!capability.allowed) return { crmEnabled: false, totalCandidates: 0, eligibleCount: 0, rows: [] };
+type CandidateRow = {
+  id: string; first_name: string; last_name: string; email: string | null;
+  notes: string | null; classification: string | null;
+  linked_order_count: number; event_activity_count: number;
+};
 
-  const rows = (await sql`
+// Shared by both preview and execute — the ONE place this candidate
+// query is defined, so the two paths cannot silently diverge in what
+// counts as evidence. The candidate universe is deliberately broader
+// than "NULL classification contacts" — it is every contact in this
+// organisation with ANY Events evidence (notes marker OR a live order
+// link), regardless of current classification — so an already-
+// classified CLIENT/LEAD who also happens to have booked an event is
+// visibly reported as ineligible with its own reason, never silently
+// absent.
+async function fetchClassificationCandidates(organisationId: string): Promise<CandidateRow[]> {
+  return (await sql`
     SELECT
       c.id, c.first_name, c.last_name, c.email, c.notes, c.classification,
       (
@@ -147,11 +167,15 @@ export async function previewEventContactClassification(organisationId: string):
         )
       )
     ORDER BY c.created_at ASC
-  `) as {
-    id: string; first_name: string; last_name: string; email: string | null;
-    notes: string | null; classification: string | null;
-    linked_order_count: number; event_activity_count: number;
-  }[];
+  `) as CandidateRow[];
+}
+
+// Read-only.
+export async function previewEventContactClassification(organisationId: string): Promise<ClassificationPreviewResult> {
+  const capability = await checkCapability(organisationId, 'crm');
+  if (!capability.allowed) return { crmEnabled: false, totalCandidates: 0, eligibleCount: 0, rows: [] };
+
+  const rows = await fetchClassificationCandidates(organisationId);
 
   const previewRows: ClassificationPreviewRow[] = rows.map(r => {
     const notesMarker = detectEventsNotesMarker(r.notes);
@@ -178,5 +202,131 @@ export async function previewEventContactClassification(organisationId: string):
     totalCandidates: previewRows.length,
     eligibleCount: previewRows.filter(r => r.eligible).length,
     rows: previewRows,
+  };
+}
+
+export type ClassificationExecutionOutcome =
+  | 'updated'
+  | 'skipped_already_classified'
+  | 'skipped_no_marker'
+  | 'skipped_no_order_link'
+  | 'skipped_stale'
+  | 'failed';
+
+export interface ClassificationExecutionRow {
+  contactId: string;
+  name: string;
+  outcome: ClassificationExecutionOutcome;
+  error?: string;
+}
+
+export interface ClassificationExecutionResult {
+  crmEnabled: boolean;
+  eligibleAtExecution: number;
+  updatedCount: number;
+  skippedCount: number;
+  updated: ClassificationExecutionRow[];
+  skipped: ClassificationExecutionRow[];
+}
+
+function outcomeForSkipReason(skipReason: string | null): ClassificationExecutionOutcome {
+  if (!skipReason) return 'failed'; // unreachable in practice — eligible rows never reach this branch
+  if (skipReason.startsWith('already classified')) return 'skipped_already_classified';
+  if (skipReason === 'no Events notes marker') return 'skipped_no_marker';
+  return 'skipped_no_order_link';
+}
+
+// Actually reclassifies eligible contacts. Re-derives eligibility from
+// the database itself (fetchClassificationCandidates + the exact same
+// computeClassificationEligibility used by preview) — a client-supplied
+// candidate list or a previously-fetched preview response is NEVER
+// trusted as authority for which rows get touched. organisationId and
+// actorUserId must both come from the caller's own authenticated
+// session (enforced by the route, not here) — this function accepts no
+// other identity input.
+export async function executeEventContactClassification(
+  organisationId: string,
+  actorUserId: string,
+): Promise<ClassificationExecutionResult> {
+  const capability = await checkCapability(organisationId, 'crm');
+  if (!capability.allowed) return { crmEnabled: false, eligibleAtExecution: 0, updatedCount: 0, skippedCount: 0, updated: [], skipped: [] };
+
+  const rows = await fetchClassificationCandidates(organisationId);
+
+  const updated: ClassificationExecutionRow[] = [];
+  const skipped: ClassificationExecutionRow[] = [];
+  let eligibleAtExecution = 0;
+
+  for (const r of rows) {
+    const name = `${r.first_name} ${r.last_name}`.trim();
+    const notesMarker = detectEventsNotesMarker(r.notes);
+    const { eligible, skipReason } = computeClassificationEligibility({
+      currentClassification: r.classification,
+      notesMarker,
+      linkedEventOrderCount: r.linked_order_count,
+    });
+
+    if (!eligible) {
+      skipped.push({ contactId: r.id, name, outcome: outcomeForSkipReason(skipReason) });
+      continue;
+    }
+    eligibleAtExecution++;
+
+    try {
+      // One compound statement: the UPDATE's own WHERE re-checks
+      // classification IS NULL at the moment this actually runs (not
+      // at the moment the candidate query above ran) — a contact
+      // manually classified, or concurrently classified by another
+      // execute run, in that gap causes RETURNING to yield zero rows,
+      // which means the audit_logs INSERT (chained FROM that RETURNING)
+      // structurally cannot fire either. Never leaves a changed
+      // classification without its audit row, and never audits a
+      // no-op.
+      const result = (await sql`
+        WITH upd AS (
+          UPDATE crm_contacts
+          SET classification = ${EVENT_CONTACT_CLASSIFICATION}
+          WHERE id = ${r.id} AND organisation_id = ${organisationId} AND classification IS NULL
+          RETURNING id
+        ),
+        matched_orders AS (
+          SELECT COALESCE(json_agg(eo.id), '[]'::json) AS order_ids
+          FROM event_orders eo, upd
+          WHERE eo.organisation_id = ${organisationId} AND eo.crm_contact_id = upd.id
+        ),
+        audit AS (
+          INSERT INTO audit_logs (organisation_id, user_id, action, resource_type, resource_id, detail)
+          SELECT
+            ${organisationId}, ${actorUserId}, 'crm_contact.historical_classification_backfill', 'crm_contact', upd.id,
+            jsonb_build_object(
+              'previous_classification', NULL,
+              'new_classification', ${EVENT_CONTACT_CLASSIFICATION},
+              'source', 'events_historical_classification_backfill',
+              'notes_marker', ${notesMarker},
+              'matched_order_ids', (SELECT order_ids FROM matched_orders)
+            )
+          FROM upd
+          RETURNING id
+        )
+        SELECT (SELECT id FROM upd) AS updated_id
+      `) as { updated_id: string | null }[];
+
+      if (result[0]?.updated_id) {
+        updated.push({ contactId: r.id, name, outcome: 'updated' });
+      } else {
+        skipped.push({ contactId: r.id, name, outcome: 'skipped_stale' });
+      }
+    } catch (err) {
+      skipped.push({ contactId: r.id, name, outcome: 'failed', error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  return {
+    crmEnabled: true,
+    eligibleAtExecution,
+    updatedCount: updated.length,
+    skippedCount: skipped.length,
+    updated,
+    skipped,
   };
 }

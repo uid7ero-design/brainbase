@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requireSession, roleGte, unauthorized, forbidden } from '@/lib/org';
 import { requireCapability, CapabilityDatabaseError } from '@/lib/capabilities/requireCapability';
-import { previewEventContactClassification } from '@/lib/crm/eventContactClassificationBackfill';
+import { previewEventContactClassification, executeEventContactClassification } from '@/lib/crm/eventContactClassificationBackfill';
 
 // Historical CRM contact classification — PREVIEW ONLY in this phase.
 // Nested under the existing /api/crm/events-backfill route family and
@@ -46,4 +46,23 @@ export async function GET() {
 
   const result = await previewEventContactClassification(auth.session.organisationId);
   return NextResponse.json(result);
+}
+
+// POST — actually reclassifies eligible contacts to EVENT_CONTACT.
+// Deliberately reads NO request body at all: organisationId and the
+// executing actor both come only from the authenticated session, and
+// which contacts get touched is re-derived entirely server-side by
+// executeEventContactClassification — there is no field anywhere a
+// client could supply to select, exclude, or expand the set of rows
+// this touches. Same authorization as GET; there is no separate
+// "confirm" token — the manager UI's own preview-then-confirm flow is
+// what stands between a GET and a POST here, matching every other
+// destructive-ish action in this codebase (e.g. the sibling
+// /api/crm/events-backfill route's own POST).
+export async function POST() {
+  const auth = await authorize();
+  if (!auth.ok) return auth.response;
+
+  const result = await executeEventContactClassification(auth.session.organisationId, auth.session.userId);
+  return NextResponse.json({ success: true, ...result });
 }
