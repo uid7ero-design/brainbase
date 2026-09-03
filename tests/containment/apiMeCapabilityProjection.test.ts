@@ -231,11 +231,11 @@ describe('GET /api/me — enabledCapabilities projection (Phase F.6F)', () => {
     expect(body).toHaveProperty('enabledModules')
   })
 
-  it('17. the legacy enabledModules query text is structurally unchanged (still the pre-existing, broken m.id/om.module_id/m.industry shape)', () => {
-    expect(CODE).toMatch(/SELECT\s+m\.key,\s*m\.name,\s*m\.industry/)
-    expect(CODE).toMatch(/JOIN\s+modules\s+m\s+ON\s+m\.id\s*=\s*om\.module_id/)
-    // Explicit non-goal guard: this phase must not "fix" the legacy
-    // query to use the new module_key column.
+  it('17. Phase C1.3: the legacy enabledModules query is FIXED — corrected to the same m.key = om.module_key join used everywhere else, in its own try/catch isolated from profile/org/last_seen_at', () => {
+    expect(CODE).toMatch(/SELECT\s+m\.key,\s*m\.name/)
+    expect(CODE).toMatch(/JOIN\s+modules\s+m\s+ON\s+m\.key\s*=\s*om\.module_key/)
+    expect(CODE).not.toMatch(/JOIN\s+modules\s+m\s+ON\s+m\.id\s*=\s*om\.module_id/)
+    expect(CODE).not.toMatch(/m\.industry/)
   })
 
   it('18. the new capability projection uses the same session.organisationId already used elsewhere in the route', () => {
@@ -257,5 +257,58 @@ describe('GET /api/me — enabledCapabilities projection (Phase F.6F)', () => {
     const res = await GET()
     expect(res.status).toBe(200)
     expect(CODE).not.toMatch(/enabledCapabilities[\s\S]{0,40}(403|status:\s*40)/)
+  })
+
+  // Phase C1.3 regression coverage — the whole point of moving enabledModules
+  // into its own try/catch: a failure there must never block the mandatory
+  // last_seen_at bookkeeping write, and the field itself must fail closed to
+  // an empty list rather than throwing or being left stale.
+
+  it('21. last_seen_at is written even when the enabledModules query fails (this was the actual bug: it used to be skipped because an unrelated query threw first)', async () => {
+    let call = 0
+    const lastSeenAtCall = vi.fn()
+    sqlMock.mockImplementation((...args: unknown[]) => {
+      call += 1
+      const text = (args[0] as TemplateStringsArray)?.join?.(' ') ?? ''
+      if (/UPDATE users SET last_seen_at/.test(text)) lastSeenAtCall(...args)
+      if (call === 1) return Promise.resolve([{ id: 'u1', name: 'Ada' }]) // users
+      if (call === 2) return Promise.resolve([{ name: 'Org A', industry: null, logo_url: null }]) // organisations
+      if (call === 3) return Promise.resolve([]) // last_seen_at UPDATE — succeeds
+      if (call === 4) return Promise.reject(new Error('connection reset')) // enabledModules — fails
+      return Promise.resolve([]) // enabledCapabilities
+    })
+    const res = await GET()
+    expect(res.status).toBe(200)
+    expect(lastSeenAtCall).toHaveBeenCalledTimes(1)
+  })
+
+  it('22. enabledModules fails closed to [] when its query throws, without affecting the response status or any other field', async () => {
+    let call = 0
+    sqlMock.mockImplementation(() => {
+      call += 1
+      if (call === 1) return Promise.resolve([{ id: 'u1', name: 'Ada' }])
+      if (call === 2) return Promise.resolve([{ name: 'Org A', industry: null, logo_url: null }])
+      if (call === 3) return Promise.resolve([]) // last_seen_at UPDATE
+      if (call === 4) return Promise.reject(new Error('syntax error')) // enabledModules
+      return Promise.resolve([{ key: 'crm', name: 'CRM' }]) // enabledCapabilities — unaffected
+    })
+    const res = await GET()
+    const body = await res.json()
+    expect(res.status).toBe(200)
+    expect(body.enabledModules).toEqual([])
+    expect(body.enabledCapabilities).toEqual([{ key: 'crm', name: 'CRM' }])
+  })
+
+  it('23. a successful enabledModules query returns real key/name rows (no longer permanently empty)', async () => {
+    queue(
+      [{ id: 'u1', name: 'Ada' }],
+      [{ name: 'Org A', industry: null, logo_url: null }],
+      [],
+      [{ key: 'crm', name: 'CRM' }],
+      [],
+    )
+    const res = await GET()
+    const body = await res.json()
+    expect(body.enabledModules).toEqual([{ key: 'crm', name: 'CRM' }])
   })
 })

@@ -20,7 +20,17 @@ export async function GET() {
   // Fetch extended profile + org info + enabled modules
   let profile: Record<string, unknown> | null = null;
   let org: { name: string; industry: string | null; logo_url: string | null } | null = null;
-  let enabledModules: { key: string; name: string; industry: string }[] = [];
+  // Phase C1.3: was previously queried inside the same try/catch as
+  // profile/org/last_seen_at below, via a broken join (m.id = om.module_id —
+  // modules has no `id`/`industry` column, see scripts/create-modules.sql) that
+  // threw on every call, silently skipping the last_seen_at bookkeeping update
+  // below it. Now queried in its own isolated try/catch (matching
+  // enabledCapabilities' own established pattern immediately below), using the
+  // correct modules.key = organisation_modules.module_key join, so a failure —
+  // or the historical certainty of one — here can never block profile/org/
+  // last_seen_at, and vice versa. `industry` is dropped from the projection:
+  // it was never a real modules column under the current schema.
+  let enabledModules: { key: string; name: string }[] = [];
   // Platform capability projection (Phase F.6F) — UX data only, not an
   // authorization boundary. Server routes remain the enforcement
   // authority via lib/capabilities/requireCapability.ts. Kept in its
@@ -47,20 +57,24 @@ export async function GET() {
     `;
     if (orgRow) org = orgRow as unknown as typeof org;
 
+    // Update last_seen_at
+    await sql`UPDATE users SET last_seen_at = NOW() WHERE id = ${session.userId}`;
+  } catch {
+    // Tables may not exist yet (pre-migration) — return minimal session data
+  }
+
+  try {
     const modules = await sql`
-      SELECT m.key, m.name, m.industry
+      SELECT m.key, m.name
       FROM organisation_modules om
-      JOIN modules m ON m.id = om.module_id
+      JOIN modules m ON m.key = om.module_key
       WHERE om.organisation_id = ${session.organisationId}
         AND om.enabled = true
       ORDER BY m.name
     `;
     enabledModules = modules as typeof enabledModules;
-
-    // Update last_seen_at
-    await sql`UPDATE users SET last_seen_at = NOW() WHERE id = ${session.userId}`;
   } catch {
-    // Tables may not exist yet (pre-migration) — return minimal session data
+    // Fail closed to an empty list — never block profile/org/last_seen_at above.
   }
 
   try {

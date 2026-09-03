@@ -162,16 +162,22 @@ export async function POST() {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  // Phase C1.3: corrected join (was m.id = om.module_id — modules has no
+  // `id` column, threw every call). Fails CLOSED (empty list) on error, not
+  // open to all three legacy domain modules — see
+  // lib/agents/briefingAgent.ts's getEnabledModules() comment for the full
+  // known-data-model-gap explanation (same defect, same fix, same reported
+  // blocker).
   let moduleKeys: string[] = [];
   try {
     const rows = await sql`
       SELECT m.key FROM organisation_modules om
-      JOIN modules m ON m.id = om.module_id
+      JOIN modules m ON m.key = om.module_key
       WHERE om.organisation_id = ${oid} AND om.enabled = true
     `;
     moduleKeys = rows.map(r => r.key as string);
   } catch {
-    moduleKeys = ['waste_recycling', 'fleet_management', 'service_requests'];
+    moduleKeys = [];
   }
 
   const deltaResults = await Promise.all(

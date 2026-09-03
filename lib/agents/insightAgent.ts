@@ -124,16 +124,21 @@ async function fetchSRInsights(oid: string) {
 
 // ─── Module enablement ─────────────────────────────────────────────────────────
 
+// Phase C1.3: same fix and same known data-model gap as
+// lib/agents/briefingAgent.ts's identical getEnabledModules() — see that
+// file's comment for the full explanation. Corrected join (m.key =
+// om.module_key), fails CLOSED (empty list) instead of assuming all three
+// legacy domain modules enabled.
 async function getEnabledModules(oid: string): Promise<string[]> {
   try {
     const rows = await sql`
       SELECT m.key FROM organisation_modules om
-      JOIN modules m ON m.id = om.module_id
+      JOIN modules m ON m.key = om.module_key
       WHERE om.organisation_id = ${oid} AND om.enabled = true
     `;
     return rows.map(r => r.key as string);
   } catch {
-    return ['waste_recycling', 'fleet_management', 'service_requests'];
+    return [];
   }
 }
 
