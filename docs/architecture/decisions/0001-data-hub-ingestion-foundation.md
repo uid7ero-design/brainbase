@@ -1825,3 +1825,155 @@ parent-`READY` TOCTOU, duplicate-CSV-header-retains-last-occurrence
 behavior, and the duplicated CSV/workbook limit-constant debt — all
 previously classified informational/non-blocking — are explicitly
 untouched by this remediation.
+
+## 24. CSV-only live Data Hub vertical slice — worksheet inspection + illegal-dumping confirmation HTTP exposure (5A.2K.2)
+
+The first live end-to-end Data Hub import workflow, strictly for CSV
+illegal-dumping imports: `initiate` → direct upload → `finalize` → CSV-only
+inspect → `AWAITING_CONFIRMATION` worksheet → confirm illegal dumping →
+`IMPORTED`. Both new steps are thin HTTP wrappers around dark services;
+`confirmWorksheet.ts` (Section 22) is unchanged and gains its first
+runtime caller. `inspectWorksheets.ts` (Section 18, the XLS/XLSX-capable
+inspection service) remains completely dark.
+
+**Why a new inspection service, not a format-gated wrapper around
+`inspectWorksheets.ts`.** `inspectWorksheets.ts` imports
+`workbookParser.ts`, which does `import * as XLSX from "xlsx"`
+unconditionally at module scope. Even though `workbookParser.ts`'s own CSV
+branch never calls into SheetJS at runtime, merely importing that module
+into a live route's dependency graph still loads `xlsx` into the server
+process — a runtime content-type check placed in front of that import
+cannot undo the module-scope load. This is the exact reasoning that
+motivated `csvOnlyDecoder.ts` (Section 22) to be an independent sibling of
+`workbookParser.ts`'s own CSV decode path rather than a wrapper around it.
+`lib/data-hub/importBatch/inspectCsvWorksheet.ts` extends the identical
+discipline to structural inspection: it imports only
+`node:crypto`/`@prisma/client`/`../../prisma`/`../storage/rawFileStore`/
+`./compositionRoot`/`../limits`/`../csvOnlyDecoder`/`./failureTaxonomy` —
+zero xlsx/`workbookParser.ts`/`inspectWorksheets.ts` reachability, direct
+or transitive, statically enforced by
+`tests/containment/inspectCsvWorksheet.test.ts`'s own allowlist test.
+
+**Persistence-semantics duplication, not extraction.** The existing-set
+Case A–E idempotency/conflict policy (first-persist / exact-repeat-
+idempotent / divergence-hard-fails-`PERSISTENCE_CONFLICT` / never-topped-
+up-or-overwritten) is structurally mirrored from `inspectWorksheets.ts`'s
+own implementation rather than extracted into a shared module or imported
+directly — extracting it would have required modifying
+`inspectWorksheets.ts`, which this phase's own scope explicitly excluded
+("do not materially modify inspectWorksheets.ts"). The two
+implementations must be kept behaviourally equivalent by inspection/test,
+the same caveat `csvOnlyDecoder.ts` already carries for its own duplicated
+row/column/cell limit constants.
+
+**CSV structural semantics.** A CSV batch always yields exactly one
+worksheet: `worksheetIndex: 0`, `worksheetName: "CSV"`,
+`worksheetVisibility: "visible"` — matching `workbookParser.ts`'s own
+`inspectCsvWorksheet` hardcoded values exactly. Emptiness matches that
+same function's semantic precisely: a totally empty file (zero parsed
+rows including the header row) is empty; a header-only CSV (headers
+present, zero data rows) is non-empty. `decodeCsvOnly` (Section 22) is
+reused directly rather than re-implementing a second CSV parser call,
+so `PARSER_REJECTED`/`LIMIT_EXCEEDED` handling stays byte-identical to
+K.1's own.
+
+**Route design.** `POST /api/data-hub/import-batches/[id]/inspect` and
+`POST /api/data-hub/worksheets/[id]/confirm-illegal-dumping` — both
+`manager+`, both derive tenant exclusively from
+`requireRole("manager")`'s resolved `session.organisationId`, both read
+no request body at all (no `req.json()` call anywhere in either file),
+both supply only `{organisationId, path-id}` to their wrapped service and
+let it resolve all other authority (storage locator, format, worksheet
+identity) itself. The confirm route's path segment
+(`.../confirm-illegal-dumping`, not a generic `.../confirm` with a
+body-supplied domain) is deliberately the sole importer-selection
+boundary: `confirmDataHubWorksheet` is hardcoded to the illegal-dumping
+importer with no dispatch table, so there is no caller choice to secure
+because there is no caller choice at all — a request body carrying
+`importer`/`domain`/`schemaType` fields has zero effect, proven both
+statically (no such field is ever read) and behaviourally (a real request
+carrying them still imports into `illegal_dumping`, never anywhere else).
+
+**Error mapping derived from current taxonomy, not invented.** Both
+routes reuse existing `failureTaxonomy.ts` codes verbatim — no new code
+was added, since every reachable condition (`BATCH_NOT_FOUND`,
+`BATCH_NOT_READY`, `UNSUPPORTED_FORMAT`, `STORAGE_NOT_FOUND`,
+`PROVIDER_FAILURE`, `STORAGE_INTEGRITY_MISMATCH`, `PARSER_REJECTED`,
+`PERSISTENCE_CONFLICT`, `WORKSHEET_NOT_FOUND`, `WORKSHEET_NOT_ELIGIBLE`)
+already existed from Sections 18/22. The confirm route's HTTP status
+mapping is exhaustive against the full `FailureCode` union (a TypeScript
+`Record`), not just the codes `confirmDataHubWorksheet` can currently
+return, so a future change to that service's return surface fails
+compilation here rather than silently falling through to a generic 500.
+
+**A genuine, previously-undocumented behavior surfaced during
+falsification.** Re-inspecting a worksheet that has since been confirmed
+(`IMPORTED`) correctly returns `PERSISTENCE_CONFLICT`, not a silent
+idempotent success — because the freshly re-derived expectation is always
+content-only (`AWAITING_CONFIRMATION`/`INELIGIBLE`, never `IMPORTED`),
+while the persisted row has legitimately transitioned. This is inherited,
+unmodified behavior from `inspectWorksheets.ts`'s own identical
+`classifyExistingSet` design (Section 18), not a K.2 defect — a
+worksheet's post-confirmation state is not supposed to be silently
+re-derivable from a fresh structural read, and failing loud here is the
+correct, conservative choice.
+
+**Falsification.** 15 required mutations performed, tested, and restored
+byte-for-byte (`git hash-object` verified against pre-mutation baselines):
+removed auth on each route (caught, static); caller-supplied tenant on
+each route (caught, static — 3 redundant assertions each); xlsx-reachable
+import added to the new service (caught, static — 3 redundant assertions);
+caller-supplied importer field on the confirm route (caught, static — 2
+redundant assertions); an unauthorized new caller of `confirmWorksheet.ts`
+(caught by both the shared darkness exact-set test and
+`confirmWorksheet.test.ts`'s own dedicated proof); CSV format gate
+disabled (caught, real Postgres — 3 tests); existing-set conflict
+detection disabled (caught, real Postgres — 2 tests); cross-tenant batch
+predicate weakened in the new service (caught, real Postgres — genuine
+`STORAGE_NOT_FOUND` existence-oracle leak surfaced via the storage-key
+derivation's own tenant scoping, a real, if narrow, finding); cross-tenant
+worksheet predicate weakened in `confirmWorksheet.ts` (real-DB behavior
+unaffected by the Step 3 parent-batch lookup's own independent
+tenant-scoped defense-in-depth — caught instead by K.1's existing
+mocked-Prisma static assertion on the exact `where` predicate, mirroring
+Section 22's own original review finding for the identical mutation);
+raw unexpected-error leak on the inspect route (caught by the real-PG
+behavioral test asserting actual response content — the static regex
+proved fragile against a `(err as Error).message` cast and is noted as
+minor test-quality debt, not fixed here); `INELIGIBLE`-state confirmation
+allowed (real-DB outcome changed via the mapper's own required-header
+validation defense-in-depth, still caught by the permanent test's status
+assertion); hash verification disabled (caught, real Postgres); and
+duplicate worksheet persistence on repeat inspection (the app-level
+existing-set gate bypassed entirely — genuinely UNDETECTED by any
+existing test, since a CSV batch structurally can only ever have zero or
+one existing row and the real Postgres unique index on
+`(import_batch_id, worksheet_index)` already backstops actual duplication
+via `persistFirstTime`'s own P2002 recovery path; closed with a new
+permanent structural test in `inspectCsvWorksheet.test.ts` proving the
+`persistFirstTime` call site is reachable only from an `existing.length
+=== 0` guard, falsified against the exact mutation before being
+finalized).
+
+**Scope discipline.** New files only:
+`lib/data-hub/importBatch/inspectCsvWorksheet.ts`, the two new route
+files, `scripts/tests/dataHubK2.integration.test.ts` +
+`scripts/tests/verify-datahub-k2.sh`,
+`tests/containment/inspectCsvWorksheet.test.ts`,
+`tests/containment/dataHubK2Routes.test.ts`; plus narrow, expected
+exact-set updates to `tests/containment/dataHubImportBatchDarkness.test.ts`
+and `tests/containment/confirmWorksheet.test.ts` (both files' own
+darkness-exact-set proofs, updated to reflect `confirmWorksheet.ts`
+gaining its first authorized caller — the established pattern at every
+dark→live transition in this project, not scope creep) and
+`vitest.integration.config.ts` (one new `include` entry). No schema or
+migration change, no dependency change, no XLS/XLSX exposure of any kind,
+no canonical SKIP operation, no second domain importer or generic
+importer dispatcher, no UI, and no modification to `inspectWorksheets.ts`,
+`confirmWorksheet.ts`, `illegalDumpingMapper.ts`, `workbookParser.ts`, or
+`services/upload.ts` (all mutation/falsification testing against these
+already-reviewed files was temporary and fully restored — see the
+falsification list above). The standing xlsx@0.18.5 dependency risk and
+the four pre-existing legacy xlsx-parsing routes remain unchanged,
+unaddressed, and explicitly out of scope — this slice adds zero new xlsx
+reachability anywhere in the application.

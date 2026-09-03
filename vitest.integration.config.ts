@@ -54,6 +54,13 @@ import path from 'path';
 // scripts/tests/verify-confirm-worksheet.sh) is added alongside the
 // existing specs, for the same reason and with the same
 // explicit-file-argument isolation.
+//
+// 5A.2K.2 addition: scripts/tests/dataHubK2.integration.test.ts (the new
+// CSV-only inspection service and the two new HTTP routes exposing
+// inspection + illegal-dumping confirmation — see
+// scripts/tests/verify-datahub-k2.sh) is added alongside the existing
+// specs, for the same reason and with the same explicit-file-argument
+// isolation.
 export default defineConfig({
   test: {
     environment: 'node',
@@ -65,6 +72,7 @@ export default defineConfig({
       'scripts/tests/dataHubReadRoutes.integration.test.ts',
       'scripts/tests/dataHubInitiateFinalizeRoutes.integration.test.ts',
       'scripts/tests/confirmWorksheet.integration.test.ts',
+      'scripts/tests/dataHubK2.integration.test.ts',
     ],
     testTimeout: 30_000,
     hookTimeout: 30_000,

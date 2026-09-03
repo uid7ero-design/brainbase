@@ -239,9 +239,17 @@ describe("confirmWorksheet — zero-row claim (claim.count === 0) structurally t
   });
 });
 
-// ─── No HTTP route / UI wiring exists yet (Section 38, re-confirmed here) ──
+// ─── HTTP route wiring (5A.2K.2 — K.1's dark-to-live transition) ─────────
+//
+// Superseded by 5A.2K.2: confirmWorksheet.ts now has exactly ONE
+// authorized runtime caller — the new confirm-illegal-dumping route (see
+// tests/containment/dataHubImportBatchDarkness.test.ts's
+// AUTHORIZED_IMPORTERS_BY_MODULE map, the canonical source of truth for
+// this exact-set assertion). This block's own redundant proof is updated
+// to match rather than removed, preserving its role as an independent,
+// second check on the same invariant.
 
-describe("confirmWorksheet — repo-wide, no runtime caller exists yet (re-confirmed here, own dedicated proof)", () => {
+describe("confirmWorksheet — repo-wide runtime callers are EXACTLY the authorized 5A.2K.2 confirm route (re-confirmed here, own dedicated proof)", () => {
   function walk(dir: string, exts: string[]): string[] {
     const results: string[] = [];
     let entries: fs.Dirent[];
@@ -259,25 +267,36 @@ describe("confirmWorksheet — repo-wide, no runtime caller exists yet (re-confi
     return results;
   }
 
-  it("no file under app/** or components/** references confirmDataHubWorksheet or imports confirmWorksheet.ts", () => {
+  const AUTHORIZED_CONFIRM_ROUTE = path.join(
+    "app",
+    "api",
+    "data-hub",
+    "worksheets",
+    "[id]",
+    "confirm-illegal-dumping",
+    "route.ts"
+  );
+
+  it("the ONLY file under app/** or components/** referencing confirmDataHubWorksheet or importing confirmWorksheet.ts is the authorized confirm route", () => {
     const offenders: string[] = [];
     for (const dir of ["app", "components"]) {
       const full = path.join(ROOT, dir);
       for (const file of walk(full, [".ts", ".tsx"])) {
-        const code = read(path.relative(ROOT, file));
+        const relPath = path.relative(ROOT, file);
+        const code = read(relPath);
         if (code.includes("confirmDataHubWorksheet") || /data-hub\/importBatch\/confirmWorksheet/.test(code)) {
-          offenders.push(path.relative(ROOT, file));
+          offenders.push(relPath);
         }
       }
     }
-    expect(offenders).toEqual([]);
+    expect(offenders).toEqual([AUTHORIZED_CONFIRM_ROUTE]);
   });
 
-  it("no new app/api route directory exists for worksheet confirmation (e.g. .../confirm/route.ts)", () => {
+  it("exactly one confirm-shaped app/api/data-hub route exists, at the exact expected path", () => {
     const apiRoot = path.join(ROOT, "app", "api", "data-hub");
     const files = walk(apiRoot, [".ts", ".tsx"]);
-    const confirmRoutes = files.filter((f) => /confirm/i.test(f));
-    expect(confirmRoutes).toEqual([]);
+    const confirmRoutes = files.filter((f) => /confirm/i.test(f)).map((f) => path.relative(ROOT, f));
+    expect(confirmRoutes).toEqual([AUTHORIZED_CONFIRM_ROUTE]);
   });
 });
 

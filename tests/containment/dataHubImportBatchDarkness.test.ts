@@ -63,6 +63,27 @@ const H3_READ_ROUTE = {
 };
 const H3_FINALIZE_ROUTE = path.join("app", "api", "data-hub", "import-batches", "[id]", "finalize", "route.ts");
 
+// 5A.2K.2 — the THIRD dark-to-live transition, for exactly two more
+// modules: inspectCsvWorksheet.ts (POST
+// /api/data-hub/import-batches/[id]/inspect) and confirmWorksheet.ts /
+// illegalDumpingMapper.ts (POST
+// /api/data-hub/worksheets/[id]/confirm-illegal-dumping — confirmWorksheet.ts's
+// FIRST runtime caller of any kind). inspectWorksheets.ts (the
+// XLS/XLSX-capable inspection service) deliberately gains NO authorized
+// importer in this phase — it remains exactly as dark as before; the new
+// inspect route imports ONLY the new, independent, xlsx-free
+// inspectCsvWorksheet.ts.
+const K2_INSPECT_ROUTE = path.join("app", "api", "data-hub", "import-batches", "[id]", "inspect", "route.ts");
+const K2_CONFIRM_ROUTE = path.join(
+  "app",
+  "api",
+  "data-hub",
+  "worksheets",
+  "[id]",
+  "confirm-illegal-dumping",
+  "route.ts"
+);
+
 // Module name (as it appears in `.../importBatch/<name>`) -> the exact
 // set of app/**/components/** files authorized to import it.
 const AUTHORIZED_IMPORTERS_BY_MODULE: Record<string, Set<string>> = {
@@ -73,16 +94,25 @@ const AUTHORIZED_IMPORTERS_BY_MODULE: Record<string, Set<string>> = {
   // Explicitly still zero authorized importers each — must remain dark.
   finalizeInternal: new Set(),
   staleReclaim: new Set(),
+  // inspectWorksheets.ts (the XLS/XLSX-capable inspection service) MUST
+  // remain fully dark through 5A.2K.2 — the new live inspection path is
+  // the separate, independent, xlsx-free inspectCsvWorksheet.ts module
+  // below, not this one.
   inspectWorksheets: new Set(),
   directUploadAuth: new Set(),
   compositionRoot: new Set(),
-  // 5A.2K.1 — the dark canonical worksheet-confirmation service and its
-  // illegal-dumping row mapper. No runtime caller of any kind exists in
-  // this slice (see this phase's own tests/containment/confirmWorksheet.test.ts
-  // for the additional dedicated darkness/xlsx-containment proof) — both
-  // must remain fully dark, same as every other not-yet-exposed module
-  // above.
-  confirmWorksheet: new Set(),
+  // 5A.2K.2 — the new xlsx-free, CSV-only worksheet inspection service.
+  // Exactly one authorized importer: its own new route.
+  inspectCsvWorksheet: new Set([K2_INSPECT_ROUTE]),
+  // 5A.2K.1 -> 5A.2K.2 — the dark canonical worksheet-confirmation
+  // service and its illegal-dumping row mapper gain their FIRST runtime
+  // caller of any kind in this phase: exactly the new confirm route.
+  // illegalDumpingMapper.ts is never imported directly by any app route —
+  // it is reached only transitively, through confirmWorksheet.ts — so its
+  // own authorized-importer set (per this test's app/**/components/**
+  // regex, which matches DIRECT importers only) remains empty even though
+  // it is no longer unreachable at runtime.
+  confirmWorksheet: new Set([K2_CONFIRM_ROUTE]),
   illegalDumpingMapper: new Set(),
 };
 
@@ -178,6 +208,11 @@ describe("Data Hub importBatch — no barrel/index.ts anywhere in the new tree",
         // illegalDumpingMapper.ts (5A.2K.1) — the illegal-dumping CSV row
         // mapper used only by confirmWorksheet.ts. Also dark.
         "illegalDumpingMapper.ts",
+        // inspectCsvWorksheet.ts (5A.2K.2) — the new xlsx-free, CSV-only
+        // worksheet inspection service. LIVE as of this phase — exactly
+        // one authorized importer, the new inspect route — see the
+        // AUTHORIZED_IMPORTERS_BY_MODULE map above.
+        "inspectCsvWorksheet.ts",
       ])
     );
   });
