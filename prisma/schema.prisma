@@ -581,6 +581,18 @@ model DebtorAccount {
   organisation        Organisation @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
   upload              Upload?      @relation(fields: [upload_id], references: [id])
 
+  // Phase C1.1: natural key for dedup/upsert on re-import. account_number is
+  // the only field on this table that identifies a real-world account
+  // (account_name is not guaranteed unique; there is no reporting-period/
+  // snapshot-date column anywhere on this model — confirmed by inspection,
+  // and corroborated by app/api/debtors/kpi/route.ts's own read path, which
+  // already queries ALL rows for an organisation with no period filter,
+  // i.e. the existing reads already treat this table as "current state per
+  // account", not a period-indexed historical ledger). See
+  // scripts/add-debtor-accounts-dedup.ts for the migration that
+  // deduplicates pre-existing rows before this constraint can be applied,
+  // and modules/debtors/index.ts for the corresponding upsert-based import.
+  @@unique([organisation_id, account_number], name: "organisation_id_account_number")
   @@index([organisation_id])
   @@index([aging_bucket])
   @@index([status])

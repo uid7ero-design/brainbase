@@ -1,14 +1,17 @@
 import { NextResponse } from 'next/server';
-import { getAuthSession } from '@/lib/authSession';
+import { authorizeDebtorsRequest } from '@/lib/debtors/authorize';
 import { prisma } from '@/lib/prisma';
+import { accountResolutionRate, avgDebtorPriority, highRiskDebtorCount } from '@/modules/debtors/calculations';
 
 export async function GET(req: Request) {
-  let session;
-  try {
-    session = await getAuthSession();
-  } catch {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  // Phase C1.1: previously getAuthSession() only — any authenticated
+  // member of the organisation, no role floor, no capability check at all
+  // ('debtors' was never a registered capability key). Now composes the
+  // same requireSession() -> requireCapability('debtors') -> role-floor
+  // gate every other capability-registered route family uses.
+  const auth = await authorizeDebtorsRequest('viewer');
+  if (!auth.ok) return auth.response;
+  const session = auth.session;
 
   const orgId = session.organisationId;
   const fy    = new URL(req.url).searchParams.get('fy') ?? '2025-26';
@@ -26,11 +29,16 @@ export async function GET(req: Request) {
     });
   }
 
+  // Phase C1.1: relocated to modules/debtors/calculations.ts — same
+  // formulas, same rounding, same output — see that file's own comment
+  // for why these are centralised without being merged into
+  // computeDebtorKpi()'s similarly-named but conceptually different
+  // recovery_rate.
   const totalOutstanding = debtors.reduce((s, d) => s + d.outstanding_amount, 0);
   const avgDaysOverdue   = debtors.reduce((s, d) => s + d.days_overdue, 0) / debtors.length;
-  const avgPriority      = debtors.reduce((s, d) => s + (d.outstanding_amount * 10) + (d.days_overdue * 5), 0) / debtors.length;
-  const recoveryRate     = debtors.filter(d => d.status !== 'OPEN').length / debtors.length * 100;
-  const highRiskCount    = debtors.filter(d => (d.outstanding_amount * 10) + (d.days_overdue * 5) > 8000).length;
+  const avgPriority      = avgDebtorPriority(debtors);
+  const recoveryRate     = accountResolutionRate(debtors);
+  const highRiskCount    = highRiskDebtorCount(debtors);
   const topDebtors       = debtors.slice(0, 10).map(d => ({
     id:          d.id,
     account:     d.account_name,
@@ -44,8 +52,8 @@ export async function GET(req: Request) {
       totalOutstanding:            Math.round(totalOutstanding * 100) / 100,
       count:                       debtors.length,
       avgDaysOverdue:              Math.round(avgDaysOverdue),
-      avgPriority:                 Math.round(avgPriority),
-      recoveryRate:                Math.round(recoveryRate),
+      avgPriority,
+      recoveryRate,
       highRiskCount,
       topDebtors,
     },

@@ -1,0 +1,49 @@
+-- Debtors capability registry seed — registers exactly one platform-wide
+-- row in public.modules: key = 'debtors'. Run once, manually, against the
+-- target database, AFTER scripts/create-modules.sql (this script inserts
+-- into that table). NOT run automatically by this task.
+--
+-- Context: scripts/seed-modules-registry.sql (the original capability-
+-- registry seed) explicitly registered only 'crm' and 'organiser', and
+-- its own comment records that "any waste/dashboard area" (which the
+-- pre-existing debtor_accounts/DebtorAccount feature falls squarely under)
+-- was found NOT ready for registration at that time. Phase C1.1
+-- (Foundation Repair) is the design pass that makes it ready: the same
+-- phase fixes the underlying import-dedup bug (see
+-- scripts/add-debtor-accounts-dedup.ts) and wires
+-- app/api/debtors/kpi/route.ts to actually enforce this capability via
+-- lib/debtors/authorize.ts, modeled on lib/organiser/authorize.ts and
+-- lib/events/authorize.ts's identical pattern. This script says nothing
+-- about any other not-yet-registered capability area.
+--
+-- Purpose: REGISTRY seeding only, identical in kind to
+-- scripts/seed-modules-registry.sql and scripts/seed-events-capability.sql
+-- — it makes the 'debtors' capability exist as a concept the platform is
+-- aware of. It grants nothing to any organisation. No organisation
+-- becomes entitled to Debtors as a result of running this script — that
+-- remains a separate, later, explicitly authorized step performed through
+-- the existing super_admin /admin/orgs capability-toggle UI
+-- (app/actions/orgModules.ts), exactly as it already works for every
+-- other registered capability. Running this script only makes a
+-- "Debtors" row appear in that toggle UI as an option — still defaulted
+-- to disabled for every organisation.
+--
+-- Idempotency: ON CONFLICT (key) DO NOTHING, using modules' own primary
+-- key as the conflict target. Safe to re-run.
+--
+-- active = true: the platform-wide kill switch (see
+-- scripts/create-modules.sql) — subject entirely to each organisation's
+-- own organisation_modules.enabled entitlement, independently false (not
+-- entitled) for every organisation until a super_admin explicitly enables
+-- it.
+--
+-- Additive only: exactly one INSERT statement, into modules only. No
+-- UPDATE, no DELETE, no DDL, no organisation_modules row.
+--
+-- ROLLBACK: DELETE FROM modules WHERE key = 'debtors'; — safe only if no
+-- organisation_modules row yet references it (ON DELETE RESTRICT). Not
+-- executed by this script — recorded here for the record only.
+
+INSERT INTO modules (key, name, description, active) VALUES
+  ('debtors', 'Debtors', 'Accounts-receivable balance and collections tracking, imported via the Data Hub debtors module.', true)
+ON CONFLICT (key) DO NOTHING;

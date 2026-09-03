@@ -17,7 +17,7 @@ export async function importDebtors(
   const get = (row: Record<string, unknown>, canonical: string) =>
     fieldMappings[canonical] ? row[fieldMappings[canonical]!] : undefined;
 
-  const records = rows.map(row => {
+  const allRecords = rows.map(row => {
     const days_overdue = parseNum(get(row, "days_overdue"));
     const rawBucket    = nullStr(get(row, "aging_bucket"));
     const aging_bucket = mapAgingBucket(rawBucket ?? agingBucketFromDays(days_overdue));
@@ -39,7 +39,51 @@ export async function importDebtors(
     };
   });
 
-  await prisma.debtorAccount.createMany({ data: records, skipDuplicates: true });
+  // Phase C1.1: (organisation_id, account_number) is the natural key for
+  // this table (see prisma/schema.prisma's DebtorAccount.@@unique comment
+  // for the full reasoning) — a row with no account_number cannot be
+  // deduplicated against a future re-upload of the same account, so it is
+  // skipped rather than imported as an unreconcilable, permanently-
+  // duplicating row. This is the only behavioural narrowing from the
+  // previous (broken) import: every row WITH an account_number is still
+  // imported exactly as before, just upserted instead of blindly appended.
+  const records = allRecords.filter(r => r.account_number !== "");
+  const skipped = allRecords.length - records.length;
+  if (skipped > 0) {
+    console.warn(`importDebtors: skipped ${skipped} row(s) with no account_number for organisation ${organisation_id} (upload ${upload_id}) — cannot be safely deduplicated`);
+  }
+
+  // Upsert, not createMany+skipDuplicates: the previous call relied on
+  // skipDuplicates with NO unique constraint on the table at all, so it was
+  // a silent no-op — every re-upload appended a full new set of duplicate
+  // rows, and app/api/debtors/kpi/route.ts's unfiltered read silently
+  // summed every historical import together. One transaction per import
+  // keeps the batch atomic (all rows land, or none do) without requiring a
+  // bulk-upsert primitive Prisma Client doesn't provide.
+  await prisma.$transaction(
+    records.map(r => prisma.debtorAccount.upsert({
+      where: {
+        organisation_id_account_number: {
+          organisation_id: r.organisation_id,
+          account_number:  r.account_number,
+        },
+      },
+      create: r,
+      update: {
+        upload_id:           r.upload_id,
+        account_name:        r.account_name,
+        outstanding_amount:  r.outstanding_amount,
+        original_amount:     r.original_amount,
+        days_overdue:        r.days_overdue,
+        aging_bucket:        r.aging_bucket,
+        last_payment_date:   r.last_payment_date,
+        last_payment_amount: r.last_payment_amount,
+        status:              r.status,
+        collection_stage:    r.collection_stage,
+        notes:               r.notes,
+      },
+    }))
+  );
 
   const now = new Date();
   const kpi = computeDebtorKpi(records);

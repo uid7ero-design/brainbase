@@ -25,6 +25,13 @@ export function computeDebtorKpi(rows: DebtorRow[]): DebtorKpi {
     return acc;
   }, {});
 
+  // Financial recovery progress: average % of each account's ORIGINAL
+  // balance that has been paid down so far (amount-based). This is a
+  // distinct concept from accountResolutionRate() below, which measures
+  // what fraction of ACCOUNTS have moved off OPEN status (count-based) —
+  // the two happen to share the word "recovery"/"resolution" but answer
+  // different questions and are not interchangeable. See that function's
+  // own comment for the full reconciliation (Phase C1.1).
   const withOriginal = rows.filter(r => r.original_amount != null && r.original_amount > 0);
   const recovery_rate = withOriginal.length > 0
     ? Math.round(withOriginal.reduce((sum, r) => sum + (((r.original_amount! - r.outstanding_amount) / r.original_amount!) * 100), 0) / withOriginal.length * 10) / 10
@@ -40,6 +47,53 @@ export function computeDebtorKpi(rows: DebtorRow[]): DebtorKpi {
     recovery_rate,
     at_risk_amount: Math.round(at_risk_amount * 100) / 100,
   };
+}
+
+// Phase C1.1 — reconciliation of two independently-computed "debtor KPI"
+// implementations that this codebase had grown: computeDebtorKpi() above
+// (called at import time, in modules/debtors/index.ts, feeding the
+// persisted Metric time-series) and a second, separate set of formulas
+// that had been written directly inline inside
+// app/api/debtors/kpi/route.ts (called at read time, feeding the Command
+// Centre's DebtorsTab). No test anywhere in this codebase exercises
+// either implementation, so which one reflects "intended" product
+// behaviour cannot be established from evidence — per this phase's own
+// governing instruction, that ambiguity is not silently resolved by
+// picking one. What IS resolved: the duplication itself. These functions
+// are the SAME formulas the route already computed inline (verified
+// identical, including rounding), simply relocated here as the one place
+// this logic lives, with names that make explicit that
+// accountResolutionRate is NOT recovery_rate above under a different
+// name — they measure different things and must not be merged. This
+// phase changes the route's externally-visible JSON response in no way
+// at all; only where the calculation lives.
+
+// What fraction of accounts have moved off OPEN status (resolved, in a
+// payment plan, disputed, or written off) — count-based, distinct from
+// computeDebtorKpi()'s amount-based recovery_rate above.
+export function accountResolutionRate(rows: { status: string }[]): number {
+  if (rows.length === 0) return 0;
+  return Math.round(rows.filter(r => r.status !== "OPEN").length / rows.length * 100);
+}
+
+// Ad hoc severity score combining outstanding balance and days overdue —
+// not a currency amount, not a percentage; a relative ranking heuristic
+// only. Formula and threshold preserved exactly as they existed inline in
+// app/api/debtors/kpi/route.ts before this phase (unverified against any
+// test or product spec — reproduced unchanged, not re-derived).
+export function debtorPriorityScore(row: { outstanding_amount: number; days_overdue: number }): number {
+  return row.outstanding_amount * 10 + row.days_overdue * 5;
+}
+
+export const HIGH_RISK_PRIORITY_THRESHOLD = 8000;
+
+export function avgDebtorPriority(rows: { outstanding_amount: number; days_overdue: number }[]): number {
+  if (rows.length === 0) return 0;
+  return Math.round(rows.reduce((sum, r) => sum + debtorPriorityScore(r), 0) / rows.length);
+}
+
+export function highRiskDebtorCount(rows: { outstanding_amount: number; days_overdue: number }[]): number {
+  return rows.filter(r => debtorPriorityScore(r) > HIGH_RISK_PRIORITY_THRESHOLD).length;
 }
 
 export function agingBucketFromDays(days: number): string {
