@@ -987,13 +987,15 @@ export async function POST() {
   // CREATE TABLE/INDEX IF NOT EXISTS convention used everywhere else in
   // this file.
   //
-  // Phase D.4.5C-M — this function is deployed here, ahead of the item
-  // route runtime callers that reference it (PR #98 / commit c925f99),
-  // specifically so the production database has both organiser_activity
-  // and this function available BEFORE any runtime code path can call
-  // either. No runtime caller of this function exists anywhere in this
-  // branch — see tests/containment/organiserActivitySanitisationParity
-  // .test.ts's own "zero runtime caller" coverage.
+  // Phase D.4.5C-M — this function was originally deployed standalone,
+  // ahead of the item route runtime callers that reference it (PR #98 /
+  // commit c925f99), specifically so the production database had both
+  // organiser_activity and this function available BEFORE any runtime
+  // code path could call either — see D.4.5C-M/M.2/M.3's own reports.
+  // That standalone deployment already matches this exact SQL, so this
+  // step remains a safe no-op in production; the runtime callers this
+  // PR adds are covered by tests/containment/organiserItemActivity
+  // .test.ts.
   step('41. organiser_activity_sanitise_scalar');
   await sql`
     CREATE OR REPLACE FUNCTION organiser_activity_sanitise_scalar(value jsonb)
