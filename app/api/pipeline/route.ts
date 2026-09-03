@@ -3,11 +3,26 @@ import { requireSession } from '@/lib/org'
 import sql from '@/lib/db'
 
 async function ensureTable() {
+  // Phase C1.2: organisation_id/submitted_by were previously UUID — a type
+  // mismatch against the real, TEXT/cuid organisations.id and users.id
+  // columns (confirmed throughout this codebase's raw-SQL tables; see
+  // scripts/create-organisation-modules.sql's own comment for the same
+  // correction made there). A session's real organisationId (e.g.
+  // "cjld2cy...") is not valid UUID literal syntax, so every query
+  // comparing this column against session.organisationId — across
+  // app/api/pipeline/**, app/api/admin/pipeline/**, and
+  // app/api/portal/pipeline/** — would fail with "invalid input syntax for
+  // type uuid" once this table's live column actually is UUID (this
+  // `CREATE TABLE IF NOT EXISTS` only fixes a FRESH install; it cannot
+  // retroactively correct an already-existing mismatched column — see
+  // scripts/fix-client-pipeline-organisation-id-type.ts, a prepared, NOT
+  // executed, migration for that). Also adds the FK constraints this
+  // table never had at all in its live (ensureTable-created) form.
   await sql`
     CREATE TABLE IF NOT EXISTS client_pipeline (
       id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      organisation_id UUID NOT NULL,
-      submitted_by    UUID,
+      organisation_id TEXT NOT NULL REFERENCES organisations(id),
+      submitted_by    TEXT REFERENCES users(id),
       type            TEXT NOT NULL DEFAULT 'request'
                         CHECK (type IN ('request', 'issue', 'feedback')),
       title           TEXT NOT NULL,

@@ -3,11 +3,19 @@ import { neon } from '@neondatabase/serverless';
 const sql = neon(process.env.DATABASE_URL!);
 
 async function main() {
+  // Phase C1.2: organisation_id/submitted_by corrected from UUID to TEXT —
+  // organisations.id/users.id are TEXT (cuid), not native uuid; a UUID
+  // column here could never have successfully created these FK constraints
+  // against those columns in the first place (Postgres does not implicitly
+  // cast uuid<->text for a foreign key), which is itself evidence this
+  // script was never actually run successfully as originally written — see
+  // app/api/pipeline/route.ts's ensureTable(), the live, no-FK version that
+  // actually created the table in production.
   await sql`
     CREATE TABLE IF NOT EXISTS client_pipeline (
       id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      organisation_id  UUID NOT NULL REFERENCES organisations(id),
-      submitted_by     UUID REFERENCES users(id),
+      organisation_id  TEXT NOT NULL REFERENCES organisations(id),
+      submitted_by     TEXT REFERENCES users(id),
       type             TEXT NOT NULL DEFAULT 'request',
       title            TEXT NOT NULL,
       description      TEXT,
