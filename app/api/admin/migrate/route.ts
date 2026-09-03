@@ -1023,6 +1023,42 @@ export async function POST() {
     $f$
   `;
 
+  // Contact classification hotfix — wires the already-approved, already-
+  // audited migration (scripts/add-crm-contact-classification.sql,
+  // proven via scripts/tests/verify-crm-contact-classification-migration.sh
+  // against a real disposable Postgres instance) into this route so it can
+  // be applied to Production through the same authenticated mechanism as
+  // every other schema change here. Semantics copied verbatim from that
+  // file: additive-only, nullable column, no default, no backfill of any
+  // kind — every existing crm_contacts row keeps classification = NULL.
+  // The idempotent guarded-DO-block technique for the CHECK constraint is
+  // the same one already used above at step 32 (client_pipeline), not a
+  // new pattern. tests/containment/adminMigrateContactClassificationStep
+  // .test.ts proves this step and the standalone .sql file can never drift
+  // apart silently.
+  step('42. crm_contacts.classification');
+  await sql`ALTER TABLE crm_contacts ADD COLUMN IF NOT EXISTS classification TEXT`;
+  await sql`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'crm_contacts_classification_check'
+      ) THEN
+        ALTER TABLE crm_contacts
+          ADD CONSTRAINT crm_contacts_classification_check
+          CHECK (classification IS NULL OR classification IN (
+            'CLIENT',
+            'LEAD',
+            'EVENT_CONTACT',
+            'SUPPLIER',
+            'PARTNER',
+            'OTHER'
+          ));
+      END IF;
+    END $$
+  `;
+  await sql`CREATE INDEX IF NOT EXISTS idx_crm_contacts_classification ON crm_contacts(organisation_id, classification)`;
+
   return NextResponse.json({ success: true, message: 'Migration complete.', steps });
 
   } catch (err: unknown) {
