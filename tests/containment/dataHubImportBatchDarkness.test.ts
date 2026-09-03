@@ -76,6 +76,14 @@ const AUTHORIZED_IMPORTERS_BY_MODULE: Record<string, Set<string>> = {
   inspectWorksheets: new Set(),
   directUploadAuth: new Set(),
   compositionRoot: new Set(),
+  // 5A.2K.1 — the dark canonical worksheet-confirmation service and its
+  // illegal-dumping row mapper. No runtime caller of any kind exists in
+  // this slice (see this phase's own tests/containment/confirmWorksheet.test.ts
+  // for the additional dedicated darkness/xlsx-containment proof) — both
+  // must remain fully dark, same as every other not-yet-exposed module
+  // above.
+  confirmWorksheet: new Set(),
+  illegalDumpingMapper: new Set(),
 };
 
 describe("Data Hub importBatch — exactly the authorized H.3/5A.2I route set imports each module; nothing else imports any file in this tree (verified by static inspection)", () => {
@@ -162,6 +170,14 @@ describe("Data Hub importBatch — no barrel/index.ts anywhere in the new tree",
         // yet — same regex coverage above, this Set is again the only
         // edit this phase's darkness proof needs.
         "read.ts",
+        // confirmWorksheet.ts (5A.2K.1) — the dark canonical DATA_HUB
+        // worksheet confirmation + illegal-dumping transactional importer
+        // service. Still dark: no runtime caller exists yet — same regex
+        // coverage above.
+        "confirmWorksheet.ts",
+        // illegalDumpingMapper.ts (5A.2K.1) — the illegal-dumping CSV row
+        // mapper used only by confirmWorksheet.ts. Also dark.
+        "illegalDumpingMapper.ts",
       ])
     );
   });

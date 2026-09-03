@@ -1633,3 +1633,195 @@ route was added, changed, or exposed — `inspectWorksheets.ts` (and, by
 extension, `inspectWorkbook`) remains fully dark; this phase does not
 begin worksheet-inspection HTTP exposure, `DATA_HUB` confirmation/
 import, the canonical illegal-dumping importer, or deletion/retention.
+
+## 22. Dark canonical DATA_HUB confirmation + illegal-dumping transactional importer foundation (5A.2K.1)
+
+The first slice of the `DATA_HUB` confirmation/import step foreshadowed
+(and explicitly deferred) by Section 21: a dark, CSV-only,
+illegal-dumping-only service, `lib/data-hub/importBatch/
+confirmWorksheet.ts`, that takes one worksheet `Upload` row in
+`AWAITING_CONFIRMATION` whose parent `ImportBatch` is `READY`, re-verifies
+it against trusted database and storage state, decodes and maps its rows,
+and atomically commits the domain rows plus the worksheet's `IMPORTED`
+transition. Zero HTTP route, zero UI, zero runtime caller of any kind —
+see `tests/containment/confirmWorksheet.test.ts` and the exact-set
+addition to `tests/containment/dataHubImportBatchDarkness.test.ts` for the
+darkness proof.
+
+**Trusted-context-only boundary, unchanged discipline.** `confirmDataHubWorksheet`
+accepts exactly `{ organisationId, worksheetUploadId }`, mirroring every
+other `importBatch` service (Sections 17-20). Storage locator, worksheet
+identity beyond its primary key, lineage, and canonical status are all
+resolved from trusted database state — never accepted as caller input.
+Worksheet identity is resolved by `id` (primary key) only, reaffirming
+Section 21's "`worksheet_index`/row identity, never `worksheet_name`"
+principle at the confirmation layer too: two `Upload` rows sharing an
+identical `worksheet_name` on the same batch resolve independently,
+proven in `scripts/tests/confirmWorksheet.integration.test.ts`.
+
+**xlsx-freedom, a new independent module.** `lib/data-hub/csvOnlyDecoder.ts`
+duplicates only `workbookParser.ts`'s CSV-decode semantics (via
+`csv-parse/sync` directly), the same "physically separate the xlsx-free
+path from the xlsx-carrying path" discipline `fileSignatures.ts`
+established in Section 13 — never importing `workbookParser.ts` or
+`xlsx`, so this service carries zero transitive dependency on the
+standing public-parser-exposure question (Section 8/8a/8b). XLS/XLSX
+batches are deterministically rejected (`UNSUPPORTED_FORMAT`) against the
+`ImportBatch`'s own trusted `content_type` before any decode is
+attempted — never a fallback, never an attempt.
+
+**Atomic claim, no durable `IMPORTING` state.** The service performs all
+decode/validation/hash-verification work (storage `GET`, mandatory
+SHA-256 re-verification against the batch's own persisted `sha256`, CSV
+decode, illegal-dumping row mapping) strictly before opening any
+transaction. The transaction itself contains exactly two statements: a
+single conditional `tx.upload.updateMany` claim, whose own `WHERE` clause
+encodes `id`, `organisation_id`, `lineage_kind: 'DATA_HUB'`, and
+`canonical_status: 'AWAITING_CONFIRMATION'` in one predicate (never a
+separate `SELECT`-then-`UPDATE`), followed by `tx.illegalDumping.createMany`
+gated behind the claim's own row count. `uploads_canonical_status_check`
+(Section 15) structurally forbids any value outside
+`AWAITING_CONFIRMATION | INELIGIBLE | SKIPPED | IMPORTED` — there is no
+"IMPORTING" value this service could persist even transiently; the
+transaction boundary itself is the sole claim mechanism, proven
+concurrency-safe (two simultaneous confirmation attempts against the same
+worksheet converge to exactly one import, never a duplicate) in the real-Postgres
+integration harness.
+
+**Illegal-dumping mapper, deliberately not a general framework.**
+`lib/data-hub/importBatch/illegalDumpingMapper.ts` matches CSV columns by
+fixed, exact name only (`report_date`/`location`/`waste_type` required) —
+no caller-supplied field-mapping indirection, unlike the legacy
+`modules/dumping/index.ts` pipeline this replaces for the canonical path.
+This is CSV-first, illegal-dumping-only by explicit scope: XLS/XLSX
+canonical confirmation, every other domain's canonical importer, and any
+field-mapping UI are all future, separate work.
+
+**Real-Postgres falsification coverage.**
+`scripts/tests/confirmWorksheet.integration.test.ts` (run via
+`scripts/tests/verify-confirm-worksheet.sh`, the same disposable
+`postgres:16-alpine` container methodology as every harness in Sections
+13/17/18/19/20) proves, against the real unmodified service: wrong-tenant
+rejection, `LEGACY`-lineage rejection, the full `canonical_status`
+eligibility matrix, parent-batch-not-`READY`/tombstoned rejection,
+storage-locator authority (the service cannot be redirected to an
+attacker-planted key), mandatory hash re-verification, worksheet identity
+by id, atomic all-or-nothing rollback of the claim and domain write
+together on a mid-transaction failure, and the concurrent-claim race.
+
+**Scope discipline.** Production changes are confined to the three new
+files above plus two new `CallerOnlyOutcomeCode` additions to
+`failureTaxonomy.ts` (`WORKSHEET_NOT_ELIGIBLE`, `UNSUPPORTED_FORMAT`). No
+schema/migration change, no dependency change, no HTTP route, no UI. This
+phase does not implement XLS/XLSX canonical confirmation, any other
+domain's canonical importer, deletion/retention, or begin HTTP exposure
+of any dark Data Hub service — including this one.
+
+## 23. Zero-row-claim regression coverage + transaction-timeout hardening (5A.2K.1-R)
+
+Independent adversarial review of Section 22's candidate found two
+required-remediation-level gaps, both closed here on top of the same
+commit, without touching its production files.
+
+**Zero-row-claim regression coverage.** The review deterministically
+proved (real Postgres, not a mock) that removing `confirmWorksheet.ts`'s
+`claim.count === 0` early return produces a false success plus an
+orphaned domain row when a worksheet is concurrently transitioned away
+from `AWAITING_CONFIRMATION` between Step 1's eligibility read and the
+transaction's own claim — and that no existing permanent test (static or
+real-Postgres) caught it. Production source was already correct; the gap
+was in test coverage. Closed two ways:
+- `scripts/tests/confirmWorksheet.integration.test.ts` gained a permanent
+  real-Postgres regression that forces this exact TOCTOU deterministically
+  (not probabilistically): it spies on the shared production Prisma
+  singleton's own `upload.findFirst` — the exact call `confirmWorksheet.ts`
+  makes at Step 1 — lets the real read return, then performs a genuine
+  concurrent-shaped `UPDATE ... SET canonical_status = 'SKIPPED'` before
+  returning control, so the transaction's claim genuinely affects zero
+  rows for a real reason. Asserts the intended loser outcome
+  (`WORKSHEET_NOT_ELIGIBLE`), zero domain rows, and the worksheet
+  remaining `SKIPPED`.
+- `tests/containment/confirmWorksheet.test.ts` gained a brace-scoped
+  structural assertion (balanced-brace block extraction, not a
+  fixed-offset/text-precedes-text check) proving the `if (claim.count ===
+  0)` block's own FINAL statement is a `return` — closing the specific gap
+  the review identified in the pre-existing "guard text appears before
+  createMany" test, which could not distinguish a real early return from
+  the guard being present-but-inert.
+
+Both were falsified against the exact review-identified mutation
+(bypassing the early return) before being finalized: both failed as
+required, then production source was restored byte-for-byte before commit.
+
+**Transaction-timeout hardening.** The review found Prisma's default
+5000ms interactive-transaction timeout fails within the documented
+`CSV_ONLY_LIMITS.maxSelectedWorksheetRows` (100,000-row) contract.
+Reproduced independently against real Postgres (disposable local
+container, actual `confirmDataHubWorksheet` call path, unmodified at
+measurement time): row counts 1,000–45,000 all completed inside the
+default timeout; 60,000/80,000/100,000 all failed with the exact Prisma
+message `"the timeout for this transaction was 5000 ms"`, confirming the
+default interactive-transaction timeout (not a Postgres parameter-count
+or memory limit) as the actual limiting factor. Failure mode was already
+safe — real rollback, zero persisted domain rows, worksheet left exactly
+`AWAITING_CONFIRMATION` — but left the documented 100,000-row contract
+unable to reliably complete, via an unhandled/unsanitized exception.
+
+Exploratory measurement with a temporarily widened timeout (3 runs each
+at 50k/75k/100k rows, real Postgres) found true transaction durations of
+~4.1–4.3s (50k), ~6.1–6.3s (75k), and ~8.2–8.5s (100k) — all real
+`COMMIT`s, all rows persisted, no partial state. `confirmWorksheet.ts`'s
+Step 8 transaction now passes an explicit
+`{ timeout: IMPORT_TRANSACTION_TIMEOUT_MS }` (30,000ms) — over 3x headroom
+above the worst of the three 100,000-row measurements — replacing the
+5000ms default. `maxWait` (time to acquire/start the transaction, a
+queueing concern independent of row count) is left at Prisma's default;
+only the execution ceiling was widened. `createMany`'s existing
+single-call structure is unchanged — 100,000 rows completes reliably
+within the new bound with wide margin, so no chunking was introduced.
+A permanent real-Postgres regression
+(`scripts/tests/confirmWorksheet.integration.test.ts`) now seeds a full
+100,000-row CSV (the decoder's own row-limit boundary — the header row is
+not counted, see `csvOnlyDecoder.ts`) and asserts the import completes,
+all 100,000 rows are persisted exactly once, and the worksheet reaches
+`IMPORTED` — falsified against the pre-remediation 5000ms default before
+being finalized (failed as required), then the timeout fix restored.
+
+**Concurrency semantics unaffected.** Re-ran the zero-row-claim
+regression above, the two-simultaneous-callers race, and the
+mid-transaction-rollback/atomicity test after the timeout change — all
+pass unchanged. A wider execution ceiling changes nothing about which
+caller wins a race or whether a failed domain write still rolls back its
+claim together with it; it only gives a large, legitimately-running
+`createMany` more real time to finish before Prisma gives up on it.
+
+**Error-handling convention, unchanged and now documented explicitly.**
+`confirmWorksheet.ts` already had exactly one precedent for a genuinely
+unexpected mid-transaction Postgres failure (Section 22's
+CHECK-constraint-violation atomicity test, which asserts
+`.rejects.toThrow()` rather than a typed `FailureCode`). The
+now-eliminated-in-practice timeout error followed that same convention
+before this fix (an unhandled `PrismaClientKnownRequestError` propagating
+to the caller) and continues to on the rare residual case of a
+genuinely-unbounded infra failure beyond the new 30s ceiling. This is a
+deliberate, pre-existing dark-service convention, not a gap introduced
+here: expected/anticipated outcomes (tenant/lineage/status/parent-state/
+format/hash) go through the sanitized `FailureCode` taxonomy; genuinely
+unexpected internal failures are left to propagate raw, for a future HTTP
+route wrapper to catch and sanitize before this service is ever given a
+live caller. No new taxonomy member was added for this, since the
+realistic occurrence of this specific failure was eliminated by the
+timeout fix itself rather than converted into a typed outcome.
+
+**Scope discipline.** Changes are confined to: one
+`IMPORT_TRANSACTION_TIMEOUT_MS` constant and one `{ timeout: ... }` option
+on the existing `prisma.$transaction(...)` call in `confirmWorksheet.ts`
+(no change to claim predicates, claim ordering, domain payload,
+idempotency, tenant behavior, or lineage behavior); one new permanent test
+in each of the two existing K.1 test files; and this ADR section. No
+schema/migration change, no dependency change, no HTTP route, no UI, no
+change to `CSV_ONLY_LIMITS`/global parser row limits. The narrow
+parent-`READY` TOCTOU, duplicate-CSV-header-retains-last-occurrence
+behavior, and the duplicated CSV/workbook limit-constant debt — all
+previously classified informational/non-blocking — are explicitly
+untouched by this remediation.
