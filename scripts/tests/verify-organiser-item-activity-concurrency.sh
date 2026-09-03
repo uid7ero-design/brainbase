@@ -302,6 +302,52 @@ SELECT updated.id, updated.status, updated.priority FROM updated;
 SQL
 }
 
+# ─── The POST/create statement, as REAL Postgres SQL text — mirrors,
+# statement-for-statement, exactly what app/api/organiser/boards/
+# [boardId]/items/route.ts's POST submits as one writable-CTE statement.
+# Phase D.4.5C-T/U — added specifically because the disposable harness
+# previously only ever seeded organiser_items via a plain INSERT and
+# never exercised POST's own atomic CTE against real Postgres. That gap
+# is exactly why the "inserted" CTE's RETURNING list omitting board_id
+# (while activity_row referenced inserted.board_id) went undetected
+# through every prior 40/40 harness run — a mocked/structural test can
+# confirm the query TEXT mentions board_id, but only real Postgres
+# execution can catch a "column does not exist" error. P1 below is that
+# regression test: it fails with exactly that error against the
+# pre-fix SQL, and passes against the fixed SQL.
+# $1=boardId $2=org $3=groupId(SQL literal or NULL) $4=parentItemId(SQL literal or NULL)
+# $5=name(quoted) $6=status(quoted) $7=position $8=actorUserId $9=actorName
+create_item_sql() {
+  local board="$1" org="$2" group_val="$3" parent_val="$4"
+  local name_val="$5" status_val="$6" position_val="$7" actor_id="$8" actor_name="$9"
+  cat <<SQL
+WITH inserted AS (
+  INSERT INTO organiser_items (board_id, organisation_id, group_id, parent_item_id, name, status, position)
+  VALUES ('$board', '$org', $group_val, $parent_val, $name_val, $status_val, $position_val)
+  RETURNING id, board_id, group_id, parent_item_id, name, status, priority, owner, due_date::text AS due_date, notes, fields, custom_values, position, created_at, updated_at
+),
+activity_row AS (
+  INSERT INTO organiser_activity (
+    organisation_id, board_id, item_id, actor_user_id, actor_name,
+    event_type, entity_type, entity_id, before_json, after_json
+  )
+  SELECT
+    '$org', inserted.board_id, inserted.id, '$actor_id', '$actor_name',
+    'item.created', 'item', inserted.id::text, NULL,
+    jsonb_build_object(
+      'name', organiser_activity_sanitise_scalar(to_jsonb(inserted.name)),
+      'status', organiser_activity_sanitise_scalar(to_jsonb(inserted.status)),
+      'group_id', to_jsonb(inserted.group_id),
+      'parent_item_id', to_jsonb(inserted.parent_item_id)
+    )
+  FROM inserted
+  RETURNING id
+)
+SELECT id, group_id, parent_item_id, name, status, priority, owner, due_date, notes, fields, custom_values, position, created_at, updated_at
+FROM inserted;
+SQL
+}
+
 run_concurrent_pair() {
   local sql_a="$1" sql_b="$2"
   (echo "$sql_a" | docker exec -i "$CONTAINER" psql -X -U postgres -d testdb -v ON_ERROR_STOP=1 > "$OUT_A" 2>&1) &
@@ -317,6 +363,60 @@ echo "=== BOOTSTRAP ==="
 reset_db
 bootstrap
 echo "  bootstrap applied (real organiser_boards/organiser_items/organiser_activity DDL + sanitiser function)"
+
+echo ""
+echo "=== ITEM CREATE (POST) — regression test for the inserted.board_id RETURNING bug ==="
+expect_success "P1. POST item-create CTE succeeds (previously failed in production: column inserted.board_id does not exist)" \
+  "$(create_item_sql 11111111-1111-1111-1111-111111111111 org-a NULL NULL "'Created Item'" "'Not Started'" 0 user-1 James)"
+expect_eq "P2. exactly one organiser_items row created" \
+  "SELECT count(*) FROM organiser_items WHERE name='Created Item';" "1"
+expect_eq "P3. exactly one item.created activity row" \
+  "SELECT count(*) FROM organiser_activity WHERE event_type='item.created';" "1"
+expect_eq "P4. activity row's board_id matches the created item's board_id (the exact column that was missing from RETURNING)" \
+  "SELECT (a.board_id = i.board_id)::text FROM organiser_activity a JOIN organiser_items i ON i.name='Created Item' WHERE a.event_type='item.created';" "true"
+expect_eq "P5. activity actor_user_id/actor_name correct (session-derived, not request-derived)" \
+  "SELECT actor_user_id || '/' || actor_name FROM organiser_activity WHERE event_type='item.created';" "user-1/James"
+expect_eq "P6. after_json contains name and status, not position (position never enters activity payloads)" \
+  "SELECT (after_json ? 'name')::text || (after_json ? 'status')::text || (after_json ? 'position')::text FROM organiser_activity WHERE event_type='item.created';" "truetruefalse"
+expect_eq "P7. before_json is NULL for a create (no prior state to diff against)" \
+  "SELECT (before_json IS NULL)::text FROM organiser_activity WHERE event_type='item.created';" "true"
+
+echo ""
+echo "=== ITEM CREATE ATOMIC FAILURE — activity insert fails, item INSERT must roll back too ==="
+BEFORE_CREATE_ITEMS="$(echo "SELECT count(*) FROM organiser_items;" | psql_query | tr -d '[:space:]')"
+BEFORE_CREATE_ACT="$(echo "SELECT count(*) FROM organiser_activity;" | psql_query | tr -d '[:space:]')"
+BROKEN_CREATE_SQL="
+WITH inserted AS (
+  INSERT INTO organiser_items (board_id, organisation_id, group_id, parent_item_id, name, status, position)
+  VALUES ('11111111-1111-1111-1111-111111111111', 'org-a', NULL, NULL, 'Should Rollback', 'Not Started', 0)
+  RETURNING id, board_id, name
+),
+activity_row AS (
+  INSERT INTO organiser_activity (organisation_id, board_id, item_id, actor_user_id, actor_name, event_type, entity_type, entity_id, before_json, after_json)
+  SELECT 'org-a', inserted.board_id, inserted.id, 'user-1', 'James', 'item.NOT_A_REAL_EVENT_TYPE', 'item', inserted.id::text, NULL, jsonb_build_object('name', to_jsonb(inserted.name))
+  FROM inserted
+  RETURNING id
+)
+SELECT inserted.id FROM inserted;
+"
+OUT="$(echo "$BROKEN_CREATE_SQL" | psql_exec 2>&1)"
+if [ $? -ne 0 ]; then
+  echo "  PASS: P8. forced-invalid-event-type POST statement correctly rejected by CHECK constraint"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: P8. forced-invalid POST statement unexpectedly succeeded"
+  FAIL=$((FAIL + 1))
+  FAILURES+=("P8. forced-invalid POST statement should have failed")
+fi
+expect_eq "P9. item INSERT ROLLED BACK too (organiser_items count unchanged)" \
+  "SELECT count(*) FROM organiser_items;" "$BEFORE_CREATE_ITEMS"
+expect_eq "P9b. no activity row was written either" \
+  "SELECT count(*) FROM organiser_activity;" "$BEFORE_CREATE_ACT"
+
+# Isolate the POST section's rows from the PATCH sections below, several
+# of which assert an exact global organiser_activity row count — matches
+# this file's own existing convention (see DIFFERENT-FIELD CONCURRENCY).
+reset_db; bootstrap
 
 echo ""
 echo "=== NORMAL PATH ==="

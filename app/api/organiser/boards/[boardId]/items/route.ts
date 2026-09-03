@@ -45,7 +45,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ boa
     WITH inserted AS (
       INSERT INTO organiser_items (board_id, organisation_id, group_id, parent_item_id, name, status, position)
       VALUES (${boardId}, ${session.organisationId}, ${groupId}, ${parentItemId}, ${name}, ${status}, ${position})
-      RETURNING id, group_id, parent_item_id, name, status, priority, owner, due_date::text AS due_date, notes, fields, custom_values, position, created_at, updated_at
+      RETURNING id, board_id, group_id, parent_item_id, name, status, priority, owner, due_date::text AS due_date, notes, fields, custom_values, position, created_at, updated_at
     ),
     activity_row AS (
       INSERT INTO organiser_activity (
@@ -64,7 +64,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ boa
       FROM inserted
       RETURNING id
     )
-    SELECT inserted.* FROM inserted
+    SELECT id, group_id, parent_item_id, name, status, priority, owner, due_date, notes, fields, custom_values, position, created_at, updated_at
+    FROM inserted
   `;
 
   return NextResponse.json({ item: rows[0] });
