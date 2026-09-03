@@ -438,28 +438,52 @@ function inspectCsvWorksheet(bytes: Uint8Array, previewRowCount: number): Worksh
   };
 }
 
-// KNOWN LIMITATION (5A.2H.1 discovery, documented not fixed — see
-// docs/architecture/decisions/0001-data-hub-ingestion-foundation.md's
-// 5A.2H.1 section for the full write-up): the `wb.Sheets` object SheetJS
-// hands back from a whole-workbook read is keyed by SHEET NAME, not
-// position. Below, `sheetNames.map((name, index) => { const ws =
-// wb.Sheets[name]; ... })` looks up each worksheet's cell object by that
-// name — so if a workbook contains two or more worksheets sharing an
-// identical name, `wb.Sheets[name]` resolves to the SAME (last-parsed,
-// same-named) physical sheet object for every colliding index. Concretely,
-// this means `isEmpty` (and any preview-derived content, for a caller that
-// materializes it) can reflect the WRONG physical sheet's content for a
-// duplicate-named worksheet's non-final index. `index`, `name`, and
-// `visibility` remain positionally correct regardless — `sheetNames` and
-// the `!Workbook.Sheets` visibility array are both consumed positionally,
-// never through this name-keyed dictionary. decodeWorksheet (below) does
-// NOT share this defect: it calls xlsxAdapter.read with an explicit
-// `sheets: [index]` option, so exactly one worksheet is ever materialized
-// per call — there is no multi-entry name-keyed dictionary in play for it
-// to collide within. This must be fixed before any future phase relies on
-// inspectWorkbook's own preview/isEmpty output for duplicate-named
-// worksheets; it is NOT fixed by this comment, and no broader
-// SheetJS/parser redesign is attempted here.
+// RESOLVED (5A.2J.0 — was a KNOWN LIMITATION documented but not fixed at
+// 5A.2H.1; see docs/architecture/decisions/0001-data-hub-ingestion-
+// foundation.md's 5A.2H.1 section for the original write-up, and its
+// 5A.2J.0 addendum for this fix): the `wb.Sheets` object SheetJS hands
+// back from a whole-workbook read is keyed by SHEET NAME, not position.
+// Empirically verified (5A.2J.0 discovery/implementation): when two or
+// more worksheets share an identical name, SheetJS's own whole-book parse
+// itself — not merely a subsequent lookup — retains only the LAST-PARSED
+// colliding sheet's cell data under that shared key; the earlier
+// colliding sheet(s)' content is not recoverable from that same parsed
+// `WorkBook` object at all, under any property. A plain `wb.Sheets[name]`
+// lookup (the previous implementation) therefore returned the wrong
+// physical sheet's content — including a wrong `isEmpty` — for every
+// colliding index except the last.
+//
+// FIX: detect which names collide (via a frequency count over
+// `sheetNames`) and, for those indices ONLY, re-read the workbook with an
+// explicit `sheets: [index]` filter — mirroring decodeWorksheet's own
+// already-safe pattern below exactly, which materializes exactly one
+// worksheet per call and therefore cannot collide with any other index
+// regardless of shared names. A workbook with no duplicate names pays
+// zero extra cost — every index still resolves via the single whole-book
+// read's `wb.Sheets[name]`, byte-for-byte the prior behavior. A workbook
+// WITH duplicate names pays one additional targeted read per colliding
+// index (never per total sheet count), bounded by maxWorksheetCount (50)
+// in the pathological all-same-name case — the same per-call resource
+// envelope decodeWorksheet already uses and this codebase already accepts
+// for worksheet-by-worksheet confirmation. Each targeted read still
+// respects the same `sheetRows` preview bound as the original read, so no
+// call here materializes more data than a single already-bounded read
+// would. Per the existing CORRECTION comment on decodeSpreadsheetWorksheet
+// below, the `sheets` option does not reduce ZIP-decompression cost itself
+// (cfb decompresses every archive entry unconditionally) — so each extra
+// targeted read here does re-pay full-archive decompression, not just
+// cell materialization; this is a real, bounded (by the 50-worksheet cap)
+// per-collision cost, not an unbounded one, and applies only to workbooks
+// that actually contain duplicate-named sheets.
+//
+// `index`, `name`, and `visibility` were always positionally correct
+// (`sheetNames` and the `!Workbook.Sheets` visibility array are both
+// consumed positionally, never through the name-keyed dictionary) and
+// remain so — this fix touches only the per-index worksheet CONTENT
+// lookup. decodeWorksheet (below) was independently verified, both by
+// the 5A.2J.0 discovery pass and by this implementation's own
+// cross-check, to already be safe against this exact collision — it is
+// unchanged by this fix.
 function inspectSpreadsheetWorksheets(
   bytes: Uint8Array,
   sheetNames: string[],
@@ -483,8 +507,40 @@ function inspectSpreadsheetWorksheets(
   }
   const visibilities = readVisibilities(wb, sheetNames.length);
 
+  // Names appearing more than once in this workbook cannot be safely
+  // resolved via `wb.Sheets[name]` on the whole-book read above — see the
+  // header comment on this function.
+  const nameOccurrences = new Map<string, number>();
+  for (const name of sheetNames) {
+    nameOccurrences.set(name, (nameOccurrences.get(name) ?? 0) + 1);
+  }
+
+  function resolveWorksheet(name: string, index: number): XLSX.WorkSheet | undefined {
+    if ((nameOccurrences.get(name) ?? 0) <= 1) {
+      return wb.Sheets[name];
+    }
+    let wbForIndex: XLSX.WorkBook;
+    try {
+      wbForIndex = xlsxAdapter.read(bytes, {
+        type: "buffer",
+        sheets: [index],
+        sheetRows: previewRowCount + 1,
+        cellDates: true,
+        cellHTML: false,
+      });
+    } catch (err) {
+      throw new WorkbookParserError(
+        "MALFORMED_WORKBOOK",
+        "The file could not be recognized as a valid workbook.",
+        undefined,
+        err
+      );
+    }
+    return wbForIndex.Sheets[name];
+  }
+
   return sheetNames.map((name, index) => {
-    const ws = wb.Sheets[name];
+    const ws = resolveWorksheet(name, index);
     if (!ws) {
       return {
         index,

@@ -1263,8 +1263,11 @@ callers, and no later phase may build a route that triggers fresh
 untrusted-workbook parsing until that blocker is separately, explicitly
 resolved.
 
-**Known, accepted limitation — duplicate worksheet names (not fixed
-here).** `workbookParser.ts`'s `inspectWorkbook` reads an entire
+**Known, accepted limitation — duplicate worksheet names — RESOLVED
+(5A.2J.0), see Section 21 for the fix. The paragraph below is preserved
+as the original historical record of the defect this phase (5A.2H.1)
+knowingly shipped with; it is no longer current behavior.**
+`workbookParser.ts`'s `inspectWorkbook` reads an entire
 workbook's cell data into `wb.Sheets`, a dictionary keyed by **sheet
 name**, not position. If two or more worksheets share an identical name,
 `wb.Sheets[name]` resolves to the same, last-parsed physical sheet object
@@ -1531,3 +1534,102 @@ regression re-proven through the actual HTTP path.
 defensive `take` bound above. The standing `xlsx@0.18.5` blocker remains
 untouched and irrelevant — no route in this phase triggers parsing,
 storage access, or any write.
+
+## 21. Workbook parser correctness fix — duplicate worksheet names (5A.2J.0)
+
+Resolves the limitation documented in Section 18 (5A.2H.1) — see that
+section for the original defect write-up, preserved as historical
+record.
+
+**Root cause, empirically confirmed.** SheetJS's whole-workbook read
+(`xlsxAdapter.read(bytes, { type: "buffer", sheetRows, ... })`) returns a
+`WorkBook` whose `Sheets` property is a dictionary keyed by **sheet
+name**. When two or more worksheets share an identical name, the
+collision is not merely a lookup ambiguity on *our* side — it happens
+inside SheetJS's own parse: `wb.Sheets[name]` after a whole-book read
+retains only the **last-parsed** colliding sheet's cell data; the
+earlier colliding sheet's content is not recoverable from that same
+parsed `WorkBook` object under any property. This was verified directly
+(5A.2J.0 discovery and implementation) with a hand-built OOXML `.xlsx`
+package containing two identically-named worksheets with distinguishable
+content — SheetJS's own writer (`XLSX.utils.book_append_sheet`) rejects
+duplicate names outright via its internal `check_wb_names` validation
+(even with `wb.SheetNames` hand-edited post-append), so a duplicate-named
+fixture can only be constructed by hand-building the ZIP/OOXML package
+directly, bypassing the writer entirely — see the fixture builders in
+`tests/containment/workbookParser.test.ts` and
+`tests/containment/inspectWorksheets.test.ts`.
+
+**Fix.** `inspectSpreadsheetWorksheets` now counts name occurrences
+across `sheetNames` up front. For a name that occurs exactly once, the
+existing whole-book `wb.Sheets[name]` lookup is unchanged — zero added
+cost for the overwhelmingly common case. For a name occurring more than
+once, each colliding index is instead resolved via a **targeted,
+per-index re-read** — `xlsxAdapter.read(bytes, { type: "buffer", sheets:
+[index], ... })` — mirroring `decodeWorksheet`'s own already-safe
+pattern below it in the same file exactly: requesting a single explicit
+index materializes exactly that one physical worksheet, so there is no
+multi-entry name-keyed dictionary left for it to collide within,
+regardless of how many other worksheets share its name.
+
+**Resource-bound impact, stated explicitly.** A workbook with no
+duplicate names pays exactly the same cost as before this fix — one
+whole-book read, zero additional parses. A workbook *with* duplicate
+names pays one additional targeted read per **colliding index** (never
+per total worksheet count), bounded by `maxWorksheetCount` (50) in the
+pathological all-sheets-same-name case. Per the existing `CORRECTION
+(5A.2D)` comment on `decodeSpreadsheetWorksheet`, the `sheets` read
+option does not reduce ZIP-decompression cost — SheetJS's bundled `cfb`
+reader decompresses every archive entry unconditionally regardless of
+which sheet is requested — so each extra targeted read here re-pays
+full-archive decompression, not merely cell materialization. This is a
+real, bounded (by the pre-existing 50-worksheet cap) per-collision cost,
+not an unbounded one, and it is paid only by workbooks that actually
+contain duplicate-named sheets; it does not weaken the ZIP guard, the
+source-file size bound, the sheet-count bound, or either row/column/cell
+materialization bound, all of which apply identically to every targeted
+read exactly as they already did to the single whole-book read.
+
+**Worksheet identity, reaffirmed.** `worksheet_index` is, and remains,
+the sole authoritative identity for every consumer of this module
+(`inspectWorksheets.ts`'s persistence, `read.ts`'s reads, and any future
+confirmation/decode flow) — `worksheet_name` is, and has always been,
+descriptive only. Duplicate worksheet names are not an error condition
+at the parser inspection boundary; they are explicitly, correctly
+supported — every colliding index now receives its own genuinely
+correct, independently-inspected `isEmpty`, `headers`, `previewRows`,
+`declaredRangeRows`, and `declaredRangeColumns`, attributed to the
+correct physical worksheet regardless of how many other worksheets share
+its name. `visibility` was already index-based (via
+`wb.Workbook.Sheets`, never the name-keyed dictionary) and remains
+unaffected by this fix, empirically reconfirmed rather than merely
+assumed.
+
+**`decodeWorksheet` cross-checked, left unchanged.** Independently
+re-verified (5A.2J.0) against the same duplicate-name fixtures that
+reproduce the `inspectSpreadsheetWorksheets` defect: `decodeWorksheet`
+already correctly decodes the exact physical worksheet at a given index
+regardless of name collisions, exactly as Section 18 originally
+predicted. No change was made to `decodeWorksheet` or
+`decodeSpreadsheetWorksheet`.
+
+**H.1 consequence, proven through the narrowest existing test seam.**
+`tests/containment/inspectWorksheets.test.ts` now includes a duplicate-
+name case (mocked Prisma/storage, no real Postgres, no HTTP —
+`inspectWorksheets.ts` remains fully dark) proving a genuinely non-empty
+worksheet at a colliding, non-final index now correctly persists
+`canonical_status = AWAITING_CONFIRMATION` rather than the previous,
+silent, replay-stable `INELIGIBLE` misclassification. Because
+`inspectWorksheets.ts` has zero runtime caller anywhere (Section 18), no
+already-persisted `DATA_HUB` `uploads` row is affected by this fix
+retroactively — there is no live data to repair, and none was attempted.
+
+**Scope discipline.** Production changes are confined to
+`lib/data-hub/workbookParser.ts`'s `inspectSpreadsheetWorksheets`
+function only. No schema, package, or dependency change — `xlsx@0.18.5`
+is unchanged, and the standing public-parser-exposure blocker (Section
+8/8a/8b) remains exactly as unresolved as before this phase. No HTTP
+route was added, changed, or exposed — `inspectWorksheets.ts` (and, by
+extension, `inspectWorkbook`) remains fully dark; this phase does not
+begin worksheet-inspection HTTP exposure, `DATA_HUB` confirmation/
+import, the canonical illegal-dumping importer, or deletion/retention.
