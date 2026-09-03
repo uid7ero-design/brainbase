@@ -6,14 +6,20 @@ import path from 'path'
 // already-audited migration (scripts/add-crm-contact-classification.sql,
 // proven against a real disposable Postgres via
 // scripts/tests/verify-crm-contact-classification-migration.sh) into
-// this repo's ONE authenticated Production migration mechanism,
-// POST /api/admin/migrate, as a new numbered step (42), rather than
-// requiring a separate one-off script execution with direct database
-// credentials. This file proves: (1) the new step exists, is additive-
+// this repo's authenticated Production migration mechanisms. There are
+// now THREE representations of this same migration: the standalone SQL
+// file, legacy step 42 in POST /api/admin/migrate, and the targeted
+// POST /api/admin/migrate/crm-contact-classification endpoint (added
+// after /api/admin/migrate's own legacy waste_records step was found to
+// block execution before ever reaching step 42 — see that endpoint's
+// own file header). This file proves: (1) step 42 exists, is additive-
 // only, and never touches existing contacts; (2) every prior migration
 // step (1-41) is byte-for-byte untouched; (3) the route is still
-// super_admin-gated; (4) the route step and the standalone .sql file
-// implement equivalent schema semantics and cannot silently drift apart.
+// super_admin-gated; (4) all three representations implement equivalent
+// schema semantics and cannot silently drift apart from one another.
+// The targeted endpoint's own auth/behavioural tests live in
+// tests/containment/adminMigrateCrmContactClassificationEndpoint.test.ts
+// (a separate file, since it needs its own isolated sql/session mocks).
 
 function read(relPath: string): string {
   return fs.readFileSync(path.join(process.cwd(), relPath), 'utf8').replace(/\r\n/g, '\n')
@@ -21,6 +27,7 @@ function read(relPath: string): string {
 
 const routeSource = read('app/api/admin/migrate/route.ts')
 const standaloneSql = read('scripts/add-crm-contact-classification.sql')
+const endpointSource = read('app/api/admin/migrate/crm-contact-classification/route.ts')
 
 // ─────────────────────────────────────────────────────────────────────
 // STATIC — the new step exists and is additive-only
@@ -206,11 +213,11 @@ describe('POST /api/admin/migrate — behavioural', () => {
 })
 
 // ─────────────────────────────────────────────────────────────────────
-// EQUIVALENCE — the route step and the standalone .sql file cannot
-// silently drift apart
+// EQUIVALENCE — all three representations (standalone SQL, legacy step
+// 42, targeted endpoint) cannot silently drift apart from one another
 // ─────────────────────────────────────────────────────────────────────
 
-describe('Equivalence — route step 42 vs scripts/add-crm-contact-classification.sql', () => {
+describe('Equivalence — standalone SQL vs legacy step 42 vs targeted endpoint', () => {
   function extractRouteStepBody(): string {
     return routeSource.slice(
       routeSource.indexOf("step('42. crm_contacts.classification')"),
@@ -218,42 +225,59 @@ describe('Equivalence — route step 42 vs scripts/add-crm-contact-classificatio
     )
   }
 
-  it('both add the SAME column (name, type, nullability, default)', () => {
+  function extractCheckBlock(source: string): string {
+    const start = source.indexOf('CHECK (classification')
+    return source.slice(start, source.indexOf('));', start) + 3)
+  }
+
+  it('all three add the SAME column (name, type, nullability, default)', () => {
     const routeBody = extractRouteStepBody()
-    expect(routeBody).toMatch(/ALTER TABLE crm_contacts ADD COLUMN IF NOT EXISTS classification TEXT/)
-    expect(standaloneSql).toMatch(/ALTER TABLE crm_contacts ADD COLUMN IF NOT EXISTS classification TEXT;/)
+    for (const source of [routeBody, standaloneSql, endpointSource]) {
+      expect(source).toMatch(/ALTER TABLE crm_contacts ADD COLUMN IF NOT EXISTS classification TEXT/)
+      expect(source).not.toMatch(/classification TEXT[^;`]*(NOT NULL|DEFAULT)/)
+    }
   })
 
-  it('both constrain classification to exactly the same six values (order-independent) plus NULL, under the same constraint name', () => {
+  it('all three constrain classification to exactly the same six values (order-independent) plus NULL, under the same constraint name', () => {
     const routeBody = extractRouteStepBody()
-    const routeCheckStart = routeBody.indexOf('CHECK (classification')
-    const routeCheckBlock = routeBody.slice(routeCheckStart, routeBody.indexOf('));', routeCheckStart) + 3)
-    const routeValues = new Set(routeCheckBlock.match(/'[A-Z_]+'/g) ?? [])
-
-    const sqlCheckStart = standaloneSql.indexOf('CHECK (classification')
-    const sqlCheckBlock = standaloneSql.slice(sqlCheckStart, standaloneSql.indexOf('));', sqlCheckStart) + 3)
-    const sqlValues = new Set(sqlCheckBlock.match(/'[A-Z_]+'/g) ?? [])
+    const routeValues = new Set(extractCheckBlock(routeBody).match(/'[A-Z_]+'/g) ?? [])
+    const sqlValues = new Set(extractCheckBlock(standaloneSql).match(/'[A-Z_]+'/g) ?? [])
+    const endpointValues = new Set(extractCheckBlock(endpointSource).match(/'[A-Z_]+'/g) ?? [])
 
     expect(routeValues).toEqual(sqlValues)
+    expect(endpointValues).toEqual(sqlValues)
     expect(routeValues.size).toBe(6)
-    expect(routeBody).toContain('crm_contacts_classification_check')
-    expect(standaloneSql).toContain('crm_contacts_classification_check')
-    expect(routeBody).toContain('classification IS NULL OR classification IN')
-    expect(standaloneSql).toContain('classification IS NULL OR classification IN')
+    expect(endpointValues.size).toBe(6)
+
+    for (const source of [routeBody, standaloneSql, endpointSource]) {
+      expect(source).toContain('crm_contacts_classification_check')
+      expect(source).toContain('classification IS NULL OR classification IN')
+    }
   })
 
-  it('both create the same index, same name, same column order', () => {
+  it('all three create the same index, same name, same column order', () => {
     const routeBody = extractRouteStepBody()
-    expect(routeBody).toContain('idx_crm_contacts_classification')
-    expect(routeBody).toContain('organisation_id, classification')
-    expect(standaloneSql).toContain('idx_crm_contacts_classification')
-    expect(standaloneSql).toMatch(/ON crm_contacts\(organisation_id, classification\)/)
+    for (const source of [routeBody, standaloneSql, endpointSource]) {
+      expect(source).toContain('idx_crm_contacts_classification')
+      expect(source).toMatch(/organisation_id,\s*classification/)
+    }
   })
 
-  it('neither performs a backfill/UPDATE/DELETE/INSERT against crm_contacts', () => {
+  it('none of the three performs a backfill/UPDATE/DELETE/INSERT against crm_contacts', () => {
     const routeBody = extractRouteStepBody()
     expect(routeBody).not.toMatch(/UPDATE\s+crm_contacts/i)
     expect(standaloneSql.replace(/--.*$/gm, '')).not.toMatch(/UPDATE\s+crm_contacts/i)
+    expect(endpointSource).not.toMatch(/UPDATE\s+crm_contacts/i)
+    expect(endpointSource).not.toMatch(/DELETE\s+FROM\s+crm_contacts/i)
+    expect(endpointSource).not.toMatch(/INSERT\s+INTO\s+crm_contacts/i)
+  })
+
+  it('the guarded-DO-block idempotency technique for the CHECK constraint is identical text across all three (same existence-check query, same shape)', () => {
+    const routeBody = extractRouteStepBody()
+    const guard = "SELECT 1 FROM pg_constraint WHERE conname = 'crm_contacts_classification_check'"
+    expect(routeBody).toContain(guard)
+    expect(standaloneSql).toContain(guard)
+    expect(endpointSource).toContain(guard)
   })
 })
 
