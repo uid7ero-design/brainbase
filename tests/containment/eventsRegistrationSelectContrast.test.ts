@@ -51,41 +51,32 @@ describe('app/events/_components/ui.tsx — shared inputStyle sets colorScheme: 
   })
 })
 
-describe('RegistrationsPanel.tsx — all five filter selects inherit the fix via inputStyle', () => {
+// UPDATE (dropdown-replacement phase): the five registration toolbar
+// filters below no longer use a native <select> at all — they were
+// replaced with the FilterDropdown component (app/events/_components/
+// ui.tsx) to visually match the top-nav dropdown family instead of a
+// native browser popup; see tests/containment/
+// eventsRegistrationFilterDropdowns.test.ts for that replacement's own
+// full coverage. This block is kept narrowly scoped to what remains
+// true: RegistrationsPanel's search box is still a plain <input> that
+// spreads ...inputStyle directly, and FilterDropdown's own closed
+// trigger (not a native <select>) also spreads ...inputStyle as its
+// base — both still benefit from the colorScheme fix above, just via a
+// different element than before.
+describe('RegistrationsPanel.tsx — the remaining native inputStyle consumer (search box) still inherits the fix', () => {
   const src = stripComments(read('app/events/[id]/RegistrationsPanel.tsx'))
 
   it('imports inputStyle from the shared Events ui module', () => {
     expect(src).toMatch(/import\s*\{[^}]*\binputStyle\b[^}]*\}\s*from\s*'\.\.\/_components\/ui'/)
   })
 
-  it('all five filter <select> elements spread ...inputStyle into their style prop — none define a competing local background/color/colorScheme that would shadow it', () => {
-    const selectBlocks = [...src.matchAll(/<select[\s\S]*?<\/select>/g)]
-    expect(selectBlocks.length, 'expected exactly 5 <select> elements in this file (payment, checkin, cancelled, ticket type, session)').toBe(5)
-    for (const [block] of selectBlocks) {
-      expect(block, `select block missing ...inputStyle spread:\n${block.slice(0, 120)}`).toMatch(/style=\{\{\s*\.\.\.inputStyle/)
-      expect(block).not.toMatch(/colorScheme:\s*'light'/)
-    }
+  it('the search <input> still spreads ...inputStyle', () => {
+    const inputBlock = src.slice(src.indexOf('<input'), src.indexOf('/>', src.indexOf('<input')) + 2)
+    expect(inputBlock).toMatch(/style=\{\{\s*\.\.\.inputStyle/)
   })
 
-  it('the five selects are: payment status, check-in status, cancellation, ticket type, session (aria-labels confirm coverage)', () => {
-    for (const label of [
-      'Filter by payment status',
-      'Filter by check-in status',
-      'Filter by cancellation',
-      'Filter by ticket type',
-      'Filter by session',
-    ]) {
-      expect(src).toContain(`aria-label="${label}"`)
-    }
-  })
-
-  it('the dynamically-populated ticket type and session selects still map their own option lists — this fix did not touch that logic', () => {
-    expect(src).toContain('{ticketTypes.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}')
-    expect(src).toContain('{sessions.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}')
-  })
-
-  it('no native <select>/<option> semantics were replaced with a custom dropdown component', () => {
-    expect(src).not.toMatch(/react-select|Listbox|Combobox|<Popover/i)
+  it('no <select> element remains anywhere in this file — all five filters now use FilterDropdown', () => {
+    expect(src).not.toMatch(/<select[\s>]/)
   })
 })
 
