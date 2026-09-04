@@ -282,6 +282,20 @@ export async function executeEventContactClassification(
       // structurally cannot fire either. Never leaves a changed
       // classification without its audit row, and never audits a
       // no-op.
+      //
+      // audit_logs columns: this table has no `detail` column — its
+      // real shape (prisma/schema.prisma's AuditLog model) is id/
+      // organisation_id/user_id/action/resource_type/resource_id/
+      // before_state/after_state, exactly matching the already-live
+      // writer lib/events/auditLog.ts uses. An earlier version of this
+      // INSERT referenced a `detail` column that has never existed in
+      // Production, and also omitted `id` (which has no DB-level
+      // default — cuid() is a Prisma client-side default only, so a
+      // raw INSERT must always supply it, same as auditLog.ts does).
+      // Both mistakes made the INSERT clause invalid, which failed the
+      // entire compound statement (including the UPDATE) before
+      // anything could commit — every eligible row failed identically,
+      // silently, with zero classifications applied.
       const result = (await sql`
         WITH upd AS (
           UPDATE crm_contacts
@@ -295,11 +309,11 @@ export async function executeEventContactClassification(
           WHERE eo.organisation_id = ${organisationId} AND eo.crm_contact_id = upd.id
         ),
         audit AS (
-          INSERT INTO audit_logs (organisation_id, user_id, action, resource_type, resource_id, detail)
+          INSERT INTO audit_logs (id, organisation_id, user_id, action, resource_type, resource_id, before_state, after_state)
           SELECT
-            ${organisationId}, ${actorUserId}, 'crm_contact.historical_classification_backfill', 'crm_contact', upd.id,
+            ${crypto.randomUUID()}, ${organisationId}, ${actorUserId}, 'crm_contact.historical_classification_backfill', 'crm_contact', upd.id,
+            NULL,
             jsonb_build_object(
-              'previous_classification', NULL,
               'new_classification', ${EVENT_CONTACT_CLASSIFICATION},
               'source', 'events_historical_classification_backfill',
               'notes_marker', ${notesMarker},
