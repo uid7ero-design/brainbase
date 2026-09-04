@@ -71,6 +71,8 @@ const itemIdRoute = await import('@/app/api/organiser/items/[itemId]/route')
 const itemFilesRoute = await import('@/app/api/organiser/items/[itemId]/files/route')
 const itemFileIdRoute = await import('@/app/api/organiser/items/[itemId]/files/[fileId]/route')
 const itemUpdatesRoute = await import('@/app/api/organiser/items/[itemId]/updates/route')
+// Phase D.4.5D
+const activityRoute = await import('@/app/api/organiser/activity/route')
 
 const SESSION = { userId: 'u1', organisationId: 'org-a', role: 'manager', name: 'Test User' }
 const BOARD_CTX = { params: Promise.resolve({ boardId: 'board-1' }) }
@@ -109,11 +111,14 @@ const handlers: { name: string; call: () => Promise<Response> }[] = [
   { name: 'organiser/items/[itemId]/files/[fileId] DELETE', call: () => itemFileIdRoute.DELETE(asNextRequest(new Request('http://localhost/x', { method: 'DELETE' })), ITEM_FILE_CTX) },
   { name: 'organiser/items/[itemId]/updates GET', call: () => itemUpdatesRoute.GET(asNextRequest(new Request('http://localhost/x')), ITEM_CTX) },
   { name: 'organiser/items/[itemId]/updates POST', call: () => itemUpdatesRoute.POST(jsonReq('http://localhost/x', 'POST', {}), ITEM_CTX) },
+  // Phase D.4.5D — itemId is a QUERY param for this route (not a path
+  // segment), so unlike every other entry above it takes no context object.
+  { name: 'organiser/activity GET', call: () => activityRoute.GET(asNextRequest(new Request('http://localhost/api/organiser/activity?itemId=11111111-1111-1111-1111-111111111111'))) },
 ]
 
 describe('B. Organiser capability enforcement — full handler coverage', () => {
-  it(`exactly ${handlers.length} exported Organiser handlers are covered by this parameterized suite (matches the 12-file, 20-handler inventory from the D.4.4A/C audits)`, () => {
-    expect(handlers).toHaveLength(20)
+  it(`exactly ${handlers.length} exported Organiser handlers are covered by this parameterized suite (matches the 13-file, 21-handler inventory from the D.4.4A/C audits, extended by D.4.5D's activity read endpoint)`, () => {
+    expect(handlers).toHaveLength(21)
   })
 
   for (const { name, call } of handlers) {
@@ -249,10 +254,11 @@ describe('D. Organiser API role preservation — every route keeps its pre-exist
     'app/api/organiser/items/[itemId]/files/route.ts',
     'app/api/organiser/items/[itemId]/files/[fileId]/route.ts',
     'app/api/organiser/items/[itemId]/updates/route.ts',
+    'app/api/organiser/activity/route.ts',
   ]
 
-  it('exactly 12 route files exist — the inventory has not silently grown or shrunk since the D.4.4A/B audits', () => {
-    expect(routeFiles).toHaveLength(12)
+  it('exactly 13 route files exist — the D.4.4A/B 12-file inventory plus D.4.5D\'s activity read endpoint, no silent growth or shrink beyond that', () => {
+    expect(routeFiles).toHaveLength(13)
   })
 
   it('every route file imports the shared authorizeOrganiserRequest wrapper, and none still imports the old bare requireRole', () => {
