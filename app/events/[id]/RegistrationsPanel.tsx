@@ -1,10 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import {
   Panel, SectionHeader, EmptyState, StatusBadge, orderStatusTone, paymentStatusTone, rowCardStyle,
-  TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED, BORDER_SOFT, DangerButton, secondaryBtnStyle,
+  TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED, BORDER_SOFT, DangerButton, secondaryBtnStyle, inputStyle,
 } from '../_components/ui';
 import RegistrationDetail from './RegistrationDetail';
 
@@ -76,30 +76,129 @@ function formatAnswerValue(value: unknown): string {
   return String(value);
 }
 
-// Phase 2 — read-only. No CSV export, no CRM auto-sync. Phase 4 adds
-// exactly one mutation to this previously fully read-only panel: a
-// manager-only "Refund" action on a paid order (see the button below
-// and app/api/events/[id]/orders/[orderId]/refund/route.ts) — every
-// other row here remains display-only.
+const PAYMENT_STATUS_OPTIONS = ['NOT_REQUIRED', 'PENDING', 'PAID', 'FAILED', 'EXPIRED', 'REFUNDED'] as const;
+
+// Registration operations phase — search + filters + CSV export. The
+// query params below (q/paymentStatus/checkin/cancelled/ticketTypeId/
+// sessionId) are exactly what app/api/events/[id]/orders/route.ts and
+// .../orders/export/route.ts both accept, parsed/applied server-side by
+// the SHARED module lib/events/registrationFilters.ts — this component
+// only ever builds the query string, it never re-implements filter
+// semantics client-side.
 //
-// Orders are fetched once by the parent (EventDetailClient) rather than
-// here, so the same data can also drive the KPI strip and the per-
-// session/per-ticket-type "registered" counts without a second network
-// round trip to the same endpoint. `onRefunded` asks the parent to
-// re-fetch after a successful refund, the same reload() callback every
-// other mutating panel in this module already uses.
+// This panel runs its OWN, independent fetch of the orders list (rather
+// than only ever rendering the `orders` prop EventDetailClient already
+// fetched once, unfiltered) — deliberately: the KPI strip and the
+// per-session/per-ticket-type "registered" counts on the parent page
+// must stay based on the FULL, unfiltered order set (they describe the
+// whole event, not a filtered view), so they cannot share a single
+// filtered fetch with this panel's own list. `orders`/`error` props are
+// still accepted (used as the initial seed, so there's no blank flash
+// before this panel's own first fetch resolves) but this panel's actual
+// rendered list is always its own `listOrders` state going forward.
 export default function RegistrationsPanel({
-  eventId, orders, error, canManage, crmEnabled, onRefunded,
+  eventId, orders, error, canManage, crmEnabled, ticketTypes, sessions, onRefunded,
 }: {
-  eventId: string; orders: OrderRow[] | null; error: string | null; canManage: boolean; crmEnabled: boolean; onRefunded: () => void;
+  eventId: string;
+  orders: OrderRow[] | null;
+  error: string | null;
+  canManage: boolean;
+  crmEnabled: boolean;
+  ticketTypes: { id: string; name: string }[];
+  sessions: { id: string; name: string }[];
+  onRefunded: () => void;
 }) {
-  const nonCancelled = orders?.filter(o => o.status !== 'CANCELLED') ?? [];
-  const orderCount = new Set(nonCancelled.map(o => o.id)).size;
-  const totalAttendees = nonCancelled.reduce((sum, o) => sum + o.quantity, 0);
   const [refundingId, setRefundingId] = useState<string | null>(null);
   const [retryingId, setRetryingId] = useState<string | null>(null);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+
+  // ── Search + filters ────────────────────────────────────────────
+  const [searchInput, setSearchInput] = useState('');
+  const [debouncedQuery, setDebouncedQuery] = useState('');
+  const [paymentStatusFilter, setPaymentStatusFilter] = useState('');
+  const [checkinFilter, setCheckinFilter] = useState('');
+  const [cancelledFilter, setCancelledFilter] = useState(''); // '' | 'true' | 'false'
+  const [ticketTypeFilter, setTicketTypeFilter] = useState('');
+  const [sessionFilter, setSessionFilter] = useState('');
+
+  const hasActiveFilter =
+    debouncedQuery !== '' || paymentStatusFilter !== '' || checkinFilter !== '' ||
+    cancelledFilter !== '' || ticketTypeFilter !== '' || sessionFilter !== '';
+
+  // Search box debounced ~300ms; every filter select refreshes
+  // immediately (no debounce needed — a select change is already a
+  // single discrete action, not a keystroke stream).
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQuery(searchInput.trim()), 300);
+    return () => clearTimeout(t);
+  }, [searchInput]);
+
+  function buildQueryString(): string {
+    const params = new URLSearchParams();
+    if (debouncedQuery) params.set('q', debouncedQuery);
+    if (paymentStatusFilter) params.set('paymentStatus', paymentStatusFilter);
+    if (checkinFilter) params.set('checkin', checkinFilter);
+    if (cancelledFilter) params.set('cancelled', cancelledFilter);
+    if (ticketTypeFilter) params.set('ticketTypeId', ticketTypeFilter);
+    if (sessionFilter) params.set('sessionId', sessionFilter);
+    return params.toString();
+  }
+
+  const [listOrders, setListOrders] = useState<OrderRow[] | null>(orders);
+  const [listOrderCount, setListOrderCount] = useState<number | null>(null);
+  const [listError, setListError] = useState<string | null>(error);
+  // Bumped after a mutation (refund/cancel/retry) to force this effect
+  // to re-run even when none of the filter/search values themselves
+  // changed — same "reloadKey" idiom EventDetailClient's own two data-
+  // fetching effects already use, kept local to this panel since its
+  // fetch is independent of the parent's.
+  const [refreshKey, setRefreshKey] = useState(0);
+  const refreshList = useCallback(() => setRefreshKey(k => k + 1), []);
+
+  // Inline async IIFE directly in the effect body, matching
+  // EventDetailClient's own two data-fetching effects exactly (rather
+  // than calling a separately-memoized function from inside the
+  // effect) — both for consistency and because this codebase's lint
+  // config flags the latter pattern (cascading setState-in-effect).
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setListError(null);
+      const qs = buildQueryString();
+      try {
+        const res = await fetch(`/api/events/${eventId}/orders${qs ? `?${qs}` : ''}`);
+        const body = await res.json().catch(() => ({}));
+        if (cancelled) return;
+        if (!res.ok) {
+          setListError(body.error ?? `Failed to load registrations (${res.status}).`);
+          return;
+        }
+        setListOrders(body.orders ?? []);
+        setListOrderCount(typeof body.order_count === 'number' ? body.order_count : null);
+      } catch {
+        if (!cancelled) setListError('Failed to load registrations. Please try again.');
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [eventId, debouncedQuery, paymentStatusFilter, checkinFilter, cancelledFilter, ticketTypeFilter, sessionFilter, refreshKey]);
+
+  function clearFilters() {
+    setSearchInput('');
+    setDebouncedQuery('');
+    setPaymentStatusFilter('');
+    setCheckinFilter('');
+    setCancelledFilter('');
+    setTicketTypeFilter('');
+    setSessionFilter('');
+  }
+
+  const displayedOrders = listOrders;
+  const nonCancelled = displayedOrders?.filter(o => o.status !== 'CANCELLED') ?? [];
+  const orderCount = new Set(nonCancelled.map(o => o.id)).size;
+  const totalAttendees = nonCancelled.reduce((sum, o) => sum + o.quantity, 0);
+
   // Phase 4B §7 — collapsed by default, per-order, so a booking with no
   // registration-question answers (the common case for events with no
   // configured questions) never grows the row at all, and one with
@@ -139,6 +238,7 @@ export default function RegistrationsPanel({
         return;
       }
       onRefunded();
+      refreshList();
     } catch {
       setActionError('Refund failed. Please try again.');
     } finally {
@@ -161,6 +261,7 @@ export default function RegistrationsPanel({
         return;
       }
       onRefunded();
+      refreshList();
     } catch {
       setActionError('Cancel failed. Please try again.');
     } finally {
@@ -183,6 +284,7 @@ export default function RegistrationsPanel({
       }
       window.open(body.checkout_url, '_blank', 'noopener,noreferrer');
       onRefunded();
+      refreshList();
     } catch {
       setActionError('Retry failed. Please try again.');
     } finally {
@@ -194,18 +296,109 @@ export default function RegistrationsPanel({
     <Panel style={{ marginTop: 20 }}>
       <SectionHeader
         title="Registrations"
-        sub={orders && `${orderCount} order${orderCount === 1 ? '' : 's'} · ${totalAttendees} attendee${totalAttendees === 1 ? '' : 's'}`}
+        sub={displayedOrders && `${orderCount} order${orderCount === 1 ? '' : 's'} · ${totalAttendees} attendee${totalAttendees === 1 ? '' : 's'}`}
       />
 
-      {error && <div role="alert" style={{ color: '#FCA5A5', fontSize: 12, marginBottom: 12 }}>{error}</div>}
+      <div
+        style={{
+          display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8,
+          marginBottom: 14, paddingBottom: 14, borderBottom: `1px solid ${BORDER_SOFT}`,
+        }}
+      >
+        <input
+          type="text"
+          value={searchInput}
+          onChange={e => setSearchInput(e.target.value)}
+          placeholder="Search name, email, phone, order ref…"
+          style={{ ...inputStyle, flex: '1 1 220px', minWidth: 180 }}
+          aria-label="Search registrations"
+        />
+        <select
+          value={paymentStatusFilter}
+          onChange={e => setPaymentStatusFilter(e.target.value)}
+          style={{ ...inputStyle, flex: '0 1 auto' }}
+          aria-label="Filter by payment status"
+        >
+          <option value="">Any payment status</option>
+          {PAYMENT_STATUS_OPTIONS.map(v => <option key={v} value={v}>{v}</option>)}
+        </select>
+        <select
+          value={checkinFilter}
+          onChange={e => setCheckinFilter(e.target.value)}
+          style={{ ...inputStyle, flex: '0 1 auto' }}
+          aria-label="Filter by check-in status"
+        >
+          <option value="">Any check-in status</option>
+          <option value="in">Checked in</option>
+          <option value="out">Not checked in</option>
+        </select>
+        <select
+          value={cancelledFilter}
+          onChange={e => setCancelledFilter(e.target.value)}
+          style={{ ...inputStyle, flex: '0 1 auto' }}
+          aria-label="Filter by cancellation"
+        >
+          <option value="">Active + cancelled</option>
+          <option value="false">Active only</option>
+          <option value="true">Cancelled only</option>
+        </select>
+        {ticketTypes.length > 0 && (
+          <select
+            value={ticketTypeFilter}
+            onChange={e => setTicketTypeFilter(e.target.value)}
+            style={{ ...inputStyle, flex: '0 1 auto' }}
+            aria-label="Filter by ticket type"
+          >
+            <option value="">Any ticket type</option>
+            {ticketTypes.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+          </select>
+        )}
+        {sessions.length > 0 && (
+          <select
+            value={sessionFilter}
+            onChange={e => setSessionFilter(e.target.value)}
+            style={{ ...inputStyle, flex: '0 1 auto' }}
+            aria-label="Filter by session"
+          >
+            <option value="">Any session</option>
+            {sessions.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+        )}
+        {hasActiveFilter && (
+          <button onClick={clearFilters} style={secondaryBtnStyle}>Clear filters</button>
+        )}
+        <div style={{ flex: '1 1 auto' }} />
+        <span style={{ fontSize: 12, color: TEXT_MUTED, whiteSpace: 'nowrap' }}>
+          {listOrderCount !== null ? `${listOrderCount} matching registration${listOrderCount === 1 ? '' : 's'}` : ''}
+        </span>
+        {/* Export is manager+ only (authorizeEventsRequest('manager') on
+            the server route) — canManage here is exactly that same
+            manager-or-above check (see app/events/[id]/page.tsx), reused
+            as-is rather than inventing a separate client-side auth model.
+            An ordinary viewer gets search/filter but never sees this
+            button; the server route remains authoritative regardless. */}
+        {canManage && (
+          <a
+            href={`/api/events/${eventId}/orders/export${buildQueryString() ? `?${buildQueryString()}` : ''}`}
+            style={{ ...secondaryBtnStyle, textDecoration: 'none', display: 'inline-block' }}
+          >
+            Export CSV
+          </a>
+        )}
+      </div>
+
+      {(error || listError) && <div role="alert" style={{ color: '#FCA5A5', fontSize: 12, marginBottom: 12 }}>{listError ?? error}</div>}
       {actionError && <div role="alert" style={{ color: '#FCA5A5', fontSize: 12, marginBottom: 12 }}>{actionError}</div>}
-      {orders === null && !error && <div style={{ fontSize: 13, color: TEXT_MUTED }}>Loading…</div>}
-      {orders !== null && orders.length === 0 && (
-        <EmptyState title="No registrations yet" body="Registrations will appear here as people reserve tickets." />
+      {displayedOrders === null && !listError && <div style={{ fontSize: 13, color: TEXT_MUTED }}>Loading…</div>}
+      {displayedOrders !== null && displayedOrders.length === 0 && (
+        <EmptyState
+          title={hasActiveFilter ? 'No registrations match these filters' : 'No registrations yet'}
+          body={hasActiveFilter ? 'Try a different search term or clear the active filters.' : 'Registrations will appear here as people reserve tickets.'}
+        />
       )}
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {orders?.map(o => {
+        {displayedOrders?.map(o => {
           const hasResponses = o.order_responses.length > 0 || o.attendees.some(a => a.responses.length > 0);
           const responsesOpen = expandedResponseIds.has(o.id);
           return (

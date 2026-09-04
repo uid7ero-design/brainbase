@@ -237,7 +237,10 @@ export default function EventDetailClient({ eventId, canManage, organisationSlug
       <SessionsPanel eventId={eventId} sessions={sessions} orders={orders} canManage={canManage} onChanged={reload} timezone={event.timezone} />
       <TicketTypesPanel eventId={eventId} ticketTypes={ticketTypes} orders={orders} canManage={canManage} onChanged={reload} />
       <QuestionsPanel eventId={eventId} canManage={canManage} />
-      <RegistrationsPanel eventId={eventId} orders={orders} error={ordersError} canManage={canManage} crmEnabled={crmEnabled} onRefunded={reload} />
+      <RegistrationsPanel
+        eventId={eventId} orders={orders} error={ordersError} canManage={canManage} crmEnabled={crmEnabled}
+        ticketTypes={ticketTypes} sessions={sessions} onRefunded={reload}
+      />
     </div>
   );
 }
