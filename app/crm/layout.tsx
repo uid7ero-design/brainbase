@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation';
 import { requireSession } from '@/lib/org';
 import { checkCapability } from '@/lib/capabilities/requireCapability';
+import { APP_HEADER_OFFSET_VH_CALC } from '@/lib/layout/headerOffset';
 import CrmSidebar from './_components/CrmSidebar';
 
 // Standalone CRM product shell. Page-level capability enforcement,
@@ -8,6 +9,19 @@ import CrmSidebar from './_components/CrmSidebar';
 // the API layer remains the actual authorization boundary; this is a
 // UX gate so an unentitled organisation sees a clear message instead
 // of a page that only fails once its data fetches start returning 403.
+//
+// minHeight uses the shared APP_HEADER_OFFSET_VH_CALC (lib/layout/
+// headerOffset.ts), not a hardcoded `calc(100vh - 52px)` — this file
+// was the one consumer PR #109's own sweep of that exact bug class
+// missed (its header comment lists every other fixed consumer —
+// OrganiserShell, WorkspaceShell, AdminAside, CrmSidebar itself,
+// Founder OS, the deployments page, client detail, OnboardingWizard —
+// but not this file). CrmSidebar.tsx already correctly uses the same
+// shared var for its own sticky top/height; this brings its parent
+// layout into agreement with it, so both size themselves off the same
+// real, measured header height (TopNav's 52px, plus OrgSwitcher's own
+// extra height for a resolved super_admin session) instead of two
+// different, silently-inconsistent numbers.
 export default async function CrmLayout({ children }: { children: React.ReactNode }) {
   let session;
   try {
@@ -26,7 +40,7 @@ export default async function CrmLayout({ children }: { children: React.ReactNod
           flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
-          minHeight: 'calc(100vh - 52px)',
+          minHeight: APP_HEADER_OFFSET_VH_CALC,
           gap: 10,
           textAlign: 'center',
           padding: 32,
@@ -48,7 +62,7 @@ export default async function CrmLayout({ children }: { children: React.ReactNod
     <div
       style={{
         display: 'flex',
-        minHeight: 'calc(100vh - 52px)',
+        minHeight: APP_HEADER_OFFSET_VH_CALC,
         background: '#07080B',
         fontFamily: 'var(--font-inter), Inter, sans-serif',
         color: '#f9fafb',

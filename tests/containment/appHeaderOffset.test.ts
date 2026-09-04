@@ -101,6 +101,12 @@ describe('migrated consumers — every confirmed affected file uses the shared p
     'components/ops/WorkspaceShell.tsx',
     'components/admin/AdminAside.tsx',
     'app/crm/_components/CrmSidebar.tsx',
+    // Restore-founder-context-switcher phase — the ONE consumer this
+    // exact bug-class sweep missed the first time around: its own
+    // sibling CrmSidebar.tsx was already correctly migrated, but this
+    // parent layout still had two independent hardcoded
+    // `calc(100vh - 52px)` literals of its own.
+    'app/crm/layout.tsx',
     'app/admin/founder/page.tsx',
     'app/admin/deployments/page.tsx',
     'app/clients/[id]/page.tsx',
