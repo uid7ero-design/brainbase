@@ -33,10 +33,35 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ite
   const text = typeof body?.body === 'string' ? body.body.trim() : '';
   if (!text) return NextResponse.json({ error: 'Update text is required.' }, { status: 400 });
 
+  // Phase D.4.5F — comment.created, atomic with the INSERT. item_id is set
+  // (this is the whole reason the Item Activity tab can also show this
+  // event — see lib/organiser/activityRead.ts's listItemActivity, which
+  // now allow-lists entity_type IN ('item','comment','file') rather than
+  // 'item' alone). The full comment body is never copied into activity —
+  // only a bounded excerpt, truncated by the SAME
+  // organiser_activity_sanitise_scalar policy every other string field
+  // uses (200 chars + an explicit "…(truncated)" marker) — the durable
+  // organiser_item_updates row remains the sole source of truth for the
+  // full comment body.
   const rows = await sql`
-    INSERT INTO organiser_item_updates (item_id, board_id, organisation_id, author_name, body)
-    VALUES (${itemId}, ${boardId}, ${session.organisationId}, ${session.name}, ${text})
-    RETURNING id, author_name, body, created_at
+    WITH inserted AS (
+      INSERT INTO organiser_item_updates (item_id, board_id, organisation_id, author_name, body)
+      VALUES (${itemId}, ${boardId}, ${session.organisationId}, ${session.name}, ${text})
+      RETURNING id, author_name, body, created_at
+    ),
+    activity_row AS (
+      INSERT INTO organiser_activity (
+        organisation_id, board_id, item_id, actor_user_id, actor_name,
+        event_type, entity_type, entity_id, before_json, after_json
+      )
+      SELECT
+        ${session.organisationId}, ${boardId}, ${itemId}, ${session.userId}, ${session.name},
+        'comment.created', 'comment', inserted.id::text, NULL,
+        jsonb_build_object('excerpt', organiser_activity_sanitise_scalar(to_jsonb(inserted.body)))
+      FROM inserted
+      RETURNING id
+    )
+    SELECT id, author_name, body, created_at FROM inserted
   `;
 
   return NextResponse.json({ update: rows[0] });

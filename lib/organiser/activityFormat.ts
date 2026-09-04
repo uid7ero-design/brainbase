@@ -2,6 +2,14 @@
 // organiser_activity rows as human-readable Item Activity tab entries.
 // Phase D.4.5E adds resolveItemLabel and describeBoardActivityEvent for
 // the board-level Activity feed, sharing every other helper unchanged.
+// Phase D.4.5F extends event-type coverage to board.created/updated/
+// deleted, group.created/updated/deleted, comment.created, and
+// file.added/file.deleted — board.*/group.* only ever render in the board
+// feed (they never carry item_id, so describeActivityEvent/the Item
+// Activity tab can never receive one); comment.*/file.* render in BOTH
+// contexts, since those events legitimately belong to a specific item too
+// (see lib/organiser/activityRead.ts's listItemActivity for the read-side
+// half of that decision).
 // No React, no DOM, no fetch — safe to unit-test directly and safe to
 // import from any future surface without dragging UI concerns along.
 //
@@ -88,6 +96,12 @@ export interface ActivityDescription {
   summary: string;
   /** Zero or more field-level diffs to render under the summary. */
   diffs: ActivityDiffRow[];
+  /** Phase D.4.5F — an optional freeform line to render below the summary,
+   *  used only for comment.created's bounded excerpt (e.g.
+   *  "Waiting on supplier..."). null/absent for every other event type —
+   *  a diff row's label:value shape doesn't fit a comment excerpt, which
+   *  has no "field name" to label. */
+  detail?: string | null;
 }
 
 export interface ActivityEventLike {
@@ -191,12 +205,100 @@ function describeEventInternal(
     return { summary: `${actorLabel} deleted ${subject}`, diffs: [] };
   }
 
+  // Phase D.4.5F — comment.created renders a bounded excerpt (see
+  // app/api/organiser/items/[itemId]/updates/route.ts's own instrumentation
+  // — after_json.excerpt is already truncated by
+  // organiser_activity_sanitise_scalar's 200-char policy before it ever
+  // reaches this function) as a separate `detail` line, not a labelled
+  // diff row — an excerpt has no "field name" to label.
+  if (event.event_type === 'comment.created') {
+    const excerpt = event.after && typeof event.after.excerpt === 'string' && event.after.excerpt.length > 0
+      ? event.after.excerpt
+      : null;
+    return {
+      summary: itemLabel !== null ? `${actorLabel} commented on ${subject}` : `${actorLabel} commented`,
+      diffs: [],
+      detail: excerpt,
+    };
+  }
+
+  // file.added/file.deleted name the file directly in the summary (the
+  // filename IS the meaningful content here, unlike a generic diff field)
+  // — after_json for file.added, before_json for file.deleted (the
+  // durable organiser_item_files row is gone by the time file.deleted's
+  // history is read, so before_json's snapshot is the only source left).
+  if (event.event_type === 'file.added' || event.event_type === 'file.deleted') {
+    const source = event.event_type === 'file.added' ? event.after : event.before;
+    const fileName = source && typeof source.file_name === 'string' && source.file_name.length > 0
+      ? source.file_name
+      : 'a file';
+    const verb = event.event_type === 'file.added' ? 'attached' : 'removed';
+    const preposition = event.event_type === 'file.added' ? 'to' : 'from';
+    return {
+      summary: itemLabel !== null
+        ? `${actorLabel} ${verb} "${fileName}" ${preposition} ${subject}`
+        : `${actorLabel} ${verb} "${fileName}"`,
+      diffs: [],
+    };
+  }
+
   return {
     summary: itemLabel !== null
       ? `${actorLabel} — ${event.event_type || 'activity'} on ${subject}`
       : `${actorLabel} — ${event.event_type || 'activity'}`,
     diffs: buildDiffRows(event.before, event.after, groupNamesById),
   };
+}
+
+/** Board-feed-only rendering for board.* and group.* events — these never
+ *  carry item_id (see the CREATE TABLE comment, app/api/admin/migrate/
+ *  route.ts step 40, and every board/group route's own instrumentation),
+ *  so they can never reach describeActivityEvent/the Item Activity tab;
+ *  only describeBoardActivityEvent routes here. Unlike item/comment/file
+ *  events, these name the board/group directly rather than substituting
+ *  into a shared "subject" template — a board/group IS the subject, not
+ *  something a subject is attached to. Reuses buildDiffRows for
+ *  board.updated/group.updated's name/color diffs (the same generic,
+ *  always-safe field formatting item.updated already relies on). */
+function describeEntityEventInternal(
+  event: ActivityEventLike,
+  groupNamesById: Record<string, string>,
+): ActivityDescription {
+  const actorLabel = event.actor?.name || 'Someone';
+
+  if (event.event_type === 'board.created') {
+    const name = event.after && typeof event.after.name === 'string' && event.after.name.length > 0 ? event.after.name : 'board';
+    return { summary: `${actorLabel} created board "${name}"`, diffs: [] };
+  }
+  if (event.event_type === 'board.updated') {
+    const diffs = buildDiffRows(event.before, event.after, groupNamesById);
+    const renamed = diffs.some(d => d.label === 'Name');
+    return { summary: renamed ? `${actorLabel} renamed board` : `${actorLabel} updated board`, diffs };
+  }
+  if (event.event_type === 'board.deleted') {
+    const name = event.before && typeof event.before.name === 'string' && event.before.name.length > 0 ? event.before.name : 'board';
+    return { summary: `${actorLabel} deleted board "${name}"`, diffs: [] };
+  }
+
+  if (event.event_type === 'group.created') {
+    const name = event.after && typeof event.after.name === 'string' && event.after.name.length > 0 ? event.after.name : 'group';
+    return { summary: `${actorLabel} created group "${name}"`, diffs: [] };
+  }
+  if (event.event_type === 'group.updated') {
+    const diffs = buildDiffRows(event.before, event.after, groupNamesById);
+    const renamed = diffs.some(d => d.label === 'Name');
+    return { summary: renamed ? `${actorLabel} renamed group` : `${actorLabel} updated group`, diffs };
+  }
+  if (event.event_type === 'group.deleted') {
+    const name = event.before && typeof event.before.name === 'string' && event.before.name.length > 0 ? event.before.name : 'group';
+    return { summary: `${actorLabel} deleted group "${name}"`, diffs: [] };
+  }
+
+  // Unreachable given describeBoardActivityEvent's own
+  // event_type.startsWith('board.'/'group.') gate, but never throws even
+  // if reached directly — same never-crash guarantee as every other path
+  // in this file.
+  return { summary: `${actorLabel} — ${event.event_type || 'activity'}`, diffs: buildDiffRows(event.before, event.after, groupNamesById) };
 }
 
 /** The single entry point the Item Activity tab renders through. Handles
@@ -240,15 +342,21 @@ export function resolveItemLabel(
   return 'Item';
 }
 
-/** Board-feed variant of describeActivityEvent. Same event-type handling
- *  and diff-building as the single-item Activity tab (via
- *  describeEventInternal), but every summary names the affected item
- *  (resolved via resolveItemLabel) since the board feed shows many items
- *  at once. */
+/** Board-feed variant of describeActivityEvent. board.* and group.* events
+ *  (Phase D.4.5F) route to describeEntityEventInternal — they name the
+ *  board/group directly and have no "item" concept at all. Every other
+ *  event type (item.*, comment.created, file.added/file.deleted) shares
+ *  the exact same event-type handling and diff-building as the single-item
+ *  Activity tab (via describeEventInternal), but every summary names the
+ *  affected item (resolved via resolveItemLabel) since the board feed
+ *  shows many items at once. */
 export function describeBoardActivityEvent(
   event: ActivityEventLike & { entity_id: string },
   groupNamesById: Record<string, string> = {},
   liveItemNamesById: Record<string, string> = {},
 ): ActivityDescription {
+  if (event.event_type.startsWith('board.') || event.event_type.startsWith('group.')) {
+    return describeEntityEventInternal(event, groupNamesById);
+  }
   return describeEventInternal(event, groupNamesById, resolveItemLabel(event, liveItemNamesById));
 }

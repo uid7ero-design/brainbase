@@ -159,6 +159,30 @@ CREATE TABLE organiser_activity (
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- Phase D.4.5F — added for the board/group/comment/file harness sections
+-- below. Verbatim from app/api/admin/migrate/route.ts steps 38/39.
+CREATE TABLE organiser_item_files (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  item_id         UUID NOT NULL REFERENCES organiser_items(id) ON DELETE CASCADE,
+  board_id        UUID NOT NULL REFERENCES organiser_boards(id) ON DELETE CASCADE,
+  organisation_id TEXT NOT NULL REFERENCES organisations(id),
+  file_name       TEXT NOT NULL,
+  file_url        TEXT NOT NULL,
+  file_size       INTEGER,
+  uploaded_by     TEXT REFERENCES users(id),
+  created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE organiser_item_updates (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  item_id         UUID NOT NULL REFERENCES organiser_items(id) ON DELETE CASCADE,
+  board_id        UUID NOT NULL REFERENCES organiser_boards(id) ON DELETE CASCADE,
+  organisation_id TEXT NOT NULL REFERENCES organisations(id),
+  author_name     TEXT,
+  body            TEXT NOT NULL,
+  created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
 CREATE OR REPLACE FUNCTION organiser_activity_sanitise_scalar(value jsonb)
 RETURNS jsonb
 LANGUAGE sql IMMUTABLE
@@ -685,6 +709,269 @@ SELECT bool_and((rn = 1 AND b = 'Not Started') OR (rn > 1 AND b = prev_a)) FROM 
     FAILURES+=("mutation A did not reproduce the invalid fork")
   fi
 fi
+
+echo ""
+echo "=== PHASE D.4.5F — BOARD/GROUP/COMMENT/FILE INSTRUMENTATION ==="
+# Real Postgres execution of the exact writable-CTE statements each new
+# route submits (literal-substituted, mirroring patch_item_sql/
+# create_item_sql's own convention above). Proves: valid SQL (a static
+# query-text test cannot catch a typo Postgres itself would reject),
+# atomicity (mutation + activity_row commit together), same-value
+# suppression, and deletion-safe history.
+reset_db; bootstrap
+
+echo ""
+echo "--- board.created ---"
+echo "
+WITH inserted AS (
+  INSERT INTO organiser_boards (id, organisation_id, name, color, position, created_by)
+  VALUES ('99999999-9999-9999-9999-999999999991', 'org-a', 'WORK', NULL, 0, 'user-1')
+  RETURNING id, name
+),
+activity_row AS (
+  INSERT INTO organiser_activity (organisation_id, board_id, actor_user_id, actor_name, event_type, entity_type, entity_id, before_json, after_json)
+  SELECT 'org-a', inserted.id, 'user-1', 'James', 'board.created', 'board', inserted.id::text, NULL,
+    jsonb_build_object('name', organiser_activity_sanitise_scalar(to_jsonb(inserted.name)))
+  FROM inserted RETURNING id
+)
+SELECT id FROM inserted;
+" | psql_exec >/dev/null
+expect_eq "board.created row exists with correct event_type/entity_type/actor" \
+  "SELECT event_type || ':' || entity_type || ':' || actor_name FROM organiser_activity WHERE board_id='99999999-9999-9999-9999-999999999991' AND event_type='board.created';" \
+  "board.created:board:James"
+
+echo ""
+echo "--- board.updated (rename) ---"
+echo "
+WITH old AS MATERIALIZED (
+  SELECT id, name, color, position FROM organiser_boards WHERE id='99999999-9999-9999-9999-999999999991' AND organisation_id='org-a' FOR UPDATE
+),
+updated AS (
+  UPDATE organiser_boards b SET name = 'Operations', updated_at = NOW() FROM old WHERE b.id = old.id
+  RETURNING b.id, b.name, b.color, b.position
+),
+field_diff AS (
+  SELECT jsonb_object_agg(f.key, f.old_val) FILTER (WHERE f.old_val IS DISTINCT FROM f.new_val) AS before_obj,
+         jsonb_object_agg(f.key, f.new_val) FILTER (WHERE f.old_val IS DISTINCT FROM f.new_val) AS after_obj,
+         bool_or(f.old_val IS DISTINCT FROM f.new_val) AS any_changed
+  FROM old, updated,
+  LATERAL (VALUES
+    ('name', organiser_activity_sanitise_scalar(to_jsonb(old.name)), organiser_activity_sanitise_scalar(to_jsonb(updated.name))),
+    ('color', organiser_activity_sanitise_scalar(to_jsonb(old.color)), organiser_activity_sanitise_scalar(to_jsonb(updated.color)))
+  ) AS f(key, old_val, new_val)
+),
+activity_row AS (
+  INSERT INTO organiser_activity (organisation_id, board_id, actor_user_id, actor_name, event_type, entity_type, entity_id, before_json, after_json)
+  SELECT 'org-a', updated.id, 'user-1', 'James', 'board.updated', 'board', updated.id::text, field_diff.before_obj, field_diff.after_obj
+  FROM updated, field_diff WHERE field_diff.any_changed IS TRUE RETURNING id
+)
+SELECT id FROM updated;
+" | psql_exec >/dev/null
+expect_eq "board.updated recorded with correct before/after name" \
+  "SELECT (before_json->>'name') || '->' || (after_json->>'name') FROM organiser_activity WHERE board_id='99999999-9999-9999-9999-999999999991' AND event_type='board.updated';" \
+  "WORK->Operations"
+
+echo ""
+echo "--- board.updated same-value (name unchanged) -> NO activity row ---"
+BEFORE_COUNT="$(echo "SELECT count(*) FROM organiser_activity WHERE board_id='99999999-9999-9999-9999-999999999991';" | psql_query | tr -d '[:space:]')"
+echo "
+WITH old AS MATERIALIZED (
+  SELECT id, name, color, position FROM organiser_boards WHERE id='99999999-9999-9999-9999-999999999991' AND organisation_id='org-a' FOR UPDATE
+),
+updated AS (
+  UPDATE organiser_boards b SET name = 'Operations', updated_at = NOW() FROM old WHERE b.id = old.id
+  RETURNING b.id, b.name, b.color, b.position
+),
+field_diff AS (
+  SELECT jsonb_object_agg(f.key, f.old_val) FILTER (WHERE f.old_val IS DISTINCT FROM f.new_val) AS before_obj,
+         jsonb_object_agg(f.key, f.new_val) FILTER (WHERE f.old_val IS DISTINCT FROM f.new_val) AS after_obj,
+         bool_or(f.old_val IS DISTINCT FROM f.new_val) AS any_changed
+  FROM old, updated,
+  LATERAL (VALUES
+    ('name', organiser_activity_sanitise_scalar(to_jsonb(old.name)), organiser_activity_sanitise_scalar(to_jsonb(updated.name))),
+    ('color', organiser_activity_sanitise_scalar(to_jsonb(old.color)), organiser_activity_sanitise_scalar(to_jsonb(updated.color)))
+  ) AS f(key, old_val, new_val)
+),
+activity_row AS (
+  INSERT INTO organiser_activity (organisation_id, board_id, actor_user_id, actor_name, event_type, entity_type, entity_id, before_json, after_json)
+  SELECT 'org-a', updated.id, 'user-1', 'James', 'board.updated', 'board', updated.id::text, field_diff.before_obj, field_diff.after_obj
+  FROM updated, field_diff WHERE field_diff.any_changed IS TRUE RETURNING id
+)
+SELECT id FROM updated;
+" | psql_exec >/dev/null
+expect_eq "same-value board rename adds no new activity row" \
+  "SELECT count(*) FROM organiser_activity WHERE board_id='99999999-9999-9999-9999-999999999991';" \
+  "$BEFORE_COUNT"
+
+echo ""
+echo "--- group.created, group.updated, group.deleted (+ item moved to No group by FK, not by fabricated event) ---"
+echo "INSERT INTO organiser_items (id, board_id, organisation_id, name, status) VALUES ('99999999-9999-9999-9999-999999999992', '99999999-9999-9999-9999-999999999991', 'org-a', 'Item In Group', 'Not Started');" | psql_exec >/dev/null
+echo "
+WITH inserted AS (
+  INSERT INTO organiser_groups (id, board_id, organisation_id, name, color, position)
+  VALUES ('99999999-9999-9999-9999-999999999993', '99999999-9999-9999-9999-999999999991', 'org-a', 'Backlog', NULL, 0)
+  RETURNING id, name
+),
+activity_row AS (
+  INSERT INTO organiser_activity (organisation_id, board_id, actor_user_id, actor_name, event_type, entity_type, entity_id, before_json, after_json)
+  SELECT 'org-a', '99999999-9999-9999-9999-999999999991', 'user-1', 'James', 'group.created', 'group', inserted.id::text, NULL,
+    jsonb_build_object('name', organiser_activity_sanitise_scalar(to_jsonb(inserted.name)))
+  FROM inserted RETURNING id
+)
+SELECT id FROM inserted;
+" | psql_exec >/dev/null
+echo "UPDATE organiser_items SET group_id='99999999-9999-9999-9999-999999999993' WHERE id='99999999-9999-9999-9999-999999999992';" | psql_exec >/dev/null
+expect_eq "group.created recorded" \
+  "SELECT event_type FROM organiser_activity WHERE entity_id='99999999-9999-9999-9999-999999999993' AND event_type='group.created';" \
+  "group.created"
+
+echo "
+WITH old AS MATERIALIZED (
+  SELECT id, board_id, name, color, position FROM organiser_groups WHERE id='99999999-9999-9999-9999-999999999993' AND organisation_id='org-a' FOR UPDATE
+),
+updated AS (
+  UPDATE organiser_groups g SET name = 'In Progress' FROM old WHERE g.id = old.id
+  RETURNING g.id, g.board_id, g.name, g.color, g.position
+),
+field_diff AS (
+  SELECT jsonb_object_agg(f.key, f.old_val) FILTER (WHERE f.old_val IS DISTINCT FROM f.new_val) AS before_obj,
+         jsonb_object_agg(f.key, f.new_val) FILTER (WHERE f.old_val IS DISTINCT FROM f.new_val) AS after_obj,
+         bool_or(f.old_val IS DISTINCT FROM f.new_val) AS any_changed
+  FROM old, updated,
+  LATERAL (VALUES
+    ('name', organiser_activity_sanitise_scalar(to_jsonb(old.name)), organiser_activity_sanitise_scalar(to_jsonb(updated.name))),
+    ('color', organiser_activity_sanitise_scalar(to_jsonb(old.color)), organiser_activity_sanitise_scalar(to_jsonb(updated.color)))
+  ) AS f(key, old_val, new_val)
+),
+activity_row AS (
+  INSERT INTO organiser_activity (organisation_id, board_id, actor_user_id, actor_name, event_type, entity_type, entity_id, before_json, after_json)
+  SELECT 'org-a', updated.board_id, 'user-1', 'James', 'group.updated', 'group', updated.id::text, field_diff.before_obj, field_diff.after_obj
+  FROM updated, field_diff WHERE field_diff.any_changed IS TRUE RETURNING id
+)
+SELECT id FROM updated;
+" | psql_exec >/dev/null
+expect_eq "group.updated recorded with correct before/after name" \
+  "SELECT (before_json->>'name') || '->' || (after_json->>'name') FROM organiser_activity WHERE entity_id='99999999-9999-9999-9999-999999999993' AND event_type='group.updated';" \
+  "Backlog->InProgress"
+
+echo "
+WITH deleted AS (
+  DELETE FROM organiser_groups WHERE id='99999999-9999-9999-9999-999999999993' AND organisation_id='org-a'
+  RETURNING id, board_id, name
+),
+activity_row AS (
+  INSERT INTO organiser_activity (organisation_id, board_id, actor_user_id, actor_name, event_type, entity_type, entity_id, before_json, after_json)
+  SELECT 'org-a', deleted.board_id, 'user-1', 'James', 'group.deleted', 'group', deleted.id::text,
+    jsonb_build_object('name', organiser_activity_sanitise_scalar(to_jsonb(deleted.name))), NULL
+  FROM deleted RETURNING id
+)
+SELECT id FROM deleted;
+" | psql_exec >/dev/null
+expect_eq "group.deleted recorded with the group's final name snapshot (renamed to In Progress above), even though the group row itself is now gone" \
+  "SELECT before_json->>'name' FROM organiser_activity WHERE entity_id='99999999-9999-9999-9999-999999999993' AND event_type='group.deleted';" \
+  "InProgress"
+expect_eq "the item that was in the deleted group now has group_id NULL — via the FK ON DELETE SET NULL constraint alone" \
+  "SELECT group_id IS NULL FROM organiser_items WHERE id='99999999-9999-9999-9999-999999999992';" \
+  "t"
+expect_eq "no fabricated item.moved event was written for the affected item — only the one group.deleted row exists for this entity" \
+  "SELECT count(*) FROM organiser_activity WHERE entity_id='99999999-9999-9999-9999-999999999993';" \
+  "3"
+expect_eq "and definitively: zero item.moved rows exist anywhere for this item as a side effect of the group delete" \
+  "SELECT count(*) FROM organiser_activity WHERE entity_id='99999999-9999-9999-9999-999999999992' AND event_type='item.moved';" \
+  "0"
+
+echo ""
+echo "--- comment.created (bounded excerpt, item_id set) ---"
+echo "
+WITH inserted AS (
+  INSERT INTO organiser_item_updates (item_id, board_id, organisation_id, author_name, body)
+  VALUES ('99999999-9999-9999-9999-999999999992', '99999999-9999-9999-9999-999999999991', 'org-a', 'James', 'Waiting on supplier confirmation')
+  RETURNING id, body
+),
+activity_row AS (
+  INSERT INTO organiser_activity (organisation_id, board_id, item_id, actor_user_id, actor_name, event_type, entity_type, entity_id, before_json, after_json)
+  SELECT 'org-a', '99999999-9999-9999-9999-999999999991', '99999999-9999-9999-9999-999999999992', 'user-1', 'James',
+    'comment.created', 'comment', inserted.id::text, NULL,
+    jsonb_build_object('excerpt', organiser_activity_sanitise_scalar(to_jsonb(inserted.body)))
+  FROM inserted RETURNING id
+)
+SELECT id FROM inserted;
+" | psql_exec >/dev/null
+expect_eq "comment.created recorded with item_id set and the excerpt matching the posted body" \
+  "SELECT (item_id = '99999999-9999-9999-9999-999999999992') AND (after_json->>'excerpt' = 'Waiting on supplier confirmation') FROM organiser_activity WHERE entity_type='comment' AND event_type='comment.created';" \
+  "t"
+
+echo ""
+echo "--- file.added, file.deleted (deletion-safe: activity survives the file metadata row's own removal) ---"
+echo "
+WITH inserted AS (
+  INSERT INTO organiser_item_files (item_id, board_id, organisation_id, file_name, file_url, file_size, uploaded_by)
+  VALUES ('99999999-9999-9999-9999-999999999992', '99999999-9999-9999-9999-999999999991', 'org-a', 'invoice.pdf', '/organiser-attachments/x/invoice.pdf', 1024, 'user-1')
+  RETURNING id, file_name, file_size
+),
+activity_row AS (
+  INSERT INTO organiser_activity (organisation_id, board_id, item_id, actor_user_id, actor_name, event_type, entity_type, entity_id, before_json, after_json)
+  SELECT 'org-a', '99999999-9999-9999-9999-999999999991', '99999999-9999-9999-9999-999999999992', 'user-1', 'James',
+    'file.added', 'file', inserted.id::text, NULL,
+    jsonb_build_object('file_name', organiser_activity_sanitise_scalar(to_jsonb(inserted.file_name)), 'file_size', to_jsonb(inserted.file_size))
+  FROM inserted RETURNING id
+)
+SELECT id FROM inserted;
+" | psql_exec >/dev/null
+FILE_ID="$(echo "SELECT id FROM organiser_item_files WHERE file_name='invoice.pdf';" | psql_query | tr -d '[:space:]')"
+expect_eq "file.added recorded with file_name and file_size, no file_url" \
+  "SELECT (after_json->>'file_name' = 'invoice.pdf') AND ((after_json->>'file_size')::int = 1024) AND (after_json ? 'file_url') = false FROM organiser_activity WHERE entity_id='$FILE_ID' AND event_type='file.added';" \
+  "t"
+
+echo "
+WITH deleted AS (
+  DELETE FROM organiser_item_files WHERE id='$FILE_ID' AND item_id='99999999-9999-9999-9999-999999999992' AND organisation_id='org-a'
+  RETURNING id, board_id, file_name, file_url
+),
+activity_row AS (
+  INSERT INTO organiser_activity (organisation_id, board_id, item_id, actor_user_id, actor_name, event_type, entity_type, entity_id, before_json, after_json)
+  SELECT 'org-a', deleted.board_id, '99999999-9999-9999-9999-999999999992', 'user-1', 'James',
+    'file.deleted', 'file', deleted.id::text,
+    jsonb_build_object('file_name', organiser_activity_sanitise_scalar(to_jsonb(deleted.file_name))), NULL
+  FROM deleted RETURNING id
+)
+SELECT file_url FROM deleted;
+" | psql_exec >/dev/null
+expect_eq "organiser_item_files row is actually gone" \
+  "SELECT count(*) FROM organiser_item_files WHERE id='$FILE_ID';" \
+  "0"
+expect_eq "file.deleted history remains readable, with the filename preserved, even though the file metadata row itself is gone" \
+  "SELECT before_json->>'file_name' FROM organiser_activity WHERE entity_id='$FILE_ID' AND event_type='file.deleted';" \
+  "invoice.pdf"
+
+echo ""
+echo "--- board.deleted: history for every entity on this board (item/group/comment/file activity) survives the board's own CASCADE delete ---"
+PRE_DELETE_COUNT="$(echo "SELECT count(*) FROM organiser_activity WHERE board_id='99999999-9999-9999-9999-999999999991';" | psql_query | tr -d '[:space:]')"
+echo "
+WITH deleted AS (
+  DELETE FROM organiser_boards WHERE id='99999999-9999-9999-9999-999999999991' AND organisation_id='org-a'
+  RETURNING id, name
+),
+activity_row AS (
+  INSERT INTO organiser_activity (organisation_id, board_id, actor_user_id, actor_name, event_type, entity_type, entity_id, before_json, after_json)
+  SELECT 'org-a', deleted.id, 'user-1', 'James', 'board.deleted', 'board', deleted.id::text,
+    jsonb_build_object('name', organiser_activity_sanitise_scalar(to_jsonb(deleted.name))), NULL
+  FROM deleted RETURNING id
+)
+SELECT id FROM deleted;
+" | psql_exec >/dev/null
+expect_eq "organiser_boards row is gone (and its organiser_items/organiser_item_files/organiser_item_updates cascaded with it)" \
+  "SELECT count(*) FROM organiser_boards WHERE id='99999999-9999-9999-9999-999999999991';" \
+  "0"
+expect_eq "organiser_items row cascaded away too (board_id ON DELETE CASCADE)" \
+  "SELECT count(*) FROM organiser_items WHERE id='99999999-9999-9999-9999-999999999992';" \
+  "0"
+expect_eq "every activity row for this board — board.created/updated, group.created/updated/deleted, comment.created, file.added/deleted, and now board.deleted itself — remains queryable after the board and everything under it is gone" \
+  "SELECT count(*) FROM organiser_activity WHERE board_id='99999999-9999-9999-9999-999999999991';" \
+  "$((PRE_DELETE_COUNT + 1))"
+expect_eq "board.deleted itself carries the correct before_json name snapshot" \
+  "SELECT before_json->>'name' FROM organiser_activity WHERE board_id='99999999-9999-9999-9999-999999999991' AND event_type='board.deleted';" \
+  "Operations"
 
 echo ""
 echo "=== SUMMARY ==="

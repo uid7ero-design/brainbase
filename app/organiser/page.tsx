@@ -805,6 +805,9 @@ function BoardActivity({
                   </span>
                   <span style={{ fontSize: 9.5, color: t.ink(.25), flexShrink: 0 }}>{new Date(ev.created_at).toLocaleString()}</span>
                 </div>
+                {desc.detail && (
+                  <div style={{ fontSize: 11.5, color: t.ink(.55), fontStyle: "italic", marginTop: 2 }}>{`"${desc.detail}"`}</div>
+                )}
                 {desc.diffs.length > 0 && (
                   <div style={{ display: "flex", flexDirection: "column", gap: 2, marginTop: 4 }}>
                     {desc.diffs.map((d, i) => (
@@ -915,6 +918,9 @@ function ItemActivity({
                   <span style={{ fontSize: 11, fontWeight: 600, color: t.ink(.75) }}>{desc.summary}</span>
                   <span style={{ fontSize: 9.5, color: t.ink(.25), flexShrink: 0 }}>{new Date(ev.created_at).toLocaleString()}</span>
                 </div>
+                {desc.detail && (
+                  <div style={{ fontSize: 11.5, color: t.ink(.55), fontStyle: "italic", marginTop: 2 }}>{`"${desc.detail}"`}</div>
+                )}
                 {desc.diffs.length > 0 && (
                   <div style={{ display: "flex", flexDirection: "column", gap: 2, marginTop: 4 }}>
                     {desc.diffs.map((d, i) => (

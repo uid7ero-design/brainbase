@@ -36,10 +36,29 @@ export async function POST(req: NextRequest) {
   `;
   const position = posRows[0].next as number;
 
+  // Phase D.4.5F — board.created, atomic with the INSERT (one writable
+  // CTE, same pattern as the item routes' own instrumentation). before_json
+  // is NULL (a create has no prior state); after_json carries just the
+  // name — the only user-meaningful field at creation time.
   const rows = await sql`
-    INSERT INTO organiser_boards (organisation_id, name, color, position, created_by)
-    VALUES (${session.organisationId}, ${name}, ${color}, ${position}, ${session.userId})
-    RETURNING id, name, color, icon, position, created_at, updated_at
+    WITH inserted AS (
+      INSERT INTO organiser_boards (organisation_id, name, color, position, created_by)
+      VALUES (${session.organisationId}, ${name}, ${color}, ${position}, ${session.userId})
+      RETURNING id, name, color, icon, position, created_at, updated_at
+    ),
+    activity_row AS (
+      INSERT INTO organiser_activity (
+        organisation_id, board_id, actor_user_id, actor_name,
+        event_type, entity_type, entity_id, before_json, after_json
+      )
+      SELECT
+        ${session.organisationId}, inserted.id, ${session.userId}, ${session.name},
+        'board.created', 'board', inserted.id::text, NULL,
+        jsonb_build_object('name', organiser_activity_sanitise_scalar(to_jsonb(inserted.name)))
+      FROM inserted
+      RETURNING id
+    )
+    SELECT id, name, color, icon, position, created_at, updated_at FROM inserted
   `;
 
   return NextResponse.json({ board: { ...rows[0], item_count: 0 } });
