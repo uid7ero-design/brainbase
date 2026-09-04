@@ -26,6 +26,20 @@ import {
   Module,
   SportSeason,
 } from '@prisma/client';
+import {
+  normalizeDebtorSourceFields,
+  tallyNormalizationFailure,
+  emptyNormalizationCounts,
+} from '../modules/debtors/normalize';
+
+// Phase C1-DBI — explicit destructive-override acknowledgement, required
+// only when this script's ingestDebtors() step would replace EXISTING
+// debtor_accounts rows that carry real Upload lineage (see ingestDebtors()
+// below for the preflight check this guards). Not required, and never
+// checked, for a genuinely brand-new organisation with zero prior debtor
+// data — the documented bootstrap use case (see scripts/create-onkaparinga-
+// org.ts's own printed next-step instructions) is unaffected by this guard.
+const ALLOW_DEBTORS_REPLACE = process.env.ALLOW_DEBTORS_REPLACE === 'true';
 
 // Minimal .env loader (dotenv not in deps)
 (function loadEnv() {
@@ -311,18 +325,55 @@ async function ingestMissedCollections() {
 // address this. Solving within-file duplicate detection is explicitly out
 // of scope for this phase (see Phase C1-DBF's own report, section F).
 //
-// This script also does not populate the six charge-line typed columns
-// added in Phase C1-DBS2 (financial_year/financial_quarter/charge_type/
-// invoice_date/source_book/source_charge_code) — only `metadata`. It
-// bypasses the Upload/uploads table entirely (upload_id is always left
-// NULL on every row it writes), so it has no access to the
-// Upload.original_name-based repeated-import warning
-// modules/debtors/index.ts's importDebtors() now performs either — not
-// needed here regardless, since the deleteMany-based replace semantics
-// make repeated-file-risk a different, non-accumulating question for this
-// specific script.
+// Phase C1-DBI: this script bypasses the Upload/uploads table entirely
+// (upload_id is always left NULL on every row it writes) — that is also
+// exactly what makes upload_id IS NOT NULL a reliable signal that a given
+// organisation's existing debtor_accounts rows came from the real,
+// lineage-tracked in-app importer (modules/debtors/index.ts) rather than
+// this bootstrap script. The preflight check below uses precisely that
+// signal to refuse an ordinary run that would otherwise silently destroy
+// real imported data — see ALLOW_DEBTORS_REPLACE above. No new Upload or
+// ImportBatch record is created here (that would mean inventing a fake
+// upload/lineage record this script has no legitimate data for — Phase
+// C1-DBI §6 explicitly forbids that); the absence of real lineage for
+// script-sourced rows is documented, not papered over.
+//
+// This script now populates the same six charge-line typed columns Phase
+// C1-DBS2 backfilled for existing rows (financial_year/financial_quarter/
+// charge_type/invoice_date/source_book/source_charge_code), at write
+// time, via the shared modules/debtors/normalize.ts helper — the same
+// module modules/debtors/index.ts uses, so the two ingestion paths can
+// never independently drift on what counts as a valid bookname/quarter/
+// date shape.
 async function ingestDebtors() {
   console.log('\n📂  Debtors  →  debtor_accounts');
+
+  // Phase C1-DBI — preflight + destructive-replace guard. Under NO
+  // circumstances should an ordinary/default invocation of this script
+  // silently delete an organisation's real, lineage-tracked debtor rows.
+  const existingCount = await prisma.debtorAccount.count({ where: { organisation_id: ORG_ID } });
+  const lineageBackedCount = await prisma.debtorAccount.count({
+    where: { organisation_id: ORG_ID, upload_id: { not: null } },
+  });
+  console.log(
+    `   preflight: ${existingCount} existing debtor_accounts row(s) for this organisation, ` +
+    `of which ${lineageBackedCount} carry real Upload lineage (upload_id IS NOT NULL — i.e. came ` +
+    `from the normal in-app importer, not this script).`
+  );
+
+  if (existingCount > 0 && !ALLOW_DEBTORS_REPLACE) {
+    console.error(
+      `   ❌ REFUSING to run: ingestDebtors() performs a full deleteMany({organisation_id}) before ` +
+      `reinserting, which would destroy ${existingCount} existing debtor_accounts row(s) ` +
+      `(${lineageBackedCount} of them with real import lineage). This script is bootstrap/seed ` +
+      `tooling for a BRAND NEW organisation with no existing debtor data (see scripts/create-` +
+      `onkaparinga-org.ts's own printed next-step instructions) — it is not a safe way to refresh an ` +
+      `organisation that has already received real Debtors imports. Set ALLOW_DEBTORS_REPLACE=true ` +
+      `only if you have confirmed these existing rows are disposable seed/demo data.`
+    );
+    report('debtor_accounts', 0, 0, ['refused: existing rows present and ALLOW_DEBTORS_REPLACE not set']);
+    return;
+  }
 
   // Row 0: Excel column labels ("Data", "", …) — skip
   // Row 1: All empty — skip
@@ -336,6 +387,7 @@ async function ingestDebtors() {
   function col(name: string) { return headers.indexOf(name); }
 
   const today = new Date();
+  const normalizationCounts = emptyNormalizationCounts();
 
   const deleted = await prisma.debtorAccount.deleteMany({ where: { organisation_id: ORG_ID } });
 
@@ -352,6 +404,19 @@ async function ingestDebtors() {
         ? Math.max(0, Math.floor((today.getTime() - invoiceDate.getTime()) / 86_400_000))
         : 365;
 
+      const bookname   = str(row[col('BOOKNAME')]);
+      const chargecode = str(row[col('CHARGECODE')]);
+      const quarter    = str(row[col('INVOICEQUARTER')]);
+
+      const rawTyped = {
+        source_book:        bookname,
+        source_charge_code: chargecode,
+        financial_quarter:  quarter,
+        invoice_date:        invoiceDate,
+      };
+      const typed = normalizeDebtorSourceFields(rawTyped);
+      tallyNormalizationFailure(normalizationCounts, rawTyped, typed);
+
       return {
         organisation_id:     ORG_ID!,
         account_number:      account,
@@ -365,11 +430,17 @@ async function ingestDebtors() {
         status:              outstanding <= 0 ? ('RESOLVED' as const) : ('OPEN' as const),
         collection_stage:    null as string | null,
         notes:               null as string | null,
+        financial_year:      typed.financial_year,
+        financial_quarter:   typed.financial_quarter,
+        charge_type:         typed.charge_type,
+        invoice_date:        typed.invoice_date,
+        source_book:         typed.source_book,
+        source_charge_code:  typed.source_charge_code,
         metadata:            {
           suburb:       str(row[col('SUBURBDESCRIPTION')]),
-          chargecode:   str(row[col('CHARGECODE')]),
-          bookname:     str(row[col('BOOKNAME')]),
-          quarter:      str(row[col('INVOICEQUARTER')]),
+          chargecode,
+          bookname,
+          quarter,
           invoice_date: invoiceDate?.toISOString() ?? null,
           address:      str(row[col('FORMATTEDADDRESS')]),
         } as object,
@@ -382,7 +453,22 @@ async function ingestDebtors() {
     batch => prisma.debtorAccount.createMany({ data: batch, skipDuplicates: true }),
   );
 
-  report('debtor_accounts', deleted.count, inserted);
+  const normalizationIssues =
+    normalizationCounts.unrecognized_bookname + normalizationCounts.invalid_quarter +
+    normalizationCounts.unparseable_invoice_date + normalizationCounts.blank_chargecode;
+  const errors: string[] = [];
+  if (normalizationIssues > 0) {
+    const msg =
+      `normalization: unrecognized bookname ${normalizationCounts.unrecognized_bookname}, ` +
+      `invalid quarter ${normalizationCounts.invalid_quarter}, ` +
+      `unparseable invoice_date ${normalizationCounts.unparseable_invoice_date}, ` +
+      `blank chargecode ${normalizationCounts.blank_chargecode} — rows still inserted in full, ` +
+      `derived column(s) left null.`;
+    console.warn(`   ${msg}`);
+    errors.push(msg);
+  }
+
+  report('debtor_accounts', deleted.count, inserted, errors);
 }
 
 // ── 5. Sporting Activities ────────────────────────────────────────────────────

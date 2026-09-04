@@ -4,6 +4,11 @@ import { readFileSync } from "fs";
 import { computeDebtorKpi, agingBucketFromDays } from "./calculations";
 import { persistMetrics } from "@/services/persistence";
 import { Module } from "@prisma/client";
+import {
+  normalizeDebtorSourceFields,
+  tallyNormalizationFailure,
+  emptyNormalizationCounts,
+} from "./normalize";
 
 // Phase C1-DBF — corrects a Phase C1.1 assumption that real rehearsal-data
 // investigation (Phase C1-DBR/C1-DBD/C1-DBS) conclusively invalidated.
@@ -85,10 +90,46 @@ export async function importDebtors(
 
   const { isRepeat, priorUploadId } = await checkRepeatedImportRisk(organisation_id, upload_id);
 
+  // Phase C1-DBI — normalization-failure counts, aggregated across every
+  // row of this import and reported once at the end (§7). Never per-row,
+  // never containing any account number/name/amount (no PII).
+  const normalizationCounts = emptyNormalizationCounts();
+
   const allRecords = rows.map(row => {
     const days_overdue = parseNum(get(row, "days_overdue"));
     const rawBucket    = nullStr(get(row, "aging_bucket"));
     const aging_bucket = mapAgingBucket(rawBucket ?? agingBucketFromDays(days_overdue));
+
+    // Phase C1-DBI — the same six typed/source-preservation columns
+    // Phase C1-DBS2 backfilled for existing rows are now populated at
+    // write time for every NEW row too, via the shared
+    // modules/debtors/normalize.ts helper (never duplicated here).
+    const rawTyped = {
+      source_book:        get(row, "source_book"),
+      source_charge_code: get(row, "source_charge_code"),
+      financial_quarter:  get(row, "financial_quarter"),
+      invoice_date:        get(row, "invoice_date"),
+    };
+    const typed = normalizeDebtorSourceFields(rawTyped);
+    tallyNormalizationFailure(normalizationCounts, rawTyped, typed);
+
+    // `metadata` remains the permanent lineage record (see
+    // prisma/schema.prisma's DebtorAccount comment) — the raw, un-
+    // normalized source strings are preserved here under the same key
+    // names scripts/add-debtor-charge-line-columns.ts already backfills
+    // from, regardless of whether the derived typed column above could
+    // be parsed, so no source information is ever lost.
+    const lineageMetadata: Record<string, unknown> = {};
+    const bookRaw = nullStr(rawTyped.source_book);
+    if (bookRaw != null) lineageMetadata.bookname = bookRaw;
+    const chargeRaw = nullStr(rawTyped.source_charge_code);
+    if (chargeRaw != null) lineageMetadata.chargecode = chargeRaw;
+    const quarterRaw = nullStr(rawTyped.financial_quarter);
+    if (quarterRaw != null) lineageMetadata.quarter = quarterRaw;
+    const invoiceDateRaw = rawTyped.invoice_date instanceof Date
+      ? (isNaN(rawTyped.invoice_date.getTime()) ? null : rawTyped.invoice_date.toISOString())
+      : nullStr(rawTyped.invoice_date);
+    if (invoiceDateRaw != null) lineageMetadata.invoice_date = invoiceDateRaw;
 
     return {
       organisation_id,
@@ -104,13 +145,35 @@ export async function importDebtors(
       status:             mapDebtorStatus(String(get(row, "status") ?? "open")),
       collection_stage:   nullStr(get(row, "collection_stage")),
       notes:              nullStr(get(row, "notes")),
+      financial_year:      typed.financial_year,
+      financial_quarter:   typed.financial_quarter,
+      charge_type:         typed.charge_type,
+      invoice_date:        typed.invoice_date,
+      source_book:         typed.source_book,
+      source_charge_code:  typed.source_charge_code,
       // Best-effort, non-blocking audit marker — see checkRepeatedImportRisk
-      // above. `{}` (the schema default) for every ordinary import.
-      metadata: isRepeat
-        ? { duplicate_import_risk: true, prior_upload_id: priorUploadId, detected_by: "original_name_match" }
-        : {},
+      // above. The heuristic is never treated as proof of duplication: it
+      // only ever ADDS a marker to the row's real source lineage metadata,
+      // never replaces it (Phase C1-DBI §3 — merge safely, don't discard).
+      metadata: (isRepeat
+        ? { ...lineageMetadata, duplicate_import_risk: true, prior_upload_id: priorUploadId, detected_by: "original_name_match" }
+        : lineageMetadata) as object,
     };
   });
+
+  const normalizationIssues =
+    normalizationCounts.unrecognized_bookname + normalizationCounts.invalid_quarter +
+    normalizationCounts.unparseable_invoice_date + normalizationCounts.blank_chargecode;
+  if (normalizationIssues > 0) {
+    console.warn(
+      `importDebtors: normalization summary for organisation ${organisation_id} (upload ${upload_id}) — ` +
+      `unrecognized bookname: ${normalizationCounts.unrecognized_bookname}, ` +
+      `invalid quarter: ${normalizationCounts.invalid_quarter}, ` +
+      `unparseable invoice_date: ${normalizationCounts.unparseable_invoice_date}, ` +
+      `blank chargecode: ${normalizationCounts.blank_chargecode}. ` +
+      `Affected rows are still imported in full — only the derived typed column(s) are left null (never guessed).`
+    );
+  }
 
   // A row with no account_number cannot be usefully attributed to any
   // account at all (not a duplicate-detection concern — this predates and
