@@ -1,15 +1,18 @@
 import sql from '@/lib/db';
 
 // Phase D.4.5D — item-scoped, tenant-safe, deletion-safe activity reads.
+// Phase D.4.5E extends this module with a board-scoped sibling
+// (listBoardActivity) for the board Activity feed — see that function's
+// own header for what differs and what's shared.
 //
-// DELETION-SAFE BY CONSTRUCTION: organiser_activity.item_id carries no FK
-// to organiser_items (see the CREATE TABLE comment in
-// app/api/admin/migrate/route.ts, step 40) specifically so a deleted
-// item's history remains queryable. This module therefore NEVER joins
-// against or requires a live organiser_items row for its own existence —
-// it queries organiser_activity directly, scoped by organisation_id (a
-// real FK, always present) + item_id (indexed via
-// idx_organiser_activity_item, FK-free) + entity_type = 'item'.
+// DELETION-SAFE BY CONSTRUCTION: organiser_activity.item_id AND board_id
+// both carry no FK to organiser_items/organiser_boards (see the CREATE
+// TABLE comment in app/api/admin/migrate/route.ts, step 40) specifically
+// so a deleted item's OR a deleted board's history remains queryable.
+// This module therefore never joins against or requires a live
+// organiser_items/organiser_boards row for either read path — it queries
+// organiser_activity directly, scoped by organisation_id (a real FK,
+// always present) plus item_id or board_id (both indexed, both FK-free).
 //
 // TENANT BOUNDARY: every call restates organisation_id directly in its own
 // WHERE clause from the caller's already-authorized trusted context — this
@@ -190,6 +193,114 @@ export async function listItemActivity(context: ListItemActivityTrustedContext):
           WHERE organisation_id = ${organisationId}
             AND item_id = ${itemId}
             AND entity_type = 'item'
+          ORDER BY date_trunc('milliseconds', created_at) DESC, id DESC
+          LIMIT ${limit + 1}
+        `
+  ) as ActivityRow[];
+
+  const hasNextPage = rows.length > limit;
+  const page = rows.slice(0, limit);
+  const last = page[page.length - 1];
+  const next_cursor = hasNextPage && last ? encodeCursor({ createdAt: last.created_at.toISOString(), id: last.id }) : null;
+
+  return { ok: true, activity: page.map(toDTO), next_cursor };
+}
+
+// ─── Board-scoped reads (Phase D.4.5E) ──────────────────────────────────────
+
+export interface ListBoardActivityTrustedContext {
+  organisationId: string;
+  boardId: string;
+  /** Opaque cursor from a prior page's next_cursor. Omit for the first page. */
+  cursor?: string;
+  /** Defaults to DEFAULT_LIMIT; must be a positive integer <= MAX_LIMIT. */
+  limit?: number;
+}
+
+export type ListBoardActivityFailureCode = 'INVALID_BOARD_ID' | 'INVALID_CURSOR' | 'INVALID_LIMIT';
+
+export type ListBoardActivityResult =
+  | { ok: true; activity: OrganiserActivityEventDTO[]; next_cursor: string | null }
+  | { ok: false; code: ListBoardActivityFailureCode; message: string };
+
+/**
+ * Lists organiser_activity rows for one board, newest first, bounded and
+ * keyset-paginated — the board-wide answer to "what changed on this board".
+ * Reuses every piece of listItemActivity's pagination machinery unchanged
+ * (validateLimit, decodeCursor/encodeCursor, the ActivityRow shape, toDTO,
+ * the millisecond-precision cursor comparison) — the only thing that
+ * differs is the WHERE clause's scope column, which raw parameterized SQL
+ * cannot express as a shared dynamic fragment without an unsafe identifier
+ * interpolation, so it is duplicated here exactly as listItemActivity
+ * already duplicates its own cursor/no-cursor query pair.
+ *
+ * SCOPE — deliberately NOT filtered to entity_type = 'item': board_id is
+ * populated on every organiser_activity row regardless of entity type (see
+ * the CREATE TABLE comment, step 40), and this endpoint's whole purpose is
+ * "everything that happened on this board" — not just item events. Today
+ * only item.created/updated/moved/deleted rows actually exist in
+ * production (see the D.4.5A/D.4.5D audits — board/group/column/comment/
+ * file/import instrumentation is deliberately not built yet), so in
+ * practice every row returned IS an item event; this function does not
+ * hard-code that assumption, so a future phase that instruments e.g.
+ * group.created needs no change here — lib/organiser/activityFormat.ts's
+ * describeBoardActivityEvent already degrades any unrecognised event_type
+ * gracefully rather than crashing.
+ *
+ * DELETION-SAFE, NO BOARD-EXISTENCE CHECK: like listItemActivity, this
+ * never joins against or requires organiser_boards. A deleted board's
+ * history remains readable through this same query — there is no product
+ * requirement in this phase that the board still exist (the feed is
+ * accessed from within an already-open, already-live board in the UI; a
+ * caller reaching this function with a stale/deleted boardId gets that
+ * board's own historical activity, exactly as item history remains
+ * readable after item deletion — not a security concern, since
+ * organisation_id is still asserted directly).
+ */
+export async function listBoardActivity(context: ListBoardActivityTrustedContext): Promise<ListBoardActivityResult> {
+  const { organisationId, boardId, cursor, limit: rawLimit } = context;
+
+  if (!UUID_RE.test(boardId)) {
+    return { ok: false, code: 'INVALID_BOARD_ID', message: 'boardId must be a valid identifier.' };
+  }
+
+  const limit = validateLimit(rawLimit);
+  if (limit === null) {
+    return { ok: false, code: 'INVALID_LIMIT', message: `limit must be a positive integer no greater than ${MAX_LIMIT}.` };
+  }
+
+  let cursorTuple: CursorTuple | null = null;
+  if (cursor !== undefined) {
+    cursorTuple = decodeCursor(cursor);
+    if (!cursorTuple) {
+      return {
+        ok: false,
+        code: 'INVALID_CURSOR',
+        message: 'The pagination cursor provided is not valid. Request the first page again without a cursor.',
+      };
+    }
+  }
+
+  const rows = (
+    cursorTuple
+      ? await sql`
+          SELECT id, event_type, entity_type, entity_id, actor_user_id, actor_name,
+                 before_json, after_json, metadata_json,
+                 date_trunc('milliseconds', created_at) AS created_at
+          FROM organiser_activity
+          WHERE organisation_id = ${organisationId}
+            AND board_id = ${boardId}
+            AND (date_trunc('milliseconds', created_at), id) < (${cursorTuple.createdAt}::timestamptz, ${cursorTuple.id})
+          ORDER BY date_trunc('milliseconds', created_at) DESC, id DESC
+          LIMIT ${limit + 1}
+        `
+      : await sql`
+          SELECT id, event_type, entity_type, entity_id, actor_user_id, actor_name,
+                 before_json, after_json, metadata_json,
+                 date_trunc('milliseconds', created_at) AS created_at
+          FROM organiser_activity
+          WHERE organisation_id = ${organisationId}
+            AND board_id = ${boardId}
           ORDER BY date_trunc('milliseconds', created_at) DESC, id DESC
           LIMIT ${limit + 1}
         `
