@@ -2,6 +2,18 @@
 
 /* ─── Design Tokens ──────────────────────────────────── */
 :root {
+  /* Phase D.4.5C-W2 — shared app header offset. Defaults to TopNav's
+     own exact height (52px — see lib/layout/headerOffset.ts's
+     TOP_NAV_HEIGHT_PX, the single source of truth for that number),
+     correct for every non-super_admin session and for the very first
+     paint before any client JS runs. Corrected upward at runtime, only
+     for a resolved super_admin session, by OrgSwitcher's own effect
+     once its real rendered height above TopNav is known. Every fixed/
+     sticky consumer that needs to sit immediately below the app's
+     header stack should read var(--app-header-offset) — never a bare
+     `top: 52` literal. */
+  --app-header-offset: 52px;
+
   /* Backgrounds */
   --bg-base:    #08090C;
   --bg-surface: #0D0D15;

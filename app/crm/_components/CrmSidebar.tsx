@@ -1,6 +1,7 @@
 'use client';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { APP_HEADER_OFFSET_VAR, APP_HEADER_OFFSET_VH_CALC } from '@/lib/layout/headerOffset';
 
 const BORDER = '#1a1d24';
 
@@ -43,8 +44,8 @@ export default function CrmSidebar() {
         flexDirection: 'column',
         flexShrink: 0,
         position: 'sticky',
-        top: 52,
-        height: 'calc(100vh - 52px)',
+        top: APP_HEADER_OFFSET_VAR,
+        height: APP_HEADER_OFFSET_VH_CALC,
       }}
     >
       <div

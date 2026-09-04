@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import InstagramFeedPanel from '@/components/instagram/InstagramFeedPanel';
 import { formatEventTime } from '@/lib/founder/formatEventTime';
+import { APP_HEADER_OFFSET_VAR, APP_HEADER_OFFSET_VH_CALC } from '@/lib/layout/headerOffset';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -1600,8 +1601,8 @@ function ClientDrawer({ client, onClose, onAction, onModal, onAdvanceStage, draw
     <>
       <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 190, background: 'rgba(0,0,0,0.4)' }} />
       <div style={{
-        position: 'fixed', top: 52, right: 0, width: 360,
-        height: 'calc(100vh - 52px)', zIndex: 200,
+        position: 'fixed', top: APP_HEADER_OFFSET_VAR, right: 0, width: 360,
+        height: APP_HEADER_OFFSET_VH_CALC, zIndex: 200,
         background: T.s2, borderLeft: `1px solid ${T.border}`,
         overflowY: 'auto', display: 'flex', flexDirection: 'column',
         fontFamily: 'var(--font-inter), Inter, sans-serif',
@@ -2591,7 +2592,7 @@ export default function FounderPage() {
   };
 
   return (
-    <div style={{ margin: '-40px', height: 'calc(100vh - 52px)', display: 'flex', flexDirection: 'column', background: T.bg, color: T.text, fontFamily: 'var(--font-inter), Inter, -apple-system, sans-serif', fontSize: 12, overflow: 'hidden' }}>
+    <div style={{ margin: '-40px', height: APP_HEADER_OFFSET_VH_CALC, display: 'flex', flexDirection: 'column', background: T.bg, color: T.text, fontFamily: 'var(--font-inter), Inter, -apple-system, sans-serif', fontSize: 12, overflow: 'hidden' }}>
 
       {/* Status bar — Phase B: the fake "Demo status" dot (always green,
           backed by no real check) and the hardcoded "MRR $12,480 (demo)"

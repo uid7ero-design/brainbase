@@ -47,6 +47,20 @@ import path from 'path';
 // scripts/tests/verify-datahub-initiate-finalize-routes.sh) is added
 // alongside the existing specs, for the same reason and with the same
 // explicit-file-argument isolation.
+//
+// 5A.2K.1 addition: scripts/tests/confirmWorksheet.integration.test.ts
+// (the dark canonical DATA_HUB worksheet confirmation + illegal-dumping
+// transactional importer service's own real-Postgres harness — see
+// scripts/tests/verify-confirm-worksheet.sh) is added alongside the
+// existing specs, for the same reason and with the same
+// explicit-file-argument isolation.
+//
+// 5A.2K.2 addition: scripts/tests/dataHubK2.integration.test.ts (the new
+// CSV-only inspection service and the two new HTTP routes exposing
+// inspection + illegal-dumping confirmation — see
+// scripts/tests/verify-datahub-k2.sh) is added alongside the existing
+// specs, for the same reason and with the same explicit-file-argument
+// isolation.
 export default defineConfig({
   test: {
     environment: 'node',
@@ -57,6 +71,8 @@ export default defineConfig({
       'scripts/tests/confirmImportLineageGuard.integration.test.ts',
       'scripts/tests/dataHubReadRoutes.integration.test.ts',
       'scripts/tests/dataHubInitiateFinalizeRoutes.integration.test.ts',
+      'scripts/tests/confirmWorksheet.integration.test.ts',
+      'scripts/tests/dataHubK2.integration.test.ts',
     ],
     testTimeout: 30_000,
     hookTimeout: 30_000,

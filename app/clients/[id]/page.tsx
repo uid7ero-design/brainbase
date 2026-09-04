@@ -5,6 +5,7 @@ import sql from '@/lib/db'
 import ClientWorkspace, {
   type Contact, type Lead, type Opportunity, type PlatformModule, type Implementation, type Person,
 } from '@/components/clients/ClientWorkspace'
+import { APP_HEADER_OFFSET_VAR } from '@/lib/layout/headerOffset'
 
 export const dynamic = 'force-dynamic'
 
@@ -164,7 +165,7 @@ function ClientBanner({ orgName, status, plan }: { orgName: string; status: stri
   const st = STATUS_LABEL[status] ?? UNKNOWN_STATUS
   return (
     <div style={{
-      position: 'sticky', top: 52, zIndex: 90,
+      position: 'sticky', top: APP_HEADER_OFFSET_VAR, zIndex: 90,
       background: 'rgba(99,102,241,.10)',
       borderBottom: '1px solid rgba(99,102,241,.20)',
       backdropFilter: 'blur(12px)',

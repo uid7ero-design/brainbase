@@ -5,6 +5,7 @@ import Sidebar from './Sidebar';
 import OpBar from './OpBar';
 import IntelRail from './IntelRail';
 import { useOpsTheme } from './theme';
+import { APP_HEADER_OFFSET_VAR } from '@/lib/layout/headerOffset';
 
 interface WorkspaceShellProps {
   children: React.ReactNode;
@@ -79,7 +80,9 @@ export default function WorkspaceShell({
       `}} />
 
       <div style={{
-        position: 'fixed', top: 52, left: 0, right: 0, bottom: 0, display: 'flex',
+        // Phase D.4.5C-W2 — shared --app-header-offset custom property
+        // (lib/layout/headerOffset.ts) instead of a hardcoded `top: 52`.
+        position: 'fixed', top: APP_HEADER_OFFSET_VAR, left: 0, right: 0, bottom: 0, display: 'flex',
         background: t.pageBg,
         fontFamily: 'var(--font-inter),"Inter",-apple-system,sans-serif',
         animation: 'ws-fadein .3s ease',

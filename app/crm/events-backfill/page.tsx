@@ -4,6 +4,42 @@ import { useState } from 'react';
 const CARD = '#0e1014';
 const BORDER = '#1a1d24';
 
+type ClassificationPreviewRow = {
+  contactId: string;
+  name: string;
+  email: string | null;
+  currentClassification: string | null;
+  notesMarker: string | null;
+  linkedEventOrderCount: number;
+  eventActivityCount: number;
+  eligible: boolean;
+  skipReason: string | null;
+};
+
+type ClassificationPreviewResult = {
+  crmEnabled: boolean;
+  totalCandidates: number;
+  eligibleCount: number;
+  rows: ClassificationPreviewRow[];
+};
+
+type ClassificationExecutionRow = {
+  contactId: string;
+  name: string;
+  outcome: 'updated' | 'skipped_already_classified' | 'skipped_no_marker' | 'skipped_no_order_link' | 'skipped_stale' | 'failed';
+  error?: string;
+};
+
+type ClassificationExecutionResult = {
+  success: boolean;
+  crmEnabled: boolean;
+  eligibleAtExecution: number;
+  updatedCount: number;
+  skippedCount: number;
+  updated: ClassificationExecutionRow[];
+  skipped: ClassificationExecutionRow[];
+};
+
 type PreviewResult = {
   crmEnabled: boolean;
   totalUnlinkedOrders: number;
@@ -50,6 +86,51 @@ export default function EventsBackfillPage() {
   const [executing, setExecuting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [forbidden, setForbidden] = useState(false);
+
+  const [classificationPreview, setClassificationPreview] = useState<ClassificationPreviewResult | null>(null);
+  const [classificationExecution, setClassificationExecution] = useState<ClassificationExecutionResult | null>(null);
+  const [classificationLoading, setClassificationLoading] = useState(false);
+  const [classificationExecuting, setClassificationExecuting] = useState(false);
+  const [classificationError, setClassificationError] = useState<string | null>(null);
+  const [classificationForbidden, setClassificationForbidden] = useState(false);
+
+  // See lib/crm/eventContactClassificationBackfill.ts for the
+  // eligibility logic this table reflects. GET is re-fetchable any
+  // number of times with zero side effects.
+  async function runClassificationPreview() {
+    setClassificationLoading(true); setClassificationError(null); setClassificationForbidden(false);
+    try {
+      const res = await fetch('/api/crm/events-backfill/classification');
+      if (res.status === 401 || res.status === 403) { setClassificationForbidden(true); return; }
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) { setClassificationError(body.error ?? `Preview failed (${res.status}).`); return; }
+      setClassificationPreview(body);
+    } catch { setClassificationError('Preview failed. Please try again.'); }
+    finally { setClassificationLoading(false); }
+  }
+
+  // Distinct from runExecute() above — this is the classification
+  // section's own execute flow, deliberately not mixed with the
+  // separate order-linking execution above it on this page. The server
+  // re-checks eligibility itself at execution time (a contact this
+  // preview shows as eligible may have been classified elsewhere in
+  // the meantime) — the confirm text says so plainly rather than
+  // implying the count on screen is a guaranteed outcome.
+  async function runClassificationExecute() {
+    if (!classificationPreview) return;
+    const summary = `Classify ${classificationPreview.eligibleCount} currently-eligible contact(s) as Event Contact? The server will re-check eligibility for each one right before writing it, so the actual count classified may be lower if anything changed since this preview. Contacts already classified as Client, Lead, Supplier, Partner, or Other are never overwritten.`;
+    if (!confirm(summary)) return;
+    setClassificationExecuting(true); setClassificationError(null);
+    try {
+      const res = await fetch('/api/crm/events-backfill/classification', { method: 'POST' });
+      if (res.status === 401 || res.status === 403) { setClassificationForbidden(true); return; }
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) { setClassificationError(body.error ?? `Execution failed (${res.status}).`); return; }
+      setClassificationExecution(body);
+      await runClassificationPreview();
+    } catch { setClassificationError('Execution failed. Please try again.'); }
+    finally { setClassificationExecuting(false); }
+  }
 
   async function runPreview() {
     setLoading(true); setError(null); setExecution(null); setForbidden(false);
@@ -189,6 +270,118 @@ export default function EventsBackfillPage() {
           )}
         </div>
       )}
+
+      <div style={{ marginTop: 40, paddingTop: 32, borderTop: `1px solid ${BORDER}` }}>
+        <h2 style={{ fontSize: 18, fontWeight: 700, letterSpacing: '-0.01em', margin: 0 }}>Classify existing Events contacts</h2>
+        <p style={{ color: '#6b7280', fontSize: 13, margin: '4px 0 14px', maxWidth: 620 }}>
+          Finds existing CRM contacts with Events evidence (an intact &quot;Events / …&quot; note and a live linked
+          order) that are still unclassified, so they can be reviewed before being marked as Event Contacts.
+          <strong style={{ color: '#9ca3af' }}> This preview makes no changes</strong> — nothing is classified until
+          you explicitly confirm the action below.
+        </p>
+
+        {classificationForbidden && (
+          <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: 24, color: '#9ca3af', fontSize: 14 }}>
+            This action requires an admin role and both the Events and CRM capabilities enabled for your organisation.
+          </div>
+        )}
+
+        {classificationError && <div role="alert" style={{ color: '#f87171', fontSize: 13, marginBottom: 16 }}>{classificationError}</div>}
+
+        {!classificationForbidden && (
+          <div style={{ display: 'flex', gap: 10, marginBottom: 20 }}>
+            <button
+              onClick={() => { setClassificationExecution(null); runClassificationPreview(); }}
+              disabled={classificationLoading}
+              style={btn('#1a6aff', classificationLoading)}
+            >
+              {classificationLoading ? 'Loading preview…' : classificationPreview ? 'Refresh preview' : 'Preview'}
+            </button>
+            {classificationPreview && classificationPreview.crmEnabled && classificationPreview.eligibleCount > 0 && (
+              <button onClick={runClassificationExecute} disabled={classificationExecuting} style={btn('#16a34a', classificationExecuting)}>
+                {classificationExecuting ? 'Classifying…' : `Classify as Event Contact (${classificationPreview.eligibleCount})`}
+              </button>
+            )}
+          </div>
+        )}
+
+        {classificationExecution && (
+          <div style={{ marginBottom: 20 }}>
+            <SummaryGrid
+              items={[
+                ['Eligible at execution', classificationExecution.eligibleAtExecution],
+                ['Classified', classificationExecution.updatedCount],
+                ['Skipped', classificationExecution.skippedCount],
+              ]}
+            />
+            {classificationExecution.skipped.some(r => r.outcome === 'failed') && (
+              <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, overflow: 'hidden', marginTop: 20 }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ borderBottom: `1px solid ${BORDER}` }}>
+                      {['Contact', 'Outcome', 'Error'].map(h => <th key={h} style={th}>{h}</th>)}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {classificationExecution.skipped.filter(r => r.outcome === 'failed').map((r, i, arr) => (
+                      <tr key={r.contactId} style={{ borderBottom: i < arr.length - 1 ? `1px solid ${BORDER}` : 'none' }}>
+                        <td style={td}>{r.name}</td>
+                        <td style={td}>{r.outcome}</td>
+                        <td style={{ ...td, color: '#f87171' }}>{r.error ?? '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {classificationPreview && !classificationPreview.crmEnabled && (
+          <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: 24, color: '#9ca3af', fontSize: 14 }}>
+            CRM isn&apos;t enabled for your organisation.
+          </div>
+        )}
+
+        {classificationPreview && classificationPreview.crmEnabled && (
+          <>
+            <SummaryGrid
+              items={[
+                ['Candidates found', classificationPreview.totalCandidates],
+                ['Eligible', classificationPreview.eligibleCount],
+                ['Not eligible', classificationPreview.totalCandidates - classificationPreview.eligibleCount],
+              ]}
+            />
+
+            {classificationPreview.rows.length > 0 && (
+              <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, overflow: 'hidden', marginTop: 20 }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ borderBottom: `1px solid ${BORDER}` }}>
+                      {['Contact', 'Email', 'Current classification', 'Events evidence', 'Linked orders', 'Activities', 'Status'].map(h => (
+                        <th key={h} style={th}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {classificationPreview.rows.map((r, i) => (
+                      <tr key={r.contactId} style={{ borderBottom: i < classificationPreview.rows.length - 1 ? `1px solid ${BORDER}` : 'none' }}>
+                        <td style={td}>{r.name}</td>
+                        <td style={td}>{r.email ?? '—'}</td>
+                        <td style={td}>{r.currentClassification ?? '—'}</td>
+                        <td style={td}>{r.notesMarker ?? '—'}</td>
+                        <td style={td}>{r.linkedEventOrderCount}</td>
+                        <td style={td}>{r.eventActivityCount}</td>
+                        <td style={td}><ClassificationStatusBadge eligible={r.eligible} skipReason={r.skipReason} /></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </>
+        )}
+      </div>
     </div>
   );
 }
@@ -215,4 +408,9 @@ function ClassificationBadge({ classification, matchCount }: { classification: s
   };
   const m = map[classification] ?? { label: classification, color: '#9ca3af' };
   return <span style={{ color: m.color, fontSize: 12.5, fontWeight: 600 }}>{m.label}</span>;
+}
+
+function ClassificationStatusBadge({ eligible, skipReason }: { eligible: boolean; skipReason: string | null }) {
+  if (eligible) return <span style={{ color: '#4ade80', fontSize: 12.5, fontWeight: 600 }}>Eligible</span>;
+  return <span style={{ color: '#6b7280', fontSize: 12.5 }}>{skipReason ?? 'Not eligible'}</span>;
 }

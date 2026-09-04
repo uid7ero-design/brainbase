@@ -408,7 +408,17 @@ describe('No best-effort item history — recordOrganiserActivity is never used 
   })
 })
 
-describe('Zero instrumentation outside the two authorized item routes', () => {
+// Phase D.4.5D — extends this boundary from "the two authorized item WRITE
+// routes" to also allow exactly one authorized READ route
+// (app/api/organiser/activity/route.ts, wrapping the deletion-safe,
+// tenant-scoped lib/organiser/activityRead.ts). This is a deliberate,
+// separately-reviewed widening — the new route is GET-only and contains no
+// INSERT/UPDATE/DELETE of any kind (see
+// tests/containment/organiserActivityRead.test.ts's own "F. GET-only" proof)
+// — not a weakening of the guarantee this suite exists to protect: every
+// OTHER app/api/organiser/**/route.ts file must still contain zero
+// organiser_activity references, write or read.
+describe('Zero instrumentation outside the two authorized item write routes plus the one authorized read route', () => {
   it('no other app/api/organiser/**/route.ts file references organiser_activity, activity_row, or lib/organiser/activity', () => {
     const orgDir = path.resolve(__dirname, '../../app/api/organiser')
     function listRouteFiles(dir: string): string[] {
@@ -423,6 +433,7 @@ describe('Zero instrumentation outside the two authorized item routes', () => {
     const allowed = new Set([
       path.resolve(__dirname, '../../app/api/organiser/boards/[boardId]/items/route.ts'),
       path.resolve(__dirname, '../../app/api/organiser/items/[itemId]/route.ts'),
+      path.resolve(__dirname, '../../app/api/organiser/activity/route.ts'),
     ])
     const files = listRouteFiles(orgDir)
     expect(files.length).toBeGreaterThan(0)
@@ -431,5 +442,11 @@ describe('Zero instrumentation outside the two authorized item routes', () => {
       const src = fs.readFileSync(file, 'utf8')
       expect(src, `${file} must not reference organiser_activity`).not.toMatch(/organiser_activity|organiser\/activity/)
     }
+  })
+
+  it('the newly-allowed read route is GET-only — this boundary widening never permits a second write path', () => {
+    const src = fs.readFileSync(path.resolve(__dirname, '../../app/api/organiser/activity/route.ts'), 'utf8')
+    expect(src).not.toMatch(/export async function (POST|PATCH|PUT|DELETE)/)
+    expect(src).not.toMatch(/INSERT INTO|UPDATE organiser_activity|DELETE FROM/)
   })
 })

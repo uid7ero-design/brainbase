@@ -1,5 +1,6 @@
 'use client';
 import { useOpsTheme } from '@/components/ops/theme';
+import { APP_HEADER_OFFSET_VAR } from '@/lib/layout/headerOffset';
 
 // Phase D.4.4E — replaces WorkspaceShell as app/organiser/page.tsx's outer
 // wrapper. Deliberately minimal: TopNav is already rendered globally by
@@ -28,9 +29,13 @@ export default function OrganiserShell({ rail, children }: OrganiserShellProps) 
           scroll fight each other. */}
       <style dangerouslySetInnerHTML={{ __html: `body { overflow: hidden !important; }` }} />
       <div style={{
-        // Same "sit below the global 52px TopNav" convention WorkspaceShell
-        // already established — not a new offset, not a second header.
-        position: 'fixed', top: 52, left: 0, right: 0, bottom: 0,
+        // Phase D.4.5C-W2 — reads the shared --app-header-offset custom
+        // property (lib/layout/headerOffset.ts) instead of a hardcoded
+        // `top: 52`, so this shell sits immediately below the app's real
+        // header stack whether or not OrgSwitcher's super_admin bar is
+        // adding height above TopNav. Same WorkspaceShell convention as
+        // before, now via the one shared primitive both shells use.
+        position: 'fixed', top: APP_HEADER_OFFSET_VAR, left: 0, right: 0, bottom: 0,
         display: 'flex',
         background: t.pageBg,
         fontFamily: 'var(--font-inter),"Inter",-apple-system,sans-serif',

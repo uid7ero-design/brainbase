@@ -49,6 +49,18 @@ export type PersistedFailureCode =
 // TOMBSTONED code is deliberately NOT introduced, to avoid leaking which
 // of those cases actually applied. None of these three is ever written
 // to any DB row — read.ts performs no writes at all.
+// 5A.2K.1 addition — two new caller-only outcome codes for the dark
+// DATA_HUB worksheet confirmation/import service (lib/data-hub/
+// importBatch/confirmWorksheet.ts). WORKSHEET_NOT_ELIGIBLE covers a
+// worksheet that exists, belongs to the caller's tenant, and is
+// DATA_HUB-lineage, but whose canonical_status is not AWAITING_CONFIRMATION
+// (i.e. INELIGIBLE, SKIPPED, or an unexpected value) — never conflated with
+// WORKSHEET_NOT_FOUND, since this is a genuinely different, non-existence-
+// leaking case (the caller already legitimately knows the worksheet
+// exists, from a prior read). UNSUPPORTED_FORMAT covers a worksheet whose
+// parent ImportBatch is not CSV-classified — this phase's own explicit
+// CSV-only scope boundary; never persisted, never implies XLS/XLSX will
+// never be supported, only that this service does not attempt it yet.
 export type CallerOnlyOutcomeCode =
   | "INVALID_REQUEST"
   | "IDEMPOTENCY_CONFLICT"
@@ -64,7 +76,9 @@ export type CallerOnlyOutcomeCode =
   | "PERSISTENCE_CONFLICT"
   | "WORKSHEET_NOT_FOUND"
   | "INVALID_CURSOR"
-  | "INVALID_LIMIT";
+  | "INVALID_LIMIT"
+  | "WORKSHEET_NOT_ELIGIBLE"
+  | "UNSUPPORTED_FORMAT";
 
 export type FailureCode = PersistedFailureCode | CallerOnlyOutcomeCode;
 
@@ -95,6 +109,8 @@ export const CALLER_ONLY_OUTCOME_CODES: readonly CallerOnlyOutcomeCode[] = [
   "WORKSHEET_NOT_FOUND",
   "INVALID_CURSOR",
   "INVALID_LIMIT",
+  "WORKSHEET_NOT_ELIGIBLE",
+  "UNSUPPORTED_FORMAT",
 ];
 
 export function isPersistedFailureCode(code: string): code is PersistedFailureCode {
@@ -216,6 +232,9 @@ const MESSAGE_TEMPLATES: Record<FailureCode, string> = {
   WORKSHEET_NOT_FOUND: "No matching worksheet was found for this import batch and organisation.",
   INVALID_CURSOR: "The pagination cursor provided is not valid. Request the first page again without a cursor.",
   INVALID_LIMIT: "The requested page size is not valid.",
+  // 5A.2K.1 — dark DATA_HUB worksheet confirmation/import service outcome codes.
+  WORKSHEET_NOT_ELIGIBLE: "This worksheet is not currently awaiting confirmation and cannot be imported.",
+  UNSUPPORTED_FORMAT: "This worksheet's source format is not yet supported for canonical import.",
 };
 
 const MAX_MESSAGE_LENGTH = 500;

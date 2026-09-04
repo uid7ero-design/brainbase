@@ -50,6 +50,10 @@ describe("failureTaxonomy — code sets", () => {
         "WORKSHEET_NOT_FOUND",
         "INVALID_CURSOR",
         "INVALID_LIMIT",
+        // 5A.2K.1 — dark DATA_HUB worksheet confirmation/import service
+        // (lib/data-hub/importBatch/confirmWorksheet.ts) outcome codes.
+        "WORKSHEET_NOT_ELIGIBLE",
+        "UNSUPPORTED_FORMAT",
       ])
     );
   });

@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { logout } from '@/app/actions/auth';
+import { APP_HEADER_OFFSET_VAR, APP_HEADER_OFFSET_VH_CALC } from '@/lib/layout/headerOffset';
 
 const HIDDEN_ROUTES = ['/admin/founder'];
 
@@ -31,7 +32,7 @@ export default function AdminAside({ name }: { name: string }) {
   };
 
   return (
-    <aside style={{ width: 220, borderRight: '1px solid #1a1d24', padding: '32px 0', display: 'flex', flexDirection: 'column', flexShrink: 0, position: 'sticky', top: 52, height: 'calc(100vh - 52px)' }}>
+    <aside style={{ width: 220, borderRight: '1px solid #1a1d24', padding: '32px 0', display: 'flex', flexDirection: 'column', flexShrink: 0, position: 'sticky', top: APP_HEADER_OFFSET_VAR, height: APP_HEADER_OFFSET_VH_CALC }}>
       <div style={{ padding: '0 20px 28px' }}>
         <div style={{ fontSize: 11, fontWeight: 700, color: '#4b5563', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 4 }}>Admin Panel</div>
         <div style={{ fontSize: 13, color: '#6b7280' }}>{name}</div>

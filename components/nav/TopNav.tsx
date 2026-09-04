@@ -7,6 +7,7 @@ import { usePathname } from 'next/navigation';
 import { BrainBaseWordmark } from '@/components/brand/BrainBaseWordmark';
 import { CapabilityIcon } from '@/components/brand/CapabilityIcon';
 import { resolvePublicEventTheme } from '@/lib/events/publicEventTheme';
+import { TOP_NAV_HEIGHT_PX } from '@/lib/layout/headerOffset';
 
 type Session = {
   role: string;
@@ -1091,7 +1092,7 @@ function PublicNav({
   return (
     <nav
       style={{
-        height: 52,
+        height: TOP_NAV_HEIGHT_PX,
         display: 'flex',
         alignItems: 'center',
         justifyContent:
@@ -1279,7 +1280,7 @@ function AppNav({
   return (
     <nav
       style={{
-        height: 52,
+        height: TOP_NAV_HEIGHT_PX,
         display: 'flex',
         alignItems: 'center',
         padding: '0 20px',
