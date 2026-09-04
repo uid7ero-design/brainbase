@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import sql from '@/lib/db';
 import { authorizeEventsRequest } from '@/lib/events/authorize';
 import { checkCapability } from '@/lib/capabilities/requireCapability';
+import { parseRegistrationFilters, buildRegistrationFilterSql } from '@/lib/events/registrationFilters';
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -10,7 +11,15 @@ type Ctx = { params: Promise<{ id: string }> };
 // other Events route (session + 'events' capability + role). Tenant-
 // scoped: every query below is explicitly filtered by the caller's own
 // organisation_id, resolved only from the authenticated session.
-export async function GET(_req: Request, { params }: Ctx) {
+//
+// Registration operations phase — search/filter query params (q,
+// paymentStatus, checkin, cancelled, ticketTypeId, sessionId), all
+// optional and all parsed/applied via the SAME shared module
+// (lib/events/registrationFilters.ts) the CSV export route
+// (app/api/events/[id]/orders/export/route.ts) also uses — so list and
+// export cannot silently diverge in what "the same filters" means. No
+// params supplied = the exact previous unfiltered behavior, unchanged.
+export async function GET(req: Request, { params }: Ctx) {
   const auth = await authorizeEventsRequest('viewer');
   if (!auth.ok) return auth.response;
   const { session } = auth;
@@ -20,6 +29,10 @@ export async function GET(_req: Request, { params }: Ctx) {
     SELECT id FROM events WHERE id = ${id} AND organisation_id = ${session.organisationId} LIMIT 1
   `;
   if (!eventRows.length) return NextResponse.json({ error: 'Not found.' }, { status: 404 });
+
+  const { searchParams } = new URL(req.url);
+  const filters = parseRegistrationFilters(searchParams);
+  const filterClause = buildRegistrationFilterSql(filters, session.organisationId);
 
   // Phase 4B §7 — order-level and attendee-level registration-question
   // responses are attached here as nested JSON, via correlated
@@ -97,6 +110,7 @@ export async function GET(_req: Request, { params }: Ctx) {
     LEFT JOIN event_attendees ea ON ea.order_item_id = oi.id AND ea.organisation_id = oi.organisation_id
     LEFT JOIN users cu ON cu.id = ea.checked_in_by_user_id
     WHERE eo.event_id = ${id} AND eo.organisation_id = ${session.organisationId}
+    ${filterClause}
     GROUP BY eo.id, oi.id, tt.id, tt.name, es.id, es.name
     ORDER BY eo.created_at DESC
   `;
@@ -109,5 +123,14 @@ export async function GET(_req: Request, { params }: Ctx) {
   // staff-authenticated only (see this file's own header comment).
   const crmCapability = await checkCapability(session.organisationId, 'crm');
 
-  return NextResponse.json({ orders, crm_enabled: crmCapability.allowed });
+  // Registration operations phase — orders.length is the ROW count
+  // (one row per order_item, unchanged grain from before this phase),
+  // not the unique-order count. order_count is computed here,
+  // explicitly, so the UI can label a result count honestly rather than
+  // presenting a row count as if it were a registration count (an order
+  // with two ticket types would otherwise silently look like two
+  // registrations).
+  const orderIds = new Set((orders as { id: string }[]).map(o => o.id));
+
+  return NextResponse.json({ orders, crm_enabled: crmCapability.allowed, order_count: orderIds.size });
 }

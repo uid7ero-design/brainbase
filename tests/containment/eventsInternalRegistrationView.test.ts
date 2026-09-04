@@ -22,7 +22,19 @@ vi.mock('@/lib/org', async (importOriginal) => {
 
 let responseQueue: unknown[][] = []
 let callCount = 0
-const sqlMock = vi.fn(() => Promise.resolve(responseQueue[callCount++] ?? []))
+// Registration operations phase — typed as a tagged-template function
+// (not the previous zero-arg signature) so sqlMock.mock.calls[i][0] is
+// typed as TemplateStringsArray, needed for the query-content .find()
+// below. Behavior is unchanged — it still just returns the next queued
+// response regardless of the query text/params passed in. The
+// implementation is passed directly to vi.fn() (not attached afterward
+// via .mockImplementation()) so it survives this file's own
+// beforeEach's sqlMock.mockReset() call, which clears an implementation
+// set the other way.
+const sqlMock = vi.fn((...args: [TemplateStringsArray, ...unknown[]]) => {
+  void args
+  return Promise.resolve(responseQueue[callCount++] ?? [])
+})
 vi.mock('@/lib/db', () => ({
   default: (...args: unknown[]) => (sqlMock as unknown as (...a: unknown[]) => Promise<unknown[]>)(...args),
 }))
@@ -84,9 +96,20 @@ describe('Internal registrations view — tenant isolation', () => {
   })
 
   it('the orders query itself is scoped to the caller\'s own organisationId', async () => {
-    queue([{ id: 'event-1' }], [])
+    // Registration operations phase — buildRegistrationFilterSql()
+    // (lib/events/registrationFilters.ts) always makes one additional,
+    // harmless sql`` call up front (its own unconditional empty base
+    // fragment, embedded as a nested fragment — never a real, separate
+    // Postgres round trip in production, only an extra entry in this
+    // mock's own call log) before the main orders query — so a bare
+    // positional index into sqlMock.mock.calls is no longer reliable.
+    // Found by query CONTENT instead (the one call whose own text
+    // selects FROM event_orders), immune to how many filter fragments
+    // happen to run before it.
+    queue([{ id: 'event-1' }], [], [])
     await ordersRoute.GET(asNextRequest(new Request('http://localhost/x')), EVENT_CTX)
-    const call = sqlMock.mock.calls[1] as unknown as unknown[]
+    const call = sqlMock.mock.calls.find(c => (c[0] as TemplateStringsArray).join(' ').includes('FROM event_orders')) as unknown as unknown[]
+    expect(call, 'expected to find the main orders query among sqlMock\'s calls').toBeDefined()
     const text = (call[0] as TemplateStringsArray).join(' ')
     expect(text).toMatch(/organisation_id/i)
     expect(call).toContain('org-a')
