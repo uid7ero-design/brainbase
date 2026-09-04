@@ -3,11 +3,16 @@ import { neon } from '@neondatabase/serverless';
 const sql = neon(process.env.DATABASE_URL!);
 
 async function main() {
+  // Phase C1.2: organisation_id corrected from UUID to TEXT — same
+  // reasoning as scripts/migrate-client-pipeline.ts's identical fix.
+  // pipeline_id stays UUID: it genuinely references client_pipeline.id,
+  // which is a real UUID-typed primary key (unlike organisation_id, which
+  // must match organisations.id's TEXT/cuid type) — no mismatch there.
   await sql`
     CREATE TABLE IF NOT EXISTS pipeline_messages (
       id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       pipeline_id     UUID NOT NULL REFERENCES client_pipeline(id) ON DELETE CASCADE,
-      organisation_id UUID NOT NULL REFERENCES organisations(id),
+      organisation_id TEXT NOT NULL REFERENCES organisations(id),
       author_type     TEXT NOT NULL CHECK (author_type IN ('founder', 'client')),
       body            TEXT NOT NULL,
       created_at      TIMESTAMPTZ DEFAULT NOW()

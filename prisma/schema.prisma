@@ -576,11 +576,80 @@ model DebtorAccount {
   collection_stage    String?
   notes               String?
   metadata            Json         @default("{}")
+
+  // Phase C1-DBS2: additive, nullable charge-line typed/source-preservation
+  // columns. Real rehearsal-data investigation (Phase C1-DBR/C1-DBD)
+  // established that one debtor_accounts row represents a source charge
+  // line (one account, one financial year, one quarter, one charge type),
+  // NOT one row per account — account_number alone conflates many
+  // legitimately distinct charges. These columns promote fields that were
+  // already present, unindexed, inside `metadata` (populated only by the
+  // separate scripts/ingest-from-folders.ts path — the normal in-app
+  // import via modules/debtors/index.ts does not currently populate them)
+  // into first-class, queryable columns, without removing or altering
+  // `metadata` itself, which remains the permanent lineage record.
+  //
+  // financial_year / financial_quarter / charge_type are DERIVED,
+  // normalized values — NULL where the source value did not match a
+  // recognized shape (never guessed). source_book / source_charge_code are
+  // VERBATIM copies of metadata.bookname / metadata.chargecode
+  // respectively, preserved unchanged regardless of whether the derived
+  // fields could be parsed, so no source information is ever lost even for
+  // a row whose bookname/chargecode shape isn't yet recognized.
+  //
+  // These columns are duplicate-DETECTION fields only — see the removed-
+  // @@unique history note near this model's indexes below. They do not
+  // participate in any uniqueness constraint and must not be added to one
+  // without a fresh, explicit decision.
+  financial_year      String?
+  financial_quarter   String?
+  charge_type         String?
+  invoice_date        DateTime?
+  source_book         String?
+  source_charge_code  String?
+
   created_at          DateTime     @default(now())
   updated_at          DateTime     @updatedAt
   organisation        Organisation @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
   upload              Upload?      @relation(fields: [upload_id], references: [id])
 
+  // REMOVED (Phase C1-DBF): `@@unique([organisation_id, account_number],
+  // name: "organisation_id_account_number")` previously declared here.
+  //
+  // Phase C1.1 believed this was a safe account-level natural key and
+  // built an importer upsert around it. Real rehearsal-data investigation
+  // (Phase C1-DBR/C1-DBD/C1-DBS) conclusively proved it is NOT: a
+  // `debtor_accounts` row is a source CHARGE LINE, not an account-level
+  // current-state row — the same `(organisation_id, account_number)` pair
+  // legitimately recurs across multiple financial years, quarters, and
+  // charge types (see the financial_year/financial_quarter/charge_type
+  // columns above). 32,493 real rows collapse to only 14,383 account-level
+  // keys — applying this constraint would either fail outright against
+  // real data or, if forced through some other way, be semantically wrong
+  // regardless. The importer's corresponding `.upsert()` call and
+  // `scripts/add-debtor-accounts-dedup.ts` (the prepared migration that
+  // would have applied this constraint — never executed against any
+  // database) were both removed in the same phase — see
+  // modules/debtors/index.ts's own header comment and that phase's git
+  // history for the full reasoning.
+  //
+  // Per this phase's explicit governing instruction, the schema must
+  // describe the actual intended database model — so, unlike earlier
+  // phases' practice of leaving a superseded decision in place with a
+  // correcting comment, this constraint is actually removed here, not
+  // merely annotated as unsafe.
+  //
+  // The current best-available duplicate-DETECTION identity (NOT a
+  // uniqueness guarantee — residual collisions are real, expected, and
+  // must remain representable) is:
+  //   (organisation_id, account_number, financial_year,
+  //    financial_quarter, charge_type, invoice_date)
+  // A source-row content hash (`metadata.__md5Row` in the real source
+  // workbook) was investigated as a candidate real identifier and found
+  // to be present but 0% populated (Phase C1-DBS) — it must NOT be used
+  // as an identifier. Do not add any unique constraint to this model
+  // (this 6-part key included) without a fresh, evidence-based decision
+  // informed by the investigation phases referenced above.
   @@index([organisation_id])
   @@index([aging_bucket])
   @@index([status])

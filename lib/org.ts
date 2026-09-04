@@ -1,7 +1,17 @@
 import 'server-only';
 import { cookies } from 'next/headers';
-import { getSession, type SessionPayload, type Role } from './session';
+import { getSession, roleGte, type SessionPayload, type Role } from './session';
 import sql from './db';
+
+// Phase C1.6: ROLE_ORDER/roleGte() now live in lib/session.ts (the natural
+// home for the Role type, and already edge-runtime-safe — no DB import,
+// already used directly by middleware.ts) rather than being defined here
+// and separately, independently duplicated in middleware.ts. Re-exported
+// here unchanged so every existing `import { roleGte } from '@/lib/org'`
+// call site keeps working without modification — this file is no longer
+// the source of truth for role ordering, but remains a valid import path
+// for it.
+export { roleGte };
 
 export type OrgSession = {
   userId: string;
@@ -23,13 +33,6 @@ export type OrgSession = {
   role: Role;
   name: string;
 };
-
-// Role order — higher index = more privilege
-const ROLE_ORDER: Role[] = ['viewer', 'manager', 'admin', 'super_admin'];
-
-export function roleGte(role: Role, min: Role): boolean {
-  return ROLE_ORDER.indexOf(role) >= ROLE_ORDER.indexOf(min);
-}
 
 /**
  * Resolves the session, re-validates the user against the DB, and returns

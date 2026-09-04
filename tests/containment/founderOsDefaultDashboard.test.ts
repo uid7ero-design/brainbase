@@ -65,9 +65,9 @@ describe('7. client (non-super_admin) users cannot reach founder-only data throu
     expect(intelRouteSrc).toContain("session.role !== 'super_admin'")
   })
 
-  it('the /admin section itself remains gated by middleware to super_admin only, unchanged', () => {
+  it('the /admin section itself remains gated by middleware to super_admin only (Phase C1.6: now via the shared roleGte() helper, not a bespoke equality check — behaviourally identical, since nothing outranks super_admin)', () => {
     expect(middlewareSrc).toContain("pathname.startsWith('/admin')")
-    expect(middlewareSrc).toContain("role !== 'super_admin'")
+    expect(middlewareSrc).toContain("!roleGte(role, 'super_admin')")
   })
 })
 

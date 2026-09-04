@@ -1,11 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getSession } from '@/lib/session';
+import { requireSession } from '@/lib/org';
 import { run } from '@/lib/agents/dataIntakeAgent';
 import type { AgentInput } from '@/lib/agents/types';
 
 export async function POST(req: NextRequest) {
-  const session = await getSession();
-  if (!session?.organisationId) {
+  // Phase C1.4: standardised on requireSession() — see
+  // app/api/agents/briefing/route.ts's comment for the full rationale.
+  let session;
+  try {
+    session = await requireSession();
+  } catch {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 

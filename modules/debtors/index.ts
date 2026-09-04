@@ -4,6 +4,77 @@ import { readFileSync } from "fs";
 import { computeDebtorKpi, agingBucketFromDays } from "./calculations";
 import { persistMetrics } from "@/services/persistence";
 import { Module } from "@prisma/client";
+import {
+  normalizeDebtorSourceFields,
+  tallyNormalizationFailure,
+  emptyNormalizationCounts,
+} from "./normalize";
+
+// Phase C1-DBF — corrects a Phase C1.1 assumption that real rehearsal-data
+// investigation (Phase C1-DBR/C1-DBD/C1-DBS) conclusively invalidated.
+//
+// C1.1 believed `(organisation_id, account_number)` uniquely identified a
+// DebtorAccount row and changed this importer to upsert on that compound
+// key (see git history for the removed `.upsert(...)` call and the
+// removed `scripts/add-debtor-accounts-dedup.ts` migration — deleted in
+// this same phase, never executed against rehearsal or production, see
+// that commit's message for the full reasoning). Real data proved
+// `debtor_accounts` rows are source CHARGE LINES: the same account
+// legitimately has many rows (different financial years, quarters, and
+// charge types — see the financial_year/financial_quarter/charge_type/
+// invoice_date/source_book/source_charge_code columns added in Phase
+// C1-DBS2). Upserting on account_number alone was therefore silently
+// **destroying distinct charge lines** every time a second charge for the
+// same account was imported in the same batch or a later one — the exact
+// opposite of what it was meant to do.
+//
+// Corrected policy (Option A from the Phase C1-DBF evaluation): APPEND
+// every row with an account_number, never upsert, never delete, never
+// merge. `debtor_accounts` has NO unique constraint on
+// `(organisation_id, account_number)` — that Prisma declaration was
+// removed in this same phase for exactly this reason.
+//
+// This reopens the original, still-real risk C1.1 was trying to solve —
+// a genuine re-upload of the SAME source file appends a full second copy
+// of every row, since there is still no reliable row-level source
+// identity (Phase C1-DBS: the one candidate, metadata.__md5Row, is 0%
+// populated in the real source export). No safe mechanism to reject or
+// silently reconcile a repeated import exists today without adopting
+// Data Hub's import-batch/file-hash lineage (explicitly out of scope for
+// this phase) — `Upload` itself has no content-hash field. Per this
+// phase's own governing instruction ("prefer preserving rows and clearly
+// surfacing duplicate-import risk over destructive or lossy
+// reconciliation"), this importer instead performs a best-effort,
+// NON-BLOCKING check against the one signal that already exists on every
+// Upload row — `original_name` — and stamps every row of a suspected
+// repeat import with an explicit, queryable risk marker in `metadata`,
+// rather than silently importing it as if nothing were different. This is
+// a heuristic, not a guarantee: a renamed file, or a genuinely different
+// file that happens to share a name, will not be (or will incorrectly be)
+// flagged. It never blocks, rejects, deletes, or merges anything.
+async function checkRepeatedImportRisk(
+  organisation_id: string,
+  upload_id: string,
+): Promise<{ isRepeat: boolean; priorUploadId: string | null }> {
+  const current = await prisma.upload.findUnique({ where: { id: upload_id } });
+  if (!current) return { isRepeat: false, priorUploadId: null };
+
+  const prior = await prisma.upload.findFirst({
+    where: {
+      organisation_id,
+      schema_type: "DEBTORS",
+      original_name: current.original_name,
+      status: "COMPLETE",
+      id: { not: upload_id },
+    },
+    orderBy: { created_at: "desc" },
+  });
+
+  if (prior) {
+    console.warn(`importDebtors: possible repeated import — organisation ${organisation_id} previously completed an upload named "${current.original_name}" (upload ${prior.id}, completed) before this one (upload ${upload_id}). No reliable row-level identity exists to reconcile this automatically (see Phase C1-DBS: the source file's own __md5Row is 0% populated) — every row from this import will still be appended, tagged with duplicate_import_risk metadata for later review.`);
+  }
+  return { isRepeat: !!prior, priorUploadId: prior?.id ?? null };
+}
 
 export async function importDebtors(
   upload_id: string,
@@ -17,10 +88,48 @@ export async function importDebtors(
   const get = (row: Record<string, unknown>, canonical: string) =>
     fieldMappings[canonical] ? row[fieldMappings[canonical]!] : undefined;
 
-  const records = rows.map(row => {
+  const { isRepeat, priorUploadId } = await checkRepeatedImportRisk(organisation_id, upload_id);
+
+  // Phase C1-DBI — normalization-failure counts, aggregated across every
+  // row of this import and reported once at the end (§7). Never per-row,
+  // never containing any account number/name/amount (no PII).
+  const normalizationCounts = emptyNormalizationCounts();
+
+  const allRecords = rows.map(row => {
     const days_overdue = parseNum(get(row, "days_overdue"));
     const rawBucket    = nullStr(get(row, "aging_bucket"));
     const aging_bucket = mapAgingBucket(rawBucket ?? agingBucketFromDays(days_overdue));
+
+    // Phase C1-DBI — the same six typed/source-preservation columns
+    // Phase C1-DBS2 backfilled for existing rows are now populated at
+    // write time for every NEW row too, via the shared
+    // modules/debtors/normalize.ts helper (never duplicated here).
+    const rawTyped = {
+      source_book:        get(row, "source_book"),
+      source_charge_code: get(row, "source_charge_code"),
+      financial_quarter:  get(row, "financial_quarter"),
+      invoice_date:        get(row, "invoice_date"),
+    };
+    const typed = normalizeDebtorSourceFields(rawTyped);
+    tallyNormalizationFailure(normalizationCounts, rawTyped, typed);
+
+    // `metadata` remains the permanent lineage record (see
+    // prisma/schema.prisma's DebtorAccount comment) — the raw, un-
+    // normalized source strings are preserved here under the same key
+    // names scripts/add-debtor-charge-line-columns.ts already backfills
+    // from, regardless of whether the derived typed column above could
+    // be parsed, so no source information is ever lost.
+    const lineageMetadata: Record<string, unknown> = {};
+    const bookRaw = nullStr(rawTyped.source_book);
+    if (bookRaw != null) lineageMetadata.bookname = bookRaw;
+    const chargeRaw = nullStr(rawTyped.source_charge_code);
+    if (chargeRaw != null) lineageMetadata.chargecode = chargeRaw;
+    const quarterRaw = nullStr(rawTyped.financial_quarter);
+    if (quarterRaw != null) lineageMetadata.quarter = quarterRaw;
+    const invoiceDateRaw = rawTyped.invoice_date instanceof Date
+      ? (isNaN(rawTyped.invoice_date.getTime()) ? null : rawTyped.invoice_date.toISOString())
+      : nullStr(rawTyped.invoice_date);
+    if (invoiceDateRaw != null) lineageMetadata.invoice_date = invoiceDateRaw;
 
     return {
       organisation_id,
@@ -36,10 +145,57 @@ export async function importDebtors(
       status:             mapDebtorStatus(String(get(row, "status") ?? "open")),
       collection_stage:   nullStr(get(row, "collection_stage")),
       notes:              nullStr(get(row, "notes")),
+      financial_year:      typed.financial_year,
+      financial_quarter:   typed.financial_quarter,
+      charge_type:         typed.charge_type,
+      invoice_date:        typed.invoice_date,
+      source_book:         typed.source_book,
+      source_charge_code:  typed.source_charge_code,
+      // Best-effort, non-blocking audit marker — see checkRepeatedImportRisk
+      // above. The heuristic is never treated as proof of duplication: it
+      // only ever ADDS a marker to the row's real source lineage metadata,
+      // never replaces it (Phase C1-DBI §3 — merge safely, don't discard).
+      metadata: (isRepeat
+        ? { ...lineageMetadata, duplicate_import_risk: true, prior_upload_id: priorUploadId, detected_by: "original_name_match" }
+        : lineageMetadata) as object,
     };
   });
 
-  await prisma.debtorAccount.createMany({ data: records, skipDuplicates: true });
+  const normalizationIssues =
+    normalizationCounts.unrecognized_bookname + normalizationCounts.invalid_quarter +
+    normalizationCounts.unparseable_invoice_date + normalizationCounts.blank_chargecode;
+  if (normalizationIssues > 0) {
+    console.warn(
+      `importDebtors: normalization summary for organisation ${organisation_id} (upload ${upload_id}) — ` +
+      `unrecognized bookname: ${normalizationCounts.unrecognized_bookname}, ` +
+      `invalid quarter: ${normalizationCounts.invalid_quarter}, ` +
+      `unparseable invoice_date: ${normalizationCounts.unparseable_invoice_date}, ` +
+      `blank chargecode: ${normalizationCounts.blank_chargecode}. ` +
+      `Affected rows are still imported in full — only the derived typed column(s) are left null (never guessed).`
+    );
+  }
+
+  // A row with no account_number cannot be usefully attributed to any
+  // account at all (not a duplicate-detection concern — this predates and
+  // is independent of the C1.1/C1-DBF correction above).
+  const records = allRecords.filter(r => r.account_number !== "");
+  const skipped = allRecords.length - records.length;
+  if (skipped > 0) {
+    console.warn(`importDebtors: skipped ${skipped} row(s) with no account_number for organisation ${organisation_id} (upload ${upload_id})`);
+  }
+
+  // Phase C1-DBF: plain, unconditional append — no upsert, no
+  // skipDuplicates (that flag implied a deduplication guarantee that
+  // never existed and no longer even has a constraint to silently no-op
+  // against — removing it is more honest than keeping a misleading flag).
+  // Every row with an account_number is inserted exactly as parsed; the
+  // table's real grain is the charge line, and every charge line is
+  // preserved. createMany is already a single atomic statement — no
+  // $transaction wrapper is needed now that there is no per-row upsert
+  // decision to keep atomic across.
+  if (records.length > 0) {
+    await prisma.debtorAccount.createMany({ data: records });
+  }
 
   const now = new Date();
   const kpi = computeDebtorKpi(records);

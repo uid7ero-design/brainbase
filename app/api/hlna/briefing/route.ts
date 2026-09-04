@@ -284,16 +284,23 @@ export async function POST() {
     if (ldTennisOrgId && oid === ldTennisOrgId) {
       moduleKeys = ['ld_tennis'];
     } else {
+      // Phase C1.3: corrected join (was m.id = om.module_id — modules has no
+      // `id` column, threw every call). Fails CLOSED (empty list) on error,
+      // not open to all three legacy domain modules — see
+      // lib/agents/briefingAgent.ts's getEnabledModules() comment for the
+      // full known-data-model-gap explanation (same defect, same fix, same
+      // reported blocker: the capability registry has no rows for these
+      // legacy domain keys today).
       try {
         const rows = await sql`
           SELECT m.key FROM organisation_modules om
-          JOIN modules m ON m.id = om.module_id
+          JOIN modules m ON m.key = om.module_key
           WHERE om.organisation_id = ${oid} AND om.enabled = true
         `;
         moduleKeys = rows.map(r => r.key as string);
       } catch (err) {
         console.error('[HLNA BRIEFING ERROR] module key lookup failed:', err);
-        moduleKeys = ['waste_recycling', 'fleet_management', 'service_requests'];
+        moduleKeys = [];
       }
     }
 

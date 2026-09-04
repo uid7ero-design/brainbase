@@ -9,7 +9,18 @@ export default async function ProfilePage() {
 
   let user: Record<string, unknown> = {};
   let org: Record<string, unknown> = {};
-  let modules: { key: string; name: string; industry: string; description: string }[] = [];
+  // Phase C1.3: corrected join (was m.id = om.module_id — modules has no
+  // `id`/`industry` column under the current schema; threw on every call, so
+  // this panel never rendered anything for anyone). Now queried in its own
+  // try/catch, separate from user/org, so a failure here can never affect
+  // those. `industry` is dropped (never a real modules column) in favour of
+  // `description`, which is. Same known data-model gap as
+  // lib/agents/briefingAgent.ts's getEnabledModules(): the capability
+  // registry currently only contains 'crm' | 'organiser' | 'events', not the
+  // legacy industry-vertical keys (waste_recycling/fleet_management/etc.)
+  // this panel originally displayed — so it will now correctly show an org's
+  // real enabled platform capabilities instead, once any are enabled.
+  let modules: { key: string; name: string; description: string | null }[] = [];
 
   try {
     const [userRow] = await sql`
@@ -29,18 +40,22 @@ export default async function ProfilePage() {
       WHERE id = ${session.organisationId}
     `;
     if (orgRow) org = orgRow as Record<string, unknown>;
+  } catch {
+    // Pre-migration — show empty state
+  }
 
+  try {
     const modRows = await sql`
-      SELECT m.key, m.name, m.industry, m.description
+      SELECT m.key, m.name, m.description
       FROM organisation_modules om
-      JOIN modules m ON m.id = om.module_id
+      JOIN modules m ON m.key = om.module_key
       WHERE om.organisation_id = ${session.organisationId}
         AND om.enabled = true
       ORDER BY m.name
     `;
     modules = modRows as typeof modules;
   } catch {
-    // Pre-migration — show empty state
+    // Fail closed to an empty list.
   }
 
   return (

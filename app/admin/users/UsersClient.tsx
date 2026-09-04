@@ -5,18 +5,30 @@ import type { Role } from '@/lib/session';
 
 const CARD = '#0e1014';
 const BORDER = '#1a1d24';
+// Phase C1.6: ROLES (the create/edit dropdown's selectable options)
+// deliberately stays at 4 values — 'analyst' has no defined privilege
+// placement (see lib/session.ts's Role comment) and is not something an
+// admin can assign through this UI. ROLE_COLORS/ROLE_LABELS are exhaustive
+// display maps for an EXISTING user row's role, though, so they need an
+// entry for every real Role value or a genuinely-analyst-role user (the DB
+// enum can hold one; see lib/session.ts) would render with an undefined
+// color/label instead of failing type-checking loudly. Matches the same
+// defensive label already used by components/clients/ClientWorkspace.tsx's
+// People card for the identical reason.
 const ROLES: Role[] = ['super_admin', 'admin', 'manager', 'viewer'];
 const ROLE_COLORS: Record<Role, string> = {
   super_admin: '#a78bfa',
   admin: '#60a5fa',
   manager: '#34d399',
   viewer: '#9ca3af',
+  analyst: '#9ca3af',
 };
 const ROLE_LABELS: Record<Role, string> = {
   super_admin: 'Super Admin',
   admin: 'Admin',
   manager: 'Manager',
   viewer: 'Viewer',
+  analyst: 'Analyst',
 };
 
 type User = { id: string; username: string; name: string; role: string; created_at: string; organisation_id: string | null; organisation_name: string | null };

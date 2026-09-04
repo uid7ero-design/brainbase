@@ -118,16 +118,38 @@ async function fetchSRData(oid: string) {
   return { periodRows, suburbRows };
 }
 
+// Phase C1.3: previously joined on m.id = om.module_id — modules has no `id`
+// column under the current schema (scripts/create-modules.sql; key is the
+// primary key) — so this threw on every call and fell back to assuming ALL
+// THREE domain modules enabled, unconditionally, for every organisation
+// (fail-OPEN). Fixed to the correct m.key = om.module_key join. The fallback
+// now fails CLOSED (empty list) instead, per the fail-closed entitlement rule
+// (see requireCapability.ts) — a failed/errored lookup must never be treated
+// as "everything enabled".
+//
+// Known data-model gap, NOT resolved by this fix (reported, not silently
+// decided): the platform capability registry (`modules`.key) currently only
+// contains 'crm' | 'organiser' | 'events' (scripts/seed-modules-registry.sql,
+// scripts/seed-events-capability.sql) — none of the domain keys this function
+// has ever looked for ('waste_recycling', 'fleet_management',
+// 'service_requests', consumed below via .includes('waste')/'fleet'/'service'
+// substring checks). So even on the corrected happy path, no organisation's
+// entitlement row will ever match these substrings today, and the waste/
+// fleet/service-request sections of this briefing will not render for any
+// org until a future phase decides whether/how these legacy industry-vertical
+// keys should be formally registered in the capability registry (and what
+// existing organisations' default entitlement should be) — see the C1
+// report's Remaining Risks for the explicit blocker.
 async function getEnabledModules(oid: string): Promise<string[]> {
   try {
     const rows = await sql`
       SELECT m.key FROM organisation_modules om
-      JOIN modules m ON m.id = om.module_id
+      JOIN modules m ON m.key = om.module_key
       WHERE om.organisation_id = ${oid} AND om.enabled = true
     `;
     return rows.map(r => r.key as string);
   } catch {
-    return ['waste_recycling', 'fleet_management', 'service_requests'];
+    return [];
   }
 }
 

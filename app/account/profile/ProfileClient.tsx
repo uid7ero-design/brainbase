@@ -26,7 +26,7 @@ const MODULE_COLORS: Record<string, string> = {
   logistics_freight: '#F97316', utilities: '#818CF8', construction: '#FB7185',
 };
 
-type Module = { key: string; name: string; industry: string; description: string };
+type Module = { key: string; name: string; description: string | null };
 
 interface Props {
   initialUser: Record<string, unknown>;
@@ -303,7 +303,7 @@ export default function ProfileClient({ initialUser, org, modules, role }: Props
   );
 }
 
-function OrgSidebar({ org, role, modules }: { org: Record<string, unknown>; role: string; modules: { key: string; name: string; industry: string }[] }) {
+function OrgSidebar({ org, role, modules }: { org: Record<string, unknown>; role: string; modules: Module[] }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       {!!org.name && (
@@ -347,7 +347,7 @@ function OrgSidebar({ org, role, modules }: { org: Record<string, unknown>; role
                   <div style={{ width: 6, height: 6, borderRadius: '50%', background: color, marginTop: 4, flexShrink: 0 }} />
                   <div>
                     <div style={{ fontSize: 12, fontWeight: 600, color: TEXT }}>{m.name}</div>
-                    <div style={{ fontSize: 10, color: MUTED, marginTop: 1 }}>{m.industry}</div>
+                    {m.description && <div style={{ fontSize: 10, color: MUTED, marginTop: 1 }}>{m.description}</div>}
                   </div>
                 </div>
               );

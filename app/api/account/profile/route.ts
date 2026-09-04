@@ -24,14 +24,28 @@ export async function GET() {
 
   if (!user) return NextResponse.json({ error: 'User not found' }, { status: 404 });
 
-  const modules = await sql`
-    SELECT m.key, m.name, m.industry, m.description
-    FROM organisation_modules om
-    JOIN modules m ON m.id = om.module_id
-    WHERE om.organisation_id = ${session.organisationId}
-      AND om.enabled = true
-    ORDER BY m.name
-  `;
+  // Phase C1.3: previously unwrapped and joined on m.id = om.module_id —
+  // modules has no `id`/`industry` column under the current schema, so this
+  // threw unconditionally and crashed the whole GET response (this method
+  // has no live caller today, see the C1 report — but a route that 500s on
+  // every call is still worth fixing rather than leaving broken). Corrected
+  // join, `industry` dropped (never a real column), and wrapped so a failure
+  // here can never take down the rest of the response. Fails closed to an
+  // empty list.
+  let modules: { key: string; name: string; description: string | null }[] = [];
+  try {
+    const modRows = await sql`
+      SELECT m.key, m.name, m.description
+      FROM organisation_modules om
+      JOIN modules m ON m.key = om.module_key
+      WHERE om.organisation_id = ${session.organisationId}
+        AND om.enabled = true
+      ORDER BY m.name
+    `;
+    modules = modRows as typeof modules;
+  } catch {
+    // Fail closed to an empty list.
+  }
 
   return NextResponse.json({ user, modules });
 }
