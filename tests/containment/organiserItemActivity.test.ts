@@ -408,18 +408,24 @@ describe('No best-effort item history — recordOrganiserActivity is never used 
   })
 })
 
-// Phase D.4.5D — extends this boundary from "the two authorized item WRITE
+// Phase D.4.5D extended this boundary from "the two authorized item WRITE
 // routes" to also allow exactly one authorized READ route
 // (app/api/organiser/activity/route.ts, wrapping the deletion-safe,
-// tenant-scoped lib/organiser/activityRead.ts). This is a deliberate,
-// separately-reviewed widening — the new route is GET-only and contains no
-// INSERT/UPDATE/DELETE of any kind (see
-// tests/containment/organiserActivityRead.test.ts's own "F. GET-only" proof)
-// — not a weakening of the guarantee this suite exists to protect: every
-// OTHER app/api/organiser/**/route.ts file must still contain zero
-// organiser_activity references, write or read.
-describe('Zero instrumentation outside the two authorized item write routes plus the one authorized read route', () => {
-  it('no other app/api/organiser/**/route.ts file references organiser_activity, activity_row, or lib/organiser/activity', () => {
+// tenant-scoped lib/organiser/activityRead.ts).
+//
+// Phase D.4.5F extends it again: board.created/updated/deleted,
+// group.created/updated/deleted, comment.created, and file.added/
+// file.deleted are now instrumented too (see that phase's own report for
+// the full per-route atomicity/tenant audit). Each addition below is a
+// deliberate, separately-reviewed widening — not a weakening of the
+// guarantee this suite exists to protect: every route file NOT in the
+// `allowed` set must still contain zero organiser_activity references, and
+// tests/containment/organiserActivityExpandedInstrumentation.test.ts's own
+// "Security" describe block re-proves every allowed write route still
+// goes through authorizeOrganiserRequest('viewer') with no bare
+// requireRole regression.
+describe('organiser_activity instrumentation is confined to the explicitly authorized route set', () => {
+  it('no app/api/organiser/**/route.ts file outside the authorized set references organiser_activity, activity_row, or lib/organiser/activity', () => {
     const orgDir = path.resolve(__dirname, '../../app/api/organiser')
     function listRouteFiles(dir: string): string[] {
       const out: string[] = []
@@ -431,9 +437,19 @@ describe('Zero instrumentation outside the two authorized item write routes plus
       return out
     }
     const allowed = new Set([
+      // D.4.5C-B — item write routes
       path.resolve(__dirname, '../../app/api/organiser/boards/[boardId]/items/route.ts'),
       path.resolve(__dirname, '../../app/api/organiser/items/[itemId]/route.ts'),
+      // D.4.5D — the read route
       path.resolve(__dirname, '../../app/api/organiser/activity/route.ts'),
+      // D.4.5F — board/group/comment/file write routes
+      path.resolve(__dirname, '../../app/api/organiser/boards/route.ts'),
+      path.resolve(__dirname, '../../app/api/organiser/boards/[boardId]/route.ts'),
+      path.resolve(__dirname, '../../app/api/organiser/boards/[boardId]/groups/route.ts'),
+      path.resolve(__dirname, '../../app/api/organiser/groups/[groupId]/route.ts'),
+      path.resolve(__dirname, '../../app/api/organiser/items/[itemId]/updates/route.ts'),
+      path.resolve(__dirname, '../../app/api/organiser/items/[itemId]/files/route.ts'),
+      path.resolve(__dirname, '../../app/api/organiser/items/[itemId]/files/[fileId]/route.ts'),
     ])
     const files = listRouteFiles(orgDir)
     expect(files.length).toBeGreaterThan(0)
@@ -441,6 +457,15 @@ describe('Zero instrumentation outside the two authorized item write routes plus
       if (allowed.has(file)) continue
       const src = fs.readFileSync(file, 'utf8')
       expect(src, `${file} must not reference organiser_activity`).not.toMatch(/organiser_activity|organiser\/activity/)
+    }
+  })
+
+  it('columns and import routes remain uninstrumented — explicitly out of scope for D.4.5F', () => {
+    const columnsSrc = fs.readFileSync(path.resolve(__dirname, '../../app/api/organiser/columns/[columnId]/route.ts'), 'utf8')
+    const boardColumnsSrc = fs.readFileSync(path.resolve(__dirname, '../../app/api/organiser/boards/[boardId]/columns/route.ts'), 'utf8')
+    const importSrc = fs.readFileSync(path.resolve(__dirname, '../../app/api/organiser/boards/[boardId]/import/route.ts'), 'utf8')
+    for (const src of [columnsSrc, boardColumnsSrc, importSrc]) {
+      expect(src).not.toMatch(/organiser_activity/)
     }
   })
 

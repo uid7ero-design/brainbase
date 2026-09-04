@@ -134,7 +134,14 @@ describe('B. Tenant isolation and deletion-safe reads', () => {
     expect(sqlCalls).toHaveLength(1)
     expect(sqlCalls[0].text).toMatch(/organisation_id = /)
     expect(sqlCalls[0].text).toMatch(/item_id = /)
-    expect(sqlCalls[0].text).toMatch(/entity_type = 'item'/)
+    // Phase D.4.5F — widened from entity_type = 'item' alone to an
+    // explicit allow-list (see lib/organiser/activityRead.ts's own updated
+    // header) so comment.created/file.added/file.deleted rows tied to this
+    // item also surface in the Item Activity tab. board.*/group.* events
+    // still can never match (they never set item_id) — this is a
+    // deliberate widening, not a weakening of the tenant/item scoping this
+    // test protects.
+    expect(sqlCalls[0].text).toMatch(/entity_type IN \('item', 'comment', 'file'\)/)
     expect(sqlCalls[0].values).toContain('org-a')
     expect(sqlCalls[0].values).toContain(ITEM_A)
   })

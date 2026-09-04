@@ -23,10 +23,28 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ boa
   `;
   const position = posRows[0].next as number;
 
+  // Phase D.4.5F — group.created, atomic with the INSERT. boardId is
+  // already known and tenant-validated above (the board-existence check),
+  // so it's interpolated directly rather than re-derived from the row.
   const rows = await sql`
-    INSERT INTO organiser_groups (board_id, organisation_id, name, color, position)
-    VALUES (${boardId}, ${session.organisationId}, ${name}, ${color}, ${position})
-    RETURNING id, name, color, position
+    WITH inserted AS (
+      INSERT INTO organiser_groups (board_id, organisation_id, name, color, position)
+      VALUES (${boardId}, ${session.organisationId}, ${name}, ${color}, ${position})
+      RETURNING id, name, color, position
+    ),
+    activity_row AS (
+      INSERT INTO organiser_activity (
+        organisation_id, board_id, actor_user_id, actor_name,
+        event_type, entity_type, entity_id, before_json, after_json
+      )
+      SELECT
+        ${session.organisationId}, ${boardId}, ${session.userId}, ${session.name},
+        'group.created', 'group', inserted.id::text, NULL,
+        jsonb_build_object('name', organiser_activity_sanitise_scalar(to_jsonb(inserted.name)))
+      FROM inserted
+      RETURNING id
+    )
+    SELECT id, name, color, position FROM inserted
   `;
 
   return NextResponse.json({ group: rows[0] });

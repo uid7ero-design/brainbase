@@ -130,11 +130,25 @@ function toDTO(row: ActivityRow): OrganiserActivityEventDTO {
 /**
  * Lists organiser_activity rows for one item, newest first (created_at DESC,
  * id DESC tie-breaker), bounded and keyset-paginated. Scoped by
- * organisation_id + item_id + entity_type = 'item'. Deliberately never
- * joins against or requires a live organiser_items row — a deleted item's
- * history remains fully readable through this function, which is the
- * entire point of item_id/entity_id carrying no FK (see the CREATE TABLE
- * comment, app/api/admin/migrate/route.ts step 40).
+ * organisation_id + item_id + entity_type IN ('item', 'comment', 'file').
+ *
+ * Phase D.4.5F widened this from entity_type = 'item' alone: comment.created
+ * and file.added/file.deleted rows also carry the affected item's item_id
+ * (see app/api/organiser/items/[itemId]/updates/route.ts and .../files/**)
+ * and — per that phase's explicit design — belong in the Item Activity tab
+ * alongside the item's own create/update/move/delete history ("Admin
+ * commented" / "Admin attached ..."), never merged into the separate
+ * Updates/comments collaboration surface. board.* and group.* events are
+ * excluded by construction: they never set item_id at all, so they could
+ * never match this WHERE clause regardless of the entity_type list — the
+ * explicit allow-list exists so a HYPOTHETICAL future event type that sets
+ * item_id for an unrelated reason does not silently leak into this feed
+ * without a deliberate decision to add it here.
+ *
+ * Deliberately never joins against or requires a live organiser_items row —
+ * a deleted item's history remains fully readable through this function,
+ * which is the entire point of item_id/entity_id carrying no FK (see the
+ * CREATE TABLE comment, app/api/admin/migrate/route.ts step 40).
  *
  * PRECISION: organiser_activity.created_at is a microsecond-precision
  * TIMESTAMPTZ, but a JS Date (and therefore the opaque cursor, built from
@@ -180,7 +194,7 @@ export async function listItemActivity(context: ListItemActivityTrustedContext):
           FROM organiser_activity
           WHERE organisation_id = ${organisationId}
             AND item_id = ${itemId}
-            AND entity_type = 'item'
+            AND entity_type IN ('item', 'comment', 'file')
             AND (date_trunc('milliseconds', created_at), id) < (${cursorTuple.createdAt}::timestamptz, ${cursorTuple.id})
           ORDER BY date_trunc('milliseconds', created_at) DESC, id DESC
           LIMIT ${limit + 1}
@@ -192,7 +206,7 @@ export async function listItemActivity(context: ListItemActivityTrustedContext):
           FROM organiser_activity
           WHERE organisation_id = ${organisationId}
             AND item_id = ${itemId}
-            AND entity_type = 'item'
+            AND entity_type IN ('item', 'comment', 'file')
           ORDER BY date_trunc('milliseconds', created_at) DESC, id DESC
           LIMIT ${limit + 1}
         `

@@ -54,10 +54,38 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ite
 
   const fileUrl = `/organiser-attachments/${itemId}/${storedName}`;
 
+  // Phase D.4.5F — file.added. The disk write above (fs.writeFile) already
+  // happened and cannot be rolled back by a Postgres transaction (see
+  // lib/organiser/activity.ts's own "Filesystem note" — a pre-existing,
+  // disclosed limitation, not something this phase changes); what IS made
+  // atomic here is the file METADATA row and its activity row, via the
+  // same writable-CTE pattern as every other instrumented mutation — they
+  // now always commit or fail together, never diverge from each other. No
+  // signed URL, access token, or file content is stored in activity —
+  // only the filename and size (no MIME type column exists on
+  // organiser_item_files to record).
   const rows = await sql`
-    INSERT INTO organiser_item_files (item_id, board_id, organisation_id, file_name, file_url, file_size, uploaded_by)
-    VALUES (${itemId}, ${boardId}, ${session.organisationId}, ${file.name}, ${fileUrl}, ${file.size}, ${session.userId})
-    RETURNING id, file_name, file_url, file_size, created_at
+    WITH inserted AS (
+      INSERT INTO organiser_item_files (item_id, board_id, organisation_id, file_name, file_url, file_size, uploaded_by)
+      VALUES (${itemId}, ${boardId}, ${session.organisationId}, ${file.name}, ${fileUrl}, ${file.size}, ${session.userId})
+      RETURNING id, file_name, file_url, file_size, created_at
+    ),
+    activity_row AS (
+      INSERT INTO organiser_activity (
+        organisation_id, board_id, item_id, actor_user_id, actor_name,
+        event_type, entity_type, entity_id, before_json, after_json
+      )
+      SELECT
+        ${session.organisationId}, ${boardId}, ${itemId}, ${session.userId}, ${session.name},
+        'file.added', 'file', inserted.id::text, NULL,
+        jsonb_build_object(
+          'file_name', organiser_activity_sanitise_scalar(to_jsonb(inserted.file_name)),
+          'file_size', to_jsonb(inserted.file_size)
+        )
+      FROM inserted
+      RETURNING id
+    )
+    SELECT id, file_name, file_url, file_size, created_at FROM inserted
   `;
 
   return NextResponse.json({ file: rows[0] });
