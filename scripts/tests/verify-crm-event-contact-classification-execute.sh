@@ -153,28 +153,77 @@ if [ -z "$CTE_TEMPLATE" ]; then
 fi
 echo "  extracted ($(echo "$CTE_TEMPLATE" | wc -l) lines)"
 
-# Renders the extracted TS template literal into real SQL by substituting
-# its ${...} interpolations positionally — the SAME values in the SAME
-# order the real function passes them, never reordered or reinterpreted.
-render_cte() {
-  # Uses '#' as the sed delimiter throughout — the notes-marker value
-  # ("Events / Event Booking") contains literal '/' characters, which
-  # would otherwise be misparsed as extra delimiter boundaries in the
-  # usual s/.../.../ form.
-  #
-  # ${crypto.randomUUID()} is substituted with one fixed literal — only
-  # ever one call in this harness actually reaches the audit INSERT (the
-  # rest are blocked by the classification IS NULL guard before it), so
-  # there is no primary-key collision risk from reusing it.
-  local contact_id="$1" org_id="$2" actor_id="$3" notes_marker="$4"
-  echo "$CTE_TEMPLATE" \
-    | sed "s#\${crypto\.randomUUID()}#'test-audit-00000000000000000001'#g" \
-    | sed "s#\${EVENT_CONTACT_CLASSIFICATION}#'EVENT_CONTACT'#g" \
-    | sed "s#\${r\.id}#'$contact_id'#g" \
-    | sed "s#\${organisationId}#'$org_id'#g" \
-    | sed "s#\${actorUserId}#'$actor_id'#g" \
-    | sed "s#\${notesMarker}#'$notes_marker'#g"
+# Renders the extracted TS template literal into GENUINELY PARAMETERIZED
+# SQL — each distinct ${...} occurrence becomes $1, $2, $3... in strict
+# textual order, exactly how the Neon driver's tagged-template sql
+# function numbers its own bound parameters. This is a deliberate
+# departure from this harness's own earlier approach (substituting
+# literal values via sed): that approach proved the CTE's atomicity/
+# guard logic, but is structurally incapable of catching a
+# "could not determine data type of parameter $N" class of bug —
+# Postgres only raises that error during PARSE ANALYSIS of a query with
+# unresolved bound-parameter types, which never happens when the SQL
+# text already contains a literal like 'EVENT_CONTACT' instead of a
+# placeholder. That gap is exactly how the ${EVENT_CONTACT_CLASSIFICATION}/
+# ${notesMarker} arguments to jsonb_build_object(...) (a VARIADIC "any"
+# function, which gives the parser no type to resolve a bare parameter
+# against) passed this harness at 10/10 while failing every real
+# Production write. PREPARE (with no explicit parameter type list) is
+# the exact server-side equivalent of the extended query protocol's
+# Parse step with an unspecified parameter-type array, which is what a
+# driver sending bound parameters over Neon's HTTP protocol does — so a
+# PREPARE failure here reproduces the real error, and a PREPARE success
+# here is real proof the fix resolves it, not just a plausible guess.
+# Any ::text (or other) cast immediately after a closing '}' is part of
+# the surrounding SQL text, not the matched ${...} span, so it is
+# preserved automatically — the replacement only ever touches the
+# placeholder itself.
+POSITIONAL_SQL="$(node -e '
+const template = process.argv[1];
+let i = 0;
+process.stdout.write(template.replace(/\$\{[^}]*\}/g, () => { i += 1; return `$${i}`; }));
+' "$CTE_TEMPLATE")"
+echo "  positional SQL built — \$1..\$9 substituted for each \${...} occurrence, in order"
+
+echo ""
+echo "=== PARAMETER MAP (ground truth — extracted, not hand-counted) ==="
+node -e '
+const template = process.argv[1];
+const matches = [...template.matchAll(/\$\{[^}]*\}/g)];
+matches.forEach((m, idx) => console.log(`  $${idx + 1} = ${m[0]}`));
+' "$CTE_TEMPLATE"
+
+# EXECUTE args are positional per the map above:
+# $1=classification $2=contact_id $3=org_id $4=org_id $5=audit_id
+# $6=org_id $7=actor_id $8=classification $9=notes_marker
+run_cte() {
+  local contact_id="$1" org_id="$2" actor_id="$3" notes_marker="$4" audit_id="$5"
+  {
+    echo "PREPARE classify_cte AS $POSITIONAL_SQL;"
+    echo "EXECUTE classify_cte('EVENT_CONTACT', '$contact_id', '$org_id', '$org_id', '$audit_id', '$org_id', '$actor_id', 'EVENT_CONTACT', '$notes_marker');"
+    echo "DEALLOCATE classify_cte;"
+  } | psql_exec
+  RUN_CTE_EXIT=$?
 }
+
+echo ""
+echo "=== NEGATIVE-PATH MICRO-REPRO: proves THIS HARNESS can actually catch this bug class ==="
+# Isolated reproduction of the exact mechanism (not extracted from the
+# library file, since that file is now fixed) — a bare bound parameter
+# passed directly to jsonb_build_object(...), a VARIADIC "any" function,
+# gives Postgres's parser no type to resolve it against under the
+# extended query protocol (which PREPARE with no explicit type list
+# reproduces server-side). This is a general Postgres behavior, not
+# specific to this codebase — proving it here, independent of the real
+# statement, confirms the harness's own PREPARE/EXECUTE mechanism would
+# catch a regression of this exact class if one were ever reintroduced.
+UNCAST_STDERR="$(echo "PREPARE bad_stmt AS SELECT jsonb_build_object('k', \$1);" | docker exec -i "$CONTAINER" psql -X -q -U postgres -d testdb 2>&1)"
+echo "$UNCAST_STDERR" | grep -q 'could not determine data type of parameter \$1'
+check "an uncast bound parameter inside jsonb_build_object(...) fails PREPARE with 'could not determine data type of parameter \$1' — the exact error class Production hit" "$?" "0"
+
+echo "PREPARE good_stmt AS SELECT jsonb_build_object('k', \$1::text); DEALLOCATE good_stmt;" \
+  | docker exec -i "$CONTAINER" psql -X -q -U postgres -d testdb -v ON_ERROR_STOP=1 >/dev/null 2>&1
+check "adding an explicit ::text cast to the same bound parameter resolves it — PREPARE succeeds (proves the fix mechanism itself, not just a plausible guess)" "$?" "0"
 
 echo ""
 echo "=== SEED ONE ELIGIBLE CONTACT (classification NULL) ==="
@@ -183,8 +232,9 @@ echo "INSERT INTO event_orders (id, organisation_id, crm_contact_id) VALUES ('or
 echo "  seeded contact_id=$CONTACT_ID, linked to order-1"
 
 echo ""
-echo "=== FIRST RUN: guarded UPDATE+audit CTE against the eligible contact ==="
-render_cte "$CONTACT_ID" "clx7q9k2e0000abcdorg1" "clx7q9k2e0001actoruser" "Events / Event Booking" | psql_exec
+echo "=== FIRST RUN: guarded UPDATE+audit CTE against the eligible contact (via real PREPARE/EXECUTE — genuine bound parameters) ==="
+run_cte "$CONTACT_ID" "clx7q9k2e0000abcdorg1" "clx7q9k2e0001actoruser" "Events / Event Booking" "test-audit-00000000000000000001"
+check "PREPARE/EXECUTE of the REAL extracted statement succeeds — no 'could not determine data type of parameter' error, using genuine bound parameters (not literal substitution)" "$RUN_CTE_EXIT" "0"
 
 CLASSIFICATION_AFTER="$(echo "SELECT classification FROM crm_contacts WHERE id = '$CONTACT_ID';" | psql_query | tr -d '[:space:]')"
 check "classification was set to EVENT_CONTACT" "$CLASSIFICATION_AFTER" "EVENT_CONTACT"
@@ -208,7 +258,8 @@ echo "=== SECOND RUN (same statement, same contact): stale/idempotency guard —
 ROW_COUNT_BEFORE_SECOND="$(echo "SELECT COUNT(*) FROM crm_contacts;" | psql_query | tr -d '[:space:]')"
 AUDIT_COUNT_BEFORE_SECOND="$(echo "SELECT COUNT(*) FROM audit_logs;" | psql_query | tr -d '[:space:]')"
 
-render_cte "$CONTACT_ID" "clx7q9k2e0000abcdorg1" "clx7q9k2e0001actoruser" "Events / Event Booking" | psql_exec
+run_cte "$CONTACT_ID" "clx7q9k2e0000abcdorg1" "clx7q9k2e0001actoruser" "Events / Event Booking" "test-audit-00000000000000000002"
+check "PREPARE/EXECUTE succeeds again on the second (stale-guard) run — the guard blocks the write, it does not error" "$RUN_CTE_EXIT" "0"
 
 CLASSIFICATION_STILL="$(echo "SELECT classification FROM crm_contacts WHERE id = '$CONTACT_ID';" | psql_query | tr -d '[:space:]')"
 check "classification is unchanged (still EVENT_CONTACT, not touched again)" "$CLASSIFICATION_STILL" "EVENT_CONTACT"
@@ -224,7 +275,8 @@ echo "=== A SEPARATE contact already CLIENT-classified: proves the guard blocks 
 CLIENT_CONTACT_ID="$(echo "INSERT INTO crm_contacts (organisation_id, first_name, last_name, notes, classification) VALUES ('clx7q9k2e0000abcdorg1', 'Already', 'Client', 'Events / Event Booking', 'CLIENT') RETURNING id;" | psql_query | tr -d '[:space:]')"
 echo "INSERT INTO event_orders (id, organisation_id, crm_contact_id) VALUES ('order-2', 'clx7q9k2e0000abcdorg1', '$CLIENT_CONTACT_ID');" | psql_exec
 
-render_cte "$CLIENT_CONTACT_ID" "clx7q9k2e0000abcdorg1" "clx7q9k2e0001actoruser" "Events / Event Booking" | psql_exec
+run_cte "$CLIENT_CONTACT_ID" "clx7q9k2e0000abcdorg1" "clx7q9k2e0001actoruser" "Events / Event Booking" "test-audit-00000000000000000003"
+check "PREPARE/EXECUTE succeeds for the already-classified contact too — the guard blocks it, it does not error" "$RUN_CTE_EXIT" "0"
 
 CLIENT_CLASSIFICATION_AFTER="$(echo "SELECT classification FROM crm_contacts WHERE id = '$CLIENT_CONTACT_ID';" | psql_query | tr -d '[:space:]')"
 check "an existing CLIENT classification is never overwritten by the guarded statement" "$CLIENT_CLASSIFICATION_AFTER" "CLIENT"

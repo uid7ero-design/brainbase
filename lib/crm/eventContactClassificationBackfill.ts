@@ -296,6 +296,28 @@ export async function executeEventContactClassification(
       // entire compound statement (including the UPDATE) before
       // anything could commit — every eligible row failed identically,
       // silently, with zero classifications applied.
+      //
+      // ::text casts on the two jsonb_build_object(...) arguments below
+      // (previously bare ${EVENT_CONTACT_CLASSIFICATION}/${notesMarker}):
+      // the Neon driver sends this query with genuine bound parameters
+      // ($1, $2, ... over Postgres's extended query protocol), not
+      // literal-substituted SQL text. jsonb_build_object is declared
+      // VARIADIC "any" — Postgres CAN infer a bound parameter's type
+      // from a direct, typed context (e.g. `classification = $1`
+      // against a TEXT column, or a top-level INSERT...SELECT target
+      // list item, both used elsewhere in this same statement), but an
+      // "any"-typed function argument gives the parser nothing to
+      // resolve against, so parse analysis fails outright with
+      // "could not determine data type of parameter $N" before
+      // execution ever begins — the entire compound statement (UPDATE
+      // included) is rejected, exactly like the earlier `detail`-column
+      // incident. An explicit ::text cast gives the parameter a
+      // concrete type; jsonb_build_object still produces the same JSON
+      // string value from a text argument as it did from an untyped
+      // one. A disposable-Postgres harness that only substitutes
+      // literals into the SQL text (never binds real parameters) cannot
+      // catch this class of bug — see this file's own test suite for
+      // the PREPARE/EXECUTE-based regression that now does.
       const result = (await sql`
         WITH upd AS (
           UPDATE crm_contacts
@@ -314,9 +336,9 @@ export async function executeEventContactClassification(
             ${crypto.randomUUID()}, ${organisationId}, ${actorUserId}, 'crm_contact.historical_classification_backfill', 'crm_contact', upd.id,
             NULL,
             jsonb_build_object(
-              'new_classification', ${EVENT_CONTACT_CLASSIFICATION},
+              'new_classification', ${EVENT_CONTACT_CLASSIFICATION}::text,
               'source', 'events_historical_classification_backfill',
-              'notes_marker', ${notesMarker},
+              'notes_marker', ${notesMarker}::text,
               'matched_order_ids', (SELECT order_ids FROM matched_orders)
             )
           FROM upd

@@ -453,6 +453,66 @@ describe('the guarded UPDATE+audit CTE matches the REAL audit_logs schema (prism
   })
 })
 
+// Reproduces the SECOND Production incident: after the audit_logs
+// schema fix (above) deployed, a real controlled execution still
+// failed every row with "could not determine data type of parameter
+// $8". Root cause: this table's own PREPARE/EXECUTE proof (scripts/
+// tests/verify-crm-event-contact-classification-execute.sh) empirically
+// confirmed jsonb_build_object(...) — declared VARIADIC "any" — gives
+// Postgres's parser nothing to resolve a bare bound parameter against,
+// so any placeholder passed directly as one of its arguments (with no
+// cast) fails PARSE ANALYSIS under the extended query protocol, which
+// is exactly how the Neon driver sends this statement (genuine bound
+// parameters, never literal-substituted SQL text). Every other
+// parameter in this statement sits in a directly-typed context (column
+// assignment, column comparison, or an INSERT...SELECT target-list
+// position) and resolves fine — only the two values passed straight
+// into jsonb_build_object(...) needed an explicit cast. A disposable-
+// Postgres harness that only ever substitutes literals into the SQL
+// text (this file's OWN previous approach) cannot catch this class of
+// bug either — a literal like 'EVENT_CONTACT' always has an inferable
+// type, a bound placeholder in the same position does not. This is a
+// source-level, driver-semantics-adjacent proof; the authoritative
+// real-Postgres proof (a genuine PREPARE with no explicit parameter
+// type list, mirroring the extended query protocol's unspecified-type
+// Parse step) lives in the .sh harness referenced above.
+describe('the two jsonb_build_object(...) arguments are explicitly ::text-cast — closes "could not determine data type of parameter $8"', () => {
+  const src = read('lib/crm/eventContactClassificationBackfill.ts')
+  const insertIdx = src.indexOf('INSERT INTO audit_logs')
+  const auditBlock = src.slice(insertIdx, src.indexOf('RETURNING id', insertIdx))
+  const jsonbIdx = auditBlock.indexOf('jsonb_build_object(')
+  const jsonbBlock = auditBlock.slice(jsonbIdx)
+
+  it('the new_classification value is ${EVENT_CONTACT_CLASSIFICATION}::text, not a bare interpolation', () => {
+    expect(jsonbBlock).toContain('${EVENT_CONTACT_CLASSIFICATION}::text')
+  })
+
+  it('the notes_marker value is ${notesMarker}::text, not a bare interpolation', () => {
+    expect(jsonbBlock).toContain('${notesMarker}::text')
+  })
+
+  it('every other interpolation in the whole statement (classification target, ids, org scoping, actor) remains uncast — this fix is scoped to exactly the two parameters that actually need it, per the harness\'s own empirical PREPARE proof, not a blanket cast', () => {
+    // Exactly 9 total interpolations across the WHOLE compound
+    // statement (matches the harness's own extracted, ground-truth
+    // parameter count: $1..$9) — only 2 of them (both inside
+    // jsonb_build_object, the two nested "any"-typed function
+    // arguments) carry a ::text suffix.
+    const cteStart = src.indexOf('WITH upd AS (')
+    const cteEnd = src.indexOf('AS updated_id', cteStart) + 'AS updated_id'.length
+    const fullCte = src.slice(cteStart, cteEnd)
+    const allInterpolations = [...fullCte.matchAll(/\$\{[^}]*\}(::\w+)?/g)]
+    expect(allInterpolations.length).toBe(9)
+    const castCount = allInterpolations.filter(m => m[1] === '::text').length
+    expect(castCount).toBe(2)
+  })
+
+  it('the UPDATE\'s own ${EVENT_CONTACT_CLASSIFICATION} (the SET target, a directly-typed column-assignment context) is deliberately left uncast — only the jsonb_build_object arguments needed the fix', () => {
+    const updateBlock = src.slice(src.indexOf('UPDATE crm_contacts'), src.indexOf('RETURNING id'))
+    expect(updateBlock).toContain('SET classification = ${EVENT_CONTACT_CLASSIFICATION}')
+    expect(updateBlock).not.toContain('${EVENT_CONTACT_CLASSIFICATION}::text')
+  })
+})
+
 describe('executeEventContactClassification — idempotency', () => {
   it('re-running against a contact whose classification the candidate query now reports as EVENT_CONTACT (i.e. already updated by a prior run) updates zero rows', async () => {
     queue([eligibleCandidate({ classification: 'EVENT_CONTACT' })])
