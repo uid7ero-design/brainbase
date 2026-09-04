@@ -121,12 +121,13 @@ describe('computeClassificationEligibility — the exact three-tier priority', (
 // ─────────────────────────────────────────────────────────────────────
 
 let calls: { text: string; values: unknown[] }[] = []
-let responseQueue: (unknown[] | 'THROW')[] = []
+let responseQueue: (unknown[] | 'THROW' | { THROW_MESSAGE: string })[] = []
 let callCount = 0
 const sqlMock = vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
   calls.push({ text: strings.join('?'), values })
   const next = responseQueue[callCount++]
   if (next === 'THROW') throw new Error('simulated DB failure')
+  if (typeof next === 'object' && next !== null && 'THROW_MESSAGE' in next) throw new Error((next as { THROW_MESSAGE: string }).THROW_MESSAGE)
   return Promise.resolve(next ?? [])
 })
 vi.mock('@/lib/db', () => ({
@@ -150,7 +151,7 @@ vi.mock('@/lib/org', async (importOriginal) => {
   return { ...actual, requireSession: (...args: unknown[]) => requireSessionMock(...args) }
 })
 
-function queue(...responses: (unknown[] | 'THROW')[]) { responseQueue = responses; callCount = 0; calls = [] }
+function queue(...responses: (unknown[] | 'THROW' | { THROW_MESSAGE: string })[]) { responseQueue = responses; callCount = 0; calls = [] }
 function sessionAs(role: string, organisationId = 'org-a') { return { userId: 'staff-1', organisationId, role, name: 'Staff One' } }
 
 const { previewEventContactClassification, executeEventContactClassification } = await import('@/lib/crm/eventContactClassificationBackfill')
@@ -381,6 +382,74 @@ describe('executeEventContactClassification — stale-preview / concurrency safe
     const result = await executeEventContactClassification('org-a', 'actor-1')
     expect(result.skipped.find(s => s.contactId === 'contact-1')?.outcome).toBe('failed')
     expect(result.updated.find(u => u.contactId === 'contact-2')).toBeDefined()
+  })
+
+  // Reproduces the actual Production incident: audit_logs previously had
+  // no `detail` column, so every write's compound CTE (UPDATE + audit
+  // INSERT, one atomic statement) failed with a real Postgres error the
+  // instant it reached the DB — before anything could commit. This is
+  // exactly what the Neon HTTP driver surfaces as a thrown exception,
+  // caught per-contact, never a top-level 500 — so the route still
+  // returned HTTP 200 with eligibleAtExecution=N, updatedCount=0,
+  // skippedCount=N (all 'failed'), which is precisely what was observed.
+  it('a Postgres schema-mismatch error (e.g. an invalid column in the audit INSERT) is caught, surfaces its real message on the row, and updatedCount stays 0 — never a top-level throw', async () => {
+    queue(
+      [eligibleCandidate()],
+      { THROW_MESSAGE: 'column "detail" of relation "audit_logs" does not exist' },
+    )
+    const result = await executeEventContactClassification('org-a', 'actor-1')
+    expect(result.eligibleAtExecution).toBe(1)
+    expect(result.updatedCount).toBe(0)
+    expect(result.skippedCount).toBe(1)
+    expect(result.skipped).toEqual([{
+      contactId: 'contact-1',
+      name: 'Jane Doe',
+      outcome: 'failed',
+      error: 'column "detail" of relation "audit_logs" does not exist',
+    }])
+  })
+
+  it('POST still returns HTTP 200 (never a top-level 500) even when every eligible write fails — the per-contact catch means the route always has a well-formed result to return', async () => {
+    requireSessionMock.mockResolvedValue(sessionAs('admin', 'org-a'))
+    queue(
+      [eligibleCandidate()],
+      { THROW_MESSAGE: 'column "detail" of relation "audit_logs" does not exist' },
+    )
+    const res = await route.POST()
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body).toMatchObject({ success: true, eligibleAtExecution: 1, updatedCount: 0, skippedCount: 1 })
+    expect(body.skipped[0].outcome).toBe('failed')
+    expect(body.skipped[0].error).toContain('audit_logs')
+  })
+})
+
+describe('the guarded UPDATE+audit CTE matches the REAL audit_logs schema (prisma/schema.prisma\'s AuditLog model) — not a schema the test harness invented', () => {
+  const src = read('lib/crm/eventContactClassificationBackfill.ts')
+  const insertIdx = src.indexOf('INSERT INTO audit_logs')
+  const auditBlock = src.slice(insertIdx, src.indexOf('RETURNING id', insertIdx))
+
+  it('never references a `detail` column in live code — audit_logs has no such column in Production (it has before_state/after_state); the module\'s own header comment legitimately NAMES the old, wrong column while documenting the incident, so comments are stripped before checking for a live reference', () => {
+    expect(stripComments(src)).not.toContain('detail')
+  })
+
+  it('inserts the real AuditLog columns: id, organisation_id, user_id, action, resource_type, resource_id, before_state, after_state', () => {
+    expect(auditBlock).toMatch(/INSERT INTO audit_logs \(id, organisation_id, user_id, action, resource_type, resource_id, before_state, after_state\)/)
+  })
+
+  it('supplies id explicitly via crypto.randomUUID() — this table has no DB-level default for id (cuid() is a Prisma client-side default only), matching the already-live lib/events/auditLog.ts writer', () => {
+    expect(auditBlock).toContain('crypto.randomUUID()')
+  })
+
+  it('the schema this module writes to matches prisma/schema.prisma\'s AuditLog model field-for-field (id, organisation_id, user_id, action, resource_type, resource_id, before_state, after_state — no `detail`)', () => {
+    const schemaSrc = read('prisma/schema.prisma')
+    const modelStart = schemaSrc.indexOf('model AuditLog {')
+    const modelEnd = schemaSrc.indexOf('\n}', modelStart)
+    const model = schemaSrc.slice(modelStart, modelEnd)
+    for (const field of ['id', 'organisation_id', 'user_id', 'action', 'resource_type', 'resource_id', 'before_state', 'after_state']) {
+      expect(model, `AuditLog model must still define ${field}`).toMatch(new RegExp(`\\b${field}\\b`))
+    }
+    expect(model).not.toMatch(/\bdetail\b/)
   })
 })
 
@@ -661,5 +730,22 @@ describe('app/crm/events-backfill/page.tsx — classification section: preview +
     for (const column of ['Contact', 'Email', 'Current classification', 'Events evidence', 'Linked orders', 'Activities', 'Status']) {
       expect(pageSrc).toContain(column)
     }
+  })
+
+  // Closes the diagnostic gap found in the Production incident: the
+  // sibling order-linking execution summary already rendered its own
+  // per-row failed outcomes with the real error message (see its own
+  // 'Failed' summary row + table further up this file), but the
+  // classification execution summary only ever showed aggregate counts
+  // — an operator saw "Skipped: 7" with no way to see WHY any of them
+  // failed, even though the API response already carried the real
+  // Postgres error message on each failed row.
+  it('the classification execution summary renders a per-contact table of failed outcomes with their real error message, mirroring the sibling order-linking execution summary', () => {
+    const execIdx = pageSrc.indexOf('{classificationExecution && (')
+    const execEnd = pageSrc.indexOf('classificationPreview && !classificationPreview.crmEnabled')
+    const execBlock = pageSrc.slice(execIdx, execEnd)
+    expect(execBlock).toContain("classificationExecution.skipped.some(r => r.outcome === 'failed')")
+    expect(execBlock).toContain("classificationExecution.skipped.filter(r => r.outcome === 'failed')")
+    expect(execBlock).toContain('r.error')
   })
 })

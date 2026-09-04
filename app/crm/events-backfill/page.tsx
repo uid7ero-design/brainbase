@@ -314,6 +314,26 @@ export default function EventsBackfillPage() {
                 ['Skipped', classificationExecution.skippedCount],
               ]}
             />
+            {classificationExecution.skipped.some(r => r.outcome === 'failed') && (
+              <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, overflow: 'hidden', marginTop: 20 }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ borderBottom: `1px solid ${BORDER}` }}>
+                      {['Contact', 'Outcome', 'Error'].map(h => <th key={h} style={th}>{h}</th>)}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {classificationExecution.skipped.filter(r => r.outcome === 'failed').map((r, i, arr) => (
+                      <tr key={r.contactId} style={{ borderBottom: i < arr.length - 1 ? `1px solid ${BORDER}` : 'none' }}>
+                        <td style={td}>{r.name}</td>
+                        <td style={td}>{r.outcome}</td>
+                        <td style={{ ...td, color: '#f87171' }}>{r.error ?? '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         )}
 

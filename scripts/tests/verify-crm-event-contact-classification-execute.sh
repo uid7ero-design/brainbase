@@ -105,6 +105,17 @@ echo "  crm_contacts (with classification) ready"
 
 echo ""
 echo "=== event_orders + audit_logs (minimal, matching real FK targets and TEXT org/user ids) ==="
+# audit_logs here matches prisma/schema.prisma's AuditLog model exactly
+# (id/organisation_id/user_id/resource_id all TEXT, before_state/
+# after_state JSONB, no `detail` column, no DB-level default on id —
+# cuid() is a Prisma client-side default only). An earlier version of
+# this harness invented its own audit_logs shape (UUID ids, a `detail`
+# column that has never existed) that happened to match what the
+# library's SQL used to write — self-consistent, but never checked
+# against the real schema, so it passed 9/9 while the identical SQL
+# failed every write in Production against the real table. See
+# lib/crm/eventContactClassificationBackfill.ts's own header comment
+# on the audit INSERT for the full incident.
 cat <<'SQL' | psql_exec
 CREATE TABLE event_orders (
   id              TEXT PRIMARY KEY,
@@ -112,13 +123,14 @@ CREATE TABLE event_orders (
   crm_contact_id  UUID REFERENCES crm_contacts(id)
 );
 CREATE TABLE audit_logs (
-  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  id              TEXT PRIMARY KEY,
   organisation_id TEXT NOT NULL REFERENCES organisations(id),
   user_id         TEXT REFERENCES users(id),
   action          TEXT NOT NULL,
   resource_type   TEXT,
-  resource_id     UUID,
-  detail          JSONB,
+  resource_id     TEXT,
+  before_state    JSONB,
+  after_state     JSONB,
   created_at      TIMESTAMPTZ DEFAULT NOW()
 );
 SQL
@@ -149,8 +161,14 @@ render_cte() {
   # ("Events / Event Booking") contains literal '/' characters, which
   # would otherwise be misparsed as extra delimiter boundaries in the
   # usual s/.../.../ form.
+  #
+  # ${crypto.randomUUID()} is substituted with one fixed literal — only
+  # ever one call in this harness actually reaches the audit INSERT (the
+  # rest are blocked by the classification IS NULL guard before it), so
+  # there is no primary-key collision risk from reusing it.
   local contact_id="$1" org_id="$2" actor_id="$3" notes_marker="$4"
   echo "$CTE_TEMPLATE" \
+    | sed "s#\${crypto\.randomUUID()}#'test-audit-00000000000000000001'#g" \
     | sed "s#\${EVENT_CONTACT_CLASSIFICATION}#'EVENT_CONTACT'#g" \
     | sed "s#\${r\.id}#'$contact_id'#g" \
     | sed "s#\${organisationId}#'$org_id'#g" \
@@ -174,15 +192,16 @@ check "classification was set to EVENT_CONTACT" "$CLASSIFICATION_AFTER" "EVENT_C
 AUDIT_COUNT_AFTER_FIRST="$(echo "SELECT COUNT(*) FROM audit_logs WHERE resource_id = '$CONTACT_ID';" | psql_query | tr -d '[:space:]')"
 check "exactly one audit_logs row was created" "$AUDIT_COUNT_AFTER_FIRST" "1"
 
-AUDIT_ROW="$(echo "SELECT organisation_id || '|' || user_id || '|' || action || '|' || resource_type || '|' || (detail->>'new_classification') || '|' || (detail->>'notes_marker') || '|' || (detail->'matched_order_ids') FROM audit_logs WHERE resource_id = '$CONTACT_ID';" | psql_query)"
+AUDIT_ROW="$(echo "SELECT organisation_id || '|' || user_id || '|' || action || '|' || resource_type || '|' || (after_state->>'new_classification') || '|' || (after_state->>'notes_marker') || '|' || (after_state->'matched_order_ids') FROM audit_logs WHERE resource_id = '$CONTACT_ID';" | psql_query)"
 check "audit row content is exactly right (org|actor|action|resource_type|new_classification|notes_marker|matched_order_ids)" \
   "$AUDIT_ROW" \
   "clx7q9k2e0000abcdorg1|clx7q9k2e0001actoruser|crm_contact.historical_classification_backfill|crm_contact|EVENT_CONTACT|Events / Event Booking|[\"order-1\"]"
 
-PREV_CLASSIFICATION_NULL="$(echo "SELECT (detail->'previous_classification') IS NULL FROM audit_logs WHERE resource_id = '$CONTACT_ID';" | psql_query | tr -d '[:space:]')"
-# jsonb 'null' literal, not SQL NULL — detail->'previous_classification' returns the jsonb null, and (jsonb null) IS NULL is false in Postgres (it's a real JSON value, not absence)
-DETAIL_HAS_NULL_PREV="$(echo "SELECT (detail->'previous_classification')::text FROM audit_logs WHERE resource_id = '$CONTACT_ID';" | psql_query | tr -d '[:space:]')"
-check "audit detail.previous_classification is JSON null" "$DETAIL_HAS_NULL_PREV" "null"
+AUDIT_ID_NOT_NULL="$(echo "SELECT id IS NOT NULL FROM audit_logs WHERE resource_id = '$CONTACT_ID';" | psql_query | tr -d '[:space:]')"
+check "audit row's id was supplied by the app itself — this table has no DB-level default, matching Production" "$AUDIT_ID_NOT_NULL" "t"
+
+BEFORE_STATE_IS_NULL="$(echo "SELECT before_state IS NULL FROM audit_logs WHERE resource_id = '$CONTACT_ID';" | psql_query | tr -d '[:space:]')"
+check "audit before_state is SQL NULL (nothing worth recording before — the guard already proves classification was NULL)" "$BEFORE_STATE_IS_NULL" "t"
 
 echo ""
 echo "=== SECOND RUN (same statement, same contact): stale/idempotency guard — the contact is NO LONGER classification IS NULL ==="
