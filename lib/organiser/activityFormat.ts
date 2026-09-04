@@ -1,8 +1,9 @@
 // Phase D.4.5D — pure, framework-free formatting helpers for rendering
 // organiser_activity rows as human-readable Item Activity tab entries.
+// Phase D.4.5E adds resolveItemLabel and describeBoardActivityEvent for
+// the board-level Activity feed, sharing every other helper unchanged.
 // No React, no DOM, no fetch — safe to unit-test directly and safe to
-// import from any future surface (Item Activity tab today, a possible
-// board-level activity feed later) without dragging UI concerns along.
+// import from any future surface without dragging UI concerns along.
 //
 // NEVER THROWS: every function here degrades to a safe, generic rendering
 // for unexpected input (an unrecognised event_type, a null/empty
@@ -150,17 +151,21 @@ function buildDiffRows(
   return rows;
 }
 
-/** The single entry point the Item Activity tab renders through. Handles
- *  the four known event types (item.created/updated/moved/deleted)
- *  explicitly, plus a generic, still-useful fallback for anything else —
- *  an unrecognised event_type NEVER throws and never renders blank; it
- *  falls through to the same generic diff renderer with a plain
- *  "<actor> — <event_type>" summary. */
-export function describeActivityEvent(
+/** Shared implementation behind both describeActivityEvent (Item Activity
+ *  tab — already scoped to one visible item, so the subject is always the
+ *  generic "this item") and describeBoardActivityEvent (board feed — many
+ *  items shown together, so the subject must name which one). `itemLabel`
+ *  is null for the single-item case and a resolved display name for the
+ *  board-feed case; every other branch (which event types exist, how their
+ *  diffs are built, the never-throws fallback) is one identical code path
+ *  so the two callers can never silently drift apart. */
+function describeEventInternal(
   event: ActivityEventLike,
-  groupNamesById: Record<string, string> = {},
+  groupNamesById: Record<string, string>,
+  itemLabel: string | null,
 ): ActivityDescription {
   const actorLabel = event.actor?.name || 'Someone';
+  const subject = itemLabel !== null ? `"${itemLabel}"` : 'this item';
 
   if (event.event_type === 'item.created') {
     const after = event.after ?? {};
@@ -171,23 +176,79 @@ export function describeActivityEvent(
     if ('group_id' in after) {
       diffs.push({ label: 'Group', before: null, after: resolveGroupLabel(after.group_id, groupNamesById) });
     }
-    return { summary: `${actorLabel} created this item`, diffs };
+    return { summary: `${actorLabel} created ${subject}`, diffs };
   }
 
   if (event.event_type === 'item.moved') {
-    return { summary: `${actorLabel} moved this item`, diffs: buildDiffRows(event.before, event.after, groupNamesById) };
+    return { summary: `${actorLabel} moved ${subject}`, diffs: buildDiffRows(event.before, event.after, groupNamesById) };
   }
 
   if (event.event_type === 'item.updated') {
-    return { summary: `${actorLabel} updated this item`, diffs: buildDiffRows(event.before, event.after, groupNamesById) };
+    return { summary: `${actorLabel} updated ${subject}`, diffs: buildDiffRows(event.before, event.after, groupNamesById) };
   }
 
   if (event.event_type === 'item.deleted') {
-    return { summary: `${actorLabel} deleted this item`, diffs: [] };
+    return { summary: `${actorLabel} deleted ${subject}`, diffs: [] };
   }
 
   return {
-    summary: `${actorLabel} — ${event.event_type || 'activity'}`,
+    summary: itemLabel !== null
+      ? `${actorLabel} — ${event.event_type || 'activity'} on ${subject}`
+      : `${actorLabel} — ${event.event_type || 'activity'}`,
     diffs: buildDiffRows(event.before, event.after, groupNamesById),
   };
+}
+
+/** The single entry point the Item Activity tab renders through. Handles
+ *  the four known event types (item.created/updated/moved/deleted)
+ *  explicitly, plus a generic, still-useful fallback for anything else —
+ *  an unrecognised event_type NEVER throws and never renders blank; it
+ *  falls through to the same generic diff renderer with a plain
+ *  "<actor> — <event_type>" summary. Byte-for-byte the same output as
+ *  before the D.4.5E refactor (see describeEventInternal). */
+export function describeActivityEvent(
+  event: ActivityEventLike,
+  groupNamesById: Record<string, string> = {},
+): ActivityDescription {
+  return describeEventInternal(event, groupNamesById, null);
+}
+
+/** Resolves a display label for the item an activity event describes, for
+ *  contexts (the board feed) where multiple items are shown together and
+ *  "this item" would be ambiguous. Never requires a live organiser_items
+ *  row — deleted items still render a real name from their own before_json
+ *  snapshot:
+ *    1. after.name, if the event's own after payload carries it
+ *    2. before.name, if only that side carries it (covers item.deleted,
+ *       whose before_json always includes name — see the DELETE route's
+ *       own instrumentation — and any item.updated that didn't touch name)
+ *    3. the item's CURRENT live name, from a caller-supplied map (built
+ *       from the board's own already tenant-scoped, already-loaded items
+ *       list — never an independent fetch/query)
+ *    4. "Item" — a safe, generic fallback that never crashes or renders
+ *       blank when none of the above is available. */
+export function resolveItemLabel(
+  event: { entity_id: string; before: Record<string, unknown> | null; after: Record<string, unknown> | null },
+  liveItemNamesById: Record<string, string> = {},
+): string {
+  const afterName = event.after && typeof event.after.name === 'string' && event.after.name.length > 0 ? event.after.name : null;
+  if (afterName) return afterName;
+  const beforeName = event.before && typeof event.before.name === 'string' && event.before.name.length > 0 ? event.before.name : null;
+  if (beforeName) return beforeName;
+  const live = liveItemNamesById[event.entity_id];
+  if (live) return live;
+  return 'Item';
+}
+
+/** Board-feed variant of describeActivityEvent. Same event-type handling
+ *  and diff-building as the single-item Activity tab (via
+ *  describeEventInternal), but every summary names the affected item
+ *  (resolved via resolveItemLabel) since the board feed shows many items
+ *  at once. */
+export function describeBoardActivityEvent(
+  event: ActivityEventLike & { entity_id: string },
+  groupNamesById: Record<string, string> = {},
+  liveItemNamesById: Record<string, string> = {},
+): ActivityDescription {
+  return describeEventInternal(event, groupNamesById, resolveItemLabel(event, liveItemNamesById));
 }

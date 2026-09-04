@@ -22,7 +22,13 @@ const pageCode = stripComments(pageSource)
 describe('ItemActivity — the new section itself', () => {
   it('exists as its own function, imports the real formatter (not a duplicated inline switch statement)', () => {
     expect(pageCode).toMatch(/function ItemActivity\(/)
-    expect(pageCode).toMatch(/import \{ describeActivityEvent, type ActivityEventLike \} from ["']@\/lib\/organiser\/activityFormat["']/)
+    // Phase D.4.5E — this import line also gained describeBoardActivityEvent
+    // for the new board feed (see organiserBoardActivityView.test.ts); the
+    // real assertion here — describeActivityEvent and ActivityEventLike are
+    // imported from the shared formatter module, not reimplemented — still
+    // holds, so the pattern is widened to match the real, current line
+    // rather than the D.4.5D-only exact string.
+    expect(pageCode).toMatch(/import \{ describeActivityEvent, describeBoardActivityEvent, type ActivityEventLike \} from ["']@\/lib\/organiser\/activityFormat["']/)
   })
 
   it('fetches from the new tenant-safe endpoint, scoped by itemId, with credentials included', () => {

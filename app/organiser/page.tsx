@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import OrganiserShell from "@/components/organiser/OrganiserShell";
 import OrganiserRail from "@/components/organiser/OrganiserRail";
 import { useOpsTheme } from "@/components/ops/theme";
-import { describeActivityEvent, type ActivityEventLike } from "@/lib/organiser/activityFormat";
+import { describeActivityEvent, describeBoardActivityEvent, type ActivityEventLike } from "@/lib/organiser/activityFormat";
 
 const FONT = 'var(--font-inter), "Inter", -apple-system, sans-serif';
 
@@ -686,6 +686,151 @@ function CalendarView({ items, onOpenDrawer }: { items: OrganiserItem[]; onOpenD
   );
 }
 
+// ── BOARD ACTIVITY (Phase D.4.5E) ───────────────────────────────────────────
+//
+// Read-only board-wide feed — "what changed on this board" — sourced from
+// GET /api/organiser/activity?boardId= (lib/organiser/activityRead.ts's
+// listBoardActivity — tenant-scoped, deletion-safe, keyset-paginated,
+// mirroring ItemActivity's own fetch/pagination shape exactly). Kept LOCAL
+// to this file rather than split into components/organiser/BoardActivity.tsx
+// — every other per-view surface in this file (KanbanView, CalendarView,
+// ItemDrawer, ItemActivity) is already a local function, not a separate
+// component file; BoardActivity is directly analogous to KanbanView/
+// CalendarView (one more board VIEW alongside table/board/calendar), and
+// splitting only this one out would both break that established local
+// convention and require threading boardId/items/groupNamesById/onOpenItem
+// across a new file boundary for no benefit — everything it needs is
+// already in scope in OrganiserPageContent.
+//
+// Mounted only while the Activity view is selected (view === "activity"),
+// matching KanbanView/CalendarView's own "only render while this view is
+// active" convention — never fetched for an inactive view. Re-fetches from
+// page 1 whenever boardId changes (switching boards) or refreshKey changes
+// (a mutation happened while this view is open — see its call site's
+// boardActivityRefreshKey, derived from boardData.items).
+function BoardActivity({
+  boardId, items, groupNamesById, onOpenItem, refreshKey,
+}: {
+  boardId: string; items: OrganiserItem[]; groupNamesById: Record<string, string>;
+  onOpenItem: (item: OrganiserItem) => void; refreshKey: string;
+}) {
+  const t = useOpsTheme();
+  const [events, setEvents] = useState<OrganiserActivityEvent[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+
+  // Phase D.4.5E — section 12/19: item name resolution (for events whose
+  // own before/after diff doesn't happen to include `name`) and item
+  // click-through both need the board's CURRENT live items, never an
+  // independent fetch. Derived from the same `items` prop already loaded
+  // by the page for the table/board/calendar views.
+  const liveItemsById = useMemo(() => {
+    const map: Record<string, OrganiserItem> = {};
+    for (const it of items) map[it.id] = it;
+    return map;
+  }, [items]);
+  const liveItemNamesById = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const it of items) map[it.id] = it.name;
+    return map;
+  }, [items]);
+
+  // No synchronous setLoading(true)/setError(null) here — same
+  // react-hooks/set-state-in-effect avoidance as ItemActivity, via the
+  // key={`${boardId}:${refreshKey}`} on this component's call site, which
+  // remounts a fresh instance (loading/error/events already at their
+  // initial values) instead of this effect resetting them imperatively.
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/organiser/activity?boardId=${encodeURIComponent(boardId)}`, { credentials: "include" })
+      .then(r => (r.ok ? r.json() : Promise.reject(new Error(`Request failed (${r.status})`))))
+      .then(d => {
+        if (cancelled) return;
+        setEvents(d.activity ?? []);
+        setNextCursor(d.next_cursor ?? null);
+      })
+      .catch(() => { if (!cancelled) setError("Unable to load activity."); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [boardId, refreshKey]);
+
+  async function loadMore() {
+    if (!nextCursor || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const res = await fetch(
+        `/api/organiser/activity?boardId=${encodeURIComponent(boardId)}&cursor=${encodeURIComponent(nextCursor)}`,
+        { credentials: "include" },
+      );
+      if (!res.ok) throw new Error(`Request failed (${res.status})`);
+      const d = await res.json();
+      setEvents(prev => [...prev, ...(d.activity ?? [])]);
+      setNextCursor(d.next_cursor ?? null);
+    } catch {
+      setError("Unable to load more activity.");
+    } finally {
+      setLoadingMore(false);
+    }
+  }
+
+  return (
+    <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px 60px" }}>
+      {loading ? (
+        <div style={{ color: t.ink(.35), fontSize: 13 }}>Loading activity…</div>
+      ) : error ? (
+        <div style={{ color: "#EF4444", fontSize: 13 }}>{error}</div>
+      ) : events.length === 0 ? (
+        <div style={{ color: t.ink(.30), fontSize: 12.5 }}>No activity yet.</div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, maxWidth: 640 }}>
+          {events.map(ev => {
+            const desc = describeBoardActivityEvent(ev, groupNamesById, liveItemNamesById);
+            // Deleted items (and any non-item entity type, once a future
+            // phase instruments one) have no live row to open — no
+            // click-through for those, per section 19.
+            const liveItem = ev.entity_type === "item" ? liveItemsById[ev.entity_id] : undefined;
+            return (
+              <div key={ev.id} style={{ padding: "10px 12px", borderRadius: 8, background: t.ink(.025), border: `1px solid ${t.ink(.05)}` }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3, gap: 8 }}>
+                  <span
+                    onClick={liveItem ? () => onOpenItem(liveItem) : undefined}
+                    style={{
+                      fontSize: 12, fontWeight: 600, color: t.ink(.80),
+                      cursor: liveItem ? "pointer" : "default",
+                    }}
+                  >
+                    {desc.summary}
+                  </span>
+                  <span style={{ fontSize: 9.5, color: t.ink(.25), flexShrink: 0 }}>{new Date(ev.created_at).toLocaleString()}</span>
+                </div>
+                {desc.diffs.length > 0 && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 2, marginTop: 4 }}>
+                    {desc.diffs.map((d, i) => (
+                      <div key={i} style={{ fontSize: 11, color: t.ink(.6) }}>
+                        <span style={{ color: t.ink(.4) }}>{d.label}: </span>
+                        {d.before !== null ? (
+                          <>{d.before} <span style={{ color: t.ink(.3) }}>→</span> {d.after}</>
+                        ) : d.after}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          {nextCursor && (
+            <button onClick={loadMore} disabled={loadingMore} style={btnStyle(false, t)}>
+              {loadingMore ? "Loading…" : "Load more"}
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── ITEM DETAIL DRAWER ──────────────────────────────────────────────────────
 
 // ── ITEM ACTIVITY (Phase D.4.5D) ────────────────────────────────────────────
@@ -957,7 +1102,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 // ── PAGE ─────────────────────────────────────────────────────────────────────
 
-type ViewMode = "table" | "board" | "calendar";
+type ViewMode = "table" | "board" | "calendar" | "activity";
 
 // Board deep-link (?board=<id>) — smallest addition supporting Founder OS's
 // "Open in Organiser" landing directly on a specific board (e.g. Founder
@@ -1001,6 +1146,22 @@ function OrganiserPageContent() {
     for (const g of boardData?.groups ?? []) map[g.id] = g.name;
     return map;
   }, [boardData?.groups]);
+
+  // Phase D.4.5E — cheap "did anything on this board change" signal for
+  // BoardActivity's refresh effect, the board-level analogue of
+  // ItemActivity's `${item.id}:${item.updated_at}` key. boardData.items is
+  // already reloaded (a fresh array) after every mutation on this page
+  // (addItem/updateItem/deleteItem/import/etc. all call loadBoardData), so
+  // combining item count (catches create/delete) with the latest
+  // updated_at across all items (catches update/move) covers every
+  // mutation kind without diffing the array itself or introducing any new
+  // state/global framework.
+  const boardActivityRefreshKey = useMemo(() => {
+    const items = boardData?.items ?? [];
+    let latest = "";
+    for (const it of items) if (it.updated_at > latest) latest = it.updated_at;
+    return `${items.length}:${latest}`;
+  }, [boardData?.items]);
 
   const loadBoards = useCallback(async (selectId?: string) => {
     const res = await fetch("/api/organiser/boards", { credentials: "include" });
@@ -1190,7 +1351,7 @@ function OrganiserPageContent() {
                 </div>
 
                 <div style={{ display: "flex", gap: 2, background: t.ink(.04), border: `1px solid ${t.ink(.08)}`, borderRadius: 8, padding: 2, marginLeft: 8 }}>
-                  {(["table", "board", "calendar"] as ViewMode[]).map(v => (
+                  {(["table", "board", "calendar", "activity"] as ViewMode[]).map(v => (
                     <button
                       key={v} onClick={() => setView(v)}
                       style={{
@@ -1283,6 +1444,17 @@ function OrganiserPageContent() {
                 <div style={{ flex: 1, overflow: "hidden" }}>
                   <CalendarView items={boardData.items} onOpenDrawer={setDrawerItem} />
                 </div>
+              )}
+
+              {view === "activity" && boardData && (
+                <BoardActivity
+                  key={`${activeBoard.id}:${boardActivityRefreshKey}`}
+                  boardId={activeBoard.id}
+                  items={boardData.items}
+                  groupNamesById={groupNamesById}
+                  onOpenItem={setDrawerItem}
+                  refreshKey={boardActivityRefreshKey}
+                />
               )}
             </>
           )}
