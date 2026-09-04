@@ -151,7 +151,12 @@ describe('app/organiser/page.tsx — re-parented under OrganiserShell, no functi
   })
 
   it('retains the item drawer and column options editor', () => {
-    expect(pageCode).toMatch(/\{drawerItem && <ItemDrawer/)
+    // Phase D.4.5D — the drawer now also receives groupNamesById (for the
+    // Item Activity tab's group_id resolution), which pushed this JSX onto
+    // multiple lines. Updated to match that real, deliberate shape rather
+    // than the old single-line form — see organiserItemActivityTab.test.ts
+    // for this same wiring's own dedicated coverage.
+    expect(pageCode).toMatch(/\{drawerItem && \(\s*\n\s*<ItemDrawer item=\{drawerItem\}/)
     expect(pageCode).toMatch(/\{editingColumn && \(/)
     expect(pageCode).toContain('<ColumnOptionsEditor')
   })

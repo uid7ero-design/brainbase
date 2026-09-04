@@ -1,10 +1,11 @@
 "use client";
 
-import React, { Suspense, useState, useEffect, useCallback, useRef } from "react";
+import React, { Suspense, useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import OrganiserShell from "@/components/organiser/OrganiserShell";
 import OrganiserRail from "@/components/organiser/OrganiserRail";
 import { useOpsTheme } from "@/components/ops/theme";
+import { describeActivityEvent, type ActivityEventLike } from "@/lib/organiser/activityFormat";
 
 const FONT = 'var(--font-inter), "Inter", -apple-system, sans-serif';
 
@@ -31,6 +32,11 @@ type OrganiserItem = {
 
 type OrganiserFile = { id: string; file_name: string; file_url: string; file_size: number | null; created_at: string };
 type OrganiserUpdate = { id: string; author_name: string | null; body: string; created_at: string };
+// Phase D.4.5D — mirrors GET /api/organiser/activity's OrganiserActivityEventDTO
+// (lib/organiser/activityRead.ts) field-for-field. `extends ActivityEventLike`
+// so this exact shape can be passed to describeActivityEvent without any
+// reshaping at the call site.
+type OrganiserActivityEvent = ActivityEventLike & { id: string; entity_type: string; entity_id: string; created_at: string };
 
 type BoardData = { board: OrganiserBoard; groups: OrganiserGroup[]; items: OrganiserItem[]; columns: OrganiserColumn[] };
 type SheetChoice = { name: string; rowCount: number; looksLikeData: boolean };
@@ -682,7 +688,117 @@ function CalendarView({ items, onOpenDrawer }: { items: OrganiserItem[]; onOpenD
 
 // ── ITEM DETAIL DRAWER ──────────────────────────────────────────────────────
 
-function ItemDrawer({ item, onClose, onUpdate }: { item: OrganiserItem; onClose: () => void; onUpdate: (id: string, patch: Record<string, unknown>) => void }) {
+// ── ITEM ACTIVITY (Phase D.4.5D) ────────────────────────────────────────────
+//
+// Read-only history for one item, sourced from GET /api/organiser/activity
+// (lib/organiser/activityRead.ts — tenant-scoped, deletion-safe, keyset-
+// paginated). Mounted only while the item drawer is open (ItemDrawer only
+// renders when drawerItem is set), so activity is never fetched for a
+// closed drawer. Re-fetches from page 1 whenever `itemId` OR `updatedAt`
+// changes — `updatedAt` changing means this same item was just mutated
+// (status/priority/owner/due date/notes/custom field edit, or a move) via
+// onUpdate elsewhere in this file, so the freshly-written activity row
+// needs to appear without requiring the drawer to be closed and reopened.
+// This reuses the item's own already-tracked updated_at as the cheapest
+// possible "did something change" signal — no new global state, no extra
+// request beyond what a genuine mutation already causes.
+function ItemActivity({
+  itemId, updatedAt, groupNamesById,
+}: { itemId: string; updatedAt: string; groupNamesById: Record<string, string> }) {
+  const t = useOpsTheme();
+  const [events, setEvents] = useState<OrganiserActivityEvent[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+
+  // No synchronous setLoading(true)/setError(null) here on purpose (avoids
+  // react-hooks/set-state-in-effect) — the caller keys this component by
+  // `${itemId}:${updatedAt}` (see its ItemDrawer call site), so a change to
+  // either one remounts a fresh instance with loading/error/events already
+  // at their initial values, rather than this effect needing to reset them
+  // imperatively.
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/organiser/activity?itemId=${encodeURIComponent(itemId)}`, { credentials: "include" })
+      .then(r => (r.ok ? r.json() : Promise.reject(new Error(`Request failed (${r.status})`))))
+      .then(d => {
+        if (cancelled) return;
+        setEvents(d.activity ?? []);
+        setNextCursor(d.next_cursor ?? null);
+      })
+      .catch(() => { if (!cancelled) setError("Couldn't load activity."); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [itemId, updatedAt]);
+
+  async function loadMore() {
+    if (!nextCursor || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const res = await fetch(
+        `/api/organiser/activity?itemId=${encodeURIComponent(itemId)}&cursor=${encodeURIComponent(nextCursor)}`,
+        { credentials: "include" },
+      );
+      if (!res.ok) throw new Error(`Request failed (${res.status})`);
+      const d = await res.json();
+      setEvents(prev => [...prev, ...(d.activity ?? [])]);
+      setNextCursor(d.next_cursor ?? null);
+    } catch {
+      setError("Couldn't load more activity.");
+    } finally {
+      setLoadingMore(false);
+    }
+  }
+
+  return (
+    <div>
+      <div style={{ ...SECTION_LABEL, color: t.ink(.30) }}>Activity</div>
+      {loading ? (
+        <div style={{ fontSize: 11, color: t.ink(.25) }}>Loading…</div>
+      ) : error ? (
+        <div style={{ fontSize: 11, color: "#EF4444" }}>{error}</div>
+      ) : events.length === 0 ? (
+        <div style={{ fontSize: 11, color: t.ink(.25) }}>No activity yet.</div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {events.map(ev => {
+            const desc = describeActivityEvent(ev, groupNamesById);
+            return (
+              <div key={ev.id} style={{ padding: "8px 10px", borderRadius: 8, background: t.ink(.025), border: `1px solid ${t.ink(.05)}` }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3, gap: 8 }}>
+                  <span style={{ fontSize: 11, fontWeight: 600, color: t.ink(.75) }}>{desc.summary}</span>
+                  <span style={{ fontSize: 9.5, color: t.ink(.25), flexShrink: 0 }}>{new Date(ev.created_at).toLocaleString()}</span>
+                </div>
+                {desc.diffs.length > 0 && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 2, marginTop: 4 }}>
+                    {desc.diffs.map((d, i) => (
+                      <div key={i} style={{ fontSize: 11, color: t.ink(.6) }}>
+                        <span style={{ color: t.ink(.4) }}>{d.label}: </span>
+                        {d.before !== null ? (
+                          <>{d.before} <span style={{ color: t.ink(.3) }}>→</span> {d.after}</>
+                        ) : d.after}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          {nextCursor && (
+            <button onClick={loadMore} disabled={loadingMore} style={btnStyle(false, t)}>
+              {loadingMore ? "Loading…" : "Load more"}
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ItemDrawer({
+  item, onClose, onUpdate, groupNamesById,
+}: { item: OrganiserItem; onClose: () => void; onUpdate: (id: string, patch: Record<string, unknown>) => void; groupNamesById: Record<string, string> }) {
   const t = useOpsTheme();
   const fieldEntries = Object.entries(item.fields || {});
   const [files, setFiles] = useState<OrganiserFile[]>([]);
@@ -808,6 +924,8 @@ function ItemDrawer({ item, onClose, onUpdate }: { item: OrganiserItem; onClose:
             </div>
           </div>
 
+          <ItemActivity key={`${item.id}:${item.updated_at}`} itemId={item.id} updatedAt={item.updated_at} groupNamesById={groupNamesById} />
+
           {fieldEntries.length > 0 && (
             <div>
               <div style={{ ...SECTION_LABEL, color: t.ink(.30) }}>Imported fields</div>
@@ -871,6 +989,18 @@ function OrganiserPageContent() {
   const [sheetChoices, setSheetChoices] = useState<SheetChoice[] | null>(null);
   const [pendingImportFile, setPendingImportFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Phase D.4.5D — id -> name lookup for the Item Activity tab's group_id
+  // resolution (lib/organiser/activityFormat.ts's resolveGroupLabel). Built
+  // from this board's own already tenant-scoped groups list — never an
+  // independent fetch — so a group renamed or deleted since a given
+  // activity row was written safely falls back to "Another group" rather
+  // than showing a stale or fabricated name.
+  const groupNamesById = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const g of boardData?.groups ?? []) map[g.id] = g.name;
+    return map;
+  }, [boardData?.groups]);
 
   const loadBoards = useCallback(async (selectId?: string) => {
     const res = await fetch("/api/organiser/boards", { credentials: "include" });
@@ -1157,7 +1287,9 @@ function OrganiserPageContent() {
             </>
           )}
 
-      {drawerItem && <ItemDrawer item={drawerItem} onClose={() => setDrawerItem(null)} onUpdate={updateItem} />}
+      {drawerItem && (
+        <ItemDrawer item={drawerItem} onClose={() => setDrawerItem(null)} onUpdate={updateItem} groupNamesById={groupNamesById} />
+      )}
       {editingColumn && (
         <ColumnOptionsEditor
           column={editingColumn}
