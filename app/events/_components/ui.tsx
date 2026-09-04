@@ -159,9 +159,22 @@ export function DangerButton({ children, onClick, disabled, ariaLabel }: {
 // ─── Form fields ─────────────────────────────────────────────────────
 
 export const fieldStyle: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 5, fontSize: 12, color: TEXT_MUTED, fontWeight: 500 };
+// colorScheme: 'dark' — every <select> that reuses this style (e.g.
+// RegistrationsPanel's filter dropdowns, EventDetailClient's status
+// select, QuestionsPanel's field-type/scope selects) renders correctly
+// while closed from the explicit background/color above, but without
+// this the browser still paints the OPEN native option popup using its
+// default LIGHT UA theme — background/color on the element itself does
+// not reach that popup, only color-scheme does. Matches the same fix
+// already applied per-element elsewhere in this codebase (e.g.
+// components/ops/maintenance/CreateJobModal.tsx's selects) — set once
+// here instead, so every current and future consumer of this shared
+// style gets it for free. Harmless on plain <input>s that also use this
+// style (color-scheme only affects native widget chrome — caret,
+// autofill, spell-check UI — never layout or content).
 export const inputStyle: React.CSSProperties = {
   background: 'rgba(255,255,255,.03)', border: `1px solid ${BORDER}`, borderRadius: 8,
-  padding: '8px 11px', color: TEXT_PRIMARY, fontSize: 13, fontFamily: FONT,
+  padding: '8px 11px', color: TEXT_PRIMARY, fontSize: 13, fontFamily: FONT, colorScheme: 'dark',
 };
 
 export function Field({ label, children }: { label: string; children: React.ReactNode }) {
