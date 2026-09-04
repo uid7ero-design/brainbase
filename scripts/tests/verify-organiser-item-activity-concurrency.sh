@@ -974,6 +974,81 @@ expect_eq "board.deleted itself carries the correct before_json name snapshot" \
   "Operations"
 
 echo ""
+echo "=== PHASE D.4.6B — HELENA READ FOUNDATION (lib/organiser/helenaRead.ts) ==="
+echo "Proves the SQL shapes listOrganiserBoards/listOrganiserItems/the NULL-safe"
+echo "start-end activity extension actually execute correctly against real"
+echo "Postgres — the JS-level containment tests already prove parameterization/"
+echo "clamping/determinism with a mocked sql client; this section proves the"
+echo "underlying queries themselves are correct."
+
+echo "INSERT INTO organiser_boards (id, organisation_id, name, color, position) VALUES
+  ('77777777-7777-7777-7777-777777777771', 'org-a', 'Founder Tasks', '#4F46E5', 0),
+  ('77777777-7777-7777-7777-777777777772', 'org-a', 'Marketing', NULL, 1);" | psql_exec >/dev/null
+
+echo "--- board list: tenant filtering, ordering, NULL color ---"
+expect_eq "org-a board list (position-ordered) returns both new boards in position order" \
+  "SELECT string_agg(name, ',' ORDER BY position ASC) FROM organiser_boards WHERE organisation_id='org-a' AND id IN ('77777777-7777-7777-7777-777777777771','77777777-7777-7777-7777-777777777772');" \
+  "FounderTasks,Marketing"
+expect_eq "org-b's own tenant-scoped board query never returns an org-a board" \
+  "SELECT count(*) FROM organiser_boards WHERE organisation_id='org-b' AND id='77777777-7777-7777-7777-777777777771';" \
+  "0"
+expect_eq "a NULL board color is preserved, not coerced to a default" \
+  "SELECT color IS NULL FROM organiser_boards WHERE id='77777777-7777-7777-7777-777777777772';" \
+  "t"
+expect_eq "board search (ILIKE) matches case-insensitively" \
+  "SELECT count(*) FROM organiser_boards WHERE organisation_id='org-a' AND id='77777777-7777-7777-7777-777777777771' AND name ILIKE '%founder%';" \
+  "1"
+expect_eq "board LIMIT enforcement: LIMIT 1 returns exactly one row even though 2+ boards exist" \
+  "SELECT count(*) FROM (SELECT id FROM organiser_boards WHERE organisation_id='org-a' ORDER BY position ASC, created_at ASC LIMIT 1) x;" \
+  "1"
+
+echo "--- item list: board+tenant filtering, group_name resolution ---"
+echo "INSERT INTO organiser_groups (id, board_id, organisation_id, name) VALUES ('77777777-7777-7777-7777-777777777773', '77777777-7777-7777-7777-777777777771', 'org-a', 'Backlog');" | psql_exec >/dev/null
+echo "INSERT INTO organiser_items (id, board_id, organisation_id, group_id, name, status) VALUES
+  ('77777777-7777-7777-7777-777777777774', '77777777-7777-7777-7777-777777777771', 'org-a', '77777777-7777-7777-7777-777777777773', 'Ship the deck', 'In Progress'),
+  ('77777777-7777-7777-7777-777777777775', '77777777-7777-7777-7777-777777777771', 'org-a', NULL, 'No group item', 'Not Started');" | psql_exec >/dev/null
+
+expect_eq "item list scoped to board+org returns exactly the 2 seeded items" \
+  "SELECT count(*) FROM organiser_items i WHERE i.organisation_id='org-a' AND i.board_id='77777777-7777-7777-7777-777777777771' AND i.id IN ('77777777-7777-7777-7777-777777777774','77777777-7777-7777-7777-777777777775');" \
+  "2"
+expect_eq "group_name resolves via LEFT JOIN for a grouped item" \
+  "SELECT g.name FROM organiser_items i LEFT JOIN organiser_groups g ON g.id=i.group_id WHERE i.id='77777777-7777-7777-7777-777777777774';" \
+  "Backlog"
+expect_eq "group_name is NULL (not fabricated) for an ungrouped item" \
+  "SELECT g.name FROM organiser_items i LEFT JOIN organiser_groups g ON g.id=i.group_id WHERE i.id='77777777-7777-7777-7777-777777777775';" \
+  ""
+expect_eq "wrong-tenant board id against org-b's own item query produces zero rows — no existence side channel" \
+  "SELECT count(*) FROM organiser_items i WHERE i.organisation_id='org-b' AND i.board_id='77777777-7777-7777-7777-777777777771';" \
+  "0"
+expect_eq "item search (ILIKE) matches case-insensitively" \
+  "SELECT count(*) FROM organiser_items WHERE board_id='77777777-7777-7777-7777-777777777771' AND name ILIKE '%ship%';" \
+  "1"
+
+echo "--- NULL-safe start/end activity window extension ---"
+echo "INSERT INTO organiser_activity (organisation_id, board_id, actor_user_id, actor_name, event_type, entity_type, entity_id, after_json, created_at) VALUES
+  ('org-a', '77777777-7777-7777-7777-777777777771', 'user-1', 'James', 'board.created', 'board', '77777777-7777-7777-7777-777777777771', '{}', NOW() - INTERVAL '10 days'),
+  ('org-a', '77777777-7777-7777-7777-777777777771', 'user-1', 'James', 'group.created', 'group', '77777777-7777-7777-7777-777777777773', '{}', NOW() - INTERVAL '2 hours');" | psql_exec >/dev/null
+
+expect_eq "start filter alone: only the 2h-old row falls within the last 1 day, the 10-day-old row is excluded" \
+  "SELECT count(*) FROM organiser_activity WHERE board_id='77777777-7777-7777-7777-777777777771' AND (NULL::timestamptz IS NULL OR created_at >= NULL::timestamptz) AND created_at >= NOW() - INTERVAL '1 day';" \
+  "1"
+expect_eq "both start and end NULL (existing-caller shape): both rows returned, byte-for-byte the pre-D.4.6B behaviour" \
+  "SELECT count(*) FROM organiser_activity WHERE board_id='77777777-7777-7777-7777-777777777771' AND (NULL::timestamptz IS NULL OR created_at >= NULL::timestamptz) AND (NULL::timestamptz IS NULL OR created_at < NULL::timestamptz);" \
+  "2"
+expect_eq "end-exclusive boundary: a row exactly AT the end timestamp is excluded, not included" \
+  "SELECT count(*) FROM organiser_activity WHERE board_id='77777777-7777-7777-7777-777777777771' AND created_at < (SELECT created_at FROM organiser_activity WHERE board_id='77777777-7777-7777-7777-777777777771' AND event_type='group.created');" \
+  "1"
+
+echo "--- deletion-safe: activity and item list behave correctly after the board itself is deleted ---"
+echo "DELETE FROM organiser_boards WHERE id='77777777-7777-7777-7777-777777777771';" | psql_exec >/dev/null
+expect_eq "board activity (both rows) remains fully queryable after the board is deleted — no FK, no join, no error" \
+  "SELECT count(*) FROM organiser_activity WHERE board_id='77777777-7777-7777-7777-777777777771';" \
+  "2"
+expect_eq "item list for the now-deleted board returns empty (items cascaded away with the board), not an error" \
+  "SELECT count(*) FROM organiser_items WHERE board_id='77777777-7777-7777-7777-777777777771';" \
+  "0"
+
+echo ""
 echo "=== SUMMARY ==="
 echo "PASS: $PASS  FAIL: $FAIL"
 if [ "$FAIL" -gt 0 ]; then

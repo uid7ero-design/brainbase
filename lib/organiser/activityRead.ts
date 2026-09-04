@@ -49,6 +49,17 @@ export interface ListItemActivityTrustedContext {
   cursor?: string;
   /** Defaults to DEFAULT_LIMIT; must be a positive integer <= MAX_LIMIT. */
   limit?: number;
+  /**
+   * Phase D.4.6B — optional inclusive lower / exclusive upper bound on
+   * created_at, for callers (Helena's activity tools) that already know a
+   * concrete UTC window (see lib/organiser/helenaRead.ts's
+   * resolveActivityWindow). Trusted server-computed Dates only — never
+   * derived from unvalidated request/model input. Omitting both leaves
+   * every existing caller's behaviour byte-for-byte unchanged (see the
+   * NULL-safe WHERE clause below).
+   */
+  start?: Date;
+  end?: Date;
 }
 
 export type ListItemActivityFailureCode = 'INVALID_ITEM_ID' | 'INVALID_CURSOR' | 'INVALID_LIMIT';
@@ -163,7 +174,13 @@ function toDTO(row: ActivityRow): OrganiserActivityEventDTO {
  * underlying reason.
  */
 export async function listItemActivity(context: ListItemActivityTrustedContext): Promise<ListItemActivityResult> {
-  const { organisationId, itemId, cursor, limit: rawLimit } = context;
+  const { organisationId, itemId, cursor, limit: rawLimit, start, end } = context;
+  // NULL-safe optional bounds: a NULL parameter makes its own "IS NULL OR"
+  // clause always true, so omitting start/end is a genuine no-op — the two
+  // query branches below are otherwise byte-for-byte what they were before
+  // this phase, just with these two extra AND clauses appended.
+  const startParam = start ?? null;
+  const endParam = end ?? null;
 
   if (!UUID_RE.test(itemId)) {
     return fail('INVALID_ITEM_ID', 'itemId must be a valid identifier.');
@@ -195,6 +212,8 @@ export async function listItemActivity(context: ListItemActivityTrustedContext):
           WHERE organisation_id = ${organisationId}
             AND item_id = ${itemId}
             AND entity_type IN ('item', 'comment', 'file')
+            AND (${startParam}::timestamptz IS NULL OR created_at >= ${startParam}::timestamptz)
+            AND (${endParam}::timestamptz IS NULL OR created_at < ${endParam}::timestamptz)
             AND (date_trunc('milliseconds', created_at), id) < (${cursorTuple.createdAt}::timestamptz, ${cursorTuple.id})
           ORDER BY date_trunc('milliseconds', created_at) DESC, id DESC
           LIMIT ${limit + 1}
@@ -207,6 +226,8 @@ export async function listItemActivity(context: ListItemActivityTrustedContext):
           WHERE organisation_id = ${organisationId}
             AND item_id = ${itemId}
             AND entity_type IN ('item', 'comment', 'file')
+            AND (${startParam}::timestamptz IS NULL OR created_at >= ${startParam}::timestamptz)
+            AND (${endParam}::timestamptz IS NULL OR created_at < ${endParam}::timestamptz)
           ORDER BY date_trunc('milliseconds', created_at) DESC, id DESC
           LIMIT ${limit + 1}
         `
@@ -229,6 +250,9 @@ export interface ListBoardActivityTrustedContext {
   cursor?: string;
   /** Defaults to DEFAULT_LIMIT; must be a positive integer <= MAX_LIMIT. */
   limit?: number;
+  /** See ListItemActivityTrustedContext's identical fields for the NULL-safe design. */
+  start?: Date;
+  end?: Date;
 }
 
 export type ListBoardActivityFailureCode = 'INVALID_BOARD_ID' | 'INVALID_CURSOR' | 'INVALID_LIMIT';
@@ -272,7 +296,9 @@ export type ListBoardActivityResult =
  * organisation_id is still asserted directly).
  */
 export async function listBoardActivity(context: ListBoardActivityTrustedContext): Promise<ListBoardActivityResult> {
-  const { organisationId, boardId, cursor, limit: rawLimit } = context;
+  const { organisationId, boardId, cursor, limit: rawLimit, start, end } = context;
+  const startParam = start ?? null;
+  const endParam = end ?? null;
 
   if (!UUID_RE.test(boardId)) {
     return { ok: false, code: 'INVALID_BOARD_ID', message: 'boardId must be a valid identifier.' };
@@ -304,6 +330,8 @@ export async function listBoardActivity(context: ListBoardActivityTrustedContext
           FROM organiser_activity
           WHERE organisation_id = ${organisationId}
             AND board_id = ${boardId}
+            AND (${startParam}::timestamptz IS NULL OR created_at >= ${startParam}::timestamptz)
+            AND (${endParam}::timestamptz IS NULL OR created_at < ${endParam}::timestamptz)
             AND (date_trunc('milliseconds', created_at), id) < (${cursorTuple.createdAt}::timestamptz, ${cursorTuple.id})
           ORDER BY date_trunc('milliseconds', created_at) DESC, id DESC
           LIMIT ${limit + 1}
@@ -315,6 +343,8 @@ export async function listBoardActivity(context: ListBoardActivityTrustedContext
           FROM organiser_activity
           WHERE organisation_id = ${organisationId}
             AND board_id = ${boardId}
+            AND (${startParam}::timestamptz IS NULL OR created_at >= ${startParam}::timestamptz)
+            AND (${endParam}::timestamptz IS NULL OR created_at < ${endParam}::timestamptz)
           ORDER BY date_trunc('milliseconds', created_at) DESC, id DESC
           LIMIT ${limit + 1}
         `
