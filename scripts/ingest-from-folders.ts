@@ -288,6 +288,39 @@ async function ingestMissedCollections() {
 
 // ── 4. Debtor Accounts ────────────────────────────────────────────────────────
 
+// Phase C1-DBF note: this function never used, and does not need
+// correcting for, the account-level `.upsert()` Phase C1.1 added to (and
+// C1-DBF removed from) the SEPARATE normal importer in
+// modules/debtors/index.ts — it has always used its own,
+// unrelated deleteMany-then-createMany pattern (see below), never an
+// upsert, and does not reference the now-removed
+// `organisation_id_account_number` compound key anywhere.
+//
+// Re-running this script for the same organisation is a full REPLACE (the
+// deleteMany below wipes that org's debtor_accounts rows first), not an
+// accumulate — unlike the normal in-app upload path's historical bug,
+// re-running this script twice with the same source file does not grow
+// the row count unboundedly.
+//
+// It does NOT eliminate duplicate rows WITHIN a single run, though: real
+// rehearsal-data investigation (Phase C1-DBD/C1-DBS) found 786 residual
+// duplicate groups even under the richest available compound key, coming
+// from the source file itself — `skipDuplicates: true` below has nothing
+// to skip against (there is no unique constraint on this table, by design
+// — see prisma/schema.prisma's DebtorAccount model), so it does not
+// address this. Solving within-file duplicate detection is explicitly out
+// of scope for this phase (see Phase C1-DBF's own report, section F).
+//
+// This script also does not populate the six charge-line typed columns
+// added in Phase C1-DBS2 (financial_year/financial_quarter/charge_type/
+// invoice_date/source_book/source_charge_code) — only `metadata`. It
+// bypasses the Upload/uploads table entirely (upload_id is always left
+// NULL on every row it writes), so it has no access to the
+// Upload.original_name-based repeated-import warning
+// modules/debtors/index.ts's importDebtors() now performs either — not
+// needed here regardless, since the deleteMany-based replace semantics
+// make repeated-file-risk a different, non-accumulating question for this
+// specific script.
 async function ingestDebtors() {
   console.log('\n📂  Debtors  →  debtor_accounts');
 

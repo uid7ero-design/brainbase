@@ -5,6 +5,72 @@ import { computeDebtorKpi, agingBucketFromDays } from "./calculations";
 import { persistMetrics } from "@/services/persistence";
 import { Module } from "@prisma/client";
 
+// Phase C1-DBF — corrects a Phase C1.1 assumption that real rehearsal-data
+// investigation (Phase C1-DBR/C1-DBD/C1-DBS) conclusively invalidated.
+//
+// C1.1 believed `(organisation_id, account_number)` uniquely identified a
+// DebtorAccount row and changed this importer to upsert on that compound
+// key (see git history for the removed `.upsert(...)` call and the
+// removed `scripts/add-debtor-accounts-dedup.ts` migration — deleted in
+// this same phase, never executed against rehearsal or production, see
+// that commit's message for the full reasoning). Real data proved
+// `debtor_accounts` rows are source CHARGE LINES: the same account
+// legitimately has many rows (different financial years, quarters, and
+// charge types — see the financial_year/financial_quarter/charge_type/
+// invoice_date/source_book/source_charge_code columns added in Phase
+// C1-DBS2). Upserting on account_number alone was therefore silently
+// **destroying distinct charge lines** every time a second charge for the
+// same account was imported in the same batch or a later one — the exact
+// opposite of what it was meant to do.
+//
+// Corrected policy (Option A from the Phase C1-DBF evaluation): APPEND
+// every row with an account_number, never upsert, never delete, never
+// merge. `debtor_accounts` has NO unique constraint on
+// `(organisation_id, account_number)` — that Prisma declaration was
+// removed in this same phase for exactly this reason.
+//
+// This reopens the original, still-real risk C1.1 was trying to solve —
+// a genuine re-upload of the SAME source file appends a full second copy
+// of every row, since there is still no reliable row-level source
+// identity (Phase C1-DBS: the one candidate, metadata.__md5Row, is 0%
+// populated in the real source export). No safe mechanism to reject or
+// silently reconcile a repeated import exists today without adopting
+// Data Hub's import-batch/file-hash lineage (explicitly out of scope for
+// this phase) — `Upload` itself has no content-hash field. Per this
+// phase's own governing instruction ("prefer preserving rows and clearly
+// surfacing duplicate-import risk over destructive or lossy
+// reconciliation"), this importer instead performs a best-effort,
+// NON-BLOCKING check against the one signal that already exists on every
+// Upload row — `original_name` — and stamps every row of a suspected
+// repeat import with an explicit, queryable risk marker in `metadata`,
+// rather than silently importing it as if nothing were different. This is
+// a heuristic, not a guarantee: a renamed file, or a genuinely different
+// file that happens to share a name, will not be (or will incorrectly be)
+// flagged. It never blocks, rejects, deletes, or merges anything.
+async function checkRepeatedImportRisk(
+  organisation_id: string,
+  upload_id: string,
+): Promise<{ isRepeat: boolean; priorUploadId: string | null }> {
+  const current = await prisma.upload.findUnique({ where: { id: upload_id } });
+  if (!current) return { isRepeat: false, priorUploadId: null };
+
+  const prior = await prisma.upload.findFirst({
+    where: {
+      organisation_id,
+      schema_type: "DEBTORS",
+      original_name: current.original_name,
+      status: "COMPLETE",
+      id: { not: upload_id },
+    },
+    orderBy: { created_at: "desc" },
+  });
+
+  if (prior) {
+    console.warn(`importDebtors: possible repeated import — organisation ${organisation_id} previously completed an upload named "${current.original_name}" (upload ${prior.id}, completed) before this one (upload ${upload_id}). No reliable row-level identity exists to reconcile this automatically (see Phase C1-DBS: the source file's own __md5Row is 0% populated) — every row from this import will still be appended, tagged with duplicate_import_risk metadata for later review.`);
+  }
+  return { isRepeat: !!prior, priorUploadId: prior?.id ?? null };
+}
+
 export async function importDebtors(
   upload_id: string,
   organisation_id: string,
@@ -16,6 +82,8 @@ export async function importDebtors(
 
   const get = (row: Record<string, unknown>, canonical: string) =>
     fieldMappings[canonical] ? row[fieldMappings[canonical]!] : undefined;
+
+  const { isRepeat, priorUploadId } = await checkRepeatedImportRisk(organisation_id, upload_id);
 
   const allRecords = rows.map(row => {
     const days_overdue = parseNum(get(row, "days_overdue"));
@@ -36,54 +104,35 @@ export async function importDebtors(
       status:             mapDebtorStatus(String(get(row, "status") ?? "open")),
       collection_stage:   nullStr(get(row, "collection_stage")),
       notes:              nullStr(get(row, "notes")),
+      // Best-effort, non-blocking audit marker — see checkRepeatedImportRisk
+      // above. `{}` (the schema default) for every ordinary import.
+      metadata: isRepeat
+        ? { duplicate_import_risk: true, prior_upload_id: priorUploadId, detected_by: "original_name_match" }
+        : {},
     };
   });
 
-  // Phase C1.1: (organisation_id, account_number) is the natural key for
-  // this table (see prisma/schema.prisma's DebtorAccount.@@unique comment
-  // for the full reasoning) — a row with no account_number cannot be
-  // deduplicated against a future re-upload of the same account, so it is
-  // skipped rather than imported as an unreconcilable, permanently-
-  // duplicating row. This is the only behavioural narrowing from the
-  // previous (broken) import: every row WITH an account_number is still
-  // imported exactly as before, just upserted instead of blindly appended.
+  // A row with no account_number cannot be usefully attributed to any
+  // account at all (not a duplicate-detection concern — this predates and
+  // is independent of the C1.1/C1-DBF correction above).
   const records = allRecords.filter(r => r.account_number !== "");
   const skipped = allRecords.length - records.length;
   if (skipped > 0) {
-    console.warn(`importDebtors: skipped ${skipped} row(s) with no account_number for organisation ${organisation_id} (upload ${upload_id}) — cannot be safely deduplicated`);
+    console.warn(`importDebtors: skipped ${skipped} row(s) with no account_number for organisation ${organisation_id} (upload ${upload_id})`);
   }
 
-  // Upsert, not createMany+skipDuplicates: the previous call relied on
-  // skipDuplicates with NO unique constraint on the table at all, so it was
-  // a silent no-op — every re-upload appended a full new set of duplicate
-  // rows, and app/api/debtors/kpi/route.ts's unfiltered read silently
-  // summed every historical import together. One transaction per import
-  // keeps the batch atomic (all rows land, or none do) without requiring a
-  // bulk-upsert primitive Prisma Client doesn't provide.
-  await prisma.$transaction(
-    records.map(r => prisma.debtorAccount.upsert({
-      where: {
-        organisation_id_account_number: {
-          organisation_id: r.organisation_id,
-          account_number:  r.account_number,
-        },
-      },
-      create: r,
-      update: {
-        upload_id:           r.upload_id,
-        account_name:        r.account_name,
-        outstanding_amount:  r.outstanding_amount,
-        original_amount:     r.original_amount,
-        days_overdue:        r.days_overdue,
-        aging_bucket:        r.aging_bucket,
-        last_payment_date:   r.last_payment_date,
-        last_payment_amount: r.last_payment_amount,
-        status:              r.status,
-        collection_stage:    r.collection_stage,
-        notes:               r.notes,
-      },
-    }))
-  );
+  // Phase C1-DBF: plain, unconditional append — no upsert, no
+  // skipDuplicates (that flag implied a deduplication guarantee that
+  // never existed and no longer even has a constraint to silently no-op
+  // against — removing it is more honest than keeping a misleading flag).
+  // Every row with an account_number is inserted exactly as parsed; the
+  // table's real grain is the charge line, and every charge line is
+  // preserved. createMany is already a single atomic statement — no
+  // $transaction wrapper is needed now that there is no per-row upsert
+  // decision to keep atomic across.
+  if (records.length > 0) {
+    await prisma.debtorAccount.createMany({ data: records });
+  }
 
   const now = new Date();
   const kpi = computeDebtorKpi(records);

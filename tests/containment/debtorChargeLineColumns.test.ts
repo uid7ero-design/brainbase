@@ -189,7 +189,7 @@ describe('Phase C1-DBS2 — prisma/schema.prisma alignment', () => {
   it('DebtorAccount declares the six new nullable columns', () => {
     const schema = fs.readFileSync(path.resolve(__dirname, '../../prisma/schema.prisma'), 'utf-8')
     const modelStart = schema.indexOf('model DebtorAccount {')
-    const modelEnd = schema.indexOf('\n}', schema.indexOf('@@unique([organisation_id, account_number]', modelStart))
+    const modelEnd = schema.indexOf('\n}', schema.indexOf('@@index([organisation_id]', modelStart))
     const model = schema.slice(modelStart, modelEnd)
     expect(model).toMatch(/financial_year\s+String\?/)
     expect(model).toMatch(/financial_quarter\s+String\?/)
@@ -199,22 +199,27 @@ describe('Phase C1-DBS2 — prisma/schema.prisma alignment', () => {
     expect(model).toMatch(/source_charge_code\s+String\?/)
   })
 
-  it('the pre-existing (unapplied, superseded) @@unique annotation is left in place, documented as superseded, not silently removed', () => {
+  it('Phase C1-DBF superseded this: the false @@unique annotation was ACTUALLY REMOVED (not merely left in place with a correcting comment) — the schema must describe the real intended model', () => {
     const schema = fs.readFileSync(path.resolve(__dirname, '../../prisma/schema.prisma'), 'utf-8')
-    expect(schema).toMatch(/@@unique\(\[organisation_id, account_number\]/)
-    expect(schema).toMatch(/UNSAFE key|CORRECTION/)
+    const modelStart = schema.indexOf('model DebtorAccount {')
+    const modelEnd = schema.indexOf('\n}', schema.indexOf('@@index([organisation_id]', modelStart))
+    const model = schema.slice(modelStart, modelEnd)
+    const directiveLines = model.match(/^\s*@@unique\(/gm) ?? []
+    expect(directiveLines.length).toBe(0)
+    // The removal itself, and why, remains documented in a comment.
+    expect(schema).toMatch(/REMOVED \(Phase C1-DBF\)/)
   })
 
   it('no new @@unique or @@index was added for the new columns', () => {
     const schema = fs.readFileSync(path.resolve(__dirname, '../../prisma/schema.prisma'), 'utf-8')
     const modelStart = schema.indexOf('model DebtorAccount {')
-    const modelEnd = schema.indexOf('\n}', schema.indexOf('@@unique([organisation_id, account_number]', modelStart))
+    const modelEnd = schema.indexOf('\n}', schema.indexOf('@@index([organisation_id]', modelStart))
     const model = schema.slice(modelStart, modelEnd)
     // Match only real directive lines (start of line, optional
     // whitespace, then @@unique() — not the substring appearing inside
     // this model's own explanatory prose comments, which reference the
     // term "@@unique" several times in English sentences).
     const directiveLines = model.match(/^\s*@@unique\(/gm) ?? []
-    expect(directiveLines.length).toBe(1) // only the original, pre-existing, unapplied one
+    expect(directiveLines.length).toBe(0) // Phase C1-DBF removed the one that used to be here
   })
 })

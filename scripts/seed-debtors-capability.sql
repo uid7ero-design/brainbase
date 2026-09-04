@@ -8,9 +8,13 @@
 -- its own comment records that "any waste/dashboard area" (which the
 -- pre-existing debtor_accounts/DebtorAccount feature falls squarely under)
 -- was found NOT ready for registration at that time. Phase C1.1
--- (Foundation Repair) is the design pass that makes it ready: the same
--- phase fixes the underlying import-dedup bug (see
--- scripts/add-debtor-accounts-dedup.ts) and wires
+-- (Foundation Repair) is the design pass that makes it ready. Note:
+-- Phase C1.1's own believed-fixed "import-dedup bug" (an account-level
+-- upsert, plus a prepared unique-constraint migration) was itself later
+-- found, by real-data investigation (Phase C1-DBR/C1-DBD/C1-DBS), to be
+-- based on an unsafe assumption and was removed in Phase C1-DBF — see
+-- modules/debtors/index.ts's own header comment. This capability
+-- registration is unaffected by that correction; it wires
 -- app/api/debtors/kpi/route.ts to actually enforce this capability via
 -- lib/debtors/authorize.ts, modeled on lib/organiser/authorize.ts and
 -- lib/events/authorize.ts's identical pattern. This script says nothing

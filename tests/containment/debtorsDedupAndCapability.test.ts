@@ -10,7 +10,17 @@ import {
   HIGH_RISK_PRIORITY_THRESHOLD,
 } from '@/modules/debtors/calculations'
 
-// Phase C1.1 — Debtors deduplication + entitlement enforcement.
+// Phase C1.1 introduced an account-level upsert + a prepared unique-
+// constraint migration for Debtors, believing (organisation_id,
+// account_number) safely identified one row. Phase C1-DBR/C1-DBD/C1-DBS
+// (real rehearsal-data investigation) proved this false: a debtor_accounts
+// row is a source CHARGE LINE, and the same account legitimately has many
+// rows (different financial years/quarters/charge types). Phase C1-DBF
+// removed the upsert, the @@unique declaration, and the prepared
+// (never-executed) scripts/add-debtor-accounts-dedup.ts migration — see
+// modules/debtors/index.ts's own header comment for the full reasoning.
+// This suite now tests the CORRECTED append-only behaviour and the
+// removal itself, rather than the superseded upsert/unique assumptions.
 
 function readSource(relPath: string): string {
   return fs.readFileSync(path.resolve(__dirname, '../../', relPath), 'utf-8')
@@ -22,43 +32,101 @@ function stripComments(src: string): string {
     .replace(/^\s*\/\/.*$/gm, '')
 }
 
-describe('Phase C1.1 — import uses upsert, not createMany+skipDuplicates', () => {
+describe('Phase C1-DBF — import appends charge lines, never upserts/merges on account_number', () => {
   const source = readSource('modules/debtors/index.ts')
+  const code = stripComments(source)
 
-  it('no longer calls createMany/skipDuplicates', () => {
-    const code = stripComments(source)
-    expect(code).not.toMatch(/createMany/)
+  it('no longer upserts, and no longer references the removed compound-key field', () => {
+    expect(code).not.toMatch(/\.upsert\(/)
+    expect(code).not.toMatch(/organisation_id_account_number/)
+  })
+
+  it('uses a plain createMany (no skipDuplicates — that flag implied a guarantee that no longer even has a constraint to no-op against)', () => {
+    expect(code).toMatch(/prisma\.debtorAccount\.createMany\(\{\s*data:\s*records\s*\}\)/)
     expect(code).not.toMatch(/skipDuplicates/)
   })
 
-  it('upserts keyed on the (organisation_id, account_number) compound unique field, inside a transaction', () => {
-    expect(source).toMatch(/prisma\.\$transaction\(/)
-    expect(source).toMatch(/\.upsert\(/)
-    expect(source).toMatch(/organisation_id_account_number/)
+  it('two charge lines sharing the same organisation_id and account_number are never collapsed — createMany has no where-keyed row-matching semantics at all, unlike the removed upsert', () => {
+    // Static proof the removal is structural, not just a renamed call:
+    // there is no `where:` clause anywhere near the insert, which an
+    // upsert/update-on-conflict path would require.
+    const insertRegion = code.slice(code.indexOf('createMany'), code.indexOf('createMany') + 60)
+    expect(insertRegion).not.toMatch(/where/)
   })
 
-  it('skips rows with no account_number rather than importing an unreconcilable duplicate-prone row', () => {
+  it('skips rows with no account_number (unrelated to the C1.1/C1-DBF correction — a row with no account cannot be attributed to any account regardless of duplicate policy)', () => {
     expect(source).toMatch(/account_number\s*!==\s*""/)
   })
-})
 
-describe('Phase C1.1 — prisma/schema.prisma declares the natural key', () => {
-  it('DebtorAccount has @@unique([organisation_id, account_number])', () => {
-    const schema = readSource('prisma/schema.prisma')
-    const modelStart = schema.indexOf('model DebtorAccount {')
-    const modelEnd = schema.indexOf('\n}', modelStart)
-    const model = schema.slice(modelStart, modelEnd)
-    expect(model).toMatch(/@@unique\(\[organisation_id,\s*account_number\]/)
+  it('rows are never silently discarded solely because account_number repeats — filtering only excludes blank account_number, nothing else', () => {
+    // The only `.filter(` call in the whole file is the blank-account-number
+    // one asserted above; there is no second filter keyed on account_number
+    // duplication.
+    const filterCalls = code.match(/\.filter\(/g) ?? []
+    expect(filterCalls.length).toBe(1)
+  })
+
+  it('performs a non-blocking repeated-import risk check using Upload.original_name, and stamps metadata rather than rejecting/blocking the import', () => {
+    expect(code).toMatch(/checkRepeatedImportRisk/)
+    expect(code).toMatch(/original_name:\s*current\.original_name/)
+    expect(code).toMatch(/duplicate_import_risk:\s*true/)
+    // Never throws/returns early on a detected repeat — it only warns and tags.
+    const fnStart = code.indexOf('async function checkRepeatedImportRisk')
+    const fnBody = code.slice(fnStart, code.indexOf('\n}', fnStart))
+    expect(fnBody).not.toMatch(/throw\b/)
+  })
+
+  it('the repeated-import check never blocks, deletes, or merges — importDebtors always proceeds to createMany regardless of isRepeat', () => {
+    const runIdx = code.indexOf('async function importDebtors')
+    const body = code.slice(runIdx)
+    expect(body).not.toMatch(/if\s*\(\s*isRepeat\s*\)\s*(return|throw)/)
+    expect(body).not.toMatch(/DELETE|deleteMany/)
+    expect(body).not.toMatch(/\.upsert\(|\.update\(/)
   })
 })
 
-describe('Phase C1.1 — migration script is prepared, not executed', () => {
-  it('scripts/add-debtor-accounts-dedup.ts exists and creates the unique index idempotently', () => {
-    const migration = readSource('scripts/add-debtor-accounts-dedup.ts')
-    expect(migration).toMatch(/CREATE UNIQUE INDEX IF NOT EXISTS/)
-    expect(migration).toMatch(/organisation_id_account_number/)
-    // Preflight counts before any DELETE, per this repo's DB-safety convention.
-    expect(migration).toMatch(/Preflight/)
+describe('Phase C1-DBF — prisma/schema.prisma no longer declares the false unique constraint', () => {
+  const schema = readSource('prisma/schema.prisma')
+  const modelStart = schema.indexOf('model DebtorAccount {')
+  const modelEnd = schema.indexOf('\n}', schema.indexOf('@@index([organisation_id]', modelStart))
+  const model = schema.slice(modelStart, modelEnd)
+
+  it('no @@unique directive exists anywhere in the DebtorAccount model', () => {
+    const directiveLines = model.match(/^\s*@@unique\(/gm) ?? []
+    expect(directiveLines.length).toBe(0)
+  })
+
+  it('the six charge-line typed columns from Phase C1-DBS2 remain present and untouched', () => {
+    expect(model).toMatch(/financial_year\s+String\?/)
+    expect(model).toMatch(/financial_quarter\s+String\?/)
+    expect(model).toMatch(/charge_type\s+String\?/)
+    expect(model).toMatch(/invoice_date\s+DateTime\?/)
+    expect(model).toMatch(/source_book\s+String\?/)
+    expect(model).toMatch(/source_charge_code\s+String\?/)
+  })
+
+  it('the plain (organisation_id) index remains — this is a non-unique lookup index, not a uniqueness guarantee', () => {
+    expect(model).toMatch(/@@index\(\[organisation_id\]\)/)
+  })
+})
+
+describe('Phase C1-DBF — the retired dedup migration no longer exists', () => {
+  it('scripts/add-debtor-accounts-dedup.ts has been removed from the repository', () => {
+    const migrationPath = path.resolve(__dirname, '../../scripts/add-debtor-accounts-dedup.ts')
+    expect(fs.existsSync(migrationPath)).toBe(false)
+  })
+
+  it('no remaining source file executes CREATE UNIQUE INDEX or DELETE against debtor_accounts keyed by account_number grouping', () => {
+    const scriptsDir = path.resolve(__dirname, '../../scripts')
+    const files = fs.readdirSync(scriptsDir).filter(f => f.endsWith('.ts') || f.endsWith('.sql'))
+    for (const f of files) {
+      const content = fs.readFileSync(path.join(scriptsDir, f), 'utf-8')
+      const code = content.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*(\/\/|--).*$/gm, '')
+      if (/debtor_accounts/.test(code)) {
+        expect(code, `${f} must not create a unique index on debtor_accounts`).not.toMatch(/CREATE\s+UNIQUE\s+INDEX[\s\S]{0,120}debtor_accounts|debtor_accounts[\s\S]{0,120}CREATE\s+UNIQUE\s+INDEX/i)
+        expect(code, `${f} must not DELETE from debtor_accounts grouped by account_number`).not.toMatch(/DELETE\s+FROM\s+debtor_accounts[\s\S]*?GROUP BY[\s\S]*?account_number/i)
+      }
+    }
   })
 })
 
