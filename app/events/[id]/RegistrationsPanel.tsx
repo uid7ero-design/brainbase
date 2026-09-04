@@ -5,6 +5,7 @@ import Link from 'next/link';
 import {
   Panel, SectionHeader, EmptyState, StatusBadge, orderStatusTone, paymentStatusTone, rowCardStyle,
   TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED, BORDER_SOFT, DangerButton, secondaryBtnStyle, inputStyle,
+  FilterDropdown, type DropdownOption,
 } from '../_components/ui';
 import RegistrationDetail from './RegistrationDetail';
 
@@ -313,56 +314,56 @@ export default function RegistrationsPanel({
           style={{ ...inputStyle, flex: '1 1 220px', minWidth: 180 }}
           aria-label="Search registrations"
         />
-        <select
+        <FilterDropdown
+          ariaLabel="Filter by payment status"
           value={paymentStatusFilter}
-          onChange={e => setPaymentStatusFilter(e.target.value)}
-          style={{ ...inputStyle, flex: '0 1 auto' }}
-          aria-label="Filter by payment status"
-        >
-          <option value="">Any payment status</option>
-          {PAYMENT_STATUS_OPTIONS.map(v => <option key={v} value={v}>{v}</option>)}
-        </select>
-        <select
+          onChange={setPaymentStatusFilter}
+          options={[
+            { value: '', label: 'Any payment status' },
+            ...PAYMENT_STATUS_OPTIONS.map(v => ({ value: v, label: v })),
+          ]}
+        />
+        <FilterDropdown
+          ariaLabel="Filter by check-in status"
           value={checkinFilter}
-          onChange={e => setCheckinFilter(e.target.value)}
-          style={{ ...inputStyle, flex: '0 1 auto' }}
-          aria-label="Filter by check-in status"
-        >
-          <option value="">Any check-in status</option>
-          <option value="in">Checked in</option>
-          <option value="out">Not checked in</option>
-        </select>
-        <select
+          onChange={setCheckinFilter}
+          options={[
+            { value: '', label: 'Any check-in status' },
+            { value: 'in', label: 'Checked in' },
+            { value: 'out', label: 'Not checked in' },
+          ]}
+        />
+        <FilterDropdown
+          ariaLabel="Filter by cancellation"
           value={cancelledFilter}
-          onChange={e => setCancelledFilter(e.target.value)}
-          style={{ ...inputStyle, flex: '0 1 auto' }}
-          aria-label="Filter by cancellation"
-        >
-          <option value="">Active + cancelled</option>
-          <option value="false">Active only</option>
-          <option value="true">Cancelled only</option>
-        </select>
+          onChange={setCancelledFilter}
+          options={[
+            { value: '', label: 'Active + cancelled' },
+            { value: 'false', label: 'Active only' },
+            { value: 'true', label: 'Cancelled only' },
+          ]}
+        />
         {ticketTypes.length > 0 && (
-          <select
+          <FilterDropdown
+            ariaLabel="Filter by ticket type"
             value={ticketTypeFilter}
-            onChange={e => setTicketTypeFilter(e.target.value)}
-            style={{ ...inputStyle, flex: '0 1 auto' }}
-            aria-label="Filter by ticket type"
-          >
-            <option value="">Any ticket type</option>
-            {ticketTypes.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-          </select>
+            onChange={setTicketTypeFilter}
+            options={[
+              { value: '', label: 'Any ticket type' },
+              ...ticketTypes.map((t): DropdownOption => ({ value: t.id, label: t.name })),
+            ]}
+          />
         )}
         {sessions.length > 0 && (
-          <select
+          <FilterDropdown
+            ariaLabel="Filter by session"
             value={sessionFilter}
-            onChange={e => setSessionFilter(e.target.value)}
-            style={{ ...inputStyle, flex: '0 1 auto' }}
-            aria-label="Filter by session"
-          >
-            <option value="">Any session</option>
-            {sessions.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-          </select>
+            onChange={setSessionFilter}
+            options={[
+              { value: '', label: 'Any session' },
+              ...sessions.map((s): DropdownOption => ({ value: s.id, label: s.name })),
+            ]}
+          />
         )}
         {hasActiveFilter && (
           <button onClick={clearFilters} style={secondaryBtnStyle}>Clear filters</button>

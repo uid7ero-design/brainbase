@@ -8,7 +8,7 @@
 // local to app/events/ rather than promoted into a shared components/ui
 // primitive, since nothing outside Events currently needs them.
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 export const FONT = 'var(--font-inter),-apple-system,sans-serif';
 
@@ -183,6 +183,144 @@ export function Field({ label, children }: { label: string; children: React.Reac
       {label}
       {children}
     </label>
+  );
+}
+
+// ─── Filter dropdown (dark BrainBase menu, replaces a native <select>) ─
+//
+// Registration operations phase — a single-select dropdown that looks
+// and behaves like the top-nav dropdown family (components/nav/
+// TopNav.tsx's OpsDropdown/AdminDropdown: dark panel, subtle border,
+// shadow, rotating chevron, hover highlight) but is triggered by CLICK
+// and emits a VALUE via onChange, matching components/admin/
+// OrgSwitcher.tsx's interaction model instead of TopNav's hover-to-open,
+// navigate-to-a-page one — TopNav's dropdowns are link menus, not value
+// selectors, so they aren't reusable as-is for a filter control.
+// Synthesizes the better fit of the two existing dark-dropdown
+// precedents rather than inventing a third pattern: OrgSwitcher's own
+// click/click-outside/selected-highlight mechanics, TopNav's own dark
+// popup surface styling.
+//
+// The closed trigger reuses inputStyle (so it stays visually consistent
+// with the still-native search box sitting right next to it in the same
+// toolbar); the open panel uses the TopNav-family's own dark popup
+// styling (rgba(7,5,16,.98) background, matching border/shadow), not a
+// browser-native popup — this is what actually needed to change from
+// the plain <select> this replaces (see the PR #125 report on why a
+// native option popup couldn't be made to match this palette).
+//
+// Neither existing dark-dropdown precedent implements Escape-to-close
+// or explicit focus handling — both are added here because they were
+// missing everywhere, not because either precedent already provides
+// them (i.e. not "custom ARIA", just closing two real gaps): Escape is
+// caught at the wrapper (bubbles from the trigger or any open option),
+// and selecting an option (or Escape) returns focus to the trigger so
+// keyboard Tab order continues sensibly. The trigger and each option
+// are plain native <button> elements — Enter/Space activation and the
+// browser's own visible focus outline come for free, not reimplemented.
+export type DropdownOption = { value: string; label: string };
+
+export function FilterDropdown({
+  ariaLabel, value, onChange, options, style,
+}: {
+  ariaLabel: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: DropdownOption[];
+  style?: React.CSSProperties;
+}) {
+  const [open, setOpen] = useState(false);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    function onClickOutside(e: MouseEvent) {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener('mousedown', onClickOutside);
+    return () => document.removeEventListener('mousedown', onClickOutside);
+  }, []);
+
+  function select(next: string) {
+    onChange(next);
+    setOpen(false);
+    triggerRef.current?.focus();
+  }
+
+  const selected = options.find(o => o.value === value) ?? options[0];
+
+  return (
+    <div
+      ref={wrapperRef}
+      style={{ position: 'relative', flex: '0 1 auto', ...style }}
+      onKeyDown={e => {
+        if (e.key === 'Escape') {
+          setOpen(false);
+          triggerRef.current?.focus();
+        }
+      }}
+    >
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label={ariaLabel}
+        style={{
+          ...inputStyle,
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+          cursor: 'pointer', minWidth: 150, background: open ? 'rgba(255,255,255,.06)' : inputStyle.background,
+        }}
+      >
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selected?.label ?? ariaLabel}</span>
+        <svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor" style={{ flexShrink: 0, opacity: 0.6, transform: open ? 'rotate(180deg)' : undefined, transition: 'transform .12s' }} aria-hidden="true">
+          <path d="M1 2l3 3 3-3" />
+        </svg>
+      </button>
+
+      {open && (
+        <div
+          role="listbox"
+          aria-label={ariaLabel}
+          style={{
+            // maxWidth is viewport-aware (not a bare 260px) so a trigger
+            // sitting near the right edge on a narrow/mobile screen can
+            // never make this panel wider than the viewport itself —
+            // the toolbar's own flex-wrap already handles vertical
+            // stacking; this only guards the one axis wrapping can't.
+            position: 'absolute', top: '100%', left: 0, marginTop: 4, minWidth: '100%', width: 'max-content', maxWidth: 'min(260px, calc(100vw - 32px))',
+            background: 'rgba(7,5,16,.98)', border: '1px solid rgba(255,255,255,.09)', borderRadius: 10,
+            boxShadow: '0 12px 40px rgba(0,0,0,.55), 0 0 0 1px rgba(255,255,255,.04)', padding: 5, zIndex: 60,
+            maxHeight: 280, overflowY: 'auto',
+          }}
+        >
+          {options.map(opt => {
+            const isSelected = opt.value === value;
+            return (
+              <button
+                key={opt.value || '__any__'}
+                type="button"
+                role="option"
+                aria-selected={isSelected}
+                onClick={() => select(opt.value)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left',
+                  padding: '7px 10px', background: 'none', border: 'none', borderRadius: 7, cursor: 'pointer',
+                  color: isSelected ? VIOLET_SOFT : '#E2E8F0', fontSize: 12.5, fontWeight: isSelected ? 600 : 400,
+                  fontFamily: FONT, whiteSpace: 'nowrap',
+                }}
+                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,.05)'; }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}
+              >
+                <span style={{ width: 6, height: 6, borderRadius: '50%', background: isSelected ? VIOLET_SOFT : 'transparent', flexShrink: 0 }} />
+                {opt.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }
 
