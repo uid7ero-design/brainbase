@@ -85,9 +85,15 @@ describe('Phase C2 — product catalogue supports PRODUCT vs SERVICE and tax tre
     expect(body).toMatch(/type\s+TEXT NOT NULL CHECK \(type IN \('PRODUCT', 'SERVICE'\)\)/)
   })
 
-  it('default_tax_code_id is an optional (nullable) reference to commercial_tax_codes — a product can exist before tax codes are configured', () => {
-    expect(body).toMatch(/default_tax_code_id\s+UUID REFERENCES commercial_tax_codes\(id\)/)
+  it('default_tax_code_id is an optional (nullable) UUID column — a product can exist before tax codes are configured', () => {
+    expect(body).toMatch(/default_tax_code_id\s+UUID,/)
     expect(body).not.toMatch(/default_tax_code_id\s+UUID NOT NULL/)
+  })
+
+  it('Phase C2-TIR — default_tax_code_id is a COMPOSITE FK onto commercial_tax_codes(id, organisation_id), not a plain single-column FK (the exact cross-tenant gap confirmed in Phase C2-PMC §H)', () => {
+    expect(body).toMatch(/FOREIGN KEY \(default_tax_code_id, organisation_id\)\s*\n\s*REFERENCES commercial_tax_codes \(id, organisation_id\)/)
+    // No plain single-column FK to commercial_tax_codes(id) remains anywhere in this table.
+    expect(body).not.toMatch(/default_tax_code_id\s+UUID REFERENCES commercial_tax_codes\(id\)/)
   })
 
   it('SKU uniqueness is per-organisation, and only enforced when a SKU is actually present (partial index)', () => {

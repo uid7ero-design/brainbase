@@ -73,6 +73,14 @@ CREATE INDEX IF NOT EXISTS idx_commercial_customers_active ON commercial_custome
 -- selectable GST rate. No row is seeded for any existing organisation by
 -- this migration — an org configures its own tax codes later, through a
 -- future admin surface this phase does not build.
+--
+-- Phase C2-TIR: UNIQUE(id, organisation_id) added — the same composite
+-- tenant-integrity anchor commercial_financial_years already carries —
+-- so commercial_products.default_tax_code_id below can composite-FK onto
+-- this table, making a cross-organisation product->tax-code reference
+-- structurally impossible (confirmed exploitable via the old plain FK in
+-- Phase C2-PMC §H). Purely additive: id is already the primary key
+-- (hence already globally unique), so no existing row can violate it.
 CREATE TABLE IF NOT EXISTS commercial_tax_codes (
   id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   organisation_id  TEXT NOT NULL REFERENCES organisations(id),
@@ -83,7 +91,8 @@ CREATE TABLE IF NOT EXISTS commercial_tax_codes (
   active           BOOLEAN NOT NULL DEFAULT true,
   created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
-  UNIQUE (organisation_id, code)
+  UNIQUE (organisation_id, code),
+  UNIQUE (id, organisation_id)
 );
 CREATE INDEX IF NOT EXISTS idx_commercial_tax_codes_org ON commercial_tax_codes(organisation_id);
 
@@ -93,6 +102,22 @@ CREATE INDEX IF NOT EXISTS idx_commercial_tax_codes_org ON commercial_tax_codes(
 -- list of sellable things with one default price. default_tax_code_id is
 -- OPTIONAL (nullable) — a product can exist before the org has configured
 -- any tax code.
+--
+-- Phase C2-TIR: default_tax_code_id is now a COMPOSITE FK onto
+-- commercial_tax_codes(id, organisation_id) — see the table-level
+-- constraint below — rather than a plain FK onto commercial_tax_codes(id)
+-- alone (confirmed exploitable for cross-organisation linkage in Phase
+-- C2-PMC §H). A NULL default_tax_code_id satisfies the constraint
+-- trivially under Postgres's default MATCH SIMPLE mode (any NULL column
+-- in a multi-column FK's local column list exempts the row from the
+-- check entirely) — a product with no configured tax code remains fully
+-- valid, no special-casing required. ON DELETE intentionally omitted
+-- (defaults to NO ACTION/RESTRICT): no code path in this codebase ever
+-- hard-deletes a commercial_tax_codes row — deactivateTaxCode() only
+-- sets active = false — so RESTRICT can never fire in practice, and it
+-- avoids relying on PostgreSQL 15+'s column-specific
+-- "ON DELETE SET NULL (col)" syntax for a code path that does not exist
+-- yet.
 CREATE TABLE IF NOT EXISTS commercial_products (
   id                        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   organisation_id           TEXT NOT NULL REFERENCES organisations(id),
@@ -104,10 +129,13 @@ CREATE TABLE IF NOT EXISTS commercial_products (
   unit_label                TEXT,
   default_unit_price_cents  INTEGER NOT NULL DEFAULT 0 CHECK (default_unit_price_cents >= 0),
   currency                  TEXT NOT NULL DEFAULT 'AUD',
-  default_tax_code_id       UUID REFERENCES commercial_tax_codes(id) ON DELETE SET NULL,
+  default_tax_code_id       UUID,
   created_by                TEXT REFERENCES users(id),
   created_at                TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at                TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at                TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT commercial_products_tax_code_org_fkey
+    FOREIGN KEY (default_tax_code_id, organisation_id)
+    REFERENCES commercial_tax_codes (id, organisation_id)
 );
 CREATE INDEX IF NOT EXISTS idx_commercial_products_org ON commercial_products(organisation_id);
 CREATE INDEX IF NOT EXISTS idx_commercial_products_active ON commercial_products(organisation_id, active);

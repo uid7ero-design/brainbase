@@ -16,6 +16,35 @@ import { logCustomerCreated, logCustomerUpdated, logCustomerDeactivated } from '
 // row without that predicate, which is what makes cross-organisation
 // access structurally impossible from this module's own surface, not
 // merely a convention a caller could forget to apply.
+//
+// Phase C2-TIR — crm_company_id/crm_contact_id ownership. Both columns
+// are PLAIN foreign keys (REFERENCES crm_companies(id) /
+// crm_contacts(id), no organisation_id in the constraint) — see
+// scripts/create-commercial-core.sql's own comment on why: CRM is a
+// separate, already-shipped vertical, and this phase deliberately does
+// not alter crm_companies/crm_contacts' own schema (no
+// UNIQUE(id, organisation_id) exists there today, and adding one is a
+// cross-team CRM-schema change out of this phase's bounded scope,
+// unlike commercial_tax_codes below, which this phase DOES own).
+// Without the check functions below, a customer for organisation A could
+// link to a CRM company/contact belonging to organisation B (confirmed
+// empirically, Phase C2-PMC §F) — application-level, fail-closed
+// ownership validation is therefore REQUIRED here, not optional
+// hardening, and runs before every INSERT/UPDATE that sets either
+// column.
+async function assertCrmCompanyOwnership(organisationId: string, crmCompanyId: string): Promise<void> {
+  const rows = await sql`SELECT id FROM crm_companies WHERE id = ${crmCompanyId} AND organisation_id = ${organisationId}`;
+  // Deliberately the SAME error for "doesn't exist" and "exists but
+  // belongs to a different organisation" — matching getCustomer()'s own
+  // documented reasoning just above: a caller must never be able to
+  // learn that a given id exists in SOME other organisation from this
+  // error alone.
+  if (rows.length === 0) throw new Error('crm_company_id not found for this organisation');
+}
+async function assertCrmContactOwnership(organisationId: string, crmContactId: string): Promise<void> {
+  const rows = await sql`SELECT id FROM crm_contacts WHERE id = ${crmContactId} AND organisation_id = ${organisationId}`;
+  if (rows.length === 0) throw new Error('crm_contact_id not found for this organisation');
+}
 
 export interface CommercialCustomer {
   id: string;
@@ -72,6 +101,9 @@ export async function createCustomer(params: {
   billingAddress?: string | null;
   taxBusinessNumber?: string | null;
 }): Promise<CommercialCustomer> {
+  if (params.crmCompanyId) await assertCrmCompanyOwnership(params.organisationId, params.crmCompanyId);
+  if (params.crmContactId) await assertCrmContactOwnership(params.organisationId, params.crmContactId);
+
   const rows = (await sql`
     INSERT INTO commercial_customers (
       organisation_id, name, crm_company_id, crm_contact_id,
@@ -98,6 +130,8 @@ export async function updateCustomer(params: {
   userId: string;
   customerId: string;
   name?: string;
+  crmCompanyId?: string | null;
+  crmContactId?: string | null;
   billingEmail?: string | null;
   billingPhone?: string | null;
   billingAddress?: string | null;
@@ -106,9 +140,20 @@ export async function updateCustomer(params: {
   const before = await getCustomer(params.organisationId, params.customerId);
   if (!before) return null;
 
+  // Phase C2-TIR — the same fail-closed ownership check createCustomer()
+  // performs, applied here too. A caller re-pointing an EXISTING
+  // customer's CRM link to a different organisation's company/contact
+  // must be rejected exactly as if they were setting it for the first
+  // time — there is no "it's just an update" exception to tenant
+  // isolation.
+  if (params.crmCompanyId) await assertCrmCompanyOwnership(params.organisationId, params.crmCompanyId);
+  if (params.crmContactId) await assertCrmContactOwnership(params.organisationId, params.crmContactId);
+
   const rows = (await sql`
     UPDATE commercial_customers SET
       name = COALESCE(${params.name ?? null}, name),
+      crm_company_id = COALESCE(${params.crmCompanyId ?? null}, crm_company_id),
+      crm_contact_id = COALESCE(${params.crmContactId ?? null}, crm_contact_id),
       billing_email = COALESCE(${params.billingEmail}, billing_email),
       billing_phone = COALESCE(${params.billingPhone}, billing_phone),
       billing_address = COALESCE(${params.billingAddress}, billing_address),
