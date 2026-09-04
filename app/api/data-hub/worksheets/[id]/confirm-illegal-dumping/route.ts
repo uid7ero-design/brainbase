@@ -23,6 +23,11 @@ import { confirmDataHubWorksheet } from "@/lib/data-hub/importBatch/confirmWorks
 // own resolved session.organisationId, never session.homeOrganisationId,
 // never anything derived from request input.
 //
+// CONFIRMATION ACTOR (5A.2L): confirmedBy is sourced exclusively from
+// requireRole("manager")'s own resolved session.userId — same discipline,
+// same trust boundary, as organisationId. No request body/query/header
+// field can ever influence it (this route still reads no body at all).
+//
 // LOAD-BEARING STORAGE AUTHORITY: this route supplies confirmDataHubWorksheet
 // with exactly {organisationId, worksheetUploadId} — the trusted
 // session.organisationId and the path `id`. It never prefetches or passes
@@ -57,7 +62,13 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
   const { id } = await params;
 
   try {
-    const result = await confirmDataHubWorksheet({ organisationId: session.organisationId, worksheetUploadId: id });
+    const result = await confirmDataHubWorksheet({
+      organisationId: session.organisationId,
+      worksheetUploadId: id,
+      // 5A.2L — confirmedBy comes exclusively from requireRole("manager")'s
+      // own resolved session.userId, never from request body/query/header.
+      confirmedBy: session.userId,
+    });
 
     if (result.ok) {
       if (result.alreadyImported) {

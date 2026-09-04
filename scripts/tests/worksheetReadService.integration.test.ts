@@ -59,6 +59,11 @@ beforeAll(async () => {
       ('org-b', 'Org B', 'org-b')
     ON CONFLICT (id) DO NOTHING
   `);
+  await prisma.$executeRawUnsafe(`
+    INSERT INTO users (id, organisation_id, username, name) VALUES
+      ('user-a1', 'org-a', 'user-a1', 'User A1')
+    ON CONFLICT (id) DO NOTHING
+  `);
 });
 
 afterAll(async () => {
@@ -122,6 +127,8 @@ async function seedWorksheet(params: {
   worksheetVisibility?: string;
   worksheetIsEmpty?: boolean;
   canonicalStatus?: string;
+  confirmedBy?: string | null;
+  confirmedAt?: Date | null;
 }): Promise<string> {
   const id = randomUUID();
   await prisma.upload.create({
@@ -139,6 +146,8 @@ async function seedWorksheet(params: {
       worksheet_is_empty: params.worksheetIsEmpty ?? false,
       lineage_kind: "DATA_HUB",
       canonical_status: params.canonicalStatus ?? "AWAITING_CONFIRMATION",
+      confirmed_by: params.confirmedBy ?? null,
+      confirmed_at: params.confirmedAt ?? null,
     },
   });
   return id;
@@ -974,6 +983,9 @@ describe("integration — DTO own-key-set leakage proof", () => {
       "importBatchId",
       "createdAt",
       "updatedAt",
+      // 5A.2L — durable confirmation-actor attribution.
+      "confirmedBy",
+      "confirmedAt",
     ]);
 
     const got = await getWorksheet({ organisationId: "org-a", worksheetId });
@@ -985,5 +997,73 @@ describe("integration — DTO own-key-set leakage proof", () => {
     if (listed.ok && listed.worksheets[0]) {
       expect(new Set(Object.keys(listed.worksheets[0]))).toEqual(expectedKeys);
     }
+  });
+});
+
+// ─── 5A.2L — confirmation-actor attribution surfaced through reads ──────
+
+describe("integration — 5A.2L confirmedBy/confirmedAt read exposure", () => {
+  it("a worksheet never confirmed exposes confirmedBy/confirmedAt as null through both getWorksheet and listWorksheetsForBatch", async () => {
+    const batch = await seedBatch({ organisationId: "org-a" });
+    const worksheetId = await seedWorksheet({ organisationId: "org-a", importBatchId: batch, worksheetIndex: 0 });
+
+    const got = await getWorksheet({ organisationId: "org-a", worksheetId });
+    expect(got.ok).toBe(true);
+    if (got.ok) {
+      expect(got.worksheet.confirmedBy).toBeNull();
+      expect(got.worksheet.confirmedAt).toBeNull();
+    }
+
+    const listed = await listWorksheetsForBatch({ organisationId: "org-a", importBatchId: batch });
+    expect(listed.ok).toBe(true);
+    if (listed.ok) {
+      expect(listed.worksheets[0].confirmedBy).toBeNull();
+      expect(listed.worksheets[0].confirmedAt).toBeNull();
+    }
+  });
+
+  it("a confirmed worksheet's actor/timestamp round-trip correctly (raw id, no profile join) through both getWorksheet and listWorksheetsForBatch", async () => {
+    const confirmedAt = new Date("2025-06-01T12:00:00.000Z");
+    const batch = await seedBatch({ organisationId: "org-a" });
+    const worksheetId = await seedWorksheet({
+      organisationId: "org-a",
+      importBatchId: batch,
+      worksheetIndex: 0,
+      canonicalStatus: "IMPORTED",
+      confirmedBy: "user-a1",
+      confirmedAt,
+    });
+
+    const got = await getWorksheet({ organisationId: "org-a", worksheetId });
+    expect(got.ok).toBe(true);
+    if (got.ok) {
+      expect(got.worksheet.confirmedBy).toBe("user-a1");
+      expect(got.worksheet.confirmedAt).toBeInstanceOf(Date);
+      expect(got.worksheet.confirmedAt?.toISOString()).toBe(confirmedAt.toISOString());
+    }
+
+    const listed = await listWorksheetsForBatch({ organisationId: "org-a", importBatchId: batch });
+    expect(listed.ok).toBe(true);
+    if (listed.ok) {
+      expect(listed.worksheets[0].confirmedBy).toBe("user-a1");
+    }
+  });
+
+  it("cross-tenant reads cannot observe another tenant's confirmation-actor attribution — the existing WORKSHEET_NOT_FOUND/BATCH_NOT_FOUND abstraction covers these new fields too, never a partial/leaked DTO", async () => {
+    const batchA = await seedBatch({ organisationId: "org-a" });
+    const worksheetA = await seedWorksheet({
+      organisationId: "org-a",
+      importBatchId: batchA,
+      worksheetIndex: 0,
+      canonicalStatus: "IMPORTED",
+      confirmedBy: "user-a1",
+      confirmedAt: new Date(),
+    });
+
+    const crossTenantGet = await getWorksheet({ organisationId: "org-b", worksheetId: worksheetA });
+    expect(crossTenantGet).toMatchObject({ ok: false, code: "WORKSHEET_NOT_FOUND" });
+
+    const crossTenantList = await listWorksheetsForBatch({ organisationId: "org-b", importBatchId: batchA });
+    expect(crossTenantList).toMatchObject({ ok: false, code: "BATCH_NOT_FOUND" });
   });
 });

@@ -24,10 +24,14 @@ import { getMessageTemplate, type FailureCode } from "./failureTaxonomy";
 // tests/containment/confirmWorksheet.test.ts for the static darkness proof.
 //
 // TRUSTED INPUT ONLY: the caller supplies exactly {organisationId,
-// worksheetUploadId} — nothing else. Storage locator, ImportBatch identity,
-// worksheet name, lineage, and canonical_status are ALL resolved from
-// trusted database state, never accepted as caller input — there is no
-// request object anywhere in this file's own signature.
+// worksheetUploadId, confirmedBy} — nothing else. Storage locator,
+// ImportBatch identity, worksheet name, lineage, and canonical_status are
+// ALL resolved from trusted database state, never accepted as caller
+// input — there is no request object anywhere in this file's own
+// signature. confirmedBy (5A.2L) is durably persisted, but only ever
+// derived by a future route from authenticated session identity, exactly
+// like organisationId — never accepted as request body/query/header
+// input by that route either.
 //
 // SCOPE (5A.2K.1): CSV-classified batches, illegal-dumping domain only.
 // XLS/XLSX are deterministically rejected (UNSUPPORTED_FORMAT) — never
@@ -64,6 +68,15 @@ export interface ConfirmWorksheetTrustedContext {
   /** Trusted, already-authenticated caller context — never re-derived here. */
   organisationId: string;
   worksheetUploadId: string;
+  /**
+   * Data Hub 5A.2L — the authenticated confirming actor's own user id
+   * (e.g. session.userId). Trusted, caller-resolved-from-session ONLY —
+   * this function never derives it itself and never accepts it from
+   * request input; a future route wrapping this service MUST source it
+   * exclusively from requireRole()'s own resolved session, exactly like
+   * organisationId above.
+   */
+  confirmedBy: string;
 }
 
 export type ConfirmWorksheetOutcome =
@@ -92,7 +105,7 @@ function fail(code: FailureCode): ConfirmWorksheetOutcome {
 export async function confirmDataHubWorksheet(
   context: ConfirmWorksheetTrustedContext
 ): Promise<ConfirmWorksheetOutcome> {
-  const { organisationId, worksheetUploadId } = context;
+  const { organisationId, worksheetUploadId, confirmedBy } = context;
 
   // ---- Step 1 — tenant + DATA_HUB lineage-scoped worksheet lookup. id,
   // organisation_id, and lineage_kind are ALL part of the SAME predicate —
@@ -213,6 +226,14 @@ export async function confirmDataHubWorksheet(
         canonical_status: "IMPORTED",
         attempt_count: { increment: 1 },
         last_attempt_at: new Date(),
+        // 5A.2L — set ONLY here, in the same atomic conditional UPDATE as
+        // the claim itself. If claim.count === 0 (lost the race, or the
+        // row wasn't actually eligible), this UPDATE affects zero rows and
+        // these values are never written to any row — never a separate
+        // statement, never set before the claim is known to have
+        // succeeded.
+        confirmed_by: confirmedBy,
+        confirmed_at: new Date(),
       },
     });
 

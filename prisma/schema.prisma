@@ -150,6 +150,7 @@ model User {
   import_batches    ImportBatch[]
   saved_views       SavedView[]
   uploads           Upload[]
+  confirmed_uploads Upload[]          @relation("UploadConfirmedBy")
   events_created    Event[]
   event_attendees_checked_in EventAttendee[]
   organisation      Organisation      @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
@@ -333,6 +334,17 @@ model Upload {
   last_failure_code     String?
   last_failure_message  String?
   last_failure_retryable Boolean?
+  // Data Hub 5A.2L — durable confirmation-actor attribution. Additive,
+  // nullable, zero backfill (see scripts/create-import-batches.sql for the
+  // full rationale). Set ONCE, together, only by confirmDataHubWorksheet's
+  // own atomic conditional claim UPDATE, the first time a DATA_HUB
+  // worksheet transitions AWAITING_CONFIRMATION -> IMPORTED. Never set on
+  // any failure/loser path, never overwritten on an idempotent repeat
+  // confirmation. Distinct from user_id/uploaded_by (uploader lineage) —
+  // this is the confirmation EVENT's own actor, not who originally
+  // uploaded the physical file.
+  confirmed_by          String?
+  confirmed_at          DateTime?
   debtor_accounts    DebtorAccount[]
   evidence_records   EvidenceRecord[]
   hlna_insights      HlnaInsight[]
@@ -342,6 +354,11 @@ model Upload {
   service_requests   ServiceRequest[]
   organisation       Organisation       @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
   user               User?              @relation(fields: [user_id], references: [id])
+  // Data Hub 5A.2L — a SECOND, distinct relation to User (confirmation
+  // actor, not uploader) — explicitly named to disambiguate from the
+  // `user` relation above. Mirrors ImportBatch.uploader's own onDelete:
+  // SetNull precedent, not user_id's plain default.
+  confirmer          User?              @relation("UploadConfirmedBy", fields: [confirmed_by], references: [id], onDelete: SetNull)
   // Composite tenant-scoped FK — a MATCH SIMPLE constraint, so any row
   // with import_batch_id = NULL (every legacy row) is entirely exempt
   // from this check by Postgres's own FK semantics. For a canonical row

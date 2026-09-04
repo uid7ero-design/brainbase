@@ -143,6 +143,13 @@ export interface WorksheetSummaryDTO {
   importBatchId: string;
   createdAt: Date;
   updatedAt: Date;
+  // Data Hub 5A.2L — durable confirmation-actor attribution. NULL for any
+  // worksheet never successfully confirmed (including historical rows
+  // IMPORTED before this field existed) — never fabricated. Raw user id,
+  // consistent with ImportBatchDetailDTO.uploadedBy's own existing
+  // convention (no profile join performed here).
+  confirmedBy: string | null;
+  confirmedAt: Date | null;
 }
 
 export interface GetImportBatchTrustedContext {
@@ -253,6 +260,8 @@ interface WorksheetRow {
   import_batch_id: string | null;
   created_at: Date;
   updated_at: Date;
+  confirmed_by: string | null;
+  confirmed_at: Date | null;
 }
 
 function toWorksheetDTO(row: WorksheetRow): WorksheetSummaryDTO {
@@ -283,6 +292,8 @@ function toWorksheetDTO(row: WorksheetRow): WorksheetSummaryDTO {
     importBatchId: row.import_batch_id,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    confirmedBy: row.confirmed_by,
+    confirmedAt: row.confirmed_at,
   };
 }
 
@@ -314,6 +325,8 @@ const WORKSHEET_SELECT = {
   import_batch_id: true,
   created_at: true,
   updated_at: true,
+  confirmed_by: true,
+  confirmed_at: true,
 } satisfies Prisma.UploadSelect;
 
 /**

@@ -86,7 +86,9 @@ beforeAll(async () => {
   `);
   await prisma.$executeRawUnsafe(`
     INSERT INTO users (id, organisation_id, username, name) VALUES
-      ('user-a1', 'org-a', 'user-a1', 'User A1')
+      ('user-a1', 'org-a', 'user-a1', 'User A1'),
+      ('user-a2', 'org-a', 'user-a2', 'User A2'),
+      ('user-b1', 'org-b', 'user-b1', 'User B1')
     ON CONFLICT (id) DO NOTHING
   `);
 });
@@ -117,7 +119,13 @@ const VALID_CSV = Buffer.from(
 async function seedReadyBatch(
   organisationId: string,
   body: Buffer,
-  overrides: Partial<{ contentType: "csv" | "xlsx" | "xls"; status: string; deletedAt: Date | null; sha256: string }> = {}
+  overrides: Partial<{
+    contentType: "csv" | "xlsx" | "xls";
+    status: string;
+    deletedAt: Date | null;
+    sha256: string;
+    uploadedBy: string | null;
+  }> = {}
 ) {
   const id = randomUUID();
   const storageKey = buildImportBatchKey(organisationId, id);
@@ -125,6 +133,7 @@ async function seedReadyBatch(
     data: {
       id,
       organisation_id: organisationId,
+      uploaded_by: overrides.uploadedBy ?? null,
       original_filename: `fixture.${overrides.contentType ?? "csv"}`,
       content_type: overrides.contentType ?? "csv",
       size_bytes: body.byteLength,
@@ -194,13 +203,17 @@ describe("integration — wrong-tenant falsification", () => {
     const { id: batchId } = await seedReadyBatch("org-a", VALID_CSV);
     const worksheet = await seedWorksheet("org-a", batchId);
 
-    const result = await confirmDataHubWorksheet({ organisationId: "org-b", worksheetUploadId: worksheet.id });
+    const result = await confirmDataHubWorksheet({ organisationId: "org-b", worksheetUploadId: worksheet.id, confirmedBy: "user-b1" });
     expect(result).toMatchObject({ ok: false, code: "WORKSHEET_NOT_FOUND" });
 
     const rows = await domainRowsFor("org-a", worksheet.id);
     expect(rows).toHaveLength(0);
     const refreshed = await worksheetById(worksheet.id);
     expect(refreshed?.canonical_status).toBe("AWAITING_CONFIRMATION");
+    // 5A.2L — a cross-tenant attempt cannot read, write, or otherwise
+    // influence actor attribution on org-a's own worksheet.
+    expect(refreshed?.confirmed_by).toBeNull();
+    expect(refreshed?.confirmed_at).toBeNull();
   });
 });
 
@@ -209,7 +222,7 @@ describe("integration — wrong-tenant falsification", () => {
 describe("integration — LEGACY-lineage falsification", () => {
   it("a LEGACY-lineage upload id -> WORKSHEET_NOT_FOUND, never treated as a DATA_HUB worksheet", async () => {
     const legacyRow = await seedWorksheet("org-a", "irrelevant", { lineageKind: "LEGACY" });
-    const result = await confirmDataHubWorksheet({ organisationId: "org-a", worksheetUploadId: legacyRow.id });
+    const result = await confirmDataHubWorksheet({ organisationId: "org-a", worksheetUploadId: legacyRow.id, confirmedBy: "user-a1" });
     expect(result).toMatchObject({ ok: false, code: "WORKSHEET_NOT_FOUND" });
   });
 });
@@ -221,20 +234,28 @@ describe("integration — canonical_status matrix", () => {
     it(`${status} -> WORKSHEET_NOT_ELIGIBLE, zero domain rows, status unchanged`, async () => {
       const { id: batchId } = await seedReadyBatch("org-a", VALID_CSV);
       const worksheet = await seedWorksheet("org-a", batchId, { canonicalStatus: status });
-      const result = await confirmDataHubWorksheet({ organisationId: "org-a", worksheetUploadId: worksheet.id });
+      const result = await confirmDataHubWorksheet({ organisationId: "org-a", worksheetUploadId: worksheet.id, confirmedBy: "user-a1" });
       expect(result).toMatchObject({ ok: false, code: "WORKSHEET_NOT_ELIGIBLE" });
       const refreshed = await worksheetById(worksheet.id);
       expect(refreshed?.canonical_status).toBe(status);
       expect(await domainRowsFor("org-a", worksheet.id)).toHaveLength(0);
+      // 5A.2L — a rejected first attempt (never eligible) leaves both NULL.
+      expect(refreshed?.confirmed_by).toBeNull();
+      expect(refreshed?.confirmed_at).toBeNull();
     });
   }
 
-  it("IMPORTED -> idempotent success, zero NEW domain rows, no re-attempt", async () => {
+  it("IMPORTED -> idempotent success, zero NEW domain rows, no re-attempt, and a pre-existing (pre-5A.2L-shaped) IMPORTED row with no recorded actor is NOT retroactively backfilled by a later confirm call", async () => {
     const { id: batchId } = await seedReadyBatch("org-a", VALID_CSV);
     const worksheet = await seedWorksheet("org-a", batchId, { canonicalStatus: "IMPORTED" });
-    const result = await confirmDataHubWorksheet({ organisationId: "org-a", worksheetUploadId: worksheet.id });
+    const beforeRow = await worksheetById(worksheet.id);
+    expect(beforeRow?.confirmed_by).toBeNull(); // seeded directly, never confirmed via the service
+    const result = await confirmDataHubWorksheet({ organisationId: "org-a", worksheetUploadId: worksheet.id, confirmedBy: "user-a1" });
     expect(result).toEqual({ ok: true, alreadyImported: true, worksheetUploadId: worksheet.id });
     expect(await domainRowsFor("org-a", worksheet.id)).toHaveLength(0);
+    const afterRow = await worksheetById(worksheet.id);
+    expect(afterRow?.confirmed_by).toBeNull();
+    expect(afterRow?.confirmed_at).toBeNull();
   });
 });
 
@@ -244,16 +265,22 @@ describe("integration — parent ImportBatch readiness gate", () => {
   it("parent batch status PROCESSING (not READY) -> BATCH_NOT_READY, zero domain rows", async () => {
     const { id: batchId } = await seedReadyBatch("org-a", VALID_CSV, { status: "PROCESSING" });
     const worksheet = await seedWorksheet("org-a", batchId);
-    const result = await confirmDataHubWorksheet({ organisationId: "org-a", worksheetUploadId: worksheet.id });
+    const result = await confirmDataHubWorksheet({ organisationId: "org-a", worksheetUploadId: worksheet.id, confirmedBy: "user-a1" });
     expect(result).toMatchObject({ ok: false, code: "BATCH_NOT_READY" });
     expect(await domainRowsFor("org-a", worksheet.id)).toHaveLength(0);
+    const refreshed = await worksheetById(worksheet.id);
+    expect(refreshed?.confirmed_by).toBeNull();
+    expect(refreshed?.confirmed_at).toBeNull();
   });
 
   it("parent batch tombstoned (deleted_at set) -> WORKSHEET_NOT_FOUND, never BATCH_NOT_READY", async () => {
     const { id: batchId } = await seedReadyBatch("org-a", VALID_CSV, { deletedAt: new Date() });
     const worksheet = await seedWorksheet("org-a", batchId);
-    const result = await confirmDataHubWorksheet({ organisationId: "org-a", worksheetUploadId: worksheet.id });
+    const result = await confirmDataHubWorksheet({ organisationId: "org-a", worksheetUploadId: worksheet.id, confirmedBy: "user-a1" });
     expect(result).toMatchObject({ ok: false, code: "WORKSHEET_NOT_FOUND" });
+    const refreshed = await worksheetById(worksheet.id);
+    expect(refreshed?.confirmed_by).toBeNull();
+    expect(refreshed?.confirmed_at).toBeNull();
   });
 });
 
@@ -271,7 +298,7 @@ describe("integration — storage locator authority (never caller-controlled)", 
     await sharedStore.put("org_org-a/importbatch_attacker-planted-key", Buffer.from("malicious,payload\n"));
     const worksheet = await seedWorksheet("org-a", batchId);
 
-    const result = await confirmDataHubWorksheet({ organisationId: "org-a", worksheetUploadId: worksheet.id });
+    const result = await confirmDataHubWorksheet({ organisationId: "org-a", worksheetUploadId: worksheet.id, confirmedBy: "user-a1" });
     expect(result.ok).toBe(true);
     expect(storageKey).not.toBe("org_org-a/importbatch_attacker-planted-key");
     const rows = await domainRowsFor("org-a", worksheet.id);
@@ -292,11 +319,13 @@ describe("integration — mandatory SHA-256 re-verification", () => {
     await sharedStore.delete(storageKey);
     await sharedStore.put(storageKey, Buffer.from("report_date,location,waste_type\n2099-01-01,Tampered,other\n"));
 
-    const result = await confirmDataHubWorksheet({ organisationId: "org-a", worksheetUploadId: worksheet.id });
+    const result = await confirmDataHubWorksheet({ organisationId: "org-a", worksheetUploadId: worksheet.id, confirmedBy: "user-a1" });
     expect(result).toMatchObject({ ok: false, code: "STORAGE_INTEGRITY_MISMATCH" });
     expect(await domainRowsFor("org-a", worksheet.id)).toHaveLength(0);
     const refreshed = await worksheetById(worksheet.id);
     expect(refreshed?.canonical_status).toBe("AWAITING_CONFIRMATION");
+    expect(refreshed?.confirmed_by).toBeNull();
+    expect(refreshed?.confirmed_at).toBeNull();
   });
 });
 
@@ -308,7 +337,7 @@ describe("integration — worksheet identity resolves strictly by primary-key id
     const worksheetOne = await seedWorksheet("org-a", batchId, { worksheetIndex: 0, worksheetName: "Sheet" });
     const worksheetTwo = await seedWorksheet("org-a", batchId, { worksheetIndex: 1, worksheetName: "Sheet" });
 
-    const result = await confirmDataHubWorksheet({ organisationId: "org-a", worksheetUploadId: worksheetOne.id });
+    const result = await confirmDataHubWorksheet({ organisationId: "org-a", worksheetUploadId: worksheetOne.id, confirmedBy: "user-a1" });
     expect(result.ok).toBe(true);
 
     const refreshedOne = await worksheetById(worksheetOne.id);
@@ -339,16 +368,20 @@ describe("integration — transaction-order and atomicity", () => {
     const worksheet = await seedWorksheet("org-a", batchId);
 
     await expect(
-      confirmDataHubWorksheet({ organisationId: "org-a", worksheetUploadId: worksheet.id })
+      confirmDataHubWorksheet({ organisationId: "org-a", worksheetUploadId: worksheet.id, confirmedBy: "user-a1" })
     ).rejects.toThrow();
 
     // Rolled back: the claim UPDATE (worksheet -> IMPORTED) is undone
     // together with the failed domain INSERT — proving they share one
     // transaction, in the required order (claim first, domain write
-    // second, both-or-neither committed).
+    // second, both-or-neither committed). 5A.2L: confirmed_by/confirmed_at
+    // are set in that SAME claim UPDATE, so a rollback must undo them too
+    // — a rolled-back attempt must never leave false attribution behind.
     const refreshed = await worksheetById(worksheet.id);
     expect(refreshed?.canonical_status).toBe("AWAITING_CONFIRMATION");
     expect(await domainRowsFor("org-a", worksheet.id)).toHaveLength(0);
+    expect(refreshed?.confirmed_by).toBeNull();
+    expect(refreshed?.confirmed_at).toBeNull();
 
     // A subsequent retry with valid data succeeds normally — the failed
     // attempt left the worksheet in a clean, retryable state.
@@ -358,21 +391,27 @@ describe("integration — transaction-order and atomicity", () => {
       where: { id: worksheet.id },
       data: { import_batch_id: batchId2 },
     });
-    const retryResult = await confirmDataHubWorksheet({ organisationId: "org-a", worksheetUploadId: worksheet.id });
+    const retryResult = await confirmDataHubWorksheet({ organisationId: "org-a", worksheetUploadId: worksheet.id, confirmedBy: "user-a2" });
     expect(retryResult).toMatchObject({ ok: true, alreadyImported: false, importedRows: 1 });
+    // The SUCCESSFUL retry (a genuinely new, distinct confirming actor)
+    // correctly records attribution — proving the earlier rollback didn't
+    // leave the row in a state that blocks a real subsequent write.
+    const afterRetry = await worksheetById(worksheet.id);
+    expect(afterRetry?.confirmed_by).toBe("user-a2");
+    expect(afterRetry?.confirmed_at).toBeInstanceOf(Date);
   });
 });
 
 // ─── 10. Concurrency-claim falsification ─────────────────────────────────
 
 describe("integration — concurrent confirmation attempts", () => {
-  it("two simultaneous confirmDataHubWorksheet calls against the SAME worksheet converge to exactly one import — exactly one full domain row set, no duplicates, no unhandled error", async () => {
+  it("two simultaneous confirmDataHubWorksheet calls against the SAME worksheet, by two DIFFERENT authenticated managers, converge to exactly one import AND exactly one persisted actor — no mixed/duplicate attribution", async () => {
     const { id: batchId } = await seedReadyBatch("org-a", VALID_CSV);
     const worksheet = await seedWorksheet("org-a", batchId);
 
     const [r1, r2] = await Promise.all([
-      confirmDataHubWorksheet({ organisationId: "org-a", worksheetUploadId: worksheet.id }),
-      confirmDataHubWorksheet({ organisationId: "org-a", worksheetUploadId: worksheet.id }),
+      confirmDataHubWorksheet({ organisationId: "org-a", worksheetUploadId: worksheet.id, confirmedBy: "user-a1" }),
+      confirmDataHubWorksheet({ organisationId: "org-a", worksheetUploadId: worksheet.id, confirmedBy: "user-a2" }),
     ]);
 
     // Exactly one of the two attempts actually performed the import;
@@ -389,23 +428,38 @@ describe("integration — concurrent confirmation attempts", () => {
     expect(rows).toHaveLength(2); // VALID_CSV has exactly 2 data rows — never duplicated to 4.
     const refreshed = await worksheetById(worksheet.id);
     expect(refreshed?.canonical_status).toBe("IMPORTED");
+    // 5A.2L — exactly ONE of the two candidate actors is persisted, and it
+    // must be user-a1 OR user-a2, never both/neither/some other value —
+    // proving the loser's own confirmedBy never reaches the row.
+    expect(["user-a1", "user-a2"]).toContain(refreshed?.confirmed_by);
+    expect(refreshed?.confirmed_at).toBeInstanceOf(Date);
   });
 });
 
 // ─── Bonus: sequential idempotency ───────────────────────────────────────
 
 describe("integration — sequential idempotency", () => {
-  it("confirming an already-IMPORTED worksheet a second time is a clean idempotent success, never a duplicate insert", async () => {
+  it("confirming an already-IMPORTED worksheet a second time is a clean idempotent success, never a duplicate insert, and NEVER overwrites the original confirmed_by/confirmed_at — a second (different) manager replaying the call must not become the recorded confirmer", async () => {
     const { id: batchId } = await seedReadyBatch("org-a", VALID_CSV);
     const worksheet = await seedWorksheet("org-a", batchId);
 
-    const first = await confirmDataHubWorksheet({ organisationId: "org-a", worksheetUploadId: worksheet.id });
+    const first = await confirmDataHubWorksheet({ organisationId: "org-a", worksheetUploadId: worksheet.id, confirmedBy: "user-a1" });
     expect(first).toMatchObject({ ok: true, alreadyImported: false, importedRows: 2 });
+    const afterFirst = await worksheetById(worksheet.id);
+    expect(afterFirst?.confirmed_by).toBe("user-a1");
+    const originalConfirmedAt = afterFirst?.confirmed_at;
+    expect(originalConfirmedAt).toBeInstanceOf(Date);
 
-    const second = await confirmDataHubWorksheet({ organisationId: "org-a", worksheetUploadId: worksheet.id });
+    // Deliberately a DIFFERENT manager on the repeat call — this is the
+    // hard invariant: a replay by someone else must not become the
+    // recorded confirmer, and must not refresh the timestamp either.
+    const second = await confirmDataHubWorksheet({ organisationId: "org-a", worksheetUploadId: worksheet.id, confirmedBy: "user-a2" });
     expect(second).toEqual({ ok: true, alreadyImported: true, worksheetUploadId: worksheet.id });
 
     expect(await domainRowsFor("org-a", worksheet.id)).toHaveLength(2);
+    const afterSecond = await worksheetById(worksheet.id);
+    expect(afterSecond?.confirmed_by).toBe("user-a1"); // unchanged — NOT user-a2
+    expect(afterSecond?.confirmed_at?.getTime()).toBe(originalConfirmedAt?.getTime()); // unchanged
   });
 });
 
@@ -449,7 +503,7 @@ describe("integration — zero-row-claim regression (5A.2K.1-R, load-bearing)", 
 
     let result: Awaited<ReturnType<typeof confirmDataHubWorksheet>>;
     try {
-      result = await confirmDataHubWorksheet({ organisationId: "org-a", worksheetUploadId: worksheet.id });
+      result = await confirmDataHubWorksheet({ organisationId: "org-a", worksheetUploadId: worksheet.id, confirmedBy: "user-a1" });
     } finally {
       findFirstSpy.mockRestore();
     }
@@ -467,6 +521,12 @@ describe("integration — zero-row-claim regression (5A.2K.1-R, load-bearing)", 
     expect(await domainRowsFor("org-a", worksheet.id)).toHaveLength(0);
     const refreshed = await worksheetById(worksheet.id);
     expect(refreshed?.canonical_status).toBe("SKIPPED");
+    // 5A.2L — a genuine zero-row claim (the exact TOCTOU above) must never
+    // record the losing attempt's confirmedBy/timestamp on a row it never
+    // actually claimed. The UPDATE that would have set these affected zero
+    // rows, so both remain exactly as before: NULL.
+    expect(refreshed?.confirmed_by).toBeNull();
+    expect(refreshed?.confirmed_at).toBeNull();
   });
 });
 
@@ -499,7 +559,7 @@ describe("integration — 100,000-row boundary reliability (5A.2K.1-R)", () => {
     const { id: batchId } = await seedReadyBatch("org-a", csv);
     const worksheet = await seedWorksheet("org-a", batchId);
 
-    const result = await confirmDataHubWorksheet({ organisationId: "org-a", worksheetUploadId: worksheet.id });
+    const result = await confirmDataHubWorksheet({ organisationId: "org-a", worksheetUploadId: worksheet.id, confirmedBy: "user-a1" });
 
     expect(result).toMatchObject({ ok: true, alreadyImported: false, importedRows: rows });
     const persistedCount = await prisma.illegalDumping.count({
@@ -509,4 +569,81 @@ describe("integration — 100,000-row boundary reliability (5A.2K.1-R)", () => {
     const refreshed = await worksheetById(worksheet.id);
     expect(refreshed?.canonical_status).toBe("IMPORTED");
   }, 60_000);
+});
+
+// ─── 13. 5A.2L — confirmation-actor attribution (success path) ──────────
+
+describe("integration — 5A.2L confirmation-actor attribution — success path", () => {
+  it("a successful first confirmation durably stores confirmed_by (the caller's own confirmedBy) and a real server-generated confirmed_at, in the SAME atomic claim as the IMPORTED transition", async () => {
+    const before = new Date();
+    const { id: batchId } = await seedReadyBatch("org-a", VALID_CSV);
+    const worksheet = await seedWorksheet("org-a", batchId);
+
+    const result = await confirmDataHubWorksheet({ organisationId: "org-a", worksheetUploadId: worksheet.id, confirmedBy: "user-a1" });
+    expect(result).toMatchObject({ ok: true, alreadyImported: false, importedRows: 2 });
+    const after = new Date();
+
+    const refreshed = await worksheetById(worksheet.id);
+    expect(refreshed?.canonical_status).toBe("IMPORTED");
+    expect(refreshed?.confirmed_by).toBe("user-a1");
+    expect(refreshed?.confirmed_at).toBeInstanceOf(Date);
+    // Server-generated, bounded by the actual test execution window — not
+    // a client-supplied value, not the upload/inspection time (both of
+    // which predate `before` here since the batch/worksheet were seeded
+    // before this call).
+    expect(refreshed!.confirmed_at!.getTime()).toBeGreaterThanOrEqual(before.getTime());
+    expect(refreshed!.confirmed_at!.getTime()).toBeLessThanOrEqual(after.getTime());
+  });
+
+  it("uploader and confirmer are independent, distinct actor references — confirming does not alter the parent batch's own uploaded_by lineage, and a worksheet confirmed by one user while its batch was uploaded by a different user preserves both independently", async () => {
+    const { id: batchId } = await seedReadyBatch("org-a", VALID_CSV, { uploadedBy: "user-a2" });
+    const worksheet = await seedWorksheet("org-a", batchId);
+
+    const result = await confirmDataHubWorksheet({ organisationId: "org-a", worksheetUploadId: worksheet.id, confirmedBy: "user-a1" });
+    expect(result).toMatchObject({ ok: true, alreadyImported: false });
+
+    const batch = await prisma.importBatch.findUnique({ where: { id: batchId } });
+    const refreshed = await worksheetById(worksheet.id);
+    expect(batch?.uploaded_by).toBe("user-a2"); // unchanged by confirmation
+    expect(refreshed?.confirmed_by).toBe("user-a1"); // distinct actor, correctly recorded
+    expect(batch?.uploaded_by).not.toBe(refreshed?.confirmed_by);
+  });
+
+  it("deleting the user who confirmed an import does NOT fail (ON DELETE SET NULL on confirmed_by) and does NOT lose the historical confirmed_at timestamp — the confirmation EVENT survives even when the specific actor identity is later deleted", async () => {
+    // Real-Postgres proof of a genuine finding surfaced by this slice's own
+    // migration-safety testing: a naive "confirmed_by/confirmed_at NULL
+    // together or NOT NULL together" CHECK constraint would make this
+    // DELETE fail outright, because the FK's ON DELETE SET NULL action
+    // nulls ONLY confirmed_by, not confirmed_at, in the same statement.
+    // uploads_confirmation_actor_coherence_check is deliberately asymmetric
+    // to allow exactly this state (confirmed_at survives, confirmed_by
+    // nulled) — see scripts/create-import-batches.sql for the full
+    // rationale.
+    // Raw SQL (not prisma.user.create), matching this file's own beforeAll
+    // seeding pattern — the disposable bootstrap `users` table intentionally
+    // reproduces only the columns this harness needs, not the full
+    // production User model.
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO users (id, organisation_id, username, name) VALUES ('user-ephemeral', 'org-a', 'user-ephemeral', 'Ephemeral User')`
+    );
+    const { id: batchId } = await seedReadyBatch("org-a", VALID_CSV);
+    const worksheet = await seedWorksheet("org-a", batchId);
+    const result = await confirmDataHubWorksheet({ organisationId: "org-a", worksheetUploadId: worksheet.id, confirmedBy: "user-ephemeral" });
+    expect(result).toMatchObject({ ok: true, alreadyImported: false });
+
+    const beforeDelete = await worksheetById(worksheet.id);
+    expect(beforeDelete?.confirmed_by).toBe("user-ephemeral");
+    const originalConfirmedAt = beforeDelete?.confirmed_at;
+    expect(originalConfirmedAt).toBeInstanceOf(Date);
+
+    // Must not throw — a real FK/CHECK constraint violation would reject
+    // this DELETE and surface as a thrown Postgres error here.
+    await prisma.$executeRawUnsafe(`DELETE FROM users WHERE id = 'user-ephemeral'`);
+
+    const afterDelete = await worksheetById(worksheet.id);
+    expect(afterDelete?.confirmed_by).toBeNull(); // identity reference gone
+    expect(afterDelete?.confirmed_at?.getTime()).toBe(originalConfirmedAt?.getTime()); // event/timing preserved
+    expect(afterDelete?.canonical_status).toBe("IMPORTED"); // the import itself is entirely unaffected
+    expect(await domainRowsFor("org-a", worksheet.id)).toHaveLength(2); // domain rows untouched
+  });
 });
