@@ -650,6 +650,68 @@ SELECT pg_temp.ensure_unique_index('uploads', 'uploads_import_batch_worksheet_ke
 
 CREATE INDEX IF NOT EXISTS idx_uploads_import_batch ON public.uploads(import_batch_id);
 
+-- 5A.2L — durable confirmation-actor attribution. Additive, nullable,
+-- zero backfill: every existing row (LEGACY and DATA_HUB alike, including
+-- rows already IMPORTED before this migration ran) legitimately keeps
+-- confirmed_by/confirmed_at NULL — there is no way to know, and this
+-- migration must never fabricate, who actually confirmed a historical
+-- import. Both are set together, once, by confirmDataHubWorksheet's own
+-- atomic conditional claim UPDATE (never a separate write) the first time
+-- (and only the first time) a worksheet transitions AWAITING_CONFIRMATION
+-- -> IMPORTED.
+--
+-- confirmed_by mirrors import_batches.uploaded_by's own established
+-- actor-reference precedent exactly: ON DELETE SET NULL (confdeltype
+-- 'n'), not the plain default NO ACTION uploads.user_id itself uses.
+-- Deleting a user who once confirmed an import must not be blocked by
+-- that historical confirmation — the domain rows and the fact that SOME
+-- authenticated manager confirmed them remain valid and intact; only the
+-- specific actor identity is nulled out, exactly like uploader lineage
+-- already does.
+SELECT pg_temp.ensure_column('uploads', 'confirmed_by', 'text', true, true, NULL,
+  'ALTER TABLE public.uploads ADD COLUMN confirmed_by TEXT');
+SELECT pg_temp.ensure_column('uploads', 'confirmed_at', 'timestamp with time zone', true, true, NULL,
+  'ALTER TABLE public.uploads ADD COLUMN confirmed_at TIMESTAMPTZ');
+
+SELECT pg_temp.ensure_fk('uploads', 'uploads_confirmed_by_fkey',
+  ARRAY['confirmed_by'], 'users', ARRAY['id'], 'n', 'a',
+  'ALTER TABLE public.uploads ADD CONSTRAINT uploads_confirmed_by_fkey FOREIGN KEY (confirmed_by) REFERENCES public.users (id) ON DELETE SET NULL');
+
+-- Coherence — DELIBERATELY asymmetric, not a simple "both NULL or both
+-- set" pair, because of a real interaction with uploads_confirmed_by_fkey's
+-- own ON DELETE SET NULL action discovered during 5A.2L's own real-Postgres
+-- migration-safety testing: when the confirming user is later deleted,
+-- Postgres's FK action nulls ONLY confirmed_by — it cannot also null
+-- confirmed_at in the same action. A naive "NULL together or NOT NULL
+-- together" CHECK would then make deleting ANY user who ever confirmed an
+-- import fail outright (the FK's own UPDATE ... SET confirmed_by = NULL
+-- would itself violate this table's CHECK), which is exactly the failure
+-- mode Section 20 of the governing spec explicitly forbids ("historical
+-- confirmation must not cause user deletion to fail").
+--
+-- The rule actually enforced: confirmed_at may be non-NULL while
+-- confirmed_by is NULL (meaning: this WAS confirmed at this time, by an
+-- actor no longer resolvable because their user record was deleted — the
+-- historical EVENT and its timing survive; only the specific identity
+-- reference is lost, exactly like uploaded_by's own existing SetNull
+-- precedent). The reverse is never legal: confirmed_by must never be
+-- non-NULL while confirmed_at is NULL (confirmDataHubWorksheet's own claim
+-- UPDATE always sets both together in one statement — a mismatch here
+-- would indicate a genuine application bug). Either field being non-NULL
+-- on a LEGACY row (lineage_kind <> 'DATA_HUB') is never legal, since
+-- confirmDataHubWorksheet only ever operates on DATA_HUB-lineage rows.
+-- Deliberately does NOT require confirmed_by non-NULL exactly when
+-- canonical_status = 'IMPORTED' — a pre-5A.2L IMPORTED row, or one
+-- reached by a future mechanism, must remain legally representable with
+-- both fields NULL.
+SELECT pg_temp.ensure_check('uploads', 'uploads_confirmation_actor_coherence_check',
+  'CHECK ((((confirmed_at IS NULL) OR (lineage_kind = ''DATA_HUB''::text)) AND ((confirmed_by IS NULL) OR ((confirmed_at IS NOT NULL) AND (lineage_kind = ''DATA_HUB''::text)))))',
+  $sql$ALTER TABLE public.uploads ADD CONSTRAINT uploads_confirmation_actor_coherence_check CHECK (
+    (confirmed_at IS NULL OR lineage_kind = 'DATA_HUB')
+    AND
+    (confirmed_by IS NULL OR (confirmed_at IS NOT NULL AND lineage_kind = 'DATA_HUB'))
+  )$sql$);
+
 DROP FUNCTION IF EXISTS pg_temp.ensure_column(text, text, text, boolean, boolean, text, text);
 DROP FUNCTION IF EXISTS pg_temp.ensure_check(text, text, text, text);
 DROP FUNCTION IF EXISTS pg_temp.ensure_unique_constraint(text, text, text, text);
@@ -659,6 +721,11 @@ DROP FUNCTION IF EXISTS pg_temp.ensure_unique_index(text, text, text[], text);
 
 -- Rollback (not run automatically — keep for reference if this needs to
 -- be reverted):
+--   ALTER TABLE public.uploads DROP CONSTRAINT IF EXISTS uploads_confirmation_actor_coherence_check;
+--   ALTER TABLE public.uploads DROP CONSTRAINT IF EXISTS uploads_confirmed_by_fkey;
+--   ALTER TABLE public.uploads
+--     DROP COLUMN IF EXISTS confirmed_by,
+--     DROP COLUMN IF EXISTS confirmed_at;
 --   ALTER TABLE public.import_batches DROP CONSTRAINT IF EXISTS import_batches_failure_message_length_check;
 --   ALTER TABLE public.import_batches DROP CONSTRAINT IF EXISTS import_batches_failure_retryable_status_check;
 --   ALTER TABLE public.import_batches DROP CONSTRAINT IF EXISTS import_batches_attempt_count_nonneg_check;

@@ -170,10 +170,15 @@ describe("5A.2K.2 confirm route — LOAD-BEARING storage/importer authority (nev
     expect(body).not.toMatch(/body\.(importer|domain|schemaType|type|destination|table)\b/i);
     expect(body).not.toMatch(/\bimporter\s*:/i);
   });
-  it("the only inputs to confirmDataHubWorksheet are the trusted context and the path id", () => {
-    expect(stripped).toMatch(
-      /confirmDataHubWorksheet\(\s*\{\s*organisationId:\s*session\.organisationId,\s*worksheetUploadId:\s*id\s*\}\s*\)/
-    );
+  it("the only inputs to confirmDataHubWorksheet are the trusted context, the path id, and the session-derived confirming actor (5A.2L)", () => {
+    const call = stripped.match(/confirmDataHubWorksheet\(\s*\{[\s\S]*?\}\s*\)/)?.[0] ?? "";
+    expect(call).toMatch(/organisationId:\s*session\.organisationId/);
+    expect(call).toMatch(/worksheetUploadId:\s*id/);
+    // 5A.2L — confirmedBy must be session-derived, never caller-suppliable.
+    // Fails if a future edit sources it from req.body/query/header instead.
+    expect(call).toMatch(/confirmedBy:\s*session\.userId/);
+    expect(call).not.toMatch(/confirmedBy:\s*body\./);
+    expect(call).not.toMatch(/confirmedBy:\s*req\./);
   });
   it("never performs a route-level pre-read/precheck before calling confirmDataHubWorksheet, and calls it exactly once — the service's own atomic claim remains the sole correctness mechanism, never a route-level TOCTOU precheck", () => {
     expect(stripped).not.toMatch(/findUnique|findFirst|\$queryRaw/);

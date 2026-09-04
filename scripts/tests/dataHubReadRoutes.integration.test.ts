@@ -424,6 +424,9 @@ describe("integration — response contract", () => {
         "importBatchId",
         "createdAt",
         "updatedAt",
+        // 5A.2L — durable confirmation-actor attribution.
+        "confirmedBy",
+        "confirmedAt",
       ])
     );
   });

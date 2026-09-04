@@ -1977,3 +1977,89 @@ falsification list above). The standing xlsx@0.18.5 dependency risk and
 the four pre-existing legacy xlsx-parsing routes remain unchanged,
 unaddressed, and explicitly out of scope — this slice adds zero new xlsx
 reachability anywhere in the application.
+
+## 25. Confirmation-actor auditability (5A.2L)
+
+A narrow governance-hardening slice, recommended (not required) by the
+5A.2-completion discovery: successful `confirmDataHubWorksheet` imports
+previously recorded *that* a worksheet was confirmed but never *who*
+confirmed it. `Upload` gains two additive, nullable columns —
+`confirmed_by` (a `User.id` reference) and `confirmed_at` — set together,
+once, only inside the same atomic conditional claim `UPDATE` that already
+transitions a worksheet `AWAITING_CONFIRMATION` → `IMPORTED` (Section 22).
+No second statement, no separate transaction: if `claim.count === 0`
+(lost the race, or the worksheet was never eligible), this `UPDATE`
+affects zero rows and neither field is ever written anywhere.
+
+**Distinct from `uploaded_by`.** `ImportBatch.uploaded_by` records who
+physically uploaded the raw file; `confirmed_by` records who performed
+the *confirmation event* — a different actor, at a different time, and
+in practice frequently a different person. The two are deliberately
+independent columns with independent FK relations
+(`User.confirmed_uploads` via the `"UploadConfirmedBy"` relation name,
+disambiguated from the plain `user`/`user_id` uploader relation already
+on `Upload`).
+
+**FK semantics mirror `uploaded_by`'s own precedent exactly.**
+`confirmed_by` is `ON DELETE SET NULL`, not the plain-default behaviour
+`Upload.user_id` itself uses — deleting a user who once confirmed an
+import must never be blocked by that historical confirmation. The domain
+rows and the fact that *some* authenticated manager confirmed them remain
+valid; only the specific actor identity is nulled out.
+
+**Asymmetric coherence, not a naive pair check.** A `CHECK` requiring
+"`confirmed_by`/`confirmed_at` both NULL or both set" would itself be
+violated by the FK's own `ON DELETE SET NULL` action (which can only null
+`confirmed_by`, never `confirmed_at`, in the same action) — making
+deletion of *any* user who ever confirmed an import fail outright. The
+constraint actually enforced (`uploads_confirmation_actor_coherence_check`)
+instead permits `confirmed_at IS NOT NULL AND confirmed_by IS NULL`
+(confirmed at a known time, by an actor no longer resolvable) while
+forbidding the reverse (`confirmed_by` set implies `confirmed_at` must
+also be set — a mismatch here would indicate an application bug, since
+`confirmDataHubWorksheet`'s own claim `UPDATE` always sets both together).
+Either field non-NULL on a `LEGACY`-lineage row is never legal.
+Deliberately does **not** require `confirmed_by IS NOT NULL` whenever
+`canonical_status = 'IMPORTED'` — pre-5A.2L `IMPORTED` rows, and any row
+whose confirming user was later deleted, must remain legally
+representable with `confirmed_by` NULL.
+
+**Zero backfill, zero fabrication.** Every row `IMPORTED` before this
+migration ran — and every `LEGACY`-lineage row, regardless of age —
+keeps both fields NULL permanently. There is no mechanism, and none was
+built, to retroactively attribute a historical confirmation to any actor.
+
+**HTTP trust boundary unchanged in shape.** The confirm route still reads
+no request body at all; `confirmedBy` is sourced exclusively from
+`requireRole("manager")`'s own resolved `session.userId`, the same trust
+discipline as `organisationId`. No new endpoint, no new request field, no
+change to the route's public contract.
+
+**`organiser_activity` considered, not integrated.** A generic-shaped
+audit table (`entity_type`/`entity_id`/`actor`/`before`/`after`) exists
+in this codebase, added between the 5A.2K.2 merge and this slice — but
+it is currently written only by organiser board-item routes, with no
+existing cross-module write path. Extending it to Data Hub would be real,
+separately-scoped integration work (a new `entity_type`, an actor-identity
+thread into `confirmDataHubWorksheet`'s trusted context, which already
+exists here regardless) — not something this narrow slice performs.
+`confirmed_by`/`confirmed_at` on `Upload` remain the durable source of
+truth for this specific event; `organiser_activity` remains a plausible
+future generic audit stream, not touched today.
+
+**Read exposure.** `WorksheetSummaryDTO` gains `confirmedBy`/
+`confirmedAt`, both nullable, raw user id (no profile join), consistent
+with `ImportBatchDetailDTO.uploadedBy`'s own existing convention.
+Tenant-scoped by the same compound predicate every other worksheet read
+already uses — these two fields create no new tenant oracle.
+
+**Scope discipline.** No new parser, importer, HTTP endpoint, or UI. No
+XLS/XLSX work. No 5A.3 adoption. The confirm route's own previously-
+carried, unrelated-to-this-slice test-coverage gap (no dedicated
+unexpected-error-leakage test, unlike its sibling inspect route) was
+closed in this slice specifically because this slice directly touches
+that route's own trust boundary — no other carried debt (concurrent-
+inspection test gap, duplicate-persistence proximity-test fragility,
+duplicate CSV headers, K.1's structural boundary fragility, parent-READY
+TOCTOU, deletion/retention, the xlsx dependency itself, the four legacy
+parser routes) was touched.

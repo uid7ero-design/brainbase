@@ -314,11 +314,13 @@ describe('scripts/create-import-batches.sql — ensure_* drift-safety design (5A
     }
   })
 
-  it('exhaustively covers all 12 additive Upload columns via ensure_column', () => {
+  it('exhaustively covers all 14 additive Upload columns via ensure_column', () => {
     const additiveColumns = [
       'import_batch_id', 'worksheet_index', 'worksheet_name', 'worksheet_visibility',
       'worksheet_is_empty', 'lineage_kind', 'canonical_status', 'last_attempt_at',
       'attempt_count', 'last_failure_code', 'last_failure_message', 'last_failure_retryable',
+      // 5A.2L
+      'confirmed_by', 'confirmed_at',
     ]
     for (const column of additiveColumns) {
       expect(MIGRATION, `ensure_column(...) call missing for uploads.${column}`).toContain(
@@ -349,6 +351,8 @@ describe('scripts/create-import-batches.sql — ensure_* drift-safety design (5A
       'uploads_worksheet_index_nonneg_check',
       'uploads_attempt_count_nonneg_check',
       'uploads_lineage_coherence_check',
+      // 5A.2L
+      'uploads_confirmation_actor_coherence_check',
     ]) {
       expect(MIGRATION).toContain(`ensure_check('uploads', '${conname}'`)
     }
@@ -361,10 +365,11 @@ describe('scripts/create-import-batches.sql — ensure_* drift-safety design (5A
     expect(MIGRATION).toContain("ensure_unique_index('uploads', 'uploads_import_batch_worksheet_key'")
   })
 
-  it('establishes/validates both import_batches foreign keys and the composite uploads tenant FK via ensure_fk', () => {
+  it('establishes/validates both import_batches foreign keys, the composite uploads tenant FK, and the uploads confirmed_by FK (5A.2L) via ensure_fk', () => {
     expect(MIGRATION).toContain("ensure_fk('import_batches', 'import_batches_organisation_id_fkey'")
     expect(MIGRATION).toContain("ensure_fk('import_batches', 'import_batches_uploaded_by_fkey'")
     expect(MIGRATION).toContain("ensure_fk('uploads', 'uploads_import_batch_org_fkey'")
+    expect(MIGRATION).toContain("ensure_fk('uploads', 'uploads_confirmed_by_fkey'")
   })
 
   it('READY status requires a non-NULL sha256 — the one truthful state invariant', () => {
@@ -587,6 +592,9 @@ describe('scripts/create-import-batches.sql — explicit default contracts (5A.2
     { table: 'uploads', column: 'last_failure_code', type: 'text', nullable: true, expectedDefault: 'NULL' },
     { table: 'uploads', column: 'last_failure_message', type: 'text', nullable: true, expectedDefault: 'NULL' },
     { table: 'uploads', column: 'last_failure_retryable', type: 'boolean', nullable: true, expectedDefault: 'NULL' },
+    // 5A.2L — confirmation-actor attribution.
+    { table: 'uploads', column: 'confirmed_by', type: 'text', nullable: true, expectedDefault: 'NULL' },
+    { table: 'uploads', column: 'confirmed_at', type: 'timestamp with time zone', nullable: true, expectedDefault: 'NULL' },
   ]
 
   function expectedCallSubstring(c: DefaultContract): string {
@@ -612,6 +620,8 @@ describe('scripts/create-import-batches.sql — explicit default contracts (5A.2
       'import_batch_id', 'worksheet_index', 'worksheet_name', 'worksheet_visibility',
       'worksheet_is_empty', 'lineage_kind', 'canonical_status', 'last_attempt_at',
       'attempt_count', 'last_failure_code', 'last_failure_message', 'last_failure_retryable',
+      // 5A.2L
+      'confirmed_by', 'confirmed_at',
     ]
     const contractedColumns = new Set(UPLOAD_DEFAULT_CONTRACTS.map(c => c.column))
     for (const column of additiveColumns) {

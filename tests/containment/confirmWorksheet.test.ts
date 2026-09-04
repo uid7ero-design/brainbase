@@ -60,15 +60,16 @@ describe("confirmWorksheet — zero xlsx dependency across all three new files",
 describe("confirmWorksheet — trusted-context-only input shape", () => {
   const code = read(SERVICE_PATH);
 
-  it("ConfirmWorksheetTrustedContext carries exactly organisationId and worksheetUploadId", () => {
+  it("ConfirmWorksheetTrustedContext carries exactly organisationId, worksheetUploadId, and confirmedBy (5A.2L)", () => {
     const block = code.match(/export interface ConfirmWorksheetTrustedContext \{[\s\S]*?\n\}/)?.[0] ?? "";
     expect(block).toMatch(/organisationId:\s*string/);
     expect(block).toMatch(/worksheetUploadId:\s*string/);
-    // No third field of any kind.
+    expect(block).toMatch(/confirmedBy:\s*string/);
+    // No fourth field of any kind.
     const fieldLines = block
       .split("\n")
       .filter((l) => /:\s*\S/.test(l) && !l.trim().startsWith("/") && !l.trim().startsWith("*"));
-    expect(fieldLines).toHaveLength(2);
+    expect(fieldLines).toHaveLength(3);
   });
 
   it("never accepts storageKey/storageProvider/storage locator as a parameter name", () => {
@@ -379,14 +380,14 @@ describe("confirmWorksheet — worksheet lookup collapses nonexistent/wrong-tena
   it("nonexistent worksheet id -> WORKSHEET_NOT_FOUND", async () => {
     const { confirmDataHubWorksheet } = await freshService();
     uploadFindFirstMock.mockResolvedValue(null);
-    const result = await confirmDataHubWorksheet({ organisationId: "org-1", worksheetUploadId: "nope" });
+    const result = await confirmDataHubWorksheet({ organisationId: "org-1", worksheetUploadId: "nope", confirmedBy: "actor-1" });
     expect(result).toMatchObject({ ok: false, code: "WORKSHEET_NOT_FOUND" });
   });
 
   it("the tenant+lineage predicate is passed in the SAME findFirst call (never fetch-then-check)", async () => {
     const { confirmDataHubWorksheet } = await freshService();
     uploadFindFirstMock.mockResolvedValue(null);
-    await confirmDataHubWorksheet({ organisationId: "org-1", worksheetUploadId: "w-1" });
+    await confirmDataHubWorksheet({ organisationId: "org-1", worksheetUploadId: "w-1", confirmedBy: "actor-1" });
     expect(uploadFindFirstMock).toHaveBeenCalledTimes(1);
     const callArg = uploadFindFirstMock.mock.calls[0][0];
     expect(callArg.where).toMatchObject({
@@ -401,7 +402,7 @@ describe("confirmWorksheet — canonical_status precondition", () => {
   it("already IMPORTED -> idempotent success, no batch lookup, no transaction", async () => {
     const { confirmDataHubWorksheet } = await freshService();
     uploadFindFirstMock.mockResolvedValue(worksheetRow({ canonical_status: "IMPORTED" }));
-    const result = await confirmDataHubWorksheet({ organisationId: "org-1", worksheetUploadId: "worksheet-1" });
+    const result = await confirmDataHubWorksheet({ organisationId: "org-1", worksheetUploadId: "worksheet-1", confirmedBy: "actor-1" });
     expect(result).toEqual({ ok: true, alreadyImported: true, worksheetUploadId: "worksheet-1" });
     expect(importBatchFindUniqueMock).not.toHaveBeenCalled();
     expect(transactionMock).not.toHaveBeenCalled();
@@ -411,7 +412,7 @@ describe("confirmWorksheet — canonical_status precondition", () => {
     it(`${status} -> WORKSHEET_NOT_ELIGIBLE, no batch lookup, no transaction`, async () => {
       const { confirmDataHubWorksheet } = await freshService();
       uploadFindFirstMock.mockResolvedValue(worksheetRow({ canonical_status: status }));
-      const result = await confirmDataHubWorksheet({ organisationId: "org-1", worksheetUploadId: "worksheet-1" });
+      const result = await confirmDataHubWorksheet({ organisationId: "org-1", worksheetUploadId: "worksheet-1", confirmedBy: "actor-1" });
       expect(result).toMatchObject({ ok: false, code: "WORKSHEET_NOT_ELIGIBLE" });
       expect(importBatchFindUniqueMock).not.toHaveBeenCalled();
       expect(transactionMock).not.toHaveBeenCalled();
@@ -424,7 +425,7 @@ describe("confirmWorksheet — parent ImportBatch readiness gate", () => {
     const { confirmDataHubWorksheet } = await freshService();
     uploadFindFirstMock.mockResolvedValue(worksheetRow());
     importBatchFindUniqueMock.mockResolvedValue(null);
-    const result = await confirmDataHubWorksheet({ organisationId: "org-1", worksheetUploadId: "worksheet-1" });
+    const result = await confirmDataHubWorksheet({ organisationId: "org-1", worksheetUploadId: "worksheet-1", confirmedBy: "actor-1" });
     expect(result).toMatchObject({ ok: false, code: "WORKSHEET_NOT_FOUND" });
   });
 
@@ -432,7 +433,7 @@ describe("confirmWorksheet — parent ImportBatch readiness gate", () => {
     const { confirmDataHubWorksheet } = await freshService();
     uploadFindFirstMock.mockResolvedValue(worksheetRow());
     importBatchFindUniqueMock.mockResolvedValue(batchRow({ deleted_at: new Date() }));
-    const result = await confirmDataHubWorksheet({ organisationId: "org-1", worksheetUploadId: "worksheet-1" });
+    const result = await confirmDataHubWorksheet({ organisationId: "org-1", worksheetUploadId: "worksheet-1", confirmedBy: "actor-1" });
     expect(result).toMatchObject({ ok: false, code: "WORKSHEET_NOT_FOUND" });
   });
 
@@ -440,7 +441,7 @@ describe("confirmWorksheet — parent ImportBatch readiness gate", () => {
     const { confirmDataHubWorksheet } = await freshService();
     uploadFindFirstMock.mockResolvedValue(worksheetRow());
     importBatchFindUniqueMock.mockResolvedValue(batchRow({ status: "PENDING" }));
-    const result = await confirmDataHubWorksheet({ organisationId: "org-1", worksheetUploadId: "worksheet-1" });
+    const result = await confirmDataHubWorksheet({ organisationId: "org-1", worksheetUploadId: "worksheet-1", confirmedBy: "actor-1" });
     expect(result).toMatchObject({ ok: false, code: "BATCH_NOT_READY" });
   });
 
@@ -450,7 +451,7 @@ describe("confirmWorksheet — parent ImportBatch readiness gate", () => {
     importBatchFindUniqueMock.mockResolvedValue(batchRow());
     storageGetMock.mockResolvedValue({ body: new TextEncoder().encode("report_date,location,waste_type\n") });
     transactionMock.mockResolvedValue({ claimed: false, currentStatus: "AWAITING_CONFIRMATION" });
-    await confirmDataHubWorksheet({ organisationId: "org-1", worksheetUploadId: "worksheet-1" });
+    await confirmDataHubWorksheet({ organisationId: "org-1", worksheetUploadId: "worksheet-1", confirmedBy: "actor-1" });
     const callArg = importBatchFindUniqueMock.mock.calls[0][0];
     expect(callArg.where.id_organisation_id).toEqual({ id: "batch-from-worksheet", organisation_id: "org-1" });
   });
@@ -462,7 +463,7 @@ describe("confirmWorksheet — CSV-only format gate", () => {
       const { confirmDataHubWorksheet } = await freshService();
       uploadFindFirstMock.mockResolvedValue(worksheetRow());
       importBatchFindUniqueMock.mockResolvedValue(batchRow({ content_type: contentType }));
-      const result = await confirmDataHubWorksheet({ organisationId: "org-1", worksheetUploadId: "worksheet-1" });
+      const result = await confirmDataHubWorksheet({ organisationId: "org-1", worksheetUploadId: "worksheet-1", confirmedBy: "actor-1" });
       expect(result).toMatchObject({ ok: false, code: "UNSUPPORTED_FORMAT" });
       expect(storageGetMock).not.toHaveBeenCalled();
     });
@@ -475,7 +476,7 @@ describe("confirmWorksheet — mandatory SHA-256 re-verification", () => {
     uploadFindFirstMock.mockResolvedValue(worksheetRow());
     importBatchFindUniqueMock.mockResolvedValue(batchRow({ sha256: "not-the-real-hash" }));
     storageGetMock.mockResolvedValue({ body: new TextEncoder().encode("report_date,location,waste_type\n") });
-    const result = await confirmDataHubWorksheet({ organisationId: "org-1", worksheetUploadId: "worksheet-1" });
+    const result = await confirmDataHubWorksheet({ organisationId: "org-1", worksheetUploadId: "worksheet-1", confirmedBy: "actor-1" });
     expect(result).toMatchObject({ ok: false, code: "STORAGE_INTEGRITY_MISMATCH" });
     expect(transactionMock).not.toHaveBeenCalled();
   });
@@ -490,7 +491,7 @@ describe("confirmWorksheet — lost-race resolution inside the transaction resul
     importBatchFindUniqueMock.mockResolvedValue(batchRow({ sha256: createHash("sha256").update(body).digest("hex") }));
     storageGetMock.mockResolvedValue({ body });
     transactionMock.mockResolvedValue({ claimed: false, currentStatus: "IMPORTED" });
-    const result = await confirmDataHubWorksheet({ organisationId: "org-1", worksheetUploadId: "worksheet-1" });
+    const result = await confirmDataHubWorksheet({ organisationId: "org-1", worksheetUploadId: "worksheet-1", confirmedBy: "actor-1" });
     expect(result).toEqual({ ok: true, alreadyImported: true, worksheetUploadId: "worksheet-1" });
   });
 
@@ -502,7 +503,7 @@ describe("confirmWorksheet — lost-race resolution inside the transaction resul
     importBatchFindUniqueMock.mockResolvedValue(batchRow({ sha256: createHash("sha256").update(body).digest("hex") }));
     storageGetMock.mockResolvedValue({ body });
     transactionMock.mockResolvedValue({ claimed: false, currentStatus: "INELIGIBLE" });
-    const result = await confirmDataHubWorksheet({ organisationId: "org-1", worksheetUploadId: "worksheet-1" });
+    const result = await confirmDataHubWorksheet({ organisationId: "org-1", worksheetUploadId: "worksheet-1", confirmedBy: "actor-1" });
     expect(result).toMatchObject({ ok: false, code: "WORKSHEET_NOT_ELIGIBLE" });
   });
 
@@ -514,7 +515,7 @@ describe("confirmWorksheet — lost-race resolution inside the transaction resul
     importBatchFindUniqueMock.mockResolvedValue(batchRow({ sha256: createHash("sha256").update(body).digest("hex") }));
     storageGetMock.mockResolvedValue({ body });
     transactionMock.mockResolvedValue({ claimed: true, importedRows: 1 });
-    const result = await confirmDataHubWorksheet({ organisationId: "org-1", worksheetUploadId: "worksheet-1" });
+    const result = await confirmDataHubWorksheet({ organisationId: "org-1", worksheetUploadId: "worksheet-1", confirmedBy: "actor-1" });
     expect(result).toEqual({ ok: true, alreadyImported: false, worksheetUploadId: "worksheet-1", importedRows: 1 });
   });
 });
@@ -527,7 +528,7 @@ describe("confirmWorksheet — malformed/invalid CSV never reaches the transacti
     uploadFindFirstMock.mockResolvedValue(worksheetRow());
     importBatchFindUniqueMock.mockResolvedValue(batchRow({ sha256: createHash("sha256").update(body).digest("hex") }));
     storageGetMock.mockResolvedValue({ body });
-    const result = await confirmDataHubWorksheet({ organisationId: "org-1", worksheetUploadId: "worksheet-1" });
+    const result = await confirmDataHubWorksheet({ organisationId: "org-1", worksheetUploadId: "worksheet-1", confirmedBy: "actor-1" });
     expect(result).toMatchObject({ ok: false, code: "PARSER_REJECTED" });
     expect(transactionMock).not.toHaveBeenCalled();
   });

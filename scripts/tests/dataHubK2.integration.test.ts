@@ -108,6 +108,7 @@ beforeAll(async () => {
   `);
   await prisma.$executeRawUnsafe(`
     INSERT INTO users (id, organisation_id, username, name) VALUES
+      ('user-1', 'org-a', 'user-1', 'Default Test User'),
       ('user-a1', 'org-a', 'user-a1', 'User A1'),
       ('user-b1', 'org-b', 'user-b1', 'User B1')
     ON CONFLICT (id) DO NOTHING
@@ -535,6 +536,45 @@ describe("K.2 confirm route — importer-selection injection has no effect", () 
   });
 });
 
+// ─── Route-level: 5A.2L confirmation-actor attribution ──────────────────
+
+describe("K.2 confirm route — confirmation-actor attribution (5A.2L)", () => {
+  it("the route threads the AUTHENTICATED session's own userId as confirmedBy — never a caller-suppliable value", async () => {
+    asSession({ organisationId: "org-a", role: "manager", userId: "user-a1" });
+    const { id: batchId } = await seedReadyBatch("org-a", VALID_CSV);
+    await inspectCsvWorksheet({ organisationId: "org-a", importBatchId: batchId });
+    const worksheet = (await worksheetsFor("org-a", batchId))[0];
+
+    const { req, params } = confirmRequest(worksheet.id);
+    const res = await POST_confirm(req, { params });
+    expect(res.status).toBe(200);
+
+    const refreshed = await prisma.upload.findUnique({ where: { id: worksheet.id } });
+    expect(refreshed?.confirmed_by).toBe("user-a1");
+    expect(refreshed?.confirmed_at).toBeInstanceOf(Date);
+  });
+
+  it("a request body/header/query carrying a confirmedBy-shaped field has zero effect — the actor is always the session's own userId, never caller input", async () => {
+    asSession({ organisationId: "org-a", role: "manager", userId: "user-a1" });
+    const { id: batchId } = await seedReadyBatch("org-a", VALID_CSV);
+    await inspectCsvWorksheet({ organisationId: "org-a", importBatchId: batchId });
+    const worksheet = (await worksheetsFor("org-a", batchId))[0];
+
+    const req = new NextRequest(`http://localhost/api/data-hub/worksheets/${worksheet.id}/confirm-illegal-dumping?confirmedBy=user-b1`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-confirmed-by": "user-b1" },
+      body: JSON.stringify({ confirmedBy: "user-b1", userId: "user-b1", actorId: "user-b1" }),
+    });
+    const res = await POST_confirm(req, { params: Promise.resolve({ id: worksheet.id }) });
+    expect(res.status).toBe(200);
+
+    const refreshed = await prisma.upload.findUnique({ where: { id: worksheet.id } });
+    // Still the session's own userId (user-a1) — never the attacker-
+    // supplied user-b1, from any of the three injection surfaces tried.
+    expect(refreshed?.confirmed_by).toBe("user-a1");
+  });
+});
+
 // ─── Route-level: state attack ──────────────────────────────────────────
 
 describe("K.2 confirm route — worksheet state matrix through the route boundary", () => {
@@ -587,5 +627,51 @@ describe("K.2 routes — error leakage", () => {
     expect(res.status).toBe(500);
     expect(JSON.stringify(body)).not.toMatch(/QRS789/);
     expect(JSON.stringify(body)).not.toMatch(/raw unhandled Prisma driver panic/);
+  });
+
+  // ── 5A.2L closes a carried test-coverage asymmetry: the confirm route's
+  // catch block had no dedicated test of its own (only the inspect route
+  // did), despite being structurally identical. This slice modifies the
+  // confirm route's own trust boundary (threading confirmedBy), so closing
+  // this specific gap is in scope here (Section 29's own carve-out) — no
+  // other unrelated test debt is touched.
+
+  it("confirm route: an unexpected internal error (storage provider throws non-taxonomy error) never leaks a raw message", async () => {
+    asSession({ organisationId: "org-a", role: "manager" });
+    const { id: batchId } = await seedReadyBatch("org-a", VALID_CSV);
+    await inspectCsvWorksheet({ organisationId: "org-a", importBatchId: batchId });
+    const worksheet = (await worksheetsFor("org-a", batchId))[0];
+    const getSpy = vi.spyOn(sharedStore, "get").mockRejectedValueOnce(new Error("some raw internal driver failure ABC456"));
+
+    const { req, params } = confirmRequest(worksheet.id);
+    const res = await POST_confirm(req, { params });
+    const body = await res.json();
+    expect(res.status).toBe(500);
+    expect(JSON.stringify(body)).not.toMatch(/ABC456/);
+    expect(JSON.stringify(body)).not.toMatch(/raw internal driver failure/);
+    getSpy.mockRestore();
+  });
+
+  it("confirm route: a genuinely unhandled exception (thrown outside any of the service's own try/catch blocks) still maps to a generic sanitized 500, never a raw error surfacing through the route's own outer catch, and never leaks the confirming actor's own user id in the error body", async () => {
+    asSession({ organisationId: "org-a", role: "manager", userId: "user-a1" });
+    const { id: batchId } = await seedReadyBatch("org-a", VALID_CSV);
+    await inspectCsvWorksheet({ organisationId: "org-a", importBatchId: batchId });
+    const worksheet = (await worksheetsFor("org-a", batchId))[0];
+    const findFirstSpy = vi
+      .spyOn(productionPrisma.upload, "findFirst")
+      .mockRejectedValueOnce(new Error("raw unhandled Prisma driver panic DEF999"));
+
+    const { req, params } = confirmRequest(worksheet.id);
+    let res;
+    try {
+      res = await POST_confirm(req, { params });
+    } finally {
+      findFirstSpy.mockRestore();
+    }
+    const body = await res.json();
+    expect(res.status).toBe(500);
+    expect(JSON.stringify(body)).not.toMatch(/DEF999/);
+    expect(JSON.stringify(body)).not.toMatch(/raw unhandled Prisma driver panic/);
+    expect(JSON.stringify(body)).not.toMatch(/user-a1/);
   });
 });
