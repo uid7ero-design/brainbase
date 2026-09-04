@@ -2,6 +2,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { setAppHeaderExtraOffsetPx } from '@/lib/layout/headerOffset';
+import type { Role } from '@/lib/session';
 
 type Org = { id: string; name: string; slug: string };
 type State = {
@@ -39,8 +40,30 @@ type State = {
 // (dynamic org list — never hardcoded), and /api/admin/impersonate
 // (GET current override, POST to set it, DELETE to clear it) — no new
 // impersonation mechanism, no new route.
-export default function OrgSwitcher() {
-  const [state, setState] = useState<State>({ role: null, activeOrgId: null, activeOrgName: null, orgs: [] });
+//
+// FAILURE MODE THIS FILE ONCE HAD, closed by `initialRole`: every OTHER
+// super_admin-gated header element (TopNav's own "Founder OS"/"Clients"
+// nav items — see components/nav/TopNav.tsx's isSuperAdmin) gets its
+// role from SERVER-SIDE props, computed once by app/layout.tsx's own
+// requireSession() call — reliable by construction, no client fetch
+// involved. This component, uniquely, used to determine whether to
+// render AT ALL purely from its OWN client-side load() effect below,
+// with `state.role` starting at plain `null` and NO try/catch anywhere
+// in that effect. Promise.all([fetch('/api/me'), fetch('/api/admin/
+// impersonate')]) rejects on any genuine network-level failure of
+// EITHER call (not a non-2xx response — fetch() doesn't reject for
+// those) — since load() was called with no .catch(), that rejection
+// went unhandled, state.role stayed null forever, and `role !==
+// 'super_admin'` made this component return null permanently, with
+// zero visual indication, zero retry, and no other header element
+// affected (none of them depend on this fetch). initialRole seeds
+// state.role from the exact same server-derived value TopNav already
+// trusts, so this component's very existence no longer hinges on one
+// unprotected client-side fetch pair succeeding — the fetch is now
+// purely a refinement (current org name, org list, active override),
+// not the sole source of whether the bar appears.
+export default function OrgSwitcher({ initialRole }: { initialRole: Role | null }) {
+  const [state, setState] = useState<State>({ role: initialRole, activeOrgId: null, activeOrgName: null, orgs: [] });
   const [homeOrgName, setHomeOrgName] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -48,32 +71,43 @@ export default function OrgSwitcher() {
 
   useEffect(() => {
     async function load() {
-      const [meRes, impRes] = await Promise.all([
-        fetch('/api/me'),
-        fetch('/api/admin/impersonate'),
-      ]);
-      if (!meRes.ok) return;
-      const me = await meRes.json();
-      if (me.role !== 'super_admin') return;
+      try {
+        const [meRes, impRes] = await Promise.all([
+          fetch('/api/me'),
+          fetch('/api/admin/impersonate'),
+        ]);
+        if (!meRes.ok) return;
+        const me = await meRes.json();
+        if (me.role !== 'super_admin') return;
 
-      const orgsRes = await fetch('/api/admin/orgs');
-      const { orgs = [] } = orgsRes.ok ? await orgsRes.json() : {};
+        const orgsRes = await fetch('/api/admin/orgs');
+        const { orgs = [] } = orgsRes.ok ? await orgsRes.json() : {};
 
-      let activeOrgId: string | null = null;
-      let activeOrgName: string | null = null;
-      if (impRes.ok) {
-        const imp = await impRes.json();
-        activeOrgId = imp.orgId ?? null;
-        activeOrgName = imp.orgName ?? null;
+        let activeOrgId: string | null = null;
+        let activeOrgName: string | null = null;
+        if (impRes.ok) {
+          const imp = await impRes.json();
+          activeOrgId = imp.orgId ?? null;
+          activeOrgName = imp.orgName ?? null;
+        }
+
+        // /api/me's own organisationId (and therefore its `org` field) is
+        // now override-aware (see that route's own comment) — when NOT
+        // currently impersonating, activeOrgId/organisationId are the
+        // same value, so me.org?.name correctly gives the founder's own
+        // home organisation name for the default "Organisation: X" label.
+        setHomeOrgName(me.org?.name ?? null);
+        setState({ role: me.role, activeOrgId, activeOrgName, orgs });
+      } catch (err) {
+        // A genuine network-level failure here must never silently and
+        // permanently hide this bar for the rest of the page's life —
+        // initialRole (seeded above from the server) already keeps the
+        // bar visible for a real super_admin regardless of this catch;
+        // this only stops the fetch's own org-list/active-override
+        // refinement from applying for this load, logged so it's
+        // diagnosable rather than invisible.
+        console.error('[OrgSwitcher] failed to load org context', err);
       }
-
-      // /api/me's own organisationId (and therefore its `org` field) is
-      // now override-aware (see that route's own comment) — when NOT
-      // currently impersonating, activeOrgId/organisationId are the
-      // same value, so me.org?.name correctly gives the founder's own
-      // home organisation name for the default "Organisation: X" label.
-      setHomeOrgName(me.org?.name ?? null);
-      setState({ role: me.role, activeOrgId, activeOrgName, orgs });
     }
     load();
   }, []);

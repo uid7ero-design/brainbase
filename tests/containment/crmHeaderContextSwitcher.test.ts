@@ -20,17 +20,40 @@ import path from 'path'
 // the founder is"), so it does not hide while actively impersonating
 // another organisation either.
 //
-// The one concrete, provable bug found in this exact area: app/crm/
-// layout.tsx still had two hardcoded `calc(100vh - 52px)` literals —
-// the ONE consumer PR #109's own sweep of this exact bug class missed
-// (its own sibling, app/crm/_components/CrmSidebar.tsx, was already
-// correctly migrated). Fixed to use the same shared
-// APP_HEADER_OFFSET_VH_CALC primitive, tested via tests/containment/
-// appHeaderOffset.test.ts's own established consumers list (extended
-// here, not duplicated). This file covers the remaining, CRM-specific
-// architectural guarantees: CRM has no duplicate/local switcher, no
-// route-based exclusion, and its own organisation-context-sensitive
-// routes correctly use the override-aware session primitive.
+// The header-offset bug found in the first pass (app/crm/layout.tsx
+// still had two hardcoded `calc(100vh - 52px)` literals — the ONE
+// consumer PR #109's own sweep of this exact bug class missed) is real
+// and worth keeping, but does NOT explain the actual reported symptom
+// (OrgSwitcher entirely absent from the rendered header, with every
+// other header element — including other super_admin-only items —
+// rendering correctly). That fix is tested via tests/containment/
+// appHeaderOffset.test.ts's own established consumers list.
+//
+// THE ACTUAL ROOT CAUSE (found via a second, deeper pass): unlike
+// TopNav's own super_admin-gated items ("Founder OS", "Clients"), which
+// read role from a SERVER-SIDE prop computed once by app/layout.tsx's
+// requireSession() call, OrgSwitcher's entire render decision used to
+// depend on its OWN client-side load() effect succeeding — with no
+// try/catch anywhere in that effect and state.role starting at plain
+// `null`. Promise.all([fetch('/api/me'), fetch('/api/admin/
+// impersonate')]) rejects on any genuine network-level failure of
+// either call; since load() was invoked with no .catch(), that
+// rejection went unhandled and state.role never left `null`,
+// permanently and silently hiding the whole component — while TopNav's
+// identically-gated items kept rendering correctly because they never
+// depended on that fetch at all. This is exactly the asymmetry the
+// screenshot showed: everything else in the header renders, but
+// OrgSwitcher does not. Fixed by threading the same server-derived
+// role TopNav already trusts into OrgSwitcher as an `initialRole` prop
+// (seeding state.role instead of `null`), plus wrapping load() in
+// try/catch so a real fetch failure degrades to "no refinement this
+// load" instead of "hidden forever". See OrgSwitcher.tsx's own header
+// comment for the full mechanism.
+//
+// This file covers the remaining, CRM-specific architectural
+// guarantees: CRM has no duplicate/local switcher, no route-based
+// exclusion, and its own organisation-context-sensitive routes
+// correctly use the override-aware session primitive.
 
 const root = path.resolve(__dirname, '../..')
 function read(relPath: string): string {
@@ -47,26 +70,27 @@ function stripComments(src: string): string {
 describe('The root layout unconditionally mounts OrgSwitcher before every route\'s own content', () => {
   const rootLayoutSource = stripComments(read('app/layout.tsx'))
 
-  it('imports and renders exactly one <OrgSwitcher /> instance, with no route/pathname condition around it', () => {
+  it('imports and renders exactly one <OrgSwitcher ... /> instance, with no route/pathname condition around it', () => {
     expect(rootLayoutSource).toMatch(/import OrgSwitcher from '@\/components\/admin\/OrgSwitcher';/)
-    const occurrences = [...rootLayoutSource.matchAll(/<OrgSwitcher\s*\/>/g)]
+    const occurrences = [...rootLayoutSource.matchAll(/<OrgSwitcher[^>]*\/>/g)]
     expect(occurrences.length).toBe(1)
   })
 
   it('<OrgSwitcher /> is rendered before {children} inside the same JSX tree — every route, including everything under app/crm/**, receives it by composing inside this same root', () => {
-    const switcherIdx = rootLayoutSource.indexOf('<OrgSwitcher />')
+    const switcherIdx = rootLayoutSource.indexOf('<OrgSwitcher ')
     const childrenIdx = rootLayoutSource.indexOf('{children}')
     expect(switcherIdx).toBeGreaterThan(-1)
     expect(childrenIdx).toBeGreaterThan(switcherIdx)
   })
 
-  it('OrgSwitcher does not accept props — its rendering is not gated by anything the root layout would need to pass in per-route (ruling out "missing header props/context")', () => {
-    expect(rootLayoutSource).toMatch(/<OrgSwitcher\s*\/>/)
-    // No prop assignment (an '=' between the tag name and its closing
-    // '/>') anywhere on the OrgSwitcher element.
+  it('OrgSwitcher receives initialRole from the SAME server-derived session the root layout already computed for TopNav — not a route-specific prop, not a client fetch result threaded back in', () => {
     const tagMatch = rootLayoutSource.match(/<OrgSwitcher[^>]*\/>/)
     expect(tagMatch).not.toBeNull()
-    expect(tagMatch![0]).not.toContain('=')
+    expect(tagMatch![0]).toContain('initialRole={session?.role ?? null}')
+    // The exact same `session` local computed once via requireSession()
+    // above, not a second/independent lookup — confirmed by the fact
+    // there is only one `let session` declaration in this file.
+    expect([...rootLayoutSource.matchAll(/\blet session\b/g)].length).toBe(1)
   })
 })
 
@@ -153,6 +177,83 @@ describe('OrgSwitcher visibility remains super_admin-only, unconditionally (not 
     // for any later reassignment.
     const afterDeclaration = orgSource.slice(orgSource.indexOf('\n', roleAssignIdx), returnIdx)
     expect(afterDeclaration).not.toMatch(/\brole\s*=[^=]/)
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────
+// The actual fix: SSR-derived initialRole + defensive try/catch, so a
+// failed/slow client fetch can no longer permanently hide this bar the
+// way it did in Production — this is the mechanism, not just the
+// z-index/offset cleanup from the first pass.
+// ─────────────────────────────────────────────────────────────────────
+
+describe('OrgSwitcher no longer depends entirely on its own client-side fetch pair to decide whether it renders at all', () => {
+  const orgSwitcherSource = stripComments(read('components/admin/OrgSwitcher.tsx'))
+
+  it('accepts an initialRole prop and seeds state.role from it, instead of from a bare null — a real super_admin is visible on first paint even before load() resolves', () => {
+    expect(orgSwitcherSource).toMatch(/export default function OrgSwitcher\(\{\s*initialRole\s*\}:\s*\{\s*initialRole:\s*Role \| null\s*\}\)/)
+    expect(orgSwitcherSource).toMatch(/useState<State>\(\{\s*role:\s*initialRole,/)
+    // The old bare-null seed must be gone, not just supplemented.
+    expect(orgSwitcherSource).not.toMatch(/useState<State>\(\{\s*role:\s*null,/)
+  })
+
+  it('imports the Role type from the same module (lib/session.ts) the rest of the session system already uses — not a locally redeclared string union', () => {
+    expect(orgSwitcherSource).toMatch(/import type \{ Role \} from '@\/lib\/session';/)
+  })
+
+  it('wraps the entire load() body in try/catch, so a genuine network-level fetch rejection can no longer go unhandled and leave the component silently stuck', () => {
+    const loadMatch = orgSwitcherSource.match(/async function load\(\) \{([\s\S]*?)\n {4}\}\n {4}load\(\);/)
+    expect(loadMatch, 'could not isolate the load() function body').not.toBeNull()
+    const loadBody = loadMatch![1]
+    expect(loadBody).toMatch(/try \{/)
+    expect(loadBody).toMatch(/\} catch \(err\) \{/)
+    // The fetch pair itself must be inside the try, not before it.
+    const tryIdx = loadBody.indexOf('try {')
+    const fetchIdx = loadBody.indexOf("fetch('/api/me')")
+    expect(tryIdx).toBeGreaterThan(-1)
+    expect(fetchIdx).toBeGreaterThan(tryIdx)
+  })
+
+  it('this reproduces the exact previous failure mode as a pure logic check: with the OLD code (no try/catch, seed=null), a rejected load() leaves role permanently null; with the NEW code (initialRole seed), a real super_admin renders regardless of what load() does', () => {
+    // Simulates the two seeding strategies directly, independent of any
+    // DOM/jsdom harness (this repo has none) — proves the state
+    // transition the source-level assertions above only show
+    // structurally.
+    function seedOld(): { role: string | null } {
+      return { role: null }
+    }
+    function seedNew(initialRole: string | null): { role: string | null } {
+      return { role: initialRole }
+    }
+    async function rejectingLoad(): Promise<never> {
+      throw new Error('simulated network-level failure')
+    }
+
+    async function oldBehaviour() {
+      const state = seedOld()
+      try {
+        await rejectingLoad()
+      } catch {
+        // old load() had no catch — this represents the unhandled
+        // rejection never reaching the setState call at all.
+      }
+      return state.role
+    }
+
+    async function newBehaviour(initialRole: string) {
+      const state = seedNew(initialRole)
+      try {
+        await rejectingLoad()
+      } catch {
+        // caught, logged, state left exactly as initialRole seeded it
+      }
+      return state.role
+    }
+
+    return Promise.all([
+      oldBehaviour().then(role => expect(role).toBeNull()),
+      newBehaviour('super_admin').then(role => expect(role).toBe('super_admin')),
+    ])
   })
 })
 

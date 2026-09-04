@@ -253,7 +253,13 @@ export default async function RootLayout({
             name={session?.name ?? ''}
             secureModeDefault={secureMode}
           >
-            <OrgSwitcher />
+            {/* initialRole comes from the SAME server-side requireSession()
+                call TopNav's own isSuperAdmin gate already uses via
+                serverSession below — OrgSwitcher no longer depends
+                entirely on its own client-side fetch('/api/me') just to
+                decide whether to render at all. See OrgSwitcher.tsx's
+                own header comment for the failure mode this closes. */}
+            <OrgSwitcher initialRole={session?.role ?? null} />
 
             <TopNav
               serverSession={
