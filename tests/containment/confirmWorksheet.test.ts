@@ -532,4 +532,43 @@ describe("confirmWorksheet — malformed/invalid CSV never reaches the transacti
     expect(result).toMatchObject({ ok: false, code: "PARSER_REJECTED" });
     expect(transactionMock).not.toHaveBeenCalled();
   });
+
+  // Data Hub 5A.3A — duplicate-required-CSV-header fail-closed hardening.
+  // illegalDumpingMapper.ts's mapIllegalDumpingRows builds its column index
+  // via `new Map(headers.map((h, i) => [h, i]))`, which silently keeps only
+  // the LAST occurrence's index for a repeated header name — a genuinely
+  // reachable Excel-hand-edit mistake, not merely theoretical. This proves
+  // the service-level outcome: the ambiguity is rejected before the
+  // transactional claim, reusing the existing PARSER_REJECTED outcome code
+  // (illegalDumpingMapper.ts throws IllegalDumpingMappingError, which
+  // confirmWorksheet.ts's existing Step 7 catch block already maps to
+  // PARSER_REJECTED — no new failure code was introduced).
+  it("a CSV with a DUPLICATED required header (report_date appears twice) -> PARSER_REJECTED, prisma.$transaction never called", async () => {
+    const { confirmDataHubWorksheet } = await freshService();
+    const { createHash } = await import("node:crypto");
+    const body = new TextEncoder().encode(
+      "report_date,location,waste_type,report_date\n2024-01-01,Main St,tyres,2024-01-01\n"
+    );
+    uploadFindFirstMock.mockResolvedValue(worksheetRow());
+    importBatchFindUniqueMock.mockResolvedValue(batchRow({ sha256: createHash("sha256").update(body).digest("hex") }));
+    storageGetMock.mockResolvedValue({ body });
+    const result = await confirmDataHubWorksheet({ organisationId: "org-1", worksheetUploadId: "worksheet-1", confirmedBy: "actor-1" });
+    expect(result).toMatchObject({ ok: false, code: "PARSER_REJECTED" });
+    expect(transactionMock).not.toHaveBeenCalled();
+  });
+
+  it("a CSV with a duplicated required header whose two occurrences hold IDENTICAL values is STILL rejected (the ambiguity itself is invalid, not a value disagreement) -> PARSER_REJECTED, prisma.$transaction never called", async () => {
+    const { confirmDataHubWorksheet } = await freshService();
+    const { createHash } = await import("node:crypto");
+    // "location" duplicated; both occurrences are the literal same value.
+    const body = new TextEncoder().encode(
+      "report_date,location,waste_type,location\n2024-01-01,Main St,tyres,Main St\n"
+    );
+    uploadFindFirstMock.mockResolvedValue(worksheetRow());
+    importBatchFindUniqueMock.mockResolvedValue(batchRow({ sha256: createHash("sha256").update(body).digest("hex") }));
+    storageGetMock.mockResolvedValue({ body });
+    const result = await confirmDataHubWorksheet({ organisationId: "org-1", worksheetUploadId: "worksheet-1", confirmedBy: "actor-1" });
+    expect(result).toMatchObject({ ok: false, code: "PARSER_REJECTED" });
+    expect(transactionMock).not.toHaveBeenCalled();
+  });
 });

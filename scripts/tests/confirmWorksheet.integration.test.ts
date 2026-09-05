@@ -571,6 +571,81 @@ describe("integration — 100,000-row boundary reliability (5A.2K.1-R)", () => {
   }, 60_000);
 });
 
+// ─── 12b. 5A.3A — duplicate-required-CSV-header fail-closed hardening ───
+//
+// Real-Postgres proof (not merely mocked, see tests/containment/
+// confirmWorksheet.test.ts and tests/containment/illegalDumpingMapper.test.ts
+// for the fast static/mocked layer): a CSV whose header row repeats a
+// required column name (report_date/location/waste_type) is rejected
+// BEFORE the transactional claim ever opens — zero domain rows persisted,
+// the worksheet's canonical_status remains AWAITING_CONFIRMATION (never
+// IMPORTED), and confirmed_by/confirmed_at stay NULL, exactly like every
+// other pre-transaction rejection above (STORAGE_INTEGRITY_MISMATCH,
+// BATCH_NOT_READY, etc).
+describe("integration — 5A.3A duplicate-required-header fail-closed hardening", () => {
+  it("a duplicated 'location' header column -> PARSER_REJECTED, zero domain rows, worksheet remains AWAITING_CONFIRMATION, confirmed_by/confirmed_at stay NULL", async () => {
+    const csv = Buffer.from(
+      "report_date,location,waste_type,location\n2024-01-15,Main St,tyres,Main St\n"
+    );
+    const { id: batchId } = await seedReadyBatch("org-a", csv);
+    const worksheet = await seedWorksheet("org-a", batchId);
+
+    const result = await confirmDataHubWorksheet({ organisationId: "org-a", worksheetUploadId: worksheet.id, confirmedBy: "user-a1" });
+    expect(result).toMatchObject({ ok: false, code: "PARSER_REJECTED" });
+
+    expect(await domainRowsFor("org-a", worksheet.id)).toHaveLength(0);
+    const refreshed = await worksheetById(worksheet.id);
+    expect(refreshed?.canonical_status).toBe("AWAITING_CONFIRMATION");
+    expect(refreshed?.confirmed_by).toBeNull();
+    expect(refreshed?.confirmed_at).toBeNull();
+  });
+
+  it("a duplicated required header whose two occurrences hold IDENTICAL values is STILL rejected end-to-end (the ambiguity itself is invalid, not a value disagreement) -> PARSER_REJECTED, zero domain rows really persisted in real Postgres", async () => {
+    // report_date duplicated; both occurrences are the byte-identical
+    // value. A naive "do the duplicate columns disagree?" check would let
+    // this through and import one row — this proves that does not happen.
+    const csv = Buffer.from(
+      "report_date,location,waste_type,report_date\n2024-03-01,Oak Ave,furniture,2024-03-01\n"
+    );
+    const { id: batchId } = await seedReadyBatch("org-a", csv);
+    const worksheet = await seedWorksheet("org-a", batchId);
+
+    const result = await confirmDataHubWorksheet({ organisationId: "org-a", worksheetUploadId: worksheet.id, confirmedBy: "user-a1" });
+    expect(result).toMatchObject({ ok: false, code: "PARSER_REJECTED" });
+
+    expect(await domainRowsFor("org-a", worksheet.id)).toHaveLength(0);
+    const refreshed = await worksheetById(worksheet.id);
+    expect(refreshed?.canonical_status).toBe("AWAITING_CONFIRMATION");
+    expect(refreshed?.confirmed_by).toBeNull();
+    expect(refreshed?.confirmed_at).toBeNull();
+
+    // And a genuine retry after correcting the CSV (a fresh batch, same
+    // worksheet) succeeds normally -- the rejected attempt left the
+    // worksheet in a clean, retryable state, exactly like every other
+    // pre-transaction rejection in this suite.
+    const fixedCsv = Buffer.from("report_date,location,waste_type\n2024-03-01,Oak Ave,furniture\n");
+    const { id: batchId2 } = await seedReadyBatch("org-a", fixedCsv);
+    await prisma.upload.update({ where: { id: worksheet.id }, data: { import_batch_id: batchId2 } });
+    const retryResult = await confirmDataHubWorksheet({ organisationId: "org-a", worksheetUploadId: worksheet.id, confirmedBy: "user-a1" });
+    expect(retryResult).toMatchObject({ ok: true, alreadyImported: false, importedRows: 1 });
+  });
+
+  it("a duplicated OPTIONAL header (severity) is NOT rejected -- documents the deliberately out-of-scope behavior end-to-end: the worksheet imports successfully and the LAST occurrence's value silently wins, exactly as illegalDumpingMapper.test.ts documents at the unit level", async () => {
+    const csv = Buffer.from(
+      "report_date,location,waste_type,severity,severity\n2024-01-15,Main St,tyres,high,low\n"
+    );
+    const { id: batchId } = await seedReadyBatch("org-a", csv);
+    const worksheet = await seedWorksheet("org-a", batchId);
+
+    const result = await confirmDataHubWorksheet({ organisationId: "org-a", worksheetUploadId: worksheet.id, confirmedBy: "user-a1" });
+    expect(result).toMatchObject({ ok: true, alreadyImported: false, importedRows: 1 });
+
+    const rows = await domainRowsFor("org-a", worksheet.id);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].severity).toBe("LOW"); // the second/last "severity" column wins
+  });
+});
+
 // ─── 13. 5A.2L — confirmation-actor attribution (success path) ──────────
 
 describe("integration — 5A.2L confirmation-actor attribution — success path", () => {
