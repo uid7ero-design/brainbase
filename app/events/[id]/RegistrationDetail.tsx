@@ -6,6 +6,7 @@ import {
   DangerButton, fieldStyle, inputStyle, rowCardStyle, StatusBadge, FilterDropdown,
 } from '../_components/ui';
 import type { OrderRow, Attendee, ResponseAnswer } from './RegistrationsPanel';
+import { isOrderEligibleForTicketEmail } from '@/lib/events/ticketEmailEligibility';
 
 type Note = { id: string; body: string; author_name_snapshot: string; created_at: string; updated_at: string; edited_at: string | null };
 
@@ -49,9 +50,9 @@ const ghostBtnSm: React.CSSProperties = { ...secondaryBtnStyle, padding: '4px 10
 // purchaser and each attendee read as clearly separate rows instead of
 // one long block of flex-wrapped spans.
 export default function RegistrationDetail({
-  eventId, order, onChanged,
+  eventId, order, onChanged, canManage,
 }: {
-  eventId: string; order: OrderRow; onChanged: () => void;
+  eventId: string; order: OrderRow; onChanged: () => void; canManage: boolean;
 }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -249,6 +250,70 @@ export default function RegistrationDetail({
     } catch { /* clipboard unavailable — the visible link text is still selectable */ }
   }
 
+  // ── Resend ticket email (Phase 7) — route auth (authorizeEventsRequest
+  // ('manager')) remains the real security boundary; canManage here only
+  // decides whether the button renders, matching every other manager-only
+  // action already gated by canManage in RegistrationsPanel. Eligibility
+  // is computed from the SAME fields the server route re-derives fresh
+  // (lib/events/ticketEmailEligibility.ts) so the button is hidden
+  // whenever the server would reject the request as ineligible anyway.
+  // Pre-push hardening — six distinguishable states (§9): the client
+  // must never collapse 'not_configured'/'unknown'/'sent_audit_failed'
+  // into a generic FAILED message, and 'sent' may ONLY be set from the
+  // route's own explicit result:'sent' — never inferred from res.ok
+  // alone. Branches on the response BODY's structured `result` field
+  // first, not on HTTP status alone, since not_configured/unknown/
+  // sent_audit_failed are all deliberately non-2xx now but each needs
+  // its own message (see the route's own HTTP-status-matrix comment).
+  type ResendState =
+    | { status: 'idle' }
+    | { status: 'sending' }
+    | { status: 'sent'; at: string }
+    | { status: 'failed'; message: string }
+    | { status: 'unknown'; message: string }
+    | { status: 'not_configured'; message: string }
+    | { status: 'sent_audit_failed'; message: string }
+    | { status: 'cooldown'; message: string; retryAfterSeconds?: number };
+  const [resendState, setResendState] = useState<ResendState>({ status: 'idle' });
+  const eligibleAttendeeCount = order.attendees.filter(a => a.ticket_token).length;
+  const eligibleForTicketEmail = isOrderEligibleForTicketEmail(order);
+
+  async function resendTicketEmail() {
+    const ok = confirm(
+      `Send the ticket link${eligibleAttendeeCount === 1 ? '' : 's'} for this booking to ${order.purchaser_email} (${eligibleAttendeeCount} ticket${eligibleAttendeeCount === 1 ? '' : 's'})?`,
+    );
+    if (!ok) return;
+    setResendState({ status: 'sending' });
+    try {
+      const res = await fetch(`/api/events/${eventId}/orders/${order.id}/resend-ticket-email`, { method: 'POST' });
+      const body = await res.json().catch(() => ({}));
+      if (res.status === 429) {
+        setResendState({ status: 'cooldown', message: body.error ?? 'Please wait before trying again.', retryAfterSeconds: body.retry_after_seconds });
+        return;
+      }
+      if (body.result === 'not_configured') {
+        setResendState({ status: 'not_configured', message: body.error ?? 'Email sending is not configured for this environment.' });
+        return;
+      }
+      if (body.result === 'unknown') {
+        setResendState({ status: 'unknown', message: body.error ?? 'Delivery status unknown — do not immediately resend.' });
+        return;
+      }
+      if (body.result === 'sent_audit_failed') {
+        setResendState({ status: 'sent_audit_failed', message: body.error ?? 'The email may have been sent, but BrainBase could not record the send. Do not immediately resend.' });
+        return;
+      }
+      if (!res.ok || body.result === 'failed') {
+        setResendState({ status: 'failed', message: body.error ?? `Send failed (${res.status}).` });
+        return;
+      }
+      // Only reached when the route explicitly returned result:'sent'.
+      setResendState({ status: 'sent', at: new Date().toISOString() });
+    } catch {
+      setResendState({ status: 'failed', message: 'Send failed. Please try again.' });
+    }
+  }
+
   const attendeesWithResponses = order.attendees.filter(a => a.responses.length > 0);
 
   return (
@@ -268,7 +333,40 @@ export default function RegistrationDetail({
                   {order.purchaser_phone && <span style={{ fontSize: 12, color: TEXT_SECONDARY }}>{order.purchaser_phone}</span>}
                 </div>
               </div>
-              <button onClick={() => setEditingPurchaser(true)} style={ghostBtnSm}>Edit purchaser</button>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  {canManage && eligibleForTicketEmail && (
+                    <button
+                      onClick={resendTicketEmail}
+                      disabled={resendState.status === 'sending' || resendState.status === 'cooldown'}
+                      style={{ ...ghostBtnSm, opacity: resendState.status === 'sending' || resendState.status === 'cooldown' ? 0.6 : 1 }}
+                    >
+                      {resendState.status === 'sending' ? 'Sending…' : 'Resend ticket email'}
+                    </button>
+                  )}
+                  <button onClick={() => setEditingPurchaser(true)} style={ghostBtnSm}>Edit purchaser</button>
+                </div>
+                {resendState.status === 'sent' && (
+                  <span style={{ fontSize: 11, color: '#4ADE80' }}>Sent · {new Date(resendState.at).toLocaleTimeString()}</span>
+                )}
+                {resendState.status === 'failed' && (
+                  <span role="alert" style={{ fontSize: 11, color: '#FCA5A5', textAlign: 'right', maxWidth: 220 }}>{resendState.message}</span>
+                )}
+                {resendState.status === 'unknown' && (
+                  <span role="alert" style={{ fontSize: 11, color: '#FBBF24', textAlign: 'right', maxWidth: 220 }}>{resendState.message}</span>
+                )}
+                {resendState.status === 'not_configured' && (
+                  <span role="alert" style={{ fontSize: 11, color: '#FBBF24', textAlign: 'right', maxWidth: 220 }}>{resendState.message}</span>
+                )}
+                {resendState.status === 'sent_audit_failed' && (
+                  <span role="alert" style={{ fontSize: 11, color: '#FBBF24', textAlign: 'right', maxWidth: 220 }}>{resendState.message}</span>
+                )}
+                {resendState.status === 'cooldown' && (
+                  <span style={{ fontSize: 11, color: TEXT_MUTED, textAlign: 'right', maxWidth: 220 }}>
+                    {resendState.message}{typeof resendState.retryAfterSeconds === 'number' ? ` (${resendState.retryAfterSeconds}s)` : ''}
+                  </span>
+                )}
+              </div>
             </div>
           ) : (
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>

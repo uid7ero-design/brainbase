@@ -159,3 +159,50 @@ export async function logNoteDeleted(params: { organisationId: string; userId: s
     resourceId: params.orderId, beforeState: { note_id: params.noteId }, afterState: null,
   });
 }
+
+// Phase 7 §9 — "Resend ticket email" audit entry. Deliberately does
+// NOT go through this file's own insertAuditLog() helper above: every
+// log*() function elsewhere in this file is intentionally
+// fire-and-forget (a failed audit write must never fail the mutation
+// it describes), but the ticket-email resend route has its own,
+// separate failure mode (Case D — the email provider already accepted
+// the send, and only the audit write afterwards fails) that the
+// CALLING ROUTE must detect and react to distinctly from an ordinary
+// successful resend, per that route's own explicit contract. Silently
+// swallowing the error here the way insertAuditLog() does would make
+// that case indistinguishable from success. Callers of this function
+// must catch its thrown errors themselves.
+//
+// after_state is operational metadata only — result/recipient
+// (masked)/attendee count/provider message id — never the ticket
+// token, ticket URL, email body, registration answers, notes, Stripe
+// ids, or CRM ids (see lib/events/ticketEmail.ts's maskEmailForAudit).
+export async function logTicketEmailResent(params: {
+  organisationId: string; userId: string | null; orderId: string;
+  // 'not_configured' — pre-push hardening — RESEND_API_KEY absent, no
+  // network request was made. Recorded as its own distinct outcome
+  // (not collapsed into 'failed') so a manager or a later investigation
+  // can tell "we tried and Resend rejected it" apart from "this
+  // environment isn't wired up to send email at all". Still counts
+  // toward the 60-second cooldown exactly like every other outcome —
+  // the cooldown lookup (see the resend route) filters only on
+  // organisation_id/resource_type/resource_id/action, never on result.
+  result: 'sent' | 'failed' | 'unknown' | 'not_configured';
+  recipientMasked: string;
+  attendeeCount: number;
+  providerMessageId: string | null;
+}): Promise<void> {
+  await sql`
+    INSERT INTO audit_logs (id, organisation_id, user_id, action, resource_type, resource_id, before_state, after_state)
+    VALUES (
+      ${crypto.randomUUID()}, ${params.organisationId}, ${params.userId}, 'event_order.ticket_email_resent', 'event_order', ${params.orderId},
+      NULL,
+      ${JSON.stringify({
+        result: params.result,
+        recipient_masked: params.recipientMasked,
+        attendee_count: params.attendeeCount,
+        provider_message_id: params.providerMessageId,
+      })}::jsonb
+    )
+  `;
+}
