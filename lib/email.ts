@@ -8,18 +8,47 @@ interface EmailOptions {
 
 const FROM = process.env.EMAIL_FROM ?? 'Brainbase <noreply@brainbase.app>';
 
-export async function sendEmail({ to, subject, html }: EmailOptions): Promise<void> {
+// Return type widened (Phase 7) from Promise<void> to
+// Promise<SendEmailResult> so a caller that needs to know whether an
+// email was ACTUALLY accepted by Resend (the ticket-email resend
+// feature — see lib/events/ticketEmail.ts) can tell that apart from
+// the no-RESEND_API_KEY dev fallback below, which previously returned
+// an indistinguishable-looking `{ id: null }` on success. Every
+// existing caller (auth verification, password reset, admin user
+// invite, web-services lead notification) already does `await
+// sendEmail(...)` and discards the return value entirely, so none of
+// them are affected by this widening — their dev-mode console fallback
+// is completely unchanged.
+//
+// status is 'sent' only when Resend returned a 2xx response for this
+// specific call; 'not_configured' means RESEND_API_KEY is absent and
+// nothing was sent anywhere — the console log below is a LOCAL
+// development convenience, never proof of delivery. A definite
+// provider rejection (non-2xx) still throws Error('Email send
+// failed'), and a network-level exception (timeout, DNS failure, the
+// fetch() itself never completing) still propagates as whatever error
+// fetch() throws — both unchanged from before this widening. Callers
+// that need to distinguish "provider rejected" from "ambiguous network
+// outcome" must inspect the thrown error themselves (see
+// lib/events/ticketEmail.ts's sendTicketEmail()).
+export type SendEmailResult =
+  | { status: 'sent'; id: string | null }
+  | { status: 'not_configured'; id: null };
+
+export async function sendEmail({ to, subject, html }: EmailOptions): Promise<SendEmailResult> {
   const apiKey = process.env.RESEND_API_KEY;
 
   if (!apiKey) {
-    // Dev fallback — print to console
+    // Dev fallback — print to console. NOT a send: no network request
+    // is made at all, so this must never be reported to a caller as
+    // 'sent'.
     const text = html.replace(/<[^>]+>/g, ' ').replace(/\s{2,}/g, ' ').trim();
     console.log('\n── EMAIL (no RESEND_API_KEY) ─────────────────────');
     console.log(`TO:      ${to}`);
     console.log(`SUBJECT: ${subject}`);
     console.log(text.slice(0, 600));
     console.log('──────────────────────────────────────────────────\n');
-    return;
+    return { status: 'not_configured', id: null };
   }
 
   const res = await fetch('https://api.resend.com/emails', {
@@ -33,9 +62,17 @@ export async function sendEmail({ to, subject, html }: EmailOptions): Promise<vo
     console.error(`[email] Resend ${res.status}:`, err);
     throw new Error('Email send failed');
   }
+
+  const body = await res.json().catch(() => null) as { id?: string } | null;
+  return { status: 'sent', id: body?.id ?? null };
 }
 
-const BASE_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
+// Exported (Phase 7) so lib/events/ticketEmail.ts can build its ticket
+// links from the exact same base-URL convention every other email in
+// this file already uses, rather than re-deriving
+// process.env.NEXT_PUBLIC_APP_URL itself and risking the two
+// expressions drifting apart.
+export const BASE_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
 
 export function verificationEmail(name: string, token: string) {
   const link = `${BASE_URL}/api/auth/verify-email?token=${token}`;
@@ -143,7 +180,11 @@ function detailRow(label: string, value: string) {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-const btnStyle = [
+// btnStyle/escHtml/emailLayout exported (Phase 7) so
+// lib/events/ticketEmail.ts's ticket email reuses the exact same
+// button styling, escaping convention, and BrainBase layout shell as
+// every other email here, rather than a second copy of any of them.
+export const btnStyle = [
   'display:inline-block',
   'padding:12px 28px',
   'background:#7C3AED',
@@ -155,11 +196,11 @@ const btnStyle = [
   'letter-spacing:0.02em',
 ].join(';');
 
-function escHtml(s: string) {
+export function escHtml(s: string) {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-function emailLayout(body: string) {
+export function emailLayout(body: string) {
   return `<!DOCTYPE html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"></head>
 <body style="margin:0;padding:0;background:#f4f4f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">

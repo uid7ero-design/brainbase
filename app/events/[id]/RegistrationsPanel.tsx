@@ -526,7 +526,7 @@ export default function RegistrationsPanel({
             )}
 
             {managingIds.has(o.id) && (
-              <RegistrationDetail eventId={eventId} order={o} onChanged={onRefunded} />
+              <RegistrationDetail eventId={eventId} order={o} onChanged={onRefunded} canManage={canManage} />
             )}
           </div>
           );
