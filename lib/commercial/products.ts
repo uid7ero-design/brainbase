@@ -1,6 +1,6 @@
 import sql from '@/lib/db';
 import { isValidCents, isValidCurrencyCode } from './money';
-import { logProductCreated, logProductUpdated, logProductDeactivated } from './auditLog';
+import { logProductCreated, logProductUpdated, logProductDeactivated, logProductReactivated } from './auditLog';
 
 // Phase C2 — tenant-scoped data access for commercial_products (the
 // product/service catalogue). Every function scoped by organisation_id,
@@ -132,5 +132,19 @@ export async function deactivateProduct(params: { organisationId: string; userId
   if (rows.length === 0) return false;
 
   await logProductDeactivated({ organisationId: params.organisationId, userId: params.userId, productId: params.productId });
+  return true;
+}
+
+// Phase C3 — symmetric counterpart to deactivateProduct(), same
+// rationale as customers.ts's reactivateCustomer().
+export async function reactivateProduct(params: { organisationId: string; userId: string; productId: string }): Promise<boolean> {
+  const rows = (await sql`
+    UPDATE commercial_products SET active = true, updated_at = now()
+    WHERE id = ${params.productId} AND organisation_id = ${params.organisationId} AND active = false
+    RETURNING id
+  `) as { id: string }[];
+  if (rows.length === 0) return false;
+
+  await logProductReactivated({ organisationId: params.organisationId, userId: params.userId, productId: params.productId });
   return true;
 }

@@ -234,15 +234,17 @@ describe('LeftSidebar — the client dashboard shell\'s own Admin leak (found du
 describe('Phase D.4.2 — capability icons across all three personas', () => {
   // Phase D.4.4E added Organiser as a third real capability-gated NavItem,
   // mirroring Events/CRM exactly in both branches — counts updated from
-  // 2 to 3 accordingly; still no icon leaked onto a founder-only or
+  // 2 to 3 accordingly; Phase C3 added Commercial as a fourth, gated on
+  // 'quotes', same mirrored-in-both-branches pattern — counts updated
+  // from 3 to 4; still no icon leaked onto a founder-only or
   // LD-Tennis-bespoke item.
-  it('Persona 2/3 (shared branch + LD Tennis branch): only Events, CRM, and Organiser NavItem entries carry a capability prop, using this file\'s own already-computed regions — no icon leaked onto a founder-only or LD-Tennis-bespoke item', () => {
+  it('Persona 2/3 (shared branch + LD Tennis branch): only Events, CRM, Organiser, and Commercial NavItem entries carry a capability prop, using this file\'s own already-computed regions — no icon leaked onto a founder-only or LD-Tennis-bespoke item', () => {
     const sharedCapabilityProps = sharedRegion.match(/capability="[a-zA-Z]+"/g) ?? []
     const ldTennisCapabilityProps = ldTennisRegion.match(/capability="[a-zA-Z]+"/g) ?? []
-    expect(sharedCapabilityProps.length).toBe(3) // Events & Ticketing, CRM, Organiser
-    expect(ldTennisCapabilityProps.length).toBe(3) // Events, CRM, Organiser
+    expect(sharedCapabilityProps.length).toBe(4) // Events & Ticketing, CRM, Commercial, Organiser
+    expect(ldTennisCapabilityProps.length).toBe(4) // Events, CRM, Commercial, Organiser
     for (const prop of [...sharedCapabilityProps, ...ldTennisCapabilityProps]) {
-      expect(['capability="events"', 'capability="crm"', 'capability="organiser"']).toContain(prop)
+      expect(['capability="events"', 'capability="crm"', 'capability="organiser"', 'capability="quotes"']).toContain(prop)
     }
   })
 

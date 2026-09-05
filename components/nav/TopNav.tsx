@@ -1268,6 +1268,17 @@ function AppNav({
       'organiser',
     );
 
+  // Phase C3 — same capability-driven pattern as hasEvents/hasCrm/
+  // hasOrganiser above. Gated on 'quotes' specifically (not a
+  // dedicated 'commercial' key — none exists): Quotes is the only real
+  // Commercial transactional workflow this phase builds, and the
+  // Commercial shell's own layout (app/commercial/layout.tsx) enforces
+  // the identical gate server-side.
+  const hasCommercial =
+    enabledCapabilities.includes(
+      'quotes',
+    );
+
   const initials = name
     .split(' ')
     .map(
@@ -1390,6 +1401,17 @@ function AppNav({
                 whose org happens to be dashboardVariant 'ld-tennis' AND
                 has organiser enabled — capability-driven, never
                 variant-driven, same rule as Events/CRM. */}
+            {hasCommercial && (
+              <NavItem
+                href="/commercial"
+                label="Commercial"
+                capability="quotes"
+                active={pathname.startsWith(
+                  '/commercial',
+                )}
+              />
+            )}
+
             {hasOrganiser && (
               <NavItem
                 href="/organiser"
@@ -1592,6 +1614,17 @@ function AppNav({
                 from every entitled client tenant) and not a new "Tools"
                 dropdown — same direct-top-level-item precedent Phase 6.2
                 established for CRM. */}
+            {hasCommercial && (
+              <NavItem
+                href="/commercial"
+                label="Commercial"
+                capability="quotes"
+                active={pathname.startsWith(
+                  '/commercial',
+                )}
+              />
+            )}
+
             {hasOrganiser && (
               <NavItem
                 href="/organiser"
