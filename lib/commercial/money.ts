@@ -67,3 +67,14 @@ const ISO_4217_PATTERN = /^[A-Z]{3}$/;
 export function isValidCurrencyCode(currency: string): boolean {
   return ISO_4217_PATTERN.test(currency);
 }
+
+// Phase C3 — display-only formatting (never used for arithmetic or
+// persistence — every calculation stays on integer cents throughout).
+// Matches the exact Intl.NumberFormat('en-AU', { style: 'currency', ... })
+// convention already established independently by
+// app/events/[id]/EventDetailClient.tsx, RegistrationsPanel.tsx, and
+// app/admin/client-events/ClientEventsClient.tsx — reused here rather
+// than inventing a second money-display convention for Commercial.
+export function formatMoneyCents(cents: number, currency: string): string {
+  return new Intl.NumberFormat('en-AU', { style: 'currency', currency }).format(cents / 100);
+}

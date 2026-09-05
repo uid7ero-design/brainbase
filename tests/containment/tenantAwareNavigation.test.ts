@@ -257,7 +257,11 @@ describe('Phase D.4.2 — capability icons did not touch the underlying gating t
     const capabilityProps = topNavSource.match(/capability="[a-zA-Z]+"/g) ?? []
     expect(capabilityProps.length).toBeGreaterThan(0)
     for (const prop of capabilityProps) {
-      expect(['capability="events"', 'capability="crm"', 'capability="organiser"']).toContain(prop)
+      // Phase C3 — 'quotes' added alongside events/crm/organiser: the
+      // Commercial NavItem's own real gate (hasCommercial =
+      // enabledCapabilities.includes('quotes')), matching this test's own
+      // "every capability prop matches a real gate" intent exactly.
+      expect(['capability="events"', 'capability="crm"', 'capability="organiser"', 'capability="quotes"']).toContain(prop)
     }
   })
 })

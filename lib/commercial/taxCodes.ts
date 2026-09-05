@@ -35,6 +35,17 @@ export async function listTaxCodes(organisationId: string, opts: { activeOnly?: 
   `) as CommercialTaxCode[];
 }
 
+// Phase C3 — needed by lib/commercial/quotes.ts's addQuoteLine() to
+// resolve an explicitly-chosen tax code (or a product's
+// default_tax_code_id) into its current code/rate at the moment a line
+// is created. Same tenant-scoping discipline as every other lookup here.
+export async function getTaxCode(organisationId: string, taxCodeId: string): Promise<CommercialTaxCode | null> {
+  const rows = (await sql`
+    SELECT * FROM commercial_tax_codes WHERE id = ${taxCodeId} AND organisation_id = ${organisationId}
+  `) as CommercialTaxCode[];
+  return rows[0] ?? null;
+}
+
 export async function getDefaultTaxCode(organisationId: string): Promise<CommercialTaxCode | null> {
   const rows = (await sql`
     SELECT * FROM commercial_tax_codes WHERE organisation_id = ${organisationId} AND is_default = true AND active = true LIMIT 1

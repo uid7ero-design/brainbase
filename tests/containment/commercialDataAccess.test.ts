@@ -48,8 +48,8 @@ vi.mock('@/lib/db', () => ({
   default: (...args: unknown[]) => (sqlMock as unknown as (...a: unknown[]) => unknown)(...args),
 }))
 vi.mock('@/lib/commercial/auditLog', () => ({
-  logCustomerCreated: vi.fn(), logCustomerUpdated: vi.fn(), logCustomerDeactivated: vi.fn(),
-  logProductCreated: vi.fn(), logProductUpdated: vi.fn(), logProductDeactivated: vi.fn(),
+  logCustomerCreated: vi.fn(), logCustomerUpdated: vi.fn(), logCustomerDeactivated: vi.fn(), logCustomerReactivated: vi.fn(),
+  logProductCreated: vi.fn(), logProductUpdated: vi.fn(), logProductDeactivated: vi.fn(), logProductReactivated: vi.fn(),
   logCostCentreCreated: vi.fn(), logCostCentreUpdated: vi.fn(), logCostCentreDeactivated: vi.fn(),
   logFinancialYearStatusChanged: vi.fn(), logFinancialPeriodStatusChanged: vi.fn(),
   logDocumentSequenceConfigured: vi.fn(),
@@ -187,6 +187,38 @@ describe('Phase C2 — commercial_tax_codes: rate validation (behavioural)', () 
     const { createTaxCode } = await import('@/lib/commercial/taxCodes')
     const result = await createTaxCode({ organisationId: 'org-a', code: 'GST10', name: 'GST 10%', rate: 10, isDefault: true })
     expect(result.code).toBe('GST10')
+  })
+})
+
+describe('Phase C3 — reactivateCustomer()/reactivateProduct() (symmetric counterparts to deactivate)', () => {
+  it('reactivateCustomer flips an inactive row back to active and returns true', async () => {
+    sqlMock.mockResolvedValue([{ id: 'c1' }])
+    const { reactivateCustomer } = await import('@/lib/commercial/customers')
+    const result = await reactivateCustomer({ organisationId: 'org-a', userId: 'u1', customerId: 'c1' })
+    expect(result).toBe(true)
+    const call = sqlMock.mock.calls[0]
+    expect(call).toContain('org-a')
+  })
+
+  it('reactivateCustomer returns false when the row belongs to a different organisation (no rows matched)', async () => {
+    sqlMock.mockResolvedValue([])
+    const { reactivateCustomer } = await import('@/lib/commercial/customers')
+    const result = await reactivateCustomer({ organisationId: 'org-a', userId: 'u1', customerId: 'customer-owned-by-org-b' })
+    expect(result).toBe(false)
+  })
+
+  it('reactivateProduct flips an inactive row back to active and returns true', async () => {
+    sqlMock.mockResolvedValue([{ id: 'p1' }])
+    const { reactivateProduct } = await import('@/lib/commercial/products')
+    const result = await reactivateProduct({ organisationId: 'org-a', userId: 'u1', productId: 'p1' })
+    expect(result).toBe(true)
+  })
+
+  it('reactivateProduct returns false when the row belongs to a different organisation', async () => {
+    sqlMock.mockResolvedValue([])
+    const { reactivateProduct } = await import('@/lib/commercial/products')
+    const result = await reactivateProduct({ organisationId: 'org-a', userId: 'u1', productId: 'product-owned-by-org-b' })
+    expect(result).toBe(false)
   })
 })
 

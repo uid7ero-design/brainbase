@@ -75,6 +75,14 @@ export async function logProductDeactivated(params: { organisationId: string; us
   });
 }
 
+// Phase C3
+export async function logProductReactivated(params: { organisationId: string; userId: string; productId: string }): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'commercial_product.reactivated',
+    resourceType: 'commercial_product', resourceId: params.productId, beforeState: { active: false }, afterState: { active: true },
+  });
+}
+
 // ── Cost centres ──────────────────────────────────────────────────────────
 
 export async function logCostCentreCreated(params: {
@@ -175,5 +183,87 @@ export async function logCustomerDeactivated(params: { organisationId: string; u
   await insertAuditLog({
     organisationId: params.organisationId, userId: params.userId, action: 'commercial_customer.deactivated',
     resourceType: 'commercial_customer', resourceId: params.customerId, beforeState: { active: true }, afterState: { active: false },
+  });
+}
+
+// Phase C3
+export async function logCustomerReactivated(params: { organisationId: string; userId: string; customerId: string }): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'commercial_customer.reactivated',
+    resourceType: 'commercial_customer', resourceId: params.customerId, beforeState: { active: false }, afterState: { active: true },
+  });
+}
+
+// ── Quotes (Phase C3) ─────────────────────────────────────────────────────
+//
+// issued/accepted/rejected/expired are all genuine status-change events
+// on a commercial document per ADR-0003 §2 ("changes a commercial
+// document's status" is explicitly listed as requiring an audit entry).
+// Still a best-effort, non-transactional write like every other function
+// in this file — issueQuote()/acceptQuote()/rejectQuote()/expireQuote()
+// (lib/commercial/quotes.ts) each already gate on
+// authorizeCommercialRequest() before the state-changing UPDATE runs, so
+// the same ADR-0003 §3 reasoning applies: the actor is already proven,
+// and a dropped audit write afterward cannot retroactively make the
+// action ambiguous.
+
+export async function logQuoteCreated(params: {
+  organisationId: string; userId: string; quoteId: string; after: { customer_id: string; currency: string };
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'commercial_quote.created',
+    resourceType: 'commercial_quote', resourceId: params.quoteId, beforeState: null, afterState: params.after,
+  });
+}
+
+export async function logQuoteUpdated(params: {
+  organisationId: string; userId: string; quoteId: string;
+  before: Record<string, unknown>; after: Record<string, unknown>;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'commercial_quote.updated',
+    resourceType: 'commercial_quote', resourceId: params.quoteId, beforeState: params.before, afterState: params.after,
+  });
+}
+
+export async function logQuoteIssued(params: {
+  organisationId: string; userId: string; quoteId: string; quoteNumber: string; totalCents: number;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'commercial_quote.issued',
+    resourceType: 'commercial_quote', resourceId: params.quoteId,
+    beforeState: { status: 'DRAFT' }, afterState: { status: 'SENT', quote_number: params.quoteNumber, total_cents: params.totalCents },
+  });
+}
+
+export async function logQuoteAccepted(params: { organisationId: string; userId: string; quoteId: string }): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'commercial_quote.accepted',
+    resourceType: 'commercial_quote', resourceId: params.quoteId, beforeState: { status: 'SENT' }, afterState: { status: 'ACCEPTED' },
+  });
+}
+
+export async function logQuoteRejected(params: { organisationId: string; userId: string; quoteId: string }): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'commercial_quote.rejected',
+    resourceType: 'commercial_quote', resourceId: params.quoteId, beforeState: { status: 'SENT' }, afterState: { status: 'REJECTED' },
+  });
+}
+
+export async function logQuoteExpired(params: { organisationId: string; userId: string | null; quoteId: string }): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'commercial_quote.expired',
+    resourceType: 'commercial_quote', resourceId: params.quoteId, beforeState: { status: 'SENT' }, afterState: { status: 'EXPIRED' },
+  });
+}
+
+// Draft-only deletion (lib/commercial/quotes.ts's deleteDraftQuote()
+// refuses anything but a DRAFT row) — narrow scope per the C3 brief's
+// explicit "if draft deletion is supported: audit it and keep scope
+// narrow" instruction.
+export async function logQuoteDeleted(params: { organisationId: string; userId: string; quoteId: string }): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'commercial_quote.deleted',
+    resourceType: 'commercial_quote', resourceId: params.quoteId, beforeState: { status: 'DRAFT' }, afterState: null,
   });
 }

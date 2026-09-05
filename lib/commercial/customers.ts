@@ -1,5 +1,5 @@
 import sql from '@/lib/db';
-import { logCustomerCreated, logCustomerUpdated, logCustomerDeactivated } from './auditLog';
+import { logCustomerCreated, logCustomerUpdated, logCustomerDeactivated, logCustomerReactivated } from './auditLog';
 
 // Phase C2 — tenant-scoped data access for commercial_customers (the
 // Commercial Core's customer/counterparty anchor — see
@@ -182,5 +182,21 @@ export async function deactivateCustomer(params: { organisationId: string; userI
   if (rows.length === 0) return false;
 
   await logCustomerDeactivated({ organisationId: params.organisationId, userId: params.userId, customerId: params.customerId });
+  return true;
+}
+
+// Phase C3 — symmetric counterpart to deactivateCustomer(), added
+// because the C3 UI's customer list needs a real reactivate action (the
+// C2 model already supports it structurally via the existing `active`
+// flag; only the write path was missing).
+export async function reactivateCustomer(params: { organisationId: string; userId: string; customerId: string }): Promise<boolean> {
+  const rows = (await sql`
+    UPDATE commercial_customers SET active = true, updated_at = now()
+    WHERE id = ${params.customerId} AND organisation_id = ${params.organisationId} AND active = false
+    RETURNING id
+  `) as { id: string }[];
+  if (rows.length === 0) return false;
+
+  await logCustomerReactivated({ organisationId: params.organisationId, userId: params.userId, customerId: params.customerId });
   return true;
 }
