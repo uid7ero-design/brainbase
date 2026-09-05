@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import {
   TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED, BORDER_SOFT, ROW_BG, secondaryBtnStyle, primaryBtnStyle,
-  DangerButton, fieldStyle, inputStyle, rowCardStyle, StatusBadge,
+  DangerButton, fieldStyle, inputStyle, rowCardStyle, StatusBadge, FilterDropdown,
 } from '../_components/ui';
 import type { OrderRow, Attendee, ResponseAnswer } from './RegistrationsPanel';
 
@@ -137,10 +137,13 @@ export default function RegistrationDetail({
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         <span style={{ fontSize: 12, color: TEXT_SECONDARY }}>{r.label}:</span>
         {r.field_type === 'YES_NO' ? (
-          <select value={responseForm === 'yes' || responseForm === 'true' ? 'yes' : 'no'} onChange={e => setResponseForm(e.target.value)} style={{ ...inputStyle, padding: '5px 9px', fontSize: 12.5 }}>
-            <option value="yes">Yes</option>
-            <option value="no">No</option>
-          </select>
+          <FilterDropdown
+            ariaLabel={`${r.label} answer`}
+            value={responseForm === 'yes' || responseForm === 'true' ? 'yes' : 'no'}
+            onChange={setResponseForm}
+            options={[{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }]}
+            triggerStyle={{ padding: '5px 9px', fontSize: 12.5, minWidth: 70 }}
+          />
         ) : r.field_type === 'LONG_TEXT' ? (
           <textarea value={responseForm} onChange={e => setResponseForm(e.target.value)} rows={2} style={{ ...inputStyle, padding: '6px 9px', fontSize: 12.5, minWidth: 220, maxWidth: '100%' }} />
         ) : (

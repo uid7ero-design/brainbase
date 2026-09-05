@@ -80,7 +80,17 @@ describe('RegistrationsPanel.tsx — the remaining native inputStyle consumer (s
   })
 })
 
-describe('other pre-existing Events selects sharing inputStyle also receive the fix (unreported latent instances of the same bug)', () => {
+// UPDATE (dropdown-consistency phase): these three files' own native
+// <select>s (EventDetailClient's status field, QuestionsPanel's
+// answer-type/scope/common-question selects, RegistrationDetail's
+// Yes/No answer editor) have all since been migrated to FilterDropdown
+// too — see tests/containment/eventsDropdownConsistency.test.ts for
+// that migration's own full coverage. This block is kept narrowly
+// scoped to what remains true: all three files still import inputStyle
+// (their other plain <input>/<textarea> fields use it directly, and
+// FilterDropdown's own trigger spreads it as its base), so the
+// colorScheme fix still reaches them.
+describe('other Events form files still import inputStyle (their remaining plain inputs, and every FilterDropdown trigger, both still benefit from the fix)', () => {
   const consumers = [
     'app/events/[id]/EventDetailClient.tsx',
     'app/events/[id]/QuestionsPanel.tsx',
@@ -88,7 +98,7 @@ describe('other pre-existing Events selects sharing inputStyle also receive the 
   ]
 
   for (const file of consumers) {
-    it(`${file} imports inputStyle from the shared ui module (so it inherits colorScheme: dark automatically, no per-file change needed)`, () => {
+    it(`${file} imports inputStyle from the shared ui module`, () => {
       const src = stripComments(read(file))
       expect(src).toMatch(/import\s*\{[^}]*\binputStyle\b[^}]*\}\s*from\s*'[^']*_components\/ui'/)
     })
