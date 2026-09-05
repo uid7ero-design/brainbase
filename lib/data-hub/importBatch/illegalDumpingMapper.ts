@@ -94,16 +94,55 @@ function mapStatus(s: string): MappedIllegalDumpingRow["status"] {
 }
 
 /**
- * Validates the CSV header row contains every required canonical column,
- * by exact, fixed name — never a caller-supplied mapping. Throws
- * IllegalDumpingMappingError (never a partial/best-effort result) if any
- * required header is absent.
+ * Validates the CSV header row contains every required canonical column
+ * exactly once, by exact, fixed name — never a caller-supplied mapping.
+ * Throws IllegalDumpingMappingError (never a partial/best-effort result) if
+ * any required header is absent OR duplicated.
+ *
+ * DUPLICATE-HEADER HARDENING (5A.3A): mapIllegalDumpingRows' column index is
+ * built as `new Map(headers.map((h, i) => [h, i]))`, which silently keeps
+ * only the LAST occurrence's column index for any header name that appears
+ * more than once. That is never a wrong-FIELD misdirection (lookup is by
+ * exact header name, never position), but it silently substitutes a value
+ * from the wrong physical column into a correctly-identified required
+ * field whenever a hand-edited CSV (e.g. an Excel copy-paste) produces a
+ * duplicate required header — a genuinely reachable authoring mistake, not
+ * merely theoretical. This check runs BEFORE the ambiguous Map is ever
+ * built (mapIllegalDumpingRows calls this function first), so the ambiguity
+ * itself is rejected outright — this is intentionally NOT a "do the
+ * duplicate values disagree?" check: even a duplicate required header whose
+ * two occurrences hold byte-identical values is rejected, because the
+ * ambiguity of WHICH occurrence a future edit would land in is the actual
+ * defect, independent of today's values.
+ *
+ * Duplicate identity uses the exact same string identity as the missing-
+ * header check above and as mapIllegalDumpingRows' own column-index Map
+ * (`headers.includes(h)` / exact `===`) — no separate trim/case
+ * normalization is introduced here, since decodeCsvOnly (csvOnlyDecoder.ts)
+ * never trims or case-folds header text before this function ever sees it,
+ * and inventing a second, divergent normalization scheme here would make
+ * "duplicate" mean something different than "matches" does everywhere else
+ * in this module.
+ *
+ * SCOPE: required headers (report_date, location, waste_type) only. A
+ * duplicated OPTIONAL header (e.g. two "severity" columns) has the same
+ * last-occurrence-wins mechanism but is deliberately out of scope for this
+ * hardening pass — see the Data Hub 5A.3A implementation report for the
+ * explicit investigation and rationale.
  */
 export function validateIllegalDumpingHeaders(headers: string[]): void {
   const missing = ILLEGAL_DUMPING_REQUIRED_HEADERS.filter((h) => !headers.includes(h));
   if (missing.length > 0) {
     throw new IllegalDumpingMappingError(
       `CSV is missing required column(s) for illegal dumping import: ${missing.join(", ")}.`
+    );
+  }
+  const duplicated = ILLEGAL_DUMPING_REQUIRED_HEADERS.filter(
+    (h) => headers.filter((header) => header === h).length > 1
+  );
+  if (duplicated.length > 0) {
+    throw new IllegalDumpingMappingError(
+      `CSV has duplicate required column(s) for illegal dumping import: ${duplicated.join(", ")}. Each required column must appear exactly once.`
     );
   }
 }

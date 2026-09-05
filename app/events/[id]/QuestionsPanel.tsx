@@ -14,6 +14,7 @@ import { useEffect, useState, useCallback } from 'react';
 import {
   Panel, SectionHeader, EmptyState, StatusBadge, secondaryBtnStyle, primaryBtnStyle,
   DangerButton, fieldStyle, inputStyle, rowCardStyle, TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED,
+  FilterDropdown, type DropdownOption,
 } from '../_components/ui';
 
 const FIELD_TYPES = ['SHORT_TEXT', 'LONG_TEXT', 'YES_NO', 'SINGLE_SELECT', 'MULTI_SELECT'] as const;
@@ -135,20 +136,27 @@ export default function QuestionsPanel({ eventId, canManage }: { eventId: string
         action={canManage && (
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             {!showCreate && (
-              <select
-                className="bb-evt-input"
+              // Deliberately always passed value="" — this is an action
+              // menu ("pick a template to pre-fill the create form"),
+              // not a persistent filter, matching the native select's
+              // own prior behavior of resetting to its placeholder the
+              // instant a template is chosen (that reset used to be an
+              // explicit `e.target.value = ''`; here it's implicit,
+              // since this component's displayed value is always
+              // whatever the parent passes, and the parent never stores
+              // a "currently selected template").
+              <FilterDropdown
+                ariaLabel="Add a common question"
                 value=""
-                style={{ ...inputStyle, width: 'auto' }}
-                aria-label="Add a common question"
-                onChange={e => {
-                  const tpl = COMMON_QUESTIONS.find(c => c.label === e.target.value);
+                onChange={v => {
+                  const tpl = COMMON_QUESTIONS.find(c => c.label === v);
                   if (tpl) { setCreateTemplate(tpl); setShowCreate(true); }
-                  e.target.value = '';
                 }}
-              >
-                <option value="">+ Add common question…</option>
-                {COMMON_QUESTIONS.map(c => <option key={c.label} value={c.label}>{c.label}</option>)}
-              </select>
+                options={[
+                  { value: '', label: '+ Add common question…' },
+                  ...COMMON_QUESTIONS.map((c): DropdownOption => ({ value: c.label, label: c.label })),
+                ]}
+              />
             )}
             <button onClick={() => { setCreateTemplate(null); setShowCreate(v => !v); }} style={secondaryBtnStyle}>
               {showCreate ? 'Cancel' : '+ Add Question'}
@@ -306,14 +314,24 @@ function QuestionForm({ initial, onSubmit, onCancel }: {
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
         <label style={fieldStyle}>Answer type
-          <select className="bb-evt-input" value={fieldType} onChange={e => setFieldType(e.target.value as FieldType)} style={inputStyle}>
-            {FIELD_TYPES.map(t => <option key={t} value={t}>{FIELD_TYPE_LABELS[t]}</option>)}
-          </select>
+          <FilterDropdown
+            ariaLabel="Answer type"
+            value={fieldType}
+            onChange={v => setFieldType(v as FieldType)}
+            options={FIELD_TYPES.map((t): DropdownOption => ({ value: t, label: FIELD_TYPE_LABELS[t] }))}
+            style={{ width: '100%' }}
+            triggerStyle={{ width: '100%' }}
+          />
         </label>
         <label style={fieldStyle}>Asked
-          <select className="bb-evt-input" value={scope} onChange={e => setScope(e.target.value as Scope)} style={inputStyle}>
-            {SCOPES.map(s => <option key={s} value={s}>{SCOPE_LABELS[s]}</option>)}
-          </select>
+          <FilterDropdown
+            ariaLabel="Asked"
+            value={scope}
+            onChange={v => setScope(v as Scope)}
+            options={SCOPES.map((s): DropdownOption => ({ value: s, label: SCOPE_LABELS[s] }))}
+            style={{ width: '100%' }}
+            triggerStyle={{ width: '100%' }}
+          />
         </label>
       </div>
 

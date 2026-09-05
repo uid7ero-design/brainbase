@@ -11,6 +11,7 @@ import {
   FONT, TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED, VIOLET_SOFT,
   Panel, SectionHeader, EmptyState, StatusBadge, eventStatusTone, capacityTone,
   primaryBtnStyle, secondaryBtnStyle, DangerButton, fieldStyle, inputStyle, rowCardStyle, EventsSharedStyles,
+  FilterDropdown,
 } from '../_components/ui';
 
 type EventDetail = {
@@ -500,11 +501,18 @@ function EventOverview({ event, canManage, onSaved, organisationSlug }: { event:
             <label style={fieldStyle}>Starts<input required type="datetime-local" className="bb-evt-input" value={startsAt} onChange={e => setStartsAt(e.target.value)} style={inputStyle} /></label>
             <label style={fieldStyle}>Ends<input required type="datetime-local" className="bb-evt-input" value={endsAt} onChange={e => setEndsAt(e.target.value)} style={inputStyle} /></label>
             <label style={fieldStyle}>Status
-              <select className="bb-evt-input" value={status} onChange={e => setStatus(e.target.value as EventDetail['status'])} style={inputStyle}>
-                <option value="DRAFT">Draft</option>
-                <option value="PUBLISHED">Published</option>
-                <option value="CANCELLED">Cancelled</option>
-              </select>
+              <FilterDropdown
+                ariaLabel="Status"
+                value={status}
+                onChange={v => setStatus(v as EventDetail['status'])}
+                options={[
+                  { value: 'DRAFT', label: 'Draft' },
+                  { value: 'PUBLISHED', label: 'Published' },
+                  { value: 'CANCELLED', label: 'Cancelled' },
+                ]}
+                style={{ width: '100%' }}
+                triggerStyle={{ width: '100%' }}
+              />
             </label>
           </div>
           {formError && <div role="alert" style={{ color: '#FCA5A5', fontSize: 12 }}>{formError}</div>}
