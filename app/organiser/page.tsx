@@ -956,6 +956,7 @@ function ItemDrawer({
   const [updates, setUpdates] = useState<OrganiserUpdate[]>([]);
   const [newUpdate, setNewUpdate] = useState("");
   const [uploadingFile, setUploadingFile] = useState(false);
+  const [fileError, setFileError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -965,19 +966,36 @@ function ItemDrawer({
 
   async function uploadFile(file: File) {
     setUploadingFile(true);
+    setFileError(null);
     const fd = new FormData();
     fd.append("file", file);
     try {
       const res = await fetch(`/api/organiser/items/${item.id}/files`, { method: "POST", credentials: "include", body: fd });
-      const d = await res.json();
-      if (d.file) setFiles(prev => [d.file, ...prev]);
+      let d: { file?: OrganiserFile; error?: string } = {};
+      try { d = await res.json(); } catch { /* non-JSON error body */ }
+      if (!res.ok || !d.file) {
+        setFileError(d.error || `Upload failed (${res.status}).`);
+        return;
+      }
+      setFiles(prev => [d.file!, ...prev]);
+    } catch {
+      setFileError("Upload failed. Check your connection and try again.");
     } finally {
       setUploadingFile(false);
     }
   }
   async function deleteFile(fileId: string) {
-    await fetch(`/api/organiser/items/${item.id}/files/${fileId}`, { method: "DELETE", credentials: "include" });
-    setFiles(prev => prev.filter(f => f.id !== fileId));
+    setFileError(null);
+    try {
+      const res = await fetch(`/api/organiser/items/${item.id}/files/${fileId}`, { method: "DELETE", credentials: "include" });
+      if (!res.ok) {
+        setFileError(`Couldn't delete file (${res.status}).`);
+        return;
+      }
+      setFiles(prev => prev.filter(f => f.id !== fileId));
+    } catch {
+      setFileError("Couldn't delete file. Check your connection and try again.");
+    }
   }
   async function addUpdate() {
     const body = newUpdate.trim();
@@ -1039,6 +1057,9 @@ function ItemDrawer({
             <button onClick={() => fileRef.current?.click()} disabled={uploadingFile} style={{ ...btnStyle(false, t), marginBottom: 8 }}>
               {uploadingFile ? "Uploading…" : "+ Attach file"}
             </button>
+            {fileError && (
+              <div style={{ fontSize: 11, color: "#EF4444", marginBottom: 6 }}>{fileError}</div>
+            )}
             {files.length === 0 ? (
               <div style={{ fontSize: 11, color: t.ink(.25) }}>No files attached.</div>
             ) : (
