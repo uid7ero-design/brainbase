@@ -7,6 +7,12 @@ import { getAuthSession } from '../../../lib/authSession';
 import { DB_SCHEMA, executeQuery, formatQueryResult } from '../../../lib/hlna/dataEngine';
 import { buildModuleContext } from '../../../lib/hlna/modules';
 import { buildTenantIdentity, type TenantCapability } from '../../../lib/hlna/tenantIdentity';
+import {
+  buildOrganiserTools,
+  executeOrganiserTool,
+  isOrganiserToolName,
+  ORGANISER_SAFETY_PROMPT,
+} from '../../../lib/organiser/helenaTools';
 import { route as routeToAgent } from '@/lib/agents/agentRouter';
 import * as insightAgent   from '@/lib/agents/insightAgent';
 import * as actionAgent    from '@/lib/agents/actionAgent';
@@ -315,6 +321,17 @@ Do NOT surface metrics or data from other departments in this context (e.g. no c
     }
   }
 
+  // Phase D.4.6C — Organiser tool safety rules, appended only when
+  // Organiser tools are actually registered for this tenant (see
+  // callClaude()'s own hasOrganiserCapability check, which must stay in
+  // sync with this one — both read enabledCapabilities the same way, never
+  // independently re-derived). Kept out of the prompt entirely for tenants
+  // without the capability so this phase adds zero token cost to every
+  // other Helena request.
+  if ((enabledCapabilities ?? []).some(c => c.key === 'organiser')) {
+    s += `\n\n${ORGANISER_SAFETY_PROMPT}`;
+  }
+
   if (orgId) s += `\n\n[Organisation ID for database queries]\n${orgId}\nAlways include WHERE organisation_id = '${orgId}' in every SQL query.`;
   return s;
 }
@@ -367,7 +384,22 @@ async function callClaude(
     orgId, moduleKey, userContext, viewMode, department,
     orgName, enabledCapabilities,
   );
-  const tools = (orgId && !(LD_TENNIS_ORG_ID && orgId === LD_TENNIS_ORG_ID)) ? buildDataTools(orgId) : undefined;
+  const isLDTennisOrg = !!(LD_TENNIS_ORG_ID && orgId === LD_TENNIS_ORG_ID);
+  // Phase D.4.6C — Organiser tools are added to this SAME tool array
+  // alongside query_database, registered only when the authenticated
+  // tenant's own enabledCapabilities includes 'organiser' (a registration-
+  // time convenience gate — the actual security boundary is
+  // executeOrganiserTool()'s own fresh authorizeHelenaOrganiserRead() call
+  // on every execution, see lib/organiser/helenaTools.ts). Must stay in
+  // sync with buildSystem()'s identical check for whether to include
+  // ORGANISER_SAFETY_PROMPT.
+  const hasOrganiserCapability = (enabledCapabilities ?? []).some(c => c.key === 'organiser');
+  const tools = orgId && !isLDTennisOrg
+    ? [
+        ...buildDataTools(orgId),
+        ...(hasOrganiserCapability ? buildOrganiserTools() : []),
+      ]
+    : undefined;
 
   type MsgParam = Anthropic.Messages.MessageParam;
   let msgs: MsgParam[] = messages.slice(-14).map(m => ({
@@ -411,18 +443,26 @@ async function callClaude(
     const toolResults = await Promise.all(
       toolUseBlocks.map(async (block): Promise<Anthropic.Messages.ToolResultBlockParam> => {
         let content: string;
-        try {
-          const { sql: rawSql } = block.input as { sql: string; reasoning: string };
-          const result = await executeQuery(rawSql, orgId!);
-          content = formatQueryResult(result);
-          usedTool = true;
-          allTables = [...new Set([...allTables, ...extractTables(rawSql)])];
-          totalRows += result.rowCount;
-          const a = extractAnalytics(content, result.rowCount);
-          if (a.trend    && !trendNote)   trendNote   = a.trend;
-          if (a.anomaly  && !anomalyNote) anomalyNote = a.anomaly;
-        } catch (err) {
-          content = `Query failed: ${(err as Error).message}`;
+        if (isOrganiserToolName(block.name)) {
+          // Organiser tools never participate in the query_database-specific
+          // analysis (dataSources/rowsQueried/trend/anomaly are a raw-SQL-
+          // result concept) — deliberately not touching usedTool/allTables/
+          // totalRows/trendNote/anomalyNote here.
+          content = await executeOrganiserTool(block.name, block.input);
+        } else {
+          try {
+            const { sql: rawSql } = block.input as { sql: string; reasoning: string };
+            const result = await executeQuery(rawSql, orgId!);
+            content = formatQueryResult(result);
+            usedTool = true;
+            allTables = [...new Set([...allTables, ...extractTables(rawSql)])];
+            totalRows += result.rowCount;
+            const a = extractAnalytics(content, result.rowCount);
+            if (a.trend    && !trendNote)   trendNote   = a.trend;
+            if (a.anomaly  && !anomalyNote) anomalyNote = a.anomaly;
+          } catch (err) {
+            content = `Query failed: ${(err as Error).message}`;
+          }
         }
         return { type: 'tool_result', tool_use_id: block.id, content };
       }),

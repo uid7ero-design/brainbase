@@ -25,6 +25,37 @@ Agents:
 Return valid JSON only:
 { "agent": "dataIntake|insight|action|briefing|chat", "confidence": 0.0-1.0, "reason": "one short phrase" }`;
 
+// Phase D.4.6C — Organiser-intent guard, checked BEFORE any specialist-
+// agent keyword match (including briefing's own "what changed"/"summarise
+// today" patterns just below, which would otherwise intercept a genuine
+// Organiser question — e.g. "what changed on Founder Tasks today?" — before
+// it ever reaches Helena's general Claude tool-use loop, the ONLY place
+// Organiser read tools (lib/organiser/helenaTools.ts) are wired in.
+// briefingAgent has no Organiser awareness at all, so misrouting there
+// silently drops the question instead of answering it.
+//
+// Deliberately a small, generic LEXICAL guard — organiser/board/item/
+// group/task nouns only. Never DB-aware, never capability-aware (that gate
+// lives at tool-registration time in app/api/chat/route.ts instead — a
+// tenant without the organiser capability just gets Helena's normal
+// general-chat answer, no different from any other unmatched query), and
+// never board/item-NAME-aware (it cannot recognise "Founder Tasks" as a
+// board name — it matches on the generic word "Tasks" instead, which is
+// exactly why the word list stays generic rather than growing into a
+// giant per-tenant keyword list).
+//
+// Known trade-off: "task" alone is ambiguous with Helena's own pre-existing
+// personal to-do feature (task_add/task_complete — see hooks/useHelena.js's
+// parseCommand). In practice this rarely matters: structured phrasings like
+// "add a task: X" are intercepted by parseCommand client-side and never
+// reach this router at all. For the rare natural-language phrasing that
+// does reach here and happens to contain "task", the worst case is routing
+// to 'chat' instead of a specialist agent (e.g. actionAgent) — Helena's
+// general loop still answers reasonably without that specialist, which is
+// a far softer failure than the bug this guard fixes (Organiser questions
+// never reaching the tools that can answer them at all).
+const ORGANISER_INTENT_RE = /\b(organiser|organizer|boards?|items?|groups?|tasks?)\b/i;
+
 const ROUTE_KEYWORDS: Record<AgentRoute, RegExp> = {
   dataIntake: /\b(upload|import|csv|xlsx|spreadsheet|column|mapping|file|intake|ingest)\b/i,
   insight:    /\b(trend|anomal|outli|spike|increas|decreas|pattern|detect|analys|insight|correlat)\b|why (is|are|did|has|have|hasn|aren|isn|were|was)|root cause|what caused|what.s causing|cost driver/i,
@@ -44,6 +75,11 @@ function heuristicRoute(query: string): AgentRoute {
 export async function route(input: AgentInput): Promise<RouterResult> {
   const query = input.query?.trim() ?? '';
   if (!query) return { agent: 'chat', confidence: 1, reason: 'no query' };
+
+  // Organiser-intent guard — see the constant's own header above.
+  if (ORGANISER_INTENT_RE.test(query)) {
+    return { agent: 'chat', confidence: 0.9, reason: 'organiser intent' };
+  }
 
   // Fast heuristic for obvious cases — skip LLM call
   const heuristic = heuristicRoute(query);
