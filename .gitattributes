@@ -1,0 +1,12 @@
+# Vitest 4's transform of a .mjs file with CRLF line endings fails with
+# "SyntaxError: Invalid or unexpected token" on this project's toolchain
+# (confirmed by direct bisection: byte-identical content differing only
+# in line endings — LF passes, CRLF fails — when imported from a
+# tests/containment/*.test.ts file). Windows checkouts with
+# core.autocrlf=true would otherwise silently convert a committed LF
+# .mjs file back to CRLF on every checkout, intermittently breaking any
+# test that imports one (see scripts/neon/cleanup-preview-branch.mjs
+# and tests/containment/neonPreviewCleanup.test.ts). Force LF for these
+# regardless of the checking-out machine's autocrlf setting.
+*.mjs text eol=lf
+*.cjs text eol=lf
