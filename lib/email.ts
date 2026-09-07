@@ -1,9 +1,22 @@
 import 'server-only';
 
+export interface EmailAttachment {
+  filename: string;
+  // base64-encoded file content, no "data:...;base64," prefix — matches
+  // Resend's own REST API attachment shape
+  // (https://resend.com/docs/api-reference/emails/send-email).
+  contentBase64: string;
+}
+
 interface EmailOptions {
   to: string;
   subject: string;
   html: string;
+  // Phase C3-POLISH-R — added for lib/commercial/quoteEmail.ts's quote
+  // PDF attachment. Optional and additive: every existing caller (auth
+  // verification, password reset, admin user invite, web-services lead
+  // notification, ticket email) omits it and is completely unaffected.
+  attachments?: EmailAttachment[];
 }
 
 const FROM = process.env.EMAIL_FROM ?? 'Brainbase <noreply@brainbase.app>';
@@ -35,7 +48,7 @@ export type SendEmailResult =
   | { status: 'sent'; id: string | null }
   | { status: 'not_configured'; id: null };
 
-export async function sendEmail({ to, subject, html }: EmailOptions): Promise<SendEmailResult> {
+export async function sendEmail({ to, subject, html, attachments }: EmailOptions): Promise<SendEmailResult> {
   const apiKey = process.env.RESEND_API_KEY;
 
   if (!apiKey) {
@@ -46,6 +59,7 @@ export async function sendEmail({ to, subject, html }: EmailOptions): Promise<Se
     console.log('\n── EMAIL (no RESEND_API_KEY) ─────────────────────');
     console.log(`TO:      ${to}`);
     console.log(`SUBJECT: ${subject}`);
+    if (attachments?.length) console.log(`ATTACHMENTS: ${attachments.map(a => a.filename).join(', ')}`);
     console.log(text.slice(0, 600));
     console.log('──────────────────────────────────────────────────\n');
     return { status: 'not_configured', id: null };
@@ -54,7 +68,15 @@ export async function sendEmail({ to, subject, html }: EmailOptions): Promise<Se
   const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-    body: JSON.stringify({ from: FROM, to, subject, html }),
+    body: JSON.stringify({
+      from: FROM,
+      to,
+      subject,
+      html,
+      ...(attachments?.length
+        ? { attachments: attachments.map(a => ({ filename: a.filename, content: a.contentBase64 })) }
+        : {}),
+    }),
   });
 
   if (!res.ok) {

@@ -257,6 +257,42 @@ export async function logQuoteExpired(params: { organisationId: string; userId: 
   });
 }
 
+// Phase C3-POLISH-R §9 — "send/resend quote email" audit entry.
+// Deliberately does NOT go through this file's own insertAuditLog()
+// helper above, for the exact same reason
+// lib/events/auditLog.ts's logTicketEmailResent() doesn't: the
+// send-email route (app/api/commercial/quotes/[id]/send-email/route.ts)
+// has its own Case D failure mode (the email provider already accepted
+// the send, and only this audit write afterwards fails) that the route
+// must detect and react to distinctly from an ordinary successful send —
+// silently swallowing the error the way insertAuditLog() does would make
+// that case indistinguishable from success. Callers must catch this
+// function's thrown errors themselves.
+//
+// after_state is operational metadata only — result/recipient
+// (masked)/provider message id — never the customer's full email
+// address, the PDF content, or any snapshot field already living on the
+// quote row itself.
+export async function logQuoteEmailSent(params: {
+  organisationId: string; userId: string | null; quoteId: string;
+  result: 'sent' | 'failed' | 'unknown' | 'not_configured';
+  recipientMasked: string;
+  providerMessageId: string | null;
+}): Promise<void> {
+  await sql`
+    INSERT INTO audit_logs (id, organisation_id, user_id, action, resource_type, resource_id, before_state, after_state)
+    VALUES (
+      ${crypto.randomUUID()}, ${params.organisationId}, ${params.userId}, 'commercial_quote.sent', 'commercial_quote', ${params.quoteId},
+      NULL,
+      ${JSON.stringify({
+        result: params.result,
+        recipient_masked: params.recipientMasked,
+        provider_message_id: params.providerMessageId,
+      })}::jsonb
+    )
+  `;
+}
+
 // Draft-only deletion (lib/commercial/quotes.ts's deleteDraftQuote()
 // refuses anything but a DRAFT row) — narrow scope per the C3 brief's
 // explicit "if draft deletion is supported: audit it and keep scope

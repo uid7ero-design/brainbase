@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { StatusBadge } from './_status';
 import { formatMoneyCents } from '@/lib/commercial/money';
+import { formatCommercialDate } from '@/lib/commercial/dates';
 
 const CARD = '#0e1014'; const BORDER = '#1a1d24';
 
@@ -79,8 +80,8 @@ export default function QuotesPage() {
                 </td>
                 <td style={td}>{q.customer_name_snapshot ?? customersById[q.customer_id] ?? <Dim>—</Dim>}</td>
                 <td style={td}><StatusBadge status={q.status} /></td>
-                <td style={td}>{q.issue_date ?? <Dim>—</Dim>}</td>
-                <td style={td}>{q.expiry_date ?? <Dim>—</Dim>}</td>
+                <td style={td}>{q.issue_date ? formatCommercialDate(q.issue_date) : <Dim>—</Dim>}</td>
+                <td style={td}>{q.expiry_date ? formatCommercialDate(q.expiry_date) : <Dim>—</Dim>}</td>
                 <td style={td}>{formatMoneyCents(q.total_cents, q.currency)}</td>
                 <td style={{ padding: '13px 16px' }}>
                   <Link href={`/commercial/quotes/${q.id}`} style={{ fontSize: 12, color: '#6b7280', textDecoration: 'none' }}>View →</Link>

@@ -1,0 +1,140 @@
+import 'server-only';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { sendEmail, emailLayout, escHtml } from '@/lib/email';
+import { formatMoneyCents } from './money';
+import { formatCommercialDate } from './dates';
+import { buildQuotePdf, type QuotePdfQuote, type QuotePdfLine, type QuotePdfSupplier } from './quotePdf';
+
+// Phase C3-POLISH-R §6/§7 — quote email delivery. Modeled directly on
+// lib/events/ticketEmail.ts's own shape (buildX() pure template kept
+// separate from sendX() provider side effect; the same
+// sent/failed/unknown/not_configured result taxonomy) — that module's
+// own header comment explains exactly why each outcome is distinguished,
+// and the same reasoning applies verbatim here, so it is not repeated.
+
+let cachedBrandMarkBase64: string | null = null;
+
+// Server-side loader for the rasterized Hybrid Orbit mark PNG (see
+// lib/commercial/quotePdf.ts's own header for why the PNG exists and
+// why it — not the source SVG — is what gets embedded). Reads from disk
+// once per server instance and memoizes; the file is a small, static,
+// committed repository asset, never user-controlled input.
+async function loadBrandMarkBase64Server(): Promise<string> {
+  if (cachedBrandMarkBase64) return cachedBrandMarkBase64;
+  const filePath = path.join(process.cwd(), 'public', 'Brand', 'brainbase-mark-color-256.png');
+  const buf = await fs.readFile(filePath);
+  cachedBrandMarkBase64 = buf.toString('base64');
+  return cachedBrandMarkBase64;
+}
+
+export interface QuoteEmailData {
+  quoteNumber: string;
+  customerName: string;
+  totalCents: number;
+  currency: string;
+  expiryDate: string | null;
+  businessDisplayName: string;
+  businessEmail: string | null;
+  businessPhone: string | null;
+}
+
+export function buildQuoteEmail(data: QuoteEmailData): { subject: string; html: string } {
+  const expiry = formatCommercialDate(data.expiryDate);
+  return {
+    subject: `Quote ${data.quoteNumber} from ${data.businessDisplayName}`,
+    html: emailLayout(`
+      <h2 style="margin:0 0 8px;font-size:20px;font-weight:700;color:#111">Hi ${escHtml(data.customerName)},</h2>
+      <p style="margin:0 0 24px;color:#444;line-height:1.6">
+        Please find attached your quote from <strong>${escHtml(data.businessDisplayName)}</strong>.
+        The details are summarised below.
+      </p>
+      <table cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;margin:0 0 24px;font-size:14px">
+        ${emailDetailRow('Quote number', escHtml(data.quoteNumber))}
+        ${emailDetailRow('Total', formatMoneyCents(data.totalCents, data.currency))}
+        ${data.expiryDate ? emailDetailRow('Valid until', expiry) : ''}
+      </table>
+      <p style="margin:0 0 24px;color:#444;line-height:1.6">
+        If you have any questions about this quote, please reply to this email${data.businessPhone ? ` or call us on ${escHtml(data.businessPhone)}` : ''}.
+      </p>
+      <p style="margin:28px 0 0;font-size:12px;color:#888;line-height:1.5">
+        Sent by ${escHtml(data.businessDisplayName)}${data.businessEmail ? ` · ${escHtml(data.businessEmail)}` : ''} via BRΛINBΛSE Commercial.
+      </p>
+    `),
+  };
+}
+
+function emailDetailRow(label: string, value: string) {
+  return `
+    <tr>
+      <td style="padding:7px 0;color:#888;width:120px;vertical-align:top;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.04em">${label}</td>
+      <td style="padding:7px 0 7px 16px;color:#222;border-bottom:1px solid #f0f0f0">${value}</td>
+    </tr>
+  `;
+}
+
+export type QuoteEmailSendResult =
+  | { result: 'sent'; providerMessageId: string | null }
+  | { result: 'failed'; error: string }
+  | { result: 'unknown'; error: string }
+  | { result: 'not_configured' };
+
+export async function sendQuoteEmail(params: {
+  to: string;
+  quote: QuotePdfQuote;
+  lines: QuotePdfLine[];
+  supplier: QuotePdfSupplier;
+}): Promise<QuoteEmailSendResult> {
+  const { quote, lines, supplier } = params;
+  if (!quote.quote_number) {
+    // Structurally unreachable via the API route (a quote must be
+    // issued — and therefore numbered — before send-email is callable),
+    // kept as a defensive guard rather than a silent `?? 'DRAFT'` that
+    // could email a customer a document that looks unissued.
+    return { result: 'failed', error: 'Quote has not been issued yet.' };
+  }
+
+  const brandMarkBase64 = await loadBrandMarkBase64Server();
+  const pdfBytes = await buildQuotePdf({ quote, lines, supplier, brandMarkBase64 });
+  const pdfBase64 = Buffer.from(pdfBytes).toString('base64');
+
+  const { subject, html } = buildQuoteEmail({
+    quoteNumber: quote.quote_number,
+    customerName: quote.customer_name_snapshot ?? 'there',
+    totalCents: quote.total_cents,
+    currency: quote.currency,
+    expiryDate: quote.expiry_date,
+    businessDisplayName: supplier.displayName,
+    businessEmail: supplier.email,
+    businessPhone: supplier.phone,
+  });
+
+  try {
+    const sent = await sendEmail({
+      to: params.to,
+      subject,
+      html,
+      attachments: [{ filename: `${quote.quote_number}.pdf`, contentBase64: pdfBase64 }],
+    });
+    if (sent.status === 'not_configured') return { result: 'not_configured' };
+    return { result: 'sent', providerMessageId: sent.id };
+  } catch (err) {
+    if (err instanceof Error && err.message === 'Email send failed') {
+      return { result: 'failed', error: 'The email provider rejected the request.' };
+    }
+    console.error('[commercial] quote email: ambiguous provider outcome', err);
+    return { result: 'unknown', error: 'The email provider did not return a definite result.' };
+  }
+}
+
+// Phase C3-POLISH-R §9 — audit_logs never stores the full recipient
+// address, matching lib/events/ticketEmail.ts's maskEmailForAudit()
+// exactly (duplicated rather than imported cross-module — Events and
+// Commercial are kept independent, matching this codebase's established
+// per-vertical-not-shared-utility precedent already documented in
+// lib/commercial/auditLog.ts's own header).
+export function maskEmailForAudit(email: string): string {
+  const at = email.indexOf('@');
+  if (at <= 0) return '***';
+  return `${email[0]}***${email.slice(at)}`;
+}
