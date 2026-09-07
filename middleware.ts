@@ -54,6 +54,11 @@ const PUBLIC = [
   // (or accidentally expose) '/events' or any staff management route —
   // see the Phase 3 report's public-route-safety section.
   '/t',
+
+  // Booking-level multi-ticket wallet: /b/[bookingToken]/tickets — same
+  // one-character-prefix reasoning as '/e' and '/t' above, and cannot
+  // collide with either of them or with '/events'.
+  '/b',
 ];
 
 export async function middleware(req: NextRequest) {

@@ -1,0 +1,81 @@
+-- Events & Ticketing — Booking-level multi-ticket wallet. Run once,
+-- manually, against the target database, AFTER scripts/create-events.sql,
+-- scripts/create-events-phase2.sql, and scripts/add-events-ticketing.sql
+-- (this script's ALTER TABLE requires event_orders to already exist).
+-- NOT run automatically by this task — follows the same manual-
+-- authorization discipline as every schema-creation script in this
+-- repository.
+--
+-- Purpose: gives an order a single, secure bearer token so a purchaser
+-- with multiple attendees can view all of that order's tickets from one
+-- durable link, without weakening the security of any individual
+-- attendee's existing ticket_token.
+--
+-- Why a separate column on event_orders, not a derivation of the
+-- existing attendee ticket_token(s) or of event_orders.id: sharing or
+-- deriving from an attendee's own ticket_token would mean handing out
+-- one attendee's individual ticket link also grants access to every
+-- other attendee's ticket — a real leak, not a convenience. Using
+-- event_orders.id (already shown to the purchaser today as the public
+-- "confirmation reference" on the post-registration success screen — see
+-- app/e/[organisationSlug]/[eventSlug]/register/route.ts's
+-- confirmation_reference field) would retroactively turn an already-
+-- shared, benign-looking reference number into a live credential. A
+-- dedicated, independently-generated, independently-revocable token
+-- avoids both problems and matches this repository's own existing
+-- ticket_token precedent exactly.
+--
+-- booking_token: TEXT, same generation contract as ticket_token
+-- (randomBytes(32).toString('hex') — 256 bits of entropy, 64 hex
+-- chars), generated server-side only, never client-supplied, never
+-- derived from any other token or id. Minted at the same moment an
+-- order first becomes eligible for a ticket email (CONFIRMED status,
+-- NOT_REQUIRED/PAID payment, at least one issued attendee ticket_token)
+-- — see the free-registration route and lib/events/stripe.ts's paid-
+-- order issuance path. A partial UNIQUE index (WHERE booking_token IS
+-- NOT NULL) is the structural collision guard, matching
+-- idx_event_attendees_ticket_token's own precedent exactly.
+--
+-- Nullable, not NOT NULL: most existing (pre-this-feature) order rows
+-- have no booking token yet, and an order that never became eligible
+-- for tickets (abandoned/failed/cancelled/zero-ticket) should never
+-- have one at all. Making the column NOT NULL here would force a
+-- backfill to run as part of this same script; instead this script only
+-- adds the (nullable) column + partial unique index, and
+-- scripts/backfill-events-booking-tokens.mjs (a separate, explicit,
+-- report-as-you-go script — not run automatically, and NOT run against
+-- Production by this implementation phase) fills in eligible existing
+-- rows.
+--
+-- Revocation/rotation (not implemented by this script, recorded here
+-- for context): a future manager action that overwrites booking_token
+-- with a freshly generated value would instantly invalidate any
+-- previously shared wallet link, while leaving every individual
+-- attendee ticket_token — and hence every individual /t/[token] link
+-- and any issued wallet pass — completely unaffected. That isolation is
+-- the entire reason this is its own column rather than derived from
+-- anything else.
+--
+-- Idempotency: IF NOT EXISTS / idempotent guards throughout. Safe to
+-- re-run; a second execution changes nothing.
+--
+-- Additive only: one new column + one new index on the existing
+-- event_orders table. Does not touch events, event_sessions,
+-- event_ticket_types, event_order_items, event_attendees,
+-- organisations, users, modules, organisation_modules, or any other
+-- existing table or row. Does not alter event_orders.id's existing
+-- role as the public-facing "confirmation reference" in any way — that
+-- remains a plain, non-secret display label, exactly as it is today.
+--
+-- ROLLBACK: this column carries no inbound reference from any other
+-- table — safe to drop at any time:
+--
+--   DROP INDEX IF EXISTS idx_event_orders_booking_token;
+--   ALTER TABLE event_orders DROP COLUMN IF EXISTS booking_token;
+--
+-- (Not executed by this script — recorded here for the record only.)
+
+ALTER TABLE event_orders ADD COLUMN IF NOT EXISTS booking_token TEXT;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_event_orders_booking_token
+  ON event_orders(booking_token) WHERE booking_token IS NOT NULL;

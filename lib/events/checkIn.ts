@@ -10,7 +10,7 @@ export type CheckInAttendeeSummary = {
 };
 
 type AttendeeRow = {
-  id: string; attendee_name: string; checked_in_at: Date | string | null; order_status: string; payment_status: string;
+  id: string; attendee_name: string; checked_in_at: Date | string | null; order_status: string; payment_status: string; event_status: string;
   ticket_type_name: string | null; session_name: string | null;
 };
 
@@ -55,33 +55,41 @@ export type AttendeeIdentifier = { ticket_token: string } | { attendee_id: strin
 
 export type ResolveAttendeeResult =
   | { ok: true; attendee: CheckInAttendeeSummary }
-  | { ok: false; reason: 'not_found' | 'cancelled' | 'unpaid' };
+  | { ok: false; reason: 'not_found' | 'cancelled' | 'unpaid' | 'event_cancelled' };
 
 // Read-only — never mutates. Used as the scanner/manual-select's "show
 // me who this is before I commit to checking them in" preview step, and
 // internally by confirmCheckIn()/undoCheckIn() to build a full summary
 // after their own atomic UPDATE has already decided the outcome.
+//
+// event_status is now also selected and checked (event-cancellation
+// validity fix, shared with the public ticket page and booking wallet —
+// see lib/events/ticketValidity.ts's own comment on why this file's
+// mutation path expresses the identical rule as an inline SQL guard
+// instead of importing that shared function directly).
 export async function resolveAttendee(
   organisationId: string, eventId: string, identifier: AttendeeIdentifier,
 ): Promise<ResolveAttendeeResult> {
   const rows = 'ticket_token' in identifier
     ? await sql`
-        SELECT ea.id, ea.attendee_name, ea.checked_in_at, eo.status AS order_status, eo.payment_status,
+        SELECT ea.id, ea.attendee_name, ea.checked_in_at, eo.status AS order_status, eo.payment_status, ev.status AS event_status,
           tt.name AS ticket_type_name, es.name AS session_name
         FROM event_attendees ea
         JOIN event_order_items oi ON oi.id = ea.order_item_id AND oi.organisation_id = ea.organisation_id
         JOIN event_orders eo ON eo.id = oi.order_id AND eo.organisation_id = oi.organisation_id
+        JOIN events ev ON ev.id = ea.event_id AND ev.organisation_id = ea.organisation_id
         LEFT JOIN event_ticket_types tt ON tt.id = oi.ticket_type_id AND tt.organisation_id = oi.organisation_id
         LEFT JOIN event_sessions es ON es.id = oi.event_session_id AND es.organisation_id = oi.organisation_id
         WHERE ea.ticket_token = ${identifier.ticket_token} AND ea.organisation_id = ${organisationId} AND ea.event_id = ${eventId}
         LIMIT 1
       `
     : await sql`
-        SELECT ea.id, ea.attendee_name, ea.checked_in_at, eo.status AS order_status, eo.payment_status,
+        SELECT ea.id, ea.attendee_name, ea.checked_in_at, eo.status AS order_status, eo.payment_status, ev.status AS event_status,
           tt.name AS ticket_type_name, es.name AS session_name
         FROM event_attendees ea
         JOIN event_order_items oi ON oi.id = ea.order_item_id AND oi.organisation_id = ea.organisation_id
         JOIN event_orders eo ON eo.id = oi.order_id AND eo.organisation_id = oi.organisation_id
+        JOIN events ev ON ev.id = ea.event_id AND ev.organisation_id = ea.organisation_id
         LEFT JOIN event_ticket_types tt ON tt.id = oi.ticket_type_id AND tt.organisation_id = oi.organisation_id
         LEFT JOIN event_sessions es ON es.id = oi.event_session_id AND es.organisation_id = oi.organisation_id
         WHERE ea.id = ${identifier.attendee_id} AND ea.organisation_id = ${organisationId} AND ea.event_id = ${eventId}
@@ -89,6 +97,7 @@ export async function resolveAttendee(
       `;
   const row = rows[0] as AttendeeRow | undefined;
   if (!row) return { ok: false, reason: 'not_found' };
+  if (row.event_status === 'CANCELLED') return { ok: false, reason: 'event_cancelled' };
   if (row.order_status === 'CANCELLED') return { ok: false, reason: 'cancelled' };
   if (!isPaymentValid(row.payment_status)) return { ok: false, reason: 'unpaid' };
   return { ok: true, attendee: toSummary(row) };
@@ -96,7 +105,7 @@ export async function resolveAttendee(
 
 export type ConfirmCheckInResult =
   | { ok: true; first: boolean; attendee: CheckInAttendeeSummary }
-  | { ok: false; reason: 'not_found' | 'cancelled' | 'unpaid' };
+  | { ok: false; reason: 'not_found' | 'cancelled' | 'unpaid' | 'event_cancelled' };
 
 // THE atomic duplicate-scan-prevention mechanism (section 10/24 of the
 // Phase 3 brief). Modeled directly on lib/tokens.ts's consumeToken(): a
@@ -138,6 +147,15 @@ export type ConfirmCheckInResult =
 // whose order is still PENDING (awaiting Stripe) can never be marked
 // checked in, in the same all-or-nothing statement that already
 // excludes a cancelled order — not as a separate check after the fact.
+//
+// Event-cancellation validity fix: the same UPDATE also joins events
+// and requires `ev.status <> 'CANCELLED'` — identical atomic-gating
+// principle again, one more clause in the same all-or-nothing
+// statement. Staff check-in must stay consistent with public ticket/
+// booking-wallet validity (lib/events/ticketValidity.ts): a cancelled
+// event can never be checked into by any path, including a stale
+// client that already had this ticket's QR open before the event was
+// cancelled.
 export async function confirmCheckIn(
   organisationId: string, eventId: string, identifier: AttendeeIdentifier, staffUserId: string,
 ): Promise<ConfirmCheckInResult> {
@@ -145,25 +163,29 @@ export async function confirmCheckIn(
     ? await sql`
         UPDATE event_attendees ea
         SET checked_in_at = now(), checked_in_by_user_id = ${staffUserId}
-        FROM event_order_items oi, event_orders eo
+        FROM event_order_items oi, event_orders eo, events ev
         WHERE ea.order_item_id = oi.id AND oi.organisation_id = ea.organisation_id
           AND eo.id = oi.order_id AND eo.organisation_id = oi.organisation_id
+          AND ev.id = ea.event_id AND ev.organisation_id = ea.organisation_id
           AND ea.ticket_token = ${identifier.ticket_token} AND ea.organisation_id = ${organisationId} AND ea.event_id = ${eventId}
           AND ea.checked_in_at IS NULL
           AND eo.status <> 'CANCELLED'
           AND eo.payment_status IN ('NOT_REQUIRED', 'PAID')
+          AND ev.status <> 'CANCELLED'
         RETURNING ea.id
       `
     : await sql`
         UPDATE event_attendees ea
         SET checked_in_at = now(), checked_in_by_user_id = ${staffUserId}
-        FROM event_order_items oi, event_orders eo
+        FROM event_order_items oi, event_orders eo, events ev
         WHERE ea.order_item_id = oi.id AND oi.organisation_id = ea.organisation_id
           AND eo.id = oi.order_id AND eo.organisation_id = oi.organisation_id
+          AND ev.id = ea.event_id AND ev.organisation_id = ea.organisation_id
           AND ea.id = ${identifier.attendee_id} AND ea.organisation_id = ${organisationId} AND ea.event_id = ${eventId}
           AND ea.checked_in_at IS NULL
           AND eo.status <> 'CANCELLED'
           AND eo.payment_status IN ('NOT_REQUIRED', 'PAID')
+          AND ev.status <> 'CANCELLED'
         RETURNING ea.id
       `;
   const first = updated.length > 0;
@@ -222,20 +244,26 @@ export async function undoCheckIn(
 // only once selected. resolveAttendee()/confirmCheckIn() enforce the
 // identical rule independently regardless (defense in depth, not a
 // substitute for it).
+// Phase — also excludes attendees of a cancelled event (event-
+// cancellation validity fix), same reasoning as the payment/order
+// exclusions already here: never surface a no-longer-checkinable
+// attendee as a selectable search result at all.
 export async function searchAttendees(organisationId: string, eventId: string, query: string): Promise<CheckInAttendeeSummary[]> {
   const trimmed = query.trim();
   if (!trimmed) return [];
   const rows = await sql`
-    SELECT ea.id, ea.attendee_name, ea.checked_in_at, eo.status AS order_status, eo.payment_status,
+    SELECT ea.id, ea.attendee_name, ea.checked_in_at, eo.status AS order_status, eo.payment_status, ev.status AS event_status,
       tt.name AS ticket_type_name, es.name AS session_name
     FROM event_attendees ea
     JOIN event_order_items oi ON oi.id = ea.order_item_id AND oi.organisation_id = ea.organisation_id
     JOIN event_orders eo ON eo.id = oi.order_id AND eo.organisation_id = oi.organisation_id
+    JOIN events ev ON ev.id = ea.event_id AND ev.organisation_id = ea.organisation_id
     LEFT JOIN event_ticket_types tt ON tt.id = oi.ticket_type_id AND tt.organisation_id = oi.organisation_id
     LEFT JOIN event_sessions es ON es.id = oi.event_session_id AND es.organisation_id = oi.organisation_id
     WHERE ea.organisation_id = ${organisationId} AND ea.event_id = ${eventId}
       AND eo.status <> 'CANCELLED'
       AND eo.payment_status IN ('NOT_REQUIRED', 'PAID')
+      AND ev.status <> 'CANCELLED'
       AND ea.attendee_name ILIKE ${'%' + trimmed + '%'}
     ORDER BY ea.attendee_name
     LIMIT 20
