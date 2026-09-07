@@ -26,6 +26,7 @@
 
 import {
   confirmIllegalDumping as callConfirmIllegalDumping,
+  fetchWorksheetPreview as callFetchWorksheetPreview,
   finalizeImportBatch as callFinalize,
   getImportBatch as callGetImportBatch,
   initiateImportBatch as callInitiate,
@@ -41,6 +42,7 @@ import type {
   ImportBatchStatus,
   InitiatedBatchDTO,
   PersistedFailureCodeClient,
+  WorksheetPreviewDTOClient,
   WorksheetSummaryDTOClient,
 } from "./types";
 
@@ -120,6 +122,26 @@ export type DataHubImportState =
    * (5A.3B-PRE finding #8) — a caller must never fabricate any such data
    * to backfill a "review" UI on top of this state. */
   | { phase: "confirmationReady"; batch: ImportBatchHandle; worksheet: WorksheetSummaryDTOClient }
+  /** Data Hub 5A.3C.0 — OPTIONAL bounded-content-preview step, entered only
+   * by an explicit `loadPreview()` call from "confirmationReady" (or a
+   * retry from "previewFailed"/"previewReady"). "confirmationReady" itself
+   * is UNCHANGED and remains reachable directly from "obtainingWorksheet"
+   * exactly as before 5A.3C.0 — a caller that never wants a preview is
+   * never forced through any of these three new phases. */
+  | { phase: "previewing"; batch: ImportBatchHandle; worksheet: WorksheetSummaryDTOClient }
+  | {
+      phase: "previewFailed";
+      batch: ImportBatchHandle;
+      worksheet: WorksheetSummaryDTOClient;
+      code: string;
+      message: string;
+    }
+  /** Real server-derived worksheet content (bounded headers/sample rows) —
+   * never fabricated, never inferred from confirmationReady's own
+   * structural-only worksheet field. See types.ts's own
+   * WorksheetPreviewDTOClient comment for exactly what this does and does
+   * not contain. */
+  | { phase: "previewReady"; batch: ImportBatchHandle; worksheet: WorksheetSummaryDTOClient; preview: WorksheetPreviewDTOClient }
   | { phase: "confirming"; batch: ImportBatchHandle; worksheet: WorksheetSummaryDTOClient }
   | { phase: "imported"; batch: ImportBatchHandle; worksheetId: string; importedRows: number }
   | { phase: "alreadyImported"; batch: ImportBatchHandle; worksheetId: string }
@@ -610,12 +632,79 @@ export class DataHubIllegalDumpingImportSession {
   }
 
   // -------------------------------------------------------------------
+  // Step 5.5 — Data Hub 5A.3C.0: OPTIONAL bounded content preview.
+  // Never auto-entered — "confirmationReady" is reached exactly as it was
+  // before 5A.3C.0 (Step 5 above is completely unmodified), and confirm()
+  // remains directly callable from "confirmationReady" with no preview
+  // step in between. A caller invokes loadPreview() only if it wants to
+  // show real worksheet content before confirming.
+  // -------------------------------------------------------------------
+
+  async loadPreview(): Promise<void> {
+    if (
+      this.state.phase !== "confirmationReady" &&
+      this.state.phase !== "previewFailed" &&
+      this.state.phase !== "previewReady"
+    ) {
+      throw new Error(`data-hub client: loadPreview() called from unexpected phase "${this.state.phase}".`);
+    }
+    const { batch, worksheet } = this.state;
+    await this.runLoadPreview(batch, worksheet);
+  }
+
+  /** Re-issues the SAME preview GET — safe to call any number of times;
+   * previewWorksheet.ts is a pure read with no side effects, so a repeat
+   * call after a prior failure (network, transient storage issue, etc.)
+   * carries no risk of double-anything. */
+  async retryPreview(): Promise<void> {
+    if (this.state.phase !== "previewFailed") {
+      throw new Error(`data-hub client: retryPreview() called from unexpected phase "${this.state.phase}".`);
+    }
+    await this.loadPreview();
+  }
+
+  private async runLoadPreview(batch: ImportBatchHandle, worksheet: WorksheetSummaryDTOClient): Promise<void> {
+    this.setState({ phase: "previewing", batch, worksheet });
+
+    const result = await callFetchWorksheetPreview(worksheet.id, this.config);
+    if (result.kind !== "response") {
+      this.setState({
+        phase: "previewFailed",
+        batch,
+        worksheet,
+        code: "NETWORK",
+        message: result.kind === "networkUncertain" ? result.message : "The preview response could not be parsed.",
+      });
+      return;
+    }
+
+    const body = result.body;
+    if (!("ok" in body) || !body.ok) {
+      this.setState({
+        phase: "previewFailed",
+        batch,
+        worksheet,
+        code: "error" in body ? (body.code ?? "UNKNOWN") : "UNKNOWN",
+        message: "error" in body ? body.error : "The preview failed for an unknown reason.",
+      });
+      return;
+    }
+
+    this.setState({ phase: "previewReady", batch, worksheet, preview: body.preview });
+  }
+
+  // -------------------------------------------------------------------
   // Step 6 — confirm Illegal Dumping (the ONLY step that may ever set
   // "imported"/"alreadyImported" — Core Discipline #4)
   // -------------------------------------------------------------------
 
   async confirm(): Promise<void> {
-    if (this.state.phase !== "confirmationReady" && this.state.phase !== "confirmFailed") {
+    if (
+      this.state.phase !== "confirmationReady" &&
+      this.state.phase !== "confirmFailed" &&
+      this.state.phase !== "previewReady" &&
+      this.state.phase !== "previewFailed"
+    ) {
       throw new Error(`data-hub client: confirm() called from unexpected phase "${this.state.phase}".`);
     }
     const { batch, worksheet } = this.state;

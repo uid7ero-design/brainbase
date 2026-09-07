@@ -84,6 +84,12 @@ const K2_CONFIRM_ROUTE = path.join(
   "route.ts"
 );
 
+// 5A.3C.0 — the FOURTH dark-to-live transition, for exactly one more
+// module: previewWorksheet.ts (GET /api/data-hub/worksheets/[id]/preview),
+// the bounded, read-only CSV worksheet content preview service. Its FIRST
+// runtime caller of any kind, exactly the new preview route.
+const C0_PREVIEW_ROUTE = path.join("app", "api", "data-hub", "worksheets", "[id]", "preview", "route.ts");
+
 // Module name (as it appears in `.../importBatch/<name>`) -> the exact
 // set of app/**/components/** files authorized to import it.
 const AUTHORIZED_IMPORTERS_BY_MODULE: Record<string, Set<string>> = {
@@ -114,6 +120,9 @@ const AUTHORIZED_IMPORTERS_BY_MODULE: Record<string, Set<string>> = {
   // it is no longer unreachable at runtime.
   confirmWorksheet: new Set([K2_CONFIRM_ROUTE]),
   illegalDumpingMapper: new Set(),
+  // 5A.3C.0 — the new bounded, read-only CSV worksheet preview service.
+  // Exactly one authorized importer: its own new route.
+  previewWorksheet: new Set([C0_PREVIEW_ROUTE]),
 };
 
 describe("Data Hub importBatch — exactly the authorized H.3/5A.2I route set imports each module; nothing else imports any file in this tree (verified by static inspection)", () => {
@@ -213,6 +222,11 @@ describe("Data Hub importBatch — no barrel/index.ts anywhere in the new tree",
         // one authorized importer, the new inspect route — see the
         // AUTHORIZED_IMPORTERS_BY_MODULE map above.
         "inspectCsvWorksheet.ts",
+        // previewWorksheet.ts (5A.3C.0) — the new bounded, read-only CSV
+        // worksheet content preview service. LIVE as of this phase —
+        // exactly one authorized importer, the new preview route — see
+        // the AUTHORIZED_IMPORTERS_BY_MODULE map above.
+        "previewWorksheet.ts",
       ])
     );
   });

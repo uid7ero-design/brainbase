@@ -260,6 +260,54 @@ export type ListWorksheetsResponseBody = { worksheets: WorksheetSummaryDTOClient
 export type ListWorksheetsResult = TransportResult<ListWorksheetsResponseBody>;
 
 // ---------------------------------------------------------------------------
+// GET /api/data-hub/worksheets/[id]/preview
+// Source: app/api/data-hub/worksheets/[id]/preview/route.ts, GET.
+//
+// Data Hub 5A.3C.0 — bounded, read-only content preview. Design authority:
+// the completed 5A.3C.0 read-only discovery. Carries real server-derived
+// worksheet content (headers, a bounded row sample) sufficient for a
+// truthful "review your data" step — deliberately distinct from
+// WorksheetDescriptorClient/WorksheetSummaryDTOClient above, neither of
+// which carries any content. `sampleRows`/`headers` are always bounded
+// (PREVIEW_MAX_SAMPLE_ROWS/COLUMNS/CELL_CHARS server-side, previewWorksheet.ts)
+// regardless of the underlying file's legal maximum size — never the
+// entire CSV. `requiredHeadersPresent`/`missingRequiredHeaders` is the
+// ONLY Illegal-Dumping-specific interpretation this DTO carries; no
+// per-row validation output exists here (deliberately deferred, matching
+// the discovery's own scope boundary).
+// ---------------------------------------------------------------------------
+
+export interface WorksheetPreviewDTOClient {
+  worksheetId: string;
+  worksheetName: string;
+  worksheetIndex: number;
+  rowCount: number;
+  columnCount: number;
+  headers: string[];
+  sampleRows: string[][];
+  sampleRowCount: number;
+  truncated: boolean;
+  requiredHeadersPresent: boolean;
+  missingRequiredHeaders: string[];
+}
+
+export type PreviewFailureCodeClient =
+  | "WORKSHEET_NOT_FOUND"
+  | "WORKSHEET_NOT_ELIGIBLE"
+  | "BATCH_NOT_READY"
+  | "UNSUPPORTED_FORMAT"
+  | "STORAGE_NOT_FOUND"
+  | "PROVIDER_FAILURE"
+  | "STORAGE_INTEGRITY_MISMATCH"
+  | "PARSER_REJECTED";
+
+export type WorksheetPreviewResponseBody =
+  | { ok: true; preview: WorksheetPreviewDTOClient }
+  | { ok: false; error: string; code?: PreviewFailureCodeClient };
+
+export type WorksheetPreviewResult = TransportResult<WorksheetPreviewResponseBody>;
+
+// ---------------------------------------------------------------------------
 // POST /api/data-hub/worksheets/[id]/confirm-illegal-dumping
 // Source: app/api/data-hub/worksheets/[id]/confirm-illegal-dumping/route.ts.
 //
