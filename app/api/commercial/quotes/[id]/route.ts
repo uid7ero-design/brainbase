@@ -1,9 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { authorizeCommercialRequest, COMMERCIAL_MIN_ROLE } from '@/lib/commercial/authorize';
 import { getQuoteWithLines, updateDraftQuote, deleteDraftQuote } from '@/lib/commercial/quotes';
+import { listDeliveriesForDocument } from '@/lib/commercial/documentDeliveries';
 
 type Ctx = { params: Promise<{ id: string }> };
 
+// Phase C3-POLISH-R §9 — `deliveries` added to this same GET so the
+// quote detail page's existing single load() call gets delivery history
+// for free, rather than a second round trip. Tenant-scoped the same way
+// every other field on this response already is.
 export async function GET(_req: NextRequest, { params }: Ctx) {
   const auth = await authorizeCommercialRequest('quotes', COMMERCIAL_MIN_ROLE.view);
   if (!auth.ok) return auth.response;
@@ -11,7 +16,9 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
 
   const bundle = await getQuoteWithLines(auth.session.organisationId, id);
   if (!bundle) return NextResponse.json({ error: 'Not found.' }, { status: 404 });
-  return NextResponse.json(bundle);
+
+  const deliveries = await listDeliveriesForDocument({ organisationId: auth.session.organisationId, documentType: 'quote', documentId: id });
+  return NextResponse.json({ ...bundle, deliveries });
 }
 
 export async function PUT(req: NextRequest, { params }: Ctx) {

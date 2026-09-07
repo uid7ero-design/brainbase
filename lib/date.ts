@@ -97,7 +97,16 @@ export function eachDayInRange(range: DateRange): Date[] {
   return days
 }
 
-const AU_MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+// Exported (Phase C3-POLISH-R) so lib/commercial/dates.ts's
+// formatCommercialDate() can build its own "7 Sep 2026" short form from
+// the same month names, sliced to 3 characters — deliberately NOT
+// Intl.DateTimeFormat('en-AU', { month: 'short' }), whose actual en-AU
+// CLDR data abbreviates September as "Sept" (4 letters), not "Sep" —
+// confirmed empirically, and not what the brief's own specified format
+// asks for. Slicing this array's own full names to 3 characters is what
+// formatWeekHeading() below already does for its short labels, so this
+// keeps both call sites' abbreviations dependent on ONE definition.
+export const AU_MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
 
 /** e.g. "17–23 August 2026", or "28 Aug – 3 Sep 2026" across a month boundary. */
 export function formatWeekHeading(range: DateRange): string {

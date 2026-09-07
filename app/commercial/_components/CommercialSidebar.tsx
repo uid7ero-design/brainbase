@@ -17,6 +17,14 @@ const NAV_ITEMS = [
   { href: '/commercial/customers', label: 'Customers' },
   { href: '/commercial/products', label: 'Products & Services' },
   { href: '/commercial/quotes', label: 'Quotes' },
+  // Phase C3-POLISH-R — Business Profile + Tax Codes. The route itself
+  // is administer-gated (app/api/commercial/settings/business-profile,
+  // app/api/commercial/tax-codes) for writes; showing the link to every
+  // Commercial user is consistent with every other nav item here (this
+  // sidebar has no per-item role gating — the layout's own capability
+  // check is what stands between an unentitled organisation and the
+  // whole shell, same as CRM's sidebar).
+  { href: '/commercial/settings', label: 'Settings' },
 ];
 
 export default function CommercialSidebar() {

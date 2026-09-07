@@ -4,6 +4,8 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { StatusBadge } from '../_status';
 import { formatMoneyCents } from '@/lib/commercial/money';
+import { formatCommercialDate } from '@/lib/commercial/dates';
+import { buildQuotePdf, type QuotePdfSupplier } from '@/lib/commercial/quotePdf';
 
 const CARD = '#0e1014'; const BORDER = '#1a1d24';
 
@@ -22,6 +24,31 @@ type Line = {
 type Customer = { id: string; name: string; billing_address: string | null; billing_email: string | null; billing_phone: string | null };
 type Product = { id: string; name: string; default_unit_price_cents: number; default_tax_code_id: string | null; sku: string | null; unit_label: string | null; active: boolean };
 type TaxCode = { id: string; code: string; name: string; rate: string };
+type Delivery = {
+  id: string; channel: string; recipient: string; status: string; attempted_at: string; error_summary: string | null;
+};
+type BusinessProfileResponse = {
+  organisationName: string;
+  profile: { tradingName: string | null; address: string | null; email: string | null; phone: string | null; abn: string | null };
+};
+
+// Client-side loader for the same rasterized Hybrid Orbit mark PNG the
+// server-side email path loads via fs (lib/commercial/quoteEmail.ts's
+// loadBrandMarkBase64Server()) — see lib/commercial/quotePdf.ts's own
+// header for why a single shared PDF builder needs this asset handed in
+// as base64 rather than loaded inside itself. Memoized at module scope
+// so repeated downloads in one session don't re-fetch the asset.
+let cachedBrandMarkBase64: string | null = null;
+async function loadBrandMarkBase64Client(): Promise<string> {
+  if (cachedBrandMarkBase64) return cachedBrandMarkBase64;
+  const res = await fetch('/Brand/brainbase-mark-color-256.png');
+  const buf = await res.arrayBuffer();
+  let binary = '';
+  const bytes = new Uint8Array(buf);
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  cachedBrandMarkBase64 = btoa(binary);
+  return cachedBrandMarkBase64;
+}
 
 export default function QuoteDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -31,8 +58,11 @@ export default function QuoteDetailPage() {
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
   const [taxCodes, setTaxCodes] = useState<TaxCode[]>([]);
+  const [deliveries, setDeliveries] = useState<Delivery[]>([]);
+  const [businessProfile, setBusinessProfile] = useState<BusinessProfileResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionError, setActionError] = useState('');
+  const [sendResult, setSendResult] = useState('');
   const [busy, setBusy] = useState(false);
 
   // add-line form state
@@ -48,10 +78,12 @@ export default function QuoteDetailPage() {
     const data = await res.json();
     setQuote(data.quote);
     setLines(data.lines);
+    setDeliveries(data.deliveries ?? []);
     setLoading(false);
 
-    const [customersRes, productsRes, taxCodesRes] = await Promise.all([
+    const [customersRes, productsRes, taxCodesRes, businessProfileRes] = await Promise.all([
       fetch('/api/commercial/customers'), fetch('/api/commercial/products'), fetch('/api/commercial/tax-codes'),
+      fetch('/api/commercial/settings/business-profile'),
     ]);
     const customersData = await customersRes.json();
     const productsData = await productsRes.json();
@@ -59,6 +91,7 @@ export default function QuoteDetailPage() {
     setCustomer((customersData.customers ?? []).find((c: Customer) => c.id === data.quote.customer_id) ?? null);
     setProducts(productsData.products ?? []);
     setTaxCodes(taxCodesData.taxCodes ?? []);
+    if (businessProfileRes.ok) setBusinessProfile(await businessProfileRes.json());
   }, [id]);
 
   useEffect(() => { load(); }, [load]);
@@ -112,6 +145,27 @@ export default function QuoteDetailPage() {
     load();
   }
 
+  // Phase C3-POLISH-R §6/§9/§13 — decoupled from issueQuote(): sending
+  // never touches the quote row itself, so a failed/slow send can never
+  // corrupt or roll back an already-issued quote. Button is disabled for
+  // the duration of the request (setBusy) as the client-side half of
+  // §13's duplicate-send protection; the server enforces the real
+  // 60-second cooldown regardless of what the client does.
+  async function sendEmail() {
+    setBusy(true); setActionError(''); setSendResult('');
+    const res = await fetch(`/api/commercial/quotes/${id}/send-email`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ channel: 'EMAIL' }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setBusy(false);
+    if (!res.ok) {
+      setActionError(data.error ?? 'Failed to send quote email.');
+      return;
+    }
+    setSendResult('Quote emailed successfully.');
+    load();
+  }
+
   async function deleteDraft() {
     setBusy(true);
     const res = await fetch(`/api/commercial/quotes/${id}`, { method: 'DELETE' });
@@ -119,84 +173,30 @@ export default function QuoteDetailPage() {
     if (res.ok) router.push('/commercial/quotes');
   }
 
+  // Phase C3-POLISH-R §1/§2/§15 — builds through the exact same
+  // lib/commercial/quotePdf.ts buildQuotePdf() the email attachment uses
+  // server-side, fed this quote's own persisted snapshot fields (never
+  // live customer/product values) plus the org's CURRENT business
+  // profile (the seller's own letterhead is not a per-quote snapshot
+  // concern — only customer/product/tax fields are).
   async function downloadPdf() {
     if (!quote) return;
-    const jspdfMod = await import('jspdf');
-    const JsPDF = jspdfMod.jsPDF ?? jspdfMod.default;
-    const doc = new JsPDF({ unit: 'mm', format: 'a4' });
-    const pageW = doc.internal.pageSize.getWidth();
-    const margin = 18;
-    let y = margin;
-
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(18);
-    doc.text('BRΛINBΛSE', margin, y);
-    doc.setFontSize(14);
-    doc.text('QUOTE', pageW - margin, y, { align: 'right' });
-    y += 8;
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(100, 100, 100);
-    doc.text(quote.quote_number ?? 'DRAFT', pageW - margin, y, { align: 'right' });
-    y += 12;
-
-    doc.setDrawColor(220, 220, 220); doc.line(margin, y, pageW - margin, y); y += 10;
-
-    doc.setTextColor(30, 30, 30); doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
-    doc.text('Customer', margin, y);
-    doc.text('Details', pageW / 2 + 10, y);
-    y += 6;
-    doc.setFont('helvetica', 'normal'); doc.setTextColor(60, 60, 60);
-    const custName = quote.customer_name_snapshot ?? customer?.name ?? '';
-    const custAddr = quote.billing_address_snapshot ?? customer?.billing_address ?? '';
-    const custEmail = quote.email_snapshot ?? customer?.billing_email ?? '';
-    doc.text(custName, margin, y);
-    doc.text(`Issue date: ${quote.issue_date ?? '—'}`, pageW / 2 + 10, y);
-    y += 5;
-    if (custAddr) { doc.text(custAddr, margin, y); }
-    doc.text(`Expiry: ${quote.expiry_date ?? '—'}`, pageW / 2 + 10, y);
-    y += 5;
-    if (custEmail) doc.text(custEmail, margin, y);
-    y += 12;
-
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(9);
-    doc.text('Description', margin, y);
-    doc.text('Qty', pageW - margin - 65, y, { align: 'right' });
-    doc.text('Unit Price', pageW - margin - 40, y, { align: 'right' });
-    doc.text('Tax', pageW - margin - 20, y, { align: 'right' });
-    doc.text('Total', pageW - margin, y, { align: 'right' });
-    y += 3;
-    doc.line(margin, y, pageW - margin, y);
-    y += 6;
-
-    doc.setFont('helvetica', 'normal');
-    for (const line of lines) {
-      doc.text(doc.splitTextToSize(line.description_snapshot, 90), margin, y);
-      doc.text(String(line.quantity), pageW - margin - 65, y, { align: 'right' });
-      doc.text(formatMoneyCents(line.unit_price_cents, quote.currency), pageW - margin - 40, y, { align: 'right' });
-      doc.text(`${line.tax_rate_snapshot}%`, pageW - margin - 20, y, { align: 'right' });
-      doc.text(formatMoneyCents(line.line_total_cents, quote.currency), pageW - margin, y, { align: 'right' });
-      y += 7;
-    }
-    y += 3;
-    doc.line(pageW - margin - 80, y, pageW - margin, y);
-    y += 7;
-
-    doc.text('Subtotal', pageW - margin - 40, y, { align: 'right' });
-    doc.text(formatMoneyCents(quote.subtotal_cents, quote.currency), pageW - margin, y, { align: 'right' });
-    y += 6;
-    doc.text('Tax', pageW - margin - 40, y, { align: 'right' });
-    doc.text(formatMoneyCents(quote.tax_cents, quote.currency), pageW - margin, y, { align: 'right' });
-    y += 6;
-    doc.setFont('helvetica', 'bold');
-    doc.text('Total', pageW - margin - 40, y, { align: 'right' });
-    doc.text(formatMoneyCents(quote.total_cents, quote.currency), pageW - margin, y, { align: 'right' });
-    y += 14;
-
-    if (quote.terms) {
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.text('Terms', margin, y); y += 5;
-      doc.setFont('helvetica', 'normal'); doc.setTextColor(80, 80, 80);
-      doc.text(doc.splitTextToSize(quote.terms, pageW - margin * 2), margin, y);
-    }
-
-    doc.save(`${quote.quote_number ?? 'quote-draft'}.pdf`);
+    const brandMarkBase64 = await loadBrandMarkBase64Client();
+    const supplier: QuotePdfSupplier = {
+      displayName: businessProfile?.profile.tradingName ?? businessProfile?.organisationName ?? 'BRΛINBΛSE',
+      address: businessProfile?.profile.address ?? null,
+      email: businessProfile?.profile.email ?? null,
+      phone: businessProfile?.profile.phone ?? null,
+      abn: businessProfile?.profile.abn ?? null,
+    };
+    const bytes = await buildQuotePdf({ quote, lines, supplier, brandMarkBase64 });
+    const blob = new Blob([bytes as BlobPart], { type: 'application/pdf' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${quote.quote_number ?? 'quote-draft'}.pdf`;
+    a.click();
+    URL.revokeObjectURL(url);
   }
 
   if (loading) return <div style={{ color: '#6b7280', fontSize: 14 }}>Loading…</div>;
@@ -212,7 +212,12 @@ export default function QuoteDetailPage() {
           <StatusBadge status={quote.status} />
         </div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-          {isSent && <button onClick={downloadPdf} style={btn('#1f2937')}>Download PDF</button>}
+          {!isDraft && <button onClick={downloadPdf} disabled={busy} style={btn('#1f2937')}>Download PDF</button>}
+          {!isDraft && quote.email_snapshot && (
+            <button onClick={sendEmail} disabled={busy} style={btn('#1f2937')}>
+              {deliveries.length === 0 ? 'Send Email' : 'Resend Email'}
+            </button>
+          )}
           {isDraft && <button onClick={deleteDraft} disabled={busy} style={btn('rgba(239,68,68,0.15)', '#f87171')}>Delete Draft</button>}
           {isDraft && <button onClick={() => runAction('issue')} disabled={busy} style={btn('#1a6aff')}>Issue Quote</button>}
           {isSent && <button onClick={() => runAction('reject')} disabled={busy} style={btn('rgba(239,68,68,0.15)', '#f87171')}>Reject</button>}
@@ -221,6 +226,10 @@ export default function QuoteDetailPage() {
         </div>
       </div>
       {actionError && <p style={{ color: '#f87171', fontSize: 13, margin: '0 0 16px' }}>{actionError}</p>}
+      {sendResult && <p style={{ color: '#4ade80', fontSize: 13, margin: '0 0 16px' }}>{sendResult}</p>}
+      {!isDraft && !quote.email_snapshot && (
+        <p style={{ color: '#fbbf24', fontSize: 13, margin: '0 0 16px' }}>No customer email on file — this quote cannot be emailed.</p>
+      )}
 
       <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: '20px 24px', marginBottom: 20, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
         <div>
@@ -234,9 +243,22 @@ export default function QuoteDetailPage() {
         </div>
         <div>
           <div style={miniLbl}>Issue / Expiry</div>
-          <div style={{ fontSize: 14 }}>{quote.issue_date ?? '—'} — {quote.expiry_date ?? '—'}</div>
+          <div style={{ fontSize: 14 }}>{formatCommercialDate(quote.issue_date)} — {formatCommercialDate(quote.expiry_date)}</div>
         </div>
       </div>
+
+      {deliveries.length > 0 && (
+        <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: '16px 24px', marginBottom: 20 }}>
+          <div style={miniLbl}>Delivery History</div>
+          {deliveries.map(d => (
+            <div key={d.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', fontSize: 13, borderTop: `1px solid ${BORDER}` }}>
+              <span style={{ color: '#9ca3af' }}>{d.channel} → {d.recipient}</span>
+              <span style={{ color: '#6b7280', fontSize: 12 }}>{new Date(d.attempted_at).toLocaleString('en-AU', { timeZone: 'Australia/Adelaide', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
+              <DeliveryStatusBadge status={d.status} />
+            </div>
+          ))}
+        </div>
+      )}
 
       <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, overflow: 'hidden', marginBottom: 20 }}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -315,6 +337,21 @@ export default function QuoteDetailPage() {
         </div>
       )}
     </div>
+  );
+}
+
+const DELIVERY_STATUS_STYLE: Record<string, { color: string; bg: string }> = {
+  PENDING: { color: '#9ca3af', bg: 'rgba(156,163,175,0.12)' },
+  SENT: { color: '#4ade80', bg: 'rgba(74,222,128,0.12)' },
+  DELIVERED: { color: '#4ade80', bg: 'rgba(74,222,128,0.12)' },
+  FAILED: { color: '#f87171', bg: 'rgba(248,113,113,0.12)' },
+};
+function DeliveryStatusBadge({ status }: { status: string }) {
+  const s = DELIVERY_STATUS_STYLE[status] ?? DELIVERY_STATUS_STYLE.PENDING;
+  return (
+    <span style={{ fontSize: 10, fontWeight: 600, padding: '2px 7px', borderRadius: 4, textTransform: 'uppercase', letterSpacing: '0.04em', color: s.color, background: s.bg }}>
+      {status}
+    </span>
   );
 }
 
