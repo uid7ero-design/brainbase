@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import fs from "fs";
 import path from "path";
+import * as ts from "typescript";
 import { deriveScreenGroup, deriveErrorOverlayCopy, deriveProcessingStatusText, isErrorOverlayPhase } from "@/app/data-hub/import/screenGroup";
 import { mountSessionEffect, simulateStrictModeSessionOwnership } from "@/app/data-hub/import/useDataHubImportSession";
 import { createIllegalDumpingImportSession, type DataHubImportState } from "@/lib/data-hub/client/orchestrator";
@@ -261,5 +262,157 @@ describe("useDataHubImportSession — lifecycle containment (R1 remediation: RTE
     expect(code).toContain("session.subscribe(");
     expect(code).toContain("session.getState(");
     expect(code).toContain("instance.dispose(");
+  });
+});
+
+// ---------------------------------------------------------------------
+// R1-E FINAL REMEDIATION — AST-level (not regex) proof, scoped to the REAL
+// construction effect, identifier/formatting-independent.
+//
+// This repo has no jsdom/@testing-library/react and none is being added
+// (checked: react-test-renderer is absent from package.json,
+// package-lock.json, and node_modules — no mechanism exists to actually
+// mount/execute a real React effect without a DOM harness this repo
+// doesn't have). The prior string-literal check ("session.start(") is
+// trivially evaded by the real code's own local variable name
+// ("instance") and by any future rename — independently, twice-proven by
+// mutation. This uses the TypeScript compiler API (already a repo
+// dependency, already used for `tsc`) to parse the REAL hook's actual
+// source into an AST, find the ACTUAL construction effect by its real
+// structural signature (a `useEffect(() => {...}, [])` whose body
+// contains the real `createIllegalDumpingImportSession()` call — not by
+// variable name), and prove that NO call expression anywhere within that
+// effect's own AST subtree invokes any workflow/network method, on any
+// object, under any identifier. Scoped strictly to that one effect's
+// subtree, so a legitimate user-triggered call to the same method names
+// elsewhere in a real component (event handlers, other hooks) is never
+// touched by this check — this is not a whole-file ban.
+// ---------------------------------------------------------------------
+
+const BANNED_WORKFLOW_METHODS = [
+  "start",
+  "upload",
+  "proceedToFinalize",
+  "retryFinalize",
+  "retryInspect",
+  "retryObtainWorksheet",
+  "loadPreview",
+  "retryPreview",
+  "confirm",
+  "retryConfirm",
+];
+
+/**
+ * Returns every banned workflow method name called anywhere inside the
+ * FIRST `useEffect(() => {...}, [])` (empty dependency array) whose body
+ * contains a call to `constructorMarker` — regardless of the local
+ * variable name the constructed value is assigned to, formatting, or line
+ * breaks. Empty array means the effect is clean. Does not inspect
+ * anything outside that one effect's own AST subtree (its returned
+ * cleanup function IS included, since a legitimate `dispose()` call there
+ * is not itself banned).
+ */
+function findBannedWorkflowCallsInConstructionEffect(sourceText: string, constructorMarker: string): string[] {
+  const sourceFile = ts.createSourceFile("probe.tsx", sourceText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const found: string[] = [];
+
+  function containsConstructorCall(node: ts.Node): boolean {
+    let has = false;
+    const visit = (n: ts.Node) => {
+      if (has) return;
+      if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && n.expression.text === constructorMarker) {
+        has = true;
+        return;
+      }
+      ts.forEachChild(n, visit);
+    };
+    visit(node);
+    return has;
+  }
+
+  function collectBannedCalls(node: ts.Node): void {
+    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
+      const methodName = node.expression.name.text;
+      if (BANNED_WORKFLOW_METHODS.includes(methodName)) {
+        found.push(methodName);
+      }
+    }
+    ts.forEachChild(node, collectBannedCalls);
+  }
+
+  const visitTopLevel = (node: ts.Node): void => {
+    if (
+      ts.isCallExpression(node) &&
+      ts.isIdentifier(node.expression) &&
+      node.expression.text === "useEffect" &&
+      node.arguments.length === 2
+    ) {
+      const [effectCallback, depsArg] = node.arguments;
+      const isEmptyDeps = ts.isArrayLiteralExpression(depsArg) && depsArg.elements.length === 0;
+      if (isEmptyDeps && containsConstructorCall(effectCallback)) {
+        collectBannedCalls(effectCallback);
+      }
+    }
+    ts.forEachChild(node, visitTopLevel);
+  };
+
+  visitTopLevel(sourceFile);
+  return found;
+}
+
+describe("useDataHubImportSession — R1-E AST-level construction-effect side-effect guard (real hook, identifier/format-independent)", () => {
+  const HOOK_SOURCE = () => read("app/data-hub/import/useDataHubImportSession.ts");
+
+  it("FT1-FT6: the REAL construction effect (found by its real createIllegalDumpingImportSession() call, not by variable name) contains zero calls to start/upload/finalize-workflow/preview/confirm methods on any object — proves construction alone causes zero workflow/network activity", () => {
+    const found = findBannedWorkflowCallsInConstructionEffect(HOOK_SOURCE(), "createIllegalDumpingImportSession");
+    expect(found).toEqual([]);
+  });
+
+  it("FT7: dispose() is not a banned method, and the real effect's own genuine disposal call is present and unflagged", () => {
+    expect(BANNED_WORKFLOW_METHODS).not.toContain("dispose");
+    expect(HOOK_SOURCE()).toContain(".dispose()");
+    expect(findBannedWorkflowCallsInConstructionEffect(HOOK_SOURCE(), "createIllegalDumpingImportSession")).toEqual([]);
+  });
+
+  it("FT8: the checker is scoped to ONLY the identified construction effect — a legitimate user-triggered call to a workflow method elsewhere (an event handler, outside any useEffect) is never falsely flagged (no whole-file ban)", () => {
+    const syntheticComponent = `
+      function useSomethingElse() {
+        useEffect(() => {
+          const instance = createIllegalDumpingImportSession();
+          setSession(instance);
+          return () => { instance.dispose(); };
+        }, []);
+        const onConfirmClick = () => { session.confirm(); };
+        const onUploadClick = () => { session.start(theFile); };
+        return { onConfirmClick, onUploadClick };
+      }
+    `;
+    const found = findBannedWorkflowCallsInConstructionEffect(syntheticComponent, "createIllegalDumpingImportSession");
+    expect(found).toEqual([]);
+  });
+
+  it("the checker genuinely detects a banned call placed inside the construction effect, proving it is not a no-op or trivially-always-empty check (synthetic proof, independent of the real file's current correctness)", () => {
+    const badSynthetic = `
+      useEffect(() => {
+        const foo = createIllegalDumpingImportSession();
+        foo.start(x);
+        setSession(foo);
+        return () => { foo.dispose(); };
+      }, []);
+    `;
+    expect(findBannedWorkflowCallsInConstructionEffect(badSynthetic, "createIllegalDumpingImportSession")).toEqual(["start"]);
+  });
+
+  it("the checker detects the violation regardless of local variable name, a different workflow method (confirm), and a multiline call — proving it is not tied to one exact string or method (FT10's semantic class)", () => {
+    const badSynthetic2 = `
+      useEffect(() => {
+        const renamedThing = createIllegalDumpingImportSession();
+        setSession(renamedThing);
+        renamedThing
+          .confirm();
+        return () => { renamedThing.dispose(); };
+      }, []);
+    `;
+    expect(findBannedWorkflowCallsInConstructionEffect(badSynthetic2, "createIllegalDumpingImportSession")).toEqual(["confirm"]);
   });
 });
