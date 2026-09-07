@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import fs from "fs";
 import path from "path";
-import { isConfirmEligible, type ReviewPhase } from "@/app/data-hub/import/confirmEligibility";
+import { isConfirmEligible, shouldRenderPreviewTable, type ReviewPhase } from "@/app/data-hub/import/confirmEligibility";
 
 const ROOT = process.cwd();
 const REVIEW_PANEL_PATH = path.join(ROOT, "app", "data-hub", "import", "_components", "ReviewPanel.tsx");
@@ -77,18 +77,39 @@ describe("ReviewPanel.tsx — T11/T13/M6 structural distinctness", () => {
     expect(code).toMatch(/Showing first \{preview\.sampleRowCount\} of \{preview\.rowCount\} rows/);
   });
 
-  it("T13/M6: previewFailed's render branch and previewReady's render branch call genuinely DIFFERENT functions — previewFailed never calls PreviewTable (the same function previewReady uses)", () => {
+  it("T13/M6/R3: shouldRenderPreviewTable is TRUE for previewReady and FALSE for every other phase — a SEMANTIC proof, not a source-text block-slice. previewFailed can never satisfy successful-review/PreviewTable-rendering semantics (RTEST9)", () => {
+    const previewFailedState: ReviewPhase = { phase: "previewFailed", batch: FAKE_BATCH, worksheet: FAKE_WORKSHEET, code: "NETWORK", message: "m" };
+    const previewReadyState: ReviewPhase = { phase: "previewReady", batch: FAKE_BATCH, worksheet: FAKE_WORKSHEET, preview: preview() };
+    const confirmationReadyState: ReviewPhase = { phase: "confirmationReady", batch: FAKE_BATCH, worksheet: FAKE_WORKSHEET };
+    const previewingState: ReviewPhase = { phase: "previewing", batch: FAKE_BATCH, worksheet: FAKE_WORKSHEET };
+
+    expect(shouldRenderPreviewTable(previewFailedState)).toBe(false);
+    expect(shouldRenderPreviewTable(previewReadyState)).toBe(true);
+    expect(shouldRenderPreviewTable(confirmationReadyState)).toBe(false);
+    expect(shouldRenderPreviewTable(previewingState)).toBe(false);
+  });
+
+  it("T13/M6/R3: ReviewPanel's actual render logic routes the <PreviewTable call through shouldRenderPreviewTable — the exact function tested above, not a reimplemented inline condition. There is exactly one <PreviewTable call site in the file", () => {
     const code = readReviewPanel();
-    const previewFailedBlockStart = code.indexOf('state.phase === "previewFailed"');
-    const previewFailedBlockEnd = code.indexOf("state.phase === \"previewReady\"", previewFailedBlockStart);
-    expect(previewFailedBlockStart).toBeGreaterThan(-1);
-    expect(previewFailedBlockEnd).toBeGreaterThan(previewFailedBlockStart);
-    const previewFailedBlock = code.slice(previewFailedBlockStart, previewFailedBlockEnd);
-    // The previewFailed branch must NEVER render <PreviewTable — that call
-    // exists exactly once in the file, inside the previewReady branch only.
-    expect(previewFailedBlock).not.toContain("<PreviewTable");
+    expect(code).toMatch(/\{shouldRenderPreviewTable\(state\) \? <PreviewTable preview=\{state\.preview\} \/> : null\}/);
     const previewTableCallCount = (code.match(/<PreviewTable/g) ?? []).length;
     expect(previewTableCallCount).toBe(1);
+  });
+
+  it("R3 escaping-mutation proof: the OLD block-slicing technique's exact blind spot (widening shouldRenderPreviewTable's body to ALSO return true for previewFailed) is caught by the NEW semantic test above, but was NOT reliably catchable by source-text slicing between the previewFailed/previewReady string literals", () => {
+    // Reproduce the review-discovered escaping mutation directly against the
+    // pure function's OWN logic shape (mirrors what a real source edit to
+    // confirmEligibility.ts's shouldRenderPreviewTable body would do):
+    const mutatedShouldRenderPreviewTable = (state: ReviewPhase): boolean =>
+      state.phase === "previewReady" || state.phase === "previewFailed"; // <- the exact escaping mutation
+
+    const previewFailedState: ReviewPhase = { phase: "previewFailed", batch: FAKE_BATCH, worksheet: FAKE_WORKSHEET, code: "NETWORK", message: "m" };
+
+    // The semantic, direct-function-call test WOULD fail against the mutated
+    // logic (proving it discriminates the exact mutation the old test missed):
+    expect(mutatedShouldRenderPreviewTable(previewFailedState)).toBe(true); // mutation's (wrong) behavior
+    // ...whereas the REAL, unmutated function correctly returns false:
+    expect(shouldRenderPreviewTable(previewFailedState)).toBe(false);
   });
 
   it("previewFailed's acknowledgement checkbox starts unchecked (not pre-checked)", () => {

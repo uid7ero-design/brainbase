@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { DataHubIllegalDumpingImportSession } from "@/lib/data-hub/client/orchestrator";
 import ImportError from "./ImportError";
 import ConfirmAction from "./ConfirmAction";
-import { isConfirmEligible, type ReviewPhase } from "../confirmEligibility";
+import { createConfirmGuard, isConfirmEligible, shouldRenderPreviewTable, type ReviewPhase } from "../confirmEligibility";
 
 // Data Hub 5A.3C.1 — the REVIEW screen: confirmationReady, previewing,
 // previewFailed, previewReady. Owns the bounded preview table, the
@@ -23,13 +23,29 @@ export default function ReviewPanel({
   session: DataHubIllegalDumpingImportSession;
 }) {
   const [acknowledged, setAcknowledged] = useState(false);
-  // Local, synchronous double-submit guard (T16/M7): set the instant
-  // Confirm is clicked, BEFORE the orchestrator's own async confirm() call
-  // resolves or its phase transition propagates back through
-  // useSyncExternalStore. The orchestrator's own confirm() phase guard
-  // would also throw on a genuine re-entrant call, but this flag prevents
-  // the click from ever reaching a second confirm() call at all.
+  // `submitting` is display-only (drives ConfirmAction's busy state) — it
+  // is NOT the duplicate-submission guard itself (R2 remediation). A
+  // useState-backed boolean was proven, by independent review, insufficient
+  // as the actual guard: two genuinely same-tick invocations of the
+  // identical onConfirm closure both read the same captured
+  // `submitting === false` snapshot before either state update commits.
   const [submitting, setSubmitting] = useState(false);
+  // The REAL synchronous guard (T16/M7/R2/RTEST6-RTEST8): a ref-backed lock
+  // read/written only inside the onConfirm event handler below, never
+  // during render (see confirmEligibility.ts's own header comment for why
+  // this differs from the useRef-lazy-initializer pattern this repo's
+  // ESLint rule actually forbids). `useRef(createConfirmGuard(...))`
+  // constructs a new, cheap, side-effect-free guard object on every render,
+  // but React retains only the FIRST one — the same accepted tradeoff this
+  // repo already uses elsewhere for non-disposal-bearing resources.
+  const confirmGuardRef = useRef(createConfirmGuard(() => session.confirm()));
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   // Reset the acknowledgement whenever the preview state itself changes
   // (e.g. a retry lands on a fresh previewFailed, or a retry succeeds into
@@ -90,16 +106,17 @@ export default function ReviewPanel({
         </div>
       ) : null}
 
-      {state.phase === "previewReady" ? <PreviewTable preview={state.preview} /> : null}
+      {shouldRenderPreviewTable(state) ? <PreviewTable preview={state.preview} /> : null}
 
       {state.phase !== "previewing" && state.phase !== "confirmationReady" ? (
         <ConfirmAction
           eligible={eligible}
           busy={submitting}
           onConfirm={() => {
-            if (submitting) return;
             setSubmitting(true);
-            void session.confirm();
+            confirmGuardRef.current.invoke(() => {
+              if (mountedRef.current) setSubmitting(false);
+            });
           }}
           rowCount={state.phase === "previewReady" ? state.preview.rowCount : undefined}
         />

@@ -48,6 +48,21 @@ function ImportFlow({ onRestart }: { onRestart: () => void }) {
     headingRef.current?.focus();
   }, [screenGroup]);
 
+  // R1 remediation: `session` is null for exactly the first render, before
+  // the hook's construction effect commits (construction has zero side
+  // effects, so this is not a "duplicate upload" risk — see
+  // useDataHubImportSession.ts's own header comment). `state.phase` is
+  // "idle" during this window (the hook's own IDLE_STATE fallback), so
+  // nothing below this guard is ever reachable with a null session — every
+  // other screen group requires a real phase transition, which requires a
+  // real, non-null session to have already been constructed and
+  // subscribed to. This guard is placed AFTER every hook call (rules-of-
+  // hooks requires hooks to run unconditionally, in the same order, every
+  // render) — it only gates the JSX return, and keeps every downstream
+  // component's existing `session: DataHubIllegalDumpingImportSession`
+  // (non-null) prop type unchanged.
+  if (!session) return null;
+
   return (
     <div style={{ maxWidth: 720, margin: "0 auto", padding: "32px 24px" }}>
       <div ref={headingRef} tabIndex={-1} style={{ outline: "none" }} aria-live="polite">
@@ -111,7 +126,20 @@ function ImportFlow({ onRestart }: { onRestart: () => void }) {
                   title={copy.title}
                   message={copy.message}
                   retryLabel={copy.retryLabel}
-                  onRetry={copy.retryAction === "retryConfirm" ? () => void session.retryConfirm() : null}
+                  onRetry={
+                    copy.retryAction === "retryConfirm"
+                      ? () => {
+                          // R2-F: retryConfirm() re-enters confirm()'s own
+                          // synchronous phase guard — a same-tick second
+                          // click's call rejects there, not here; this
+                          // .catch consumes that rejection so it never
+                          // surfaces as an unhandled promise rejection.
+                          // The real error UI comes from the orchestrator's
+                          // own confirmFailed phase, not from this catch.
+                          session.retryConfirm().catch(() => {});
+                        }
+                      : null
+                  }
                 />
               );
             })()
