@@ -39,7 +39,7 @@ describe('Phase C3-EMAIL-FIX — A. formatCommercialDate(new Date(...))', () => 
 describe('Phase C3-EMAIL-FIX — B/C. quote.issue_date / expiry_date as Date (the real server-side shape)', () => {
   it('buildQuotePdf renders correctly when issue_date/expiry_date are Date objects, not strings', async () => {
     const quote = baseQuote({ issue_date: new Date(2026, 8, 7), expiry_date: new Date(2026, 9, 7) })
-    const bytes = await buildQuotePdf({ quote, lines: [baseLine()], supplier: baseSupplier(), brandMarkBase64: TINY_PNG_BASE64 })
+    const bytes = await buildQuotePdf({ quote, lines: [baseLine()], supplier: baseSupplier(), brandLockupBase64: TINY_PNG_BASE64 })
     expect(bytes.length).toBeGreaterThan(0)
   })
 })
@@ -99,14 +99,14 @@ describe('Phase C3-EMAIL-FIX — E/F/G. timezone independence, no date shifts, f
 describe('Phase C3-EMAIL-FIX — H. PDF renderer accepts a Date-backed quote end to end', () => {
   it('buildQuotePdf does not throw and produces non-empty PDF bytes for a fully Date-backed quote', async () => {
     const quote = baseQuote({ issue_date: new Date(2026, 8, 7), expiry_date: new Date(2026, 9, 7) })
-    const bytes = await buildQuotePdf({ quote, lines: [baseLine()], supplier: baseSupplier(), brandMarkBase64: TINY_PNG_BASE64 })
+    const bytes = await buildQuotePdf({ quote, lines: [baseLine()], supplier: baseSupplier(), brandLockupBase64: TINY_PNG_BASE64 })
     expect(bytes).toBeInstanceOf(Uint8Array)
     expect(bytes.length).toBeGreaterThan(100)
   })
 
   it('buildQuotePdf still works for a null expiry_date (Date-backed issue_date only)', async () => {
     const quote = baseQuote({ issue_date: new Date(2026, 8, 7), expiry_date: null })
-    await expect(buildQuotePdf({ quote, lines: [baseLine()], supplier: baseSupplier(), brandMarkBase64: TINY_PNG_BASE64 })).resolves.toBeInstanceOf(Uint8Array)
+    await expect(buildQuotePdf({ quote, lines: [baseLine()], supplier: baseSupplier(), brandLockupBase64: TINY_PNG_BASE64 })).resolves.toBeInstanceOf(Uint8Array)
   })
 })
 
