@@ -4,6 +4,18 @@ export interface AgentInput {
   department?: string;
   query?: string;
   dataContext?: unknown;
+  /**
+   * Phase D.4.6C.1 — a safe, non-DB, non-tenant-identifying signal that the
+   * operator's currently-selected module (see app/api/chat/route.ts's own
+   * moduleKey handling — the same field buildSystem() already uses to
+   * inject module-specific system-prompt context) is Organiser. Only
+   * agentRouter.ts's route() reads this, and only to prefer routing an
+   * otherwise-briefing-shaped query back to 'chat' (where Helena's
+   * Organiser tools actually live) — it never changes dataIntake/insight/
+   * action/social routing, never queries a board/item name, and never
+   * makes the router DB- or tenant-aware.
+   */
+  organiserContext?: boolean;
 }
 
 export interface Evidence {

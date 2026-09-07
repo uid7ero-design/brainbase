@@ -200,6 +200,56 @@ export async function listOrganiserItems(params: ListOrganiserItemsParams): Prom
   return rows.map((r) => ({ id: r.id, name: r.name, status: r.status, group_name: r.group_name ?? null }));
 }
 
+// ─── Live item name lookup (board activity accuracy) ─────────────────────────
+
+export interface GetOrganiserItemNamesByIdsParams {
+  organisationId: string;
+  boardId: string;
+  /** Item ids appearing on the current activity page — never an arbitrary/unbounded list. */
+  itemIds: string[];
+}
+
+/**
+ * Bounded, board-AND-tenant-scoped id->name lookup for exactly the item ids
+ * a caller already has in hand (the entity_id values on the current
+ * activity page, never a full-board fetch) — this is deliberately NOT
+ * listOrganiserItems with a large limit: a board can hold more live items
+ * than any single activity page could ever reference, so paging through
+ * "the first N items by position" could miss the very items the activity
+ * page is about, while this lookup can never miss one (it asks for exactly
+ * the ids it needs, capped at the caller's own activity-page size).
+ *
+ * Same "no existence side channel" behavior as listOrganiserItems: an id
+ * that doesn't exist and an id that belongs to another organisation/board
+ * both simply produce no row and no map entry — the caller (resolveItemLabel)
+ * already treats "not in the map" as "fall back to a snapshot name, or the
+ * generic label," so there is nothing to distinguish them for.
+ *
+ * Returns id+name only — no status/group/notes/custom fields — this is a
+ * label lookup, not an item read.
+ */
+export async function getOrganiserItemNamesByIds(
+  params: GetOrganiserItemNamesByIdsParams,
+): Promise<Record<string, string>> {
+  const { organisationId, boardId } = params;
+  if (!UUID_RE.test(boardId)) return {};
+
+  const uniqueIds = Array.from(new Set(params.itemIds)).filter((id) => UUID_RE.test(id));
+  if (uniqueIds.length === 0) return {};
+
+  const rows = (await sql`
+    SELECT id, name
+    FROM organiser_items
+    WHERE organisation_id = ${organisationId}
+      AND board_id = ${boardId}
+      AND id = ANY(${uniqueIds}::uuid[])
+  `) as { id: string; name: string }[];
+
+  const map: Record<string, string> = {};
+  for (const r of rows) map[r.id] = r.name;
+  return map;
+}
+
 // ─── Activity window resolver ────────────────────────────────────────────────
 
 export const ORGANISER_ACTIVITY_WINDOWS = ['today', 'yesterday', 'this_week', '7d', '30d'] as const;

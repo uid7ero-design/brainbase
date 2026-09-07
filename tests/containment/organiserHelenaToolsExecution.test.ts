@@ -17,8 +17,21 @@ import path from 'path'
 type SqlCall = { text: string; values: unknown[] }
 let sqlCalls: SqlCall[] = []
 let sqlResult: unknown[] = []
+// Phase D.4.6C.1 — get_organiser_board_activity now issues TWO sequential
+// sql calls (listBoardActivity, then getOrganiserItemNamesByIds). A plain
+// .mockImplementationOnce() would answer a call correctly but bypass this
+// closure's own sqlCalls tracking entirely (it replaces the whole
+// function), which is why other files that need that combination track
+// order via sqlMock.mock.invocationCallOrder instead (see
+// eventsArtworkUpload.test.ts). Rather than lose sqlCalls[] assertions for
+// the new tests below, sqlResultQueue lets each call in sequence return a
+// distinct result while every call still records into sqlCalls exactly as
+// before — an empty queue (the default) falls back to the original
+// single-shared-sqlResult behavior every existing test already relies on.
+let sqlResultQueue: unknown[][] = []
 const sqlMock = vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
   sqlCalls.push({ text: strings.join('§'), values })
+  if (sqlResultQueue.length > 0) return Promise.resolve(sqlResultQueue.shift())
   return Promise.resolve(sqlResult)
 })
 vi.mock('@/lib/db', () => ({
@@ -47,6 +60,7 @@ beforeEach(() => {
   sqlMock.mockReset()
   sqlCalls = []
   sqlResult = []
+  sqlResultQueue = []
   authorizeOrganiserRequestMock.mockReset()
   authorizeOrganiserRequestMock.mockResolvedValue({ ok: true, session: SESSION })
 })
@@ -321,6 +335,122 @@ describe('executeOrganiserTool — get_organiser_board_activity', () => {
     const parsed = JSON.parse(raw)
     expect(parsed.error).toBe('Unable to complete this Organiser request.')
     expect(raw).not.toMatch(/pool exhausted|db\.internal|5432/)
+  })
+})
+
+// ── Phase D.4.6C.1 — board activity live item-name resolution ──────────────
+//
+// get_organiser_board_activity now issues a SECOND, bounded sql call (via
+// getOrganiserItemNamesByIds) to resolve real names for exactly the item
+// ids referenced on the current activity page — see helenaRead.ts's own
+// header for why this is not listOrganiserItems with a large limit. Every
+// test below queues [activityRows, lookupRows] via sqlResultQueue so both
+// sql calls remain visible in sqlCalls[] for assertions (see this file's
+// own header comment on sqlResultQueue for why mockImplementationOnce can't
+// be used here).
+
+describe('executeOrganiserTool — get_organiser_board_activity — live item-name resolution', () => {
+  it('a live item with no name in before/after resolves its real current name (the QA-proven "Item" bug)', async () => {
+    sqlResultQueue = [
+      [activityRow({ event_type: 'item.moved', entity_type: 'item', entity_id: ITEM_A, before_json: { group_id: null }, after_json: { group_id: 'g1' } })],
+      [{ id: ITEM_A, name: 'Test 2' }],
+    ]
+
+    const raw = await executeOrganiserTool('get_organiser_board_activity', { board_id: BOARD_A })
+    const parsed = JSON.parse(raw)
+    expect(parsed.events[0].summary).toContain('"Test 2"')
+    expect(parsed.events[0].summary).not.toMatch(/"Item"/)
+
+    // The lookup itself is bounded and tenant/board-scoped.
+    expect(sqlCalls[1].text).toMatch(/organiser_items/)
+    expect(sqlCalls[1].values).toContain('org-a')
+    expect(sqlCalls[1].values).toContain(BOARD_A)
+    expect(sqlCalls[1].values).toContainEqual([ITEM_A])
+  })
+
+  it('a deleted item with a before_json name snapshot uses the snapshot, never the live lookup', async () => {
+    // Even if the live lookup somehow returned a DIFFERENT name (e.g. a
+    // reused id), the snapshot must win — resolveItemLabel's own priority
+    // order (after.name -> before.name -> live -> generic) is untouched by
+    // this phase.
+    sqlResultQueue = [
+      [activityRow({ event_type: 'item.deleted', entity_type: 'item', entity_id: ITEM_A, before_json: { name: 'Old Task Name', status: 'Done' }, after_json: null })],
+      [{ id: ITEM_A, name: 'Some Other Live Name' }],
+    ]
+
+    const raw = await executeOrganiserTool('get_organiser_board_activity', { board_id: BOARD_A })
+    const parsed = JSON.parse(raw)
+    expect(parsed.events[0].summary).toContain('"Old Task Name"')
+    expect(parsed.events[0].summary).not.toContain('Some Other Live Name')
+  })
+
+  it('no snapshot name and no live match (deleted item, no recorded name) falls back to the generic "Item" label — never invents a name', async () => {
+    // Simulates "wrong tenant / no longer exists" — the lookup simply
+    // returns no row, exactly like listOrganiserItems' own no-existence-
+    // side-channel behaviour; the tool must never distinguish this from
+    // "not queried at all".
+    sqlResultQueue = [
+      [activityRow({ event_type: 'item.moved', entity_type: 'item', entity_id: ITEM_A, before_json: { group_id: null }, after_json: { group_id: 'g1' } })],
+      [],
+    ]
+
+    const raw = await executeOrganiserTool('get_organiser_board_activity', { board_id: BOARD_A })
+    const parsed = JSON.parse(raw)
+    expect(parsed.events[0].summary).toContain('"Item"')
+    expect(sqlCalls).toHaveLength(2) // the lookup DID fire — it just found no matching row
+  })
+
+  it('comment/file activity (entity_id is the comment/file id, not an item id) is excluded from the item-name lookup set, even when a genuine item event shares the same page', async () => {
+    sqlResultQueue = [
+      [
+        activityRow({ event_type: 'comment.created', entity_type: 'comment', entity_id: 'comment-1', before_json: null, after_json: { excerpt: 'Waiting on supplier' } }),
+        activityRow({ event_type: 'file.added', entity_type: 'file', entity_id: 'file-1', before_json: null, after_json: { file_name: 'invoice.pdf', file_size: 1024 } }),
+        activityRow({ event_type: 'item.moved', entity_type: 'item', entity_id: ITEM_A, before_json: {}, after_json: {} }),
+      ],
+      [{ id: ITEM_A, name: 'Test 2' }],
+    ]
+
+    const raw = await executeOrganiserTool('get_organiser_board_activity', { board_id: BOARD_A })
+    const parsed = JSON.parse(raw)
+    // The lookup call (sqlCalls[1]) must only ever be asked to resolve the
+    // real item id — comment-1/file-1 must never appear in its id set.
+    expect(sqlCalls[1].values).toContainEqual([ITEM_A])
+    expect(parsed.events[1].summary).toContain('"invoice.pdf"')
+    expect(parsed.events[2].summary).toContain('"Test 2"')
+  })
+
+  it('no item-entity events on the page -> the second (name-lookup) sql call never fires at all', async () => {
+    sqlResultQueue = [
+      [activityRow({ event_type: 'comment.created', entity_type: 'comment', entity_id: 'comment-1', before_json: null, after_json: { excerpt: 'hi' } })],
+    ]
+    await executeOrganiserTool('get_organiser_board_activity', { board_id: BOARD_A })
+    expect(sqlMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('multiple activity rows referencing the SAME item id resolve with exactly one deduplicated lookup entry', async () => {
+    sqlResultQueue = [
+      [
+        activityRow({ id: 'act-1', event_type: 'item.moved', entity_type: 'item', entity_id: ITEM_A, before_json: {}, after_json: {} }),
+        activityRow({ id: 'act-2', event_type: 'item.updated', entity_type: 'item', entity_id: ITEM_A, before_json: { status: 'A' }, after_json: { status: 'B' } }),
+      ],
+      [{ id: ITEM_A, name: 'Test 2' }],
+    ]
+
+    const raw = await executeOrganiserTool('get_organiser_board_activity', { board_id: BOARD_A })
+    const parsed = JSON.parse(raw)
+    expect(sqlCalls[1].values).toContainEqual([ITEM_A])
+    expect(parsed.events[0].summary).toContain('"Test 2"')
+    expect(parsed.events[1].summary).toContain('"Test 2"')
+  })
+
+  it('the tool_result string still never contains organisation_id even with the new lookup wired in', async () => {
+    sqlResultQueue = [
+      [activityRow({ event_type: 'item.moved', entity_type: 'item', entity_id: ITEM_A, before_json: {}, after_json: {} })],
+      [{ id: ITEM_A, name: 'Test 2' }],
+    ]
+    const raw = await executeOrganiserTool('get_organiser_board_activity', { board_id: BOARD_A })
+    expect(raw).not.toMatch(/organisation_id/i)
+    expect(raw).not.toContain('org-a')
   })
 })
 

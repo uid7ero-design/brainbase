@@ -16,6 +16,10 @@ function q(query: string) {
   return route({ organisationId: 'org-a', userId: 'u1', query })
 }
 
+function qc(query: string, organiserContext: boolean) {
+  return route({ organisationId: 'org-a', userId: 'u1', query, organiserContext })
+}
+
 describe('Organiser-intent guard — reaches general chat (bypasses briefingAgent)', () => {
   it('"what changed on Founder Tasks today?" -> chat (would otherwise hit briefing\'s "what changed")', async () => {
     const r = await q('what changed on Founder Tasks today?')
@@ -104,6 +108,61 @@ describe('existing non-Organiser specialist routing is unaffected (regression)',
   it('empty query still returns the pre-existing "no query" fast path', async () => {
     const r = await route({ organisationId: 'org-a', userId: 'u1', query: '' })
     expect(r).toEqual({ agent: 'chat', confidence: 1, reason: 'no query' })
+  })
+})
+
+// ── Phase D.4.6C.1 — named-board routing accuracy (organiserContext) ───────
+//
+// "What changed on WORK today?" has no ORGANISER_INTENT_RE keyword
+// (no "board"/"item"/"organiser"/"group"/"task"), so it falls straight
+// through to briefing's "what changed" keyword match — QA proved this
+// reaches briefingAgent, which has zero Organiser awareness, instead of
+// Helena's general tool-use loop. Every case below stays on the
+// synchronous heuristic-keyword path (never reaches the Anthropic LLM
+// classification branch), so — like every other test in this file — no
+// client mocking is needed and no network call happens.
+
+describe('organiserContext — named-board briefing override', () => {
+  it('"what changed on WORK today?" + organiserContext -> chat (the QA-proven gap)', async () => {
+    const r = await qc('what changed on WORK today?', true)
+    expect(r.agent).toBe('chat')
+    expect(r.reason).toBe('organiser context — briefing override')
+  })
+
+  it('"what changed today?" + organiserContext -> chat', async () => {
+    const r = await qc('what changed today?', true)
+    expect(r.agent).toBe('chat')
+    expect(r.reason).toBe('organiser context — briefing override')
+  })
+
+  it('the SAME "what changed on WORK today?" query WITHOUT organiserContext still routes to briefing — no global behaviour change', async () => {
+    const r1 = await q('what changed on WORK today?')
+    expect(r1.agent).toBe('briefing')
+    const r2 = await qc('what changed on WORK today?', false)
+    expect(r2.agent).toBe('briefing')
+  })
+
+  it('known trade-off: organiserContext overrides ANY briefing-shaped query, including an explicit generic briefing request — documented, not hidden (see agentRouter.ts\'s shouldOverrideToChat header and the D.4.6C.1 report\'s Known Limitations)', async () => {
+    const r = await qc("brief me on today's operations", true)
+    expect(r.agent).toBe('chat')
+  })
+
+  it('organiserContext never affects non-briefing routes — insight/action/dataIntake/social keyword matches are untouched', async () => {
+    expect((await qc('why are missed bins increasing?', true)).agent).toBe('insight')
+    expect((await qc('what should I do about fleet?', true)).agent).toBe('action')
+    expect((await qc('what columns does this CSV have?', true)).agent).toBe('dataIntake')
+    expect((await qc('show me our Instagram engagement', true)).agent).toBe('social')
+  })
+
+  it('the ORGANISER_INTENT_RE guard still takes priority regardless of organiserContext — "what changed on this board" reaches chat via the guard, not the override', async () => {
+    const r = await qc('what changed on this board today?', true)
+    expect(r.agent).toBe('chat')
+    expect(r.reason).toBe('organiser intent')
+  })
+
+  it('organiserContext defaults to no behaviour change when omitted entirely (backward-compatible input)', async () => {
+    const r = await route({ organisationId: 'org-a', userId: 'u1', query: 'what changed on WORK today?' })
+    expect(r.agent).toBe('briefing')
   })
 })
 

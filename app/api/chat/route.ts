@@ -738,9 +738,19 @@ export async function POST(req: NextRequest) {
   const liveDataContext = isLDTennis ? '' : await preloadOrgData(orgId);
 
   // Agent routing — dispatch to specialist agents for data-heavy queries
+  //
+  // Phase D.4.6C.1 — organiserContext is derived from moduleKey (the exact
+  // same field buildSystem() above already uses for module-specific system-
+  // prompt context) rather than a new field: true only when the operator's
+  // currently-selected module is literally 'organiser'. See
+  // lib/agents/agentRouter.ts's own header on shouldOverrideToChat for what
+  // this does and does not fix, and its Known Limitations note on which
+  // Helena surfaces can actually set moduleKey today.
+  const organiserContext = moduleKey === 'organiser';
+
   if (lastUserMsg && !isLDTennis) {
     try {
-      const routeResult = await routeToAgent({ organisationId: orgId, userId, query: lastUserMsg });
+      const routeResult = await routeToAgent({ organisationId: orgId, userId, query: lastUserMsg, organiserContext });
       if (routeResult.agent !== 'chat') {
         const agentInput = { organisationId: orgId, userId, department, query: lastUserMsg };
         let agentOut: AgentOutput | null = null;

@@ -56,6 +56,45 @@ Return valid JSON only:
 // never reaching the tools that can answer them at all).
 const ORGANISER_INTENT_RE = /\b(organiser|organizer|boards?|items?|groups?|tasks?)\b/i;
 
+// Phase D.4.6C.1 — named-board routing accuracy. QA proved that a query
+// naming a board WITHOUT any ORGANISER_INTENT_RE keyword (e.g. "What
+// changed on WORK today?" — no "board"/"item"/"organiser" word) falls
+// straight through to the 'briefing' keyword match below ("what changed"),
+// which sends it to briefingAgent — an agent with zero Organiser awareness
+// — before Helena's general tool-use loop (the only place
+// lib/organiser/helenaTools.ts is wired in) ever sees it.
+//
+// This cannot be fixed with more keywords: "What changed on WORK today?"
+// and "What changed across the business today?" are lexically identical
+// shapes ("what changed <object> today") — only the semantic content of
+// <object> differs, which a generic regex cannot resolve without either a
+// hardcoded board-name list (explicitly disallowed) or a DB lookup
+// (explicitly disallowed for this router). So this guard does not attempt
+// to recognise a board NAME at all.
+//
+// Instead it reuses the one safe, already-existing, non-DB signal that
+// reaches this router today: input.organiserContext, set by
+// app/api/chat/route.ts from the SAME moduleKey field buildSystem() already
+// uses for module-specific system-prompt context (see AgentInput's own
+// header) — true only when the operator's currently-selected module is
+// literally 'organiser'. When true, a query that would otherwise resolve
+// to 'briefing' is redirected to 'chat' instead, since that is the one
+// route demonstrated to misfire; every other route (dataIntake/insight/
+// action/social) is left untouched, since QA never demonstrated a problem
+// there and this phase does not expand the guard beyond the proven gap.
+//
+// Known limitation (see the D.4.6C.1 report's Known Limitations section):
+// today this signal is only reachable from BrainBase.jsx's module switcher
+// (rendered at /dashboard) — HelenaWorkspace.jsx (the dedicated /hlna
+// conversation surface) deliberately omits that switcher, and
+// app/organiser/page.tsx has no embedded Helena chat surface at all. A
+// global, page-independent "operator is asking about Organiser" signal
+// remains future work (D.4.6D's organiserContext plumbing), not solved
+// here.
+function shouldOverrideToChat(route: AgentRoute, organiserContext: boolean | undefined): boolean {
+  return !!organiserContext && route === 'briefing';
+}
+
 const ROUTE_KEYWORDS: Record<AgentRoute, RegExp> = {
   dataIntake: /\b(upload|import|csv|xlsx|spreadsheet|column|mapping|file|intake|ingest)\b/i,
   insight:    /\b(trend|anomal|outli|spike|increas|decreas|pattern|detect|analys|insight|correlat)\b|why (is|are|did|has|have|hasn|aren|isn|were|was)|root cause|what caused|what.s causing|cost driver/i,
@@ -84,6 +123,9 @@ export async function route(input: AgentInput): Promise<RouterResult> {
   // Fast heuristic for obvious cases — skip LLM call
   const heuristic = heuristicRoute(query);
   if (heuristic !== 'chat') {
+    if (shouldOverrideToChat(heuristic, input.organiserContext)) {
+      return { agent: 'chat', confidence: 0.85, reason: 'organiser context — briefing override' };
+    }
     return { agent: heuristic, confidence: 0.85, reason: 'keyword match' };
   }
 
@@ -102,6 +144,9 @@ export async function route(input: AgentInput): Promise<RouterResult> {
     if (match) {
       const parsed = JSON.parse(match[0]) as RouterResult;
       if (['dataIntake', 'insight', 'action', 'briefing', 'social', 'chat'].includes(parsed.agent)) {
+        if (shouldOverrideToChat(parsed.agent, input.organiserContext)) {
+          return { agent: 'chat', confidence: parsed.confidence, reason: 'organiser context — briefing override' };
+        }
         return parsed;
       }
     }
