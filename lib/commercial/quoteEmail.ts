@@ -33,7 +33,9 @@ export interface QuoteEmailData {
   customerName: string;
   totalCents: number;
   currency: string;
-  expiryDate: string | null;
+  // Phase C3-EMAIL-FIX — see lib/commercial/quotePdf.ts's QuotePdfQuote
+  // for why this accepts a Date as well as a string.
+  expiryDate: string | Date | null;
   businessDisplayName: string;
   businessEmail: string | null;
   businessPhone: string | null;
@@ -94,20 +96,49 @@ export async function sendQuoteEmail(params: {
     return { result: 'failed', error: 'Quote has not been issued yet.' };
   }
 
-  const brandMarkBase64 = await loadBrandMarkBase64Server();
-  const pdfBytes = await buildQuotePdf({ quote, lines, supplier, brandMarkBase64 });
-  const pdfBase64 = Buffer.from(pdfBytes).toString('base64');
+  // Phase C3-EMAIL-FIX §4 — rendering (loading the brand asset, building
+  // the PDF, building the email HTML) is now its own try/catch, entirely
+  // separate from the provider-communication try/catch below. This is
+  // the fix for the bug that phase's own smoke test caught: previously,
+  // an exception thrown here (e.g. a template/date-formatting bug) ran
+  // OUTSIDE any try/catch in this function, so it propagated up through
+  // sendQuoteEmail() uncaught, out of the API route (which has no
+  // try/catch of its own around its `await sendQuoteEmail(...)` call),
+  // surfacing as an unhandled 500 instead of this function's own
+  // established structured result shape.
+  //
+  // A rendering failure is classified as 'failed', not 'unknown' — this
+  // is a DEFINITE, deterministic outcome (the provider was never even
+  // contacted, so there is zero ambiguity about whether an email went
+  // out), unlike the 'unknown' case below which specifically means "the
+  // provider call itself had an ambiguous network-level outcome." The
+  // caught error is logged server-side only (console.error) — the
+  // string returned to the caller is a fixed, generic message, never
+  // the error's own message/stack, so a future rendering bug can never
+  // leak an internal detail (a file path, a stack trace, a snapshot
+  // field value) into a caller-visible error, audit log, or API response.
+  let pdfBase64: string;
+  let subject: string;
+  let html: string;
+  try {
+    const brandMarkBase64 = await loadBrandMarkBase64Server();
+    const pdfBytes = await buildQuotePdf({ quote, lines, supplier, brandMarkBase64 });
+    pdfBase64 = Buffer.from(pdfBytes).toString('base64');
 
-  const { subject, html } = buildQuoteEmail({
-    quoteNumber: quote.quote_number,
-    customerName: quote.customer_name_snapshot ?? 'there',
-    totalCents: quote.total_cents,
-    currency: quote.currency,
-    expiryDate: quote.expiry_date,
-    businessDisplayName: supplier.displayName,
-    businessEmail: supplier.email,
-    businessPhone: supplier.phone,
-  });
+    ({ subject, html } = buildQuoteEmail({
+      quoteNumber: quote.quote_number,
+      customerName: quote.customer_name_snapshot ?? 'there',
+      totalCents: quote.total_cents,
+      currency: quote.currency,
+      expiryDate: quote.expiry_date,
+      businessDisplayName: supplier.displayName,
+      businessEmail: supplier.email,
+      businessPhone: supplier.phone,
+    }));
+  } catch (err) {
+    console.error('[commercial] quote email: rendering failed (PDF/template build)', err);
+    return { result: 'failed', error: 'The quote document could not be prepared for sending.' };
+  }
 
   try {
     const sent = await sendEmail({

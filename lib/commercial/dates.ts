@@ -28,22 +28,69 @@ import { parseLocalDate, AU_MONTHS } from '@/lib/date';
 // the exact abbreviation this module promises regardless of ICU/Node
 // version, and reuses the same slicing convention
 // formatWeekHeading()/AU_MONTHS already establish there.
+//
+// Takes a Date directly (LOCAL getters only — see resolveLocalDate()'s
+// own comment for why this is the correct, not merely convenient,
+// accessor choice for a Date produced by resolveLocalDate()).
 function formatShort(d: Date): string {
   return `${d.getDate()} ${AU_MONTHS[d.getMonth()].slice(0, 3)} ${d.getFullYear()}`;
 }
 
-/** e.g. "7 Sep 2026". Returns '—' for null/undefined/unparseable input. */
-export function formatCommercialDate(dateStr: string | null | undefined): string {
-  if (!dateStr) return '—';
-  const d = parseLocalDate(dateStr);
+// Phase C3-EMAIL-FIX — root cause: @neondatabase/serverless (the driver
+// lib/db.ts's `sql` tagged template uses) parses a PostgreSQL DATE
+// column into a native JS Date object, NOT a string — confirmed
+// empirically against real production data (see this phase's own report
+// for the full trace). It does this via `new Date(year, monthIndex,
+// day)`, i.e. LOCAL Date-constructor components representing local
+// midnight of the intended calendar date — NOT `Date.UTC(...)`. That
+// object is only ever handed a plain string by the ONE code path that
+// round-trips it through JSON first (a page fetching quote data over
+// HTTP: JSON.stringify calls Date.prototype.toJSON -> toISOString(),
+// so the browser always receives a string). The direct, in-process
+// server-side path (lib/commercial/quoteEmail.ts's sendQuoteEmail(),
+// which never goes through HTTP/JSON between the DB read and here)
+// receives the raw Date object instead — that mismatch is the entire
+// bug this phase fixes.
+//
+// Because the driver constructs that Date using LOCAL components, and
+// this function reads it back using LOCAL getters (getFullYear/
+// getMonth/getDate, never getUTCFullYear/getUTCMonth/getUTCDate), the
+// original y/m/d round-trips EXACTLY — regardless of what timezone the
+// current process actually runs in (Vercel's Lambda, a developer's own
+// machine, anything) — because the same process/timezone context both
+// wrote it (inside the driver, moments earlier in the same request) and
+// reads it back (here). This was verified empirically against real
+// production data: for a column whose raw `::text` value was
+// '2026-09-07', the driver-returned Date's LOCAL getters gave (2026, 8,
+// 7) — correct — while its UTC getters gave (2026, 8, 6) — one day
+// EARLY. Using the UTC getters here would have silently reintroduced
+// exactly the "day-shift" bug lib/date.ts's own parseLocalDate() was
+// already written to avoid for the string case.
+//
+// The string branch is UNCHANGED from before this phase: still
+// lib/date.ts's parseLocalDate() (slice to 'YYYY-MM-DD', construct a
+// local Date from the parsed components) — this fix only ADDS a branch
+// for a Date input, it does not touch string handling or lib/date.ts's
+// own contract (that function is shared with lib/tennisSchedule.ts and
+// app/dashboard/sessions/page.tsx, which always pass strings — its
+// signature and behavior are deliberately left untouched here).
+function resolveLocalDate(value: string | Date): Date {
+  if (value instanceof Date) return value;
+  return parseLocalDate(value);
+}
+
+/** e.g. "7 Sep 2026". Returns '—' for null/undefined/unparseable input. Accepts either a 'YYYY-MM-DD'/ISO string (the shape every browser-facing API response uses, since JSON serializes a Date to a string) or a native Date object (the shape the server-side driver hands back directly, in-process, for a DATE column — see resolveLocalDate()'s comment). */
+export function formatCommercialDate(value: string | Date | null | undefined): string {
+  if (!value) return '—';
+  const d = resolveLocalDate(value);
   if (isNaN(d.getTime())) return '—';
   return formatShort(d);
 }
 
 /** Same as formatCommercialDate but returns null (not '—') for empty input — for callers that need to conditionally omit a whole row/line rather than print a placeholder. */
-export function formatCommercialDateOrNull(dateStr: string | null | undefined): string | null {
-  if (!dateStr) return null;
-  const d = parseLocalDate(dateStr);
+export function formatCommercialDateOrNull(value: string | Date | null | undefined): string | null {
+  if (!value) return null;
+  const d = resolveLocalDate(value);
   if (isNaN(d.getTime())) return null;
   return formatShort(d);
 }
