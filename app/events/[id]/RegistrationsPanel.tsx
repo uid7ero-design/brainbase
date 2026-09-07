@@ -247,11 +247,15 @@ export default function RegistrationsPanel({
     }
   }
 
-  // §A.1 — cancel an abandoned/incomplete PENDING reservation. Manager-
-  // only, destructive (releases the reservation for good), so it goes
-  // through the same confirm() pattern as refund above.
+  // §A.1 — cancel an abandoned/incomplete PENDING reservation.
+  // Phase L1 — the same route/handler also cancels a CONFIRMED free
+  // (NOT_REQUIRED) order (see the cancel route's own comment for why
+  // one route covers both: same staff action, two starting states).
+  // Manager-only, destructive (a free order's ticket_token becomes
+  // permanently invalid — see publicTicket.ts), so it goes through the
+  // same confirm() pattern as refund above in both cases.
   async function cancelPending(orderId: string) {
-    if (!confirm('Cancel this pending registration? This releases the reserved tickets.')) return;
+    if (!confirm('Cancel this registration? Any issued ticket(s) will stop working immediately and the capacity will be released.')) return;
     setActionError(null);
     setCancellingId(orderId);
     try {
@@ -475,6 +479,22 @@ export default function RegistrationsPanel({
                       {cancellingId === o.id ? 'Cancelling…' : 'Cancel registration'}
                     </DangerButton>
                   </>
+                )}
+                {/* Phase L1 — the only staff-facing cancellation path for
+                    a confirmed free order (no refund/payment involved at
+                    all, so this never overlaps with the Refund button
+                    above, which is gated to PAID orders only). Reuses
+                    cancelPending()/the same POST .../cancel route as the
+                    PENDING case above — see that route's own comment for
+                    why one action covers both starting states. */}
+                {canManage && o.status === 'CONFIRMED' && o.payment_status === 'NOT_REQUIRED' && (
+                  <DangerButton
+                    ariaLabel={`Cancel free registration for ${o.purchaser_name}`}
+                    onClick={() => cancelPending(o.id)}
+                    disabled={cancellingId === o.id}
+                  >
+                    {cancellingId === o.id ? 'Cancelling…' : 'Cancel registration'}
+                  </DangerButton>
                 )}
               </div>
             </div>

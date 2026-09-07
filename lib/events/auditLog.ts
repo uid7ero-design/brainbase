@@ -119,10 +119,26 @@ export async function logCheckInUndone(params: { organisationId: string; userId:
   });
 }
 
-export async function logCancelled(params: { organisationId: string; userId: string; orderId: string }): Promise<void> {
+// Phase L1 — before/after now required (previously null/null): a
+// cancellation audit entry that doesn't record what state it moved
+// FROM and TO is materially less useful for support than the
+// purchaser/attendee-edit entries above, which already carry this
+// shape. eventId is carried inside both before/after (rather than as a
+// new top-level column on audit_logs, which would touch every other
+// log*() function's shared insertAuditLog() call shape below) — cheap,
+// consistent with this file's existing before/after convention, and
+// sufficient to identify "actor, order, event, previous state,
+// resulting state" together in one row without a schema change.
+export async function logCancelled(params: {
+  organisationId: string; userId: string; orderId: string; eventId: string;
+  before: { status: string; payment_status: string };
+  after: { status: string; payment_status: string };
+}): Promise<void> {
   await insertAuditLog({
     organisationId: params.organisationId, userId: params.userId, action: 'event_order.cancelled',
-    resourceId: params.orderId, beforeState: null, afterState: null,
+    resourceId: params.orderId,
+    beforeState: { event_id: params.eventId, ...params.before },
+    afterState: { event_id: params.eventId, ...params.after },
   });
 }
 
