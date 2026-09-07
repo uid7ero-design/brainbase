@@ -2,6 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import sql from '@/lib/db';
 import { authorizeOrganiserRequest } from '@/lib/organiser/authorize';
 
+// Phase D.4.6F — same UUID-format pre-check used throughout
+// lib/organiser/helenaRead.ts/helenaTools.ts. Rejecting a malformed
+// group_id/parent_item_id here, before it ever reaches SQL, means the
+// main statement's `::uuid` casts (added below) can never throw — a
+// malformed id is just another shape of "invalid relationship", not a
+// 500.
+const UUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ itemId: string }> }) {
   const auth = await authorizeOrganiserRequest('viewer');
   if (!auth.ok) return auth.response;
@@ -28,6 +36,17 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ it
   const hasParentId = Object.prototype.hasOwnProperty.call(body, 'parent_item_id');
   const parentIdVal = hasParentId ? (typeof body.parent_item_id === 'string' ? body.parent_item_id : null) : null;
   const hasDueDate  = Object.prototype.hasOwnProperty.call(body, 'due_date');
+
+  // Phase D.4.6F — reject a malformed (non-UUID-shaped, non-null) target
+  // before it ever reaches SQL. A generic message only — never confirms
+  // or denies whether a well-formed id from another tenant/board exists
+  // (see the matching messages below for the same reason).
+  if (hasGroupId && groupIdVal !== null && !UUID_RE.test(groupIdVal)) {
+    return NextResponse.json({ error: 'Invalid group for this item.' }, { status: 400 });
+  }
+  if (hasParentId && parentIdVal !== null && !UUID_RE.test(parentIdVal)) {
+    return NextResponse.json({ error: 'Invalid parent item.' }, { status: 400 });
+  }
 
   // Merge (not replace) custom column values via jsonb `||` so editing one
   // cell never clobbers another column's value written by a concurrent edit.
@@ -92,12 +111,78 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ it
   // still truncate safely with the same explicit marker; only the exact
   // cutoff for that narrow class of input can differ.
   const rows = await sql`
-    WITH old AS MATERIALIZED (
+    WITH RECURSIVE old AS MATERIALIZED (
       SELECT id, board_id, group_id, parent_item_id, name, status, priority, owner,
              due_date, notes, position, custom_values
       FROM organiser_items
       WHERE id = ${itemId} AND organisation_id = ${session.organisationId}
       FOR UPDATE
+    ),
+    -- Phase D.4.6F — walks UPWARD from the PROPOSED parent via
+    -- parent_item_id, scoped to this item's own organisation. If itemId
+    -- ever appears in that ancestor chain, setting this item's
+    -- parent_item_id to the proposed value would make itemId its own
+    -- descendant's descendant — a cycle. The 'visited' array column is
+    -- the Postgres-documented cycle-safe idiom for a self-referencing
+    -- recursive CTE (see the Postgres manual's 'Recursive Queries'
+    -- section): UNION ALL plus an explicit NOT gi.id = ANY(a.visited)
+    -- guard in the recursive term. A bare UNION here would NOT be
+    -- cycle-safe on its own — Postgres UNION dedups on the FULL row
+    -- tuple, and every row in this walk already differs by its visited
+    -- array, so a pre-existing corrupted cycle in legacy data (see
+    -- report section on existing-data safety) would never produce a
+    -- duplicate row for UNION to drop, and the recursion would never
+    -- terminate on its own. The array-membership guard is what actually
+    -- stops it — the array_length(...) < 500 check is a second,
+    -- redundant depth cap purely as defense in depth (e.g. against a
+    -- pathological non-cyclic chain), not the primary termination
+    -- mechanism.
+    ancestors AS (
+      SELECT id, parent_item_id, ARRAY[id] AS visited
+      FROM organiser_items
+      WHERE id = ${parentIdVal}::uuid AND organisation_id = ${session.organisationId}
+      UNION ALL
+      SELECT gi.id, gi.parent_item_id, a.visited || gi.id
+      FROM organiser_items gi
+      JOIN ancestors a ON gi.id = a.parent_item_id
+      WHERE gi.organisation_id = ${session.organisationId}
+        AND NOT gi.id = ANY(a.visited)
+        AND array_length(a.visited, 1) < 500
+    ),
+    would_cycle AS (
+      SELECT EXISTS (SELECT 1 FROM ancestors WHERE id = ${itemId}::uuid) AS cycle
+    ),
+    -- Phase D.4.6F — the DB foreign keys on group_id/parent_item_id only
+    -- prove the target row exists SOMEWHERE; they say nothing about which
+    -- organisation or board it belongs to. This CTE is the actual
+    -- same-organisation/same-board relationship invariant (see the phase
+    -- report's "Define relationship invariants" section). Trivially valid
+    -- (true) whenever the field isn't being changed at all, or is being
+    -- cleared to NULL — this never blocks an unrelated field-only PATCH,
+    -- and null remains a valid group_id/parent_item_id exactly as before.
+    validation AS (
+      SELECT
+        (
+          NOT ${hasGroupId} OR ${groupIdVal}::uuid IS NULL OR EXISTS (
+            SELECT 1 FROM organiser_groups g
+            WHERE g.id = ${groupIdVal}::uuid
+              AND g.organisation_id = ${session.organisationId}
+              AND g.board_id = old.board_id
+          )
+        ) AS group_valid,
+        (
+          NOT ${hasParentId} OR ${parentIdVal}::uuid IS NULL OR (
+            EXISTS (
+              SELECT 1 FROM organiser_items p
+              WHERE p.id = ${parentIdVal}::uuid
+                AND p.organisation_id = ${session.organisationId}
+                AND p.board_id = old.board_id
+            )
+            AND ${parentIdVal}::uuid IS DISTINCT FROM ${itemId}::uuid
+            AND NOT (SELECT cycle FROM would_cycle)
+          )
+        ) AS parent_valid
+      FROM old
     ),
     updated AS (
       UPDATE organiser_items i SET
@@ -112,8 +197,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ it
         position       = COALESCE(${position}, old.position),
         custom_values  = CASE WHEN ${hasCustomValues} THEN old.custom_values || ${customValuesJson}::jsonb ELSE old.custom_values END,
         updated_at     = NOW()
-      FROM old
-      WHERE i.id = old.id
+      FROM old, validation
+      WHERE i.id = old.id AND validation.group_valid AND validation.parent_valid
       RETURNING i.id, i.board_id, i.group_id, i.parent_item_id, i.name, i.status, i.priority, i.owner,
                 i.due_date::text AS due_date, i.notes, i.fields, i.custom_values, i.position, i.created_at, i.updated_at
     ),
@@ -160,11 +245,38 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ it
       WHERE field_diff.any_changed IS TRUE OR custom_diff.any_changed IS TRUE
       RETURNING id
     )
-    SELECT updated.* FROM updated
+    -- Phase D.4.6F — LEFT JOIN updated (not the prior plain FROM
+    -- updated): when validation rejected the write, updated has zero
+    -- rows (see its WHERE clause above), but old/validation still do —
+    -- this row is what lets the route below distinguish "item not found
+    -- at all" (zero rows here too, unchanged 404) from "item found,
+    -- relationship rejected" (one row, group_valid/parent_valid says
+    -- which) from "item found, write applied" (one row, all updated.*
+    -- columns populated).
+    SELECT validation.group_valid, validation.parent_valid, updated.*
+    FROM old
+    JOIN validation ON true
+    LEFT JOIN updated ON true
   `;
 
   if (rows.length === 0) return NextResponse.json({ error: 'Not found' }, { status: 404 });
-  return NextResponse.json({ item: rows[0] });
+  const row = rows[0] as Record<string, unknown>;
+  if (!row.group_valid) return NextResponse.json({ error: 'Invalid group for this item.' }, { status: 400 });
+  if (!row.parent_valid) return NextResponse.json({ error: 'Invalid parent item.' }, { status: 400 });
+  // Explicit column list, not `rows[0]` verbatim — group_valid/parent_valid
+  // are query-internal diagnostics, never part of the { item } contract.
+  const {
+    id, board_id, group_id, parent_item_id, name: itemName, status: itemStatus, priority: itemPriority,
+    owner: itemOwner, due_date: itemDueDate, notes: itemNotes, fields, custom_values, position: itemPosition,
+    created_at, updated_at,
+  } = row;
+  return NextResponse.json({
+    item: {
+      id, board_id, group_id, parent_item_id, name: itemName, status: itemStatus, priority: itemPriority,
+      owner: itemOwner, due_date: itemDueDate, notes: itemNotes, fields, custom_values, position: itemPosition,
+      created_at, updated_at,
+    },
+  });
 }
 
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ itemId: string }> }) {
