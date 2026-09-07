@@ -69,8 +69,10 @@ export default async function TicketPage({ params }: { params: Promise<Params> }
 
         <div style={{ border: `1px solid ${BORDER}`, borderRadius: 18, background: 'rgba(255,255,255,.02)', overflow: 'hidden', boxShadow: '0 14px 40px rgba(0,0,0,.35)' }}>
           {event.artwork_url && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={event.artwork_url} alt={`${event.name} artwork`} style={{ width: '100%', maxHeight: 220, objectFit: 'cover', display: 'block' }} />
+            <div style={{ width: '100%', maxHeight: 320, background: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={event.artwork_url} alt={`${event.name} artwork`} style={{ width: '100%', maxHeight: 320, objectFit: 'contain', display: 'block' }} />
+            </div>
           )}
 
           <div style={{ padding: '22px 22px 6px' }}>
