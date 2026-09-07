@@ -160,15 +160,102 @@ describe('Listing/thumbnail artwork is deliberately unchanged — this fix is sc
     expect(nearby).toContain("objectFit: 'cover'")
   })
 
-  it('the ticket page\'s small artwork thumbnail is unchanged — a deliberately different, compact context, not the large primary artwork', () => {
-    expect(ticketSource).toMatch(/maxHeight:\s*220/)
-    expect(ticketSource).toContain("objectFit: 'cover'")
-  })
-
   it('the manager-side artwork preview/thumbnail components are a completely separate implementation, never shared with the public detail page', () => {
     expect(managerSource).toContain('function ArtworkThumb')
     expect(managerSource).not.toContain('function EventArtwork')
     expect(managerSource).not.toMatch(/\.bb-event-artwork-img/)
+  })
+})
+
+describe('Public ticket page artwork — no longer forces a cover crop (Production mobile fix)', () => {
+  it('the old fixed maxHeight:220 + object-fit:cover pairing is gone', () => {
+    const start = ticketSource.indexOf('event.artwork_url && (')
+    expect(start).toBeGreaterThan(-1)
+    const end = ticketSource.indexOf(')}', start)
+    const block = ticketSource.slice(start, end)
+    expect(block).not.toContain("objectFit: 'cover'")
+  })
+
+  it('the image itself uses object-fit: contain — the whole artwork is always visible, never cropped', () => {
+    const start = ticketSource.indexOf('event.artwork_url && (')
+    const end = ticketSource.indexOf(')}', start)
+    const block = ticketSource.slice(start, end)
+    expect(block).toContain("objectFit: 'contain'")
+  })
+
+  it('never stretches the artwork — no non-uniform width/height forcing (object-fit: fill is never used)', () => {
+    const start = ticketSource.indexOf('event.artwork_url && (')
+    const end = ticketSource.indexOf(')}', start)
+    const block = ticketSource.slice(start, end)
+    expect(block).not.toContain("objectFit: 'fill'")
+  })
+
+  it('a bounded, mobile-sensible max-height still caps how tall a portrait poster can render (compact, not full-page)', () => {
+    const start = ticketSource.indexOf('event.artwork_url && (')
+    const end = ticketSource.indexOf(')}', start)
+    const block = ticketSource.slice(start, end)
+    const maxHeights = block.match(/maxHeight:\s*(\d+)/g) ?? []
+    expect(maxHeights.length).toBeGreaterThan(0)
+    for (const m of maxHeights) {
+      const px = Number(m.replace(/\D/g, ''))
+      expect(px).toBeGreaterThan(0)
+      expect(px).toBeLessThan(600) // sensible compact ceiling, not "consume the entire page"
+    }
+  })
+
+  it('the artwork is centered within its frame — a flex-centered wrapper, so a narrower (portrait/pillarboxed) render is never left/top-aligned', () => {
+    const start = ticketSource.indexOf('event.artwork_url && (')
+    const end = ticketSource.indexOf(')}', start)
+    const block = ticketSource.slice(start, end)
+    expect(block).toContain("display: 'flex'")
+    expect(block).toContain("alignItems: 'center'")
+    expect(block).toContain("justifyContent: 'center'")
+  })
+
+  it('exactly one sizing rule handles every orientation — no portrait/landscape/square branching, matching the sibling public-detail-page fix\'s own convention', () => {
+    const occurrences = ticketSource.match(/objectFit:\s*'contain'/g) ?? []
+    expect(occurrences.length).toBe(1)
+    expect(ticketSource).not.toMatch(/naturalWidth|naturalHeight|orientation/i)
+  })
+
+  it('rounded corners are preserved via the existing outer card\'s overflow:hidden + borderRadius:18 — not duplicated on the new inner wrapper', () => {
+    const cardStart = ticketSource.indexOf("border: `1px solid")
+    const cardEnd = ticketSource.indexOf('\n\n', cardStart)
+    const cardOpenTag = ticketSource.slice(cardStart, ticketSource.indexOf('}}', cardStart) + 2)
+    expect(cardOpenTag).toContain("overflow: 'hidden'")
+    expect(cardOpenTag).toContain('borderRadius: 18')
+    void cardEnd
+  })
+
+  it('no-artwork fallback is unchanged — still gated on event.artwork_url, rendering nothing when absent', () => {
+    expect(ticketSource).toContain('event.artwork_url && (')
+  })
+
+  it('still a plain <img>, not next/image — consistent with the sibling public-detail-page decision (arbitrary external host, no remote-pattern allow-list)', () => {
+    const start = ticketSource.indexOf('event.artwork_url && (')
+    const end = ticketSource.indexOf(')}', start)
+    const block = ticketSource.slice(start, end)
+    expect(block).toContain('<img')
+    expect(block).not.toMatch(/next\/image/)
+  })
+
+  it('this is presentation-only — the public-field allowlist resolver (getPublicTicketDetail) is untouched by this pass', () => {
+    const publicTicketSource = read('lib/events/publicTicket.ts')
+    expect(publicTicketSource).toContain('export async function getPublicTicketDetail')
+    // Scope the check to the returned object shape only — organisation_id
+    // legitimately appears earlier in the SQL JOIN/WHERE clauses for
+    // tenant scoping; it must never appear in what's handed back to the caller.
+    const returnStart = publicTicketSource.indexOf('return {\n    ok: true,')
+    expect(returnStart).toBeGreaterThan(-1)
+    const returnBlock = publicTicketSource.slice(returnStart, publicTicketSource.indexOf('\n  };', returnStart))
+    expect(returnBlock).not.toMatch(/purchaser_email|organisation_id|created_by/)
+  })
+
+  it('QR generation and ticket-token/URL construction are untouched by this pass', () => {
+    expect(ticketSource).toContain('buildTicketUrl(origin, token)')
+    expect(ticketSource).toContain('generateTicketQrSvg(ticketUrl)')
+    const qrSource = read('lib/events/qr.ts')
+    expect(qrSource).toContain("return `${origin}/t/${ticketToken}`")
   })
 })
 
