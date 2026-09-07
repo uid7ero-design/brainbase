@@ -32,6 +32,8 @@ import type {
   ListWorksheetsResponseBody,
   ListWorksheetsResult,
   TransportResult,
+  WorksheetPreviewResponseBody,
+  WorksheetPreviewResult,
 } from "./types";
 
 export interface HttpClientConfig {
@@ -258,6 +260,23 @@ export async function listWorksheetsForBatch(
   return executeCall<ListWorksheetsResponseBody>(
     config,
     resolveUrl(config, `/api/data-hub/import-batches/${encodeURIComponent(importBatchId)}/worksheets`),
+    { method: "GET" },
+    callOptions
+  );
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/data-hub/worksheets/[id]/preview
+// ---------------------------------------------------------------------------
+
+export async function fetchWorksheetPreview(
+  worksheetId: string,
+  config?: HttpClientConfig,
+  callOptions?: CallOptions
+): Promise<WorksheetPreviewResult> {
+  return executeCall<WorksheetPreviewResponseBody>(
+    config,
+    resolveUrl(config, `/api/data-hub/worksheets/${encodeURIComponent(worksheetId)}/preview`),
     { method: "GET" },
     callOptions
   );
