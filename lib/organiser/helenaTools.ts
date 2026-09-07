@@ -201,6 +201,19 @@ function readLimit(input: Record<string, unknown>): number | undefined {
 }
 
 /**
+ * Phase D.4.6D — {board_id, item_id} fallback values, supplied ONLY by
+ * app/api/chat/route.ts's own trusted, tenant-scoped
+ * resolveHelenaOrganiserContext() result — never anything read from the
+ * request body directly. Deliberately narrow (no organisationId, no
+ * name): these two ids fill in a tool argument the MODEL left out, and
+ * that's all they're for.
+ */
+export interface OrganiserToolContextDefaults {
+  boardId?: string;
+  itemId?: string;
+}
+
+/**
  * Executes one Organiser tool call and returns its tool_result content as a
  * JSON string. NEVER throws — every failure path (auth denial, invalid
  * input, a D.4.6B helper reporting ok:false, an unexpected exception) is
@@ -211,8 +224,20 @@ function readLimit(input: Record<string, unknown>): number | undefined {
  * D.4.6B helpers already guarantee the last three; this function's own job
  * is only the first two, plus turning "helper said ok:false" into the same
  * kind of generic text.
+ *
+ * contextDefaults (Phase D.4.6D) ONLY fills a board_id/item_id argument the
+ * model left out entirely — `readString(...) ?? contextDefaults?.x` means
+ * an explicit string the model DID supply (even one that turns out
+ * invalid) always wins outright; the fallback never fires and never
+ * "corrects" a model-supplied id. This is the sole place "current
+ * board/item" navigation context can influence a tool call — it never
+ * bypasses UUID validation or the fresh authorization above.
  */
-export async function executeOrganiserTool(name: OrganiserToolName, rawInput: unknown): Promise<string> {
+export async function executeOrganiserTool(
+  name: OrganiserToolName,
+  rawInput: unknown,
+  contextDefaults?: OrganiserToolContextDefaults,
+): Promise<string> {
   const auth = await authorizeHelenaOrganiserRead();
   if (!auth.ok) return JSON.stringify({ error: GENERIC_DENIAL });
   const { organisationId } = auth;
@@ -232,7 +257,7 @@ export async function executeOrganiserTool(name: OrganiserToolName, rawInput: un
       }
 
       case 'list_organiser_items': {
-        const boardId = readString(input, 'board_id') ?? '';
+        const boardId = readString(input, 'board_id') ?? contextDefaults?.boardId ?? '';
         if (!UUID_RE.test(boardId)) return JSON.stringify({ error: INVALID_BOARD_ID });
         const items = await listOrganiserItems({
           organisationId,
@@ -244,7 +269,7 @@ export async function executeOrganiserTool(name: OrganiserToolName, rawInput: un
       }
 
       case 'get_organiser_board_activity': {
-        const boardId = readString(input, 'board_id') ?? '';
+        const boardId = readString(input, 'board_id') ?? contextDefaults?.boardId ?? '';
         if (!UUID_RE.test(boardId)) return JSON.stringify({ error: INVALID_BOARD_ID });
         const window = parseActivityWindow(input.window);
         const { start, end } = resolveActivityWindow(window);
@@ -281,7 +306,7 @@ export async function executeOrganiserTool(name: OrganiserToolName, rawInput: un
       }
 
       case 'get_organiser_item_activity': {
-        const itemId = readString(input, 'item_id') ?? '';
+        const itemId = readString(input, 'item_id') ?? contextDefaults?.itemId ?? '';
         if (!UUID_RE.test(itemId)) return JSON.stringify({ error: INVALID_ITEM_ID });
         const window = parseActivityWindow(input.window);
         const { start, end } = resolveActivityWindow(window);

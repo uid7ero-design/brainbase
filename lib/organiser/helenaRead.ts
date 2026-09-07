@@ -250,6 +250,127 @@ export async function getOrganiserItemNamesByIds(
   return map;
 }
 
+// ─── Current-location context resolution (Phase D.4.6D) ──────────────────────
+//
+// The browser may tell Helena which board/item the operator is CURRENTLY
+// LOOKING AT (a navigation hint, e.g. "they have the WORK board open, with
+// the 'Test 2' item drawer open") — but that hint is never authorization
+// and never a source of truth. This resolver is the ONLY place a client-
+// supplied boardId/itemId hint is turned into something Helena is allowed
+// to reason about: every id is re-validated against organisation_id (and,
+// for an item, its own board_id) on every single request, and the NAME
+// returned is always the server's own canonical value — a client-supplied
+// display name is never read by this function at all (there is no
+// boardName/itemName parameter here on purpose; see helenaContextHint's
+// own header in app/api/chat/route.ts for why names are resolved, not
+// trusted).
+//
+// A hint that doesn't resolve (wrong tenant, deleted, malformed id, a
+// board/item mismatch — see below) collapses to the exact same `null` a
+// caller gets from sending no hint at all: there is no existence side
+// channel here, matching every other Helena-Organiser read in this file.
+
+export interface HelenaOrganiserBoardContext {
+  id: string;
+  name: string;
+}
+
+export interface HelenaOrganiserItemContext {
+  id: string;
+  name: string;
+  /** The item's OWN canonical board id — always DB-derived, never the caller's hint. */
+  boardId: string;
+}
+
+export interface HelenaOrganiserContext {
+  board: HelenaOrganiserBoardContext | null;
+  item: HelenaOrganiserItemContext | null;
+}
+
+export interface ResolveHelenaOrganiserContextParams {
+  organisationId: string;
+  /** Raw, unvalidated hint from the client — may be missing, malformed, or stale. */
+  boardIdHint?: string;
+  itemIdHint?: string;
+}
+
+const EMPTY_ORGANISER_CONTEXT: HelenaOrganiserContext = { board: null, item: null };
+
+/**
+ * Resolves a client-supplied {boardId?, itemId?} navigation hint into
+ * trusted, tenant-scoped canonical entities, or nulls out whatever part of
+ * the hint doesn't check out. Never throws.
+ *
+ * ITEM/BOARD RELATIONSHIP: if both hints are present, the item is only
+ * honored when it genuinely belongs to the hinted board — a mismatch
+ * (client says boardId=A, but the item's real board is B) drops the ITEM
+ * only, never "corrects" the board to B (that would leak which board a
+ * foreign/mismatched item actually lives on) and never drops the board
+ * hint itself (a real, correctly-hinted board the user is genuinely
+ * viewing stays valid even if the item hint was stale/wrong).
+ *
+ * If only itemId is hinted, its own board_id (already tenant-scoped by the
+ * query below) is used to resolve the board — this is the one safe case
+ * where the server derives boardId FROM validated data, never from the
+ * client.
+ */
+export async function resolveHelenaOrganiserContext(
+  params: ResolveHelenaOrganiserContextParams,
+): Promise<HelenaOrganiserContext> {
+  const { organisationId } = params;
+
+  let item: HelenaOrganiserItemContext | null = null;
+  if (params.itemIdHint && UUID_RE.test(params.itemIdHint)) {
+    const rows = (await sql`
+      SELECT id, name, board_id
+      FROM organiser_items
+      WHERE organisation_id = ${organisationId}
+        AND id = ${params.itemIdHint}
+      LIMIT 1
+    `) as { id: string; name: string; board_id: string }[];
+    if (rows.length > 0) {
+      item = { id: rows[0].id, name: rows[0].name, boardId: rows[0].board_id };
+    }
+  }
+
+  let boardId = params.boardIdHint && UUID_RE.test(params.boardIdHint) ? params.boardIdHint : undefined;
+  if (item) {
+    if (boardId && boardId !== item.boardId) {
+      // Board/item mismatch — the item hint is stale or wrong. Drop the
+      // item, keep the (independently valid-looking) board hint as-is; it
+      // still gets its own tenant-scoped resolution below.
+      item = null;
+    } else {
+      boardId = item.boardId;
+    }
+  }
+
+  let board: HelenaOrganiserBoardContext | null = null;
+  if (boardId) {
+    const rows = (await sql`
+      SELECT id, name
+      FROM organiser_boards
+      WHERE organisation_id = ${organisationId}
+        AND id = ${boardId}
+      LIMIT 1
+    `) as { id: string; name: string }[];
+    if (rows.length > 0) {
+      board = { id: rows[0].id, name: rows[0].name };
+    } else {
+      // The board itself doesn't resolve for this tenant (wrong tenant,
+      // deleted, or a malformed-but-UUID-shaped hint) — an item that
+      // claimed to belong to it can't be trusted either, though in
+      // practice this only happens for a directly-hinted boardId, since an
+      // item-derived boardId is already proven to exist via the item's own
+      // organisation_id-scoped row.
+      item = null;
+    }
+  }
+
+  if (!board && !item) return EMPTY_ORGANISER_CONTEXT;
+  return { board, item };
+}
+
 // ─── Activity window resolver ────────────────────────────────────────────────
 
 export const ORGANISER_ACTIVITY_WINDOWS = ['today', 'yesterday', 'this_week', '7d', '30d'] as const;

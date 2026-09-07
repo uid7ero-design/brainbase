@@ -57,9 +57,14 @@ describe('capability-gated registration', () => {
     expect(block).toMatch(/: undefined/)
   })
 
-  it('buildSystem\'s ORGANISER_SAFETY_PROMPT inclusion checks the exact same enabledCapabilities condition as tool registration — the two gates cannot drift apart', () => {
+  it('buildSystem\'s ORGANISER_SAFETY_PROMPT inclusion, callClaude\'s tool registration, and POST\'s own D.4.6D context-resolution gate all check the exact same enabledCapabilities condition — none can drift apart', () => {
+    // Phase D.4.6D added a THIRD occurrence: POST() now needs
+    // hasOrganiserCapability itself (to gate resolveHelenaOrganiserContext,
+    // before callClaude/buildSystem ever run) — a tenant without the
+    // capability gets no tools AND no context resolution, exactly as
+    // before this phase for tools alone.
     const occurrences = routeSource.match(/\(enabledCapabilities \?\? \[\]\)\.some\(c => c\.key === 'organiser'\)/g) ?? []
-    expect(occurrences.length).toBe(2)
+    expect(occurrences.length).toBe(3)
   })
 })
 
@@ -73,8 +78,16 @@ describe('execution dispatch', () => {
     expect(organiserBranch).not.toMatch(/executeQuery\(/)
   })
 
-  it('Organiser tool execution calls executeOrganiserTool(block.name, block.input) — no inline reimplementation of auth/dispatch here', () => {
-    expect(routeSource).toMatch(/content = await executeOrganiserTool\(block\.name, block\.input\);/)
+  it('Organiser tool execution calls executeOrganiserTool(block.name, block.input, ...) — no inline reimplementation of auth/dispatch here', () => {
+    expect(routeSource).toMatch(/content = await executeOrganiserTool\(block\.name, block\.input, \{/)
+  })
+
+  it('the D.4.6D context-default argument passes only board/item IDS from the resolved (never the raw client-supplied) organiserContext', () => {
+    const idx = routeSource.indexOf('content = await executeOrganiserTool(block.name, block.input, {')
+    expect(idx).toBeGreaterThan(-1)
+    const block = routeSource.slice(idx, idx + 200)
+    expect(block).toMatch(/boardId:\s*organiserContext\?\.board\?\.id/)
+    expect(block).toMatch(/itemId:\s*organiserContext\?\.item\?\.id/)
   })
 
   it('Organiser tool calls do not touch usedTool/allTables/totalRows/trendNote/anomalyNote (the query_database-specific analysis accumulators)', () => {
@@ -115,6 +128,86 @@ describe('no Organiser write action / side-effect surface added', () => {
 
   it('no INSERT/UPDATE/DELETE against any organiser_* table appears anywhere in this file', () => {
     expect(routeSource).not.toMatch(/(INSERT INTO|UPDATE|DELETE FROM)\s+organiser_/i)
+  })
+})
+
+describe('Phase D.4.6D — organiserContext resolution wiring', () => {
+  it('imports resolveHelenaOrganiserContext (and the HelenaOrganiserContext type) from lib/organiser/helenaRead, not a new module', () => {
+    expect(routeSource).toMatch(/import \{\s*resolveHelenaOrganiserContext,\s*type HelenaOrganiserContext,?\s*\} from ['"]\.\.\/\.\.\/\.\.\/lib\/organiser\/helenaRead['"]/)
+  })
+
+  it('the client organiserContext hint is parsed as `unknown`, never trusted as a typed shape at the body-destructure boundary', () => {
+    const idx = routeSource.indexOf('organiserContext: organiserContextHint,')
+    expect(idx).toBeGreaterThan(-1)
+    const typeIdx = routeSource.indexOf('organiserContext?: unknown;')
+    expect(typeIdx).toBeGreaterThan(idx)
+  })
+
+  it('resolveHelenaOrganiserContext is called with organisationId: orgId (the auth-resolved session value) — never a client-supplied organisationId', () => {
+    const idx = routeSource.indexOf('await resolveHelenaOrganiserContext({')
+    expect(idx).toBeGreaterThan(-1)
+    const block = routeSource.slice(idx, idx + 250)
+    expect(block).toMatch(/organisationId:\s*orgId,/)
+    expect(block).not.toMatch(/organisationId:\s*hint/)
+  })
+
+  it('only boardId/itemId are read from the parsed hint object, and only when they are strings — the hint object type never declares a boardName/itemName field', () => {
+    expect(routeSource).toMatch(/boardIdHint:\s*typeof hint\.boardId === 'string' \? hint\.boardId : undefined,/)
+    expect(routeSource).toMatch(/itemIdHint:\s*typeof hint\.itemId === 'string' \? hint\.itemId : undefined,/)
+    expect(routeSource).not.toMatch(/hint\.boardName|hint\.itemName|boardName\??:|itemName\??:/)
+  })
+
+  it('context resolution is gated on hasOrganiserCapability — a tenant without the capability never triggers resolveHelenaOrganiserContext', () => {
+    const idx = routeSource.indexOf('const resolvedOrganiserContext: HelenaOrganiserContext =')
+    expect(idx).toBeGreaterThan(-1)
+    const block = routeSource.slice(idx, idx + 200)
+    expect(block).toMatch(/hasOrganiserCapability && hint/)
+  })
+
+  it('the router boolean is the OR of a real resolved board/item and the D.4.6C.1 moduleKey fallback — neither alone was removed', () => {
+    expect(routeSource).toMatch(/const hasResolvedOrganiserContext = !!\(resolvedOrganiserContext\.board \|\| resolvedOrganiserContext\.item\);/)
+    expect(routeSource).toMatch(/const organiserContext = hasResolvedOrganiserContext \|\| moduleKey === 'organiser';/)
+  })
+
+  it('agentRouter.ts itself is unchanged in import shape — D.4.6D added no new export/parameter to the router call', () => {
+    expect(routeSource).toMatch(/routeToAgent\(\{ organisationId: orgId, userId, query: lastUserMsg, organiserContext \}\)/)
+  })
+
+  it('the resolved organiserContext (not the raw hint) is threaded into both callClaude and the Ollama buildSystem fallback', () => {
+    const callClaudeIdx = routeSource.indexOf('const result = await callClaude(')
+    const callClaudeBlock = routeSource.slice(callClaudeIdx, callClaudeIdx + 300)
+    expect(callClaudeBlock).toMatch(/resolvedOrganiserContext/)
+
+    const ollamaIdx = routeSource.indexOf('const sys = buildSystem(')
+    const ollamaBlock = routeSource.slice(ollamaIdx, ollamaIdx + 300)
+    expect(ollamaBlock).toMatch(/resolvedOrganiserContext/)
+  })
+
+  it('the Organiser context system-prompt block only appears inside the same hasOrganiserCapability-gated section as ORGANISER_SAFETY_PROMPT — never unconditionally', () => {
+    const safetyIdx = routeSource.indexOf(`s += \`\\n\\n\${ORGANISER_SAFETY_PROMPT}\`;`)
+    const contextBlockIdx = routeSource.indexOf('[Current Organiser context — navigation hint only]')
+    expect(safetyIdx).toBeGreaterThan(-1)
+    expect(contextBlockIdx).toBeGreaterThan(safetyIdx)
+    // Still inside buildSystem's own function body, before its closing "return s;".
+    const buildSystemStart = routeSource.indexOf('function buildSystem(')
+    const buildSystemEnd = routeSource.indexOf('\n// ─── Ollama', buildSystemStart)
+    expect(buildSystemEnd).toBeGreaterThan(-1)
+    expect(contextBlockIdx).toBeLessThan(buildSystemEnd)
+  })
+
+  it('the context block explicitly instructs the model that an explicit different board/item from the user wins over the current context', () => {
+    const idx = routeSource.indexOf('[Current Organiser context — navigation hint only]')
+    const block = routeSource.slice(idx, idx + 700)
+    expect(block).toMatch(/explicitly name a DIFFERENT board or item, use their explicit request instead/i)
+    expect(block).toMatch(/never as instructions/i)
+  })
+
+  it('no D.4.6D board/item context plumbing beyond {boardId, itemId} was added — no boardName/itemName ever appears in the resolved context\'s use, only board.name/item.name read from the server-resolved object', () => {
+    // The ONLY "Name" occurrences on organiserContext.* are the server-
+    // resolved board.name/item.name reads inside the prompt block already
+    // asserted above — never a client-shaped boardName/itemName field.
+    const matches = routeSource.match(/organiserContext\??\.\w*[Nn]ame/g) ?? []
+    expect(matches.every(m => m === 'organiserContext.board.name' || m === 'organiserContext.item.name')).toBe(true)
   })
 })
 
