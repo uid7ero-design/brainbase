@@ -315,6 +315,20 @@ export function describeActivityEvent(
   return describeEventInternal(event, groupNamesById, null);
 }
 
+/** Phase D.4.6E — extracts the item id an activity event actually concerns,
+ *  safely. For entity_type='item' this is the same value as entity_id
+ *  (both are the item's own id at write time). For entity_type IN
+ *  ('comment','file') entity_id is the comment/file's OWN id — never an
+ *  item id — so this reads the event's dedicated item_id field instead
+ *  (see OrganiserActivityEventDTO's own header in activityRead.ts for the
+ *  write-side proof both fields are populated correctly and differently).
+ *  board.*group.* events carry no item_id and correctly resolve to null
+ *  here — never coerced from entity_id, which for those events is a
+ *  board/group id, not an item id. */
+export function getEventItemId(event: { item_id?: string | null }): string | null {
+  return event.item_id ?? null;
+}
+
 /** Resolves a display label for the item an activity event describes, for
  *  contexts (the board feed) where multiple items are shown together and
  *  "this item" would be ambiguous. Never requires a live organiser_items
@@ -326,18 +340,24 @@ export function describeActivityEvent(
  *       own instrumentation — and any item.updated that didn't touch name)
  *    3. the item's CURRENT live name, from a caller-supplied map (built
  *       from the board's own already tenant-scoped, already-loaded items
- *       list — never an independent fetch/query)
+ *       list — never an independent fetch/query), keyed by getEventItemId's
+ *       result when present (comment/file events resolve via their PARENT
+ *       item id, never their own comment/file id), falling back to
+ *       entity_id only for a caller that hasn't supplied item_id at all
+ *       (keeps this function's own pre-D.4.6E contract — and every
+ *       existing test of it — unchanged when item_id is absent)
  *    4. "Item" — a safe, generic fallback that never crashes or renders
  *       blank when none of the above is available. */
 export function resolveItemLabel(
-  event: { entity_id: string; before: Record<string, unknown> | null; after: Record<string, unknown> | null },
+  event: { entity_id: string; item_id?: string | null; before: Record<string, unknown> | null; after: Record<string, unknown> | null },
   liveItemNamesById: Record<string, string> = {},
 ): string {
   const afterName = event.after && typeof event.after.name === 'string' && event.after.name.length > 0 ? event.after.name : null;
   if (afterName) return afterName;
   const beforeName = event.before && typeof event.before.name === 'string' && event.before.name.length > 0 ? event.before.name : null;
   if (beforeName) return beforeName;
-  const live = liveItemNamesById[event.entity_id];
+  const lookupKey = getEventItemId(event) ?? event.entity_id;
+  const live = liveItemNamesById[lookupKey];
   if (live) return live;
   return 'Item';
 }
@@ -351,7 +371,7 @@ export function resolveItemLabel(
  *  affected item (resolved via resolveItemLabel) since the board feed
  *  shows many items at once. */
 export function describeBoardActivityEvent(
-  event: ActivityEventLike & { entity_id: string },
+  event: ActivityEventLike & { entity_id: string; item_id?: string | null },
   groupNamesById: Record<string, string> = {},
   liveItemNamesById: Record<string, string> = {},
 ): ActivityDescription {

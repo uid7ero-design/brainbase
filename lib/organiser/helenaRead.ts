@@ -7,7 +7,7 @@ import {
   listItemActivity,
   type OrganiserActivityEventDTO,
 } from './activityRead';
-import { describeActivityEvent, describeBoardActivityEvent } from './activityFormat';
+import { describeActivityEvent, describeBoardActivityEvent, getEventItemId } from './activityFormat';
 
 // Phase D.4.6B — server-side read foundation for a future Helena
 // integration (D.4.6C+). This module is deliberately READ-ONLY and has no
@@ -240,6 +240,54 @@ export async function getOrganiserItemNamesByIds(
   const rows = (await sql`
     SELECT id, name
     FROM organiser_items
+    WHERE organisation_id = ${organisationId}
+      AND board_id = ${boardId}
+      AND id = ANY(${uniqueIds}::uuid[])
+  `) as { id: string; name: string }[];
+
+  const map: Record<string, string> = {};
+  for (const r of rows) map[r.id] = r.name;
+  return map;
+}
+
+// ─── Live group name lookup (board activity accuracy, Phase D.4.6E) ──────────
+
+export interface GetOrganiserGroupNamesByIdsParams {
+  organisationId: string;
+  boardId: string;
+  /** Group ids appearing on the current activity page — never an arbitrary/unbounded list. */
+  groupIds: string[];
+}
+
+/**
+ * Bounded, board-AND-tenant-scoped id->name lookup for exactly the group
+ * ids a caller already has in hand (group_id values found in the current
+ * activity page's before/after snapshots — see helenaTools.ts's own
+ * extraction logic) — mirrors getOrganiserItemNamesByIds exactly, for the
+ * exact same reason: a board can have more groups than any single lookup
+ * needs, so this asks for precisely the ids it needs rather than fetching
+ * every group on the board.
+ *
+ * Same "no existence side channel" behavior: a group id that doesn't exist,
+ * or belongs to another organisation/board, produces no row and no map
+ * entry — the caller (resolveGroupLabel) already treats "not in the map"
+ * as "fall back to the generic label," so there is nothing to distinguish
+ * them for. Returns id+name only — no color/position — this is a label
+ * lookup, not a group read. No generic/unrestricted group-lookup API is
+ * introduced: this only ever resolves the exact ids passed in.
+ */
+export async function getOrganiserGroupNamesByIds(
+  params: GetOrganiserGroupNamesByIdsParams,
+): Promise<Record<string, string>> {
+  const { organisationId, boardId } = params;
+  if (!UUID_RE.test(boardId)) return {};
+
+  const uniqueIds = Array.from(new Set(params.groupIds)).filter((id) => UUID_RE.test(id));
+  if (uniqueIds.length === 0) return {};
+
+  const rows = (await sql`
+    SELECT id, name
+    FROM organiser_groups
     WHERE organisation_id = ${organisationId}
       AND board_id = ${boardId}
       AND id = ANY(${uniqueIds}::uuid[])
@@ -530,3 +578,12 @@ export function shapeItemActivityForHelena(
 // lives here — this file only shapes what activityRead.ts already reads.
 export { listBoardActivity, listItemActivity };
 export type { OrganiserActivityEventDTO };
+
+// Phase D.4.6E — re-exported so helenaTools.ts's board-activity item-id
+// collection can use the exact same extraction rule
+// resolveItemLabel/describeBoardActivityEvent already use internally,
+// without importing directly from activityFormat.ts (keeping this file as
+// the sole import boundary between helenaTools.ts and the D.4.5D/E/F
+// activity-read/format layer, same convention as every other re-export
+// above).
+export { getEventItemId };
