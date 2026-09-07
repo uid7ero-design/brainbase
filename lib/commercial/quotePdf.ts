@@ -239,15 +239,33 @@ export async function buildQuotePdf({ quote, lines, supplier, brandLockupBase64 
   }
   drawTableHeader();
 
+  // Phase C3-FINAL-POLISH — root cause of the SKU/description overlap:
+  // rowHeight only ever added a flat "+3" buffer after the description's
+  // own lines, but the SKU sub-line was ALSO squeezed into that same
+  // 3mm allowance (positioned at descLines.length*4.6 + 0.5, i.e. barely
+  // half a millimetre below the description's last line) — leaving
+  // essentially no clearance before the NEXT row's own first description
+  // line began at exactly descLines.length*4.6 + 3. Confirmed empirically
+  // (rendering reference gridlines against real jsPDF output) that 4.6mm
+  // is this document's actual, correct per-line baseline spacing at
+  // 9.5pt — so the SKU sub-line is now treated as literally one MORE
+  // line at that exact same proven-safe 4.6mm cadence (its own smaller
+  // 7.5pt font only needs LESS room than that, never more), and the row
+  // height now accounts for that extra line's space before adding the
+  // unchanged 3mm inter-row gap. For a line with no SKU, skuHeight is 0
+  // and this reduces to exactly the original Math.max(descLines.length*4.6, 6)+3
+  // formula — zero behavior change for the common no-SKU case.
   doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5); doc.setTextColor(BRAND_INK);
   for (const line of lines) {
     const descLines: string[] = doc.splitTextToSize(line.description_snapshot, col.qty - col.desc - 6);
-    const rowHeight = Math.max(descLines.length * 4.6, 6) + 3;
+    const descHeight = descLines.length * 4.6;
+    const skuHeight = line.sku_snapshot ? 4.6 : 0;
+    const rowHeight = Math.max(descHeight + skuHeight, 6) + 3;
     ensureRoom(rowHeight);
     doc.text(descLines, col.desc, y);
     if (line.sku_snapshot) {
       doc.setFontSize(7.5); doc.setTextColor(BRAND_MUTED);
-      doc.text(line.sku_snapshot, col.desc, y + descLines.length * 4.6 + 0.5);
+      doc.text(line.sku_snapshot, col.desc, y + descHeight);
       doc.setFontSize(9.5); doc.setTextColor(BRAND_INK);
     }
     doc.text(`${line.quantity}${line.unit_snapshot ? ` ${line.unit_snapshot}` : ''}`, col.qty, y, { align: 'right' });

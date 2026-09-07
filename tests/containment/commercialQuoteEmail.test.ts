@@ -72,6 +72,103 @@ describe('Phase C3-POLISH-R — buildQuoteEmail() content', () => {
   })
 })
 
+// Phase C3-FINAL-POLISH — the second half of the branding fix the
+// C3-COMMERCIAL-BRAND-RENDERING phase left open: the PDF attachment now
+// uses the real canonical Hybrid Orbit lockup image, but the email BODY
+// itself still reconstructed "BRΛINBΛSE" as literal HTML text with a
+// Unicode Greek lambda, in two places (the shared lib/email.ts
+// emailLayout() header, and this file's own footer sentence). Fixed by
+// giving Commercial quote email its own small, self-contained layout
+// (commercialEmailLayout(), not exported — internal to this file) that
+// embeds the same canonical raster asset as a real <img>, rather than
+// touching the shared emailLayout() every unrelated email type
+// (verification, password reset, lead notification, ticket email)
+// still uses unchanged.
+const HTML_ENTITY_LAMBDA_PATTERN = /Λ|&#923;|&Lambda;/
+
+describe('Phase C3-FINAL-POLISH — A. no reconstructed BRΛINBΛSE wordmark text', () => {
+  it('the email HTML never contains the literal Greek lambda character (or its numeric/named entity form) anywhere', () => {
+    const { html } = buildQuoteEmail({
+      quoteNumber: 'QUO-000123', customerName: 'Jane Doe', totalCents: 33000, currency: 'AUD',
+      expiryDate: '2026-10-07', businessDisplayName: 'Acme Pty Ltd', businessEmail: 'hello@acme.com', businessPhone: '08 1234 5678',
+    })
+    expect(html).not.toMatch(HTML_ENTITY_LAMBDA_PATTERN)
+    expect(html).not.toContain('BRΛINBΛSE')
+    expect(html).not.toContain('BRAINBΛSE')
+  })
+})
+
+describe('Phase C3-FINAL-POLISH — B. canonical brand asset is used', () => {
+  it('the header references the canonical rasterized lockup asset, not an invented or deprecated one', () => {
+    const { html } = buildQuoteEmail({
+      quoteNumber: 'QUO-000123', customerName: 'Jane', totalCents: 33000, currency: 'AUD',
+      expiryDate: null, businessDisplayName: 'Acme', businessEmail: null, businessPhone: null,
+    })
+    expect(html).toContain('/Brand/brainbase-horizontal-color-284.png')
+    expect(html).not.toContain('brainbase-logo-dark.svg')
+    expect(html).not.toContain('brainbase-logo-light.svg')
+    expect(html).not.toContain('brainbase-icon.svg')
+  })
+
+  it('uses an absolute same-origin URL (BASE_URL), never a third-party image host', () => {
+    const { html } = buildQuoteEmail({
+      quoteNumber: 'QUO-000123', customerName: 'Jane', totalCents: 33000, currency: 'AUD',
+      expiryDate: null, businessDisplayName: 'Acme', businessEmail: null, businessPhone: null,
+    })
+    const imgSrcMatch = html.match(/<img[^>]+src="([^"]+)"/)
+    expect(imgSrcMatch).not.toBeNull()
+    const src = imgSrcMatch![1]
+    // Must be same-origin (starts with the configured BASE_URL, which in
+    // this test environment resolves to the default http://localhost:3000
+    // — never a bare protocol-relative or arbitrary external domain).
+    expect(src.startsWith('http://localhost:3000/') || src.startsWith(process.env.NEXT_PUBLIC_APP_URL ?? '')).toBe(true)
+    expect(src).not.toMatch(/^https?:\/\/(?!localhost)(?!127\.0\.0\.1)/)
+  })
+
+  it('the logo image preserves the canonical asset\'s exact aspect ratio (1600:284)', () => {
+    const { html } = buildQuoteEmail({
+      quoteNumber: 'QUO-000123', customerName: 'Jane', totalCents: 33000, currency: 'AUD',
+      expiryDate: null, businessDisplayName: 'Acme', businessEmail: null, businessPhone: null,
+    })
+    const widthMatch = html.match(/<img[^>]+width="(\d+)"/)
+    const heightMatch = html.match(/<img[^>]+height="(\d+)"/)
+    expect(widthMatch).not.toBeNull()
+    expect(heightMatch).not.toBeNull()
+    const width = Number(widthMatch![1])
+    const height = Number(heightMatch![1])
+    const expectedHeight = Math.round((width * 284) / 1600)
+    expect(height).toBe(expectedHeight)
+  })
+})
+
+describe('Phase C3-FINAL-POLISH — C. useful alt text', () => {
+  it('the logo image has alt="BrainBase"', () => {
+    const { html } = buildQuoteEmail({
+      quoteNumber: 'QUO-000123', customerName: 'Jane', totalCents: 33000, currency: 'AUD',
+      expiryDate: null, businessDisplayName: 'Acme', businessEmail: null, businessPhone: null,
+    })
+    expect(html).toContain('alt="BrainBase"')
+  })
+})
+
+describe('Phase C3-FINAL-POLISH — D. ordinary body/footer copy uses plain readable "BrainBase"', () => {
+  it('the footer sentence reads "via BrainBase Commercial", not the old reconstructed wordmark', () => {
+    const { html } = buildQuoteEmail({
+      quoteNumber: 'QUO-000123', customerName: 'Jane', totalCents: 33000, currency: 'AUD',
+      expiryDate: null, businessDisplayName: 'Acme', businessEmail: 'hello@acme.com', businessPhone: null,
+    })
+    expect(html).toContain('via BrainBase Commercial')
+  })
+
+  it('the dark surface behind the light-on-dark wordmark is preserved (same header cell background as before)', () => {
+    const { html } = buildQuoteEmail({
+      quoteNumber: 'QUO-000123', customerName: 'Jane', totalCents: 33000, currency: 'AUD',
+      expiryDate: null, businessDisplayName: 'Acme', businessEmail: null, businessPhone: null,
+    })
+    expect(html).toContain('background:#08090C')
+  })
+})
+
 describe('Phase C3-POLISH-R — sendQuoteEmail(): provider outcomes', () => {
   it('Case B (sent): returns result "sent" with the provider message id, and attaches the built PDF', async () => {
     sendEmailMock.mockResolvedValue({ status: 'sent', id: 'resend-msg-1' })
