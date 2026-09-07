@@ -1,0 +1,39 @@
+name: Neon Preview Branch Cleanup
+
+# Deletes the Neon preview-database branch for a PR's source branch
+# once that PR has merged, so old preview branches don't accumulate and
+# exhaust the project's Neon branch limit (the root cause of a prior
+# Preview build failure — see scripts/neon/cleanup-preview-branch.mjs's
+# own header for the full safety design).
+#
+# Runs ONLY on merge, never on a plain close: a merged PR's preview
+# branch is definitely stale, but a closed-without-merging PR may still
+# be revisited, so this workflow deliberately leaves those alone.
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neon-preview-cleanup-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Delete stale Neon preview branch for the merged PR's source branch
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          NEON_PROJECT_ID: ${{ secrets.NEON_PROJECT_ID }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: node scripts/neon/cleanup-preview-branch.mjs
