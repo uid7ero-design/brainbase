@@ -72,25 +72,29 @@ const ORGANISER_INTENT_RE = /\b(organiser|organizer|boards?|items?|groups?|tasks
 // (explicitly disallowed for this router). So this guard does not attempt
 // to recognise a board NAME at all.
 //
-// Instead it reuses the one safe, already-existing, non-DB signal that
-// reaches this router today: input.organiserContext, set by
-// app/api/chat/route.ts from the SAME moduleKey field buildSystem() already
-// uses for module-specific system-prompt context (see AgentInput's own
-// header) — true only when the operator's currently-selected module is
-// literally 'organiser'. When true, a query that would otherwise resolve
-// to 'briefing' is redirected to 'chat' instead, since that is the one
-// route demonstrated to misfire; every other route (dataIntake/insight/
-// action/social) is left untouched, since QA never demonstrated a problem
-// there and this phase does not expand the guard beyond the proven gap.
+// Instead it reuses one safe, already-existing, non-DB boolean signal:
+// input.organiserContext, set by app/api/chat/route.ts. When true, a query
+// that would otherwise resolve to 'briefing' is redirected to 'chat'
+// instead, since that is the one route demonstrated to misfire; every
+// other route (dataIntake/insight/action/social) is left untouched, since
+// QA never demonstrated a problem there and this guard does not expand
+// beyond the proven gap.
 //
-// Known limitation (see the D.4.6C.1 report's Known Limitations section):
-// today this signal is only reachable from BrainBase.jsx's module switcher
-// (rendered at /dashboard) — HelenaWorkspace.jsx (the dedicated /hlna
-// conversation surface) deliberately omits that switcher, and
-// app/organiser/page.tsx has no embedded Helena chat surface at all. A
-// global, page-independent "operator is asking about Organiser" signal
-// remains future work (D.4.6D's organiserContext plumbing), not solved
-// here.
+// Phase D.4.6D — this boolean now has TWO possible sources, both resolved
+// server-side in app/api/chat/route.ts, never here:
+//  1. A real, tenant-validated current board/item (resolveHelenaOrganiserContext)
+//     — the authoritative case: the operator is genuinely looking at that
+//     Organiser location right now (today, only reachable from
+//     app/organiser/page.tsx, which publishes it via useAppStore).
+//  2. The D.4.6C.1 transitional fallback, moduleKey === 'organiser' — used
+//     only when (1) doesn't apply (e.g. BrainBase.jsx's /dashboard module
+//     switcher, which has no board/item of its own to resolve).
+// This router still only ever sees the flattened boolean OR of the two —
+// it remains exactly as narrow as it was in D.4.6C.1 (no DB access, no
+// typed context, no board/item awareness of its own). See
+// app/api/chat/route.ts's own comment at its organiserContext computation
+// for the full precedence/rationale, and lib/organiser/helenaRead.ts's
+// resolveHelenaOrganiserContext for the trust boundary.
 function shouldOverrideToChat(route: AgentRoute, organiserContext: boolean | undefined): boolean {
   return !!organiserContext && route === 'briefing';
 }

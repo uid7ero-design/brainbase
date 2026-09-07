@@ -326,6 +326,14 @@ export function useHelena() {
                              || dashboardContextRef.current
                              || (typeof window !== 'undefined' ? getContextForPath(window.location.pathname) : ''),
           moduleKey:        useAppStore.getState().activeModule || undefined,
+          // Phase D.4.6D — current board/item, published by
+          // app/organiser/page.tsx while it's mounted (see useAppStore.js's
+          // own comment on why this is deliberately not persisted). An id
+          // hint only — the server resolves and validates it fresh on
+          // every request, never trusting it directly. undefined (not an
+          // empty object) when Organiser isn't open, so the server sees
+          // "no hint" rather than an empty-but-present one.
+          organiserContext: useAppStore.getState().organiserContext || undefined,
           viewMode:         useAppStore.getState().viewMode || 'executive',
           // Only forward department context once a user has genuinely
           // chosen one (via LeftSidebar's department switcher) — the

@@ -542,6 +542,97 @@ describe('ORGANISER_SAFETY_PROMPT', () => {
   })
 })
 
+// ── Phase D.4.6D — context-default (contextDefaults) behavior ──────────────
+//
+// contextDefaults ONLY fills a board_id/item_id the model left out
+// entirely — every test here proves the precedence rule from
+// executeOrganiserTool's own header: an explicit model-supplied id (valid
+// OR invalid) always wins; the default only ever applies when the model's
+// argument object omits the key altogether.
+
+describe('executeOrganiserTool — context-default board_id/item_id (Phase D.4.6D)', () => {
+  it('list_organiser_items: missing board_id uses the context default', async () => {
+    sqlResult = [{ id: ITEM_A, name: 'Ship the deck', status: 'In Progress', group_name: null }]
+    const raw = await executeOrganiserTool('list_organiser_items', {}, { boardId: BOARD_A })
+    expect(JSON.parse(raw)).toEqual({ items: [{ id: ITEM_A, name: 'Ship the deck', status: 'In Progress', group_name: null }] })
+    expect(sqlCalls[0].values).toContain(BOARD_A)
+  })
+
+  it('list_organiser_items: an explicit different board_id from the model wins over the context default', async () => {
+    sqlResult = []
+    await executeOrganiserTool('list_organiser_items', { board_id: BOARD_A }, { boardId: '99999999-9999-9999-9999-999999999999' })
+    expect(sqlCalls[0].values).toContain(BOARD_A)
+    expect(sqlCalls[0].values).not.toContain('99999999-9999-9999-9999-999999999999')
+  })
+
+  it('list_organiser_items: an explicit but INVALID board_id from the model does not silently fall back to the context default', async () => {
+    const raw = await executeOrganiserTool('list_organiser_items', { board_id: 'not-a-uuid' }, { boardId: BOARD_A })
+    expect(JSON.parse(raw).error).toMatch(/board_id must be a valid/i)
+    expect(sqlMock).not.toHaveBeenCalled()
+  })
+
+  it('list_organiser_items: no context default and no board_id -> the pre-existing safe error, unaffected', async () => {
+    const raw = await executeOrganiserTool('list_organiser_items', {})
+    expect(JSON.parse(raw).error).toMatch(/board_id must be a valid/i)
+    expect(sqlMock).not.toHaveBeenCalled()
+  })
+
+  it('get_organiser_board_activity: missing board_id uses the context default', async () => {
+    sqlResult = []
+    const raw = await executeOrganiserTool('get_organiser_board_activity', {}, { boardId: BOARD_A })
+    expect(JSON.parse(raw).events).toEqual([])
+    expect(sqlCalls[0].values).toContain(BOARD_A)
+  })
+
+  it('get_organiser_board_activity: explicit board_id from the model wins over a different context default', async () => {
+    sqlResult = []
+    const otherBoard = '99999999-9999-9999-9999-999999999999'
+    await executeOrganiserTool('get_organiser_board_activity', { board_id: BOARD_A }, { boardId: otherBoard })
+    expect(sqlCalls[0].values).toContain(BOARD_A)
+    expect(sqlCalls[0].values).not.toContain(otherBoard)
+  })
+
+  it('get_organiser_item_activity: missing item_id uses the context default', async () => {
+    sqlResult = []
+    const raw = await executeOrganiserTool('get_organiser_item_activity', {}, { itemId: ITEM_A })
+    expect(JSON.parse(raw).events).toEqual([])
+    expect(sqlCalls[0].values).toContain(ITEM_A)
+  })
+
+  it('get_organiser_item_activity: explicit item_id from the model wins over a different context default', async () => {
+    sqlResult = []
+    const otherItem = '88888888-8888-8888-8888-888888888888'
+    await executeOrganiserTool('get_organiser_item_activity', { item_id: ITEM_A }, { itemId: otherItem })
+    expect(sqlCalls[0].values).toContain(ITEM_A)
+    expect(sqlCalls[0].values).not.toContain(otherItem)
+  })
+
+  it('get_organiser_item_activity: an explicit but INVALID item_id does not fall back to the context default', async () => {
+    const raw = await executeOrganiserTool('get_organiser_item_activity', { item_id: 'bad' }, { itemId: ITEM_A })
+    expect(JSON.parse(raw).error).toMatch(/item_id must be a valid/i)
+    expect(sqlMock).not.toHaveBeenCalled()
+  })
+
+  it('list_organiser_boards ignores contextDefaults entirely — it has no board_id/item_id argument to default', async () => {
+    sqlResult = []
+    await executeOrganiserTool('list_organiser_boards', {}, { boardId: BOARD_A, itemId: ITEM_A })
+    expect(sqlCalls[0].values).not.toContain(BOARD_A)
+    expect(sqlCalls[0].values).not.toContain(ITEM_A)
+  })
+
+  it('a contextDefaults object with no matching keys (e.g. only itemId, board tool needs boardId) behaves exactly like no contextDefaults at all', async () => {
+    const raw = await executeOrganiserTool('get_organiser_board_activity', {}, { itemId: ITEM_A })
+    expect(JSON.parse(raw).error).toMatch(/board_id must be a valid/i)
+    expect(sqlMock).not.toHaveBeenCalled()
+  })
+
+  it('authorization is still called fresh and exactly once even when a context default is applied', async () => {
+    sqlResult = []
+    await executeOrganiserTool('get_organiser_board_activity', {}, { boardId: BOARD_A })
+    expect(authorizeOrganiserRequestMock).toHaveBeenCalledTimes(1)
+  })
+})
+
 // ── No write path exists anywhere in this file ──────────────────────────────
 
 describe('no Organiser write path exists in this file (source-shape invariant)', () => {

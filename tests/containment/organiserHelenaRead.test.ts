@@ -18,8 +18,15 @@ import path from 'path'
 type SqlCall = { text: string; values: unknown[] }
 let sqlCalls: SqlCall[] = []
 let sqlResult: unknown[] = []
+// Phase D.4.6D — resolveHelenaOrganiserContext can issue TWO sequential sql
+// calls (item lookup, then board lookup) needing DIFFERENT results. An
+// empty queue (the default) falls back to the single-shared-sqlResult
+// behavior every existing test in this file already relies on — see
+// organiserHelenaToolsExecution.test.ts's own identical pattern/rationale.
+let sqlResultQueue: unknown[][] = []
 const sqlMock = vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
   sqlCalls.push({ text: strings.join('§'), values })
+  if (sqlResultQueue.length > 0) return Promise.resolve(sqlResultQueue.shift())
   return Promise.resolve(sqlResult)
 })
 vi.mock('@/lib/db', () => ({
@@ -37,6 +44,7 @@ const {
   listOrganiserBoards,
   listOrganiserItems,
   getOrganiserItemNamesByIds,
+  resolveHelenaOrganiserContext,
   resolveActivityWindow,
   parseActivityWindow,
   isOrganiserActivityWindow,
@@ -55,6 +63,7 @@ beforeEach(() => {
   sqlMock.mockReset()
   sqlCalls = []
   sqlResult = []
+  sqlResultQueue = []
   authorizeOrganiserRequestMock.mockReset()
   authorizeOrganiserRequestMock.mockResolvedValue({ ok: true, session: SESSION })
 })
@@ -277,6 +286,104 @@ describe('getOrganiserItemNamesByIds', () => {
     const map = await getOrganiserItemNamesByIds({ organisationId: 'org-a', boardId: BOARD_A, itemIds: [ITEM_A] })
     expect(map).toEqual({})
     expect(Object.prototype.hasOwnProperty.call(map, ITEM_A)).toBe(false)
+  })
+})
+
+// ─── resolveHelenaOrganiserContext (Phase D.4.6D) ──────────────────────────
+//
+// ResolveHelenaOrganiserContextParams has no boardName/itemName field at
+// all — a client-supplied display name has no argument slot to enter
+// through, structurally guaranteeing every name in the result comes from
+// the DB rows below, never from a caller. That's why no test here bothers
+// asserting "names aren't trusted" separately — there's no code path that
+// could violate it.
+
+describe('resolveHelenaOrganiserContext', () => {
+  it('valid board-only hint resolves the board, item stays null, exactly one sql call', async () => {
+    sqlResultQueue = [[{ id: BOARD_A, name: 'WORK' }]]
+    const ctx = await resolveHelenaOrganiserContext({ organisationId: 'org-a', boardIdHint: BOARD_A })
+    expect(ctx).toEqual({ board: { id: BOARD_A, name: 'WORK' }, item: null })
+    expect(sqlCalls).toHaveLength(1)
+    expect(sqlCalls[0].text).toMatch(/organiser_boards/)
+    expect(sqlCalls[0].values).toContain('org-a')
+    expect(sqlCalls[0].values).toContain(BOARD_A)
+  })
+
+  it('valid item-only hint resolves both item and its own board, derived from the item row — never from a client boardId', async () => {
+    sqlResultQueue = [
+      [{ id: ITEM_A, name: 'Test 2', board_id: BOARD_A }], // item lookup
+      [{ id: BOARD_A, name: 'WORK' }],                     // board lookup, derived boardId
+    ]
+    const ctx = await resolveHelenaOrganiserContext({ organisationId: 'org-a', itemIdHint: ITEM_A })
+    expect(ctx).toEqual({
+      board: { id: BOARD_A, name: 'WORK' },
+      item: { id: ITEM_A, name: 'Test 2', boardId: BOARD_A },
+    })
+    expect(sqlCalls).toHaveLength(2)
+    expect(sqlCalls[0].text).toMatch(/organiser_items/)
+    expect(sqlCalls[1].text).toMatch(/organiser_boards/)
+    expect(sqlCalls[1].values).toContain(BOARD_A)
+  })
+
+  it('matching board+item hints resolve both', async () => {
+    sqlResultQueue = [
+      [{ id: ITEM_A, name: 'Test 2', board_id: BOARD_A }],
+      [{ id: BOARD_A, name: 'WORK' }],
+    ]
+    const ctx = await resolveHelenaOrganiserContext({ organisationId: 'org-a', boardIdHint: BOARD_A, itemIdHint: ITEM_A })
+    expect(ctx.board).toEqual({ id: BOARD_A, name: 'WORK' })
+    expect(ctx.item).toEqual({ id: ITEM_A, name: 'Test 2', boardId: BOARD_A })
+  })
+
+  it('board/item mismatch: item really belongs to BOARD_B but the hint says BOARD_A — item is dropped, the (independently real) BOARD_A hint still resolves on its own, never "corrected" to BOARD_B', async () => {
+    sqlResultQueue = [
+      [{ id: ITEM_A, name: 'Test 2', board_id: BOARD_B }], // item's REAL board is B
+      [{ id: BOARD_A, name: 'WORK' }],                     // the hinted board A still resolves independently
+    ]
+    const ctx = await resolveHelenaOrganiserContext({ organisationId: 'org-a', boardIdHint: BOARD_A, itemIdHint: ITEM_A })
+    expect(ctx.item).toBeNull()
+    expect(ctx.board).toEqual({ id: BOARD_A, name: 'WORK' })
+    // Never leaks board B's identity anywhere in the result.
+    expect(JSON.stringify(ctx)).not.toContain(BOARD_B)
+  })
+
+  it('wrong-tenant/nonexistent board hint resolves to board: null — no existence side channel', async () => {
+    sqlResultQueue = [[]] // board query returns no row
+    const ctx = await resolveHelenaOrganiserContext({ organisationId: 'org-a', boardIdHint: BOARD_A })
+    expect(ctx).toEqual({ board: null, item: null })
+  })
+
+  it('wrong-tenant/nonexistent item hint resolves to item: null (and board: null, since no boardId hint exists to fall back to)', async () => {
+    sqlResultQueue = [[]] // item query returns no row
+    const ctx = await resolveHelenaOrganiserContext({ organisationId: 'org-a', itemIdHint: ITEM_A })
+    expect(ctx).toEqual({ board: null, item: null })
+    expect(sqlCalls).toHaveLength(1) // never reaches a board query with no boardId to look up
+  })
+
+  it('a resolved item whose own board_id no longer resolves (board deleted between reads) drops the item too, rather than reporting an item with no real board', async () => {
+    sqlResultQueue = [
+      [{ id: ITEM_A, name: 'Test 2', board_id: BOARD_A }],
+      [], // board lookup for the item's own board_id comes back empty
+    ]
+    const ctx = await resolveHelenaOrganiserContext({ organisationId: 'org-a', itemIdHint: ITEM_A })
+    expect(ctx).toEqual({ board: null, item: null })
+  })
+
+  it('malformed (non-UUID) hints are ignored safely — no sql call, empty result', async () => {
+    const ctx = await resolveHelenaOrganiserContext({ organisationId: 'org-a', boardIdHint: 'not-a-uuid', itemIdHint: 'also-not-a-uuid' })
+    expect(ctx).toEqual({ board: null, item: null })
+    expect(sqlMock).not.toHaveBeenCalled()
+  })
+
+  it('no hints at all -> empty result, no sql call', async () => {
+    const ctx = await resolveHelenaOrganiserContext({ organisationId: 'org-a' })
+    expect(ctx).toEqual({ board: null, item: null })
+    expect(sqlMock).not.toHaveBeenCalled()
+  })
+
+  it('every query restates organisation_id directly — never relies on the board/item id alone for tenant scope', () => {
+    expect(SOURCE).toMatch(/WHERE organisation_id = \$\{organisationId\}\s*\n\s*AND id = \$\{params\.itemIdHint\}/)
+    expect(SOURCE).toMatch(/WHERE organisation_id = \$\{organisationId\}\s*\n\s*AND id = \$\{boardId\}/)
   })
 })
 

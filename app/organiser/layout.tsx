@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation';
 import { requireSession, roleGte } from '@/lib/org';
 import { checkCapability } from '@/lib/capabilities/requireCapability';
+import { HlnaAssistantWrapper } from '@/components/brand/HlnaAssistantWrapper';
 
 // Phase D.2 route promotion: /command/organiser was previously gated by
 // middleware.ts's role check (manager/admin/super_admin only), matched via
@@ -73,5 +74,17 @@ export default async function OrganiserLayout({ children }: { children: React.Re
     );
   }
 
-  return <>{children}</>;
+  // Phase D.4.6D — Organiser previously had no embedded Helena chat
+  // surface at all (see the D.4.6C.1 report's Known Limitations). Reuses
+  // the EXACT existing component app/dashboard/layout.tsx already mounts
+  // for the same purpose — same useHelena hook, same mic button/chat
+  // panel, no second Helena implementation. HlnaAssistantWrapper itself
+  // only special-cases the literal '/dashboard' pathname (BrainBase.jsx
+  // handles its own Helena there), so it renders normally here.
+  return (
+    <>
+      {children}
+      <HlnaAssistantWrapper />
+    </>
+  );
 }

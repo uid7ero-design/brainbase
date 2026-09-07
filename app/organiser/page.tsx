@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import OrganiserShell from "@/components/organiser/OrganiserShell";
 import OrganiserRail from "@/components/organiser/OrganiserRail";
 import { useOpsTheme } from "@/components/ops/theme";
+import { useAppStore } from "@/lib/state/useAppStore";
 import { describeActivityEvent, describeBoardActivityEvent, type ActivityEventLike } from "@/lib/organiser/activityFormat";
 
 const FONT = 'var(--font-inter), "Inter", -apple-system, sans-serif';
@@ -1343,6 +1344,25 @@ function OrganiserPageContent() {
 
   const activeBoard = boards.find(b => b.id === activeId) ?? null;
   const columns = boardData?.columns ?? [];
+
+  // Phase D.4.6D — publish the current board/item to Helena (via
+  // useAppStore's organiserContext) whenever either changes, exactly
+  // mirroring DashboardShell.tsx's own dashboardAiContext
+  // set-on-change/clear-on-unmount pattern. IDs only, no names — the
+  // server resolves and validates names itself (see
+  // resolveHelenaOrganiserContext) — so switching board/opening-closing
+  // the item drawer never needs to worry about a stale display name, only
+  // a stale id, which a fresh server-side lookup on the very next message
+  // makes harmless (a since-deleted/wrong-tenant id simply resolves to no
+  // context, never an error). Clearing on unmount is what keeps this from
+  // leaking into global /hlna or any other page — see useAppStore.js's own
+  // comment on why this field is deliberately not persisted.
+  useEffect(() => {
+    useAppStore.getState().setOrganiserContext(
+      activeBoard || drawerItem ? { boardId: activeBoard?.id, itemId: drawerItem?.id } : null,
+    );
+    return () => useAppStore.getState().setOrganiserContext(null);
+  }, [activeBoard?.id, drawerItem?.id]);
 
   return (
     <OrganiserShell
