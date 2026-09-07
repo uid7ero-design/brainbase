@@ -33,7 +33,7 @@ import {
   listWorksheetsForBatch as callListWorksheets,
   type HttpClientConfig,
 } from "./httpClient";
-import { uploadFileDirectToBlob, resolveUploadPathname } from "./blobUpload";
+import { uploadFileDirectToBlob, resolveUploadPathname, type DirectUploadResult } from "./blobUpload";
 import { generateIdempotencyKey } from "./fileHash";
 import type {
   ConfirmFailureCodeClient,
@@ -284,17 +284,36 @@ export class DataHubIllegalDumpingImportSession {
     this.uploadAbortController = new AbortController();
     this.setState({ phase: "uploading", batch, uploadToken, progress: null });
 
-    const result = await uploadFileDirectToBlob({
-      file: this.currentFile!,
-      uploadToken,
-      abortSignal: this.uploadAbortController.signal,
-      onUploadProgress: (progress) => {
-        if (this.state.phase === "uploading") {
-          this.setState({ ...this.state, progress });
-        }
-        onProgress?.(progress);
-      },
-    });
+    let result: DirectUploadResult;
+    try {
+      result = await uploadFileDirectToBlob({
+        file: this.currentFile!,
+        uploadToken,
+        abortSignal: this.uploadAbortController.signal,
+        onUploadProgress: (progress) => {
+          if (this.state.phase === "uploading") {
+            this.setState({ ...this.state, progress });
+          }
+          onProgress?.(progress);
+        },
+      });
+    } catch (err) {
+      // uploadFileDirectToBlob() is documented to still THROW (not return a
+      // DirectUploadFailure) for a malformed/corrupted upload token —
+      // resolveUploadPathname() decodes the token before that function's own
+      // try block, by deliberate design (see blobUpload.ts's own header
+      // comment: a contract violation, not a runtime upload failure). That
+      // throw must never strand this session at "uploading" forever. Whether
+      // any bytes reached storage is genuinely unknown here — this is the
+      // SAME uncertainty the abort race below already routes to
+      // uploadUncertain, not a distinct case needing its own phase;
+      // proceedToFinalize()'s storage.head() call remains the authoritative
+      // arbiter either way.
+      this.uploadAbortController = null;
+      const message = err instanceof Error ? err.message : "The upload could not be started.";
+      this.setState({ phase: "uploadUncertain", batch, uploadToken, message });
+      return;
+    }
     this.uploadAbortController = null;
 
     if (!result.ok) {

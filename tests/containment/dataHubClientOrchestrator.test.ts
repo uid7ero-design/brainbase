@@ -290,6 +290,36 @@ describe("orchestrator — upload abort / uncertainty", () => {
       expect(after.retryable).toBe(true);
     }
   });
+
+  it("a malformed/corrupted upload token — resolveUploadPathname() throwing synchronously before put() is ever called — is caught and routed to uploadUncertain, never left stuck in 'uploading' or rejected uncaught", async () => {
+    // getPayloadFromClientToken (the real @vercel/blob/client decode this
+    // module relies on) throws when a token payload cannot be decoded — this
+    // reproduces that exact failure without needing a real malformed JWT.
+    getPayloadFromClientTokenMock.mockImplementation(() => {
+      throw new Error("data-hub client: upload token payload did not contain a usable pathname.");
+    });
+
+    const fetchImpl = makeSequentialFetch([
+      jsonResponse(200, { batch: { id: BATCH_ID, status: "AWAITING_UPLOAD", originalFilename: "x.csv", contentType: "csv", sizeBytes: 8, expectedSha256: null, attemptCount: 0, lastFailureCode: null }, uploadToken: "malformed-tok", configurationError: false }),
+    ]);
+    const session = createIllegalDumpingImportSession({ fetchImpl });
+    await session.start(testFile());
+    expect(session.getState().phase).toBe("awaitingUpload");
+
+    // Must resolve cleanly (not reject, not hang) and must never leave the
+    // session's phase stuck at "uploading".
+    await expect(session.upload()).resolves.toBeUndefined();
+
+    const state = session.getState();
+    expect(state.phase).toBe("uploadUncertain");
+    if (state.phase === "uploadUncertain") {
+      expect(state.message).toContain("pathname");
+    }
+    // The throw happens before put() is ever invoked — no bytes were even
+    // attempted, confirming this is the pre-network contract-violation path,
+    // not an ordinary upload failure.
+    expect(putMock).not.toHaveBeenCalled();
+  });
 });
 
 describe("orchestrator — obtain worksheet (the id inspect never returns)", () => {

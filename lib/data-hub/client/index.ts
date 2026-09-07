@@ -15,7 +15,7 @@ export type {
   StartImportOptions,
 } from "./orchestrator";
 
-export { computeFileSha256, generateIdempotencyKey } from "./fileHash";
+export { generateIdempotencyKey } from "./fileHash";
 
 export { uploadFileDirectToBlob } from "./blobUpload";
 export type { DirectUploadInput, DirectUploadResult, DirectUploadSuccess, DirectUploadFailure } from "./blobUpload";

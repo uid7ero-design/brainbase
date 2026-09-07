@@ -1,33 +1,4 @@
-// Data Hub 5A.3B — optional client-side SHA-256 pre-computation.
-//
-// Passing `expectedSha256` on initiate lets finalize's own mandatory
-// HASH_MISMATCH check (finalize.ts) catch a corrupted-in-transit upload
-// deterministically. This is genuinely OPTIONAL — omitting it degrades
-// gracefully (finalize simply skips that specific check, matching
-// finalize.ts's own `if (expectedSha256 && ...)` guard) — so this helper
-// never throws for an unsupported environment; it resolves `undefined`
-// instead, and callers are expected to treat that as "don't send
-// expectedSha256", not as an error.
-
-/**
- * Computes the lowercase hex SHA-256 of a File/Blob using the Web Crypto
- * SubtleCrypto API. Resolves `undefined` (never throws) when
- * `crypto.subtle` is unavailable (e.g. a non-secure-context test
- * environment) — see this module's own header comment.
- */
-export async function computeFileSha256(file: File | Blob): Promise<string | undefined> {
-  const subtle = globalThis.crypto?.subtle;
-  if (!subtle) return undefined;
-  try {
-    const buffer = await file.arrayBuffer();
-    const digest = await subtle.digest("SHA-256", buffer);
-    return Array.from(new Uint8Array(digest))
-      .map((b) => b.toString(16).padStart(2, "0"))
-      .join("");
-  } catch {
-    return undefined;
-  }
-}
+// Data Hub 5A.3B — idempotency-key generation for the orchestrator.
 
 /**
  * Generates a fresh idempotency key. Prefers `crypto.randomUUID()`
