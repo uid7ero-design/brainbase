@@ -52,7 +52,7 @@ const BOARD_B = '44444444-4444-4444-4444-444444444444'
 const ITEM_A = '11111111-1111-1111-1111-111111111111'
 
 function activityRow(overrides: Partial<{
-  id: string; event_type: string; entity_type: string; entity_id: string;
+  id: string; event_type: string; entity_type: string; entity_id: string; item_id: string | null;
   actor_user_id: string | null; actor_name: string;
   before_json: Record<string, unknown> | null; after_json: Record<string, unknown> | null;
   metadata_json: Record<string, unknown>; created_at: Date;
@@ -62,6 +62,7 @@ function activityRow(overrides: Partial<{
     event_type: 'item.created',
     entity_type: 'item',
     entity_id: ITEM_A,
+    item_id: ITEM_A,
     actor_user_id: 'u1',
     actor_name: 'Admin',
     before_json: null,
@@ -249,6 +250,31 @@ describe('D. Response shape and per-event-type rows (board scope)', () => {
     const json = await res.json()
     expect(json.activity).toEqual([])
     expect(json.next_cursor).toBeNull()
+  })
+
+  // Phase D.4.6E — item_id now selected/returned for the board scope too.
+  it('the SQL projection includes item_id', async () => {
+    sqlResult = [activityRow()]
+    await GET(req(`?boardId=${BOARD_A}`))
+    expect(sqlCalls[0].text).toMatch(/SELECT id, event_type, entity_type, entity_id, item_id, actor_user_id, actor_name/)
+  })
+
+  it('a file-shaped row carries its PARENT item_id, distinct from its own entity_id, through to the board feed', async () => {
+    sqlResult = [activityRow({
+      event_type: 'file.added', entity_type: 'file', entity_id: 'file-1',
+      item_id: ITEM_A, before_json: null, after_json: { file_name: 'invoice.pdf', file_size: 1024 },
+    })]
+    const res = await GET(req(`?boardId=${BOARD_A}`))
+    const json = await res.json()
+    expect(json.activity[0].entity_id).toBe('file-1')
+    expect(json.activity[0].item_id).toBe(ITEM_A)
+  })
+
+  it('item_id is null for a board/group event, never coerced from entity_id', async () => {
+    sqlResult = [activityRow({ event_type: 'group.deleted', entity_type: 'group', entity_id: 'group-1', item_id: null, before_json: { name: 'Old Group' }, after_json: null })]
+    const res = await GET(req(`?boardId=${BOARD_A}`))
+    const json = await res.json()
+    expect(json.activity[0].item_id).toBeNull()
   })
 })
 

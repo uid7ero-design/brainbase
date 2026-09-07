@@ -7,6 +7,8 @@ import {
   listBoardActivity,
   listItemActivity,
   getOrganiserItemNamesByIds,
+  getOrganiserGroupNamesByIds,
+  getEventItemId,
   parseActivityWindow,
   resolveActivityWindow,
   shapeBoardActivityForHelena,
@@ -201,6 +203,20 @@ function readLimit(input: Record<string, unknown>): number | undefined {
 }
 
 /**
+ * Phase D.4.6E — reads a group_id snapshot value out of one before_json/
+ * after_json payload, safely. Historical snapshots are opaque JSONB from
+ * past writes — never assumed well-formed — so this only ever returns a
+ * value that is both a string AND UUID-shaped; anything else (missing key,
+ * null, a non-UUID legacy value) safely returns null rather than passing a
+ * malformed candidate on to a parameterized ::uuid[] query.
+ */
+function extractGroupIdCandidate(json: Record<string, unknown> | null): string | null {
+  if (!json) return null;
+  const value = json.group_id;
+  return typeof value === 'string' && UUID_RE.test(value) ? value : null;
+}
+
+/**
  * Phase D.4.6D — {board_id, item_id} fallback values, supplied ONLY by
  * app/api/chat/route.ts's own trusted, tenant-scoped
  * resolveHelenaOrganiserContext() result — never anything read from the
@@ -289,14 +305,43 @@ export async function executeOrganiserTool(
         // label. Deletion-safe fallbacks (before/after snapshot name, then
         // "Item") are untouched — this only supplies the last-resort live
         // name describeBoardActivityEvent already knows how to use.
+        //
+        // Phase D.4.6E — getEventItemId(ev) (not entity_id) is what
+        // correctly resolves the PARENT item for comment/file events too:
+        // entity_id on those rows is the comment/file's own id, which
+        // would never match a real item id. See getEventItemId's own
+        // header in activityFormat.ts for the write-side proof this is
+        // safe, and OrganiserActivityEventDTO's header for why board.*/
+        // group.* events correctly contribute no id here (item_id is null
+        // for them).
         const liveItemIds = Array.from(
-          new Set(result.activity.filter((ev) => ev.entity_type === 'item').map((ev) => ev.entity_id)),
+          new Set(result.activity.map((ev) => getEventItemId(ev)).filter((id): id is string => !!id)),
         );
         const liveItemNamesById =
           liveItemIds.length > 0
             ? await getOrganiserItemNamesByIds({ organisationId, boardId, itemIds: liveItemIds })
             : {};
-        const events = shapeBoardActivityForHelena(result.activity, {}, liveItemNamesById);
+
+        // Phase D.4.6E — real live group names for exactly the group ids
+        // this activity page's item events reference via their own
+        // before_json/after_json.group_id snapshot field (group.* events
+        // themselves never need a lookup — they already name the group
+        // directly from their own before/after.name, see
+        // describeEntityEventInternal in activityFormat.ts). Bounded to
+        // this page's own referenced ids, never a full board-wide group
+        // scan.
+        const groupIds = Array.from(
+          new Set(
+            result.activity.flatMap((ev) => [extractGroupIdCandidate(ev.before), extractGroupIdCandidate(ev.after)])
+              .filter((id): id is string => !!id),
+          ),
+        );
+        const groupNamesById =
+          groupIds.length > 0
+            ? await getOrganiserGroupNamesByIds({ organisationId, boardId, groupIds })
+            : {};
+
+        const events = shapeBoardActivityForHelena(result.activity, groupNamesById, liveItemNamesById);
         return JSON.stringify({
           events,
           next_cursor: result.next_cursor,

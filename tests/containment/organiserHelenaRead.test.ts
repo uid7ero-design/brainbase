@@ -44,6 +44,7 @@ const {
   listOrganiserBoards,
   listOrganiserItems,
   getOrganiserItemNamesByIds,
+  getOrganiserGroupNamesByIds,
   resolveHelenaOrganiserContext,
   resolveActivityWindow,
   parseActivityWindow,
@@ -289,6 +290,58 @@ describe('getOrganiserItemNamesByIds', () => {
   })
 })
 
+// ─── getOrganiserGroupNamesByIds (Phase D.4.6E) ────────────────────────────
+// Mirrors getOrganiserItemNamesByIds's own test set exactly — same
+// contract, same security properties, different table.
+
+describe('getOrganiserGroupNamesByIds', () => {
+  const GROUP_A = '55555555-5555-5555-5555-555555555555'
+  const GROUP_B = '66666666-6666-6666-6666-666666666666'
+
+  it('scopes by organisation_id AND board_id directly on organiser_groups, with group ids parameterized via = ANY(...)', async () => {
+    sqlResult = []
+    await getOrganiserGroupNamesByIds({ organisationId: 'org-a', boardId: BOARD_A, groupIds: [GROUP_A] })
+    expect(sqlCalls[0].text).toMatch(/organiser_groups/)
+    expect(sqlCalls[0].text).toMatch(/organisation_id = /)
+    expect(sqlCalls[0].text).toMatch(/board_id = /)
+    expect(sqlCalls[0].text).toMatch(/= ANY\(/)
+    expect(sqlCalls[0].values).toContain('org-a')
+    expect(sqlCalls[0].values).toContain(BOARD_A)
+    expect(sqlCalls[0].values).toContainEqual([GROUP_A])
+  })
+
+  it('an empty groupIds array never reaches sql — returns {} immediately', async () => {
+    const map = await getOrganiserGroupNamesByIds({ organisationId: 'org-a', boardId: BOARD_A, groupIds: [] })
+    expect(map).toEqual({})
+    expect(sqlMock).not.toHaveBeenCalled()
+  })
+
+  it('a malformed boardId never reaches sql — returns {} immediately', async () => {
+    const map = await getOrganiserGroupNamesByIds({ organisationId: 'org-a', boardId: 'not-a-uuid', groupIds: [GROUP_A] })
+    expect(map).toEqual({})
+    expect(sqlMock).not.toHaveBeenCalled()
+  })
+
+  it('duplicate and malformed group ids are deduplicated and filtered before ever reaching sql', async () => {
+    sqlResult = []
+    await getOrganiserGroupNamesByIds({ organisationId: 'org-a', boardId: BOARD_A, groupIds: [GROUP_A, GROUP_A, 'not-a-uuid', ''] })
+    expect(sqlCalls[0].values).toContainEqual([GROUP_A])
+  })
+
+  it('returns id->name only, as a plain map — no color/position fields', async () => {
+    sqlResult = [{ id: GROUP_A, name: 'Backlog' }, { id: GROUP_B, name: 'In Progress' }]
+    const map = await getOrganiserGroupNamesByIds({ organisationId: 'org-a', boardId: BOARD_A, groupIds: [GROUP_A, GROUP_B] })
+    expect(map).toEqual({ [GROUP_A]: 'Backlog', [GROUP_B]: 'In Progress' })
+  })
+
+  it('a wrong-tenant/nonexistent group id is simply absent from the map — no existence side channel, never an error', async () => {
+    sqlResult = []
+    const map = await getOrganiserGroupNamesByIds({ organisationId: 'org-a', boardId: BOARD_A, groupIds: [GROUP_A] })
+    expect(map).toEqual({})
+    expect(Object.prototype.hasOwnProperty.call(map, GROUP_A)).toBe(false)
+  })
+})
+
 // ─── resolveHelenaOrganiserContext (Phase D.4.6D) ──────────────────────────
 //
 // ResolveHelenaOrganiserContextParams has no boardName/itemName field at
@@ -518,7 +571,7 @@ describe('listBoardActivity / listItemActivity — start/end extension preserves
 // ── Helena-safe activity shaping ────────────────────────────────────────────
 
 function dto(overrides: Partial<{
-  id: string; event_type: string; entity_type: string; entity_id: string;
+  id: string; event_type: string; entity_type: string; entity_id: string; item_id: string | null;
   actor: { user_id: string | null; name: string };
   before: Record<string, unknown> | null; after: Record<string, unknown> | null;
   metadata: Record<string, unknown>; created_at: string;
@@ -528,6 +581,10 @@ function dto(overrides: Partial<{
     event_type: 'item.updated',
     entity_type: 'item',
     entity_id: ITEM_A,
+    // Matches real write-side behaviour for entity_type='item' (item_id ===
+    // entity_id — see OrganiserActivityEventDTO's own header) unless a test
+    // overrides both explicitly for a comment/file/board/group fixture.
+    item_id: ITEM_A,
     actor: { user_id: 'u1', name: 'Admin' },
     before: { status: 'Not Started' },
     after: { status: 'In Progress' },

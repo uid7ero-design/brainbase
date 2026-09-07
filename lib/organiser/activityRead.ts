@@ -35,6 +35,23 @@ export interface OrganiserActivityEventDTO {
   event_type: string;
   entity_type: string;
   entity_id: string;
+  /**
+   * Phase D.4.6E — the item this event concerns, straight from
+   * organiser_activity.item_id (a real column, previously read in every
+   * WHERE clause here but never SELECTed/returned). For entity_type='item'
+   * this always equals entity_id (both are the item's own id, set
+   * identically at write time — see app/api/organiser/items/[itemId]/
+   * route.ts and boards/[boardId]/items/route.ts). For entity_type IN
+   * ('comment','file') this is the PARENT item id — entity_id there is the
+   * comment/file's own id instead (see the updates and files route
+   * handlers' own INSERTs, which set item_id and entity_id to two
+   * different values on purpose). null for board.x / group.x events, which
+   * never carry an item_id at write time. Never a new tenant-scope
+   * concern: it is exactly as sensitive as entity_id, which this DTO
+   * already exposed, and no query predicate changes because of it — this
+   * is an added SELECT column only.
+   */
+  item_id: string | null;
   actor: { user_id: string | null; name: string };
   before: Record<string, unknown> | null;
   after: Record<string, unknown> | null;
@@ -116,6 +133,7 @@ interface ActivityRow {
   event_type: string;
   entity_type: string;
   entity_id: string;
+  item_id: string | null;
   actor_user_id: string | null;
   actor_name: string;
   before_json: Record<string, unknown> | null;
@@ -130,6 +148,7 @@ function toDTO(row: ActivityRow): OrganiserActivityEventDTO {
     event_type: row.event_type,
     entity_type: row.entity_type,
     entity_id: row.entity_id,
+    item_id: row.item_id,
     actor: { user_id: row.actor_user_id, name: row.actor_name },
     before: row.before_json,
     after: row.after_json,
@@ -205,7 +224,7 @@ export async function listItemActivity(context: ListItemActivityTrustedContext):
   const rows = (
     cursorTuple
       ? await sql`
-          SELECT id, event_type, entity_type, entity_id, actor_user_id, actor_name,
+          SELECT id, event_type, entity_type, entity_id, item_id, actor_user_id, actor_name,
                  before_json, after_json, metadata_json,
                  date_trunc('milliseconds', created_at) AS created_at
           FROM organiser_activity
@@ -219,7 +238,7 @@ export async function listItemActivity(context: ListItemActivityTrustedContext):
           LIMIT ${limit + 1}
         `
       : await sql`
-          SELECT id, event_type, entity_type, entity_id, actor_user_id, actor_name,
+          SELECT id, event_type, entity_type, entity_id, item_id, actor_user_id, actor_name,
                  before_json, after_json, metadata_json,
                  date_trunc('milliseconds', created_at) AS created_at
           FROM organiser_activity
@@ -324,7 +343,7 @@ export async function listBoardActivity(context: ListBoardActivityTrustedContext
   const rows = (
     cursorTuple
       ? await sql`
-          SELECT id, event_type, entity_type, entity_id, actor_user_id, actor_name,
+          SELECT id, event_type, entity_type, entity_id, item_id, actor_user_id, actor_name,
                  before_json, after_json, metadata_json,
                  date_trunc('milliseconds', created_at) AS created_at
           FROM organiser_activity
@@ -337,7 +356,7 @@ export async function listBoardActivity(context: ListBoardActivityTrustedContext
           LIMIT ${limit + 1}
         `
       : await sql`
-          SELECT id, event_type, entity_type, entity_id, actor_user_id, actor_name,
+          SELECT id, event_type, entity_type, entity_id, item_id, actor_user_id, actor_name,
                  before_json, after_json, metadata_json,
                  date_trunc('milliseconds', created_at) AS created_at
           FROM organiser_activity

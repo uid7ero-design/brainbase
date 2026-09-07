@@ -46,7 +46,7 @@ const ITEM_A = '11111111-1111-1111-1111-111111111111'
 const ITEM_B = '22222222-2222-2222-2222-222222222222'
 
 function activityRow(overrides: Partial<{
-  id: string; event_type: string; entity_type: string; entity_id: string;
+  id: string; event_type: string; entity_type: string; entity_id: string; item_id: string | null;
   actor_user_id: string | null; actor_name: string;
   before_json: Record<string, unknown> | null; after_json: Record<string, unknown> | null;
   metadata_json: Record<string, unknown>; created_at: Date;
@@ -56,6 +56,7 @@ function activityRow(overrides: Partial<{
     event_type: 'item.created',
     entity_type: 'item',
     entity_id: ITEM_A,
+    item_id: ITEM_A,
     actor_user_id: 'u1',
     actor_name: 'Admin',
     before_json: null,
@@ -241,6 +242,32 @@ describe('C. Response shape and per-event-type rows', () => {
     expect(res.status).toBe(200)
     expect(json.activity).toEqual([])
     expect(json.next_cursor).toBeNull()
+  })
+
+  // Phase D.4.6E — item_id is now selected/returned alongside entity_id.
+  it('the SQL projection includes item_id (previously WHERE-only, never SELECTed)', async () => {
+    sqlResult = [activityRow()]
+    await GET(req(`?itemId=${ITEM_A}`))
+    expect(sqlCalls[0].text).toMatch(/SELECT id, event_type, entity_type, entity_id, item_id, actor_user_id, actor_name/)
+  })
+
+  it('a comment-shaped row carries a DIFFERENT item_id than entity_id through to the response, unchanged and un-conflated', async () => {
+    sqlResult = [activityRow({
+      event_type: 'comment.created', entity_type: 'comment', entity_id: 'comment-1',
+      item_id: ITEM_A, before_json: null, after_json: { excerpt: 'hi' },
+    })]
+    const res = await GET(req(`?itemId=${ITEM_A}`))
+    const json = await res.json()
+    expect(json.activity[0].entity_id).toBe('comment-1')
+    expect(json.activity[0].item_id).toBe(ITEM_A)
+  })
+
+  it('item_id is null for a row that never carries one (e.g. a board/group event), never coerced from entity_id', async () => {
+    sqlResult = [activityRow({ event_type: 'board.updated', entity_type: 'board', entity_id: 'board-1', item_id: null })]
+    const res = await GET(req(`?itemId=${ITEM_A}`))
+    const json = await res.json()
+    expect(json.activity[0].item_id).toBeNull()
+    expect(json.activity[0].entity_id).toBe('board-1')
   })
 })
 

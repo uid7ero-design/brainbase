@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { resolveItemLabel, describeBoardActivityEvent, describeActivityEvent } from '@/lib/organiser/activityFormat'
+import { resolveItemLabel, describeBoardActivityEvent, describeActivityEvent, getEventItemId } from '@/lib/organiser/activityFormat'
 
 // Phase D.4.5E — resolveItemLabel and describeBoardActivityEvent, the
 // board-feed additions to lib/organiser/activityFormat.ts. Pure and
@@ -41,6 +41,97 @@ describe('resolveItemLabel — resolves via the specified priority order', () =>
   it('never requires a live lookup — omitting liveItemNamesById entirely still resolves via before/after or the generic fallback', () => {
     expect(resolveItemLabel({ entity_id: 'i1', before: { name: 'X' }, after: null })).toBe('X')
     expect(resolveItemLabel({ entity_id: 'i1', before: null, after: null })).toBe('Item')
+  })
+})
+
+// ─── Phase D.4.6E — getEventItemId + item_id-aware live lookup ─────────────
+
+describe('getEventItemId — extracts the parent item id an event concerns', () => {
+  it('returns item_id when present', () => {
+    expect(getEventItemId({ item_id: 'item-1' })).toBe('item-1')
+  })
+
+  it('returns null when item_id is null (board/group events)', () => {
+    expect(getEventItemId({ item_id: null })).toBeNull()
+  })
+
+  it('returns null when item_id is absent entirely — never throws, never coerces from anything else', () => {
+    expect(getEventItemId({})).toBeNull()
+  })
+})
+
+describe('resolveItemLabel — item_id (Phase D.4.6E), not entity_id, is used as the live-lookup key when present', () => {
+  it('a comment/file-shaped event (entity_id is the comment/file\'s OWN id) resolves the live name via item_id, its PARENT item', () => {
+    const label = resolveItemLabel(
+      { entity_id: 'comment-1', item_id: 'item-1', before: null, after: { excerpt: 'hi' } },
+      { 'item-1': 'Real Item Name' },
+    )
+    expect(label).toBe('Real Item Name')
+  })
+
+  it('entity_id ("comment-1") is never used as the lookup key once item_id is present — a map keyed only by the WRONG (entity_id) id must not resolve', () => {
+    const label = resolveItemLabel(
+      { entity_id: 'comment-1', item_id: 'item-1', before: null, after: {} },
+      { 'comment-1': 'Should Never Be Used' },
+    )
+    expect(label).toBe('Item') // no entry under 'item-1' -> generic fallback, proving entity_id was not the key used
+  })
+
+  it('backward compatible: an event with no item_id field at all still resolves via entity_id exactly as before D.4.6E', () => {
+    const label = resolveItemLabel({ entity_id: 'i1', before: null, after: {} }, { i1: 'Live Name' })
+    expect(label).toBe('Live Name')
+  })
+
+  it('a snapshot name (after.name) still wins over the live item_id lookup — priority order unchanged', () => {
+    const label = resolveItemLabel(
+      { entity_id: 'comment-1', item_id: 'item-1', before: null, after: { name: 'Snapshot Name' } },
+      { 'item-1': 'Live Name' },
+    )
+    expect(label).toBe('Snapshot Name')
+  })
+
+  it('item_id: null (board/group event) falls back to entity_id as the key, matching getEventItemId\'s own contract', () => {
+    const label = resolveItemLabel(
+      { entity_id: 'board-1', item_id: null, before: null, after: {} },
+      { 'board-1': 'Should not resolve via a board id' },
+    )
+    // This is expected/harmless: describeBoardActivityEvent never actually
+    // calls resolveItemLabel for board.*/group.* events at all (they route
+    // to describeEntityEventInternal instead) — this test only proves
+    // resolveItemLabel's own null-item_id fallback behaves predictably in
+    // isolation, not that this path is reachable in practice.
+    expect(label).toBe('Should not resolve via a board id')
+  })
+})
+
+describe('describeBoardActivityEvent — comment/file events name their PARENT item via item_id (Phase D.4.6E)', () => {
+  it('comment.created on a live item names the real parent item, not "Item"', () => {
+    const desc = describeBoardActivityEvent(
+      { event_type: 'comment.created', entity_id: 'comment-1', item_id: 'item-1', actor: { name: 'Admin' }, before: null, after: { excerpt: 'Waiting on supplier' } },
+      {},
+      { 'item-1': 'Test 2' },
+    )
+    expect(desc.summary).toContain('"Test 2"')
+  })
+
+  it('file.added on a live item names the real parent item and the real filename together', () => {
+    const desc = describeBoardActivityEvent(
+      { event_type: 'file.added', entity_id: 'file-1', item_id: 'item-1', actor: { name: 'Admin' }, before: null, after: { file_name: 'invoice.pdf', file_size: 1024 } },
+      {},
+      { 'item-1': 'Test 2' },
+    )
+    expect(desc.summary).toContain('invoice.pdf')
+    expect(desc.summary).toContain('"Test 2"')
+  })
+
+  it('file.deleted with a deleted parent item and no live/snapshot item name available falls back to the generic label — never invents a name', () => {
+    const desc = describeBoardActivityEvent(
+      { event_type: 'file.deleted', entity_id: 'file-1', item_id: 'item-1', actor: { name: 'Admin' }, before: { file_name: 'invoice.pdf' }, after: null },
+      {},
+      {}, // item-1 no longer resolves live, and this event's before/after carry no item name snapshot
+    )
+    expect(desc.summary).toContain('invoice.pdf')
+    expect(desc.summary).toContain('"Item"')
   })
 })
 

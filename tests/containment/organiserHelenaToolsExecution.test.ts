@@ -249,7 +249,7 @@ describe('executeOrganiserTool — list_organiser_items', () => {
 // ── get_organiser_board_activity / get_organiser_item_activity dispatch ────
 
 function activityRow(overrides: Partial<{
-  id: string; event_type: string; entity_type: string; entity_id: string;
+  id: string; event_type: string; entity_type: string; entity_id: string; item_id: string | null;
   actor_user_id: string | null; actor_name: string;
   before_json: Record<string, unknown> | null; after_json: Record<string, unknown> | null;
   metadata_json: Record<string, unknown>; created_at: Date;
@@ -259,6 +259,10 @@ function activityRow(overrides: Partial<{
     event_type: 'item.updated',
     entity_type: 'item',
     entity_id: ITEM_A,
+    // Phase D.4.6E — matches real write-side behaviour for entity_type='item'
+    // (item_id === entity_id there — see OrganiserActivityEventDTO's own
+    // header); a comment/file/board/group fixture overrides both explicitly.
+    item_id: ITEM_A,
     actor_user_id: 'u1',
     actor_name: 'Admin',
     before_json: { status: 'Not Started' },
@@ -400,12 +404,16 @@ describe('executeOrganiserTool — get_organiser_board_activity — live item-na
     expect(sqlCalls).toHaveLength(2) // the lookup DID fire — it just found no matching row
   })
 
-  it('comment/file activity (entity_id is the comment/file id, not an item id) is excluded from the item-name lookup set, even when a genuine item event shares the same page', async () => {
+  it('comment/file activity: entity_id (the comment/file\'s OWN id) is excluded from the item-name lookup set — only item_id (the PARENT item) is ever collected', async () => {
     sqlResultQueue = [
       [
-        activityRow({ event_type: 'comment.created', entity_type: 'comment', entity_id: 'comment-1', before_json: null, after_json: { excerpt: 'Waiting on supplier' } }),
-        activityRow({ event_type: 'file.added', entity_type: 'file', entity_id: 'file-1', before_json: null, after_json: { file_name: 'invoice.pdf', file_size: 1024 } }),
-        activityRow({ event_type: 'item.moved', entity_type: 'item', entity_id: ITEM_A, before_json: {}, after_json: {} }),
+        // Phase D.4.6E: item_id explicitly set to the PARENT item — a real
+        // comment/file row always has one (see the write-side INSERTs) —
+        // while entity_id stays the comment/file's own, unrelated id. The
+        // pre-D.4.6E bug would have tried to look up 'comment-1'/'file-1'
+        // as if they were item ids; this proves that never happens.
+        activityRow({ event_type: 'comment.created', entity_type: 'comment', entity_id: 'comment-1', item_id: ITEM_A, before_json: null, after_json: { excerpt: 'Waiting on supplier' } }),
+        activityRow({ event_type: 'file.added', entity_type: 'file', entity_id: 'file-1', item_id: ITEM_A, before_json: null, after_json: { file_name: 'invoice.pdf', file_size: 1024 } }),
       ],
       [{ id: ITEM_A, name: 'Test 2' }],
     ]
@@ -413,18 +421,22 @@ describe('executeOrganiserTool — get_organiser_board_activity — live item-na
     const raw = await executeOrganiserTool('get_organiser_board_activity', { board_id: BOARD_A })
     const parsed = JSON.parse(raw)
     // The lookup call (sqlCalls[1]) must only ever be asked to resolve the
-    // real item id — comment-1/file-1 must never appear in its id set.
+    // real parent item id — comment-1/file-1 must never appear in its id set.
     expect(sqlCalls[1].values).toContainEqual([ITEM_A])
+    expect(sqlCalls[1].values.flat()).not.toContain('comment-1')
+    expect(sqlCalls[1].values.flat()).not.toContain('file-1')
+    expect(parsed.events[0].summary).toContain('"Test 2"') // comment.created names its parent item
     expect(parsed.events[1].summary).toContain('"invoice.pdf"')
-    expect(parsed.events[2].summary).toContain('"Test 2"')
+    expect(parsed.events[1].summary).toContain('"Test 2"') // file.added names its parent item too
   })
 
-  it('no item-entity events on the page -> the second (name-lookup) sql call never fires at all', async () => {
+  it('board/group entity events (no item_id at write time) contribute nothing to the item-name lookup — the second sql call never fires at all', async () => {
     sqlResultQueue = [
-      [activityRow({ event_type: 'comment.created', entity_type: 'comment', entity_id: 'comment-1', before_json: null, after_json: { excerpt: 'hi' } })],
+      [activityRow({ event_type: 'group.created', entity_type: 'group', entity_id: 'group-1', item_id: null, before_json: null, after_json: { name: 'Backlog' } })],
     ]
-    await executeOrganiserTool('get_organiser_board_activity', { board_id: BOARD_A })
+    const raw = await executeOrganiserTool('get_organiser_board_activity', { board_id: BOARD_A })
     expect(sqlMock).toHaveBeenCalledTimes(1)
+    expect(JSON.parse(raw).events[0].summary).toContain('Backlog')
   })
 
   it('multiple activity rows referencing the SAME item id resolve with exactly one deduplicated lookup entry', async () => {
@@ -447,6 +459,115 @@ describe('executeOrganiserTool — get_organiser_board_activity — live item-na
     sqlResultQueue = [
       [activityRow({ event_type: 'item.moved', entity_type: 'item', entity_id: ITEM_A, before_json: {}, after_json: {} })],
       [{ id: ITEM_A, name: 'Test 2' }],
+    ]
+    const raw = await executeOrganiserTool('get_organiser_board_activity', { board_id: BOARD_A })
+    expect(raw).not.toMatch(/organisation_id/i)
+    expect(raw).not.toContain('org-a')
+  })
+})
+
+// ── Phase D.4.6E — board activity live group-name resolution ───────────────
+//
+// getOrganiserGroupNamesByIds is called AFTER the item-name lookup when the
+// activity page's before/after snapshots reference at least one group_id —
+// so sql call order is [0]=activity, [1]=item-name lookup (if any item ids
+// were found), [2]=group-name lookup (if any group ids were found). Tests
+// that need only a group lookup (no item ids on the page) see it land at
+// sqlCalls[1] instead — each test below states which index it expects.
+
+describe('executeOrganiserTool — get_organiser_board_activity — live group-name resolution', () => {
+  const GROUP_A = '55555555-5555-5555-5555-555555555555'
+  const GROUP_B = '66666666-6666-6666-6666-666666666666'
+
+  it('item.moved to a live group uses the real group name, not "Another group"', async () => {
+    sqlResultQueue = [
+      [activityRow({ event_type: 'item.moved', entity_type: 'item', entity_id: ITEM_A, item_id: ITEM_A, before_json: { group_id: null }, after_json: { group_id: GROUP_A } })],
+      [{ id: ITEM_A, name: 'Test 2' }],
+      [{ id: GROUP_A, name: 'Backlog' }],
+    ]
+    const raw = await executeOrganiserTool('get_organiser_board_activity', { board_id: BOARD_A })
+    const parsed = JSON.parse(raw)
+    expect(parsed.events[0].diffs.join(' ')).toContain('Backlog')
+    expect(parsed.events[0].diffs.join(' ')).not.toContain('Another group')
+    expect(sqlCalls[2].text).toMatch(/organiser_groups/)
+    expect(sqlCalls[2].values).toContain(BOARD_A)
+  })
+
+  it('item moved from live Group A to live Group B resolves BOTH names', async () => {
+    sqlResultQueue = [
+      [activityRow({ event_type: 'item.moved', entity_type: 'item', entity_id: ITEM_A, item_id: ITEM_A, before_json: { group_id: GROUP_A }, after_json: { group_id: GROUP_B } })],
+      [{ id: ITEM_A, name: 'Test 2' }],
+      [{ id: GROUP_A, name: 'Backlog' }, { id: GROUP_B, name: 'In Progress' }],
+    ]
+    const raw = await executeOrganiserTool('get_organiser_board_activity', { board_id: BOARD_A })
+    const parsed = JSON.parse(raw)
+    expect(parsed.events[0].diffs.join(' ')).toContain('Backlog → In Progress')
+    expect(sqlCalls[2].values).toContainEqual([GROUP_A, GROUP_B])
+  })
+
+  it('group.deleted still shows its own real name from the before snapshot — group.* events never depend on the live group-name lookup at all', async () => {
+    sqlResultQueue = [
+      [activityRow({ event_type: 'group.deleted', entity_type: 'group', entity_id: GROUP_A, item_id: null, before_json: { name: 'Old Backlog' }, after_json: null })],
+    ]
+    const raw = await executeOrganiserTool('get_organiser_board_activity', { board_id: BOARD_A })
+    const parsed = JSON.parse(raw)
+    expect(parsed.events[0].summary).toContain('Old Backlog')
+    // No item ids and no group_id snapshot field on this event (group.deleted
+    // carries its OWN id as entity_id, never a group_id field to look up) —
+    // neither lookup should fire.
+    expect(sqlMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('a group_id with no live match and no snapshot falls back to "Another group" — never invents a name', async () => {
+    sqlResultQueue = [
+      [activityRow({ event_type: 'item.moved', entity_type: 'item', entity_id: ITEM_A, item_id: ITEM_A, before_json: { group_id: GROUP_A }, after_json: { group_id: GROUP_B } })],
+      [{ id: ITEM_A, name: 'Test 2' }],
+      [], // group lookup finds neither group (deleted, or wrong tenant)
+    ]
+    const raw = await executeOrganiserTool('get_organiser_board_activity', { board_id: BOARD_A })
+    const parsed = JSON.parse(raw)
+    expect(parsed.events[0].diffs.join(' ')).toContain('Another group → Another group')
+  })
+
+  it('a malformed (non-UUID) group_id snapshot value is filtered out before ever reaching sql', async () => {
+    sqlResultQueue = [
+      [activityRow({ event_type: 'item.moved', entity_type: 'item', entity_id: ITEM_A, item_id: ITEM_A, before_json: { group_id: 'not-a-uuid' }, after_json: { group_id: 12345 } })],
+      [{ id: ITEM_A, name: 'Test 2' }],
+    ]
+    const raw = await executeOrganiserTool('get_organiser_board_activity', { board_id: BOARD_A })
+    // Neither malformed value is a usable candidate -> the group lookup
+    // never fires at all (only the activity read + item-name lookup do).
+    expect(sqlMock).toHaveBeenCalledTimes(2)
+    expect(JSON.parse(raw).events[0].diffs.join(' ')).toContain('Another group')
+  })
+
+  it('multiple events referencing the SAME group_id resolve with exactly one deduplicated lookup entry', async () => {
+    sqlResultQueue = [
+      [
+        activityRow({ id: 'act-1', event_type: 'item.moved', entity_type: 'item', entity_id: ITEM_A, item_id: ITEM_A, before_json: { group_id: null }, after_json: { group_id: GROUP_A } }),
+        activityRow({ id: 'act-2', event_type: 'item.moved', entity_type: 'item', entity_id: ITEM_A, item_id: ITEM_A, before_json: { group_id: null }, after_json: { group_id: GROUP_A } }),
+      ],
+      [{ id: ITEM_A, name: 'Test 2' }],
+      [{ id: GROUP_A, name: 'Backlog' }],
+    ]
+    await executeOrganiserTool('get_organiser_board_activity', { board_id: BOARD_A })
+    expect(sqlCalls[2].values).toContainEqual([GROUP_A])
+  })
+
+  it('no group_id anywhere on the page -> the group-name lookup never fires (bounded to the current page\'s own referenced ids)', async () => {
+    sqlResultQueue = [
+      [activityRow({ event_type: 'item.updated', entity_type: 'item', entity_id: ITEM_A, item_id: ITEM_A, before_json: { status: 'A' }, after_json: { status: 'B' } })],
+      [{ id: ITEM_A, name: 'Test 2' }],
+    ]
+    await executeOrganiserTool('get_organiser_board_activity', { board_id: BOARD_A })
+    expect(sqlMock).toHaveBeenCalledTimes(2) // activity + item-name lookup only
+  })
+
+  it('the tool_result string never contains organisation_id even with the group lookup wired in', async () => {
+    sqlResultQueue = [
+      [activityRow({ event_type: 'item.moved', entity_type: 'item', entity_id: ITEM_A, item_id: ITEM_A, before_json: { group_id: null }, after_json: { group_id: GROUP_A } })],
+      [{ id: ITEM_A, name: 'Test 2' }],
+      [{ id: GROUP_A, name: 'Backlog' }],
     ]
     const raw = await executeOrganiserTool('get_organiser_board_activity', { board_id: BOARD_A })
     expect(raw).not.toMatch(/organisation_id/i)
