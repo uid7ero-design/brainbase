@@ -6,6 +6,7 @@ import {
   listOrganiserItems,
   listBoardActivity,
   listItemActivity,
+  getOrganiserItemNamesByIds,
   parseActivityWindow,
   resolveActivityWindow,
   shapeBoardActivityForHelena,
@@ -256,7 +257,21 @@ export async function executeOrganiserTool(name: OrganiserToolName, rawInput: un
           limit: readLimit(input),
         });
         if (!result.ok) return JSON.stringify({ error: GENERIC_ERROR });
-        const events = shapeBoardActivityForHelena(result.activity);
+        // Resolve real live names for exactly the items this activity page
+        // references (never a full-board fetch — see
+        // getOrganiserItemNamesByIds's own header) so board-level answers
+        // name the item instead of falling back to the generic "Item"
+        // label. Deletion-safe fallbacks (before/after snapshot name, then
+        // "Item") are untouched — this only supplies the last-resort live
+        // name describeBoardActivityEvent already knows how to use.
+        const liveItemIds = Array.from(
+          new Set(result.activity.filter((ev) => ev.entity_type === 'item').map((ev) => ev.entity_id)),
+        );
+        const liveItemNamesById =
+          liveItemIds.length > 0
+            ? await getOrganiserItemNamesByIds({ organisationId, boardId, itemIds: liveItemIds })
+            : {};
+        const events = shapeBoardActivityForHelena(result.activity, {}, liveItemNamesById);
         return JSON.stringify({
           events,
           next_cursor: result.next_cursor,

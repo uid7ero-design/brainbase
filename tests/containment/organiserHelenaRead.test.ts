@@ -36,6 +36,7 @@ const {
   authorizeHelenaOrganiserRead,
   listOrganiserBoards,
   listOrganiserItems,
+  getOrganiserItemNamesByIds,
   resolveActivityWindow,
   parseActivityWindow,
   isOrganiserActivityWindow,
@@ -228,6 +229,54 @@ describe('listOrganiserItems', () => {
     sqlResult = []
     await listOrganiserItems({ organisationId: 'org-a', boardId: BOARD_A })
     expect(sqlCalls[0].text).toMatch(/ORDER BY i\.position ASC, i\.created_at ASC/)
+  })
+})
+
+// ── getOrganiserItemNamesByIds (Phase D.4.6C.1) ─────────────────────────────
+
+describe('getOrganiserItemNamesByIds', () => {
+  const ITEM_B = '44444444-4444-4444-4444-444444444444'
+
+  it('scopes by organisation_id AND board_id directly on organiser_items, with item ids parameterized via = ANY(...)', async () => {
+    sqlResult = []
+    await getOrganiserItemNamesByIds({ organisationId: 'org-a', boardId: BOARD_A, itemIds: [ITEM_A] })
+    expect(sqlCalls[0].text).toMatch(/organisation_id = /)
+    expect(sqlCalls[0].text).toMatch(/board_id = /)
+    expect(sqlCalls[0].text).toMatch(/= ANY\(/)
+    expect(sqlCalls[0].values).toContain('org-a')
+    expect(sqlCalls[0].values).toContain(BOARD_A)
+    expect(sqlCalls[0].values).toContainEqual([ITEM_A])
+  })
+
+  it('an empty itemIds array never reaches sql — returns {} immediately', async () => {
+    const map = await getOrganiserItemNamesByIds({ organisationId: 'org-a', boardId: BOARD_A, itemIds: [] })
+    expect(map).toEqual({})
+    expect(sqlMock).not.toHaveBeenCalled()
+  })
+
+  it('a malformed boardId never reaches sql — returns {} immediately', async () => {
+    const map = await getOrganiserItemNamesByIds({ organisationId: 'org-a', boardId: 'not-a-uuid', itemIds: [ITEM_A] })
+    expect(map).toEqual({})
+    expect(sqlMock).not.toHaveBeenCalled()
+  })
+
+  it('duplicate and malformed ids are deduplicated and filtered before ever reaching sql', async () => {
+    sqlResult = []
+    await getOrganiserItemNamesByIds({ organisationId: 'org-a', boardId: BOARD_A, itemIds: [ITEM_A, ITEM_A, 'not-a-uuid', ''] })
+    expect(sqlCalls[0].values).toContainEqual([ITEM_A])
+  })
+
+  it('returns id->name only, as a plain map — no status/group/notes/custom fields', async () => {
+    sqlResult = [{ id: ITEM_A, name: 'Test 2' }, { id: ITEM_B, name: 'Ship the deck' }]
+    const map = await getOrganiserItemNamesByIds({ organisationId: 'org-a', boardId: BOARD_A, itemIds: [ITEM_A, ITEM_B] })
+    expect(map).toEqual({ [ITEM_A]: 'Test 2', [ITEM_B]: 'Ship the deck' })
+  })
+
+  it('an id with no matching row (wrong tenant, wrong board, or deleted) is simply absent from the map — no existence side channel, never an error', async () => {
+    sqlResult = [] // no rows at all, e.g. the id belongs to another organisation/board
+    const map = await getOrganiserItemNamesByIds({ organisationId: 'org-a', boardId: BOARD_A, itemIds: [ITEM_A] })
+    expect(map).toEqual({})
+    expect(Object.prototype.hasOwnProperty.call(map, ITEM_A)).toBe(false)
   })
 })
 
