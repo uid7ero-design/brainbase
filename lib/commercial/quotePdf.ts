@@ -17,33 +17,58 @@ import { formatCommercialDate } from './dates';
 // matching the existing convention in app/commercial/quotes/[id]/page.tsx)
 // runs identically in a browser and in a Next.js API route's Node
 // runtime. The one asset this file needs — the rasterized BrainBase
-// Hybrid Orbit mark — is passed in as an already-loaded base64 PNG
-// string by the caller, because LOADING that asset genuinely differs
-// between environments (an API route reads the file from disk; the
-// browser fetches it) — see loadBrandMarkBase64Server() in
+// Hybrid Orbit icon+wordmark lockup — is passed in as an already-loaded
+// base64 PNG string by the caller, because LOADING that asset genuinely
+// differs between environments (an API route reads the file from disk;
+// the browser fetches it) — see loadBrandLockupBase64Server() in
 // lib/commercial/quoteEmail.ts for the server-side loader, and
 // app/commercial/quotes/[id]/page.tsx's own loader for the browser one.
 //
-// Brand fidelity trade-off (documented per the brief's own "clearly
-// report the trade-off" instruction): the canonical Hybrid Orbit
-// horizontal lockup (public/Brand/brainbase-horizontal-color.svg, used
-// by components/brand/BrainBaseWordmark.tsx) is explicitly "designed for
-// dark surfaces only" per that component's own header comment — its
-// wordmark glyphs are filled near-white and would be invisible on this
-// PDF's white page. No light-background variant of that specific
-// horizontal lockup exists anywhere in this repository. Rather than
-// inventing one, this renderer pairs the REAL, unmodified icon asset
-// (public/Brand/brainbase-mark-color.svg, rasterized verbatim to PNG —
-// see scripts note below) with a text wordmark set in the exact
-// brand-purple accent already used throughout the live product
-// (components/brand/BrandLogo.jsx's own "Λ receives a subtle violet
-// accent — the single identity signal" treatment) — the icon is the real
-// asset; only the wordmark is text, matching an existing, precedented
-// on-brand pattern rather than a newly invented logo.
+// Phase C3-COMMERCIAL-BRAND-RENDERING — root cause of the "lambda
+// characters/wordmark missing or malformed" defect the human production
+// smoke test found: the C3-POLISH-R version of this file drew
+// "BRΛINBΛSE" using jsPDF's standard "helvetica" font via doc.text(),
+// including the literal Greek capital lambda character (U+039B) for
+// both Λs. jsPDF's built-in standard-14 fonts (helvetica/times/courier)
+// only support WinAnsiEncoding (essentially Windows-1252) — a Latin-1-ish
+// character set with NO Greek code points at all. Confirmed empirically:
+// doc.getTextWidth('Λ') returns a different, plausible-looking value
+// (not zero, not an error), but the actual glyph painted into the PDF is
+// whatever WinAnsiEncoding happens to map that byte to — not a real
+// Greek lambda — which is exactly "missing or malformed" from a reader's
+// perspective.
+//
+// The fix is to never ask jsPDF's standard fonts to draw that character
+// at all. public/Brand/brainbase-horizontal-color.svg — the canonical
+// Hybrid Orbit horizontal lockup used live by
+// components/brand/BrainBaseWordmark.tsx — already contains the correct
+// lambda/chevron treatment as hand-drawn VECTOR PATHS (not text), drawn
+// by the original brand kit designer, not by any font's glyph table.
+// Rasterizing that exact, unmodified SVG to PNG (see
+// public/Brand/brainbase-horizontal-color-284.png, generated verbatim
+// from the source SVG via sharp — never redrawn or approximated) and
+// embedding it as an image sidesteps the font-encoding problem
+// completely, and is MORE faithful to the brand than the previous
+// icon+text-approximation, since it's the exact, complete, designer-made
+// lockup rather than a font-rendered stand-in.
+//
+// That SVG's wordmark glyphs are filled near-white — "designed for dark
+// surfaces only" per BrainBaseWordmark.tsx's own header comment — so
+// this header is now rendered as a full-bleed dark band (a standard
+// letterhead convention: colored header band, white body below) rather
+// than placed directly on the page's white background, where a
+// near-white lockup would be invisible.
 export const BRAND_INK = '#11151F'; // matches the retired -light asset's own dark-ink convention
 export const BRAND_PURPLE = '#7C5CFF'; // orbitGrad/wmAccent mid-stop, public/Brand/brainbase-horizontal-color.svg
 export const BRAND_MUTED = '#6b7280';
 export const BRAND_RULE = '#e2e2e8';
+export const HEADER_BAND_FILL = '#0B0D12'; // near-black, matches the dark-surface convention brainbase-horizontal-color.svg is designed against
+export const HEADER_INK = '#F4F6FB'; // exact fill color used by the wordmark glyphs themselves in brainbase-horizontal-color.svg
+export const HEADER_MUTED = '#9CA3AF';
+const HEADER_BAND_HEIGHT = 32;
+// Source SVG viewBox is 900x160 (5.625:1) — the rasterized PNG
+// (brainbase-horizontal-color-284.png) matches that aspect ratio exactly.
+const LOCKUP_ASPECT = 900 / 160;
 
 export interface QuotePdfLine {
   description_snapshot: string;
@@ -91,13 +116,16 @@ export interface BuildQuotePdfInput {
   quote: QuotePdfQuote;
   lines: QuotePdfLine[];
   supplier: QuotePdfSupplier;
-  brandMarkBase64: string; // raw base64 (no "data:image/png;base64," prefix), PNG
+  // raw base64 (no "data:image/png;base64," prefix) PNG of the FULL
+  // icon+wordmark lockup (brainbase-horizontal-color.svg rasterized) —
+  // not the icon alone. See this file's header comment for why.
+  brandLockupBase64: string;
 }
 
 const PAGE_MARGIN = 18;
 const BOTTOM_SAFE = 30; // reserve space so a page break never clips a row mid-line
 
-export async function buildQuotePdf({ quote, lines, supplier, brandMarkBase64 }: BuildQuotePdfInput): Promise<Uint8Array> {
+export async function buildQuotePdf({ quote, lines, supplier, brandLockupBase64 }: BuildQuotePdfInput): Promise<Uint8Array> {
   const jspdfMod = await import('jspdf');
   const JsPDF = (jspdfMod as unknown as { jsPDF?: unknown }).jsPDF ?? (jspdfMod as unknown as { default: unknown }).default;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -113,31 +141,24 @@ export async function buildQuotePdf({ quote, lines, supplier, brandMarkBase64 }:
     }
   }
 
-  // ── Header ──────────────────────────────────────────────────────────
-  const markSize = 11;
-  doc.addImage(`data:image/png;base64,${brandMarkBase64}`, 'PNG', PAGE_MARGIN, y - 2, markSize, markSize);
-  const wmX = PAGE_MARGIN + markSize + 4;
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(15);
-  doc.setTextColor(BRAND_INK);
-  doc.text('BR', wmX, y + 6);
-  const brWidth = doc.getTextWidth('BR');
-  doc.setTextColor(BRAND_PURPLE);
-  doc.text('Λ', wmX + brWidth, y + 6); // Λ
-  const lambdaWidth = doc.getTextWidth('Λ');
-  doc.setTextColor(BRAND_INK);
-  doc.text('INB', wmX + brWidth + lambdaWidth, y + 6);
-  const inbWidth = doc.getTextWidth('INB');
-  doc.setTextColor(BRAND_PURPLE);
-  doc.text('Λ', wmX + brWidth + lambdaWidth + inbWidth, y + 6);
-  const lambda2Width = doc.getTextWidth('Λ');
-  doc.setTextColor(BRAND_INK);
-  doc.text('SE', wmX + brWidth + lambdaWidth + inbWidth + lambda2Width, y + 6);
+  // ── Header — full-bleed dark band, matching the letterhead convention
+  // most professional AU business documents use when their primary mark
+  // is a light-on-dark lockup (see this file's header comment for the
+  // full root-cause/fix rationale). ─────────────────────────────────────
+  doc.setFillColor(HEADER_BAND_FILL);
+  doc.rect(0, 0, pageW, HEADER_BAND_HEIGHT, 'F');
 
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(20); doc.setTextColor(BRAND_INK);
-  doc.text('QUOTE', pageW - PAGE_MARGIN, y + 4, { align: 'right' });
-  doc.setFont('helvetica', 'normal'); doc.setFontSize(11); doc.setTextColor(BRAND_MUTED);
-  doc.text(quote.quote_number ?? 'DRAFT', pageW - PAGE_MARGIN, y + 11, { align: 'right' });
-  y += 20;
+  const lockupW = 62;
+  const lockupH = lockupW / LOCKUP_ASPECT;
+  const lockupY = (HEADER_BAND_HEIGHT - lockupH) / 2;
+  doc.addImage(`data:image/png;base64,${brandLockupBase64}`, 'PNG', PAGE_MARGIN, lockupY, lockupW, lockupH);
+
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(16); doc.setTextColor(HEADER_INK);
+  doc.text('QUOTE', pageW - PAGE_MARGIN, HEADER_BAND_HEIGHT / 2 - 1, { align: 'right' });
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(HEADER_MUTED);
+  doc.text(quote.quote_number ?? 'DRAFT', pageW - PAGE_MARGIN, HEADER_BAND_HEIGHT / 2 + 6, { align: 'right' });
+
+  y = HEADER_BAND_HEIGHT + 12;
 
   doc.setDrawColor(BRAND_RULE); doc.setLineWidth(0.4);
   doc.line(PAGE_MARGIN, y, pageW - PAGE_MARGIN, y);
@@ -285,7 +306,11 @@ export async function buildQuotePdf({ quote, lines, supplier, brandMarkBase64 }:
     doc.setDrawColor(BRAND_RULE);
     doc.line(PAGE_MARGIN, pageH - 16, pageW - PAGE_MARGIN, pageH - 16);
     doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(BRAND_MUTED);
-    doc.text(`${supplier.displayName} · Generated via BRΛINBΛSE Commercial`, PAGE_MARGIN, pageH - 10);
+    // Plain ASCII — never the Greek lambda character in doc.text() (see
+    // this file's header comment on why jsPDF's standard fonts render
+    // it incorrectly). The header band's rasterized lockup image is the
+    // only place the styled wordmark appears in this document.
+    doc.text(`${supplier.displayName} · Generated via BrainBase Commercial`, PAGE_MARGIN, pageH - 10);
     doc.text(`Page ${p} of ${pageCount}`, pageW - PAGE_MARGIN, pageH - 10, { align: 'right' });
   }
 

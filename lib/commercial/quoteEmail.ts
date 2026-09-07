@@ -13,19 +13,20 @@ import { buildQuotePdf, type QuotePdfQuote, type QuotePdfLine, type QuotePdfSupp
 // own header comment explains exactly why each outcome is distinguished,
 // and the same reasoning applies verbatim here, so it is not repeated.
 
-let cachedBrandMarkBase64: string | null = null;
+let cachedBrandLockupBase64: string | null = null;
 
-// Server-side loader for the rasterized Hybrid Orbit mark PNG (see
-// lib/commercial/quotePdf.ts's own header for why the PNG exists and
-// why it — not the source SVG — is what gets embedded). Reads from disk
+// Server-side loader for the rasterized Hybrid Orbit icon+wordmark
+// lockup PNG (see lib/commercial/quotePdf.ts's own header for why the
+// PNG exists, why it's the full lockup and not the icon alone, and why
+// it — not the source SVG — is what gets embedded). Reads from disk
 // once per server instance and memoizes; the file is a small, static,
 // committed repository asset, never user-controlled input.
-async function loadBrandMarkBase64Server(): Promise<string> {
-  if (cachedBrandMarkBase64) return cachedBrandMarkBase64;
-  const filePath = path.join(process.cwd(), 'public', 'Brand', 'brainbase-mark-color-256.png');
+async function loadBrandLockupBase64Server(): Promise<string> {
+  if (cachedBrandLockupBase64) return cachedBrandLockupBase64;
+  const filePath = path.join(process.cwd(), 'public', 'Brand', 'brainbase-horizontal-color-284.png');
   const buf = await fs.readFile(filePath);
-  cachedBrandMarkBase64 = buf.toString('base64');
-  return cachedBrandMarkBase64;
+  cachedBrandLockupBase64 = buf.toString('base64');
+  return cachedBrandLockupBase64;
 }
 
 export interface QuoteEmailData {
@@ -121,8 +122,8 @@ export async function sendQuoteEmail(params: {
   let subject: string;
   let html: string;
   try {
-    const brandMarkBase64 = await loadBrandMarkBase64Server();
-    const pdfBytes = await buildQuotePdf({ quote, lines, supplier, brandMarkBase64 });
+    const brandLockupBase64 = await loadBrandLockupBase64Server();
+    const pdfBytes = await buildQuotePdf({ quote, lines, supplier, brandLockupBase64 });
     pdfBase64 = Buffer.from(pdfBytes).toString('base64');
 
     ({ subject, html } = buildQuoteEmail({

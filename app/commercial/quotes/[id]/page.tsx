@@ -32,22 +32,23 @@ type BusinessProfileResponse = {
   profile: { tradingName: string | null; address: string | null; email: string | null; phone: string | null; abn: string | null };
 };
 
-// Client-side loader for the same rasterized Hybrid Orbit mark PNG the
-// server-side email path loads via fs (lib/commercial/quoteEmail.ts's
-// loadBrandMarkBase64Server()) — see lib/commercial/quotePdf.ts's own
-// header for why a single shared PDF builder needs this asset handed in
-// as base64 rather than loaded inside itself. Memoized at module scope
-// so repeated downloads in one session don't re-fetch the asset.
-let cachedBrandMarkBase64: string | null = null;
-async function loadBrandMarkBase64Client(): Promise<string> {
-  if (cachedBrandMarkBase64) return cachedBrandMarkBase64;
-  const res = await fetch('/Brand/brainbase-mark-color-256.png');
+// Client-side loader for the same rasterized Hybrid Orbit icon+wordmark
+// lockup PNG the server-side email path loads via fs
+// (lib/commercial/quoteEmail.ts's loadBrandLockupBase64Server()) — see
+// lib/commercial/quotePdf.ts's own header for why a single shared PDF
+// builder needs this asset handed in as base64 rather than loaded
+// inside itself. Memoized at module scope so repeated downloads in one
+// session don't re-fetch the asset.
+let cachedBrandLockupBase64: string | null = null;
+async function loadBrandLockupBase64Client(): Promise<string> {
+  if (cachedBrandLockupBase64) return cachedBrandLockupBase64;
+  const res = await fetch('/Brand/brainbase-horizontal-color-284.png');
   const buf = await res.arrayBuffer();
   let binary = '';
   const bytes = new Uint8Array(buf);
   for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-  cachedBrandMarkBase64 = btoa(binary);
-  return cachedBrandMarkBase64;
+  cachedBrandLockupBase64 = btoa(binary);
+  return cachedBrandLockupBase64;
 }
 
 export default function QuoteDetailPage() {
@@ -181,7 +182,7 @@ export default function QuoteDetailPage() {
   // concern — only customer/product/tax fields are).
   async function downloadPdf() {
     if (!quote) return;
-    const brandMarkBase64 = await loadBrandMarkBase64Client();
+    const brandLockupBase64 = await loadBrandLockupBase64Client();
     const supplier: QuotePdfSupplier = {
       displayName: businessProfile?.profile.tradingName ?? businessProfile?.organisationName ?? 'BRΛINBΛSE',
       address: businessProfile?.profile.address ?? null,
@@ -189,7 +190,7 @@ export default function QuoteDetailPage() {
       phone: businessProfile?.profile.phone ?? null,
       abn: businessProfile?.profile.abn ?? null,
     };
-    const bytes = await buildQuotePdf({ quote, lines, supplier, brandMarkBase64 });
+    const bytes = await buildQuotePdf({ quote, lines, supplier, brandLockupBase64 });
     const blob = new Blob([bytes as BlobPart], { type: 'application/pdf' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
