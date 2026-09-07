@@ -60,8 +60,13 @@ export interface QuotePdfQuote {
   quote_number: string | null;
   status: string;
   currency: string;
-  issue_date: string | null;
-  expiry_date: string | null;
+  // Phase C3-EMAIL-FIX — string when this object arrived via JSON (the
+  // browser download path), Date when it came straight from
+  // lib/commercial/quotes.ts's own DB read in the same process (the
+  // server-side email path) — see lib/commercial/dates.ts's
+  // formatCommercialDate() for why both are handled correctly.
+  issue_date: string | Date | null;
+  expiry_date: string | Date | null;
   notes: string | null;
   terms: string | null;
   subtotal_cents: number;

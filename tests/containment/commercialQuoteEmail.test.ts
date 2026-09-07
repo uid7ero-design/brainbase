@@ -114,6 +114,49 @@ describe('Phase C3-POLISH-R — sendQuoteEmail(): provider outcomes', () => {
   })
 })
 
+// Phase C3-EMAIL-FIX — the bug the controlled production email smoke
+// test caught: buildQuotePdf()/buildQuoteEmail() used to run OUTSIDE
+// any try/catch in sendQuoteEmail(), so a rendering exception (e.g. the
+// real Date-vs-string bug, or any future template bug) propagated
+// uncaught out of this function, out of the API route (which has no
+// try/catch of its own around `await sendQuoteEmail(...)`), surfacing
+// as an unhandled 500 instead of the established structured result.
+describe('Phase C3-EMAIL-FIX §4 — J/K/L. rendering failures are caught and reported structurally, never thrown', () => {
+  it('J. a PDF-build failure returns {result:"failed"} and never calls the email provider', async () => {
+    buildQuotePdfMock.mockRejectedValue(new Error('jsPDF exploded'))
+    const result = await sendQuoteEmail({ to: 'jane@example.com', quote: QUOTE, lines: LINES, supplier: SUPPLIER })
+    expect(result).toEqual({ result: 'failed', error: 'The quote document could not be prepared for sending.' })
+    expect(sendEmailMock).not.toHaveBeenCalled()
+  })
+
+  it('J. never leaks the underlying error message/stack into the returned error string', async () => {
+    buildQuotePdfMock.mockRejectedValue(new Error('/etc/secret/path leaked here, plus a raw stack trace'))
+    const result = await sendQuoteEmail({ to: 'jane@example.com', quote: QUOTE, lines: LINES, supplier: SUPPLIER })
+    expect(result.result).toBe('failed')
+    expect((result as { error: string }).error).not.toContain('/etc/secret/path')
+  })
+
+  it('K. an email-template rendering failure (e.g. a non-string field breaking HTML escaping) also returns {result:"failed"}, not a thrown exception', async () => {
+    buildQuotePdfMock.mockResolvedValue(new Uint8Array([1, 2, 3])) // PDF build succeeds
+    // A malformed snapshot field (wrong type at runtime, despite the
+    // TS contract) breaks escHtml()'s .replace() call inside
+    // buildQuoteEmail() specifically — isolates the failure to the
+    // template step, not the PDF step.
+    const badQuote = { ...QUOTE, customer_name_snapshot: 12345 as unknown as string }
+    const result = await sendQuoteEmail({ to: 'jane@example.com', quote: badQuote, lines: LINES, supplier: SUPPLIER })
+    expect(result.result).toBe('failed')
+    expect(sendEmailMock).not.toHaveBeenCalled()
+  })
+
+  it('L. a genuine provider failure is still classified distinctly from a rendering failure (both return "failed", but for different reasons, and rendering never masks a real provider outcome)', async () => {
+    buildQuotePdfMock.mockResolvedValue(new Uint8Array([1, 2, 3])) // rendering succeeds this time
+    sendEmailMock.mockRejectedValue(new Error('Email send failed')) // provider genuinely rejects
+    const result = await sendQuoteEmail({ to: 'jane@example.com', quote: QUOTE, lines: LINES, supplier: SUPPLIER })
+    expect(result).toEqual({ result: 'failed', error: 'The email provider rejected the request.' })
+    expect(sendEmailMock).toHaveBeenCalledTimes(1) // proves rendering succeeded and the provider was actually reached
+  })
+})
+
 describe('Phase C3-POLISH-R — maskEmailForAudit()', () => {
   it('masks everything before @ except the first character', () => {
     expect(maskEmailForAudit('jane@example.com')).toBe('j***@example.com')
