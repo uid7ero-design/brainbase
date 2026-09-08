@@ -35,9 +35,6 @@ vi.mock('@/lib/commercial/quotes', () => ({
   getQuoteWithLines: (...a: unknown[]) => getQuoteWithLinesMock(...a),
 }))
 
-const allocateDocumentNumberMock = vi.fn()
-vi.mock('@/lib/commercial/documentNumbering', () => ({ allocateDocumentNumber: (...a: unknown[]) => allocateDocumentNumberMock(...a) }))
-
 const logInvoiceCreatedMock = vi.fn()
 const logInvoiceCreatedFromQuoteMock = vi.fn()
 const logInvoiceUpdatedMock = vi.fn()
@@ -61,7 +58,6 @@ beforeEach(() => {
   getTaxCodeMock.mockReset()
   getQuoteMock.mockReset()
   getQuoteWithLinesMock.mockReset()
-  allocateDocumentNumberMock.mockReset()
   logInvoiceCreatedMock.mockReset()
   logInvoiceCreatedFromQuoteMock.mockReset()
   logInvoiceUpdatedMock.mockReset()
@@ -106,16 +102,19 @@ describe('Phase C4.1 — createDraftInvoice(): standalone creation', () => {
     expect(invoice.status).toBe('DRAFT')
     expect(invoice.invoice_number).toBeNull()
     expect(invoice.customer_name_snapshot ?? null).toBeNull()
-    expect(allocateDocumentNumberMock).not.toHaveBeenCalled()
+    expect(sqlMock).toHaveBeenCalledTimes(1) // only the INSERT — no numbering SQL of any kind
     expect(logInvoiceCreatedMock).toHaveBeenCalledTimes(1)
   })
 
-  it('does not consume a document number on creation', async () => {
+  it('Phase C4.1R — does not consume a document number on creation (no commercial_document_sequences activity at all)', async () => {
     getCustomerMock.mockResolvedValueOnce({ id: 'cust-1', organisation_id: ORG, name: 'Acme' })
     sqlMock.mockResolvedValueOnce([draftInvoice()])
     const { createDraftInvoice } = await import('@/lib/commercial/invoices')
     await createDraftInvoice({ organisationId: ORG, userId: 'u1', customerId: 'cust-1' })
-    expect(allocateDocumentNumberMock).not.toHaveBeenCalled()
+    for (const call of sqlMock.mock.calls) {
+      const strings = call[0] as TemplateStringsArray
+      expect(strings.join('')).not.toMatch(/commercial_document_sequences/)
+    }
   })
 })
 
@@ -206,7 +205,6 @@ describe('Phase C4.1 — createInvoiceFromQuote(): success path — lineage, sna
 
     expect(invoice.source_quote_id).toBe('q1')
     expect(invoice.invoice_number).toBeNull()
-    expect(allocateDocumentNumberMock).not.toHaveBeenCalled()
     expect(transactionMock).toHaveBeenCalledTimes(1)
 
     // Inspect the actual queries handed to sql.transaction() — proves
@@ -342,77 +340,93 @@ describe('Phase C4.1 — updateInvoiceLine() / deleteInvoiceLine(): DRAFT-only g
 // ── ISSUE ────────────────────────────────────────────────────────────
 
 describe('Phase C4.1 — issueInvoice()', () => {
-  it('refuses to issue an invoice with zero lines', async () => {
+  it('refuses to issue an invoice with zero lines, without ever reaching numbering', async () => {
     sqlMock
       .mockResolvedValueOnce([draftInvoice()]) // getInvoice (inside getInvoiceWithLines)
       .mockResolvedValueOnce([]) // listInvoiceLines -> no lines
     const { issueInvoice } = await import('@/lib/commercial/invoices')
     await expect(issueInvoice({ organisationId: ORG, userId: 'u1', invoiceId: 'inv-1' }))
       .rejects.toThrow(/cannot issue an invoice with no lines/)
-    expect(allocateDocumentNumberMock).not.toHaveBeenCalled()
+    expect(sqlMock).toHaveBeenCalledTimes(2) // never reaches the sequence/atomic statement
     expect(logInvoiceIssuedMock).not.toHaveBeenCalled()
   })
 
-  it('refuses to issue an invoice with no due_date set', async () => {
+  it('refuses to issue an invoice with no due_date set, without ever reaching numbering', async () => {
     sqlMock
       .mockResolvedValueOnce([draftInvoice()])
       .mockResolvedValueOnce([{ id: 'line-1', line_subtotal_cents: 1000, line_tax_cents: 100, line_total_cents: 1100 }])
     const { issueInvoice } = await import('@/lib/commercial/invoices')
     await expect(issueInvoice({ organisationId: ORG, userId: 'u1', invoiceId: 'inv-1' }))
       .rejects.toThrow(/no due date/)
-    expect(allocateDocumentNumberMock).not.toHaveBeenCalled()
+    expect(sqlMock).toHaveBeenCalledTimes(2)
     expect(logInvoiceIssuedMock).not.toHaveBeenCalled()
   })
 
-  it('refuses to issue an already-ISSUED invoice (illegal transition)', async () => {
+  it('Phase C4.1R — refuses to issue an already-ISSUED invoice, consuming ZERO further sequence values (the lifecycle guard rejects it before numbering is ever touched)', async () => {
     sqlMock
       .mockResolvedValueOnce([draftInvoice({ status: 'ISSUED', due_date: '2026-10-01' })])
       .mockResolvedValueOnce([{ id: 'line-1' }])
     const { issueInvoice } = await import('@/lib/commercial/invoices')
     await expect(issueInvoice({ organisationId: ORG, userId: 'u1', invoiceId: 'inv-1' }))
       .rejects.toThrow(/Cannot transition invoice from ISSUED to ISSUED/)
+    // Exactly the 2 read calls (getInvoice + listInvoiceLines) — no
+    // commercial_document_sequences INSERT, no atomic UPDATE, no
+    // numbering activity of any kind for a call that never reaches it.
+    expect(sqlMock).toHaveBeenCalledTimes(2)
+    expect(logInvoiceIssuedMock).not.toHaveBeenCalled()
   })
 
-  it('on success: allocates an INVOICE document number and captures the CURRENT customer snapshot at issue time — never at creation', async () => {
+  it('Phase C4.1R — on success: issues via ONE atomic statement (preceded only by the idempotent sequence-row-ensure step), captures the CURRENT customer snapshot at issue time — never at creation', async () => {
     sqlMock
       .mockResolvedValueOnce([draftInvoice({ due_date: '2026-10-01' })]) // getInvoice
       .mockResolvedValueOnce([{ id: 'line-1', line_subtotal_cents: 1000, line_tax_cents: 100, line_total_cents: 1100 }]) // listInvoiceLines
       .mockResolvedValueOnce([{ line_subtotal_cents: 1000, line_tax_cents: 100, line_total_cents: 1100 }]) // recalc listInvoiceLines
       .mockResolvedValueOnce([]) // recalc UPDATE
-      .mockResolvedValueOnce([{ // final issue UPDATE ... RETURNING *
-        ...draftInvoice({ status: 'ISSUED', due_date: '2026-10-01' }),
-        invoice_number: 'INV-000001', total_cents: 1100,
-        customer_name_snapshot: 'Acme Pty Ltd', billing_name_snapshot: 'Acme Pty Ltd',
-      }])
+      .mockResolvedValueOnce([]) // ensure-sequence-row INSERT ... ON CONFLICT DO NOTHING (return value unused)
+      .mockImplementationOnce(async (strings: TemplateStringsArray) => {
+        // The single atomic WITH ... guard ... seq ... UPDATE statement.
+        expect(strings.join('')).toMatch(/FOR UPDATE/)
+        expect(strings.join('')).toMatch(/EXISTS \(SELECT 1 FROM guard\)/)
+        return [{
+          ...draftInvoice({ status: 'ISSUED', due_date: '2026-10-01' }),
+          invoice_number: 'INV-000001', total_cents: 1100,
+          customer_name_snapshot: 'Acme Pty Ltd', billing_name_snapshot: 'Acme Pty Ltd',
+        }]
+      })
     getCustomerMock.mockResolvedValueOnce({
       id: 'cust-1', name: 'Acme Pty Ltd', billing_address: '1 Test St', billing_email: 'a@acme.test', billing_phone: '000', tax_business_number: 'ABN123',
     })
-    allocateDocumentNumberMock.mockResolvedValueOnce('INV-000001')
 
     const { issueInvoice } = await import('@/lib/commercial/invoices')
     const issued = await issueInvoice({ organisationId: ORG, userId: 'u1', invoiceId: 'inv-1' })
     expect(issued.status).toBe('ISSUED')
     expect(issued.invoice_number).toBe('INV-000001')
     expect(issued.customer_name_snapshot).toBe('Acme Pty Ltd')
-    expect(allocateDocumentNumberMock).toHaveBeenCalledWith(ORG, 'INVOICE')
+    expect(sqlMock).toHaveBeenCalledTimes(6)
     expect(logInvoiceIssuedMock).toHaveBeenCalledWith(
       expect.objectContaining({ organisationId: ORG, invoiceId: 'inv-1', invoiceNumber: 'INV-000001', totalCents: 1100 }),
     )
   })
 
-  it('two concurrent issue calls on the same invoice cannot both succeed — the losing UPDATE affects zero rows and throws, number becomes a permanent gap', async () => {
+  it('Phase C4.1R — a losing concurrent attempt (atomic statement returns no row) consumes ZERO additional sequence values by construction — no separate allocation call exists to have already run', async () => {
     sqlMock
       .mockResolvedValueOnce([draftInvoice({ due_date: '2026-10-01' })])
       .mockResolvedValueOnce([{ id: 'line-1', line_subtotal_cents: 1000, line_tax_cents: 100, line_total_cents: 1100 }])
       .mockResolvedValueOnce([{ line_subtotal_cents: 1000, line_tax_cents: 100, line_total_cents: 1100 }])
       .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([]) // final UPDATE affects 0 rows — someone else already moved it out of DRAFT
+      .mockResolvedValueOnce([]) // ensure-sequence-row INSERT
+      .mockResolvedValueOnce([]) // atomic statement returns ZERO rows — guard lost the race (real DB: FOR UPDATE forced it to re-check status against the winner's committed value)
     getCustomerMock.mockResolvedValueOnce({ id: 'cust-1', name: 'Acme', billing_address: null, billing_email: null, billing_phone: null, tax_business_number: null })
-    allocateDocumentNumberMock.mockResolvedValueOnce('INV-000002')
 
     const { issueInvoice } = await import('@/lib/commercial/invoices')
     await expect(issueInvoice({ organisationId: ORG, userId: 'u1', invoiceId: 'inv-1' }))
       .rejects.toThrow(/status changed concurrently/)
+    // Exactly 6 calls total (the ensure-step + the one atomic statement,
+    // same shape as the success path) — there is no 7th "allocate a
+    // number" call anywhere in this function for the loser to have
+    // already run before discovering it lost; the number and the
+    // transition live in the SAME statement.
+    expect(sqlMock).toHaveBeenCalledTimes(6)
     expect(logInvoiceIssuedMock).not.toHaveBeenCalled()
   })
 
@@ -423,6 +437,30 @@ describe('Phase C4.1 — issueInvoice()', () => {
     const { issueInvoice } = await import('@/lib/commercial/invoices')
     await expect(issueInvoice({ organisationId: ORG, userId: 'u1', invoiceId: 'inv-1' })).rejects.toThrow()
     expect(getCustomerMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('Phase C4.1R — issueInvoice() atomicity contract (source shape)', () => {
+  it('lib/commercial/invoices.ts no longer imports documentNumbering.ts at all — the invoice issue path owns its own atomic numbering, independent of quotes', async () => {
+    const fs = await import('fs')
+    const path = await import('path')
+    const source = fs.readFileSync(path.resolve(__dirname, '../../lib/commercial/invoices.ts'), 'utf-8')
+    expect(source).not.toMatch(/^import .* from '\.\/documentNumbering';?$/m)
+    expect(source).not.toMatch(/await allocateDocumentNumber\(/) // no real call site — comments may still name the function when explaining the fix
+  })
+
+  it('the issue statement is a single compound WITH statement, not two separate calls — allocation and the DRAFT status guard are the same atomic unit', async () => {
+    const fs = await import('fs')
+    const path = await import('path')
+    const source = fs.readFileSync(path.resolve(__dirname, '../../lib/commercial/invoices.ts'), 'utf-8')
+    const start = source.indexOf('async function issueInvoiceAtomically')
+    const end = source.indexOf('\n}\n', start)
+    const body = source.slice(start, end)
+    expect(body).toMatch(/WITH guard AS/)
+    expect(body).toMatch(/FOR UPDATE/)
+    expect(body).toMatch(/seq AS/)
+    expect(body).toMatch(/EXISTS \(SELECT 1 FROM guard\)/)
+    expect(body).toMatch(/EXISTS \(SELECT 1 FROM seq\)/)
   })
 })
 

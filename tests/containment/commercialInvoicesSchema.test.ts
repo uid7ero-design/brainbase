@@ -121,6 +121,10 @@ describe('Phase C4.1 — commercial_invoices table shape', () => {
 describe('Phase C4.1 — commercial_invoice_lines table shape', () => {
   const body = tableBody('commercial_invoice_lines')
 
+  it('carries its own UNIQUE(id, organisation_id) tenant-integrity anchor, matching every other Commercial line/document table', () => {
+    expect(body).toMatch(/UNIQUE \(id, organisation_id\)/)
+  })
+
   it('invoice_id composite-FKs onto commercial_invoices(id, organisation_id) with ON DELETE CASCADE', () => {
     expect(body).toMatch(/FOREIGN KEY \(invoice_id, organisation_id\)\s*\n?\s*REFERENCES commercial_invoices \(id, organisation_id\) ON DELETE CASCADE/)
   })

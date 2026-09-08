@@ -3,7 +3,6 @@ import { getCustomer } from './customers';
 import { getProduct } from './products';
 import { getTaxCode } from './taxCodes';
 import { getQuoteWithLines } from './quotes';
-import { allocateDocumentNumber } from './documentNumbering';
 import { sumCents, lineTotalCents, applyRatePercentCents, isValidCents } from './money';
 import { assertInvoiceTransition, assertInvoiceEditable, type InvoiceStatus } from './invoiceLifecycle';
 import {
@@ -501,22 +500,105 @@ export async function deleteInvoiceLine(params: { organisationId: string; invoic
 
 // ── Lifecycle transitions ────────────────────────────────────────────
 
+// Phase C4.1R — replaces the previous two-step "allocate a document
+// number, then separately UPDATE ... WHERE status = 'DRAFT'" sequence.
+// That sequence relied on allocateDocumentNumber() (lib/commercial/
+// documentNumbering.ts), which commits its OWN, fully independent
+// sql.transaction() before the status-guarded UPDATE even runs — so a
+// losing concurrent caller had already consumed a real INVOICE number by
+// the time its own UPDATE discovered the invoice was no longer DRAFT.
+// Proven empirically against a real Neon Preview branch: 10 concurrent
+// issueInvoice() calls on ONE draft invoice produced exactly 1 successful
+// ISSUED transition but consumed all 10 sequence values.
+//
+// issueInvoiceAtomically() below closes this by making "prove the
+// invoice is still DRAFT", "allocate exactly one INVOICE number", and
+// "transition to ISSUED" ONE compound SQL statement — a single
+// network round-trip Postgres executes as one atomic unit, deliberately
+// NOT lib/commercial/documentNumbering.ts's own two-call
+// sql.transaction() primitive (that primitive requires a flat,
+// pre-built query array with no branching on an earlier statement's own
+// result within the same call — exactly the capability this fix
+// needs). This is intentionally invoice-only: quoteLifecycle.ts's own
+// issueQuote() keeps its pre-existing, already-shipped-to-production
+// two-step shape unchanged (see this function's own note below) —
+// remediating that is explicitly out of this phase's scope and is
+// recorded as separate technical debt.
+async function issueInvoiceAtomically(params: {
+  organisationId: string;
+  invoiceId: string;
+  userId: string;
+  customer: { name: string; billing_address: string | null; billing_email: string | null; billing_phone: string | null; tax_business_number: string | null };
+}): Promise<CommercialInvoice | null> {
+  // Unconditional, idempotent, and harmless regardless of the target
+  // invoice's status — this only guarantees a counter row exists to
+  // increment; it can never itself consume or leak a number. Kept as a
+  // separate, PRECEDING statement rather than a fourth CTE below: sibling
+  // CTEs in one WITH clause share a single statement-start snapshot, so a
+  // CTE inserting this row for the very first time would not be visible
+  // to a sibling CTE's own read of it within that SAME statement.
+  await sql`
+    INSERT INTO commercial_document_sequences (organisation_id, document_type, prefix, next_number, padding)
+    VALUES (${params.organisationId}, 'INVOICE', 'INV-', 1, 6)
+    ON CONFLICT (organisation_id, document_type) DO NOTHING
+  `;
+
+  // `guard` uses SELECT ... FOR UPDATE to take a row-level lock on the
+  // invoice row itself. Under Postgres's standard READ COMMITTED
+  // semantics, a second concurrent call racing on the SAME invoice row
+  // blocks on that lock until the first call's statement (its own
+  // implicit transaction) commits, then re-reads the row's now-current
+  // status rather than a stale one. Because the loser's guard therefore
+  // sees status = 'ISSUED' (the winner's already-committed value), its
+  // guard CTE returns zero rows — and since `seq`'s own UPDATE is gated
+  // by `EXISTS (SELECT 1 FROM guard)`, the loser's statement never
+  // increments commercial_document_sequences AT ALL. Not "allocates then
+  // discards" — genuinely never touches it. Exactly one number is
+  // consumed per successful transition, by construction of a single
+  // atomic statement, not by convention or a best-effort retry.
+  const rows = (await sql`
+    WITH guard AS (
+      SELECT id FROM commercial_invoices
+      WHERE id = ${params.invoiceId} AND organisation_id = ${params.organisationId} AND status = 'DRAFT'
+      FOR UPDATE
+    ),
+    seq AS (
+      UPDATE commercial_document_sequences
+      SET next_number = next_number + 1, updated_at = now()
+      WHERE organisation_id = ${params.organisationId} AND document_type = 'INVOICE'
+        AND EXISTS (SELECT 1 FROM guard)
+      RETURNING (next_number - 1) AS allocated_number, prefix, padding
+    )
+    UPDATE commercial_invoices SET
+      status = 'ISSUED',
+      invoice_number = (SELECT prefix || lpad(allocated_number::text, padding, '0') FROM seq),
+      issue_date = COALESCE(issue_date, CURRENT_DATE),
+      issued_by = ${params.userId},
+      issued_at = now(),
+      customer_name_snapshot = ${params.customer.name},
+      billing_name_snapshot = ${params.customer.name},
+      billing_address_snapshot = ${params.customer.billing_address},
+      email_snapshot = ${params.customer.billing_email},
+      phone_snapshot = ${params.customer.billing_phone},
+      tax_identifier_snapshot = ${params.customer.tax_business_number},
+      updated_at = now()
+    WHERE id = ${params.invoiceId} AND organisation_id = ${params.organisationId} AND status = 'DRAFT'
+      AND EXISTS (SELECT 1 FROM seq)
+    RETURNING *
+  `) as CommercialInvoice[];
+
+  return rows[0] ?? null;
+}
+
 // Phase C4.1 §10 — issue requires: at least one line, a same-org
 // customer that still exists, and a due_date already set (no
 // organisation-level default terms exist yet in C4.1 — see the C4.0
 // architecture report's §I — so an invoice with no due_date configured
 // must be rejected rather than silently issued with a null due date).
-// Mirrors issueQuote()'s exact structure: totals are recalculated BEFORE
-// number allocation, allocation happens outside any single transaction
-// (allocateDocumentNumber() already uses its own internal
-// sql.transaction()), and the final UPDATE re-checks status = 'DRAFT' in
-// its WHERE clause as the concurrency guard — two concurrent issue calls
-// on the same invoice can never both succeed; the second always finds
-// zero rows affected and throws, exactly like issueQuote()'s own
-// documented race-safety argument. If the UPDATE affects zero rows, the
-// already-allocated number becomes a permanent, accepted gap — the exact
-// same documented edge case issueQuote() already accepts, not a new
-// correctness bug.
+// The lifecycle/precondition checks below run BEFORE the atomic
+// statement — a request that fails one of these never reaches numbering
+// at all, exactly like before. Only the actual "allocate + transition"
+// step changed (see issueInvoiceAtomically()'s own header above).
 export async function issueInvoice(params: { organisationId: string; userId: string; invoiceId: string }): Promise<CommercialInvoice> {
   const bundle = await getInvoiceWithLines(params.organisationId, params.invoiceId);
   if (!bundle) throw new Error('invoice not found for this organisation');
@@ -531,27 +613,13 @@ export async function issueInvoice(params: { organisationId: string; userId: str
 
   await recalculateInvoiceTotals(params.organisationId, params.invoiceId);
 
-  const invoiceNumber = await allocateDocumentNumber(params.organisationId, 'INVOICE');
-
-  const rows = (await sql`
-    UPDATE commercial_invoices SET
-      status = 'ISSUED',
-      invoice_number = ${invoiceNumber},
-      issue_date = COALESCE(issue_date, CURRENT_DATE),
-      issued_by = ${params.userId},
-      issued_at = now(),
-      customer_name_snapshot = ${customer.name},
-      billing_name_snapshot = ${customer.name},
-      billing_address_snapshot = ${customer.billing_address},
-      email_snapshot = ${customer.billing_email},
-      phone_snapshot = ${customer.billing_phone},
-      tax_identifier_snapshot = ${customer.tax_business_number},
-      updated_at = now()
-    WHERE id = ${params.invoiceId} AND organisation_id = ${params.organisationId} AND status = 'DRAFT'
-    RETURNING *
-  `) as CommercialInvoice[];
-  const issued = rows[0];
-  if (!issued) throw new Error('invoice status changed concurrently; issue aborted (a document number was allocated and not consumed)');
+  const issued = await issueInvoiceAtomically({
+    organisationId: params.organisationId,
+    invoiceId: params.invoiceId,
+    userId: params.userId,
+    customer,
+  });
+  if (!issued) throw new Error('invoice status changed concurrently; issue aborted (the atomic guard prevented any number from being consumed)');
 
   await logInvoiceIssued({
     organisationId: params.organisationId, userId: params.userId, invoiceId: params.invoiceId,

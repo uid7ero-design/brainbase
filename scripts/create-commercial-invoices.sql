@@ -171,6 +171,21 @@ CREATE INDEX IF NOT EXISTS idx_commercial_invoices_source_quote ON commercial_in
 -- only be added/edited/deleted while the PARENT invoice is DRAFT (see
 -- lib/commercial/invoices.ts's isInvoiceEditable() guard on every line
 -- mutation).
+--
+-- Phase C4.1R — UNIQUE(id, organisation_id) restored. This anchor was
+-- part of the original, locked C4.1 schema specification (matching the
+-- same anchor every other Commercial line-item/document table carries —
+-- commercial_quotes, commercial_quote_lines (see Section 0's own
+-- retrofit above), commercial_customers, commercial_products,
+-- commercial_tax_codes, commercial_financial_years — regardless of
+-- whether a child table references them yet), but was mistakenly
+-- dropped during implementation. Purely additive and safe: id is
+-- already this table's own PRIMARY KEY (hence already globally unique),
+-- so a UNIQUE(id, organisation_id) constraint on top of an
+-- already-unique column can never fail against any existing row. Keeps
+-- the table consistent with this codebase's established convention and
+-- avoids a second future retrofit migration the day a child table (e.g.
+-- a future credit-note-line lineage) needs to composite-FK onto it.
 CREATE TABLE IF NOT EXISTS commercial_invoice_lines (
   id                     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   organisation_id        TEXT NOT NULL REFERENCES organisations(id),
@@ -190,6 +205,7 @@ CREATE TABLE IF NOT EXISTS commercial_invoice_lines (
   line_total_cents       INTEGER NOT NULL DEFAULT 0 CHECK (line_total_cents >= 0),
   created_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (id, organisation_id),
   CONSTRAINT commercial_invoice_lines_invoice_org_fkey
     FOREIGN KEY (invoice_id, organisation_id)
     REFERENCES commercial_invoices (id, organisation_id) ON DELETE CASCADE,
