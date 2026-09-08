@@ -9,7 +9,7 @@ import { getBusinessProfile, setBusinessProfile } from '@/lib/commercial/busines
 // changing the organisation's settings) requires administer, matching
 // tax-code creation's own floor.
 export async function GET() {
-  const auth = await authorizeCommercialRequest('quotes', COMMERCIAL_MIN_ROLE.view);
+  const auth = await authorizeCommercialRequest(['quotes', 'invoicing'], COMMERCIAL_MIN_ROLE.view);
   if (!auth.ok) return auth.response;
 
   const result = await getBusinessProfile(auth.session.organisationId);
@@ -18,7 +18,7 @@ export async function GET() {
 }
 
 export async function PUT(req: NextRequest) {
-  const auth = await authorizeCommercialRequest('quotes', COMMERCIAL_MIN_ROLE.administer);
+  const auth = await authorizeCommercialRequest(['quotes', 'invoicing'], COMMERCIAL_MIN_ROLE.administer);
   if (!auth.ok) return auth.response;
 
   const body = await req.json().catch(() => ({}));

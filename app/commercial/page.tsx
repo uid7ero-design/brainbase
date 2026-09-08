@@ -4,23 +4,75 @@ import Link from 'next/link';
 
 const CARD = '#0e1014'; const BORDER = '#1a1d24';
 
+type Counts = {
+  customers: number | null;
+  products: number | null;
+  quotes: number | null;
+  draftQuotes: number | null;
+  invoices: number | null;
+  draftInvoices: number | null;
+};
+
+// Phase C4.4A (Finding 3 remediation) — capability-aware by construction,
+// not by ignoring failed responses. Previously this page unconditionally
+// fetched /api/commercial/quotes (and, before this phase, /customers and
+// /products would also have 403'd for an invoicing-only organisation)
+// and treated a failed response's absent `.quotes`/`.customers` field as
+// "0" via `?? 0` — genuinely misleading: an invoicing-only organisation
+// would have seen "0 Quotes" on its own Overview page, which reads as
+// "you have zero quotes" rather than the true state, "you don't have
+// Quotes access at all." This page now reads the organisation's own
+// enabledCapabilities from /api/me FIRST (the same mechanism
+// app/commercial/quotes/[id]/page.tsx already uses for its own
+// "Create Invoice" gating) and only ever fetches — and only ever
+// renders a stat card for — a resource the organisation actually has
+// capability access to. Customers/Products (shared resources, per
+// Finding 3's own remediation in lib/commercial/authorize.ts) are
+// fetched whenever EITHER Quotes or Invoicing is enabled, matching the
+// API layer's own new OR-gated access.
 export default function CommercialOverviewPage() {
-  const [counts, setCounts] = useState<{ customers: number; products: number; quotes: number; draftQuotes: number } | null>(null);
+  const [hasQuotes, setHasQuotes] = useState(false);
+  const [hasInvoicing, setHasInvoicing] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [counts, setCounts] = useState<Counts>({
+    customers: null, products: null, quotes: null, draftQuotes: null, invoices: null, draftInvoices: null,
+  });
 
   useEffect(() => {
     (async () => {
-      const [customersRes, productsRes, quotesRes] = await Promise.all([
-        fetch('/api/commercial/customers'),
-        fetch('/api/commercial/products'),
-        fetch('/api/commercial/quotes'),
+      const meRes = await fetch('/api/me');
+      const me = meRes.ok ? await meRes.json() : { enabledCapabilities: [] };
+      const capabilityKeys = new Set((me.enabledCapabilities ?? []).map((c: { key: string }) => c.key));
+      const quotes = capabilityKeys.has('quotes');
+      const invoicing = capabilityKeys.has('invoicing');
+      setHasQuotes(quotes);
+      setHasInvoicing(invoicing);
+
+      // Shared resources: fetched whenever either capability is
+      // present, exactly matching the API layer's own
+      // ['quotes', 'invoicing'] OR-gate.
+      const wantsShared = quotes || invoicing;
+      const [customersRes, productsRes, quotesRes, invoicesRes] = await Promise.all([
+        wantsShared ? fetch('/api/commercial/customers') : Promise.resolve(null),
+        wantsShared ? fetch('/api/commercial/products') : Promise.resolve(null),
+        quotes ? fetch('/api/commercial/quotes') : Promise.resolve(null),
+        invoicing ? fetch('/api/commercial/invoices') : Promise.resolve(null),
       ]);
-      const [customers, products, quotes] = await Promise.all([customersRes.json(), productsRes.json(), quotesRes.json()]);
+
+      const customersData = customersRes?.ok ? await customersRes.json() : null;
+      const productsData = productsRes?.ok ? await productsRes.json() : null;
+      const quotesData = quotesRes?.ok ? await quotesRes.json() : null;
+      const invoicesData = invoicesRes?.ok ? await invoicesRes.json() : null;
+
       setCounts({
-        customers: customers.customers?.length ?? 0,
-        products: products.products?.length ?? 0,
-        quotes: quotes.quotes?.length ?? 0,
-        draftQuotes: (quotes.quotes ?? []).filter((q: { status: string }) => q.status === 'DRAFT').length,
+        customers: wantsShared ? (customersData?.customers?.length ?? 0) : null,
+        products: wantsShared ? (productsData?.products?.length ?? 0) : null,
+        quotes: quotes ? (quotesData?.quotes?.length ?? 0) : null,
+        draftQuotes: quotes ? ((quotesData?.quotes ?? []).filter((q: { status: string }) => q.status === 'DRAFT').length) : null,
+        invoices: invoicing ? (invoicesData?.invoices?.length ?? 0) : null,
+        draftInvoices: invoicing ? ((invoicesData?.invoices ?? []).filter((i: { status: string }) => i.status === 'DRAFT').length) : null,
       });
+      setLoading(false);
     })();
   }, []);
 
@@ -29,27 +81,44 @@ export default function CommercialOverviewPage() {
       <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em', margin: '0 0 24px' }}>Commercial</h1>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 14, marginBottom: 32 }}>
-        <StatCard label="Customers" value={counts?.customers} href="/commercial/customers" />
-        <StatCard label="Products & Services" value={counts?.products} href="/commercial/products" />
-        <StatCard label="Quotes" value={counts?.quotes} href="/commercial/quotes" />
-        <StatCard label="Draft Quotes" value={counts?.draftQuotes} href="/commercial/quotes?status=DRAFT" />
+        {(hasQuotes || hasInvoicing) && <StatCard label="Customers" value={loading ? undefined : counts.customers} href="/commercial/customers" />}
+        {(hasQuotes || hasInvoicing) && <StatCard label="Products & Services" value={loading ? undefined : counts.products} href="/commercial/products" />}
+        {hasQuotes && <StatCard label="Quotes" value={loading ? undefined : counts.quotes} href="/commercial/quotes" />}
+        {hasQuotes && <StatCard label="Draft Quotes" value={loading ? undefined : counts.draftQuotes} href="/commercial/quotes?status=DRAFT" />}
+        {hasInvoicing && <StatCard label="Invoices" value={loading ? undefined : counts.invoices} href="/commercial/invoices" />}
+        {hasInvoicing && <StatCard label="Draft Invoices" value={loading ? undefined : counts.draftInvoices} href="/commercial/invoices?status=DRAFT" />}
       </div>
 
       <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: '20px 24px' }}>
         <h2 style={{ fontSize: 15, fontWeight: 600, margin: '0 0 10px' }}>Get started</h2>
-        <p style={{ fontSize: 13, color: '#9ca3af', margin: '0 0 14px', lineHeight: 1.6 }}>
-          Add a customer and a product or service, then create your first quote.
-        </p>
-        <div style={{ display: 'flex', gap: 10 }}>
-          <Link href="/commercial/customers" style={linkBtn}>Manage Customers →</Link>
-          <Link href="/commercial/quotes/new" style={linkBtn}>New Quote →</Link>
-        </div>
+        {hasQuotes && (
+          <>
+            <p style={{ fontSize: 13, color: '#9ca3af', margin: '0 0 14px', lineHeight: 1.6 }}>
+              Add a customer and a product or service, then create your first quote.
+            </p>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+              <Link href="/commercial/customers" style={linkBtn}>Manage Customers →</Link>
+              <Link href="/commercial/quotes/new" style={linkBtn}>New Quote →</Link>
+            </div>
+          </>
+        )}
+        {!hasQuotes && hasInvoicing && (
+          <>
+            <p style={{ fontSize: 13, color: '#9ca3af', margin: '0 0 14px', lineHeight: 1.6 }}>
+              Add a customer and a product or service, then create your first invoice.
+            </p>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+              <Link href="/commercial/customers" style={linkBtn}>Manage Customers →</Link>
+              <Link href="/commercial/invoices/new" style={linkBtn}>New Invoice →</Link>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
 }
 
-function StatCard({ label, value, href }: { label: string; value: number | undefined; href: string }) {
+function StatCard({ label, value, href }: { label: string; value: number | null | undefined; href: string }) {
   return (
     <Link href={href} style={{ textDecoration: 'none' }}>
       <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: '18px 20px' }}>

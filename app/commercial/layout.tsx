@@ -70,7 +70,7 @@ export default async function CommercialLayout({ children }: { children: React.R
         color: '#f9fafb',
       }}
     >
-      <CommercialSidebar invoicingEnabled={invoicingCapability.allowed} />
+      <CommercialSidebar quotesEnabled={quotesCapability.allowed} invoicingEnabled={invoicingCapability.allowed} />
       <main style={{ flex: 1, overflow: 'auto', padding: '36px 40px' }}>{children}</main>
     </div>
   );

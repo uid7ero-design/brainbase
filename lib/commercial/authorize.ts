@@ -65,8 +65,21 @@ export type CommercialAuthResult =
   // own identical typing note.
   | { ok: false; response: Response };
 
+// Phase C4.4A — `capabilityKey` may also be an ARRAY of capability keys,
+// with OR semantics: the caller is authorized if the organisation is
+// entitled to ANY ONE of the listed capabilities. This is for Finding 3
+// (the C4.2/C4.3 review's own deferred item): shared Commercial
+// resources (customers/products/tax-codes) are legitimately needed by
+// BOTH Quotes and Invoicing, which are independently-entitlable
+// capability keys — an invoicing-only organisation must be able to use
+// them without ever being granted quotes-specific access. This is NOT a
+// new/parallel authorization system — it reuses requireCapability()
+// exactly as the single-key path always has; the single-key path below
+// is untouched, byte-for-byte, from before this change, so every
+// existing quotes-only or invoicing-only route (still passing a single
+// string) is unaffected.
 export async function authorizeCommercialRequest(
-  capabilityKey: CommercialCapabilityKey,
+  capabilityKey: CommercialCapabilityKey | CommercialCapabilityKey[],
   minRole: Role,
 ): Promise<CommercialAuthResult> {
   let session: OrgSession;
@@ -76,16 +89,49 @@ export async function authorizeCommercialRequest(
     return { ok: false, response: unauthorized() };
   }
 
-  try {
-    await requireCapability(session.organisationId, capabilityKey);
-  } catch (err) {
-    if (err instanceof CapabilityDatabaseError) {
-      return {
-        ok: false,
-        response: NextResponse.json({ error: `Unable to verify ${capabilityKey} access.` }, { status: 503 }),
-      };
+  if (Array.isArray(capabilityKey)) {
+    // OR semantics: try each key in turn; the first one the
+    // organisation is actually entitled to wins immediately. A
+    // DATABASE_ERROR on any individual check is remembered but does not
+    // short-circuit — a later key might still resolve to a genuine
+    // entitlement. Only if NONE of the keys resolves to an entitlement
+    // do we then decide between 503 (at least one lookup was
+    // indeterminate — never confidently report "forbidden" when the
+    // true answer might be "allowed") and 403 (every key was
+    // definitively, successfully checked and denied).
+    let sawDatabaseError = false;
+    let entitled = false;
+    for (const key of capabilityKey) {
+      try {
+        await requireCapability(session.organisationId, key);
+        entitled = true;
+        break;
+      } catch (err) {
+        if (err instanceof CapabilityDatabaseError) sawDatabaseError = true;
+        // CapabilityAccessError (ordinary denial) — fall through and try the next key.
+      }
     }
-    return { ok: false, response: forbidden() };
+    if (!entitled) {
+      if (sawDatabaseError) {
+        return {
+          ok: false,
+          response: NextResponse.json({ error: `Unable to verify ${capabilityKey.join('/')} access.` }, { status: 503 }),
+        };
+      }
+      return { ok: false, response: forbidden() };
+    }
+  } else {
+    try {
+      await requireCapability(session.organisationId, capabilityKey);
+    } catch (err) {
+      if (err instanceof CapabilityDatabaseError) {
+        return {
+          ok: false,
+          response: NextResponse.json({ error: `Unable to verify ${capabilityKey} access.` }, { status: 503 }),
+        };
+      }
+      return { ok: false, response: forbidden() };
+    }
   }
 
   if (!roleGte(session.role, minRole)) {
