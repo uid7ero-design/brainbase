@@ -165,6 +165,41 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ boa
     subitemsLinked += 1;
   }
 
+  // Phase D.4.6G — import.completed, one summary activity row per import
+  // request (never one row per imported item — see the phase's own
+  // "exactly one summary event" design decision). Written only after both
+  // loops above have finished without throwing, so it can only ever
+  // reflect a request that actually reached this route's pre-existing
+  // definition of success — never inserted for a request that errored out
+  // earlier (board not found, unsupported file type, empty file,
+  // needsSheetSelection, or an unhandled per-row exception all return/throw
+  // before this point). This route's writes were already non-transactional
+  // before this phase (see the per-row loop above) and remain so — this is
+  // a truthful summary of what already happened, not a new atomicity
+  // guarantee. Counts only: imported/groups/subitems counts already existed
+  // in the response payload; skipped_count and unmatched_subitems_count are
+  // both derived counts, never the actual skipped row content or the
+  // unmatched parent-name strings themselves (those may contain raw
+  // spreadsheet cell data). No filename, no file URL, no row content.
+  await sql`
+    INSERT INTO organiser_activity (
+      organisation_id, board_id, actor_user_id, actor_name,
+      event_type, entity_type, entity_id, before_json, after_json
+    )
+    VALUES (
+      ${session.organisationId}, ${boardId}, ${session.userId}, ${session.name},
+      'import.completed', 'import', ${boardId}, NULL,
+      ${JSON.stringify({
+        imported_count: itemsCreated,
+        groups_created: groupsCreated,
+        subitems_linked: subitemsLinked,
+        skipped_count: rawRows.length - itemsCreated,
+        unmatched_subitems_count: unmatchedSubitems.length,
+        source_type: isCsv ? 'csv' : 'xlsx',
+      })}::jsonb
+    )
+  `;
+
   return NextResponse.json({
     success: true,
     groupsCreated,

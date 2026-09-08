@@ -187,3 +187,102 @@ describe('Regression — item.created/updated/moved/deleted formatting unchanged
     expect(desc.summary).toBe('Admin created this item')
   })
 })
+
+// Phase D.4.6G — formatter coverage for the two newly-instrumented event
+// families: column.created/updated/deleted and import.completed. Same
+// real-function-call convention as the D.4.5F block above.
+describe('describeBoardActivityEvent — column.*', () => {
+  it('column.created', () => {
+    const desc = describeBoardActivityEvent({
+      event_type: 'column.created', actor: { name: 'Admin' }, entity_id: 'col-1',
+      before: null, after: { name: 'Priority', type: 'status' },
+    })
+    expect(desc.summary).toBe('Admin created column "Priority"')
+    expect(desc.diffs).toEqual([])
+  })
+
+  it('column.updated (rename) shows a Name diff and a "renamed column" summary', () => {
+    const desc = describeBoardActivityEvent({
+      event_type: 'column.updated', actor: { name: 'Admin' }, entity_id: 'col-1',
+      before: { name: 'Priority' }, after: { name: 'Priority Level' },
+    })
+    expect(desc.summary).toBe('Admin renamed column')
+    expect(desc.diffs).toEqual([{ label: 'Name', before: 'Priority', after: 'Priority Level' }])
+  })
+
+  it('column.updated (options only) does not claim a rename', () => {
+    const desc = describeBoardActivityEvent({
+      event_type: 'column.updated', actor: { name: 'Admin' }, entity_id: 'col-1',
+      before: { options: [{ label: 'Low' }] }, after: { options: [{ label: 'Low' }, { label: 'High' }] },
+    })
+    expect(desc.summary).toBe('Admin updated column')
+  })
+
+  it('column.deleted names the column via its before snapshot, no diffs', () => {
+    const desc = describeBoardActivityEvent({
+      event_type: 'column.deleted', actor: { name: 'Admin' }, entity_id: 'col-1',
+      before: { name: 'Priority', type: 'status' }, after: null,
+    })
+    expect(desc.summary).toBe('Admin deleted column "Priority"')
+    expect(desc.diffs).toEqual([])
+  })
+
+  it('falls back to "Someone" and a generic noun when actor/name are missing', () => {
+    const created = describeBoardActivityEvent({ event_type: 'column.created', actor: { name: '' }, entity_id: 'c1', before: null, after: {} })
+    expect(created.summary).toBe('Someone created column "column"')
+    const deleted = describeBoardActivityEvent({ event_type: 'column.deleted', actor: { name: '' }, entity_id: 'c1', before: null, after: null })
+    expect(deleted.summary).toBe('Someone deleted column "column"')
+  })
+
+  it('describeActivityEvent (single-item tab) never receives column.* in real usage, but degrades gracefully via the generic fallback rather than crashing if it somehow did', () => {
+    expect(() => describeActivityEvent({ event_type: 'column.created', actor: { name: 'Admin' }, before: null, after: { name: 'X' } })).not.toThrow()
+  })
+})
+
+describe('describeBoardActivityEvent — import.completed', () => {
+  it('names the count and source type', () => {
+    const desc = describeBoardActivityEvent({
+      event_type: 'import.completed', actor: { name: 'Admin' }, entity_id: 'board-1',
+      before: null, after: { imported_count: 12, groups_created: 0, source_type: 'csv' },
+    })
+    expect(desc.summary).toBe('Admin imported 12 items via CSV')
+    expect(desc.diffs).toEqual([])
+  })
+
+  it('singular "item" for a count of exactly 1', () => {
+    const desc = describeBoardActivityEvent({
+      event_type: 'import.completed', actor: { name: 'Admin' }, entity_id: 'board-1',
+      before: null, after: { imported_count: 1, groups_created: 0, source_type: 'xlsx' },
+    })
+    expect(desc.summary).toBe('Admin imported 1 item via XLSX')
+  })
+
+  it('mentions new groups when any were created', () => {
+    const desc = describeBoardActivityEvent({
+      event_type: 'import.completed', actor: { name: 'Admin' }, entity_id: 'board-1',
+      before: null, after: { imported_count: 5, groups_created: 2, source_type: 'csv' },
+    })
+    expect(desc.summary).toBe('Admin imported 5 items via CSV and 2 new groups')
+  })
+
+  it('singular "group" for exactly one new group', () => {
+    const desc = describeBoardActivityEvent({
+      event_type: 'import.completed', actor: { name: 'Admin' }, entity_id: 'board-1',
+      before: null, after: { imported_count: 3, groups_created: 1, source_type: 'csv' },
+    })
+    expect(desc.summary).toBe('Admin imported 3 items via CSV and 1 new group')
+  })
+
+  it('never throws and never renders blank even with a malformed/missing after_json', () => {
+    const desc = describeBoardActivityEvent({ event_type: 'import.completed', actor: { name: 'Admin' }, entity_id: 'board-1', before: null, after: null })
+    expect(desc.summary).toBe('Admin imported 0 items via file')
+  })
+
+  it('falls back to "Someone" when actor is missing', () => {
+    const desc = describeBoardActivityEvent({
+      event_type: 'import.completed', actor: { name: '' }, entity_id: 'board-1',
+      before: null, after: { imported_count: 2, source_type: 'csv' },
+    })
+    expect(desc.summary).toBe('Someone imported 2 items via CSV')
+  })
+})

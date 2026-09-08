@@ -294,10 +294,45 @@ function describeEntityEventInternal(
     return { summary: `${actorLabel} deleted group "${name}"`, diffs: [] };
   }
 
+  // Phase D.4.6G — column.* events. Like board.*/group.*, a column has no
+  // "subject item" — it names itself directly, reusing the exact same
+  // create/update/delete phrasing convention as board/group above.
+  if (event.event_type === 'column.created') {
+    const name = event.after && typeof event.after.name === 'string' && event.after.name.length > 0 ? event.after.name : 'column';
+    return { summary: `${actorLabel} created column "${name}"`, diffs: [] };
+  }
+  if (event.event_type === 'column.updated') {
+    const diffs = buildDiffRows(event.before, event.after, groupNamesById);
+    const renamed = diffs.some(d => d.label === 'Name');
+    return { summary: renamed ? `${actorLabel} renamed column` : `${actorLabel} updated column`, diffs };
+  }
+  if (event.event_type === 'column.deleted') {
+    const name = event.before && typeof event.before.name === 'string' && event.before.name.length > 0 ? event.before.name : 'column';
+    return { summary: `${actorLabel} deleted column "${name}"`, diffs: [] };
+  }
+
+  // Phase D.4.6G — import.completed. Not a create/update/delete of a named
+  // entity, so it gets its own bespoke summary built from the safe count
+  // fields the import route's own instrumentation writes (see that route's
+  // header comment) — never raw row content, filenames, or unmatched
+  // subitem names.
+  if (event.event_type === 'import.completed') {
+    const after = event.after ?? {};
+    const count = typeof after.imported_count === 'number' ? after.imported_count : 0;
+    const sourceType = typeof after.source_type === 'string' ? after.source_type.toUpperCase() : 'file';
+    const itemWord = count === 1 ? 'item' : 'items';
+    const groupsCreated = typeof after.groups_created === 'number' ? after.groups_created : 0;
+    const extra = groupsCreated > 0 ? ` and ${groupsCreated} new group${groupsCreated === 1 ? '' : 's'}` : '';
+    return {
+      summary: `${actorLabel} imported ${count} ${itemWord} via ${sourceType}${extra}`,
+      diffs: [],
+    };
+  }
+
   // Unreachable given describeBoardActivityEvent's own
-  // event_type.startsWith('board.'/'group.') gate, but never throws even
-  // if reached directly — same never-crash guarantee as every other path
-  // in this file.
+  // event_type.startsWith('board.'/'group.'/'column.') gate, but never
+  // throws even if reached directly — same never-crash guarantee as every
+  // other path in this file.
   return { summary: `${actorLabel} — ${event.event_type || 'activity'}`, diffs: buildDiffRows(event.before, event.after, groupNamesById) };
 }
 
@@ -362,9 +397,11 @@ export function resolveItemLabel(
   return 'Item';
 }
 
-/** Board-feed variant of describeActivityEvent. board.* and group.* events
- *  (Phase D.4.5F) route to describeEntityEventInternal — they name the
- *  board/group directly and have no "item" concept at all. Every other
+/** Board-feed variant of describeActivityEvent. board.*, group.*, column.*,
+ *  and import.completed (Phase D.4.6G adds the latter two) route to
+ *  describeEntityEventInternal — none of them have an "item" subject at
+ *  all (a column belongs to a board, not an item; an import is a
+ *  board-level summary event with no single item to name). Every other
  *  event type (item.*, comment.created, file.added/file.deleted) shares
  *  the exact same event-type handling and diff-building as the single-item
  *  Activity tab (via describeEventInternal), but every summary names the
@@ -375,7 +412,12 @@ export function describeBoardActivityEvent(
   groupNamesById: Record<string, string> = {},
   liveItemNamesById: Record<string, string> = {},
 ): ActivityDescription {
-  if (event.event_type.startsWith('board.') || event.event_type.startsWith('group.')) {
+  if (
+    event.event_type.startsWith('board.') ||
+    event.event_type.startsWith('group.') ||
+    event.event_type.startsWith('column.') ||
+    event.event_type === 'import.completed'
+  ) {
     return describeEntityEventInternal(event, groupNamesById);
   }
   return describeEventInternal(event, groupNamesById, resolveItemLabel(event, liveItemNamesById));
