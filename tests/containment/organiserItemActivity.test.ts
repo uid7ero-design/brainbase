@@ -573,6 +573,10 @@ describe('organiser_activity instrumentation is confined to the explicitly autho
       path.resolve(__dirname, '../../app/api/organiser/items/[itemId]/updates/route.ts'),
       path.resolve(__dirname, '../../app/api/organiser/items/[itemId]/files/route.ts'),
       path.resolve(__dirname, '../../app/api/organiser/items/[itemId]/files/[fileId]/route.ts'),
+      // D.4.6G — column and import write routes
+      path.resolve(__dirname, '../../app/api/organiser/boards/[boardId]/columns/route.ts'),
+      path.resolve(__dirname, '../../app/api/organiser/columns/[columnId]/route.ts'),
+      path.resolve(__dirname, '../../app/api/organiser/boards/[boardId]/import/route.ts'),
     ])
     const files = listRouteFiles(orgDir)
     expect(files.length).toBeGreaterThan(0)
@@ -583,12 +587,12 @@ describe('organiser_activity instrumentation is confined to the explicitly autho
     }
   })
 
-  it('columns and import routes remain uninstrumented — explicitly out of scope for D.4.5F', () => {
+  it('columns and import routes are now instrumented — deliberate D.4.6G widening, not the D.4.5F gap anymore', () => {
     const columnsSrc = fs.readFileSync(path.resolve(__dirname, '../../app/api/organiser/columns/[columnId]/route.ts'), 'utf8')
     const boardColumnsSrc = fs.readFileSync(path.resolve(__dirname, '../../app/api/organiser/boards/[boardId]/columns/route.ts'), 'utf8')
     const importSrc = fs.readFileSync(path.resolve(__dirname, '../../app/api/organiser/boards/[boardId]/import/route.ts'), 'utf8')
     for (const src of [columnsSrc, boardColumnsSrc, importSrc]) {
-      expect(src).not.toMatch(/organiser_activity/)
+      expect(src).toMatch(/organiser_activity/)
     }
   })
 

@@ -37,10 +37,33 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ boa
   `;
   const position = posRows[0].next as number;
 
+  // Phase D.4.6G — column.created, atomic with the INSERT (same writable-CTE
+  // pattern as boards/groups' own instrumentation). after_json carries only
+  // name/type — the identity fields a reader needs; options (label/color
+  // pairs) is config detail, not history-worthy, matching the same
+  // "position/noise fields excluded" policy already established elsewhere.
   const rows = await sql`
-    INSERT INTO organiser_columns (board_id, organisation_id, name, type, options, position)
-    VALUES (${boardId}, ${session.organisationId}, ${name}, ${type}, ${JSON.stringify(options)}::jsonb, ${position})
-    RETURNING id, name, type, options, position
+    WITH inserted AS (
+      INSERT INTO organiser_columns (board_id, organisation_id, name, type, options, position)
+      VALUES (${boardId}, ${session.organisationId}, ${name}, ${type}, ${JSON.stringify(options)}::jsonb, ${position})
+      RETURNING id, name, type, options, position
+    ),
+    activity_row AS (
+      INSERT INTO organiser_activity (
+        organisation_id, board_id, actor_user_id, actor_name,
+        event_type, entity_type, entity_id, before_json, after_json
+      )
+      SELECT
+        ${session.organisationId}, ${boardId}, ${session.userId}, ${session.name},
+        'column.created', 'column', inserted.id::text, NULL,
+        jsonb_build_object(
+          'name', organiser_activity_sanitise_scalar(to_jsonb(inserted.name)),
+          'type', organiser_activity_sanitise_scalar(to_jsonb(inserted.type))
+        )
+      FROM inserted
+      RETURNING id
+    )
+    SELECT id, name, type, options, position FROM inserted
   `;
 
   return NextResponse.json({ column: rows[0] });
