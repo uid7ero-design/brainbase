@@ -15,6 +15,12 @@ function readSource(relPath: string): string {
 
 const pdfSource = readSource('lib/commercial/quotePdf.ts')
 const emailSource = readSource('lib/commercial/quoteEmail.ts')
+// Phase C4.3B — the brand-lockup-loading path moved out of
+// quoteEmail.ts into the shared lib/commercial/documentEmail.ts (see
+// that file's own header comment) so invoiceEmail.ts can reuse it. Pure
+// extraction, no behavior change — the asset path assertion below now
+// targets its new home.
+const documentEmailSource = readSource('lib/commercial/documentEmail.ts')
 const quoteDetailSource = readSource('app/commercial/quotes/[id]/page.tsx')
 const quoteListSource = readSource('app/commercial/quotes/page.tsx')
 
@@ -33,8 +39,13 @@ describe('Phase C3-COMMERCIAL-BRAND-RENDERING — the real BrainBase lockup asse
   })
 
   it('the server-side email loader reads the lockup asset path, not the old icon-only one', () => {
-    expect(emailSource).toContain("'public', 'Brand', 'brainbase-horizontal-color-284.png'")
-    expect(emailSource).not.toContain('brainbase-mark-color-256.png')
+    expect(documentEmailSource).toContain("'public', 'Brand', 'brainbase-horizontal-color-284.png'")
+    expect(documentEmailSource).not.toContain('brainbase-mark-color-256.png')
+  })
+
+  it('quoteEmail.ts no longer defines its own copy of the brand-lockup loader — it must come from the shared documentEmail.ts module', () => {
+    expect(emailSource).not.toContain('async function loadBrandLockupBase64Server')
+    expect(emailSource).toMatch(/loadBrandLockupBase64Server.*from ['"]\.\/documentEmail['"]/)
   })
 
   it('the client-side PDF download loader fetches the lockup asset path, not the old icon-only one', () => {

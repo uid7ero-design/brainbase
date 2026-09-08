@@ -5,12 +5,37 @@ import sql from '@/lib/db';
 // scripts/create-commercial-document-deliveries.sql for the schema and
 // its full rationale). Same discipline as every other lib/commercial/*.ts
 // module: organisationId is always an explicit caller-supplied
-// parameter, every query is scoped by it, and the composite FK backs up
-// every application-level check.
-
+// parameter, every query is scoped by it.
+//
+// Phase C4.3B — 'invoice' added to DeliveryDocumentType (the schema's
+// document_type CHECK is widened to match — see
+// scripts/widen-commercial-document-deliveries-for-invoices.sql). That
+// migration also DROPS this table's former composite FK onto
+// commercial_quotes — a polymorphic association cannot composite-FK
+// onto two different parent tables at once, and no replacement
+// cross-table FK is added. Tenant/document integrity for WRITES is now
+// an explicit APPLICATION invariant enforced here, not a DB constraint:
+// the raw insert primitive (below) is intentionally NOT exported —
+// nothing outside this file can write a delivery row from a bare
+// {organisationId, documentType, documentId} triple. The only two
+// exported write paths, recordQuoteDeliveryAttempt() and
+// recordInvoiceDeliveryAttempt(), each hardcode their own documentType
+// (a caller cannot mismatch quote vs invoice) and require the caller to
+// pass the actual resolved document row (not a bare id string) —
+// carrying its own organisation_id, which is asserted to match the
+// caller's organisationId before anything is written. In real usage
+// that assertion can never fire: both send-email API routes already
+// resolve the quote/invoice via a tenant-scoped lookup
+// (getQuoteWithLines(session.organisationId, id) /
+// getInvoiceWithLines(session.organisationId, id)) before ever reaching
+// this module, so the object's own organisation_id is always already
+// session.organisationId by construction. The assertion exists as a
+// structural, testable belt-and-suspenders guard against a FUTURE
+// refactor accidentally breaking that invariant, not because today's
+// callers can actually trigger it.
 export type DeliveryChannel = 'EMAIL' | 'SMS';
 export type DeliveryStatus = 'PENDING' | 'SENT' | 'DELIVERED' | 'FAILED';
-export type DeliveryDocumentType = 'quote';
+export type DeliveryDocumentType = 'quote' | 'invoice';
 
 export interface CommercialDocumentDelivery {
   id: string;
@@ -30,12 +55,21 @@ export interface CommercialDocumentDelivery {
   created_at: string;
 }
 
+// The raw insert primitive — deliberately NOT exported. See this
+// module's own header comment for why: nothing outside this file may
+// write a delivery row from a bare {organisationId, documentType,
+// documentId} triple. Every real write goes through
+// recordQuoteDeliveryAttempt()/recordInvoiceDeliveryAttempt() below,
+// which each hardcode their own documentType and assert tenant
+// ownership before ever reaching this function.
+//
 // One row per delivery ATTEMPT — a resend creates a new row, never
-// updates a prior one. That is what makes "history" on the quote detail
-// UI a plain ORDER BY attempted_at DESC, and what the resend cooldown
-// check reads from (see the cooldown query in
-// app/api/commercial/quotes/[id]/send-email/route.ts).
-export async function recordDeliveryAttempt(params: {
+// updates a prior one. That is what makes "history" on the quote/invoice
+// detail UI a plain ORDER BY attempted_at DESC, and what the resend
+// cooldown check reads from (see the cooldown query in
+// app/api/commercial/quotes/[id]/send-email/route.ts and its invoice
+// equivalent).
+async function recordDeliveryAttempt(params: {
   organisationId: string;
   documentType: DeliveryDocumentType;
   documentId: string;
@@ -72,6 +106,50 @@ export async function recordDeliveryAttempt(params: {
     RETURNING *
   `) as CommercialDocumentDelivery[];
   return rows[0];
+}
+
+interface DeliveryAttemptCommon {
+  organisationId: string;
+  channel: DeliveryChannel;
+  recipient: string;
+  status: DeliveryStatus;
+  provider?: string | null;
+  providerMessageId?: string | null;
+  errorSummary?: string | null;
+  createdBy: string | null;
+}
+
+function assertSameOrganisation(organisationId: string, documentOrganisationId: string, documentType: DeliveryDocumentType): void {
+  if (documentOrganisationId !== organisationId) {
+    // Never reachable via any real call site today (see this module's
+    // own header comment) — a loud, immediate failure here is strictly
+    // preferable to silently writing a cross-tenant delivery row if a
+    // future refactor ever breaks the resolve-then-record invariant.
+    throw new Error(`Tenant mismatch recording a ${documentType} delivery attempt: document belongs to a different organisation.`);
+  }
+}
+
+// The ONLY way to write a quote delivery row. `quote` must be the
+// already-resolved row from a tenant-scoped lookup (e.g.
+// getQuoteWithLines(session.organisationId, quoteId).quote) — its own
+// organisation_id is asserted to match `organisationId` before anything
+// is written.
+export async function recordQuoteDeliveryAttempt(params: DeliveryAttemptCommon & {
+  quote: { id: string; organisation_id: string };
+}): Promise<CommercialDocumentDelivery> {
+  assertSameOrganisation(params.organisationId, params.quote.organisation_id, 'quote');
+  const { quote, ...rest } = params;
+  return recordDeliveryAttempt({ ...rest, documentType: 'quote', documentId: quote.id });
+}
+
+// The ONLY way to write an invoice delivery row. Same discipline as
+// recordQuoteDeliveryAttempt() above.
+export async function recordInvoiceDeliveryAttempt(params: DeliveryAttemptCommon & {
+  invoice: { id: string; organisation_id: string };
+}): Promise<CommercialDocumentDelivery> {
+  assertSameOrganisation(params.organisationId, params.invoice.organisation_id, 'invoice');
+  const { invoice, ...rest } = params;
+  return recordDeliveryAttempt({ ...rest, documentType: 'invoice', documentId: invoice.id });
 }
 
 export async function listDeliveriesForDocument(params: {

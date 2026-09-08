@@ -1,10 +1,9 @@
 import 'server-only';
-import fs from 'node:fs/promises';
-import path from 'node:path';
-import { sendEmail, escHtml, BASE_URL } from '@/lib/email';
+import { sendEmail, escHtml } from '@/lib/email';
 import { formatMoneyCents } from './money';
 import { formatCommercialDate } from './dates';
 import { buildQuotePdf, type QuotePdfQuote, type QuotePdfLine, type QuotePdfSupplier } from './quotePdf';
+import { commercialEmailLayout, emailDetailRow, loadBrandLockupBase64Server } from './documentEmail';
 
 // Phase C3-POLISH-R §6/§7 — quote email delivery. Modeled directly on
 // lib/events/ticketEmail.ts's own shape (buildX() pure template kept
@@ -12,22 +11,15 @@ import { buildQuotePdf, type QuotePdfQuote, type QuotePdfLine, type QuotePdfSupp
 // sent/failed/unknown/not_configured result taxonomy) — that module's
 // own header comment explains exactly why each outcome is distinguished,
 // and the same reasoning applies verbatim here, so it is not repeated.
-
-let cachedBrandLockupBase64: string | null = null;
-
-// Server-side loader for the rasterized Hybrid Orbit icon+wordmark
-// lockup PNG (see lib/commercial/quotePdf.ts's own header for why the
-// PNG exists, why it's the full lockup and not the icon alone, and why
-// it — not the source SVG — is what gets embedded). Reads from disk
-// once per server instance and memoizes; the file is a small, static,
-// committed repository asset, never user-controlled input.
-async function loadBrandLockupBase64Server(): Promise<string> {
-  if (cachedBrandLockupBase64) return cachedBrandLockupBase64;
-  const filePath = path.join(process.cwd(), 'public', 'Brand', 'brainbase-horizontal-color-284.png');
-  const buf = await fs.readFile(filePath);
-  cachedBrandLockupBase64 = buf.toString('base64');
-  return cachedBrandLockupBase64;
-}
+//
+// Phase C4.3B — the shared email shell (commercialEmailLayout,
+// emailDetailRow, loadBrandLockupBase64Server, maskEmailForAudit) moved
+// out to lib/commercial/documentEmail.ts, unchanged, so
+// lib/commercial/invoiceEmail.ts can reuse it. Pure extraction: every
+// function body is byte-identical to before, just re-exported from a
+// shared module. Re-exported here too so any existing external import
+// of maskEmailForAudit from this file keeps working.
+export { maskEmailForAudit } from './documentEmail';
 
 export interface QuoteEmailData {
   quoteNumber: string;
@@ -65,68 +57,6 @@ export function buildQuoteEmail(data: QuoteEmailData): { subject: string; html: 
       </p>
     `),
   };
-}
-
-// Phase C3-FINAL-POLISH — a Commercial-only email shell, deliberately
-// NOT lib/email.ts's shared emailLayout(). That function's header
-// reconstructs "BRAINBΛSE" as literal HTML text with a Unicode Greek
-// lambda character in a <span> — harmless for the many unrelated
-// callers that already use it (auth verification, password reset,
-// admin user invite, web-service lead notification, events ticket
-// email), none of which this phase touches, but not the REAL canonical
-// Hybrid Orbit identity the C3-COMMERCIAL-BRAND-RENDERING phase already
-// fixed for the PDF attachment. Rather than changing emailLayout()'s own
-// header for every one of those unrelated surfaces (a repo-wide
-// shared-brand change this phase is explicitly not authorized to make),
-// this is a small, self-contained duplicate of that same shell with
-// ONLY the header cell's content swapped for a real <img> of the exact
-// canonical asset — every other structural element (outer table, body
-// cell, copyright footer row) is unchanged from emailLayout()'s own
-// shape, for visual consistency with the rest of the Brainbase email
-// family.
-//
-// Uses an absolute same-origin URL (BASE_URL, the exact constant
-// lib/events/ticketEmail.ts's own ticket links already use), not a
-// third-party image host and not an inline base64 data: URI — a linked
-// image is the standard, most broadly email-client-compatible way to
-// reference a logo in transactional email, and this asset is already
-// confirmed publicly reachable at this exact path (verified in
-// C3-BRAND-MERGE-VERIFY's runtime health check).
-function commercialEmailLayout(body: string): string {
-  const logoUrl = `${BASE_URL}/Brand/brainbase-horizontal-color-284.png`;
-  // 1600x284 source raster — width chosen for a typical email header,
-  // height computed to preserve that exact aspect ratio (never a fixed
-  // guess that could distort the lockup).
-  const logoWidth = 180;
-  const logoHeight = Math.round((logoWidth * 284) / 1600);
-  return `<!DOCTYPE html>
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"></head>
-<body style="margin:0;padding:0;background:#f4f4f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
-  <table width="100%" cellpadding="0" cellspacing="0" style="padding:40px 20px">
-    <tr><td align="center">
-      <table width="520" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:12px;overflow:hidden;border:1px solid #e4e4e7">
-        <tr><td style="padding:24px 32px;background:#08090C;border-bottom:1px solid #1c1c2e">
-          <img src="${logoUrl}" alt="BrainBase" width="${logoWidth}" height="${logoHeight}" style="display:block;border:0;outline:none;text-decoration:none;" />
-        </td></tr>
-        <tr><td style="padding:36px 32px">
-          ${body}
-        </td></tr>
-        <tr><td style="padding:16px 32px;background:#fafafa;border-top:1px solid #e4e4e7;font-size:12px;color:#aaa">
-          © ${new Date().getFullYear()} Brainbase · Adelaide SA Australia
-        </td></tr>
-      </table>
-    </td></tr>
-  </table>
-</body></html>`;
-}
-
-function emailDetailRow(label: string, value: string) {
-  return `
-    <tr>
-      <td style="padding:7px 0;color:#888;width:120px;vertical-align:top;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.04em">${label}</td>
-      <td style="padding:7px 0 7px 16px;color:#222;border-bottom:1px solid #f0f0f0">${value}</td>
-    </tr>
-  `;
 }
 
 export type QuoteEmailSendResult =
@@ -210,16 +140,4 @@ export async function sendQuoteEmail(params: {
     console.error('[commercial] quote email: ambiguous provider outcome', err);
     return { result: 'unknown', error: 'The email provider did not return a definite result.' };
   }
-}
-
-// Phase C3-POLISH-R §9 — audit_logs never stores the full recipient
-// address, matching lib/events/ticketEmail.ts's maskEmailForAudit()
-// exactly (duplicated rather than imported cross-module — Events and
-// Commercial are kept independent, matching this codebase's established
-// per-vertical-not-shared-utility precedent already documented in
-// lib/commercial/auditLog.ts's own header).
-export function maskEmailForAudit(email: string): string {
-  const at = email.indexOf('@');
-  if (at <= 0) return '***';
-  return `${email[0]}***${email.slice(at)}`;
 }

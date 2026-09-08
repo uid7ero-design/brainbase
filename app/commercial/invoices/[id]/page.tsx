@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { StatusBadge, OverdueBadge } from '../_status';
 import { formatMoneyCents } from '@/lib/commercial/money';
 import { formatCommercialDate } from '@/lib/commercial/dates';
+import { buildInvoicePdf, type InvoicePdfSupplier } from '@/lib/commercial/invoicePdf';
 
 const CARD = '#0e1014'; const BORDER = '#1a1d24';
 
@@ -26,6 +27,30 @@ type Line = {
 type Customer = { id: string; name: string };
 type Product = { id: string; name: string; default_unit_price_cents: number; default_tax_code_id: string | null; sku: string | null; unit_label: string | null; active: boolean };
 type TaxCode = { id: string; code: string; name: string; rate: string };
+type Delivery = { id: string; channel: string; status: string; recipient: string; attempted_at: string };
+type BusinessProfileResponse = {
+  organisationName: string;
+  profile: { tradingName: string | null; address: string | null; email: string | null; phone: string | null; abn: string | null };
+};
+
+// Phase C4.3B — client-side loader for the same rasterized Hybrid Orbit
+// icon+wordmark lockup PNG the server-side email path loads via fs
+// (lib/commercial/documentEmail.ts's loadBrandLockupBase64Server()).
+// Mirrors app/commercial/quotes/[id]/page.tsx's own identical loader
+// exactly — duplicated per-page rather than shared across client
+// components, matching that existing precedent. Memoized at module
+// scope so repeated downloads in one session don't re-fetch the asset.
+let cachedBrandLockupBase64: string | null = null;
+async function loadBrandLockupBase64Client(): Promise<string> {
+  if (cachedBrandLockupBase64) return cachedBrandLockupBase64;
+  const res = await fetch('/Brand/brainbase-horizontal-color-284.png');
+  const buf = await res.arrayBuffer();
+  let binary = '';
+  const bytes = new Uint8Array(buf);
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  cachedBrandLockupBase64 = btoa(binary);
+  return cachedBrandLockupBase64;
+}
 
 // Client-side role/admin check, mirroring lib/session.ts's own
 // ROLE_ORDER exactly — that module cannot be imported here directly
@@ -48,12 +73,15 @@ export default function InvoiceDetailPage() {
   const [lines, setLines] = useState<Line[]>([]);
   const [sourceQuoteNumber, setSourceQuoteNumber] = useState<string | null>(null);
   const [overdue, setOverdue] = useState(false);
+  const [deliveries, setDeliveries] = useState<Delivery[]>([]);
+  const [businessProfile, setBusinessProfile] = useState<BusinessProfileResponse | null>(null);
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
   const [taxCodes, setTaxCodes] = useState<TaxCode[]>([]);
   const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
   const [actionError, setActionError] = useState('');
+  const [sendResult, setSendResult] = useState('');
   const [busy, setBusy] = useState(false);
 
   // draft-field edit state
@@ -82,6 +110,7 @@ export default function InvoiceDetailPage() {
     setLines(data.lines);
     setSourceQuoteNumber(data.sourceQuoteNumber ?? null);
     setOverdue(!!data.overdue);
+    setDeliveries(data.deliveries ?? []);
     setDueDate(data.invoice.due_date ?? '');
     setPaymentTermsDays(data.invoice.payment_terms_days != null ? String(data.invoice.payment_terms_days) : '');
     setNotes(data.invoice.notes ?? '');
@@ -92,8 +121,9 @@ export default function InvoiceDetailPage() {
       setIsAdmin(clientRoleGte(me.role, 'admin'));
     }
 
-    const [customersRes, productsRes, taxCodesRes] = await Promise.all([
+    const [customersRes, productsRes, taxCodesRes, businessProfileRes] = await Promise.all([
       fetch('/api/commercial/customers'), fetch('/api/commercial/products'), fetch('/api/commercial/tax-codes'),
+      fetch('/api/commercial/settings/business-profile'),
     ]);
     const customersData = await customersRes.json();
     const productsData = await productsRes.json();
@@ -101,6 +131,7 @@ export default function InvoiceDetailPage() {
     setCustomer((customersData.customers ?? []).find((c: Customer) => c.id === data.invoice.customer_id) ?? null);
     setProducts(productsData.products ?? []);
     setTaxCodes(taxCodesData.taxCodes ?? []);
+    if (businessProfileRes.ok) setBusinessProfile(await businessProfileRes.json());
   }, [id]);
 
   // Mirrors app/commercial/quotes/[id]/page.tsx's identical, pre-existing pattern.
@@ -202,6 +233,53 @@ export default function InvoiceDetailPage() {
     if (res.ok) router.push('/commercial/invoices');
   }
 
+  // Phase C4.3B — builds through the exact same lib/commercial/invoicePdf.ts
+  // buildInvoicePdf() the email attachment uses server-side, fed this
+  // invoice's own persisted snapshot/total fields (never live customer/
+  // product values, never recomputed here) plus the org's CURRENT
+  // business profile (the seller's own letterhead is not a per-invoice
+  // snapshot concern). Available for ISSUED and VOID — never DRAFT,
+  // since a draft has no invoice_number and nothing locked to show.
+  async function downloadPdf() {
+    if (!invoice) return;
+    const brandLockupBase64 = await loadBrandLockupBase64Client();
+    const supplier: InvoicePdfSupplier = {
+      displayName: businessProfile?.profile.tradingName ?? businessProfile?.organisationName ?? 'BRΛINBΛSE',
+      address: businessProfile?.profile.address ?? null,
+      email: businessProfile?.profile.email ?? null,
+      phone: businessProfile?.profile.phone ?? null,
+      abn: businessProfile?.profile.abn ?? null,
+    };
+    const bytes = await buildInvoicePdf({
+      invoice: { ...invoice, source_quote_number: sourceQuoteNumber },
+      lines,
+      supplier,
+      brandLockupBase64,
+    });
+    const blob = new Blob([bytes as BlobPart], { type: 'application/pdf' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${invoice.invoice_number ?? 'invoice-draft'}.pdf`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function sendEmail() {
+    setBusy(true); setActionError(''); setSendResult('');
+    const res = await fetch(`/api/commercial/invoices/${id}/send-email`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ channel: 'EMAIL' }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setBusy(false);
+    if (!res.ok) {
+      setActionError(data.error ?? 'Failed to send invoice email.');
+      return;
+    }
+    setSendResult('Invoice emailed successfully.');
+    load();
+  }
+
   if (loading) return <div style={{ color: '#6b7280', fontSize: 14 }}>Loading…</div>;
   if (!invoice) return <div style={{ color: '#6b7280', fontSize: 14 }}>Invoice not found.</div>;
 
@@ -218,6 +296,12 @@ export default function InvoiceDetailPage() {
           {overdue && <OverdueBadge />}
         </div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          {!isDraft && <button onClick={downloadPdf} disabled={busy} style={btn('#1f2937')}>Download PDF</button>}
+          {isIssued && invoice.email_snapshot && (
+            <button onClick={sendEmail} disabled={busy} style={btn('#1f2937')}>
+              {deliveries.length === 0 ? 'Send Email' : 'Resend Email'}
+            </button>
+          )}
           {isDraft && <button onClick={deleteDraft} disabled={busy} style={btn('rgba(239,68,68,0.15)', '#f87171')}>Delete Draft</button>}
           {isDraft && !confirmingIssue && (
             <button onClick={() => setConfirmingIssue(true)} disabled={busy || !dueDate} style={btn('#1a6aff')}>Issue Invoice</button>
@@ -228,6 +312,7 @@ export default function InvoiceDetailPage() {
         </div>
       </div>
       {actionError && <p style={{ color: '#f87171', fontSize: 13, margin: '0 0 16px' }}>{actionError}</p>}
+      {sendResult && <p style={{ color: '#4ade80', fontSize: 13, margin: '0 0 16px' }}>{sendResult}</p>}
       {isDraft && !dueDate && (
         <p style={{ color: '#fbbf24', fontSize: 13, margin: '0 0 16px' }}>Set a due date before this invoice can be issued.</p>
       )}

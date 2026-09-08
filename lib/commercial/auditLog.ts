@@ -378,6 +378,35 @@ export async function logInvoiceVoided(params: {
   });
 }
 
+// Phase C4.3B — mirrors logQuoteEmailSent() exactly, including its one
+// deliberate deviation from this file's own insertAuditLog() helper:
+// insertAuditLog() swallows write failures internally (try/catch,
+// logged and ignored), but the send-email route needs to KNOW if this
+// specific write failed, so it can surface the
+// "email may have been sent, but BrainBase could not record the send"
+// warning to the caller — exactly like the quote route already does.
+// Raw sql INSERT here, no internal try/catch, so a failure propagates
+// to the caller's own try/catch.
+export async function logInvoiceEmailSent(params: {
+  organisationId: string; userId: string; invoiceId: string;
+  result: 'sent' | 'failed' | 'unknown' | 'not_configured';
+  recipientMasked: string;
+  providerMessageId: string | null;
+}): Promise<void> {
+  await sql`
+    INSERT INTO audit_logs (id, organisation_id, user_id, action, resource_type, resource_id, before_state, after_state)
+    VALUES (
+      ${crypto.randomUUID()}, ${params.organisationId}, ${params.userId}, 'commercial_invoice.sent', 'commercial_invoice', ${params.invoiceId},
+      NULL,
+      ${JSON.stringify({
+        result: params.result,
+        recipient_masked: params.recipientMasked,
+        provider_message_id: params.providerMessageId,
+      })}::jsonb
+    )
+  `;
+}
+
 // Draft-only deletion (lib/commercial/invoices.ts's deleteDraftInvoice()
 // refuses anything but a DRAFT row) — narrow scope, mirrors
 // logQuoteDeleted() exactly.

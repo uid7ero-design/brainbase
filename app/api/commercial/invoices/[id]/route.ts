@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { authorizeCommercialRequest, COMMERCIAL_MIN_ROLE } from '@/lib/commercial/authorize';
 import { getInvoiceWithLines, updateDraftInvoice, deleteDraftInvoice } from '@/lib/commercial/invoices';
 import { getQuote } from '@/lib/commercial/quotes';
+import { listDeliveriesForDocument } from '@/lib/commercial/documentDeliveries';
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -39,7 +40,13 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
     sourceQuoteNumber = quote?.quote_number ?? null;
   }
 
-  return NextResponse.json({ ...bundle, sourceQuoteNumber, overdue: bundle.invoice.overdue });
+  // Phase C4.3B — folded in the same way the quote detail route already
+  // folds in its own delivery history (app/api/commercial/quotes/[id]/route.ts),
+  // so the invoice detail page's existing single load() call gets it for
+  // free rather than a second round trip.
+  const deliveries = await listDeliveriesForDocument({ organisationId: auth.session.organisationId, documentType: 'invoice', documentId: id });
+
+  return NextResponse.json({ ...bundle, sourceQuoteNumber, overdue: bundle.invoice.overdue, deliveries });
 }
 
 // DRAFT-only via domain enforcement (updateDraftInvoice() itself asserts
