@@ -186,7 +186,13 @@ describe('Ticket identity — architecture containment (register route)', () => 
   })
 
   it('the register route imports the shared token generator rather than defining its own', () => {
-    expect(routeSrc).toMatch(/import \{ generateTicketToken \} from '@\/lib\/events\/ticketToken'/)
+    // Booking wallet — this import line also now brings in
+    // generateBookingToken (same file, same underlying primitive; see
+    // lib/events/ticketToken.ts's own comment) for minting
+    // event_orders.booking_token — the assertion below only requires
+    // generateTicketToken to still be among the named imports, not that
+    // it be the ONLY one.
+    expect(routeSrc).toMatch(/import \{[^}]*\bgenerateTicketToken\b[^}]*\} from '@\/lib\/events\/ticketToken'/)
     expect(routeSrc).not.toMatch(/randomBytes/)
   })
 

@@ -159,3 +159,107 @@ describe('maskEmailForAudit', () => {
     expect(maskEmailForAudit(email)).not.toBe(email)
   })
 })
+
+// ─── Booking wallet — "View all tickets" CTA ────────────────────────
+
+describe('buildTicketEmail — booking wallet CTA, single attendee', () => {
+  it('primary CTA remains "View ticket" (no wallet link) for a single-attendee order, even when a bookingToken is supplied', () => {
+    const email = buildTicketEmail({
+      eventName: 'Spring Gala', purchaserName: 'Jane Doe',
+      attendees: [{ name: 'Jane Doe', ticketToken: 'a'.repeat(64) }],
+      bookingToken: 'b'.repeat(64),
+    })
+    expect(email.html).not.toContain('View all tickets')
+    expect(email.html).not.toContain('/b/')
+    expect(email.html).toContain('View ticket')
+  })
+})
+
+describe('buildTicketEmail — booking wallet CTA, multiple attendees with a booking token', () => {
+  const email = buildTicketEmail({
+    eventName: 'Spring Gala', purchaserName: 'Jane Doe',
+    attendees: [
+      { name: 'Jane Doe', ticketToken: 'a'.repeat(64) },
+      { name: 'Bob Smith', ticketToken: 'b'.repeat(64) },
+    ],
+    bookingToken: 'c'.repeat(64),
+  })
+
+  it('primary CTA is "View all tickets" pointing at /b/<bookingToken>/tickets', () => {
+    expect(email.html).toContain('View all tickets')
+    expect(email.html).toContain(`https://www.thebrainbase.com.au/b/${'c'.repeat(64)}/tickets`)
+  })
+
+  it('individual attendee ticket links are still present beneath the wallet CTA — unchanged count/shape', () => {
+    expect(email.html).toContain(`https://www.thebrainbase.com.au/t/${'a'.repeat(64)}`)
+    expect(email.html).toContain(`https://www.thebrainbase.com.au/t/${'b'.repeat(64)}`)
+    const individualMatches = email.html.match(/\/t\/[a-f0-9]{64}/g) ?? []
+    expect(individualMatches).toHaveLength(2)
+  })
+
+  it('the wallet CTA link never appears inside the individual-ticket table rows — it is its own separate element', () => {
+    const ctaIndex = email.html.indexOf('View all tickets')
+    // The individual-ticket rows table specifically (emailLayout()'s
+    // own outer layout table, if any, is a separate concern — this
+    // locates the exact table buildTicketEmail() itself renders the
+    // per-attendee rows into).
+    const ticketTableIndex = email.html.indexOf("width:100%;border-collapse:collapse;margin:0 0 8px")
+    expect(ctaIndex).toBeGreaterThan(-1)
+    expect(ticketTableIndex).toBeGreaterThan(-1)
+    expect(ctaIndex).toBeLessThan(ticketTableIndex)
+  })
+})
+
+describe('buildTicketEmail — booking wallet CTA, multiple attendees WITHOUT a booking token (historical order)', () => {
+  it('degrades safely to individual-links-only — no broken/empty wallet link is ever emitted', () => {
+    const email = buildTicketEmail({
+      eventName: 'Spring Gala', purchaserName: 'Jane Doe',
+      attendees: [
+        { name: 'Jane Doe', ticketToken: 'a'.repeat(64) },
+        { name: 'Bob Smith', ticketToken: 'b'.repeat(64) },
+      ],
+      bookingToken: null,
+    })
+    expect(email.html).not.toContain('View all tickets')
+    expect(email.html).not.toContain('/b/')
+    expect(email.html).toContain(`https://www.thebrainbase.com.au/t/${'a'.repeat(64)}`)
+    expect(email.html).toContain(`https://www.thebrainbase.com.au/t/${'b'.repeat(64)}`)
+  })
+
+  it('same safe degradation when bookingToken is simply omitted (undefined)', () => {
+    const email = buildTicketEmail({
+      eventName: 'Spring Gala', purchaserName: 'Jane Doe',
+      attendees: [
+        { name: 'Jane Doe', ticketToken: 'a'.repeat(64) },
+        { name: 'Bob Smith', ticketToken: 'b'.repeat(64) },
+      ],
+    })
+    expect(email.html).not.toContain('View all tickets')
+  })
+})
+
+describe('Booking wallet URL builder — not co-located with QR-adjacent buildTicketUrl', () => {
+  it('lib/events/ticketEmail.ts defines its own buildBookingWalletUrl rather than importing one from lib/events/qr.ts', () => {
+    const code = stripComments(read('lib/events/ticketEmail.ts'))
+    expect(code).toMatch(/function buildBookingWalletUrl/)
+    expect(code).toMatch(/\/b\/\$\{bookingToken\}\/tickets/)
+  })
+
+  it('lib/events/qr.ts is never modified to know about booking tokens — QR payload construction is untouched', () => {
+    const qrCode = stripComments(read('lib/events/qr.ts'))
+    expect(qrCode).not.toMatch(/booking/i)
+  })
+})
+
+describe('Resend route — reads booking_token, never mints one', () => {
+  const routeCode = stripComments(read('app/api/events/[id]/orders/[orderId]/resend-ticket-email/route.ts'))
+
+  it('selects eo.booking_token in its order query', () => {
+    expect(routeCode).toMatch(/eo\.booking_token/)
+  })
+
+  it('passes booking_token straight through to sendTicketEmail without calling generateBookingToken', () => {
+    expect(routeCode).toMatch(/bookingToken:\s*order\.booking_token/)
+    expect(routeCode).not.toMatch(/generateBookingToken/)
+  })
+})

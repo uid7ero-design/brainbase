@@ -1,10 +1,11 @@
 import 'server-only';
 import sql from '@/lib/db';
+import { evaluateTicketValidity, toPublicTicketStatus, type PublicTicketStatus } from './ticketValidity';
 
 export type PublicTicketDetail = {
   attendee_name: string;
   checked_in_at: string | null;
-  status: 'VALID' | 'CANCELLED';
+  status: PublicTicketStatus;
   event: {
     name: string;
     venue: string | null;
@@ -35,24 +36,30 @@ export type PublicTicketResult =
 // collapse to the same { ok: false } — a caller can never distinguish
 // "wrong token" from "token exists, wrong tenant".
 //
-// Phase 4 payment gating needs no change here: ticket_token is only
-// ever set by lib/events/stripe.ts's issueTicketTokensForPaidOrder(),
-// which only runs once a Checkout Session's own payment_status is
-// genuinely 'paid' (see that file's handleCheckoutSessionCompleted
-// comment) — a PENDING/FAILED/EXPIRED paid order therefore never has a
-// row this query can find at all, and a REFUNDED order's existing
-// token still resolves but correctly reports CANCELLED below, since a
-// refund also sets the owning order's `status` to CANCELLED (§23's
-// explicit "refund also cancels tickets" choice — see the refund
-// route's own comment).
+// Payment gating: ticket_token is only ever set by
+// lib/events/stripe.ts's issueTicketTokensForPaidOrder(), which only
+// runs once a Checkout Session's own payment_status is genuinely 'paid'
+// (see that file's handleCheckoutSessionCompleted comment) — a
+// PENDING/FAILED/EXPIRED paid order therefore never has a row this
+// query can find at all in practice. payment_status is still selected
+// and re-checked below (evaluateTicketValidity) as defence in depth,
+// not as the only thing standing between an unpaid order and a
+// resolvable token.
+//
+// Event-cancellation gating: e.status is selected and fed through the
+// same evaluateTicketValidity() the booking wallet
+// (lib/events/publicBooking.ts) and staff check-in
+// (lib/events/checkIn.ts) both use — a cancelled EVENT (as opposed to a
+// cancelled order) now also renders as invalid here, closing a gap
+// that previously existed: only order-level cancellation was checked.
 export async function getPublicTicketDetail(ticketToken: string): Promise<PublicTicketResult> {
   if (!ticketToken || typeof ticketToken !== 'string') return { ok: false };
 
   const rows = await sql`
     SELECT
       ea.attendee_name, ea.checked_in_at,
-      eo.status AS order_status,
-      e.name AS event_name, e.venue, e.artwork_url, e.starts_at, e.ends_at, e.timezone,
+      eo.status AS order_status, eo.payment_status,
+      e.status AS event_status, e.name AS event_name, e.venue, e.artwork_url, e.starts_at, e.ends_at, e.timezone,
       tt.name AS ticket_type_name,
       es.name AS session_name, es.starts_at AS session_starts_at, es.ends_at AS session_ends_at
     FROM event_attendees ea
@@ -65,20 +72,22 @@ export async function getPublicTicketDetail(ticketToken: string): Promise<Public
     LIMIT 1
   `;
   const row = rows[0] as {
-    attendee_name: string; checked_in_at: Date | string | null; order_status: string;
-    event_name: string; venue: string | null; artwork_url: string | null;
+    attendee_name: string; checked_in_at: Date | string | null; order_status: string; payment_status: string;
+    event_status: string; event_name: string; venue: string | null; artwork_url: string | null;
     starts_at: Date | string; ends_at: Date | string; timezone: string;
     ticket_type_name: string | null;
     session_name: string | null; session_starts_at: Date | string | null; session_ends_at: Date | string | null;
   } | undefined;
   if (!row) return { ok: false };
 
+  const validity = evaluateTicketValidity({ eventStatus: row.event_status, orderStatus: row.order_status, paymentStatus: row.payment_status });
+
   return {
     ok: true,
     detail: {
       attendee_name: row.attendee_name,
       checked_in_at: row.checked_in_at ? new Date(row.checked_in_at).toISOString() : null,
-      status: row.order_status === 'CANCELLED' ? 'CANCELLED' : 'VALID',
+      status: toPublicTicketStatus(validity),
       event: {
         name: row.event_name,
         venue: row.venue,

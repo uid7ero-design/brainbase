@@ -36,6 +36,12 @@ const clientSource = read('app/e/[organisationSlug]/[eventSlug]/PublicEventClien
 const hubSource = read('app/e/[organisationSlug]/PublicEventsHubClient.tsx')
 const managerSource = read('app/events/[id]/EventDetailClient.tsx')
 const ticketSource = read('app/t/[token]/page.tsx')
+// Booking-wallet pass extracted the ticket card's own markup (artwork
+// block included) out of app/t/[token]/page.tsx into a shared
+// components/events/TicketCard.tsx, reused by both /t/[token] and the
+// new /b/[bookingToken]/tickets wallet — see that file's own header
+// comment. The artwork-specific assertions below moved with it.
+const ticketCardSource = read('components/events/TicketCard.tsx')
 
 describe('Public event detail — primary artwork no longer forces a landscape-shaped crop', () => {
   it('the old fixed max-height rule (560px/460px) is gone', () => {
@@ -169,31 +175,31 @@ describe('Listing/thumbnail artwork is deliberately unchanged — this fix is sc
 
 describe('Public ticket page artwork — no longer forces a cover crop (Production mobile fix)', () => {
   it('the old fixed maxHeight:220 + object-fit:cover pairing is gone', () => {
-    const start = ticketSource.indexOf('event.artwork_url && (')
+    const start = ticketCardSource.indexOf('props.eventArtworkUrl && (')
     expect(start).toBeGreaterThan(-1)
-    const end = ticketSource.indexOf(')}', start)
-    const block = ticketSource.slice(start, end)
+    const end = ticketCardSource.indexOf(')}', start)
+    const block = ticketCardSource.slice(start, end)
     expect(block).not.toContain("objectFit: 'cover'")
   })
 
   it('the image itself uses object-fit: contain — the whole artwork is always visible, never cropped', () => {
-    const start = ticketSource.indexOf('event.artwork_url && (')
-    const end = ticketSource.indexOf(')}', start)
-    const block = ticketSource.slice(start, end)
+    const start = ticketCardSource.indexOf('props.eventArtworkUrl && (')
+    const end = ticketCardSource.indexOf(')}', start)
+    const block = ticketCardSource.slice(start, end)
     expect(block).toContain("objectFit: 'contain'")
   })
 
   it('never stretches the artwork — no non-uniform width/height forcing (object-fit: fill is never used)', () => {
-    const start = ticketSource.indexOf('event.artwork_url && (')
-    const end = ticketSource.indexOf(')}', start)
-    const block = ticketSource.slice(start, end)
+    const start = ticketCardSource.indexOf('props.eventArtworkUrl && (')
+    const end = ticketCardSource.indexOf(')}', start)
+    const block = ticketCardSource.slice(start, end)
     expect(block).not.toContain("objectFit: 'fill'")
   })
 
   it('a bounded, mobile-sensible max-height still caps how tall a portrait poster can render (compact, not full-page)', () => {
-    const start = ticketSource.indexOf('event.artwork_url && (')
-    const end = ticketSource.indexOf(')}', start)
-    const block = ticketSource.slice(start, end)
+    const start = ticketCardSource.indexOf('props.eventArtworkUrl && (')
+    const end = ticketCardSource.indexOf(')}', start)
+    const block = ticketCardSource.slice(start, end)
     const maxHeights = block.match(/maxHeight:\s*(\d+)/g) ?? []
     expect(maxHeights.length).toBeGreaterThan(0)
     for (const m of maxHeights) {
@@ -204,37 +210,37 @@ describe('Public ticket page artwork — no longer forces a cover crop (Producti
   })
 
   it('the artwork is centered within its frame — a flex-centered wrapper, so a narrower (portrait/pillarboxed) render is never left/top-aligned', () => {
-    const start = ticketSource.indexOf('event.artwork_url && (')
-    const end = ticketSource.indexOf(')}', start)
-    const block = ticketSource.slice(start, end)
+    const start = ticketCardSource.indexOf('props.eventArtworkUrl && (')
+    const end = ticketCardSource.indexOf(')}', start)
+    const block = ticketCardSource.slice(start, end)
     expect(block).toContain("display: 'flex'")
     expect(block).toContain("alignItems: 'center'")
     expect(block).toContain("justifyContent: 'center'")
   })
 
   it('exactly one sizing rule handles every orientation — no portrait/landscape/square branching, matching the sibling public-detail-page fix\'s own convention', () => {
-    const occurrences = ticketSource.match(/objectFit:\s*'contain'/g) ?? []
+    const occurrences = ticketCardSource.match(/objectFit:\s*'contain'/g) ?? []
     expect(occurrences.length).toBe(1)
-    expect(ticketSource).not.toMatch(/naturalWidth|naturalHeight|orientation/i)
+    expect(ticketCardSource).not.toMatch(/naturalWidth|naturalHeight|orientation/i)
   })
 
   it('rounded corners are preserved via the existing outer card\'s overflow:hidden + borderRadius:18 — not duplicated on the new inner wrapper', () => {
-    const cardStart = ticketSource.indexOf("border: `1px solid")
-    const cardEnd = ticketSource.indexOf('\n\n', cardStart)
-    const cardOpenTag = ticketSource.slice(cardStart, ticketSource.indexOf('}}', cardStart) + 2)
+    const cardStart = ticketCardSource.indexOf("border: `1px solid")
+    const cardEnd = ticketCardSource.indexOf('\n\n', cardStart)
+    const cardOpenTag = ticketCardSource.slice(cardStart, ticketCardSource.indexOf('}}', cardStart) + 2)
     expect(cardOpenTag).toContain("overflow: 'hidden'")
     expect(cardOpenTag).toContain('borderRadius: 18')
     void cardEnd
   })
 
-  it('no-artwork fallback is unchanged — still gated on event.artwork_url, rendering nothing when absent', () => {
-    expect(ticketSource).toContain('event.artwork_url && (')
+  it('no-artwork fallback is unchanged — still gated on eventArtworkUrl, rendering nothing when absent', () => {
+    expect(ticketCardSource).toContain('props.eventArtworkUrl && (')
   })
 
   it('still a plain <img>, not next/image — consistent with the sibling public-detail-page decision (arbitrary external host, no remote-pattern allow-list)', () => {
-    const start = ticketSource.indexOf('event.artwork_url && (')
-    const end = ticketSource.indexOf(')}', start)
-    const block = ticketSource.slice(start, end)
+    const start = ticketCardSource.indexOf('props.eventArtworkUrl && (')
+    const end = ticketCardSource.indexOf(')}', start)
+    const block = ticketCardSource.slice(start, end)
     expect(block).toContain('<img')
     expect(block).not.toMatch(/next\/image/)
   })

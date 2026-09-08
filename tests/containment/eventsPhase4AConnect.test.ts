@@ -291,7 +291,11 @@ describe('Webhook handlers — connected-account reconciliation', () => {
       data: { object: { id: 'cs_1', payment_status: 'paid', payment_intent: 'pi_1', metadata: { event_order_id: 'order-1' } } },
     } as never
     await processStripeWebhookEvent(event)
-    expect(sqlMock).toHaveBeenCalledTimes(3) // order-flip UPDATE (account-guarded), attendee lookup, token issuance
+    // order-flip UPDATE (account-guarded), attendee lookup, ticket-token
+    // issuance, booking-token issuance (booking wallet — see
+    // lib/events/stripe.ts's issueBookingTokenForPaidOrder, called
+    // unconditionally right after issueTicketTokensForPaidOrder).
+    expect(sqlMock).toHaveBeenCalledTimes(4)
   })
 
   it('a platform-level event with no event.account at all can never match a real (always-Connect-attributed) paid order', () => {

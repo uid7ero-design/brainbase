@@ -30,10 +30,40 @@ export type TicketEmailData = {
   eventName: string;
   purchaserName: string;
   attendees: TicketEmailAttendee[];
+  // Booking wallet — the order's event_orders.booking_token, READ only
+  // (never generated here or by any caller of buildTicketEmail/
+  // sendTicketEmail — see the resend route's own comment). Optional and
+  // independently nullable from `attendees`: a historical multi-
+  // attendee order that predates this feature and has not yet been
+  // backfilled legitimately has no booking_token at all, and this
+  // function must degrade safely rather than emit a broken link — see
+  // buildBookingWalletUrl's only call site below.
+  bookingToken?: string | null;
 };
+
+// Booking-wallet link shape (/b/<bookingToken>/tickets) — deliberately
+// NOT in lib/events/qr.ts alongside buildTicketUrl: that module's own
+// tests assert its QR payload is built from the ticket URL ONLY (see
+// lib/events/qr.ts's own comment and its containment test "encodes only
+// the ticket URL, no PII") — a booking-wallet link must never be
+// QR-encoded (see this feature's own §K "QR semantics" invariant), so
+// keeping its URL-building helper out of the QR-adjacent module is a
+// small, deliberate boundary, not an oversight.
+function buildBookingWalletUrl(origin: string, bookingToken: string): string {
+  return `${origin}/b/${bookingToken}/tickets`;
+}
 
 export function buildTicketEmail(data: TicketEmailData): { subject: string; html: string } {
   const multiple = data.attendees.length > 1;
+  // Primary "View all tickets" CTA only for a genuinely multi-attendee
+  // order that actually has a booking_token — a single-attendee order
+  // is never routed through the wallet at all (no benefit, one extra
+  // tap for zero benefit), and a multi-attendee order missing a
+  // booking_token (a historical order that hasn't been backfilled)
+  // degrades safely to exactly today's individual-links-only email
+  // rather than emitting a broken/empty CTA link.
+  const showWalletCta = multiple && !!data.bookingToken;
+  const walletUrl = showWalletCta ? buildBookingWalletUrl(BASE_URL, data.bookingToken as string) : null;
 
   const ticketRows = data.attendees.map(a => {
     // Ticket URL shape /t/<existing-token>, built via the same
@@ -62,11 +92,17 @@ export function buildTicketEmail(data: TicketEmailData): { subject: string; html
         Here ${multiple ? 'are your tickets' : 'is your ticket'} for <strong>${escHtml(data.eventName)}</strong>.
         Tap the link below to view ${multiple ? 'each ticket' : 'your ticket'} — it's what you'll show at the door.
       </p>
+      ${walletUrl ? `
+      <p style="margin:0 0 20px">
+        <a href="${walletUrl}" style="${btnStyle};padding:12px 26px;font-size:14px">View all tickets</a>
+      </p>
+      <p style="margin:0 0 8px;font-size:12px;font-weight:600;color:#888;text-transform:uppercase;letter-spacing:.04em">Individual tickets</p>
+      ` : ''}
       <table cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;margin:0 0 8px">
         ${ticketRows}
       </table>
       <p style="margin:28px 0 0;font-size:12px;color:#888;line-height:1.5">
-        Keep this email — you can use it to find your ticket link again at any time.
+        Keep this email — you can use it to find your ticket link${multiple ? 's' : ''} again at any time.
       </p>
     `),
   };
