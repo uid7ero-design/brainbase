@@ -74,7 +74,7 @@ describe('Phase C4.2 §12 — new standalone invoice never fabricates a number b
   })
 })
 
-describe('Phase C4.2 §14 — invoice detail page: truthful draft copy, no fabricated number, no PDF/email/payment placeholders', () => {
+describe('Phase C4.2 §14 / C4.3B — invoice detail page: truthful draft copy, no fabricated number, PDF/email now live, payment still deferred', () => {
   const source = readSource('app/commercial/invoices/[id]/page.tsx')
 
   it('shows truthful "number pending" copy for a draft, never a fabricated INV-###### value', () => {
@@ -82,8 +82,16 @@ describe('Phase C4.2 §14 — invoice detail page: truthful draft copy, no fabri
     expect(source).not.toMatch(/INV-\d{6}/)
   })
 
-  it('contains no PDF download, email send, or payment placeholder controls — C4.3/future phases only', () => {
-    for (const forbidden of [/Download PDF/i, /Send Invoice/i, /Send Email/i, /Email Invoice/i, /Pay Now/i, /Mark Paid/i, /Coming soon/i]) {
+  // Phase C4.3B — PDF download and email send are now genuinely
+  // implemented (this was the explicit boundary the C4.2-era version of
+  // this test itself named: "C4.3/future phases only"). Payment
+  // controls remain out of scope and are still explicitly forbidden
+  // below.
+  it('Download PDF and Send/Resend Email controls are present (C4.3B), but no payment/SMS placeholder controls exist', () => {
+    expect(source).toMatch(/Download PDF/)
+    expect(source).toMatch(/Send Email/)
+    expect(source).toMatch(/Resend Email/)
+    for (const forbidden of [/Pay Now/i, /Mark Paid/i, /Coming soon/i, /Send SMS/i, /SMS Invoice/i]) {
       expect(source).not.toMatch(forbidden)
     }
   })
