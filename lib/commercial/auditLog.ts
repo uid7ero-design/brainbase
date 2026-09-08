@@ -303,3 +303,87 @@ export async function logQuoteDeleted(params: { organisationId: string; userId: 
     resourceType: 'commercial_quote', resourceId: params.quoteId, beforeState: { status: 'DRAFT' }, afterState: null,
   });
 }
+
+// ── Invoices (Phase C4.1) ─────────────────────────────────────────────
+//
+// Same discipline as the Quotes block above: issued/voided are genuine
+// status-change events on a commercial document per ADR-0003 §2, and
+// every one of these is still a best-effort, non-transactional write —
+// createDraftInvoice()/createInvoiceFromQuote()/issueInvoice()/
+// voidInvoice() (lib/commercial/invoices.ts) each already gate on
+// authorization before the state-changing write runs (once a route layer
+// exists in C4.2 — this phase's invoices.ts functions are called directly
+// by tests, with no route wired up yet), so a dropped audit write
+// afterward cannot retroactively make the action ambiguous.
+//
+// Never logs a full customer record, full email/phone, secrets, or
+// provider data — only operational metadata (ids, amounts, statuses),
+// matching every existing logQuote*() function's own payload boundary.
+
+export async function logInvoiceCreated(params: {
+  organisationId: string; userId: string; invoiceId: string; after: { customer_id: string; currency: string };
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'commercial_invoice.created',
+    resourceType: 'commercial_invoice', resourceId: params.invoiceId, beforeState: null, afterState: params.after,
+  });
+}
+
+// Distinct action name from logInvoiceCreated() — "created from a quote"
+// is a materially different event (carries lineage) from an ordinary
+// standalone creation, and a future audit-log query filtering on
+// resource_type = 'commercial_invoice' should be able to tell the two
+// apart without parsing after_state.
+export async function logInvoiceCreatedFromQuote(params: {
+  organisationId: string; userId: string; invoiceId: string; sourceQuoteId: string;
+  after: { customer_id: string; currency: string; total_cents: number };
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'commercial_invoice.created_from_quote',
+    resourceType: 'commercial_invoice', resourceId: params.invoiceId,
+    beforeState: { source_quote_id: params.sourceQuoteId }, afterState: params.after,
+  });
+}
+
+export async function logInvoiceUpdated(params: {
+  organisationId: string; userId: string; invoiceId: string;
+  before: Record<string, unknown>; after: Record<string, unknown>;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'commercial_invoice.updated',
+    resourceType: 'commercial_invoice', resourceId: params.invoiceId, beforeState: params.before, afterState: params.after,
+  });
+}
+
+export async function logInvoiceIssued(params: {
+  organisationId: string; userId: string; invoiceId: string; invoiceNumber: string; totalCents: number;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'commercial_invoice.issued',
+    resourceType: 'commercial_invoice', resourceId: params.invoiceId,
+    beforeState: { status: 'DRAFT' }, afterState: { status: 'ISSUED', invoice_number: params.invoiceNumber, total_cents: params.totalCents },
+  });
+}
+
+// after_state carries the trimmed void_reason — operational context for
+// why the document was voided, never customer PII, matching this file's
+// existing payload-boundary discipline throughout.
+export async function logInvoiceVoided(params: {
+  organisationId: string; userId: string; invoiceId: string; voidReason: string;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'commercial_invoice.voided',
+    resourceType: 'commercial_invoice', resourceId: params.invoiceId,
+    beforeState: { status: 'ISSUED' }, afterState: { status: 'VOID', void_reason: params.voidReason },
+  });
+}
+
+// Draft-only deletion (lib/commercial/invoices.ts's deleteDraftInvoice()
+// refuses anything but a DRAFT row) — narrow scope, mirrors
+// logQuoteDeleted() exactly.
+export async function logInvoiceDeleted(params: { organisationId: string; userId: string; invoiceId: string }): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'commercial_invoice.deleted',
+    resourceType: 'commercial_invoice', resourceId: params.invoiceId, beforeState: { status: 'DRAFT' }, afterState: null,
+  });
+}
