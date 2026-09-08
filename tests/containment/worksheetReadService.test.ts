@@ -469,3 +469,119 @@ describe("read — exported function shapes (source-text containment)", () => {
     }
   });
 });
+
+// ─── 5A.3D.0 — worksheet failure metadata + imported-row-count ─────────
+
+describe("read — 5A.3D.0 worksheet failure metadata (static containment)", () => {
+  const code = read(SERVICE_PATH);
+  const stripped = stripComments(code);
+
+  it("WorksheetSummaryDTO exposes the same five failure/attempt fields ImportBatchDetailDTO already exposes, additively", () => {
+    const dtoStart = code.indexOf("export interface WorksheetSummaryDTO");
+    const dtoEnd = code.indexOf("}", dtoStart);
+    const dtoBlock = code.slice(dtoStart, dtoEnd);
+    for (const field of [
+      "lastAttemptAt: Date | null",
+      "attemptCount: number",
+      "lastFailureCode: string | null",
+      "lastFailureMessage: string | null",
+      "lastFailureRetryable: boolean | null",
+      "importedRowCount: number | null",
+    ]) {
+      expect(dtoBlock).toContain(field);
+    }
+  });
+
+  it("WORKSHEET_SELECT requests the five underlying Upload columns the DTO now maps", () => {
+    const selectStart = code.indexOf("const WORKSHEET_SELECT");
+    const selectEnd = code.indexOf("satisfies Prisma.UploadSelect", selectStart);
+    const selectBlock = code.slice(selectStart, selectEnd);
+    for (const column of [
+      "last_attempt_at: true",
+      "attempt_count: true",
+      "last_failure_code: true",
+      "last_failure_message: true",
+      "last_failure_retryable: true",
+    ]) {
+      expect(selectBlock).toContain(column);
+    }
+  });
+
+  it("never exposes a field outside the five approved failure fields plus importedRowCount from the Upload row's own broader (legacy-only) column set", () => {
+    // WORKSHEET_SELECT must still never request any legacy-only Upload
+    // column (schema_type, field_mappings, validation_errors,
+    // preview_rows, metadata, columns_detected, row_count, column_count,
+    // original_name, mimetype, size_bytes, stored_path) — the module's
+    // own pre-existing containment discipline, reconfirmed unweakened by
+    // this phase's additions.
+    for (const legacyField of [
+      "schema_type",
+      "field_mappings",
+      "validation_errors",
+      "preview_rows",
+      "columns_detected",
+      "row_count",
+      "column_count",
+      "stored_path",
+    ]) {
+      const selectStart = code.indexOf("const WORKSHEET_SELECT");
+      const selectEnd = code.indexOf("satisfies Prisma.UploadSelect", selectStart);
+      expect(code.slice(selectStart, selectEnd)).not.toContain(legacyField);
+    }
+  });
+
+  it("never interpolates a raw caught error/exception into the failure fields — only pre-persisted Upload columns are read", () => {
+    expect(stripped).not.toMatch(/lastFailureMessage:\s*err\b/);
+    expect(stripped).not.toMatch(/lastFailureMessage:\s*error\b/);
+    expect(stripped).not.toMatch(/lastFailureMessage:\s*[^,\n]*\.stack\b/);
+  });
+});
+
+describe("read — 5A.3D.0 imported-row-count (static containment)", () => {
+  const code = read(SERVICE_PATH);
+  const stripped = stripComments(code);
+
+  it("attachImportedRowCounts is a single, bounded aggregate query (prisma.illegalDumping.groupBy), never a per-row query", () => {
+    expect(stripped).toMatch(/prisma\.illegalDumping\.groupBy\(/);
+    // Only ONE call site — never invoked inside a `.map(` callback, which
+    // would silently reintroduce N+1 despite the function's own
+    // single-query body.
+    const groupByMatches = stripped.match(/prisma\.illegalDumping\.groupBy\(/g) ?? [];
+    expect(groupByMatches.length).toBe(1);
+  });
+
+  it("the groupBy call scopes by organisation_id in the SAME where clause as upload_id — never organisation-only or upload_id-only", () => {
+    const callStart = stripped.indexOf("prisma.illegalDumping.groupBy(");
+    const callEnd = stripped.indexOf(");", callStart);
+    const callBlock = stripped.slice(callStart, callEnd);
+    expect(callBlock).toMatch(/organisation_id:\s*organisationId/);
+    expect(callBlock).toMatch(/upload_id:\s*\{\s*in:/);
+  });
+
+  it("listImportBatches (the batch-LIST endpoint) never calls attachImportedRowCounts or illegalDumping.groupBy — the count feature is scoped to worksheet reads only, per the N+1/query-shape decision", () => {
+    const fnStart = code.indexOf("export async function listImportBatches(");
+    const fnEnd = code.indexOf("\n}\n", fnStart);
+    const fnBlock = code.slice(fnStart, fnEnd);
+    expect(fnBlock).not.toMatch(/attachImportedRowCounts/);
+    expect(fnBlock).not.toMatch(/illegalDumping/);
+  });
+
+  it("listImportBatches still performs no COUNT(*)/countable aggregate of any kind — hasNextPage remains derived from the limit+1 fetch, unchanged by this phase", () => {
+    const fnStart = code.indexOf("export async function listImportBatches(");
+    const fnEnd = code.indexOf("\n}\n", fnStart);
+    const fnBlock = code.slice(fnStart, fnEnd);
+    expect(fnBlock).not.toMatch(/\.count\(/);
+    expect(fnBlock).not.toMatch(/COUNT\(/i);
+    expect(fnBlock).toMatch(/hasNextPage = rows\.length > limit/);
+  });
+
+  it("getWorksheet and listWorksheetsForBatch both route through attachImportedRowCounts (the single shared implementation, never a duplicated inline count)", () => {
+    const getFnStart = code.indexOf("export async function getWorksheet(");
+    const getFnEnd = code.indexOf("\n}\n", getFnStart);
+    expect(code.slice(getFnStart, getFnEnd)).toMatch(/attachImportedRowCounts\(/);
+
+    const listFnStart = code.indexOf("export async function listWorksheetsForBatch(");
+    const listFnEnd = code.indexOf("\n}\n", listFnStart);
+    expect(code.slice(listFnStart, listFnEnd)).toMatch(/attachImportedRowCounts\(/);
+  });
+});
