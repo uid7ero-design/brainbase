@@ -299,10 +299,16 @@ describe('POST /api/organisations/branding/logo (upload)', () => {
   })
 
   it('never trusts the caller\'s filename for the stored pathname — always a generated name', async () => {
+    // A path-traversal-shaped filename. An earlier version of this
+    // fixture used a classic Unix example path here and tripped
+    // GitGuardian's generic secret-pattern scanner as a false
+    // positive (it flags certain common filename keywords, not an
+    // actual credential) — this string tests the identical
+    // traversal-sanitization behavior without that keyword.
     queue([{ name: 'Acme', settings: {} }])
-    await logoRoute.POST(uploadReq(fakeFile(PNG_SIGNATURE, '../../etc/passwd.png', 'image/png')) as never)
+    await logoRoute.POST(uploadReq(fakeFile(PNG_SIGNATURE, '../../outside-dir/image.png', 'image/png')) as never)
     const pathname = putMock.mock.calls[0][0] as string
-    expect(pathname).not.toContain('etc/passwd')
+    expect(pathname).not.toContain('outside-dir')
     expect(pathname).not.toContain('..')
   })
 
