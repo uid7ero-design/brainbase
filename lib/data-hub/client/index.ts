@@ -6,6 +6,7 @@
 export {
   DataHubIllegalDumpingImportSession,
   createIllegalDumpingImportSession,
+  listImportBatches,
   resolveUploadPathname,
 } from "./orchestrator";
 export type {
@@ -30,4 +31,4 @@ export {
   inspectCsvWorksheet,
   listWorksheetsForBatch,
 } from "./httpClient";
-export type { HttpClientConfig, CallOptions, InitiateCallInput } from "./httpClient";
+export type { HttpClientConfig, CallOptions, InitiateCallInput, ListImportBatchesParams } from "./httpClient";
