@@ -32,11 +32,19 @@ export async function POST(_req: Request, { params }: Ctx) {
   if (!eventRows.length) return NextResponse.json({ error: 'Not found.' }, { status: 404 });
 
   // Single fresh read of everything eligibility + the email itself
-  // need: order state, purchaser email, event name, and every
-  // attendee's name + EXISTING ticket_token (never generated here).
+  // need: order state, purchaser email, event name, every attendee's
+  // name + EXISTING ticket_token (never generated here), and the
+  // order's booking_token — also READ ONLY here. Booking wallet: this
+  // route must never mint a booking_token itself (see
+  // lib/events/stripe.ts's issueBookingTokenForPaidOrder and the free-
+  // registration route for the only two places that do) — an eligible
+  // historical order that predates this feature and has not been
+  // backfilled simply has booking_token = NULL here, and
+  // buildTicketEmail() already degrades safely to individual-links-only
+  // in that case (see that function's own comment).
   const orderRows = await sql`
     SELECT
-      eo.id, eo.status, eo.payment_status, eo.purchaser_name, eo.purchaser_email,
+      eo.id, eo.status, eo.payment_status, eo.purchaser_name, eo.purchaser_email, eo.booking_token,
       e.name AS event_name,
       COALESCE(
         json_agg(json_build_object('name', ea.attendee_name, 'ticket_token', ea.ticket_token)) FILTER (WHERE ea.id IS NOT NULL),
@@ -51,7 +59,7 @@ export async function POST(_req: Request, { params }: Ctx) {
     LIMIT 1
   `;
   const order = orderRows[0] as {
-    id: string; status: string; payment_status: string; purchaser_name: string; purchaser_email: string | null;
+    id: string; status: string; payment_status: string; purchaser_name: string; purchaser_email: string | null; booking_token: string | null;
     event_name: string; attendees: { name: string; ticket_token: string | null }[];
   } | undefined;
   if (!order) return NextResponse.json({ error: 'Not found.' }, { status: 404 });
@@ -96,6 +104,7 @@ export async function POST(_req: Request, { params }: Ctx) {
     eventName: order.event_name,
     purchaserName: order.purchaser_name,
     attendees: eligibleAttendees.map(a => ({ name: a.name, ticketToken: a.ticket_token })),
+    bookingToken: order.booking_token,
   });
 
   // Pre-push hardening — RESEND_API_KEY is absent (typical in Preview

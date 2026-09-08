@@ -359,7 +359,7 @@ describe('processStripeWebhookEvent — idempotent state transitions', () => {
     expect(sqlMock).not.toHaveBeenCalled()
   })
 
-  it('checkout.session.completed with payment_status "paid" flips the order AND issues tokens (two calls)', async () => {
+  it('checkout.session.completed with payment_status "paid" flips the order, issues attendee tokens, AND issues a booking token', async () => {
     vi.resetModules()
     const { processStripeWebhookEvent } = await import('@/lib/events/stripe')
     queue([{ id: 'order-1' }], [{ id: 'att-1' }])
@@ -368,7 +368,11 @@ describe('processStripeWebhookEvent — idempotent state transitions', () => {
       data: { object: { id: 'cs_1', payment_status: 'paid', payment_intent: 'pi_1', metadata: { event_order_id: 'order-1' } } },
     } as never
     await processStripeWebhookEvent(event)
-    expect(sqlMock).toHaveBeenCalledTimes(3) // order-flip UPDATE, attendee-lookup SELECT, token UPDATE
+    // order-flip UPDATE, attendee-lookup SELECT, ticket-token UPDATE,
+    // booking-token UPDATE (booking wallet — see
+    // issueBookingTokenForPaidOrder, called unconditionally right after
+    // issueTicketTokensForPaidOrder).
+    expect(sqlMock).toHaveBeenCalledTimes(4)
   })
 
   it('a duplicate delivery of the same event (order already PAID) makes the order-flip UPDATE a no-op, and token issuance finds nothing to issue', async () => {

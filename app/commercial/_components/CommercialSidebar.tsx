@@ -5,14 +5,21 @@ import { APP_HEADER_OFFSET_VAR, APP_HEADER_OFFSET_VH_CALC } from '@/lib/layout/h
 
 const BORDER = '#1a1d24';
 
-// Only the three resources this phase actually builds — Invoices/
-// Purchasing/Expenses/Budgeting/Finance Intelligence are deliberately
-// omitted entirely (not shown-disabled) per the C3 brief's explicit
-// navigation instruction, matching CrmSidebar.tsx's own precedent of one
-// flat, always-shown list (this layout's own capability gate is what
-// stands between an unentitled organisation and this whole sidebar, same
-// as CRM).
-const NAV_ITEMS = [
+// Purchasing/Expenses/Budgeting/Finance Intelligence remain deliberately
+// omitted entirely (not shown-disabled) per the C3 brief's original
+// navigation instruction — no evidence any of those are being built yet.
+// Invoices (Phase C4.2) is the first nav item in this list that IS
+// per-item capability-gated rather than always shown once the shell
+// itself renders: unlike Customers/Products/Quotes/Settings (which have
+// always been reachable by anyone who cleared this layout's own 'quotes'
+// gate), Invoices must stay invisible to an organisation entitled to
+// Quotes but NOT Invoicing — the two are independently-entitlable
+// capability keys (see app/commercial/layout.tsx's own comment), so
+// showing this link unconditionally the way every other item here does
+// would advertise a feature the organisation cannot actually use. No
+// disabled/greyed-out placeholder either — per Phase C4.2's own
+// instruction, an unentitled feature is omitted, never shown-disabled.
+const BASE_NAV_ITEMS = [
   { href: '/commercial', label: 'Overview', exact: true },
   { href: '/commercial/customers', label: 'Customers' },
   { href: '/commercial/products', label: 'Products & Services' },
@@ -27,8 +34,11 @@ const NAV_ITEMS = [
   { href: '/commercial/settings', label: 'Settings' },
 ];
 
-export default function CommercialSidebar() {
+export default function CommercialSidebar({ invoicingEnabled = false }: { invoicingEnabled?: boolean }) {
   const pathname = usePathname() ?? '';
+  const navItems = invoicingEnabled
+    ? [...BASE_NAV_ITEMS.slice(0, 3), { href: '/commercial/invoices', label: 'Invoices' }, ...BASE_NAV_ITEMS.slice(3)]
+    : BASE_NAV_ITEMS;
 
   return (
     <aside
@@ -57,7 +67,7 @@ export default function CommercialSidebar() {
         Commercial
       </div>
       <nav style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 2, padding: '0 8px' }}>
-        {NAV_ITEMS.map(item => {
+        {navItems.map(item => {
           const active = item.exact ? pathname === item.href : pathname.startsWith(item.href);
           return (
             <Link

@@ -4,7 +4,7 @@ import { resolvePublicEvent } from '@/lib/events/publicResolve';
 import { validatePublicRegistrationInput, type PublicRegistrationInput } from '@/lib/events/publicValidation';
 import { checkRateLimit } from '@/lib/rateLimit';
 import { getClientIp } from '@/lib/clientIp';
-import { generateTicketToken } from '@/lib/events/ticketToken';
+import { generateTicketToken, generateBookingToken } from '@/lib/events/ticketToken';
 import { listActiveQuestions, validateSubmittedResponses, flattenOrderAnswers, flattenAttendeeAnswers } from '@/lib/events/registrationQuestions';
 import { syncEventOrderContact, recordEventBookingActivity } from '@/lib/crm/eventSync';
 
@@ -127,6 +127,17 @@ export async function POST(req: NextRequest, { params }: Ctx) {
   // of these strings were ever written anywhere, so no token is ever
   // exposed to the caller or becomes look-up-able at /t/[token].
   const ticketTokens = validated.attendees.map(() => generateTicketToken());
+  // One booking_token for the whole order (event_orders), generated the
+  // same "not issued until the same atomic statement actually inserts
+  // the row" way as ticketTokens above — this route always creates
+  // status='CONFIRMED' with payment_status defaulting to
+  // 'NOT_REQUIRED' (the free-registration path), and only ever writes
+  // this value if the capacity-gated ins_order CTE below actually
+  // inserts a row (which by construction also always inserts at least
+  // one attendee token) — so generating it unconditionally here already
+  // matches the "mint only when the order is genuinely eligible" rule
+  // without any extra branching.
+  const bookingToken = generateBookingToken();
 
   // Phase 4B correctness remediation — response persistence is folded
   // into the SAME atomic capacity-gated statement below, rather than a
@@ -245,8 +256,8 @@ export async function POST(req: NextRequest, { params }: Ctx) {
               -- statements above, and that lock is held for the whole
               -- transaction — a plain read of their current capacity is
               -- already guaranteed exclusive and fresh.
-              INSERT INTO event_orders (organisation_id, event_id, purchaser_name, purchaser_email, purchaser_phone, status, total_cents)
-              SELECT ${organisationId}, ${event.id}, ${validated.purchaser_name}, ${validated.purchaser_email}, ${validated.purchaser_phone}, 'CONFIRMED', 0
+              INSERT INTO event_orders (organisation_id, event_id, purchaser_name, purchaser_email, purchaser_phone, status, total_cents, booking_token)
+              SELECT ${organisationId}, ${event.id}, ${validated.purchaser_name}, ${validated.purchaser_email}, ${validated.purchaser_phone}, 'CONFIRMED', 0, ${bookingToken}
               FROM sold_tt, sold_sess
               WHERE sold_tt.qty + ${validated.quantity} <= (SELECT capacity FROM event_ticket_types WHERE id = ${validated.ticket_type_id} AND organisation_id = ${organisationId})
                 AND sold_sess.qty + ${validated.quantity} <= (SELECT capacity FROM event_sessions WHERE id = ${validated.event_session_id} AND organisation_id = ${organisationId})
@@ -324,8 +335,8 @@ export async function POST(req: NextRequest, { params }: Ctx) {
             ins_order AS (
               -- No FOR UPDATE needed here — see the session-bound branch's
               -- identical comment above.
-              INSERT INTO event_orders (organisation_id, event_id, purchaser_name, purchaser_email, purchaser_phone, status, total_cents)
-              SELECT ${organisationId}, ${event.id}, ${validated.purchaser_name}, ${validated.purchaser_email}, ${validated.purchaser_phone}, 'CONFIRMED', 0
+              INSERT INTO event_orders (organisation_id, event_id, purchaser_name, purchaser_email, purchaser_phone, status, total_cents, booking_token)
+              SELECT ${organisationId}, ${event.id}, ${validated.purchaser_name}, ${validated.purchaser_email}, ${validated.purchaser_phone}, 'CONFIRMED', 0, ${bookingToken}
               FROM sold_tt
               WHERE sold_tt.qty + ${validated.quantity} <= (SELECT capacity FROM event_ticket_types WHERE id = ${validated.ticket_type_id} AND organisation_id = ${organisationId})
               RETURNING id

@@ -276,9 +276,48 @@ describe('Capacity restoration — same predicate every consumer already uses (p
 })
 
 describe('Ticket/check-in behaviour after cancellation — same guards every consumer already uses (unmodified by this phase)', () => {
-  it('publicTicket.ts derives ticket status purely from the order\'s own status — a CANCELLED order therefore always resolves CANCELLED, with no code change needed', () => {
+  it('publicTicket.ts derives ticket status purely from the order\'s own status — a CANCELLED order therefore always resolves CANCELLED, with no code change needed', async () => {
+    // 5A.3D0-CI-FIX / EVENTS: this test originally asserted publicTicket.ts's
+    // own OLD inline literal (`status: row.order_status === 'CANCELLED' ?
+    // 'CANCELLED' : 'VALID'`). That inline check was legitimately refactored
+    // out by the multi-ticket-booking-wallet phase into a single shared
+    // module, lib/events/ticketValidity.ts (evaluateTicketValidity +
+    // toPublicTicketStatus) — see that module's own header comment on why
+    // three independent re-implementations of this predicate were exactly
+    // the drift risk it exists to prevent. The exact same invariant is
+    // still enforced, just one layer removed; a raw string match against
+    // publicTicket.ts's own source can no longer prove it.
+    //
+    // Rather than re-asserting an obsolete inline shape, this test now
+    // proves the SAME real-world fact two ways, kept local to this file to
+    // preserve its own stated "complete, self-contained Phase L1 proof"
+    // character (matching this file's sibling checkIn.ts/searchAttendees
+    // assertions, which independently re-verify rather than merely trust
+    // another file):
+    //   1. delegation — publicTicket.ts still actually calls the shared
+    //      evaluateTicketValidity()/toPublicTicketStatus() pair rather than
+    //      having silently reintroduced its own inline/duplicate logic
+    //      (the "proof by inspection" technique this same file already
+    //      uses elsewhere for capacity/check-in predicates).
+    //   2. behavior — the REAL shared functions, called directly with a
+    //      CANCELLED order (and a non-cancelled event, valid payment, so
+    //      order-status is isolated as the only failing input), do in fact
+    //      resolve to the public status 'CANCELLED'. This is the actual
+    //      fact this test's own name promises, now proven against current
+    //      architecture instead of a frozen source string.
+    // (The shared module's own full input/output matrix — including
+    // event_cancelled/payment_invalid priority — already has its own
+    // dedicated, exhaustive coverage in eventCancellationValidity.test.ts;
+    // this test deliberately does not re-duplicate that matrix, only the
+    // one fact this file's own name is about.)
     const code = stripComments(read('lib/events/publicTicket.ts'))
-    expect(code).toMatch(/status: row\.order_status === 'CANCELLED' \? 'CANCELLED' : 'VALID'/)
+    expect(code).toMatch(/from '\.\/ticketValidity'/)
+    expect(code).toMatch(/evaluateTicketValidity\(/)
+    expect(code).toMatch(/toPublicTicketStatus\(/)
+
+    const { evaluateTicketValidity, toPublicTicketStatus } = await import('@/lib/events/ticketValidity')
+    const validity = evaluateTicketValidity({ eventStatus: 'PUBLISHED', orderStatus: 'CANCELLED', paymentStatus: 'NOT_REQUIRED' })
+    expect(toPublicTicketStatus(validity)).toBe('CANCELLED')
   })
 
   it('confirmCheckIn\'s atomic UPDATE (both identifier branches) requires status <> CANCELLED in the same statement that decides check-in — a cancelled free order can never be checked in', () => {

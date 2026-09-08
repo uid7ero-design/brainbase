@@ -87,11 +87,24 @@ describe('scripts/add-email-tokens.sql — target schema matches the corrected T
     expect(source).toContain("information_schema.columns")
   })
 
-  it('does not reference app/api/admin/migrate/route.ts as something this script depends on or extends — this is a standalone replacement, not a patch to that route (which remains unmodified by this task)', () => {
+  it('the migrate route\'s own email_tokens.user_id declaration is now also TEXT (Phase D.4.6H-R2 fixed the route in place) — this standalone script remains valid and redundant-but-harmless rather than the sole correct representation', () => {
+    // Historical note: at the time this test file was first written, the
+    // route's own declaration was DELIBERATELY left as the known-wrong
+    // `user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE`, and
+    // this script was created as a standalone, route-independent
+    // replacement specifically because fixing the route in place was out
+    // of scope for that earlier task. Phase D.4.6H-R2 later audited and
+    // repaired the systemic UUID/TEXT organisation_id/user-ID mismatch
+    // across the whole route (44 declarations, including this one) — a
+    // disposable-Postgres fresh-schema run empirically proved
+    // email_tokens.user_id to be the very next hard blocker after the
+    // organisation_id-family repair, and it was authorized and fixed.
+    // The route and this standalone script are now mutually consistent:
+    // whichever runs first creates the table correctly, and the other's
+    // CREATE TABLE IF NOT EXISTS becomes a safe no-op.
     const migrateRouteSource = read('app/api/admin/migrate/route.ts')
-    expect(migrateRouteSource).toContain('user_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE')
-    // Confirms the stale route was intentionally left untouched, not
-    // silently corrected in place — this task's own explicit instruction.
+    expect(migrateRouteSource).toContain('user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE')
+    expect(migrateRouteSource).not.toMatch(/user_id\s+UUID/)
   })
 
   it('references the real-Postgres verification harness that proves the constraints above actually work', () => {

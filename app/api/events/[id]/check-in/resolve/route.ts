@@ -49,7 +49,10 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     // Same generic shape whichever reason — never distinguishes "wrong
     // tenant"/"wrong event"/"doesn't exist" from each other.
     const status = result.reason === 'not_found' ? 404 : 409;
-    const message = result.reason === 'cancelled' ? 'Ticket cancelled.' : result.reason === 'unpaid' ? 'Payment not completed.' : 'Ticket not valid.';
+    const message = result.reason === 'cancelled' ? 'Ticket cancelled.'
+      : result.reason === 'unpaid' ? 'Payment not completed.'
+      : result.reason === 'event_cancelled' ? 'Event cancelled.'
+      : 'Ticket not valid.';
     return NextResponse.json({ error: message, reason: result.reason }, { status });
   }
   return NextResponse.json({ attendee: result.attendee });

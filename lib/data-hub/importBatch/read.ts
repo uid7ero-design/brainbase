@@ -150,6 +150,31 @@ export interface WorksheetSummaryDTO {
   // convention (no profile join performed here).
   confirmedBy: string | null;
   confirmedAt: Date | null;
+  // Data Hub 5A.3D.0 — durable worksheet-level retry/failure history.
+  // Additive, mirrors ImportBatchDetailDTO's own identically-named
+  // lastFailureCode/lastFailureMessage/lastFailureRetryable/attemptCount/
+  // lastAttemptAt fields exactly (same safety posture, same source
+  // columns' sibling on Upload — see failureTaxonomy.ts's own established
+  // "safe, pre-sanitized message only" discipline, unchanged here). NULL/0
+  // for a worksheet that has never had a mapping/validation failure
+  // recorded against it.
+  lastAttemptAt: Date | null;
+  attemptCount: number;
+  lastFailureCode: string | null;
+  lastFailureMessage: string | null;
+  lastFailureRetryable: boolean | null;
+  // Data Hub 5A.3D.0 — the count of Illegal Dumping domain rows this
+  // worksheet actually produced, derived at READ TIME from the
+  // authoritative IllegalDumping.upload_id relation (tenant-scoped) —
+  // never a persisted column, never a second source of truth alongside
+  // the domain rows themselves. `null` means "not applicable" (the
+  // worksheet's own canonicalStatus is not IMPORTED, so no domain rows
+  // exist for it by definition) — deliberately distinct from a genuine
+  // `0`, which would mean an IMPORTED worksheet whose confirm transaction
+  // somehow produced zero rows (an real, if unlikely, state this field
+  // must still report truthfully rather than collapsing into "not
+  // applicable").
+  importedRowCount: number | null;
 }
 
 export interface GetImportBatchTrustedContext {
@@ -262,9 +287,20 @@ interface WorksheetRow {
   updated_at: Date;
   confirmed_by: string | null;
   confirmed_at: Date | null;
+  last_attempt_at: Date | null;
+  attempt_count: number;
+  last_failure_code: string | null;
+  last_failure_message: string | null;
+  last_failure_retryable: boolean | null;
 }
 
-function toWorksheetDTO(row: WorksheetRow): WorksheetSummaryDTO {
+// toWorksheetDTO deliberately stays a pure, synchronous mapping (no
+// Prisma call inside it) — `importedRowCount` is attached afterward by
+// attachImportedRowCounts, a separate, explicit, bounded async step. This
+// keeps the row->DTO shape mapping trivially unit-testable and keeps the
+// one real query this feature needs visible at each call site rather than
+// hidden inside a mapper.
+function toWorksheetDTO(row: WorksheetRow): Omit<WorksheetSummaryDTO, "importedRowCount"> {
   // Defensive invariant (mirrors inspectWorksheets.ts's own precedent,
   // Step 6/9 of that module): a row matched by lineage_kind = 'DATA_HUB'
   // is guaranteed by uploads_lineage_coherence_check to have every one of
@@ -294,7 +330,49 @@ function toWorksheetDTO(row: WorksheetRow): WorksheetSummaryDTO {
     updatedAt: row.updated_at,
     confirmedBy: row.confirmed_by,
     confirmedAt: row.confirmed_at,
+    lastAttemptAt: row.last_attempt_at,
+    attemptCount: row.attempt_count,
+    lastFailureCode: row.last_failure_code,
+    lastFailureMessage: row.last_failure_message,
+    lastFailureRetryable: row.last_failure_retryable,
   };
+}
+
+/**
+ * Attaches `importedRowCount` to a batch of worksheet DTOs in exactly ONE
+ * additional query (never one query per row — see the 5A.3D.0 discovery's
+ * own explicit N+1 warning). Only worksheets whose canonicalStatus is
+ * already "IMPORTED" are even candidates for a real count; every other
+ * worksheet gets `null` ("not applicable") without touching the database
+ * at all. Tenant-scoped identically to every other query in this module —
+ * organisation_id is asserted directly in the WHERE clause, never inferred
+ * from the worksheet ids alone.
+ */
+async function attachImportedRowCounts(
+  dtos: Array<Omit<WorksheetSummaryDTO, "importedRowCount">>,
+  organisationId: string
+): Promise<WorksheetSummaryDTO[]> {
+  const importedIds = dtos.filter((d) => d.canonicalStatus === "IMPORTED").map((d) => d.id);
+
+  if (importedIds.length === 0) {
+    return dtos.map((d) => ({ ...d, importedRowCount: null }));
+  }
+
+  const counts = await prisma.illegalDumping.groupBy({
+    by: ["upload_id"],
+    where: { organisation_id: organisationId, upload_id: { in: importedIds } },
+    _count: { _all: true },
+  });
+  const countByUploadId = new Map(counts.map((c) => [c.upload_id as string, c._count._all]));
+
+  return dtos.map((d) => ({
+    ...d,
+    // A genuinely IMPORTED worksheet with zero matching rows in the map
+    // (no group returned for it) means zero domain rows exist — a real,
+    // truthful 0, never confused with the `null` "not applicable" case
+    // above (that branch is only reachable for a non-IMPORTED worksheet).
+    importedRowCount: d.canonicalStatus === "IMPORTED" ? (countByUploadId.get(d.id) ?? 0) : null,
+  }));
 }
 
 const IMPORT_BATCH_DETAIL_SELECT = {
@@ -327,6 +405,11 @@ const WORKSHEET_SELECT = {
   updated_at: true,
   confirmed_by: true,
   confirmed_at: true,
+  last_attempt_at: true,
+  attempt_count: true,
+  last_failure_code: true,
+  last_failure_message: true,
+  last_failure_retryable: true,
 } satisfies Prisma.UploadSelect;
 
 /**
@@ -508,7 +591,8 @@ export async function getWorksheet(context: GetWorksheetTrustedContext): Promise
     return fail("WORKSHEET_NOT_FOUND");
   }
 
-  return { ok: true, worksheet: toWorksheetDTO(row) };
+  const [worksheet] = await attachImportedRowCounts([toWorksheetDTO(row)], organisationId);
+  return { ok: true, worksheet };
 }
 
 /**
@@ -543,5 +627,6 @@ export async function listWorksheetsForBatch(
     take: WORKSHEET_LIST_DEFENSIVE_BOUND,
   });
 
-  return { ok: true, worksheets: rows.map(toWorksheetDTO) };
+  const worksheets = await attachImportedRowCounts(rows.map(toWorksheetDTO), organisationId);
+  return { ok: true, worksheets };
 }

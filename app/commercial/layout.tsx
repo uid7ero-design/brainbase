@@ -9,11 +9,19 @@ import CommercialSidebar from './_components/CommercialSidebar';
 // layer's own authorizeCommercialRequest() calls remain the real
 // authorization boundary — see lib/commercial/authorize.ts).
 //
-// Gated on 'quotes' specifically, not a dedicated 'commercial' key (none
-// exists) — Quotes is the only real Commercial transactional workflow in
-// this phase, and Customers/Products exist only in service of it. See
-// app/api/commercial/customers/route.ts's identical comment for the full
-// rationale.
+// Gated on 'quotes' OR 'invoicing' specifically, not a dedicated
+// 'commercial' key (none exists). Originally 'quotes'-only (Quotes was
+// the only real Commercial transactional workflow at the time — see
+// app/api/commercial/customers/route.ts's identical comment for that
+// history), widened here (Phase C4.2) because 'quotes' and 'invoicing'
+// are independently-entitlable capability keys by design (see
+// lib/commercial/authorize.ts's own CommercialCapabilityKey union) — an
+// organisation with Invoicing but not Quotes must still be able to enter
+// this shell to reach /commercial/invoices, or the two keys would be
+// independent in name only. CommercialSidebar itself still decides which
+// NAV ITEMS to show based on each capability individually (see its own
+// `invoicingEnabled` prop below) — this layout-level check only decides
+// whether the shell renders at all.
 export default async function CommercialLayout({ children }: { children: React.ReactNode }) {
   let session;
   try {
@@ -22,9 +30,12 @@ export default async function CommercialLayout({ children }: { children: React.R
     redirect('/login');
   }
 
-  const capability = await checkCapability(session.organisationId, 'quotes');
+  const [quotesCapability, invoicingCapability] = await Promise.all([
+    checkCapability(session.organisationId, 'quotes'),
+    checkCapability(session.organisationId, 'invoicing'),
+  ]);
 
-  if (!capability.allowed) {
+  if (!quotesCapability.allowed && !invoicingCapability.allowed) {
     return (
       <div
         style={{
@@ -43,8 +54,7 @@ export default async function CommercialLayout({ children }: { children: React.R
       >
         <div style={{ fontSize: 16, fontWeight: 700 }}>Commercial isn&apos;t enabled for your organisation</div>
         <div style={{ fontSize: 13, color: '#6b7280', maxWidth: 360 }}>
-          Ask a BrainBase admin to enable the Quotes capability for your organisation to access Customers,
-          Products &amp; Services, and Quotes.
+          Ask a BrainBase admin to enable Quotes or Invoicing for your organisation to access the Commercial suite.
         </div>
       </div>
     );
@@ -60,7 +70,7 @@ export default async function CommercialLayout({ children }: { children: React.R
         color: '#f9fafb',
       }}
     >
-      <CommercialSidebar />
+      <CommercialSidebar invoicingEnabled={invoicingCapability.allowed} />
       <main style={{ flex: 1, overflow: 'auto', padding: '36px 40px' }}>{children}</main>
     </div>
   );

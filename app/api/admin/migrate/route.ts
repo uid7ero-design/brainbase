@@ -23,7 +23,7 @@ export async function POST() {
   step('1. organisations');
   await sql`
     CREATE TABLE IF NOT EXISTS organisations (
-      id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      id         TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
       name       TEXT NOT NULL,
       slug       TEXT UNIQUE NOT NULL,
       created_at TIMESTAMPTZ DEFAULT NOW()
@@ -34,7 +34,7 @@ export async function POST() {
   step('2. users columns');
   await sql`
     ALTER TABLE users
-      ADD COLUMN IF NOT EXISTS organisation_id UUID REFERENCES organisations(id),
+      ADD COLUMN IF NOT EXISTS organisation_id TEXT REFERENCES organisations(id),
       ADD COLUMN IF NOT EXISTS email TEXT
   `;
 
@@ -59,7 +59,7 @@ export async function POST() {
   await sql`
     CREATE TABLE IF NOT EXISTS waste_records (
       id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      organisation_id    UUID NOT NULL REFERENCES organisations(id),
+      organisation_id    TEXT NOT NULL REFERENCES organisations(id),
       uploaded_file_id   UUID REFERENCES uploaded_files(id),
       service_type       TEXT,
       suburb             TEXT,
@@ -77,7 +77,7 @@ export async function POST() {
   await sql`
     CREATE TABLE IF NOT EXISTS fleet_metrics (
       id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      organisation_id  UUID NOT NULL REFERENCES organisations(id),
+      organisation_id  TEXT NOT NULL REFERENCES organisations(id),
       uploaded_file_id UUID REFERENCES uploaded_files(id),
       vehicle_id       TEXT,
       vehicle_type     TEXT,
@@ -105,7 +105,7 @@ export async function POST() {
   await sql`
     CREATE TABLE IF NOT EXISTS service_requests (
       id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      organisation_id  UUID NOT NULL REFERENCES organisations(id),
+      organisation_id  TEXT NOT NULL REFERENCES organisations(id),
       uploaded_file_id UUID REFERENCES uploaded_files(id),
       request_id       TEXT,
       service_type     TEXT,
@@ -124,8 +124,8 @@ export async function POST() {
   await sql`
     CREATE TABLE IF NOT EXISTS reports (
       id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      organisation_id  UUID NOT NULL REFERENCES organisations(id),
-      created_by       UUID NOT NULL REFERENCES users(id),
+      organisation_id  TEXT NOT NULL REFERENCES organisations(id),
+      created_by       TEXT NOT NULL REFERENCES users(id),
       report_type      TEXT NOT NULL,
       report_title     TEXT NOT NULL,
       report_content   TEXT NOT NULL,
@@ -138,11 +138,11 @@ export async function POST() {
   await sql`
     CREATE TABLE IF NOT EXISTS import_mappings (
       id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      organisation_id UUID NOT NULL REFERENCES organisations(id),
+      organisation_id TEXT NOT NULL REFERENCES organisations(id),
       service_type    TEXT NOT NULL,
       raw_column      TEXT NOT NULL,
       mapped_field    TEXT NOT NULL,
-      created_by      UUID REFERENCES users(id),
+      created_by      TEXT REFERENCES users(id),
       created_at      TIMESTAMPTZ DEFAULT NOW(),
       UNIQUE (organisation_id, service_type, raw_column)
     )
@@ -152,7 +152,7 @@ export async function POST() {
   await sql`
     CREATE TABLE IF NOT EXISTS kpi_rules (
       id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      organisation_id UUID NOT NULL REFERENCES organisations(id),
+      organisation_id TEXT NOT NULL REFERENCES organisations(id),
       metric          TEXT NOT NULL,
       operator        TEXT NOT NULL,
       threshold       NUMERIC NOT NULL,
@@ -166,8 +166,8 @@ export async function POST() {
   await sql`
     CREATE TABLE IF NOT EXISTS audit_logs (
       id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      organisation_id UUID NOT NULL REFERENCES organisations(id),
-      user_id         UUID REFERENCES users(id),
+      organisation_id TEXT NOT NULL REFERENCES organisations(id),
+      user_id         TEXT REFERENCES users(id),
       action          TEXT NOT NULL,
       resource_type   TEXT,
       resource_id     UUID,
@@ -180,7 +180,7 @@ export async function POST() {
   await sql`
     CREATE TABLE IF NOT EXISTS integrations (
       id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      organisation_id  UUID NOT NULL REFERENCES organisations(id),
+      organisation_id  TEXT NOT NULL REFERENCES organisations(id),
       connector_id     TEXT NOT NULL,
       name             TEXT NOT NULL,
       config           JSONB NOT NULL DEFAULT '{}',
@@ -199,7 +199,7 @@ export async function POST() {
     CREATE TABLE IF NOT EXISTS sync_jobs (
       id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       integration_id   UUID NOT NULL REFERENCES integrations(id),
-      organisation_id  UUID NOT NULL REFERENCES organisations(id),
+      organisation_id  TEXT NOT NULL REFERENCES organisations(id),
       started_at       TIMESTAMPTZ DEFAULT NOW(),
       completed_at     TIMESTAMPTZ,
       status           TEXT NOT NULL DEFAULT 'running',
@@ -212,7 +212,7 @@ export async function POST() {
   await sql`
     CREATE TABLE IF NOT EXISTS data_snapshots (
       id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      organisation_id  UUID NOT NULL REFERENCES organisations(id),
+      organisation_id  TEXT NOT NULL REFERENCES organisations(id),
       snapshot_date    DATE NOT NULL DEFAULT CURRENT_DATE,
       data_type        TEXT NOT NULL,
       metrics          JSONB NOT NULL,
@@ -229,7 +229,7 @@ export async function POST() {
   await sql`
     CREATE TABLE IF NOT EXISTS email_tokens (
       id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      user_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       token      TEXT NOT NULL UNIQUE,
       type       TEXT NOT NULL CHECK (type IN ('verify', 'reset')),
       expires_at TIMESTAMPTZ NOT NULL,
@@ -280,7 +280,7 @@ export async function POST() {
   await sql`
     CREATE TABLE IF NOT EXISTS organisation_modules (
       id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      organisation_id UUID NOT NULL REFERENCES organisations(id),
+      organisation_id TEXT NOT NULL REFERENCES organisations(id),
       module_id       UUID NOT NULL REFERENCES modules(id),
       enabled         BOOLEAN DEFAULT TRUE,
       config          JSONB DEFAULT '{}',
@@ -293,7 +293,7 @@ export async function POST() {
   await sql`
     CREATE TABLE IF NOT EXISTS metric_snapshots (
       id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      organisation_id UUID NOT NULL REFERENCES organisations(id),
+      organisation_id TEXT NOT NULL REFERENCES organisations(id),
       module_key      TEXT NOT NULL,
       metric_key      TEXT NOT NULL,
       metric_label    TEXT,
@@ -318,7 +318,7 @@ export async function POST() {
   await sql`
     CREATE TABLE IF NOT EXISTS wste_vehicles (
       id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      organisation_id  UUID NOT NULL REFERENCES organisations(id),
+      organisation_id  TEXT NOT NULL REFERENCES organisations(id),
       registration     TEXT NOT NULL,
       make             TEXT,
       model            TEXT,
@@ -333,7 +333,7 @@ export async function POST() {
   await sql`
     CREATE TABLE IF NOT EXISTS wste_runs (
       id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      organisation_id  UUID NOT NULL REFERENCES organisations(id),
+      organisation_id  TEXT NOT NULL REFERENCES organisations(id),
       vehicle_id       UUID NOT NULL REFERENCES wste_vehicles(id),
       run_date         DATE NOT NULL,
       driver           TEXT,
@@ -351,7 +351,7 @@ export async function POST() {
   await sql`
     CREATE TABLE IF NOT EXISTS wste_gps_points (
       id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      organisation_id UUID NOT NULL REFERENCES organisations(id),
+      organisation_id TEXT NOT NULL REFERENCES organisations(id),
       run_id          UUID NOT NULL REFERENCES wste_runs(id),
       recorded_at     TIMESTAMPTZ NOT NULL,
       lat             NUMERIC NOT NULL,
@@ -366,7 +366,7 @@ export async function POST() {
   await sql`
     CREATE TABLE IF NOT EXISTS wste_waste_tickets (
       id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      organisation_id UUID NOT NULL REFERENCES organisations(id),
+      organisation_id TEXT NOT NULL REFERENCES organisations(id),
       ticket_ref      TEXT,
       service_date    DATE,
       address         TEXT,
@@ -381,7 +381,7 @@ export async function POST() {
   await sql`
     CREATE TABLE IF NOT EXISTS wste_service_verifications (
       id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      organisation_id UUID NOT NULL REFERENCES organisations(id),
+      organisation_id TEXT NOT NULL REFERENCES organisations(id),
       address         TEXT NOT NULL,
       suburb          TEXT,
       verified_at     TIMESTAMPTZ DEFAULT NOW(),
@@ -396,7 +396,7 @@ export async function POST() {
   await sql`
     CREATE TABLE IF NOT EXISTS wste_exceptions (
       id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      organisation_id UUID NOT NULL REFERENCES organisations(id),
+      organisation_id TEXT NOT NULL REFERENCES organisations(id),
       run_id          UUID NOT NULL REFERENCES wste_runs(id),
       address         TEXT,
       suburb          TEXT,
@@ -436,7 +436,7 @@ export async function POST() {
   await sql`
     CREATE TABLE IF NOT EXISTS wste_assets (
       id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      organisation_id  UUID NOT NULL REFERENCES organisations(id),
+      organisation_id  TEXT NOT NULL REFERENCES organisations(id),
       property_id      TEXT,
       asset_type       TEXT NOT NULL DEFAULT 'bin',
       bin_type         TEXT,
@@ -454,7 +454,7 @@ export async function POST() {
   await sql`
     CREATE TABLE IF NOT EXISTS wste_planned_services (
       id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      organisation_id       UUID NOT NULL REFERENCES organisations(id),
+      organisation_id       TEXT NOT NULL REFERENCES organisations(id),
       property_id           TEXT NOT NULL,
       service_type          TEXT NOT NULL,
       schedule_name         TEXT,
@@ -471,7 +471,7 @@ export async function POST() {
   await sql`
     CREATE TABLE IF NOT EXISTS wste_service_events (
       id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      organisation_id   UUID NOT NULL REFERENCES organisations(id),
+      organisation_id   TEXT NOT NULL REFERENCES organisations(id),
       service_type      TEXT NOT NULL,
       property_id       TEXT,
       ticket_id         TEXT,
@@ -495,7 +495,7 @@ export async function POST() {
   await sql`
     CREATE TABLE IF NOT EXISTS wste_evidence_items (
       id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      organisation_id  UUID NOT NULL REFERENCES organisations(id),
+      organisation_id  TEXT NOT NULL REFERENCES organisations(id),
       service_event_id UUID NOT NULL REFERENCES wste_service_events(id),
       evidence_type    TEXT NOT NULL
         CHECK (evidence_type IN ('gps','rfid','lift_sensor','photo','video','driver_note','ticket','weighbridge','manual')),
@@ -543,8 +543,8 @@ export async function POST() {
   await sql`
     CREATE TABLE IF NOT EXISTS onboarding_progress (
       id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      organisation_id UUID NOT NULL REFERENCES organisations(id),
-      user_id         UUID REFERENCES users(id),
+      organisation_id TEXT NOT NULL REFERENCES organisations(id),
+      user_id         TEXT REFERENCES users(id),
       current_step    INTEGER NOT NULL DEFAULT 1,
       data            JSONB NOT NULL DEFAULT '{}',
       completed       BOOLEAN NOT NULL DEFAULT false,
@@ -570,8 +570,8 @@ export async function POST() {
   await sql`
     CREATE TABLE IF NOT EXISTS agent_runs (
       id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      organisation_id UUID REFERENCES organisations(id),
-      user_id         UUID REFERENCES users(id),
+      organisation_id TEXT REFERENCES organisations(id),
+      user_id         TEXT REFERENCES users(id),
       agent_name      TEXT NOT NULL,
       route_type      TEXT NOT NULL,
       input_query     TEXT,
@@ -587,7 +587,7 @@ export async function POST() {
   await sql`
     CREATE TABLE IF NOT EXISTS tennis_leads (
       id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      organisation_id  UUID NOT NULL REFERENCES organisations(id),
+      organisation_id  TEXT NOT NULL REFERENCES organisations(id),
       name             TEXT NOT NULL,
       email            TEXT NOT NULL,
       phone            TEXT,
@@ -610,8 +610,8 @@ export async function POST() {
   await sql`
     CREATE TABLE IF NOT EXISTS saved_briefings (
       id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      organisation_id  UUID NOT NULL REFERENCES organisations(id),
-      user_id          UUID REFERENCES users(id),
+      organisation_id  TEXT NOT NULL REFERENCES organisations(id),
+      user_id          TEXT REFERENCES users(id),
       title            TEXT NOT NULL,
       briefing_type    TEXT,
       agent_name       TEXT,
@@ -628,7 +628,7 @@ export async function POST() {
   await sql`
     CREATE TABLE IF NOT EXISTS social_accounts (
       id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      organisation_id      UUID NOT NULL REFERENCES organisations(id),
+      organisation_id      TEXT NOT NULL REFERENCES organisations(id),
       platform             TEXT NOT NULL DEFAULT 'instagram',
       account_name         TEXT NOT NULL,
       account_id           TEXT NOT NULL,
@@ -645,7 +645,7 @@ export async function POST() {
   await sql`
     CREATE TABLE IF NOT EXISTS social_posts (
       id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      organisation_id   UUID NOT NULL REFERENCES organisations(id),
+      organisation_id   TEXT NOT NULL REFERENCES organisations(id),
       social_account_id UUID REFERENCES social_accounts(id),
       platform          TEXT NOT NULL DEFAULT 'instagram',
       platform_post_id  TEXT NOT NULL,
@@ -668,7 +668,7 @@ export async function POST() {
   await sql`
     CREATE TABLE IF NOT EXISTS social_comments (
       id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      organisation_id     UUID NOT NULL REFERENCES organisations(id),
+      organisation_id     TEXT NOT NULL REFERENCES organisations(id),
       social_post_id      UUID REFERENCES social_posts(id),
       platform_comment_id TEXT NOT NULL,
       author_name         TEXT,
@@ -685,7 +685,7 @@ export async function POST() {
   await sql`
     CREATE TABLE IF NOT EXISTS social_insights (
       id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      organisation_id   UUID NOT NULL REFERENCES organisations(id),
+      organisation_id   TEXT NOT NULL REFERENCES organisations(id),
       insight_type      TEXT,
       title             TEXT NOT NULL,
       summary           TEXT NOT NULL,
@@ -709,7 +709,7 @@ export async function POST() {
   await sql`
     CREATE TABLE IF NOT EXISTS contacts (
       id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      organisation_id   UUID NOT NULL REFERENCES organisations(id),
+      organisation_id   TEXT NOT NULL REFERENCES organisations(id),
       name              TEXT NOT NULL,
       email             TEXT,
       phone             TEXT,
@@ -734,7 +734,7 @@ export async function POST() {
     CREATE TABLE IF NOT EXISTS contact_journal (
       id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       contact_id      UUID NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
-      organisation_id UUID NOT NULL REFERENCES organisations(id),
+      organisation_id TEXT NOT NULL REFERENCES organisations(id),
       note            TEXT NOT NULL,
       created_at      TIMESTAMPTZ DEFAULT NOW()
     )
@@ -746,8 +746,8 @@ export async function POST() {
   await sql`
     CREATE TABLE IF NOT EXISTS client_pipeline (
       id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      organisation_id  UUID NOT NULL REFERENCES organisations(id),
-      submitted_by     UUID REFERENCES users(id),
+      organisation_id  TEXT NOT NULL REFERENCES organisations(id),
+      submitted_by     TEXT REFERENCES users(id),
       type             TEXT NOT NULL DEFAULT 'request'
         CHECK (type IN ('request', 'issue', 'feedback')),
       title            TEXT NOT NULL,
@@ -770,7 +770,7 @@ export async function POST() {
     CREATE TABLE IF NOT EXISTS pipeline_messages (
       id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       pipeline_id     UUID NOT NULL REFERENCES client_pipeline(id) ON DELETE CASCADE,
-      organisation_id UUID NOT NULL REFERENCES organisations(id),
+      organisation_id TEXT NOT NULL REFERENCES organisations(id),
       author_type     TEXT NOT NULL,
       body            TEXT NOT NULL,
       created_at      TIMESTAMPTZ DEFAULT NOW()

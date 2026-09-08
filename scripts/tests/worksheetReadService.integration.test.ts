@@ -129,6 +129,13 @@ async function seedWorksheet(params: {
   canonicalStatus?: string;
   confirmedBy?: string | null;
   confirmedAt?: Date | null;
+  // 5A.3D.0 — worksheet-level retry/failure history, same shape as
+  // seedBatch's own identically-named params above.
+  lastFailureCode?: string | null;
+  lastFailureMessage?: string | null;
+  lastFailureRetryable?: boolean | null;
+  attemptCount?: number;
+  lastAttemptAt?: Date | null;
 }): Promise<string> {
   const id = randomUUID();
   await prisma.upload.create({
@@ -148,6 +155,29 @@ async function seedWorksheet(params: {
       canonical_status: params.canonicalStatus ?? "AWAITING_CONFIRMATION",
       confirmed_by: params.confirmedBy ?? null,
       confirmed_at: params.confirmedAt ?? null,
+      last_failure_code: params.lastFailureCode ?? null,
+      last_failure_message: params.lastFailureMessage ?? null,
+      last_failure_retryable: params.lastFailureRetryable ?? null,
+      attempt_count: params.attemptCount ?? 0,
+      last_attempt_at: params.lastAttemptAt ?? null,
+    },
+  });
+  return id;
+}
+
+// 5A.3D.0 — seeds a real IllegalDumping domain row against a worksheet,
+// exercising attachImportedRowCounts' real tenant-scoped
+// prisma.illegalDumping.groupBy() call against genuine Postgres.
+async function seedIllegalDumpingRow(params: { organisationId: string; uploadId: string | null }): Promise<string> {
+  const id = randomUUID();
+  await prisma.illegalDumping.create({
+    data: {
+      id,
+      organisation_id: params.organisationId,
+      upload_id: params.uploadId,
+      report_date: new Date("2025-01-01T00:00:00.000Z"),
+      location: "fixture location",
+      waste_type: "fixture waste type",
     },
   });
   return id;
@@ -986,6 +1016,15 @@ describe("integration — DTO own-key-set leakage proof", () => {
       // 5A.2L — durable confirmation-actor attribution.
       "confirmedBy",
       "confirmedAt",
+      // 5A.3D.0 — worksheet-level retry/failure history + derived
+      // imported-row count. Additive; must never silently regress this
+      // exact-set proof (see M11 in the PR's own falsification pass).
+      "lastAttemptAt",
+      "attemptCount",
+      "lastFailureCode",
+      "lastFailureMessage",
+      "lastFailureRetryable",
+      "importedRowCount",
     ]);
 
     const got = await getWorksheet({ organisationId: "org-a", worksheetId });
@@ -1065,5 +1104,212 @@ describe("integration — 5A.2L confirmedBy/confirmedAt read exposure", () => {
 
     const crossTenantList = await listWorksheetsForBatch({ organisationId: "org-b", importBatchId: batchA });
     expect(crossTenantList).toMatchObject({ ok: false, code: "BATCH_NOT_FOUND" });
+  });
+});
+
+describe("integration — 5A.3D.0 worksheet failure metadata read exposure", () => {
+  it("T1/T3: a worksheet with no recorded failure exposes null/0 through both getWorksheet and listWorksheetsForBatch", async () => {
+    const batch = await seedBatch({ organisationId: "org-a" });
+    const worksheetId = await seedWorksheet({ organisationId: "org-a", importBatchId: batch, worksheetIndex: 0 });
+
+    const got = await getWorksheet({ organisationId: "org-a", worksheetId });
+    expect(got.ok).toBe(true);
+    if (got.ok) {
+      expect(got.worksheet.lastFailureCode).toBeNull();
+      expect(got.worksheet.lastFailureMessage).toBeNull();
+      expect(got.worksheet.lastFailureRetryable).toBeNull();
+      expect(got.worksheet.attemptCount).toBe(0);
+      expect(got.worksheet.lastAttemptAt).toBeNull();
+    }
+
+    const listed = await listWorksheetsForBatch({ organisationId: "org-a", importBatchId: batch });
+    expect(listed.ok).toBe(true);
+    if (listed.ok) {
+      expect(listed.worksheets[0].lastFailureCode).toBeNull();
+      expect(listed.worksheets[0].attemptCount).toBe(0);
+    }
+  });
+
+  it("T1/T2: a worksheet with a recorded failure exposes the exact safe fields, round-tripped through both reads", async () => {
+    const lastAttemptAt = new Date("2025-07-01T08:00:00.000Z");
+    const batch = await seedBatch({ organisationId: "org-a" });
+    const worksheetId = await seedWorksheet({
+      organisationId: "org-a",
+      importBatchId: batch,
+      worksheetIndex: 0,
+      lastFailureCode: "PARSER_REJECTED",
+      lastFailureMessage: "The file could not be parsed as CSV.",
+      lastFailureRetryable: true,
+      attemptCount: 2,
+      lastAttemptAt,
+    });
+
+    const got = await getWorksheet({ organisationId: "org-a", worksheetId });
+    expect(got.ok).toBe(true);
+    if (got.ok) {
+      expect(got.worksheet.lastFailureCode).toBe("PARSER_REJECTED");
+      expect(got.worksheet.lastFailureMessage).toBe("The file could not be parsed as CSV.");
+      expect(got.worksheet.lastFailureRetryable).toBe(true);
+      expect(got.worksheet.attemptCount).toBe(2);
+      expect(got.worksheet.lastAttemptAt?.toISOString()).toBe(lastAttemptAt.toISOString());
+    }
+
+    const listed = await listWorksheetsForBatch({ organisationId: "org-a", importBatchId: batch });
+    expect(listed.ok).toBe(true);
+    if (listed.ok) {
+      expect(listed.worksheets[0].lastFailureCode).toBe("PARSER_REJECTED");
+      expect(listed.worksheets[0].lastFailureRetryable).toBe(true);
+    }
+  });
+
+  it("T4: cross-tenant reads cannot observe another tenant's failure metadata — collapses to the identical existing not-found abstraction, never a partial/leaked DTO", async () => {
+    const batchA = await seedBatch({ organisationId: "org-a" });
+    const worksheetA = await seedWorksheet({
+      organisationId: "org-a",
+      importBatchId: batchA,
+      worksheetIndex: 0,
+      lastFailureCode: "PARSER_REJECTED",
+      lastFailureMessage: "secret-shaped failure detail",
+      lastFailureRetryable: true,
+    });
+
+    const crossTenantGet = await getWorksheet({ organisationId: "org-b", worksheetId: worksheetA });
+    expect(crossTenantGet).toMatchObject({ ok: false, code: "WORKSHEET_NOT_FOUND" });
+    // The failure message must never appear anywhere in a cross-tenant
+    // response body, under any key.
+    expect(JSON.stringify(crossTenantGet)).not.toContain("secret-shaped failure detail");
+
+    const crossTenantList = await listWorksheetsForBatch({ organisationId: "org-b", importBatchId: batchA });
+    expect(crossTenantList).toMatchObject({ ok: false, code: "BATCH_NOT_FOUND" });
+    expect(JSON.stringify(crossTenantList)).not.toContain("secret-shaped failure detail");
+  });
+});
+
+describe("integration — 5A.3D.0 imported-row-count derivation", () => {
+  it("T5/T6: an IMPORTED worksheet with real IllegalDumping rows reports the exact authoritative count; zero rows reports a truthful 0", async () => {
+    const batch = await seedBatch({ organisationId: "org-a" });
+    const worksheetWithRows = await seedWorksheet({
+      organisationId: "org-a",
+      importBatchId: batch,
+      worksheetIndex: 0,
+      canonicalStatus: "IMPORTED",
+      confirmedBy: "user-a1",
+      confirmedAt: new Date(),
+    });
+    await seedIllegalDumpingRow({ organisationId: "org-a", uploadId: worksheetWithRows });
+    await seedIllegalDumpingRow({ organisationId: "org-a", uploadId: worksheetWithRows });
+    await seedIllegalDumpingRow({ organisationId: "org-a", uploadId: worksheetWithRows });
+
+    const got = await getWorksheet({ organisationId: "org-a", worksheetId: worksheetWithRows });
+    expect(got.ok).toBe(true);
+    if (got.ok) expect(got.worksheet.importedRowCount).toBe(3);
+
+    const listed = await listWorksheetsForBatch({ organisationId: "org-a", importBatchId: batch });
+    expect(listed.ok).toBe(true);
+    if (listed.ok) expect(listed.worksheets.find((w) => w.id === worksheetWithRows)?.importedRowCount).toBe(3);
+
+    // A genuinely IMPORTED worksheet whose confirm transaction produced
+    // zero domain rows must report a real 0, never fall through to the
+    // "not applicable" null branch (T6's own explicit distinction).
+    const batch2 = await seedBatch({ organisationId: "org-a" });
+    const worksheetZeroRows = await seedWorksheet({
+      organisationId: "org-a",
+      importBatchId: batch2,
+      worksheetIndex: 0,
+      canonicalStatus: "IMPORTED",
+      confirmedBy: "user-a1",
+      confirmedAt: new Date(),
+    });
+    const gotZero = await getWorksheet({ organisationId: "org-a", worksheetId: worksheetZeroRows });
+    expect(gotZero.ok).toBe(true);
+    if (gotZero.ok) {
+      expect(gotZero.worksheet.importedRowCount).toBe(0);
+      expect(gotZero.worksheet.importedRowCount).not.toBeNull();
+    }
+  });
+
+  it("T9: a non-IMPORTED worksheet (AWAITING_CONFIRMATION/INELIGIBLE) truthfully reports importedRowCount as null (not applicable), never a fabricated 0", async () => {
+    const batch = await seedBatch({ organisationId: "org-a" });
+    const awaitingWorksheet = await seedWorksheet({
+      organisationId: "org-a",
+      importBatchId: batch,
+      worksheetIndex: 0,
+      canonicalStatus: "AWAITING_CONFIRMATION",
+    });
+    const ineligibleWorksheet = await seedWorksheet({
+      organisationId: "org-a",
+      importBatchId: batch,
+      worksheetIndex: 1,
+      canonicalStatus: "INELIGIBLE",
+    });
+
+    const gotAwaiting = await getWorksheet({ organisationId: "org-a", worksheetId: awaitingWorksheet });
+    expect(gotAwaiting.ok).toBe(true);
+    if (gotAwaiting.ok) expect(gotAwaiting.worksheet.importedRowCount).toBeNull();
+
+    const gotIneligible = await getWorksheet({ organisationId: "org-a", worksheetId: ineligibleWorksheet });
+    expect(gotIneligible.ok).toBe(true);
+    if (gotIneligible.ok) expect(gotIneligible.worksheet.importedRowCount).toBeNull();
+
+    const listed = await listWorksheetsForBatch({ organisationId: "org-a", importBatchId: batch });
+    expect(listed.ok).toBe(true);
+    if (listed.ok) {
+      for (const w of listed.worksheets) expect(w.importedRowCount).toBeNull();
+    }
+  });
+
+  it("T7: the count for one worksheet never includes another worksheet's IllegalDumping rows, even within the same organisation", async () => {
+    const batch = await seedBatch({ organisationId: "org-a" });
+    const worksheetOne = await seedWorksheet({
+      organisationId: "org-a",
+      importBatchId: batch,
+      worksheetIndex: 0,
+      canonicalStatus: "IMPORTED",
+      confirmedBy: "user-a1",
+      confirmedAt: new Date(),
+    });
+    const batch2 = await seedBatch({ organisationId: "org-a" });
+    const worksheetTwo = await seedWorksheet({
+      organisationId: "org-a",
+      importBatchId: batch2,
+      worksheetIndex: 0,
+      canonicalStatus: "IMPORTED",
+      confirmedBy: "user-a1",
+      confirmedAt: new Date(),
+    });
+    await seedIllegalDumpingRow({ organisationId: "org-a", uploadId: worksheetOne });
+    await seedIllegalDumpingRow({ organisationId: "org-a", uploadId: worksheetOne });
+    await seedIllegalDumpingRow({ organisationId: "org-a", uploadId: worksheetTwo });
+
+    const gotOne = await getWorksheet({ organisationId: "org-a", worksheetId: worksheetOne });
+    expect(gotOne.ok).toBe(true);
+    if (gotOne.ok) expect(gotOne.worksheet.importedRowCount).toBe(2);
+
+    const gotTwo = await getWorksheet({ organisationId: "org-a", worksheetId: worksheetTwo });
+    expect(gotTwo.ok).toBe(true);
+    if (gotTwo.ok) expect(gotTwo.worksheet.importedRowCount).toBe(1);
+  });
+
+  it("T8: the count for one organisation's worksheet never includes another organisation's IllegalDumping rows, even against the identical worksheet id shape", async () => {
+    const batchA = await seedBatch({ organisationId: "org-a" });
+    const worksheetA = await seedWorksheet({
+      organisationId: "org-a",
+      importBatchId: batchA,
+      worksheetIndex: 0,
+      canonicalStatus: "IMPORTED",
+      confirmedBy: "user-a1",
+      confirmedAt: new Date(),
+    });
+    await seedIllegalDumpingRow({ organisationId: "org-a", uploadId: worksheetA });
+
+    // A row belonging to a DIFFERENT organisation, but (adversarially)
+    // pointed at org-a's own worksheet id via upload_id — proves the
+    // count query's own organisation_id predicate is load-bearing, not
+    // merely inherited from the upload_id join.
+    await seedIllegalDumpingRow({ organisationId: "org-b", uploadId: worksheetA });
+
+    const gotA = await getWorksheet({ organisationId: "org-a", worksheetId: worksheetA });
+    expect(gotA.ok).toBe(true);
+    if (gotA.ok) expect(gotA.worksheet.importedRowCount).toBe(1);
   });
 });

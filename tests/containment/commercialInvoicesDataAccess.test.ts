@@ -185,7 +185,11 @@ describe('Phase C4.1 — createInvoiceFromQuote(): success path — lineage, sna
   function mockSqlForConversion(invoiceRow: Record<string, unknown>) {
     sqlMock.mockImplementation((strings: TemplateStringsArray) => {
       const text = strings.join('')
-      if (text.includes('SELECT * FROM commercial_invoices')) return Promise.resolve([invoiceRow])
+      // The final getInvoice() call inside createInvoiceFromQuote() — matched
+      // on 'WHERE id =' (unique to that query) rather than the leading
+      // 'SELECT *' text, since the C4.2 blocker fix appended the
+      // SQL-computed overdue expression right after the '*'.
+      if (text.includes('FROM commercial_invoices WHERE id =')) return Promise.resolve([invoiceRow])
       return Promise.resolve([]) // the INSERT statements built into the `queries` array — their own direct return value is never used
     })
   }
@@ -523,5 +527,79 @@ describe('Phase C4.1 — deleteDraftInvoice()', () => {
     const result = await deleteDraftInvoice({ organisationId: ORG, userId: 'u1', invoiceId: 'inv-1' })
     expect(result).toBe(false)
     expect(logInvoiceDeletedMock).not.toHaveBeenCalled()
+  })
+})
+
+// ── C4.2 BLOCKER FIX — server-authoritative, SQL-computed overdue ──────
+//
+// Root cause of the original bug: getInvoice()/listInvoices() previously
+// returned a bare `due_date` and left "is this overdue" to be derived
+// afterward (in an API route, or in the browser) by comparing that value
+// against a JS-computed "today" with `<`. Two independent defects
+// resulted: (1) this driver parses a Postgres DATE column into a native
+// JS Date object when read in-process (see lib/commercial/dates.ts's own
+// documented, empirically-verified finding) — comparing a Date object to
+// a 'YYYY-MM-DD' string with `<` silently coerces through NaN and is
+// ALWAYS false, regardless of the actual date; (2) even where due_date
+// had already been JSON-serialized to a string, deriving "today" via
+// `new Date().toISOString()` reports the UTC calendar date, which lags
+// up to ~10.5 hours behind Australia/Adelaide's actual local date every
+// morning. Both are eliminated by computing the comparison in Postgres
+// itself, via CURRENT_DATE, and never touching due_date in JavaScript at
+// all — these tests exercise the real, unmocked listInvoices()/getInvoice()
+// functions (only '@/lib/db' is mocked) proving the SQL text and the
+// pass-through of Postgres's own boolean result.
+describe('Phase C4.2 blocker fix — listInvoices()/getInvoice(): overdue is computed in SQL and passed through verbatim', () => {
+  it('listInvoices() issues a query containing the CURRENT_DATE-based overdue expression', async () => {
+    sqlMock.mockResolvedValueOnce([])
+    const { listInvoices } = await import('@/lib/commercial/invoices')
+    await listInvoices(ORG)
+    const [strings] = sqlMock.mock.calls[0] as [TemplateStringsArray]
+    const text = strings.join('')
+    expect(text).toMatch(/status = 'ISSUED' AND due_date IS NOT NULL AND due_date < CURRENT_DATE/)
+    expect(text).toMatch(/AS overdue/)
+    expect(text).not.toMatch(/new Date\(\)/)
+  })
+
+  it('getInvoice() issues the identical CURRENT_DATE-based overdue expression', async () => {
+    sqlMock.mockResolvedValueOnce([])
+    const { getInvoice } = await import('@/lib/commercial/invoices')
+    await getInvoice(ORG, 'inv-1')
+    const [strings] = sqlMock.mock.calls[0] as [TemplateStringsArray]
+    const text = strings.join('')
+    expect(text).toMatch(/status = 'ISSUED' AND due_date IS NOT NULL AND due_date < CURRENT_DATE/)
+    expect(text).toMatch(/AS overdue/)
+  })
+
+  it('an ISSUED invoice with a due date the query resolves as before CURRENT_DATE comes back overdue: true — proven with due_date as a native Date object, the exact shape that broke the old JS comparison', async () => {
+    // Postgres, not this test, decides the boolean — the mock simulates
+    // exactly what a real `due_date < CURRENT_DATE` evaluation returns
+    // for a genuinely overdue row. due_date itself is deliberately a
+    // native Date object here (matching the real driver's own documented
+    // behavior) specifically because that is the shape that silently
+    // broke the previous `due_date < 'YYYY-MM-DD'` JS comparison; the
+    // fix must not care what shape due_date is, only trust the
+    // already-computed `overdue` column.
+    sqlMock.mockResolvedValueOnce([{ id: 'inv-1', status: 'ISSUED', due_date: new Date(2000, 0, 1), overdue: true }])
+    const { getInvoice } = await import('@/lib/commercial/invoices')
+    const invoice = await getInvoice(ORG, 'inv-1')
+    expect(invoice?.overdue).toBe(true)
+  })
+
+  it('an ISSUED invoice due today or in the future comes back overdue: false', async () => {
+    sqlMock.mockResolvedValueOnce([{ id: 'inv-1', status: 'ISSUED', due_date: new Date(2999, 0, 1), overdue: false }])
+    const { getInvoice } = await import('@/lib/commercial/invoices')
+    const invoice = await getInvoice(ORG, 'inv-1')
+    expect(invoice?.overdue).toBe(false)
+  })
+
+  it('DRAFT and VOID invoices come back overdue: false regardless of due_date, matching the SQL expression\'s own status = \'ISSUED\' gate', async () => {
+    sqlMock.mockResolvedValueOnce([
+      { id: 'inv-draft', status: 'DRAFT', due_date: new Date(2000, 0, 1), overdue: false },
+      { id: 'inv-void', status: 'VOID', due_date: new Date(2000, 0, 1), overdue: false },
+    ])
+    const { listInvoices } = await import('@/lib/commercial/invoices')
+    const rows = await listInvoices(ORG)
+    expect(rows.map(r => r.overdue)).toEqual([false, false])
   })
 })

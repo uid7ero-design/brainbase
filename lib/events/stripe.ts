@@ -1,7 +1,7 @@
 import 'server-only';
 import Stripe from 'stripe';
 import sql from '@/lib/db';
-import { generateTicketToken } from './ticketToken';
+import { generateTicketToken, generateBookingToken } from './ticketToken';
 import { recordEventBookingActivityForOrder } from '@/lib/crm/eventSync';
 
 // ── Architecture ─────────────────────────────────────────────────────
@@ -173,6 +173,29 @@ async function issueTicketTokensForPaidOrder(orderId: string): Promise<void> {
   `;
 }
 
+// Booking wallet — mints event_orders.booking_token for a paid order,
+// but only once payment_status is genuinely 'PAID' (re-checked in this
+// function's own query, same discipline as issueTicketTokensForPaidOrder
+// above), and only if the order doesn't already have one. A single
+// conditional UPDATE ... WHERE booking_token IS NULL is inherently
+// idempotent: the first call sets it, any retry (webhook redelivery)
+// finds booking_token IS NULL already false and updates zero rows,
+// leaving the existing value completely untouched — never regenerated.
+// Deliberately a separate function/statement from
+// issueTicketTokensForPaidOrder rather than folded into it: the two
+// token families are minted through independent statements so a
+// booking_token issue can never be coupled to (or block) attendee
+// ticket_token issuance, matching this file's own "smallest, most
+// independently-reasoned" convention for every guard in this module.
+async function issueBookingTokenForPaidOrder(orderId: string): Promise<void> {
+  const token = generateBookingToken();
+  await sql`
+    UPDATE event_orders
+    SET booking_token = ${token}
+    WHERE id = ${orderId} AND payment_status = 'PAID' AND booking_token IS NULL
+  `;
+}
+
 export type WebhookProcessResult = { handled: boolean; type: string };
 
 // Central webhook dispatcher — called once per verified Stripe event
@@ -306,6 +329,7 @@ async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session, 
   `;
 
   await issueTicketTokensForPaidOrder(orderId);
+  await issueBookingTokenForPaidOrder(orderId);
   // Events -> CRM sync (Phase 5) — best-effort, never throws (see
   // lib/crm/eventSync.ts). Resolves organisationId/event name/quantity/
   // amount/payment state itself from the order's now-updated row and

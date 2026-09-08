@@ -1221,6 +1221,19 @@ function AppNav({
   const isSuperAdmin =
     role === 'super_admin';
 
+  // Data Hub 5A.3C.1 — manager+ visibility for the canonical Data Hub
+  // import entry, matching the exact same array-membership check
+  // app/data/page.tsx's own isAdmin computation already uses for a role
+  // gate in this codebase (lib/session.ts's ROLE_ORDER/roleGte is
+  // server-only — `import 'server-only'` — and cannot be imported into
+  // this client component). Never a new authorization table: the API
+  // layer's own requireRole('manager') (identical minimum) remains the
+  // real security boundary; this only decides pill visibility.
+  const isManagerPlus =
+    ['manager', 'admin', 'super_admin'].includes(
+      role,
+    );
+
   // Tenant classification reuses the exact same slug-driven resolver
   // app/dashboard/page.tsx already uses to pick between the Founder OS
   // redirect, TennisDashboard, and the generic organisation dashboard
@@ -1419,6 +1432,22 @@ function AppNav({
                 capability="organiser"
                 active={pathname.startsWith(
                   '/organiser',
+                )}
+              />
+            )}
+
+            {/* Data Hub 5A.3C.1 — canonical manager-facing Illegal Dumping
+                CSV import experience. Role-gated only (isManagerPlus,
+                same minimum as the API layer's own requireRole('manager')),
+                never capability-gated — Data Hub has no dedicated
+                capability key, matching the backend's own role-only
+                authorization. */}
+            {isManagerPlus && (
+              <NavItem
+                href="/data-hub/import"
+                label="Data Hub Import"
+                active={pathname.startsWith(
+                  '/data-hub/import',
                 )}
               />
             )}
@@ -1636,6 +1665,22 @@ function AppNav({
               />
             )}
 
+            {/* Data Hub 5A.3C.1 — canonical manager-facing Illegal Dumping
+                CSV import experience. Role-gated only (isManagerPlus, same
+                minimum as the API layer's own requireRole('manager')),
+                never capability-gated — Data Hub has no dedicated
+                capability key, matching the backend's own role-only
+                authorization. */}
+            {isManagerPlus && (
+              <NavItem
+                href="/data-hub/import"
+                label="Data Hub Import"
+                active={pathname.startsWith(
+                  '/data-hub/import',
+                )}
+              />
+            )}
+
             {isSuperAdmin && (
               <NavItem
                 href="/clients"
@@ -1823,6 +1868,33 @@ function AppNav({
             {name.split(' ')[0]}
           </span>
         </Link>
+
+        {/* Organisation Branding (Phase 2) — admin+ only, matching the
+            settings page/API's own auth floor exactly (see
+            app/api/organisations/branding/route.ts). Inline
+            role === 'admin' || role === 'super_admin' check, matching
+            this file's own existing isSuperAdmin convention above —
+            lib/session.ts's roleGte/ROLE_ORDER are behind a
+            'server-only' import and cannot be imported into this
+            client component. */}
+        {(role === 'admin' || role === 'super_admin') && (
+          <>
+            <Divider />
+            <Link
+              href="/settings/branding"
+              style={{
+                fontSize: 13,
+                fontWeight: 500,
+                textDecoration: 'none',
+                padding: '5px 8px',
+                borderRadius: 7,
+                color: pathname.startsWith('/settings/branding') ? '#A78BFA' : 'rgba(255,255,255,.5)',
+              }}
+            >
+              Branding
+            </Link>
+          </>
+        )}
 
         <Divider />
 

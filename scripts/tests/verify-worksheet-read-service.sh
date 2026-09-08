@@ -128,6 +128,49 @@ if [ $? -ne 0 ]; then
   exit 2
 fi
 
+# 5A.3D.0 — illegal_dumping, hand-reproduced from prisma/schema.prisma's
+# IllegalDumping model, identically to verify-confirm-worksheet.sh's/
+# verify-datahub-k2.sh's own precedent (no standalone scripts/create-*.sql
+# exists for this table; it is normally Prisma-managed). Added so
+# worksheetReadService.integration.test.ts can exercise
+# attachImportedRowCounts' real tenant-scoped
+# prisma.illegalDumping.groupBy() call against genuine Postgres, never a
+# hand-duplicated copy of its own query.
+echo "Applying illegal_dumping table (5A.3D.0)..."
+docker exec -i "$CONTAINER" psql -X -q -U postgres -d testdb -v ON_ERROR_STOP=1 <<'SQL'
+CREATE TYPE "Severity" AS ENUM ('CRITICAL', 'HIGH', 'MEDIUM', 'LOW');
+CREATE TYPE "IncidentStatus" AS ENUM ('OPEN', 'IN_PROGRESS', 'RESOLVED', 'CLOSED');
+
+CREATE TABLE illegal_dumping (
+  id TEXT PRIMARY KEY,
+  organisation_id TEXT NOT NULL REFERENCES organisations(id) ON DELETE CASCADE,
+  upload_id TEXT REFERENCES uploads(id),
+  report_date TIMESTAMP NOT NULL,
+  location TEXT NOT NULL,
+  suburb TEXT,
+  zone TEXT,
+  waste_type TEXT NOT NULL,
+  volume_estimate TEXT,
+  severity "Severity" NOT NULL DEFAULT 'MEDIUM',
+  status "IncidentStatus" NOT NULL DEFAULT 'OPEN',
+  crew_assigned TEXT,
+  resolution_date TIMESTAMP,
+  cost_estimate DOUBLE PRECISION,
+  notes TEXT,
+  metadata JSONB NOT NULL DEFAULT '{}',
+  created_at TIMESTAMP NOT NULL DEFAULT now(),
+  updated_at TIMESTAMP NOT NULL DEFAULT now()
+);
+CREATE INDEX ON illegal_dumping (organisation_id);
+CREATE INDEX ON illegal_dumping (status);
+CREATE INDEX ON illegal_dumping (report_date);
+CREATE INDEX ON illegal_dumping (suburb);
+SQL
+if [ $? -ne 0 ]; then
+  echo "ERROR: illegal_dumping table failed to apply." >&2
+  exit 2
+fi
+
 export DATABASE_URL="postgresql://postgres:test@localhost:${HOST_PORT}/testdb"
 echo "DATABASE_URL=$DATABASE_URL (disposable container only)"
 
