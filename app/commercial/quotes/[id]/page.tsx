@@ -65,6 +65,16 @@ export default function QuoteDetailPage() {
   const [actionError, setActionError] = useState('');
   const [sendResult, setSendResult] = useState('');
   const [busy, setBusy] = useState(false);
+  // Phase C4.2 §13 — Create Invoice is shown only when the CURRENT
+  // organisation is entitled to Invoicing specifically (a quotes-only
+  // tenant must never see it — the two capabilities are independently
+  // entitlable, see app/commercial/layout.tsx's own comment) AND the
+  // current user is manager+. /api/me's enabledCapabilities/role are the
+  // same fields TopNav's own client-side capability projection already
+  // relies on for identical UX-only (never authorization-boundary)
+  // decisions — the real enforcement is convert-to-invoice's own
+  // server-side authorizeCommercialRequest('invoicing', ...) call.
+  const [canCreateInvoice, setCanCreateInvoice] = useState(false);
 
   // add-line form state
   const [newProductId, setNewProductId] = useState('');
@@ -82,9 +92,9 @@ export default function QuoteDetailPage() {
     setDeliveries(data.deliveries ?? []);
     setLoading(false);
 
-    const [customersRes, productsRes, taxCodesRes, businessProfileRes] = await Promise.all([
+    const [customersRes, productsRes, taxCodesRes, businessProfileRes, meRes] = await Promise.all([
       fetch('/api/commercial/customers'), fetch('/api/commercial/products'), fetch('/api/commercial/tax-codes'),
-      fetch('/api/commercial/settings/business-profile'),
+      fetch('/api/commercial/settings/business-profile'), fetch('/api/me'),
     ]);
     const customersData = await customersRes.json();
     const productsData = await productsRes.json();
@@ -93,8 +103,19 @@ export default function QuoteDetailPage() {
     setProducts(productsData.products ?? []);
     setTaxCodes(taxCodesData.taxCodes ?? []);
     if (businessProfileRes.ok) setBusinessProfile(await businessProfileRes.json());
+    if (meRes.ok) {
+      const me = await meRes.json();
+      const hasInvoicing = (me.enabledCapabilities ?? []).some((c: { key: string }) => c.key === 'invoicing');
+      const isManagerPlus = ['manager', 'admin', 'super_admin'].includes(me.role);
+      setCanCreateInvoice(hasInvoicing && isManagerPlus);
+    }
   }, [id]);
 
+  // Pre-existing pattern predating Phase C4.2 (this line is unchanged by
+  // this phase); silenced here only because C4.2 already touches this
+  // file for the Create Invoice button below, and scoped lint on the
+  // file must pass.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { load(); }, [load]);
 
   const isDraft = quote?.status === 'DRAFT';
@@ -167,6 +188,22 @@ export default function QuoteDetailPage() {
     load();
   }
 
+  // Phase C4.2 §13 — deliberately does NOT check for an existing invoice
+  // before allowing another conversion: one accepted quote may legally
+  // produce zero, one, or many invoices (see lib/commercial/invoices.ts's
+  // createInvoiceFromQuote() — no uniqueness on source_quote_id, by
+  // design, to keep future progress/deposit invoicing possible). Hiding
+  // this action after one conversion would implement a progress-invoice
+  // restriction this phase explicitly does not build.
+  async function createInvoiceFromThisQuote() {
+    setBusy(true); setActionError('');
+    const res = await fetch(`/api/commercial/quotes/${id}/convert-to-invoice`, { method: 'POST' });
+    const data = await res.json().catch(() => ({}));
+    setBusy(false);
+    if (!res.ok) { setActionError(data.error ?? 'Failed to create invoice from this quote.'); return; }
+    router.push(`/commercial/invoices/${data.invoice.id}`);
+  }
+
   async function deleteDraft() {
     setBusy(true);
     const res = await fetch(`/api/commercial/quotes/${id}`, { method: 'DELETE' });
@@ -224,6 +261,9 @@ export default function QuoteDetailPage() {
           {isSent && <button onClick={() => runAction('reject')} disabled={busy} style={btn('rgba(239,68,68,0.15)', '#f87171')}>Reject</button>}
           {isSent && <button onClick={() => runAction('expire')} disabled={busy} style={btn('rgba(251,191,36,0.15)', '#fbbf24')}>Mark Expired</button>}
           {isSent && <button onClick={() => runAction('accept')} disabled={busy} style={btn('rgba(74,222,128,0.15)', '#4ade80')}>Accept</button>}
+          {quote.status === 'ACCEPTED' && canCreateInvoice && (
+            <button onClick={createInvoiceFromThisQuote} disabled={busy} style={btn('#1a6aff')}>Create Invoice</button>
+          )}
         </div>
       </div>
       {actionError && <p style={{ color: '#f87171', fontSize: 13, margin: '0 0 16px' }}>{actionError}</p>}
