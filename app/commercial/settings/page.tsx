@@ -89,7 +89,7 @@ export default function CommercialSettingsPage() {
       <section style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: '20px 24px', marginBottom: 24 }}>
         <h2 style={{ fontSize: 15, fontWeight: 600, margin: '0 0 4px' }}>Business Profile</h2>
         <p style={{ fontSize: 12, color: '#6b7280', margin: '0 0 16px' }}>
-          Shown as the &ldquo;From&rdquo; details on Quote PDFs and emails. Any field left blank falls back to your organisation name ({orgName || '—'}) or is omitted.
+          Shown as the &ldquo;From&rdquo; details on Quote and Invoice PDFs and emails. Any field left blank falls back to your organisation name ({orgName || '—'}) or is omitted.
         </p>
         <form onSubmit={saveProfile} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <Field label="Trading Name" value={profile.tradingName ?? ''} onChange={e => setProfile(p => ({ ...p, tradingName: e.target.value }))} placeholder={orgName} />
@@ -110,7 +110,7 @@ export default function CommercialSettingsPage() {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
           <div>
             <h2 style={{ fontSize: 15, fontWeight: 600, margin: '0 0 4px' }}>Tax Codes</h2>
-            <p style={{ fontSize: 12, color: '#6b7280', margin: 0 }}>Used on Products and Quote lines. Deactivating a code never affects quotes already issued with it (their tax rate is snapshotted).</p>
+            <p style={{ fontSize: 12, color: '#6b7280', margin: 0 }}>Used on Products and Quote/Invoice lines. Deactivating a code never affects quotes or invoices already issued with it (their tax rate is snapshotted).</p>
           </div>
           {taxCodes.length === 0 && (
             <button onClick={seedDefaults} disabled={seeding} style={{ padding: '8px 14px', background: '#1a6aff', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>

@@ -1,16 +1,17 @@
 'use client';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { resolveResourceCount, type ResourceCountState } from '@/lib/commercial/overviewCounts';
 
 const CARD = '#0e1014'; const BORDER = '#1a1d24';
 
 type Counts = {
-  customers: number | null;
-  products: number | null;
-  quotes: number | null;
-  draftQuotes: number | null;
-  invoices: number | null;
-  draftInvoices: number | null;
+  customers: ResourceCountState;
+  products: ResourceCountState;
+  quotes: ResourceCountState;
+  draftQuotes: ResourceCountState;
+  invoices: ResourceCountState;
+  draftInvoices: ResourceCountState;
 };
 
 // Phase C4.4A (Finding 3 remediation) — capability-aware by construction,
@@ -30,12 +31,23 @@ type Counts = {
 // Finding 3's own remediation in lib/commercial/authorize.ts) are
 // fetched whenever EITHER Quotes or Invoicing is enabled, matching the
 // API layer's own new OR-gated access.
+//
+// Phase C4.4A (blocker fix) — a SECOND, previously-missed distinction:
+// an enabled capability whose fetch genuinely FAILED (a non-403, e.g. a
+// transient 500) must never be conflated with an enabled capability
+// that fetched successfully with zero real records. Both used to
+// collapse to the same on-screen "0" via `?? 0`. `resolveResourceCount`
+// (lib/commercial/overviewCounts.ts) is the single, pure, independently
+// testable rule for the resulting three-way state per resource:
+// 'unavailable' (not entitled) / 'error' (entitled, request failed) /
+// a real number (entitled, request succeeded, including a legitimate 0).
 export default function CommercialOverviewPage() {
   const [hasQuotes, setHasQuotes] = useState(false);
   const [hasInvoicing, setHasInvoicing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [counts, setCounts] = useState<Counts>({
-    customers: null, products: null, quotes: null, draftQuotes: null, invoices: null, draftInvoices: null,
+    customers: 'unavailable', products: 'unavailable', quotes: 'unavailable',
+    draftQuotes: 'unavailable', invoices: 'unavailable', draftInvoices: 'unavailable',
   });
 
   useEffect(() => {
@@ -59,18 +71,33 @@ export default function CommercialOverviewPage() {
         invoicing ? fetch('/api/commercial/invoices') : Promise.resolve(null),
       ]);
 
-      const customersData = customersRes?.ok ? await customersRes.json() : null;
-      const productsData = productsRes?.ok ? await productsRes.json() : null;
-      const quotesData = quotesRes?.ok ? await quotesRes.json() : null;
-      const invoicesData = invoicesRes?.ok ? await invoicesRes.json() : null;
+      // `ok` is tracked per resource, independently of every other
+      // resource's outcome — one failed enabled fetch never taints an
+      // unrelated resource's own (possibly successful) count.
+      const customersOk = wantsShared ? !!customersRes?.ok : false;
+      const productsOk = wantsShared ? !!productsRes?.ok : false;
+      const quotesOk = quotes ? !!quotesRes?.ok : false;
+      const invoicesOk = invoicing ? !!invoicesRes?.ok : false;
+
+      const customersData = customersOk ? await customersRes!.json() : null;
+      const productsData = productsOk ? await productsRes!.json() : null;
+      const quotesData = quotesOk ? await quotesRes!.json() : null;
+      const invoicesData = invoicesOk ? await invoicesRes!.json() : null;
+
+      const draftQuotesLength = quotesOk
+        ? (quotesData?.quotes ?? []).filter((q: { status: string }) => q.status === 'DRAFT').length
+        : undefined;
+      const draftInvoicesLength = invoicesOk
+        ? (invoicesData?.invoices ?? []).filter((i: { status: string }) => i.status === 'DRAFT').length
+        : undefined;
 
       setCounts({
-        customers: wantsShared ? (customersData?.customers?.length ?? 0) : null,
-        products: wantsShared ? (productsData?.products?.length ?? 0) : null,
-        quotes: quotes ? (quotesData?.quotes?.length ?? 0) : null,
-        draftQuotes: quotes ? ((quotesData?.quotes ?? []).filter((q: { status: string }) => q.status === 'DRAFT').length) : null,
-        invoices: invoicing ? (invoicesData?.invoices?.length ?? 0) : null,
-        draftInvoices: invoicing ? ((invoicesData?.invoices ?? []).filter((i: { status: string }) => i.status === 'DRAFT').length) : null,
+        customers: resolveResourceCount(wantsShared, customersOk, customersData?.customers?.length),
+        products: resolveResourceCount(wantsShared, productsOk, productsData?.products?.length),
+        quotes: resolveResourceCount(quotes, quotesOk, quotesData?.quotes?.length),
+        draftQuotes: resolveResourceCount(quotes, quotesOk, draftQuotesLength),
+        invoices: resolveResourceCount(invoicing, invoicesOk, invoicesData?.invoices?.length),
+        draftInvoices: resolveResourceCount(invoicing, invoicesOk, draftInvoicesLength),
       });
       setLoading(false);
     })();
@@ -118,11 +145,16 @@ export default function CommercialOverviewPage() {
   );
 }
 
-function StatCard({ label, value, href }: { label: string; value: number | null | undefined; href: string }) {
+function StatCard({ label, value, href }: { label: string; value: ResourceCountState | undefined; href: string }) {
+  // undefined (still loading) and 'unavailable' (not entitled) both
+  // render as "—". 'error' (entitled, request failed) renders as a
+  // visibly distinct "Error" — it must never be mistaken for a real
+  // zero count.
+  const display = value === undefined || value === 'unavailable' ? '—' : value === 'error' ? 'Error' : value;
   return (
     <Link href={href} style={{ textDecoration: 'none' }}>
       <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: '18px 20px' }}>
-        <div style={{ fontSize: 26, fontWeight: 700, color: '#f9fafb' }}>{value ?? '—'}</div>
+        <div style={{ fontSize: 26, fontWeight: 700, color: value === 'error' ? '#f87171' : '#f9fafb' }}>{display}</div>
         <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>{label}</div>
       </div>
     </Link>

@@ -125,6 +125,18 @@ describe('Phase C4.4A (Finding 3) — authorizeCommercialRequest with an ARRAY o
     if (!result.ok) expect(result.response.status).toBe(503)
   })
 
+  it('FIRST key is conclusively DENIED, SECOND key raises CapabilityDatabaseError, no key entitled -> 503, never 403 (the reverse ordering of the case above — order must not matter)', async () => {
+    requireSessionMock.mockResolvedValue({ organisationId: 'org-a', userId: 'u1', role: 'admin', name: 'A' })
+    const { CapabilityAccessError, CapabilityDatabaseError } = await import('@/lib/capabilities/requireCapability')
+    requireCapabilityMock.mockRejectedValueOnce(new CapabilityAccessError('NO_ENTITLEMENT'))
+    requireCapabilityMock.mockRejectedValueOnce(new CapabilityDatabaseError())
+    const { authorizeCommercialRequest } = await import('@/lib/commercial/authorize')
+    const result = await authorizeCommercialRequest(['quotes', 'invoicing'], 'viewer')
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.response.status).toBe(503)
+    expect(requireCapabilityMock).toHaveBeenCalledTimes(2)
+  })
+
   it('one key errors with CapabilityDatabaseError but a LATER key is genuinely entitled -> still succeeds (the transient error on one key never blocks a real entitlement on another)', async () => {
     requireSessionMock.mockResolvedValue({ organisationId: 'org-a', userId: 'u1', role: 'admin', name: 'A' })
     const { CapabilityDatabaseError } = await import('@/lib/capabilities/requireCapability')

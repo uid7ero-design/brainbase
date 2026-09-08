@@ -51,27 +51,37 @@ describe('Phase C4.4A — quote and invoice data are fetched ONLY when the corre
   })
 })
 
-describe('Phase C4.4A — a capability the organisation lacks is never silently reported as a misleading "0"', () => {
-  it('quotes/draftQuotes counts are set to null (not 0) when the organisation lacks the quotes capability — the old bug used an unconditional `?? 0`', () => {
+describe('Phase C4.4A — a capability the organisation lacks is never silently reported as a misleading "0", and neither is a genuinely failed request', () => {
+  it('every count is derived via resolveResourceCount(enabled, ok, length) — not a raw `?? 0` that would conflate "not entitled" or "request failed" with a real zero', () => {
     const setCountsBlock = source.slice(source.indexOf('setCounts({'), source.indexOf('});', source.indexOf('setCounts({')))
-    expect(setCountsBlock).toMatch(/quotes:\s*quotes\s*\?\s*\(quotesData\?\.\w+\?\.\w+\s*\?\?\s*0\)\s*:\s*null/)
-    expect(setCountsBlock).toMatch(/draftQuotes:\s*quotes\s*\?/)
+    expect(setCountsBlock).toMatch(/customers:\s*resolveResourceCount\(wantsShared,\s*customersOk,\s*customersData\?\.customers\?\.length\)/)
+    expect(setCountsBlock).toMatch(/products:\s*resolveResourceCount\(wantsShared,\s*productsOk,\s*productsData\?\.products\?\.length\)/)
+    expect(setCountsBlock).toMatch(/quotes:\s*resolveResourceCount\(quotes,\s*quotesOk,\s*quotesData\?\.quotes\?\.length\)/)
+    expect(setCountsBlock).toMatch(/draftQuotes:\s*resolveResourceCount\(quotes,\s*quotesOk,\s*draftQuotesLength\)/)
+    expect(setCountsBlock).toMatch(/invoices:\s*resolveResourceCount\(invoicing,\s*invoicesOk,\s*invoicesData\?\.invoices\?\.length\)/)
+    expect(setCountsBlock).toMatch(/draftInvoices:\s*resolveResourceCount\(invoicing,\s*invoicesOk,\s*draftInvoicesLength\)/)
+    expect(setCountsBlock).not.toMatch(/\?\?\s*0/)
   })
 
-  it('invoices/draftInvoices counts are set to null when the organisation lacks the invoicing capability', () => {
-    const setCountsBlock = source.slice(source.indexOf('setCounts({'), source.indexOf('});', source.indexOf('setCounts({')))
-    expect(setCountsBlock).toMatch(/invoices:\s*invoicing\s*\?/)
-    expect(setCountsBlock).toMatch(/draftInvoices:\s*invoicing\s*\?/)
+  it('each resource\'s own `ok` flag is derived independently, per resource, from its own response — never borrowed from another resource', () => {
+    expect(source).toMatch(/const customersOk = wantsShared \? !!customersRes\?\.ok : false/)
+    expect(source).toMatch(/const productsOk = wantsShared \? !!productsRes\?\.ok : false/)
+    expect(source).toMatch(/const quotesOk = quotes \? !!quotesRes\?\.ok : false/)
+    expect(source).toMatch(/const invoicesOk = invoicing \? !!invoicesRes\?\.ok : false/)
   })
 
-  it('StatCard renders "—" (never "0") for a null value — the UI-level guard that makes the null-vs-zero distinction actually visible', () => {
+  it('StatCard renders "—" for "unavailable"/loading and a visibly distinct "Error" for a failed-but-entitled request — never coercing either into "0"', () => {
     const statCardFn = source.slice(source.indexOf('function StatCard'), source.indexOf('\n}', source.indexOf('function StatCard')))
-    expect(statCardFn).toMatch(/value \?\? '—'/)
-    // The prop type itself must admit null (not just undefined) —
-    // otherwise TypeScript would have silently allowed passing 0 in a
-    // context that meant "no access", re-opening exactly the bug this
-    // phase fixes.
-    expect(statCardFn).toMatch(/value: number \| null \| undefined/)
+    expect(statCardFn).toMatch(/value === undefined \|\| value === 'unavailable' \? '—' : value === 'error' \? 'Error' : value/)
+    // The prop type itself must admit the three-way ResourceCountState
+    // (not just number | null | undefined) — otherwise TypeScript would
+    // silently allow collapsing "request failed" back into a plain
+    // number, re-opening exactly the bug this fix addresses.
+    expect(statCardFn).toMatch(/value: ResourceCountState \| undefined/)
+  })
+
+  it('the Overview imports the shared, independently-tested resolveResourceCount helper rather than re-implementing the rule inline', () => {
+    expect(source).toMatch(/import \{ resolveResourceCount, type ResourceCountState \} from '@\/lib\/commercial\/overviewCounts'/)
   })
 })
 
