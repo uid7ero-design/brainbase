@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import type { DataHubIllegalDumpingImportSession } from "@/lib/data-hub/client/orchestrator";
 import ImportError from "./ImportError";
 import ConfirmAction from "./ConfirmAction";
-import { createConfirmGuard, isConfirmEligible, shouldRenderPreviewTable, type ReviewPhase } from "../confirmEligibility";
+import { createConfirmGuard, hasMissingRequiredHeaders, isConfirmEligible, shouldRenderPreviewTable, type ReviewPhase } from "../confirmEligibility";
 
 // Data Hub 5A.3C.1 — the REVIEW screen: confirmationReady, previewing,
 // previewFailed, previewReady. Owns the bounded preview table, the
@@ -119,6 +119,18 @@ export default function ReviewPanel({
             });
           }}
           rowCount={state.phase === "previewReady" ? state.preview.rowCount : undefined}
+          // QA-POLISH (PR #147 authenticated Preview recheck, issue 2): a
+          // successful preview reporting missing required headers already
+          // shows its own explicit "Missing required column(s)..." error
+          // (PreviewTable, above) and already disables Confirm via
+          // `eligible` — rendering the normal destructive-confirmation
+          // sentence on top of that error is contradictory. Reuses the
+          // SAME predicate `isConfirmEligible` is itself built on (never a
+          // second, independent "are required headers present" check).
+          // previewFailed's own separate acknowledgement semantics are
+          // untouched: hasMissingRequiredHeaders is false for that phase,
+          // so its existing (unconditional) sentence is unaffected.
+          showConfirmationCopy={!hasMissingRequiredHeaders(state)}
         />
       ) : null}
     </div>

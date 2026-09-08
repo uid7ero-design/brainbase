@@ -5,24 +5,36 @@
 // — discovery Section O). Accurate, non-"destructive"-framed consequence
 // language. Prevents duplicate submission by disabling while the caller
 // reports `busy` (phase === "confirming").
+//
+// QA-POLISH (PR #147 authenticated Preview recheck, issue 2): `showConfirmationCopy`
+// (default true, preserving all prior behavior for every other caller/case)
+// lets ReviewPanel suppress this sentence specifically when a successful
+// preview reports missing required headers — contradictory otherwise, since
+// that state already shows its own explicit error and already disables
+// Confirm via `eligible`. This prop only ever hides the SENTENCE; it never
+// touches `eligible`/`busy`/disabled-button semantics.
 export default function ConfirmAction({
   eligible,
   busy,
   onConfirm,
   rowCount,
+  showConfirmationCopy = true,
 }: {
   eligible: boolean;
   busy: boolean;
   onConfirm: () => void;
   rowCount?: number;
+  showConfirmationCopy?: boolean;
 }) {
   return (
     <div style={{ marginTop: 18 }}>
-      <p style={{ fontSize: 12, color: "rgba(249,250,251,.5)", marginBottom: 10 }}>
-        {typeof rowCount === "number"
-          ? `Importing this file will create ${rowCount} Illegal Dumping record(s). This cannot be undone.`
-          : "Importing this file will create Illegal Dumping records. This cannot be undone."}
-      </p>
+      {showConfirmationCopy ? (
+        <p style={{ fontSize: 12, color: "rgba(249,250,251,.5)", marginBottom: 10 }}>
+          {typeof rowCount === "number"
+            ? `Importing this file will create ${rowCount} Illegal Dumping record(s). This cannot be undone.`
+            : "Importing this file will create Illegal Dumping records. This cannot be undone."}
+        </p>
+      ) : null}
       <button
         type="button"
         onClick={onConfirm}

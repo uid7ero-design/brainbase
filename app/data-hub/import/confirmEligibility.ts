@@ -23,9 +23,24 @@ export type ReviewPhase = Extract<
  */
 export function isConfirmEligible(state: ReviewPhase, previewFailedAcknowledged: boolean): boolean {
   if (state.phase === "confirmationReady") return true;
-  if (state.phase === "previewReady") return state.preview.requiredHeadersPresent === true;
+  if (state.phase === "previewReady") return !hasMissingRequiredHeaders(state);
   if (state.phase === "previewFailed") return previewFailedAcknowledged;
   return false;
+}
+
+/**
+ * QA-POLISH (PR #147 authenticated Preview recheck, issue 2): the single
+ * source of truth for "did a SUCCESSFUL preview report missing required
+ * headers" — extracted out of `isConfirmEligible`'s own previewReady branch
+ * (a pure negation of this) so ReviewPanel can also use it to suppress the
+ * "Importing this file will create..." confirmation sentence for exactly
+ * this case, without defining a second, independently-drifting check.
+ * Deliberately scoped to previewReady only — previewFailed's own, separate
+ * acknowledgement-required semantics (where header status is unknown, not
+ * "known absent") are untouched by this predicate and must stay that way.
+ */
+export function hasMissingRequiredHeaders(state: ReviewPhase): boolean {
+  return state.phase === "previewReady" && state.preview.requiredHeadersPresent === false;
 }
 
 /**

@@ -223,9 +223,15 @@ describe("T32: beforeunload is active only for uploading/finalizing/confirming",
 describe("T35: alreadyImported does not require importedRows to render truthful success", () => {
   it("ImportSuccess.tsx only reads state.importedRows inside the isFresh (imported) ternary branch, never unconditionally", () => {
     const code = stripComments(fs.readFileSync(path.join(IMPORT_DIR, "_components", "ImportSuccess.tsx"), "utf8"));
-    const ternaryIdx = code.indexOf("isFresh\n            ?");
+    // QA-POLISH (PR #147 authenticated Preview recheck, issue 1): the
+    // heading and message are now two separate flush elements (`<h2>`/`<p>`,
+    // not a nested bordered card), so the message's own ternary is matched
+    // by its actual interpolation rather than a shared indentation prefix —
+    // the semantic check (importedRows appears exactly once, only in this
+    // branch) is unchanged.
+    const ternaryIdx = code.indexOf("${state.importedRows}");
     expect(ternaryIdx).toBeGreaterThan(-1);
-    const ternaryBlock = code.slice(ternaryIdx, ternaryIdx + 200);
+    const ternaryBlock = code.slice(ternaryIdx - 30, ternaryIdx + 60);
     expect(ternaryBlock).toContain("state.importedRows");
     // state.importedRows must appear ONLY inside this one ternary's
     // true-branch (before its `:` else-branch), never elsewhere in the file.
@@ -360,5 +366,149 @@ describe("no dependency/schema/backend containment violations", () => {
         /data-hub\/importBatch\/(previewWorksheet|confirmWorksheet|inspectCsvWorksheet|finalize|initiate)/
       );
     }
+  });
+});
+
+describe("QA-POLISH issue 1 — success-state alignment matches sibling flush-content convention", () => {
+  it("T1: ImportSuccess.tsx no longer wraps its heading/message in a bordered/padded card — matches FileSelector's <h1>/ReviewPanel's <h2> flush convention instead of ImportError's alert-card convention", () => {
+    const code = fs.readFileSync(path.join(IMPORT_DIR, "_components", "ImportSuccess.tsx"), "utf8");
+    // The old card wrapper's own distinguishing styles must be gone.
+    expect(code).not.toMatch(/border:\s*["']1px solid rgba\(34,197,94/);
+    expect(code).not.toMatch(/padding:\s*["']18px 20px["']/);
+    // A flush heading element is used instead, exactly like the sibling
+    // screens' own primary heading elements.
+    expect(code).toMatch(/<h2\b/);
+  });
+
+  it("this is layout-only: role=status/aria-live=polite (T28) and the real importedRows interpolation (T17) are unaffected — re-proven directly here, not merely inherited from the tests above", () => {
+    const code = fs.readFileSync(path.join(IMPORT_DIR, "_components", "ImportSuccess.tsx"), "utf8");
+    expect(code).toContain('role="status"');
+    expect(code).toContain('aria-live="polite"');
+    expect(code).toMatch(/\$\{state\.importedRows\}\s*row\(s\)\s*were imported/);
+    expect(code).toContain("Start another import");
+    expect(code).toContain("onClick={onStartAnother}");
+  });
+
+  it("M4: reverting the alignment fix (restoring the old bordered-card wrapper) is statically detectable — this test documents that the honest limit of this proof is STRUCTURAL (card present/absent), not actual rendered pixel alignment, which remains a Preview-QA-only concern", () => {
+    const oldCardShapeSource = `
+      <div style={{ border: "1px solid rgba(34,197,94,.25)", background: "rgba(34,197,94,.06)", borderRadius: 10, padding: "18px 20px" }}>
+        <div>Import complete</div>
+      </div>
+    `;
+    expect(oldCardShapeSource).toMatch(/border:\s*"1px solid rgba\(34,197,94/);
+    const code = fs.readFileSync(path.join(IMPORT_DIR, "_components", "ImportSuccess.tsx"), "utf8");
+    expect(code).not.toMatch(/border:\s*["']1px solid rgba\(34,197,94/);
+  });
+});
+
+describe("QA-POLISH issue 2 — invalid-header Review no longer shows the contradictory confirmation sentence", () => {
+  it("T3/M1: hasMissingRequiredHeaders is true ONLY for previewReady with requiredHeadersPresent:false — the same predicate isConfirmEligible's previewReady branch is itself built on", async () => {
+    const { hasMissingRequiredHeaders } = await import("@/app/data-hub/import/confirmEligibility");
+    const batch = { id: "b1", status: "READY" as const, originalFilename: "f.csv", contentType: "csv", sizeBytes: 10 };
+    const worksheet = {
+      id: "w1",
+      worksheetIndex: 0,
+      worksheetName: "CSV",
+      worksheetVisibility: "visible" as const,
+      worksheetIsEmpty: false,
+      canonicalStatus: "AWAITING_CONFIRMATION" as const,
+      importBatchId: "b1",
+      createdAt: "2024-01-01",
+      updatedAt: "2024-01-01",
+      confirmedBy: null,
+      confirmedAt: null,
+    };
+    const preview = (requiredHeadersPresent: boolean) => ({
+      worksheetId: "w1",
+      worksheetName: "CSV",
+      worksheetIndex: 0,
+      rowCount: 1,
+      columnCount: 3,
+      headers: ["report_date", "location"],
+      sampleRows: [["2024-01-01", "loc"]],
+      sampleRowCount: 1,
+      truncated: false,
+      requiredHeadersPresent,
+      missingRequiredHeaders: requiredHeadersPresent ? [] : ["waste_type"],
+    });
+
+    expect(
+      hasMissingRequiredHeaders({ phase: "previewReady" as const, batch, worksheet, preview: preview(false) })
+    ).toBe(true);
+    expect(
+      hasMissingRequiredHeaders({ phase: "previewReady" as const, batch, worksheet, preview: preview(true) })
+    ).toBe(false);
+    // previewFailed's own separate acknowledgement semantics are untouched
+    // by this predicate — never "missing headers" (header status is simply
+    // unknown in that phase, a different case entirely).
+    expect(
+      hasMissingRequiredHeaders({ phase: "previewFailed" as const, batch, worksheet, code: "NETWORK", message: "m" })
+    ).toBe(false);
+    expect(hasMissingRequiredHeaders({ phase: "confirmationReady" as const, batch, worksheet })).toBe(false);
+    expect(hasMissingRequiredHeaders({ phase: "previewing" as const, batch, worksheet })).toBe(false);
+  });
+
+  it("T4/M3: isConfirmEligible's previewReady branch is defined as the exact negation of hasMissingRequiredHeaders — a single source of truth, not two independently-drifting checks — so missing headers still disable confirmation", async () => {
+    const { isConfirmEligible, hasMissingRequiredHeaders } = await import("@/app/data-hub/import/confirmEligibility");
+    const code = fs.readFileSync(path.join(IMPORT_DIR, "confirmEligibility.ts"), "utf8");
+    expect(code).toMatch(/if \(state\.phase === "previewReady"\) return !hasMissingRequiredHeaders\(state\);/);
+    const batch = { id: "b1", status: "READY" as const, originalFilename: "f.csv", contentType: "csv", sizeBytes: 10 };
+    const worksheet = {
+      id: "w1",
+      worksheetIndex: 0,
+      worksheetName: "CSV",
+      worksheetVisibility: "visible" as const,
+      worksheetIsEmpty: false,
+      canonicalStatus: "AWAITING_CONFIRMATION" as const,
+      importBatchId: "b1",
+      createdAt: "2024-01-01",
+      updatedAt: "2024-01-01",
+      confirmedBy: null,
+      confirmedAt: null,
+    };
+    const missingState = {
+      phase: "previewReady" as const,
+      batch,
+      worksheet,
+      preview: {
+        worksheetId: "w1",
+        worksheetName: "CSV",
+        worksheetIndex: 0,
+        rowCount: 1,
+        columnCount: 2,
+        headers: ["report_date"],
+        sampleRows: [["2024-01-01"]],
+        sampleRowCount: 1,
+        truncated: false,
+        requiredHeadersPresent: false,
+        missingRequiredHeaders: ["waste_type"],
+      },
+    };
+    expect(hasMissingRequiredHeaders(missingState)).toBe(true);
+    expect(isConfirmEligible(missingState, false)).toBe(false);
+    expect(isConfirmEligible(missingState, true)).toBe(false); // acknowledgement is irrelevant here
+  });
+
+  it("T3/M1: ReviewPanel passes showConfirmationCopy={!hasMissingRequiredHeaders(state)} to ConfirmAction — reusing the exact predicate, never a second inline check", () => {
+    const code = fs.readFileSync(path.join(IMPORT_DIR, "_components", "ReviewPanel.tsx"), "utf8");
+    expect(code).toMatch(/showConfirmationCopy=\{!hasMissingRequiredHeaders\(state\)\}/);
+    expect(code).toMatch(/import \{[^}]*hasMissingRequiredHeaders[^}]*\} from "\.\.\/confirmEligibility"/);
+  });
+
+  it("T3/T5/M1/M2: ConfirmAction only renders the confirmation/count sentence when showConfirmationCopy is true (default true, preserving every other existing case unchanged)", () => {
+    const code = fs.readFileSync(path.join(IMPORT_DIR, "_components", "ConfirmAction.tsx"), "utf8");
+    expect(code).toMatch(/showConfirmationCopy\s*=\s*true/); // default preserves prior behavior everywhere else
+    const sentenceIdx = code.indexOf("Importing this file will create");
+    expect(sentenceIdx).toBeGreaterThan(-1);
+    // The sentence's own <p> must be gated on showConfirmationCopy, not
+    // rendered unconditionally.
+    const beforeSentence = code.slice(0, sentenceIdx);
+    const guardIdx = beforeSentence.lastIndexOf("showConfirmationCopy ? (");
+    expect(guardIdx).toBeGreaterThan(-1);
+  });
+
+  it("M3: the disabled-confirm safety behavior is untouched — the button's disabled attribute still considers eligible/busy exactly as before, independent of showConfirmationCopy", () => {
+    const code = fs.readFileSync(path.join(IMPORT_DIR, "_components", "ConfirmAction.tsx"), "utf8");
+    expect(code).toMatch(/disabled=\{!eligible \|\| busy\}/);
   });
 });
