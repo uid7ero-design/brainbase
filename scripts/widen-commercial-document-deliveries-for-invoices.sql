@@ -65,7 +65,28 @@
 -- already established, since "ADD CONSTRAINT IF NOT EXISTS" is not
 -- valid PostgreSQL syntax. Every statement here is safe to replay in
 -- full, in order, any number of times, against a database already at
--- the post-migration state.
+-- the post-migration state -- confirmed empirically by re-running all
+-- three statements a second time against a real rehearsal Preview
+-- branch and observing zero change to constraints or row count.
+--
+-- EXECUTION MECHANICS: this repo's `sql` client (lib/db.ts's
+-- neon(process.env.DATABASE_URL!)) runs a single statement per HTTP
+-- call -- it has no support for executing a raw multi-statement script
+-- blob in one call (confirmed empirically: sql.unsafe(fullFileText)
+-- awaited directly is silently a no-op, not an error, because
+-- sql.unsafe() only produces a fragment for interpolation INSIDE a
+-- tagged-template call, not a standalone executor). Whoever actually
+-- applies this migration must issue the three top-level statements
+-- below individually -- either via sql.query(statementText) once per
+-- statement (matching app/api/admin/migrate/route.ts's own established
+-- pattern of translating a scripts/*.sql file into individual driver
+-- calls, e.g. for scripts/add-crm-contact-classification.sql), or via
+-- a real Postgres client (psql, or Pool/Client from
+-- @neondatabase/serverless) that supports the simple query protocol's
+-- native multi-statement execution. This file remains the readable
+-- specification, exactly like every other scripts/*.sql file in this
+-- repo -- never a script this codebase's own HTTP driver can execute
+-- by simply reading and unsafe()-ing the whole file in one call.
 
 -- ── 1. Drop the quote-only composite FK ──────────────────────────────
 ALTER TABLE commercial_document_deliveries
