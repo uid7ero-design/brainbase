@@ -253,6 +253,21 @@ export interface WorksheetSummaryDTOClient {
   updatedAt: string;
   confirmedBy: string | null;
   confirmedAt: string | null;
+  // Data Hub 5A.3D.0 — durable worksheet-level retry/failure history,
+  // re-mirrored here from lib/data-hub/importBatch/read.ts's
+  // WorksheetSummaryDTO (PR #154). NULL/0 for a worksheet that has never
+  // had a mapping/validation failure recorded against it.
+  lastAttemptAt: string | null;
+  attemptCount: number;
+  lastFailureCode: string | null;
+  lastFailureMessage: string | null;
+  lastFailureRetryable: boolean | null;
+  // Data Hub 5A.3D.0 — authoritative, read-time count of domain rows this
+  // worksheet produced. `null` means "not applicable" (canonicalStatus is
+  // not IMPORTED); a genuine `0` is a real, truthful IMPORTED-with-zero-rows
+  // result and must never be collapsed into `null` — see read.ts's own
+  // attachImportedRowCounts comment.
+  importedRowCount: number | null;
 }
 
 export type ListWorksheetsResponseBody = { worksheets: WorksheetSummaryDTOClient[] } | { error: string };

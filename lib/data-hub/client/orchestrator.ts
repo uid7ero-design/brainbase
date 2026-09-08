@@ -39,6 +39,7 @@ import { generateIdempotencyKey } from "./fileHash";
 import type {
   ConfirmFailureCodeClient,
   DataHubUploadProgress,
+  ImportBatchDetailDTOClient,
   ImportBatchStatus,
   InitiatedBatchDTO,
   PersistedFailureCodeClient,
@@ -156,7 +157,22 @@ export type DataHubImportState =
    * state above (a malformed response, an unexpected batch status, etc.)
    * — never silently coerced into a success or a specific failure code
    * this module did not actually see. */
-  | { phase: "unknownError"; message: string; recoverable: boolean };
+  | { phase: "unknownError"; message: string; recoverable: boolean }
+  /** Data Hub 5A.3D.1 — entered ONLY by an explicit `resumeFromBatchId()`
+   * call (never automatically, never on construction). Transient: the
+   * batch's server-authoritative status is being fetched and reconciled
+   * into one of this union's EXISTING phases wherever a match exists (see
+   * `resumeFromBatchId`'s own doc comment for the full recovery matrix). */
+  | { phase: "resumingBatch"; batchId: string }
+  /** Data Hub 5A.3D.1 — a RECOVERED worksheet whose canonicalStatus is
+   * INELIGIBLE or SKIPPED: terminal and non-confirmable, hydrated
+   * truthfully from a fresh server read. Deliberately distinct from
+   * "confirmationReady" (which implies confirm() is a legitimate next
+   * action) and from "batchTerminal" (which is batch-scoped, not
+   * worksheet-scoped) — reusing either would misrepresent this state.
+   * confirm() does not accept this phase; calling it throws, exactly like
+   * every other phase confirm() does not recognize. */
+  | { phase: "worksheetTerminal"; batch: ImportBatchHandle; worksheet: WorksheetSummaryDTOClient; reason: "INELIGIBLE" | "SKIPPED" };
 
 export interface StartImportOptions {
   expectedSha256?: string;
@@ -186,6 +202,19 @@ export class DataHubIllegalDumpingImportSession {
   private idempotencyKey: string | null = null;
   private uploadAbortController: AbortController | null = null;
   private disposed = false;
+  /** Data Hub 5A.3D.1 — monotonically-incrementing token guarding
+   * `resumeFromBatchId()`'s own async continuations. Bumped at the start
+   * of every `resumeFromBatchId()` call AND at the start of `start()` (a
+   * fresh logical attempt supersedes any in-flight recovery, per Section
+   * 18/19 of the governing spec). A continuation whose captured generation
+   * no longer matches this field abandons silently (no setState) rather
+   * than risk overwriting whatever newer operation superseded it — the
+   * SAME safety goal `disposed` already serves for teardown, extended to
+   * cover "superseded but not disposed". Never read or mutated by any
+   * ordinary (non-resume) code path, so it has zero effect on `start()`'s
+   * own observable behavior for a caller that never calls
+   * `resumeFromBatchId()`. */
+  private resumeGeneration = 0;
 
   constructor(config: DataHubOrchestratorConfig = {}) {
     this.config = config;
@@ -223,6 +252,10 @@ export class DataHubIllegalDumpingImportSession {
   // -------------------------------------------------------------------
 
   async start(file: File, options: StartImportOptions = {}): Promise<void> {
+    // A fresh logical attempt always supersedes any in-flight
+    // resumeFromBatchId() recovery — see resumeGeneration's own comment.
+    // No effect on this method's own behavior otherwise.
+    this.resumeGeneration++;
     this.idempotencyKey = options.idempotencyKey ?? this.genKey();
     this.currentFile = file;
     await this.runInitiate(file, options.expectedSha256);
@@ -763,6 +796,219 @@ export class DataHubIllegalDumpingImportSession {
     }
     // Re-enter via confirm()'s own confirmFailed-accepting branch.
     await this.confirm();
+  }
+
+  // -------------------------------------------------------------------
+  // Data Hub 5A.3D.1 — import recovery / hydration from a persisted
+  // ImportBatch id (e.g. after a page reload). ONE public entry point,
+  // never auto-invoked (Section 12): constructing this session performs
+  // ZERO network calls, and this method only ever runs when a caller
+  // explicitly calls it. It never accepts anything beyond a batch id —
+  // never a caller-supplied status, never an organisationId (Section
+  // 14/17): every fact this method acts on is a FRESH server read,
+  // authoritative over any assumption a caller might otherwise smuggle in.
+  //
+  // RECOVERY MATRIX (Section 7/8) — every persisted ImportBatch status is
+  // mapped into an EXISTING DataHubImportState phase wherever one already
+  // carries the right meaning; only two new, narrowly-scoped phases were
+  // introduced (`resumingBatch`, `worksheetTerminal` — see their own doc
+  // comments on the union above) for the two cases nothing existing could
+  // honestly represent:
+  //   AWAITING_UPLOAD  -> batchTerminal (never mints upload authority,
+  //                       never pretends the original File still exists)
+  //   PROCESSING       -> batchTerminal (non-actionable from THIS session;
+  //                       never auto-retries finalize)
+  //   DELETION_PENDING -> batchTerminal (display-only, matches its
+  //                       existing non-resume meaning exactly)
+  //   FAILED           -> reconcileFromBatchStatus's EXISTING FAILED
+  //                       branch, unmodified (physicalFailed, hydrated
+  //                       from the same persisted failure columns)
+  //   READY            -> worksheet identity recovered via the EXISTING
+  //                       listWorksheetsForBatch call; if no worksheet
+  //                       exists yet, falls through to the EXISTING
+  //                       runInspect()->runObtainWorksheet() chain
+  //                       unmodified; if one exists, its canonicalStatus
+  //                       routes it honestly (AWAITING_CONFIRMATION ->
+  //                       confirmationReady; IMPORTED -> imported, using
+  //                       the 5A.3D.0 authoritative importedRowCount, 0
+  //                       preserved as 0, never fabricated; INELIGIBLE/
+  //                       SKIPPED -> worksheetTerminal)
+  //
+  // STALENESS SAFETY: `resumeGeneration` is bumped synchronously before
+  // this method's first await, and re-checked (together with `disposed`)
+  // after every await THIS method or its own private helpers perform —
+  // this bounds the protection to this method's own async gaps. Once
+  // execution is handed off to an EXISTING shared chain (runInspect for a
+  // not-yet-inspected READY batch, or reconcileFromBatchStatus for FAILED),
+  // that chain's own existing `disposed`-only protection applies, exactly
+  // as it already does for every other caller of those methods — this
+  // method deliberately does not retrofit generation-awareness into
+  // shared, ordinary-flow-serving private methods (doing so would risk
+  // Section 19's hard "ordinary flow unchanged" requirement for no real
+  // safety gain: a resume superseded that late is already a narrow,
+  // synthetic race, and `disposed` still prevents any UI-visible harm from
+  // it — see the independent review's own note on this boundary).
+  async resumeFromBatchId(batchId: string): Promise<void> {
+    const myGeneration = ++this.resumeGeneration;
+    this.setState({ phase: "resumingBatch", batchId });
+
+    const result = await callGetImportBatch(batchId, this.config);
+    if (this.disposed || myGeneration !== this.resumeGeneration) return;
+
+    if (result.kind !== "response") {
+      this.setState({
+        phase: "unknownError",
+        message: result.kind === "networkUncertain" ? result.message : "The import batch response could not be parsed.",
+        recoverable: true,
+      });
+      return;
+    }
+    const body = result.body;
+    if (!("batch" in body)) {
+      // Covers not-found, wrong-tenant, and malformed ids alike — read.ts's
+      // own getImportBatch already collapses all three into an identical
+      // BATCH_NOT_FOUND result (Section 15); this method adds no further
+      // distinction on top of that.
+      this.setState({ phase: "unknownError", message: body.error, recoverable: true });
+      return;
+    }
+
+    const detail = body.batch;
+    const batch: ImportBatchHandle = {
+      id: detail.id,
+      status: detail.status,
+      originalFilename: detail.originalFilename,
+      contentType: detail.contentType,
+      sizeBytes: detail.sizeBytes,
+    };
+
+    await this.runResumeFromDetail(batch, detail, myGeneration);
+  }
+
+  private async runResumeFromDetail(
+    batch: ImportBatchHandle,
+    detail: ImportBatchDetailDTOClient,
+    myGeneration: number
+  ): Promise<void> {
+    switch (detail.status) {
+      case "AWAITING_UPLOAD":
+        this.setState({
+          phase: "batchTerminal",
+          batch,
+          message:
+            "This import was never completed, and the original file is no longer available in this browser session. Start a new import to continue.",
+        });
+        return;
+      case "PROCESSING":
+        this.setState({
+          phase: "batchTerminal",
+          batch,
+          message: "This import is currently being processed and cannot be resumed from this browser yet. Check back shortly.",
+        });
+        return;
+      case "DELETION_PENDING":
+        this.setState({ phase: "batchTerminal", batch, message: "This import batch is pending deletion and cannot be resumed." });
+        return;
+      case "FAILED":
+        // Reuses the EXISTING FAILED branch of reconcileFromBatchStatus
+        // unmodified — same phase, same hydrated failure fields, same "no
+        // invented retry" posture.
+        await this.reconcileFromBatchStatus(batch, "FAILED", {
+          sha256: detail.sha256,
+          lastFailureCode: detail.lastFailureCode,
+          lastFailureMessage: detail.lastFailureMessage,
+          lastFailureRetryable: detail.lastFailureRetryable,
+        });
+        return;
+      case "READY":
+        await this.runResumeReadyWorksheetRecovery(batch, detail, myGeneration);
+        return;
+      default: {
+        const _exhaustive: never = detail.status;
+        this.setState({ phase: "unknownError", message: `Unrecognized batch status: ${String(_exhaustive)}`, recoverable: false });
+      }
+    }
+  }
+
+  private async runResumeReadyWorksheetRecovery(
+    batch: ImportBatchHandle,
+    detail: ImportBatchDetailDTOClient,
+    myGeneration: number
+  ): Promise<void> {
+    const result = await callListWorksheets(batch.id, this.config);
+    if (this.disposed || myGeneration !== this.resumeGeneration) return;
+
+    if (result.kind === "networkUncertain") {
+      this.setState({ phase: "obtainWorksheetFailed", batch, message: result.message });
+      return;
+    }
+    if (result.kind === "malformed") {
+      this.setState({ phase: "obtainWorksheetFailed", batch, message: "The worksheets list response could not be parsed." });
+      return;
+    }
+    if (!("worksheets" in result.body)) {
+      this.setState({ phase: "obtainWorksheetFailed", batch, message: result.body.error });
+      return;
+    }
+
+    const worksheets = result.body.worksheets;
+    if (worksheets.length === 0) {
+      // Not yet inspected in any prior session — reuse EXISTING
+      // reconciliation exactly as finalize-uncertainty already does for a
+      // freshly-discovered READY batch (Section 7: "Do not fork a separate
+      // implementation"): physicalReady (with the persisted sha256) then
+      // its own unmodified auto-chain into inspect -> obtain-worksheet.
+      await this.reconcileFromBatchStatus(batch, "READY", {
+        sha256: detail.sha256,
+        lastFailureCode: detail.lastFailureCode,
+        lastFailureMessage: detail.lastFailureMessage,
+        lastFailureRetryable: detail.lastFailureRetryable,
+      });
+      return;
+    }
+    if (worksheets.length !== 1) {
+      this.setState({
+        phase: "obtainWorksheetFailed",
+        batch,
+        message: `Expected exactly one CSV worksheet, found ${worksheets.length}.`,
+      });
+      return;
+    }
+
+    const worksheet = worksheets[0];
+    switch (worksheet.canonicalStatus) {
+      case "AWAITING_CONFIRMATION":
+        this.setState({ phase: "confirmationReady", batch, worksheet });
+        return;
+      case "IMPORTED": {
+        // Authoritative 5A.3D.0 read-time count — never reconstructed from
+        // a prior transient confirm response, genuine zero preserved. A
+        // `null` count here would contradict attachImportedRowCounts' own
+        // invariant (every IMPORTED worksheet always has a real, possibly-
+        // zero count) — mirrors the existing READY-but-sha256-null
+        // precedent below: never fabricated, surfaced honestly instead of
+        // silently coerced to 0.
+        const importedRowCount = worksheet.importedRowCount;
+        if (importedRowCount === null) {
+          this.setState({
+            phase: "unknownError",
+            message: "Worksheet reports IMPORTED but no imported row count was returned.",
+            recoverable: false,
+          });
+          return;
+        }
+        this.setState({ phase: "imported", batch, worksheetId: worksheet.id, importedRows: importedRowCount });
+        return;
+      }
+      case "INELIGIBLE":
+      case "SKIPPED":
+        this.setState({ phase: "worksheetTerminal", batch, worksheet, reason: worksheet.canonicalStatus });
+        return;
+      default: {
+        const _exhaustive: never = worksheet.canonicalStatus;
+        this.setState({ phase: "unknownError", message: `Unrecognized worksheet status: ${String(_exhaustive)}`, recoverable: false });
+      }
+    }
   }
 }
 
