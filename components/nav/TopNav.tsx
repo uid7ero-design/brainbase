@@ -1824,6 +1824,33 @@ function AppNav({
           </span>
         </Link>
 
+        {/* Organisation Branding (Phase 2) — admin+ only, matching the
+            settings page/API's own auth floor exactly (see
+            app/api/organisations/branding/route.ts). Inline
+            role === 'admin' || role === 'super_admin' check, matching
+            this file's own existing isSuperAdmin convention above —
+            lib/session.ts's roleGte/ROLE_ORDER are behind a
+            'server-only' import and cannot be imported into this
+            client component. */}
+        {(role === 'admin' || role === 'super_admin') && (
+          <>
+            <Divider />
+            <Link
+              href="/settings/branding"
+              style={{
+                fontSize: 13,
+                fontWeight: 500,
+                textDecoration: 'none',
+                padding: '5px 8px',
+                borderRadius: 7,
+                color: pathname.startsWith('/settings/branding') ? '#A78BFA' : 'rgba(255,255,255,.5)',
+              }}
+            >
+              Branding
+            </Link>
+          </>
+        )}
+
         <Divider />
 
         <button
