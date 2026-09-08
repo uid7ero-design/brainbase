@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import fs from 'fs'
 import path from 'path'
 import type { NextRequest } from 'next/server'
@@ -323,6 +323,91 @@ describe('import.completed — POST /api/organiser/boards/[boardId]/import', () 
       subitemsLinked: 0,
       unmatchedSubitems: [],
     })
+  })
+})
+
+// ── IMPORT.COMPLETED — ACTIVITY-INSERT FAILURE SEMANTICS (D.4.6G-R) ──────
+//
+// By the time the import.completed INSERT runs, the import itself has
+// ALREADY fully committed (every item/group/subitem write happened in
+// the loops above, which this describe block leaves completely
+// untouched/successful). If that one housekeeping INSERT throws, the
+// route must still report the real, already-persisted outcome — never
+// let a rare audit-log failure masquerade as a failed import, which
+// would both lie to the caller and invite a retry that would duplicate
+// the entire import (this route has no idempotency protection of any
+// kind). Mirrors app/api/chat/route.ts's own established logAgentRun()
+// pattern for exactly this class of non-critical-path audit write.
+describe('import.completed — activity INSERT failure does not turn a successful import into a client-visible failure', () => {
+  function csvFormData(csv: string): FormData {
+    const fd = new FormData()
+    fd.set('file', new File([csv], 'items.csv', { type: 'text/csv' }))
+    return fd
+  }
+  function importReq(fd: FormData): NextRequest {
+    return asNextRequest(new Request('http://localhost/x', { method: 'POST', body: fd }))
+  }
+
+  let warnSpy: ReturnType<typeof vi.spyOn>
+
+  beforeEach(() => {
+    sqlResult = [{ id: 'item-1', next: 0, name: 'Task', position: 0 }]
+    warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    // Every call succeeds with the shared sqlResult EXCEPT the
+    // import.completed activity INSERT itself, which rejects — isolating
+    // failure to exactly the one statement this test targets, regardless
+    // of exact call ordering/count (robust to future unrelated changes
+    // in how many calls precede it).
+    sqlMock.mockImplementation((strings: TemplateStringsArray, ...values: unknown[]) => {
+      const text = strings.join('§')
+      sqlCalls.push({ text, values })
+      if (text.includes('INSERT INTO organiser_activity') && text.includes('import.completed')) {
+        return Promise.reject(new Error('connection reset by peer'))
+      }
+      return Promise.resolve(sqlResult)
+    })
+  })
+
+  afterEach(() => { warnSpy.mockRestore() })
+
+  it('the route still returns the same successful response, with correct counts, despite the activity insert failing', async () => {
+    const res = await importRoute.POST(importReq(csvFormData('Item Name\nTask One\n')), BOARD_CTX)
+    expect(res.status).toBe(200)
+    const json = await res.json()
+    expect(json).toEqual({
+      success: true,
+      groupsCreated: 0,
+      itemsCreated: 1,
+      subitemsLinked: 0,
+      unmatchedSubitems: [],
+    })
+  })
+
+  it('exactly one import.completed INSERT is attempted — the failure is handled once, no internal retry/second attempt', async () => {
+    await importRoute.POST(importReq(csvFormData('Item Name\nTask One\n')), BOARD_CTX)
+    const activityAttempts = sqlCalls.filter(c => c.text.includes('INSERT INTO organiser_activity'))
+    expect(activityAttempts).toHaveLength(1)
+  })
+
+  it('the failure is logged for operators (not silently swallowed), with only the error message — never row/file content or secrets', async () => {
+    await importRoute.POST(importReq(csvFormData('Item Name\nTask One\n')), BOARD_CTX)
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+    const [, loggedValue] = warnSpy.mock.calls[0]
+    expect(String(loggedValue)).toBe('connection reset by peer')
+    expect(String(loggedValue)).not.toMatch(/items\.csv|Task One|DATABASE_URL|postgres:\/\//i)
+  })
+
+  it('a genuinely successful activity insert (no forced failure) still writes exactly one row and logs nothing', async () => {
+    // Restore the normal, always-succeeding mock for this one test.
+    sqlMock.mockImplementation((strings: TemplateStringsArray, ...values: unknown[]) => {
+      sqlCalls.push({ text: strings.join('§'), values })
+      return Promise.resolve(sqlResult)
+    })
+    const res = await importRoute.POST(importReq(csvFormData('Item Name\nTask One\n')), BOARD_CTX)
+    expect(res.status).toBe(200)
+    const activityAttempts = sqlCalls.filter(c => c.text.includes('INSERT INTO organiser_activity'))
+    expect(activityAttempts).toHaveLength(1)
+    expect(warnSpy).not.toHaveBeenCalled()
   })
 })
 

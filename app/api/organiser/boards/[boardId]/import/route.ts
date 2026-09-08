@@ -181,24 +181,47 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ boa
   // both derived counts, never the actual skipped row content or the
   // unmatched parent-name strings themselves (those may contain raw
   // spreadsheet cell data). No filename, no file URL, no row content.
-  await sql`
-    INSERT INTO organiser_activity (
-      organisation_id, board_id, actor_user_id, actor_name,
-      event_type, entity_type, entity_id, before_json, after_json
-    )
-    VALUES (
-      ${session.organisationId}, ${boardId}, ${session.userId}, ${session.name},
-      'import.completed', 'import', ${boardId}, NULL,
-      ${JSON.stringify({
-        imported_count: itemsCreated,
-        groups_created: groupsCreated,
-        subitems_linked: subitemsLinked,
-        skipped_count: rawRows.length - itemsCreated,
-        unmatched_subitems_count: unmatchedSubitems.length,
-        source_type: isCsv ? 'csv' : 'xlsx',
-      })}::jsonb
-    )
-  `;
+  //
+  // Phase D.4.6G-R — best-effort, not best-effect: by this point the
+  // import itself has already fully committed (every item/group/subitem
+  // write above is real and done). Letting this INSERT's failure
+  // propagate unhandled would turn an already-successful import into a
+  // client-visible 500 — the exact "false failure" class of bug this
+  // route must never introduce (a retry on a false failure would
+  // duplicate the entire import, since nothing about this route is
+  // idempotent). Mirrors the exact established pattern this codebase
+  // already uses for a similar non-critical-path audit write —
+  // logAgentRun() in app/api/chat/route.ts's own `.catch(err =>
+  // console.warn(...))` — except this one IS awaited (not fire-and-
+  // forget): the board Activity feed and Helena's board-activity tool
+  // are both user-visible surfaces a caller may check immediately after
+  // this response returns, so the insert should have genuinely finished
+  // (or genuinely failed) before the response is sent, not still be
+  // racing in the background. Only the error's own message is logged —
+  // never the full error object, never any row/file content, matching
+  // the same bounded-logging convention as logAgentRun.
+  try {
+    await sql`
+      INSERT INTO organiser_activity (
+        organisation_id, board_id, actor_user_id, actor_name,
+        event_type, entity_type, entity_id, before_json, after_json
+      )
+      VALUES (
+        ${session.organisationId}, ${boardId}, ${session.userId}, ${session.name},
+        'import.completed', 'import', ${boardId}, NULL,
+        ${JSON.stringify({
+          imported_count: itemsCreated,
+          groups_created: groupsCreated,
+          subitems_linked: subitemsLinked,
+          skipped_count: rawRows.length - itemsCreated,
+          unmatched_subitems_count: unmatchedSubitems.length,
+          source_type: isCsv ? 'csv' : 'xlsx',
+        })}::jsonb
+      )
+    `;
+  } catch (err) {
+    console.warn('[Organiser import] Failed to record import.completed activity:', (err as Error).message);
+  }
 
   return NextResponse.json({
     success: true,
