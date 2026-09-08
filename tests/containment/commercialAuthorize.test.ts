@@ -79,6 +79,85 @@ describe('Phase C2 — authorizeCommercialRequest (fail-closed composition)', ()
   })
 })
 
+describe('Phase C4.4A (Finding 3) — authorizeCommercialRequest with an ARRAY of capability keys: OR semantics', () => {
+  it('entitled to the FIRST listed key -> success, and the second key is never even checked (short-circuit)', async () => {
+    requireSessionMock.mockResolvedValue({ organisationId: 'org-a', userId: 'u1', role: 'admin', name: 'A' })
+    requireCapabilityMock.mockResolvedValue({ key: 'quotes', config: {} })
+    const { authorizeCommercialRequest } = await import('@/lib/commercial/authorize')
+    const result = await authorizeCommercialRequest(['quotes', 'invoicing'], 'viewer')
+    expect(result.ok).toBe(true)
+    expect(requireCapabilityMock).toHaveBeenCalledTimes(1)
+    expect(requireCapabilityMock).toHaveBeenCalledWith('org-a', 'quotes')
+  })
+
+  it('NOT entitled to the first key but entitled to the SECOND -> still succeeds (genuine OR, not just "first key wins")', async () => {
+    requireSessionMock.mockResolvedValue({ organisationId: 'org-a', userId: 'u1', role: 'admin', name: 'A' })
+    const { CapabilityAccessError } = await import('@/lib/capabilities/requireCapability')
+    requireCapabilityMock.mockRejectedValueOnce(new CapabilityAccessError('NO_ENTITLEMENT'))
+    requireCapabilityMock.mockResolvedValueOnce({ key: 'invoicing', config: {} })
+    const { authorizeCommercialRequest } = await import('@/lib/commercial/authorize')
+    const result = await authorizeCommercialRequest(['quotes', 'invoicing'], 'viewer')
+    expect(result.ok).toBe(true)
+    expect(requireCapabilityMock).toHaveBeenCalledTimes(2)
+    expect(requireCapabilityMock).toHaveBeenNthCalledWith(1, 'org-a', 'quotes')
+    expect(requireCapabilityMock).toHaveBeenNthCalledWith(2, 'org-a', 'invoicing')
+  })
+
+  it('entitled to NEITHER listed key -> 403, every key was checked', async () => {
+    requireSessionMock.mockResolvedValue({ organisationId: 'org-a', userId: 'u1', role: 'admin', name: 'A' })
+    const { CapabilityAccessError } = await import('@/lib/capabilities/requireCapability')
+    requireCapabilityMock.mockRejectedValue(new CapabilityAccessError('NO_ENTITLEMENT'))
+    const { authorizeCommercialRequest } = await import('@/lib/commercial/authorize')
+    const result = await authorizeCommercialRequest(['quotes', 'invoicing'], 'viewer')
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.response.status).toBe(403)
+    expect(requireCapabilityMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('one key errors with CapabilityDatabaseError, no key is entitled -> 503 (never confidently reports forbidden when the true answer might be allowed)', async () => {
+    requireSessionMock.mockResolvedValue({ organisationId: 'org-a', userId: 'u1', role: 'admin', name: 'A' })
+    const { CapabilityAccessError, CapabilityDatabaseError } = await import('@/lib/capabilities/requireCapability')
+    requireCapabilityMock.mockRejectedValueOnce(new CapabilityDatabaseError())
+    requireCapabilityMock.mockRejectedValueOnce(new CapabilityAccessError('NO_ENTITLEMENT'))
+    const { authorizeCommercialRequest } = await import('@/lib/commercial/authorize')
+    const result = await authorizeCommercialRequest(['quotes', 'invoicing'], 'viewer')
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.response.status).toBe(503)
+  })
+
+  it('FIRST key is conclusively DENIED, SECOND key raises CapabilityDatabaseError, no key entitled -> 503, never 403 (the reverse ordering of the case above — order must not matter)', async () => {
+    requireSessionMock.mockResolvedValue({ organisationId: 'org-a', userId: 'u1', role: 'admin', name: 'A' })
+    const { CapabilityAccessError, CapabilityDatabaseError } = await import('@/lib/capabilities/requireCapability')
+    requireCapabilityMock.mockRejectedValueOnce(new CapabilityAccessError('NO_ENTITLEMENT'))
+    requireCapabilityMock.mockRejectedValueOnce(new CapabilityDatabaseError())
+    const { authorizeCommercialRequest } = await import('@/lib/commercial/authorize')
+    const result = await authorizeCommercialRequest(['quotes', 'invoicing'], 'viewer')
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.response.status).toBe(503)
+    expect(requireCapabilityMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('one key errors with CapabilityDatabaseError but a LATER key is genuinely entitled -> still succeeds (the transient error on one key never blocks a real entitlement on another)', async () => {
+    requireSessionMock.mockResolvedValue({ organisationId: 'org-a', userId: 'u1', role: 'admin', name: 'A' })
+    const { CapabilityDatabaseError } = await import('@/lib/capabilities/requireCapability')
+    requireCapabilityMock.mockRejectedValueOnce(new CapabilityDatabaseError())
+    requireCapabilityMock.mockResolvedValueOnce({ key: 'invoicing', config: {} })
+    const { authorizeCommercialRequest } = await import('@/lib/commercial/authorize')
+    const result = await authorizeCommercialRequest(['quotes', 'invoicing'], 'viewer')
+    expect(result.ok).toBe(true)
+  })
+
+  it('the single-key path (a bare string, not an array) is completely unaffected — same call shape as before this phase', async () => {
+    requireSessionMock.mockResolvedValue({ organisationId: 'org-a', userId: 'u1', role: 'admin', name: 'A' })
+    requireCapabilityMock.mockResolvedValue({ key: 'invoicing', config: {} })
+    const { authorizeCommercialRequest } = await import('@/lib/commercial/authorize')
+    const result = await authorizeCommercialRequest('invoicing', 'viewer')
+    expect(result.ok).toBe(true)
+    expect(requireCapabilityMock).toHaveBeenCalledTimes(1)
+    expect(requireCapabilityMock).toHaveBeenCalledWith('org-a', 'invoicing')
+  })
+})
+
 describe('Phase C2 — COMMERCIAL_MIN_ROLE reusable defaults', () => {
   it('view <= createEdit <= approve == administer, matching the four operation classes named in the C2 brief', async () => {
     const { COMMERCIAL_MIN_ROLE } = await import('@/lib/commercial/authorize')

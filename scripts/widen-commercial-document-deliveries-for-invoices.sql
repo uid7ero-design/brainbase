@@ -87,6 +87,26 @@
 -- specification, exactly like every other scripts/*.sql file in this
 -- repo -- never a script this codebase's own HTTP driver can execute
 -- by simply reading and unsafe()-ing the whole file in one call.
+--
+-- PREFERRED PRODUCTION EXECUTION METHOD (Phase C4.4A) -- ATOMIC:
+-- the neon() client's own sql.transaction([...]) function ("multiple
+-- queries...submitted (over HTTP) as a single, non-interactive Postgres
+-- transaction", per its own type-declaration doc comment) genuinely
+-- provides atomic DDL for exactly this shape of migration -- confirmed
+-- empirically against a real, isolated Neon Preview branch: all three
+-- statements below, passed as
+-- `sql.transaction([sql\`...\`, sql\`...\`, sql\`...\`])`, committed
+-- together in one call, AND a separate rehearsal (an equivalent
+-- transaction against disposable Preview state, with a deliberately
+-- failing statement placed after an earlier valid ALTER TABLE) proved
+-- the earlier statement's DDL change is genuinely rolled back when a
+-- later statement in the same array fails. This eliminates the
+-- individually-issued-statements partial-execution question entirely --
+-- prefer sql.transaction([...]) over three separate sql.query() calls
+-- for the actual Production execution, with the statement-by-statement
+-- fallback above kept only for a context where sql.transaction() is
+-- unavailable (e.g. a plain psql session, which has its own native
+-- BEGIN/COMMIT for the same effect).
 
 -- ── 1. Drop the quote-only composite FK ──────────────────────────────
 ALTER TABLE commercial_document_deliveries

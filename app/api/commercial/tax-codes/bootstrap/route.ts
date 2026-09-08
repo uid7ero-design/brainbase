@@ -10,7 +10,7 @@ import { seedStandardAustralianTaxCodes } from '@/lib/commercial/taxCodeBootstra
 // once (see lib/commercial/taxCodeBootstrap.ts's own ON CONFLICT DO
 // NOTHING).
 export async function POST() {
-  const auth = await authorizeCommercialRequest('quotes', COMMERCIAL_MIN_ROLE.administer);
+  const auth = await authorizeCommercialRequest(['quotes', 'invoicing'], COMMERCIAL_MIN_ROLE.administer);
   if (!auth.ok) return auth.response;
 
   const result = await seedStandardAustralianTaxCodes(auth.session.organisationId);

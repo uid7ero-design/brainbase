@@ -19,13 +19,36 @@ export default function CustomerDetailPage() {
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [loading, setLoading] = useState(true);
   const [showEdit, setShowEdit] = useState(false);
+  // Phase C4.4A (Finding 3 remediation) — a customer is a SHARED
+  // resource now reachable by quotes-only and invoicing-only
+  // organisations alike, but the "New Quote"/"New Invoice" ACTIONS
+  // themselves must not be. Read from /api/me's own enabledCapabilities
+  // (the same mechanism app/commercial/quotes/[id]/page.tsx already
+  // uses for its own "Create Invoice" gating) rather than assuming
+  // every visitor of this page has Quotes — an invoicing-only
+  // organisation reaching this page must never see a "New Quote" button
+  // that would 403 the moment it's clicked.
+  const [hasQuotes, setHasQuotes] = useState(false);
+  const [hasInvoicing, setHasInvoicing] = useState(false);
 
   const load = useCallback(async () => {
-    const res = await fetch(`/api/commercial/customers/${id}`);
+    const [res, meRes] = await Promise.all([fetch(`/api/commercial/customers/${id}`), fetch('/api/me')]);
     if (res.ok) setCustomer((await res.json()).customer);
+    if (meRes.ok) {
+      const me = await meRes.json();
+      const keys = new Set((me.enabledCapabilities ?? []).map((c: { key: string }) => c.key));
+      setHasQuotes(keys.has('quotes'));
+      setHasInvoicing(keys.has('invoicing'));
+    }
     setLoading(false);
   }, [id]);
 
+  // Mirrors the identical, pre-existing load()-in-effect pattern already
+  // used unmodified throughout Commercial — a pre-existing violation of
+  // this rule, not introduced by this phase (confirmed via direct diff
+  // against this file's own pre-C4.4A content); silenced only because
+  // this file is already being touched for Finding 3 remediation.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { load(); }, [load]);
 
   async function toggleActive() {
@@ -50,7 +73,8 @@ export default function CustomerDetailPage() {
           <button onClick={toggleActive} style={btn(customer.active ? 'rgba(239,68,68,0.15)' : 'rgba(74,222,128,0.15)', customer.active ? '#f87171' : '#4ade80')}>
             {customer.active ? 'Deactivate' : 'Reactivate'}
           </button>
-          <Link href={`/commercial/quotes/new?customerId=${customer.id}`} style={{ ...btn('#1a6aff'), textDecoration: 'none', display: 'inline-block' }}>New Quote</Link>
+          {hasQuotes && <Link href={`/commercial/quotes/new?customerId=${customer.id}`} style={{ ...btn('#1a6aff'), textDecoration: 'none', display: 'inline-block' }}>New Quote</Link>}
+          {hasInvoicing && <Link href={`/commercial/invoices/new?customerId=${customer.id}`} style={{ ...btn('#1a6aff'), textDecoration: 'none', display: 'inline-block' }}>New Invoice</Link>}
         </div>
       </div>
 
