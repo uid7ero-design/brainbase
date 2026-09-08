@@ -74,22 +74,31 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
 
   const { groupId } = await params;
 
-  // Phase D.4.5F — group.deleted. before_json preserves the group's name;
-  // after_json is NULL. IMPORTANT (see the D.4.5F task's own explicit
-  // instruction): organiser_items.group_id is
-  // "REFERENCES organiser_groups(id) ON DELETE SET NULL" (see
-  // app/api/admin/migrate/route.ts step 35) — deleting a group moves its
-  // items to "No group" via this FK constraint, entirely inside Postgres,
-  // invisible to and untouched by this route's own SQL. This route never
-  // reads or writes organiser_items, so it has no way to know — let alone
-  // prove — which individual items were affected without an extra,
-  // separately-racy pre-DELETE read. Recording a per-item item.moved event
-  // here would therefore be fabricated, not observed. Only ONE group.deleted
-  // event is recorded; the item-side effect is a real, silent, DB-level
-  // side effect of this delete that this phase deliberately does not
-  // synthesize history for.
+  // Phase D.4.5F — group.deleted. before_json preserves the group's name.
+  // IMPORTANT: organiser_items.group_id is "REFERENCES organiser_groups(id)
+  // ON DELETE SET NULL" (see app/api/admin/migrate/route.ts step 35) —
+  // deleting a group moves its items to "No group" via this FK constraint,
+  // entirely inside Postgres. D.4.5F deliberately did not attempt to prove
+  // which INDIVIDUAL items were affected (a per-item item.moved event here
+  // would be fabricated, not observed, without a racy separate read) —
+  // that restraint is unchanged. What D.4.6H adds is a bounded COUNT, not
+  // per-item history: `would_orphan` below counts matching items BEFORE
+  // the DELETE fires, in the SAME statement. This is not the "separately-
+  // racy pre-DELETE read" D.4.5F declined to do — per PostgreSQL's own
+  // documented WITH-query semantics (all statements in a single WITH
+  // clause share the same snapshot and never see each other's writes,
+  // regardless of the planner's actual execution order), a sibling
+  // read-only CTE is guaranteed to see the pre-cascade state no matter
+  // when it actually runs relative to `deleted`. Empirically re-verified
+  // against a real disposable PostgreSQL instance (see this phase's
+  // report) before relying on it here. affected_item_count is therefore a
+  // true, non-fabricated fact — never per-item detail, never row content.
   const rows = await sql`
-    WITH deleted AS (
+    WITH would_orphan AS (
+      SELECT COUNT(*)::int AS n FROM organiser_items
+      WHERE group_id = ${groupId} AND organisation_id = ${session.organisationId}
+    ),
+    deleted AS (
       DELETE FROM organiser_groups
       WHERE id = ${groupId} AND organisation_id = ${session.organisationId}
       RETURNING id, board_id, name
@@ -103,8 +112,8 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
         ${session.organisationId}, deleted.board_id, ${session.userId}, ${session.name},
         'group.deleted', 'group', deleted.id::text,
         jsonb_build_object('name', organiser_activity_sanitise_scalar(to_jsonb(deleted.name))),
-        NULL
-      FROM deleted
+        jsonb_build_object('affected_item_count', would_orphan.n)
+      FROM deleted, would_orphan
       RETURNING id
     )
     SELECT id FROM deleted

@@ -118,17 +118,30 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   const { boardId } = await params;
 
   // Phase D.4.5F — board.deleted. before_json preserves the board's name
-  // (the only field worth keeping a snapshot of); after_json is NULL, same
-  // convention as item.deleted. organiser_activity.board_id carries no FK
-  // to organiser_boards (see the CREATE TABLE comment in
-  // app/api/admin/migrate/route.ts, step 40) specifically so this row —
-  // and every other activity row this board's own DELETE CASCADE removes
-  // history for via organiser_groups/organiser_items — is never itself
-  // cascaded away; the DELETE below only ever removes the organiser_boards
-  // row and whatever legitimately FK-cascades from it, never
-  // organiser_activity.
+  // (the only field worth keeping a snapshot of). organiser_activity.
+  // board_id carries no FK to organiser_boards (see the CREATE TABLE
+  // comment in app/api/admin/migrate/route.ts, step 40) specifically so
+  // this row — and every other activity row this board's own DELETE
+  // CASCADE removes history for via organiser_groups/organiser_items — is
+  // never itself cascaded away. Confirmed by design, re-verified this
+  // phase: deleting a board does NOT delete its own or its descendants'
+  // activity history at the DB level (only the entity rows themselves
+  // cascade; organiser_activity has no FK to any of them).
+  //
+  // Phase D.4.6H — after_json now carries affected_group_count/
+  // affected_item_count: a bounded, same-statement COUNT of exactly what
+  // this cascade is about to destroy, computed BEFORE the DELETE fires
+  // (same cycle-safe "sibling CTEs share one snapshot" guarantee used for
+  // group.deleted above — see that route's own comment for the full
+  // reasoning). Never per-row detail, never names, never content — counts
+  // only.
   const rows = await sql`
-    WITH deleted AS (
+    WITH would_cascade AS (
+      SELECT
+        (SELECT COUNT(*)::int FROM organiser_groups WHERE board_id = ${boardId} AND organisation_id = ${session.organisationId}) AS groups,
+        (SELECT COUNT(*)::int FROM organiser_items  WHERE board_id = ${boardId} AND organisation_id = ${session.organisationId}) AS items
+    ),
+    deleted AS (
       DELETE FROM organiser_boards
       WHERE id = ${boardId} AND organisation_id = ${session.organisationId}
       RETURNING id, name
@@ -142,8 +155,8 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
         ${session.organisationId}, deleted.id, ${session.userId}, ${session.name},
         'board.deleted', 'board', deleted.id::text,
         jsonb_build_object('name', organiser_activity_sanitise_scalar(to_jsonb(deleted.name))),
-        NULL
-      FROM deleted
+        jsonb_build_object('affected_group_count', would_cascade.groups, 'affected_item_count', would_cascade.items)
+      FROM deleted, would_cascade
       RETURNING id
     )
     SELECT id FROM deleted

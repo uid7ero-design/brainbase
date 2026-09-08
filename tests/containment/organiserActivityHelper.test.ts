@@ -47,8 +47,11 @@ const BASE_ENTRY = {
 }
 
 describe('taxonomy exports', () => {
-  it('ORGANISER_EVENT_TYPES has exactly 17 entries', () => {
-    expect(ORGANISER_EVENT_TYPES).toHaveLength(17)
+  // Phase D.4.6H — 18 entries: adds 'comment.deleted' (see
+  // lib/organiser/activity.ts's own header comment for the full taxonomy).
+  it('ORGANISER_EVENT_TYPES has exactly 18 entries', () => {
+    expect(ORGANISER_EVENT_TYPES).toHaveLength(18)
+    expect(ORGANISER_EVENT_TYPES).toContain('comment.deleted')
   })
 
   it('ORGANISER_ENTITY_TYPES has exactly the 7 approved entity types', () => {

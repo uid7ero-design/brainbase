@@ -115,14 +115,14 @@ describe('event_type CHECK constraint — exact parity with the TypeScript union
     expect(sqlTypes).toEqual(ORGANISER_EVENT_TYPES)
   })
 
-  it('ORGANISER_EVENT_TYPES itself is exactly the 17-entry authoritative list from the D.4.5A audit (the audit\'s own "14 types" prose summary was wrong and is not reproduced here)', () => {
-    expect(ORGANISER_EVENT_TYPES).toHaveLength(17)
+  it('ORGANISER_EVENT_TYPES itself is exactly the 18-entry authoritative list — the original 17-entry D.4.5A audit list (the audit\'s own "14 types" prose summary was wrong and is not reproduced here) plus D.4.6H\'s comment.deleted', () => {
+    expect(ORGANISER_EVENT_TYPES).toHaveLength(18)
     expect(ORGANISER_EVENT_TYPES).toEqual([
       'board.created', 'board.updated', 'board.deleted',
       'group.created', 'group.updated', 'group.deleted',
       'column.created', 'column.updated', 'column.deleted',
       'item.created', 'item.updated', 'item.moved', 'item.deleted',
-      'comment.created',
+      'comment.created', 'comment.deleted',
       'file.added', 'file.deleted',
       'import.completed',
     ])
@@ -191,8 +191,10 @@ describe('containment — no backfill, no existing-table changes, no unrelated s
     expect(BLOCK).not.toMatch(/'Unknown'/)
   })
 
-  it('does not ALTER any existing organiser_* table (organiser_items in particular — no assignee_user_id column added)', () => {
-    expect(BLOCK).not.toMatch(/ALTER TABLE organiser_/)
+  it('does not ALTER any existing organiser_* table\'s COLUMNS/DATA (organiser_items in particular — no assignee_user_id column added) — the one deliberate exception is organiser_activity.event_type\'s own CHECK constraint, widened in D.4.6H to add comment.deleted (a constraint definition change, never a column or data change)', () => {
+    const knownConstraintWidening = /ALTER TABLE organiser_activity (DROP CONSTRAINT IF EXISTS organiser_activity_event_type_check|ADD CONSTRAINT organiser_activity_event_type_check CHECK[\s\S]*?\)\))/g
+    const withoutKnownWidening = BLOCK.replace(knownConstraintWidening, '')
+    expect(withoutKnownWidening).not.toMatch(/ALTER TABLE organiser_/)
     expect(MIGRATE_ROUTE_SOURCE).not.toMatch(/assignee_user_id/)
   })
 
@@ -215,13 +217,15 @@ describe('containment — no backfill, no existing-table changes, no unrelated s
   // the last one this phase's own audit accounted for — has not
   // occurred; a real, separately-approved step was appended, so the
   // boundary moves again rather than the assertion being weakened.
-  it('step 42 (crm_contacts.classification) is the current highest step — no step numbered higher than 42 exists yet', () => {
+  it('step 43 (organiser_activity.event_type — add comment.deleted) is the current highest step — no step numbered higher than 43 exists yet', () => {
     const step40Idx = CODE.indexOf("step('40. organiser_activity')")
     const step41Idx = CODE.indexOf("step('41. organiser_activity_sanitise_scalar')")
     const step42Idx = CODE.indexOf("step('42. crm_contacts.classification')")
+    const step43Idx = CODE.indexOf("step('43. organiser_activity.event_type")
     expect(step41Idx).toBeGreaterThan(step40Idx)
     expect(step42Idx).toBeGreaterThan(step41Idx)
-    expect(CODE).not.toMatch(/step\('4[3-9]\./)
+    expect(step43Idx).toBeGreaterThan(step42Idx)
+    expect(CODE).not.toMatch(/step\('4[4-9]\./)
     expect(CODE).not.toMatch(/step\('[5-9][0-9]\./)
   })
 

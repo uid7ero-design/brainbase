@@ -58,12 +58,16 @@ const itemUpdatesRoute = await import('@/app/api/organiser/items/[itemId]/update
 // only (a real POST call needs a multipart/form-data body plus a real
 // fs.writeFile target, not worth mocking here) — no runtime import needed.
 const itemFileIdRoute = await import('@/app/api/organiser/items/[itemId]/files/[fileId]/route')
+// Phase D.4.6H — comment.deleted, the new file this phase mirrors from
+// file.deleted's own atomic DELETE + activity_row pattern.
+const itemUpdateIdRoute = await import('@/app/api/organiser/items/[itemId]/updates/[updateId]/route')
 
 const SESSION = { userId: 'user-1', organisationId: 'org-a', role: 'manager', name: 'James' }
 const BOARD_CTX = { params: Promise.resolve({ boardId: 'board-1' }) }
 const GROUP_CTX = { params: Promise.resolve({ groupId: 'group-1' }) }
 const ITEM_CTX = { params: Promise.resolve({ itemId: 'item-1' }) }
 const ITEM_FILE_CTX = { params: Promise.resolve({ itemId: 'item-1', fileId: 'file-1' }) }
+const ITEM_UPDATE_CTX = { params: Promise.resolve({ itemId: 'item-1', updateId: 'update-1' }) }
 
 beforeEach(() => {
   requireSessionMock.mockReset()
@@ -180,9 +184,20 @@ describe('board.deleted — DELETE /api/organiser/boards/[boardId]', () => {
     assertAtomicWritableCte(sqlCalls[0].text, { mutationVerb: 'DELETE FROM organiser_', eventType: 'board.deleted', entityType: 'board' })
   })
 
-  it('before_json preserves name; after_json is NULL', async () => {
+  it('before_json preserves name; after_json carries a bounded cascade-count summary (D.4.6H) — never per-row/per-entity detail', async () => {
     await boardIdRoute.DELETE(asNextRequest(new Request('http://localhost/x', { method: 'DELETE' })), BOARD_CTX)
-    expect(sqlCalls[0].text).toMatch(/jsonb_build_object\('name', organiser_activity_sanitise_scalar\(to_jsonb\(deleted\.name\)\)\),\s*\n\s*NULL/)
+    const text = sqlCalls[0].text
+    expect(text).toMatch(/jsonb_build_object\('name', organiser_activity_sanitise_scalar\(to_jsonb\(deleted\.name\)\)\)/)
+    expect(text).toMatch(/jsonb_build_object\('affected_group_count', would_cascade\.groups, 'affected_item_count', would_cascade\.items\)/)
+    // Block-scope to just the would_cascade CTE body and confirm it is
+    // built entirely from COUNT(*) subqueries — no per-row SELECT of
+    // names/ids/content that could leak into the bounded summary.
+    const cteStart = text.indexOf('would_cascade AS (')
+    const cteEnd = text.indexOf('deleted AS (')
+    const cteBody = text.slice(cteStart, cteEnd)
+    expect(cteBody).toMatch(/COUNT\(\*\)::int FROM organiser_groups/)
+    expect(cteBody).toMatch(/COUNT\(\*\)::int FROM organiser_items/)
+    expect((cteBody.match(/SELECT/g) || []).length).toBe(3) // outer SELECT + 2 scalar COUNT subqueries, nothing else
   })
 
   it('response shape unchanged: { success: true }', async () => {
@@ -271,20 +286,23 @@ describe('group.deleted — DELETE /api/organiser/groups/[groupId]', () => {
     expect(sqlCalls[0].text).toMatch(/deleted\.board_id/)
   })
 
-  it('never touches organiser_items — no fabricated per-item item.moved events; the FK ON DELETE SET NULL side effect is entirely DB-internal', async () => {
+  it('only reads a bounded COUNT(*) from organiser_items (D.4.6H would_orphan) — never writes it, never fabricates per-item item.moved events', async () => {
     const fs = await import('fs')
     const path = await import('path')
     const source = fs.readFileSync(path.resolve(__dirname, '../../app/api/organiser/groups/[groupId]/route.ts'), 'utf8')
-    // Scoped to actual SQL/code usage, not a blanket string ban — this
-    // file's own explanatory comment legitimately names organiser_items by
-    // name when explaining why it is NOT queried; a literal usage
-    // (FROM/JOIN/UPDATE/INTO) is what would indicate a fabricated per-item
-    // event, and none exists.
-    expect(source).not.toMatch(/(FROM|JOIN|UPDATE|INTO)\s+organiser_items/)
-    // The route's own event_type CASE/literal set contains only
-    // 'group.deleted' — never a quoted 'item.moved' literal that would
-    // indicate a synthesized per-item event.
+    // D.4.6H deliberately adds ONE read-only COUNT(*) against
+    // organiser_items (would_orphan, for the bounded affected_item_count
+    // summary) — this is not the fabricated per-item write this test
+    // originally guarded against. What must still never appear is any
+    // write verb against organiser_items, or a synthesized 'item.moved'
+    // literal implying a per-item event was invented.
+    expect(source).not.toMatch(/(UPDATE|INSERT INTO|DELETE FROM)\s+organiser_items/)
     expect(source).not.toMatch(/'item\.moved'/)
+    // The only SELECT-side reference to organiser_items is the bounded
+    // would_orphan COUNT(*) — confirm it's a count, not a row/content read.
+    const fromMatches = source.match(/FROM\s+organiser_items/g) || []
+    expect(fromMatches.length).toBe(1)
+    expect(source).toMatch(/would_orphan AS \(\s*SELECT COUNT\(\*\)::int AS n FROM organiser_items/)
   })
 
   it('response shape unchanged: { success: true }', async () => {
@@ -398,6 +416,98 @@ describe('file.deleted — DELETE /api/organiser/items/[itemId]/files/[fileId]',
   it('response still returns file_url for the fs.unlink cleanup step — unchanged business behavior', async () => {
     const res = await itemFileIdRoute.DELETE(asNextRequest(new Request('http://localhost/x', { method: 'DELETE' })), ITEM_FILE_CTX)
     expect(res.status).toBe(200)
+  })
+})
+
+// ── COMMENT.DELETED (D.4.6H) ────────────────────────────────────────────────
+
+describe('comment.deleted — DELETE /api/organiser/items/[itemId]/updates/[updateId]', () => {
+  beforeEach(() => { sqlResult = [{ id: 'update-1', board_id: 'board-1' }] })
+
+  it('is one atomic writable-CTE statement (DELETE + activity_row)', async () => {
+    await itemUpdateIdRoute.DELETE(asNextRequest(new Request('http://localhost/x', { method: 'DELETE' })), ITEM_UPDATE_CTX)
+    assertAtomicWritableCte(sqlCalls[0].text, { mutationVerb: 'DELETE FROM organiser_', eventType: 'comment.deleted', entityType: 'comment' })
+  })
+
+  it('is scoped by id, item_id, AND organisation_id — never a bare updateId match', async () => {
+    const fs = await import('fs')
+    const path = await import('path')
+    const source = fs.readFileSync(path.resolve(__dirname, '../../app/api/organiser/items/[itemId]/updates/[updateId]/route.ts'), 'utf8')
+    const deleteStmt = source.slice(source.indexOf('DELETE FROM organiser_item_updates'), source.indexOf('RETURNING id, board_id'))
+    expect(deleteStmt).toMatch(/id = \$\{updateId\}/)
+    expect(deleteStmt).toMatch(/item_id = \$\{itemId\}/)
+    expect(deleteStmt).toMatch(/organisation_id = \$\{session\.organisationId\}/)
+  })
+
+  it('item_id is set on the activity row (surfaces in the Item Activity tab, mirroring comment.created)', async () => {
+    await itemUpdateIdRoute.DELETE(asNextRequest(new Request('http://localhost/x', { method: 'DELETE' })), ITEM_UPDATE_CTX)
+    expect(sqlCalls[0].text).toMatch(/organisation_id, board_id, item_id, actor_user_id, actor_name,/)
+  })
+
+  it('before_json AND after_json are both NULL — no comment body/content is ever stored, by design (privacy-first: the standard row columns already convey everything safe)', async () => {
+    await itemUpdateIdRoute.DELETE(asNextRequest(new Request('http://localhost/x', { method: 'DELETE' })), ITEM_UPDATE_CTX)
+    const text = sqlCalls[0].text
+    expect(text).toMatch(/'comment\.deleted', 'comment', deleted\.id::text, NULL, NULL/)
+  })
+
+  it('the route never SELECTs/RETURNs the comment body column anywhere — the SQL only ever names id/board_id', async () => {
+    const fs = await import('fs')
+    const path = await import('path')
+    const source = fs.readFileSync(path.resolve(__dirname, '../../app/api/organiser/items/[itemId]/updates/[updateId]/route.ts'), 'utf8')
+    // Scoped to actual SQL/code usage, not a blanket string ban — this
+    // file's own explanatory comment legitimately uses the English word
+    // "body" when explaining why it is NOT captured.
+    expect(source).not.toMatch(/RETURNING[^)]*\bbody\b/i)
+    expect(source).not.toContain('organiser_item_updates.body')
+    expect(source).not.toMatch(/SELECT[^;]*\bbody\b/i)
+  })
+
+  it('actor/tenant are bound from session only — never from the request', async () => {
+    await itemUpdateIdRoute.DELETE(asNextRequest(new Request('http://localhost/x', { method: 'DELETE' })), ITEM_UPDATE_CTX)
+    const values = sqlCalls[0].values
+    expect(values).toContain('org-a')
+    expect(values).toContain('user-1')
+    expect(values).toContain('James')
+  })
+
+  it('response shape unchanged: { success: true }; 404 when the comment/item/org triple does not match', async () => {
+    const res = await itemUpdateIdRoute.DELETE(asNextRequest(new Request('http://localhost/x', { method: 'DELETE' })), ITEM_UPDATE_CTX)
+    expect(await res.json()).toEqual({ success: true })
+
+    sqlResult = []
+    const res404 = await itemUpdateIdRoute.DELETE(asNextRequest(new Request('http://localhost/x', { method: 'DELETE' })), ITEM_UPDATE_CTX)
+    expect(res404.status).toBe(404)
+    expect(await res404.json()).toEqual({ error: 'Not found' })
+  })
+
+  // MUTATION CHECK — proves the "one atomic statement" assertion above
+  // (`expect(sqlCalls).toHaveLength(1)` inside assertAtomicWritableCte)
+  // actually constrains real behavior rather than passing vacuously.
+  // Following this repo's own established mutation-check idiom (see
+  // organiserHelenaRead.test.ts's "removing the end-exclusive comparison"
+  // test): assert directly on the source that the specific regression
+  // this phase's atomicity requirement (Step 8) exists to prevent — a
+  // split "DELETE, then separately INSERT the activity row" — is not
+  // present, rather than round-tripping a rewritten file through the
+  // module loader at runtime.
+  it('MUTATION CHECK: the route contains exactly one `await sql` call in DELETE — a split "await sql\`DELETE...\`; await sql\`INSERT INTO organiser_activity...\`" regression would defeat atomicity and is not present', async () => {
+    const fs = await import('fs')
+    const path = await import('path')
+    const source = fs.readFileSync(path.resolve(__dirname, '../../app/api/organiser/items/[itemId]/updates/[updateId]/route.ts'), 'utf8')
+    const deleteFnStart = source.indexOf('export async function DELETE')
+    const deleteFnBody = source.slice(deleteFnStart)
+    const awaitSqlCalls = deleteFnBody.match(/await sql`/g) || []
+    expect(awaitSqlCalls.length).toBe(1)
+    // Confirm the test above would actually have caught two calls: the
+    // mock records every `sql\`...\`` invocation as a separate entry in
+    // sqlCalls (see the sqlMock definition above), so a route with two
+    // `await sql` calls produces sqlCalls.length === 2, which
+    // assertAtomicWritableCte's own `toHaveLength(1)` assertion rejects.
+    sqlCalls.length = 0
+    sqlResult = [{ id: 'update-1', board_id: 'board-1' }]
+    await sqlMock(Object.assign(['DELETE FROM organiser_item_updates ...'], { raw: [] }) as unknown as TemplateStringsArray)
+    await sqlMock(Object.assign(['INSERT INTO organiser_activity ...'], { raw: [] }) as unknown as TemplateStringsArray)
+    expect(() => expect(sqlCalls).toHaveLength(1)).toThrow()
   })
 })
 
