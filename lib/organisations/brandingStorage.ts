@@ -63,9 +63,28 @@ export function sniffLogoMimeType(buffer: Buffer): AllowedLogoMimeType | null {
 // path, not built in this phase but the OrganisationBranding.logoUrl
 // field already accepts any http(s) URL per Phase 1's own validation)
 // without a second metadata column just to track that distinction.
-export function isManagedLogoUrl(url: string): boolean {
+//
+// SECURITY (post-review fix): hostname alone is NOT enough. Every
+// organisation's logo lives on the SAME public Blob store hostname, and
+// branding.logoUrl accepts any http(s) URL (Phase 1's own validation),
+// so an organisation admin could set their OWN branding.logoUrl to
+// ANOTHER organisation's real, public Blob logo URL, then trigger a
+// replace/remove to have this app call Blob's del() on an object that
+// isn't theirs. `organisationId` (always the caller's own,
+// session-derived id — see both call sites in the logo route) is now
+// REQUIRED, and the pathname must structurally belong to that exact
+// organisation: split into segments and compare the id SEGMENT for
+// equality, never a substring/prefix test — `startsWith` on the
+// concatenated string would let organisationId `"org-a"` wrongly match
+// a stored path under `"org-ab"`. Both checks must pass for a URL to be
+// eligible for deletion; anything else (a different organisation's
+// managed object, an external URL, a malformed URL) is left alone.
+export function isManagedLogoUrl(url: string, organisationId: string): boolean {
   try {
-    return new URL(url).hostname.endsWith('.public.blob.vercel-storage.com');
+    const parsed = new URL(url);
+    if (!parsed.hostname.endsWith('.public.blob.vercel-storage.com')) return false;
+    const segments = parsed.pathname.split('/').filter(Boolean);
+    return segments.length === 4 && segments[0] === 'organisations' && segments[1] === organisationId && segments[2] === 'logo';
   } catch {
     return false;
   }
@@ -101,16 +120,22 @@ export async function uploadOrganisationLogo(
   }
 }
 
-// Deletes a Blob object only if it is actually BrainBase-managed (see
-// isManagedLogoUrl) — never attempts to delete a third-party URL.
-// Failures are caught and logged, never thrown — an already-gone or
-// momentarily-unreachable Blob object must never block the caller's
-// own success path. Reused for BOTH "delete the old logo after a
-// successful replace" and "clean up a newly-uploaded logo after a
-// failed DB write" — the logo route's own comment explains which case
-// is which; this function itself is agnostic to why it was called.
-export async function deleteOrganisationLogoIfManaged(url: string): Promise<void> {
-  if (!isManagedLogoUrl(url)) return;
+// Deletes a Blob object only if it is actually BrainBase-managed AND
+// belongs to THIS organisation (see isManagedLogoUrl) — never attempts
+// to delete a third-party URL or another organisation's managed
+// object. `organisationId` must be the caller's own authenticated,
+// session-derived id (see the logo route's own auth gate) — this
+// function trusts its argument rather than re-deriving tenancy itself,
+// exactly like uploadOrganisationLogo above; it must never be sourced
+// from request input. Failures are caught and logged, never thrown —
+// an already-gone or momentarily-unreachable Blob object must never
+// block the caller's own success path. Reused for BOTH "delete the old
+// logo after a successful replace" and "clean up a newly-uploaded logo
+// after a failed DB write" — the logo route's own comment explains
+// which case is which; this function itself is agnostic to why it was
+// called.
+export async function deleteOrganisationLogoIfManaged(url: string, organisationId: string): Promise<void> {
+  if (!isManagedLogoUrl(url, organisationId)) return;
   try {
     await del(url);
   } catch (err) {

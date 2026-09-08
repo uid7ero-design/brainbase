@@ -92,7 +92,7 @@ export async function POST(req: NextRequest) {
     await setOrganisationBranding(organisationId, { ...before.branding, logoUrl: uploadResult.url });
   } catch (err) {
     console.error('[organisation branding] DB link failed after a successful logo upload — cleaning up the orphaned object', uploadResult.url, err);
-    await deleteOrganisationLogoIfManaged(uploadResult.url);
+    await deleteOrganisationLogoIfManaged(uploadResult.url, organisationId);
     return NextResponse.json({ error: 'Upload succeeded but could not be saved. Please try again.' }, { status: 500 });
   }
 
@@ -103,7 +103,7 @@ export async function POST(req: NextRequest) {
   // validation, even though no UI for pasting one exists in this
   // phase) is never deleted — this app never owned that content.
   if (previousLogoUrl && previousLogoUrl !== uploadResult.url) {
-    await deleteOrganisationLogoIfManaged(previousLogoUrl);
+    await deleteOrganisationLogoIfManaged(previousLogoUrl, organisationId);
   }
 
   return NextResponse.json({ logoUrl: uploadResult.url }, { status: 200 });
@@ -129,7 +129,7 @@ export async function DELETE() {
 
   await setOrganisationBranding(organisationId, { ...before.branding, logoUrl: null });
 
-  await deleteOrganisationLogoIfManaged(previousLogoUrl);
+  await deleteOrganisationLogoIfManaged(previousLogoUrl, organisationId);
 
   return NextResponse.json({ logoUrl: null }, { status: 200 });
 }

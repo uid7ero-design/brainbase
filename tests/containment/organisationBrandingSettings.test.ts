@@ -54,6 +54,14 @@ const { sniffLogoMimeType, isManagedLogoUrl } = await import('@/lib/organisation
 const MANAGED_URL = 'https://abc123.public.blob.vercel-storage.com/organisations/org-a/logo/xyz.png'
 const OLD_MANAGED_URL = 'https://abc123.public.blob.vercel-storage.com/organisations/org-a/logo/old-one.png'
 const EXTERNAL_URL = 'https://example.com/their-own-logo.png'
+// A genuinely different organisation's own managed Blob object — same
+// hostname pattern as MANAGED_URL, different tenant. Used to prove the
+// cross-tenant deletion fix: org-a must never be able to delete this.
+const ORG_B_MANAGED_URL = 'https://abc123.public.blob.vercel-storage.com/organisations/org-b/logo/genuine-logo.png'
+// A lookalike organisation id that shares org-a's own id as a PREFIX —
+// proves the namespace check compares the full path SEGMENT for
+// equality, never a substring/startsWith test.
+const ORG_A_LOOKALIKE_URL = 'https://abc123.public.blob.vercel-storage.com/organisations/org-a-evil/logo/x.png'
 
 const FULL_BRANDING = {
   name: 'Acme School', logoUrl: null, accentColor: '#8a4dff', email: 'events@acme.test',
@@ -229,10 +237,35 @@ describe('sniffLogoMimeType / isManagedLogoUrl (pure functions)', () => {
   it('rejects garbage bytes (e.g. an SVG\'s actual textual content)', () => {
     expect(sniffLogoMimeType(Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'))).toBeNull()
   })
-  it('identifies a real Vercel Blob public URL as managed, and any other URL (including a lookalike) as not', () => {
-    expect(isManagedLogoUrl(MANAGED_URL)).toBe(true)
-    expect(isManagedLogoUrl(EXTERNAL_URL)).toBe(false)
-    expect(isManagedLogoUrl('not a url at all')).toBe(false)
+  it('identifies a real Vercel Blob public URL as managed for the OWNING organisation, and any other URL as not', () => {
+    expect(isManagedLogoUrl(MANAGED_URL, 'org-a')).toBe(true)
+    expect(isManagedLogoUrl(EXTERNAL_URL, 'org-a')).toBe(false)
+  })
+
+  it('a malformed URL is never treated as managed, for any organisationId', () => {
+    expect(isManagedLogoUrl('not a url at all', 'org-a')).toBe(false)
+    expect(isManagedLogoUrl('', 'org-a')).toBe(false)
+  })
+
+  it('SECURITY: a real Vercel Blob URL belonging to a DIFFERENT organisation is never managed for this one, even though it passes the hostname check', () => {
+    // Same hostname pattern as MANAGED_URL — only the organisation
+    // segment differs. Before the fix, isManagedLogoUrl only checked
+    // the hostname and would have returned true here.
+    expect(isManagedLogoUrl(ORG_B_MANAGED_URL, 'org-a')).toBe(false)
+    // And the reverse: org-b must not be able to claim org-a's object either.
+    expect(isManagedLogoUrl(MANAGED_URL, 'org-b')).toBe(false)
+  })
+
+  it('SECURITY: a same-prefix lookalike organisation id cannot bypass the namespace check', () => {
+    // ORG_A_LOOKALIKE_URL's path segment is "org-a-evil", not "org-a" —
+    // a naive `pathname.startsWith('/organisations/org-a/logo/')` or
+    // `pathname.includes(organisationId)` check would wrongly match
+    // this. The real implementation must compare the exact path
+    // SEGMENT, not a prefix/substring.
+    expect(isManagedLogoUrl(ORG_A_LOOKALIKE_URL, 'org-a')).toBe(false)
+    // And the converse direction: org-a's own real URL must not
+    // wrongly validate for the lookalike id either.
+    expect(isManagedLogoUrl(MANAGED_URL, 'org-a-evil')).toBe(false)
   })
 })
 
@@ -331,6 +364,17 @@ describe('POST /api/organisations/branding/logo (upload)', () => {
     expect(delMock).not.toHaveBeenCalled()
   })
 
+  it('SECURITY: never deletes another organisation\'s real managed Blob logo, even if THIS organisation had stored that URL as its own branding.logoUrl', async () => {
+    // org-a's admin has (however it happened — nothing in this app
+    // prevents PUT /api/organisations/branding from accepting any
+    // http(s) URL for logoUrl) planted org-b's genuine, currently-live
+    // Blob logo URL into org-a's own branding.logoUrl. Replacing the
+    // logo must never cause org-b's real object to be deleted.
+    queue([{ name: 'Acme', settings: { branding: { ...FULL_BRANDING, logoUrl: ORG_B_MANAGED_URL } } }], [{ id: 'org-a' }])
+    await logoRoute.POST(uploadReq(fakeFile(PNG_SIGNATURE, 'logo.png', 'image/png')) as never)
+    expect(delMock).not.toHaveBeenCalled()
+  })
+
   it('cleans up the newly-uploaded Blob if the DB link write fails', async () => {
     // mockImplementationOnce calls are consumed in order, ONE call
     // each, then fall back to the queue-based default installed in
@@ -373,6 +417,17 @@ describe('DELETE /api/organisations/branding/logo', () => {
   it('never deletes an externally-hosted logo URL', async () => {
     queue([{ name: 'Acme', settings: { branding: { ...FULL_BRANDING, logoUrl: EXTERNAL_URL } } }])
     await logoRoute.DELETE()
+    expect(delMock).not.toHaveBeenCalled()
+  })
+
+  it('SECURITY: never deletes another organisation\'s real managed Blob logo, even if THIS organisation had stored that URL as its own branding.logoUrl', async () => {
+    queue([{ name: 'Acme', settings: { branding: { ...FULL_BRANDING, logoUrl: ORG_B_MANAGED_URL } } }])
+    const res = await logoRoute.DELETE()
+    expect(res.status).toBe(200)
+    // The DB reference is still cleared (org-a's own record no longer
+    // points at anything) — only the underlying Blob object is
+    // protected, because it never belonged to org-a.
+    expect(sqlCalls.some(c => sqlText(c).includes('UPDATE organisations'))).toBe(true)
     expect(delMock).not.toHaveBeenCalled()
   })
 
