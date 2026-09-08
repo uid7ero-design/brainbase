@@ -10,9 +10,21 @@ type Ctx = { params: Promise<{ id: string }> };
 // logic duplication) so the UI can render a friendly lineage link without
 // a second client round trip — exactly the same pattern the quote detail
 // route already uses to fold in delivery history alongside the quote
-// itself. `overdue` is computed HERE, in the route, from already-fetched
-// fields (status/due_date) — never persisted, never written back;
-// lib/commercial/invoices.ts has no OVERDUE column or write path at all.
+// itself.
+//
+// Phase C4.2 blocker fix — `overdue` is NO LONGER computed here. It was
+// previously derived in this route by comparing due_date against a
+// today's-calendar-date string built from the current instant in the
+// server's own JS runtime, which silently coerced to `NaN` and was
+// always `false` in production: getInvoiceWithLines()'s underlying
+// driver parses a Postgres DATE column into a native JS Date object when
+// read in-process (see lib/commercial/dates.ts's own documented,
+// empirically-verified finding), and relationally comparing a Date
+// object against a plain calendar-date string never behaves as a real
+// date comparison. `getInvoice()` (lib/commercial/invoices.ts) now
+// computes this in SQL via CURRENT_DATE instead — this route simply
+// forwards that already-correct, already-boolean value; never recomputes
+// it and never derives "today" in JavaScript at all.
 export async function GET(_req: NextRequest, { params }: Ctx) {
   const auth = await authorizeCommercialRequest('invoicing', COMMERCIAL_MIN_ROLE.view);
   if (!auth.ok) return auth.response;
@@ -27,9 +39,7 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
     sourceQuoteNumber = quote?.quote_number ?? null;
   }
 
-  const overdue = bundle.invoice.status === 'ISSUED' && !!bundle.invoice.due_date && bundle.invoice.due_date < new Date().toISOString().slice(0, 10);
-
-  return NextResponse.json({ ...bundle, sourceQuoteNumber, overdue });
+  return NextResponse.json({ ...bundle, sourceQuoteNumber, overdue: bundle.invoice.overdue });
 }
 
 // DRAFT-only via domain enforcement (updateDraftInvoice() itself asserts

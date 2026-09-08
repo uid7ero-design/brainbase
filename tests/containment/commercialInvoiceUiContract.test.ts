@@ -13,6 +13,25 @@ function readSource(relPath: string): string {
   return fs.readFileSync(path.resolve(__dirname, '../../', relPath), 'utf-8')
 }
 
+describe('Phase C4.2 blocker fix — invoice list page renders server-authoritative overdue, never recomputes it', () => {
+  const source = readSource('app/commercial/invoices/page.tsx')
+
+  it('contains no client-side "today" derivation or date comparison for overdue at all', () => {
+    expect(source).not.toMatch(/new Date\(\)\.toISOString/)
+    expect(source).not.toMatch(/\.slice\(0, 10\)/)
+    expect(source).not.toMatch(/function isOverdue/)
+  })
+
+  it('renders inv.overdue directly, sourced from the API response', () => {
+    expect(source).toMatch(/inv\.overdue && <OverdueBadge/)
+  })
+
+  it('the Invoice type declares overdue as a field received from the server, not computed locally', () => {
+    const typeBlock = source.slice(source.indexOf('type Invoice = {'), source.indexOf('};', source.indexOf('type Invoice = {')))
+    expect(typeBlock).toMatch(/overdue: boolean/)
+  })
+})
+
 describe('Phase C4.2 §10 — Commercial navigation is per-capability gated for Invoices', () => {
   const source = readSource('app/commercial/_components/CommercialSidebar.tsx')
 

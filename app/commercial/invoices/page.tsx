@@ -11,20 +11,23 @@ const CARD = '#0e1014'; const BORDER = '#1a1d24';
 type Invoice = {
   id: string; invoice_number: string | null; status: string; customer_id: string;
   customer_name_snapshot: string | null; source_quote_id: string | null;
-  issue_date: string | null; due_date: string | null;
+  issue_date: string | null; due_date: string | null; overdue: boolean;
   total_cents: number; currency: string; created_at: string;
 };
 type Customer = { id: string; name: string };
 
-// Phase C4.2 §11 — mirrors app/commercial/quotes/page.tsx's shape
-// exactly. Overdue is computed HERE, client-side, from already-fetched
-// status/due_date fields — never persisted (lib/commercial/
-// invoiceLifecycle.ts has no OVERDUE status at all) and never trusted
-// from any cached/stale value.
-function isOverdue(inv: Invoice): boolean {
-  if (inv.status !== 'ISSUED' || !inv.due_date) return false;
-  return inv.due_date < new Date().toISOString().slice(0, 10);
-}
+// Phase C4.2 blocker fix — `overdue` is server-authoritative, computed
+// by lib/commercial/invoices.ts's listInvoices() via SQL (`due_date <
+// CURRENT_DATE`, gated on status = 'ISSUED') and returned directly on
+// each row. This page renders `inv.overdue` as-is and MUST NOT recompute
+// it — the previous client-side check derived "today" from an ISO-8601
+// instant-string built off the viewer's own clock, sliced down to a
+// calendar date, which is genuinely wrong for an Adelaide-based
+// business: that string always reports the UTC calendar date, and
+// Adelaide is UTC+9:30/+10:30, so for roughly the first 9.5–10.5 hours
+// of every local day, that UTC-derived "today" is still the previous
+// calendar date — silently under-reporting overdue invoices exactly
+// during normal morning business hours.
 
 export default function InvoicesPage() {
   const searchParams = useSearchParams();
@@ -96,7 +99,7 @@ export default function InvoicesPage() {
                 <td style={td}>
                   <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                     <StatusBadge status={inv.status} />
-                    {isOverdue(inv) && <OverdueBadge />}
+                    {inv.overdue && <OverdueBadge />}
                   </div>
                 </td>
                 <td style={td}>{inv.issue_date ? formatCommercialDate(inv.issue_date) : <Dim>—</Dim>}</td>

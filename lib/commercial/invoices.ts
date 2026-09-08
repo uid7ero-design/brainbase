@@ -59,6 +59,32 @@ export interface CommercialInvoice {
   voided_at: string | null;
 }
 
+// Phase C4.2 blocker fix — `overdue` is a SQL-computed, read-only
+// projection, deliberately NOT a column on CommercialInvoice itself: it
+// is never written by any mutation (create/update/issue/void all use
+// `RETURNING *`, which cannot include a derived expression), only ever
+// produced by the two read queries below. Kept as a separate type
+// (rather than adding `overdue` directly to CommercialInvoice, which
+// every write-path function also returns) so no mutation function's
+// return shape has to lie about carrying a field it never actually sets.
+//
+// Computed with Postgres's own CURRENT_DATE — never in JavaScript.
+// lib/commercial/dates.ts's own header comment already documents,
+// empirically, that this driver parses a DATE column into a native JS
+// Date object when read in-process — comparing that against a
+// 'YYYY-MM-DD' string with `<` silently coerces to NaN and is always
+// false (confirmed: `new Date(2000,0,1) < '2026-09-08'` is `false`).
+// Doing the comparison in SQL instead sidesteps that whole class of bug:
+// due_date and CURRENT_DATE are both native Postgres DATE values there,
+// compared with real date semantics, and the result is a genuine SQL
+// boolean (never null — the extra `due_date IS NOT NULL` guard exists
+// only for defensive belt-and-suspenders correctness, since issueInvoice()
+// already refuses to issue an invoice with no due_date, so an ISSUED row
+// should never actually have a null one).
+export interface CommercialInvoiceWithOverdue extends CommercialInvoice {
+  overdue: boolean;
+}
+
 export interface CommercialInvoiceLine {
   id: string;
   organisation_id: string;
@@ -80,25 +106,32 @@ export interface CommercialInvoiceLine {
   updated_at: string;
 }
 
-export async function listInvoices(organisationId: string, opts: { status?: InvoiceStatus } = {}): Promise<CommercialInvoice[]> {
+// `(status = 'ISSUED' AND due_date IS NOT NULL AND due_date < CURRENT_DATE) AS overdue`
+// is embedded directly (fully static SQL text, no interpolated value) in
+// both read queries below — see CommercialInvoiceWithOverdue's own header
+// comment for why this must be computed in SQL, never in JS.
+export async function listInvoices(organisationId: string, opts: { status?: InvoiceStatus } = {}): Promise<CommercialInvoiceWithOverdue[]> {
   if (opts.status) {
     return (await sql`
-      SELECT * FROM commercial_invoices WHERE organisation_id = ${organisationId} AND status = ${opts.status}
+      SELECT *, (status = 'ISSUED' AND due_date IS NOT NULL AND due_date < CURRENT_DATE) AS overdue
+      FROM commercial_invoices WHERE organisation_id = ${organisationId} AND status = ${opts.status}
       ORDER BY created_at DESC
-    `) as CommercialInvoice[];
+    `) as CommercialInvoiceWithOverdue[];
   }
   return (await sql`
-    SELECT * FROM commercial_invoices WHERE organisation_id = ${organisationId} ORDER BY created_at DESC
-  `) as CommercialInvoice[];
+    SELECT *, (status = 'ISSUED' AND due_date IS NOT NULL AND due_date < CURRENT_DATE) AS overdue
+    FROM commercial_invoices WHERE organisation_id = ${organisationId} ORDER BY created_at DESC
+  `) as CommercialInvoiceWithOverdue[];
 }
 
 // Returns null both for "does not exist" and "exists but belongs to a
 // different organisation" — same indistinguishable-by-design rule as
 // every other getX() in this Commercial module (mirrors getQuote()).
-export async function getInvoice(organisationId: string, invoiceId: string): Promise<CommercialInvoice | null> {
+export async function getInvoice(organisationId: string, invoiceId: string): Promise<CommercialInvoiceWithOverdue | null> {
   const rows = (await sql`
-    SELECT * FROM commercial_invoices WHERE id = ${invoiceId} AND organisation_id = ${organisationId}
-  `) as CommercialInvoice[];
+    SELECT *, (status = 'ISSUED' AND due_date IS NOT NULL AND due_date < CURRENT_DATE) AS overdue
+    FROM commercial_invoices WHERE id = ${invoiceId} AND organisation_id = ${organisationId}
+  `) as CommercialInvoiceWithOverdue[];
   return rows[0] ?? null;
 }
 
@@ -110,7 +143,7 @@ export async function listInvoiceLines(organisationId: string, invoiceId: string
   `) as CommercialInvoiceLine[];
 }
 
-export async function getInvoiceWithLines(organisationId: string, invoiceId: string): Promise<{ invoice: CommercialInvoice; lines: CommercialInvoiceLine[] } | null> {
+export async function getInvoiceWithLines(organisationId: string, invoiceId: string): Promise<{ invoice: CommercialInvoiceWithOverdue; lines: CommercialInvoiceLine[] } | null> {
   const invoice = await getInvoice(organisationId, invoiceId);
   if (!invoice) return null;
   const lines = await listInvoiceLines(organisationId, invoiceId);

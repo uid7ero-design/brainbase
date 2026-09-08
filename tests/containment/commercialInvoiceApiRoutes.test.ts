@@ -310,30 +310,100 @@ describe('Phase C4.2 — GET detail: source quote lineage and derived overdue', 
     expect(getQuoteMock).not.toHaveBeenCalled()
   })
 
-  it('derives overdue = true only for ISSUED + a past due_date', async () => {
+  // Phase C4.2 blocker fix — `overdue` is now computed entirely inside
+  // lib/commercial/invoices.ts's own SQL (CURRENT_DATE), never in this
+  // route. These tests prove PASS-THROUGH only: whatever boolean the
+  // domain layer returns is what the client receives, unmodified — the
+  // route performs no date arithmetic of its own to get this wrong.
+  // (The SQL expression's own correctness — ISSUED+past→true,
+  // ISSUED+future/today→false, DRAFT/VOID→false regardless of due_date —
+  // is proven separately below, against the real query text and against
+  // real Postgres.)
+  it('passes through overdue: true verbatim from the domain layer', async () => {
     authorizeMock.mockResolvedValue({ ok: true, session: VIEWER_SESSION })
-    getInvoiceWithLinesMock.mockResolvedValue({ invoice: { id: 'inv-1', status: 'ISSUED', due_date: '2000-01-01', source_quote_id: null }, lines: [] })
+    getInvoiceWithLinesMock.mockResolvedValue({ invoice: { id: 'inv-1', status: 'ISSUED', due_date: '2000-01-01', source_quote_id: null, overdue: true }, lines: [] })
     const res = await invoiceGET(plainReq(), ctx({ id: 'inv-1' }))
     const body = await res.json()
     expect(body.overdue).toBe(true)
   })
 
-  it('a VOID invoice is never labelled overdue even with a past due_date', async () => {
+  it('passes through overdue: false verbatim from the domain layer (VOID with a past due_date)', async () => {
     authorizeMock.mockResolvedValue({ ok: true, session: VIEWER_SESSION })
-    getInvoiceWithLinesMock.mockResolvedValue({ invoice: { id: 'inv-1', status: 'VOID', due_date: '2000-01-01', source_quote_id: null }, lines: [] })
+    getInvoiceWithLinesMock.mockResolvedValue({ invoice: { id: 'inv-1', status: 'VOID', due_date: '2000-01-01', source_quote_id: null, overdue: false }, lines: [] })
     const res = await invoiceGET(plainReq(), ctx({ id: 'inv-1' }))
     const body = await res.json()
     expect(body.overdue).toBe(false)
   })
 
-  it('a DRAFT invoice with no due_date is never labelled overdue', async () => {
+  it('passes through overdue: false verbatim from the domain layer (DRAFT with no due_date)', async () => {
     authorizeMock.mockResolvedValue({ ok: true, session: VIEWER_SESSION })
-    getInvoiceWithLinesMock.mockResolvedValue({ invoice: { id: 'inv-1', status: 'DRAFT', due_date: null, source_quote_id: null }, lines: [] })
+    getInvoiceWithLinesMock.mockResolvedValue({ invoice: { id: 'inv-1', status: 'DRAFT', due_date: null, source_quote_id: null, overdue: false }, lines: [] })
     const res = await invoiceGET(plainReq(), ctx({ id: 'inv-1' }))
     const body = await res.json()
     expect(body.overdue).toBe(false)
   })
+
+  // The exact bug class this blocker fix closes: a native JS Date object
+  // (what the real driver actually returns for a DATE column read
+  // in-process — see lib/commercial/dates.ts's own documented finding)
+  // must not break this route, because it no longer does ANY comparison
+  // involving due_date at all — it only forwards the domain's own
+  // pre-computed boolean.
+  it('a native Date-object due_date does not break the pass-through (the route never compares it)', async () => {
+    authorizeMock.mockResolvedValue({ ok: true, session: VIEWER_SESSION })
+    getInvoiceWithLinesMock.mockResolvedValue({
+      invoice: { id: 'inv-1', status: 'ISSUED', due_date: new Date(2000, 0, 1), source_quote_id: null, overdue: true },
+      lines: [],
+    })
+    const res = await invoiceGET(plainReq(), ctx({ id: 'inv-1' }))
+    const body = await res.json()
+    expect(body.overdue).toBe(true)
+  })
 })
+
+describe('Phase C4.2 blocker fix — the detail route performs no client-observable date arithmetic', () => {
+  it('contains no new Date()/toISOString() overdue computation of its own', async () => {
+    const fs = await import('fs')
+    const path = await import('path')
+    const source = fs.readFileSync(path.resolve(__dirname, '../../app/api/commercial/invoices/[id]/route.ts'), 'utf-8')
+    expect(source).not.toMatch(/new Date\(\)/)
+    expect(source).not.toMatch(/toISOString/)
+    expect(source).toMatch(/overdue: bundle\.invoice\.overdue/)
+  })
+})
+
+describe('Phase C4.2 blocker fix — lib/commercial/invoices.ts computes overdue in SQL via CURRENT_DATE, never in JS', () => {
+  it("listInvoices()'s query contains the CURRENT_DATE-based overdue expression", async () => {
+    const fs = await import('fs')
+    const path = await import('path')
+    const source = fs.readFileSync(path.resolve(__dirname, '../../lib/commercial/invoices.ts'), 'utf-8')
+    const start = source.indexOf('export async function listInvoices')
+    const end = source.indexOf('\n}\n', start)
+    const body = source.slice(start, end)
+    expect(body).toMatch(/status = 'ISSUED' AND due_date IS NOT NULL AND due_date < CURRENT_DATE/)
+    expect(body).toMatch(/AS overdue/)
+  })
+
+  it("getInvoice()'s query contains the identical CURRENT_DATE-based overdue expression", async () => {
+    const fs = await import('fs')
+    const path = await import('path')
+    const source = fs.readFileSync(path.resolve(__dirname, '../../lib/commercial/invoices.ts'), 'utf-8')
+    const start = source.indexOf('export async function getInvoice(')
+    const end = source.indexOf('\n}\n', start)
+    const body = source.slice(start, end)
+    expect(body).toMatch(/status = 'ISSUED' AND due_date IS NOT NULL AND due_date < CURRENT_DATE/)
+    expect(body).toMatch(/AS overdue/)
+  })
+
+  it('neither query contains any JavaScript date computation', async () => {
+    const fs = await import('fs')
+    const path = await import('path')
+    const source = fs.readFileSync(path.resolve(__dirname, '../../lib/commercial/invoices.ts'), 'utf-8')
+    expect(source).not.toMatch(/new Date\(\)\.toISOString/)
+    expect(source).not.toMatch(/\.slice\(0, 10\)/)
+  })
+})
+
 
 // ── GET list: status filter ────────────────────────────────────────────
 
