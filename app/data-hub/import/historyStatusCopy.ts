@@ -14,14 +14,27 @@ export interface HistoryStatusPresentation {
   /** true: the row links to /data-hub/import/[batchId]. false: status-only,
    * no navigation offered. */
   actionable: boolean;
-  /** Shown only when NOT actionable — the honest, non-actionable reason. */
+  /** Optional short clarifying caption, shown alongside the date whenever
+   * present (not only for non-actionable rows). */
   caption: string | null;
 }
 
 export function describeBatchHistoryStatus(status: ImportBatchStatus): HistoryStatusPresentation {
   switch (status) {
     case "READY":
-      return { label: "Ready", actionable: true, caption: null };
+      // PR #161 QA REMEDIATION (issue 2): ImportBatch READY is a
+      // physical/storage lifecycle state — it says nothing about whether
+      // the worksheet inside it was ever reviewed/confirmed as a valid
+      // domain import. Authenticated Preview QA found managers reading the
+      // old "Ready" label (rendered in success-green) as "successfully
+      // imported," which is not necessarily true — an invalid CSV that was
+      // uploaded but never confirmed also sits at READY forever. "Review
+      // pending" plus this caption is truthful without an N+1 worksheet
+      // fetch: the row remains actionable/clickable, and opening it always
+      // shows the real, fresh, worksheet-level truth (imported / needs
+      // review / ineligible / skipped) via the unmodified 5A.3D.1 recovery
+      // matrix — this label never claims more than the batch level knows.
+      return { label: "Review pending", actionable: true, caption: "Uploaded — not yet imported" };
     case "FAILED":
       return { label: "Failed", actionable: true, caption: null };
     case "AWAITING_UPLOAD":

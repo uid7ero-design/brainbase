@@ -68,7 +68,11 @@ function RecoveryBody({
   }
 
   if (REVIEW_PHASES.has(state.phase)) {
-    return <ReviewPanel state={state as ReviewPhase} session={session} />;
+    // PR #161 QA REMEDIATION (issue 1): pure client-side navigation back to
+    // the picker — never a server mutation. The persisted ImportBatch/
+    // worksheet are left exactly as they are; the user can reopen this same
+    // batch from history at any time.
+    return <ReviewPanel state={state as ReviewPhase} session={session} onRestart={() => router.push("/data-hub/import")} />;
   }
 
   if (state.phase === "confirming") {

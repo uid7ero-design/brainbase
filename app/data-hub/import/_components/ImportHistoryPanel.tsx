@@ -160,7 +160,13 @@ function StatusBadge({ label, status }: { label: string; status: string }) {
   // Status is never communicated by color alone (spec Section 32) — the
   // text label above is always present; color is a secondary, non-load-
   // bearing cue only.
-  const color = status === "FAILED" ? "#F87171" : status === "READY" ? "#4ADE80" : "rgba(249,250,251,.55)";
+  //
+  // PR #161 QA REMEDIATION (issue 2): READY intentionally gets the SAME
+  // neutral color as every other non-terminal-success status, never the
+  // success-green this repo reserves for genuine success (e.g.
+  // ImportSuccess.tsx's "#4ADE80" heading) — a READY batch has not
+  // necessarily been reviewed or confirmed as a valid import.
+  const color = status === "FAILED" ? "#F87171" : "rgba(249,250,251,.55)";
   return (
     <span
       style={{

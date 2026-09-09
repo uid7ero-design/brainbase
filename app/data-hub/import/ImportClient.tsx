@@ -123,6 +123,7 @@ function ImportFlow({ onRestart }: { onRestart: () => void }) {
           <ReviewPanel
             state={state as Extract<typeof state, { phase: "confirmationReady" | "previewing" | "previewFailed" | "previewReady" }>}
             session={session}
+            onRestart={onRestart}
           />
         )}
 
