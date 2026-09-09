@@ -3,20 +3,23 @@
 import { useState } from 'react';
 import { Calendar, Clock, MapPin, Users, Minus, Plus, CheckCircle2, Ticket } from 'lucide-react';
 import { BrainBaseWordmark } from '@/components/brand/BrainBaseWordmark';
-import { resolvePublicEventTheme } from '@/lib/events/publicEventTheme';
+import { resolvePublicEventTheme, applyAccentOverride, cssVarsFor } from '@/lib/events/publicEventTheme';
 import { InstitutionalHeader, InstitutionalHero, InstitutionalFooter } from '@/components/publicEvents/InstitutionalChrome';
+import { OrganisationLogo } from '@/components/organisations/OrganisationLogo';
 import type { PublicEventDetail, PublicSession, PublicTicketType, PublicQuestion } from '@/lib/events/publicEventDetail';
 
 const FONT = 'var(--font-inter), "Inter", -apple-system, sans-serif';
 
-// Public event branding (see lib/events/publicEventTheme.ts) — these
+// Public event presentation (see lib/events/publicEventTheme.ts) — these
 // were previously hardcoded hex/rgba literals; they are now the exact
-// matching `var(--bbpe-*)` custom-property strings, set once via
-// `theme.cssVars` on this page's own root element below. Every existing
-// usage of these consts throughout this file (and the shared
-// EVENT_PAGE_CSS block) is therefore already theme-aware with no other
-// change required — a non-branded organisation gets `theme.cssVars`
-// equal to these exact original values, so its rendering is byte-for-
+// matching `var(--bbpe-*)` custom-property strings, set once via the
+// effective `cssVars` (structural tokens + any configured
+// branding.accentColor override) on this page's own root element below.
+// Every existing usage of these consts throughout this file (and the
+// shared EVENT_PAGE_CSS block) is therefore already theme-aware with no
+// other change required — an organisation with no configured accent
+// gets `cssVars` equal to these exact original values, so its rendering
+// is byte-for-
 // byte unchanged from before this pass. Deliberately still NOT the ops-
 // shell's data-theme-driven light/dark CSS vars (app/globals.css) — this
 // is a public, unauthenticated destination page that must render
@@ -212,14 +215,21 @@ export default function PublicEventClient({
   detail: PublicEventDetail;
   checkoutCancelled: boolean;
 }) {
-  const { event, sessions, ticket_types: ticketTypes, questions } = detail;
-  // Public event branding (see lib/events/publicEventTheme.ts) — a pure,
-  // synchronous lookup keyed only by the organisationSlug this component
-  // already receives as a prop; no new query, no schema change. Every
-  // organisation not in the registry gets `DEFAULT_THEME`, whose tokens
-  // are byte-identical to this file's original hardcoded palette.
+  const { event, sessions, ticket_types: ticketTypes, questions, branding, organisationName } = detail;
+  // Public event STRUCTURAL presentation (see lib/events/publicEventTheme.ts)
+  // — a pure, synchronous lookup keyed only by the organisationSlug this
+  // component already receives as a prop; no new query, no schema
+  // change. Every organisation not in the registry gets `DEFAULT_THEME`.
+  // Organisation IDENTITY (name/logo/website) and the effective accent
+  // colour come from `detail.branding` (Phase 3A/3B) — this registry no
+  // longer owns any of that. An organisation with no configured
+  // branding.accentColor gets tokens byte-identical to this file's
+  // original hardcoded palette (applyAccentOverride is a no-op when
+  // accentColor is null).
   const theme = resolvePublicEventTheme(organisationSlug);
   const institutional = theme.variant === 'institutional';
+  const effectiveTokens = applyAccentOverride(theme.tokens, branding.accentColor);
+  const cssVars = cssVarsFor(effectiveTokens);
   // Phase 4B §5 — the two scopes always render as two separate blocks
   // (never interleaved): ORDER questions once, under "Booking details";
   // ATTENDEE questions once per attendee, under each attendee's own
@@ -366,10 +376,10 @@ export default function PublicEventClient({
 
   if (confirmation) {
     return (
-      <div style={{ minHeight: '100vh', background: BG, color: TEXT_PRIMARY, fontFamily: FONT, position: 'relative', overflowX: 'hidden', ...theme.cssVars }}>
+      <div style={{ minHeight: '100vh', background: BG, color: TEXT_PRIMARY, fontFamily: FONT, position: 'relative', overflowX: 'hidden', ...cssVars }}>
         <style>{EVENT_PAGE_CSS}</style>
         <div className="bb-event-glow-top" aria-hidden="true" />
-        {institutional ? <InstitutionalHeader theme={theme} /> : <EventHeader />}
+        {institutional ? <InstitutionalHeader branding={branding} organisationName={organisationName} /> : <EventHeader />}
         <main className="bb-event-main" style={{ maxWidth: 560, display: 'flex', justifyContent: 'center' }}>
           <div style={{ width: '100%', border: `1px solid ${BORDER}`, borderRadius: 18, background: 'var(--bbpe-card-bg)', boxShadow: 'var(--bbpe-card-shadow)', padding: '36px 28px', textAlign: 'center' }}>
             <div style={{
@@ -424,16 +434,16 @@ export default function PublicEventClient({
             </p>
           </div>
         </main>
-        {institutional && <InstitutionalFooter theme={theme} />}
+        {institutional && <InstitutionalFooter branding={branding} organisationName={organisationName} />}
       </div>
     );
   }
 
   return (
-    <div style={{ minHeight: '100vh', background: BG, color: TEXT_PRIMARY, fontFamily: FONT, position: 'relative', overflowX: 'hidden', ...theme.cssVars }}>
+    <div style={{ minHeight: '100vh', background: BG, color: TEXT_PRIMARY, fontFamily: FONT, position: 'relative', overflowX: 'hidden', ...cssVars }}>
       <style>{EVENT_PAGE_CSS}</style>
       <div className="bb-event-glow-top" aria-hidden="true" />
-      {institutional ? <InstitutionalHeader theme={theme} /> : <EventHeader />}
+      {institutional ? <InstitutionalHeader branding={branding} organisationName={organisationName} /> : <EventHeader />}
       {institutional && (
         <InstitutionalHero
           eyebrow="Event"
@@ -463,6 +473,33 @@ export default function PublicEventClient({
                   only piece conditionally skipped for that variant. */}
               {!institutional && (
                 <>
+                  {/* Default-variant organisation identity — conservative
+                      addition (Phase 3B). A compact, new visible row for
+                      every default-variant organisation (including
+                      unconfigured ones, via the initials/name fallback)
+                      — flagged explicitly per this phase's own
+                      instruction, not silently added. Does not replace
+                      the BrainBaseWordmark/"Powered by BrainBase" header
+                      above (EventHeader is untouched), and does not
+                      alter the page background/body colours — only this
+                      one small content-area row. */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+                    <OrganisationLogo branding={branding} organisationName={organisationName} size={28} />
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: TEXT_PRIMARY, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {branding.name ?? organisationName}
+                      </div>
+                      {branding.website && (
+                        <a
+                          href={branding.website} target="_blank" rel="noopener noreferrer"
+                          style={{ fontSize: 11.5, fontWeight: 600, color: VIOLET_SOFT, textDecoration: 'none' }}
+                        >
+                          Visit website →
+                        </a>
+                      )}
+                    </div>
+                  </div>
+
                   <div style={{
                     display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 700,
                     letterSpacing: '.09em', textTransform: 'uppercase', color: VIOLET_SOFT, marginBottom: 14,
@@ -674,7 +711,7 @@ export default function PublicEventClient({
           </div>
         </div>
       </main>
-      {institutional && <InstitutionalFooter theme={theme} />}
+      {institutional && <InstitutionalFooter branding={branding} organisationName={organisationName} />}
     </div>
   );
 }

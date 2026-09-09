@@ -1,20 +1,34 @@
-// Public event branding — generic theming layer.
+// Public event STRUCTURAL presentation — generic theming layer.
 //
-// Resolves a presentation theme for the public event surfaces
-// (app/e/[organisationSlug]/**) purely from the organisationSlug that is
-// already present in every one of those routes/components — no schema
-// change, no new query, no organisationId ever crosses into this module.
-// Deliberately NOT `server-only`: every consumer is a 'use client'
-// component (PublicEventClient, PublicEventsHubClient, the checkout
-// success page), so this stays a plain, synchronous, isomorphic module —
-// a static registry lookup, nothing more.
+// Resolves a purely structural presentation (layout variant + fixed
+// token palette) for the public event surfaces (app/e/[organisationSlug]/**)
+// from the organisationSlug that is already present in every one of
+// those routes/components — no schema change, no new query, no
+// organisationId ever crosses into this module. Deliberately NOT
+// `server-only`: every consumer is a 'use client' component
+// (PublicEventClient, PublicEventsHubClient, the checkout success page),
+// so this stays a plain, synchronous, isomorphic module — a static
+// registry lookup, nothing more.
+//
+// Phase 3B: this module NO LONGER owns any organisation identity
+// (name/logo/website) — that is now sourced exclusively from
+// lib/organisations/branding.ts's PublicOrganisationBranding, threaded
+// through the public event/ticket/booking resolvers (Phase 3A) and the
+// public events hub resolver (Phase 3B). This registry is now
+// structural-only: which layout variant an organisation gets, and the
+// fixed token palette that variant uses — including the FALLBACK accent
+// values used when an organisation hasn't configured its own
+// branding.accentColor (see applyAccentOverride below). There must be
+// no code path anywhere that lets this registry assert a name, logo, or
+// website belonging to any organisation — that would be exactly the
+// duplicate/competing identity source this phase removes.
 //
 // `variant` (not `id`) is what every consumer actually branches on for
 // rendering strategy, so a second institutional-style client later is
 // just one more registry entry with variant: 'institutional' and its own
-// tokens/brand — zero new conditionals anywhere else in the codebase.
-// `id` exists only for registry lookup / debugging and is never used for
-// visual branching itself.
+// structural tokens — zero new conditionals anywhere else in the
+// codebase. `id` exists only for registry lookup / debugging and is
+// never used for visual branching itself.
 
 export type PublicEventThemeVariant = 'default' | 'institutional';
 
@@ -38,6 +52,13 @@ export type PublicEventThemeTokens = {
   // `bg` — for the institutional theme this means a deep, AA-contrast
   // gold rather than the brighter decorative gold used on the dark
   // `band*` surfaces below.
+  //
+  // Phase 3B: `accent`/`accentSoft`/`accentRgb` here are FALLBACK values
+  // only — the effective values an organisation actually sees are
+  // computed by applyAccentOverride() below, which substitutes the
+  // organisation's own branding.accentColor when configured. These
+  // per-variant literals remain exactly as they were so an organisation
+  // with no configured accent renders identically to before this phase.
   accent: string;
   accentSoft: string;
   // Comma-separated "r,g,b" triplet for the SAME colour as `accent`,
@@ -82,6 +103,12 @@ export type PublicEventThemeTokens = {
   // dark burgundy band is a different calculation from contrast against
   // the light `bg`, so this is deliberately not the same value as
   // `accent`.
+  //
+  // Phase 3B: deliberately NEVER overridden by branding.accentColor
+  // (see applyAccentOverride's own comment for why) — an arbitrary
+  // admin-chosen accent colour is not guaranteed to stay legible against
+  // this FIXED dark band background, so this token always keeps its
+  // per-variant literal value regardless of configured branding.
   bandAccent: string;
   // The handful of PublicEventClient/Hub/checkout-success panel
   // backgrounds that were literal `rgba(255,255,255,.0N)` translucent
@@ -104,26 +131,18 @@ export type PublicEventThemeTokens = {
   cardShadow: string;
 };
 
-export type PublicEventBrand = {
-  name: string;
-  shortName: string;
-  tagline?: string;
-  // "Visit website" / "Back to website" link target. Genuinely optional
-  // — omit it rather than invent a URL that doesn't belong to the
-  // organisation. See school-test-organisation's own entry below.
-  websiteUrl?: string;
-};
-
 export type PublicEventTheme = {
   id: string;
   variant: PublicEventThemeVariant;
   tokens: PublicEventThemeTokens;
-  brand: PublicEventBrand;
   // Pre-built for direct use as a React inline `style` object spread on
   // the page's root element — every consumer's own local BG/BORDER/etc.
   // constants are themselves just the matching `var(--bbpe-*)` strings,
   // so setting these once at the root re-themes the entire subtree with
-  // no further prop-threading into any sub-component.
+  // no further prop-threading into any sub-component. Reflects the
+  // per-variant FALLBACK tokens only — call applyAccentOverride() first
+  // and regenerate via cssVarsFor() if an organisation has a configured
+  // branding.accentColor (see both below).
   cssVars: Record<string, string>;
 };
 
@@ -206,7 +225,7 @@ const SCHOOL_TEST_TOKENS: PublicEventThemeTokens = {
   cardShadow: '0 1px 3px rgba(26,26,26,.08), 0 4px 12px rgba(26,26,26,.05)',
 };
 
-function cssVarsFor(tokens: PublicEventThemeTokens): Record<string, string> {
+export function cssVarsFor(tokens: PublicEventThemeTokens): Record<string, string> {
   return {
     '--bbpe-bg': tokens.bg,
     '--bbpe-bg-translucent': tokens.bgTranslucent,
@@ -238,31 +257,75 @@ const DEFAULT_THEME: PublicEventTheme = {
   id: 'default',
   variant: 'default',
   tokens: DEFAULT_TOKENS,
-  brand: { name: 'BrainBase', shortName: 'BB' },
   cssVars: cssVarsFor(DEFAULT_TOKENS),
 };
 
-// The registry itself. Adding a future client's own branded theme is
-// exactly one more entry here — nothing else in this file, or in any
-// consuming component, needs to change.
+// The registry itself — STRUCTURE only (variant + fixed token palette).
+// Adding a future client's own structurally-branded theme is exactly
+// one more entry here — nothing else in this file, or in any consuming
+// component, needs to change. This registry must never gain an identity
+// field (name/logo/website) again — that is lib/organisations/
+// branding.ts's job exclusively; see this file's own header comment.
 const PUBLIC_EVENT_THEMES: Record<string, PublicEventTheme> = {
   'school-test-organisation': {
     id: 'school-test-organisation',
     variant: 'institutional',
     tokens: SCHOOL_TEST_TOKENS,
-    brand: {
-      name: 'School Test Organisation',
-      shortName: 'STO',
-      tagline: 'Community & Events',
-      // No real school-test-organisation.* domain exists — inventing one
-      // here would be worse than omitting it. InstitutionalChrome only
-      // renders a "Visit website" link when this is actually set, so a
-      // future real client with a real domain gets the link for free.
-    },
     cssVars: cssVarsFor(SCHOOL_TEST_TOKENS),
   },
 };
 
 export function resolvePublicEventTheme(organisationSlug: string): PublicEventTheme {
   return PUBLIC_EVENT_THEMES[organisationSlug] ?? DEFAULT_THEME;
+}
+
+// ── Accent override (Phase 3B) ───────────────────────────────────────
+//
+// effectiveAccent = branding.accentColor ?? theme.tokens.accent
+//
+// Applies an organisation's configured branding.accentColor to the
+// SAFE accent-family tokens only (accent/accentSoft/accentRgb) — the
+// handful of solid-colour affordances (icons, links, focus rings,
+// selected-state borders, badges) that were always themeable per-
+// variant already. Deliberately reuses the SAME configured hex for both
+// `accent` and `accentSoft` rather than computing a lighter/darker
+// variant — an admin-chosen colour is used exactly as given, never
+// algorithmically altered, which avoids any risk of producing an
+// unreviewed, potentially low-contrast derived shade. `accentRgb` is a
+// pure hex-to-"r,g,b"-string format conversion (not colour generation)
+// — required because CSS custom properties can't extract channel values
+// from a hex string for the rgba(var(--x-accent-rgb), alpha) usages in
+// the shared public-event CSS block.
+//
+// Deliberately NEVER overrides: `accentGradient` (the CTA button is a
+// reviewed, deliberately-independent hue per variant — see that field's
+// own comment), `bandAccent` (must stay legible against the FIXED
+// `bandBg`, a contrast guarantee an arbitrary admin colour cannot make),
+// or any non-accent structural token (backgrounds, text colours, green/
+// red semantic colours, card shadows, heading font). No colour-
+// generation/theme engine of any kind — this is the full extent of what
+// "configured accent" is allowed to influence.
+//
+// accentColor is expected to already be normalised (lib/organisations/
+// branding.ts's normalizeAccentColor: null, or a lowercase 6-digit
+// '#rrggbb' string) — this function still defends against anything else
+// by falling back to the theme's own fixed accent unchanged rather than
+// ever producing a malformed CSS value.
+export function applyAccentOverride(tokens: PublicEventThemeTokens, accentColor: string | null): PublicEventThemeTokens {
+  if (!accentColor) return tokens;
+  const rgb = hexToRgbTriplet(accentColor);
+  if (!rgb) return tokens;
+  return {
+    ...tokens,
+    accent: accentColor,
+    accentSoft: accentColor,
+    accentRgb: rgb,
+  };
+}
+
+function hexToRgbTriplet(hex: string): string | null {
+  const match = /^#?([0-9a-f]{6})$/i.exec(hex);
+  if (!match) return null;
+  const n = parseInt(match[1], 16);
+  return `${(n >> 16) & 255},${(n >> 8) & 255},${n & 255}`;
 }

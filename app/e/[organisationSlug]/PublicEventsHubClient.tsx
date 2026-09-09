@@ -3,9 +3,11 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import { Calendar, MapPin, Ticket } from 'lucide-react';
-import { resolvePublicEventTheme } from '@/lib/events/publicEventTheme';
+import { resolvePublicEventTheme, applyAccentOverride, cssVarsFor } from '@/lib/events/publicEventTheme';
 import { InstitutionalHeader, InstitutionalFooter } from '@/components/publicEvents/InstitutionalChrome';
+import { OrganisationLogo } from '@/components/organisations/OrganisationLogo';
 import type { PublicHubEvent } from '@/lib/events/publicEventsHub';
+import type { PublicOrganisationBranding } from '@/lib/organisations/branding';
 
 const FONT = 'var(--font-inter), "Inter", -apple-system, sans-serif';
 
@@ -44,19 +46,25 @@ function formatFromPrice(cents: number | null): string | null {
 }
 
 export default function PublicEventsHubClient({
-  organisationSlug, organisationName, events,
+  organisationSlug, organisationName, branding, events,
 }: {
-  organisationSlug: string; organisationName: string; events: PublicHubEvent[];
+  organisationSlug: string; organisationName: string; branding: PublicOrganisationBranding; events: PublicHubEvent[];
 }) {
-  // Public event branding (see lib/events/publicEventTheme.ts) — same
-  // resolver, same organisationSlug-only lookup, as PublicEventClient.
+  // Public event STRUCTURAL presentation — same resolver, same
+  // organisationSlug-only lookup, as PublicEventClient. Organisation
+  // IDENTITY (name/logo/website) and the effective accent colour come
+  // from `branding` (Phase 3B — lib/events/publicEventsHub.ts's own
+  // getPublicUpcomingEvents now carries it, same pattern as the detail
+  // page's resolver).
   const theme = resolvePublicEventTheme(organisationSlug);
   const institutional = theme.variant === 'institutional';
+  const cssVars = cssVarsFor(applyAccentOverride(theme.tokens, branding.accentColor));
+  const displayName = branding.name ?? organisationName;
 
   return (
-    <div style={{ minHeight: '100vh', background: BG, color: TEXT_PRIMARY, fontFamily: FONT, ...theme.cssVars }}>
+    <div style={{ minHeight: '100vh', background: BG, color: TEXT_PRIMARY, fontFamily: FONT, ...cssVars }}>
       {institutional ? (
-        <InstitutionalHeader theme={theme} />
+        <InstitutionalHeader branding={branding} organisationName={organisationName} />
       ) : (
         <header style={{ position: 'sticky', top: 0, zIndex: 50, background: 'rgba(7,8,11,.86)', backdropFilter: 'blur(16px)', borderBottom: `1px solid ${BORDER_SOFT}` }}>
           <div style={{ maxWidth: 1080, margin: '0 auto', padding: '13px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -70,7 +78,29 @@ export default function PublicEventsHubClient({
         <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 700, letterSpacing: '.09em', textTransform: 'uppercase', color: VIOLET_SOFT, marginBottom: 10 }}>
           <Ticket size={13} /> Events
         </div>
-        <h1 style={{ fontSize: 30, fontWeight: 700, letterSpacing: '-.02em', margin: '0 0 32px', fontFamily: institutional ? 'var(--bbpe-heading-font)' : undefined }}>{organisationName}</h1>
+        {/* Default-variant organisation identity — conservative addition
+            (Phase 3B): a compact logo next to the existing H1, which
+            already showed the organisation's name (previously always
+            plain organisations.name; now branding.name when configured,
+            falling back to the exact same value). This is a genuinely
+            new visible element (the logo) for every default-variant
+            organisation, including unconfigured ones (initials
+            fallback) — flagged explicitly per this phase's own
+            instruction, not silently added. BrainBase's own header
+            attribution above is completely unaffected. */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+          {!institutional && <OrganisationLogo branding={branding} organisationName={organisationName} size={32} />}
+          <h1 style={{ fontSize: 30, fontWeight: 700, letterSpacing: '-.02em', margin: 0, fontFamily: institutional ? 'var(--bbpe-heading-font)' : undefined }}>{displayName}</h1>
+        </div>
+        {!institutional && branding.website && (
+          <a
+            href={branding.website} target="_blank" rel="noopener noreferrer"
+            style={{ display: 'inline-block', marginBottom: 24, fontSize: 12.5, fontWeight: 600, color: VIOLET_SOFT, textDecoration: 'none' }}
+          >
+            Visit website →
+          </a>
+        )}
+        {institutional && <div style={{ marginBottom: 32 }} />}
 
         {events.length === 0 ? (
           <div style={{ border: `1px solid ${BORDER}`, borderRadius: 16, background: 'var(--bbpe-card-bg)', boxShadow: 'var(--bbpe-card-shadow)', padding: '48px 24px', textAlign: 'center' }}>
@@ -84,7 +114,7 @@ export default function PublicEventsHubClient({
           </div>
         )}
       </main>
-      {institutional && <InstitutionalFooter theme={theme} />}
+      {institutional && <InstitutionalFooter branding={branding} organisationName={organisationName} />}
     </div>
   );
 }
