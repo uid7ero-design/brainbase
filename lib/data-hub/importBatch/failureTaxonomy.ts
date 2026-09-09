@@ -78,7 +78,8 @@ export type CallerOnlyOutcomeCode =
   | "INVALID_CURSOR"
   | "INVALID_LIMIT"
   | "WORKSHEET_NOT_ELIGIBLE"
-  | "UNSUPPORTED_FORMAT";
+  | "UNSUPPORTED_FORMAT"
+  | "SOURCE_SYSTEM_UNAVAILABLE";
 
 export type FailureCode = PersistedFailureCode | CallerOnlyOutcomeCode;
 
@@ -111,6 +112,7 @@ export const CALLER_ONLY_OUTCOME_CODES: readonly CallerOnlyOutcomeCode[] = [
   "INVALID_LIMIT",
   "WORKSHEET_NOT_ELIGIBLE",
   "UNSUPPORTED_FORMAT",
+  "SOURCE_SYSTEM_UNAVAILABLE",
 ];
 
 export function isPersistedFailureCode(code: string): code is PersistedFailureCode {
@@ -235,6 +237,12 @@ const MESSAGE_TEMPLATES: Record<FailureCode, string> = {
   // 5A.2K.1 — dark DATA_HUB worksheet confirmation/import service outcome codes.
   WORKSHEET_NOT_ELIGIBLE: "This worksheet is not currently awaiting confirmation and cannot be imported.",
   UNSUPPORTED_FORMAT: "This worksheet's source format is not yet supported for canonical import.",
+  // 5B.4A — initiate's new optional SourceSystem-selection outcome code.
+  // Deliberately ONE generic message for every rejection reason (id does
+  // not exist, belongs to another organisation, or is inactive) — never
+  // distinguished, to avoid leaking foreign-tenant existence.
+  SOURCE_SYSTEM_UNAVAILABLE:
+    "The specified source system is not available for a new import. It may not exist, may belong to a different organisation, or may be inactive.",
 };
 
 const MAX_MESSAGE_LENGTH = 500;

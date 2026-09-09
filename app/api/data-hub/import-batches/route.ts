@@ -98,8 +98,11 @@ export async function GET(req: NextRequest) {
 // unrecognized code fall through to 500 — this is an unexpected-shaped
 // service outcome, not a normal caller-facing case, so it is treated the
 // same as a genuine internal failure rather than guessed at.
+// 5B.4A — SOURCE_SYSTEM_UNAVAILABLE joins the 400 class: like
+// INVALID_REQUEST/SIZE_LIMIT, it describes a rejected request input
+// (an unusable sourceSystemId), not a state conflict.
 function initiateErrorStatus(code: string): number {
-  if (code === "INVALID_REQUEST" || code === "SIZE_LIMIT") return 400;
+  if (code === "INVALID_REQUEST" || code === "SIZE_LIMIT" || code === "SOURCE_SYSTEM_UNAVAILABLE") return 400;
   if (code === "INVALID_STATE" || code === "IDEMPOTENCY_CONFLICT") return 409;
   return 500;
 }
@@ -139,9 +142,10 @@ export async function POST(req: NextRequest) {
   // `typeof raw !== "string"` runtime check already correctly rejects.
   const idempotencyKeyHeader = req.headers.get("Idempotency-Key") ?? undefined;
 
-  // Hand-constructed from exactly three permitted body fields — never a
-  // spread of `body` — so an unexpected field (organisationId,
-  // organisation_id, homeOrganisationId, or anything else a malicious
+  // Hand-constructed from exactly four permitted body fields (5B.4A adds
+  // sourceSystemId) — never a spread of `body` — so an unexpected field
+  // (organisationId, organisation_id, homeOrganisationId,
+  // sourceSystemName, active, createdBy, or anything else a malicious
   // caller includes) can never reach the service call. This is the
   // load-bearing tenant-input-hardening property this route must uphold.
   const input = {
@@ -149,6 +153,7 @@ export async function POST(req: NextRequest) {
     declaredSizeBytes: body.declaredSizeBytes,
     expectedSha256: body.expectedSha256,
     idempotencyKey: idempotencyKeyHeader,
+    sourceSystemId: body.sourceSystemId,
   } as InitiateClientInput;
 
   try {

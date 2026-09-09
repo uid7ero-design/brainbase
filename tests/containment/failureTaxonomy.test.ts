@@ -54,6 +54,9 @@ describe("failureTaxonomy — code sets", () => {
         // (lib/data-hub/importBatch/confirmWorksheet.ts) outcome codes.
         "WORKSHEET_NOT_ELIGIBLE",
         "UNSUPPORTED_FORMAT",
+        // 5B.4A — initiate's own optional SourceSystem-selection outcome
+        // code (lib/data-hub/importBatch/initiate.ts). Never persisted.
+        "SOURCE_SYSTEM_UNAVAILABLE",
       ])
     );
   });
