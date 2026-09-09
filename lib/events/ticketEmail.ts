@@ -1,6 +1,7 @@
 import 'server-only';
-import { sendEmail, emailLayout, escHtml, btnStyle, BASE_URL } from '@/lib/email';
+import { sendEmail, emailLayout, escHtml, BASE_URL } from '@/lib/email';
 import { buildTicketUrl } from '@/lib/events/qr';
+import type { TicketEmailBranding } from '@/lib/organisations/branding';
 
 export { isOrderEligibleForTicketEmail, type TicketEmailEligibilityOrder } from './ticketEmailEligibility';
 
@@ -39,6 +40,14 @@ export type TicketEmailData = {
   // function must degrade safely rather than emit a broken link — see
   // buildBookingWalletUrl's only call site below.
   bookingToken?: string | null;
+  // Phase 3D — organisation presentation only, resolved server-side by
+  // the caller (the resend route) from the order's own already-trusted
+  // organisation_id, exactly like /t and /b's own branding threading
+  // (Phase 3C). Optional/nullable: an absent or all-null value renders
+  // exactly as before this phase (see buildTicketEmail's own use of it
+  // below) — no organisation is ever REQUIRED to configure branding for
+  // this email to render safely.
+  branding?: TicketEmailBranding | null;
 };
 
 // Booking-wallet link shape (/b/<bookingToken>/tickets) — deliberately
@@ -53,6 +62,28 @@ function buildBookingWalletUrl(origin: string, bookingToken: string): string {
   return `${origin}/b/${bookingToken}/tickets`;
 }
 
+// Local to this file, deliberately NOT exported alongside/instead of
+// lib/email.ts's own shared `btnStyle` — that constant is used
+// unconditionally by verificationEmail/passwordResetEmail/
+// webServiceLeadEmail and must never vary by organisation (§17: shared
+// emails must not change). This mirrors btnStyle's exact structure,
+// substituting only the background colour, and falls back to the
+// identical '#7C3AED' when no accent is configured — pixel-identical
+// to the previous hardcoded btnStyle usage in that case.
+function ticketBtnStyle(accentColor: string | null): string {
+  return [
+    'display:inline-block',
+    'padding:12px 28px',
+    `background:${accentColor ?? '#7C3AED'}`,
+    'color:#fff',
+    'text-decoration:none',
+    'border-radius:8px',
+    'font-size:14px',
+    'font-weight:600',
+    'letter-spacing:0.02em',
+  ].join(';');
+}
+
 export function buildTicketEmail(data: TicketEmailData): { subject: string; html: string } {
   const multiple = data.attendees.length > 1;
   // Primary "View all tickets" CTA only for a genuinely multi-attendee
@@ -64,6 +95,22 @@ export function buildTicketEmail(data: TicketEmailData): { subject: string; html
   // rather than emitting a broken/empty CTA link.
   const showWalletCta = multiple && !!data.bookingToken;
   const walletUrl = showWalletCta ? buildBookingWalletUrl(BASE_URL, data.bookingToken as string) : null;
+
+  // Phase 3D — presentation only. accentColor substitutes only the CTA
+  // background + a thin divider line; nothing else in this template
+  // reads it. The organisation identity row/footer render ONLY when
+  // branding.name/emailFooter are themselves configured — an
+  // unconfigured organisation (branding absent or every field null)
+  // gets a byte-identical email to before this phase, never a fallback
+  // to the raw DB organisation name here (deliberately more
+  // conservative than /t or /b's own header, which already shows a DB-
+  // name fallback: an email is a one-shot, unreviewable send to a
+  // purchaser's inbox, not a page a manager can immediately reload and
+  // fix — see this phase's own final report for the full rationale).
+  const branding = data.branding ?? null;
+  const accent = branding?.accentColor ?? null;
+  const ticketBtn = ticketBtnStyle(accent);
+  const dividerColor = accent ?? '#f0f0f0';
 
   const ticketRows = data.attendees.map(a => {
     // Ticket URL shape /t/<existing-token>, built via the same
@@ -78,7 +125,7 @@ export function buildTicketEmail(data: TicketEmailData): { subject: string; html
       <tr>
         <td style="padding:14px 0;border-bottom:1px solid #f0f0f0">
           <div style="font-size:13px;font-weight:600;color:#222;margin-bottom:10px">${escHtml(a.name)}</div>
-          <a href="${url}" style="${btnStyle};padding:9px 20px;font-size:13px">View ticket</a>
+          <a href="${url}" style="${ticketBtn};padding:9px 20px;font-size:13px">View ticket</a>
         </td>
       </tr>
     `;
@@ -94,17 +141,23 @@ export function buildTicketEmail(data: TicketEmailData): { subject: string; html
       </p>
       ${walletUrl ? `
       <p style="margin:0 0 20px">
-        <a href="${walletUrl}" style="${btnStyle};padding:12px 26px;font-size:14px">View all tickets</a>
+        <a href="${walletUrl}" style="${ticketBtn};padding:12px 26px;font-size:14px">View all tickets</a>
       </p>
       <p style="margin:0 0 8px;font-size:12px;font-weight:600;color:#888;text-transform:uppercase;letter-spacing:.04em">Individual tickets</p>
       ` : ''}
+      <div style="margin:0 0 18px;border-top:1px solid ${dividerColor}"></div>
       <table cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;margin:0 0 8px">
         ${ticketRows}
       </table>
       <p style="margin:28px 0 0;font-size:12px;color:#888;line-height:1.5">
         Keep this email — you can use it to find your ticket link${multiple ? 's' : ''} again at any time.
       </p>
-    `),
+    `, {
+      name: branding?.name ?? null,
+      logoUrl: branding?.logoUrl ?? null,
+      website: branding?.website ?? null,
+      footerText: branding?.emailFooter ?? null,
+    }),
   };
 }
 

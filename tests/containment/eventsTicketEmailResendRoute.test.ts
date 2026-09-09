@@ -419,3 +419,57 @@ describe('AUDIT', () => {
     expect(sqlText).toMatch(/NULL/)
   })
 })
+
+// ─── ORGANISATION BRANDING (Phase 3D) ───────────────────────────────
+//
+// A dedicated fixture/describe block, independent from ELIGIBLE_ORDER_ROW
+// above, so this doesn't risk perturbing any pre-existing assertion —
+// it adds organisation_name/organisation_settings to its own copy of
+// the order row and asserts the exact branding object sendTicketEmail
+// is called with, proving the route's new organisation join actually
+// reaches sendTicketEmail correctly end-to-end (not just present in
+// source text).
+
+describe('ORGANISATION BRANDING (Phase 3D)', () => {
+  const BRANDED_ORDER_ROW = [{
+    ...ELIGIBLE_ORDER_ROW[0],
+    organisation_name: 'Acme School',
+    organisation_settings: { branding: { name: 'Acme Display', accentColor: '#0ea5e9', website: 'https://acme.test', emailFooter: 'Go Eagles!' } },
+  }]
+
+  const UNCONFIGURED_ORDER_ROW = [{
+    ...ELIGIBLE_ORDER_ROW[0],
+    organisation_name: 'Acme School',
+    organisation_settings: {},
+  }]
+
+  it('passes branding derived from the SAME trusted organisation row to sendTicketEmail', async () => {
+    queue(EVENT_ROW, BRANDED_ORDER_ROW, NO_PRIOR_ATTEMPT, [])
+    await route.POST(req(), ctx())
+
+    expect(sendTicketEmailMock).toHaveBeenCalledTimes(1)
+    const [, data] = sendTicketEmailMock.mock.calls[0] as [string, { branding: unknown }]
+    expect(data.branding).toEqual({
+      name: 'Acme Display', logoUrl: null, accentColor: '#0ea5e9', website: 'https://acme.test', emailFooter: 'Go Eagles!',
+    })
+  })
+
+  it('an unconfigured organisation still resolves branding safely — all fields null, never an error, never a fallback to the raw DB name inside branding.name', async () => {
+    queue(EVENT_ROW, UNCONFIGURED_ORDER_ROW, NO_PRIOR_ATTEMPT, [])
+    await route.POST(req(), ctx())
+
+    const [, data] = sendTicketEmailMock.mock.calls[0] as [string, { branding: unknown }]
+    expect(data.branding).toEqual({
+      name: null, logoUrl: null, accentColor: null, website: null, emailFooter: null,
+    })
+  })
+
+  it('never passes organisationId, raw settings, or private business-contact fields to sendTicketEmail', async () => {
+    queue(EVENT_ROW, BRANDED_ORDER_ROW, NO_PRIOR_ATTEMPT, [])
+    await route.POST(req(), ctx())
+
+    const [, data] = sendTicketEmailMock.mock.calls[0] as [string, Record<string, unknown>]
+    const json = JSON.stringify(data)
+    expect(json).not.toMatch(/organisationId|organisation_id|organisation_settings/)
+  })
+})

@@ -218,11 +218,52 @@ export const btnStyle = [
   'letter-spacing:0.02em',
 ].join(';');
 
+// Escapes &, <, >, ", ' — safe for both HTML text content (where the
+// quote entities are simply harmless/inert) and HTML attribute values
+// (href="...", src="...") alike, which Phase 3D's org-branding
+// presentation (website links, logo src) is the first caller in this
+// file to actually need. Every existing caller already only used this
+// for text content, so widening it is purely additive — no existing
+// output changes shape, only quote characters (rare in names/emails)
+// now render as entities instead of literal quotes.
 export function escHtml(s: string) {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
-export function emailLayout(body: string) {
+// Phase 3D — optional organisation-presentation hook. Every existing
+// caller (verificationEmail, passwordResetEmail, webServiceLeadEmail,
+// and any future one that doesn't pass this) omits the second
+// argument entirely, so `org` is undefined and every expression below
+// that depends on it evaluates to the empty string — the returned HTML
+// is byte-identical to this function's pre-3D output. Only
+// lib/events/ticketEmail.ts passes a populated object. Deliberately
+// does NOT accept accentColor: the CTA-button/divider accent is
+// ticket-email body content (built by buildTicketEmail itself, using
+// its own local button-style helper), never part of this shared
+// shell — keeping this function's own change surface to "header
+// identity" and "pre-footer text" only.
+export interface EmailOrgPresentation {
+  name?: string | null;
+  logoUrl?: string | null;
+  website?: string | null;
+  footerText?: string | null;
+}
+
+export function emailLayout(body: string, org?: EmailOrgPresentation | null) {
+  // Identity row directly below the BrainBase wordmark — never
+  // replacing it (§7's own "do not replace BrainBase attribution
+  // entirely"). Logo, if present, is a small inline glyph only; no
+  // OrganisationLogo-style initials fallback here (§7: "omission is
+  // acceptable" when no logo is configured — an email client is not
+  // the right place to reproduce that component's own contain/backing
+  // plate logic).
+  const orgIdentity = org?.name ? `
+          <div style="margin-top:8px;font-size:12px;color:#9CA3AF">
+            ${org.logoUrl ? `<img src="${escHtml(org.logoUrl)}" alt="${escHtml(org.name)}" style="height:16px;width:auto;max-width:120px;vertical-align:middle;margin-right:6px;border-radius:3px" />` : ''}<span style="vertical-align:middle">${escHtml(org.name)}</span>${org.website ? ` · <a href="${escHtml(org.website)}" style="color:#9CA3AF;text-decoration:underline">${escHtml(org.website.replace(/^https?:\/\//i, ''))}</a>` : ''}
+          </div>` : '';
+
+  const orgFooter = org?.footerText ? `<div style="margin:0 0 8px;color:#666">${escHtml(org.footerText)}</div>` : '';
+
   return `<!DOCTYPE html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"></head>
 <body style="margin:0;padding:0;background:#f4f4f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
@@ -232,13 +273,13 @@ export function emailLayout(body: string) {
         <tr><td style="padding:24px 32px;background:#08090C;border-bottom:1px solid #1c1c2e">
           <span style="font-size:18px;font-weight:700;letter-spacing:.1em;color:#f4f4f5">
             BRAINB<span style="color:#A78BFA">Λ</span>SE
-          </span>
+          </span>${orgIdentity}
         </td></tr>
         <tr><td style="padding:36px 32px">
           ${body}
         </td></tr>
         <tr><td style="padding:16px 32px;background:#fafafa;border-top:1px solid #e4e4e7;font-size:12px;color:#aaa">
-          © ${new Date().getFullYear()} Brainbase · Adelaide SA Australia
+          ${orgFooter}© ${new Date().getFullYear()} Brainbase · Adelaide SA Australia
         </td></tr>
       </table>
     </td></tr>
