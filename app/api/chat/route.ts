@@ -200,6 +200,21 @@ export type QueryAnalysis = {
   timestamp: string;
 };
 
+// Phase D.4.6I — surfaced to the HTTP caller (never to the model — the
+// model only ever sees executeOrganiserTool's own tool_result string) so a
+// future frontend "Confirm" affordance has something to act on. Without
+// this, propose_organiser_comment's confirmation_token would exist only
+// inside the internal Anthropic tool-use loop and could never reach a real
+// confirm step at all. Set only on a fresh 'proposed' result; cleared
+// (null) once/if that same request goes on to execute successfully, so a
+// completed action never leaves a stale, already-used-or-superseded token
+// in the response.
+export type PendingOrganiserAction = {
+  tool: 'propose_organiser_comment';
+  confirmationToken: string;
+  proposal: { item_id: string; item_name: string; body: string };
+} | null;
+
 // ─── Analysis helpers ─────────────────────────────────────────────────────────
 
 function extractTables(rawSql: string): string[] {
@@ -404,7 +419,14 @@ async function callClaude(
   orgName?: string,
   enabledCapabilities?: TenantCapability[],
   organiserContext?: HelenaOrganiserContext,
-): Promise<{ text: string; analysis: QueryAnalysis | null }> {
+  // Phase D.4.6I — trusted, non-model confirmation for
+  // propose_organiser_comment's confirm+execute mode. Sourced ONLY from the
+  // request body's own top-level organiserActionConfirmation field (see
+  // POST() below) — never from anything the model outputs. See the
+  // one-shot consumption logic below for why this is captured into a
+  // mutable local, not read fresh on every tool call.
+  organiserActionConfirmationToken?: string,
+): Promise<{ text: string; analysis: QueryAnalysis | null; pendingOrganiserAction: PendingOrganiserAction }> {
   const systemContent = buildSystem(
     memoryContext, spotifyContext, brainContext,
     taskContext, calendarContext, dashboardContext, liveDataContext,
@@ -439,6 +461,19 @@ async function callClaude(
   let trendNote:   string | null = null;
   let anomalyNote: string | null = null;
   let usedTool     = false;
+  // Phase D.4.6I — one-shot consumption: the FIRST propose_organiser_comment
+  // tool call anywhere in this request (across every batch/iteration of this
+  // loop) that runs while this is still set receives it; every call before
+  // or after that — including a second call in the very same model
+  // response batch — receives undefined and is forced into non-mutating
+  // propose mode. This is what makes "at most one mutating execution per
+  // confirmed action" true even though the model could otherwise call the
+  // tool repeatedly within these 4 iterations.
+  let remainingConfirmationToken = organiserActionConfirmationToken;
+  // Phase D.4.6I — see PendingOrganiserAction's own header. Set when
+  // propose_organiser_comment returns a fresh proposal; cleared to null if
+  // this same request later executes it successfully (status "posted").
+  let pendingOrganiserAction: PendingOrganiserAction = null;
 
   for (let iter = 0; iter < 4; iter++) {
     const resp = await anthropicClient.messages.create({
@@ -460,7 +495,7 @@ async function callClaude(
         confidence:  totalRows >= 30 ? 'High' : totalRows >= 5 ? 'Medium' : 'Low',
         timestamp:   new Date().toISOString(),
       } : null;
-      return { text, analysis };
+      return { text, analysis, pendingOrganiserAction };
     }
 
     const toolUseBlocks = resp.content.filter(
@@ -468,7 +503,23 @@ async function callClaude(
     );
 
     const toolResults = await Promise.all(
-      toolUseBlocks.map(async (block): Promise<Anthropic.Messages.ToolResultBlockParam> => {
+      toolUseBlocks.map((block): Promise<Anthropic.Messages.ToolResultBlockParam> => {
+        // Synchronous capture-and-clear, BEFORE any `await` in this
+        // iteration runs — .map()'s callback body up to its first await
+        // executes synchronously and in order for every element, so this
+        // is race-free even though the resulting promises are then awaited
+        // concurrently via Promise.all. Only the very first
+        // propose_organiser_comment block to reach this line (in this
+        // batch or any earlier iteration of the outer loop) can ever see a
+        // defined token; every other one — including a second tool_use
+        // block for the same tool in this exact same model response —
+        // sees undefined.
+        let confirmationTokenForThisCall: string | undefined;
+        if (block.name === 'propose_organiser_comment' && remainingConfirmationToken) {
+          confirmationTokenForThisCall = remainingConfirmationToken;
+          remainingConfirmationToken = undefined;
+        }
+        return (async (): Promise<Anthropic.Messages.ToolResultBlockParam> => {
         let content: string;
         if (isOrganiserToolName(block.name)) {
           // Organiser tools never participate in the query_database-specific
@@ -478,7 +529,35 @@ async function callClaude(
           content = await executeOrganiserTool(block.name, block.input, {
             boardId: organiserContext?.board?.id,
             itemId: organiserContext?.item?.id,
+            confirmationToken: confirmationTokenForThisCall,
           });
+          // Phase D.4.6I — surface propose_organiser_comment's own
+          // tool_result (never re-derived, never re-validated here) to the
+          // HTTP response so a future frontend can act on it. Parsing this
+          // JSON can never throw in a way that leaks anything: content is
+          // always one of executeOrganiserTool's own safe, generic shapes.
+          if (block.name === 'propose_organiser_comment') {
+            try {
+              const parsed = JSON.parse(content) as {
+                status?: string;
+                proposal?: { item_id: string; item_name: string; body: string };
+                confirmation_token?: string;
+              };
+              if (parsed.status === 'proposed' && parsed.proposal && parsed.confirmation_token) {
+                pendingOrganiserAction = {
+                  tool: 'propose_organiser_comment',
+                  confirmationToken: parsed.confirmation_token,
+                  proposal: parsed.proposal,
+                };
+              } else if (parsed.status === 'posted') {
+                pendingOrganiserAction = null;
+              }
+            } catch {
+              // Malformed content is unreachable given executeOrganiserTool's
+              // own contract, but never let a parse failure here affect the
+              // tool_result already returned to the model.
+            }
+          }
         } else {
           try {
             const { sql: rawSql } = block.input as { sql: string; reasoning: string };
@@ -495,6 +574,7 @@ async function callClaude(
           }
         }
         return { type: 'tool_result', tool_use_id: block.id, content };
+        })();
       }),
     );
 
@@ -518,7 +598,7 @@ async function callClaude(
     confidence:  totalRows >= 30 ? 'High' : totalRows >= 5 ? 'Medium' : 'Low',
     timestamp:   new Date().toISOString(),
   } : null;
-  return { text, analysis };
+  return { text, analysis, pendingOrganiserAction };
 }
 
 // ─── Brain context ────────────────────────────────────────────────────────────
@@ -744,6 +824,7 @@ export async function POST(req: NextRequest) {
   const {
     messages, memoryContext, spotifyContext, taskContext, calendarContext, dashboardContext, moduleKey, viewMode, department,
     organiserContext: organiserContextHint,
+    organiserActionConfirmation,
   } = await req.json() as {
     messages: Array<{ role: 'user' | 'assistant'; content: string }>;
     memoryContext?: string;
@@ -763,7 +844,26 @@ export async function POST(req: NextRequest) {
     // trusted as this shape yet) — see the defensive parsing immediately
     // below.
     organiserContext?: unknown;
+    // Phase D.4.6I — the ONLY channel through which
+    // propose_organiser_comment's confirm+execute mode can ever activate.
+    // This must come from the client's own explicit "the user clicked
+    // Confirm" action, never from the model — it is not part of any tool's
+    // input_schema, so the model has no way to populate it even if it
+    // wanted to. Left as `unknown` here on purpose; only a well-formed
+    // { token: string } shape is ever extracted below, and the token's own
+    // signature verification (lib/organiser/helenaWrite.ts) is what
+    // actually authorizes anything — this field's mere presence proves
+    // nothing by itself.
+    organiserActionConfirmation?: unknown;
   };
+
+  const organiserActionConfirmationToken =
+    organiserActionConfirmation &&
+    typeof organiserActionConfirmation === 'object' &&
+    !Array.isArray(organiserActionConfirmation) &&
+    typeof (organiserActionConfirmation as { token?: unknown }).token === 'string'
+      ? (organiserActionConfirmation as { token: string }).token
+      : undefined;
 
   const lastUserMsg = [...messages].reverse().find(m => m.role === 'user')?.content ?? '';
 
@@ -847,6 +947,7 @@ export async function POST(req: NextRequest) {
   let raw = '';
   let source = 'claude';
   let analysis: QueryAnalysis | null = null;
+  let pendingOrganiserAction: PendingOrganiserAction = null;
 
   try {
     const result = await callClaude(
@@ -854,9 +955,11 @@ export async function POST(req: NextRequest) {
       taskContext, calendarContext, dashboardContext, liveDataContext,
       orgId, moduleKey, userContext, viewMode, department,
       orgName, enabledCapabilities, resolvedOrganiserContext,
+      organiserActionConfirmationToken,
     );
     raw      = result.text;
     analysis = result.analysis;
+    pendingOrganiserAction = result.pendingOrganiserAction;
   } catch (err) {
     console.warn('[Helena] Claude unavailable, falling back to Ollama:', (err as Error).message);
     source = 'ollama';
@@ -876,5 +979,5 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  return Response.json({ ...parseResponse(raw), source, analysis });
+  return Response.json({ ...parseResponse(raw), source, analysis, pendingOrganiserAction });
 }

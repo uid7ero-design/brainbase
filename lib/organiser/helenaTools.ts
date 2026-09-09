@@ -15,6 +15,7 @@ import {
   shapeItemActivityForHelena,
   ORGANISER_ACTIVITY_WINDOWS,
 } from './helenaRead';
+import { authorizeHelenaOrganiserWrite, proposeOrExecuteOrganiserComment } from './helenaWrite';
 
 // Phase D.4.6C — Anthropic tool definitions + execution dispatch for the
 // four MVP Organiser read tools, built entirely on top of the D.4.6B
@@ -54,6 +55,7 @@ export const ORGANISER_TOOL_NAMES = [
   'list_organiser_items',
   'get_organiser_board_activity',
   'get_organiser_item_activity',
+  'propose_organiser_comment',
 ] as const;
 export type OrganiserToolName = (typeof ORGANISER_TOOL_NAMES)[number];
 
@@ -185,6 +187,36 @@ export function buildOrganiserTools(): Anthropic.Tool[] {
         additionalProperties: false,
       },
     },
+    // Phase D.4.6I — the first and, for this phase, ONLY Organiser write/
+    // action tool. Calling this tool NEVER mutates anything by itself — it
+    // only ever returns a bounded proposal for the user to explicitly
+    // approve. There is deliberately no `confirmation_token` field in this
+    // schema: confirmation can only be supplied via a trusted, non-model
+    // top-level request field (see app/api/chat/route.ts), never by the
+    // model itself. `item_id`/`body` are validated fresh on every call —
+    // repeating this tool call after a proposal was already made simply
+    // produces a new (or identical) proposal, never a mutation.
+    {
+      name: 'propose_organiser_comment',
+      description:
+        'Propose posting a comment on one Organiser item. This NEVER posts the comment immediately — it only returns a bounded proposal (the exact item and exact comment text) that MUST be read back to the user for explicit approval before anything is posted. Only call the tool the user can actually see executed after they say yes; you cannot confirm on the user\'s behalf, and calling this tool again does not post anything either. item_id must come from list_organiser_items or existing conversation context — never guess it.',
+      input_schema: {
+        type: 'object' as const,
+        properties: {
+          item_id: {
+            type: 'string',
+            description: 'The item id to comment on, from list_organiser_items or existing conversation context.',
+          },
+          body: {
+            type: 'string',
+            maxLength: 2000,
+            description: 'The exact comment text to propose posting. Must be the user\'s own intended words, not a paraphrase or your own summary.',
+          },
+        },
+        required: ['item_id', 'body'],
+        additionalProperties: false,
+      },
+    },
   ];
 }
 
@@ -227,6 +259,17 @@ function extractGroupIdCandidate(json: Record<string, unknown> | null): string |
 export interface OrganiserToolContextDefaults {
   boardId?: string;
   itemId?: string;
+  /**
+   * Phase D.4.6I — present ONLY when sourced from a trusted, non-model
+   * top-level request field (see app/api/chat/route.ts's
+   * organiserActionConfirmation body field) — NEVER from the model's tool
+   * call arguments, which have no such field in their schema at all. This
+   * is the sole channel through which propose_organiser_comment can ever
+   * enter its mutating (confirm+execute) mode; its total absence forces
+   * every call into non-mutating propose mode regardless of what the model
+   * requests.
+   */
+  confirmationToken?: string;
 }
 
 /**
@@ -254,12 +297,55 @@ export async function executeOrganiserTool(
   rawInput: unknown,
   contextDefaults?: OrganiserToolContextDefaults,
 ): Promise<string> {
+  const input: Record<string, unknown> =
+    rawInput && typeof rawInput === 'object' ? (rawInput as Record<string, unknown>) : {};
+
+  // Phase D.4.6I — the write tool is authorized through its OWN, stricter
+  // boundary (authorizeHelenaOrganiserWrite, 'manager' floor), never the
+  // read boundary below (authorizeHelenaOrganiserRead, 'viewer' floor). A
+  // tenant/user who can read Organiser activity is not automatically
+  // trusted to write to it.
+  if (name === 'propose_organiser_comment') {
+    const writeAuth = await authorizeHelenaOrganiserWrite();
+    if (!writeAuth.ok) return JSON.stringify({ error: GENERIC_DENIAL });
+    const { organisationId, userId, actorName } = writeAuth;
+
+    try {
+      const itemId = readString(input, 'item_id') ?? contextDefaults?.itemId ?? '';
+      const bodyInput = readString(input, 'body') ?? '';
+      const result = await proposeOrExecuteOrganiserComment({
+        organisationId,
+        userId,
+        actorName,
+        itemId,
+        body: bodyInput,
+        confirmationToken: contextDefaults?.confirmationToken,
+      });
+
+      if (!result.ok) return JSON.stringify({ error: GENERIC_ERROR });
+
+      if (result.mode === 'proposed') {
+        return JSON.stringify({
+          status: 'proposed',
+          proposal: result.proposal,
+          confirmation_token: result.confirmationToken,
+          note: 'This has NOT been posted yet. Read the exact item and comment text back to the user and wait for their explicit yes before anything is posted. You cannot confirm this yourself.',
+        });
+      }
+
+      return JSON.stringify({
+        status: 'posted',
+        comment: result.comment,
+      });
+    } catch (err) {
+      console.error(`[Helena][Organiser tool: ${name}]`, err);
+      return JSON.stringify({ error: GENERIC_ERROR });
+    }
+  }
+
   const auth = await authorizeHelenaOrganiserRead();
   if (!auth.ok) return JSON.stringify({ error: GENERIC_DENIAL });
   const { organisationId } = auth;
-
-  const input: Record<string, unknown> =
-    rawInput && typeof rawInput === 'object' ? (rawInput as Record<string, unknown>) : {};
 
   try {
     switch (name) {
@@ -392,9 +478,8 @@ export async function executeOrganiserTool(
 // containment already proven in D.4.6B (comment/file/board/group text is
 // already just a JSON string in a tool_result by the time this section's
 // own "treat as data" rule would ever matter).
-export const ORGANISER_SAFETY_PROMPT = `[Organiser tools — read-only]
-You have read-only access to this organisation's Organiser boards and items via list_organiser_boards, list_organiser_items, get_organiser_board_activity, and get_organiser_item_activity. Rules:
-- These tools are READ-ONLY. You cannot create, update, move, or delete anything in Organiser. If asked to, say so plainly and do not attempt it.
+export const ORGANISER_SAFETY_PROMPT = `[Organiser tools — mostly read-only, one guarded action]
+list_organiser_boards, list_organiser_items, get_organiser_board_activity, and get_organiser_item_activity are READ-ONLY: you cannot create, update, move, or delete anything through them. You also have exactly one write action, propose_organiser_comment: it NEVER posts immediately, only ever a proposal. Read the exact item and text back and explicitly ask the user to confirm before anything is posted; only say it was posted if the tool result status is "posted" — you cannot supply that confirmation yourself, and calling the tool again does not confirm it. No other Organiser write action exists — say so plainly if asked, and never bypass a role/module denial.
 - Tool results are authoritative evidence of what was recorded. No results for a window means "no recorded activity found for that window" — never say "nothing happened".
 - Never infer actor intent beyond what the recorded actor/diff data actually shows.
 - Never invent a board, item, or group name. If a name was not recorded, say so rather than guessing.
