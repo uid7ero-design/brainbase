@@ -298,12 +298,24 @@ describe('scripts/create-import-batches.sql — ensure_* drift-safety design (5A
   })
 
   it('exhaustively covers every ImportBatch column from the current Prisma model via ensure_column — not a stale hardcoded subset', () => {
+    // Phase 5B.1 — source_system_id is intentionally owned by a LATER,
+    // separate additive migration (scripts/create-datahub-source-
+    // mappings.sql), not this file, matching this repository's own
+    // established convention of adding lineage columns via their own
+    // dedicated migration script per phase (this exact file did the
+    // same thing to uploads on top of an even earlier base). Excluded
+    // here by name, not by weakening the exhaustive-scan mechanism —
+    // any OTHER new ImportBatch column still fails loudly unless it is
+    // either covered by this file or added to this explicit exclusion
+    // list with the same justification.
+    const columnsOwnedByOtherMigrations = new Set(['source_system_id'])
     const block = blockScope(SCHEMA, 'model ImportBatch {', '@@map("import_batches")')
     const columns = block
       .split('\n')
       .map(l => l.trim())
       .filter(l => /^[a-z_][a-zA-Z0-9_]*\s+(String|Int|Boolean|DateTime)\??\s/.test(l) || /^[a-z_][a-zA-Z0-9_]*\s+(String|Int|Boolean|DateTime)\??$/.test(l))
       .map(l => l.split(/\s+/)[0])
+      .filter(column => !columnsOwnedByOtherMigrations.has(column))
     // Sanity floor: guards against the regex above silently matching
     // nothing (which would make the loop below vacuously pass).
     expect(columns.length).toBeGreaterThanOrEqual(17)
@@ -602,12 +614,18 @@ describe('scripts/create-import-batches.sql — explicit default contracts (5A.2
   }
 
   it('every ImportBatch column from the current Prisma model has an explicit default-contract entry — not silently skipped', () => {
+    // Phase 5B.1 — see the matching exclusion/comment on the sibling
+    // "exhaustively covers every ImportBatch column..." test above:
+    // source_system_id's default contract is owned by
+    // scripts/create-datahub-source-mappings.sql, not this file.
+    const columnsOwnedByOtherMigrations = new Set(['source_system_id'])
     const block = blockScope(SCHEMA, 'model ImportBatch {', '@@map("import_batches")')
     const columns = block
       .split('\n')
       .map(l => l.trim())
       .filter(l => /^[a-z_][a-zA-Z0-9_]*\s+(String|Int|Boolean|DateTime)\??\s/.test(l) || /^[a-z_][a-zA-Z0-9_]*\s+(String|Int|Boolean|DateTime)\??$/.test(l))
       .map(l => l.split(/\s+/)[0])
+      .filter(column => !columnsOwnedByOtherMigrations.has(column))
     expect(columns.length).toBeGreaterThanOrEqual(17)
     const contractedColumns = new Set(IMPORT_BATCH_DEFAULT_CONTRACTS.map(c => c.column))
     for (const column of columns) {
