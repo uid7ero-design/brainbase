@@ -52,6 +52,13 @@ vi.mock('@/lib/commercial/quotes', () => ({ getQuote: (...a: unknown[]) => getQu
 const listDeliveriesForDocumentMock = vi.fn()
 vi.mock('@/lib/commercial/documentDeliveries', () => ({ listDeliveriesForDocument: (...a: unknown[]) => listDeliveriesForDocumentMock(...a) }))
 
+// Phase C5.2 — the invoice detail GET route now also folds in the
+// derived payment summary, mirroring the exact same "mock the domain
+// function, never @/lib/db" convention this file already established
+// for listDeliveriesForDocument above.
+const getInvoicePaymentSummaryMock = vi.fn()
+vi.mock('@/lib/commercial/payments', () => ({ getInvoicePaymentSummary: (...a: unknown[]) => getInvoicePaymentSummaryMock(...a) }))
+
 const { GET: invoicesGET, POST: invoicesPOST } = await import('@/app/api/commercial/invoices/route')
 const { GET: invoiceGET, PUT: invoicePUT, DELETE: invoiceDELETE } = await import('@/app/api/commercial/invoices/[id]/route')
 const { POST: linePOST } = await import('@/app/api/commercial/invoices/[id]/lines/route')
@@ -93,6 +100,8 @@ beforeEach(() => {
   deleteInvoiceLineMock.mockReset()
   listDeliveriesForDocumentMock.mockReset()
   listDeliveriesForDocumentMock.mockResolvedValue([])
+  getInvoicePaymentSummaryMock.mockReset()
+  getInvoicePaymentSummaryMock.mockResolvedValue({ amount_paid_cents: 0, outstanding_balance_cents: 0, payment_state: 'UNPAID', payments: [] })
   issueInvoiceMock.mockReset()
   voidInvoiceMock.mockReset()
   createInvoiceFromQuoteMock.mockReset()
@@ -225,6 +234,13 @@ describe('Phase C4.2 — invoice_number/status/snapshots/totals are never accept
     const res = await voidPOST(jsonReq({ reason: '   ' }), ctx({ id: 'inv-1' }))
     expect(res.status).toBe(400)
     expect(voidInvoiceMock).not.toHaveBeenCalled()
+  })
+
+  it('POST void maps voidInvoice\'s "recorded payments" rejection to 409, not 400', async () => {
+    authorizeMock.mockResolvedValue({ ok: true, session: ADMIN_SESSION })
+    voidInvoiceMock.mockRejectedValue(new Error('cannot void an invoice with recorded payments; reverse the payment(s) first'))
+    const res = await voidPOST(jsonReq({ reason: 'x' }), ctx({ id: 'inv-1' }))
+    expect(res.status).toBe(409)
   })
 
   it('POST lines requires quantity before calling addInvoiceLine', async () => {
@@ -389,6 +405,32 @@ describe('Phase C4.3B — GET detail: invoice delivery history', () => {
     const res = await invoiceGET(plainReq(), ctx({ id: 'invoice-owned-by-org-b' }))
     expect(res.status).toBe(404)
     expect(listDeliveriesForDocumentMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('Phase C5.2 — GET detail: payment summary composition', () => {
+  it('includes amount_paid_cents/outstanding_balance_cents/payment_state/payments from getInvoicePaymentSummary, called with this invoice\'s own total_cents', async () => {
+    authorizeMock.mockResolvedValue({ ok: true, session: VIEWER_SESSION })
+    getInvoiceWithLinesMock.mockResolvedValue({ invoice: { id: 'inv-1', status: 'ISSUED', due_date: null, source_quote_id: null, overdue: false, total_cents: 13200 }, lines: [] })
+    getInvoicePaymentSummaryMock.mockResolvedValue({
+      amount_paid_cents: 5000, outstanding_balance_cents: 8200, payment_state: 'PARTIALLY_PAID',
+      payments: [{ id: 'pay-1', amount_cents: 5000, status: 'RECORDED' }],
+    })
+    const res = await invoiceGET(plainReq(), ctx({ id: 'inv-1' }))
+    const body = await res.json()
+    expect(body.amount_paid_cents).toBe(5000)
+    expect(body.outstanding_balance_cents).toBe(8200)
+    expect(body.payment_state).toBe('PARTIALLY_PAID')
+    expect(body.payments).toHaveLength(1)
+    expect(getInvoicePaymentSummaryMock).toHaveBeenCalledWith('org-a', 'inv-1', 13200)
+  })
+
+  it('a wrong-tenant/missing invoice never reaches the payment-summary lookup either', async () => {
+    authorizeMock.mockResolvedValue({ ok: true, session: VIEWER_SESSION })
+    getInvoiceWithLinesMock.mockResolvedValue(null)
+    const res = await invoiceGET(plainReq(), ctx({ id: 'invoice-owned-by-org-b' }))
+    expect(res.status).toBe(404)
+    expect(getInvoicePaymentSummaryMock).not.toHaveBeenCalled()
   })
 })
 

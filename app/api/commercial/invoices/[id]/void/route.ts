@@ -27,7 +27,15 @@ export async function POST(req: NextRequest, { params }: Ctx) {
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Failed to void invoice.';
     if (message.includes('not found')) return NextResponse.json({ error: message }, { status: 404 });
-    if (message.includes('concurrently')) return NextResponse.json({ error: message }, { status: 409 });
+    // Phase C5.2 — a paid/partially-paid invoice's void attempt and a
+    // genuine concurrent-status-change race both surface as this same
+    // atomic UPDATE affecting zero rows; both are conflicts with the
+    // invoice's current state, so both map to 409, distinguished only
+    // by the message text (voidInvoice() itself, lib/commercial/invoices.ts,
+    // determines which one actually happened via a follow-up read).
+    if (message.includes('concurrently') || message.includes('recorded payments')) {
+      return NextResponse.json({ error: message }, { status: 409 });
+    }
     return NextResponse.json({ error: message }, { status: 400 });
   }
 }

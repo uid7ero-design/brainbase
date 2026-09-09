@@ -1,11 +1,13 @@
 'use client';
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, Fragment } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { StatusBadge, OverdueBadge } from '../_status';
 import { formatMoneyCents } from '@/lib/commercial/money';
 import { formatCommercialDate } from '@/lib/commercial/dates';
 import { buildInvoicePdf, type InvoicePdfSupplier } from '@/lib/commercial/invoicePdf';
+import { PAYMENT_METHODS, type PaymentMethod } from '@/lib/commercial/payments';
+import SlidePanel from '../../_components/SlidePanel';
 
 const CARD = '#0e1014'; const BORDER = '#1a1d24';
 
@@ -28,6 +30,12 @@ type Customer = { id: string; name: string };
 type Product = { id: string; name: string; default_unit_price_cents: number; default_tax_code_id: string | null; sku: string | null; unit_label: string | null; active: boolean };
 type TaxCode = { id: string; code: string; name: string; rate: string };
 type Delivery = { id: string; channel: string; status: string; recipient: string; attempted_at: string };
+type Payment = {
+  id: string; amount_cents: number; currency: string; method: string; reference: string | null;
+  provider: string | null; provider_reference: string | null; received_at: string;
+  status: 'RECORDED' | 'REVERSED'; reversed_at: string | null; reversal_reason: string | null;
+};
+type PaymentState = 'UNPAID' | 'PARTIALLY_PAID' | 'PAID';
 type BusinessProfileResponse = {
   organisationName: string;
   profile: { tradingName: string | null; address: string | null; email: string | null; phone: string | null; abn: string | null };
@@ -74,6 +82,10 @@ export default function InvoiceDetailPage() {
   const [sourceQuoteNumber, setSourceQuoteNumber] = useState<string | null>(null);
   const [overdue, setOverdue] = useState(false);
   const [deliveries, setDeliveries] = useState<Delivery[]>([]);
+  const [payments, setPayments] = useState<Payment[]>([]);
+  const [amountPaidCents, setAmountPaidCents] = useState(0);
+  const [outstandingBalanceCents, setOutstandingBalanceCents] = useState(0);
+  const [paymentState, setPaymentState] = useState<PaymentState>('UNPAID');
   const [businessProfile, setBusinessProfile] = useState<BusinessProfileResponse | null>(null);
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
@@ -102,6 +114,18 @@ export default function InvoiceDetailPage() {
   const [confirmingVoid, setConfirmingVoid] = useState(false);
   const [voidReason, setVoidReason] = useState('');
 
+  // record-payment panel state
+  const [showRecordPayment, setShowRecordPayment] = useState(false);
+  const [paymentAmount, setPaymentAmount] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | ''>('');
+  const [paymentReference, setPaymentReference] = useState('');
+  const [paymentReceivedDate, setPaymentReceivedDate] = useState('');
+
+  // reversal confirmation state — which payment (if any) is currently
+  // being confirmed for reversal, and the reason entered for it.
+  const [reversingPaymentId, setReversingPaymentId] = useState<string | null>(null);
+  const [reversalReason, setReversalReason] = useState('');
+
   const load = useCallback(async () => {
     const [res, meRes] = await Promise.all([fetch(`/api/commercial/invoices/${id}`), fetch('/api/me')]);
     if (!res.ok) { setLoading(false); return; }
@@ -111,6 +135,10 @@ export default function InvoiceDetailPage() {
     setSourceQuoteNumber(data.sourceQuoteNumber ?? null);
     setOverdue(!!data.overdue);
     setDeliveries(data.deliveries ?? []);
+    setPayments(data.payments ?? []);
+    setAmountPaidCents(data.amount_paid_cents ?? 0);
+    setOutstandingBalanceCents(data.outstanding_balance_cents ?? data.invoice.total_cents);
+    setPaymentState((data.payment_state as PaymentState) ?? 'UNPAID');
     setDueDate(data.invoice.due_date ?? '');
     setPaymentTermsDays(data.invoice.payment_terms_days != null ? String(data.invoice.payment_terms_days) : '');
     setNotes(data.invoice.notes ?? '');
@@ -226,6 +254,47 @@ export default function InvoiceDetailPage() {
     load();
   }
 
+  // Phase C5.2 — server remains authoritative for every rule this form
+  // hints at client-side (positive amount, valid method, no overpayment,
+  // ISSUED-only): recordInvoicePayment() (lib/commercial/payments.ts)
+  // re-validates and re-derives everything itself. This handler only
+  // shapes the request and surfaces whatever error the server returns.
+  async function recordPayment(e: React.FormEvent) {
+    e.preventDefault();
+    if (!paymentMethod) { setActionError('A payment method is required.'); return; }
+    const amountCents = Math.round(parseFloat(paymentAmount || '0') * 100);
+    if (!Number.isInteger(amountCents) || amountCents <= 0) { setActionError('Enter a valid payment amount.'); return; }
+    setBusy(true); setActionError('');
+    const res = await fetch(`/api/commercial/invoices/${id}/payments`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        amount_cents: amountCents,
+        method: paymentMethod,
+        reference: paymentReference || null,
+        received_at: paymentReceivedDate ? new Date(paymentReceivedDate).toISOString() : null,
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setBusy(false);
+    if (!res.ok) { setActionError(data.error ?? 'Failed to record payment.'); return; }
+    setShowRecordPayment(false);
+    setPaymentAmount(''); setPaymentMethod(''); setPaymentReference(''); setPaymentReceivedDate('');
+    load();
+  }
+
+  async function reversePayment(paymentId: string) {
+    if (!reversalReason.trim()) { setActionError('A reversal reason is required.'); return; }
+    setBusy(true); setActionError('');
+    const res = await fetch(`/api/commercial/invoices/${id}/payments/${paymentId}/reverse`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason: reversalReason }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setBusy(false);
+    if (!res.ok) { setActionError(data.error ?? 'Failed to reverse payment.'); return; }
+    setReversingPaymentId(null); setReversalReason('');
+    load();
+  }
+
   async function deleteDraft() {
     setBusy(true);
     const res = await fetch(`/api/commercial/invoices/${id}`, { method: 'DELETE' });
@@ -306,8 +375,18 @@ export default function InvoiceDetailPage() {
           {isDraft && !confirmingIssue && (
             <button onClick={() => setConfirmingIssue(true)} disabled={busy || !dueDate} style={btn('#1a6aff')}>Issue Invoice</button>
           )}
+          {isIssued && outstandingBalanceCents > 0 && (
+            <button onClick={() => setShowRecordPayment(true)} disabled={busy} style={btn('#1a6aff')}>Record Payment</button>
+          )}
           {isIssued && isAdmin && !confirmingVoid && (
-            <button onClick={() => setConfirmingVoid(true)} disabled={busy} style={btn('rgba(239,68,68,0.15)', '#f87171')}>Void Invoice</button>
+            <button
+              onClick={() => setConfirmingVoid(true)}
+              disabled={busy || amountPaidCents > 0}
+              title={amountPaidCents > 0 ? 'Reverse all recorded payments before voiding this invoice.' : undefined}
+              style={btn('rgba(239,68,68,0.15)', '#f87171')}
+            >
+              Void Invoice
+            </button>
           )}
         </div>
       </div>
@@ -315,6 +394,11 @@ export default function InvoiceDetailPage() {
       {sendResult && <p style={{ color: '#4ade80', fontSize: 13, margin: '0 0 16px' }}>{sendResult}</p>}
       {isDraft && !dueDate && (
         <p style={{ color: '#fbbf24', fontSize: 13, margin: '0 0 16px' }}>Set a due date before this invoice can be issued.</p>
+      )}
+      {isIssued && isAdmin && amountPaidCents > 0 && (
+        <p style={{ color: '#fbbf24', fontSize: 13, margin: '0 0 16px' }}>
+          This invoice has recorded payments and cannot be voided. Reverse the payment(s) below first.
+        </p>
       )}
 
       {confirmingIssue && (
@@ -448,12 +532,103 @@ export default function InvoiceDetailPage() {
       </div>
 
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 20 }}>
-        <div style={{ width: 260, background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: '16px 20px' }}>
+        <div style={{ width: 280, background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: '16px 20px' }}>
           <TotalRow label="Subtotal" value={formatMoneyCents(invoice.subtotal_cents, invoice.currency)} />
           <TotalRow label="GST / Tax" value={formatMoneyCents(invoice.tax_cents, invoice.currency)} />
           <TotalRow label="Total" value={formatMoneyCents(invoice.total_cents, invoice.currency)} bold />
+          {!isDraft && (
+            <>
+              <div style={{ borderTop: `1px solid ${BORDER}`, margin: '8px 0' }} />
+              <TotalRow label="Amount Paid" value={formatMoneyCents(amountPaidCents, invoice.currency)} />
+              <TotalRow label="Balance Due" value={formatMoneyCents(outstandingBalanceCents, invoice.currency)} bold />
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
+                <PaymentStateBadge state={paymentState} />
+              </div>
+            </>
+          )}
         </div>
       </div>
+
+      {!isDraft && (
+        <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, overflow: 'hidden', marginBottom: 20 }}>
+          <div style={{ padding: '14px 16px', borderBottom: `1px solid ${BORDER}`, fontSize: 13, fontWeight: 600, color: '#f9fafb' }}>Payment History</div>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr style={{ borderBottom: `1px solid ${BORDER}` }}>
+                {['Received', 'Amount', 'Method', 'Reference', 'Status', ''].map(h => <th key={h} style={th}>{h}</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {payments.length === 0 && <tr><td colSpan={6} style={empty}>No payments recorded yet.</td></tr>}
+              {payments.map((p, i) => (
+                <Fragment key={p.id}>
+                  <tr style={{ borderBottom: (reversingPaymentId === p.id || i < payments.length - 1) ? `1px solid ${BORDER}` : 'none' }}>
+                    <td style={td}>{formatCommercialDate(p.received_at)}</td>
+                    <td style={td}>{formatMoneyCents(p.amount_cents, p.currency)}</td>
+                    <td style={td}>{p.method.replaceAll('_', ' ')}</td>
+                    <td style={td}>{p.reference ?? '—'}</td>
+                    <td style={td}>
+                      {p.status === 'RECORDED'
+                        ? <span style={{ color: '#4ade80' }}>Recorded</span>
+                        : <span style={{ color: '#f87171' }}>Reversed{p.reversal_reason ? `: ${p.reversal_reason}` : ''}</span>}
+                    </td>
+                    <td style={{ padding: '12px 16px' }}>
+                      {p.status === 'RECORDED' && isAdmin && reversingPaymentId !== p.id && (
+                        <button onClick={() => { setReversingPaymentId(p.id); setReversalReason(''); setActionError(''); }} disabled={busy} style={{ background: 'none', border: 'none', color: '#f87171', fontSize: 12, cursor: 'pointer', padding: 0 }}>Reverse Payment</button>
+                      )}
+                    </td>
+                  </tr>
+                  {reversingPaymentId === p.id && (
+                    <tr style={{ borderBottom: i < payments.length - 1 ? `1px solid ${BORDER}` : 'none' }}>
+                      <td colSpan={6} style={{ padding: '12px 16px', background: 'rgba(239,68,68,0.06)' }}>
+                        <label style={lbl}>Reason (required)</label>
+                        <textarea value={reversalReason} onChange={e => setReversalReason(e.target.value)} rows={2} style={{ ...sel, resize: 'vertical', marginBottom: 10 }} placeholder="Why is this payment being reversed?" />
+                        <div style={{ display: 'flex', gap: 8 }}>
+                          <button onClick={() => reversePayment(p.id)} disabled={busy || !reversalReason.trim()} style={btn('#f87171', '#1a0505')}>Confirm Reversal</button>
+                          <button onClick={() => { setReversingPaymentId(null); setReversalReason(''); }} disabled={busy} style={btn('#1f2937')}>Cancel</button>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <SlidePanel open={showRecordPayment} onClose={() => setShowRecordPayment(false)} title="Record Payment">
+        <form onSubmit={recordPayment} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div>
+            <label style={lbl}>Amount</label>
+            <input
+              value={paymentAmount}
+              onChange={e => setPaymentAmount(e.target.value)}
+              style={sel}
+              placeholder={(outstandingBalanceCents / 100).toFixed(2)}
+              inputMode="decimal"
+            />
+          </div>
+          <div>
+            <label style={lbl}>Payment Method</label>
+            <select value={paymentMethod} onChange={e => setPaymentMethod(e.target.value as PaymentMethod)} style={sel}>
+              <option value="">— Select —</option>
+              {PAYMENT_METHODS.map(m => <option key={m} value={m}>{m.replaceAll('_', ' ')}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={lbl}>Reference</label>
+            <input value={paymentReference} onChange={e => setPaymentReference(e.target.value)} style={sel} placeholder="e.g. bank reference, receipt no." />
+          </div>
+          <div>
+            <label style={lbl}>Received Date</label>
+            <input type="date" value={paymentReceivedDate} onChange={e => setPaymentReceivedDate(e.target.value)} style={sel} />
+          </div>
+          <button type="submit" disabled={busy} style={{ padding: '10px 16px', background: '#1a6aff', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+            Record Payment
+          </button>
+        </form>
+      </SlidePanel>
 
       {isDraft ? (
         <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -487,6 +662,22 @@ function TotalRow({ label, value, bold }: { label: string; value: string; bold?:
     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: bold ? 15 : 13, fontWeight: bold ? 700 : 400, color: bold ? '#f9fafb' : '#9ca3af' }}>
       <span>{label}</span><span>{value}</span>
     </div>
+  );
+}
+
+// Phase C5.2 — a purely display label for the derived payment_state
+// value the API returns. Never persisted, never part of InvoiceStatus.
+function PaymentStateBadge({ state }: { state: 'UNPAID' | 'PARTIALLY_PAID' | 'PAID' }) {
+  const styles: Record<string, { bg: string; color: string; label: string }> = {
+    UNPAID: { bg: 'rgba(107,114,128,0.15)', color: '#9ca3af', label: 'Unpaid' },
+    PARTIALLY_PAID: { bg: 'rgba(251,191,36,0.15)', color: '#fbbf24', label: 'Partially Paid' },
+    PAID: { bg: 'rgba(74,222,128,0.15)', color: '#4ade80', label: 'Paid' },
+  };
+  const s = styles[state] ?? styles.UNPAID;
+  return (
+    <span style={{ background: s.bg, color: s.color, padding: '3px 10px', borderRadius: 999, fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+      {s.label}
+    </span>
   );
 }
 

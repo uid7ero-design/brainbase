@@ -416,3 +416,44 @@ export async function logInvoiceDeleted(params: { organisationId: string; userId
     resourceType: 'commercial_invoice', resourceId: params.invoiceId, beforeState: { status: 'DRAFT' }, afterState: null,
   });
 }
+
+// ── Payments (Phase C5.2) ─────────────────────────────────────────────
+//
+// resource_type is 'commercial_payment' (the payment is the thing that
+// was created/reversed), with invoice_id carried in after_state so a
+// future `WHERE resource_id = ...` or `WHERE after_state->>'invoice_id'
+// = ...` query can find every payment event for a given invoice without
+// a join back through commercial_payment_allocations. Never logs
+// recorded_by/reversed_by a second time in the payload — insertAuditLog()
+// already carries the acting user_id as its own column.
+export async function logPaymentRecorded(params: {
+  organisationId: string; userId: string; paymentId: string; invoiceId: string;
+  amountCents: number; method: string; reference: string | null;
+  provider: string | null; providerReference: string | null; receivedAt: string;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'commercial_payment.recorded',
+    resourceType: 'commercial_payment', resourceId: params.paymentId,
+    beforeState: null,
+    afterState: {
+      invoice_id: params.invoiceId, amount_cents: params.amountCents, method: params.method,
+      reference: params.reference, provider: params.provider, provider_reference: params.providerReference,
+      received_at: params.receivedAt,
+    },
+  });
+}
+
+export async function logPaymentReversed(params: {
+  organisationId: string; userId: string; paymentId: string; invoiceId: string;
+  amountCents: number; reversalReason: string; reversedAt: string;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'commercial_payment.reversed',
+    resourceType: 'commercial_payment', resourceId: params.paymentId,
+    beforeState: { status: 'RECORDED' },
+    afterState: {
+      status: 'REVERSED', invoice_id: params.invoiceId, amount_cents: params.amountCents,
+      reversal_reason: params.reversalReason, reversed_at: params.reversedAt,
+    },
+  });
+}
