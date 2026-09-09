@@ -63,6 +63,9 @@ model Organisation {
   web_service_leads      WebServiceLead[]
   organisation_modules   OrganisationModule[]
   events                 Event[]
+  source_systems         SourceSystem[]
+  source_mappings        SourceMapping[]
+  mapping_versions       MappingVersion[]
 
   // stripe_account_id also carries a UNIQUE constraint in the live SQL
   // — a partial index (WHERE NOT NULL), same "Prisma mirrors, raw SQL
@@ -153,6 +156,9 @@ model User {
   confirmed_uploads Upload[]          @relation("UploadConfirmedBy")
   events_created    Event[]
   event_attendees_checked_in EventAttendee[]
+  source_systems_created  SourceSystem[]   @relation("SourceSystemCreatedBy")
+  source_mappings_created SourceMapping[]  @relation("SourceMappingCreatedBy")
+  mapping_versions_created MappingVersion[] @relation("MappingVersionCreatedBy")
   organisation      Organisation      @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
 
   @@index([organisation_id])
@@ -259,10 +265,22 @@ model ImportBatch {
   last_failure_code       String?
   last_failure_message    String?
   last_failure_retryable  Boolean?
+  // Phase 5B.1 — additive, nullable source-system lineage. NULL for
+  // every existing row and every row created outside a recognized
+  // source-mapping flow (zero backfill). No live selection/HTTP
+  // exposure exists yet — this column is populated only by a later 5B
+  // integration slice. See scripts/create-datahub-source-mappings.sql.
+  source_system_id        String?
 
-  organisation Organisation @relation(fields: [organisation_id], references: [id])
-  uploader     User?        @relation(fields: [uploaded_by], references: [id], onDelete: SetNull)
+  organisation Organisation  @relation(fields: [organisation_id], references: [id])
+  uploader     User?         @relation(fields: [uploaded_by], references: [id], onDelete: SetNull)
   uploads      Upload[]
+  // Composite tenant-scoped FK (MATCH SIMPLE) — a MATCH SIMPLE
+  // constraint means a NULL source_system_id (every existing/legacy
+  // row) is entirely exempt from this check. For a batch that DOES
+  // carry lineage, it is structurally impossible to reference a
+  // SourceSystem belonging to a different organisation_id.
+  source_system SourceSystem? @relation(fields: [source_system_id, organisation_id], references: [id, organisation_id])
 
   // Required by canonical Upload's composite tenant-scoped FK — makes it
   // structurally impossible for a worksheet row to reference another
@@ -345,6 +363,13 @@ model Upload {
   // uploaded the physical file.
   confirmed_by          String?
   confirmed_at          DateTime?
+  // Phase 5B.1 — additive, nullable mapping-version lineage. NULL for
+  // every existing row and every row created outside a recognized
+  // source-mapping flow (zero backfill). No mapping selection happens
+  // during import in this slice — this column is populated only by a
+  // later 5B integration slice. See
+  // scripts/create-datahub-source-mappings.sql.
+  mapping_version_id String?
   debtor_accounts    DebtorAccount[]
   evidence_records   EvidenceRecord[]
   hlna_insights      HlnaInsight[]
@@ -365,6 +390,11 @@ model Upload {
   // (both columns set), this makes it structurally impossible to
   // reference an ImportBatch belonging to a different organisation_id.
   import_batch       ImportBatch?       @relation(fields: [import_batch_id, organisation_id], references: [id, organisation_id])
+  // Composite tenant-scoped FK (MATCH SIMPLE) — a NULL mapping_version_id
+  // (every existing row) is entirely exempt from this check. For a row
+  // that DOES carry lineage, it is structurally impossible to reference
+  // a MappingVersion belonging to a different organisation_id.
+  mapping_version    MappingVersion?    @relation(fields: [mapping_version_id, organisation_id], references: [id, organisation_id])
 
   @@index([organisation_id])
   @@index([schema_type])
@@ -377,6 +407,158 @@ model Upload {
   // (import_batch_id, worksheet_index) pairs are ever rejected.
   @@unique([import_batch_id, worksheet_index])
   @@map("uploads")
+}
+
+// Phase 5B.1 — additive source-mapping schema foundation.
+// SourceSystem -> SourceMapping -> immutable MappingVersion.
+//
+// A SourceSystem is a tenant-owned logical origin of repeatable
+// imported data (e.g. "our TechnologyOne export"), anchored to a
+// repeatable file/export shape — NOT a vendor record, NOT a connector
+// (lib/integrations/**, deliberately not coupled here), NOT an
+// ImportBatch/Upload. No credential/config/secret/scheduling fields
+// belong on this model; that is lib/integrations/**'s own concern.
+//
+// Deactivate-not-delete: `active` is the only lifecycle flag. There is
+// no hard-delete API in this slice (or planned) — historical
+// ImportBatch/Upload lineage referencing a SourceSystem/SourceMapping/
+// MappingVersion must remain resolvable indefinitely, so every FK
+// below that could otherwise orphan lineage uses ON DELETE NO ACTION
+// (see scripts/create-datahub-source-mappings.sql for the exact,
+// structurally-verified rule per FK) rather than CASCADE.
+model SourceSystem {
+  id              String    @id @default(cuid())
+  organisation_id String
+  name            String
+  description     String?
+  active          Boolean   @default(true)
+  created_by      String?
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @updatedAt
+
+  organisation    Organisation    @relation(fields: [organisation_id], references: [id])
+  creator         User?           @relation("SourceSystemCreatedBy", fields: [created_by], references: [id], onDelete: SetNull)
+  source_mappings SourceMapping[]
+  import_batches  ImportBatch[]
+
+  // Required by ImportBatch's and SourceMapping's composite tenant-scoped
+  // FKs — makes it structurally impossible for either to reference a
+  // SourceSystem belonging to a different organisation_id.
+  @@unique([id, organisation_id])
+  // Tenant-scoped, not global — two different organisations may each
+  // legitimately name a source system the same thing.
+  @@unique([organisation_id, name])
+  @@index([organisation_id])
+  @@map("source_systems")
+}
+
+// A logical mapping definition belonging to one SourceSystem. Points to
+// its one active MappingVersion for O(1) resolution (nullable — mapping
+// creation and version creation are separate, later, transactional
+// service-layer operations; this schema-only slice never populates
+// either).
+model SourceMapping {
+  id                        String    @id @default(cuid())
+  organisation_id           String
+  source_system_id          String
+  name                      String
+  active                    Boolean   @default(true)
+  // Nullable by design — see model doc comment above. The composite FK
+  // below (added ONLY after mapping_versions exists, in the handwritten
+  // SQL) makes it structurally impossible for this pointer to reference
+  // another mapping's version or another tenant's version — see
+  // scripts/create-datahub-source-mappings.sql section 4 for the exact
+  // ordering rationale (this is the SourceMapping <-> MappingVersion
+  // pointer-cycle this model's own doc block above describes).
+  active_mapping_version_id String?
+  created_by                String?
+  created_at                DateTime  @default(now())
+  updated_at                DateTime  @updatedAt
+
+  organisation Organisation @relation(fields: [organisation_id], references: [id])
+  creator      User?        @relation("SourceMappingCreatedBy", fields: [created_by], references: [id], onDelete: SetNull)
+  // Composite tenant-scoped FK — structurally impossible to reference a
+  // SourceSystem belonging to a different organisation_id.
+  source_system SourceSystem @relation(fields: [source_system_id, organisation_id], references: [id, organisation_id])
+  // Reverse of MappingVersion.source_mapping below — every version this
+  // mapping owns (distinct Prisma relation from the active-pointer
+  // relation immediately below; Postgres/Prisma requires the two FKs
+  // between these two tables to be named separately).
+  mapping_versions MappingVersion[] @relation("SourceMappingVersions")
+  // The one active version, if any. Composite FK
+  // (active_mapping_version_id, id, organisation_id) references
+  // MappingVersion(id, source_mapping_id, organisation_id) — this is
+  // what makes it structurally impossible for the active pointer to
+  // reference a version belonging to ANOTHER mapping or ANOTHER tenant,
+  // not merely a version of the right id.
+  active_version MappingVersion? @relation("SourceMappingActiveVersion", fields: [active_mapping_version_id, id, organisation_id], references: [id, source_mapping_id, organisation_id])
+
+  // Required by MappingVersion's and the active-version composite FKs.
+  @@unique([id, organisation_id])
+  // Prisma requires an explicit unique constraint matching the
+  // active_version relation's own local field list for a one-to-one
+  // relation (id is already the PK, so this is trivially satisfied —
+  // it exists to satisfy Prisma's relation validator, not to add a new
+  // real-world invariant).
+  @@unique([active_mapping_version_id, id, organisation_id])
+  // Tenant-safe via source_system_id (already single-tenant-owned) —
+  // two mappings on two different source systems may share a name.
+  @@unique([source_system_id, name])
+  @@index([organisation_id])
+  @@index([source_system_id])
+  @@map("source_mappings")
+}
+
+// Immutable versioned mapping document. Created once, never updated in
+// place (this slice adds no update API at all — enforced by process,
+// not a DB trigger, matching this repository's existing convention of
+// raw-SQL-client writes with no DB-side write-blocking triggers). The
+// mapping document describes STRUCTURAL source-column mapping only —
+// never executable code, credentials, raw imported rows, or customer
+// data samples. Business/domain semantics (e.g. Illegal Dumping's own
+// validation rules) remain in the domain mapper
+// (lib/data-hub/illegalDumpingMapper.ts) and are deliberately never
+// moved here.
+model MappingVersion {
+  id                String   @id @default(cuid())
+  organisation_id   String
+  source_mapping_id String
+  // Monotonically increasing, scoped to one SourceMapping — enforced by
+  // the unique constraint below, not by a DB sequence/trigger (the
+  // service layer that will create versions later is responsible for
+  // computing the next number transactionally; out of scope here).
+  version_number    Int
+  // Structural source-column mapping document only. JSONB — see model
+  // doc comment above for what this must never contain.
+  mapping_document  Json
+  created_by        String?
+  created_at        DateTime @default(now())
+
+  organisation   Organisation  @relation(fields: [organisation_id], references: [id])
+  creator        User?         @relation("MappingVersionCreatedBy", fields: [created_by], references: [id], onDelete: SetNull)
+  // Composite tenant-scoped FK — structurally impossible to reference a
+  // SourceMapping belonging to a different organisation_id.
+  source_mapping SourceMapping @relation("SourceMappingVersions", fields: [source_mapping_id, organisation_id], references: [id, organisation_id])
+  // Reverse of SourceMapping.active_version above — at most one
+  // SourceMapping can point to this version as active (enforced by the
+  // FK's own referenced-column shape, not a separate constraint).
+  active_for_mapping SourceMapping? @relation("SourceMappingActiveVersion")
+  uploads            Upload[]
+
+  // Required by Upload's composite tenant-scoped FK.
+  @@unique([id, organisation_id])
+  // Required by SourceMapping.active_version's composite FK — the
+  // three-column shape (id, source_mapping_id, organisation_id) is what
+  // makes that pointer provably belong to the SAME mapping AND the SAME
+  // tenant, not merely carry the right id.
+  @@unique([id, source_mapping_id, organisation_id])
+  // Enforces "monotonically increasing version number scoped to the
+  // mapping" as a hard DB invariant, not merely an application
+  // convention.
+  @@unique([source_mapping_id, version_number])
+  @@index([organisation_id])
+  @@index([source_mapping_id])
+  @@map("mapping_versions")
 }
 
 model DashboardConfig {
