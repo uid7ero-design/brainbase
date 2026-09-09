@@ -709,6 +709,10 @@ export default function BrainBase({ enabledCapabilities = [], isSuperAdmin = fal
           transcript={helena.transcript}
           onSend={helena.sendMessage}
           onClose={() => setChatOpen(false)}
+          pendingOrganiserAction={helena.pendingOrganiserAction}
+          organiserActionSubmitting={helena.organiserActionSubmitting}
+          onConfirmOrganiserAction={helena.confirmOrganiserAction}
+          onCancelOrganiserAction={helena.cancelOrganiserAction}
         />
       )}
 

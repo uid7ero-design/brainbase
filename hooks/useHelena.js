@@ -22,6 +22,23 @@ export function useHelena() {
   const [micError,      setMicError]      = useState(null);
   const [wakeActive,    setWakeActive]    = useState(false);
 
+  // ── Phase D.4.6J — Organiser write action confirmation ────────────
+  // pendingOrganiserAction mirrors the backend's own PendingOrganiserAction
+  // contract (app/api/chat/route.ts) verbatim — proposal.item_id/item_name/
+  // body plus the opaque confirmationToken. This is DISPLAY data only; the
+  // token is never inspected/decoded here, only ever handed back to the
+  // server unmodified inside organiserActionConfirmation (see
+  // confirmOrganiserAction below), which is the one and only place a write
+  // can be triggered. Ordinary sendMessage() calls — including one whose
+  // text happens to be "yes" — never populate this field.
+  const [pendingOrganiserAction,     setPendingOrganiserAction]     = useState(null);
+  const [organiserActionSubmitting, setOrganiserActionSubmitting]  = useState(false);
+  // Synchronous (non-React-state) in-flight guard — a state variable alone
+  // cannot prevent two rapid clicks landing before the first re-render, since
+  // React batches the state update. This ref is set/cleared eagerly, before
+  // any await, so a second call within the same tick sees it immediately.
+  const organiserConfirmInFlightRef = useRef(false);
+
   // ── Core refs ────────────────────────────────────────────────────
   const phaseRef          = useRef('idle');   // 'idle'|'listening'|'processing'|'speaking'
   const recogRef          = useRef(null);
@@ -289,25 +306,15 @@ export function useHelena() {
   // ── Clear history ─────────────────────────────────────────────────
   const clearHistory = useCallback(() => setMessages([]), []);
 
-  // ── Send message ──────────────────────────────────────────────────
-  const sendMessage = useCallback(async (text) => {
-    if (!text?.trim()) { setPhase('idle'); return; }
-
-    // Fast-path: local command intercept
-    const cmd = parseCommand(text);
-    if (cmd) {
-      let msg = null;
-      if (cmd.action === 'task_add')      { const t = cmd.match[1]?.trim(); taskControlRef.current?.add(t); msg = t ? `Task added: "${t}"` : 'What task?'; }
-      if (cmd.action === 'task_complete') { const t = cmd.match[1]?.trim(); taskControlRef.current?.completeByText(t); msg = t ? `Marked done: "${t}"` : 'Which task?'; }
-      if (cmd.action === 'task_clear')    { taskControlRef.current?.clearDone(); msg = 'Cleared completed tasks.'; }
-      if (cmd.action === 'task_list')     { msg = getTaskContext(); }
-      if (!msg) msg = executeCommand(cmd, clearHistory);
-      if (msg) {
-        setMessages(prev => [...prev, { role: 'user', content: text }, { role: 'assistant', content: msg }]);
-        speak(msg);
-        return;
-      }
-    }
+  // ── Shared chat turn (network call + response handling) ────────────
+  // Phase D.4.6J — extracted from sendMessage() so confirmOrganiserAction()
+  // (below) can drive an identical, fully-featured /api/chat turn without
+  // duplicating the request/response contract. `extraBody` is spread into
+  // the JSON body verbatim; sendMessage() never passes anything here, so
+  // organiserActionConfirmation can ONLY ever originate from
+  // confirmOrganiserAction()'s own call site — never from parsed chat text.
+  const runChatTurn = useCallback(async (text, extraBody = {}) => {
+    const isConfirmFlow = !!extraBody.organiserActionConfirmation;
 
     setMessages(prev => [...prev, { role: 'user', content: text }]);
     setPhase('processing');
@@ -345,6 +352,7 @@ export function useHelena() {
           department:       useAppStore.getState().departmentSelected
                              ? useAppStore.getState().activeDepartment
                              : undefined,
+          ...extraBody,
         }),
       });
       const data = await res.json();
@@ -366,6 +374,25 @@ export function useHelena() {
       }]);
 
       speak(data.response);
+
+      // ── Organiser action confirmation card (Phase D.4.6J) ───────────
+      // A fresh proposal (from this turn's own propose_organiser_comment
+      // call — whether the model made it because the user asked, or
+      // because confirmOrganiserAction's synthetic "proceed" turn caused a
+      // NEW proposal instead of an execution) always replaces whatever was
+      // showing — see STEP 10's one-active-proposal rule. If this turn
+      // carried no fresh proposal but WAS itself a confirm turn, the
+      // pending card is cleared either way: the confirm attempt has been
+      // resolved (executed or rejected) and the model's own reply above
+      // already tells the user which. Never invent a synthetic
+      // success/failure banner here — the model's text, constrained by
+      // ORGANISER_SAFETY_PROMPT to only claim "posted" when the tool result
+      // actually said so, is the single source of truth for the outcome.
+      if (data.pendingOrganiserAction) {
+        setPendingOrganiserAction({ ...data.pendingOrganiserAction, receivedAt: Date.now() });
+      } else if (isConfirmFlow) {
+        setPendingOrganiserAction(null);
+      }
 
       // ── Side effects (non-blocking) ───────────────────────────────
       if (data.action === 'scout_search' && data.target && data.target !== 'none') {
@@ -433,14 +460,88 @@ export function useHelena() {
       memoryManager.logExchange(text, data.response);
 
     } catch (err) {
-      console.error('[Helena] sendMessage error:', err);
+      console.error('[Helena] chat turn error:', err);
       setMessages(prev => [...prev, { role: 'assistant', content: "I'm having trouble connecting right now." }]);
       setPhase('idle');
+      // A network failure during a confirm turn must never leave the UI
+      // implying the action might still be "in progress" — clear it so the
+      // user is told plainly (via the message above) rather than staring at
+      // a stale, ambiguous card. No mutation occurred; see helenaWrite.ts's
+      // own failure semantics (every rejection path returns before INSERT).
+      if (isConfirmFlow) setPendingOrganiserAction(null);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages, speak, clearHistory]);
 
+  // ── Send message ──────────────────────────────────────────────────
+  const sendMessage = useCallback(async (text) => {
+    if (!text?.trim()) { setPhase('idle'); return; }
+
+    // Fast-path: local command intercept
+    const cmd = parseCommand(text);
+    if (cmd) {
+      let msg = null;
+      if (cmd.action === 'task_add')      { const t = cmd.match[1]?.trim(); taskControlRef.current?.add(t); msg = t ? `Task added: "${t}"` : 'What task?'; }
+      if (cmd.action === 'task_complete') { const t = cmd.match[1]?.trim(); taskControlRef.current?.completeByText(t); msg = t ? `Marked done: "${t}"` : 'Which task?'; }
+      if (cmd.action === 'task_clear')    { taskControlRef.current?.clearDone(); msg = 'Cleared completed tasks.'; }
+      if (cmd.action === 'task_list')     { msg = getTaskContext(); }
+      if (!msg) msg = executeCommand(cmd, clearHistory);
+      if (msg) {
+        setMessages(prev => [...prev, { role: 'user', content: text }, { role: 'assistant', content: msg }]);
+        speak(msg);
+        return;
+      }
+    }
+
+    // Deliberately NO organiserActionConfirmation is ever passed here —
+    // this is the ONLY call site sendMessage has, and it is reached from
+    // ordinary typed/spoken chat text (including a literal "yes"). See
+    // confirmOrganiserAction below for the one and only place a write can
+    // be triggered.
+    await runChatTurn(text);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [runChatTurn, clearHistory, speak]);
+
   useEffect(() => { sendMessageRef.current = sendMessage; }, [sendMessage]);
+
+  // ── Organiser action confirm / cancel (Phase D.4.6J) ────────────────
+  // The button click handler is the ONLY authority boundary on the client:
+  // this is the one function in the entire frontend that ever places
+  // organiserActionConfirmation on a request, and it only ever does so with
+  // the exact, unmodified confirmationToken the server minted for the
+  // proposal currently on screen — never a token decoded/edited/synthesized
+  // client-side, and never in response to parsed chat text.
+  const CONFIRM_TURN_TEXT = 'Yes, please proceed with the proposed action now.';
+
+  const confirmOrganiserAction = useCallback(async () => {
+    if (organiserConfirmInFlightRef.current) return; // duplicate-click guard
+    const action = pendingOrganiserAction;
+    if (!action?.confirmationToken) return;
+
+    organiserConfirmInFlightRef.current = true;
+    setOrganiserActionSubmitting(true);
+    try {
+      await runChatTurn(CONFIRM_TURN_TEXT, {
+        organiserActionConfirmation: { token: action.confirmationToken },
+      });
+    } finally {
+      organiserConfirmInFlightRef.current = false;
+      setOrganiserActionSubmitting(false);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingOrganiserAction, runChatTurn]);
+
+  // Cancel is entirely local: no request is ever sent, so there is
+  // structurally nothing here that could mutate anything.
+  const cancelOrganiserAction = useCallback(() => {
+    if (!pendingOrganiserAction) return;
+    setPendingOrganiserAction(null);
+    setMessages(prev => [...prev, {
+      role: 'assistant',
+      content: 'Action cancelled — nothing was posted.',
+      meta: { organiserActionCancelled: true },
+    }]);
+  }, [pendingOrganiserAction]);
 
   // ── Main mic ──────────────────────────────────────────────────────
   const startListening = useCallback(() => {
@@ -719,5 +820,8 @@ export function useHelena() {
     enableWakeWord, disableWakeWord, startConversation, stopConversation,
     speechPulseRef, spotifyContextRef, spotifyControlRef, taskControlRef,
     calendarContextRef, calendarControlRef, dashboardContextRef, navRef,
+    // Phase D.4.6J
+    pendingOrganiserAction, organiserActionSubmitting,
+    confirmOrganiserAction, cancelOrganiserAction,
   };
 }

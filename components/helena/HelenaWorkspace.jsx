@@ -257,6 +257,10 @@ export default function HelenaWorkspace() {
             emptyStateHint="What would you like help with?"
             maxWidth={isNarrow ? '100%' : 860}
             maxHeight={isNarrow ? '100%' : '74vh'}
+            pendingOrganiserAction={helena.pendingOrganiserAction}
+            organiserActionSubmitting={helena.organiserActionSubmitting}
+            onConfirmOrganiserAction={helena.confirmOrganiserAction}
+            onCancelOrganiserAction={helena.cancelOrganiserAction}
           />
         </div>
       </div>
