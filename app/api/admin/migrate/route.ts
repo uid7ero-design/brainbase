@@ -986,7 +986,7 @@ export async function POST() {
                          'group.created', 'group.updated', 'group.deleted',
                          'column.created', 'column.updated', 'column.deleted',
                          'item.created', 'item.updated', 'item.moved', 'item.deleted',
-                         'comment.created',
+                         'comment.created', 'comment.deleted',
                          'file.added', 'file.deleted',
                          'import.completed'
                        )),
@@ -1101,6 +1101,37 @@ export async function POST() {
     END $$
   `;
   await sql`CREATE INDEX IF NOT EXISTS idx_crm_contacts_classification ON crm_contacts(organisation_id, classification)`;
+
+  // Phase D.4.6H — organiser_activity.event_type was originally CHECK-
+  // constrained with a deliberately generous set of anticipated future
+  // values (see step 40's own comment: "extending the taxonomy later is a
+  // plain ALTER TABLE... not an ALTER TYPE migration") — but
+  // 'comment.deleted' was NOT one of the pre-provisioned values (unlike
+  // column.*/import.completed, which were included from the start and
+  // needed no migration at all — see the D.4.6G audit). This is therefore
+  // a real, one-time additive constraint widening, safe to run repeatedly:
+  // DROP CONSTRAINT IF EXISTS + ADD CONSTRAINT resets the constraint to
+  // the same target definition every time this route runs, exactly like
+  // every other idempotent step in this file. 'organiser_activity_event_
+  // type_check' is Postgres's own default-generated name for an inline
+  // column CHECK with no explicit CONSTRAINT name (confirmed against the
+  // original step 40 CREATE TABLE, which never named this constraint) —
+  // a CHECK constraint DROP+ADD is a fast, no-table-rewrite operation,
+  // never blocking on table size. Every previously-provisioned value is
+  // preserved verbatim; only 'comment.deleted' is new.
+  step('43. organiser_activity.event_type — add comment.deleted');
+  await sql`ALTER TABLE organiser_activity DROP CONSTRAINT IF EXISTS organiser_activity_event_type_check`;
+  await sql`
+    ALTER TABLE organiser_activity ADD CONSTRAINT organiser_activity_event_type_check CHECK (event_type IN (
+      'board.created', 'board.updated', 'board.deleted',
+      'group.created', 'group.updated', 'group.deleted',
+      'column.created', 'column.updated', 'column.deleted',
+      'item.created', 'item.updated', 'item.moved', 'item.deleted',
+      'comment.created', 'comment.deleted',
+      'file.added', 'file.deleted',
+      'import.completed'
+    ))
+  `;
 
   return NextResponse.json({ success: true, message: 'Migration complete.', steps });
 

@@ -202,7 +202,15 @@ function describeEventInternal(
   }
 
   if (event.event_type === 'item.deleted') {
-    return { summary: `${actorLabel} deleted ${subject}`, diffs: [] };
+    // Phase D.4.6H — subitem_count (see the DELETE route's own comment)
+    // is a bounded, truthful count of subitems this deletion cascaded
+    // to — never their names or content. Only mentioned when > 0, so
+    // ordinary (no-subitem) deletes render exactly as before.
+    const subitemCount = event.after && typeof event.after.subitem_count === 'number' ? event.after.subitem_count : 0;
+    const suffix = subitemCount > 0
+      ? ` (along with ${subitemCount} subitem${subitemCount === 1 ? '' : 's'})`
+      : '';
+    return { summary: `${actorLabel} deleted ${subject}${suffix}`, diffs: [] };
   }
 
   // Phase D.4.5F — comment.created renders a bounded excerpt (see
@@ -219,6 +227,18 @@ function describeEventInternal(
       summary: itemLabel !== null ? `${actorLabel} commented on ${subject}` : `${actorLabel} commented`,
       diffs: [],
       detail: excerpt,
+    };
+  }
+
+  // Phase D.4.6H — comment.deleted never had a body/excerpt to begin with
+  // (before_json is NULL — see the route's own header comment) — there is
+  // deliberately nothing to render beyond which item lost a comment, and
+  // no `detail` line (unlike comment.created's excerpt, there is no
+  // deleted comment text to safely show, by design).
+  if (event.event_type === 'comment.deleted') {
+    return {
+      summary: itemLabel !== null ? `${actorLabel} deleted a comment from ${subject}` : `${actorLabel} deleted a comment`,
+      diffs: [],
     };
   }
 
@@ -277,7 +297,16 @@ function describeEntityEventInternal(
   }
   if (event.event_type === 'board.deleted') {
     const name = event.before && typeof event.before.name === 'string' && event.before.name.length > 0 ? event.before.name : 'board';
-    return { summary: `${actorLabel} deleted board "${name}"`, diffs: [] };
+    // Phase D.4.6H — affected_group_count/affected_item_count (see the
+    // DELETE route's own comment) are bounded, truthful counts of what
+    // this cascade destroyed — never per-row detail.
+    const groups = event.after && typeof event.after.affected_group_count === 'number' ? event.after.affected_group_count : 0;
+    const items = event.after && typeof event.after.affected_item_count === 'number' ? event.after.affected_item_count : 0;
+    const parts: string[] = [];
+    if (groups > 0) parts.push(`${groups} group${groups === 1 ? '' : 's'}`);
+    if (items > 0) parts.push(`${items} item${items === 1 ? '' : 's'}`);
+    const suffix = parts.length > 0 ? ` (with ${parts.join(' and ')})` : '';
+    return { summary: `${actorLabel} deleted board "${name}"${suffix}`, diffs: [] };
   }
 
   if (event.event_type === 'group.created') {
@@ -291,7 +320,12 @@ function describeEntityEventInternal(
   }
   if (event.event_type === 'group.deleted') {
     const name = event.before && typeof event.before.name === 'string' && event.before.name.length > 0 ? event.before.name : 'group';
-    return { summary: `${actorLabel} deleted group "${name}"`, diffs: [] };
+    // Phase D.4.6H — affected_item_count (see the DELETE route's own
+    // comment) is a bounded, truthful count of items orphaned to "No
+    // group" by this delete's FK cascade — never per-item detail.
+    const affected = event.after && typeof event.after.affected_item_count === 'number' ? event.after.affected_item_count : 0;
+    const suffix = affected > 0 ? ` (${affected} item${affected === 1 ? '' : 's'} moved to No group)` : '';
+    return { summary: `${actorLabel} deleted group "${name}"${suffix}`, diffs: [] };
   }
 
   // Phase D.4.6G — column.* events. Like board.*/group.*, a column has no

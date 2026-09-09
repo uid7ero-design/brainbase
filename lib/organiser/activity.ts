@@ -31,9 +31,12 @@ import sql from '@/lib/db';
 
 // ─── Event taxonomy ─────────────────────────────────────────────────────────
 //
-// Frozen at exactly 17 event types (the D.4.5A audit report's own taxonomy
-// list is authoritative; its prose summary miscounted it as "14" — that
-// count was wrong and is not preserved here). Deliberately does NOT include
+// 17 event types from the original D.4.5A audit report (its prose summary
+// miscounted it as "14" — that count was wrong and is not preserved here),
+// plus 'comment.deleted' added in Phase D.4.6H (18 total) — the one event
+// type the original CHECK constraint did not pre-provision (unlike
+// column.*/import.completed, which were already reserved from the start;
+// see the D.4.6G/D.4.6H audits). Deliberately does NOT include
 // item.status_changed / item.priority_changed / item.owner_changed /
 // item.due_date_changed, and does NOT include any position/reorder-specific
 // type — those remain represented as changed keys inside a plain
@@ -55,6 +58,7 @@ export type OrganiserEventType =
   | 'item.moved'
   | 'item.deleted'
   | 'comment.created'
+  | 'comment.deleted'
   | 'file.added'
   | 'file.deleted'
   | 'import.completed';
@@ -68,7 +72,7 @@ export const ORGANISER_EVENT_TYPES: readonly OrganiserEventType[] = [
   'group.created', 'group.updated', 'group.deleted',
   'column.created', 'column.updated', 'column.deleted',
   'item.created', 'item.updated', 'item.moved', 'item.deleted',
-  'comment.created',
+  'comment.created', 'comment.deleted',
   'file.added', 'file.deleted',
   'import.completed',
 ];

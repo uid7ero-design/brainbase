@@ -87,10 +87,14 @@ beforeEach(() => {
 // statement) — call index 2 is the one this phase actually changed.
 describe('POST /api/organiser/boards/[boardId]/items — item.created', () => {
   it('the third statement builds an INSERT into organiser_items AND an INSERT into organiser_activity, combined via a writable CTE (one round trip, one atomic unit)', async () => {
-    queue([{ id: 'board-1' }], [{ next: 0 }], [{ id: 'item-new', name: 'New Item', status: 'Not Started', board_id: 'board-1' }])
+    queue([{ id: 'board-1' }], [{ next: 0 }], [{ id: 'item-new', name: 'New Item', status: 'Not Started', board_id: 'board-1', group_valid: true, parent_valid: true }])
     await boardItemsRoute.POST(jsonReq('http://localhost/x', 'POST', { name: 'New Item' }), BOARD_CTX)
     const text = queryText(2)
-    expect(text).toContain('WITH inserted AS')
+    // Phase D.4.6H — WITH validation (not plain WITH inserted): the new
+    // `validation` CTE gates the INSERT's own SELECT (same relationship-
+    // validation pattern D.4.6F established for PATCH).
+    expect(text).toContain('WITH validation AS')
+    expect(text).toContain('inserted AS')
     expect(text).toContain('INSERT INTO organiser_items')
     expect(text).toContain('activity_row AS')
     expect(text).toContain('INSERT INTO organiser_activity')
@@ -149,17 +153,22 @@ describe('POST /api/organiser/boards/[boardId]/items — item.created', () => {
   // uses an explicit column list (not `inserted.*`) specifically so
   // adding board_id to RETURNING does not silently change what clients
   // receive.
-  it('board_id does not leak into the final response SELECT — the response item contract is unchanged despite board_id now being in RETURNING', () => {
+  it('board_id does not leak into the response — the { item: ... } contract is unchanged despite board_id being in RETURNING and the D.4.6H validation LEFT JOIN spreading inserted.*', () => {
     const source = fs.readFileSync(path.resolve(__dirname, '../../app/api/organiser/boards/[boardId]/items/route.ts'), 'utf8')
-    // The final SELECT is textually the LAST "SELECT" keyword in the
-    // template literal (activity_row's own SELECT ends with
-    // "RETURNING id" before this one begins).
-    const lastSelectIdx = source.lastIndexOf('SELECT')
-    expect(lastSelectIdx).toBeGreaterThan(-1) // sanity: found a SELECT at all
-    const templateEnd = source.indexOf('`;', lastSelectIdx)
-    const finalSelectBlock = source.slice(lastSelectIdx, templateEnd)
-    expect(finalSelectBlock).not.toMatch(/\bboard_id\b/)
-    expect(finalSelectBlock).not.toContain('inserted.*')
+    // Phase D.4.6H — the final SELECT now spreads `inserted.*` (needed so
+    // the route can see every column when validation passes, alongside
+    // group_valid/parent_valid from the LEFT JOIN) rather than an explicit
+    // per-column list. The board_id exclusion guarantee therefore now
+    // lives at the JS layer — the same explicit-reconstruction convention
+    // D.4.6F already established for the PATCH route. Assert directly on
+    // that: the destructured response object literal must never name
+    // board_id as one of the { item } fields.
+    const responseStart = source.lastIndexOf('return NextResponse.json({')
+    expect(responseStart).toBeGreaterThan(-1)
+    const responseEnd = source.indexOf('});', responseStart)
+    const responseBlock = source.slice(responseStart, responseEnd)
+    expect(responseBlock).toContain('item:')
+    expect(responseBlock).not.toMatch(/\bboard_id\b/)
   })
 
   it('after_json is a minimum identity summary (name/status/group_id/parent_item_id) — never a full-row dump', () => {
@@ -197,10 +206,98 @@ describe('POST /api/organiser/boards/[boardId]/items — item.created', () => {
   })
 
   it('response shape is unchanged: { item: <row> }', async () => {
-    queue([{ id: 'board-1' }], [{ next: 0 }], [{ id: 'item-new', name: 'New Item' }])
+    queue([{ id: 'board-1' }], [{ next: 0 }], [{ id: 'item-new', name: 'New Item', group_valid: true, parent_valid: true }])
     const res = await boardItemsRoute.POST(jsonReq('http://localhost/x', 'POST', { name: 'New Item' }), BOARD_CTX)
     const body = await res.json()
     expect(body).toEqual({ item: { id: 'item-new', name: 'New Item' } })
+  })
+})
+
+// Phase D.4.6H — item CREATE had zero group_id/parent_item_id tenant/board
+// scoping before this phase (only PATCH was hardened, in D.4.6F). This
+// mirrors that exact PATCH test matrix (see "PATCH — group_id/
+// parent_item_id relationship validation (structural)" below) against the
+// new `validation` CTE this phase adds to the POST route. Same caveat as
+// that PATCH suite: mocked-SQL containment proves QUERY TEXT/STRUCTURE and
+// the JS-side group_valid/parent_valid -> response mapping, not real
+// Postgres FK/EXISTS semantics.
+describe('POST — group_id/parent_item_id relationship validation (structural, D.4.6H)', () => {
+  it('a malformed (non-UUID) group_id is rejected before any SQL call beyond the board-existence check', async () => {
+    queue([{ id: 'board-1' }])
+    const res = await boardItemsRoute.POST(jsonReq('http://localhost/x', 'POST', { name: 'New Item', group_id: 'not-a-uuid' }), BOARD_CTX)
+    expect(res.status).toBe(400)
+    expect(await res.json()).toEqual({ error: 'Invalid group for this item.' })
+    expect(sqlMock).toHaveBeenCalledTimes(1) // only the board-existence check
+  })
+
+  it('a malformed (non-UUID) parent_item_id is rejected before any SQL call beyond the board-existence check', async () => {
+    queue([{ id: 'board-1' }])
+    const res = await boardItemsRoute.POST(jsonReq('http://localhost/x', 'POST', { name: 'New Item', parent_item_id: 'not-a-uuid' }), BOARD_CTX)
+    expect(res.status).toBe(400)
+    expect(await res.json()).toEqual({ error: 'Invalid parent item.' })
+    expect(sqlMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('a null (or omitted) group_id/parent_item_id is never rejected as malformed — it still reaches SQL and creates the item', async () => {
+    queue([{ id: 'board-1' }], [{ next: 0 }], [{ id: 'item-new', name: 'New Item', group_valid: true, parent_valid: true }])
+    const res = await boardItemsRoute.POST(jsonReq('http://localhost/x', 'POST', { name: 'New Item', group_id: null, parent_item_id: null }), BOARD_CTX)
+    expect(sqlMock).toHaveBeenCalledTimes(3)
+    expect(res.status).toBe(200)
+  })
+
+  it('row shape group_valid: false maps to 400 "Invalid group for this item." — a generic message, never naming the target\'s real organisation/board, and no partial mutation/activity on rejection', async () => {
+    queue([{ id: 'board-1' }], [{ next: 0 }], [{ group_valid: false, parent_valid: true }])
+    const res = await boardItemsRoute.POST(jsonReq('http://localhost/x', 'POST', { name: 'New Item', group_id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' }), BOARD_CTX)
+    expect(res.status).toBe(400)
+    const body = await res.json()
+    expect(body).toEqual({ error: 'Invalid group for this item.' })
+    expect(JSON.stringify(body)).not.toMatch(/organisation|board/i)
+  })
+
+  it('row shape parent_valid: false maps to 400 "Invalid parent item."', async () => {
+    queue([{ id: 'board-1' }], [{ next: 0 }], [{ group_valid: true, parent_valid: false }])
+    const res = await boardItemsRoute.POST(jsonReq('http://localhost/x', 'POST', { name: 'New Item', parent_item_id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' }), BOARD_CTX)
+    expect(res.status).toBe(400)
+    expect(await res.json()).toEqual({ error: 'Invalid parent item.' })
+  })
+
+  it('group_valid takes precedence when both are false (deterministic, matching the PATCH route\'s own precedence)', async () => {
+    queue([{ id: 'board-1' }], [{ next: 0 }], [{ group_valid: false, parent_valid: false }])
+    const res = await boardItemsRoute.POST(jsonReq('http://localhost/x', 'POST', {
+      name: 'New Item', group_id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', parent_item_id: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+    }), BOARD_CTX)
+    expect(await res.json()).toEqual({ error: 'Invalid group for this item.' })
+  })
+
+  it('a rejected relationship never leaks group_valid/parent_valid into a successful response body\'s field set (and a rejection never has one, since it 400s)', async () => {
+    queue([{ id: 'board-1' }], [{ next: 0 }], [{ id: 'item-new', name: 'X', group_valid: true, parent_valid: true }])
+    const res = await boardItemsRoute.POST(jsonReq('http://localhost/x', 'POST', { name: 'X' }), BOARD_CTX)
+    const body = await res.json()
+    expect(body.item).not.toHaveProperty('group_valid')
+    expect(body.item).not.toHaveProperty('parent_valid')
+  })
+
+  it('the group EXISTS check is scoped to organisation_id AND board_id, not id alone', async () => {
+    queue([{ id: 'board-1' }], [{ next: 0 }], [{ id: 'item-new', group_valid: true, parent_valid: true }])
+    await boardItemsRoute.POST(jsonReq('http://localhost/x', 'POST', { name: 'New Item', group_id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' }), BOARD_CTX)
+    const text = queryText(2)
+    const idx = text.indexOf('FROM organiser_groups g')
+    expect(idx).toBeGreaterThan(-1)
+    const block = text.slice(idx, text.indexOf(')', idx))
+    expect(block).toContain('g.organisation_id')
+    expect(block).toContain('g.board_id =') // interpolated boardId, not old.board_id (no prior row exists on CREATE)
+  })
+
+  it('the parent EXISTS check is scoped to organisation_id AND board_id — no cycle check needed on CREATE (a brand-new item can never already be an ancestor of anything)', async () => {
+    queue([{ id: 'board-1' }], [{ next: 0 }], [{ id: 'item-new', group_valid: true, parent_valid: true }])
+    await boardItemsRoute.POST(jsonReq('http://localhost/x', 'POST', { name: 'New Item', parent_item_id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' }), BOARD_CTX)
+    const text = queryText(2)
+    const idx = text.indexOf('FROM organiser_items p')
+    expect(idx).toBeGreaterThan(-1)
+    const block = text.slice(idx, text.indexOf(')', idx))
+    expect(block).toContain('p.organisation_id')
+    expect(text).not.toContain('WITH RECURSIVE')
+    expect(text).not.toContain('ancestors AS')
   })
 })
 
@@ -471,32 +568,69 @@ describe('DELETE /api/organiser/items/[itemId] — item.deleted', () => {
     queue([{ id: 'item-1' }])
     await itemIdRoute.DELETE(asNextRequest(new Request('http://localhost/x', { method: 'DELETE' })), ITEM_CTX)
     const text = queryText(0)
-    expect(text).toContain('WITH deleted AS')
+    // Phase D.4.6H — WITH subitem_count AS (...), deleted AS (...): a
+    // bounded, read-only, same-statement COUNT precedes the DELETE (see
+    // this route's own comment for the snapshot-isolation reasoning).
+    expect(text).toContain('WITH subitem_count AS')
+    expect(text).toContain('deleted AS (')
     expect(text).toContain('DELETE FROM organiser_items')
     expect(text).toContain('activity_row AS')
     expect(text).toContain('INSERT INTO organiser_activity')
     expect(text).toContain("'item.deleted'")
   })
 
-  it('before_json contains the approved minimal identity summary; after_json is NULL', async () => {
+  it('before_json contains the approved minimal identity summary; after_json is a bounded subitem_count summary (D.4.6H), NULL when there are no subitems', async () => {
     const source = fs.readFileSync(path.resolve(__dirname, '../../app/api/organiser/items/[itemId]/route.ts'), 'utf8')
     const deleteStart = source.indexOf('export async function DELETE')
     const deleteBlock = source.slice(deleteStart)
     const jsonBlockStart = deleteBlock.indexOf('jsonb_build_object(')
-    const jsonBlockEnd = deleteBlock.indexOf('),\n        NULL')
-    const block = deleteBlock.slice(jsonBlockStart, jsonBlockEnd)
+    // The before_json jsonb_build_object(...) block ends right before the
+    // after_json CASE expression begins — a reliable anchor since 'CASE
+    // WHEN subitem_count' only appears once in this file, unlike a plain
+    // "),\," search which false-matches inside "...name))," a few
+    // characters into the block.
+    const afterJsonStart = deleteBlock.indexOf("CASE WHEN subitem_count.n > 0", jsonBlockStart)
+    expect(afterJsonStart).toBeGreaterThan(jsonBlockStart)
+    const block = deleteBlock.slice(jsonBlockStart, afterJsonStart)
     expect(block).toContain("'name'")
     expect(block).toContain("'status'")
     expect(block).toContain("'group_id'")
     expect(block).toContain("'parent_item_id'")
-    expect(deleteBlock).toContain('NULL')
+    // Phase D.4.6H — after_json is no longer a bare NULL: it's
+    // conditionally a bounded { subitem_count } summary, and only NULL
+    // when there are zero subitems (the common case, preserving the
+    // original "no content" shape for the vast majority of deletes).
+    const afterJsonExpr = deleteBlock.slice(afterJsonStart, deleteBlock.indexOf('FROM deleted, subitem_count'))
+    expect(afterJsonExpr).toMatch(/CASE WHEN subitem_count\.n > 0 THEN jsonb_build_object\('subitem_count', subitem_count\.n\) ELSE NULL END/)
+    expect(afterJsonExpr).not.toMatch(/'name'|'status'|'group_id'|'parent_item_id'/)
   })
 
-  it('no executable cascaded_subitem_count field anywhere — Gate B resolved as Option B (omit the count, record only the explicit parent event); the route file\'s own comment legitimately explains this decision in prose, so this checks comment-stripped code only', async () => {
+  it('subitem_count is a real, executable, bounded COUNT(*) field (D.4.6H reopens and resolves Gate B the other way: the count IS now recorded) — never per-subitem detail, computed from the same pre-cascade snapshot as the DELETE', async () => {
     const source = fs.readFileSync(path.resolve(__dirname, '../../app/api/organiser/items/[itemId]/route.ts'), 'utf8')
     const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1')
+    // The field name is real, executable code now — not just prose in a
+    // comment (comments are stripped above before asserting).
+    expect(code).toContain('subitem_count')
+    expect(code).toMatch(/subitem_count AS \(\s*SELECT COUNT\(\*\)::int AS n FROM organiser_items\s*WHERE parent_item_id = .+ AND organisation_id = .+\s*\)/)
+    // Never a per-subitem field name/content (would indicate fabricated
+    // per-row fan-out rather than a bounded count).
     expect(code).not.toContain('cascaded_subitem_count')
-    expect(code).not.toContain('subitem_count')
+    expect(code).not.toMatch(/subitem_(name|id|status)/)
+  })
+
+  it('subitem_count is computed BEFORE the DELETE fires, in the same statement — sibling CTE, not a separate pre-DELETE round trip (the guarantee this phase\'s report empirically re-verifies)', async () => {
+    queue([{ id: 'item-1' }])
+    await itemIdRoute.DELETE(asNextRequest(new Request('http://localhost/x', { method: 'DELETE' })), ITEM_CTX)
+    // Exactly one sql() call for the whole DELETE — subitem_count and the
+    // DELETE are sibling CTEs inside that one statement, not two round
+    // trips (which would reintroduce the "separately-racy pre-DELETE
+    // read" D.4.5C-A originally declined to do).
+    expect(sqlMock).toHaveBeenCalledTimes(1)
+    const text = queryText(0)
+    const subitemIdx = text.indexOf('subitem_count AS')
+    const deletedIdx = text.indexOf('deleted AS (')
+    expect(subitemIdx).toBeGreaterThan(-1)
+    expect(deletedIdx).toBeGreaterThan(subitemIdx)
   })
 
   it('actor/tenant bound from session only', async () => {
@@ -577,6 +711,8 @@ describe('organiser_activity instrumentation is confined to the explicitly autho
       path.resolve(__dirname, '../../app/api/organiser/boards/[boardId]/columns/route.ts'),
       path.resolve(__dirname, '../../app/api/organiser/columns/[columnId]/route.ts'),
       path.resolve(__dirname, '../../app/api/organiser/boards/[boardId]/import/route.ts'),
+      // D.4.6H — comment.deleted write route (new file this phase)
+      path.resolve(__dirname, '../../app/api/organiser/items/[itemId]/updates/[updateId]/route.ts'),
     ])
     const files = listRouteFiles(orgDir)
     expect(files.length).toBeGreaterThan(0)
@@ -594,6 +730,12 @@ describe('organiser_activity instrumentation is confined to the explicitly autho
     for (const src of [columnsSrc, boardColumnsSrc, importSrc]) {
       expect(src).toMatch(/organiser_activity/)
     }
+  })
+
+  it('comment.deleted DELETE route is now instrumented — deliberate D.4.6H widening', () => {
+    const src = fs.readFileSync(path.resolve(__dirname, '../../app/api/organiser/items/[itemId]/updates/[updateId]/route.ts'), 'utf8')
+    expect(src).toMatch(/organiser_activity/)
+    expect(src).toContain("'comment.deleted'")
   })
 
   it('the newly-allowed read route is GET-only — this boundary widening never permits a second write path', () => {

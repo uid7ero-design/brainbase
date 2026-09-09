@@ -286,22 +286,34 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
 
   const { itemId } = await params;
 
-  // Phase D.4.5C-B — Gate B resolution (see the phase report). Deleting a
-  // parent item cascades to its subitems at the DB level (organiser_items
-  // .parent_item_id ON DELETE CASCADE) — D.4.5C-A deliberately did NOT
-  // prove a race-safe, same-statement mechanism for counting how many
-  // subitems were cascade-removed (the natural approaches all either
-  // require a pre-DELETE read racing against the same DELETE, or rely on
-  // unproven sibling-CTE execution ordering), and the task's own
-  // instruction is explicit that correct history without that count is
-  // preferable to unverified cleverness. This DELETE therefore records
-  // exactly ONE item.deleted event, for the explicitly-requested item
-  // only — no cascaded_subitem_count field, no per-subitem history, and
-  // no pre-read outside this statement. Atomic: the DELETE and the
-  // activity INSERT are one statement — if the activity INSERT failed,
-  // the whole statement (and the DELETE) would roll back with it.
+  // Phase D.4.5C-B — Gate B (see the phase report). Deleting a parent item
+  // cascades to its subitems at the DB level (organiser_items.
+  // parent_item_id ON DELETE CASCADE). D.4.5C-A originally declined to
+  // count cascaded subitems, citing "unproven sibling-CTE execution
+  // ordering" as the risk.
+  //
+  // Phase D.4.6H — Gate B resolved. PostgreSQL's own documentation on
+  // WITH queries states that every statement inside one WITH clause
+  // (including sibling data-modifying statements) executes against the
+  // SAME snapshot and "cannot see one another's effects on the target
+  // tables" — this holds regardless of the planner's actual execution
+  // order, which is exactly the guarantee D.4.5C-A lacked confidence in.
+  // `subitem_count` below is a plain, read-only, pre-cascade COUNT — not
+  // a "separately-racy pre-DELETE read" (that phrase specifically meant a
+  // SEPARATE round trip before this statement, racing against a
+  // concurrent request; a sibling CTE inside the SAME statement is not
+  // racy by the guarantee above). Empirically re-verified against a real
+  // disposable PostgreSQL instance before relying on it here (see this
+  // phase's report). Still exactly ONE item.deleted event, for the
+  // explicitly-requested item only — subitem_count is a bounded count,
+  // never per-subitem history, never subitem names/content. Atomic: the
+  // DELETE and the activity INSERT remain one statement.
   const rows = await sql`
-    WITH deleted AS (
+    WITH subitem_count AS (
+      SELECT COUNT(*)::int AS n FROM organiser_items
+      WHERE parent_item_id = ${itemId} AND organisation_id = ${session.organisationId}
+    ),
+    deleted AS (
       DELETE FROM organiser_items
       WHERE id = ${itemId} AND organisation_id = ${session.organisationId}
       RETURNING id, board_id, group_id, parent_item_id, name, status
@@ -320,8 +332,8 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
           'group_id', to_jsonb(deleted.group_id),
           'parent_item_id', to_jsonb(deleted.parent_item_id)
         ),
-        NULL
-      FROM deleted
+        CASE WHEN subitem_count.n > 0 THEN jsonb_build_object('subitem_count', subitem_count.n) ELSE NULL END
+      FROM deleted, subitem_count
       RETURNING id
     )
     SELECT deleted.id FROM deleted
