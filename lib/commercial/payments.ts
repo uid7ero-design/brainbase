@@ -1,7 +1,9 @@
+import 'server-only';
 import sql from '@/lib/db';
 import { getInvoice } from './invoices';
 import { isValidCents } from './money';
 import { logPaymentRecorded, logPaymentReversed } from './auditLog';
+import { PAYMENT_METHODS, type PaymentMethod } from './paymentMethods';
 
 // Phase C5.2 — tenant-scoped data access + business logic for
 // commercial_payments/commercial_payment_allocations. Same discipline as
@@ -15,9 +17,15 @@ import { logPaymentRecorded, logPaymentReversed } from './auditLog';
 // changes InvoiceStatus — payment state is always derived at read time
 // (see getInvoicePaymentSummary()), exactly mirroring
 // lib/commercial/invoices.ts's own existing `overdue` field.
+//
+// Phase C5.3B-fix — this is a server-only module (see `import
+// 'server-only'` above): it imports lib/db, whose neon() client throws
+// if evaluated in a browser bundle. PAYMENT_METHODS/PaymentMethod now
+// live in ./paymentMethods (a dependency-free, client-safe module) and
+// are re-exported here so this stays the single source of truth for
+// every server call site — never redefine them here.
 
-export const PAYMENT_METHODS = ['BANK_TRANSFER', 'CASH', 'CARD', 'CHEQUE', 'OTHER'] as const;
-export type PaymentMethod = typeof PAYMENT_METHODS[number];
+export { PAYMENT_METHODS, type PaymentMethod };
 
 export function isValidPaymentMethod(value: unknown): value is PaymentMethod {
   return typeof value === 'string' && (PAYMENT_METHODS as readonly string[]).includes(value);
