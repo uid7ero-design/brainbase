@@ -5,7 +5,7 @@ import { getCustomer, updateCustomer, deactivateCustomer, reactivateCustomer } f
 type Ctx = { params: Promise<{ id: string }> };
 
 export async function GET(_req: NextRequest, { params }: Ctx) {
-  const auth = await authorizeCommercialRequest('quotes', COMMERCIAL_MIN_ROLE.view);
+  const auth = await authorizeCommercialRequest(['quotes', 'invoicing'], COMMERCIAL_MIN_ROLE.view);
   if (!auth.ok) return auth.response;
   const { id } = await params;
 
@@ -15,7 +15,7 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
 }
 
 export async function PUT(req: NextRequest, { params }: Ctx) {
-  const auth = await authorizeCommercialRequest('quotes', COMMERCIAL_MIN_ROLE.createEdit);
+  const auth = await authorizeCommercialRequest(['quotes', 'invoicing'], COMMERCIAL_MIN_ROLE.createEdit);
   if (!auth.ok) return auth.response;
   const { id } = await params;
 
@@ -46,7 +46,7 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
 // on the same resource, matching this codebase's PATCH-for-state-toggle
 // convention rather than two bespoke DELETE/POST-restore endpoints.
 export async function PATCH(req: NextRequest, { params }: Ctx) {
-  const auth = await authorizeCommercialRequest('quotes', COMMERCIAL_MIN_ROLE.createEdit);
+  const auth = await authorizeCommercialRequest(['quotes', 'invoicing'], COMMERCIAL_MIN_ROLE.createEdit);
   if (!auth.ok) return auth.response;
   const { id } = await params;
 

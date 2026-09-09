@@ -11,7 +11,7 @@ type Ctx = { params: Promise<{ id: string }> };
 // not an FK — see scripts/create-commercial-quotes.sql), so removing
 // the row itself would be both destructive and unnecessary.
 export async function DELETE(_req: NextRequest, { params }: Ctx) {
-  const auth = await authorizeCommercialRequest('quotes', COMMERCIAL_MIN_ROLE.administer);
+  const auth = await authorizeCommercialRequest(['quotes', 'invoicing'], COMMERCIAL_MIN_ROLE.administer);
   if (!auth.ok) return auth.response;
   const { id } = await params;
 

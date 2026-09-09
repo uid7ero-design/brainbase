@@ -194,6 +194,36 @@ export type GetImportBatchResponseBody = { batch: ImportBatchDetailDTOClient } |
 export type GetImportBatchResult = TransportResult<GetImportBatchResponseBody>;
 
 // ---------------------------------------------------------------------------
+// GET /api/data-hub/import-batches  (history list — Data Hub 5A.3D.2)
+// Source: app/api/data-hub/import-batches/route.ts, GET handler, backed by
+// lib/data-hub/importBatch/read.ts's listImportBatches (5A.2H.3, unchanged).
+//
+// Deliberately a NARROWER shape than ImportBatchDetailDTOClient above: no
+// sha256, no uploadedBy, no failure detail — the summary DTO this route
+// returns never carries those fields server-side (see read.ts's own
+// ImportBatchSummaryDTO), so there is nothing to accidentally over-fetch or
+// leak here even by omission-mistake. Detail (including failure info) is
+// only ever fetched per-batch, on explicit open, via getImportBatch above —
+// never for every history row (the N+1 hard rule).
+// ---------------------------------------------------------------------------
+
+export interface ImportBatchSummaryDTOClient {
+  id: string;
+  status: ImportBatchStatus;
+  originalFilename: string;
+  contentType: string;
+  sizeBytes: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type ListImportBatchesResponseBody =
+  | { batches: ImportBatchSummaryDTOClient[]; hasNextPage: boolean; nextCursor: string | null }
+  | { error: string };
+
+export type ListImportBatchesResult = TransportResult<ListImportBatchesResponseBody>;
+
+// ---------------------------------------------------------------------------
 // POST /api/data-hub/import-batches/[id]/inspect
 // Source: app/api/data-hub/import-batches/[id]/inspect/route.ts, POST.
 //
@@ -253,6 +283,21 @@ export interface WorksheetSummaryDTOClient {
   updatedAt: string;
   confirmedBy: string | null;
   confirmedAt: string | null;
+  // Data Hub 5A.3D.0 — durable worksheet-level retry/failure history,
+  // re-mirrored here from lib/data-hub/importBatch/read.ts's
+  // WorksheetSummaryDTO (PR #154). NULL/0 for a worksheet that has never
+  // had a mapping/validation failure recorded against it.
+  lastAttemptAt: string | null;
+  attemptCount: number;
+  lastFailureCode: string | null;
+  lastFailureMessage: string | null;
+  lastFailureRetryable: boolean | null;
+  // Data Hub 5A.3D.0 — authoritative, read-time count of domain rows this
+  // worksheet produced. `null` means "not applicable" (canonicalStatus is
+  // not IMPORTED); a genuine `0` is a real, truthful IMPORTED-with-zero-rows
+  // result and must never be collapsed into `null` — see read.ts's own
+  // attachImportedRowCounts comment.
+  importedRowCount: number | null;
 }
 
 export type ListWorksheetsResponseBody = { worksheets: WorksheetSummaryDTOClient[] } | { error: string };

@@ -23,6 +23,12 @@ const FAKE_WORKSHEET = {
   updatedAt: "2024-01-01",
   confirmedBy: null,
   confirmedAt: null,
+  lastAttemptAt: null,
+  attemptCount: 0,
+  lastFailureCode: null,
+  lastFailureMessage: null,
+  lastFailureRetryable: null,
+  importedRowCount: null,
 };
 
 function preview(overrides: Partial<{ rowCount: number; sampleRowCount: number; truncated: boolean; requiredHeadersPresent: boolean; missingRequiredHeaders: string[] }> = {}) {

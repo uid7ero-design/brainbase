@@ -2,18 +2,22 @@ import { NextRequest, NextResponse } from 'next/server';
 import { authorizeCommercialRequest, COMMERCIAL_MIN_ROLE } from '@/lib/commercial/authorize';
 import { listCustomers, createCustomer } from '@/lib/commercial/customers';
 
-// Phase C3 — Customers/Products are gated on the 'quotes' capability
-// (not a dedicated 'customers'/'products' key — none exists, and none
-// is needed): in C3, Quotes is the only real Commercial transactional
-// workflow, and Customers/Products exist only in service of it, matching
-// the C3 brief's own "Customers / Products may be available to
-// organisations with any active Commercial transactional module needed
-// for Quotes" guidance. Revisit if a future phase (Invoicing,
-// Purchasing, ...) also needs these two resources independently of
-// Quotes.
+// Phase C3 — Customers/Products are gated on the shared Commercial
+// resource pool (not a dedicated 'customers'/'products' key — none
+// exists, and none is needed).
+//
+// Phase C4.4A (Finding 3 remediation) — widened from 'quotes'-only to
+// ['quotes', 'invoicing'] (OR semantics — see
+// lib/commercial/authorize.ts's own header comment): Quotes and
+// Invoicing are independently-entitlable capability keys by design, and
+// an invoicing-only organisation must be able to create/manage
+// customers to invoice, without ever being granted quotes-specific
+// access anywhere else. This route itself has no notion of "quotes" or
+// "invoicing" beyond this single authorization line — it is the same
+// shared implementation either way, never a parallel one.
 
 export async function GET() {
-  const auth = await authorizeCommercialRequest('quotes', COMMERCIAL_MIN_ROLE.view);
+  const auth = await authorizeCommercialRequest(['quotes', 'invoicing'], COMMERCIAL_MIN_ROLE.view);
   if (!auth.ok) return auth.response;
 
   const customers = await listCustomers(auth.session.organisationId);
@@ -21,7 +25,7 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  const auth = await authorizeCommercialRequest('quotes', COMMERCIAL_MIN_ROLE.createEdit);
+  const auth = await authorizeCommercialRequest(['quotes', 'invoicing'], COMMERCIAL_MIN_ROLE.createEdit);
   if (!auth.ok) return auth.response;
 
   const body = await req.json();

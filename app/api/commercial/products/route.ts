@@ -3,7 +3,7 @@ import { authorizeCommercialRequest, COMMERCIAL_MIN_ROLE } from '@/lib/commercia
 import { listProducts, createProduct, type CommercialProductType } from '@/lib/commercial/products';
 
 export async function GET() {
-  const auth = await authorizeCommercialRequest('quotes', COMMERCIAL_MIN_ROLE.view);
+  const auth = await authorizeCommercialRequest(['quotes', 'invoicing'], COMMERCIAL_MIN_ROLE.view);
   if (!auth.ok) return auth.response;
 
   const products = await listProducts(auth.session.organisationId);
@@ -11,7 +11,7 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  const auth = await authorizeCommercialRequest('quotes', COMMERCIAL_MIN_ROLE.createEdit);
+  const auth = await authorizeCommercialRequest(['quotes', 'invoicing'], COMMERCIAL_MIN_ROLE.createEdit);
   if (!auth.ok) return auth.response;
 
   const body = await req.json();

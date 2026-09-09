@@ -6,7 +6,7 @@ import { listTaxCodes, createTaxCode } from '@/lib/commercial/taxCodes';
 // forms to populate a tax-code dropdown from whatever an organisation
 // has already configured.
 export async function GET() {
-  const auth = await authorizeCommercialRequest('quotes', COMMERCIAL_MIN_ROLE.view);
+  const auth = await authorizeCommercialRequest(['quotes', 'invoicing'], COMMERCIAL_MIN_ROLE.view);
   if (!auth.ok) return auth.response;
 
   const taxCodes = await listTaxCodes(auth.session.organisationId, { activeOnly: true });
@@ -21,7 +21,7 @@ export async function GET() {
 // the lower 'createEdit' floor used by ordinary document mutations like
 // creating a quote.
 export async function POST(req: NextRequest) {
-  const auth = await authorizeCommercialRequest('quotes', COMMERCIAL_MIN_ROLE.administer);
+  const auth = await authorizeCommercialRequest(['quotes', 'invoicing'], COMMERCIAL_MIN_ROLE.administer);
   if (!auth.ok) return auth.response;
 
   const body = await req.json().catch(() => ({}));

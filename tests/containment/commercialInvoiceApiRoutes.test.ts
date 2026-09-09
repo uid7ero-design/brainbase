@@ -44,6 +44,14 @@ vi.mock('@/lib/commercial/invoices', () => ({
 const getQuoteMock = vi.fn()
 vi.mock('@/lib/commercial/quotes', () => ({ getQuote: (...a: unknown[]) => getQuoteMock(...a) }))
 
+// Phase C4.3B — the invoice detail GET route now folds in delivery
+// history, mirroring the quote detail route's own identical addition.
+// Mocked here (rather than mocking @/lib/db directly, which this file
+// does not do) so no real DB client is ever constructed/called by any
+// existing test in this file.
+const listDeliveriesForDocumentMock = vi.fn()
+vi.mock('@/lib/commercial/documentDeliveries', () => ({ listDeliveriesForDocument: (...a: unknown[]) => listDeliveriesForDocumentMock(...a) }))
+
 const { GET: invoicesGET, POST: invoicesPOST } = await import('@/app/api/commercial/invoices/route')
 const { GET: invoiceGET, PUT: invoicePUT, DELETE: invoiceDELETE } = await import('@/app/api/commercial/invoices/[id]/route')
 const { POST: linePOST } = await import('@/app/api/commercial/invoices/[id]/lines/route')
@@ -83,6 +91,8 @@ beforeEach(() => {
   addInvoiceLineMock.mockReset()
   updateInvoiceLineMock.mockReset()
   deleteInvoiceLineMock.mockReset()
+  listDeliveriesForDocumentMock.mockReset()
+  listDeliveriesForDocumentMock.mockResolvedValue([])
   issueInvoiceMock.mockReset()
   voidInvoiceMock.mockReset()
   createInvoiceFromQuoteMock.mockReset()
@@ -358,6 +368,27 @@ describe('Phase C4.2 — GET detail: source quote lineage and derived overdue', 
     const res = await invoiceGET(plainReq(), ctx({ id: 'inv-1' }))
     const body = await res.json()
     expect(body.overdue).toBe(true)
+  })
+})
+
+describe('Phase C4.3B — GET detail: invoice delivery history', () => {
+  it('includes deliveries resolved via listDeliveriesForDocument, scoped to documentType invoice and this invoice\'s own id/organisationId', async () => {
+    authorizeMock.mockResolvedValue({ ok: true, session: VIEWER_SESSION })
+    getInvoiceWithLinesMock.mockResolvedValue({ invoice: { id: 'inv-1', status: 'ISSUED', due_date: null, source_quote_id: null, overdue: false }, lines: [] })
+    const deliveryRows = [{ id: 'd1', channel: 'EMAIL', status: 'SENT', recipient: 'jane@example.com', attempted_at: '2026-09-08T00:00:00Z' }]
+    listDeliveriesForDocumentMock.mockResolvedValue(deliveryRows)
+    const res = await invoiceGET(plainReq(), ctx({ id: 'inv-1' }))
+    const body = await res.json()
+    expect(body.deliveries).toEqual(deliveryRows)
+    expect(listDeliveriesForDocumentMock).toHaveBeenCalledWith({ organisationId: 'org-a', documentType: 'invoice', documentId: 'inv-1' })
+  })
+
+  it('a wrong-tenant invoice id never reaches the delivery lookup at all — the 404 for a missing/wrong-tenant invoice happens before deliveries are ever queried', async () => {
+    authorizeMock.mockResolvedValue({ ok: true, session: VIEWER_SESSION })
+    getInvoiceWithLinesMock.mockResolvedValue(null) // wrong-tenant/missing invoice, per the domain layer's own indistinguishable-by-design 404 rule
+    const res = await invoiceGET(plainReq(), ctx({ id: 'invoice-owned-by-org-b' }))
+    expect(res.status).toBe(404)
+    expect(listDeliveriesForDocumentMock).not.toHaveBeenCalled()
   })
 })
 

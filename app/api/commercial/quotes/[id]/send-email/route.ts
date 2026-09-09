@@ -4,7 +4,7 @@ import { getQuoteWithLines } from '@/lib/commercial/quotes';
 import { getBusinessProfile } from '@/lib/commercial/businessProfile';
 import { sendQuoteEmail, maskEmailForAudit } from '@/lib/commercial/quoteEmail';
 import { logQuoteEmailSent } from '@/lib/commercial/auditLog';
-import { recordDeliveryAttempt, secondsSinceLastAttempt } from '@/lib/commercial/documentDeliveries';
+import { recordQuoteDeliveryAttempt, secondsSinceLastAttempt } from '@/lib/commercial/documentDeliveries';
 import type { QuotePdfSupplier } from '@/lib/commercial/quotePdf';
 
 type Ctx = { params: Promise<{ id: string }> };
@@ -81,8 +81,8 @@ export async function POST(req: NextRequest, { params }: Ctx) {
   const sendResult = await sendQuoteEmail({ to: recipient, quote, lines, supplier });
 
   if (sendResult.result === 'not_configured') {
-    await recordDeliveryAttempt({
-      organisationId: session.organisationId, documentType: 'quote', documentId: quoteId, channel: 'EMAIL', recipient,
+    await recordQuoteDeliveryAttempt({
+      organisationId: session.organisationId, quote, channel: 'EMAIL', recipient,
       status: 'FAILED', provider: 'resend', errorSummary: 'Email sending is not configured for this environment.', createdBy: session.userId,
     }).catch(err => console.error('[commercial] quote delivery record failed after not_configured outcome', err, { quoteId }));
     await logQuoteEmailSent({ organisationId: session.organisationId, userId: session.userId, quoteId, result: 'not_configured', recipientMasked, providerMessageId: null })
@@ -91,8 +91,8 @@ export async function POST(req: NextRequest, { params }: Ctx) {
   }
 
   if (sendResult.result === 'failed') {
-    await recordDeliveryAttempt({
-      organisationId: session.organisationId, documentType: 'quote', documentId: quoteId, channel: 'EMAIL', recipient,
+    await recordQuoteDeliveryAttempt({
+      organisationId: session.organisationId, quote, channel: 'EMAIL', recipient,
       status: 'FAILED', provider: 'resend', errorSummary: sendResult.error, createdBy: session.userId,
     }).catch(err => console.error('[commercial] quote delivery record failed after provider failure', err, { quoteId }));
     await logQuoteEmailSent({ organisationId: session.organisationId, userId: session.userId, quoteId, result: 'failed', recipientMasked, providerMessageId: null })
@@ -101,8 +101,8 @@ export async function POST(req: NextRequest, { params }: Ctx) {
   }
 
   if (sendResult.result === 'unknown') {
-    await recordDeliveryAttempt({
-      organisationId: session.organisationId, documentType: 'quote', documentId: quoteId, channel: 'EMAIL', recipient,
+    await recordQuoteDeliveryAttempt({
+      organisationId: session.organisationId, quote, channel: 'EMAIL', recipient,
       status: 'FAILED', provider: 'resend', errorSummary: 'Provider did not return a definite result.', createdBy: session.userId,
     }).catch(err => console.error('[commercial] quote delivery record failed after unknown outcome', err, { quoteId }));
     await logQuoteEmailSent({ organisationId: session.organisationId, userId: session.userId, quoteId, result: 'unknown', recipientMasked, providerMessageId: null })
@@ -117,8 +117,8 @@ export async function POST(req: NextRequest, { params }: Ctx) {
   // .catch() below the same way the resend-ticket-email precedent
   // handles the equivalent case, but note the API response still
   // reflects the true outcome for the audit-write failure below.
-  await recordDeliveryAttempt({
-    organisationId: session.organisationId, documentType: 'quote', documentId: quoteId, channel: 'EMAIL', recipient,
+  await recordQuoteDeliveryAttempt({
+    organisationId: session.organisationId, quote, channel: 'EMAIL', recipient,
     status: 'SENT', provider: 'resend', providerMessageId: sendResult.providerMessageId, createdBy: session.userId,
   }).catch(err => console.error('[commercial] CRITICAL: quote email sent but delivery record failed', err, { quoteId }));
 

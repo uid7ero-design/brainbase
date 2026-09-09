@@ -29,10 +29,10 @@ vi.mock('@/lib/commercial/businessProfile', () => ({ getBusinessProfile: (...a: 
 const logQuoteEmailSentMock = vi.fn()
 vi.mock('@/lib/commercial/auditLog', () => ({ logQuoteEmailSent: (...a: unknown[]) => logQuoteEmailSentMock(...a) }))
 
-const recordDeliveryAttemptMock = vi.fn()
+const recordQuoteDeliveryAttemptMock = vi.fn()
 const secondsSinceLastAttemptMock = vi.fn()
 vi.mock('@/lib/commercial/documentDeliveries', () => ({
-  recordDeliveryAttempt: (...a: unknown[]) => recordDeliveryAttemptMock(...a),
+  recordQuoteDeliveryAttempt: (...a: unknown[]) => recordQuoteDeliveryAttemptMock(...a),
   secondsSinceLastAttempt: (...a: unknown[]) => secondsSinceLastAttemptMock(...a),
 }))
 
@@ -85,7 +85,7 @@ beforeEach(() => {
   getQuoteWithLinesMock.mockReset()
   getBusinessProfileMock.mockReset()
   logQuoteEmailSentMock.mockReset()
-  recordDeliveryAttemptMock.mockReset()
+  recordQuoteDeliveryAttemptMock.mockReset()
   secondsSinceLastAttemptMock.mockReset()
   sendEmailMock.mockReset()
 
@@ -93,7 +93,7 @@ beforeEach(() => {
   getQuoteWithLinesMock.mockResolvedValue(DATE_BACKED_QUOTE)
   getBusinessProfileMock.mockResolvedValue({ organisationName: 'Acme', profile: { tradingName: null, address: null, email: null, phone: null, abn: null } })
   secondsSinceLastAttemptMock.mockResolvedValue(null)
-  recordDeliveryAttemptMock.mockResolvedValue({ id: 'd1' })
+  recordQuoteDeliveryAttemptMock.mockResolvedValue({ id: 'd1' })
   logQuoteEmailSentMock.mockResolvedValue(undefined)
 })
 
@@ -124,6 +124,6 @@ describe('Phase C3-EMAIL-FIX — M. end-to-end: real rendering path with Date-ty
   it('records a SENT delivery row (proving the full path completed, not a silently-swallowed exception)', async () => {
     sendEmailMock.mockResolvedValue({ status: 'sent', id: 'resend-msg-1' })
     await POST(req(), ctx())
-    expect(recordDeliveryAttemptMock).toHaveBeenCalledWith(expect.objectContaining({ status: 'SENT' }))
+    expect(recordQuoteDeliveryAttemptMock).toHaveBeenCalledWith(expect.objectContaining({ status: 'SENT' }))
   })
 })

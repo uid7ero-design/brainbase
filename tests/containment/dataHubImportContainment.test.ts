@@ -417,6 +417,12 @@ describe("QA-POLISH issue 2 — invalid-header Review no longer shows the contra
       updatedAt: "2024-01-01",
       confirmedBy: null,
       confirmedAt: null,
+      lastAttemptAt: null,
+      attemptCount: 0,
+      lastFailureCode: null,
+      lastFailureMessage: null,
+      lastFailureRetryable: null,
+      importedRowCount: null,
     };
     const preview = (requiredHeadersPresent: boolean) => ({
       worksheetId: "w1",
@@ -465,6 +471,12 @@ describe("QA-POLISH issue 2 — invalid-header Review no longer shows the contra
       updatedAt: "2024-01-01",
       confirmedBy: null,
       confirmedAt: null,
+      lastAttemptAt: null,
+      attemptCount: 0,
+      lastFailureCode: null,
+      lastFailureMessage: null,
+      lastFailureRetryable: null,
+      importedRowCount: null,
     };
     const missingState = {
       phase: "previewReady" as const,

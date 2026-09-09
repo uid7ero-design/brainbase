@@ -8,37 +8,40 @@ const BORDER = '#1a1d24';
 // Purchasing/Expenses/Budgeting/Finance Intelligence remain deliberately
 // omitted entirely (not shown-disabled) per the C3 brief's original
 // navigation instruction — no evidence any of those are being built yet.
-// Invoices (Phase C4.2) is the first nav item in this list that IS
-// per-item capability-gated rather than always shown once the shell
-// itself renders: unlike Customers/Products/Quotes/Settings (which have
-// always been reachable by anyone who cleared this layout's own 'quotes'
-// gate), Invoices must stay invisible to an organisation entitled to
-// Quotes but NOT Invoicing — the two are independently-entitlable
-// capability keys (see app/commercial/layout.tsx's own comment), so
-// showing this link unconditionally the way every other item here does
-// would advertise a feature the organisation cannot actually use. No
-// disabled/greyed-out placeholder either — per Phase C4.2's own
-// instruction, an unentitled feature is omitted, never shown-disabled.
+//
+// Phase C4.2 introduced per-item capability gating for Invoices, but
+// left an inconsistency Phase C4.4A (Finding 3 remediation) now fixes:
+// "Quotes" was still ALWAYS shown, on the (once-true, now-false)
+// assumption that anyone who cleared the layout's own gate necessarily
+// had Quotes — true back when that gate WAS 'quotes'-only, but no
+// longer true since the layout widened to quotes OR invoicing (see
+// app/commercial/layout.tsx's own comment). An invoicing-only
+// organisation reaching this shell would have seen a "Quotes" link that
+// always 403'd the moment it was clicked — exactly the
+// looks-available-but-isn't trap this file's own Invoices precedent was
+// designed to avoid. Quotes is now gated the identical way: omitted
+// entirely (never shown-disabled) for an organisation that lacks it.
+//
+// Customers/Products/Settings remain always shown once the shell
+// renders at all — they are genuinely available to BOTH quotes-only and
+// invoicing-only organisations now (see lib/commercial/authorize.ts's
+// own ['quotes', 'invoicing'] OR-gate, applied to every route backing
+// these three nav items), so no per-item gate is needed for them.
 const BASE_NAV_ITEMS = [
   { href: '/commercial', label: 'Overview', exact: true },
   { href: '/commercial/customers', label: 'Customers' },
   { href: '/commercial/products', label: 'Products & Services' },
-  { href: '/commercial/quotes', label: 'Quotes' },
-  // Phase C3-POLISH-R — Business Profile + Tax Codes. The route itself
-  // is administer-gated (app/api/commercial/settings/business-profile,
-  // app/api/commercial/tax-codes) for writes; showing the link to every
-  // Commercial user is consistent with every other nav item here (this
-  // sidebar has no per-item role gating — the layout's own capability
-  // check is what stands between an unentitled organisation and the
-  // whole shell, same as CRM's sidebar).
   { href: '/commercial/settings', label: 'Settings' },
 ];
 
-export default function CommercialSidebar({ invoicingEnabled = false }: { invoicingEnabled?: boolean }) {
+export default function CommercialSidebar({ quotesEnabled = false, invoicingEnabled = false }: { quotesEnabled?: boolean; invoicingEnabled?: boolean }) {
   const pathname = usePathname() ?? '';
-  const navItems = invoicingEnabled
-    ? [...BASE_NAV_ITEMS.slice(0, 3), { href: '/commercial/invoices', label: 'Invoices' }, ...BASE_NAV_ITEMS.slice(3)]
-    : BASE_NAV_ITEMS;
+  const navItems = [
+    ...BASE_NAV_ITEMS.slice(0, 3),
+    ...(quotesEnabled ? [{ href: '/commercial/quotes', label: 'Quotes' }] : []),
+    ...(invoicingEnabled ? [{ href: '/commercial/invoices', label: 'Invoices' }] : []),
+    ...BASE_NAV_ITEMS.slice(3),
+  ];
 
   return (
     <aside

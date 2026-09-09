@@ -30,10 +30,10 @@ vi.mock('@/lib/commercial/quoteEmail', () => ({
 const logQuoteEmailSentMock = vi.fn()
 vi.mock('@/lib/commercial/auditLog', () => ({ logQuoteEmailSent: (...a: unknown[]) => logQuoteEmailSentMock(...a) }))
 
-const recordDeliveryAttemptMock = vi.fn()
+const recordQuoteDeliveryAttemptMock = vi.fn()
 const secondsSinceLastAttemptMock = vi.fn()
 vi.mock('@/lib/commercial/documentDeliveries', () => ({
-  recordDeliveryAttempt: (...a: unknown[]) => recordDeliveryAttemptMock(...a),
+  recordQuoteDeliveryAttempt: (...a: unknown[]) => recordQuoteDeliveryAttemptMock(...a),
   secondsSinceLastAttempt: (...a: unknown[]) => secondsSinceLastAttemptMock(...a),
 }))
 
@@ -56,14 +56,14 @@ beforeEach(() => {
   getBusinessProfileMock.mockReset()
   sendQuoteEmailMock.mockReset()
   logQuoteEmailSentMock.mockReset()
-  recordDeliveryAttemptMock.mockReset()
+  recordQuoteDeliveryAttemptMock.mockReset()
   secondsSinceLastAttemptMock.mockReset()
 
   authorizeMock.mockResolvedValue({ ok: true, session: SESSION })
   getQuoteWithLinesMock.mockResolvedValue(ISSUED_QUOTE)
   getBusinessProfileMock.mockResolvedValue({ organisationName: 'Acme', profile: { tradingName: null, address: null, email: null, phone: null, abn: null } })
   secondsSinceLastAttemptMock.mockResolvedValue(null)
-  recordDeliveryAttemptMock.mockResolvedValue({ id: 'd1' })
+  recordQuoteDeliveryAttemptMock.mockResolvedValue({ id: 'd1' })
   logQuoteEmailSentMock.mockResolvedValue(undefined)
 })
 
@@ -120,7 +120,7 @@ describe('Phase C3-POLISH-R §9 — outcome-to-response mapping and delivery/aud
     sendQuoteEmailMock.mockResolvedValue({ result: 'sent', providerMessageId: 'msg-1' })
     const res = await POST(req(), ctx())
     expect(res.status).toBe(200)
-    expect(recordDeliveryAttemptMock).toHaveBeenCalledWith(expect.objectContaining({ status: 'SENT', channel: 'EMAIL', documentType: 'quote', documentId: 'q1' }))
+    expect(recordQuoteDeliveryAttemptMock).toHaveBeenCalledWith(expect.objectContaining({ status: 'SENT', channel: 'EMAIL', quote: ISSUED_QUOTE.quote }))
     expect(logQuoteEmailSentMock).toHaveBeenCalledWith(expect.objectContaining({ result: 'sent' }))
   })
 
@@ -128,7 +128,7 @@ describe('Phase C3-POLISH-R §9 — outcome-to-response mapping and delivery/aud
     sendQuoteEmailMock.mockResolvedValue({ result: 'failed', error: 'rejected' })
     const res = await POST(req(), ctx())
     expect(res.status).toBe(502)
-    expect(recordDeliveryAttemptMock).toHaveBeenCalledWith(expect.objectContaining({ status: 'FAILED' }))
+    expect(recordQuoteDeliveryAttemptMock).toHaveBeenCalledWith(expect.objectContaining({ status: 'FAILED' }))
   })
 
   it('unknown (ambiguous provider outcome): 504, does not claim success', async () => {

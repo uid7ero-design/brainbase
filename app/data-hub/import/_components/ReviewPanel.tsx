@@ -18,9 +18,18 @@ import { createConfirmGuard, hasMissingRequiredHeaders, isConfirmEligible, shoul
 export default function ReviewPanel({
   state,
   session,
+  onRestart,
 }: {
   state: ReviewPhase;
   session: DataHubIllegalDumpingImportSession;
+  // PR #161 QA REMEDIATION (issue 1): the Review screen previously had no
+  // Back/Cancel/Choose-another-file escape, trapping the user on an
+  // invalid file with Confirm disabled. `onRestart` is pure navigation/
+  // reset — callers pass their own existing "start a new import" mechanism
+  // (ImportClient.tsx's resetKey remount; RecoveryClient.tsx's
+  // router.push("/data-hub/import")) — ReviewPanel never invents a second
+  // reset system and never mutates server state itself.
+  onRestart: () => void;
 }) {
   const [acknowledged, setAcknowledged] = useState(false);
   // `submitting` is display-only (drives ConfirmAction's busy state) — it
@@ -118,6 +127,7 @@ export default function ReviewPanel({
               if (mountedRef.current) setSubmitting(false);
             });
           }}
+          onChooseAnotherFile={onRestart}
           rowCount={state.phase === "previewReady" ? state.preview.rowCount : undefined}
           // QA-POLISH (PR #147 authenticated Preview recheck, issue 2): a
           // successful preview reporting missing required headers already

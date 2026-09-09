@@ -29,6 +29,8 @@ import type {
   InitiateResult,
   InspectResponseBody,
   InspectResult,
+  ListImportBatchesResponseBody,
+  ListImportBatchesResult,
   ListWorksheetsResponseBody,
   ListWorksheetsResult,
   TransportResult,
@@ -210,6 +212,41 @@ export async function finalizeImportBatch(
     config,
     resolveUrl(config, `/api/data-hub/import-batches/${encodeURIComponent(importBatchId)}/finalize`),
     { method: "POST" },
+    callOptions
+  );
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/data-hub/import-batches — history list (Data Hub 5A.3D.2).
+//
+// Composes the EXISTING canonical read route only — no new backend endpoint.
+// `cursor`/`limit` are passed through EXACTLY as the caller supplies them
+// (this module performs no clamping/defaulting of its own); the server's own
+// listImportBatches validation remains the single source of truth, exactly
+// as the sibling GET routes in this file already rely on. Never sends any
+// tenant/identity field — organisationId is resolved server-side only, from
+// the session, never from this client.
+// ---------------------------------------------------------------------------
+
+export interface ListImportBatchesParams {
+  /** Opaque cursor from a prior page's nextCursor. Omit for the first page. */
+  cursor?: string;
+  limit?: number;
+}
+
+export async function listImportBatches(
+  params: ListImportBatchesParams = {},
+  config?: HttpClientConfig,
+  callOptions?: CallOptions
+): Promise<ListImportBatchesResult> {
+  const search = new URLSearchParams();
+  if (params.cursor !== undefined) search.set("cursor", params.cursor);
+  if (params.limit !== undefined) search.set("limit", String(params.limit));
+  const qs = search.toString();
+  return executeCall<ListImportBatchesResponseBody>(
+    config,
+    resolveUrl(config, `/api/data-hub/import-batches${qs ? `?${qs}` : ""}`),
+    { method: "GET" },
     callOptions
   );
 }
