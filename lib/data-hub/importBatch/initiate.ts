@@ -58,6 +58,38 @@ import {
 // once, to the client-declared source byte size, and NEVER written again
 // by any code in this service layer afterward (see finalize.ts's own
 // header comment for the other half of this invariant).
+//
+// 5B.4A — OPTIONAL SourceSystem lineage at creation (source_system_id).
+// Omitted: behavior is byte-for-byte unchanged from pre-5B.4A (NULL,
+// no SourceSystem lookup of any kind). Supplied: the exact id is
+// tenant-verified and persisted into the SAME create() call below —
+// immutable thereafter (no update route/service exists anywhere for this
+// column; see O below and the containment tests for the static proof).
+//
+// ORDERING (deliberately NOT select-before-insert): a plain existence
+// lookup (id + organisation_id only, ignoring `active`) runs BEFORE the
+// insert attempt when sourceSystemId is supplied. This is safe and does
+// NOT reintroduce the TOCTOU race the insert-first design exists to
+// avoid, because it queries a DIFFERENT table for a DIFFERENT purpose
+// (rejecting a garbage/foreign-tenant id with a clean error, instead of
+// letting a raw FK-violation reach the caller) — it has no bearing on
+// duplicate-idempotency-key detection, which remains governed entirely by
+// the existing insert-then-catch-P2002 mechanism, unchanged.
+//
+// The `active` flag is deliberately NOT part of that pre-insert check.
+// SourceSystem is deactivate-not-delete (5B.2): once a given id has ever
+// been found to exist for this tenant, it can never later "not exist" —
+// only `active` can flip. Reusing the SAME row this pre-insert lookup
+// already fetched, the `active` value is consulted ONLY after the insert
+// has unambiguously succeeded (proven by the ABSENCE of a P2002 catch,
+// not by our own guess) — i.e. only on the genuinely-fresh-row path. If
+// that freshly-created row's source was inactive, the row is deleted
+// (compensating action; nothing else can reference an id this call alone
+// generated and has not yet returned to any caller) and a safe rejection
+// is returned. The P2002/replay path NEVER consults `active` at all — an
+// exact replay of an original request remains stable even if its
+// SourceSystem has since been deactivated, exactly per the 5B.4
+// discovery's own decision (see resolveReplay below).
 
 export interface InitiateTrustedContext {
   /** Trusted, already-authenticated caller context — never re-derived here. */
@@ -92,6 +124,14 @@ export interface InitiateClientInput {
    * exact string (no lowercasing, no Unicode normalization).
    */
   idempotencyKey: string;
+  /**
+   * OPTIONAL (5B.4A). A tenant-owned, ACTIVE SourceSystem id. Omitted
+   * entirely -> ImportBatch.source_system_id is NULL, exactly as before
+   * this field existed. Supplied -> validated (exists, same tenant,
+   * active) and persisted immutably. Never a display name, never any
+   * other SourceSystem field.
+   */
+  sourceSystemId?: string;
 }
 
 export interface ImportBatchIdentity {
@@ -160,6 +200,20 @@ interface Fingerprint {
   contentType: WorkbookFormat;
   sizeBytes: number;
   expectedSha256: string | null;
+  sourceSystemId: string | null;
+}
+
+// 5B.4A — light shape validation only (mirrors normalizeExpectedSha256's
+// own undefined-passthrough shape). No format/charset constraint is
+// imposed beyond "non-blank string" — SourceSystem ids are opaque
+// server-generated cuids; the real authority check is the tenant-scoped
+// lookup below, not this shape check.
+function normalizeSourceSystemId(raw: string | undefined): { ok: true; value: string | null } | { ok: false } {
+  if (raw === undefined) return { ok: true, value: null };
+  if (typeof raw !== "string") return { ok: false };
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) return { ok: false };
+  return { ok: true, value: trimmed };
 }
 
 function toIdentity(row: {
@@ -267,18 +321,29 @@ async function resolveReplay(
   }
 
   // Hard fingerprint comparison — organisationId, original_filename,
-  // content_type, size_bytes (immutable per Step 11), and the normalized
-  // expected_sha256 or its explicit absence. The idempotency key itself is
-  // deliberately NOT part of this comparison: it is the lookup key used to
-  // find the row being compared against in the first place — comparing it
-  // to itself would be a tautology.
+  // content_type, size_bytes (immutable per Step 11), the normalized
+  // expected_sha256 or its explicit absence, and (5B.4A) source_system_id
+  // or its explicit absence. The idempotency key itself is deliberately
+  // NOT part of this comparison: it is the lookup key used to find the
+  // row being compared against in the first place — comparing it to
+  // itself would be a tautology.
+  //
+  // 5B.4A — source_system_id is compared as a PLAIN VALUE EQUALITY
+  // (string|null vs string|null), never re-validated against current
+  // SourceSystem state (existence/tenant/active). A replay of an exact
+  // original request must remain stable even if that SourceSystem has
+  // since been deactivated — re-checking `active` here would break that
+  // invariant for no correctness benefit, since the original row's own
+  // lineage was already validated once, at its own original creation.
   const existingExpectedSha256 = existing.expected_sha256 ?? null;
+  const existingSourceSystemId = existing.source_system_id ?? null;
   const fingerprintMatches =
     existing.organisation_id === organisationId &&
     existing.original_filename === fingerprint.originalFilename &&
     existing.content_type === fingerprint.contentType &&
     existing.size_bytes === fingerprint.sizeBytes &&
-    existingExpectedSha256 === fingerprint.expectedSha256;
+    existingExpectedSha256 === fingerprint.expectedSha256 &&
+    existingSourceSystemId === fingerprint.sourceSystemId;
 
   if (!fingerprintMatches) {
     return { ok: false, code: "IDEMPOTENCY_CONFLICT", message: getMessageTemplate("IDEMPOTENCY_CONFLICT") };
@@ -344,11 +409,41 @@ export async function initiateImportBatch(
   }
   const idempotencyKey = keyResult.value;
 
+  const sourceSystemResult = normalizeSourceSystemId(input.sourceSystemId);
+  if (!sourceSystemResult.ok) {
+    return { ok: false, code: "INVALID_REQUEST", message: getMessageTemplate("INVALID_REQUEST") };
+  }
+  const sourceSystemId = sourceSystemResult.value;
+
+  // 5B.4A — tenant-scoped EXISTENCE-ONLY pre-insert check (never `active`
+  // here — see this module's own header comment for why). Safe to run
+  // unconditionally (fresh or eventual-replay alike): SourceSystem is
+  // deactivate-not-delete, so existence+tenant-ownership never regresses
+  // for an id that was ever genuinely valid. Rejects a garbage/foreign-
+  // tenant id with ONE safe, non-leaking code before any ImportBatch row
+  // is ever created.
+  let sourceSystemActiveAtLookup = false;
+  if (sourceSystemId !== null) {
+    const sourceSystemRow = await prisma.sourceSystem.findUnique({
+      where: { id_organisation_id: { id: sourceSystemId, organisation_id: organisationId } },
+      select: { active: true },
+    });
+    if (!sourceSystemRow) {
+      return {
+        ok: false,
+        code: "SOURCE_SYSTEM_UNAVAILABLE",
+        message: getMessageTemplate("SOURCE_SYSTEM_UNAVAILABLE"),
+      };
+    }
+    sourceSystemActiveAtLookup = sourceSystemRow.active;
+  }
+
   const fingerprint: Fingerprint = {
     originalFilename: input.originalFilename,
     contentType: format,
     sizeBytes: input.declaredSizeBytes,
     expectedSha256,
+    sourceSystemId,
   };
 
   // ---- insert-first (Step 12) ----
@@ -371,15 +466,40 @@ export async function initiateImportBatch(
         status: "AWAITING_UPLOAD",
         idempotency_key: idempotencyKey,
         expected_sha256: expectedSha256,
+        // 5B.4A — the lineage establishment point. Immutable thereafter:
+        // no update route/service exists anywhere for this column (see
+        // this module's own header comment).
+        source_system_id: sourceSystemId,
       },
     });
   } catch (err) {
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
       // idempotencyKey is guaranteed non-null/non-empty here — validated
       // above, before this insert was ever attempted (Step 3 remediation).
+      // This is the REPLAY path — `sourceSystemActiveAtLookup` is
+      // deliberately never consulted here (see resolveReplay's own
+      // comment): replay validity is governed purely by the fingerprint
+      // comparison against the row that already exists.
       return resolveReplay(organisationId, userId, idempotencyKey, fingerprint);
     }
     throw err;
+  }
+
+  // 5B.4A — the insert succeeded with NO P2002: this is unambiguously a
+  // FRESH row, proven by the database itself, not guessed. Only NOW is
+  // `active` enforced (never before the insert, so a legitimate replay of
+  // a since-deactivated source is never blocked by this check — it never
+  // reaches this branch at all, having already returned via resolveReplay
+  // above). A fresh row created against an inactive source must not
+  // exist: delete it (nothing else can reference an id this call alone
+  // generated and has not yet returned to any caller) and reject.
+  if (sourceSystemId !== null && !sourceSystemActiveAtLookup) {
+    await prisma.importBatch.delete({ where: { id: importBatchId } });
+    return {
+      ok: false,
+      code: "SOURCE_SYSTEM_UNAVAILABLE",
+      message: getMessageTemplate("SOURCE_SYSTEM_UNAVAILABLE"),
+    };
   }
 
   return proceedAfterCreateOrReplay(row);

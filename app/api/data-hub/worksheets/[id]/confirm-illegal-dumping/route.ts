@@ -125,6 +125,8 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
       PERSISTENCE_CONFLICT: 500,
       INVALID_CURSOR: 500,
       INVALID_LIMIT: 500,
+      // 5B.4A — initiate-only code, unreachable from confirmDataHubWorksheet.
+      SOURCE_SYSTEM_UNAVAILABLE: 500,
     };
     return NextResponse.json(
       { ok: false, error: result.message },
