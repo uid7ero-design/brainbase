@@ -29,7 +29,13 @@ const themeSource = read('lib/events/publicEventTheme.ts')
 const chromeSource = stripComments(read('components/publicEvents/InstitutionalChrome.tsx'))
 const clientSource = read('app/e/[organisationSlug]/[eventSlug]/PublicEventClient.tsx')
 const hubSource = read('app/e/[organisationSlug]/PublicEventsHubClient.tsx')
-const successSource = read('app/e/[organisationSlug]/[eventSlug]/checkout/success/page.tsx')
+// checkout/success is now a thin server page.tsx plus a
+// CheckoutSuccessClient.tsx child (pre-push correction) — the theme/
+// polling/rendering logic this file's tests target lives in the client
+// child; successPageSource is included in the "no real institution
+// referenced" sweep below for completeness.
+const successPageSource = read('app/e/[organisationSlug]/[eventSlug]/checkout/success/page.tsx')
+const successSource = read('app/e/[organisationSlug]/[eventSlug]/checkout/success/CheckoutSuccessClient.tsx')
 
 // --- Minimal WCAG 2.x contrast-ratio implementation -------------------
 // Standard relative-luminance + contrast-ratio formulas (sRGB), used
@@ -227,12 +233,11 @@ describe('InstitutionalChrome — header/footer stay on the dark "band" tokens, 
     expect(heroFn).not.toMatch(/var\(--bbpe-band-/)
   })
 
-  it('GenericCrestMark renders only on band tokens (it is only ever placed inside the header/footer band)', () => {
-    const crestFn = chromeSource.slice(chromeSource.indexOf('export function GenericCrestMark'), chromeSource.indexOf('export function InstitutionalHeader'))
-    expect(crestFn).toMatch(/var\(--bbpe-band-bg\)/)
-    expect(crestFn).toMatch(/var\(--bbpe-band-accent\)/)
-    expect(crestFn).not.toMatch(/var\(--bbpe-accent\)/) // the light-page accent, not the band one
-  })
+  // GenericCrestMark was removed in Phase 3B: InstitutionalHeader/Footer
+  // now render the real OrganisationLogo (branding-driven, with an
+  // initials fallback) instead of a generic placeholder crest SVG — see
+  // publicEventOrganisationBranding.test.ts for logo/initials-fallback
+  // coverage, which supersedes this test.
 
   it('InstitutionalFooter now sets an explicit band background (previously it had none and silently inherited the page bg)', () => {
     const footerFn = chromeSource.slice(chromeSource.indexOf('export function InstitutionalFooter'))
@@ -241,7 +246,7 @@ describe('InstitutionalChrome — header/footer stay on the dark "band" tokens, 
 })
 
 describe('Copyright/branding safety — still no real institution referenced anywhere', () => {
-  const allTouchedSources = [themeSource, chromeSource, clientSource, hubSource, successSource]
+  const allTouchedSources = [themeSource, chromeSource, clientSource, hubSource, successSource, successPageSource]
 
   it('the word "Cardijn" never appears in any touched file', () => {
     for (const src of allTouchedSources) {

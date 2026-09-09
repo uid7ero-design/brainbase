@@ -20,7 +20,7 @@ export type PublicEvent = {
 };
 
 export type PublicResolveResult =
-  | { ok: true; organisationId: string; event: PublicEvent; branding: PublicOrganisationBranding }
+  | { ok: true; organisationId: string; organisationName: string; event: PublicEvent; branding: PublicOrganisationBranding }
   | { ok: false };
 
 // The single choke point every public Events route (GET, register, and
@@ -72,5 +72,5 @@ export async function resolvePublicEvent(
 
   const branding = normalisePublicOrganisationBranding(organisationSettings, organisationName);
 
-  return { ok: true, organisationId, event, branding };
+  return { ok: true, organisationId, organisationName, event, branding };
 }

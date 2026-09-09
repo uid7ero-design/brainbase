@@ -28,6 +28,7 @@ export default async function PublicEventsHubPage({ params }: { params: Promise<
     <PublicEventsHubClient
       organisationSlug={organisationSlug}
       organisationName={result.organisationName}
+      branding={result.branding}
       events={result.events}
     />
   );

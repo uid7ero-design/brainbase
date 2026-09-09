@@ -1,6 +1,7 @@
 import 'server-only';
 import sql from '@/lib/db';
 import { checkCapability } from '@/lib/capabilities/requireCapability';
+import { normalisePublicOrganisationBranding, type PublicOrganisationBranding } from '@/lib/organisations/branding';
 
 export type PublicHubEvent = {
   id: string;
@@ -19,7 +20,7 @@ export type PublicHubEvent = {
 };
 
 export type PublicEventsHubResult =
-  | { ok: true; organisationName: string; events: PublicHubEvent[] }
+  | { ok: true; organisationName: string; branding: PublicOrganisationBranding; events: PublicHubEvent[] }
   | { ok: false };
 
 // The reusable, organisation-agnostic public events hub (§Step 4) —
@@ -44,10 +45,15 @@ export type PublicEventsHubResult =
 // progress still belongs on this list; one that has fully concluded
 // does not. Ordered by starts_at ascending — soonest first.
 export async function getPublicUpcomingEvents(organisationSlug: string): Promise<PublicEventsHubResult> {
+  // Also selects settings alongside the id/name this query already
+  // needed — same round trip, wider column list only — so branding can
+  // be normalised in-process below without a second query. See
+  // lib/organisations/branding.ts's normalisePublicOrganisationBranding
+  // and lib/events/publicResolve.ts's own identical pattern (Phase 3A).
   const orgRows = await sql`
-    SELECT id, name FROM organisations WHERE slug = ${organisationSlug} LIMIT 1
+    SELECT id, name, settings FROM organisations WHERE slug = ${organisationSlug} LIMIT 1
   `;
-  const org = orgRows[0] as { id: string; name: string } | undefined;
+  const org = orgRows[0] as { id: string; name: string; settings: unknown } | undefined;
   if (!org) return { ok: false };
 
   const capability = await checkCapability(org.id, 'events');
@@ -65,6 +71,7 @@ export async function getPublicUpcomingEvents(organisationSlug: string): Promise
   return {
     ok: true,
     organisationName: org.name,
+    branding: normalisePublicOrganisationBranding(org.settings, org.name),
     events: (eventRows as (Omit<PublicHubEvent, 'starts_at' | 'ends_at' | 'from_price_cents'> & {
       starts_at: Date | string; ends_at: Date | string; from_price_cents: number | string | null;
     })[]).map(row => ({

@@ -261,29 +261,48 @@ describe('getPublicBookingDetail — branding derives from the booking-token-res
   })
 })
 
-describe('Visual invariant — this PR renders nothing new anywhere', () => {
-  const liveSurfaces = [
-    'app/e/[organisationSlug]/[eventSlug]/PublicEventClient.tsx',
-    'app/e/[organisationSlug]/PublicEventsHubClient.tsx',
+describe('Visual invariant — HISTORICAL, Phase 3A\'s own scope only', () => {
+  // At the time this test file was introduced (Phase 3A), this PR was
+  // deliberately additive-only and rendered nothing new anywhere —
+  // OrganisationLogo/BrandContactFooter existed but were unused by any
+  // live page, and publicEventTheme.ts/InstitutionalChrome.tsx were
+  // untouched. Phase 3B (a later, separate, explicitly-scoped PR) is
+  // the phase that intentionally wires OrganisationLogo into
+  // InstitutionalChrome.tsx and PublicEventClient.tsx/
+  // PublicEventsHubClient.tsx, and rewrites publicEventTheme.ts to
+  // remove identity — see tests/containment/publicEventOrganisationBranding
+  // .test.ts and publicEventBranding.test.ts for that phase's own,
+  // current-reality containment coverage. The two tests that used to
+  // live here (asserting the OPPOSITE — "not yet used", "untouched")
+  // are retired now that they'd be asserting something no longer true
+  // by design, not a regression; ticket/wallet/TicketCard remain
+  // completely untouched by Phase 3B (verified below), which is the
+  // part of Phase 3A's original invariant that still holds forever.
+
+  const neverTouchedByEitherPhase = [
     'app/t/[token]/page.tsx',
     'app/b/[bookingToken]/tickets/page.tsx',
     'app/b/[bookingToken]/tickets/BookingWalletNav.tsx',
     'components/events/TicketCard.tsx',
   ]
 
-  it('no live page/component imports OrganisationLogo or BrandContactFooter yet', () => {
-    for (const surface of liveSurfaces) {
+  it('ticket/wallet surfaces still do not import OrganisationLogo or BrandContactFooter — Phase 3B\'s own strict scope excluded them too', () => {
+    for (const surface of neverTouchedByEitherPhase) {
       const src = read(surface)
       expect(src).not.toMatch(/OrganisationLogo/)
       expect(src).not.toMatch(/BrandContactFooter/)
     }
   })
 
-  it('publicEventTheme.ts and InstitutionalChrome.tsx are untouched by this PR (Phase 3B\'s own scope, not this one)', () => {
-    const theme = read('lib/events/publicEventTheme.ts')
-    const chrome = read('components/publicEvents/InstitutionalChrome.tsx')
-    expect(theme).not.toMatch(/normalisePublicOrganisationBranding|normaliseOrganisationBranding/)
-    expect(chrome).not.toMatch(/normalisePublicOrganisationBranding|normaliseOrganisationBranding/)
+  it('BrandContactFooter specifically remains unused by any live page even after Phase 3B — InstitutionalChrome/PublicEventClient/PublicEventsHubClient render identity inline, not via this component', () => {
+    const surfaces = [
+      'app/e/[organisationSlug]/[eventSlug]/PublicEventClient.tsx',
+      'app/e/[organisationSlug]/PublicEventsHubClient.tsx',
+      'components/publicEvents/InstitutionalChrome.tsx',
+    ]
+    for (const surface of surfaces) {
+      expect(read(surface)).not.toMatch(/BrandContactFooter/)
+    }
   })
 })
 

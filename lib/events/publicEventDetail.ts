@@ -56,10 +56,17 @@ export type PublicEventDetail = {
   sessions: PublicSession[];
   ticket_types: PublicTicketType[];
   questions: PublicQuestion[];
-  // Additive — not yet rendered anywhere (see Phase 3A scope). Public-
-  // safe view model only (lib/organisations/branding.ts's own explicit
-  // allowlist) — never organisationId, never raw settings.
+  // Public-safe view model only (lib/organisations/branding.ts's own
+  // explicit allowlist) — never organisationId, never raw settings.
   branding: PublicOrganisationBranding;
+  // The organisation's own plain name (organisations.name) — already
+  // public-safe precedent elsewhere (e.g. the Events hub page's own H1
+  // uses this same column directly). Render-layer fallback source for
+  // branding.name when an organisation hasn't configured a display name
+  // (see lib/organisations/branding.ts's normalisePublicOrganisationBranding
+  // comment on why this substitution is deliberately NOT done inside the
+  // branding module itself).
+  organisationName: string;
 };
 
 export type PublicEventDetailResult =
@@ -107,7 +114,7 @@ export async function getPublicEventDetail(
 ): Promise<PublicEventDetailResult> {
   const resolved = await resolvePublicEvent(organisationSlug, eventSlug);
   if (!resolved.ok) return { ok: false };
-  const { organisationId, event, branding } = resolved;
+  const { organisationId, organisationName, event, branding } = resolved;
 
   // Phase 4: the sold-quantity subtraction now also excludes a pending
   // paid reservation whose expires_at has passed — mirroring exactly
@@ -176,6 +183,7 @@ export async function getPublicEventDetail(
         required: q.required, scope: q.scope, options: q.options, sort_order: q.sort_order,
       })),
       branding,
+      organisationName,
     },
   };
 }
