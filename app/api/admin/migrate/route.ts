@@ -263,29 +263,64 @@ export async function POST() {
   await sql`ALTER TABLE organisations ADD COLUMN IF NOT EXISTS plan           TEXT`;
   await sql`ALTER TABLE organisations ADD COLUMN IF NOT EXISTS trial_ends_at  TIMESTAMPTZ`;
 
-  // 18. Module registry — platform-wide module definitions
+  // 18. Module registry — platform-wide capability registry.
+  //
+  // Phase D.4.6H-R4A — this step previously described a pre-"Modular
+  // Platform Foundation" design (id UUID PK, industry TEXT, status
+  // TEXT) that was superseded by scripts/create-modules.sql (Phase
+  // F.4A/F.4B), whose key-based, industry/status-free shape is now the
+  // sole canonical registry — already relied upon, exclusively, by
+  // every live call site that queries this table (app/api/me/
+  // route.ts, app/api/chat/route.ts, lib/agents/briefingAgent.ts,
+  // lib/capabilities/requireCapability.ts, and others — all join on
+  // modules.key, never modules.id; several carry their own "Phase
+  // C1.3" comments documenting the historical join-on-id bug this
+  // stale CREATE TABLE would have reintroduced on a genuinely fresh
+  // environment). Brought into parity here rather than removed from
+  // this generic bootstrap entirely, so a fresh environment remains
+  // self-contained without requiring a separate manual script
+  // invocation — see prisma/schema.prisma's PlatformModule model for
+  // the same contract expressed a third way, and
+  // scripts/create-organisation-modules.sql for the matching FK target
+  // this enables in step 19 below.
   await sql`
     CREATE TABLE IF NOT EXISTS modules (
-      id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      key         TEXT UNIQUE NOT NULL,
-      name        TEXT NOT NULL,
-      industry    TEXT,
+      key         TEXT        PRIMARY KEY,
+      name        TEXT        NOT NULL,
       description TEXT,
-      status      TEXT DEFAULT 'active',
-      created_at  TIMESTAMPTZ DEFAULT NOW()
+      active      BOOLEAN     NOT NULL DEFAULT true,
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `;
 
-  // 19. Organisation modules — which modules each org has enabled
+  // 19. Organisation modules — which modules each org has enabled.
+  //
+  // Phase D.4.6H-R4A — same repair as step 18 immediately above: this
+  // step previously declared module_id UUID REFERENCES modules(id),
+  // a column that no longer exists on the canonical modules registry.
+  // Brought into parity with scripts/create-organisation-modules.sql
+  // and prisma/schema.prisma's OrganisationModule model — the
+  // module_key-based shape every live capability-gating call site
+  // already requires (organisation_modules.module_key = modules.key).
+  // ON DELETE RESTRICT on both FKs, named constraints, and the
+  // enabled-defaults-false / TEXT-surrogate-id semantics are taken
+  // verbatim from that canonical source, not invented here.
   await sql`
     CREATE TABLE IF NOT EXISTS organisation_modules (
-      id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      organisation_id TEXT NOT NULL REFERENCES organisations(id),
-      module_id       UUID NOT NULL REFERENCES modules(id),
-      enabled         BOOLEAN DEFAULT TRUE,
-      config          JSONB DEFAULT '{}',
-      created_at      TIMESTAMPTZ DEFAULT NOW(),
-      UNIQUE (organisation_id, module_id)
+      id              TEXT        PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      organisation_id TEXT        NOT NULL,
+      module_key      TEXT        NOT NULL,
+      enabled         BOOLEAN     NOT NULL DEFAULT false,
+      config          JSONB       NOT NULL DEFAULT '{}',
+      created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+      CONSTRAINT organisation_modules_organisation_id_fkey
+        FOREIGN KEY (organisation_id) REFERENCES organisations(id) ON DELETE RESTRICT,
+      CONSTRAINT organisation_modules_module_key_fkey
+        FOREIGN KEY (module_key) REFERENCES modules(key) ON DELETE RESTRICT,
+      CONSTRAINT organisation_modules_organisation_id_module_key_key
+        UNIQUE (organisation_id, module_key)
     )
   `;
 
@@ -418,16 +453,24 @@ export async function POST() {
   await sql`CREATE INDEX IF NOT EXISTS idx_wste_exceptions_org  ON wste_exceptions(organisation_id)`;
   await sql`CREATE INDEX IF NOT EXISTS idx_wste_exceptions_run  ON wste_exceptions(run_id)`;
 
+  // Phase D.4.6H-R4A — replaces the stale 7-row industry-vertical seed
+  // (waste_recycling/fleet_management/service_requests/
+  // logistics_freight/utilities/construction/wste), which named a
+  // dropped `industry` column and does not match the canonical
+  // registry's own documented "Scope discipline: exactly two rows"
+  // (scripts/seed-modules-registry.sql). Those legacy vertical keys
+  // are NOT capability-registry entries under the current design —
+  // metric_snapshots.module_key/import_mappings.module_key/
+  // kpi_rules.module_key (a separate, unrelated, non-FK-constrained
+  // scoping concept — see create-modules.sql's own "Namespace note")
+  // are untouched by this change; nothing reads those legacy strings
+  // back out of the modules table itself. Seed content and conflict
+  // behavior taken verbatim from scripts/seed-modules-registry.sql.
   step('seed modules');
   await sql`
-    INSERT INTO modules (key, name, industry, description) VALUES
-      ('waste_recycling',  'Waste & Recycling',   'Local Government',   'Waste, collections, contamination and recycling operations'),
-      ('fleet_management', 'Fleet Management',    'Operations',         'Fleet availability, maintenance, defects and cost tracking'),
-      ('service_requests', 'Service Requests',    'Customer Operations','Service request lifecycle, backlog and SLA performance'),
-      ('logistics_freight','Logistics & Freight', 'Transport',          'Shipment, delivery, route and carrier performance'),
-      ('utilities',        'Utilities',           'Infrastructure',     'Water, energy, faults and asset performance'),
-      ('construction',     'Construction',        'Project Delivery',   'Project status, budgets, contractors and milestones'),
-      ('wste',             'WSTe',                'Local Government',   'Multi-stream waste service verification — GPS, bin lifts, RFID, hard waste, FOGO and exception management')
+    INSERT INTO modules (key, name, description, active) VALUES
+      ('crm', 'CRM', 'Customer relationship management for companies, contacts, deals and activities.', true),
+      ('organiser', 'Organiser', 'Organisation-scoped board and task management.', true)
     ON CONFLICT (key) DO NOTHING
   `;
 
