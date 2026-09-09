@@ -153,8 +153,25 @@ describe('organiserActionConfirmation: trusted, non-model confirmation channel',
     expect(block).toMatch(/organiserActionConfirmationToken/)
   })
 
-  it('no tool input_schema field for a confirmation token exists in THIS file (the model has no way to author one) — helenaTools.ts\'s own schemas are the authoritative source and are covered by organiserHelenaToolsExecution.test.ts', () => {
-    expect(routeSource).not.toMatch(/confirmation_token[\s\S]*type[\s\S]*string/)
+  it('the ONLY input_schema defined directly in this file is query_database\'s own (buildDataTools) — every Organiser tool schema, and the proof none of them declare a confirmation_token field, lives entirely in helenaTools.ts, covered by organiserHelenaToolsExecution.test.ts', () => {
+    const occurrences = (routeSource.match(/input_schema:/g) ?? []).length
+    expect(occurrences).toBe(1)
+    const idx = routeSource.indexOf('input_schema:')
+    const fnIdx = routeSource.indexOf('function buildDataTools')
+    expect(fnIdx).toBeGreaterThan(-1)
+    expect(fnIdx).toBeLessThan(idx)
+  })
+
+  it('the pending-action surfaced to the HTTP caller is populated from executeOrganiserTool\'s OWN tool_result JSON, never re-derived or re-validated from the model\'s tool-call arguments', () => {
+    const idx = routeSource.indexOf("if (block.name === 'propose_organiser_comment') {")
+    expect(idx).toBeGreaterThan(-1)
+    const block = routeSource.slice(idx, idx + 700)
+    expect(block).toMatch(/JSON\.parse\(content\)/)
+    expect(block).not.toMatch(/block\.input/)
+  })
+
+  it('PendingOrganiserAction is returned to the HTTP client, never passed back into the model\'s system prompt or messages', () => {
+    expect(routeSource).toMatch(/pendingOrganiserAction,?\s*\}\);?\s*$/m)
   })
 })
 

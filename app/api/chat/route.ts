@@ -200,6 +200,21 @@ export type QueryAnalysis = {
   timestamp: string;
 };
 
+// Phase D.4.6I — surfaced to the HTTP caller (never to the model — the
+// model only ever sees executeOrganiserTool's own tool_result string) so a
+// future frontend "Confirm" affordance has something to act on. Without
+// this, propose_organiser_comment's confirmation_token would exist only
+// inside the internal Anthropic tool-use loop and could never reach a real
+// confirm step at all. Set only on a fresh 'proposed' result; cleared
+// (null) once/if that same request goes on to execute successfully, so a
+// completed action never leaves a stale, already-used-or-superseded token
+// in the response.
+export type PendingOrganiserAction = {
+  tool: 'propose_organiser_comment';
+  confirmationToken: string;
+  proposal: { item_id: string; item_name: string; body: string };
+} | null;
+
 // ─── Analysis helpers ─────────────────────────────────────────────────────────
 
 function extractTables(rawSql: string): string[] {
@@ -411,7 +426,7 @@ async function callClaude(
   // one-shot consumption logic below for why this is captured into a
   // mutable local, not read fresh on every tool call.
   organiserActionConfirmationToken?: string,
-): Promise<{ text: string; analysis: QueryAnalysis | null }> {
+): Promise<{ text: string; analysis: QueryAnalysis | null; pendingOrganiserAction: PendingOrganiserAction }> {
   const systemContent = buildSystem(
     memoryContext, spotifyContext, brainContext,
     taskContext, calendarContext, dashboardContext, liveDataContext,
@@ -455,6 +470,10 @@ async function callClaude(
   // confirmed action" true even though the model could otherwise call the
   // tool repeatedly within these 4 iterations.
   let remainingConfirmationToken = organiserActionConfirmationToken;
+  // Phase D.4.6I — see PendingOrganiserAction's own header. Set when
+  // propose_organiser_comment returns a fresh proposal; cleared to null if
+  // this same request later executes it successfully (status "posted").
+  let pendingOrganiserAction: PendingOrganiserAction = null;
 
   for (let iter = 0; iter < 4; iter++) {
     const resp = await anthropicClient.messages.create({
@@ -476,7 +495,7 @@ async function callClaude(
         confidence:  totalRows >= 30 ? 'High' : totalRows >= 5 ? 'Medium' : 'Low',
         timestamp:   new Date().toISOString(),
       } : null;
-      return { text, analysis };
+      return { text, analysis, pendingOrganiserAction };
     }
 
     const toolUseBlocks = resp.content.filter(
@@ -512,6 +531,33 @@ async function callClaude(
             itemId: organiserContext?.item?.id,
             confirmationToken: confirmationTokenForThisCall,
           });
+          // Phase D.4.6I — surface propose_organiser_comment's own
+          // tool_result (never re-derived, never re-validated here) to the
+          // HTTP response so a future frontend can act on it. Parsing this
+          // JSON can never throw in a way that leaks anything: content is
+          // always one of executeOrganiserTool's own safe, generic shapes.
+          if (block.name === 'propose_organiser_comment') {
+            try {
+              const parsed = JSON.parse(content) as {
+                status?: string;
+                proposal?: { item_id: string; item_name: string; body: string };
+                confirmation_token?: string;
+              };
+              if (parsed.status === 'proposed' && parsed.proposal && parsed.confirmation_token) {
+                pendingOrganiserAction = {
+                  tool: 'propose_organiser_comment',
+                  confirmationToken: parsed.confirmation_token,
+                  proposal: parsed.proposal,
+                };
+              } else if (parsed.status === 'posted') {
+                pendingOrganiserAction = null;
+              }
+            } catch {
+              // Malformed content is unreachable given executeOrganiserTool's
+              // own contract, but never let a parse failure here affect the
+              // tool_result already returned to the model.
+            }
+          }
         } else {
           try {
             const { sql: rawSql } = block.input as { sql: string; reasoning: string };
@@ -552,7 +598,7 @@ async function callClaude(
     confidence:  totalRows >= 30 ? 'High' : totalRows >= 5 ? 'Medium' : 'Low',
     timestamp:   new Date().toISOString(),
   } : null;
-  return { text, analysis };
+  return { text, analysis, pendingOrganiserAction };
 }
 
 // ─── Brain context ────────────────────────────────────────────────────────────
@@ -901,6 +947,7 @@ export async function POST(req: NextRequest) {
   let raw = '';
   let source = 'claude';
   let analysis: QueryAnalysis | null = null;
+  let pendingOrganiserAction: PendingOrganiserAction = null;
 
   try {
     const result = await callClaude(
@@ -912,6 +959,7 @@ export async function POST(req: NextRequest) {
     );
     raw      = result.text;
     analysis = result.analysis;
+    pendingOrganiserAction = result.pendingOrganiserAction;
   } catch (err) {
     console.warn('[Helena] Claude unavailable, falling back to Ollama:', (err as Error).message);
     source = 'ollama';
@@ -931,5 +979,5 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  return Response.json({ ...parseResponse(raw), source, analysis });
+  return Response.json({ ...parseResponse(raw), source, analysis, pendingOrganiserAction });
 }
