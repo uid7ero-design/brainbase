@@ -6,7 +6,7 @@ import { StatusBadge, OverdueBadge } from '../_status';
 import { formatMoneyCents } from '@/lib/commercial/money';
 import { formatCommercialDate } from '@/lib/commercial/dates';
 import { buildInvoicePdf, type InvoicePdfSupplier } from '@/lib/commercial/invoicePdf';
-import { PAYMENT_METHODS, type PaymentMethod } from '@/lib/commercial/payments';
+import { PAYMENT_METHODS, type PaymentMethod } from '@/lib/commercial/paymentMethods';
 import SlidePanel from '../../_components/SlidePanel';
 
 const CARD = '#0e1014'; const BORDER = '#1a1d24';
