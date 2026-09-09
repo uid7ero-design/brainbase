@@ -31,8 +31,10 @@ import {
   getImportBatch as callGetImportBatch,
   initiateImportBatch as callInitiate,
   inspectCsvWorksheet as callInspect,
+  listImportBatches as callListImportBatches,
   listWorksheetsForBatch as callListWorksheets,
   type HttpClientConfig,
+  type ListImportBatchesParams,
 } from "./httpClient";
 import { uploadFileDirectToBlob, resolveUploadPathname, type DirectUploadResult } from "./blobUpload";
 import { generateIdempotencyKey } from "./fileHash";
@@ -42,6 +44,7 @@ import type {
   ImportBatchDetailDTOClient,
   ImportBatchStatus,
   InitiatedBatchDTO,
+  ListImportBatchesResult,
   PersistedFailureCodeClient,
   WorksheetPreviewDTOClient,
   WorksheetSummaryDTOClient,
@@ -1016,6 +1019,25 @@ export function createIllegalDumpingImportSession(
   config: DataHubOrchestratorConfig = {}
 ): DataHubIllegalDumpingImportSession {
   return new DataHubIllegalDumpingImportSession(config);
+}
+
+// ---------------------------------------------------------------------------
+// Data Hub 5A.3D.2 — history-list read. Deliberately a plain function, not a
+// DataHubIllegalDumpingImportSession method: listing history is not part of
+// any single import's own state machine (no phase, no lifecycle, nothing to
+// dispose). Exists here — rather than a UI file importing httpClient.ts's
+// listImportBatches directly — solely to preserve this package's existing,
+// tested architectural boundary (tests/containment/dataHubImportContainment.test.ts:
+// "no file [under app/data-hub/import/**] imports httpClient.ts directly;
+// only orchestrator.ts's own public surface is used"). Thin passthrough:
+// zero behavior beyond callListImportBatches itself.
+// ---------------------------------------------------------------------------
+
+export function listImportBatches(
+  params: ListImportBatchesParams = {},
+  config?: HttpClientConfig
+): Promise<ListImportBatchesResult> {
+  return callListImportBatches(params, config);
 }
 
 export { resolveUploadPathname };

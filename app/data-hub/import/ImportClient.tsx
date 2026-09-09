@@ -9,6 +9,7 @@ import ProcessingStatus from "./_components/ProcessingStatus";
 import ReviewPanel from "./_components/ReviewPanel";
 import ImportSuccess from "./_components/ImportSuccess";
 import ImportError from "./_components/ImportError";
+import ImportHistoryPanel from "./_components/ImportHistoryPanel";
 
 // Data Hub 5A.3C.1 — client shell. Owns the hook, switches between the 6
 // rendered screen groups (Select / Uploading / Processing / Review /
@@ -66,7 +67,19 @@ function ImportFlow({ onRestart }: { onRestart: () => void }) {
   return (
     <div style={{ maxWidth: 720, margin: "0 auto", padding: "32px 24px" }}>
       <div ref={headingRef} tabIndex={-1} style={{ outline: "none" }} aria-live="polite">
-        {screenGroup === "select" && <FileSelector session={session} />}
+        {screenGroup === "select" && (
+          <>
+            <FileSelector session={session} />
+            {/* Data Hub 5A.3D.2 — "recent imports" only on the SELECT
+                screen (spec Section 7): visible only when no import is
+                currently in progress, and re-mounted fresh (via ImportFlow's
+                own resetKey remount) every time the user returns here,
+                including right after a successful confirm — this is the
+                chosen "refresh history after new import" mechanism (spec
+                Section 23): no separate cache/refresh signal needed. */}
+            <ImportHistoryPanel />
+          </>
+        )}
 
         {screenGroup === "uploading" && (
           <UploadProgress
@@ -110,6 +123,7 @@ function ImportFlow({ onRestart }: { onRestart: () => void }) {
           <ReviewPanel
             state={state as Extract<typeof state, { phase: "confirmationReady" | "previewing" | "previewFailed" | "previewReady" }>}
             session={session}
+            onRestart={onRestart}
           />
         )}
 

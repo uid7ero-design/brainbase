@@ -107,7 +107,8 @@ export function isErrorOverlayPhase(phase: DataHubImportState["phase"]): boolean
     phase === "obtainWorksheetFailed" ||
     phase === "previewFailed" ||
     phase === "confirmFailed" ||
-    phase === "unknownError"
+    phase === "unknownError" ||
+    phase === "worksheetTerminal"
   );
 }
 
@@ -179,6 +180,16 @@ export function deriveErrorOverlayCopy(state: DataHubImportState): ErrorOverlayC
         retryLabel: "Start a new import",
         retryAction: "restart",
       };
+    case "worksheetTerminal":
+      return {
+        title: state.reason === "SKIPPED" ? "This sheet was skipped" : "This sheet can't be imported",
+        message:
+          state.reason === "SKIPPED"
+            ? "This worksheet was skipped during import and cannot be confirmed."
+            : "This worksheet was found ineligible for import and cannot be confirmed.",
+        retryLabel: "Start a new import",
+        retryAction: "restart",
+      };
     default:
       return null;
   }
@@ -192,3 +203,14 @@ const UNRECOVERABLE_STORAGE_CODES = new Set(["STORAGE_INTEGRITY_MISMATCH", "STOR
 export function isUnrecoverableStorageFailure(code: string | undefined | null): boolean {
   return !!code && UNRECOVERABLE_STORAGE_CODES.has(code);
 }
+
+// ---------------------------------------------------------------------------
+// Data Hub 5A.3D.2 — additive recovery-phase copy. `worksheetTerminal`
+// (5A.3D.1) is the one remaining error/uncertainty-shaped phase this module
+// did not yet classify — `batchTerminal`, reused unmodified for every other
+// 5A.3D.1 terminal-recovery case, already had a home here. Extending
+// isErrorOverlayPhase/deriveErrorOverlayCopy (rather than introducing a
+// parallel recovery-only copy module) lets the recovery route reuse the
+// exact same ImportError renderer and retry-dispatch convention the
+// ordinary flow already uses — no second error-presentation system.
+// ---------------------------------------------------------------------------
