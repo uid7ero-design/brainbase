@@ -12,6 +12,20 @@ const createMock = vi.fn();
 const importBatchFindUniqueMock = vi.fn();
 const deleteMock = vi.fn();
 const sourceSystemFindUniqueMock = vi.fn();
+// 5B.4A remediation — the sourceSystemId-supplied path now runs
+// create()+active-check inside prisma.$transaction(async (tx) => ...). The
+// mocked `tx` reuses the SAME createMock/sourceSystemFindUniqueMock
+// instances as the top-level client (both interfaces are shape-compatible
+// for the two calls this module ever makes on `tx`) — this lets every
+// existing assertion against createMock/sourceSystemFindUniqueMock keep
+// working unmodified, while genuinely exercising the real
+// prisma.$transaction call the implementation makes.
+const transactionMock = vi.fn(async (callback: (tx: unknown) => unknown) =>
+  callback({
+    importBatch: { create: (...args: unknown[]) => createMock(...args) },
+    sourceSystem: { findUnique: (...args: unknown[]) => sourceSystemFindUniqueMock(...args) },
+  })
+);
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
@@ -23,6 +37,7 @@ vi.mock("@/lib/prisma", () => ({
     sourceSystem: {
       findUnique: (...args: unknown[]) => sourceSystemFindUniqueMock(...args),
     },
+    $transaction: (...args: unknown[]) => transactionMock(...(args as [(tx: unknown) => unknown])),
   },
 }));
 
@@ -62,6 +77,13 @@ async function freshImport() {
   deleteMock.mockReset();
   sourceSystemFindUniqueMock.mockReset();
   generateClientTokenMock.mockReset();
+  transactionMock.mockClear();
+  transactionMock.mockImplementation(async (callback: (tx: unknown) => unknown) =>
+    callback({
+      importBatch: { create: (...args: unknown[]) => createMock(...args) },
+      sourceSystem: { findUnique: (...args: unknown[]) => sourceSystemFindUniqueMock(...args) },
+    })
+  );
   return import("@/lib/data-hub/importBatch/initiate");
 }
 
@@ -151,11 +173,10 @@ describe("initiate — sourceSystemId supplied, not found for this tenant", () =
 // ─── T5 — inactive SourceSystem rejected for a genuinely fresh batch ──
 
 describe("initiate — sourceSystemId supplied, found but inactive (fresh-creation path)", () => {
-  it("T5 — inactive SourceSystem: row is created then deleted; caller sees rejection, no leaked row", async () => {
+  it("T5 — inactive SourceSystem: the create+active-gate TRANSACTION rolls back (throws inside prisma.$transaction); caller sees rejection; NO compensating delete exists or is called (remediation)", async () => {
     const { initiateImportBatch } = await freshImport();
     sourceSystemFindUniqueMock.mockResolvedValue({ active: false });
     createMock.mockResolvedValue(makeRow({ source_system_id: "ss-inactive" }));
-    deleteMock.mockResolvedValue(makeRow({ source_system_id: "ss-inactive" }));
 
     const result = await initiateImportBatch(
       { organisationId: "org-1", userId: "user-1" },
@@ -163,11 +184,11 @@ describe("initiate — sourceSystemId supplied, found but inactive (fresh-creati
     );
 
     expect(result).toMatchObject({ ok: false, code: "SOURCE_SYSTEM_UNAVAILABLE" });
+    expect(transactionMock).toHaveBeenCalledTimes(1);
     expect(createMock).toHaveBeenCalledTimes(1);
-    expect(deleteMock).toHaveBeenCalledTimes(1);
-    expect((deleteMock.mock.calls[0][0] as { where: { id: string } }).where.id).toBe(
-      (createMock.mock.calls[0][0] as { data: { id: string } }).data.id
-    );
+    // I9 (remediation) — no compensating delete exists in the remediated
+    // design at all: the transaction itself rolls back the insert.
+    expect(deleteMock).not.toHaveBeenCalled();
     expect(generateClientTokenMock).not.toHaveBeenCalled();
   });
 });
@@ -303,6 +324,34 @@ describe("initiate — sourceSystemId idempotency fingerprint", () => {
       "ss-1"
     );
     expect(result).toMatchObject({ ok: false, code: "IDEMPOTENCY_CONFLICT" });
+  });
+});
+
+// ─── T6 (discovery)/M31 — the authoritative check is FRESH, never stale ─
+
+describe("initiate — concurrent deactivation between pre-check and authoritative check", () => {
+  it("T6 — the fast pre-check does not capture/reuse `active`; the AUTHORITATIVE in-transaction re-read wins even when it differs from what an earlier read would have seen", async () => {
+    const { initiateImportBatch } = await freshImport();
+    // First call = the fast existence-only pre-check (select: {id:true} —
+    // its own `active` value, if any were returned, must never be used).
+    // Second call = the authoritative in-transaction check, which sees the
+    // source as having become inactive in between (modeling a concurrent
+    // deactivation racing a NEW creation attempt).
+    sourceSystemFindUniqueMock.mockResolvedValueOnce({ id: "ss-1", active: true });
+    sourceSystemFindUniqueMock.mockResolvedValueOnce({ active: false });
+    createMock.mockResolvedValue(makeRow({ source_system_id: "ss-1" }));
+
+    const result = await initiateImportBatch(
+      { organisationId: "org-1", userId: "user-1" },
+      { originalFilename: "data.csv", declaredSizeBytes: 100, idempotencyKey: "key-1", sourceSystemId: "ss-1" }
+    );
+
+    // Only ONE of the two allowed outcomes per the 5B.4 discovery's own
+    // T6: either creation wins while active (not what this scenario
+    // models) OR deactivation wins and creation is rejected. NEVER a
+    // successfully-created batch against an already-inactive source.
+    expect(result).toMatchObject({ ok: false, code: "SOURCE_SYSTEM_UNAVAILABLE" });
+    expect(sourceSystemFindUniqueMock).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -451,7 +500,7 @@ describe("initiate — source_system_id immutability containment", () => {
 // ─── M8 — no SELECT-before-INSERT reintroduced on the idempotency path ─
 
 describe("initiate — insert-first preserved with sourceSystemId supplied", () => {
-  it("importBatch.create() is attempted with NO preceding importBatch.findUnique call, even when sourceSystemId is supplied", async () => {
+  it("importBatch.create() is attempted with NO preceding importBatch.findUnique call, even when sourceSystemId is supplied; the AUTHORITATIVE active check happens INSIDE the transaction, after create()", async () => {
     const { initiateImportBatch } = await freshImport();
     const callOrder: string[] = [];
     sourceSystemFindUniqueMock.mockImplementation(async () => {
@@ -470,8 +519,14 @@ describe("initiate — insert-first preserved with sourceSystemId supplied", () 
       { organisationId: "org-1", userId: "user-1" },
       { originalFilename: "data.csv", declaredSizeBytes: 100, idempotencyKey: "order-check", sourceSystemId: "ss-1" }
     );
-    expect(callOrder).toEqual(["sourceSystem.findUnique", "importBatch.create"]);
+    // Order: (1) the fast existence-only pre-check, (2) $transaction opens,
+    // create() is attempted FIRST inside it (insert-first preserved even
+    // inside the transaction — never a SELECT-before-INSERT for
+    // idempotency purposes), (3) THEN the authoritative in-transaction
+    // active re-check.
+    expect(callOrder).toEqual(["sourceSystem.findUnique", "importBatch.create", "sourceSystem.findUnique"]);
     expect(importBatchFindUniqueMock).not.toHaveBeenCalled();
+    expect(transactionMock).toHaveBeenCalledTimes(1);
   });
 });
 

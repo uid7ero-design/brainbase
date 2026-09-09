@@ -66,30 +66,71 @@ import {
 // immutable thereafter (no update route/service exists anywhere for this
 // column; see O below and the containment tests for the static proof).
 //
-// ORDERING (deliberately NOT select-before-insert): a plain existence
-// lookup (id + organisation_id only, ignoring `active`) runs BEFORE the
-// insert attempt when sourceSystemId is supplied. This is safe and does
-// NOT reintroduce the TOCTOU race the insert-first design exists to
-// avoid, because it queries a DIFFERENT table for a DIFFERENT purpose
-// (rejecting a garbage/foreign-tenant id with a clean error, instead of
-// letting a raw FK-violation reach the caller) — it has no bearing on
-// duplicate-idempotency-key detection, which remains governed entirely by
-// the existing insert-then-catch-P2002 mechanism, unchanged.
+// CONCURRENCY-SAFE CREATION (remediation, post-review): an EARLIER version
+// of this design created the row first, checked `active` afterward, and
+// issued a COMPENSATING DELETE if inactive. That has a real race: a
+// concurrent identical (same idempotency key) request can hit P2002 and
+// enter resolveReplay() WHILE the row still durably exists but before the
+// compensating delete runs — resolveReplay() correctly never re-checks
+// `active` (see below), so it would return that transient, about-to-be-
+// deleted row as a successful `ok: true` result. Proven with a real
+// interleaved adversarial test before this fix
+// (tests/containment/dataHubInitiateSourceSystemRace.test.ts) and with a
+// real disposable-Postgres cross-connection proof
+// (scripts/tests/verify-5b4a-source-atomicity.sh).
 //
-// The `active` flag is deliberately NOT part of that pre-insert check.
-// SourceSystem is deactivate-not-delete (5B.2): once a given id has ever
-// been found to exist for this tenant, it can never later "not exist" —
-// only `active` can flip. Reusing the SAME row this pre-insert lookup
-// already fetched, the `active` value is consulted ONLY after the insert
-// has unambiguously succeeded (proven by the ABSENCE of a P2002 catch,
-// not by our own guess) — i.e. only on the genuinely-fresh-row path. If
-// that freshly-created row's source was inactive, the row is deleted
-// (compensating action; nothing else can reference an id this call alone
-// generated and has not yet returned to any caller) and a safe rejection
-// is returned. The P2002/replay path NEVER consults `active` at all — an
-// exact replay of an original request remains stable even if its
-// SourceSystem has since been deactivated, exactly per the 5B.4
-// discovery's own decision (see resolveReplay below).
+// THE FIX: the create() AND the authoritative `active` check now share the
+// SAME database transaction (`prisma.$transaction`). The row is inserted
+// first (still insert-first — P2002 still governs idempotency exactly as
+// before, see ORDERING below), then — still inside that same, still-open,
+// still-UNCOMMITTED transaction — `active` is read fresh. If inactive, this
+// function THROWS inside the transaction callback: Prisma responds to any
+// thrown error from an interactive-transaction callback by issuing a real
+// SQL ROLLBACK, undoing the insert completely. Because the row was NEVER
+// COMMITTED, standard Postgres MVCC guarantees it was NEVER visible to any
+// OTHER database connection/transaction at any point — there is no
+// compensating delete (nothing to compensate for: the insert never became
+// durable) and therefore no window for ANY concurrent caller, replay or
+// otherwise, to observe it. If active, the transaction commits normally and
+// the row becomes visible to everyone at that single atomic instant.
+//
+// ORDERING (deliberately NOT select-before-insert): a plain existence-ONLY
+// pre-check (id + organisation_id, ignoring `active`) still runs BEFORE the
+// transaction, purely as a fast-fail optimization for a garbage/foreign-
+// tenant id (avoids wasting a transaction+insert attempt on obviously bad
+// input) — it does NOT participate in idempotency-key-collision detection
+// at all, which remains governed entirely by the existing insert-then-
+// catch-P2002 mechanism inside the transaction, unchanged. This pre-check
+// deliberately never reads `active` — the AUTHORITATIVE active check is the
+// one re-read fresh inside the transaction, immediately before the commit
+// decision, never this earlier one.
+//
+// Because the key-collision (P2002) case and the active-gate case are
+// mutually exclusive within one transaction attempt (a row that fails to
+// insert at all due to P2002 never reaches the active check; a row that
+// inserts cleanly has, by definition, no key collision), the existing
+// resolveReplay()-based fingerprint comparison for a genuine key collision
+// is completely unaffected by this change — including when the request
+// that lost the key race also happens to name an inactive SourceSystem:
+// P2002 fires first, exactly as before, and resolveReplay's fingerprint
+// comparison (which correctly never re-checks `active` — see below) is
+// what decides replay-success vs. IDEMPOTENCY_CONFLICT, exactly as it
+// always has. Proven empirically (real disposable Postgres) that a
+// duplicate-key attempt against an INACTIVE source still raises the
+// unique-constraint violation rather than being silently swallowed by the
+// active gate.
+//
+// The P2002/replay path NEVER consults `active` at all — an exact replay
+// of an original request remains stable even if its SourceSystem has
+// since been deactivated, exactly per the 5B.4 discovery's own decision
+// (see resolveReplay below).
+
+// 5B.4A remediation — private sentinel thrown INSIDE the create+active-gate
+// transaction to trigger an atomic rollback (see the CONCURRENCY-SAFE
+// CREATION header comment above). Never thrown outside that transaction,
+// never exported, never compared by `.code` (it carries no Prisma error
+// code) — distinguished from a real P2002 purely by `instanceof`.
+class SourceSystemUnavailableForCreationError extends Error {}
 
 export interface InitiateTrustedContext {
   /** Trusted, already-authenticated caller context — never re-derived here. */
@@ -415,18 +456,18 @@ export async function initiateImportBatch(
   }
   const sourceSystemId = sourceSystemResult.value;
 
-  // 5B.4A — tenant-scoped EXISTENCE-ONLY pre-insert check (never `active`
-  // here — see this module's own header comment for why). Safe to run
-  // unconditionally (fresh or eventual-replay alike): SourceSystem is
-  // deactivate-not-delete, so existence+tenant-ownership never regresses
-  // for an id that was ever genuinely valid. Rejects a garbage/foreign-
-  // tenant id with ONE safe, non-leaking code before any ImportBatch row
-  // is ever created.
-  let sourceSystemActiveAtLookup = false;
+  // 5B.4A — tenant-scoped EXISTENCE-ONLY pre-check (never `active` here —
+  // see this module's own header comment for why). Fast-fail optimization
+  // only, safe to run unconditionally: SourceSystem is deactivate-not-
+  // delete, so existence+tenant-ownership never regresses for an id that
+  // was ever genuinely valid. Rejects a garbage/foreign-tenant id with ONE
+  // safe, non-leaking code before wasting a transaction+insert attempt.
+  // The AUTHORITATIVE active check happens later, atomically, inside the
+  // same transaction as the insert — never here.
   if (sourceSystemId !== null) {
     const sourceSystemRow = await prisma.sourceSystem.findUnique({
       where: { id_organisation_id: { id: sourceSystemId, organisation_id: organisationId } },
-      select: { active: true },
+      select: { id: true },
     });
     if (!sourceSystemRow) {
       return {
@@ -435,7 +476,6 @@ export async function initiateImportBatch(
         message: getMessageTemplate("SOURCE_SYSTEM_UNAVAILABLE"),
       };
     }
-    sourceSystemActiveAtLookup = sourceSystemRow.active;
   }
 
   const fingerprint: Fingerprint = {
@@ -447,59 +487,89 @@ export async function initiateImportBatch(
   };
 
   // ---- insert-first (Step 12) ----
+  //
+  // sourceSystemId === null: EXACT pre-5B.4A code path — a bare
+  // prisma.importBatch.create() call, no transaction wrapper, byte-for-
+  // byte unchanged (I2). sourceSystemId !== null: the transactionally
+  // gated path (this module's own CONCURRENCY-SAFE CREATION header
+  // comment) — kept as a SEPARATE branch specifically so the omitted-
+  // sourceSystemId path (still the overwhelming majority of calls until a
+  // later UI/policy slice) incurs zero transaction overhead and, more
+  // importantly, so its own behavior/mocking surface is provably
+  // untouched by this remediation.
 
   const importBatchId = randomUUID();
   const storageKey = buildImportBatchKey(organisationId, importBatchId);
+  const createData = {
+    id: importBatchId,
+    organisation_id: organisationId,
+    uploaded_by: userId,
+    original_filename: input.originalFilename,
+    content_type: format,
+    size_bytes: input.declaredSizeBytes, // NEVER written again — see Step 11.
+    storage_provider: VERCEL_BLOB_PRIVATE_PROVIDER,
+    storage_key: storageKey,
+    status: "AWAITING_UPLOAD" as const,
+    idempotency_key: idempotencyKey,
+    expected_sha256: expectedSha256,
+    // 5B.4A — the lineage establishment point. Immutable thereafter: no
+    // update route/service exists anywhere for this column (see this
+    // module's own header comment).
+    source_system_id: sourceSystemId,
+  };
 
   let row;
   try {
-    row = await prisma.importBatch.create({
-      data: {
-        id: importBatchId,
-        organisation_id: organisationId,
-        uploaded_by: userId,
-        original_filename: input.originalFilename,
-        content_type: format,
-        size_bytes: input.declaredSizeBytes, // NEVER written again — see Step 11.
-        storage_provider: VERCEL_BLOB_PRIVATE_PROVIDER,
-        storage_key: storageKey,
-        status: "AWAITING_UPLOAD",
-        idempotency_key: idempotencyKey,
-        expected_sha256: expectedSha256,
-        // 5B.4A — the lineage establishment point. Immutable thereafter:
-        // no update route/service exists anywhere for this column (see
-        // this module's own header comment).
-        source_system_id: sourceSystemId,
-      },
-    });
+    if (sourceSystemId === null) {
+      row = await prisma.importBatch.create({ data: createData });
+    } else {
+      row = await prisma.$transaction(async (tx) => {
+        const created = await tx.importBatch.create({ data: createData });
+        // A P2002 here (idempotency-key collision) propagates OUT of this
+        // transaction — Postgres aborts the transaction on the statement
+        // error, Prisma's $transaction rolls back and rethrows — and is
+        // caught OUTSIDE, below, exactly as before this remediation.
+        // resolveReplay() remains a completely separate, untouched code
+        // path, reached only via that catch.
+
+        // AUTHORITATIVE active check — read FRESH, INSIDE this same
+        // still-open, still-uncommitted transaction, immediately before
+        // the commit decision. If inactive (or, in the vanishingly
+        // unlikely case, deleted since the pre-check above — SourceSystem
+        // has no delete route, but defend anyway), throw: Prisma responds
+        // to a thrown error from an interactive-transaction callback with
+        // a real ROLLBACK, undoing the insert above completely. The row
+        // was never committed, hence never visible to any other
+        // connection/transaction at any point.
+        const sourceSystemRow = await tx.sourceSystem.findUnique({
+          where: { id_organisation_id: { id: sourceSystemId, organisation_id: organisationId } },
+          select: { active: true },
+        });
+        if (!sourceSystemRow || !sourceSystemRow.active) {
+          throw new SourceSystemUnavailableForCreationError();
+        }
+
+        return created;
+      });
+    }
   } catch (err) {
+    if (err instanceof SourceSystemUnavailableForCreationError) {
+      return {
+        ok: false,
+        code: "SOURCE_SYSTEM_UNAVAILABLE",
+        message: getMessageTemplate("SOURCE_SYSTEM_UNAVAILABLE"),
+      };
+    }
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
       // idempotencyKey is guaranteed non-null/non-empty here — validated
       // above, before this insert was ever attempted (Step 3 remediation).
-      // This is the REPLAY path — `sourceSystemActiveAtLookup` is
-      // deliberately never consulted here (see resolveReplay's own
-      // comment): replay validity is governed purely by the fingerprint
-      // comparison against the row that already exists.
+      // This is the REPLAY path — the active gate above is deliberately
+      // never consulted here (see resolveReplay's own comment): replay
+      // validity is governed purely by the fingerprint comparison against
+      // the row that already exists.
       return resolveReplay(organisationId, userId, idempotencyKey, fingerprint);
     }
     throw err;
-  }
-
-  // 5B.4A — the insert succeeded with NO P2002: this is unambiguously a
-  // FRESH row, proven by the database itself, not guessed. Only NOW is
-  // `active` enforced (never before the insert, so a legitimate replay of
-  // a since-deactivated source is never blocked by this check — it never
-  // reaches this branch at all, having already returned via resolveReplay
-  // above). A fresh row created against an inactive source must not
-  // exist: delete it (nothing else can reference an id this call alone
-  // generated and has not yet returned to any caller) and reject.
-  if (sourceSystemId !== null && !sourceSystemActiveAtLookup) {
-    await prisma.importBatch.delete({ where: { id: importBatchId } });
-    return {
-      ok: false,
-      code: "SOURCE_SYSTEM_UNAVAILABLE",
-      message: getMessageTemplate("SOURCE_SYSTEM_UNAVAILABLE"),
-    };
   }
 
   return proceedAfterCreateOrReplay(row);
