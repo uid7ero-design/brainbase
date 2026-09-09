@@ -349,10 +349,15 @@ describe("M21: no direct @vercel/blob/client import in the history/recovery UI",
 });
 
 // ---------------------------------------------------------------------------
-// T32/M20: no new backend route.
+// T32/M20: no new backend route — FOR 5A.3D.2's OWN SCOPE (this UI slice).
+// 5B.2 (a later, separately-authorized slice) legitimately added new
+// administrative SourceSystem/SourceMapping/MappingVersion routes — a
+// disclosed, narrow extension of this baseline, not a weakening: this
+// still fails if any FUTURE 5A.3D-scope change adds an import/worksheet
+// route without updating this list.
 // ---------------------------------------------------------------------------
 describe("T32/M20: no new backend route", () => {
-  it("app/api/data-hub/** contains exactly the same 7 pre-existing route files (5A.3D.0/5A.3D.1 baseline) — no new route.ts added", () => {
+  it("app/api/data-hub/** contains exactly the 7 pre-existing (5A.3D.0/5A.3D.1) + 7 new 5B.2 route files — nothing else", () => {
     const apiDir = path.join(ROOT, "app", "api", "data-hub");
     const routeFiles = walk(apiDir, [".ts"])
       .filter((f) => f.endsWith("route.ts"))
@@ -368,6 +373,14 @@ describe("T32/M20: no new backend route", () => {
         "app/api/data-hub/worksheets/[id]/confirm-illegal-dumping/route.ts",
         "app/api/data-hub/worksheets/[id]/preview/route.ts",
         "app/api/data-hub/worksheets/[id]/route.ts",
+        // 5B.2 additions:
+        "app/api/data-hub/source-systems/route.ts",
+        "app/api/data-hub/source-systems/[id]/route.ts",
+        "app/api/data-hub/source-mappings/route.ts",
+        "app/api/data-hub/source-mappings/[id]/route.ts",
+        "app/api/data-hub/source-mappings/[id]/versions/route.ts",
+        "app/api/data-hub/source-mappings/[id]/activate-version/route.ts",
+        "app/api/data-hub/mapping-versions/[id]/route.ts",
       ].sort()
     );
   });
