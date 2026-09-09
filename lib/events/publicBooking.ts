@@ -1,6 +1,7 @@
 import 'server-only';
 import sql from '@/lib/db';
 import { evaluateTicketValidity, toPublicTicketStatus, type PublicTicketStatus } from './ticketValidity';
+import { normalisePublicOrganisationBranding, type PublicOrganisationBranding } from '@/lib/organisations/branding';
 
 export type PublicBookingTicket = {
   attendee_name: string;
@@ -22,6 +23,11 @@ export type PublicBookingDetail = {
     timezone: string;
   };
   tickets: PublicBookingTicket[];
+  // Additive — not yet rendered anywhere (see Phase 3A scope). Public-
+  // safe view model only, resolved from the SAME organisation join this
+  // query already needs (eo.organisation_id) — no organisationId, no
+  // raw settings, ever returned.
+  branding: PublicOrganisationBranding;
 };
 
 export type PublicBookingResult =
@@ -60,9 +66,11 @@ export async function getPublicBookingDetail(bookingToken: string): Promise<Publ
 
   const orderRows = await sql`
     SELECT eo.id, eo.organisation_id, eo.purchaser_name, eo.status AS order_status, eo.payment_status,
-      e.status AS event_status, e.name AS event_name, e.venue, e.artwork_url, e.starts_at, e.ends_at, e.timezone
+      e.status AS event_status, e.name AS event_name, e.venue, e.artwork_url, e.starts_at, e.ends_at, e.timezone,
+      o.name AS organisation_name, o.settings AS organisation_settings
     FROM event_orders eo
     JOIN events e ON e.id = eo.event_id AND e.organisation_id = eo.organisation_id
+    JOIN organisations o ON o.id = eo.organisation_id
     WHERE eo.booking_token = ${bookingToken}
     LIMIT 1
   `;
@@ -70,6 +78,7 @@ export async function getPublicBookingDetail(bookingToken: string): Promise<Publ
     id: string; organisation_id: string; purchaser_name: string; order_status: string; payment_status: string;
     event_status: string; event_name: string; venue: string | null; artwork_url: string | null;
     starts_at: Date | string; ends_at: Date | string; timezone: string;
+    organisation_name: string; organisation_settings: unknown;
   } | undefined;
   if (!order) return { ok: false };
 
@@ -107,7 +116,11 @@ type AttendeeQueryRow = {
 };
 
 function buildResult(
-  order: { id: string; purchaser_name: string; event_name: string; venue: string | null; artwork_url: string | null; starts_at: Date | string; ends_at: Date | string; timezone: string },
+  order: {
+    id: string; purchaser_name: string; event_name: string; venue: string | null; artwork_url: string | null;
+    starts_at: Date | string; ends_at: Date | string; timezone: string;
+    organisation_name: string; organisation_settings: unknown;
+  },
   attendeeRows: AttendeeQueryRow[],
   status: PublicTicketStatus,
 ): PublicBookingResult {
@@ -137,6 +150,7 @@ function buildResult(
         timezone: order.timezone,
       },
       tickets,
+      branding: normalisePublicOrganisationBranding(order.organisation_settings, order.organisation_name),
     },
   };
 }

@@ -460,7 +460,7 @@ describe('Public ticket detail (defense in depth) — allow-listed shape survive
     const json = JSON.stringify(result.detail)
     expect(json).not.toMatch(/dietary|accessib|special request|Vegan|Aisle seat/i)
     expect(Object.keys(result.detail).sort()).toEqual(
-      ['attendee_name', 'checked_in_at', 'event', 'session', 'status', 'ticket_type_name'],
+      ['attendee_name', 'branding', 'checked_in_at', 'event', 'session', 'status', 'ticket_type_name'],
     )
   })
 })

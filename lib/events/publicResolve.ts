@@ -1,6 +1,7 @@
 import 'server-only';
 import sql from '@/lib/db';
 import { checkCapability } from '@/lib/capabilities/requireCapability';
+import { normalisePublicOrganisationBranding, type PublicOrganisationBranding } from '@/lib/organisations/branding';
 
 export type PublicEvent = {
   id: string;
@@ -19,7 +20,7 @@ export type PublicEvent = {
 };
 
 export type PublicResolveResult =
-  | { ok: true; organisationId: string; event: PublicEvent }
+  | { ok: true; organisationId: string; event: PublicEvent; branding: PublicOrganisationBranding }
   | { ok: false };
 
 // The single choke point every public Events route (GET, register, and
@@ -39,11 +40,18 @@ export async function resolvePublicEvent(
   organisationSlug: string,
   eventSlug: string,
 ): Promise<PublicResolveResult> {
+  // Also selects name/settings alongside the id this query already
+  // needed — same round trip, wider column list only — so branding can
+  // be normalised in-process below without a second query. See
+  // lib/organisations/branding.ts's normaliseOrganisationBranding/
+  // normalisePublicOrganisationBranding for why this pattern exists.
   const orgRows = await sql`
-    SELECT id FROM organisations WHERE slug = ${organisationSlug} LIMIT 1
+    SELECT id, name, settings FROM organisations WHERE slug = ${organisationSlug} LIMIT 1
   `;
   const organisationId = orgRows[0]?.id as string | undefined;
   if (!organisationId) return { ok: false };
+  const organisationName = orgRows[0]?.name as string;
+  const organisationSettings = orgRows[0]?.settings as unknown;
 
   // checkCapability() never throws — a database error resolves to
   // { allowed: false, reason: 'DATABASE_ERROR' }, which this treats
@@ -62,5 +70,7 @@ export async function resolvePublicEvent(
   const event = eventRows[0] as PublicEvent | undefined;
   if (!event) return { ok: false };
 
-  return { ok: true, organisationId, event };
+  const branding = normalisePublicOrganisationBranding(organisationSettings, organisationName);
+
+  return { ok: true, organisationId, event, branding };
 }
