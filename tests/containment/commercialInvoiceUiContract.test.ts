@@ -84,22 +84,56 @@ describe('Phase C4.2 §14 / C4.3B — invoice detail page: truthful draft copy, 
 
   // Phase C4.3B — PDF download and email send are now genuinely
   // implemented (this was the explicit boundary the C4.2-era version of
-  // this test itself named: "C4.3/future phases only"). Payment
-  // controls remain out of scope and are still explicitly forbidden
-  // below.
-  it('Download PDF and Send/Resend Email controls are present (C4.3B), but no payment/SMS placeholder controls exist', () => {
+  // this test itself named: "C4.3/future phases only"). SMS and any
+  // customer-initiated online-payment-collection control remain out of
+  // scope and are still explicitly forbidden below. "Mark Paid" (an
+  // unaudited manual status flip) and "Pay Now" (implying a customer-
+  // facing checkout) are still forbidden even after C5.2 — the
+  // authorized mechanism is the "Record Payment" flow tested separately
+  // below, which creates a real, audited commercial_payments row, not a
+  // bare status toggle.
+  it('Download PDF and Send/Resend Email controls are present (C4.3B), but no bare-status-flip/SMS/customer-checkout placeholder controls exist', () => {
     expect(source).toMatch(/Download PDF/)
     expect(source).toMatch(/Send Email/)
     expect(source).toMatch(/Resend Email/)
-    for (const forbidden of [/Pay Now/i, /Mark Paid/i, /Coming soon/i, /Send SMS/i, /SMS Invoice/i]) {
+    for (const forbidden of [/Pay Now/i, /Mark Paid/i, /Coming soon/i, /Send SMS/i, /SMS Invoice/i, /Pay with Card/i, /Pay Online/i]) {
       expect(source).not.toMatch(forbidden)
     }
   })
 
-  it('never displays a payment/balance state', () => {
-    expect(source).not.toMatch(/Amount Due/i)
-    expect(source).not.toMatch(/Balance/i)
-    expect(source).not.toMatch(/Payment Status/i)
+  // Phase C5.2 — supersedes this test's own former C4-era name/assertion
+  // ("never displays a payment/balance state"), which was the correct,
+  // explicit boundary before any payments concept existed at all (see
+  // the C4.0 architecture report's §J payment boundary, cited in
+  // lib/commercial/invoiceLifecycle.ts). C5.2 is the authorized phase
+  // that adds exactly this: a derived (never stored on
+  // commercial_invoices) Amount Paid / Balance Due / payment-state
+  // display, sourced from the invoice GET route's own
+  // amount_paid_cents/outstanding_balance_cents/payment_state fields —
+  // never a client-side computation. Refunds/credit notes and any
+  // provider/Stripe-branded payment-collection UI remain out of scope
+  // and are still forbidden.
+  it('shows the derived Amount Paid / Balance Due / payment-state display (C5.2), sourced from the API response, but no refund/credit-note/provider-branded UI exists', () => {
+    expect(source).toMatch(/Amount Paid/)
+    expect(source).toMatch(/Balance Due/)
+    expect(source).toMatch(/PaymentStateBadge/)
+    expect(source).toMatch(/data\.amount_paid_cents/)
+    expect(source).toMatch(/data\.outstanding_balance_cents/)
+    expect(source).toMatch(/data\.payment_state/)
+    // Narrow, action-shaped patterns only — the existing void-confirmation
+    // copy legitimately contains the word "refund" in a disclaimer
+    // sentence ("Payment/refund handling is not part of this phase."),
+    // which remains true and must not be flagged.
+    for (const forbidden of [/Issue Refund/i, /Refund Payment/i, /Credit Note/i, /Stripe/i, /Pay with Card/i]) {
+      expect(source).not.toMatch(forbidden)
+    }
+  })
+
+  it('Record Payment and Reverse Payment controls exist, and payments are never edited or deleted in this UI', () => {
+    expect(source).toMatch(/Record Payment/)
+    expect(source).toMatch(/Reverse Payment/)
+    expect(source).not.toMatch(/Edit Payment/i)
+    expect(source).not.toMatch(/Delete Payment/i)
   })
 
   it('the void confirmation copy explicitly disclaims refund/payment handling and is concise', () => {

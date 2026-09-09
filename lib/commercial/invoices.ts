@@ -669,6 +669,26 @@ export async function issueInvoice(params: { organisationId: string; userId: str
 // principle from the C4.0 architecture report exactly. No refund/payment
 // behavior of any kind (no payment-allocation subsystem exists — see
 // invoiceLifecycle.ts's own header).
+// Phase C5.2 §F — a paid-or-partially-paid invoice may not be voided.
+// The check-and-void must be race-safe against a payment being recorded
+// concurrently (recordInvoicePayment(), lib/commercial/payments.ts), so
+// this is now ONE atomic compound statement — a `guard` CTE taking the
+// exact same `SELECT ... FOR UPDATE` row lock on the invoice that
+// recordInvoicePayment()'s own atomic statement takes, gating an
+// `active_paid` aggregate computed while that lock is held, gating the
+// final UPDATE. Two concurrent attempts (void vs. payment, or void vs.
+// void) on the SAME invoice genuinely serialize through this one row
+// lock — whichever statement's FOR UPDATE clause commits first, the
+// second blocks, then re-reads truly-current state (including any
+// payment the first one just committed) before its own guard is
+// evaluated. This can never end with a VOID invoice that also has an
+// active payment allocation, regardless of arrival order.
+//
+// The `active_paid` aggregate formula here is the SAME one that
+// appears in lib/commercial/payments.ts's getInvoicePaymentSummary()
+// and recordInvoicePayment() — see that file's own header comment for
+// why it cannot be shared as a single JS function and must be kept in
+// sync by hand across all three sites.
 export async function voidInvoice(params: { organisationId: string; userId: string; invoiceId: string; voidReason: string }): Promise<CommercialInvoice> {
   const trimmedReason = params.voidReason.trim();
   if (!trimmedReason) throw new Error('void_reason is required');
@@ -678,12 +698,44 @@ export async function voidInvoice(params: { organisationId: string; userId: stri
   assertInvoiceTransition(invoice.status, 'VOID');
 
   const rows = (await sql`
+    WITH guard AS (
+      SELECT id FROM commercial_invoices
+      WHERE id = ${params.invoiceId} AND organisation_id = ${params.organisationId} AND status = 'ISSUED'
+      FOR UPDATE
+    ),
+    active_paid AS (
+      SELECT COALESCE(SUM(cpa.allocated_amount_cents), 0)::int AS paid_cents
+      FROM commercial_payment_allocations cpa
+      JOIN commercial_payments cp ON cp.id = cpa.payment_id AND cp.organisation_id = cpa.organisation_id
+      WHERE cpa.organisation_id = ${params.organisationId} AND cpa.invoice_id = ${params.invoiceId} AND cp.status = 'RECORDED'
+    )
     UPDATE commercial_invoices SET status = 'VOID', voided_by = ${params.userId}, voided_at = now(), void_reason = ${trimmedReason}, updated_at = now()
     WHERE id = ${params.invoiceId} AND organisation_id = ${params.organisationId} AND status = 'ISSUED'
+      AND EXISTS (SELECT 1 FROM guard)
+      AND (SELECT paid_cents FROM active_paid) = 0
     RETURNING *
   `) as CommercialInvoice[];
   const voided = rows[0];
-  if (!voided) throw new Error('invoice status changed concurrently; void aborted');
+  if (!voided) {
+    // The atomic statement changed nothing — determine why, for a clear
+    // error message only (this read is NOT the authorization decision;
+    // that already happened, correctly, inside the atomic statement
+    // above, serialized against any concurrent payment).
+    const current = await getInvoice(params.organisationId, params.invoiceId);
+    if (!current || current.status !== 'ISSUED') {
+      throw new Error('invoice status changed concurrently; void aborted');
+    }
+    const paidRows = (await sql`
+      SELECT COALESCE(SUM(cpa.allocated_amount_cents), 0)::int AS paid_cents
+      FROM commercial_payment_allocations cpa
+      JOIN commercial_payments cp ON cp.id = cpa.payment_id AND cp.organisation_id = cpa.organisation_id
+      WHERE cpa.organisation_id = ${params.organisationId} AND cpa.invoice_id = ${params.invoiceId} AND cp.status = 'RECORDED'
+    `) as { paid_cents: number }[];
+    if ((paidRows[0]?.paid_cents ?? 0) > 0) {
+      throw new Error('cannot void an invoice with recorded payments; reverse the payment(s) first');
+    }
+    throw new Error('invoice status changed concurrently; void aborted');
+  }
 
   await logInvoiceVoided({ organisationId: params.organisationId, userId: params.userId, invoiceId: params.invoiceId, voidReason: trimmedReason });
   return voided;

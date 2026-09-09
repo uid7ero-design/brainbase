@@ -3,6 +3,7 @@ import { authorizeCommercialRequest, COMMERCIAL_MIN_ROLE } from '@/lib/commercia
 import { getInvoiceWithLines, updateDraftInvoice, deleteDraftInvoice } from '@/lib/commercial/invoices';
 import { getQuote } from '@/lib/commercial/quotes';
 import { listDeliveriesForDocument } from '@/lib/commercial/documentDeliveries';
+import { getInvoicePaymentSummary } from '@/lib/commercial/payments';
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -46,7 +47,19 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
   // free rather than a second round trip.
   const deliveries = await listDeliveriesForDocument({ organisationId: auth.session.organisationId, documentType: 'invoice', documentId: id });
 
-  return NextResponse.json({ ...bundle, sourceQuoteNumber, overdue: bundle.invoice.overdue, deliveries });
+  // Phase C5.2 — folded in the same additive-read-composition way as
+  // sourceQuoteNumber/deliveries above: derived at read time, never
+  // stored on the invoice row itself (see getInvoicePaymentSummary()'s
+  // own header for why).
+  const paymentSummary = await getInvoicePaymentSummary(auth.session.organisationId, id, bundle.invoice.total_cents);
+
+  return NextResponse.json({
+    ...bundle, sourceQuoteNumber, overdue: bundle.invoice.overdue, deliveries,
+    amount_paid_cents: paymentSummary.amount_paid_cents,
+    outstanding_balance_cents: paymentSummary.outstanding_balance_cents,
+    payment_state: paymentSummary.payment_state,
+    payments: paymentSummary.payments,
+  });
 }
 
 // DRAFT-only via domain enforcement (updateDraftInvoice() itself asserts
