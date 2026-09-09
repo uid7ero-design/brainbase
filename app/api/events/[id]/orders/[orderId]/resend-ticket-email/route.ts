@@ -3,6 +3,7 @@ import sql from '@/lib/db';
 import { authorizeEventsRequest } from '@/lib/events/authorize';
 import { isOrderEligibleForTicketEmail, sendTicketEmail, maskEmailForAudit } from '@/lib/events/ticketEmail';
 import { logTicketEmailResent } from '@/lib/events/auditLog';
+import { normaliseTicketEmailBranding } from '@/lib/organisations/branding';
 
 type Ctx = { params: Promise<{ id: string; orderId: string }> };
 
@@ -42,25 +43,35 @@ export async function POST(_req: Request, { params }: Ctx) {
   // backfilled simply has booking_token = NULL here, and
   // buildTicketEmail() already degrades safely to individual-links-only
   // in that case (see that function's own comment).
+  // Also selects the organisation's own name/settings (Phase 3D) —
+  // same round trip, wider column list only, exactly the pattern every
+  // other public/trusted branding-consuming resolver in this codebase
+  // already follows (see e.g. lib/events/publicResolve.ts's own
+  // comment). session.organisationId is already the authorized,
+  // tenant-scoped organisation for this request; this join never
+  // introduces a second, independent identity source.
   const orderRows = await sql`
     SELECT
       eo.id, eo.status, eo.payment_status, eo.purchaser_name, eo.purchaser_email, eo.booking_token,
       e.name AS event_name,
+      o.name AS organisation_name, o.settings AS organisation_settings,
       COALESCE(
         json_agg(json_build_object('name', ea.attendee_name, 'ticket_token', ea.ticket_token)) FILTER (WHERE ea.id IS NOT NULL),
         '[]'
       ) AS attendees
     FROM event_orders eo
     JOIN events e ON e.id = eo.event_id AND e.organisation_id = eo.organisation_id
+    JOIN organisations o ON o.id = eo.organisation_id
     JOIN event_order_items oi ON oi.order_id = eo.id AND oi.organisation_id = eo.organisation_id
     LEFT JOIN event_attendees ea ON ea.order_item_id = oi.id AND ea.organisation_id = oi.organisation_id
     WHERE eo.id = ${orderId} AND eo.event_id = ${eventId} AND eo.organisation_id = ${session.organisationId}
-    GROUP BY eo.id, e.name
+    GROUP BY eo.id, e.name, o.name, o.settings
     LIMIT 1
   `;
   const order = orderRows[0] as {
     id: string; status: string; payment_status: string; purchaser_name: string; purchaser_email: string | null; booking_token: string | null;
-    event_name: string; attendees: { name: string; ticket_token: string | null }[];
+    event_name: string; organisation_name: string; organisation_settings: unknown;
+    attendees: { name: string; ticket_token: string | null }[];
   } | undefined;
   if (!order) return NextResponse.json({ error: 'Not found.' }, { status: 404 });
 
@@ -105,6 +116,7 @@ export async function POST(_req: Request, { params }: Ctx) {
     purchaserName: order.purchaser_name,
     attendees: eligibleAttendees.map(a => ({ name: a.name, ticketToken: a.ticket_token })),
     bookingToken: order.booking_token,
+    branding: normaliseTicketEmailBranding(order.organisation_settings, order.organisation_name),
   });
 
   // Pre-push hardening — RESEND_API_KEY is absent (typical in Preview

@@ -332,3 +332,51 @@ export async function getPublicOrganisationBranding(organisationId: string): Pro
   if (!result) return null;
   return toPublicBranding(result.branding);
 }
+
+// ── Email projection (Phase 3D — trusted, server-only) ──────────────
+
+// A second, WIDER allow-list than PublicOrganisationBranding — safe
+// ONLY because ticket-email generation is a trusted, server-side-only
+// operation (lib/events/ticketEmail.ts) that never returns this shape
+// to any client, API response, or public page. Adds emailFooter
+// (an already-existing, already-normalised field on OrganisationBranding)
+// on top of the same 4 public-safe fields — still deliberately excludes
+// email/phone/address/abn, which remain private business-contact
+// details with no ticket-email use case (see this file's own header
+// comment on the private/public split). Deliberately excludes
+// emailSenderName too: a sender display-name override was evaluated and
+// explicitly DEFERRED (see lib/events/ticketEmail.ts's own comment) —
+// this view-model exposes only fields the email template actually
+// consumes today; emailSenderName remains on OrganisationBranding
+// itself (persisted schema/settings UI unaffected) for a future phase
+// to pick up once that decision is revisited.
+export interface TicketEmailBranding {
+  name: string | null;
+  logoUrl: string | null;
+  accentColor: string | null;
+  website: string | null;
+  emailFooter: string | null;
+}
+
+function toTicketEmailBranding(branding: OrganisationBranding): TicketEmailBranding {
+  return {
+    name: branding.name,
+    logoUrl: branding.logoUrl,
+    accentColor: branding.accentColor,
+    website: branding.website,
+    emailFooter: branding.emailFooter,
+  };
+}
+
+// Pure counterpart, same pattern as normalisePublicOrganisationBranding
+// — takes an already-loaded organisations.settings value (the
+// resend-ticket-email route already selects it alongside everything
+// else that route needs, same zero-extra-round-trip discipline every
+// other public/trusted resolver in this codebase already follows).
+// organisationName is accepted for signature symmetry and is NOT
+// substituted into the returned name field (see toPublicBranding's own
+// comment — the render-layer fallback stays the caller's decision).
+export function normaliseTicketEmailBranding(rawSettings: unknown, organisationName: string): TicketEmailBranding {
+  const { branding } = normaliseOrganisationBranding(rawSettings, organisationName);
+  return toTicketEmailBranding(branding);
+}
