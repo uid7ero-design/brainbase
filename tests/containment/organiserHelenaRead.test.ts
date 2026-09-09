@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import fs from 'fs'
 import path from 'path'
+import { describeActivityEvent } from '@/lib/organiser/activityFormat'
 
 // Phase D.4.6B — lib/organiser/helenaRead.ts, the read-only server
 // foundation for a future Helena/Organiser integration. Covers: the
@@ -678,6 +679,106 @@ describe('comment / file safety through activity shaping', () => {
     ])
     expect(JSON.stringify(deleted)).not.toContain('SECRET')
     expect(deleted.summary).toContain('invoice.pdf')
+  })
+})
+
+describe('deleted-comment redaction (D.4.6H-R6)', () => {
+  const COMMENT_X = '44444444-4444-4444-4444-444444444444'
+  const COMMENT_Y = '55555555-5555-5555-5555-555555555555'
+  const SENSITIVE = 'Sensitive deleted text'
+
+  function createdDto(entityId: string, excerpt: string, overrides: Partial<Parameters<typeof dto>[0]> = {}) {
+    return dto({
+      event_type: 'comment.created', entity_type: 'comment', entity_id: entityId,
+      before: null, after: { excerpt }, ...overrides,
+    })
+  }
+  function deletedDto(entityId: string, overrides: Partial<Parameters<typeof dto>[0]> = {}) {
+    return dto({
+      event_type: 'comment.deleted', entity_type: 'comment', entity_id: entityId,
+      before: null, after: null, ...overrides,
+    })
+  }
+
+  it('A. same comment deleted — excerpt is redacted from the created record, safe facts survive', () => {
+    const created = createdDto(COMMENT_X, SENSITIVE)
+    const [createdRecord, deletedRecord] = shapeItemActivityForHelena([created, deletedDto(COMMENT_X)])
+    expect(createdRecord.detail).not.toBe(SENSITIVE)
+    expect(JSON.stringify(createdRecord)).not.toContain(SENSITIVE)
+    expect(createdRecord.event_type).toBe('comment.created')
+    expect(createdRecord.actor_name).toBe('Admin')
+    expect(deletedRecord.event_type).toBe('comment.deleted')
+    expect(deletedRecord.actor_name).toBe('Admin')
+    expect(deletedRecord.summary).toMatch(/deleted a comment/)
+  })
+
+  it('B. different comment ids — an unrelated deletion never redacts comment X\'s excerpt', () => {
+    const [createdRecord] = shapeItemActivityForHelena([createdDto(COMMENT_X, SENSITIVE), deletedDto(COMMENT_Y)])
+    expect(createdRecord.detail).toBe(SENSITIVE)
+  })
+
+  it('C. non-deleted comment — no matching delete event anywhere in the page leaves the excerpt untouched', () => {
+    const [createdRecord] = shapeItemActivityForHelena([createdDto(COMMENT_X, SENSITIVE)])
+    expect(createdRecord.detail).toBe(SENSITIVE)
+  })
+
+  it('D. ordering — redaction applies whether the deleted event comes before or after the created event in the page', () => {
+    const [deletedFirst, createdFirst] = shapeItemActivityForHelena([deletedDto(COMMENT_X), createdDto(COMMENT_X, SENSITIVE)])
+    expect(deletedFirst.detail).toBeNull()
+    expect(createdFirst.detail).not.toBe(SENSITIVE)
+
+    const [createdRecord2] = shapeItemActivityForHelena([createdDto(COMMENT_X, SENSITIVE), deletedDto(COMMENT_X)])
+    expect(createdRecord2.detail).not.toBe(SENSITIVE)
+  })
+
+  it('E. duplicate delete events for the same comment redact exactly once, with no duplication/instability', () => {
+    const records = shapeItemActivityForHelena([
+      createdDto(COMMENT_X, SENSITIVE),
+      deletedDto(COMMENT_X),
+      deletedDto(COMMENT_X),
+    ])
+    expect(records).toHaveLength(3)
+    expect(records[0].detail).not.toBe(SENSITIVE)
+    expect(JSON.stringify(records)).not.toContain(SENSITIVE)
+  })
+
+  it('F. malformed/missing entity_id fails safe — no crash, no over-redaction, no cross-comment leak', () => {
+    // A comment.deleted with an empty entity_id can never enter the redaction
+    // set (both collectDeletedCommentIds and isRedactedCommentCreated require
+    // a non-empty string), so it must never redact anything, including
+    // itself or an otherwise-unrelated comment.created in the same page.
+    const events = [createdDto(COMMENT_X, SENSITIVE), deletedDto('')]
+    expect(() => shapeItemActivityForHelena(events)).not.toThrow()
+    const [createdRecord] = shapeItemActivityForHelena(events)
+    expect(createdRecord.detail).toBe(SENSITIVE)
+  })
+
+  it('G. board activity — shapeBoardActivityForHelena redacts the deleted comment\'s excerpt identically', () => {
+    const [createdRecord] = shapeBoardActivityForHelena([createdDto(COMMENT_X, SENSITIVE), deletedDto(COMMENT_X)])
+    expect(createdRecord.detail).not.toBe(SENSITIVE)
+    expect(JSON.stringify(createdRecord)).not.toContain(SENSITIVE)
+  })
+
+  it('H. item activity — shapeItemActivityForHelena redacts the deleted comment\'s excerpt', () => {
+    const [createdRecord] = shapeItemActivityForHelena([createdDto(COMMENT_X, SENSITIVE), deletedDto(COMMENT_X)])
+    expect(createdRecord.detail).not.toBe(SENSITIVE)
+  })
+
+  it('J. raw source event is never mutated in place — the original DTO still carries its excerpt after shaping', () => {
+    const created = createdDto(COMMENT_X, SENSITIVE)
+    shapeItemActivityForHelena([created, deletedDto(COMMENT_X)])
+    expect((created.after as { excerpt: string }).excerpt).toBe(SENSITIVE)
+  })
+
+  it('mutation check: removing the redaction pass would let the excerpt reach the Helena-facing record — this test fails if redaction is disabled', () => {
+    // Proves the test itself is load-bearing: calling the underlying
+    // formatter directly (exactly what shapeItemActivityForHelena did before
+    // this phase's redaction pass was added) DOES leak the excerpt, confirming
+    // this is a real regression guard rather than a tautology.
+    const unredacted = describeActivityEvent(createdDto(COMMENT_X, SENSITIVE))
+    expect(unredacted.detail).toBe(SENSITIVE)
+    const [redacted] = shapeItemActivityForHelena([createdDto(COMMENT_X, SENSITIVE), deletedDto(COMMENT_X)])
+    expect(redacted.detail).not.toBe(SENSITIVE)
   })
 })
 

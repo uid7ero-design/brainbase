@@ -523,6 +523,65 @@ function renderDiffLine(d: { label: string; before: string | null; after: string
   return d.before !== null ? `${d.label}: ${d.before} → ${d.after}` : `${d.label}: ${d.after}`;
 }
 
+// Phase D.4.6H-R6 — Helena-facing deleted-comment redaction.
+//
+// Root cause (see the D.4.6H-R5 report): comment.deleted's own activity row
+// is already privacy-minimal (before_json/after_json NULL — nothing to leak
+// there). But the EARLIER, separate comment.created row for that same
+// comment is immutable audit history and legitimately still carries its
+// excerpt in after_json.excerpt (see activityFormat.ts's comment.created
+// handling) — the browser Activity UI is SUPPOSED to keep showing that
+// excerpt forever, exactly like any other audit log. The defect was that
+// Helena received both rows verbatim and the model correlated them itself
+// ("this comment was created with text X, and a comment was later deleted
+// on the same item" -> stated X was the deleted text), which is a shaping
+// gap, not a storage gap.
+//
+// Fix: entirely inside this Helena-specific shaping layer (never touches
+// activityFormat.ts, activityRead.ts, the stored rows, or the browser
+// Activity UI, which calls describeActivityEvent/describeBoardActivityEvent
+// directly and never goes through shapeBoardActivityForHelena/
+// shapeItemActivityForHelena). Using only the events already present in the
+// current bounded page/window (no extra query, no unbounded scan): collect
+// every comment.deleted event's entity_id (the deleted comment's own id —
+// see OrganiserActivityEventDTO's own header proving entity_id is stable
+// and identical between a comment's comment.created and comment.deleted
+// rows), then blank the `detail` (the only field that ever carries excerpt
+// content — summary/diffs never do) on any comment.created record in the
+// SAME page/window whose entity_id is in that set. A comment.created row
+// whose matching comment.deleted event falls outside the current page/
+// window is not redacted by this pass — see this function's own doc for
+// that honestly-documented boundary.
+function collectDeletedCommentIds(events: OrganiserActivityEventDTO[]): Set<string> {
+  const ids = new Set<string>();
+  for (const ev of events) {
+    if (
+      ev.entity_type === 'comment' &&
+      ev.event_type === 'comment.deleted' &&
+      typeof ev.entity_id === 'string' &&
+      ev.entity_id.length > 0
+    ) {
+      ids.add(ev.entity_id);
+    }
+  }
+  return ids;
+}
+
+/** True only for the exact row this redaction targets: a comment.created
+ *  event whose own entity_id (the comment's id, never an item id) matches a
+ *  comment.deleted event already seen in this same bounded result. A
+ *  malformed/missing entity_id can never match a Set built the same way
+ *  (both sides require a non-empty string), so it fails safe — no crash, no
+ *  over-redaction, no cross-comment redaction. */
+function isRedactedCommentCreated(ev: OrganiserActivityEventDTO, deletedCommentIds: Set<string>): boolean {
+  return (
+    ev.entity_type === 'comment' &&
+    ev.event_type === 'comment.created' &&
+    typeof ev.entity_id === 'string' &&
+    deletedCommentIds.has(ev.entity_id)
+  );
+}
+
 /**
  * Shapes listBoardActivity's DTOs into the bounded, model-safe record
  * Helena tools return. Reuses describeBoardActivityEvent verbatim for all
@@ -532,18 +591,26 @@ function renderDiffLine(d: { label: string; before: string | null; after: string
  * timestamp, entity/event type) a model needs. before_json/after_json,
  * organisation_id, and any file URL/token are never touched here because
  * they are never touched by describeBoardActivityEvent either.
+ *
+ * Phase D.4.6H-R6: after building each record, a comment.created record
+ * whose comment was deleted elsewhere in this same `events` page has its
+ * `detail` (the only excerpt-bearing field) redacted to null — summary,
+ * diffs, actor, timestamps, and entity/event type are all left exactly as
+ * before, and the underlying `events` array itself is never mutated.
  */
 export function shapeBoardActivityForHelena(
   events: OrganiserActivityEventDTO[],
   groupNamesById: Record<string, string> = {},
   liveItemNamesById: Record<string, string> = {},
 ): HelenaActivityRecord[] {
+  const deletedCommentIds = collectDeletedCommentIds(events);
   return events.map((ev) => {
     const desc = describeBoardActivityEvent(ev, groupNamesById, liveItemNamesById);
+    const redact = isRedactedCommentCreated(ev, deletedCommentIds);
     return {
       summary: desc.summary,
       diffs: desc.diffs.map(renderDiffLine),
-      detail: desc.detail ?? null,
+      detail: redact ? null : desc.detail ?? null,
       actor_name: ev.actor.name,
       created_at: ev.created_at,
       entity_type: ev.entity_type,
@@ -552,17 +619,21 @@ export function shapeBoardActivityForHelena(
   });
 }
 
-/** Item-scoped sibling of shapeBoardActivityForHelena — reuses describeActivityEvent verbatim. */
+/** Item-scoped sibling of shapeBoardActivityForHelena — reuses
+ *  describeActivityEvent verbatim, and applies the exact same D.4.6H-R6
+ *  deleted-comment `detail` redaction using only this same `events` page. */
 export function shapeItemActivityForHelena(
   events: OrganiserActivityEventDTO[],
   groupNamesById: Record<string, string> = {},
 ): HelenaActivityRecord[] {
+  const deletedCommentIds = collectDeletedCommentIds(events);
   return events.map((ev) => {
     const desc = describeActivityEvent(ev, groupNamesById);
+    const redact = isRedactedCommentCreated(ev, deletedCommentIds);
     return {
       summary: desc.summary,
       diffs: desc.diffs.map(renderDiffLine),
-      detail: desc.detail ?? null,
+      detail: redact ? null : desc.detail ?? null,
       actor_name: ev.actor.name,
       created_at: ev.created_at,
       entity_type: ev.entity_type,
