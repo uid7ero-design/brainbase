@@ -61,6 +61,13 @@ import path from 'path';
 // scripts/tests/verify-datahub-k2.sh) is added alongside the existing
 // specs, for the same reason and with the same explicit-file-argument
 // isolation.
+//
+// 5B.2 addition: scripts/tests/datahubSourceMappingServices.integration.test.ts
+// (the SourceSystem/SourceMapping/MappingVersion administrative service
+// layer's own real-Postgres harness — see
+// scripts/tests/verify-datahub-source-mapping-services.sh) is added
+// alongside the existing specs, for the same reason and with the same
+// explicit-file-argument isolation.
 export default defineConfig({
   test: {
     environment: 'node',
@@ -73,6 +80,7 @@ export default defineConfig({
       'scripts/tests/dataHubInitiateFinalizeRoutes.integration.test.ts',
       'scripts/tests/confirmWorksheet.integration.test.ts',
       'scripts/tests/dataHubK2.integration.test.ts',
+      'scripts/tests/datahubSourceMappingServices.integration.test.ts',
     ],
     testTimeout: 30_000,
     hookTimeout: 30_000,

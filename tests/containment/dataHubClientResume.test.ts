@@ -684,11 +684,16 @@ describe("T29 — no raw storage locator exposure", () => {
 
 // ---------------------------------------------------------------------------
 // T30 — no new backend route: the known Data Hub route file set is
-// unchanged.
+// unchanged FOR 5A.3D.1's OWN SCOPE. 5B.2 (a later, separately-authorized
+// slice) legitimately added new administrative SourceSystem/SourceMapping/
+// MappingVersion routes — a genuine, disclosed, narrow extension of this
+// baseline, not a weakening of the invariant this test protects: it still
+// fails if any FUTURE 5A.3D-scope change (import/worksheet routes) adds a
+// route without updating this list.
 // ---------------------------------------------------------------------------
 
 describe("T30 — no new backend route was introduced", () => {
-  it("the app/api/data-hub route.ts file set matches the known 5A.3D.0 baseline exactly", () => {
+  it("the app/api/data-hub route.ts file set matches the known 5A.3D.0 + 5B.2 baseline exactly", () => {
     const apiDir = path.join(process.cwd(), "app", "api", "data-hub");
     const found: string[] = [];
     const walk = (dir: string) => {
@@ -710,6 +715,14 @@ describe("T30 — no new backend route was introduced", () => {
         "worksheets/[id]/route.ts",
         "worksheets/[id]/preview/route.ts",
         "worksheets/[id]/confirm-illegal-dumping/route.ts",
+        // 5B.2 additions:
+        "source-systems/route.ts",
+        "source-systems/[id]/route.ts",
+        "source-mappings/route.ts",
+        "source-mappings/[id]/route.ts",
+        "source-mappings/[id]/versions/route.ts",
+        "source-mappings/[id]/activate-version/route.ts",
+        "mapping-versions/[id]/route.ts",
       ].sort()
     );
   });
