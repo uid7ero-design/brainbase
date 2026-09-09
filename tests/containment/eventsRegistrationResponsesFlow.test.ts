@@ -460,7 +460,11 @@ describe('Public ticket detail (defense in depth) — allow-listed shape survive
     const json = JSON.stringify(result.detail)
     expect(json).not.toMatch(/dietary|accessib|special request|Vegan|Aisle seat/i)
     expect(Object.keys(result.detail).sort()).toEqual(
-      ['attendee_name', 'branding', 'checked_in_at', 'event', 'session', 'status', 'ticket_type_name'],
+      // organisationName (Phase 3C) — the same public-safe, additive
+      // render-layer fallback PublicEventDetail.organisationName already
+      // is (Phase 3B); see ticketBookingOrganisationBranding.test.ts for
+      // that field's own dedicated leak/tenancy coverage.
+      ['attendee_name', 'branding', 'checked_in_at', 'event', 'organisationName', 'session', 'status', 'ticket_type_name'],
     )
   })
 })

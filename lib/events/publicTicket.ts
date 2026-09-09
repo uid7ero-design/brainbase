@@ -17,11 +17,20 @@ export type PublicTicketDetail = {
   };
   ticket_type_name: string | null;
   session: { name: string; starts_at: string; ends_at: string } | null;
-  // Additive — not yet rendered anywhere (see Phase 3A scope). Public-
-  // safe view model only, resolved from the SAME organisation join this
-  // query already needs (ea.organisation_id) — no organisationId, no
-  // raw settings, ever returned.
+  // Additive (Phase 3A), now rendered via TicketCard (Phase 3C).
+  // Public-safe view model only, resolved from the SAME organisation
+  // join this query already needs (ea.organisation_id) — no
+  // organisationId, no raw settings, ever returned.
   branding: PublicOrganisationBranding;
+  // The organisation's own plain name (organisations.name) — same
+  // render-layer fallback role as PublicEventDetail.organisationName
+  // (Phase 3B): branding.name is deliberately never substituted inside
+  // the branding module itself (see normalisePublicOrganisationBranding's
+  // own comment), so callers that need a definite display name — e.g.
+  // OrganisationLogo's initials fallback, which requires a non-null
+  // organisationName — use this field instead. Reuses the organisation
+  // row this query already joins; no new query, no tenancy change.
+  organisationName: string;
 };
 
 export type PublicTicketResult =
@@ -114,6 +123,7 @@ export async function getPublicTicketDetail(ticketToken: string): Promise<Public
           }
         : null,
       branding: normalisePublicOrganisationBranding(row.organisation_settings, row.organisation_name),
+      organisationName: row.organisation_name,
     },
   };
 }

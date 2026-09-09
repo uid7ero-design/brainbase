@@ -265,40 +265,41 @@ describe('Visual invariant — HISTORICAL, Phase 3A\'s own scope only', () => {
   // At the time this test file was introduced (Phase 3A), this PR was
   // deliberately additive-only and rendered nothing new anywhere —
   // OrganisationLogo/BrandContactFooter existed but were unused by any
-  // live page, and publicEventTheme.ts/InstitutionalChrome.tsx were
-  // untouched. Phase 3B (a later, separate, explicitly-scoped PR) is
-  // the phase that intentionally wires OrganisationLogo into
-  // InstitutionalChrome.tsx and PublicEventClient.tsx/
-  // PublicEventsHubClient.tsx, and rewrites publicEventTheme.ts to
-  // remove identity — see tests/containment/publicEventOrganisationBranding
-  // .test.ts and publicEventBranding.test.ts for that phase's own,
-  // current-reality containment coverage. The two tests that used to
-  // live here (asserting the OPPOSITE — "not yet used", "untouched")
-  // are retired now that they'd be asserting something no longer true
-  // by design, not a regression; ticket/wallet/TicketCard remain
-  // completely untouched by Phase 3B (verified below), which is the
-  // part of Phase 3A's original invariant that still holds forever.
+  // live page, and publicEventTheme.ts/InstitutionalChrome.tsx/
+  // ticket+wallet surfaces were untouched. Phase 3B wired OrganisationLogo
+  // into the public Events surfaces (InstitutionalChrome.tsx,
+  // PublicEventClient.tsx, PublicEventsHubClient.tsx) — see
+  // publicEventOrganisationBranding.test.ts / publicEventBranding.test.ts
+  // for that phase's own current-reality coverage. Phase 3C is the phase
+  // that does the same for tickets/the booking wallet — see
+  // ticketCardBranding.test.ts for that phase's own current-reality
+  // coverage. The tests that used to live here (asserting the OPPOSITE —
+  // "not yet used", "untouched") are retired for the surfaces each phase
+  // intentionally changed, not a regression; BrandContactFooter remains
+  // unused everywhere (verified below), which is the part of Phase 3A's
+  // original invariant that still holds forever.
 
-  const neverTouchedByEitherPhase = [
-    'app/t/[token]/page.tsx',
-    'app/b/[bookingToken]/tickets/page.tsx',
-    'app/b/[bookingToken]/tickets/BookingWalletNav.tsx',
-    'components/events/TicketCard.tsx',
-  ]
-
-  it('ticket/wallet surfaces still do not import OrganisationLogo or BrandContactFooter — Phase 3B\'s own strict scope excluded them too', () => {
-    for (const surface of neverTouchedByEitherPhase) {
-      const src = read(surface)
-      expect(src).not.toMatch(/OrganisationLogo/)
-      expect(src).not.toMatch(/BrandContactFooter/)
+  it('TicketCard.tsx is the ONLY ticket/wallet surface that imports OrganisationLogo — the shared boundary Phase 3C\'s own design requires, never re-implemented per-route', () => {
+    expect(read('components/events/TicketCard.tsx')).toMatch(/import \{ OrganisationLogo \} from '@\/components\/organisations\/OrganisationLogo'/)
+    const routeLevelSurfaces = [
+      'app/t/[token]/page.tsx',
+      'app/b/[bookingToken]/tickets/page.tsx',
+      'app/b/[bookingToken]/tickets/BookingWalletNav.tsx',
+    ]
+    for (const surface of routeLevelSurfaces) {
+      expect(read(surface)).not.toMatch(/OrganisationLogo/)
     }
   })
 
-  it('BrandContactFooter specifically remains unused by any live page even after Phase 3B — InstitutionalChrome/PublicEventClient/PublicEventsHubClient render identity inline, not via this component', () => {
+  it('BrandContactFooter remains unused by any live page — no phase (3A, 3B, or 3C) has wired it up; every surface renders identity inline instead', () => {
     const surfaces = [
       'app/e/[organisationSlug]/[eventSlug]/PublicEventClient.tsx',
       'app/e/[organisationSlug]/PublicEventsHubClient.tsx',
       'components/publicEvents/InstitutionalChrome.tsx',
+      'app/t/[token]/page.tsx',
+      'app/b/[bookingToken]/tickets/page.tsx',
+      'app/b/[bookingToken]/tickets/BookingWalletNav.tsx',
+      'components/events/TicketCard.tsx',
     ]
     for (const surface of surfaces) {
       expect(read(surface)).not.toMatch(/BrandContactFooter/)

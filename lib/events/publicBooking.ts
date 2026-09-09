@@ -23,11 +23,16 @@ export type PublicBookingDetail = {
     timezone: string;
   };
   tickets: PublicBookingTicket[];
-  // Additive — not yet rendered anywhere (see Phase 3A scope). Public-
-  // safe view model only, resolved from the SAME organisation join this
-  // query already needs (eo.organisation_id) — no organisationId, no
-  // raw settings, ever returned.
+  // Additive (Phase 3A), now rendered via TicketCard (Phase 3C).
+  // Public-safe view model only, resolved from the SAME organisation
+  // join this query already needs (eo.organisation_id) — no
+  // organisationId, no raw settings, ever returned.
   branding: PublicOrganisationBranding;
+  // Same role as PublicTicketDetail.organisationName — see that file's
+  // comment. Resolved once at the order/booking level (this query's own
+  // organisation row), so every attendee ticket in the wallet shares the
+  // identical fallback, never re-derived per attendee.
+  organisationName: string;
 };
 
 export type PublicBookingResult =
@@ -151,6 +156,7 @@ function buildResult(
       },
       tickets,
       branding: normalisePublicOrganisationBranding(order.organisation_settings, order.organisation_name),
+      organisationName: order.organisation_name,
     },
   };
 }
