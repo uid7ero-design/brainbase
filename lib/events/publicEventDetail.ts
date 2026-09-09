@@ -2,6 +2,7 @@ import 'server-only';
 import sql from '@/lib/db';
 import { resolvePublicEvent } from '@/lib/events/publicResolve';
 import { listActiveQuestions, type FieldType, type QuestionScope } from '@/lib/events/registrationQuestions';
+import type { PublicOrganisationBranding } from '@/lib/organisations/branding';
 
 export type PublicSession = {
   id: string;
@@ -55,6 +56,10 @@ export type PublicEventDetail = {
   sessions: PublicSession[];
   ticket_types: PublicTicketType[];
   questions: PublicQuestion[];
+  // Additive — not yet rendered anywhere (see Phase 3A scope). Public-
+  // safe view model only (lib/organisations/branding.ts's own explicit
+  // allowlist) — never organisationId, never raw settings.
+  branding: PublicOrganisationBranding;
 };
 
 export type PublicEventDetailResult =
@@ -102,7 +107,7 @@ export async function getPublicEventDetail(
 ): Promise<PublicEventDetailResult> {
   const resolved = await resolvePublicEvent(organisationSlug, eventSlug);
   if (!resolved.ok) return { ok: false };
-  const { organisationId, event } = resolved;
+  const { organisationId, event, branding } = resolved;
 
   // Phase 4: the sold-quantity subtraction now also excludes a pending
   // paid reservation whose expires_at has passed — mirroring exactly
@@ -170,6 +175,7 @@ export async function getPublicEventDetail(
         id: q.id, label: q.label, help_text: q.help_text, field_type: q.field_type,
         required: q.required, scope: q.scope, options: q.options, sort_order: q.sort_order,
       })),
+      branding,
     },
   };
 }

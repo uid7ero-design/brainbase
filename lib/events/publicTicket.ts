@@ -1,6 +1,7 @@
 import 'server-only';
 import sql from '@/lib/db';
 import { evaluateTicketValidity, toPublicTicketStatus, type PublicTicketStatus } from './ticketValidity';
+import { normalisePublicOrganisationBranding, type PublicOrganisationBranding } from '@/lib/organisations/branding';
 
 export type PublicTicketDetail = {
   attendee_name: string;
@@ -16,6 +17,11 @@ export type PublicTicketDetail = {
   };
   ticket_type_name: string | null;
   session: { name: string; starts_at: string; ends_at: string } | null;
+  // Additive — not yet rendered anywhere (see Phase 3A scope). Public-
+  // safe view model only, resolved from the SAME organisation join this
+  // query already needs (ea.organisation_id) — no organisationId, no
+  // raw settings, ever returned.
+  branding: PublicOrganisationBranding;
 };
 
 export type PublicTicketResult =
@@ -61,11 +67,13 @@ export async function getPublicTicketDetail(ticketToken: string): Promise<Public
       eo.status AS order_status, eo.payment_status,
       e.status AS event_status, e.name AS event_name, e.venue, e.artwork_url, e.starts_at, e.ends_at, e.timezone,
       tt.name AS ticket_type_name,
-      es.name AS session_name, es.starts_at AS session_starts_at, es.ends_at AS session_ends_at
+      es.name AS session_name, es.starts_at AS session_starts_at, es.ends_at AS session_ends_at,
+      o.name AS organisation_name, o.settings AS organisation_settings
     FROM event_attendees ea
     JOIN event_order_items oi ON oi.id = ea.order_item_id AND oi.organisation_id = ea.organisation_id
     JOIN event_orders eo ON eo.id = oi.order_id AND eo.organisation_id = oi.organisation_id
     JOIN events e ON e.id = ea.event_id AND e.organisation_id = ea.organisation_id
+    JOIN organisations o ON o.id = ea.organisation_id
     LEFT JOIN event_ticket_types tt ON tt.id = oi.ticket_type_id AND tt.organisation_id = oi.organisation_id
     LEFT JOIN event_sessions es ON es.id = oi.event_session_id AND es.organisation_id = oi.organisation_id
     WHERE ea.ticket_token = ${ticketToken}
@@ -77,6 +85,7 @@ export async function getPublicTicketDetail(ticketToken: string): Promise<Public
     starts_at: Date | string; ends_at: Date | string; timezone: string;
     ticket_type_name: string | null;
     session_name: string | null; session_starts_at: Date | string | null; session_ends_at: Date | string | null;
+    organisation_name: string; organisation_settings: unknown;
   } | undefined;
   if (!row) return { ok: false };
 
@@ -104,6 +113,7 @@ export async function getPublicTicketDetail(ticketToken: string): Promise<Public
             ends_at: new Date(row.session_ends_at as Date | string).toISOString(),
           }
         : null,
+      branding: normalisePublicOrganisationBranding(row.organisation_settings, row.organisation_name),
     },
   };
 }

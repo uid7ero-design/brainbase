@@ -193,9 +193,31 @@ function sanitizeForWrite(input: OrganisationBranding): OrganisationBranding {
   return coerceBranding(input as unknown as Record<string, unknown>);
 }
 
-// ── Read ──────────────────────────────────────────────────────────────
+// ── Normalise (pure — no DB access) ──────────────────────────────────
 
 export type OrganisationBrandingResult = { organisationName: string; branding: OrganisationBranding };
+
+// Pure counterpart to getOrganisationBranding — same coercion, same
+// {organisationName, branding} result shape, but takes an already-
+// loaded organisations.settings value (and the organisation's own
+// already-loaded name) instead of querying for them itself. Exists so a
+// caller that already has both in hand (every existing public resolver
+// in this codebase — resolvePublicEvent, getPublicTicketDetail,
+// getPublicBookingDetail — already selects organisations.name alongside
+// whatever else it needs) can normalise branding in-process, with zero
+// extra DB round trip, rather than being forced into a second
+// getOrganisationBranding query just to reuse this module's own
+// coercion logic. Takes rawSettings (the whole organisations.settings
+// value, not a pre-extracted .branding) and performs the
+// settings.branding extraction internally — mirrors exactly what
+// getOrganisationBranding itself does below, which now delegates here.
+export function normaliseOrganisationBranding(rawSettings: unknown, organisationName: string): OrganisationBrandingResult {
+  const settings = (rawSettings ?? {}) as Record<string, unknown>;
+  const branding = (settings && typeof settings === 'object' ? settings.branding : null) ?? null;
+  return { organisationName, branding: coerceBranding(branding) };
+}
+
+// ── Read ──────────────────────────────────────────────────────────────
 
 // Returns null only if the organisation itself does not exist — never
 // throws solely because branding is absent, malformed, or the
@@ -209,9 +231,7 @@ export async function getOrganisationBranding(organisationId: string): Promise<O
   const org = rows[0];
   if (!org) return null;
 
-  const settings = (org.settings ?? {}) as Record<string, unknown>;
-  const branding = (settings && typeof settings === 'object' ? settings.branding : null) ?? null;
-  return { organisationName: org.name, branding: coerceBranding(branding) };
+  return normaliseOrganisationBranding(org.settings, org.name);
 }
 
 // ── Write ─────────────────────────────────────────────────────────────
@@ -275,14 +295,40 @@ export async function setOrganisationBranding(organisationId: string, branding: 
 // independently nullable exactly like the private read path, so an
 // organisation with no branding configured yields an all-null object,
 // never an error.
-export async function getPublicOrganisationBranding(organisationId: string): Promise<PublicOrganisationBranding | null> {
-  const result = await getOrganisationBranding(organisationId);
-  if (!result) return null;
-  const { branding } = result;
+//
+// Deliberately does NOT substitute organisationName into the returned
+// name field — branding.name is returned exactly as configured
+// (possibly null), preserving this function's own existing contract.
+// The organisation-name fallback (branding.name ?? organisationName) is
+// a render-layer decision, left to each caller, matching how every
+// other nullable field here already works (no logo → caller decides
+// the no-logo treatment; no accent colour → caller decides the default
+// palette).
+function toPublicBranding(branding: OrganisationBranding): PublicOrganisationBranding {
   return {
     name: branding.name,
     logoUrl: branding.logoUrl,
     accentColor: branding.accentColor,
     website: branding.website,
   };
+}
+
+// Pure counterpart to getPublicOrganisationBranding — same allowlist,
+// same result shape, but takes an already-loaded organisations.settings
+// value instead of querying for it. See normaliseOrganisationBranding's
+// own comment for the full rationale (every existing public resolver
+// already has settings loaded; this avoids forcing a redundant second
+// query just to reuse this module's own allowlist logic). organisationName
+// is accepted for signature symmetry with normaliseOrganisationBranding
+// and for callers that want it for their own fallback logic — it is not
+// itself substituted into the returned name field (see toPublicBranding).
+export function normalisePublicOrganisationBranding(rawSettings: unknown, organisationName: string): PublicOrganisationBranding {
+  const { branding } = normaliseOrganisationBranding(rawSettings, organisationName);
+  return toPublicBranding(branding);
+}
+
+export async function getPublicOrganisationBranding(organisationId: string): Promise<PublicOrganisationBranding | null> {
+  const result = await getOrganisationBranding(organisationId);
+  if (!result) return null;
+  return toPublicBranding(result.branding);
 }
