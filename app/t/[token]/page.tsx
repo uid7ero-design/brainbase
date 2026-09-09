@@ -77,6 +77,8 @@ export default async function TicketPage({ params }: { params: Promise<Params> }
           checkedInAt={detail.checked_in_at}
           status={detail.status}
           qrSvg={qrSvg}
+          branding={detail.branding}
+          organisationName={detail.organisationName}
         />
 
         <div style={{ textAlign: 'center', marginTop: 20, fontSize: 11, color: TICKET_TEXT_MUTED }}>

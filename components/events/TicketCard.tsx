@@ -6,6 +6,20 @@
 // safe to render from a Server Component (as /t/[token] does today) or
 // from inside the wallet's client-side navigator (BookingWalletNav).
 // No data fetching, no 'use client' — just markup and inline styles.
+//
+// Phase 3C — organisation branding (name/logo/accent/website) is the
+// ONLY new concern this file takes on, and only as presentation: this
+// remains the single shared boundary for both /t and /b, so neither
+// route re-derives its own fallback rules. `branding`/`organisationName`
+// are optional so this stays a strict superset of the pre-3C contract.
+// accentColor is used for exactly two, deliberately narrow decorative
+// spots (the identity-region divider and the optional website link) —
+// see the render body below. It is NEVER read anywhere near the QR
+// block or the status badges: those stay on the fixed structural
+// palette this file already defined, untouched by this pass.
+
+import { OrganisationLogo } from '@/components/organisations/OrganisationLogo';
+import type { PublicOrganisationBranding } from '@/lib/organisations/branding';
 
 export const TICKET_BG = '#07080B';
 export const TICKET_BORDER = 'rgba(255,255,255,.08)';
@@ -40,14 +54,54 @@ export type TicketCardProps = {
   checkedInAt: string | null;
   status: TicketCardStatus;
   qrSvg: string;
+  // Both optional and independent: branding may be null/absent (renders
+  // exactly as before this pass, modulo the identity region below) while
+  // organisationName is the render-layer fallback for branding.name —
+  // same split lib/organisations/branding.ts's own normalisePublicOrganisationBranding
+  // comment documents (branding.name is never itself substituted).
+  branding?: PublicOrganisationBranding | null;
+  organisationName?: string;
 };
 
 export function TicketCard(props: TicketCardProps) {
   const cancelled = props.status !== 'VALID';
   const eventCancelled = props.status === 'EVENT_CANCELLED';
+  const branding = props.branding ?? null;
+  const organisationName = props.organisationName ?? '';
+  // Unconfigured (accentColor null) intentionally falls back to the
+  // existing card border colour, not a decorative violet — so the one
+  // accented element below (the divider) is pixel-identical to today's
+  // plain rgba border when no organisation has configured an accent.
+  // The website link is the only place TICKET_VIOLET_SOFT is used as a
+  // fallback, and only reachable when branding.website is itself
+  // already configured (see the identity region below).
+  const dividerColor = branding?.accentColor ?? TICKET_BORDER;
+  const linkColor = branding?.accentColor ?? TICKET_VIOLET_SOFT;
 
   return (
     <div style={{ border: `1px solid ${TICKET_BORDER}`, borderRadius: 18, background: 'rgba(255,255,255,.02)', overflow: 'hidden', boxShadow: '0 14px 40px rgba(0,0,0,.35)' }}>
+      {organisationName && (
+        <div style={{ padding: '18px 22px 0', display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+          <OrganisationLogo branding={branding} organisationName={organisationName} size={28} />
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div style={{
+              fontSize: 13, fontWeight: 600, color: TICKET_TEXT_SECONDARY,
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            }}>
+              {branding?.name ?? organisationName}
+            </div>
+            {branding?.website && (
+              <a
+                href={branding.website} target="_blank" rel="noopener noreferrer"
+                style={{ fontSize: 11, fontWeight: 600, color: linkColor, textDecoration: 'none' }}
+              >
+                Visit website →
+              </a>
+            )}
+          </div>
+        </div>
+      )}
+
       {props.eventArtworkUrl && (
         <div style={{ width: '100%', maxHeight: 320, background: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -64,7 +118,7 @@ export function TicketCard(props: TicketCardProps) {
         </div>
       </div>
 
-      <div style={{ margin: '18px 22px', borderTop: `1px dashed ${TICKET_BORDER}` }} />
+      <div style={{ margin: '18px 22px', borderTop: `1px dashed ${dividerColor}` }} />
 
       <div style={{ padding: '0 22px', display: 'flex', flexDirection: 'column', gap: 10 }}>
         <TicketField label="Attendee" value={props.attendeeName} />

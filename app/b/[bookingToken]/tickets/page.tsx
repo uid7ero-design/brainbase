@@ -104,6 +104,8 @@ export default async function BookingWalletPage({ params }: { params: Promise<Pa
               checkedInAt={tickets[0].checkedInAt}
               status={tickets[0].status}
               qrSvg={tickets[0].qrSvg}
+              branding={detail.branding}
+              organisationName={detail.organisationName}
             />
             <div style={{ display: 'flex', justifyContent: 'center', marginTop: 12 }}>
               <a
@@ -118,6 +120,8 @@ export default async function BookingWalletPage({ params }: { params: Promise<Pa
           <BookingWalletNav
             event={{ name: event.name, venue: event.venue, artworkUrl: event.artwork_url, startsAt: event.starts_at, endsAt: event.ends_at, timezone: event.timezone }}
             tickets={tickets}
+            branding={detail.branding}
+            organisationName={detail.organisationName}
           />
         )}
 

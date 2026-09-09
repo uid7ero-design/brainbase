@@ -5,6 +5,7 @@ import {
   TicketCard, TICKET_BORDER, TICKET_BORDER_SOFT, TICKET_VIOLET_SOFT,
   TICKET_TEXT_PRIMARY, TICKET_TEXT_SECONDARY, TICKET_TEXT_MUTED, type TicketCardStatus,
 } from '@/components/events/TicketCard';
+import type { PublicOrganisationBranding } from '@/lib/organisations/branding';
 
 // Client-only interactive slice of the booking wallet — everything
 // sensitive (which tickets exist, their tokens, their validity) was
@@ -55,7 +56,22 @@ const chipStyle = (active: boolean): React.CSSProperties => ({
 
 const SWIPE_THRESHOLD_PX = 40;
 
-export default function BookingWalletNav({ event, tickets }: { event: WalletEvent; tickets: WalletTicket[] }) {
+// Phase 3C: branding/organisationName are forwarded straight through to
+// the shared TicketCard below — the same object every attendee in this
+// booking gets, resolved once by page.tsx, never re-derived per
+// attendee. This component's OWN navigation chrome (Prev/Next, the
+// attendee chip strip, the jump <select>) deliberately stays on its
+// existing TICKET_* structural constants, unbranded — the smaller,
+// lower-coupling option explicitly preferred for this pass over also
+// threading an accent into the active-chip/button treatment.
+export default function BookingWalletNav({
+  event, tickets, branding, organisationName,
+}: {
+  event: WalletEvent;
+  tickets: WalletTicket[];
+  branding?: PublicOrganisationBranding | null;
+  organisationName?: string;
+}) {
   const total = tickets.length;
   const [index, setIndex] = useState(0);
   const [copied, setCopied] = useState(false);
@@ -167,6 +183,8 @@ export default function BookingWalletNav({ event, tickets }: { event: WalletEven
           checkedInAt={current.checkedInAt}
           status={current.status}
           qrSvg={current.qrSvg}
+          branding={branding}
+          organisationName={organisationName}
         />
       </div>
 
