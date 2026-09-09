@@ -118,16 +118,72 @@ describe('Organiser system-prompt safety section', () => {
   })
 })
 
-describe('no Organiser write action / side-effect surface added', () => {
-  it('the action enum in SYSTEM_RULES is unchanged — no new organiser_* action value was added', () => {
+describe('D.4.6H-era: no Organiser write action / side-effect surface added via SYSTEM_RULES\' generic action enum', () => {
+  it('the action enum in SYSTEM_RULES is unchanged — the D.4.6I write action is NOT modeled as a SYSTEM_RULES action value', () => {
     expect(routeSource).toMatch(
       /"action": "none \| open_chat \| close_chat \| open_sidebar \| close_sidebar \| open_panel \| close_panel \| navigate \| clear_chat \| show_memory \| spotify_control \| task_add \| task_complete \| task_clear \| scout_search \| calendar_create \| note_create"/,
     )
     expect(routeSource).not.toMatch(/organiser_(create|update|delete|move)/)
   })
 
-  it('no INSERT/UPDATE/DELETE against any organiser_* table appears anywhere in this file', () => {
+  it('no INSERT/UPDATE/DELETE against any organiser_* table appears anywhere in THIS file — the one D.4.6I mutation lives entirely in lib/organiser/helenaWrite.ts, never inlined into the chat route', () => {
     expect(routeSource).not.toMatch(/(INSERT INTO|UPDATE|DELETE FROM)\s+organiser_/i)
+  })
+})
+
+// ── Phase D.4.6I — guarded write/action confirmation wiring ────────────────
+
+describe('organiserActionConfirmation: trusted, non-model confirmation channel', () => {
+  it('is parsed as `unknown` at the body-destructure boundary, exactly like organiserContext — never trusted as a typed shape until validated', () => {
+    const idx = routeSource.indexOf('organiserActionConfirmation,')
+    expect(idx).toBeGreaterThan(-1)
+    const typeIdx = routeSource.indexOf('organiserActionConfirmation?: unknown;')
+    expect(typeIdx).toBeGreaterThan(idx)
+  })
+
+  it('only a string .token field is ever extracted from it — no other field, and never assigned straight through', () => {
+    expect(routeSource).toMatch(
+      /typeof \(organiserActionConfirmation as \{ token\?: unknown \}\)\.token === 'string'/,
+    )
+  })
+
+  it('the extracted token is threaded into callClaude as its own argument, never merged into the messages array or any tool input', () => {
+    const idx = routeSource.indexOf('const result = await callClaude(')
+    const block = routeSource.slice(idx, idx + 400)
+    expect(block).toMatch(/organiserActionConfirmationToken/)
+  })
+
+  it('no tool input_schema field for a confirmation token exists in THIS file (the model has no way to author one) — helenaTools.ts\'s own schemas are the authoritative source and are covered by organiserHelenaToolsExecution.test.ts', () => {
+    expect(routeSource).not.toMatch(/confirmation_token[\s\S]*type[\s\S]*string/)
+  })
+})
+
+describe('one-shot mutation consumption across the 4-iteration tool loop', () => {
+  it('the confirmation token is captured into a mutable local BEFORE the loop, not read fresh from the outer parameter on every iteration', () => {
+    expect(routeSource).toMatch(/let remainingConfirmationToken = organiserActionConfirmationToken;/)
+  })
+
+  it('the capture-and-clear of the token happens synchronously, before the first await inside each tool_use block\'s handling — never inside the async tool-execution body itself', () => {
+    const idx = routeSource.indexOf('toolUseBlocks.map((block)')
+    expect(idx).toBeGreaterThan(-1)
+    const block = routeSource.slice(idx, idx + 1200)
+    expect(block).toMatch(/let confirmationTokenForThisCall: string \| undefined;/)
+    expect(block).toMatch(/remainingConfirmationToken = undefined;/)
+    // The clear must appear BEFORE the async IIFE that does the actual
+    // (possibly awaited) tool execution — proving it is not itself awaited.
+    const clearIdx = block.indexOf('remainingConfirmationToken = undefined;')
+    const asyncIdx = block.indexOf('return (async ()')
+    expect(clearIdx).toBeGreaterThan(-1)
+    expect(asyncIdx).toBeGreaterThan(clearIdx)
+  })
+
+  it('only propose_organiser_comment calls ever receive the captured token — every other tool name is unaffected', () => {
+    expect(routeSource).toMatch(/block\.name === 'propose_organiser_comment' && remainingConfirmationToken/)
+  })
+
+  it('the captured-or-undefined token is passed as confirmationToken into executeOrganiserTool\'s contextDefaults — never the raw outer token', () => {
+    const idx = routeSource.indexOf('confirmationToken: confirmationTokenForThisCall,')
+    expect(idx).toBeGreaterThan(-1)
   })
 })
 

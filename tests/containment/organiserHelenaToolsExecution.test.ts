@@ -70,10 +70,10 @@ const SOURCE = fs.readFileSync(path.resolve(__dirname, '../../lib/organiser/hele
 // ── Tool schemas ─────────────────────────────────────────────────────────────
 
 describe('buildOrganiserTools — schemas', () => {
-  it('returns exactly the 4 MVP tools, no more, no less', () => {
+  it('returns exactly the 4 read tools plus the 1 D.4.6I write/action tool — 5 total, no more, no less', () => {
     const tools = buildOrganiserTools()
     expect(tools.map(t => t.name).sort()).toEqual([...ORGANISER_TOOL_NAMES].sort())
-    expect(tools).toHaveLength(4)
+    expect(tools).toHaveLength(5)
   })
 
   it('no tool schema includes an organisationId/organisation_id field anywhere', () => {
@@ -131,10 +131,13 @@ describe('buildOrganiserTools — schemas', () => {
 })
 
 describe('isOrganiserToolName', () => {
-  it('recognises exactly the 4 tool names, nothing else', () => {
+  it('recognises exactly the 5 tool names, nothing else', () => {
+    expect(ORGANISER_TOOL_NAMES).toHaveLength(5)
     for (const n of ORGANISER_TOOL_NAMES) expect(isOrganiserToolName(n)).toBe(true)
     expect(isOrganiserToolName('query_database')).toBe(false)
     expect(isOrganiserToolName('delete_organiser_item')).toBe(false)
+    expect(isOrganiserToolName('update_organiser_item')).toBe(false)
+    expect(isOrganiserToolName('move_organiser_item')).toBe(false)
     expect(isOrganiserToolName('')).toBe(false)
   })
 })
@@ -658,8 +661,8 @@ describe('ORGANISER_SAFETY_PROMPT', () => {
     expect(ORGANISER_SAFETY_PROMPT).toMatch(/UTC/)
   })
 
-  it('is compact — under 1500 characters, so it does not meaningfully bloat every Helena request', () => {
-    expect(ORGANISER_SAFETY_PROMPT.length).toBeLessThan(1500)
+  it('is compact — under 2000 characters, so it does not meaningfully bloat every Helena request (raised from 1500 in D.4.6I to fit the one new guarded write action\'s rules; trimmed to the minimum necessary rather than left to grow unchecked)', () => {
+    expect(ORGANISER_SAFETY_PROMPT.length).toBeLessThan(2000)
   })
 })
 
@@ -754,16 +757,157 @@ describe('executeOrganiserTool — context-default board_id/item_id (Phase D.4.6
   })
 })
 
+// ── D.4.6I — executeOrganiserTool: propose_organiser_comment dispatch ──────
+//
+// Real integration through the actual proposeOrExecuteOrganiserComment
+// (lib/organiser/helenaWrite.ts) — only sql/authorizeOrganiserRequest are
+// mocked, exactly matching this file's own established philosophy for the
+// four read tools above.
+
+const ITEM_B = '44444444-4444-4444-4444-444444444444'
+const MANAGER_SESSION = { userId: 'u1', organisationId: 'org-a', role: 'manager', name: 'Manager Mia' }
+
+describe('executeOrganiserTool — propose_organiser_comment — authorization', () => {
+  it('uses the stricter manager-floor write authorization, not the viewer-floor read authorization', async () => {
+    authorizeOrganiserRequestMock.mockResolvedValueOnce({ ok: true, session: MANAGER_SESSION })
+    sqlResult = [{ id: ITEM_A, name: 'Item A' }]
+    await executeOrganiserTool('propose_organiser_comment', { item_id: ITEM_A, body: 'hi' })
+    expect(authorizeOrganiserRequestMock).toHaveBeenCalledWith('manager')
+  })
+
+  it('viewer role -> generic denial, never reaches sql', async () => {
+    authorizeOrganiserRequestMock.mockResolvedValueOnce({ ok: false, response: new Response(null, { status: 403 }) })
+    const result = JSON.parse(await executeOrganiserTool('propose_organiser_comment', { item_id: ITEM_A, body: 'hi' }))
+    expect(result.error).toBeTruthy()
+    expect(sqlCalls).toHaveLength(0)
+  })
+
+  it('the denial string is the same generic denial used by the read tools — no extra detail leaked for the write tool', async () => {
+    authorizeOrganiserRequestMock.mockResolvedValueOnce({ ok: false, response: new Response(null, { status: 403 }) })
+    const writeResult = JSON.parse(await executeOrganiserTool('propose_organiser_comment', { item_id: ITEM_A, body: 'hi' }))
+    authorizeOrganiserRequestMock.mockResolvedValueOnce({ ok: false, response: new Response(null, { status: 403 }) })
+    const readResult = JSON.parse(await executeOrganiserTool('list_organiser_boards', {}))
+    expect(writeResult.error).toBe(readResult.error)
+  })
+})
+
+describe('executeOrganiserTool — propose_organiser_comment — propose (no confirmation)', () => {
+  beforeEach(() => {
+    authorizeOrganiserRequestMock.mockResolvedValue({ ok: true, session: MANAGER_SESSION })
+  })
+
+  it('a plain call with no contextDefaults.confirmationToken always proposes, never mutates', async () => {
+    sqlResult = [{ id: ITEM_A, name: 'Item A' }]
+    const result = JSON.parse(await executeOrganiserTool('propose_organiser_comment', { item_id: ITEM_A, body: 'hi' }))
+    expect(result.status).toBe('proposed')
+    expect(result.confirmation_token).toBeTruthy()
+    expect(sqlCalls.some(c => /INSERT/i.test(c.text))).toBe(false)
+  })
+
+  it('a model-supplied `confirmation_token` field in the tool input is completely ignored — there is no such field in the schema and the executor never reads block.input.confirmation_token', async () => {
+    sqlResult = [{ id: ITEM_A, name: 'Item A' }]
+    const result = JSON.parse(
+      await executeOrganiserTool('propose_organiser_comment', {
+        item_id: ITEM_A, body: 'hi',
+        confirmation_token: 'the-model-just-made-this-up',
+      }),
+    )
+    // Still proposes — the fabricated field had zero effect.
+    expect(result.status).toBe('proposed')
+    expect(sqlCalls.some(c => /INSERT/i.test(c.text))).toBe(false)
+  })
+
+  it('malformed item_id -> generic error, no sql mutation', async () => {
+    const result = JSON.parse(await executeOrganiserTool('propose_organiser_comment', { item_id: 'not-a-uuid', body: 'hi' }))
+    expect(result.error).toBeTruthy()
+  })
+
+  it('wrong-tenant item_id (well-formed UUID, no matching row) -> generic error, no existence side channel beyond what proposeOrExecuteOrganiserComment already guarantees', async () => {
+    sqlResult = []
+    const result = JSON.parse(await executeOrganiserTool('propose_organiser_comment', { item_id: ITEM_A, body: 'hi' }))
+    expect(result.error).toBeTruthy()
+  })
+})
+
+describe('executeOrganiserTool — propose_organiser_comment — confirm+execute', () => {
+  beforeEach(() => {
+    authorizeOrganiserRequestMock.mockResolvedValue({ ok: true, session: MANAGER_SESSION })
+  })
+
+  it('contextDefaults.confirmationToken (the trusted channel) drives execution — a valid token posts exactly once', async () => {
+    sqlResult = [{ id: ITEM_A, name: 'Item A' }]
+    const proposeResult = JSON.parse(await executeOrganiserTool('propose_organiser_comment', { item_id: ITEM_A, body: 'Hello' }))
+    sqlCalls = []
+    sqlResultQueue = [[{ id: ITEM_A, board_id: 'board-1' }], [{ id: 'u1', body: 'Hello', created_at: 't' }]]
+
+    const execResult = JSON.parse(
+      await executeOrganiserTool('propose_organiser_comment', { item_id: ITEM_A, body: 'Hello' }, {
+        confirmationToken: proposeResult.confirmation_token,
+      }),
+    )
+    expect(execResult.status).toBe('posted')
+    expect(sqlCalls.filter(c => /INSERT/i.test(c.text))).toHaveLength(1)
+  })
+
+  it('altered item_id/body in the SAME confirming call are ignored — only the originally-confirmed payload is ever posted (proven at this dispatch layer too, not just in helenaWrite.ts directly)', async () => {
+    sqlResult = [{ id: ITEM_A, name: 'Item A' }]
+    const proposeResult = JSON.parse(await executeOrganiserTool('propose_organiser_comment', { item_id: ITEM_A, body: 'ORIGINAL confirmed text' }))
+    sqlCalls = []
+    sqlResultQueue = [[{ id: ITEM_A, board_id: 'board-1' }], [{ id: 'u1', body: 'ORIGINAL confirmed text', created_at: 't' }]]
+
+    await executeOrganiserTool('propose_organiser_comment', { item_id: ITEM_B, body: 'ALTERED text the model tried to substitute' }, {
+      confirmationToken: proposeResult.confirmation_token,
+    })
+
+    const insertCall = sqlCalls.find(c => /INSERT INTO organiser_item_updates/.test(c.text))!
+    expect(insertCall.values).toContain('ORIGINAL confirmed text')
+    expect(insertCall.values).not.toContain('ALTERED text the model tried to substitute')
+  })
+
+  it('a bogus/expired confirmationToken -> generic error, no mutation', async () => {
+    const result = JSON.parse(
+      await executeOrganiserTool('propose_organiser_comment', { item_id: ITEM_A, body: 'hi' }, {
+        confirmationToken: 'not-a-real-token',
+      }),
+    )
+    expect(result.error).toBeTruthy()
+    expect(sqlCalls.some(c => /INSERT/i.test(c.text))).toBe(false)
+  })
+
+  it('the tool_result string for a successful post never contains organisation_id', async () => {
+    sqlResult = [{ id: ITEM_A, name: 'Item A' }]
+    const proposeResult = JSON.parse(await executeOrganiserTool('propose_organiser_comment', { item_id: ITEM_A, body: 'Hello' }))
+    sqlResultQueue = [[{ id: ITEM_A, board_id: 'board-1' }], [{ id: 'u1', body: 'Hello', created_at: 't' }]]
+    const raw = await executeOrganiserTool('propose_organiser_comment', { item_id: ITEM_A, body: 'Hello' }, {
+      confirmationToken: proposeResult.confirmation_token,
+    })
+    expect(raw).not.toContain('organisation_id')
+    expect(raw).not.toContain('org-a')
+  })
+})
+
 // ── No write path exists anywhere in this file ──────────────────────────────
 
-describe('no Organiser write path exists in this file (source-shape invariant)', () => {
-  it('no INSERT/UPDATE/DELETE SQL, and no import of any Organiser mutation route', () => {
+// Phase D.4.6I updates this block's own scope: helenaTools.ts now
+// legitimately imports the ONE sanctioned write helper
+// (proposeOrExecuteOrganiserComment) from the separate, dedicated
+// lib/organiser/helenaWrite.ts module — see organiserHelenaWrite.test.ts
+// for that module's own comprehensive coverage. What this block still
+// proves, and must keep proving, is narrower but just as load-bearing:
+// helenaTools.ts ITSELF contains no raw mutation SQL of its own (all
+// mutation logic lives behind the one write helper, never inlined here),
+// and no OTHER create/update/delete/move helper has been imported —
+// exactly one write capability, nothing broader.
+describe('no raw mutation SQL in this file, and no write helper beyond the one sanctioned action (source-shape invariant)', () => {
+  it('no INSERT/UPDATE/DELETE SQL statement, and no import of any Organiser mutation ROUTE (routes are HTTP handlers, never called directly from here)', () => {
     expect(SOURCE).not.toMatch(/\b(INSERT|UPDATE|DELETE|DROP)\b/)
     expect(SOURCE).not.toMatch(/app\/api\/organiser\/(boards|groups|items)\/.*route/)
   })
 
-  it('only imports read-only D.4.6B exports, never anything mutation-shaped', () => {
+  it('imports read-only D.4.6B exports from helenaRead, and exactly one write helper from helenaWrite — never a broader create/update/delete/move helper', () => {
     expect(SOURCE).toMatch(/from '\.\/helenaRead'/)
-    expect(SOURCE).not.toMatch(/createOrganiser|updateOrganiser|deleteOrganiser|moveOrganiser/)
+    expect(SOURCE).toMatch(/from '\.\/helenaWrite'/)
+    expect(SOURCE).toMatch(/proposeOrExecuteOrganiserComment/)
+    expect(SOURCE).not.toMatch(/createOrganiserItem|updateOrganiserItem|deleteOrganiserItem|moveOrganiserItem|createOrganiserBoard|deleteOrganiserBoard/)
   })
 })
