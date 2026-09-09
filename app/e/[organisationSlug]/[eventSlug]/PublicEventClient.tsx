@@ -255,7 +255,7 @@ export default function PublicEventClient({
   const [attendeeAnswers, setAttendeeAnswers] = useState<Record<string, unknown>[]>([{}]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [confirmation, setConfirmation] = useState<{ reference: string; quantity: number; tickets: { attendee_name: string; ticket_token: string }[] } | null>(null);
+  const [confirmation, setConfirmation] = useState<{ reference: string; quantity: number; tickets: { attendee_name: string; ticket_token: string }[]; bookingToken?: string } | null>(null);
 
   const selectedTicketType = ticketTypes.find(t => t.id === ticketTypeId);
   const selectedSession = sessions.find(s => s.id === sessionId);
@@ -366,7 +366,7 @@ export default function PublicEventClient({
         window.location.href = body.checkout_url;
         return; // leave `submitting` true — the page is navigating away
       }
-      setConfirmation({ reference: body.confirmation_reference, quantity: body.quantity, tickets: body.tickets ?? [] });
+      setConfirmation({ reference: body.confirmation_reference, quantity: body.quantity, tickets: body.tickets ?? [], bookingToken: body.booking_token ?? undefined });
       setSubmitting(false);
     } catch {
       setError(`${paid ? 'Checkout' : 'Registration'} failed. Please try again.`);
@@ -406,6 +406,16 @@ export default function PublicEventClient({
               <div style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 13, color: VIOLET_SOFT, wordBreak: 'break-all' }}>{confirmation.reference}</div>
             </div>
 
+            {confirmation.tickets.length > 1 && confirmation.bookingToken && (
+              <a
+                href={`/b/${confirmation.bookingToken}/tickets`} target="_blank" rel="noopener noreferrer"
+                className="bb-event-cta"
+                style={{ textDecoration: 'none', marginBottom: 20 }}
+              >
+                View all tickets →
+              </a>
+            )}
+
             {confirmation.tickets.length > 0 && (
               <div style={{ textAlign: 'left', marginBottom: 20 }}>
                 <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: TEXT_MUTED, marginBottom: 8 }}>
@@ -430,7 +440,7 @@ export default function PublicEventClient({
             )}
 
             <p style={{ fontSize: 12, color: TEXT_MUTED, lineHeight: 1.6, margin: 0 }}>
-              Keep this confirmation reference for your records. No email has been sent — bookmark this page or save your ticket link{confirmation.tickets.length === 1 ? '' : 's'} above.
+              Keep this confirmation reference for your records. No email has been sent — bookmark this page or save the link{confirmation.tickets.length === 1 ? '' : 's'} above.
             </p>
           </div>
         </main>
