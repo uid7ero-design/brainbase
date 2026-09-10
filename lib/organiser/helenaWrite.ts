@@ -1,6 +1,6 @@
 import 'server-only';
 import { randomUUID } from 'crypto';
-import { SignJWT, jwtVerify } from 'jose';
+import { SignJWT, jwtVerify, errors as joseErrors } from 'jose';
 import sql from '@/lib/db';
 import { authorizeOrganiserRequest } from './authorize';
 
@@ -114,37 +114,86 @@ async function signActionToken(payload: ActionTokenPayload): Promise<string> {
     .sign(secret);
 }
 
+type VerifyActionTokenResult =
+  | { ok: true; itemId: string; body: string; jti: string; exp: number }
+  // Phase D.4.6L — 'expired' is split out from every other verification
+  // failure (wrong secret, malformed token, mismatched claim, malformed
+  // jti) so the caller can narrate expiry distinctly ("please ask again")
+  // from a genuinely invalid/tampered token, without narrowing security:
+  // jose's own jwtVerify() already rejects an expired token outright
+  // (JWTExpired is thrown only for a token whose SIGNATURE verified but
+  // whose exp claim has passed) — this never accepts an expired token, it
+  // only labels the rejection more specifically for display purposes.
+  | { ok: false; reason: 'expired' | 'invalid' };
+
 /** Verifies a confirmation token against the CURRENT trusted session and
  *  the specific action type this call site expects. Returns the decoded
  *  itemId/body/jti/exp ONLY when every check passes: valid signature,
  *  correct purpose, correct actionType, unexpired, well-formed jti, and
  *  organisationId/userId match the caller's own current session exactly
  *  (never the token's own claims alone — a token is worthless outside the
- *  exact session it was minted for). Never throws; any failure (malformed
- *  token, wrong secret, expired, mismatched claim, malformed jti) returns
- *  null uniformly — this still collapses "expired" and "invalid signature"
- *  into one outcome, unchanged from before D.4.6K; the new outcome this
- *  phase adds (already_used_confirmation) is determined later, by the
- *  ledger, only once a token has passed every check here. */
+ *  exact session it was minted for). Never throws; every failure other than
+ *  expiry (malformed token, wrong secret, mismatched claim, malformed jti)
+ *  still collapses into the single 'invalid' reason, unchanged from before
+ *  D.4.6K/L; the new outcome D.4.6K adds (already_used_confirmation) is
+ *  determined later, by the ledger, only once a token has passed every
+ *  check here. */
 async function verifyActionToken(
   token: string,
   expected: { actionType: 'post_comment'; organisationId: string; userId: string },
-): Promise<{ itemId: string; body: string; jti: string; exp: number } | null> {
+): Promise<VerifyActionTokenResult> {
   try {
     const { payload } = await jwtVerify(token, secret, { algorithms: ['HS256'] });
     const p = payload as unknown as ActionTokenPayload;
-    if (p.purpose !== TOKEN_PURPOSE) return null;
-    if (p.actionType !== expected.actionType) return null;
-    if (p.organisationId !== expected.organisationId) return null;
-    if (p.userId !== expected.userId) return null;
-    if (typeof p.itemId !== 'string' || !UUID_RE.test(p.itemId)) return null;
-    if (typeof p.body !== 'string' || p.body.length === 0) return null;
-    if (typeof p.jti !== 'string' || !UUID_RE.test(p.jti)) return null;
+    if (p.purpose !== TOKEN_PURPOSE) return { ok: false, reason: 'invalid' };
+    if (p.actionType !== expected.actionType) return { ok: false, reason: 'invalid' };
+    if (p.organisationId !== expected.organisationId) return { ok: false, reason: 'invalid' };
+    if (p.userId !== expected.userId) return { ok: false, reason: 'invalid' };
+    if (typeof p.itemId !== 'string' || !UUID_RE.test(p.itemId)) return { ok: false, reason: 'invalid' };
+    if (typeof p.body !== 'string' || p.body.length === 0) return { ok: false, reason: 'invalid' };
+    if (typeof p.jti !== 'string' || !UUID_RE.test(p.jti)) return { ok: false, reason: 'invalid' };
     const exp = (payload as { exp?: number }).exp;
-    if (typeof exp !== 'number') return null;
-    return { itemId: p.itemId, body: p.body, jti: p.jti, exp };
-  } catch {
-    return null;
+    if (typeof exp !== 'number') return { ok: false, reason: 'invalid' };
+    return { ok: true, itemId: p.itemId, body: p.body, jti: p.jti, exp };
+  } catch (err) {
+    if (err instanceof joseErrors.JWTExpired) return { ok: false, reason: 'expired' };
+    return { ok: false, reason: 'invalid' };
+  }
+}
+
+const CLEANUP_BATCH_LIMIT = 500;
+
+/**
+ * Phase D.4.6L — best-effort, bounded pruning of long-expired ledger rows.
+ * Deliberately decoupled from the propose/confirm mutation paths: never
+ * part of the confirm+execute atomic statement (that statement's only job
+ * is the single write action itself — see its own header), and any error
+ * here is swallowed after one bounded log line so cleanup can never turn a
+ * valid action into a failure.
+ *
+ * Safety margin is 1 day past expires_at — 720x the 2-minute token TTL —
+ * so no row eligible for deletion can still be relevant to replay exclusion
+ * (a token's own expiry, enforced independently by jwtVerify, already makes
+ * it unusable long before its ledger row becomes eligible here). The
+ * predicate reuses step 44's own idx_organiser_action_confirmations_expires_at
+ * index — no new index required. The batch is bounded (LIMIT) so this is
+ * always a small, fast statement regardless of ledger size.
+ */
+export async function pruneExpiredConfirmationsBestEffort(): Promise<void> {
+  try {
+    await sql`
+      DELETE FROM organiser_action_confirmations
+      WHERE expires_at < NOW() - INTERVAL '1 day'
+      AND jti IN (
+        SELECT jti
+        FROM organiser_action_confirmations
+        WHERE expires_at < NOW() - INTERVAL '1 day'
+        ORDER BY expires_at
+        LIMIT ${CLEANUP_BATCH_LIMIT}
+      )
+    `;
+  } catch (err) {
+    console.error('[Helena][Organiser confirmation ledger cleanup]', err);
   }
 }
 
@@ -167,13 +216,18 @@ export type ProposeOrExecuteCommentResult =
         | 'item_not_found'
         | 'invalid_body'
         | 'invalid_confirmation'
+        // Phase D.4.6L — the token's signature/session/claims all verified,
+        // but its exp claim has passed. Split out from invalid_confirmation
+        // so the caller can narrate "please ask again" distinctly from a
+        // genuinely tampered/malformed token — see verifyActionToken's own
+        // header for why this doesn't weaken the security check itself.
+        | 'expired_confirmation'
         // Phase D.4.6K — the token verified (signature/expiry/session all
         // valid) but its jti was already present in the durable ledger:
         // this exact confirmation has already executed once, in an earlier
-        // request. Distinct from invalid_confirmation so a future caller
-        // could message it differently if ever needed; today both surface
-        // through the same generic, bounded error to the model/user (see
-        // helenaTools.ts's GENERIC_ERROR) — no sensitive detail either way.
+        // request. Distinct from invalid_confirmation so the caller can
+        // message it differently (D.4.6L: a deterministic, safe non-success
+        // status — never GENERIC_ERROR).
         | 'already_used_confirmation';
     };
 
@@ -216,7 +270,9 @@ export async function proposeOrExecuteOrganiserComment(
       organisationId,
       userId,
     });
-    if (!verified) return { ok: false, reason: 'invalid_confirmation' };
+    if (!verified.ok) {
+      return { ok: false, reason: verified.reason === 'expired' ? 'expired_confirmation' : 'invalid_confirmation' };
+    }
 
     // Phase D.4.6K — ONE atomic statement performs, in order, all of:
     //   1. look up the target item (target_item) — read only, no lock held
@@ -317,6 +373,14 @@ export async function proposeOrExecuteOrganiserComment(
 
   const body = params.body.trim();
   if (body.length === 0 || body.length > MAX_BODY_LENGTH) return { ok: false, reason: 'invalid_body' };
+
+  // Phase D.4.6L — opportunistic ledger maintenance, once per validated
+  // propose call (deliberately after the zero-sql-for-invalid-input checks
+  // above, so malformed input still never touches the database at all).
+  // Never coupled to the confirm+execute atomic statement, and its outcome
+  // (including any failure) never affects this proposal — see
+  // pruneExpiredConfirmationsBestEffort's own header.
+  await pruneExpiredConfirmationsBestEffort();
 
   const itemRows = await sql`
     SELECT id, name FROM organiser_items

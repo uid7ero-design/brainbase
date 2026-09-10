@@ -307,7 +307,7 @@ export async function executeOrganiserTool(
   // trusted to write to it.
   if (name === 'propose_organiser_comment') {
     const writeAuth = await authorizeHelenaOrganiserWrite();
-    if (!writeAuth.ok) return JSON.stringify({ error: GENERIC_DENIAL });
+    if (!writeAuth.ok) return JSON.stringify({ status: 'unauthorized', error: GENERIC_DENIAL });
     const { organisationId, userId, actorName } = writeAuth;
 
     try {
@@ -322,7 +322,23 @@ export async function executeOrganiserTool(
         confirmationToken: contextDefaults?.confirmationToken,
       });
 
-      if (!result.ok) return JSON.stringify({ error: GENERIC_ERROR });
+      if (!result.ok) {
+        // Phase D.4.6L — every confirm+execute outcome gets its OWN status
+        // string (never collapsed into one generic error) so the chat route
+        // can deterministically decide the user-facing wording for this
+        // exact backend outcome, instead of leaving that decision to
+        // unconstrained model narration (see app/api/chat/route.ts's own
+        // ORGANISER_CONFIRMATION_OUTCOME_STATUSES handling). `error` is kept
+        // as the same bounded, generic sentence as before — nothing new is
+        // exposed, only a plain enum discriminant is added alongside it.
+        const status: string =
+          result.reason === 'item_not_found' ? 'item_not_found'
+          : result.reason === 'already_used_confirmation' ? 'already_used_confirmation'
+          : result.reason === 'expired_confirmation' ? 'expired_confirmation'
+          : result.reason === 'invalid_confirmation' ? 'invalid_confirmation'
+          : 'failed'; // invalid_item_id / invalid_body — propose-time-only reasons
+        return JSON.stringify({ status, error: GENERIC_ERROR });
+      }
 
       if (result.mode === 'proposed') {
         return JSON.stringify({
@@ -335,11 +351,12 @@ export async function executeOrganiserTool(
 
       return JSON.stringify({
         status: 'posted',
+        action_type: 'post_comment',
         comment: result.comment,
       });
     } catch (err) {
       console.error(`[Helena][Organiser tool: ${name}]`, err);
-      return JSON.stringify({ error: GENERIC_ERROR });
+      return JSON.stringify({ status: 'failed', error: GENERIC_ERROR });
     }
   }
 

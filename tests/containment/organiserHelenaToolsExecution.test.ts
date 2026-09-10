@@ -905,6 +905,96 @@ describe('executeOrganiserTool — propose_organiser_comment — confirm+execute
   })
 })
 
+// ── Phase D.4.6L — deterministic status per confirm+execute outcome ────────
+//
+// Before this phase, every ok:false outcome (whatever the underlying
+// reason) collapsed to the exact same { error: GENERIC_ERROR } shape, with
+// no discriminant a caller could switch on. app/api/chat/route.ts uses the
+// `status` field added here to decide the user-facing wording deterministically
+// — these tests prove each backend reason maps to its OWN distinct status,
+// never the old one-size-fits-all shape, while the safe generic `error` text
+// itself is unchanged (no new detail leaked).
+describe('executeOrganiserTool — propose_organiser_comment — D.4.6L deterministic outcome statuses', () => {
+  beforeEach(() => {
+    authorizeOrganiserRequestMock.mockResolvedValue({ ok: true, session: MANAGER_SESSION })
+  })
+
+  it('already_used_confirmation reason -> status "already_used_confirmation", error still the same generic sentence', async () => {
+    sqlResult = [{ id: ITEM_A, name: 'Item A' }]
+    const proposeResult = JSON.parse(await executeOrganiserTool('propose_organiser_comment', { item_id: ITEM_A, body: 'Hello' }))
+    sqlResultQueue = [[{ item_found: 1, was_consumed: 0, comment_id: null, comment_body: null, comment_created_at: null }]]
+    const result = JSON.parse(
+      await executeOrganiserTool('propose_organiser_comment', { item_id: ITEM_A, body: 'Hello' }, {
+        confirmationToken: proposeResult.confirmation_token,
+      }),
+    )
+    expect(result.status).toBe('already_used_confirmation')
+    expect(result.error).toBeTruthy()
+    expect(result.status).not.toBe('posted')
+  })
+
+  it('item_not_found reason (target deleted between propose and confirm) -> status "item_not_found"', async () => {
+    sqlResult = [{ id: ITEM_A, name: 'Item A' }]
+    const proposeResult = JSON.parse(await executeOrganiserTool('propose_organiser_comment', { item_id: ITEM_A, body: 'Hello' }))
+    sqlResultQueue = [[{ item_found: 0, was_consumed: 0, comment_id: null, comment_body: null, comment_created_at: null }]]
+    const result = JSON.parse(
+      await executeOrganiserTool('propose_organiser_comment', { item_id: ITEM_A, body: 'Hello' }, {
+        confirmationToken: proposeResult.confirmation_token,
+      }),
+    )
+    expect(result.status).toBe('item_not_found')
+  })
+
+  it('a bogus confirmationToken -> status "invalid_confirmation", never "already_used_confirmation" or "posted"', async () => {
+    const result = JSON.parse(
+      await executeOrganiserTool('propose_organiser_comment', { item_id: ITEM_A, body: 'hi' }, {
+        confirmationToken: 'not-a-real-token',
+      }),
+    )
+    expect(result.status).toBe('invalid_confirmation')
+  })
+
+  it('an expired confirmationToken -> status "expired_confirmation", distinct from "invalid_confirmation"', async () => {
+    vi.useFakeTimers()
+    try {
+      sqlResult = [{ id: ITEM_A, name: 'Item A' }]
+      const proposeResult = JSON.parse(await executeOrganiserTool('propose_organiser_comment', { item_id: ITEM_A, body: 'Hello' }))
+      vi.advanceTimersByTime(3 * 60 * 1000)
+      const result = JSON.parse(
+        await executeOrganiserTool('propose_organiser_comment', { item_id: ITEM_A, body: 'Hello' }, {
+          confirmationToken: proposeResult.confirmation_token,
+        }),
+      )
+      expect(result.status).toBe('expired_confirmation')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('viewer role attempting confirm+execute -> status "unauthorized", same generic denial text as the read tools', async () => {
+    authorizeOrganiserRequestMock.mockResolvedValueOnce({ ok: false, response: new Response(null, { status: 403 }) })
+    const result = JSON.parse(
+      await executeOrganiserTool('propose_organiser_comment', { item_id: ITEM_A, body: 'hi' }, {
+        confirmationToken: 'irrelevant-not-checked-before-auth',
+      }),
+    )
+    expect(result.status).toBe('unauthorized')
+  })
+
+  it('none of the failure statuses ever equals "posted", and "posted" only ever appears on a genuine executed mutation', async () => {
+    sqlResult = [{ id: ITEM_A, name: 'Item A' }]
+    const proposeResult = JSON.parse(await executeOrganiserTool('propose_organiser_comment', { item_id: ITEM_A, body: 'Hello' }))
+    sqlResultQueue = [[{ item_found: 1, was_consumed: 1, comment_id: 'u1', comment_body: 'Hello', comment_created_at: 't' }]]
+    const result = JSON.parse(
+      await executeOrganiserTool('propose_organiser_comment', { item_id: ITEM_A, body: 'Hello' }, {
+        confirmationToken: proposeResult.confirmation_token,
+      }),
+    )
+    expect(result.status).toBe('posted')
+    expect(sqlCalls.filter(c => /INSERT/i.test(c.text))).toHaveLength(1)
+  })
+})
+
 // ── No write path exists anywhere in this file ──────────────────────────────
 
 // Phase D.4.6I updates this block's own scope: helenaTools.ts now

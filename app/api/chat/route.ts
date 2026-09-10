@@ -215,6 +215,33 @@ export type PendingOrganiserAction = {
   proposal: { item_id: string; item_name: string; body: string };
 } | null;
 
+// Phase D.4.6L — backend execution truth, not free-form model narration, is
+// authoritative for the user-facing wording of a RESOLVED Organiser
+// confirmation attempt: a request whose organiserActionConfirmation.token
+// was actually consumed by propose_organiser_comment this turn (see
+// confirmationTokenForThisCall below — the one-shot-consumption guard that
+// already made "at most one execution per token per request" true is also
+// what identifies which single tool_use block, if any, this applies to).
+// Every status executeOrganiserTool can return for THAT call is mapped here
+// to one fixed, safe sentence; when one matches, the model is never
+// consulted for this response — see the loop's own use of
+// ORGANISER_CONFIRMATION_OUTCOME_TEXT for the short-circuit. This makes it
+// structurally impossible for the model to narrate a successful execution
+// as a failure, or a failure as a success, for this one outcome. The
+// 'proposed' status is deliberately absent: a fresh proposal (no token
+// consumed) still gets ordinary model narration, unchanged (Step 5 — this
+// determinism applies only to a resolved confirm+execute outcome, never to
+// normal chat, reads, or proposals).
+const ORGANISER_CONFIRMATION_OUTCOME_TEXT: Record<string, string> = {
+  posted: "Done — I've posted that comment.",
+  already_used_confirmation: 'That confirmation has already been used, so nothing was posted just now.',
+  expired_confirmation: 'That confirmation has expired. Please ask me again to post the comment.',
+  invalid_confirmation: "I couldn't verify that confirmation, so nothing was posted. Please ask me again.",
+  unauthorized: "I'm not able to post that — this account doesn't have permission to make Organiser changes.",
+  item_not_found: "I couldn't post that — the item it was meant for is no longer available.",
+  failed: "I wasn't able to post that comment. Please try again.",
+};
+
 // ─── Analysis helpers ─────────────────────────────────────────────────────────
 
 function extractTables(rawSql: string): string[] {
@@ -474,6 +501,12 @@ async function callClaude(
   // propose_organiser_comment returns a fresh proposal; cleared to null if
   // this same request later executes it successfully (status "posted").
   let pendingOrganiserAction: PendingOrganiserAction = null;
+  // Phase D.4.6L — set only when this request's confirmed
+  // propose_organiser_comment call returned a status in
+  // ORGANISER_CONFIRMATION_OUTCOME_TEXT; once set, the loop returns this
+  // fixed text immediately instead of feeding tool results back to the
+  // model for further narration.
+  let organiserConfirmationOutcomeText: string | null = null;
 
   for (let iter = 0; iter < 4; iter++) {
     const resp = await anthropicClient.messages.create({
@@ -552,6 +585,18 @@ async function callClaude(
               } else if (parsed.status === 'posted') {
                 pendingOrganiserAction = null;
               }
+              // Phase D.4.6L — this exact call is the one that consumed the
+              // trusted confirmation token (see confirmationTokenForThisCall
+              // above), so its status is a RESOLVED confirm+execute outcome,
+              // never a fresh proposal. Fix the user-facing wording here,
+              // deterministically, from backend truth alone.
+              if (
+                confirmationTokenForThisCall &&
+                parsed.status &&
+                Object.prototype.hasOwnProperty.call(ORGANISER_CONFIRMATION_OUTCOME_TEXT, parsed.status)
+              ) {
+                organiserConfirmationOutcomeText = ORGANISER_CONFIRMATION_OUTCOME_TEXT[parsed.status];
+              }
             } catch {
               // Malformed content is unreachable given executeOrganiserTool's
               // own contract, but never let a parse failure here affect the
@@ -577,6 +622,16 @@ async function callClaude(
         })();
       }),
     );
+
+    // Phase D.4.6L — a resolved Organiser confirmation outcome short-circuits
+    // here, returning the fixed text immediately instead of feeding tool
+    // results back to the model for another iteration. This bypasses model
+    // reinterpretation entirely for this one response; every other tool
+    // result (reads, fresh proposals, query_database, etc.) continues
+    // through the normal loop below, unchanged.
+    if (organiserConfirmationOutcomeText !== null) {
+      return { text: organiserConfirmationOutcomeText, analysis: null, pendingOrganiserAction: null };
+    }
 
     msgs = [
       ...msgs,
