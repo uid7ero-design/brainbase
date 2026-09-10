@@ -44,16 +44,15 @@ function clientRoleGte(role: string | undefined, min: string): boolean {
   return i !== -1 && m !== -1 && i >= m;
 }
 
-// Phase C6.3 — foundation only. DRAFT is the only status this page ever
-// renders an edit affordance for (header fields or lines) — PENDING_APPROVAL/
-// APPROVED/ISSUED/CANCELLED all render strictly read-only, with no
-// submit/approve/return/issue/cancel controls anywhere on this page; those
-// are explicitly out of scope for C6.3 (C6.4). No cost-centre picker is
-// offered here — no cost-centre listing API/UI exists anywhere in
-// Commercial yet (unlike products/tax-codes, which quote/invoice lines
-// already expose pickers for), so adding one is left to a later phase;
-// a line's cost_centre_id remains fully API/domain-settable, just not
-// from this UI.
+// Phase C6.3 built the DRAFT-only foundation (header/line edit affordances,
+// strictly read-only rendering for every other status). Phase C6.4 adds
+// the five lifecycle-transition actions (submit/approve/return/issue/
+// cancel) on top of that same read-only shell — it does not touch the
+// DRAFT edit UI at all. No cost-centre picker is offered in the line
+// editor — no cost-centre listing API/UI exists anywhere in Commercial
+// yet (unlike products/tax-codes, which quote/invoice lines already
+// expose pickers for), so adding one is left to a later phase; a line's
+// cost_centre_id remains fully API/domain-settable, just not from this UI.
 export default function PurchaseOrderDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [po, setPo] = useState<PurchaseOrder | null>(null);
@@ -63,8 +62,24 @@ export default function PurchaseOrderDetailPage() {
   const [taxCodes, setTaxCodes] = useState<TaxCode[]>([]);
   const [loading, setLoading] = useState(true);
   const [canEdit, setCanEdit] = useState(false);
+  // Phase C6.4 — admin+ floor for approve/return/issue/cancel, matching
+  // this gate's own COMMERCIAL_MIN_ROLE.approve role-floor spec exactly.
+  // UX gating only; every route re-enforces this server-side.
+  const [isAdmin, setIsAdmin] = useState(false);
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState('');
+
+  // Phase C6.4 — lifecycle action confirmation state, mirroring
+  // app/commercial/invoices/[id]/page.tsx's own confirmingIssue/
+  // confirmingVoid inline-panel convention exactly (no window.confirm
+  // anywhere in this codebase's Commercial UI).
+  const [confirmingSubmit, setConfirmingSubmit] = useState(false);
+  const [confirmingApprove, setConfirmingApprove] = useState(false);
+  const [confirmingReturn, setConfirmingReturn] = useState(false);
+  const [returnReason, setReturnReason] = useState('');
+  const [confirmingIssue, setConfirmingIssue] = useState(false);
+  const [confirmingCancel, setConfirmingCancel] = useState(false);
+  const [cancelReason, setCancelReason] = useState('');
 
   // header edit form state
   const [editingHeader, setEditingHeader] = useState(false);
@@ -103,6 +118,7 @@ export default function PurchaseOrderDetailPage() {
     if (meRes.ok) {
       const me = await meRes.json();
       setCanEdit(clientRoleGte(me.role, 'manager'));
+      setIsAdmin(clientRoleGte(me.role, 'admin'));
     }
   }, [id]);
 
@@ -110,6 +126,10 @@ export default function PurchaseOrderDetailPage() {
   useEffect(() => { load(); }, [load]);
 
   const isDraft = po?.status === 'DRAFT';
+  const isPendingApproval = po?.status === 'PENDING_APPROVAL';
+  const isApproved = po?.status === 'APPROVED';
+  const isIssued = po?.status === 'ISSUED';
+  const isCancelled = po?.status === 'CANCELLED';
 
   function openHeaderEdit() {
     if (!po) return;
@@ -190,6 +210,93 @@ export default function PurchaseOrderDetailPage() {
     load();
   }
 
+  // Phase C6.4 — every lifecycle action follows the identical shape
+  // app/commercial/invoices/[id]/page.tsx's issueInvoice()/voidInvoiceAction()
+  // already established: POST the transition route, and on a 409 (the
+  // server's own atomic guard lost a race — someone else's request
+  // already applied a transition) show a plain "changed — refreshing…"
+  // message and reload, rather than exposing the raw conflict text or
+  // silently retrying. The server (the C6.2 domain functions) remains
+  // the sole authority for whether a transition is actually legal —
+  // these handlers never guess at that themselves.
+  async function submitAction() {
+    setBusy(true); setActionError('');
+    const res = await fetch(`/api/commercial/purchase-orders/${id}/submit`, { method: 'POST' });
+    const data = await res.json().catch(() => ({}));
+    setBusy(false);
+    setConfirmingSubmit(false);
+    if (!res.ok) {
+      if (res.status === 409) setActionError('This purchase order’s status just changed. Refreshing…');
+      else setActionError(data.error ?? 'Failed to submit purchase order.');
+    }
+    load();
+  }
+
+  async function approveAction() {
+    setBusy(true); setActionError('');
+    const res = await fetch(`/api/commercial/purchase-orders/${id}/approve`, { method: 'POST' });
+    const data = await res.json().catch(() => ({}));
+    setBusy(false);
+    setConfirmingApprove(false);
+    if (!res.ok) {
+      if (res.status === 409) setActionError('This purchase order’s status just changed. Refreshing…');
+      else setActionError(data.error ?? 'Failed to approve purchase order.');
+    }
+    load();
+  }
+
+  async function returnAction() {
+    if (!returnReason.trim()) { setActionError('A return reason is required.'); return; }
+    setBusy(true); setActionError('');
+    const res = await fetch(`/api/commercial/purchase-orders/${id}/return`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason: returnReason }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setBusy(false);
+    if (!res.ok) {
+      if (res.status === 409) { setActionError('This purchase order’s status just changed. Refreshing…'); load(); return; }
+      setActionError(data.error ?? 'Failed to return purchase order to draft.');
+      return;
+    }
+    setConfirmingReturn(false); setReturnReason('');
+    load();
+  }
+
+  // Phase C6.4 Section I — issuing is the highest-risk transition:
+  // permanent number allocation and the freeze are entirely owned by
+  // issuePurchaseOrder()'s own atomic statement (see its header comment
+  // in lib/commercial/purchaseOrders.ts) — this handler never retries on
+  // failure and never allocates or guesses a number itself.
+  async function issueAction() {
+    setBusy(true); setActionError('');
+    const res = await fetch(`/api/commercial/purchase-orders/${id}/issue`, { method: 'POST' });
+    const data = await res.json().catch(() => ({}));
+    setBusy(false);
+    setConfirmingIssue(false);
+    if (!res.ok) {
+      if (res.status === 409) setActionError('This purchase order was just issued by another request. Refreshing…');
+      else setActionError(data.error ?? 'Failed to issue purchase order.');
+    }
+    load();
+  }
+
+  async function cancelAction() {
+    if (!cancelReason.trim()) { setActionError('A cancel reason is required.'); return; }
+    setBusy(true); setActionError('');
+    const res = await fetch(`/api/commercial/purchase-orders/${id}/cancel`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason: cancelReason }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setBusy(false);
+    if (!res.ok) {
+      if (res.status === 409) { setActionError('This purchase order’s status just changed. Refreshing…'); load(); return; }
+      setActionError(data.error ?? 'Failed to cancel purchase order.');
+      return;
+    }
+    setConfirmingCancel(false); setCancelReason('');
+    load();
+  }
+
   if (loading) return <div style={{ color: '#6b7280', fontSize: 14 }}>Loading…</div>;
   if (!po) return <div style={{ color: '#6b7280', fontSize: 14 }}>Purchase order not found.</div>;
 
@@ -202,17 +309,104 @@ export default function PurchaseOrderDetailPage() {
           <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em', margin: 0 }}>{po.purchase_order_number ?? 'Draft Purchase Order'}</h1>
           <PurchaseOrderStatusBadge status={po.status} />
         </div>
-        {isDraft && canEdit && (
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          {isDraft && canEdit && (
             <button onClick={openHeaderEdit} disabled={busy} style={btn('#1f2937')}>Edit Details</button>
-          </div>
-        )}
+          )}
+          {isDraft && canEdit && !confirmingSubmit && (
+            <button onClick={() => setConfirmingSubmit(true)} disabled={busy || lines.length === 0} title={lines.length === 0 ? 'Add at least one line before submitting.' : undefined} style={btn('#1a6aff')}>
+              Submit for Approval
+            </button>
+          )}
+          {isPendingApproval && isAdmin && !confirmingApprove && !confirmingReturn && (
+            <button onClick={() => setConfirmingApprove(true)} disabled={busy} style={btn('#1a6aff')}>Approve</button>
+          )}
+          {isPendingApproval && isAdmin && !confirmingApprove && !confirmingReturn && (
+            <button onClick={() => setConfirmingReturn(true)} disabled={busy} style={btn('#1f2937')}>Return for Changes</button>
+          )}
+          {isApproved && isAdmin && !confirmingIssue && (
+            <button onClick={() => setConfirmingIssue(true)} disabled={busy} style={btn('#1a6aff')}>Issue Purchase Order</button>
+          )}
+          {isIssued && isAdmin && !confirmingCancel && (
+            <button onClick={() => setConfirmingCancel(true)} disabled={busy} style={btn('rgba(239,68,68,0.15)', '#f87171')}>Cancel Purchase Order</button>
+          )}
+        </div>
       </div>
       {actionError && <p style={{ color: '#f87171', fontSize: 13, margin: '0 0 16px' }}>{actionError}</p>}
-      {!isDraft && (
+      {!isDraft && !isCancelled && (
         <p style={{ color: '#6b7280', fontSize: 13, margin: '0 0 16px' }}>
-          This purchase order is {po.status.replace('_', ' ').toLowerCase()} and its contents are read-only.
+          This purchase order is {po.status.replace('_', ' ').toLowerCase()} — the supplier, header details, and lines are read-only.
         </p>
+      )}
+      {isCancelled && (
+        <p style={{ color: '#f87171', fontSize: 13, margin: '0 0 16px' }}>
+          This purchase order has been cancelled. It is no longer active and is retained as a read-only record — its number is not reused.
+        </p>
+      )}
+
+      {confirmingSubmit && (
+        <div style={{ background: 'rgba(26,106,255,0.08)', border: '1px solid rgba(26,106,255,0.3)', borderRadius: 12, padding: '16px 20px', marginBottom: 20 }}>
+          <p style={{ fontSize: 13, color: '#f9fafb', margin: '0 0 12px' }}>
+            Submitting sends this purchase order for approval — the supplier, header details, and lines can no longer be
+            edited afterward. Continue?
+          </p>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={submitAction} disabled={busy} style={btn('#1a6aff')}>Yes, Submit for Approval</button>
+            <button onClick={() => setConfirmingSubmit(false)} disabled={busy} style={btn('#1f2937')}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {confirmingApprove && (
+        <div style={{ background: 'rgba(26,106,255,0.08)', border: '1px solid rgba(26,106,255,0.3)', borderRadius: 12, padding: '16px 20px', marginBottom: 20 }}>
+          <p style={{ fontSize: 13, color: '#f9fafb', margin: '0 0 12px' }}>
+            Approving this purchase order allows it to be issued. It does not allocate a PO number or send anything to the
+            supplier. Continue?
+          </p>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={approveAction} disabled={busy} style={btn('#1a6aff')}>Yes, Approve</button>
+            <button onClick={() => setConfirmingApprove(false)} disabled={busy} style={btn('#1f2937')}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {confirmingReturn && (
+        <div style={{ background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.3)', borderRadius: 12, padding: '16px 20px', marginBottom: 20 }}>
+          <p style={{ fontSize: 13, color: '#f9fafb', margin: '0 0 4px' }}>Returning this purchase order sends it back to Draft so it can be edited again.</p>
+          <p style={{ fontSize: 12, color: '#9ca3af', margin: '0 0 12px' }}>No PO number has been allocated yet, so nothing is lost.</p>
+          <div style={{ fontSize: 11, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Reason (required)</div>
+          <textarea value={returnReason} onChange={e => setReturnReason(e.target.value)} rows={2} style={{ ...sel, resize: 'vertical', marginBottom: 12 }} placeholder="Why is this being returned for changes?" />
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={returnAction} disabled={busy || !returnReason.trim()} style={btn('#1a6aff')}>Confirm Return</button>
+            <button onClick={() => { setConfirmingReturn(false); setReturnReason(''); }} disabled={busy} style={btn('#1f2937')}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {confirmingIssue && (
+        <div style={{ background: 'rgba(26,106,255,0.08)', border: '1px solid rgba(26,106,255,0.3)', borderRadius: 12, padding: '16px 20px', marginBottom: 20 }}>
+          <p style={{ fontSize: 13, color: '#f9fafb', margin: '0 0 12px' }}>
+            Issuing allocates a permanent purchase order number and freezes this document — the supplier, header details,
+            and lines can no longer be edited afterward, and this cannot be undone. Continue?
+          </p>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={issueAction} disabled={busy} style={btn('#1a6aff')}>Yes, Issue Purchase Order</button>
+            <button onClick={() => setConfirmingIssue(false)} disabled={busy} style={btn('#1f2937')}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {confirmingCancel && (
+        <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 12, padding: '16px 20px', marginBottom: 20 }}>
+          <p style={{ fontSize: 13, color: '#f9fafb', margin: '0 0 4px' }}>Cancelling this purchase order marks it inactive. This does not delete the record.</p>
+          <p style={{ fontSize: 12, color: '#9ca3af', margin: '0 0 12px' }}>The PO number, supplier details, lines, and totals are all retained for the record.</p>
+          <div style={{ fontSize: 11, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Reason (required)</div>
+          <textarea value={cancelReason} onChange={e => setCancelReason(e.target.value)} rows={2} style={{ ...sel, resize: 'vertical', marginBottom: 12 }} placeholder="Why is this purchase order being cancelled?" />
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={cancelAction} disabled={busy || !cancelReason.trim()} style={btn('#f87171', '#1a0505')}>Confirm Cancel</button>
+            <button onClick={() => { setConfirmingCancel(false); setCancelReason(''); }} disabled={busy} style={btn('#1f2937')}>Keep Purchase Order</button>
+          </div>
+        </div>
       )}
 
       {editingHeader ? (
