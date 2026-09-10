@@ -1,10 +1,20 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { DataHubIllegalDumpingImportSession } from "@/lib/data-hub/client/orchestrator";
+import type { DataHubIllegalDumpingImportSession, ImportBatchHandle } from "@/lib/data-hub/client/orchestrator";
+import type { WorksheetPreviewMappingSummaryClient, WorksheetSummaryDTOClient } from "@/lib/data-hub/client/types";
 import ImportError from "./ImportError";
 import ConfirmAction from "./ConfirmAction";
-import { createConfirmGuard, hasMissingRequiredHeaders, isConfirmEligible, shouldRenderPreviewTable, type ReviewPhase } from "../confirmEligibility";
+import {
+  createConfirmGuard,
+  deriveFrozenMappingLabel,
+  hasMissingRequiredHeaders,
+  isConfirmEligible,
+  isMappingSelectorLocked,
+  shouldRenderPreviewTable,
+  type ReviewPhase,
+} from "../confirmEligibility";
+import { useFrozenSourceMappingLabel, useSourceMappings } from "../useSourceMappings";
 
 // Data Hub 5A.3C.1 — the REVIEW screen: confirmationReady, previewing,
 // previewFailed, previewReady. Owns the bounded preview table, the
@@ -80,11 +90,23 @@ export default function ReviewPanel({
 
   const eligible = isConfirmEligible(state, acknowledged);
 
+  // Data Hub 5B.5B — the SINGLE source of truth for "what mapping is
+  // currently frozen for this worksheet" is previewReady's own
+  // preview.mapping — never re-derived, never held in a second piece of
+  // state (Section 12/19/28). "unknown" (not yet resolved) covers every
+  // other phase this component renders for (confirmationReady/previewing/
+  // previewFailed) — MappingSelector renders a neutral "checking…" label
+  // for that case rather than guessing.
+  const frozenMapping: WorksheetPreviewMappingSummaryClient | null | "unknown" =
+    state.phase === "previewReady" ? state.preview.mapping : "unknown";
+
   return (
     <div>
       <h2 style={{ fontSize: 16, fontWeight: 600, color: "#f9fafb", marginBottom: 4 }}>
         {state.worksheet.worksheetName}
       </h2>
+
+      <MappingSelector session={session} batch={state.batch} worksheet={state.worksheet} frozenMapping={frozenMapping} />
 
       {state.phase === "confirmationReady" || state.phase === "previewing" ? (
         <div aria-live="polite" aria-busy="true" style={{ fontSize: 13, color: "rgba(249,250,251,.6)", marginTop: 10 }}>
@@ -147,6 +169,148 @@ export default function ReviewPanel({
   );
 }
 
+// Data Hub 5B.5B — the SourceMapping selection + frozen-lineage display
+// control (spec Sections 5/6/9/14/15/16). Placed at the TOP of ReviewPanel,
+// before mapped Preview content, per Section 9's exact placement
+// requirement.
+function MappingSelector({
+  session,
+  batch,
+  worksheet,
+  frozenMapping,
+}: {
+  session: DataHubIllegalDumpingImportSession;
+  batch: ImportBatchHandle;
+  worksheet: WorksheetSummaryDTOClient;
+  frozenMapping: WorksheetPreviewMappingSummaryClient | null | "unknown";
+}) {
+  const [pendingSelection, setPendingSelection] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+
+  // Section 27 — the REAL gate is the worksheet's own authoritative status,
+  // not merely "which ReviewPhase am I rendered in" (confirmationReady is,
+  // today, structurally reachable with a non-AWAITING_CONFIRMATION
+  // worksheet on the fresh-obtain path — this reads the one field that is
+  // always truthful regardless of that).
+  const locked = isMappingSelectorLocked(worksheet.canonicalStatus);
+
+  // Section 7/8 — only ever fetch the active-mapping list for a batch that
+  // HAS a source and is still selectable; a locked worksheet needs no new-
+  // selection options, and a null-source batch has nothing to filter by.
+  const sourceMappingsState = useSourceMappings(batch.sourceSystemId === null || locked ? null : batch.sourceSystemId);
+
+  // Section 16 — resolve a label for the frozen mapping ONLY when one is
+  // actually frozen; a deactivated-but-frozen mapping's name is recovered
+  // here even though it may be absent from sourceMappingsState above.
+  const frozenSourceMappingId = frozenMapping !== "unknown" && frozenMapping !== null ? frozenMapping.sourceMappingId : null;
+  const frozenLabelState = useFrozenSourceMappingLabel(frozenSourceMappingId);
+
+  if (batch.sourceSystemId === null) {
+    // Section 8/13 — a genuinely legacy (no source) batch. No mapping
+    // concept applies to it at all; Confirm proceeds via the unchanged
+    // legacy path.
+    return (
+      <div style={{ marginBottom: 16, fontSize: 12, color: "rgba(249,250,251,.5)" }}>
+        Legacy import — no source system was selected for this file.
+      </div>
+    );
+  }
+
+  function frozenLabel(): string {
+    // Section 14's own truthfulness invariant, enforced by ROUTING through
+    // the dedicated, independently-tested pure function — see
+    // confirmEligibility.ts's own deriveFrozenMappingLabel comment. This
+    // component never re-implements this derivation inline.
+    const name = frozenLabelState.status === "success" ? frozenLabelState.name : null;
+    return deriveFrozenMappingLabel(frozenMapping, name);
+  }
+
+  async function handleSelect(e: React.ChangeEvent<HTMLSelectElement>) {
+    const id = e.target.value;
+    setPendingSelection(id);
+    if (!id) return; // the placeholder option — never actionable.
+    setSubmitting(true);
+    setSubmitError(null);
+    const result = await session.selectMapping(id);
+    setSubmitting(false);
+    if (!result.ok) {
+      // Section 13/21 — a lost selection-vs-something-else race (or any
+      // other server rejection) surfaces the server's own safe message
+      // here; never auto-retried. The control resets to its own
+      // placeholder — frozenLabel() above remains driven exclusively by
+      // authoritative Preview state, which this failed attempt never
+      // touched.
+      setSubmitError(result.error);
+      setPendingSelection("");
+      return;
+    }
+    setPendingSelection("");
+  }
+
+  return (
+    <div style={{ marginBottom: 16, padding: "10px 14px", border: "1px solid rgba(255,255,255,.08)", borderRadius: 8 }}>
+      <div style={{ fontSize: 13, color: "rgba(249,250,251,.85)", marginBottom: locked ? 0 : 8 }}>{frozenLabel()}</div>
+
+      {!locked ? (
+        <div>
+          <label
+            htmlFor="data-hub-mapping-select"
+            style={{ display: "block", fontSize: 12, fontWeight: 500, color: "rgba(249,250,251,.6)", marginBottom: 4 }}
+          >
+            {frozenMapping === null || frozenMapping === "unknown" ? "Select a mapping" : "Change mapping"}{" "}
+            <span style={{ fontWeight: 400, color: "rgba(249,250,251,.4)" }}>(optional)</span>
+          </label>
+          <select
+            id="data-hub-mapping-select"
+            value={pendingSelection}
+            disabled={submitting || sourceMappingsState.status === "loading"}
+            onChange={(e) => void handleSelect(e)}
+            aria-describedby={submitError ? "data-hub-mapping-error" : undefined}
+            style={{
+              width: "100%",
+              maxWidth: 320,
+              fontSize: 13,
+              padding: "8px 10px",
+              borderRadius: 8,
+              border: "1px solid rgba(255,255,255,.18)",
+              background: "rgba(255,255,255,.04)",
+              color: "#f9fafb",
+            }}
+          >
+            <option value="">{sourceMappingsState.status === "loading" ? "Loading mappings…" : "Choose a mapping…"}</option>
+            {sourceMappingsState.status === "success"
+              ? sourceMappingsState.sourceMappings.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name}
+                  </option>
+                ))
+              : null}
+          </select>
+
+          {sourceMappingsState.status === "error" ? (
+            <div role="alert" style={{ marginTop: 6, fontSize: 12, color: "#fbbf24" }}>
+              {sourceMappingsState.message}
+            </div>
+          ) : null}
+
+          {sourceMappingsState.status === "success" && sourceMappingsState.sourceMappings.length === 0 ? (
+            <div style={{ marginTop: 6, fontSize: 12, color: "rgba(249,250,251,.45)" }}>
+              No mappings configured for this source system yet.
+            </div>
+          ) : null}
+
+          {submitError ? (
+            <div id="data-hub-mapping-error" role="alert" style={{ marginTop: 6, fontSize: 12, color: "#fbbf24" }}>
+              {submitError}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function PreviewTable({
   preview,
 }: {
@@ -159,6 +323,7 @@ function PreviewTable({
     truncated: boolean;
     requiredHeadersPresent: boolean;
     missingRequiredHeaders: string[];
+    mapping: WorksheetPreviewMappingSummaryClient | null;
   };
 }) {
   const columnTruncated = preview.columnCount > preview.headers.length;
@@ -168,6 +333,27 @@ function PreviewTable({
       <div style={{ fontSize: 12, color: "rgba(249,250,251,.55)", marginBottom: 10 }}>
         {preview.rowCount} row(s), {preview.columnCount} column(s)
       </div>
+
+      {preview.mapping !== null ? (
+        <div style={{ marginBottom: 12, fontSize: 12 }}>
+          {preview.mapping.structurallyValid ? (
+            <div style={{ color: preview.mapping.domainRowsValid ? "rgba(52,211,153,.85)" : "#fbbf24" }}>
+              Mapping v{preview.mapping.versionNumber} structurally matches this file&apos;s columns.{" "}
+              {preview.mapping.domainRowsValid
+                ? "The previewed rows also passed value validation."
+                : "One or more previewed rows failed value validation — review the sample below before confirming."}
+            </div>
+          ) : (
+            <div role="alert" style={{ color: "#f9fafb" }}>
+              This mapping does not structurally match this file&apos;s columns:{" "}
+              {preview.mapping.mappingErrors
+                .map((e) => (e.code === "MAPPING_REQUIRED_TARGET_MISSING" ? e.canonicalTarget : `${e.canonicalTarget} (${e.sourceHeader})`))
+                .join(", ")}
+              . Choose a different mapping, or contact an administrator to fix this one.
+            </div>
+          )}
+        </div>
+      ) : null}
 
       {!preview.requiredHeadersPresent ? (
         <div

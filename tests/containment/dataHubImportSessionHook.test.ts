@@ -155,7 +155,7 @@ describe("deriveScreenGroup — the real 26-phase mapping (T6, T9)", () => {
   });
 });
 
-const FAKE_BATCH = { id: "b1", status: "READY" as const, originalFilename: "f.csv", contentType: "csv", sizeBytes: 10 };
+const FAKE_BATCH = { id: "b1", status: "READY" as const, originalFilename: "f.csv", contentType: "csv", sizeBytes: 10, sourceSystemId: null };
 
 describe("useDataHubImportSession — lifecycle containment (R1 remediation: RTEST1-RTEST5, M11, M22)", () => {
   it("RTEST1/RTEST2 — NEGATIVE CONTROL proving the OLD (removed) construction pattern was genuinely unsafe: a session disposed by a Strict-Mode-style phantom cleanup, then reused, issues a REAL network call while the UI observes nothing", async () => {

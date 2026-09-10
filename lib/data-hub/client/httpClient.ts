@@ -29,12 +29,19 @@ import type {
   InitiateResult,
   InspectResponseBody,
   InspectResult,
+  GetSourceMappingResponseBody,
+  GetSourceMappingResult,
   ListImportBatchesResponseBody,
   ListImportBatchesResult,
+  ListSourceMappingsResponseBody,
+  ListSourceMappingsResult,
   ListSourceSystemsResponseBody,
   ListSourceSystemsResult,
   ListWorksheetsResponseBody,
   ListWorksheetsResult,
+  MappingSelectionRequestInput,
+  MappingSelectionResponseBody,
+  MappingSelectionResult,
   TransportResult,
   WorksheetPreviewResponseBody,
   WorksheetPreviewResult,
@@ -304,6 +311,67 @@ export async function listSourceSystems(
 }
 
 // ---------------------------------------------------------------------------
+// GET /api/data-hub/source-mappings (Data Hub 5B.5B)
+//
+// Composes the EXISTING manager-readable list route only — no new backend
+// endpoint. `active` defaults to "true" (never "all"/"false") for the same
+// reason as listSourceSystems above — an inactive mapping is never a valid
+// NEW selection. `sourceSystemId` is REQUIRED here (unlike the route's own
+// optional query param) — this function exists for exactly one purpose:
+// listing mappings for one already-known, authoritative batch source; a
+// caller with no source has nothing to filter by and should not call this
+// at all (see useSourceMappings.ts). Never sends any tenant/identity field.
+// ---------------------------------------------------------------------------
+
+export interface ListSourceMappingsParams {
+  sourceSystemId: string;
+  cursor?: string;
+  limit?: number;
+}
+
+export async function listSourceMappings(
+  params: ListSourceMappingsParams,
+  config?: HttpClientConfig,
+  callOptions?: CallOptions
+): Promise<ListSourceMappingsResult> {
+  const search = new URLSearchParams();
+  search.set("active", "true");
+  search.set("sourceSystemId", params.sourceSystemId);
+  if (params.cursor !== undefined) search.set("cursor", params.cursor);
+  if (params.limit !== undefined) search.set("limit", String(params.limit));
+  return executeCall<ListSourceMappingsResponseBody>(
+    config,
+    resolveUrl(config, `/api/data-hub/source-mappings?${search.toString()}`),
+    { method: "GET" },
+    callOptions
+  );
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/data-hub/source-mappings/[id] (Data Hub 5B.5B)
+//
+// Composes the EXISTING manager-readable detail route only. Used ONLY for
+// the "frozen mapping has since been deactivated" label-recovery case (spec
+// Section 16, types.ts's own GetSourceMappingResult comment) — never called
+// merely to decorate a NEW-selection list, which listSourceMappings above
+// already serves. Deliberately no `active` filter (the detail route has
+// none): a deactivated mapping's own name must still be resolvable by id.
+// ---------------------------------------------------------------------------
+
+export async function getSourceMapping(
+  sourceMappingId: string,
+  config?: HttpClientConfig,
+  callOptions?: CallOptions
+): Promise<GetSourceMappingResult> {
+  return executeCall<GetSourceMappingResponseBody>(
+    config,
+    resolveUrl(config, `/api/data-hub/source-mappings/${encodeURIComponent(sourceMappingId)}`),
+    { method: "GET" },
+    callOptions
+  );
+}
+
+// ---------------------------------------------------------------------------
 // POST /api/data-hub/import-batches/[id]/inspect
 // ---------------------------------------------------------------------------
 
@@ -350,6 +418,35 @@ export async function fetchWorksheetPreview(
     config,
     resolveUrl(config, `/api/data-hub/worksheets/${encodeURIComponent(worksheetId)}/preview`),
     { method: "GET" },
+    callOptions
+  );
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/data-hub/worksheets/[id]/mapping-selection (Data Hub 5B.4B,
+// consumed by the UI for the first time in 5B.5B)
+//
+// REQUEST ALLOWLIST (mirrors the route's own comment and
+// MappingSelectionRequestInput's own comment exactly): the body sent is
+// ALWAYS exactly `{ sourceMappingId }` — a hand-constructed object literal,
+// never a spread of a caller-supplied input — so no other field can ever
+// reach this call site by accident.
+// ---------------------------------------------------------------------------
+
+export async function selectWorksheetMapping(
+  worksheetId: string,
+  input: MappingSelectionRequestInput,
+  config?: HttpClientConfig,
+  callOptions?: CallOptions
+): Promise<MappingSelectionResult> {
+  return executeCall<MappingSelectionResponseBody>(
+    config,
+    resolveUrl(config, `/api/data-hub/worksheets/${encodeURIComponent(worksheetId)}/mapping-selection`),
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sourceMappingId: input.sourceMappingId }),
+    },
     callOptions
   );
 }

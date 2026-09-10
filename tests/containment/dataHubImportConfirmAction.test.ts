@@ -137,7 +137,7 @@ describe("finalizeUncertain safe recovery — T20", () => {
     const { deriveErrorOverlayCopy } = await import("@/app/data-hub/import/screenGroup");
     const copy = deriveErrorOverlayCopy({
       phase: "finalizeUncertain",
-      batch: { id: "b1", status: "READY", originalFilename: "f.csv", contentType: "csv", sizeBytes: 1 },
+      batch: { id: "b1", status: "READY", originalFilename: "f.csv", contentType: "csv", sizeBytes: 1, sourceSystemId: null },
       message: "m",
     });
     expect(copy!.retryAction).toBe("retryFinalize");
