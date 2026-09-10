@@ -1,4 +1,5 @@
 import 'server-only';
+import { randomUUID } from 'crypto';
 import { SignJWT, jwtVerify } from 'jose';
 import sql from '@/lib/db';
 import { authorizeOrganiserRequest } from './authorize';
@@ -44,16 +45,18 @@ import { authorizeOrganiserRequest } from './authorize';
 // request/tool-loop — see app/api/chat/route.ts's own one-shot-per-request
 // consumption logic for the other half of that guarantee.
 //
-// KNOWN LIMITATION (documented, not solved in this phase): the token is a
-// stateless, self-contained JWT with a short (2 minute) expiry — there is
-// no server-side "already consumed" ledger (adding one would require a new
-// DB table/migration, which this phase's own scope explicitly forbids
-// introducing silently). Within that narrow window, an identical repeated
-// HTTP request carrying the same valid token would post a second identical
-// comment. The one-shot-per-request guard in app/api/chat/route.ts closes
-// the same-request/same-tool-loop duplication risk (the likeliest failure
-// mode); a durable consumed-token ledger is future work if genuine
-// cross-request replay protection is required.
+// Phase D.4.6K — CLOSES the prior known limitation (a stateless token could
+// be replayed in a separate HTTP request within its validity window). Every
+// signed token now carries a unique `jti`, and the confirm+execute path
+// consumes it via an INSERT ... ON CONFLICT (jti) DO NOTHING into the
+// durable organiser_action_confirmations ledger (migration step 44), in the
+// SAME atomic writable-CTE statement as the comment/activity mutation — see
+// proposeOrExecuteOrganiserComment's own comment below for the exact
+// three-outcome design. The one-shot-per-request guard in
+// app/api/chat/route.ts still closes the same-request/same-tool-loop case;
+// the ledger now independently closes the cross-request case too, so a
+// token is globally single-use regardless of which guard would have caught
+// a given replay attempt.
 
 const TOKEN_PURPOSE = 'organiser_action_confirm';
 const TOKEN_TTL = '2m';
@@ -95,6 +98,12 @@ interface ActionTokenPayload {
   userId: string;
   itemId: string;
   body: string;
+  /** Phase D.4.6K — unique per-proposal identifier, minted server-side
+   *  (randomUUID(), never derived from body/item), signed into the token,
+   *  and never accepted from anywhere else. This is the sole identity the
+   *  durable ledger keys on — the ledger stores this, never the raw token
+   *  or the comment body itself. */
+  jti: string;
 }
 
 async function signActionToken(payload: ActionTokenPayload): Promise<string> {
@@ -107,16 +116,20 @@ async function signActionToken(payload: ActionTokenPayload): Promise<string> {
 
 /** Verifies a confirmation token against the CURRENT trusted session and
  *  the specific action type this call site expects. Returns the decoded
- *  itemId/body ONLY when every check passes: valid signature, correct
- *  purpose, correct actionType, unexpired, and organisationId/userId match
- *  the caller's own current session exactly (never the token's own claims
- *  alone — a token is worthless outside the exact session it was minted
- *  for). Never throws; any failure (malformed token, wrong secret, expired,
- *  mismatched claim) returns null uniformly. */
+ *  itemId/body/jti/exp ONLY when every check passes: valid signature,
+ *  correct purpose, correct actionType, unexpired, well-formed jti, and
+ *  organisationId/userId match the caller's own current session exactly
+ *  (never the token's own claims alone — a token is worthless outside the
+ *  exact session it was minted for). Never throws; any failure (malformed
+ *  token, wrong secret, expired, mismatched claim, malformed jti) returns
+ *  null uniformly — this still collapses "expired" and "invalid signature"
+ *  into one outcome, unchanged from before D.4.6K; the new outcome this
+ *  phase adds (already_used_confirmation) is determined later, by the
+ *  ledger, only once a token has passed every check here. */
 async function verifyActionToken(
   token: string,
   expected: { actionType: 'post_comment'; organisationId: string; userId: string },
-): Promise<{ itemId: string; body: string } | null> {
+): Promise<{ itemId: string; body: string; jti: string; exp: number } | null> {
   try {
     const { payload } = await jwtVerify(token, secret, { algorithms: ['HS256'] });
     const p = payload as unknown as ActionTokenPayload;
@@ -126,7 +139,10 @@ async function verifyActionToken(
     if (p.userId !== expected.userId) return null;
     if (typeof p.itemId !== 'string' || !UUID_RE.test(p.itemId)) return null;
     if (typeof p.body !== 'string' || p.body.length === 0) return null;
-    return { itemId: p.itemId, body: p.body };
+    if (typeof p.jti !== 'string' || !UUID_RE.test(p.jti)) return null;
+    const exp = (payload as { exp?: number }).exp;
+    if (typeof exp !== 'number') return null;
+    return { itemId: p.itemId, body: p.body, jti: p.jti, exp };
   } catch {
     return null;
   }
@@ -144,7 +160,22 @@ export type ProposeOrExecuteCommentResult =
       mode: 'executed';
       comment: { id: string; body: string; created_at: string };
     }
-  | { ok: false; reason: 'invalid_item_id' | 'item_not_found' | 'invalid_body' | 'invalid_confirmation' };
+  | {
+      ok: false;
+      reason:
+        | 'invalid_item_id'
+        | 'item_not_found'
+        | 'invalid_body'
+        | 'invalid_confirmation'
+        // Phase D.4.6K — the token verified (signature/expiry/session all
+        // valid) but its jti was already present in the durable ledger:
+        // this exact confirmation has already executed once, in an earlier
+        // request. Distinct from invalid_confirmation so a future caller
+        // could message it differently if ever needed; today both surface
+        // through the same generic, bounded error to the model/user (see
+        // helenaTools.ts's GENERIC_ERROR) — no sensitive detail either way.
+        | 'already_used_confirmation';
+    };
 
 export interface ProposeOrExecuteCommentParams {
   organisationId: string;
@@ -187,19 +218,59 @@ export async function proposeOrExecuteOrganiserComment(
     });
     if (!verified) return { ok: false, reason: 'invalid_confirmation' };
 
-    const itemRows = await sql`
-      SELECT id, board_id FROM organiser_items
-      WHERE id = ${verified.itemId} AND organisation_id = ${organisationId}
-      LIMIT 1
-    `;
-    if (itemRows.length === 0) return { ok: false, reason: 'item_not_found' };
-    const boardId = itemRows[0].board_id as string;
-
+    // Phase D.4.6K — ONE atomic statement performs, in order, all of:
+    //   1. look up the target item (target_item) — read only, no lock held
+    //      across a network round-trip;
+    //   2. attempt to durably consume this exact jti (consumed) — but ONLY
+    //      if target_item found a row. Gating the ledger INSERT on the item
+    //      existing is what makes item_not_found leave the token unburned
+    //      (see the module header / D.4.6K's own Failure-Atomicity
+    //      decision): a token that never resulted in any mutation was never
+    //      meaningfully "used", so it must remain available for a
+    //      legitimate retry against the same predetermined item/body:
+    //   3. insert the comment (inserted) — but ONLY if BOTH target_item AND
+    //      consumed produced a row;
+    //   4. insert the activity row — only if the comment insert produced a
+    //      row.
+    // The final SELECT is deliberately NOT gated on `inserted` existing (a
+    // LEFT JOIN from a constant single-row source) so this query always
+    // returns exactly one row, carrying enough information to distinguish
+    // all three failure outcomes from the one success outcome:
+    //   item_found=0                       -> item_not_found (token unburned)
+    //   item_found=1, consumed=0           -> already_used_confirmation
+    //     (the only way an INSERT ... ON CONFLICT (jti) DO NOTHING can
+    //     return zero rows when target_item found a row is that this jti
+    //     already exists in the ledger from an earlier, already-executed
+    //     confirmation)
+    //   item_found=1, consumed=1           -> executed (comment_id present)
+    // Postgres itself provides the concurrency guarantee: two simultaneous
+    // transactions racing on the same jti serialize against the ledger's
+    // own UNIQUE/PRIMARY KEY constraint — the second to reach the conflict
+    // sees the first's row (once committed) and its own INSERT returns zero
+    // rows, exactly like the success/already-used distinction above. No
+    // FOR UPDATE or advisory lock is needed; the unique index on jti IS the
+    // concurrency control. If any part of this statement fails (e.g. a
+    // future CHECK-constraint violation on the activity insert), Postgres
+    // rolls back the ENTIRE statement — including the ledger consume — so a
+    // transient failure can never permanently burn a token without the
+    // mutation it was meant to authorize actually having committed.
     const rows = await sql`
-      WITH inserted AS (
+      WITH target_item AS (
+        SELECT id, board_id FROM organiser_items
+        WHERE id = ${verified.itemId} AND organisation_id = ${organisationId}
+      ),
+      consumed AS (
+        INSERT INTO organiser_action_confirmations (jti, organisation_id, user_id, action_type, item_id, expires_at)
+        SELECT ${verified.jti}, ${organisationId}, ${userId}, 'post_comment', ${verified.itemId}, to_timestamp(${verified.exp})
+        WHERE EXISTS (SELECT 1 FROM target_item)
+        ON CONFLICT (jti) DO NOTHING
+        RETURNING jti
+      ),
+      inserted AS (
         INSERT INTO organiser_item_updates (item_id, board_id, organisation_id, author_name, body)
-        VALUES (${verified.itemId}, ${boardId}, ${organisationId}, ${actorName}, ${verified.body})
-        RETURNING id, body, created_at
+        SELECT target_item.id, target_item.board_id, ${organisationId}, ${actorName}, ${verified.body}
+        FROM target_item, consumed
+        RETURNING id, item_id, board_id, body, created_at
       ),
       activity_row AS (
         INSERT INTO organiser_activity (
@@ -207,18 +278,38 @@ export async function proposeOrExecuteOrganiserComment(
           event_type, entity_type, entity_id, before_json, after_json, metadata_json
         )
         SELECT
-          ${organisationId}, ${boardId}, ${verified.itemId}, ${userId}, ${actorName},
+          ${organisationId}, inserted.board_id, inserted.item_id, ${userId}, ${actorName},
           'comment.created', 'comment', inserted.id::text, NULL,
           jsonb_build_object('excerpt', organiser_activity_sanitise_scalar(to_jsonb(inserted.body))),
           jsonb_build_object('source', 'helena')
         FROM inserted
         RETURNING id
       )
-      SELECT id, body, created_at FROM inserted
+      SELECT
+        (SELECT count(*) FROM target_item)::int AS item_found,
+        (SELECT count(*) FROM consumed)::int AS was_consumed,
+        inserted.id AS comment_id, inserted.body AS comment_body, inserted.created_at AS comment_created_at
+      FROM (SELECT 1) AS one_row
+      LEFT JOIN inserted ON true
     `;
-    if (rows.length === 0) return { ok: false, reason: 'item_not_found' };
-    const row = rows[0] as { id: string; body: string; created_at: string };
-    return { ok: true, mode: 'executed', comment: { id: row.id, body: row.body, created_at: row.created_at } };
+
+    const row = rows[0] as {
+      item_found: number;
+      was_consumed: number;
+      comment_id: string | null;
+      comment_body: string | null;
+      comment_created_at: string | null;
+    };
+
+    if (row.item_found === 0) return { ok: false, reason: 'item_not_found' };
+    if (row.was_consumed === 0) return { ok: false, reason: 'already_used_confirmation' };
+    if (!row.comment_id) return { ok: false, reason: 'item_not_found' };
+
+    return {
+      ok: true,
+      mode: 'executed',
+      comment: { id: row.comment_id, body: row.comment_body ?? verified.body, created_at: row.comment_created_at ?? new Date().toISOString() },
+    };
   }
 
   // ── PROPOSE ────────────────────────────────────────────────────────────
@@ -242,6 +333,10 @@ export async function proposeOrExecuteOrganiserComment(
     userId,
     itemId: params.itemId,
     body,
+    // Phase D.4.6K — minted fresh on every proposal, never derived from
+    // body/item (a resend of an identical proposal gets a different jti,
+    // and therefore its own independent single-use slot in the ledger).
+    jti: randomUUID(),
   });
 
   return {

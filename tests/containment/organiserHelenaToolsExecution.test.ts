@@ -838,7 +838,7 @@ describe('executeOrganiserTool — propose_organiser_comment — confirm+execute
     sqlResult = [{ id: ITEM_A, name: 'Item A' }]
     const proposeResult = JSON.parse(await executeOrganiserTool('propose_organiser_comment', { item_id: ITEM_A, body: 'Hello' }))
     sqlCalls = []
-    sqlResultQueue = [[{ id: ITEM_A, board_id: 'board-1' }], [{ id: 'u1', body: 'Hello', created_at: 't' }]]
+    sqlResultQueue = [[{ item_found: 1, was_consumed: 1, comment_id: 'u1', comment_body: 'Hello', comment_created_at: 't' }]]
 
     const execResult = JSON.parse(
       await executeOrganiserTool('propose_organiser_comment', { item_id: ITEM_A, body: 'Hello' }, {
@@ -853,7 +853,7 @@ describe('executeOrganiserTool — propose_organiser_comment — confirm+execute
     sqlResult = [{ id: ITEM_A, name: 'Item A' }]
     const proposeResult = JSON.parse(await executeOrganiserTool('propose_organiser_comment', { item_id: ITEM_A, body: 'ORIGINAL confirmed text' }))
     sqlCalls = []
-    sqlResultQueue = [[{ id: ITEM_A, board_id: 'board-1' }], [{ id: 'u1', body: 'ORIGINAL confirmed text', created_at: 't' }]]
+    sqlResultQueue = [[{ item_found: 1, was_consumed: 1, comment_id: 'u1', comment_body: 'ORIGINAL confirmed text', comment_created_at: 't' }]]
 
     await executeOrganiserTool('propose_organiser_comment', { item_id: ITEM_B, body: 'ALTERED text the model tried to substitute' }, {
       confirmationToken: proposeResult.confirmation_token,
@@ -874,10 +874,29 @@ describe('executeOrganiserTool — propose_organiser_comment — confirm+execute
     expect(sqlCalls.some(c => /INSERT/i.test(c.text))).toBe(false)
   })
 
+  it('D.4.6K: replaying the same confirmationToken a second time at this dispatch layer -> generic error, no second mutation', async () => {
+    sqlResult = [{ id: ITEM_A, name: 'Item A' }]
+    const proposeResult = JSON.parse(await executeOrganiserTool('propose_organiser_comment', { item_id: ITEM_A, body: 'Hello' }))
+    sqlCalls = []
+    sqlResultQueue = [[{ item_found: 1, was_consumed: 1, comment_id: 'u1', comment_body: 'Hello', comment_created_at: 't' }]]
+    const first = JSON.parse(await executeOrganiserTool('propose_organiser_comment', { item_id: ITEM_A, body: 'Hello' }, {
+      confirmationToken: proposeResult.confirmation_token,
+    }))
+    expect(first.status).toBe('posted')
+
+    sqlCalls = []
+    sqlResultQueue = [[{ item_found: 1, was_consumed: 0, comment_id: null, comment_body: null, comment_created_at: null }]]
+    const second = JSON.parse(await executeOrganiserTool('propose_organiser_comment', { item_id: ITEM_A, body: 'Hello' }, {
+      confirmationToken: proposeResult.confirmation_token,
+    }))
+    expect(second.status).not.toBe('posted')
+    expect(second.error).toBeTruthy()
+  })
+
   it('the tool_result string for a successful post never contains organisation_id', async () => {
     sqlResult = [{ id: ITEM_A, name: 'Item A' }]
     const proposeResult = JSON.parse(await executeOrganiserTool('propose_organiser_comment', { item_id: ITEM_A, body: 'Hello' }))
-    sqlResultQueue = [[{ id: ITEM_A, board_id: 'board-1' }], [{ id: 'u1', body: 'Hello', created_at: 't' }]]
+    sqlResultQueue = [[{ item_found: 1, was_consumed: 1, comment_id: 'u1', comment_body: 'Hello', comment_created_at: 't' }]]
     const raw = await executeOrganiserTool('propose_organiser_comment', { item_id: ITEM_A, body: 'Hello' }, {
       confirmationToken: proposeResult.confirmation_token,
     })
