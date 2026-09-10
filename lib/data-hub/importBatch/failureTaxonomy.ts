@@ -79,7 +79,9 @@ export type CallerOnlyOutcomeCode =
   | "INVALID_LIMIT"
   | "WORKSHEET_NOT_ELIGIBLE"
   | "UNSUPPORTED_FORMAT"
-  | "SOURCE_SYSTEM_UNAVAILABLE";
+  | "SOURCE_SYSTEM_UNAVAILABLE"
+  | "SOURCE_LINEAGE_REQUIRED"
+  | "SOURCE_MAPPING_UNAVAILABLE";
 
 export type FailureCode = PersistedFailureCode | CallerOnlyOutcomeCode;
 
@@ -113,6 +115,8 @@ export const CALLER_ONLY_OUTCOME_CODES: readonly CallerOnlyOutcomeCode[] = [
   "WORKSHEET_NOT_ELIGIBLE",
   "UNSUPPORTED_FORMAT",
   "SOURCE_SYSTEM_UNAVAILABLE",
+  "SOURCE_LINEAGE_REQUIRED",
+  "SOURCE_MAPPING_UNAVAILABLE",
 ];
 
 export function isPersistedFailureCode(code: string): code is PersistedFailureCode {
@@ -243,6 +247,21 @@ const MESSAGE_TEMPLATES: Record<FailureCode, string> = {
   // distinguished, to avoid leaking foreign-tenant existence.
   SOURCE_SYSTEM_UNAVAILABLE:
     "The specified source system is not available for a new import. It may not exist, may belong to a different organisation, or may be inactive.",
+  // 5B.4B — dedicated worksheet mapping-selection service outcome codes.
+  // SOURCE_LINEAGE_REQUIRED is deliberately distinct from
+  // SOURCE_MAPPING_UNAVAILABLE below: it describes the CALLER'S OWN
+  // batch's state (no SourceSystem lineage was ever established for it),
+  // never a foreign resource — there is no existence-leak risk here.
+  SOURCE_LINEAGE_REQUIRED:
+    "This import batch has no associated source system. A mapping cannot be selected until one is assigned.",
+  // Deliberately ONE generic message covering every rejection reason
+  // (mapping does not exist, belongs to a different organisation, belongs
+  // to a different source system than this batch, is inactive, has no
+  // active version, or its active version pointer could not be resolved)
+  // — never distinguished, to avoid leaking foreign-tenant existence or
+  // internal mapping/version state to an unauthorized caller.
+  SOURCE_MAPPING_UNAVAILABLE:
+    "The specified source mapping is not available for selection on this worksheet. It may not exist, may belong to a different source system, may be inactive, or may have no active version.",
 };
 
 const MAX_MESSAGE_LENGTH = 500;

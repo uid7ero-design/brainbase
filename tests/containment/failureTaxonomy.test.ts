@@ -57,6 +57,11 @@ describe("failureTaxonomy — code sets", () => {
         // 5B.4A — initiate's own optional SourceSystem-selection outcome
         // code (lib/data-hub/importBatch/initiate.ts). Never persisted.
         "SOURCE_SYSTEM_UNAVAILABLE",
+        // 5B.4B — dedicated worksheet mapping-selection service outcome
+        // codes (lib/data-hub/importBatch/selectWorksheetMapping.ts).
+        // Never persisted.
+        "SOURCE_LINEAGE_REQUIRED",
+        "SOURCE_MAPPING_UNAVAILABLE",
       ])
     );
   });

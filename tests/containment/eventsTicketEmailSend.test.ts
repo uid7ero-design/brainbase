@@ -77,6 +77,56 @@ describe('sendTicketEmail — Case A: provider definitely rejects', () => {
   })
 })
 
+describe('sendTicketEmail — Phase 3E.1: idempotency payload mismatch', () => {
+  it('returns result "failed" with idempotencyPayloadMismatch: true when sendEmail throws EmailSendError with providerErrorCode "invalid_idempotent_request"', async () => {
+    const { EmailSendError } = await import('@/lib/email')
+    sendEmailMock.mockRejectedValue(new EmailSendError(409, 'invalid_idempotent_request'))
+    const result = await sendTicketEmail('jane@example.com', DATA, { idempotencyKey: 'event-ticket-email-initial:order-1' })
+    expect(result.result).toBe('failed')
+    expect((result as { idempotencyPayloadMismatch?: true }).idempotencyPayloadMismatch).toBe(true)
+  })
+
+  it('a plain "Email send failed" Error classifies as ordinary "failed", with idempotencyPayloadMismatch unset', async () => {
+    sendEmailMock.mockRejectedValue(new Error('Email send failed'))
+    const result = await sendTicketEmail('jane@example.com', DATA, { idempotencyKey: 'event-ticket-email-initial:order-1' })
+    expect(result.result).toBe('failed')
+    expect((result as { idempotencyPayloadMismatch?: true }).idempotencyPayloadMismatch).toBeUndefined()
+  })
+
+  it('an EmailSendError with a DIFFERENT provider error code still classifies as ordinary "failed", with idempotencyPayloadMismatch unset', async () => {
+    const { EmailSendError } = await import('@/lib/email')
+    sendEmailMock.mockRejectedValue(new EmailSendError(429, 'rate_limit_exceeded'))
+    const result = await sendTicketEmail('jane@example.com', DATA, { idempotencyKey: 'event-ticket-email-initial:order-1' })
+    expect(result.result).toBe('failed')
+    expect((result as { idempotencyPayloadMismatch?: true }).idempotencyPayloadMismatch).toBeUndefined()
+  })
+
+  it('the EXISTING manual resend route\'s own result-narrowing (not_configured/failed/unknown, else success) still compiles and behaves correctly against this widened type', async () => {
+    const { EmailSendError } = await import('@/lib/email')
+    sendEmailMock.mockRejectedValue(new EmailSendError(409, 'invalid_idempotent_request'))
+    const result = await sendTicketEmail('jane@example.com', DATA, { idempotencyKey: 'event-ticket-email-initial:order-1' })
+    // Mirrors the resend route's own narrowing shape: this result must
+    // be caught by the SAME 'failed' branch that route already checks
+    // — never silently fall through as a false "sent".
+    expect(result.result === 'not_configured' || result.result === 'failed' || result.result === 'unknown').toBe(true)
+    expect(result.result).not.toBe('sent')
+  })
+
+  it('passes the idempotencyKey through to sendEmail unchanged', async () => {
+    sendEmailMock.mockResolvedValue({ status: 'sent', id: null })
+    await sendTicketEmail('jane@example.com', DATA, { idempotencyKey: 'event-ticket-email-initial:order-1' })
+    expect(sendEmailMock).toHaveBeenCalledWith(
+      expect.objectContaining({ idempotencyKey: 'event-ticket-email-initial:order-1' }),
+    )
+  })
+
+  it('the EXISTING manual-resend call shape (no third argument) sends idempotencyKey as undefined — unaffected', async () => {
+    sendEmailMock.mockResolvedValue({ status: 'sent', id: null })
+    await sendTicketEmail('jane@example.com', DATA)
+    expect(sendEmailMock).toHaveBeenCalledWith(expect.objectContaining({ idempotencyKey: undefined }))
+  })
+})
+
 describe('sendTicketEmail — Case C: ambiguous/unknown outcome', () => {
   it('returns result "unknown" for a network-level exception', async () => {
     sendEmailMock.mockRejectedValue(new TypeError('fetch failed'))

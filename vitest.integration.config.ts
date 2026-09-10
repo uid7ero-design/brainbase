@@ -69,6 +69,12 @@ import path from 'path';
 // alongside the existing specs, for the same reason and with the same
 // explicit-file-argument isolation.
 //
+// 5B.4B addition: scripts/tests/selectWorksheetMapping.integration.test.ts
+// (the dedicated worksheet mapping-selection service's own real-Postgres
+// harness — see scripts/tests/verify-select-worksheet-mapping.sh) is
+// added alongside the existing specs, for the same reason and with the
+// same explicit-file-argument isolation.
+//
 // D.4.6K addition: scripts/tests/organiserConfirmationReplay.integration
 // .test.ts (the durable confirmation-token replay ledger's own real-Postgres
 // concurrency proof — see
@@ -90,6 +96,7 @@ export default defineConfig({
       'scripts/tests/confirmWorksheet.integration.test.ts',
       'scripts/tests/dataHubK2.integration.test.ts',
       'scripts/tests/datahubSourceMappingServices.integration.test.ts',
+      'scripts/tests/selectWorksheetMapping.integration.test.ts',
       'scripts/tests/organiserConfirmationReplay.integration.test.ts',
     ],
     testTimeout: 30_000,

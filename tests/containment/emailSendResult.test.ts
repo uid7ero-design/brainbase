@@ -108,6 +108,50 @@ describe('sendEmail — C. provider HTTP non-2xx rejection', () => {
     })
   }
 
+  // Phase 3E.1 — the thrown error is now a real EmailSendError (still
+  // message === 'Email send failed', so every pre-existing caller that
+  // only checks .message is completely unaffected), carrying the
+  // provider's own machine-readable error code so a future automatic-
+  // delivery caller can classify an idempotency payload mismatch
+  // specifically (see lib/events/ticketEmail.ts's sendTicketEmail()).
+  it('throws an EmailSendError carrying the response status and Resend\'s "name" error code', async () => {
+    process.env.RESEND_API_KEY = 'test-key'
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 409,
+      text: async () => JSON.stringify({ message: 'payload mismatch', statusCode: 409, name: 'invalid_idempotent_request' }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const { sendEmail, EmailSendError } = await import('@/lib/email')
+
+    let caught: unknown
+    try {
+      await sendEmail({ to: 'jane@example.com', subject: 'Hi', html: '<p>Hi</p>' })
+    } catch (err) {
+      caught = err
+    }
+    expect(caught).toBeInstanceOf(EmailSendError)
+    expect((caught as InstanceType<typeof EmailSendError>).message).toBe('Email send failed')
+    expect((caught as InstanceType<typeof EmailSendError>).status).toBe(409)
+    expect((caught as InstanceType<typeof EmailSendError>).providerErrorCode).toBe('invalid_idempotent_request')
+  })
+
+  it('a non-JSON error body still throws EmailSendError, with providerErrorCode null', async () => {
+    process.env.RESEND_API_KEY = 'test-key'
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 500, text: async () => 'not json' })
+    vi.stubGlobal('fetch', fetchMock)
+    const { sendEmail, EmailSendError } = await import('@/lib/email')
+
+    let caught: unknown
+    try {
+      await sendEmail({ to: 'jane@example.com', subject: 'Hi', html: '<p>Hi</p>' })
+    } catch (err) {
+      caught = err
+    }
+    expect(caught).toBeInstanceOf(EmailSendError)
+    expect((caught as InstanceType<typeof EmailSendError>).providerErrorCode).toBeNull()
+  })
+
   it('a 4xx/5xx response is never mistaken for "sent" merely because fetch() resolved', async () => {
     process.env.RESEND_API_KEY = 'test-key'
     const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 500, text: async () => 'boom' })
@@ -121,6 +165,53 @@ describe('sendEmail — C. provider HTTP non-2xx rejection', () => {
       threw = true
     }
     expect(threw).toBe(true)
+  })
+})
+
+describe('sendEmail — F. optional idempotencyKey (Phase 3E.1)', () => {
+  it('adds an Idempotency-Key header when idempotencyKey is supplied', async () => {
+    process.env.RESEND_API_KEY = 'test-key'
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ id: 'msg-1' }) })
+    vi.stubGlobal('fetch', fetchMock)
+    const { sendEmail } = await import('@/lib/email')
+
+    await sendEmail({ to: 'jane@example.com', subject: 'Hi', html: '<p>Hi</p>', idempotencyKey: 'event-ticket-email-initial:order-1' })
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    const headers = init.headers as Record<string, string>
+    expect(headers['Idempotency-Key']).toBe('event-ticket-email-initial:order-1')
+  })
+
+  it('every EXISTING caller (idempotencyKey omitted) sends no Idempotency-Key header at all — unaffected', async () => {
+    process.env.RESEND_API_KEY = 'test-key'
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ id: 'msg-1' }) })
+    vi.stubGlobal('fetch', fetchMock)
+    const { sendEmail } = await import('@/lib/email')
+
+    await sendEmail({ to: 'jane@example.com', subject: 'Hi', html: '<p>Hi</p>' })
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    const headers = init.headers as Record<string, string>
+    expect('Idempotency-Key' in headers).toBe(false)
+  })
+
+  it('the request body/method/other headers are byte-identical whether or not idempotencyKey is supplied', async () => {
+    process.env.RESEND_API_KEY = 'test-key'
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ id: 'msg-1' }) })
+    vi.stubGlobal('fetch', fetchMock)
+    const { sendEmail } = await import('@/lib/email')
+
+    await sendEmail({ to: 'jane@example.com', subject: 'Hi', html: '<p>Hi</p>' })
+    const [, withoutKey] = fetchMock.mock.calls[0] as [string, RequestInit]
+
+    fetchMock.mockClear()
+    await sendEmail({ to: 'jane@example.com', subject: 'Hi', html: '<p>Hi</p>', idempotencyKey: 'k' })
+    const [, withKey] = fetchMock.mock.calls[0] as [string, RequestInit]
+
+    expect(withKey.method).toBe(withoutKey.method)
+    expect(withKey.body).toBe(withoutKey.body)
+    expect((withKey.headers as Record<string, string>)['Content-Type']).toBe((withoutKey.headers as Record<string, string>)['Content-Type'])
+    expect((withKey.headers as Record<string, string>).Authorization).toBe((withoutKey.headers as Record<string, string>).Authorization)
   })
 })
 

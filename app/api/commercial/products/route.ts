@@ -2,8 +2,15 @@ import { NextRequest, NextResponse } from 'next/server';
 import { authorizeCommercialRequest, COMMERCIAL_MIN_ROLE } from '@/lib/commercial/authorize';
 import { listProducts, createProduct, type CommercialProductType } from '@/lib/commercial/products';
 
+// Phase C6.3 — widened to include 'purchasing' alongside the existing
+// 'quotes'/'invoicing' readers: the product catalogue is a shared,
+// capability-agnostic org resource (see createProduct()'s own lack of a
+// capability-specific column), and PO lines now need the same
+// catalogued-vs-ad-hoc product lookup quote/invoice lines already use.
+// Read-only; POST (product/service administration) is left untouched —
+// C6.3 never creates or edits products.
 export async function GET() {
-  const auth = await authorizeCommercialRequest(['quotes', 'invoicing'], COMMERCIAL_MIN_ROLE.view);
+  const auth = await authorizeCommercialRequest(['quotes', 'invoicing', 'purchasing'], COMMERCIAL_MIN_ROLE.view);
   if (!auth.ok) return auth.response;
 
   const products = await listProducts(auth.session.organisationId);

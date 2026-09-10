@@ -234,3 +234,26 @@ describe('Phase C4.4A (Finding 3) — 6. hostile organisation IDs in request inp
     }
   })
 })
+
+// Phase C6.3 — products/route.ts and tax-codes/route.ts's GET handlers
+// were widened from ['quotes','invoicing'] to ['quotes','invoicing','purchasing']
+// so a purchasing-only organisation can populate the PO-line product/
+// tax-code dropdowns the same way quote/invoice lines already do (see
+// each route's own header comment for why). customers is deliberately
+// NOT widened — Purchasing has its own separate resource (suppliers),
+// so it must never gain customer read/write access as a side effect.
+describe('Phase C6.3 — a purchasing-only organisation can read products/tax-codes but not customers', () => {
+  beforeEach(() => { requireSessionMock.mockResolvedValue(sessionFor('manager')); mockCapabilities(['purchasing']) })
+
+  it('products GET succeeds', async () => {
+    expect((await productsGET()).status).toBe(200)
+  })
+  it('tax-codes GET succeeds', async () => {
+    expect((await taxCodesGET()).status).toBe(200)
+  })
+  it('customers GET still 403s — Purchasing does not gain Customers as a side effect', async () => {
+    const res = await customersGET()
+    expect(res.status).toBe(403)
+    expect(listCustomersMock).not.toHaveBeenCalled()
+  })
+})
