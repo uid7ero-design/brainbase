@@ -17,6 +17,19 @@ interface EmailOptions {
   // verification, password reset, admin user invite, web-services lead
   // notification, ticket email) omits it and is completely unaffected.
   attachments?: EmailAttachment[];
+  // Phase 3E.1 — added for the (not-yet-wired, see
+  // lib/events/ticketEmailDelivery.ts) automatic ticket-email delivery
+  // path only. Optional and additive: every existing caller (auth,
+  // lead notification, the EXISTING manual ticket-email resend route)
+  // omits it and is completely unaffected — sendEmail() only adds the
+  // Idempotency-Key header when this is present. Forwarded verbatim to
+  // Resend's REST API, which documents idempotency keys as retained
+  // for 24 hours and bound to the exact request payload (see
+  // buildInitialTicketEmailIdempotencyKey's own comment in
+  // ticketEmailDelivery.ts for the full payload-stability rule this
+  // implies) — callers must never rotate a key merely to force another
+  // send.
+  idempotencyKey?: string;
 }
 
 const FROM = process.env.EMAIL_FROM ?? 'Brainbase <noreply@brainbase.app>';
@@ -48,7 +61,32 @@ export type SendEmailResult =
   | { status: 'sent'; id: string | null }
   | { status: 'not_configured'; id: null };
 
-export async function sendEmail({ to, subject, html, attachments }: EmailOptions): Promise<SendEmailResult> {
+// Thrown for a definite (non-2xx) provider rejection. Extends Error and
+// keeps message === 'Email send failed' EXACTLY as before this phase
+// (lib/events/ticketEmail.ts's sendTicketEmail() already branches on
+// that literal message for its existing 'failed' Case A — this must
+// keep working unchanged for the manual-resend path). providerErrorCode
+// is additive: Resend's own REST API error body shape is
+// { message, statusCode, name } (name is the machine-readable error
+// code, e.g. 'invalid_idempotent_request' — confirmed from the
+// installed `resend` SDK's own type definitions, which describe the
+// identical REST response this file's raw fetch() call receives).
+// Automatic-delivery callers (only, via ticketEmailDelivery.ts) inspect
+// this field to classify a provider idempotency-payload mismatch
+// specifically; every other existing caller only ever checks
+// `err.message`, exactly as before.
+export class EmailSendError extends Error {
+  status: number;
+  providerErrorCode: string | null;
+  constructor(status: number, providerErrorCode: string | null) {
+    super('Email send failed');
+    this.name = 'EmailSendError';
+    this.status = status;
+    this.providerErrorCode = providerErrorCode;
+  }
+}
+
+export async function sendEmail({ to, subject, html, attachments, idempotencyKey }: EmailOptions): Promise<SendEmailResult> {
   const apiKey = process.env.RESEND_API_KEY;
 
   if (!apiKey) {
@@ -67,7 +105,11 @@ export async function sendEmail({ to, subject, html, attachments }: EmailOptions
 
   const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`,
+      ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}),
+    },
     body: JSON.stringify({
       from: FROM,
       to,
@@ -82,7 +124,14 @@ export async function sendEmail({ to, subject, html, attachments }: EmailOptions
   if (!res.ok) {
     const err = await res.text().catch(() => '');
     console.error(`[email] Resend ${res.status}:`, err);
-    throw new Error('Email send failed');
+    let providerErrorCode: string | null = null;
+    try {
+      providerErrorCode = (JSON.parse(err) as { name?: string } | null)?.name ?? null;
+    } catch {
+      // Non-JSON error body — providerErrorCode stays null, caller
+      // falls back to its generic "provider rejected" classification.
+    }
+    throw new EmailSendError(res.status, providerErrorCode);
   }
 
   const body = await res.json().catch(() => null) as { id?: string } | null;

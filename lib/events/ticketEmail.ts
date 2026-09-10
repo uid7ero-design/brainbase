@@ -1,5 +1,5 @@
 import 'server-only';
-import { sendEmail, emailLayout, escHtml, BASE_URL } from '@/lib/email';
+import { sendEmail, EmailSendError, emailLayout, escHtml, BASE_URL } from '@/lib/email';
 import { buildTicketUrl } from '@/lib/events/qr';
 import type { TicketEmailBranding } from '@/lib/organisations/branding';
 
@@ -163,7 +163,27 @@ export function buildTicketEmail(data: TicketEmailData): { subject: string; html
 
 export type TicketEmailSendResult =
   | { result: 'sent'; providerMessageId: string | null }
-  | { result: 'failed'; error: string }
+  // idempotencyPayloadMismatch is Phase 3E.1: OPTIONAL and only ever
+  // `true` when the caller supplied an idempotencyKey (the not-yet-
+  // wired automatic delivery path — the EXISTING manual resend route
+  // below never passes one, so this flag is structurally unreachable
+  // from manual resend and that call site's existing `result ===
+  // 'failed'` handling is completely unaffected by its addition).
+  // Deliberately kept as a FLAG on the existing 'failed' variant,
+  // rather than a new top-level `result` value: the manual resend
+  // route's own control flow narrows TicketEmailSendResult by checking
+  // 'not_configured' / 'failed' / 'unknown' and treats anything else as
+  // success — a new top-level discriminant would silently fall through
+  // that route's own logic as a false "sent". Resend reported that this
+  // exact idempotency key was already used with a DIFFERENT request
+  // payload — a caller must never respond to this by minting a new
+  // idempotency key just to force another send; see
+  // lib/events/ticketEmailDelivery.ts's
+  // buildInitialTicketEmailIdempotencyKey and markTicketEmailFailed for
+  // the full payload-stability rule and why this outcome is terminal
+  // for automatic delivery (a manager's own manual resend, which never
+  // uses this key at all, is the only way to recover).
+  | { result: 'failed'; error: string; idempotencyPayloadMismatch?: true }
   // Case C — the provider call itself threw something other than the
   // definite "Resend rejected the request" error below (e.g. a network
   // timeout or connection reset): we genuinely do not know whether the
@@ -178,9 +198,13 @@ export type TicketEmailSendResult =
   | { result: 'not_configured' };
 
 // Provider side effect. Distinguishes:
-//   - Case A (failed):        sendEmail() throws its own 'Email send
-//     failed' Error after getting a non-ok HTTP response from Resend —
-//     a DEFINITE provider rejection.
+//   - Case A (failed):        sendEmail() throws an EmailSendError (or
+//     any other Error with message 'Email send failed') after a non-ok
+//     HTTP response from Resend — a DEFINITE provider rejection.
+//     idempotencyPayloadMismatch is set to true on this SAME 'failed'
+//     result only when the EmailSendError's providerErrorCode is
+//     Resend's own 'invalid_idempotent_request' (only possible when an
+//     idempotencyKey was supplied).
 //   - Case C (unknown):       sendEmail() throws anything else (e.g.
 //     the fetch() itself never completing) — an AMBIGUOUS outcome.
 //   - not_configured:         sendEmail() resolves with status
@@ -190,15 +214,33 @@ export type TicketEmailSendResult =
 // None of this modifies sendEmail()'s own behaviour, which is shared
 // by unrelated auth/lead-notification emails (see lib/email.ts's own
 // SendEmailResult doc comment).
-export async function sendTicketEmail(to: string, data: TicketEmailData): Promise<TicketEmailSendResult> {
+//
+// options.idempotencyKey is OPTIONAL and additive — the EXISTING manual
+// resend route (app/api/events/[id]/orders/[orderId]/resend-ticket-email/route.ts)
+// calls sendTicketEmail(recipient, data) with no third argument and is
+// completely unaffected; only a future automatic-delivery caller
+// (lib/events/ticketEmailDelivery.ts's consumer — not built in this
+// phase) would ever pass one.
+export async function sendTicketEmail(
+  to: string,
+  data: TicketEmailData,
+  options?: { idempotencyKey?: string },
+): Promise<TicketEmailSendResult> {
   const { subject, html } = buildTicketEmail(data);
   try {
-    const sent = await sendEmail({ to, subject, html });
+    const sent = await sendEmail({ to, subject, html, idempotencyKey: options?.idempotencyKey });
     if (sent.status === 'not_configured') {
       return { result: 'not_configured' };
     }
     return { result: 'sent', providerMessageId: sent.id };
   } catch (err) {
+    if (err instanceof EmailSendError && err.providerErrorCode === 'invalid_idempotent_request') {
+      return {
+        result: 'failed',
+        error: 'The email provider reported this request no longer matches a previous attempt.',
+        idempotencyPayloadMismatch: true,
+      };
+    }
     if (err instanceof Error && err.message === 'Email send failed') {
       return { result: 'failed', error: 'The email provider rejected the request.' };
     }
