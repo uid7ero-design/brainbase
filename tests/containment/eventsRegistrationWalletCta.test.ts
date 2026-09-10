@@ -203,8 +203,18 @@ describe('PublicEventClient — confirmation state and wallet CTA (source-level 
     expect(code).toContain('confirmation.tickets.length > 0 && (')
   })
 
-  it('the "no email has been sent" copy still truthfully states no email was sent — automatic delivery has not shipped', () => {
-    expect(code).toContain('No email has been sent')
+  // Phase 3E.2 — automatic initial ticket-email delivery shipped for
+  // free registrations, so "No email has been sent" is no longer true
+  // and was deliberately replaced (see
+  // tests/containment/eventsFreeRegistrationTicketEmail.test.ts and
+  // lib/events/ticketEmailDelivery.ts for the delivery side; this test
+  // now proves the CONFIRMATION SCREEN's copy is the new, still-honest
+  // best-effort wording — never a delivery guarantee, and still
+  // pointing the purchaser at the saved link(s) as the fallback).
+  it('the confirmation copy truthfully describes best-effort automatic email delivery — never a delivery guarantee', () => {
+    expect(code).not.toContain('No email has been sent')
+    expect(code).toMatch(/We.{1,10}ll also send your ticket details by email/)
+    expect(code).toMatch(/in case it (doesn|does not).{1,10}t arrive/)
   })
 
   it('the copy no longer over-specifically says "ticket link(s)" only — generalised to "the link(s)" now that a wallet link may also be the thing saved, without implying email delivery exists', () => {

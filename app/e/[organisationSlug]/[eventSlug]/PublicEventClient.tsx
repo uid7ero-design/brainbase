@@ -440,7 +440,7 @@ export default function PublicEventClient({
             )}
 
             <p style={{ fontSize: 12, color: TEXT_MUTED, lineHeight: 1.6, margin: 0 }}>
-              Keep this confirmation reference for your records. No email has been sent — bookmark this page or save the link{confirmation.tickets.length === 1 ? '' : 's'} above.
+              Keep this confirmation reference for your records. We&rsquo;ll also send your ticket details by email — bookmark this page or save the link{confirmation.tickets.length === 1 ? '' : 's'} above in case it doesn&rsquo;t arrive.
             </p>
           </div>
         </main>

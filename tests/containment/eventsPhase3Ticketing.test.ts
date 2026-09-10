@@ -69,6 +69,16 @@ vi.mock('@/lib/crm/eventSync', () => ({
   recordEventBookingActivity: vi.fn().mockResolvedValue(undefined),
 }))
 
+// Phase 3E.2 — the free-registration route now calls
+// attemptAutomaticTicketEmail() post-commit, whose own real claim query
+// would otherwise become an unexpected extra sqlMock call this file's
+// existing call-count assertions never anticipated (automatic delivery
+// has its own dedicated tests elsewhere). Mocked away as a no-op for
+// the same reason the CRM mock above exists.
+vi.mock('@/lib/events/ticketEmailDelivery', () => ({
+  attemptAutomaticTicketEmail: vi.fn().mockResolvedValue({ outcome: 'not_claimed' }),
+}))
+
 function queue(...responses: unknown[][]) { responseQueue = responses; callCount = 0 }
 function sessionAs(role: string, organisationId = 'org-a') { return { userId: 'staff-1', organisationId, role } }
 function jsonReq(url: string, method: string, body?: unknown) {

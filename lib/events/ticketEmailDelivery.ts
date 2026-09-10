@@ -1,19 +1,28 @@
 import 'server-only';
 import sql from '@/lib/db';
+import { sendTicketEmail, maskEmailForAudit } from './ticketEmail';
+import { normaliseTicketEmailBranding } from '@/lib/organisations/branding';
+import { logAutomaticTicketEmailSent, logAutomaticTicketEmailFailed } from './auditLog';
 
 // Phase 3E.1 — durable, lease-based foundation for AUTOMATIC initial
-// ticket-email delivery. This file provides ONLY the claim/success/
-// failure/stale-lease primitives — it is never called by any route,
-// cron, UI, or webhook in this phase (see this repo's own architecture
-// gate report for the full rationale). A LATER, separately-approved
-// phase (3E.2 for free registrations, 3E.3 for paid orders) is
-// responsible for actually scheduling orders (writing
-// ticket_email_status = 'pending') and for wiring a real recovery
-// executor that calls claimTicketEmailDelivery() periodically. Until
-// then, every order's ticket_email_status stays NULL forever, and NULL
-// is structurally unclaimable (see claimTicketEmailDelivery's own
-// comment) — so this file has ZERO customer-facing send behaviour on
-// its own.
+// ticket-email delivery: the claim/success/failure/stale-lease
+// primitives. Phase 3E.2 adds the orchestration wrapper
+// (attemptAutomaticTicketEmail, at the bottom of this file) and wires
+// it to exactly ONE caller: the public free-registration route, post-
+// commit (see that route's own comment). Paid orders are explicitly
+// OUT of scope for 3E.2 — lib/events/stripe.ts does not call anything
+// in this file yet; that remains a later, separately-approved 3E.3.
+// There is still NO cron/recovery executor in this phase (§15 of
+// 3E.2's own task spec) — a 'failed' order with a future
+// next_attempt_at is only ever revisited by another opportunistic
+// same-request attempt on a LATER registration-adjacent event for that
+// SAME order (there isn't one, for a one-shot free registration), so in
+// practice a retry genuinely waits for that later phase to exist. Every
+// order's ticket_email_status still stays NULL forever unless 3E.2's
+// own INSERT explicitly schedules a brand-new free order (see the
+// register route) — NULL remains structurally unclaimable (see
+// claimTicketEmailDelivery's own comment) for every pre-existing and
+// every paid order alike.
 //
 // State machine (full column-by-column rationale lives in
 // scripts/add-events-ticket-email-delivery.sql's header comment):
@@ -201,6 +210,13 @@ export type ClaimedOrderForDelivery = {
   eventName: string;
   bookingToken: string | null;
   attendees: { name: string; ticketToken: string }[];
+  // Phase 3E.2 — organisation identity/settings for
+  // normaliseTicketEmailBranding(), the exact same raw values (name +
+  // settings JSON) the existing resend-ticket-email route already reads
+  // and normalises the exact same way — no new branding resolution
+  // logic, no duplicated raw-settings parsing.
+  organisationName: string;
+  organisationSettings: unknown;
 };
 
 // Trusted server-side read AFTER winning the claim (§10 of this phase's
@@ -213,14 +229,17 @@ export type ClaimedOrderForDelivery = {
 // exact claim can ever see this data — the same guarantee the
 // UPDATE itself already provides, re-asserted defensively rather than
 // assumed. Mirrors the existing resend-ticket-email route's own read
-// query shape almost exactly (same JOIN structure), for consistency.
-// Never called from, or exposed to, any client-facing route — this is
-// server-only data for the delivery helper's own internal use.
+// query shape almost exactly (same JOIN structure, now including the
+// same organisations JOIN that route already uses for branding), for
+// consistency. Never called from, or exposed to, any client-facing
+// route — this is server-only data for the delivery helper's own
+// internal use.
 export async function readClaimedOrderForDelivery(orderId: string, claimId: string): Promise<ClaimedOrderForDelivery | null> {
   const rows = await sql`
     SELECT
       eo.id, eo.organisation_id, eo.purchaser_name, eo.purchaser_email, eo.booking_token,
       e.name AS event_name,
+      o.name AS organisation_name, o.settings AS organisation_settings,
       COALESCE(
         json_agg(json_build_object('name', ea.attendee_name, 'ticket_token', ea.ticket_token))
           FILTER (WHERE ea.id IS NOT NULL AND ea.ticket_token IS NOT NULL),
@@ -228,17 +247,19 @@ export async function readClaimedOrderForDelivery(orderId: string, claimId: stri
       ) AS attendees
     FROM event_orders eo
     JOIN events e ON e.id = eo.event_id AND e.organisation_id = eo.organisation_id
+    JOIN organisations o ON o.id = eo.organisation_id
     JOIN event_order_items oi ON oi.order_id = eo.id AND oi.organisation_id = eo.organisation_id
     LEFT JOIN event_attendees ea ON ea.order_item_id = oi.id AND ea.organisation_id = oi.organisation_id
     WHERE eo.id = ${orderId} AND eo.ticket_email_status = 'sending' AND eo.ticket_email_claim_id = ${claimId}
-    GROUP BY eo.id, e.name
+    GROUP BY eo.id, e.name, o.name, o.settings
     LIMIT 1
   `;
   if (!rows.length) return null;
 
   const row = rows[0] as {
     id: string; organisation_id: string; purchaser_name: string; purchaser_email: string; booking_token: string | null;
-    event_name: string; attendees: { name: string; ticket_token: string }[];
+    event_name: string; organisation_name: string; organisation_settings: unknown;
+    attendees: { name: string; ticket_token: string }[];
   };
   return {
     id: row.id,
@@ -248,6 +269,8 @@ export async function readClaimedOrderForDelivery(orderId: string, claimId: stri
     eventName: row.event_name,
     bookingToken: row.booking_token,
     attendees: row.attendees.map(a => ({ name: a.name, ticketToken: a.ticket_token })),
+    organisationName: row.organisation_name,
+    organisationSettings: row.organisation_settings,
   };
 }
 
@@ -297,7 +320,18 @@ export type TicketEmailFailureReason =
   // attempt_count, never a scheduled automatic retry — only a
   // completely separate, human-triggered manual resend (§O — which
   // never uses this idempotency key at all) can recover from it.
-  | 'idempotency_payload_mismatch';
+  | 'idempotency_payload_mismatch'
+  // Phase 3E.2 — sendEmail() resolved with status 'not_configured'
+  // (RESEND_API_KEY absent, e.g. a Preview environment): no network
+  // request was made at all, so this is neither a provider rejection
+  // nor a genuinely ambiguous outcome — it is a known, definite
+  // environment-configuration gap. Deliberately NOT forceTerminal:
+  // configuration may become available later (e.g. once Production env
+  // vars are set, or if a Preview environment temporarily lacks the
+  // key), so this follows the SAME retryable backoff schedule as
+  // 'provider_rejected'/'ambiguous_outcome' — only
+  // 'idempotency_payload_mismatch' is ever forced terminal.
+  | 'not_configured';
 
 export async function markTicketEmailFailed(
   orderId: string,
@@ -367,4 +401,117 @@ export async function sweepStaleExhaustedTicketEmailLeases(limit: number = 20): 
     RETURNING id
   `;
   return rows.length;
+}
+
+// Phase 3E.2 — the smallest orchestration wrapper needed to actually
+// invoke the 3E.1 primitives above for ONE specific order. This is the
+// ONLY function in this file any route calls (the free-registration
+// route, post-commit — see that route's own comment; a later,
+// separately-approved 3E.3 will call it from the Stripe webhook the
+// same way). It never throws — every internal failure, expected or
+// not, is caught and converted into a safe outcome — so a caller can
+// invoke it with a plain best-effort `try { await
+// attemptAutomaticTicketEmail(orderId) } catch {}` and still be
+// completely safe even if this function's own internal safety net
+// somehow didn't catch something.
+export type AutomaticTicketEmailOutcome =
+  | { outcome: 'not_claimed' }
+  | { outcome: 'sent'; providerMessageId: string | null }
+  | { outcome: 'failed'; reason: TicketEmailFailureReason };
+
+export async function attemptAutomaticTicketEmail(orderId: string): Promise<AutomaticTicketEmailOutcome> {
+  let claim: TicketEmailDeliveryClaim | null = null;
+  try {
+    claim = await claimTicketEmailDelivery(orderId);
+    if (!claim) return { outcome: 'not_claimed' };
+
+    const order = await readClaimedOrderForDelivery(orderId, claim.claimId);
+    if (!order || order.attendees.length === 0) {
+      // Structurally shouldn't happen (the claim's own eligibility
+      // recheck already required at least one attendee ticket_token),
+      // but if the trusted read ever comes back empty/attendee-less,
+      // record it honestly rather than silently doing nothing.
+      await markTicketEmailFailed(orderId, claim.claimId, 'ambiguous_outcome', 'Order data unavailable immediately after claim.');
+      // Only attempt the audit write if we actually have an
+      // organisationId to attribute it to (order === null means the
+      // trusted read found nothing at all — nothing to log against).
+      if (order) {
+        await logAutomaticTicketEmailFailed({
+          organisationId: order.organisationId, orderId, attemptCount: claim.attemptCount,
+          terminal: false, reason: 'ambiguous_outcome',
+        }).catch(err => console.error('[events] automatic ticket-email audit write failed (post-claim read empty)', err, { orderId }));
+      }
+      return { outcome: 'failed', reason: 'ambiguous_outcome' };
+    }
+
+    // Deterministic per-order key, reused verbatim on every automatic
+    // attempt/recovery for this order — never rotated (§ payload-
+    // stability rule, see buildInitialTicketEmailIdempotencyKey).
+    const idempotencyKey = buildInitialTicketEmailIdempotencyKey(orderId);
+    // Same branding resolution the existing manual resend route already
+    // uses — no new logic, no duplicated raw-settings parsing.
+    const branding = normaliseTicketEmailBranding(order.organisationSettings, order.organisationName);
+    const recipientMasked = maskEmailForAudit(order.purchaserEmail);
+
+    const sendResult = await sendTicketEmail(
+      order.purchaserEmail,
+      {
+        eventName: order.eventName,
+        purchaserName: order.purchaserName,
+        attendees: order.attendees,
+        bookingToken: order.bookingToken,
+        branding,
+      },
+      { idempotencyKey },
+    );
+
+    if (sendResult.result === 'sent') {
+      await markTicketEmailSent(orderId, claim.claimId, sendResult.providerMessageId);
+      await logAutomaticTicketEmailSent({
+        organisationId: order.organisationId, orderId, attemptCount: claim.attemptCount,
+        providerMessageId: sendResult.providerMessageId, recipientMasked,
+      }).catch(err => console.error('[events] automatic ticket-email audit write failed after send', err, { orderId }));
+      return { outcome: 'sent', providerMessageId: sendResult.providerMessageId };
+    }
+
+    // §11 outcome mapping — not_configured and unknown both follow the
+    // SAME retryable backoff schedule as an ordinary provider rejection
+    // (only idempotency_payload_mismatch ever forces terminal — see
+    // markTicketEmailFailed's own forceTerminal logic, unchanged here).
+    let reason: TicketEmailFailureReason;
+    let errorMessage: string;
+    if (sendResult.result === 'not_configured') {
+      reason = 'not_configured';
+      errorMessage = 'Email sending is not configured for this environment.';
+    } else if (sendResult.result === 'unknown') {
+      reason = 'ambiguous_outcome';
+      errorMessage = sendResult.error;
+    } else {
+      // result === 'failed' — sendResult.idempotencyPayloadMismatch is
+      // the ONLY thing that selects the terminal reason; every other
+      // 'failed' outcome (including a plain provider rejection) is the
+      // ordinary retryable case.
+      reason = sendResult.idempotencyPayloadMismatch ? 'idempotency_payload_mismatch' : 'provider_rejected';
+      errorMessage = sendResult.error;
+    }
+
+    await markTicketEmailFailed(orderId, claim.claimId, reason, errorMessage);
+    await logAutomaticTicketEmailFailed({
+      organisationId: order.organisationId, orderId, attemptCount: claim.attemptCount,
+      terminal: reason === 'idempotency_payload_mismatch', reason,
+    }).catch(err => console.error('[events] automatic ticket-email audit write failed after failure', err, { orderId }));
+    return { outcome: 'failed', reason };
+  } catch (err) {
+    console.error('[events] attemptAutomaticTicketEmail: unexpected error', err, { orderId });
+    if (claim) {
+      // Best-effort cleanup so an unexpected internal error (not a
+      // provider outcome — those are all handled above) doesn't leave
+      // the lease stuck in 'sending' any longer than necessary. Never
+      // throws further; if this itself fails too, the stale-lease sweep
+      // (3E.1, not yet wired to run periodically — see §15) is the
+      // eventual fallback once a recovery executor exists.
+      await markTicketEmailFailed(orderId, claim.claimId, 'ambiguous_outcome', 'Unexpected internal error during automatic delivery.').catch(() => {});
+    }
+    return { outcome: 'failed', reason: 'ambiguous_outcome' };
+  }
 }

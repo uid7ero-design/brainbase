@@ -222,3 +222,57 @@ export async function logTicketEmailResent(params: {
     )
   `;
 }
+
+// Phase 3E.2 — AUTOMATIC initial-delivery audit entries. Deliberately
+// SEPARATE action names from 'event_order.ticket_email_resent' above
+// (never reused) so the two paths can never be confused with each
+// other and, critically, so an automatic 'sent' row can never be
+// mistaken by the manual resend route's own 60-second-cooldown lookup
+// for a manual resend — that lookup filters specifically on
+// action = 'event_order.ticket_email_resent' (see the resend route's
+// own COOLDOWN_SECONDS query), which these two new action strings are
+// structurally invisible to. userId is always NULL — no authenticated
+// actor initiated this, matching lib/events/stripe.ts's own
+// user_id = NULL convention for its own system-triggered audit rows.
+// Uses this file's normal fire-and-forget insertAuditLog() (unlike
+// logTicketEmailResent above): the automatic-delivery orchestration
+// helper (lib/events/ticketEmailDelivery.ts's
+// attemptAutomaticTicketEmail) has no interactive caller that needs to
+// react differently to an audit-write failure — registration success
+// never depends on any of this succeeding.
+//
+// after_state is operational metadata only — attempt_count/outcome/
+// provider message id/masked recipient — matching
+// logTicketEmailResent's own discipline exactly: never the ticket
+// token, booking token, raw email HTML, or any provider credential.
+export async function logAutomaticTicketEmailSent(params: {
+  organisationId: string; orderId: string; attemptCount: number;
+  providerMessageId: string | null; recipientMasked: string;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: null, action: 'event_order.ticket_email_sent',
+    resourceId: params.orderId, beforeState: null,
+    afterState: {
+      source: 'automatic',
+      attempt_count: params.attemptCount,
+      provider_message_id: params.providerMessageId,
+      recipient_masked: params.recipientMasked,
+    },
+  });
+}
+
+export async function logAutomaticTicketEmailFailed(params: {
+  organisationId: string; orderId: string; attemptCount: number;
+  // terminal: true for an attempt that will never be automatically
+  // retried again (MAX_ATTEMPTS reached, or an idempotency payload
+  // mismatch) — lets staff/tooling distinguish a final failure from a
+  // retryable one without a separate action name.
+  terminal: boolean;
+  reason: string;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: null, action: 'event_order.ticket_email_failed',
+    resourceId: params.orderId, beforeState: null,
+    afterState: { source: 'automatic', attempt_count: params.attemptCount, terminal: params.terminal, reason: params.reason },
+  });
+}

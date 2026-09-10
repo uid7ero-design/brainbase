@@ -7,6 +7,7 @@ import { getClientIp } from '@/lib/clientIp';
 import { generateTicketToken, generateBookingToken } from '@/lib/events/ticketToken';
 import { listActiveQuestions, validateSubmittedResponses, flattenOrderAnswers, flattenAttendeeAnswers } from '@/lib/events/registrationQuestions';
 import { syncEventOrderContact, recordEventBookingActivity } from '@/lib/crm/eventSync';
+import { attemptAutomaticTicketEmail } from '@/lib/events/ticketEmailDelivery';
 
 type Ctx = { params: Promise<{ organisationSlug: string; eventSlug: string }> };
 
@@ -256,8 +257,8 @@ export async function POST(req: NextRequest, { params }: Ctx) {
               -- statements above, and that lock is held for the whole
               -- transaction — a plain read of their current capacity is
               -- already guaranteed exclusive and fresh.
-              INSERT INTO event_orders (organisation_id, event_id, purchaser_name, purchaser_email, purchaser_phone, status, total_cents, booking_token)
-              SELECT ${organisationId}, ${event.id}, ${validated.purchaser_name}, ${validated.purchaser_email}, ${validated.purchaser_phone}, 'CONFIRMED', 0, ${bookingToken}
+              INSERT INTO event_orders (organisation_id, event_id, purchaser_name, purchaser_email, purchaser_phone, status, total_cents, booking_token, ticket_email_status)
+              SELECT ${organisationId}, ${event.id}, ${validated.purchaser_name}, ${validated.purchaser_email}, ${validated.purchaser_phone}, 'CONFIRMED', 0, ${bookingToken}, 'pending'
               FROM sold_tt, sold_sess
               WHERE sold_tt.qty + ${validated.quantity} <= (SELECT capacity FROM event_ticket_types WHERE id = ${validated.ticket_type_id} AND organisation_id = ${organisationId})
                 AND sold_sess.qty + ${validated.quantity} <= (SELECT capacity FROM event_sessions WHERE id = ${validated.event_session_id} AND organisation_id = ${organisationId})
@@ -335,8 +336,8 @@ export async function POST(req: NextRequest, { params }: Ctx) {
             ins_order AS (
               -- No FOR UPDATE needed here — see the session-bound branch's
               -- identical comment above.
-              INSERT INTO event_orders (organisation_id, event_id, purchaser_name, purchaser_email, purchaser_phone, status, total_cents, booking_token)
-              SELECT ${organisationId}, ${event.id}, ${validated.purchaser_name}, ${validated.purchaser_email}, ${validated.purchaser_phone}, 'CONFIRMED', 0, ${bookingToken}
+              INSERT INTO event_orders (organisation_id, event_id, purchaser_name, purchaser_email, purchaser_phone, status, total_cents, booking_token, ticket_email_status)
+              SELECT ${organisationId}, ${event.id}, ${validated.purchaser_name}, ${validated.purchaser_email}, ${validated.purchaser_phone}, 'CONFIRMED', 0, ${bookingToken}, 'pending'
               FROM sold_tt
               WHERE sold_tt.qty + ${validated.quantity} <= (SELECT capacity FROM event_ticket_types WHERE id = ${validated.ticket_type_id} AND organisation_id = ${organisationId})
               RETURNING id
@@ -448,6 +449,30 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     currency: 'AUD',
     paymentStatus: 'NOT_REQUIRED',
   });
+
+  // Phase 3E.2 — automatic initial ticket-email delivery, strictly
+  // AFTER the booking transaction above has already committed (this
+  // order's ticket_email_status was written as 'pending' by that same
+  // INSERT — see its own comment) and after the CRM side effects above,
+  // never inside the capacity-gated transaction itself: no provider
+  // call may ever occur before commit. attemptAutomaticTicketEmail()
+  // internally claims this exact order, re-checks full current
+  // eligibility, sends via the existing branded template, and records
+  // the outcome — it never throws (see its own try/catch), so this
+  // call is AWAITED (a fire-and-forget/unawaited promise would very
+  // likely be killed mid-flight by the serverless runtime once this
+  // function returns its response, leaving the claim stuck in
+  // 'sending' with no completion write) and wrapped in its own try/
+  // catch purely as defense in depth. Registration success is
+  // unconditional either way: the 201 response below is built and
+  // returned regardless of the outcome, and nothing here can roll back
+  // or otherwise affect the order/tickets/booking_token already
+  // committed above.
+  try {
+    await attemptAutomaticTicketEmail(orderId);
+  } catch (err) {
+    console.error('[public register] automatic ticket-email attempt failed unexpectedly', err, { orderId });
+  }
 
   // One ticket per attendee row actually inserted — the client builds
   // each link as /t/${ticket_token} (see app/t/[token]/page.tsx); no

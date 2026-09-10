@@ -215,6 +215,85 @@ describe('sendEmail — F. optional idempotencyKey (Phase 3E.1)', () => {
   })
 })
 
+describe('sendEmail — G. bounded provider timeout (Phase 3E.2 remediation)', () => {
+  it('fetch is called with a real AbortSignal — the timeout is genuinely wired, not just declared', async () => {
+    process.env.RESEND_API_KEY = 'test-key'
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ id: 'msg-1' }) })
+    vi.stubGlobal('fetch', fetchMock)
+    const { sendEmail } = await import('@/lib/email')
+
+    await sendEmail({ to: 'jane@example.com', subject: 'Hi', html: '<p>Hi</p>' })
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(init.signal).toBeInstanceOf(AbortSignal)
+  })
+
+  it('a timeout-shaped rejection (DOMException "TimeoutError", exactly what AbortSignal.timeout() produces) propagates promptly — never resolves, never hangs', async () => {
+    process.env.RESEND_API_KEY = 'test-key'
+    const timeoutError = new DOMException('The operation timed out.', 'TimeoutError')
+    const fetchMock = vi.fn().mockRejectedValue(timeoutError)
+    vi.stubGlobal('fetch', fetchMock)
+    const { sendEmail } = await import('@/lib/email')
+
+    await expect(sendEmail({ to: 'jane@example.com', subject: 'Hi', html: '<p>Hi</p>' })).rejects.toThrow('The operation timed out.')
+  })
+
+  it('a timeout-shaped rejection is NOT wrapped as EmailSendError — it is a network-level exception, not a definite provider rejection', async () => {
+    process.env.RESEND_API_KEY = 'test-key'
+    const timeoutError = new DOMException('The operation timed out.', 'TimeoutError')
+    const fetchMock = vi.fn().mockRejectedValue(timeoutError)
+    vi.stubGlobal('fetch', fetchMock)
+    const { sendEmail, EmailSendError } = await import('@/lib/email')
+
+    let caught: unknown
+    try {
+      await sendEmail({ to: 'jane@example.com', subject: 'Hi', html: '<p>Hi</p>' })
+    } catch (err) {
+      caught = err
+    }
+    expect(caught).not.toBeInstanceOf(EmailSendError)
+    expect((caught as DOMException).name).toBe('TimeoutError')
+  })
+
+  it('the timeout is a fixed 10-second code constant — no new environment variable was introduced for it', async () => {
+    const fs = await import('fs')
+    const path = await import('path')
+    const source = fs.readFileSync(path.join(process.cwd(), 'lib/email.ts'), 'utf-8')
+    expect(source).toContain('const EMAIL_SEND_TIMEOUT_MS = 10_000;')
+    expect(source).toContain('signal: AbortSignal.timeout(EMAIL_SEND_TIMEOUT_MS)')
+    // The constant itself must not be sourced from process.env anywhere
+    // on its own declaration line.
+    const constLine = source.split('\n').find(l => l.includes('EMAIL_SEND_TIMEOUT_MS ='))
+    expect(constLine).not.toMatch(/process\.env/)
+  })
+
+  it('idempotency-key behaviour is unaffected by the timeout change — header still present only when supplied', async () => {
+    process.env.RESEND_API_KEY = 'test-key'
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ id: 'msg-1' }) })
+    vi.stubGlobal('fetch', fetchMock)
+    const { sendEmail } = await import('@/lib/email')
+
+    await sendEmail({ to: 'jane@example.com', subject: 'Hi', html: '<p>Hi</p>', idempotencyKey: 'event-ticket-email-initial:order-1' })
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect((init.headers as Record<string, string>)['Idempotency-Key']).toBe('event-ticket-email-initial:order-1')
+    expect(init.signal).toBeInstanceOf(AbortSignal)
+  })
+
+  it('successful response shape, FROM behaviour, and request body are all unchanged by the timeout addition', async () => {
+    process.env.RESEND_API_KEY = 'test-key'
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ id: 'msg-1' }) })
+    vi.stubGlobal('fetch', fetchMock)
+    const { sendEmail } = await import('@/lib/email')
+
+    const result = await sendEmail({ to: 'jane@example.com', subject: 'Hi', html: '<p>Hi</p>' })
+    expect(result).toEqual({ status: 'sent', id: 'msg-1' })
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    const body = JSON.parse(init.body as string)
+    expect(body.from).toBe('Brainbase <noreply@brainbase.app>')
+    expect(body.to).toBe('jane@example.com')
+  })
+})
+
 describe('sendEmail — D. fetch/network exception', () => {
   it('a network-level exception (fetch() itself rejects) propagates unchanged, not swallowed', async () => {
     process.env.RESEND_API_KEY = 'test-key'

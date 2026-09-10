@@ -64,6 +64,19 @@ vi.mock('@/lib/crm/eventSync', () => ({
   recordEventBookingActivity: (...args: unknown[]) => recordEventBookingActivityMock(...args),
 }))
 
+// Phase 3E.2 — the register route now calls attemptAutomaticTicketEmail()
+// post-commit. Mocked out here (this file's own concern is response
+// persistence, not automatic delivery — that has its own dedicated
+// tests/containment/eventsFreeRegistrationTicketEmail.test.ts and
+// tests/containment/eventsTicketEmailDelivery.test.ts) so its own real
+// claim query doesn't become an unexpected trailing sql() call that
+// this file's own lastSqlCall()/lastSqlCallText() helpers would
+// otherwise pick up instead of the actual order-creation statement.
+const attemptAutomaticTicketEmailMock = vi.fn().mockResolvedValue({ outcome: 'not_claimed' })
+vi.mock('@/lib/events/ticketEmailDelivery', () => ({
+  attemptAutomaticTicketEmail: (...args: unknown[]) => attemptAutomaticTicketEmailMock(...args),
+}))
+
 const createCheckoutSessionMock = vi.fn()
 class MockStripeNotConfiguredError extends Error {}
 vi.mock('@/lib/events/stripe', () => ({
