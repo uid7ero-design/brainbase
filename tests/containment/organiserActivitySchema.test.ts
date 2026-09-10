@@ -217,16 +217,43 @@ describe('containment — no backfill, no existing-table changes, no unrelated s
   // the last one this phase's own audit accounted for — has not
   // occurred; a real, separately-approved step was appended, so the
   // boundary moves again rather than the assertion being weakened.
-  it('step 43 (organiser_activity.event_type — add comment.deleted) is the current highest step — no step numbered higher than 43 exists yet', () => {
+  //
+  // D.4.6K advances the boundary again: step 44 (organiser_action_
+  // confirmations, the durable confirmation-token replay ledger) is a
+  // real, separately-audited addition — see
+  // tests/containment/organiserHelenaWrite.test.ts and
+  // scripts/tests/organiserConfirmationReplay.integration.test.ts for its
+  // own dedicated coverage. This file's own concern stays narrow: prove
+  // step 44 landed in the right position and that nothing beyond it
+  // sneaked in unreviewed.
+  it('step 44 (organiser_action_confirmations) is the current highest step — no step numbered higher than 44 exists yet', () => {
     const step40Idx = CODE.indexOf("step('40. organiser_activity')")
     const step41Idx = CODE.indexOf("step('41. organiser_activity_sanitise_scalar')")
     const step42Idx = CODE.indexOf("step('42. crm_contacts.classification')")
     const step43Idx = CODE.indexOf("step('43. organiser_activity.event_type")
+    const step44Idx = CODE.indexOf("step('44. organiser_action_confirmations')")
     expect(step41Idx).toBeGreaterThan(step40Idx)
     expect(step42Idx).toBeGreaterThan(step41Idx)
     expect(step43Idx).toBeGreaterThan(step42Idx)
-    expect(CODE).not.toMatch(/step\('4[4-9]\./)
+    expect(step44Idx).toBeGreaterThan(step43Idx)
+    expect(CODE).not.toMatch(/step\('4[5-9]\./)
     expect(CODE).not.toMatch(/step\('[5-9][0-9]\./)
+  })
+
+  it('step 44 creates organiser_action_confirmations with jti PRIMARY KEY, TEXT org/user ids, a bounded action_type CHECK, and never stores the raw token or comment body', () => {
+    const step44Idx = CODE.indexOf("step('44. organiser_action_confirmations')")
+    expect(step44Idx).toBeGreaterThan(-1)
+    const nextIdx = CODE.indexOf("return NextResponse.json({ success: true", step44Idx)
+    const STEP44_BLOCK = CODE.slice(step44Idx, nextIdx === -1 ? undefined : nextIdx)
+    expect(STEP44_BLOCK).toMatch(/CREATE TABLE IF NOT EXISTS organiser_action_confirmations/)
+    expect(STEP44_BLOCK).toMatch(/jti\s+TEXT PRIMARY KEY/)
+    expect(STEP44_BLOCK).toMatch(/organisation_id\s+TEXT NOT NULL REFERENCES organisations\(id\)/)
+    expect(STEP44_BLOCK).toMatch(/user_id\s+TEXT NOT NULL REFERENCES users\(id\)/)
+    expect(STEP44_BLOCK).toMatch(/action_type\s+TEXT NOT NULL CHECK \(action_type IN \('post_comment'\)\)/)
+    expect(STEP44_BLOCK).toMatch(/expires_at\s+TIMESTAMPTZ NOT NULL/)
+    expect(STEP44_BLOCK).not.toMatch(/\btoken\b/i)
+    expect(STEP44_BLOCK).not.toMatch(/\bbody\b/i)
+    expect(STEP44_BLOCK).not.toMatch(/SESSION_SECRET/)
   })
 
   it('does not reuse the existing generic audit_logs table — organiser_activity is its own table', () => {

@@ -1133,6 +1133,38 @@ export async function POST() {
     ))
   `;
 
+  // Phase D.4.6K — durable ledger closing the cross-request confirmation-
+  // token-replay limitation documented since D.4.6I. jti is the token
+  // identity this ledger keys on (never the raw token, never the comment
+  // body) — PRIMARY KEY gives DB-level uniqueness, which is itself the
+  // concurrency-safety mechanism proposeOrExecuteOrganiserComment's atomic
+  // CTE relies on (see lib/organiser/helenaWrite.ts). organisation_id/
+  // user_id are TEXT to match organisations.id/users.id (this repo's
+  // established convention — never UUID, see CLAUDE.md). action_type is
+  // deliberately just a plain TEXT CHECK, not an enum, matching
+  // organiser_activity.event_type's own established pattern one step up —
+  // extending it later (if a second write action is ever added, in an
+  // explicitly separate future phase) is a plain ALTER TABLE, not an ALTER
+  // TYPE migration. expires_at mirrors the JWT's own exp claim for
+  // observability/future retention pruning ONLY — it is never itself the
+  // authority on expiry (jose's jwtVerify already enforces that before a
+  // token ever reaches this table). No raw token, no session secret, no
+  // chat history, and no comment body are stored here.
+  step('44. organiser_action_confirmations');
+  await sql`
+    CREATE TABLE IF NOT EXISTS organiser_action_confirmations (
+      jti             TEXT PRIMARY KEY,
+      organisation_id TEXT NOT NULL REFERENCES organisations(id),
+      user_id         TEXT NOT NULL REFERENCES users(id),
+      action_type     TEXT NOT NULL CHECK (action_type IN ('post_comment')),
+      item_id         UUID,
+      consumed_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      expires_at      TIMESTAMPTZ NOT NULL
+    )
+  `;
+  await sql`CREATE INDEX IF NOT EXISTS idx_organiser_action_confirmations_org_user ON organiser_action_confirmations(organisation_id, user_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_organiser_action_confirmations_expires_at ON organiser_action_confirmations(expires_at)`;
+
   return NextResponse.json({ success: true, message: 'Migration complete.', steps });
 
   } catch (err: unknown) {

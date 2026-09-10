@@ -68,6 +68,15 @@ import path from 'path';
 // scripts/tests/verify-datahub-source-mapping-services.sh) is added
 // alongside the existing specs, for the same reason and with the same
 // explicit-file-argument isolation.
+//
+// D.4.6K addition: scripts/tests/organiserConfirmationReplay.integration
+// .test.ts (the durable confirmation-token replay ledger's own real-Postgres
+// concurrency proof — see
+// scripts/tests/verify-organiser-confirmation-replay.sh) is added alongside
+// the existing specs, for the same reason and with the same
+// explicit-file-argument isolation. Unlike the Data Hub specs above, this
+// one needs no auth seam (proposeOrExecuteOrganiserComment takes already-
+// trusted values directly) — only the lib/db sql-client seam.
 export default defineConfig({
   test: {
     environment: 'node',
@@ -81,6 +90,7 @@ export default defineConfig({
       'scripts/tests/confirmWorksheet.integration.test.ts',
       'scripts/tests/dataHubK2.integration.test.ts',
       'scripts/tests/datahubSourceMappingServices.integration.test.ts',
+      'scripts/tests/organiserConfirmationReplay.integration.test.ts',
     ],
     testTimeout: 30_000,
     hookTimeout: 30_000,
