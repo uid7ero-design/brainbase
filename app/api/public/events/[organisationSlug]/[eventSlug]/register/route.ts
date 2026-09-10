@@ -454,8 +454,15 @@ export async function POST(req: NextRequest, { params }: Ctx) {
   // absolute URL is constructed server-side here, avoiding a dependency
   // on knowing this deployment's own public origin.
   const tickets = insertResult.map(row => ({ attendee_name: row.attendee_name, ticket_token: row.ticket_token }));
+  // booking_token is the exact value minted and persisted by the same
+  // atomic transaction above (never a second token, never regenerated
+  // here) — returned so a genuinely multi-attendee confirmation screen
+  // can offer the booking-wallet link (/b/[bookingToken]/tickets)
+  // alongside the individual ticket links it already returns. Matches
+  // this response's own existing snake_case wire convention
+  // (confirmation_reference, ticket_token, attendee_name).
   return NextResponse.json(
-    { confirmation_reference: orderId, quantity: validated.quantity, tickets },
+    { confirmation_reference: orderId, quantity: validated.quantity, tickets, booking_token: bookingToken },
     { status: 201 },
   );
 }
