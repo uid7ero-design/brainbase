@@ -436,6 +436,73 @@ describe("selectWorksheetMapping — T32/T33 conditional write count=0", () => {
   });
 });
 
+describe("selectWorksheetMapping — deterministic T0/T1/T2/T3 write-boundary race proof", () => {
+  // The T32/T33 test above proves the code's REACTION to claim.count === 0
+  // is correct, but its mock unconditionally returns {count: 0} regardless
+  // of what `where` argument the service actually passed — so it would
+  // still pass even if the production WHERE clause silently dropped the
+  // canonical_status condition. This test closes that gap: the mock below
+  // behaves like a tiny real row, evaluating the SAME `where` object the
+  // service really constructs against that row's REAL current state — the
+  // same way a genuine Postgres `UPDATE ... WHERE` only touches rows that
+  // still satisfy every one of its own conditions. A field absent from
+  // `where` is treated as "no filter on this field" (matching Prisma's own
+  // semantics), which is exactly what makes this test able to fail when a
+  // condition is removed from the predicate, not merely when count is
+  // hard-coded to 0.
+  //
+  // T0 selection begins (mockHappyPath's Step 1 findFirst already answers
+  //     AWAITING_CONFIRMATION).
+  // T1 all of the service's authoritative reads succeed (Steps 1-8, all
+  //     mocked via mockHappyPath — nothing here is mutated).
+  // T2 immediately before the mocked updateMany resolves, a "concurrent
+  //     actor" (standing in for a real confirmWorksheet.ts claim) flips
+  //     the row's REAL status to IMPORTED — modeling the exact moment a
+  //     real concurrent transaction would have already committed between
+  //     Step 1's read and this write.
+  // T3 the service's own conditional write is evaluated against that now-
+  //     changed real state. The required, falsifiable result: zero rows
+  //     match, because the where clause's own canonical_status condition
+  //     no longer agrees with reality.
+  function rowAwareUpdateManyMock() {
+    const realRow = { id: "worksheet-1", organisation_id: "org-1", lineage_kind: "DATA_HUB", canonical_status: "AWAITING_CONFIRMATION" as string };
+    updateManyMock.mockImplementation(async (args: { where: Record<string, unknown>; data: Record<string, unknown> }) => {
+      // T2 — the race is won by someone else, immediately before this
+      // mocked write is evaluated.
+      realRow.canonical_status = "IMPORTED";
+
+      // T3 — evaluate the service's ACTUAL where clause against the row's
+      // real current state, field by field. A field absent from `where`
+      // means "no filter" (matches Prisma's own semantics) — this is what
+      // lets a weakened/removed predicate be caught below.
+      const matches = (Object.keys(realRow) as (keyof typeof realRow)[]).every(
+        (field) => !(field in args.where) || args.where[field] === realRow[field]
+      );
+      if (matches) {
+        Object.assign(realRow, args.data);
+      }
+      return { count: matches ? 1 : 0 };
+    });
+    return realRow;
+  }
+
+  it("T51/T52/G/H — a state transition winning between the reads and the write makes the conditional write match zero rows; no stale success, no lineage write", async () => {
+    const { selectWorksheetMapping } = await freshService();
+    mockHappyPath();
+    const realRow = rowAwareUpdateManyMock();
+
+    const result = await selectWorksheetMapping({ organisationId: "org-1", worksheetUploadId: "worksheet-1", sourceMappingId: "mapping-1" });
+
+    expect(result).toMatchObject({ ok: false, code: "WORKSHEET_NOT_ELIGIBLE" });
+    expect((result as Record<string, unknown>).mappingVersionId).toBeUndefined();
+    // The real row's lineage was never touched — the losing selection made
+    // no change at all, exactly as a real Postgres UPDATE affecting zero
+    // rows would leave the row untouched.
+    expect((realRow as Record<string, unknown>).mapping_version_id).toBeUndefined();
+    expect(realRow.canonical_status).toBe("IMPORTED");
+  });
+});
+
 describe("selectWorksheetMapping — T23 idempotent reselection", () => {
   it("an identical repeat call while still AWAITING_CONFIRMATION succeeds again with the same result", async () => {
     const { selectWorksheetMapping } = await freshService();
