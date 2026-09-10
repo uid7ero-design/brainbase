@@ -33,9 +33,17 @@ import sql from '@/lib/db';
 // structural, testable belt-and-suspenders guard against a FUTURE
 // refactor accidentally breaking that invariant, not because today's
 // callers can actually trigger it.
+// Phase C6.5 — 'purchase_order' added to DeliveryDocumentType, matching
+// the identical 'invoice' widening this module's own header comment
+// already documents (see scripts/widen-commercial-document-deliveries-for-invoices.sql
+// and its C6.5 counterpart, scripts/widen-commercial-document-deliveries-for-purchase-orders.sql).
+// The prior invoice widening already dropped this table's last
+// composite FK (a polymorphic association cannot composite-FK onto
+// more than one parent table) — there is no FK left to drop for this
+// widening, only the document_type CHECK itself.
 export type DeliveryChannel = 'EMAIL' | 'SMS';
 export type DeliveryStatus = 'PENDING' | 'SENT' | 'DELIVERED' | 'FAILED';
-export type DeliveryDocumentType = 'quote' | 'invoice';
+export type DeliveryDocumentType = 'quote' | 'invoice' | 'purchase_order';
 
 export interface CommercialDocumentDelivery {
   id: string;
@@ -150,6 +158,18 @@ export async function recordInvoiceDeliveryAttempt(params: DeliveryAttemptCommon
   assertSameOrganisation(params.organisationId, params.invoice.organisation_id, 'invoice');
   const { invoice, ...rest } = params;
   return recordDeliveryAttempt({ ...rest, documentType: 'invoice', documentId: invoice.id });
+}
+
+// The ONLY way to write a purchase order delivery row. Same discipline
+// as recordQuoteDeliveryAttempt()/recordInvoiceDeliveryAttempt() above —
+// `purchaseOrder` must be the already-resolved row from a tenant-scoped
+// lookup (getPurchaseOrderWithLines(session.organisationId, id).purchaseOrder).
+export async function recordPurchaseOrderDeliveryAttempt(params: DeliveryAttemptCommon & {
+  purchaseOrder: { id: string; organisation_id: string };
+}): Promise<CommercialDocumentDelivery> {
+  assertSameOrganisation(params.organisationId, params.purchaseOrder.organisation_id, 'purchase_order');
+  const { purchaseOrder, ...rest } = params;
+  return recordDeliveryAttempt({ ...rest, documentType: 'purchase_order', documentId: purchaseOrder.id });
 }
 
 export async function listDeliveriesForDocument(params: {

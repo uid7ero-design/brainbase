@@ -584,3 +584,30 @@ export async function logPurchaseOrderCancelled(params: {
     beforeState: { status: 'ISSUED' }, afterState: { status: 'CANCELLED', cancel_reason: params.cancelReason },
   });
 }
+
+// Phase C6.5 — mirrors logInvoiceEmailSent()/logQuoteEmailSent() exactly,
+// including the deliberate choice to bypass insertAuditLog() and use a
+// raw, uncaught sql INSERT: the caller (the PO email route) needs this
+// specific write's failure to propagate to ITS OWN try/catch so it can
+// surface the "email may have been sent, but BrainBase could not record
+// the send" warning — insertAuditLog()'s own swallow-and-log-only
+// behavior would silently hide that failure instead.
+export async function logPurchaseOrderEmailSent(params: {
+  organisationId: string; userId: string; purchaseOrderId: string;
+  result: 'sent' | 'failed' | 'unknown' | 'not_configured';
+  recipientMasked: string;
+  providerMessageId: string | null;
+}): Promise<void> {
+  await sql`
+    INSERT INTO audit_logs (id, organisation_id, user_id, action, resource_type, resource_id, before_state, after_state)
+    VALUES (
+      ${crypto.randomUUID()}, ${params.organisationId}, ${params.userId}, 'commercial_purchase_order.email_sent', 'commercial_purchase_order', ${params.purchaseOrderId},
+      NULL,
+      ${JSON.stringify({
+        result: params.result,
+        recipient_masked: params.recipientMasked,
+        provider_message_id: params.providerMessageId,
+      })}::jsonb
+    )
+  `;
+}
