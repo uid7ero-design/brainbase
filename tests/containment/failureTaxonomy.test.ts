@@ -62,11 +62,18 @@ describe("failureTaxonomy — code sets", () => {
         // Never persisted.
         "SOURCE_LINEAGE_REQUIRED",
         "SOURCE_MAPPING_UNAVAILABLE",
-        // 5B.4C — Preview's own frozen mapping-lineage consumption outcome
-        // codes (lib/data-hub/importBatch/previewWorksheet.ts). Never
-        // persisted; Preview performs zero Prisma writes.
+        // 5B.4C — frozen mapping-lineage consumption outcome codes, shared
+        // by Preview (lib/data-hub/importBatch/previewWorksheet.ts, zero
+        // Prisma writes) and 5B.4D Confirm (which DOES write, but never
+        // persists these two specific codes onto any row — they are
+        // returned to the caller only, exactly like every other
+        // CallerOnlyOutcomeCode here).
         "MAPPING_LINEAGE_UNAVAILABLE",
         "MAPPING_DOCUMENT_INVALID",
+        // 5B.4D — Confirm-only hard failure (lib/data-hub/importBatch/
+        // confirmWorksheet.ts). See failureTaxonomy.ts's own doc comment.
+        // Never persisted.
+        "MAPPING_COMPILE_FAILED",
       ])
     );
   });

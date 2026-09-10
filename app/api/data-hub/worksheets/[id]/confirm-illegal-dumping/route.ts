@@ -132,10 +132,16 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
       // selection/execution in this slice).
       SOURCE_LINEAGE_REQUIRED: 500,
       SOURCE_MAPPING_UNAVAILABLE: 500,
-      // 5B.4C — Preview-only codes, unreachable from confirmDataHubWorksheet
-      // (this route does not integrate mapped Preview consumption).
-      MAPPING_LINEAGE_UNAVAILABLE: 500,
+      // 5B.4D — frozen mapping-lineage codes, now reachable when the
+      // worksheet carries a persisted Upload.mapping_version_id. 409/500
+      // match previewWorksheet's own route status mapping for the two
+      // shared codes exactly. MAPPING_COMPILE_FAILED is Confirm-only (see
+      // failureTaxonomy.ts's own doc comment) — 422, matching
+      // PARSER_REJECTED/UNSUPPORTED_FORMAT's existing treatment of a
+      // client-visible structural data problem.
+      MAPPING_LINEAGE_UNAVAILABLE: 409,
       MAPPING_DOCUMENT_INVALID: 500,
+      MAPPING_COMPILE_FAILED: 422,
     };
     return NextResponse.json(
       { ok: false, error: result.message },

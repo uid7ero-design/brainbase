@@ -107,6 +107,9 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
         // 5B.4C — Preview-only codes, unreachable from selectWorksheetMapping.
         MAPPING_LINEAGE_UNAVAILABLE: 500,
         MAPPING_DOCUMENT_INVALID: 500,
+        // 5B.4D — Confirm-only code (see failureTaxonomy.ts's own doc
+        // comment), unreachable from selectWorksheetMapping.
+        MAPPING_COMPILE_FAILED: 500,
       };
       return NextResponse.json({ ok: false, error: result.message }, { status: statusByCode[result.code], headers: CACHE_HEADERS });
     }
