@@ -222,7 +222,12 @@ describe('D.4.6K — durable confirmation-token replay protection (real Postgres
       organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, body: 'ignored',
       confirmationToken: expiredToken,
     });
-    expect(result).toEqual({ ok: false, reason: 'invalid_confirmation' });
+    // Phase D.4.6L — expiry is now its own distinct reason (jose's own
+    // JWTExpired, thrown only for a signature-valid-but-past-exp token),
+    // so the caller can narrate "please ask again" instead of a bare
+    // generic failure. This is still a hard rejection: zero mutation,
+    // zero ledger row, exactly as before.
+    expect(result).toEqual({ ok: false, reason: 'expired_confirmation' });
     expect(await countRows('organiser_item_updates', `item_id = '${itemId}'`)).toBe(0);
     expect(await countRows('organiser_action_confirmations', `item_id = '${itemId}'`)).toBe(0);
   });
@@ -351,5 +356,117 @@ describe('D.4.6K — durable confirmation-token replay protection (real Postgres
     expect(await countRows('organiser_item_updates', `item_id = '${itemId}'`)).toBe(0);
     expect(await countRows('organiser_activity', `item_id = '${itemId}'`)).toBe(0);
     expect(await countRows('organiser_action_confirmations', `item_id = '${itemId}'`)).toBe(0);
+  });
+});
+
+// Phase D.4.6L — ledger retention, proven against real Postgres. A mock can
+// assert the DELETE statement's shape (see organiserHelenaWrite.test.ts's
+// own pruneExpiredConfirmationsBestEffort suite for that), but only a real
+// database can prove the actual row-level boundary: exactly which rows a
+// live DELETE ... WHERE expires_at < NOW() - INTERVAL '1 day' removes,
+// versus leaves alone.
+describe('D.4.6L — ledger retention / cleanup (real Postgres)', () => {
+  let pruneExpiredConfirmationsBestEffort: typeof import('@/lib/organiser/helenaWrite').pruneExpiredConfirmationsBestEffort;
+
+  beforeAll(async () => {
+    ({ pruneExpiredConfirmationsBestEffort } = await import('@/lib/organiser/helenaWrite'));
+  });
+
+  async function insertLedgerRow(jti: string, expiresAtSql: string): Promise<void> {
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO organiser_action_confirmations (jti, organisation_id, user_id, action_type, item_id, expires_at)
+       VALUES ($1, $2, $3, 'post_comment', NULL, ${expiresAtSql})`,
+      jti, ORG, USER,
+    );
+  }
+
+  async function ledgerRowExists(jti: string): Promise<boolean> {
+    return (await countRows('organiser_action_confirmations', `jti = '${jti}'`)) === 1;
+  }
+
+  it('K/M. a row expired well past the 1-day safety margin is pruned', async () => {
+    const jti = randomUUID();
+    await insertLedgerRow(jti, `NOW() - INTERVAL '2 days'`);
+    await pruneExpiredConfirmationsBestEffort();
+    expect(await ledgerRowExists(jti)).toBe(false);
+  });
+
+  it('L. an unexpired row (expires_at still in the future) is retained', async () => {
+    const jti = randomUUID();
+    await insertLedgerRow(jti, `NOW() + INTERVAL '1 hour'`);
+    await pruneExpiredConfirmationsBestEffort();
+    expect(await ledgerRowExists(jti)).toBe(true);
+  });
+
+  it('M. a just-expired row still INSIDE the 1-day safety margin is retained, not pruned', async () => {
+    const jti = randomUUID();
+    await insertLedgerRow(jti, `NOW() - INTERVAL '1 hour'`); // expired, but well inside the 1-day margin
+    await pruneExpiredConfirmationsBestEffort();
+    expect(await ledgerRowExists(jti)).toBe(true);
+  });
+
+  it('P. cleanup never opens a replay window: a real token whose ledger row becomes cleanup-eligible is ALREADY rejected by jwtVerify\'s own real-time expiry check, independent of whether the ledger row still exists', async () => {
+    const itemId = await freshItem('Retention Replay-Safety Item');
+    // A token this old (expires_at far enough in the past to be
+    // cleanup-eligible) is, by construction, also long past its OWN 2-minute
+    // TTL — jwtVerify rejects it before proposeOrExecuteOrganiserComment
+    // ever reaches the ledger, with or without cleanup ever running.
+    const secret = new TextEncoder().encode(process.env.SESSION_SECRET!);
+    const pastExp = Math.floor(Date.now() / 1000) - 2 * 24 * 60 * 60; // 2 days in the past
+    const jti = randomUUID();
+    const staleToken = await new SignJWT({
+      purpose: 'organiser_action_confirm',
+      actionType: 'post_comment',
+      organisationId: ORG,
+      userId: USER,
+      itemId,
+      body: 'stale',
+      jti,
+    })
+      .setProtectedHeader({ alg: 'HS256' })
+      .setIssuedAt(pastExp - 120)
+      .setExpirationTime(pastExp)
+      .sign(secret);
+
+    // Simulate this jti's ledger row having existed and then been pruned.
+    await insertLedgerRow(jti, `to_timestamp(${pastExp})`);
+    await pruneExpiredConfirmationsBestEffort();
+    expect(await ledgerRowExists(jti)).toBe(false);
+
+    // Attempting to "replay" this same stale token now (row gone) must
+    // still fail — and fail for the SAME reason it always would have
+    // (expiry), never succeed and never fall through to a fresh mutation.
+    const result = await proposeOrExecuteOrganiserComment({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, body: 'ignored',
+      confirmationToken: staleToken,
+    });
+    expect(result).toEqual({ ok: false, reason: 'expired_confirmation' });
+    expect(await countRows('organiser_item_updates', `item_id = '${itemId}'`)).toBe(0);
+  });
+
+  it('cleanup does not disturb an active, unexpired ledger row from a real in-flight confirmation', async () => {
+    const itemId = await freshItem('Retention Coexistence Item');
+    const proposal = await proposeOrExecuteOrganiserComment({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, body: 'coexists with cleanup',
+    });
+    if (!proposal.ok || proposal.mode !== 'proposed') throw new Error('expected proposal');
+    const confirmed = await proposeOrExecuteOrganiserComment({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, body: 'ignored',
+      confirmationToken: proposal.confirmationToken,
+    });
+    expect(confirmed.ok).toBe(true);
+
+    // This real confirmation's own ledger row has expires_at ~2 minutes in
+    // the future — nowhere near the 1-day margin — so an unrelated cleanup
+    // call must leave it untouched, and the replay-rejection guarantee
+    // must still hold immediately afterward.
+    await pruneExpiredConfirmationsBestEffort();
+    expect(await countRows('organiser_action_confirmations', `item_id = '${itemId}'`)).toBe(1);
+
+    const replay = await proposeOrExecuteOrganiserComment({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, body: 'ignored',
+      confirmationToken: proposal.confirmationToken,
+    });
+    expect(replay).toEqual({ ok: false, reason: 'already_used_confirmation' });
   });
 });

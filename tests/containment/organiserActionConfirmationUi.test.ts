@@ -228,13 +228,16 @@ describe('N — viewer cannot obtain an executable confirmation card (real dispa
     nAuthorizeOrganiserRequestMock.mockReset()
   })
 
-  it('viewer role -> executeOrganiserTool(propose_organiser_comment) returns a generic denial with NO status/proposal/confirmation_token fields', async () => {
+  it('viewer role -> executeOrganiserTool(propose_organiser_comment) returns a generic denial with a deterministic unauthorized status and NO proposal/confirmation_token fields', async () => {
     nAuthorizeOrganiserRequestMock.mockResolvedValue({ ok: false, response: new Response(null, { status: 403 }) })
     const { executeOrganiserTool } = await import('@/lib/organiser/helenaTools')
     const raw = await executeOrganiserTool('propose_organiser_comment', { item_id: '33333333-3333-3333-3333-333333333333', body: 'hi' })
     const parsed = JSON.parse(raw)
     expect(parsed.error).toBe('Organiser access is not available for this account.')
-    expect(parsed.status).toBeUndefined()
+    // Phase D.4.6L — 'unauthorized' is now a deterministic status the chat
+    // route can key its fixed denial wording on; it carries no additional
+    // detail beyond the same generic denial string already asserted above.
+    expect(parsed.status).toBe('unauthorized')
     expect(parsed.proposal).toBeUndefined()
     expect(parsed.confirmation_token).toBeUndefined()
   })

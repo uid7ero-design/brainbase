@@ -204,6 +204,60 @@ describe('one-shot mutation consumption across the 4-iteration tool loop', () =>
   })
 })
 
+// Phase D.4.6L — result-accuracy: the backend's own resolved status for a
+// CONFIRMED Organiser action must control the user-facing wording, never
+// unconstrained model narration. These are static source-text proofs
+// (this file cannot be safely imported — see the module header) that the
+// deterministic map exists, covers every known backend outcome, excludes
+// 'proposed' (fresh proposals still get ordinary model narration), is gated
+// on the same one-shot token-consumption guard already proven above, and
+// short-circuits BEFORE the tool loop ever feeds results back to the model.
+describe('Phase D.4.6L — deterministic Organiser confirmation result authority', () => {
+  it('ORGANISER_CONFIRMATION_OUTCOME_TEXT exists and covers every backend confirm+execute outcome', () => {
+    const idx = routeSource.indexOf('const ORGANISER_CONFIRMATION_OUTCOME_TEXT')
+    expect(idx).toBeGreaterThan(-1)
+    const block = routeSource.slice(idx, idx + 1200)
+    for (const key of ['posted', 'already_used_confirmation', 'expired_confirmation', 'invalid_confirmation', 'unauthorized', 'item_not_found', 'failed']) {
+      expect(block).toMatch(new RegExp(`\\b${key}:`))
+    }
+  })
+
+  it('a fresh proposal ("proposed") is deliberately absent from the deterministic map — normal model narration for a pending proposal is unchanged', () => {
+    const idx = routeSource.indexOf('const ORGANISER_CONFIRMATION_OUTCOME_TEXT')
+    const endIdx = routeSource.indexOf('};', idx)
+    const block = routeSource.slice(idx, endIdx)
+    expect(block).not.toMatch(/\bproposed:/)
+  })
+
+  it('no confirmation token, jti, org id, or user id literal is embedded in any of the fixed outcome sentences', () => {
+    const idx = routeSource.indexOf('const ORGANISER_CONFIRMATION_OUTCOME_TEXT')
+    const endIdx = routeSource.indexOf('};', idx)
+    const block = routeSource.slice(idx, endIdx)
+    expect(block).not.toMatch(/\$\{/) // no interpolation of any runtime value at all
+  })
+
+  it('the deterministic outcome is captured ONLY when this exact call consumed the trusted confirmationTokenForThisCall — never for a bare fresh proposal', () => {
+    const idx = routeSource.indexOf('organiserConfirmationOutcomeText = ORGANISER_CONFIRMATION_OUTCOME_TEXT')
+    expect(idx).toBeGreaterThan(-1)
+    const before = routeSource.slice(Math.max(0, idx - 300), idx)
+    expect(before).toMatch(/confirmationTokenForThisCall &&/)
+  })
+
+  it('the short-circuit return happens strictly BEFORE tool results are fed back into msgs for another model iteration', () => {
+    const outcomeCheckIdx = routeSource.indexOf('if (organiserConfirmationOutcomeText !== null)')
+    const msgsAppendIdx = routeSource.indexOf("{ role: 'assistant', content: resp.content },")
+    expect(outcomeCheckIdx).toBeGreaterThan(-1)
+    expect(msgsAppendIdx).toBeGreaterThan(-1)
+    expect(outcomeCheckIdx).toBeLessThan(msgsAppendIdx)
+  })
+
+  it('the short-circuit returns the fixed text directly — it does not call anthropicClient.messages.create again first', () => {
+    const outcomeCheckIdx = routeSource.indexOf('if (organiserConfirmationOutcomeText !== null)')
+    const block = routeSource.slice(outcomeCheckIdx, outcomeCheckIdx + 250)
+    expect(block).toMatch(/return \{ text: organiserConfirmationOutcomeText, analysis: null, pendingOrganiserAction: null \};/)
+  })
+})
+
 describe('Phase D.4.6D — organiserContext resolution wiring', () => {
   it('imports resolveHelenaOrganiserContext (and the HelenaOrganiserContext type) from lib/organiser/helenaRead, not a new module', () => {
     expect(routeSource).toMatch(/import \{\s*resolveHelenaOrganiserContext,\s*type HelenaOrganiserContext,?\s*\} from ['"]\.\.\/\.\.\/\.\.\/lib\/organiser\/helenaRead['"]/)

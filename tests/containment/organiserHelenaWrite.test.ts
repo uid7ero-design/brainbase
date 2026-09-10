@@ -357,6 +357,94 @@ describe('proposeOrExecuteOrganiserComment — confirm+execute mode (confirmatio
     })
     expect(sqlCalls[0].values).toContain('Manager Mia (current session)')
   })
+
+  // Phase D.4.6L — result-accuracy: a genuinely expired token must be
+  // distinguishable from a tampered/malformed one, so the caller can
+  // narrate "please ask again" instead of a bare generic failure. This
+  // does NOT relax the actual security check — an expired token is still
+  // rejected outright by jose's own jwtVerify(); only the label attached
+  // to that rejection changes.
+  it('D.4.6L: an expired token -> expired_confirmation, distinct from invalid_confirmation, zero sql calls', async () => {
+    vi.useFakeTimers()
+    try {
+      const proposal = await propose()
+      sqlCalls = []
+      vi.advanceTimersByTime(3 * 60 * 1000) // past the 2-minute TTL
+      const result = await proposeOrExecuteOrganiserComment({
+        organisationId: 'org-a', userId: 'u1', actorName: 'Manager Mia',
+        itemId: ITEM_A, body: 'hello', confirmationToken: proposal.confirmationToken,
+      })
+      expect(result).toEqual({ ok: false, reason: 'expired_confirmation' })
+      expect(sqlCalls).toHaveLength(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('D.4.6L: a well-formed but unexpired token with a tampered signature still reports invalid_confirmation (never expired_confirmation)', async () => {
+    const proposal = await propose()
+    sqlCalls = []
+    const tampered = proposal.confirmationToken.slice(0, -4) + 'AAAA'
+    const result = await proposeOrExecuteOrganiserComment({
+      organisationId: 'org-a', userId: 'u1', actorName: 'Manager Mia',
+      itemId: ITEM_A, body: 'hello', confirmationToken: tampered,
+    })
+    expect(result).toEqual({ ok: false, reason: 'invalid_confirmation' })
+    expect(sqlCalls).toHaveLength(0)
+  })
+})
+
+// ── Phase D.4.6L — ledger retention / cleanup ───────────────────────────────
+
+describe('pruneExpiredConfirmationsBestEffort', () => {
+  it('issues a single bounded, index-supported DELETE keyed on expires_at with a 1-day safety margin', async () => {
+    const { pruneExpiredConfirmationsBestEffort } = await import('@/lib/organiser/helenaWrite')
+    await pruneExpiredConfirmationsBestEffort()
+    expect(sqlCalls).toHaveLength(1)
+    const text = sqlCalls[0].text
+    expect(text).toMatch(/DELETE FROM organiser_action_confirmations/)
+    expect(text).toMatch(/expires_at < NOW\(\) - INTERVAL '1 day'/)
+    expect(text).toMatch(/LIMIT/)
+  })
+
+  it('a cleanup failure is swallowed — never thrown to the caller', async () => {
+    const { pruneExpiredConfirmationsBestEffort } = await import('@/lib/organiser/helenaWrite')
+    sqlMock.mockImplementationOnce(() => Promise.reject(new Error('connection terminated unexpectedly')))
+    await expect(pruneExpiredConfirmationsBestEffort()).resolves.toBeUndefined()
+  })
+
+  it('cleanup runs on a valid propose call but a cleanup failure does not block the proposal from succeeding', async () => {
+    sqlMock.mockImplementationOnce(() => Promise.reject(new Error('cleanup boom')))
+    sqlResultQueue = [[{ id: ITEM_A, name: 'Item A' }]]
+    const result = await proposeOrExecuteOrganiserComment({
+      organisationId: 'org-a', userId: 'u1', actorName: 'Manager Mia',
+      itemId: ITEM_A, body: 'hello',
+    })
+    expect(result.ok).toBe(true)
+    expect((result as { mode: string }).mode).toBe('proposed')
+  })
+
+  it('cleanup never runs before invalid-input validation — zero sql calls for a malformed item_id', async () => {
+    const result = await proposeOrExecuteOrganiserComment({
+      organisationId: 'org-a', userId: 'u1', actorName: 'Manager Mia',
+      itemId: 'not-a-uuid', body: 'hello',
+    })
+    expect(result).toEqual({ ok: false, reason: 'invalid_item_id' })
+    expect(sqlCalls).toHaveLength(0)
+  })
+
+  it('cleanup is never invoked from the confirm+execute path — only from propose, decoupled from the atomic mutation statement', async () => {
+    const proposal = await propose()
+    sqlCalls = []
+    sqlResultQueue = [executedRow()]
+    await proposeOrExecuteOrganiserComment({
+      organisationId: 'org-a', userId: 'u1', actorName: 'Manager Mia',
+      itemId: ITEM_A, body: 'hello', confirmationToken: proposal.confirmationToken,
+    })
+    // Exactly the one atomic CTE statement — no separate DELETE alongside it.
+    expect(sqlCalls).toHaveLength(1)
+    expect(sqlCalls[0].text).not.toMatch(/DELETE/)
+  })
 })
 
 // ── Raw audit / source-shape invariants ─────────────────────────────────────
