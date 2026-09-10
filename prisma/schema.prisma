@@ -1533,6 +1533,22 @@ model EventOrder {
   // connected account actually processed THIS order, independent of
   // the organisation's current Stripe settings.
   stripe_account_id           String?
+  // Phase 3E.1 — see scripts/add-events-ticket-email-delivery.sql's
+  // header for the full column-by-column rationale and
+  // lib/events/ticketEmailDelivery.ts for the state machine these
+  // support. NULL (the default for every existing and, in this phase,
+  // every NEW row too) means "legacy / never explicitly scheduled" and
+  // is structurally unclaimable — nothing in this phase schedules any
+  // order for automatic delivery yet.
+  ticket_email_status              String?
+  ticket_email_claimed_at          DateTime? @db.Timestamptz(6)
+  ticket_email_claim_id            String?
+  ticket_email_attempt_count       Int       @default(0)
+  ticket_email_last_attempt_at     DateTime? @db.Timestamptz(6)
+  ticket_email_next_attempt_at     DateTime? @db.Timestamptz(6)
+  ticket_email_sent_at             DateTime? @db.Timestamptz(6)
+  ticket_email_provider_message_id String?
+  ticket_email_last_error          String?
   created_at      DateTime         @default(now()) @db.Timestamptz(6)
   updated_at      DateTime         @updatedAt @db.Timestamptz(6)
 
@@ -1543,6 +1559,11 @@ model EventOrder {
   // stripe_checkout_session_id also carries a UNIQUE constraint in the
   // live SQL — a partial index (WHERE NOT NULL), same "Prisma mirrors,
   // raw SQL is authoritative" convention as EventAttendee.ticket_token.
+  // ticket_email_status/ticket_email_next_attempt_at also carry a
+  // composite partial index in the live SQL
+  // (idx_event_orders_ticket_email_pending, WHERE ticket_email_status
+  // IS NOT NULL) — same convention, not mirrored below since Prisma's
+  // schema language cannot express a partial index.
   @@unique([id, organisation_id])
   @@index([organisation_id])
   @@index([event_id])
