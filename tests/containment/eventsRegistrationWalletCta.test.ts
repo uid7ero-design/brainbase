@@ -218,7 +218,14 @@ describe('PublicEventClient — confirmation state and wallet CTA (source-level 
   })
 
   it('the copy no longer over-specifically says "ticket link(s)" only — generalised to "the link(s)" now that a wallet link may also be the thing saved, without implying email delivery exists', () => {
-    expect(code).toMatch(/save the link\{confirmation\.tickets\.length === 1 \? '' : 's'\} above/)
+    // Phase 3E.2 remediation — a literal {' '} was inserted between the
+    // singular/plural ternary and "above" (a live rendering bug: JSX
+    // trims the leading space of a text segment that immediately
+    // follows a `{expression}` on the same line, confirmed by directly
+    // inspecting the rendered DOM's text nodes on Preview — the fix is
+    // the standard React {' '} idiom, which forces a literal space
+    // regardless of JSX's own whitespace-collapsing behaviour).
+    expect(code).toMatch(/save the link\{confirmation\.tickets\.length === 1 \? '' : 's'\}\{' '\}above/)
     expect(code).not.toMatch(/save your ticket link/)
   })
 })
