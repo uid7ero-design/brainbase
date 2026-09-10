@@ -373,6 +373,8 @@ describe("T32/M20: no new backend route", () => {
         "app/api/data-hub/worksheets/[id]/confirm-illegal-dumping/route.ts",
         "app/api/data-hub/worksheets/[id]/preview/route.ts",
         "app/api/data-hub/worksheets/[id]/route.ts",
+        // 5B.4B addition:
+        "app/api/data-hub/worksheets/[id]/mapping-selection/route.ts",
         // 5B.2 additions:
         "app/api/data-hub/source-systems/route.ts",
         "app/api/data-hub/source-systems/[id]/route.ts",

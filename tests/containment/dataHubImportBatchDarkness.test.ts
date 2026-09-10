@@ -90,6 +90,11 @@ const K2_CONFIRM_ROUTE = path.join(
 // runtime caller of any kind, exactly the new preview route.
 const C0_PREVIEW_ROUTE = path.join("app", "api", "data-hub", "worksheets", "[id]", "preview", "route.ts");
 
+// 5B.4B — the new dedicated worksheet mapping-selection service. Its
+// FIRST runtime caller of any kind, exactly the new mapping-selection
+// route.
+const B4B_MAPPING_SELECTION_ROUTE = path.join("app", "api", "data-hub", "worksheets", "[id]", "mapping-selection", "route.ts");
+
 // Module name (as it appears in `.../importBatch/<name>`) -> the exact
 // set of app/**/components/** files authorized to import it.
 const AUTHORIZED_IMPORTERS_BY_MODULE: Record<string, Set<string>> = {
@@ -123,6 +128,9 @@ const AUTHORIZED_IMPORTERS_BY_MODULE: Record<string, Set<string>> = {
   // 5A.3C.0 — the new bounded, read-only CSV worksheet preview service.
   // Exactly one authorized importer: its own new route.
   previewWorksheet: new Set([C0_PREVIEW_ROUTE]),
+  // 5B.4B — the new dedicated worksheet mapping-selection service. Exactly
+  // one authorized importer: its own new route.
+  selectWorksheetMapping: new Set([B4B_MAPPING_SELECTION_ROUTE]),
 };
 
 describe("Data Hub importBatch — exactly the authorized H.3/5A.2I route set imports each module; nothing else imports any file in this tree (verified by static inspection)", () => {
@@ -227,6 +235,11 @@ describe("Data Hub importBatch — no barrel/index.ts anywhere in the new tree",
         // exactly one authorized importer, the new preview route — see
         // the AUTHORIZED_IMPORTERS_BY_MODULE map above.
         "previewWorksheet.ts",
+        // selectWorksheetMapping.ts (5B.4B) — the new dedicated worksheet
+        // mapping-selection service. LIVE as of this phase — exactly one
+        // authorized importer, the new mapping-selection route — see the
+        // AUTHORIZED_IMPORTERS_BY_MODULE map above.
+        "selectWorksheetMapping.ts",
       ])
     );
   });
