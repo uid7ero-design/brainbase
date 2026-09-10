@@ -34,12 +34,22 @@ const BASE_NAV_ITEMS = [
   { href: '/commercial/settings', label: 'Settings' },
 ];
 
-export default function CommercialSidebar({ quotesEnabled = false, invoicingEnabled = false }: { quotesEnabled?: boolean; invoicingEnabled?: boolean }) {
+// Phase C6.3 — Purchasing follows the identical never-shown-disabled,
+// per-capability-gated convention as Quotes/Invoicing above: omitted
+// entirely (not shown-disabled) for an organisation not entitled to
+// 'purchasing'. Hiding these links is UX only — every route backing them
+// still enforces authorizeCommercialRequest('purchasing', ...)
+// server-side regardless of what this sidebar renders.
+export default function CommercialSidebar({ quotesEnabled = false, invoicingEnabled = false, purchasingEnabled = false }: { quotesEnabled?: boolean; invoicingEnabled?: boolean; purchasingEnabled?: boolean }) {
   const pathname = usePathname() ?? '';
   const navItems = [
     ...BASE_NAV_ITEMS.slice(0, 3),
     ...(quotesEnabled ? [{ href: '/commercial/quotes', label: 'Quotes' }] : []),
     ...(invoicingEnabled ? [{ href: '/commercial/invoices', label: 'Invoices' }] : []),
+    ...(purchasingEnabled ? [
+      { href: '/commercial/purchasing/purchase-orders', label: 'Purchase Orders' },
+      { href: '/commercial/purchasing/suppliers', label: 'Suppliers' },
+    ] : []),
     ...BASE_NAV_ITEMS.slice(3),
   ];
 

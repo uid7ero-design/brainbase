@@ -4,9 +4,12 @@ import { listTaxCodes, createTaxCode } from '@/lib/commercial/taxCodes';
 
 // GET is read-only, view-role — used by the Products and Quote-line
 // forms to populate a tax-code dropdown from whatever an organisation
-// has already configured.
+// has already configured. Phase C6.3 — widened to include 'purchasing':
+// tax codes are a shared org-level resource, and PO lines need the same
+// dropdown quote/invoice lines already use. POST (tax-code
+// administration) is left untouched — C6.3 never creates tax codes.
 export async function GET() {
-  const auth = await authorizeCommercialRequest(['quotes', 'invoicing'], COMMERCIAL_MIN_ROLE.view);
+  const auth = await authorizeCommercialRequest(['quotes', 'invoicing', 'purchasing'], COMMERCIAL_MIN_ROLE.view);
   if (!auth.ok) return auth.response;
 
   const taxCodes = await listTaxCodes(auth.session.organisationId, { activeOnly: true });
