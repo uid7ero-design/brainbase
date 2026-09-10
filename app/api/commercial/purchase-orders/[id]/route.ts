@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { authorizeCommercialRequest, COMMERCIAL_MIN_ROLE } from '@/lib/commercial/authorize';
 import { getPurchaseOrderWithLines, updateDraftPurchaseOrder } from '@/lib/commercial/purchaseOrders';
+import { listDeliveriesForDocument } from '@/lib/commercial/documentDeliveries';
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -17,6 +18,13 @@ type Ctx = { params: Promise<{ id: string }> };
 // Section D specifies GET+PATCH only for purchase-orders, with PATCH
 // covering the DRAFT partial-update case (there is no active/inactive
 // toggle concept for a purchase order the way there is for a supplier).
+//
+// Phase C6.5 — folds in delivery history, mirroring
+// app/api/commercial/invoices/[id]/route.ts's own identical addition
+// (Phase C4.3B) exactly: a small, bounded reuse of the existing
+// commercial_document_deliveries read path, not new API surface. A
+// wrong-tenant/missing PO 404s before the delivery lookup is ever
+// reached (same ordering as the invoice route).
 export async function GET(_req: NextRequest, { params }: Ctx) {
   const auth = await authorizeCommercialRequest('purchasing', COMMERCIAL_MIN_ROLE.view);
   if (!auth.ok) return auth.response;
@@ -24,7 +32,9 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
 
   const result = await getPurchaseOrderWithLines(auth.session.organisationId, id);
   if (!result) return NextResponse.json({ error: 'Not found.' }, { status: 404 });
-  return NextResponse.json(result);
+
+  const deliveries = await listDeliveriesForDocument({ organisationId: auth.session.organisationId, documentType: 'purchase_order', documentId: id });
+  return NextResponse.json({ ...result, deliveries });
 }
 
 export async function PATCH(req: NextRequest, { params }: Ctx) {

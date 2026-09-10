@@ -31,6 +31,9 @@ type Line = {
 type Supplier = { id: string; name: string };
 type Product = { id: string; name: string; default_unit_price_cents: number; default_tax_code_id: string | null; sku: string | null; unit_label: string | null; active: boolean };
 type TaxCode = { id: string; code: string; name: string; rate: string };
+// Phase C6.5 — mirrors app/commercial/quotes/[id]/page.tsx's own
+// identical Delivery type exactly.
+type Delivery = { id: string; channel: string; recipient: string; status: string; attempted_at: string; error_summary: string | null };
 
 // Client-side role check only — UX gating, not enforcement. The real
 // floor is authorizeCommercialRequest('purchasing', COMMERCIAL_MIN_ROLE.createEdit)
@@ -81,6 +84,18 @@ export default function PurchaseOrderDetailPage() {
   const [confirmingCancel, setConfirmingCancel] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
 
+  // Phase C6.5 — email confirmation/result state, mirroring
+  // app/commercial/invoices/[id]/page.tsx's own confirmingVoid-style
+  // inline panel convention. There is no equivalent PDF confirmation
+  // state — Download PDF is a plain same-origin link to the new GET
+  // .../pdf route (Content-Disposition: attachment triggers the
+  // browser's own download, no client-side blob/jsPDF work needed here
+  // at all, unlike the quote/invoice pages' own client-built-PDF
+  // download buttons).
+  const [confirmingEmail, setConfirmingEmail] = useState(false);
+  const [emailResult, setEmailResult] = useState('');
+  const [deliveries, setDeliveries] = useState<Delivery[]>([]);
+
   // header edit form state
   const [editingHeader, setEditingHeader] = useState(false);
   const [hSupplierId, setHSupplierId] = useState('');
@@ -107,6 +122,7 @@ export default function PurchaseOrderDetailPage() {
     const data = await res.json();
     setPo(data.purchaseOrder);
     setLines(data.lines);
+    setDeliveries(data.deliveries ?? []);
     setLoading(false);
 
     const [suppliersRes, productsRes, taxCodesRes, meRes] = await Promise.all([
@@ -297,6 +313,31 @@ export default function PurchaseOrderDetailPage() {
     load();
   }
 
+  // Phase C6.5 — sends the exact server-generated PDF (built fresh,
+  // server-side, from this PO's own persisted snapshot/line/total
+  // fields) to the supplier's ISSUED snapshot email, via
+  // POST .../email. `busy` disables the confirm button for the
+  // duration of the request, preventing an accidental duplicate-click
+  // double-send while a request is already in flight — the server's
+  // own 60-second cooldown (secondsSinceLastAttempt(), matching the
+  // quote/invoice routes exactly) is still the real guard against a
+  // genuine repeat click after the first request completes.
+  async function sendEmailAction() {
+    setBusy(true); setActionError(''); setEmailResult('');
+    const res = await fetch(`/api/commercial/purchase-orders/${id}/email`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ channel: 'EMAIL' }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setBusy(false);
+    if (!res.ok) {
+      setActionError(data.error ?? 'Failed to send purchase order email.');
+      return;
+    }
+    setConfirmingEmail(false);
+    setEmailResult('Purchase order emailed to the supplier.');
+    load(); // refreshes delivery history to include this attempt
+  }
+
   if (loading) return <div style={{ color: '#6b7280', fontSize: 14 }}>Loading…</div>;
   if (!po) return <div style={{ color: '#6b7280', fontSize: 14 }}>Purchase order not found.</div>;
 
@@ -327,12 +368,21 @@ export default function PurchaseOrderDetailPage() {
           {isApproved && isAdmin && !confirmingIssue && (
             <button onClick={() => setConfirmingIssue(true)} disabled={busy} style={btn('#1a6aff')}>Issue Purchase Order</button>
           )}
+          {(isIssued || isCancelled) && (
+            <a href={`/api/commercial/purchase-orders/${id}/pdf`} style={{ ...btn('#1f2937'), textDecoration: 'none', display: 'inline-block' }}>
+              Download PDF
+            </a>
+          )}
+          {isIssued && canEdit && po.supplier_email_snapshot && !confirmingEmail && (
+            <button onClick={() => { setConfirmingEmail(true); setEmailResult(''); }} disabled={busy} style={btn('#1f2937')}>Email Purchase Order</button>
+          )}
           {isIssued && isAdmin && !confirmingCancel && (
             <button onClick={() => setConfirmingCancel(true)} disabled={busy} style={btn('rgba(239,68,68,0.15)', '#f87171')}>Cancel Purchase Order</button>
           )}
         </div>
       </div>
       {actionError && <p style={{ color: '#f87171', fontSize: 13, margin: '0 0 16px' }}>{actionError}</p>}
+      {emailResult && <p style={{ color: '#4ade80', fontSize: 13, margin: '0 0 16px' }}>{emailResult}</p>}
       {!isDraft && !isCancelled && (
         <p style={{ color: '#6b7280', fontSize: 13, margin: '0 0 16px' }}>
           This purchase order is {po.status.replace('_', ' ').toLowerCase()} — the supplier, header details, and lines are read-only.
@@ -392,6 +442,19 @@ export default function PurchaseOrderDetailPage() {
           <div style={{ display: 'flex', gap: 8 }}>
             <button onClick={issueAction} disabled={busy} style={btn('#1a6aff')}>Yes, Issue Purchase Order</button>
             <button onClick={() => setConfirmingIssue(false)} disabled={busy} style={btn('#1f2937')}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {confirmingEmail && (
+        <div style={{ background: 'rgba(26,106,255,0.08)', border: '1px solid rgba(26,106,255,0.3)', borderRadius: 12, padding: '16px 20px', marginBottom: 20 }}>
+          <p style={{ fontSize: 13, color: '#f9fafb', margin: '0 0 4px' }}>
+            Send this purchase order to <strong>{po.supplier_email_snapshot}</strong>?
+          </p>
+          <p style={{ fontSize: 12, color: '#9ca3af', margin: '0 0 12px' }}>The generated PDF will be attached. This does not change the purchase order itself.</p>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={sendEmailAction} disabled={busy} style={btn('#1a6aff')}>{busy ? 'Sending…' : 'Yes, Send Email'}</button>
+            <button onClick={() => setConfirmingEmail(false)} disabled={busy} style={btn('#1f2937')}>Cancel</button>
           </div>
         </div>
       )}
@@ -576,6 +639,19 @@ export default function PurchaseOrderDetailPage() {
         </div>
       </div>
 
+      {deliveries.length > 0 && (
+        <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: '16px 24px', marginBottom: 20 }}>
+          <div style={miniLbl}>Delivery History</div>
+          {deliveries.map(d => (
+            <div key={d.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', fontSize: 13, borderTop: `1px solid ${BORDER}` }}>
+              <span style={{ color: '#9ca3af' }}>{d.channel} → {d.recipient}</span>
+              <span style={{ color: '#6b7280', fontSize: 12 }}>{new Date(d.attempted_at).toLocaleString('en-AU', { timeZone: 'Australia/Adelaide', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
+              <DeliveryStatusBadge status={d.status} />
+            </div>
+          ))}
+        </div>
+      )}
+
       <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: '20px 24px' }}>
         <div style={miniLbl}>Timeline</div>
         <TimelineRow label="Created" value={po.created_at} />
@@ -587,6 +663,23 @@ export default function PurchaseOrderDetailPage() {
         {po.cancel_reason && <div style={{ fontSize: 12, color: '#f87171', marginTop: 8 }}>Cancelled: {po.cancel_reason}</div>}
       </div>
     </div>
+  );
+}
+
+// Phase C6.5 — mirrors app/commercial/quotes/[id]/page.tsx's own
+// identical DeliveryStatusBadge exactly.
+const DELIVERY_STATUS_STYLE: Record<string, { color: string; bg: string }> = {
+  PENDING: { color: '#9ca3af', bg: 'rgba(156,163,175,0.12)' },
+  SENT: { color: '#4ade80', bg: 'rgba(74,222,128,0.12)' },
+  DELIVERED: { color: '#4ade80', bg: 'rgba(74,222,128,0.12)' },
+  FAILED: { color: '#f87171', bg: 'rgba(248,113,113,0.12)' },
+};
+function DeliveryStatusBadge({ status }: { status: string }) {
+  const s = DELIVERY_STATUS_STYLE[status] ?? DELIVERY_STATUS_STYLE.PENDING;
+  return (
+    <span style={{ fontSize: 10, fontWeight: 600, padding: '2px 7px', borderRadius: 4, textTransform: 'uppercase', letterSpacing: '0.04em', color: s.color, background: s.bg }}>
+      {status}
+    </span>
   );
 }
 
