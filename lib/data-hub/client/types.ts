@@ -90,6 +90,11 @@ export interface InitiateRequestInput {
   declaredSizeBytes: number;
   /** Trimmed+lowercased 64-hex-char sha256, or omit entirely. */
   expectedSha256?: string;
+  /** Data Hub 5B.5A — optional SourceSystem to attribute this batch to.
+   * Omit entirely (never `null`/`""`) to take the exact pre-5B.4A legacy
+   * path; see initiate.ts's own "sourceSystemId === null: EXACT
+   * pre-5B.4A code path" comment on the server side. */
+  sourceSystemId?: string;
 }
 
 export interface InitiatedBatchDTO {
@@ -116,6 +121,31 @@ export type InitiateResponseBody =
   | { batch: InitiatedBatchDTO; uploadToken: null; configurationError: true }
   | { batch: InitiatedBatchDTO; uploadToken: null; configurationError: false }
   | { error: string };
+
+// ---------------------------------------------------------------------------
+// GET /api/data-hub/source-systems (Data Hub 5B.5A)
+// Source: app/api/data-hub/source-systems/route.ts, GET handler, backed by
+// lib/data-hub/sourceMapping/sourceSystems.ts's listSourceSystems (5B.2,
+// unchanged) — manager+ read, organisationId session-derived only.
+//
+// Deliberately narrow: only the fields the SourceSystem-selection control
+// actually renders (id/name/active) plus description, which the server DTO
+// also carries at zero extra cost. No mapping-related field of any kind
+// belongs here — this endpoint has none server-side either.
+// ---------------------------------------------------------------------------
+
+export interface SourceSystemDTOClient {
+  id: string;
+  name: string;
+  description: string | null;
+  active: boolean;
+}
+
+export type ListSourceSystemsResponseBody =
+  | { sourceSystems: SourceSystemDTOClient[]; hasNextPage: boolean; nextCursor: string | null }
+  | { error: string };
+
+export type ListSourceSystemsResult = TransportResult<ListSourceSystemsResponseBody>;
 
 export type InitiateResult = TransportResult<InitiateResponseBody>;
 

@@ -32,9 +32,11 @@ import {
   initiateImportBatch as callInitiate,
   inspectCsvWorksheet as callInspect,
   listImportBatches as callListImportBatches,
+  listSourceSystems as callListSourceSystems,
   listWorksheetsForBatch as callListWorksheets,
   type HttpClientConfig,
   type ListImportBatchesParams,
+  type ListSourceSystemsParams,
 } from "./httpClient";
 import { uploadFileDirectToBlob, resolveUploadPathname, type DirectUploadResult } from "./blobUpload";
 import { generateIdempotencyKey } from "./fileHash";
@@ -45,6 +47,7 @@ import type {
   ImportBatchStatus,
   InitiatedBatchDTO,
   ListImportBatchesResult,
+  ListSourceSystemsResult,
   PersistedFailureCodeClient,
   WorksheetPreviewDTOClient,
   WorksheetSummaryDTOClient,
@@ -184,6 +187,13 @@ export interface StartImportOptions {
    * id). Defaults to a freshly generated one — see fileHash.ts's own
    * generateIdempotencyKey. */
   idempotencyKey?: string;
+  /** Data Hub 5B.5A — the manager's optional SourceSystem choice, made on
+   * the Select screen before this call. Omit entirely for the legacy/
+   * no-source path — never pass an empty string or null. Threaded
+   * verbatim into the initiate request body (see runInitiate below) and,
+   * once start() has fired, is immutable for the lifetime of this batch:
+   * there is no method on this class that can change it afterward. */
+  sourceSystemId?: string;
 }
 
 export interface DataHubOrchestratorConfig extends HttpClientConfig {
@@ -261,6 +271,10 @@ export class DataHubIllegalDumpingImportSession {
     this.resumeGeneration++;
     this.idempotencyKey = options.idempotencyKey ?? this.genKey();
     this.currentFile = file;
+    // Captured once, for the lifetime of this batch — see
+    // StartImportOptions.sourceSystemId's own comment. retryInitiate()
+    // below reuses this exact same field, never re-reads options.
+    this.currentSourceSystemId = options.sourceSystemId;
     await this.runInitiate(file, options.expectedSha256);
   }
 
@@ -279,13 +293,25 @@ export class DataHubIllegalDumpingImportSession {
   }
 
   private currentFile: File | null = null;
+  /** Data Hub 5B.5A — set once in start(), reused unchanged by
+   * retryInitiate(). undefined means "no source selected", which
+   * JSON.stringify drops entirely from the initiate body below — the
+   * exact byte-identical pre-5B.5A/pre-5B.4A request shape. Never set to
+   * null or "" by any code path in this class. */
+  private currentSourceSystemId: string | undefined = undefined;
 
   private async runInitiate(file: File, expectedSha256?: string): Promise<void> {
     this.setState({ phase: "initiating" });
     const idempotencyKey = this.idempotencyKey!;
 
     const result = await callInitiate(
-      { originalFilename: file.name, declaredSizeBytes: file.size, expectedSha256, idempotencyKey },
+      {
+        originalFilename: file.name,
+        declaredSizeBytes: file.size,
+        expectedSha256,
+        idempotencyKey,
+        sourceSystemId: this.currentSourceSystemId,
+      },
       this.config
     );
 
@@ -1038,6 +1064,21 @@ export function listImportBatches(
   config?: HttpClientConfig
 ): Promise<ListImportBatchesResult> {
   return callListImportBatches(params, config);
+}
+
+// ---------------------------------------------------------------------------
+// Data Hub 5B.5A — SourceSystem selection read. Same rationale as
+// listImportBatches immediately above: a plain function (not a session
+// method — no lifecycle, no phase), existing here solely to preserve this
+// package's "UI never imports httpClient.ts directly" boundary. Thin
+// passthrough: zero behavior beyond callListSourceSystems itself.
+// ---------------------------------------------------------------------------
+
+export function listSourceSystems(
+  params: ListSourceSystemsParams = {},
+  config?: HttpClientConfig
+): Promise<ListSourceSystemsResult> {
+  return callListSourceSystems(params, config);
 }
 
 export { resolveUploadPathname };
