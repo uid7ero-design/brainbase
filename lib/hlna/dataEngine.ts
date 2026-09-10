@@ -160,6 +160,22 @@ function stripLiteralsAndComments(sqlText: string): string {
     const two = sqlText.slice(i, i + 2);
 
     if (ch === "'") {
+      // OPEN QUESTION, reported rather than resolved here (found while
+      // fixing the block-comment adjacency bug below; out of that fix's
+      // narrow, explicitly-authorized scope): this branch shares the same
+      // "delete with no replacement character" mechanics — a string
+      // literal glued with zero whitespace directly after FROM/JOIN
+      // (e.g. `FROM'x'hr_people`) empirically also collapses into a
+      // merged token at the SCANNER level and is not currently caught.
+      // Whether this is a live, exploitable bypass the way the comment
+      // case was turns on whether Postgres itself ever accepts a bare
+      // string literal in that exact grammatical position as valid,
+      // executable SQL (a string literal is not a valid table_reference,
+      // so `FROM 'x' hr_people` is very likely a syntax error to Postgres
+      // itself, unlike a comment, which is genuinely invisible to the
+      // grammar) — not verified against a live Postgres instance, and
+      // deliberately NOT changed as part of this fix pending that
+      // decision.
       i++;
       while (i < n) {
         if (sqlText[i] === "'" && sqlText[i + 1] === "'") { i += 2; continue; }
@@ -170,6 +186,12 @@ function stripLiteralsAndComments(sqlText: string): string {
     }
 
     if (two === '--') {
+      // The loop below stops AT the newline without consuming it, so the
+      // newline itself survives into `out` on the next iteration (via the
+      // default character handling below) — a real whitespace character
+      // is always preserved as the token separator after a line comment
+      // that is followed by more query text. No explicit space needs to
+      // be inserted here (unlike the block-comment case just below).
       while (i < n && sqlText[i] !== '\n') i++;
       continue;
     }
@@ -179,6 +201,20 @@ function stripLiteralsAndComments(sqlText: string): string {
       if (end === -1) throw new Error('Malformed comment in query.');
       const body = sqlText.slice(i + 2, end);
       if (body.includes('/*')) throw new Error('Nested comments are not permitted.');
+      // SECURITY FIX: a block comment must be replaced by a token
+      // separator, not deleted outright. Postgres treats `/* ... */`
+      // as pure whitespace-equivalent trivia — `FROM/* x */hr_people` is
+      // valid SQL, identical to `FROM hr_people`. Previously this branch
+      // discarded the comment with NO replacement character, so a comment
+      // placed with zero surrounding whitespace directly after a keyword
+      // (e.g. `FROM/* x */hr_people`) collapsed into a single token
+      // (`FROMhr_people`) with no word boundary after "FROM" — invisible
+      // to every downstream check (TABLE_REF_RE, the hr_* deny-list, and
+      // the comma-join guard all require `\bFROM\b`/`\bJOIN\b` to match).
+      // Appending exactly one space guarantees a real word boundary
+      // exists between whatever precedes and follows the comment,
+      // regardless of whether real whitespace was already present.
+      out += ' ';
       i = end + 2;
       continue;
     }
@@ -189,6 +225,22 @@ function stripLiteralsAndComments(sqlText: string): string {
       // or a "$1"-style placeholder with no matching closing '$') is not
       // a string open and falls through to the default character handling
       // below, unchanged.
+      //
+      // OPEN QUESTION, reported rather than resolved here (same status as
+      // the single-quote branch above — found while fixing the block-
+      // comment adjacency bug, out of that fix's narrow, explicitly-
+      // authorized scope): this branch shares the same "delete with no
+      // replacement character" mechanics — a dollar-quoted string glued
+      // with zero whitespace directly after FROM/JOIN (e.g.
+      // `FROM$$x$$hr_people`) empirically also collapses into a merged
+      // token at the SCANNER level and is not currently caught. As with
+      // the single-quote case, a dollar-quoted string is a real SQL value
+      // token, not inert trivia the way a comment is — whether Postgres
+      // itself ever accepts a bare string literal in that exact
+      // grammatical position as valid, executable SQL (as opposed to a
+      // syntax error) has NOT been verified against a live Postgres
+      // instance, and this branch was deliberately NOT changed as part
+      // of this fix pending that decision.
       const opener = /^\$([A-Za-z_][A-Za-z0-9_]*)?\$/.exec(sqlText.slice(i));
       if (opener) {
         const delim = opener[0];
