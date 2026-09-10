@@ -127,6 +127,11 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
       INVALID_LIMIT: 500,
       // 5B.4A — initiate-only code, unreachable from confirmDataHubWorksheet.
       SOURCE_SYSTEM_UNAVAILABLE: 500,
+      // 5B.4B — mapping-selection-only codes, unreachable from
+      // confirmDataHubWorksheet (this route does not integrate mapping
+      // selection/execution in this slice).
+      SOURCE_LINEAGE_REQUIRED: 500,
+      SOURCE_MAPPING_UNAVAILABLE: 500,
     };
     return NextResponse.json(
       { ok: false, error: result.message },

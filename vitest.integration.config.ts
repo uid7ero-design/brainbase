@@ -68,6 +68,12 @@ import path from 'path';
 // scripts/tests/verify-datahub-source-mapping-services.sh) is added
 // alongside the existing specs, for the same reason and with the same
 // explicit-file-argument isolation.
+//
+// 5B.4B addition: scripts/tests/selectWorksheetMapping.integration.test.ts
+// (the dedicated worksheet mapping-selection service's own real-Postgres
+// harness — see scripts/tests/verify-select-worksheet-mapping.sh) is
+// added alongside the existing specs, for the same reason and with the
+// same explicit-file-argument isolation.
 export default defineConfig({
   test: {
     environment: 'node',
@@ -81,6 +87,7 @@ export default defineConfig({
       'scripts/tests/confirmWorksheet.integration.test.ts',
       'scripts/tests/dataHubK2.integration.test.ts',
       'scripts/tests/datahubSourceMappingServices.integration.test.ts',
+      'scripts/tests/selectWorksheetMapping.integration.test.ts',
     ],
     testTimeout: 30_000,
     hookTimeout: 30_000,

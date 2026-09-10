@@ -715,6 +715,8 @@ describe("T30 — no new backend route was introduced", () => {
         "worksheets/[id]/route.ts",
         "worksheets/[id]/preview/route.ts",
         "worksheets/[id]/confirm-illegal-dumping/route.ts",
+        // 5B.4B addition:
+        "worksheets/[id]/mapping-selection/route.ts",
         // 5B.2 additions:
         "source-systems/route.ts",
         "source-systems/[id]/route.ts",
