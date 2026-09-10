@@ -31,6 +31,8 @@ import type {
   InspectResult,
   ListImportBatchesResponseBody,
   ListImportBatchesResult,
+  ListSourceSystemsResponseBody,
+  ListSourceSystemsResult,
   ListWorksheetsResponseBody,
   ListWorksheetsResult,
   TransportResult,
@@ -263,6 +265,39 @@ export async function getImportBatch(
   return executeCall<GetImportBatchResponseBody>(
     config,
     resolveUrl(config, `/api/data-hub/import-batches/${encodeURIComponent(importBatchId)}`),
+    { method: "GET" },
+    callOptions
+  );
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/data-hub/source-systems (Data Hub 5B.5A)
+//
+// Composes the EXISTING manager-readable list route only — no new backend
+// endpoint. `active` defaults to "true" here (never sent as "all"/"false")
+// since this call exists for exactly one purpose: populating the
+// SourceSystem selection control with systems a manager may actually
+// choose — an inactive system is never a valid NEW selection. Never sends
+// any tenant/identity field — organisationId is resolved server-side only.
+// ---------------------------------------------------------------------------
+
+export interface ListSourceSystemsParams {
+  cursor?: string;
+  limit?: number;
+}
+
+export async function listSourceSystems(
+  params: ListSourceSystemsParams = {},
+  config?: HttpClientConfig,
+  callOptions?: CallOptions
+): Promise<ListSourceSystemsResult> {
+  const search = new URLSearchParams();
+  search.set("active", "true");
+  if (params.cursor !== undefined) search.set("cursor", params.cursor);
+  if (params.limit !== undefined) search.set("limit", String(params.limit));
+  return executeCall<ListSourceSystemsResponseBody>(
+    config,
+    resolveUrl(config, `/api/data-hub/source-systems?${search.toString()}`),
     { method: "GET" },
     callOptions
   );

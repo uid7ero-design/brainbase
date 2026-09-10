@@ -308,9 +308,9 @@ describe("T30/T31: ordinary new-import and invalid-header logic are untouched", 
     expect(code).toMatch(/export function createConfirmGuard/);
   });
 
-  it("FileSelector.tsx's start() call is unchanged — still session.start(pendingFile), no resume/history coupling", () => {
+  it("FileSelector.tsx's start() call still targets pendingFile as its sole file argument, with no resume/history coupling — Data Hub 5B.5A additively threads an OPTIONAL SourceSystem choice as a second argument, never changing which file/batch is targeted", () => {
     const code = stripComments(read(FILE_SELECTOR));
-    expect(code).toMatch(/void session\.start\(pendingFile\)/);
+    expect(code).toMatch(/void session\.start\(\s*pendingFile,/);
     expect(code).not.toMatch(/resumeFromBatchId|listImportBatches/);
   });
 

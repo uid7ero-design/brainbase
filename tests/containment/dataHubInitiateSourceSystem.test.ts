@@ -505,20 +505,31 @@ describe("initiate — source_system_id immutability containment", () => {
     expect(source.includes("SourceMapping")).toBe(false);
   });
 
-  it("T35 — no UI file references sourceSystemId (no integration introduced)", async () => {
+  it("T35 (superseded by Data Hub 5B.5A) — sourceSystemId integration is now confined to the Select-screen surface only; ReviewPanel.tsx/ImportClient.tsx still carry zero reference to it", async () => {
+    // At 5B.4A time this test proved "no integration introduced" — true
+    // then, since only the server contract existed. 5B.5A is the
+    // authorized phase that builds exactly that missing client wiring
+    // (orchestrator.ts's StartImportOptions.sourceSystemId, threaded from
+    // FileSelector.tsx), so orchestrator.ts referencing sourceSystemId is
+    // now the CORRECT, intended state, not a regression. What this test
+    // still genuinely protects — and re-proves here — is the narrower
+    // invariant 5B.5A's own authorization actually requires: mapping
+    // selection/Review-screen files remain completely untouched by this
+    // slice (5B.5B's job, not 5B.5A's).
     const fs = await import("node:fs");
     const path = await import("node:path");
-    const files = [
-      "lib/data-hub/client/orchestrator.ts",
-      "app/data-hub/import/_components/ReviewPanel.tsx",
-      "app/data-hub/import/ImportClient.tsx",
-    ];
-    for (const relPath of files) {
+    const untouchedFiles = ["app/data-hub/import/_components/ReviewPanel.tsx", "app/data-hub/import/ImportClient.tsx"];
+    for (const relPath of untouchedFiles) {
       const full = path.join(process.cwd(), relPath);
       if (!fs.existsSync(full)) continue;
       const source = fs.readFileSync(full, "utf8");
       expect(source.toLowerCase().includes("sourcesystemid")).toBe(false);
     }
+    const orchestratorSource = fs.readFileSync(
+      path.join(process.cwd(), "lib/data-hub/client/orchestrator.ts"),
+      "utf8"
+    );
+    expect(orchestratorSource.toLowerCase().includes("sourcesystemid")).toBe(true);
   });
 
   it("T36 — no schema/migration file changed by this slice (prisma/schema.prisma unmodified marker check)", async () => {
