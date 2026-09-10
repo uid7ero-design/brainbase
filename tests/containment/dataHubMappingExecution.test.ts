@@ -502,7 +502,6 @@ describe("no-runtime-integration — static source-text proof", () => {
     "lib/data-hub/importBatch/finalize.ts",
     "lib/data-hub/importBatch/inspectCsvWorksheet.ts",
     "lib/data-hub/importBatch/inspectWorksheets.ts",
-    "lib/data-hub/importBatch/previewWorksheet.ts",
     "lib/data-hub/importBatch/confirmWorksheet.ts",
     "lib/data-hub/client/orchestrator.ts",
     "app/data-hub/import/ImportClient.tsx",
@@ -519,6 +518,23 @@ describe("no-runtime-integration — static source-text proof", () => {
       const source = fs.readFileSync(fullPath, "utf8");
       expect(source, `${relativeFile} must not import mappingExecution`).not.toMatch(/mappingExecution/);
     }
+  });
+
+  // 5B.4C — previewWorksheet.ts is now a DELIBERATE, disclosed exception to
+  // T51: it is the one runtime consumer 5B.4C exists to add, reusing 5B.3's
+  // pure/deterministic compiler+executor verbatim to apply a worksheet's own
+  // FROZEN mapping. This test documents and bounds that exception: only the
+  // three intended pure exports are imported (never a wildcard/internal
+  // import), and the import is a single, plain static ES import — never a
+  // dynamic re-implementation.
+  it("T51 exception (5B.4C, disclosed): previewWorksheet.ts imports ONLY compileMapping/applyCompiledMappingToRows/toIllegalDumpingMapperInput (+ their pure types) from mappingExecution.ts, via one static import", () => {
+    const repoRoot = path.join(__dirname, "../..");
+    const source = fs.readFileSync(path.join(repoRoot, "lib/data-hub/importBatch/previewWorksheet.ts"), "utf8");
+    const importLines = source.match(/^import\s.+from\s+["'][^"']*sourceMapping\/mappingExecution["'];?$/gm) ?? [];
+    expect(importLines).toHaveLength(1);
+    expect(importLines[0]).toMatch(/\bcompileMapping\b/);
+    expect(importLines[0]).toMatch(/\bapplyCompiledMappingToRows\b/);
+    expect(importLines[0]).toMatch(/\btoIllegalDumpingMapperInput\b/);
   });
 
   it("T49/T50 — mappingExecution.ts never references ImportBatch.source_system_id or Upload.mapping_version_id write paths (no Prisma import at all)", () => {

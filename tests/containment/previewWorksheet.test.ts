@@ -60,6 +60,12 @@ describe("previewWorksheet — zero xlsx/workbookParser dependency, direct or tr
       /\.\.\/csvOnlyDecoder["']/,
       /\.\/illegalDumpingMapper["']/,
       /\.\/failureTaxonomy["']/,
+      // 5B.4C — frozen-lineage consumption: 5B.2's document validator and
+      // 5B.3's own pure, unmodified compiler/executor. Neither imports
+      // xlsx/workbookParser (verified independently by mappingExecution.ts's
+      // and mappingDocument.ts's own zero-dependency containment tests).
+      /\.\.\/sourceMapping\/mappingDocument["']/,
+      /\.\.\/sourceMapping\/mappingExecution["']/,
     ];
     for (const imp of imports) {
       expect(allowedPatterns.some((p) => p.test(imp))).toBe(true);
@@ -141,6 +147,17 @@ describe("previewWorksheet — tenant/eligibility/format gates all precede stora
     expect(code).toMatch(/buildImportBatchKey\(\s*organisationId,\s*worksheet\.import_batch_id\s*\)/);
   });
 
+  it("5B.4C: frozen mapping-lineage RESOLUTION (mappingVersion/sourceMapping lookups + document revalidation) also precedes storage.get() — an unresolvable/corrupt frozen lineage is a gate failure, never a reason to touch storage", () => {
+    const mappingVersionLookupIdx = code.indexOf("prisma.mappingVersion.findUnique(");
+    const sourceMappingLookupIdx = code.indexOf("prisma.sourceMapping.findUnique(");
+    const documentValidationIdx = code.indexOf("validateMappingDocument(");
+    for (const idx of [mappingVersionLookupIdx, sourceMappingLookupIdx, documentValidationIdx]) {
+      expect(idx).toBeGreaterThan(-1);
+      expect(idx).toBeLessThan(storageGetIdx);
+    }
+    expect(formatGateIdx).toBeLessThan(mappingVersionLookupIdx);
+  });
+
   it("recomputes SHA-256 and compares against the batch's own persisted sha256, before decode", () => {
     expect(code).toMatch(/createHash\(["']sha256["']\)/);
     expect(code).toMatch(/computedSha256\s*!==\s*batch\.sha256/);
@@ -168,9 +185,17 @@ describe("previewWorksheet — provably read-only, cannot confirm or import", ()
     expect(code).not.toMatch(/illegalDumping\.createMany/);
   });
 
-  it("only mapIllegalDumpingRows-adjacent header VALIDATION is imported from illegalDumpingMapper.ts — never mapIllegalDumpingRows itself (no per-row mapping/import attempt)", () => {
+  it("imports header VALIDATION from illegalDumpingMapper.ts for the legacy path (5A.3C.0, unchanged)", () => {
     expect(code).toMatch(/validateIllegalDumpingHeaders/);
-    expect(code).not.toMatch(/\bmapIllegalDumpingRows\b/);
+  });
+
+  it("5B.4C: mapIllegalDumpingRows is now legitimately imported/called for the MAPPED-preview path only, exclusively to prove mapping output is domain-mapper-compatible — its result is NEVER persisted (illegalDumping.createMany is still never called, asserted above) and it is called with a bounded sample only, never the full worksheet", () => {
+    expect(code).toMatch(/\bmapIllegalDumpingRows\b/);
+    // Load-bearing: the call site must be wrapped so a thrown
+    // IllegalDumpingMappingError (ordinary row/business-value rejection)
+    // can never escape this read-only service as an unhandled exception.
+    expect(code).toMatch(/mapIllegalDumpingRows\(domainHeaders, domainRows\)/);
+    expect(code).toMatch(/instanceof IllegalDumpingMappingError/);
   });
 
   it("the route file exports GET only, never POST/PUT/PATCH/DELETE", () => {
@@ -232,6 +257,9 @@ const importBatchFindUniqueMock = vi.fn();
 const importBatchUpdateMock = vi.fn();
 const illegalDumpingCreateManyMock = vi.fn();
 const transactionMock = vi.fn();
+// 5B.4C additions — frozen-lineage consumption lookups.
+const mappingVersionFindUniqueMock = vi.fn();
+const sourceMappingFindUniqueMock = vi.fn();
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
@@ -246,6 +274,12 @@ vi.mock("@/lib/prisma", () => ({
     },
     illegalDumping: {
       createMany: (...args: unknown[]) => illegalDumpingCreateManyMock(...args),
+    },
+    mappingVersion: {
+      findUnique: (...args: unknown[]) => mappingVersionFindUniqueMock(...args),
+    },
+    sourceMapping: {
+      findUnique: (...args: unknown[]) => sourceMappingFindUniqueMock(...args),
     },
     $transaction: (...args: unknown[]) => transactionMock(...args),
   },
@@ -272,6 +306,11 @@ function worksheetRow(overrides: Partial<Record<string, unknown>> = {}) {
     id: "worksheet-1",
     import_batch_id: "batch-1",
     canonical_status: "AWAITING_CONFIRMATION",
+    // Real Prisma always returns JS `null` (never `undefined`) for a NULL
+    // column — this default matches that, so every pre-existing test in
+    // this file that doesn't override it continues to genuinely exercise
+    // the LEGACY (no frozen mapping lineage) path, exactly as before 5B.4C.
+    mapping_version_id: null,
     ...overrides,
   };
 }
@@ -281,6 +320,7 @@ function batchRow(overrides: Partial<Record<string, unknown>> = {}) {
     content_type: "csv",
     sha256: "will-be-overwritten",
     deleted_at: null,
+    source_system_id: null,
     ...overrides,
   };
 }
@@ -308,6 +348,8 @@ beforeEach(() => {
   illegalDumpingCreateManyMock.mockReset();
   transactionMock.mockReset();
   storageGetMock.mockReset();
+  mappingVersionFindUniqueMock.mockReset();
+  sourceMappingFindUniqueMock.mockReset();
 });
 
 describe("previewWorksheet — worksheet lookup collapses nonexistent/wrong-tenant/LEGACY-lineage into one outcome", () => {
@@ -705,5 +747,422 @@ describe("previewWorksheet — no storage locator/token in the response, no muta
     expect(result.ok).toBe(true);
     expect(uploadUpdateMock).not.toHaveBeenCalled();
     expect(uploadUpdateManyMock).not.toHaveBeenCalled();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// 5B.4C — MAPPED (frozen-lineage) worksheet Preview
+//
+// Core rule under test throughout this block: Preview CONSUMES frozen
+// lineage, it never resolves/repairs/follows it. The frozen
+// Upload.mapping_version_id captured once from Step 1's own read is the
+// SOLE authority — SourceMapping.active_mapping_version_id and both
+// SourceSystem.active/SourceMapping.active are never consulted for an
+// already-frozen worksheet (those remain 5B.4B's own NEW-selection gates).
+// ═══════════════════════════════════════════════════════════════════════
+
+function mappingVersionRow(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    id: "mv-3",
+    source_mapping_id: "sm-1",
+    version_number: 3,
+    mapping_document: { fields: { report_date: "Reported At", location: "Site", waste_type: "Type" } },
+    ...overrides,
+  };
+}
+function sourceMappingRow(overrides: Partial<Record<string, unknown>> = {}) {
+  return { id: "sm-1", source_system_id: "ss-1", ...overrides };
+}
+function mappedCsv(rows: string[][]): { body: Buffer; sha256: string } {
+  return bufferAndHash(buildCsv(["Reported At", "Site", "Type"], rows));
+}
+
+describe("previewWorksheet — 5B.4C legacy/mapped dual-path routing (T1/T3)", () => {
+  it("NULL mapping_version_id -> zero mappingVersion/sourceMapping lookups, mapping: null in the response", async () => {
+    const { previewWorksheet } = await freshService();
+    const csv = buildCsv(REQUIRED_HEADERS, [["2024-01-01", "loc", "type"]]);
+    const { body, sha256 } = bufferAndHash(csv);
+    uploadFindFirstMock.mockResolvedValue(worksheetRow({ mapping_version_id: null }));
+    importBatchFindUniqueMock.mockResolvedValue(batchRow({ sha256 }));
+    storageGetMock.mockResolvedValue({ body });
+    const result = await previewWorksheet({ organisationId: "org-1", worksheetId: "w-1" });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.preview.mapping).toBeNull();
+    expect(mappingVersionFindUniqueMock).not.toHaveBeenCalled();
+    expect(sourceMappingFindUniqueMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("previewWorksheet — 5B.4C exact frozen-version lookup (T5/T6)", () => {
+  it("resolves the EXACT persisted Upload.mapping_version_id, tenant-scoped via the compound key", async () => {
+    const { previewWorksheet } = await freshService();
+    const { body, sha256 } = mappedCsv([["2024-01-01", "loc", "type"]]);
+    uploadFindFirstMock.mockResolvedValue(worksheetRow({ mapping_version_id: "mv-3" }));
+    importBatchFindUniqueMock.mockResolvedValue(batchRow({ sha256, source_system_id: "ss-1" }));
+    mappingVersionFindUniqueMock.mockResolvedValue(mappingVersionRow());
+    sourceMappingFindUniqueMock.mockResolvedValue(sourceMappingRow());
+    storageGetMock.mockResolvedValue({ body });
+    const result = await previewWorksheet({ organisationId: "org-1", worksheetId: "w-1" });
+    expect(mappingVersionFindUniqueMock).toHaveBeenCalledTimes(1);
+    const callArg = mappingVersionFindUniqueMock.mock.calls[0][0];
+    expect(callArg.where.id_organisation_id).toMatchObject({ id: "mv-3", organisation_id: "org-1" });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.preview.mapping?.mappingVersionId).toBe("mv-3");
+    expect(result.preview.mapping?.versionNumber).toBe(3);
+  });
+});
+
+describe("previewWorksheet — 5B.4C lineage-resolution failures fail safely (T9/T10)", () => {
+  it("frozen MappingVersion no longer exists -> MAPPING_LINEAGE_UNAVAILABLE, storage never touched", async () => {
+    const { previewWorksheet } = await freshService();
+    uploadFindFirstMock.mockResolvedValue(worksheetRow({ mapping_version_id: "mv-gone" }));
+    importBatchFindUniqueMock.mockResolvedValue(batchRow({ sha256: "deadbeef", source_system_id: "ss-1" }));
+    mappingVersionFindUniqueMock.mockResolvedValue(null);
+    const result = await previewWorksheet({ organisationId: "org-1", worksheetId: "w-1" });
+    expect(result).toMatchObject({ ok: false, code: "MAPPING_LINEAGE_UNAVAILABLE" });
+    expect(storageGetMock).not.toHaveBeenCalled();
+  });
+
+  it("cross-source corruption (SourceMapping.source_system_id !== batch.source_system_id) -> MAPPING_LINEAGE_UNAVAILABLE, never distinguished from other lineage failures (M4)", async () => {
+    const { previewWorksheet } = await freshService();
+    uploadFindFirstMock.mockResolvedValue(worksheetRow({ mapping_version_id: "mv-3" }));
+    importBatchFindUniqueMock.mockResolvedValue(batchRow({ sha256: "deadbeef", source_system_id: "ss-1" }));
+    mappingVersionFindUniqueMock.mockResolvedValue(mappingVersionRow());
+    sourceMappingFindUniqueMock.mockResolvedValue(sourceMappingRow({ source_system_id: "ss-2" }));
+    const result = await previewWorksheet({ organisationId: "org-1", worksheetId: "w-1" });
+    expect(result).toMatchObject({ ok: false, code: "MAPPING_LINEAGE_UNAVAILABLE" });
+    expect(storageGetMock).not.toHaveBeenCalled();
+  });
+
+  it("SourceMapping itself no longer resolvable -> MAPPING_LINEAGE_UNAVAILABLE (M3)", async () => {
+    const { previewWorksheet } = await freshService();
+    uploadFindFirstMock.mockResolvedValue(worksheetRow({ mapping_version_id: "mv-3" }));
+    importBatchFindUniqueMock.mockResolvedValue(batchRow({ sha256: "deadbeef", source_system_id: "ss-1" }));
+    mappingVersionFindUniqueMock.mockResolvedValue(mappingVersionRow());
+    sourceMappingFindUniqueMock.mockResolvedValue(null);
+    const result = await previewWorksheet({ organisationId: "org-1", worksheetId: "w-1" });
+    expect(result).toMatchObject({ ok: false, code: "MAPPING_LINEAGE_UNAVAILABLE" });
+  });
+});
+
+describe("previewWorksheet — 5B.4C consumption never consults active state (T13/T14/T15, M5/M6)", () => {
+  it("the mappingVersion/sourceMapping lookups select no `active`/active_mapping_version_id field at all — structurally impossible to consult", () => {
+    const code = stripComments(read(SERVICE_PATH));
+    const mvCallIdx = code.indexOf("prisma.mappingVersion.findUnique(");
+    const mvBlock = code.slice(mvCallIdx, code.indexOf(");", mvCallIdx));
+    expect(mvBlock).not.toMatch(/active_mapping_version_id/);
+    const smCallIdx = code.indexOf("prisma.sourceMapping.findUnique(");
+    const smBlock = code.slice(smCallIdx, code.indexOf(");", smCallIdx));
+    expect(smBlock).not.toMatch(/\bactive:\s*true\b/);
+    expect(smBlock).not.toMatch(/active_mapping_version_id/);
+  });
+
+  it("even if the mocked SourceMapping row carried active:false, Preview still succeeds using the frozen version (deactivation after selection does not break consumption)", async () => {
+    const { previewWorksheet } = await freshService();
+    const { body, sha256 } = mappedCsv([["2024-01-01", "loc", "type"]]);
+    uploadFindFirstMock.mockResolvedValue(worksheetRow({ mapping_version_id: "mv-3" }));
+    importBatchFindUniqueMock.mockResolvedValue(batchRow({ sha256, source_system_id: "ss-1" }));
+    mappingVersionFindUniqueMock.mockResolvedValue(mappingVersionRow());
+    // active:false is present on the mocked row purely to prove the service
+    // never reads/branches on it — the select in previewWorksheet.ts does
+    // not even request this column in real Prisma usage (asserted above).
+    sourceMappingFindUniqueMock.mockResolvedValue(sourceMappingRow({ active: false }));
+    storageGetMock.mockResolvedValue({ body });
+    const result = await previewWorksheet({ organisationId: "org-1", worksheetId: "w-1" });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.preview.mapping?.mappingVersionId).toBe("mv-3");
+  });
+
+  it("a newly-activated v4 on the SAME SourceMapping never influences a Preview frozen at v3 — only the frozen id is ever looked up (M25)", async () => {
+    const { previewWorksheet } = await freshService();
+    const { body, sha256 } = mappedCsv([["2024-01-01", "loc", "type"]]);
+    uploadFindFirstMock.mockResolvedValue(worksheetRow({ mapping_version_id: "mv-3" }));
+    importBatchFindUniqueMock.mockResolvedValue(batchRow({ sha256, source_system_id: "ss-1" }));
+    mappingVersionFindUniqueMock.mockResolvedValue(mappingVersionRow({ id: "mv-3", version_number: 3 }));
+    sourceMappingFindUniqueMock.mockResolvedValue(sourceMappingRow());
+    storageGetMock.mockResolvedValue({ body });
+    const result = await previewWorksheet({ organisationId: "org-1", worksheetId: "w-1" });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.preview.mapping?.mappingVersionId).toBe("mv-3");
+    expect(result.preview.mapping?.versionNumber).toBe(3);
+    // Only one mappingVersion lookup, for the one frozen id — no lookup of
+    // any "current active" concept exists to have influenced this at all.
+    expect(mappingVersionFindUniqueMock).toHaveBeenCalledTimes(1);
+    expect(mappingVersionFindUniqueMock.mock.calls[0][0].where.id_organisation_id.id).toBe("mv-3");
+  });
+});
+
+describe("previewWorksheet — 5B.4C stored MappingDocument revalidated at use time (T16/T17/T20)", () => {
+  it("a corrupt stored mapping_document -> MAPPING_DOCUMENT_INVALID, storage never touched, no legacy fallback", async () => {
+    const { previewWorksheet } = await freshService();
+    uploadFindFirstMock.mockResolvedValue(worksheetRow({ mapping_version_id: "mv-3" }));
+    importBatchFindUniqueMock.mockResolvedValue(batchRow({ sha256: "deadbeef", source_system_id: "ss-1" }));
+    mappingVersionFindUniqueMock.mockResolvedValue(
+      mappingVersionRow({ mapping_document: { fields: { not_a_real_canonical_target: "X" } } })
+    );
+    sourceMappingFindUniqueMock.mockResolvedValue(sourceMappingRow());
+    const result = await previewWorksheet({ organisationId: "org-1", worksheetId: "w-1" });
+    expect(result).toMatchObject({ ok: false, code: "MAPPING_DOCUMENT_INVALID" });
+    expect(storageGetMock).not.toHaveBeenCalled();
+  });
+
+  it("a non-object stored mapping_document -> MAPPING_DOCUMENT_INVALID (defends even a structurally impossible-per-schema value)", async () => {
+    const { previewWorksheet } = await freshService();
+    uploadFindFirstMock.mockResolvedValue(worksheetRow({ mapping_version_id: "mv-3" }));
+    importBatchFindUniqueMock.mockResolvedValue(batchRow({ sha256: "deadbeef", source_system_id: "ss-1" }));
+    mappingVersionFindUniqueMock.mockResolvedValue(mappingVersionRow({ mapping_document: "not-an-object" }));
+    sourceMappingFindUniqueMock.mockResolvedValue(sourceMappingRow());
+    const result = await previewWorksheet({ organisationId: "org-1", worksheetId: "w-1" });
+    expect(result).toMatchObject({ ok: false, code: "MAPPING_DOCUMENT_INVALID" });
+  });
+});
+
+describe("previewWorksheet — 5B.4C compileMapping is genuinely invoked (T21/T22/T23/T24/T25)", () => {
+  it("missing mapped source header in the real worksheet -> structurallyValid:false with a MAPPING_SOURCE_HEADER_MISSING diagnostic, Preview still succeeds (ok:true, mirroring legacy's own non-fatal missing-header behavior)", async () => {
+    const { previewWorksheet } = await freshService();
+    const { body, sha256 } = bufferAndHash(buildCsv(["Wrong Header", "Site", "Type"], [["x", "loc", "type"]]));
+    uploadFindFirstMock.mockResolvedValue(worksheetRow({ mapping_version_id: "mv-3" }));
+    importBatchFindUniqueMock.mockResolvedValue(batchRow({ sha256, source_system_id: "ss-1" }));
+    mappingVersionFindUniqueMock.mockResolvedValue(mappingVersionRow());
+    sourceMappingFindUniqueMock.mockResolvedValue(sourceMappingRow());
+    storageGetMock.mockResolvedValue({ body });
+    const result = await previewWorksheet({ organisationId: "org-1", worksheetId: "w-1" });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.preview.mapping?.structurallyValid).toBe(false);
+    expect(result.preview.mapping?.mappingErrors).toContainEqual(
+      expect.objectContaining({ code: "MAPPING_SOURCE_HEADER_MISSING", canonicalTarget: "report_date" })
+    );
+    expect(result.preview.mapping?.mappedSampleRows).toEqual([]);
+    expect(result.preview.requiredHeadersPresent).toBe(false);
+    expect(result.preview.missingRequiredHeaders).toContain("report_date");
+  });
+
+  it("ambiguous (duplicated after trim) mapped source header -> MAPPING_SOURCE_HEADER_AMBIGUOUS diagnostic", async () => {
+    const { previewWorksheet } = await freshService();
+    const { body, sha256 } = bufferAndHash(buildCsv(["Reported At", "Site", " Site ", "Type"], [["2024-01-01", "a", "b", "type"]]));
+    uploadFindFirstMock.mockResolvedValue(worksheetRow({ mapping_version_id: "mv-3" }));
+    importBatchFindUniqueMock.mockResolvedValue(batchRow({ sha256, source_system_id: "ss-1" }));
+    mappingVersionFindUniqueMock.mockResolvedValue(mappingVersionRow());
+    sourceMappingFindUniqueMock.mockResolvedValue(sourceMappingRow());
+    storageGetMock.mockResolvedValue({ body });
+    const result = await previewWorksheet({ organisationId: "org-1", worksheetId: "w-1" });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.preview.mapping?.mappingErrors).toContainEqual(
+      expect.objectContaining({ code: "MAPPING_SOURCE_HEADER_AMBIGUOUS", canonicalTarget: "location" })
+    );
+  });
+
+  it("a required canonical target simply not configured in the mapping document -> MAPPING_REQUIRED_TARGET_MISSING", async () => {
+    const { previewWorksheet } = await freshService();
+    const { body, sha256 } = bufferAndHash(buildCsv(["Reported At", "Site"], [["2024-01-01", "loc"]]));
+    uploadFindFirstMock.mockResolvedValue(worksheetRow({ mapping_version_id: "mv-3" }));
+    importBatchFindUniqueMock.mockResolvedValue(batchRow({ sha256, source_system_id: "ss-1" }));
+    mappingVersionFindUniqueMock.mockResolvedValue(
+      mappingVersionRow({ mapping_document: { fields: { report_date: "Reported At", location: "Site" } } })
+    );
+    sourceMappingFindUniqueMock.mockResolvedValue(sourceMappingRow());
+    storageGetMock.mockResolvedValue({ body });
+    const result = await previewWorksheet({ organisationId: "org-1", worksheetId: "w-1" });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.preview.mapping?.mappingErrors).toContainEqual(
+      expect.objectContaining({ code: "MAPPING_REQUIRED_TARGET_MISSING", canonicalTarget: "waste_type" })
+    );
+    expect(result.preview.missingRequiredHeaders).toEqual(["waste_type"]);
+  });
+
+  it("Section 13: raw CSV header need not equal the canonical Illegal Dumping name when a valid mapping supplies it — 'Reported At'/'Site'/'Type' satisfy report_date/location/waste_type via the mapping, never via headers.includes()", async () => {
+    const { previewWorksheet } = await freshService();
+    const { body, sha256 } = mappedCsv([["2024-01-01", "loc-1", "Dumped Rubbish"]]);
+    uploadFindFirstMock.mockResolvedValue(worksheetRow({ mapping_version_id: "mv-3" }));
+    importBatchFindUniqueMock.mockResolvedValue(batchRow({ sha256, source_system_id: "ss-1" }));
+    mappingVersionFindUniqueMock.mockResolvedValue(mappingVersionRow());
+    sourceMappingFindUniqueMock.mockResolvedValue(sourceMappingRow());
+    storageGetMock.mockResolvedValue({ body });
+    const result = await previewWorksheet({ organisationId: "org-1", worksheetId: "w-1" });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.preview.mapping?.structurallyValid).toBe(true);
+    expect(result.preview.requiredHeadersPresent).toBe(true);
+  });
+});
+
+describe("previewWorksheet — 5B.4C row application + domain-mapper feed (T28/T29/T30/T31/T32)", () => {
+  it("mapped canonical values are correct, a short row's missing mapped cell is '' (never leaked undefined), an extra unmapped column is ignored, and the sample feeds the real unmodified domain mapper successfully", async () => {
+    const { previewWorksheet } = await freshService();
+    // Row 1: full width plus one extra unmapped trailing column. Row 2:
+    // short (only 2 of 3 columns present) — the mapped "waste_type" cell
+    // must resolve to "".
+    const csv = buildCsv(
+      ["Reported At", "Site", "Type", "Unused Extra"],
+      [
+        ["2024-01-01", "Loc A", "Dumped Rubbish", "ignored-value"],
+        ["2024-01-02", "Loc B"],
+      ]
+    );
+    const { body, sha256 } = bufferAndHash(csv);
+    uploadFindFirstMock.mockResolvedValue(worksheetRow({ mapping_version_id: "mv-3" }));
+    importBatchFindUniqueMock.mockResolvedValue(batchRow({ sha256, source_system_id: "ss-1" }));
+    mappingVersionFindUniqueMock.mockResolvedValue(mappingVersionRow());
+    sourceMappingFindUniqueMock.mockResolvedValue(sourceMappingRow());
+    storageGetMock.mockResolvedValue({ body });
+    const result = await previewWorksheet({ organisationId: "org-1", worksheetId: "w-1" });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.preview.mapping?.structurallyValid).toBe(true);
+    expect(result.preview.mapping?.mappedSampleRows).toEqual([
+      { report_date: "2024-01-01", location: "Loc A", waste_type: "Dumped Rubbish" },
+      { report_date: "2024-01-02", location: "Loc B", waste_type: "" },
+    ]);
+    // Row 2's mapped waste_type is "" (empty, business-required), so the
+    // real, unmodified domain mapper correctly rejects it — proving actual
+    // domain interpretation happened, not a rubber stamp — while the
+    // structural mapping itself remains valid (a different, correctly
+    // separated concern).
+    expect(result.preview.mapping?.domainRowsValid).toBe(false);
+  });
+
+  it("a fully domain-valid mapped sample reports domainRowsValid:true (the real, unmodified mapIllegalDumpingRows genuinely ran)", async () => {
+    const { previewWorksheet } = await freshService();
+    const { body, sha256 } = mappedCsv([["2024-01-01", "Loc A", "Dumped Rubbish"]]);
+    uploadFindFirstMock.mockResolvedValue(worksheetRow({ mapping_version_id: "mv-3" }));
+    importBatchFindUniqueMock.mockResolvedValue(batchRow({ sha256, source_system_id: "ss-1" }));
+    mappingVersionFindUniqueMock.mockResolvedValue(mappingVersionRow());
+    sourceMappingFindUniqueMock.mockResolvedValue(sourceMappingRow());
+    storageGetMock.mockResolvedValue({ body });
+    const result = await previewWorksheet({ organisationId: "org-1", worksheetId: "w-1" });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.preview.mapping?.domainRowsValid).toBe(true);
+  });
+});
+
+describe("previewWorksheet — 5B.4C mapping applied to the bounded sample only (T33/T34/T35/T36)", () => {
+  it("a 500-row mapped worksheet still yields exactly 20 mappedSampleRows — mapping is never applied to the full worksheet", async () => {
+    const { previewWorksheet } = await freshService();
+    const rows = Array.from({ length: 500 }, (_, i) => [`2024-01-${String((i % 28) + 1).padStart(2, "0")}`, `loc-${i}`, "Dumped Rubbish"]);
+    const { body, sha256 } = mappedCsv(rows);
+    uploadFindFirstMock.mockResolvedValue(worksheetRow({ mapping_version_id: "mv-3" }));
+    importBatchFindUniqueMock.mockResolvedValue(batchRow({ sha256, source_system_id: "ss-1" }));
+    mappingVersionFindUniqueMock.mockResolvedValue(mappingVersionRow());
+    sourceMappingFindUniqueMock.mockResolvedValue(sourceMappingRow());
+    storageGetMock.mockResolvedValue({ body });
+    const result = await previewWorksheet({ organisationId: "org-1", worksheetId: "w-1" });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.preview.rowCount).toBe(500);
+    expect(result.preview.mapping?.mappedSampleRows).toHaveLength(20);
+  });
+});
+
+describe("previewWorksheet — 5B.4C DTO safety (T37/T38/T39)", () => {
+  it("the mapping summary never contains the raw mapping_document/active_mapping_version_id/organisationId", async () => {
+    const { previewWorksheet } = await freshService();
+    const { body, sha256 } = mappedCsv([["2024-01-01", "loc", "Dumped Rubbish"]]);
+    uploadFindFirstMock.mockResolvedValue(worksheetRow({ mapping_version_id: "mv-3" }));
+    importBatchFindUniqueMock.mockResolvedValue(batchRow({ sha256, source_system_id: "ss-1" }));
+    mappingVersionFindUniqueMock.mockResolvedValue(mappingVersionRow());
+    sourceMappingFindUniqueMock.mockResolvedValue(sourceMappingRow());
+    storageGetMock.mockResolvedValue({ body });
+    const result = await previewWorksheet({ organisationId: "org-1", worksheetId: "w-1" });
+    const serialized = JSON.stringify(result);
+    expect(serialized).not.toMatch(/mapping_document|active_mapping_version_id|"organisationId"|org-1/);
+  });
+
+  it("mapping summary carries exactly mappingVersionId/sourceMappingId/versionNumber/structuralValidity/errors/rows fields — no extra internals", async () => {
+    const { previewWorksheet } = await freshService();
+    const { body, sha256 } = mappedCsv([["2024-01-01", "loc", "Dumped Rubbish"]]);
+    uploadFindFirstMock.mockResolvedValue(worksheetRow({ mapping_version_id: "mv-3" }));
+    importBatchFindUniqueMock.mockResolvedValue(batchRow({ sha256, source_system_id: "ss-1" }));
+    mappingVersionFindUniqueMock.mockResolvedValue(mappingVersionRow());
+    sourceMappingFindUniqueMock.mockResolvedValue(sourceMappingRow());
+    storageGetMock.mockResolvedValue({ body });
+    const result = await previewWorksheet({ organisationId: "org-1", worksheetId: "w-1" });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(Object.keys(result.preview.mapping ?? {}).sort()).toEqual(
+      ["domainRowsValid", "mappedSampleRows", "mappingErrors", "mappingVersionId", "sourceMappingId", "structurallyValid", "versionNumber"].sort()
+    );
+  });
+});
+
+describe("previewWorksheet — 5B.4C zero writes, mapped path included (T41-T46)", () => {
+  it("a full successful mapped-preview call performs zero Prisma writes of any kind, and never calls $transaction", async () => {
+    const { previewWorksheet } = await freshService();
+    const { body, sha256 } = mappedCsv([["2024-01-01", "loc", "Dumped Rubbish"]]);
+    uploadFindFirstMock.mockResolvedValue(worksheetRow({ mapping_version_id: "mv-3" }));
+    importBatchFindUniqueMock.mockResolvedValue(batchRow({ sha256, source_system_id: "ss-1" }));
+    mappingVersionFindUniqueMock.mockResolvedValue(mappingVersionRow());
+    sourceMappingFindUniqueMock.mockResolvedValue(sourceMappingRow());
+    storageGetMock.mockResolvedValue({ body });
+    await previewWorksheet({ organisationId: "org-1", worksheetId: "w-1" });
+    expect(uploadUpdateMock).not.toHaveBeenCalled();
+    expect(uploadUpdateManyMock).not.toHaveBeenCalled();
+    expect(importBatchUpdateMock).not.toHaveBeenCalled();
+    expect(illegalDumpingCreateManyMock).not.toHaveBeenCalled();
+    expect(transactionMock).not.toHaveBeenCalled();
+  });
+
+  it("the service source never contains any write call reachable from the mapping-lineage block (static, whole-file check already covers this — reconfirmed here scoped to the 5B.4C block specifically)", () => {
+    const code = stripComments(read(SERVICE_PATH));
+    const startIdx = code.indexOf("Step 7.5");
+    const endIdx = code.indexOf("Step 8 —");
+    const mappingBlock = code.slice(startIdx, endIdx);
+    expect(mappingBlock).not.toMatch(/\.(create|update|delete|upsert|createMany|updateMany|deleteMany)\(/);
+    expect(mappingBlock).not.toMatch(/\$transaction/);
+  });
+});
+
+describe("previewWorksheet — 5B.4C concurrency/coherence (T51/T52/T53)", () => {
+  it("the frozen mapping_version_id is read exactly once (from Step 1's own worksheet lookup) and reused consistently for every subsequent lookup/compile/apply step — no second Upload re-read exists to introduce a metadata/output mismatch", () => {
+    const code = stripComments(read(SERVICE_PATH));
+    // Only ONE call to prisma.upload.findFirst exists in the whole file.
+    const uploadFindFirstOccurrences = (code.match(/prisma\.upload\.findFirst\(/g) ?? []).length;
+    expect(uploadFindFirstOccurrences).toBe(1);
+    // The captured local variable is used, never a fresh re-fetch of Upload.
+    expect(code).toMatch(/const frozenMappingVersionId = worksheet\.mapping_version_id;/);
+  });
+
+  it("two consecutive mapped-preview calls against an unchanged frozen worksheet return byte-identical mapping summaries (deterministic)", async () => {
+    const { previewWorksheet } = await freshService();
+    const { body, sha256 } = mappedCsv([["2024-01-01", "loc", "Dumped Rubbish"]]);
+    uploadFindFirstMock.mockResolvedValue(worksheetRow({ mapping_version_id: "mv-3" }));
+    importBatchFindUniqueMock.mockResolvedValue(batchRow({ sha256, source_system_id: "ss-1" }));
+    mappingVersionFindUniqueMock.mockResolvedValue(mappingVersionRow());
+    sourceMappingFindUniqueMock.mockResolvedValue(sourceMappingRow());
+    storageGetMock.mockResolvedValue({ body });
+    const first = await previewWorksheet({ organisationId: "org-1", worksheetId: "w-1" });
+    const second = await previewWorksheet({ organisationId: "org-1", worksheetId: "w-1" });
+    expect(first).toEqual(second);
+  });
+});
+
+describe("previewWorksheet — 5B.4C containment: mappingExecution.ts is not reimplemented/modified, business logic stays in illegalDumpingMapper.ts", () => {
+  it("previewWorksheet.ts never duplicates compileMapping's own header-matching logic (no local Map/trim-based header index besides the imported compiler's own)", () => {
+    const code = stripComments(read(SERVICE_PATH));
+    // The only header-matching construct in this file is the import of and
+    // single call to compileMapping — never a second, local reimplementation.
+    const compileMappingCalls = (code.match(/compileMapping\(/g) ?? []).length;
+    expect(compileMappingCalls).toBe(1);
+  });
+
+  it("previewWorksheet.ts never imports/calls selectWorksheetMapping (no mapping-selection creep into Preview)", () => {
+    const code = stripComments(read(SERVICE_PATH));
+    expect(code).not.toMatch(/selectWorksheetMapping/);
+  });
+
+  it("previewWorksheet.ts never writes Upload.mapping_version_id (no 'repair missing lineage' capability, M14) — every `mapping_version_id:` colon-assignment in the file is a read-only Prisma select flag (`true`), never an assigned value", () => {
+    const code = stripComments(read(SERVICE_PATH));
+    const assignments = [...code.matchAll(/mapping_version_id\s*:\s*([^\n,}]+)/g)].map((m) => m[1].trim());
+    expect(assignments.length).toBeGreaterThan(0);
+    for (const value of assignments) {
+      expect(value).toBe("true");
+    }
   });
 });
