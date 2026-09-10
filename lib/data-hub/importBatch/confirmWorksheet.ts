@@ -4,8 +4,10 @@ import { buildImportBatchKey, RawFileStoreError } from "../storage/rawFileStore"
 import { createImportBatchStorage } from "./compositionRoot";
 import { MAX_SOURCE_FILE_BYTES } from "../limits";
 import { decodeCsvOnly, CsvOnlyDecodeError } from "../csvOnlyDecoder";
-import { mapIllegalDumpingRows, IllegalDumpingMappingError } from "./illegalDumpingMapper";
+import { mapIllegalDumpingRows, IllegalDumpingMappingError, type MappedIllegalDumpingRow } from "./illegalDumpingMapper";
 import { getMessageTemplate, type FailureCode } from "./failureTaxonomy";
+import { validateMappingDocument, type MappingDocument } from "../sourceMapping/mappingDocument";
+import { compileMapping, applyCompiledMappingToRows, toIllegalDumpingMapperInput } from "../sourceMapping/mappingExecution";
 
 // Data Hub 5A.2K.1 — dark canonical DATA_HUB worksheet confirmation +
 // illegal-dumping transactional importer service (dark, route-free,
@@ -46,6 +48,30 @@ import { getMessageTemplate, type FailureCode } from "./failureTaxonomy";
 // worksheet claim (a single conditional UPDATE, never a separate
 // SELECT-then-UPDATE) and the resulting domain writes — never Blob I/O,
 // never parsing.
+//
+// 5B.4D — FROZEN MAPPING CONFIRM INTEGRATION: when the worksheet carries a
+// persisted Upload.mapping_version_id (frozen by 5B.4B's selection
+// service), Confirm now consumes the SAME exact frozen MappingVersion
+// lineage that 5B.4C Preview consumes — same resolution rule (exact id,
+// tenant-scoped, no active-pointer/latest fallback, cross-source check,
+// stored-document revalidation), same 5B.3 mappingExecution reuse, applied
+// to the FULL worksheet dataset (never Preview's bounded 20-row sample).
+// A legacy worksheet (mapping_version_id IS NULL) takes the completely
+// unchanged pre-5B.4D path below — see Step 1/4.5/7/8's own comments for
+// exactly where the two paths diverge and reconverge.
+//
+// VERSION-BOUND ATOMIC CLAIM (the merge-critical invariant): the exact
+// frozen mapping_version_id is captured ONCE, immediately after Step 1's
+// read, into expectedMappingVersionId — never re-read. For a mapped
+// worksheet, that SAME captured value is both (a) the lookup key for every
+// resolution/compile/apply step below, outside the transaction, and (b) an
+// additional predicate on the Step 8 atomic claim's own WHERE clause. If a
+// legitimate 5B.4B reselection changes Upload.mapping_version_id between
+// this read and the claim, the claim's WHERE clause no longer matches the
+// real row (mapping_version_id disagrees), the claim affects zero rows,
+// and the existing lost-race resolution (re-read canonical_status) already
+// falls through to WORKSHEET_NOT_ELIGIBLE — no new failure code, no stale
+// domain write, no automatic retry against the new version.
 //
 // NO DURABLE IMPORTING STATE: the schema's own uploads_canonical_status_check
 // CHECK constraint structurally forbids any value outside
@@ -114,11 +140,19 @@ export async function confirmDataHubWorksheet(
   // outcome, reusing read.ts's own established code/semantics verbatim. ----
   const worksheet = await prisma.upload.findFirst({
     where: { id: worksheetUploadId, organisation_id: organisationId, lineage_kind: "DATA_HUB" },
-    select: { id: true, import_batch_id: true, worksheet_index: true, canonical_status: true },
+    select: { id: true, import_batch_id: true, worksheet_index: true, canonical_status: true, mapping_version_id: true },
   });
   if (!worksheet || worksheet.import_batch_id === null || worksheet.worksheet_index === null) {
     return fail("WORKSHEET_NOT_FOUND");
   }
+
+  // 5B.4D — captured ONCE, here, immediately after this read. Every later
+  // mapped-path lookup/compile/apply step AND the Step 8 atomic claim's own
+  // WHERE clause use this SAME value — never a second, later re-read of
+  // Upload.mapping_version_id. This is what structurally binds the domain
+  // write to the exact version that was validated outside the transaction
+  // (see the VERSION-BOUND ATOMIC CLAIM header comment above).
+  const expectedMappingVersionId = worksheet.mapping_version_id;
 
   // ---- Step 2 — precondition. Only AWAITING_CONFIRMATION is eligible for
   // a first import attempt. IMPORTED is idempotent (a clean, distinct
@@ -138,7 +172,7 @@ export async function confirmDataHubWorksheet(
   // compound id_organisation_id key. Must be READY and non-tombstoned. ----
   const batch = await prisma.importBatch.findUnique({
     where: { id_organisation_id: { id: worksheet.import_batch_id, organisation_id: organisationId } },
-    select: { status: true, content_type: true, sha256: true, storage_key: true, deleted_at: true },
+    select: { status: true, content_type: true, sha256: true, storage_key: true, deleted_at: true, source_system_id: true },
   });
   if (!batch || batch.deleted_at !== null) {
     return fail("WORKSHEET_NOT_FOUND");
@@ -155,6 +189,55 @@ export async function confirmDataHubWorksheet(
   // xlsx, so there is no code path that could even attempt to parse them. ----
   if (batch.content_type !== "csv") {
     return fail("UNSUPPORTED_FORMAT");
+  }
+
+  // ---- Step 4.5 — 5B.4D FROZEN MAPPING LINEAGE RESOLUTION. Reached only
+  // when expectedMappingVersionId !== null — a legacy worksheet skips this
+  // block entirely and takes the completely unchanged legacy path below.
+  // This is an EXACT structural mirror of previewWorksheet.ts's own Step
+  // 4.5 (same lookups, same tenant scoping, same no-active-pointer/no-
+  // latest-fallback rule, same cross-source check, same stored-document
+  // revalidation) — deliberately placed BEFORE storage access, mirroring
+  // the existing TENANT-BEFORE-STORAGE discipline of Steps 1-4: an
+  // unresolvable/corrupt frozen lineage is a gate failure, not a content
+  // problem, so it must never cause a storage read. ----
+  let resolvedMapping: { document: MappingDocument } | null = null;
+
+  if (expectedMappingVersionId !== null) {
+    // Fetch EXACTLY the frozen version, tenant-scoped. Deliberately no
+    // `active` filter — deactivation of the parent SourceMapping/
+    // SourceSystem after this version was frozen must never break
+    // consumption of already-frozen lineage (5B.4B's own established rule:
+    // `active` is a NEW-selection gate, never a consumption gate — 5B.4C
+    // Preview already relies on this identical rule).
+    const mappingVersion = await prisma.mappingVersion.findUnique({
+      where: { id_organisation_id: { id: expectedMappingVersionId, organisation_id: organisationId } },
+      select: { source_mapping_id: true, mapping_document: true },
+    });
+    if (!mappingVersion) {
+      return fail("MAPPING_LINEAGE_UNAVAILABLE");
+    }
+
+    // Cross-source corruption check — the frozen version's own
+    // SourceMapping.source_system_id must equal the batch's own
+    // authoritative source_system_id. Tenant-scoped; also no `active`
+    // filter (same consumption-vs-selection distinction as above).
+    const sourceMapping = await prisma.sourceMapping.findUnique({
+      where: { id_organisation_id: { id: mappingVersion.source_mapping_id, organisation_id: organisationId } },
+      select: { source_system_id: true },
+    });
+    if (!sourceMapping || sourceMapping.source_system_id !== batch.source_system_id) {
+      return fail("MAPPING_LINEAGE_UNAVAILABLE");
+    }
+
+    // Revalidate the stored document EVERY call — never trust it merely
+    // because it passed 5B.2's validator at creation time.
+    const validated = validateMappingDocument(mappingVersion.mapping_document);
+    if (!validated.ok) {
+      return fail("MAPPING_DOCUMENT_INVALID");
+    }
+
+    resolvedMapping = { document: validated.document };
   }
 
   // ---- Step 5 — bounded storage retrieval, via the existing composition
@@ -181,11 +264,40 @@ export async function confirmDataHubWorksheet(
 
   // ---- Step 7 — CSV decode + illegal-dumping row mapping, entirely
   // outside any transaction. Any failure here writes nothing and leaves
-  // the worksheet exactly as it was (AWAITING_CONFIRMATION, retryable). ----
-  let mappedRows;
+  // the worksheet exactly as it was (AWAITING_CONFIRMATION, retryable).
+  //
+  // 5B.4D — for a LEGACY worksheet (resolvedMapping === null) this is the
+  // completely unchanged existing behavior: decodeCsvOnly + the fixed-
+  // header mapIllegalDumpingRows directly. For a MAPPED worksheet, the
+  // real, FULL (never Preview's bounded 20-row sample — Section 8's hard
+  // requirement) decoded rows are compiled/applied through 5B.3's
+  // unmodified mappingExecution.ts, then fed through the SAME, completely
+  // unmodified illegal-dumping domain mapper via the same narrow reshape
+  // adapter previewWorksheet.ts's own Step 7.5 already uses — mapping
+  // stays structural-only (Section 9), domain interpretation (dates,
+  // status, required-value rules) remains exclusively that mapper's own
+  // responsibility, never re-implemented here. ----
+  let mappedRows: MappedIllegalDumpingRow[];
   try {
     const { headers, rows } = decodeCsvOnly(getResult.body);
-    mappedRows = mapIllegalDumpingRows(headers, rows);
+
+    if (resolvedMapping === null) {
+      mappedRows = mapIllegalDumpingRows(headers, rows);
+    } else {
+      // Compile against the REAL, FULL worksheet headers — reuses 5B.3's
+      // unmodified compileMapping verbatim. compileMapping failure here is
+      // a distinct, Confirm-only hard failure: Preview tolerates this
+      // (structurallyValid: false, still a 200), but Confirm cannot import
+      // a dataset it cannot fully, structurally map.
+      const compiled = compileMapping(resolvedMapping.document, headers);
+      if (!compiled.ok) {
+        return fail("MAPPING_COMPILE_FAILED");
+      }
+      // Apply to the FULL row set — never a bounded sample.
+      const canonicalRows = applyCompiledMappingToRows(compiled.plan, rows);
+      const { headers: domainHeaders, rows: domainRows } = toIllegalDumpingMapperInput(canonicalRows);
+      mappedRows = mapIllegalDumpingRows(domainHeaders, domainRows);
+    }
   } catch (err) {
     if (err instanceof CsvOnlyDecodeError || err instanceof IllegalDumpingMappingError) {
       return fail("PARSER_REJECTED");
@@ -221,6 +333,20 @@ export async function confirmDataHubWorksheet(
         organisation_id: organisationId,
         lineage_kind: "DATA_HUB",
         canonical_status: "AWAITING_CONFIRMATION",
+        // 5B.4D — VERSION-BOUND ATOMIC CLAIM (Section 11/14 hard
+        // requirement). Present ONLY for a mapped worksheet
+        // (expectedMappingVersionId !== null) — a legacy worksheet's WHERE
+        // clause is byte-for-byte identical to the pre-5B.4D predicate
+        // above, never gaining this key at all. For a mapped worksheet,
+        // this is what binds the domain write about to happen in this same
+        // transaction to the EXACT MappingVersion that was resolved,
+        // revalidated, compiled, and applied outside the transaction — if
+        // a legitimate 5B.4B reselection changed Upload.mapping_version_id
+        // since Step 1's read, this predicate no longer matches the real
+        // row, the claim affects zero rows, and the existing lost-race
+        // resolution below (re-read canonical_status) already handles it
+        // safely — no new branch needed.
+        ...(expectedMappingVersionId !== null ? { mapping_version_id: expectedMappingVersionId } : {}),
       },
       data: {
         canonical_status: "IMPORTED",

@@ -502,7 +502,6 @@ describe("no-runtime-integration — static source-text proof", () => {
     "lib/data-hub/importBatch/finalize.ts",
     "lib/data-hub/importBatch/inspectCsvWorksheet.ts",
     "lib/data-hub/importBatch/inspectWorksheets.ts",
-    "lib/data-hub/importBatch/confirmWorksheet.ts",
     "lib/data-hub/client/orchestrator.ts",
     "app/data-hub/import/ImportClient.tsx",
     "app/data-hub/import/[batchId]/RecoveryClient.tsx",
@@ -530,6 +529,20 @@ describe("no-runtime-integration — static source-text proof", () => {
   it("T51 exception (5B.4C, disclosed): previewWorksheet.ts imports ONLY compileMapping/applyCompiledMappingToRows/toIllegalDumpingMapperInput (+ their pure types) from mappingExecution.ts, via one static import", () => {
     const repoRoot = path.join(__dirname, "../..");
     const source = fs.readFileSync(path.join(repoRoot, "lib/data-hub/importBatch/previewWorksheet.ts"), "utf8");
+    const importLines = source.match(/^import\s.+from\s+["'][^"']*sourceMapping\/mappingExecution["'];?$/gm) ?? [];
+    expect(importLines).toHaveLength(1);
+    expect(importLines[0]).toMatch(/\bcompileMapping\b/);
+    expect(importLines[0]).toMatch(/\bapplyCompiledMappingToRows\b/);
+    expect(importLines[0]).toMatch(/\btoIllegalDumpingMapperInput\b/);
+  });
+
+  // 5B.4D — confirmWorksheet.ts is now a SECOND, identically-bounded
+  // disclosed exception to T51, for the same reason previewWorksheet.ts
+  // already is: frozen mapping-lineage consumption for the FULL Confirm
+  // dataset reuses 5B.3's pure/deterministic compiler+executor verbatim.
+  it("T51 exception (5B.4D, disclosed): confirmWorksheet.ts imports ONLY compileMapping/applyCompiledMappingToRows/toIllegalDumpingMapperInput (+ their pure types) from mappingExecution.ts, via one static import", () => {
+    const repoRoot = path.join(__dirname, "../..");
+    const source = fs.readFileSync(path.join(repoRoot, "lib/data-hub/importBatch/confirmWorksheet.ts"), "utf8");
     const importLines = source.match(/^import\s.+from\s+["'][^"']*sourceMapping\/mappingExecution["'];?$/gm) ?? [];
     expect(importLines).toHaveLength(1);
     expect(importLines[0]).toMatch(/\bcompileMapping\b/);

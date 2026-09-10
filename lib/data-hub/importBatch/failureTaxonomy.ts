@@ -83,7 +83,15 @@ export type CallerOnlyOutcomeCode =
   | "SOURCE_LINEAGE_REQUIRED"
   | "SOURCE_MAPPING_UNAVAILABLE"
   | "MAPPING_LINEAGE_UNAVAILABLE"
-  | "MAPPING_DOCUMENT_INVALID";
+  | "MAPPING_DOCUMENT_INVALID"
+  // 5B.4D — Confirm-only: the frozen MappingVersion's document is valid,
+  // but this worksheet's REAL headers don't structurally satisfy it
+  // (missing/ambiguous source header, or a required canonical target not
+  // configured) — compileMapping's own diagnostics. Preview tolerates this
+  // (structurallyValid: false, still a 200 with mappingErrors for the
+  // reviewer), but Confirm cannot import a dataset it cannot fully map, so
+  // this is a distinct hard-failure outcome unique to Confirm.
+  | "MAPPING_COMPILE_FAILED";
 
 export type FailureCode = PersistedFailureCode | CallerOnlyOutcomeCode;
 
@@ -121,6 +129,7 @@ export const CALLER_ONLY_OUTCOME_CODES: readonly CallerOnlyOutcomeCode[] = [
   "SOURCE_MAPPING_UNAVAILABLE",
   "MAPPING_LINEAGE_UNAVAILABLE",
   "MAPPING_DOCUMENT_INVALID",
+  "MAPPING_COMPILE_FAILED",
 ];
 
 export function isPersistedFailureCode(code: string): code is PersistedFailureCode {
@@ -266,16 +275,24 @@ const MESSAGE_TEMPLATES: Record<FailureCode, string> = {
   // internal mapping/version state to an unauthorized caller.
   SOURCE_MAPPING_UNAVAILABLE:
     "The specified source mapping is not available for selection on this worksheet. It may not exist, may belong to a different source system, may be inactive, or may have no active version.",
-  // 5B.4C — Preview's own frozen-lineage consumption outcome codes.
-  // Deliberately ONE generic message covering every resolution failure
-  // (the frozen MappingVersion no longer exists, belongs to a different
-  // organisation, or its SourceMapping's source_system_id no longer
-  // matches the batch's own authoritative source_system_id) — never
-  // distinguished, to avoid leaking cross-tenant/cross-source existence.
+  // 5B.4C — frozen-lineage consumption outcome codes, shared by Preview
+  // and (5B.4D) Confirm. Deliberately ONE generic message covering every
+  // resolution failure (the frozen MappingVersion no longer exists,
+  // belongs to a different organisation, or its SourceMapping's
+  // source_system_id no longer matches the batch's own authoritative
+  // source_system_id) — never distinguished, to avoid leaking cross-
+  // tenant/cross-source existence. Wording is deliberately consumer-
+  // neutral ("processed", not "previewed") since 5B.4D reuses these codes.
   MAPPING_LINEAGE_UNAVAILABLE:
-    "This worksheet's selected mapping could not be resolved and cannot currently be previewed.",
+    "This worksheet's selected mapping could not be resolved and cannot currently be processed.",
   MAPPING_DOCUMENT_INVALID:
-    "This worksheet's selected mapping version is invalid and cannot currently be previewed.",
+    "This worksheet's selected mapping version is invalid and cannot currently be processed.",
+  // 5B.4D — Confirm-only hard failure (see CallerOnlyOutcomeCode doc
+  // comment above). Never leaks the raw compileMapping diagnostics
+  // (canonical target / configured source header names) into this
+  // message.
+  MAPPING_COMPILE_FAILED:
+    "This worksheet's selected mapping does not match its current column headers and cannot currently be imported.",
 };
 
 const MAX_MESSAGE_LENGTH = 500;
