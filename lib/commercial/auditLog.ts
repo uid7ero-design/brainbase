@@ -457,3 +457,130 @@ export async function logPaymentReversed(params: {
     },
   });
 }
+
+// ── Suppliers (Phase C6.2) ──────────────────────────────────────────────
+//
+// Mirrors logCustomerCreated()/logCustomerUpdated() exactly — never logs
+// a full supplier record (no address/tax-business-number/payment-terms
+// in the payload), only the minimal operational metadata a future
+// `WHERE resource_type = 'commercial_supplier'` audit query would need.
+
+export async function logSupplierCreated(params: {
+  organisationId: string; userId: string; supplierId: string; after: { name: string };
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'commercial_supplier.created',
+    resourceType: 'commercial_supplier', resourceId: params.supplierId, beforeState: null, afterState: params.after,
+  });
+}
+
+export async function logSupplierUpdated(params: {
+  organisationId: string; userId: string; supplierId: string;
+  before: Record<string, unknown>; after: Record<string, unknown>;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'commercial_supplier.updated',
+    resourceType: 'commercial_supplier', resourceId: params.supplierId, beforeState: params.before, afterState: params.after,
+  });
+}
+
+export async function logSupplierDeactivated(params: { organisationId: string; userId: string; supplierId: string }): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'commercial_supplier.deactivated',
+    resourceType: 'commercial_supplier', resourceId: params.supplierId, beforeState: { active: true }, afterState: { active: false },
+  });
+}
+
+export async function logSupplierReactivated(params: { organisationId: string; userId: string; supplierId: string }): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'commercial_supplier.reactivated',
+    resourceType: 'commercial_supplier', resourceId: params.supplierId, beforeState: { active: false }, afterState: { active: true },
+  });
+}
+
+// ── Purchase orders (Phase C6.2) ─────────────────────────────────────────
+//
+// Same discipline as the Quotes/Invoices blocks above: submitted/
+// approved/returned/issued/cancelled are all genuine status-change events
+// on a commercial document per ADR-0003 §2, and every one of these is
+// still a best-effort, non-transactional write — createPurchaseOrder()/
+// submitPurchaseOrder()/approvePurchaseOrder()/
+// returnPurchaseOrderToDraft()/issuePurchaseOrder()/cancelPurchaseOrder()
+// (lib/commercial/purchaseOrders.ts) each already gate on
+// authorizeCommercialRequest() before the state-changing write runs, so
+// the same ADR-0003 §3 reasoning applies: the actor is already proven,
+// and a dropped audit write afterward cannot retroactively make the
+// action ambiguous.
+//
+// Never logs a full supplier snapshot, the full line array, or secrets —
+// only operational metadata (ids, amounts, statuses, reasons), matching
+// every existing log*() function's own payload boundary in this file.
+
+export async function logPurchaseOrderCreated(params: {
+  organisationId: string; userId: string; purchaseOrderId: string; after: { supplier_id: string; currency: string };
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'commercial_purchase_order.created',
+    resourceType: 'commercial_purchase_order', resourceId: params.purchaseOrderId, beforeState: null, afterState: params.after,
+  });
+}
+
+export async function logPurchaseOrderUpdated(params: {
+  organisationId: string; userId: string; purchaseOrderId: string;
+  before: Record<string, unknown>; after: Record<string, unknown>;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'commercial_purchase_order.updated',
+    resourceType: 'commercial_purchase_order', resourceId: params.purchaseOrderId, beforeState: params.before, afterState: params.after,
+  });
+}
+
+export async function logPurchaseOrderSubmitted(params: { organisationId: string; userId: string; purchaseOrderId: string }): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'commercial_purchase_order.submitted',
+    resourceType: 'commercial_purchase_order', resourceId: params.purchaseOrderId,
+    beforeState: { status: 'DRAFT' }, afterState: { status: 'PENDING_APPROVAL' },
+  });
+}
+
+export async function logPurchaseOrderApproved(params: { organisationId: string; userId: string; purchaseOrderId: string }): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'commercial_purchase_order.approved',
+    resourceType: 'commercial_purchase_order', resourceId: params.purchaseOrderId,
+    beforeState: { status: 'PENDING_APPROVAL' }, afterState: { status: 'APPROVED' },
+  });
+}
+
+// after_state carries the trimmed return_reason — operational context
+// for why the document was sent back, never customer/supplier PII,
+// matching this file's existing payload-boundary discipline throughout.
+export async function logPurchaseOrderReturned(params: {
+  organisationId: string; userId: string; purchaseOrderId: string; returnReason: string;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'commercial_purchase_order.returned',
+    resourceType: 'commercial_purchase_order', resourceId: params.purchaseOrderId,
+    beforeState: { status: 'PENDING_APPROVAL' }, afterState: { status: 'DRAFT', return_reason: params.returnReason },
+  });
+}
+
+export async function logPurchaseOrderIssued(params: {
+  organisationId: string; userId: string; purchaseOrderId: string; purchaseOrderNumber: string; totalCents: number;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'commercial_purchase_order.issued',
+    resourceType: 'commercial_purchase_order', resourceId: params.purchaseOrderId,
+    beforeState: { status: 'APPROVED' },
+    afterState: { status: 'ISSUED', purchase_order_number: params.purchaseOrderNumber, total_cents: params.totalCents },
+  });
+}
+
+export async function logPurchaseOrderCancelled(params: {
+  organisationId: string; userId: string; purchaseOrderId: string; cancelReason: string;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'commercial_purchase_order.cancelled',
+    resourceType: 'commercial_purchase_order', resourceId: params.purchaseOrderId,
+    beforeState: { status: 'ISSUED' }, afterState: { status: 'CANCELLED', cancel_reason: params.cancelReason },
+  });
+}
