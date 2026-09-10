@@ -131,6 +131,24 @@ export type TicketEmailDeliveryClaim = {
 // .../refund/route.ts, both of which set status='CANCELLED') fails the
 // `status = 'CONFIRMED'` condition below and is therefore never
 // claimable, regardless of what ticket_email_status previously said.
+//
+// The 'failed' branch's own retry-due check is deliberately
+// `ticket_email_next_attempt_at <= NOW()` — NOT `... IS NULL OR ... <=
+// NOW()`. A 'failed' row's next_attempt_at is ALWAYS explicitly set by
+// markTicketEmailFailed (never left "not yet computed"): NULL there
+// means TERMINAL (either MAX_ATTEMPTS was reached, or an idempotency
+// payload mismatch forced immediate termination regardless of
+// attempt_count — see markTicketEmailFailed's own forceTerminal
+// comment). In Postgres, `NULL <= NOW()` evaluates to NULL, which WHERE
+// treats as not-true, so the bare `<= NOW()` already correctly excludes
+// a terminal NULL row on its own — no `IS NULL OR` is needed. An
+// earlier version of this file DID include that `IS NULL OR` clause,
+// which was a real bug caught during isolated Preview verification: it
+// made `next_attempt_at IS NULL` evaluate to TRUE, silently allowing a
+// payload-mismatch-terminated order (still attempt_count < MAX_ATTEMPTS)
+// to be reclaimed and automatically retried — exactly what the
+// payload-stability rule (§13) forbids. See this file's own
+// REGRESSION-labelled test in eventsTicketEmailDelivery.test.ts.
 export async function claimTicketEmailDelivery(orderId: string): Promise<TicketEmailDeliveryClaim | null> {
   const claimId = crypto.randomUUID();
 
@@ -159,7 +177,7 @@ export async function claimTicketEmailDelivery(orderId: string): Promise<TicketE
         OR (
           ticket_email_status = 'failed'
           AND ticket_email_attempt_count < ${MAX_ATTEMPTS}
-          AND (ticket_email_next_attempt_at IS NULL OR ticket_email_next_attempt_at <= NOW())
+          AND ticket_email_next_attempt_at <= NOW()
         )
         OR (
           ticket_email_status = 'sending'

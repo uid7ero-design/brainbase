@@ -241,7 +241,28 @@ describe('LEASE', () => {
     const q = claimQueryText()
     expect(q).toContain('ticket_email_attempt_count < ${MAX_ATTEMPTS}'.replace('${MAX_ATTEMPTS}', '${MAX_ATTEMPTS}'))
     expect(q).toMatch(/ticket_email_status = 'failed'[\s\S]*?ticket_email_attempt_count < \$\{MAX_ATTEMPTS\}/)
-    expect(q).toContain('ticket_email_next_attempt_at IS NULL OR ticket_email_next_attempt_at <= NOW()')
+    expect(q).toContain('ticket_email_next_attempt_at <= NOW()')
+  })
+
+  // Regression test — caught during isolated Preview verification. An
+  // earlier version of the claim query read
+  // "ticket_email_next_attempt_at IS NULL OR ticket_email_next_attempt_at
+  // <= NOW()" — in Postgres, "X IS NULL OR ..." evaluates to TRUE when X
+  // is NULL, which silently made a TERMINAL failed row (next_attempt_at
+  // forced to NULL by an idempotency payload mismatch, while
+  // attempt_count was still below MAX_ATTEMPTS) reclaimable and
+  // automatically retried — exactly what the payload-stability rule
+  // (§13) forbids. The fix: no "IS NULL OR" at all — a bare "<= NOW()"
+  // already correctly excludes NULL by itself (NULL <= NOW() is NULL,
+  // which WHERE treats as not-true).
+  it('REGRESSION: the failed branch does NOT contain "IS NULL OR" — NULL next_attempt_at must never be treated as retry-due', () => {
+    const q = claimQueryText()
+    const failedBranch = q.slice(
+      q.indexOf("ticket_email_status = 'failed'"),
+      q.indexOf("OR (\n          ticket_email_status = 'sending'"),
+    )
+    expect(failedBranch).not.toMatch(/IS\s+NULL\s+OR/i)
+    expect(failedBranch).toContain('ticket_email_next_attempt_at <= NOW()')
   })
 
   it('the stale-sending branch requires claimed_at older than LEASE_TIMEOUT_MINUTES AND attempt_count < MAX_ATTEMPTS (active leases are not reclaimed)', () => {
@@ -359,7 +380,7 @@ describe('RETRY', () => {
 
   it('a retry before next_attempt_at has elapsed is denied by the claim\'s own WHERE clause', () => {
     const q = claimQueryText()
-    expect(q).toContain('ticket_email_next_attempt_at IS NULL OR ticket_email_next_attempt_at <= NOW()')
+    expect(q).toContain('ticket_email_next_attempt_at <= NOW()')
   })
 
   it('claiming behaviourally denies a not-yet-due retry: zero matching rows -> null', async () => {
