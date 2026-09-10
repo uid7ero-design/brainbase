@@ -140,6 +140,44 @@ metric_snapshots              -- cross-module universal metric layer
 // gap: legitimate queries must use explicit JOIN syntax, which the
 // existing FROM/JOIN extraction above already handles correctly and
 // completely for the single-relation-per-keyword case.
+//
+// WHY REPLACING STRIPPED LEXICAL CONTENT WITH A SINGLE SPACE CANNOT
+// INTRODUCE FALSE ACCEPTANCE (the security invariant this file must
+// uphold: removing literals/comments for analysis must never concatenate
+// otherwise-separate SQL tokens, and the table-access guard must not rely
+// on Postgres itself rejecting whatever malformed adjacency the scanner's
+// own stripping produces). Every branch of stripLiteralsAndComments()
+// that removes lexical content (string literals, dollar-quoted strings,
+// block comments) now inserts exactly one space in place of the removed
+// content, rather than nothing. This is a strictly one-directional
+// change with respect to what gets detected:
+//   - A single-quote, dollar-quote, or comment delimiter in the ORIGINAL
+//     source text is always a genuine boundary between whatever precedes
+//     it and whatever follows it — no unquoted identifier or keyword can
+//     itself contain a raw `'`, a `$tag$` delimiter, or `/*`/`--` in the
+//     middle, so nothing that was ever "one token" in the real source
+//     gets split apart by inserting a separator at a position that was
+//     already a real boundary.
+//   - Therefore inserting a space can only ever ADD a token boundary
+//     that a zero-character deletion had erroneously destroyed — it can
+//     never REMOVE or hide a boundary that genuinely existed. Every
+//     match the allowlist/deny-list/comma-join checks were already
+//     correctly making before this change is still made identically
+//     after it; the only behavioural change is that constructs which
+//     previously and erroneously collapsed into one unmatched token
+//     (e.g. `FROM'x'hr_people` → `FROMhr_people`) now correctly resolve
+//     into separately-matchable tokens (`FROM hr_people`) and are
+//     correctly rejected. There is no code path by which this change
+//     converts a query that was previously, correctly rejected into one
+//     that is now accepted — only the reverse (previously-invisible
+//     constructs becoming visible and thus rejected). False rejection of
+//     genuinely ambiguous or unsupported grammar remains acceptable per
+//     this file's fail-closed design; false acceptance is what this
+//     argument rules out.
+//   - This holds independently of whether the ORIGINAL raw SQL (before
+//     any stripping) would itself have been valid, executable Postgres —
+//     the guard does not, and must not, depend on the database rejecting
+//     a malformed query the scanner failed to catch first.
 
 export const ALLOWED_TABLES = new Set(['waste_records', 'fleet_metrics', 'service_requests', 'metric_snapshots']);
 
@@ -160,28 +198,38 @@ function stripLiteralsAndComments(sqlText: string): string {
     const two = sqlText.slice(i, i + 2);
 
     if (ch === "'") {
-      // OPEN QUESTION, reported rather than resolved here (found while
-      // fixing the block-comment adjacency bug below; out of that fix's
-      // narrow, explicitly-authorized scope): this branch shares the same
-      // "delete with no replacement character" mechanics — a string
-      // literal glued with zero whitespace directly after FROM/JOIN
-      // (e.g. `FROM'x'hr_people`) empirically also collapses into a
-      // merged token at the SCANNER level and is not currently caught.
-      // Whether this is a live, exploitable bypass the way the comment
-      // case was turns on whether Postgres itself ever accepts a bare
-      // string literal in that exact grammatical position as valid,
-      // executable SQL (a string literal is not a valid table_reference,
-      // so `FROM 'x' hr_people` is very likely a syntax error to Postgres
-      // itself, unlike a comment, which is genuinely invisible to the
-      // grammar) — not verified against a live Postgres instance, and
-      // deliberately NOT changed as part of this fix pending that
-      // decision.
+      // SECURITY FIX (extends the block-comment fix above to the same
+      // underlying mechanical pattern): a single-quoted string literal is
+      // now replaced by a token separator, not deleted outright — same
+      // reasoning and same guarantee as the block-comment fix, applied
+      // here as defense-in-depth against the scanner's own internal
+      // representation ever concatenating two otherwise-separate tokens.
+      // The table-access guard must not rely on Postgres itself rejecting
+      // malformed adjacency (e.g. `FROM'x'hr_people`, which is very
+      // likely invalid table_reference syntax) — the scanner's own
+      // sanitized text must never destroy a token boundary regardless of
+      // whether the resulting raw SQL would separately be rejected by the
+      // database. See the "why this cannot introduce false acceptance"
+      // note above ALLOWED_TABLES for the safety argument.
+      //
+      // ADDITIONAL FIX found while verifying the above: unlike the block-
+      // comment and dollar-quote branches, this branch previously had NO
+      // unterminated-literal check at all — if the closing quote was
+      // never found, the while loop simply exited when `i` reached the
+      // end of the string, silently discarding every character from the
+      // opening quote to end-of-input (including any real FROM/JOIN text
+      // in that span) with no error. Now explicitly fails closed, exactly
+      // like the other two branches, rather than silently swallowing the
+      // remainder of the query.
+      out += ' ';
       i++;
+      let closed = false;
       while (i < n) {
         if (sqlText[i] === "'" && sqlText[i + 1] === "'") { i += 2; continue; }
-        if (sqlText[i] === "'") { i++; break; }
+        if (sqlText[i] === "'") { i++; closed = true; break; }
         i++;
       }
+      if (!closed) throw new Error('Malformed string literal in query.');
       continue;
     }
 
@@ -226,26 +274,17 @@ function stripLiteralsAndComments(sqlText: string): string {
       // a string open and falls through to the default character handling
       // below, unchanged.
       //
-      // OPEN QUESTION, reported rather than resolved here (same status as
-      // the single-quote branch above — found while fixing the block-
-      // comment adjacency bug, out of that fix's narrow, explicitly-
-      // authorized scope): this branch shares the same "delete with no
-      // replacement character" mechanics — a dollar-quoted string glued
-      // with zero whitespace directly after FROM/JOIN (e.g.
-      // `FROM$$x$$hr_people`) empirically also collapses into a merged
-      // token at the SCANNER level and is not currently caught. As with
-      // the single-quote case, a dollar-quoted string is a real SQL value
-      // token, not inert trivia the way a comment is — whether Postgres
-      // itself ever accepts a bare string literal in that exact
-      // grammatical position as valid, executable SQL (as opposed to a
-      // syntax error) has NOT been verified against a live Postgres
-      // instance, and this branch was deliberately NOT changed as part
-      // of this fix pending that decision.
+      // SECURITY FIX (extends the block-comment fix above to the same
+      // underlying mechanical pattern): a dollar-quoted string is now
+      // replaced by a token separator, not deleted outright — same
+      // reasoning as the single-quote fix above. See the "why this cannot
+      // introduce false acceptance" note above ALLOWED_TABLES.
       const opener = /^\$([A-Za-z_][A-Za-z0-9_]*)?\$/.exec(sqlText.slice(i));
       if (opener) {
         const delim = opener[0];
         const closeIdx = sqlText.indexOf(delim, i + delim.length);
         if (closeIdx === -1) throw new Error('Malformed dollar-quoted string in query.');
+        out += ' ';
         i = closeIdx + delim.length;
         continue;
       }
