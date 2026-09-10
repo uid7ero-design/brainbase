@@ -99,6 +99,47 @@ function shouldOverrideToChat(route: AgentRoute, organiserContext: boolean | und
   return !!organiserContext && route === 'briefing';
 }
 
+// Phase D.4.6M — comment-routing disambiguation guard, checked BEFORE the
+// generic keyword heuristic below. Root cause: the `social` entry in
+// ROUTE_KEYWORDS matches bare `comment` as one alternation term among many
+// platform-specific nouns, with no requirement that an actual social-
+// platform noun also be present. Object.entries() iteration order puts
+// `social` before `chat`, so ANY message containing the word "comment" —
+// including a short Organiser follow-up like "post another comment saying
+// hello" once its board/item name has already been established, or a
+// fully context-free "post a comment" — used to satisfy that regex and
+// route straight to the social agent. shouldOverrideToChat() could not
+// help, since it only ever overrides the 'briefing' route, never 'social'.
+//
+// This guard resolves bare "comment" wording using only signals already
+// available to this router, never inventing new state:
+//   - a query naming an explicit social-platform noun (instagram, an
+//     actual platform name, or an unambiguous social-content phrase) is
+//     NOT bare — it falls straight through to the ordinary heuristic
+//     below, which still matches `social` exactly as before. Explicit
+//     social intent always wins, including over an established Organiser
+//     context (see ORGANISER_INTENT_RE's own priority above, and
+//     EXPLICIT_SOCIAL_RE's check below — both run before this guard
+//     changes anything for a query that also names a board/item, which
+//     the ORGANISER_INTENT_RE branch above already routes to 'chat'
+//     first).
+//   - otherwise the word "comment" alone is genuinely ambiguous between
+//     an Organiser comment and a social-media comment. `chat` — Helena's
+//     own general tool-use loop, the SAME destination the
+//     'organiser intent' guard above already uses — is the correct,
+//     already-established safe destination for this: with an established
+//     Organiser context (input.organiserContext, resolved server-side in
+//     app/api/chat/route.ts — see its own header) the model has enough to
+//     continue the Organiser tool flow (still gated by its own
+//     auth/proposal/Confirm chain — this router grants no authority);
+//     without one, the general loop is free to ask a short clarifying
+//     question rather than this router silently guessing a domain, and
+//     it can never invent an Organiser mutation target on its own (every
+//     Organiser write still requires a real, tenant-scoped item lookup —
+//     see proposeOrExecuteOrganiserComment's own item_not_found path).
+const EXPLICIT_SOCIAL_RE = /\b(instagram|facebook|linkedin|twitter|tiktok)\b|social media|social post|content strateg|caption|hashtag/i;
+const BARE_COMMENT_RE = /\bcomments?\b/i;
+
 const ROUTE_KEYWORDS: Record<AgentRoute, RegExp> = {
   dataIntake: /\b(upload|import|csv|xlsx|spreadsheet|column|mapping|file|intake|ingest)\b/i,
   insight:    /\b(trend|anomal|outli|spike|increas|decreas|pattern|detect|analys|insight|correlat)\b|why (is|are|did|has|have|hasn|aren|isn|were|was)|root cause|what caused|what.s causing|cost driver/i,
@@ -122,6 +163,17 @@ export async function route(input: AgentInput): Promise<RouterResult> {
   // Organiser-intent guard — see the constant's own header above.
   if (ORGANISER_INTENT_RE.test(query)) {
     return { agent: 'chat', confidence: 0.9, reason: 'organiser intent' };
+  }
+
+  // Comment-routing disambiguation guard — see EXPLICIT_SOCIAL_RE/
+  // BARE_COMMENT_RE's own header above. Only fires for bare "comment"
+  // wording with no explicit social-platform noun; a query with both
+  // (e.g. "post a comment on our Instagram post") falls through unchanged
+  // to the ordinary heuristic below, which still routes 'social'.
+  if (BARE_COMMENT_RE.test(query) && !EXPLICIT_SOCIAL_RE.test(query)) {
+    return input.organiserContext
+      ? { agent: 'chat', confidence: 0.85, reason: 'organiser context — comment routed to organiser' }
+      : { agent: 'chat', confidence: 0.5, reason: 'ambiguous comment — routed to general chat for clarification' };
   }
 
   // Fast heuristic for obvious cases — skip LLM call
