@@ -12,7 +12,10 @@
 #
 # WHAT THIS DOES: starts the container, applies the same minimal bootstrap
 # schema (organisations/users/uploads) plus the real
-# scripts/create-import-batches.sql migration, then runs `npx vitest run
+# scripts/create-import-batches.sql migration, then the real
+# scripts/create-datahub-source-mappings.sql migration (5B.1 — adds
+# import_batches.source_system_id, among other columns/tables the current
+# ImportBatch Prisma model already assumes exist), then runs `npx vitest run
 # --config vitest.integration.config.ts
 # scripts/tests/dataHubInitiateFinalizeRoutes.integration.test.ts` —
 # exercising the real, unmodified route handlers (imported and invoked
@@ -34,6 +37,7 @@ set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 MIGRATION="$REPO_ROOT/scripts/create-import-batches.sql"
+SOURCE_MAPPING_MIGRATION="$REPO_ROOT/scripts/create-datahub-source-mappings.sql"
 CONTAINER="datahub-5a2i-initiate-finalize-harness-$$"
 HOST_PORT=$((20000 + RANDOM % 20000))
 
@@ -44,6 +48,11 @@ trap cleanup EXIT
 
 if [ ! -f "$MIGRATION" ]; then
   echo "ERROR: migration file not found at $MIGRATION" >&2
+  exit 2
+fi
+
+if [ ! -f "$SOURCE_MAPPING_MIGRATION" ]; then
+  echo "ERROR: 5B.1 migration file not found at $SOURCE_MAPPING_MIGRATION" >&2
   exit 2
 fi
 
@@ -120,6 +129,13 @@ echo "Applying scripts/create-import-batches.sql..."
 docker exec -i "$CONTAINER" psql -X -q -U postgres -d testdb -v ON_ERROR_STOP=1 < "$MIGRATION"
 if [ $? -ne 0 ]; then
   echo "ERROR: create-import-batches.sql failed to apply." >&2
+  exit 2
+fi
+
+echo "Applying scripts/create-datahub-source-mappings.sql (5B.1, unmodified)..."
+docker exec -i "$CONTAINER" psql -X -q -U postgres -d testdb -v ON_ERROR_STOP=1 < "$SOURCE_MAPPING_MIGRATION"
+if [ $? -ne 0 ]; then
+  echo "ERROR: create-datahub-source-mappings.sql failed to apply." >&2
   exit 2
 fi
 
