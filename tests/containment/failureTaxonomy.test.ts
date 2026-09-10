@@ -62,6 +62,11 @@ describe("failureTaxonomy — code sets", () => {
         // Never persisted.
         "SOURCE_LINEAGE_REQUIRED",
         "SOURCE_MAPPING_UNAVAILABLE",
+        // 5B.4C — Preview's own frozen mapping-lineage consumption outcome
+        // codes (lib/data-hub/importBatch/previewWorksheet.ts). Never
+        // persisted; Preview performs zero Prisma writes.
+        "MAPPING_LINEAGE_UNAVAILABLE",
+        "MAPPING_DOCUMENT_INVALID",
       ])
     );
   });

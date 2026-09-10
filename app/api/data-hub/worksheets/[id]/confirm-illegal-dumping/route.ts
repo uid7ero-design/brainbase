@@ -132,6 +132,10 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
       // selection/execution in this slice).
       SOURCE_LINEAGE_REQUIRED: 500,
       SOURCE_MAPPING_UNAVAILABLE: 500,
+      // 5B.4C — Preview-only codes, unreachable from confirmDataHubWorksheet
+      // (this route does not integrate mapped Preview consumption).
+      MAPPING_LINEAGE_UNAVAILABLE: 500,
+      MAPPING_DOCUMENT_INVALID: 500,
     };
     return NextResponse.json(
       { ok: false, error: result.message },

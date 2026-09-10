@@ -57,6 +57,9 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
       PROVIDER_FAILURE: 500,
       STORAGE_INTEGRITY_MISMATCH: 500,
       PARSER_REJECTED: 422,
+      // 5B.4C — frozen mapping-lineage consumption failures.
+      MAPPING_LINEAGE_UNAVAILABLE: 409,
+      MAPPING_DOCUMENT_INVALID: 500,
     };
     return NextResponse.json(
       { ok: false, error: result.message, code: result.code },

@@ -81,7 +81,9 @@ export type CallerOnlyOutcomeCode =
   | "UNSUPPORTED_FORMAT"
   | "SOURCE_SYSTEM_UNAVAILABLE"
   | "SOURCE_LINEAGE_REQUIRED"
-  | "SOURCE_MAPPING_UNAVAILABLE";
+  | "SOURCE_MAPPING_UNAVAILABLE"
+  | "MAPPING_LINEAGE_UNAVAILABLE"
+  | "MAPPING_DOCUMENT_INVALID";
 
 export type FailureCode = PersistedFailureCode | CallerOnlyOutcomeCode;
 
@@ -117,6 +119,8 @@ export const CALLER_ONLY_OUTCOME_CODES: readonly CallerOnlyOutcomeCode[] = [
   "SOURCE_SYSTEM_UNAVAILABLE",
   "SOURCE_LINEAGE_REQUIRED",
   "SOURCE_MAPPING_UNAVAILABLE",
+  "MAPPING_LINEAGE_UNAVAILABLE",
+  "MAPPING_DOCUMENT_INVALID",
 ];
 
 export function isPersistedFailureCode(code: string): code is PersistedFailureCode {
@@ -262,6 +266,16 @@ const MESSAGE_TEMPLATES: Record<FailureCode, string> = {
   // internal mapping/version state to an unauthorized caller.
   SOURCE_MAPPING_UNAVAILABLE:
     "The specified source mapping is not available for selection on this worksheet. It may not exist, may belong to a different source system, may be inactive, or may have no active version.",
+  // 5B.4C — Preview's own frozen-lineage consumption outcome codes.
+  // Deliberately ONE generic message covering every resolution failure
+  // (the frozen MappingVersion no longer exists, belongs to a different
+  // organisation, or its SourceMapping's source_system_id no longer
+  // matches the batch's own authoritative source_system_id) — never
+  // distinguished, to avoid leaking cross-tenant/cross-source existence.
+  MAPPING_LINEAGE_UNAVAILABLE:
+    "This worksheet's selected mapping could not be resolved and cannot currently be previewed.",
+  MAPPING_DOCUMENT_INVALID:
+    "This worksheet's selected mapping version is invalid and cannot currently be previewed.",
 };
 
 const MAX_MESSAGE_LENGTH = 500;

@@ -419,19 +419,44 @@ describe("initiate — source_system_id immutability containment", () => {
     }
   });
 
-  it("T28-T31 — finalize/inspect/preview/confirm source files never reference source_system_id", async () => {
+  it("T28-T31 — finalize/inspect/confirm source files never reference source_system_id", async () => {
     const fs = await import("node:fs");
     const path = await import("node:path");
     const files = [
       "lib/data-hub/importBatch/finalize.ts",
       "lib/data-hub/importBatch/finalizeInternal.ts",
       "lib/data-hub/importBatch/inspectWorksheets.ts",
-      "lib/data-hub/importBatch/previewWorksheet.ts",
       "lib/data-hub/importBatch/confirmWorksheet.ts",
     ];
     for (const relPath of files) {
       const source = fs.readFileSync(path.join(process.cwd(), relPath), "utf8");
       expect(source.includes("source_system_id")).toBe(false);
+    }
+  });
+
+  // 5B.4C — previewWorksheet.ts is now a DELIBERATE, disclosed exception to
+  // the T28-T31 blanket rule above: frozen mapping-lineage consumption must
+  // verify the cross-source integrity invariant (the frozen MappingVersion's
+  // own SourceMapping.source_system_id must equal the batch's own
+  // authoritative source_system_id — the one invariant the DB itself cannot
+  // express as an FK), which requires reading ImportBatch.source_system_id.
+  // This test documents and bounds that exception precisely: read-only, and
+  // only for the one cross-source comparison — never written, never used
+  // for anything else (no SourceSystem lookup, no initiate-style
+  // eligibility gating).
+  it("T28-T31 exception (5B.4C, disclosed): previewWorksheet.ts reads ImportBatch.source_system_id ONLY as a read-only Prisma select flag and in the one cross-source equality comparison — never assigns/writes it, never looks up SourceSystem", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const source = fs
+      .readFileSync(path.join(process.cwd(), "lib/data-hub/importBatch/previewWorksheet.ts"), "utf8")
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/(^|[^:])\/\/.*$/gm, "$1");
+    expect(source).toMatch(/source_system_id:\s*true/);
+    expect(source).toMatch(/sourceMapping\.source_system_id\s*!==\s*batch\.source_system_id/);
+    expect(source).not.toMatch(/prisma\.sourceSystem\./);
+    const assignments = [...source.matchAll(/source_system_id\s*:\s*([^\n,}]+)/g)].map((m) => m[1].trim());
+    for (const value of assignments) {
+      expect(value).toBe("true");
     }
   });
 
