@@ -10,7 +10,7 @@ function readReviewPanel(): string {
   return fs.readFileSync(REVIEW_PANEL_PATH, "utf8");
 }
 
-const FAKE_BATCH = { id: "b1", status: "READY" as const, originalFilename: "f.csv", contentType: "csv", sizeBytes: 10 };
+const FAKE_BATCH = { id: "b1", status: "READY" as const, originalFilename: "f.csv", contentType: "csv", sizeBytes: 10, sourceSystemId: null };
 const FAKE_WORKSHEET = {
   id: "w1",
   worksheetIndex: 0,
@@ -44,6 +44,7 @@ function preview(overrides: Partial<{ rowCount: number; sampleRowCount: number; 
     truncated: overrides.truncated ?? false,
     requiredHeadersPresent: overrides.requiredHeadersPresent ?? true,
     missingRequiredHeaders: overrides.missingRequiredHeaders ?? [],
+    mapping: null,
   };
 }
 

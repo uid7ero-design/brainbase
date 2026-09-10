@@ -442,7 +442,7 @@ describe("T38: terminal recovery states always offer a path back to /data-hub/im
     expect(isErrorOverlayPhase("worksheetTerminal")).toBe(true);
     const copy = deriveErrorOverlayCopy({
       phase: "worksheetTerminal",
-      batch: { id: "b", status: "READY", originalFilename: "f.csv", contentType: "csv", sizeBytes: 1 },
+      batch: { id: "b", status: "READY", originalFilename: "f.csv", contentType: "csv", sizeBytes: 1, sourceSystemId: null },
       worksheet: {
         id: "w",
         worksheetIndex: 0,
@@ -471,7 +471,7 @@ describe("T38: terminal recovery states always offer a path back to /data-hub/im
   it("SKIPPED gets distinct, honest copy from INELIGIBLE (never the same generic string)", () => {
     const base = {
       phase: "worksheetTerminal" as const,
-      batch: { id: "b", status: "READY" as const, originalFilename: "f.csv", contentType: "csv", sizeBytes: 1 },
+      batch: { id: "b", status: "READY" as const, originalFilename: "f.csv", contentType: "csv", sizeBytes: 1, sourceSystemId: null },
       worksheet: {
         id: "w",
         worksheetIndex: 0,

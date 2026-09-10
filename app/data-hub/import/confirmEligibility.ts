@@ -12,18 +12,21 @@ export type ReviewPhase = Extract<
  * Confirm is eligible when:
  *  - confirmationReady (no preview attempted at all — orchestrator's own
  *    shipped, reviewed semantics allow this directly), OR
- *  - previewReady AND requiredHeadersPresent === true (the server is KNOWN
- *    to accept this — a successful preview reporting missing required
- *    headers must disable confirm outright, since the server confirm path
- *    is known to reject it), OR
+ *  - previewReady AND requiredHeadersPresent === true AND (this worksheet
+ *    is unmapped OR its mapped Preview reports structurally valid) — the
+ *    server is KNOWN to accept this; a successful preview reporting either
+ *    missing required headers OR a structural mapping failure must disable
+ *    confirm outright, since the server confirm path is known to reject
+ *    both (Data Hub 5B.5B, Section 20 — reflects previewWorksheet.ts's own
+ *    `mapping.structurallyValid`, never a re-derived business rule), OR
  *  - previewFailed AND the explicit, not-pre-checked acknowledgement is
- *    true (the UI does not know header status here at all — see
+ *    true (the UI does not know header/mapping status here at all — see
  *    screenGroup's previewFailed copy).
  * previewing itself is NEVER eligible (still loading).
  */
 export function isConfirmEligible(state: ReviewPhase, previewFailedAcknowledged: boolean): boolean {
   if (state.phase === "confirmationReady") return true;
-  if (state.phase === "previewReady") return !hasMissingRequiredHeaders(state);
+  if (state.phase === "previewReady") return !hasMissingRequiredHeaders(state) && !hasStructuralMappingFailure(state);
   if (state.phase === "previewFailed") return previewFailedAcknowledged;
   return false;
 }
@@ -41,6 +44,66 @@ export function isConfirmEligible(state: ReviewPhase, previewFailedAcknowledged:
  */
 export function hasMissingRequiredHeaders(state: ReviewPhase): boolean {
   return state.phase === "previewReady" && state.preview.requiredHeadersPresent === false;
+}
+
+/**
+ * Data Hub 5B.5B (Section 20) — the single source of truth for "did a
+ * SUCCESSFUL mapped preview report a structural mapping failure" — mirrors
+ * hasMissingRequiredHeaders' own shape exactly, for the same reason: ONE
+ * testable predicate, reused by both isConfirmEligible and ReviewPanel's
+ * own rendering, never two independently-drifting checks.
+ *
+ * A legacy (unmapped) worksheet's `preview.mapping` is null — this always
+ * returns false for it, matching Section 20's "do NOT require a mapping
+ * for all worksheets" requirement. Deliberately reads ONLY
+ * `structurallyValid` (previewWorksheet.ts's own server-computed boolean)
+ * — never re-derives whether headers/targets are satisfied from
+ * `mappingErrors` itself, which would risk drifting from the server's own
+ * verdict.
+ */
+export function hasStructuralMappingFailure(state: ReviewPhase): boolean {
+  return state.phase === "previewReady" && state.preview.mapping !== null && state.preview.mapping.structurallyValid === false;
+}
+
+/**
+ * Data Hub 5B.5B (Section 27) — the REAL gate for whether the mapping
+ * selection control is interactive: the worksheet's own authoritative
+ * canonicalStatus, never merely "which ReviewPhase is currently rendered"
+ * (confirmationReady is, today, structurally reachable with a
+ * non-AWAITING_CONFIRMATION worksheet on the fresh-obtain path — see
+ * orchestrator.ts's runObtainWorksheet, which does not itself branch on
+ * canonicalStatus the way the resume path's runResumeReadyWorksheetRecovery
+ * does). IMPORTED/INELIGIBLE/SKIPPED (or any future status) all lock.
+ */
+export function isMappingSelectorLocked(canonicalStatus: string): boolean {
+  return canonicalStatus !== "AWAITING_CONFIRMATION";
+}
+
+/**
+ * Data Hub 5B.5B (Section 14) — THE single most important truthfulness
+ * function in this whole slice, and the UI-equivalent of 5B.4D's own
+ * merge-critical M1 race proof. Kept pure and separate from MappingSelector
+ * (ReviewPanel.tsx) for exactly the same reason every other predicate in
+ * this file is: independently, behaviorally testable without any DOM.
+ *
+ * `frozen` MUST come from previewReady.preview.mapping (or "unknown"/null
+ * for every other case) — see ReviewPanel.tsx's own `frozenMapping`
+ * derivation, which is the ONLY call site. This function's signature
+ * deliberately accepts NOTHING ELSE version-shaped — there is no second
+ * "currently active version" parameter for a caller to (even accidentally)
+ * wire in. If SourceMapping's globally active version changes from v3 to
+ * v4 WITHOUT an explicit reselection, `frozen` here is untouched (it was
+ * never re-derived from anything but the last successful Preview/selection
+ * response), so this function keeps reporting v3 — exactly Section 14's
+ * requirement.
+ */
+export function deriveFrozenMappingLabel(
+  frozen: { versionNumber: number } | null | "unknown",
+  resolvedName: string | null
+): string {
+  if (frozen === "unknown") return "Checking current mapping status…";
+  if (frozen === null) return "No mapping selected yet.";
+  return resolvedName ? `Mapping: ${resolvedName} v${frozen.versionNumber}` : `Mapping v${frozen.versionNumber}`;
 }
 
 /**

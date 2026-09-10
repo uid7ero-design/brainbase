@@ -131,6 +131,14 @@ export interface ImportBatchDetailDTO extends ImportBatchSummaryDTO {
   lastFailureMessage: string | null;
   lastFailureRetryable: boolean | null;
   deletedAt: Date | null;
+  // Data Hub 5B.5B — additive. Persisted at initiate time (5B.4A), never
+  // written anywhere else. NULL for every legacy/pre-5B.4A batch and for
+  // any batch initiated without a SourceSystem choice — never backfilled.
+  // Exists so a browser reload/recovery (which has no in-memory record of
+  // what a manager chose on the Select screen) can reconstruct the
+  // AUTHORITATIVE source for Review-stage SourceMapping filtering, instead
+  // of relying on stale client memory.
+  sourceSystemId: string | null;
 }
 
 export interface WorksheetSummaryDTO {
@@ -259,6 +267,7 @@ interface ImportBatchDetailRow extends ImportBatchRow {
   last_failure_message: string | null;
   last_failure_retryable: boolean | null;
   deleted_at: Date | null;
+  source_system_id: string | null;
 }
 
 function toDetailDTO(row: ImportBatchDetailRow): ImportBatchDetailDTO {
@@ -266,6 +275,7 @@ function toDetailDTO(row: ImportBatchDetailRow): ImportBatchDetailDTO {
     ...toSummaryDTO(row),
     sha256: row.sha256,
     uploadedBy: row.uploaded_by,
+    sourceSystemId: row.source_system_id,
     attemptCount: row.attempt_count,
     lastAttemptAt: row.last_attempt_at,
     lastFailureCode: row.last_failure_code,
@@ -391,6 +401,9 @@ const IMPORT_BATCH_DETAIL_SELECT = {
   last_failure_message: true,
   last_failure_retryable: true,
   deleted_at: true,
+  // Data Hub 5B.5B — additive, see ImportBatchDetailDTO.sourceSystemId's
+  // own comment.
+  source_system_id: true,
 } satisfies Prisma.ImportBatchSelect;
 
 const WORKSHEET_SELECT = {

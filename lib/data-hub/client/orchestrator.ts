@@ -29,13 +29,17 @@ import {
   fetchWorksheetPreview as callFetchWorksheetPreview,
   finalizeImportBatch as callFinalize,
   getImportBatch as callGetImportBatch,
+  getSourceMapping as callGetSourceMapping,
   initiateImportBatch as callInitiate,
   inspectCsvWorksheet as callInspect,
   listImportBatches as callListImportBatches,
+  listSourceMappings as callListSourceMappings,
   listSourceSystems as callListSourceSystems,
   listWorksheetsForBatch as callListWorksheets,
+  selectWorksheetMapping as callSelectWorksheetMapping,
   type HttpClientConfig,
   type ListImportBatchesParams,
+  type ListSourceMappingsParams,
   type ListSourceSystemsParams,
 } from "./httpClient";
 import { uploadFileDirectToBlob, resolveUploadPathname, type DirectUploadResult } from "./blobUpload";
@@ -47,6 +51,7 @@ import type {
   ImportBatchStatus,
   InitiatedBatchDTO,
   ListImportBatchesResult,
+  ListSourceMappingsResult,
   ListSourceSystemsResult,
   PersistedFailureCodeClient,
   WorksheetPreviewDTOClient,
@@ -63,15 +68,25 @@ export interface ImportBatchHandle {
   originalFilename: string | null;
   contentType: string;
   sizeBytes: number;
+  /** Data Hub 5B.5B — the AUTHORITATIVE SourceSystem this batch is
+   * attributed to, or null for a legacy/no-source batch. For a fresh
+   * start() this is the in-session `currentSourceSystemId` captured at
+   * Step 1 (the initiate response body itself never echoes it back — see
+   * InitiatedBatchDTO); for a resumeFromBatchId() recovery it is read from
+   * the persisted, authoritative ImportBatchDetailDTOClient.sourceSystemId
+   * instead — never assumed to still match whatever this browser tab
+   * happened to have in memory before the reload. */
+  sourceSystemId: string | null;
 }
 
-function toHandle(batch: InitiatedBatchDTO): ImportBatchHandle {
+function toHandle(batch: InitiatedBatchDTO, sourceSystemId: string | null): ImportBatchHandle {
   return {
     id: batch.id,
     status: batch.status,
     originalFilename: batch.originalFilename,
     contentType: batch.contentType,
     sizeBytes: batch.sizeBytes,
+    sourceSystemId,
   };
 }
 
@@ -325,7 +340,7 @@ export class DataHubIllegalDumpingImportSession {
       return;
     }
 
-    const batch = toHandle(body.batch);
+    const batch = toHandle(body.batch, this.currentSourceSystemId ?? null);
 
     // Soft-failure shape (5A.3B-PRE finding #2) — checked BEFORE the
     // uploadToken null-check below so it is never misreported as a plain
@@ -725,6 +740,66 @@ export class DataHubIllegalDumpingImportSession {
     await this.loadPreview();
   }
 
+  // -------------------------------------------------------------------
+  // Step 5.6 — Data Hub 5B.5B: explicit SourceMapping selection/
+  // reselection. The server (selectWorksheetMapping.ts, 5B.4B) remains the
+  // SOLE authority for which exact MappingVersion gets frozen — this
+  // method sends only `sourceMappingId`, never a version. On success, it
+  // deliberately does NOT return the frozen version as this call's own
+  // "current truth" for a caller to hold onto: it re-runs `loadPreview()`
+  // immediately, so the single, ongoing source of truth for "what is
+  // currently frozen" stays previewReady.preview.mapping — never a second,
+  // independently-drifting piece of state (spec Section 12/19/28). The
+  // { ok:true, ... } fields returned here are for IMMEDIATE, one-shot
+  // caller feedback only (e.g. a toast), not for driving persistent
+  // display.
+  // -------------------------------------------------------------------
+
+  async selectMapping(
+    sourceMappingId: string
+  ): Promise<
+    | { ok: true; sourceMappingId: string; mappingVersionId: string; versionNumber: number }
+    | { ok: false; error: string }
+  > {
+    if (
+      this.state.phase !== "confirmationReady" &&
+      this.state.phase !== "previewing" &&
+      this.state.phase !== "previewFailed" &&
+      this.state.phase !== "previewReady"
+    ) {
+      throw new Error(`data-hub client: selectMapping() called from unexpected phase "${this.state.phase}".`);
+    }
+    const { batch, worksheet } = this.state;
+
+    const result = await callSelectWorksheetMapping(worksheet.id, { sourceMappingId }, this.config);
+    if (result.kind !== "response") {
+      return {
+        ok: false,
+        error: result.kind === "networkUncertain" ? result.message : "The mapping selection response could not be parsed.",
+      };
+    }
+    const body = result.body;
+    if (!body.ok) {
+      return { ok: false, error: body.error };
+    }
+
+    // Success — discard any stale Preview rendered from the OLD frozen
+    // mapping (spec Section 19: "no automatic version change without the
+    // selection POST" cuts both ways — once the POST DID succeed, the
+    // display must move forward, never linger on stale data). Re-uses the
+    // SAME batch/worksheet this call started with; if a concurrent
+    // operation has since disposed this session, runLoadPreview's own
+    // setState() no-ops safely (existing `disposed` guard).
+    await this.runLoadPreview(batch, worksheet);
+
+    return {
+      ok: true,
+      sourceMappingId: body.sourceMappingId,
+      mappingVersionId: body.mappingVersionId,
+      versionNumber: body.versionNumber,
+    };
+  }
+
   private async runLoadPreview(batch: ImportBatchHandle, worksheet: WorksheetSummaryDTOClient): Promise<void> {
     this.setState({ phase: "previewing", batch, worksheet });
 
@@ -909,6 +984,9 @@ export class DataHubIllegalDumpingImportSession {
       originalFilename: detail.originalFilename,
       contentType: detail.contentType,
       sizeBytes: detail.sizeBytes,
+      // Data Hub 5B.5B — the AUTHORITATIVE, persisted source, never
+      // whatever this (possibly reloaded) browser tab had in memory.
+      sourceSystemId: detail.sourceSystemId,
     };
 
     await this.runResumeFromDetail(batch, detail, myGeneration);
@@ -1079,6 +1157,25 @@ export function listSourceSystems(
   config?: HttpClientConfig
 ): Promise<ListSourceSystemsResult> {
   return callListSourceSystems(params, config);
+}
+
+// ---------------------------------------------------------------------------
+// Data Hub 5B.5B — SourceMapping list/detail reads. Same rationale as
+// listSourceSystems immediately above: plain functions (no lifecycle, no
+// phase), existing here solely to preserve this package's "UI never imports
+// httpClient.ts directly" boundary. Thin passthroughs: zero behavior beyond
+// the underlying httpClient.ts call itself.
+// ---------------------------------------------------------------------------
+
+export function listSourceMappings(
+  params: ListSourceMappingsParams,
+  config?: HttpClientConfig
+): Promise<ListSourceMappingsResult> {
+  return callListSourceMappings(params, config);
+}
+
+export function getSourceMapping(sourceMappingId: string, config?: HttpClientConfig) {
+  return callGetSourceMapping(sourceMappingId, config);
 }
 
 export { resolveUploadPathname };

@@ -480,11 +480,19 @@ describe("initiate — source_system_id immutability containment", () => {
     }
   });
 
-  it("T32 — recovery/history read services never write source_system_id (read.ts contains no write of it)", async () => {
+  it("T32 (narrowed by Data Hub 5B.5B) — recovery/history read services never WRITE source_system_id — read.ts's own additive SELECT/DTO-mapping READ of it (the authorized 5B.5B recovery field) is the correct, intended state, never a write", async () => {
     const fs = await import("node:fs");
     const path = await import("node:path");
     const source = fs.readFileSync(path.join(process.cwd(), "lib/data-hub/importBatch/read.ts"), "utf8");
-    expect(/source_system_id\s*:/.test(source)).toBe(false);
+    // The real, still-true invariant this test protects: read.ts performs
+    // ZERO Prisma writes of any kind (this whole module is read-only — see
+    // its own header comment) — no .update(/.create(/.upsert(/.updateMany(/
+    // .createMany( call exists anywhere in it, on source_system_id or
+    // anything else. A plain `source_system_id: true` SELECT field and a
+    // `sourceSystemId: row.source_system_id` DTO-mapping READ (both added
+    // in 5B.5B, both genuinely read-only) are explicitly NOT what this test
+    // exists to catch.
+    expect(source).not.toMatch(/\.(update|create|upsert|updateMany|createMany)\s*\(/);
   });
 
   it("T33 — no Upload.mapping_version_id write introduced anywhere in this diff's touched files", async () => {
@@ -505,20 +513,27 @@ describe("initiate — source_system_id immutability containment", () => {
     expect(source.includes("SourceMapping")).toBe(false);
   });
 
-  it("T35 (superseded by Data Hub 5B.5A) — sourceSystemId integration is now confined to the Select-screen surface only; ReviewPanel.tsx/ImportClient.tsx still carry zero reference to it", async () => {
+  it("T35 (superseded by Data Hub 5B.5A, narrowed again by 5B.5B) — sourceSystemId integration was confined to the Select-screen surface at 5B.5A time; ImportClient.tsx still carries zero reference to it", async () => {
     // At 5B.4A time this test proved "no integration introduced" — true
     // then, since only the server contract existed. 5B.5A is the
     // authorized phase that builds exactly that missing client wiring
     // (orchestrator.ts's StartImportOptions.sourceSystemId, threaded from
     // FileSelector.tsx), so orchestrator.ts referencing sourceSystemId is
-    // now the CORRECT, intended state, not a regression. What this test
-    // still genuinely protects — and re-proves here — is the narrower
-    // invariant 5B.5A's own authorization actually requires: mapping
-    // selection/Review-screen files remain completely untouched by this
-    // slice (5B.5B's job, not 5B.5A's).
+    // now the CORRECT, intended state, not a regression.
+    //
+    // Data Hub 5B.5B is the SEPARATELY authorized phase that adds the
+    // Review screen's own legitimate need to read the batch's
+    // AUTHORITATIVE sourceSystemId (to filter SourceMapping selection to
+    // the correct source — spec Section 5) — so ReviewPanel.tsx now
+    // referencing it is likewise the correct, intended state, and this
+    // test no longer includes it in the "untouched" list below. What this
+    // test still genuinely protects — and re-proves here — is the
+    // narrower invariant that remains true: ImportClient.tsx (the screen-
+    // group router, not a mapping/source-aware file itself) carries zero
+    // reference to it.
     const fs = await import("node:fs");
     const path = await import("node:path");
-    const untouchedFiles = ["app/data-hub/import/_components/ReviewPanel.tsx", "app/data-hub/import/ImportClient.tsx"];
+    const untouchedFiles = ["app/data-hub/import/ImportClient.tsx"];
     for (const relPath of untouchedFiles) {
       const full = path.join(process.cwd(), relPath);
       if (!fs.existsSync(full)) continue;

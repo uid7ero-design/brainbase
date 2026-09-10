@@ -404,7 +404,7 @@ describe("QA-POLISH issue 1 — success-state alignment matches sibling flush-co
 describe("QA-POLISH issue 2 — invalid-header Review no longer shows the contradictory confirmation sentence", () => {
   it("T3/M1: hasMissingRequiredHeaders is true ONLY for previewReady with requiredHeadersPresent:false — the same predicate isConfirmEligible's previewReady branch is itself built on", async () => {
     const { hasMissingRequiredHeaders } = await import("@/app/data-hub/import/confirmEligibility");
-    const batch = { id: "b1", status: "READY" as const, originalFilename: "f.csv", contentType: "csv", sizeBytes: 10 };
+    const batch = { id: "b1", status: "READY" as const, originalFilename: "f.csv", contentType: "csv", sizeBytes: 10, sourceSystemId: null };
     const worksheet = {
       id: "w1",
       worksheetIndex: 0,
@@ -436,6 +436,7 @@ describe("QA-POLISH issue 2 — invalid-header Review no longer shows the contra
       truncated: false,
       requiredHeadersPresent,
       missingRequiredHeaders: requiredHeadersPresent ? [] : ["waste_type"],
+      mapping: null,
     });
 
     expect(
@@ -454,11 +455,13 @@ describe("QA-POLISH issue 2 — invalid-header Review no longer shows the contra
     expect(hasMissingRequiredHeaders({ phase: "previewing" as const, batch, worksheet })).toBe(false);
   });
 
-  it("T4/M3: isConfirmEligible's previewReady branch is defined as the exact negation of hasMissingRequiredHeaders — a single source of truth, not two independently-drifting checks — so missing headers still disable confirmation", async () => {
+  it("T4/M3: isConfirmEligible's previewReady branch is defined as the negation of hasMissingRequiredHeaders (Data Hub 5B.5B: AND hasStructuralMappingFailure) — a single source of truth, not independently-drifting checks — so missing headers still disable confirmation", async () => {
     const { isConfirmEligible, hasMissingRequiredHeaders } = await import("@/app/data-hub/import/confirmEligibility");
     const code = fs.readFileSync(path.join(IMPORT_DIR, "confirmEligibility.ts"), "utf8");
-    expect(code).toMatch(/if \(state\.phase === "previewReady"\) return !hasMissingRequiredHeaders\(state\);/);
-    const batch = { id: "b1", status: "READY" as const, originalFilename: "f.csv", contentType: "csv", sizeBytes: 10 };
+    expect(code).toMatch(
+      /if \(state\.phase === "previewReady"\) return !hasMissingRequiredHeaders\(state\) && !hasStructuralMappingFailure\(state\);/
+    );
+    const batch = { id: "b1", status: "READY" as const, originalFilename: "f.csv", contentType: "csv", sizeBytes: 10, sourceSystemId: null };
     const worksheet = {
       id: "w1",
       worksheetIndex: 0,
@@ -494,6 +497,7 @@ describe("QA-POLISH issue 2 — invalid-header Review no longer shows the contra
         truncated: false,
         requiredHeadersPresent: false,
         missingRequiredHeaders: ["waste_type"],
+        mapping: null,
       },
     };
     expect(hasMissingRequiredHeaders(missingState)).toBe(true);

@@ -309,9 +309,53 @@ describe("Section 18 — containment scoped to the 5B.5A call chain", () => {
     }
   });
 
-  it("orchestrator.ts's and httpClient.ts's new 5B.5A additions introduce no mapping-related import or field", () => {
-    const orchestratorSrc = fs.readFileSync(path.join(ROOT, "lib", "data-hub", "client", "orchestrator.ts"), "utf8");
-    const httpClientSrc = fs.readFileSync(path.join(ROOT, "lib", "data-hub", "client", "httpClient.ts"), "utf8");
+  // Data Hub 5B.5B — NARROWLY UPDATED (not weakened). orchestrator.ts and
+  // httpClient.ts are SHARED files across every Data Hub client slice, not
+  // 5B.5A-exclusive ones — Phase 5B.5B is the separately-authorized slice
+  // that legitimately adds mapping-selection code (selectMapping(),
+  // listSourceMappings, getSourceMapping) to these SAME files. The original
+  // whole-file sweep below is therefore no longer the correct assertion of
+  // this test's own real intent, which was always "the 5B.5A SourceSystem
+  // code introduces no mapping reference" — never "this file may never
+  // gain one, ever, from any future authorized slice". This test now
+  // excludes exactly the 5B.5B-added blocks (identified by their own
+  // unique anchor text, not merely "isn't 5B.5A" by omission) and asserts
+  // the REMAINDER — i.e. every line 5B.5A itself actually authored — still
+  // carries zero mapping reference, preserving the real, still-true
+  // invariant this test protects.
+  it("the 5B.5A-authored regions of orchestrator.ts/httpClient.ts (excluding 5B.5B's own separately-authorized mapping-selection additions) introduce no mapping-related field", () => {
+    function excludeBlock(src: string, startAnchor: string, endAnchor: string): string {
+      const start = src.indexOf(startAnchor);
+      const end = src.indexOf(endAnchor, start);
+      expect(start, `start anchor not found: ${startAnchor}`).toBeGreaterThan(-1);
+      expect(end, `end anchor not found: ${endAnchor}`).toBeGreaterThan(start);
+      return src.slice(0, start) + src.slice(end);
+    }
+
+    let orchestratorSrc = fs.readFileSync(path.join(ROOT, "lib", "data-hub", "client", "orchestrator.ts"), "utf8");
+    // Excludes selectMapping() (Step 5.6) — bounded up to runLoadPreview's
+    // own pre-existing method, which 5B.5A never touched.
+    orchestratorSrc = excludeBlock(
+      orchestratorSrc,
+      "// Step 5.6 — Data Hub 5B.5B",
+      "private async runLoadPreview(batch: ImportBatchHandle, worksheet: WorksheetSummaryDTOClient): Promise<void> {"
+    );
+    // Excludes the listSourceMappings/getSourceMapping passthrough exports
+    // — bounded up to the pre-existing resolveUploadPathname re-export.
+    orchestratorSrc = excludeBlock(orchestratorSrc, "// Data Hub 5B.5B — SourceMapping list/detail reads.", "export { resolveUploadPathname };");
+
+    let httpClientSrc = fs.readFileSync(path.join(ROOT, "lib", "data-hub", "client", "httpClient.ts"), "utf8");
+    httpClientSrc = excludeBlock(
+      httpClientSrc,
+      "// GET /api/data-hub/source-mappings (Data Hub 5B.5B)",
+      "// POST /api/data-hub/import-batches/[id]/inspect"
+    );
+    httpClientSrc = excludeBlock(
+      httpClientSrc,
+      "// POST /api/data-hub/worksheets/[id]/mapping-selection (Data Hub 5B.4B",
+      "// POST /api/data-hub/worksheets/[id]/confirm-illegal-dumping"
+    );
+
     for (const src of [orchestratorSrc, httpClientSrc]) {
       expect(src).not.toMatch(/sourceMappingId/);
       expect(src).not.toMatch(/mappingVersionId/);

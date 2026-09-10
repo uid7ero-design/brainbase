@@ -150,6 +150,85 @@ export type ListSourceSystemsResult = TransportResult<ListSourceSystemsResponseB
 export type InitiateResult = TransportResult<InitiateResponseBody>;
 
 // ---------------------------------------------------------------------------
+// GET /api/data-hub/source-mappings (Data Hub 5B.5B)
+// Source: app/api/data-hub/source-mappings/route.ts, GET handler, backed by
+// lib/data-hub/sourceMapping/sourceMappings.ts's listSourceMappings (5B.2,
+// unchanged) — manager+ read, organisationId session-derived only, filtered
+// server-side by BOTH active=true and sourceSystemId (both real, existing
+// query params — see that route's own "source_system_id is an OPTIONAL
+// filter" comment).
+//
+// Deliberately narrow: id/sourceSystemId/name/active only. This type
+// intentionally OMITS activeMappingVersionId, which the server DTO also
+// carries — that field describes the SourceMapping's CURRENT global active
+// version, never a specific worksheet's FROZEN version, and 5B.5B's whole
+// UI-truthfulness invariant depends on this client never having a field
+// that could be mistaken for (or misused as) a frozen version. The frozen
+// version a worksheet actually consumes comes exclusively from the
+// mapping-selection response or Preview's own mapping summary below —
+// never from this list.
+// ---------------------------------------------------------------------------
+
+export interface SourceMappingDTOClient {
+  id: string;
+  sourceSystemId: string;
+  name: string;
+  active: boolean;
+}
+
+export type ListSourceMappingsResponseBody =
+  | { sourceMappings: SourceMappingDTOClient[]; hasNextPage: boolean; nextCursor: string | null }
+  | { error: string };
+
+export type ListSourceMappingsResult = TransportResult<ListSourceMappingsResponseBody>;
+
+// ---------------------------------------------------------------------------
+// GET /api/data-hub/source-mappings/[id] (Data Hub 5B.5B)
+// Source: app/api/data-hub/source-mappings/[id]/route.ts, GET handler.
+//
+// Used ONLY for the narrow "frozen mapping has since been deactivated, and
+// is therefore absent from the active=true list above, but its human label
+// must still be shown" case (spec Section 16) — a manager-readable lookup
+// by the worksheet's own already-known, persisted sourceMappingId. Same
+// deliberate field omission as SourceMappingDTOClient above.
+// ---------------------------------------------------------------------------
+
+export type GetSourceMappingResponseBody = { sourceMapping: SourceMappingDTOClient } | { error: string };
+
+export type GetSourceMappingResult = TransportResult<GetSourceMappingResponseBody>;
+
+// ---------------------------------------------------------------------------
+// POST /api/data-hub/worksheets/[id]/mapping-selection (Data Hub 5B.4B,
+// consumed by the UI for the first time in 5B.5B)
+// Source: app/api/data-hub/worksheets/[id]/mapping-selection/route.ts.
+//
+// REQUEST ALLOWLIST (mirrors the route's own comment exactly): exactly one
+// field, sourceMappingId. Never organisationId, sourceSystemId,
+// mappingVersionId, versionNumber, or expectedMappingVersionId — the server
+// resolves the active MappingVersion to freeze entirely server-side, at
+// write time, from SourceMapping.active_mapping_version_id; the client
+// supplies only WHICH mapping, never which version.
+// ---------------------------------------------------------------------------
+
+export interface MappingSelectionRequestInput {
+  sourceMappingId: string;
+}
+
+export type MappingSelectionResponseBody =
+  | { ok: true; worksheetUploadId: string; sourceMappingId: string; mappingVersionId: string; versionNumber: number }
+  // Data Hub 5B.5B/Section 22: the route returns only `{ ok:false, error }`
+  // on failure — no machine-readable `code` exists on this wire shape
+  // (verified against the route's own source; unlike Preview/Confirm,
+  // which do carry one). This client type deliberately does not invent one
+  // — every failure (WORKSHEET_NOT_FOUND/WORKSHEET_NOT_ELIGIBLE/
+  // SOURCE_LINEAGE_REQUIRED/SOURCE_MAPPING_UNAVAILABLE/INVALID_REQUEST) is
+  // surfaced identically via this same generic, already manager-safe
+  // `error` string.
+  | { ok: false; error: string };
+
+export type MappingSelectionResult = TransportResult<MappingSelectionResponseBody>;
+
+// ---------------------------------------------------------------------------
 // POST /api/data-hub/import-batches/[id]/finalize
 // Source: app/api/data-hub/import-batches/[id]/finalize/route.ts, POST.
 //
@@ -217,6 +296,13 @@ export interface ImportBatchDetailDTOClient {
   lastFailureMessage: string | null;
   lastFailureRetryable: boolean | null;
   deletedAt: string | null;
+  /** Data Hub 5B.5B — additive, mirrors read.ts's own
+   * ImportBatchDetailDTO.sourceSystemId comment exactly: NULL for every
+   * legacy/no-source batch, otherwise the exact SourceSystem chosen at
+   * initiate time. This is the AUTHORITATIVE source for Review-stage
+   * SourceMapping filtering after a reload/recovery — never re-derived
+   * from stale client memory. */
+  sourceSystemId: string | null;
 }
 
 export type GetImportBatchResponseBody = { batch: ImportBatchDetailDTOClient } | { error: string };
@@ -352,6 +438,41 @@ export type ListWorksheetsResult = TransportResult<ListWorksheetsResponseBody>;
 // the discovery's own scope boundary).
 // ---------------------------------------------------------------------------
 
+// Data Hub 5B.5B — hand-mirrors mappingExecution.ts's own
+// CompileMappingDiagnostic union exactly (source of truth re-verified at
+// implementation time). Safe, server-owned diagnostic codes only — never
+// row/customer data.
+export type CompileMappingDiagnosticClient =
+  | { code: "MAPPING_REQUIRED_TARGET_MISSING"; canonicalTarget: string }
+  | { code: "MAPPING_SOURCE_HEADER_MISSING"; canonicalTarget: string; sourceHeader: string }
+  | { code: "MAPPING_SOURCE_HEADER_AMBIGUOUS"; canonicalTarget: string; sourceHeader: string; occurrences: number };
+
+/** Bounded, canonical-field-keyed row — mirrors mappingExecution.ts's own
+ * CanonicalRawRow (a Partial<Record<CanonicalFieldName, string>>). Kept as
+ * an open string-keyed record here, deliberately not re-declaring the full
+ * CanonicalFieldName literal union — this client renders these values
+ * generically (a label/value list), never branches on which specific
+ * canonical fields are present. */
+export type CanonicalRawRowClient = Readonly<Record<string, string | undefined>>;
+
+// Data Hub 5B.5B — mirrors previewWorksheet.ts's own WorksheetPreviewMappingSummary
+// exactly (source re-verified at implementation time). Deliberately excludes
+// the raw mapping_document and SourceMapping.active_mapping_version_id —
+// this summary describes exactly the FROZEN version consumed for this one
+// response, never "whatever is currently active". See Section 14's own
+// truthfulness invariant: this is the ONLY place the client may read a
+// worksheet's frozen version/label from — never SourceMappingDTOClient's
+// (deliberately absent) activeMappingVersionId.
+export interface WorksheetPreviewMappingSummaryClient {
+  mappingVersionId: string;
+  sourceMappingId: string;
+  versionNumber: number;
+  structurallyValid: boolean;
+  mappingErrors: readonly CompileMappingDiagnosticClient[];
+  mappedSampleRows: CanonicalRawRowClient[];
+  domainRowsValid: boolean;
+}
+
 export interface WorksheetPreviewDTOClient {
   worksheetId: string;
   worksheetName: string;
@@ -364,6 +485,10 @@ export interface WorksheetPreviewDTOClient {
   truncated: boolean;
   requiredHeadersPresent: boolean;
   missingRequiredHeaders: string[];
+  /** Data Hub 5B.5B — null for a legacy worksheet (Upload.mapping_version_id
+   * IS NULL), exactly mirroring the server DTO's own comment. Present only
+   * when this worksheet has frozen mapping lineage. */
+  mapping: WorksheetPreviewMappingSummaryClient | null;
 }
 
 export type PreviewFailureCodeClient =
@@ -374,7 +499,16 @@ export type PreviewFailureCodeClient =
   | "STORAGE_NOT_FOUND"
   | "PROVIDER_FAILURE"
   | "STORAGE_INTEGRITY_MISMATCH"
-  | "PARSER_REJECTED";
+  | "PARSER_REJECTED"
+  // Data Hub 5B.4C — frozen mapping lineage cannot be resolved (see
+  // previewWorksheet.ts's own PreviewWorksheetFailureCode comment: covers
+  // missing MappingVersion, foreign tenant, and cross-source corruption
+  // alike, deliberately undistinguished). Added in 5B.5B — already returned
+  // by the server since 5B.4C, previously absent from this client type.
+  | "MAPPING_LINEAGE_UNAVAILABLE"
+  // Data Hub 5B.4C — the frozen MappingVersion's own stored document fails
+  // revalidation at use time.
+  | "MAPPING_DOCUMENT_INVALID";
 
 export type WorksheetPreviewResponseBody =
   | { ok: true; preview: WorksheetPreviewDTOClient }
@@ -404,6 +538,13 @@ export type ConfirmFailureCodeClient =
   | "PROVIDER_FAILURE"
   | "STORAGE_INTEGRITY_MISMATCH"
   | "PARSER_REJECTED"
+  | "MAPPING_LINEAGE_UNAVAILABLE"
+  | "MAPPING_DOCUMENT_INVALID"
+  // Data Hub 5B.4D — Confirm-only (Preview tolerates a compile failure as
+  // informational; Confirm cannot import an unmappable dataset). Added in
+  // 5B.5B — already returned by the server since 5B.4D, previously absent
+  // from this client type.
+  | "MAPPING_COMPILE_FAILED"
   | string; // the route's own statusByCode map is intentionally exhaustive against a much larger union of server-internal-only codes this client will never actually observe; kept open here rather than duplicating that entire defensive list.
 
 export type ConfirmIllegalDumpingResponseBody = ConfirmIllegalDumpingSuccess | { ok: false; error: string; code?: ConfirmFailureCodeClient };
