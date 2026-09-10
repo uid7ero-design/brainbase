@@ -282,6 +282,141 @@ function AnalysisCard({ analysis }) {
   );
 }
 
+// ─── Phase D.4.6J — Organiser action confirmation card ─────────────────────
+// A Helena write action must never execute merely because Helena proposes
+// it (see D.4.6J's own mandatory product principle). This card is the ONLY
+// UI element that can trigger execution — via onConfirm, wired by the
+// caller straight to useHelena's confirmOrganiserAction(), which is itself
+// the only place organiserActionConfirmation is ever sent. Nothing here
+// reads or displays the raw confirmationToken; it is opaque display data
+// passed straight back out through onConfirm's closure in useHelena.
+const ORGANISER_ACTION_TTL_MS = 2 * 60 * 1000; // mirrors the server's own 2m token TTL — cosmetic only, never authoritative
+
+function formatCountdown(msLeft) {
+  const total = Math.max(0, Math.ceil(msLeft / 1000));
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+function OrganiserActionCard({ action, submitting, onConfirm, onCancel }) {
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  const receivedAt = action.receivedAt ?? now;
+  const msLeft = receivedAt + ORGANISER_ACTION_TTL_MS - now;
+  // Cosmetic only — a local clock estimate of the server's own token
+  // expiry. Never used to skip the server round-trip: an expired-looking
+  // token is still submitted to Confirm normally, and the server's own
+  // rejection (invalid_confirmation) is what actually governs safety. This
+  // only softens the UI so a very stale card doesn't invite a confirm click
+  // that's near-certain to fail.
+  const likelyExpired = msLeft <= 0;
+
+  return (
+    <div
+      role="region"
+      aria-label="Helena Organiser action awaiting your confirmation"
+      style={{
+        maxWidth: "84%", borderRadius: 10, overflow: "hidden",
+        border: "1px solid rgba(251,191,36,0.30)",
+        background: "rgba(251,191,36,0.06)",
+        fontFamily: FONT,
+        marginTop: 2,
+        animation: "chatSlideUp 0.18s ease",
+      }}
+    >
+      <div style={{
+        display: "flex", alignItems: "center", gap: 8,
+        padding: "7px 12px",
+        borderBottom: "1px solid rgba(251,191,36,0.16)",
+        background: "rgba(251,191,36,0.08)",
+      }}>
+        <span style={{ color: "#FBBF24", fontWeight: 700, letterSpacing: "0.1em", fontSize: 9 }}>
+          ⚠ ACTION AWAITING YOUR CONFIRMATION
+        </span>
+        <span style={{ flex: 1 }} />
+        <span style={{ color: "rgba(251,191,36,0.55)", fontSize: 9, fontVariantNumeric: "tabular-nums" }}>
+          {likelyExpired ? 'may have expired' : `expires in ${formatCountdown(msLeft)}`}
+        </span>
+      </div>
+
+      <div style={{ padding: "10px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
+        <div>
+          <div style={{ color: "rgba(255,255,255,0.30)", fontSize: 8, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", marginBottom: 2 }}>
+            Action
+          </div>
+          <div style={{ color: "rgba(255,255,255,0.85)", fontSize: 12 }}>Post comment</div>
+        </div>
+
+        <div>
+          <div style={{ color: "rgba(255,255,255,0.30)", fontSize: 8, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", marginBottom: 2 }}>
+            Target
+          </div>
+          <div style={{ color: "rgba(255,255,255,0.85)", fontSize: 12, fontWeight: 600 }}>
+            {action.proposal?.item_name || 'Untitled item'}
+          </div>
+        </div>
+
+        <div>
+          <div style={{ color: "rgba(255,255,255,0.30)", fontSize: 8, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", marginBottom: 2 }}>
+            Comment
+          </div>
+          <div style={{
+            color: "rgba(255,255,255,0.75)", fontSize: 12, lineHeight: 1.5,
+            padding: "6px 8px", borderRadius: 6,
+            background: "rgba(0,0,0,0.22)", border: "1px solid rgba(255,255,255,0.06)",
+            whiteSpace: "pre-wrap", wordBreak: "break-word",
+          }}>
+            &ldquo;{action.proposal?.body || ''}&rdquo;
+          </div>
+        </div>
+
+        <div style={{ display: "flex", gap: 8, marginTop: 2 }}>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={submitting}
+            aria-label="Confirm: post this exact comment now"
+            style={{
+              flex: 1, padding: "8px 12px", borderRadius: 7,
+              background: submitting ? "rgba(52,211,153,0.10)" : "rgba(52,211,153,0.20)",
+              border: `1px solid ${submitting ? "rgba(52,211,153,0.18)" : "rgba(52,211,153,0.45)"}`,
+              color: submitting ? "rgba(52,211,153,0.45)" : "#34D399",
+              fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase",
+              cursor: submitting ? "default" : "pointer",
+              fontFamily: FONT, transition: "all 0.15s",
+            }}
+          >
+            {submitting ? 'Posting…' : 'Confirm'}
+          </button>
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={submitting}
+            aria-label="Cancel: do not post this comment"
+            style={{
+              flex: 1, padding: "8px 12px", borderRadius: 7,
+              background: "rgba(255,255,255,0.04)",
+              border: "1px solid rgba(255,255,255,0.12)",
+              color: submitting ? "rgba(255,255,255,0.20)" : "rgba(255,255,255,0.60)",
+              fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase",
+              cursor: submitting ? "default" : "pointer",
+              fontFamily: FONT, transition: "all 0.15s",
+            }}
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function ChatPanel({
   messages, responding, transcript, onSend, onClose,
   // Phase C.2B.1 — additive, backward-compatible: default 'floating' keeps
@@ -296,6 +431,14 @@ export function ChatPanel({
   // edge. Ignored in 'floating' mode (BrainBase.jsx unaffected).
   maxWidth = 860,
   maxHeight = '74vh',
+  // Phase D.4.6J — all optional/undefined-safe so any existing ChatPanel
+  // call site that doesn't pass them (there are none left after this
+  // phase's own two call sites are updated, but this keeps the component
+  // itself backward-compatible) simply never renders the card.
+  pendingOrganiserAction = null,
+  organiserActionSubmitting = false,
+  onConfirmOrganiserAction,
+  onCancelOrganiserAction,
 }) {
   const [input, setInput]                 = useState('');
   const [pipelineStep, setPipelineStep]   = useState(0);
@@ -525,6 +668,20 @@ export function ChatPanel({
             )}
           </div>
         ))}
+
+        {/* Organiser action confirmation card — Phase D.4.6J. Rendered
+            outside the messages.map loop above (it is not a chat message
+            and must never be visually confused with one — no YOU/HLNΛ
+            byline, distinct amber framing) but inside the same scrolling
+            thread so it appears at the natural point in the conversation. */}
+        {pendingOrganiserAction && (
+          <OrganiserActionCard
+            action={pendingOrganiserAction}
+            submitting={organiserActionSubmitting}
+            onConfirm={onConfirmOrganiserAction}
+            onCancel={onCancelOrganiserAction}
+          />
+        )}
 
         {/* Live transcript */}
         {transcript && (
