@@ -1,16 +1,37 @@
 import { NextRequest, NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
 import sql from '@/lib/db';
-import { getSession, type Role } from '@/lib/session';
+import { type Role } from '@/lib/session';
+import { requireRole } from '@/lib/org';
+import { getClientIp } from '@/lib/clientIp';
 import { createToken } from '@/lib/tokens';
 import { sendEmail, verificationEmail } from '@/lib/email';
+import {
+  logUserCreated,
+  logUserUpdated,
+  logUserRoleChanged,
+  logUserOrganisationChanged,
+  logUserDeleted,
+} from '@/lib/admin/auditLog';
 
 const ROLES: Role[] = ['viewer', 'manager', 'admin', 'super_admin'];
 function forbidden() { return NextResponse.json({ error: 'Forbidden' }, { status: 403 }); }
 
+// SEC-1A: request metadata for audit logging — see the matching comment
+// in app/api/admin/impersonate/route.ts.
+function requestMeta(req: NextRequest): { ipAddress: string | null; userAgent: string | null } {
+  const ip = getClientIp(req);
+  return { ipAddress: ip === 'unknown' ? null : ip, userAgent: req.headers.get('user-agent') };
+}
+
 export async function GET() {
-  const session = await getSession();
-  if (!session || session.role?.toLowerCase() !== 'super_admin') return forbidden();
+  // SEC-1A: was raw getSession() + `session.role?.toLowerCase() !==
+  // 'super_admin'` — the JWT-only role claim, never revalidated against
+  // the DB. requireRole() re-reads the caller's current status/role/
+  // organisation_id from the users table on every call (lib/org.ts), so a
+  // since-disabled, since-demoted, or deleted user's still-valid JWT is
+  // rejected here immediately. Read-only — no audit event.
+  try { await requireRole('super_admin'); } catch { return forbidden(); }
 
   const users = await sql`
     SELECT u.id, u.email, u.name, u.role,
@@ -28,8 +49,11 @@ export async function GET() {
 }
 
 export async function PATCH(req: NextRequest) {
-  const session = await getSession();
-  if (!session || session.role?.toLowerCase() !== 'super_admin') return forbidden();
+  // SEC-1A: same hardening as GET — see that handler's comment. Session
+  // is captured (not discarded) because the audit calls below need the
+  // DB-current actor id and organisation, not JWT claims.
+  let session;
+  try { session = await requireRole('super_admin'); } catch { return forbidden(); }
 
   const id = new URL(req.url).searchParams.get('id');
   if (!id) return NextResponse.json({ error: 'id is required.' }, { status: 400 });
@@ -76,6 +100,59 @@ export async function PATCH(req: NextRequest) {
 
     const [orgRow] = await sql`SELECT name FROM organisations WHERE id = ${newOrgId}`.catch(() => [null]);
     const updated = { ...rows[0], role: (rows[0].role as string).toLowerCase() };
+
+    // SEC-1A: audit — user administration was previously unaudited
+    // entirely (confirmed during SEC-1 discovery). Best-effort, after the
+    // mutation has already committed, per ADR-0003 §3/§11. Never includes
+    // password/password_hash — only name/role/organisation_id/email are
+    // diffed; a password change is represented as a boolean marker, never
+    // the value or hash.
+    const { ipAddress, userAgent } = requestMeta(req);
+    const before: Record<string, unknown> = {};
+    const after: Record<string, unknown> = {};
+    if (newName !== current.name)               { before.name = current.name; after.name = newName; }
+    if (newRole !== current.role)                { before.role = current.role; after.role = newRole; }
+    if (newOrgId !== current.organisation_id)    { before.organisation_id = current.organisation_id; after.organisation_id = newOrgId; }
+    if (newEmail !== current.email)              { before.email = current.email; after.email = newEmail; }
+    if (password) { after.password_changed = true; }
+
+    if (Object.keys(after).length > 0) {
+      await logUserUpdated({
+        actorUserId: session.userId,
+        actorOrganisationId: session.organisationId,
+        targetUserId: id,
+        before,
+        after,
+        ipAddress,
+        userAgent,
+      });
+    }
+    // Role and organisation changes are additionally logged as their own
+    // distinct, specifically-queryable events, since they are the two
+    // most security-sensitive fields this route can change.
+    if (newRole !== current.role) {
+      await logUserRoleChanged({
+        actorUserId: session.userId,
+        actorOrganisationId: session.organisationId,
+        targetUserId: id,
+        beforeRole: (current.role as string).toLowerCase(),
+        afterRole: newRole.toLowerCase(),
+        ipAddress,
+        userAgent,
+      });
+    }
+    if (newOrgId !== current.organisation_id) {
+      await logUserOrganisationChanged({
+        actorUserId: session.userId,
+        actorOrganisationId: session.organisationId,
+        targetUserId: id,
+        beforeOrganisationId: current.organisation_id as string,
+        afterOrganisationId: newOrgId,
+        ipAddress,
+        userAgent,
+      });
+    }
+
     return NextResponse.json({ user: { ...updated, org_name: orgRow?.name ?? null } });
   } catch (err) {
     console.error('[admin/users PATCH]', err);
@@ -84,22 +161,60 @@ export async function PATCH(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  const session = await getSession();
-  if (!session || session.role?.toLowerCase() !== 'super_admin') return forbidden();
+  // SEC-1A: same hardening as GET/PATCH.
+  let session;
+  try { session = await requireRole('super_admin'); } catch { return forbidden(); }
 
   const id = new URL(req.url).searchParams.get('id');
   if (!id) return NextResponse.json({ error: 'id is required.' }, { status: 400 });
 
+  // Preserved exactly as before: self-deletion is blocked. This is a
+  // pre-existing protection, not new SEC-1A policy — see the SEC-1A
+  // report's self-protection review for what this route does and does
+  // not otherwise guard against (e.g. self-demotion via PATCH, or
+  // deleting the last remaining super_admin, are both unchanged by this
+  // phase and documented there as separate, out-of-scope findings).
   if (id === session.userId)
     return NextResponse.json({ error: 'Cannot delete your own account.' }, { status: 409 });
 
-  await sql`DELETE FROM users WHERE id = ${id}`;
+  // RETURNING captures the before-state atomically with the delete
+  // itself, so the audit write below (a separate, best-effort statement)
+  // never needs an extra round trip and can never race a concurrent
+  // update to the same row between a pre-check SELECT and the DELETE.
+  // Behavior is otherwise UNCHANGED from before this phase: the route
+  // still always responds { success: true } regardless of whether a row
+  // actually matched (no new 404 branch is introduced) — RETURNING only
+  // adds the ability to audit when a real deletion happened, matching
+  // "no success audit is written... when no mutation occurs".
+  const [deleted] = await sql`
+    DELETE FROM users WHERE id = ${id}
+    RETURNING username, name, role, organisation_id
+  `;
+
+  if (deleted) {
+    const { ipAddress, userAgent } = requestMeta(req);
+    await logUserDeleted({
+      actorUserId: session.userId,
+      actorOrganisationId: session.organisationId,
+      targetUserId: id,
+      before: {
+        username: deleted.username as string | undefined,
+        name: deleted.name as string | undefined,
+        role: (deleted.role as string).toLowerCase(),
+        organisation_id: deleted.organisation_id as string,
+      },
+      ipAddress,
+      userAgent,
+    });
+  }
+
   return NextResponse.json({ success: true });
 }
 
 export async function POST(req: NextRequest) {
-  const session = await getSession();
-  if (!session || session.role?.toLowerCase() !== 'super_admin') return forbidden();
+  // SEC-1A: same hardening as the other methods.
+  let session;
+  try { session = await requireRole('super_admin'); } catch { return forbidden(); }
 
   const body = await req.json().catch(() => null);
   if (!body) return NextResponse.json({ error: 'Invalid JSON.' }, { status: 400 });
@@ -152,6 +267,24 @@ export async function POST(req: NextRequest) {
       RETURNING id, username, email, name, role, organisation_id, email_verified, created_at
     `;
     const user = { ...rows[0], role: (rows[0].role as string).toLowerCase() };
+
+    // SEC-1A: audit — user creation was previously unaudited entirely.
+    // Never includes password/password_hash.
+    const { ipAddress, userAgent } = requestMeta(req);
+    await logUserCreated({
+      actorUserId: session.userId,
+      actorOrganisationId: session.organisationId,
+      newUserId: rows[0].id as string,
+      after: {
+        username: usernameVal,
+        email: emailVal,
+        name: name.trim(),
+        role: (role as string),
+        organisation_id: organisationId,
+      },
+      ipAddress,
+      userAgent,
+    });
 
     // A verification email only makes sense if the user was actually
     // given a real address — email is optional (the form's own
