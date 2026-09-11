@@ -375,7 +375,31 @@ describe('processStripeWebhookEvent — idempotent state transitions', () => {
     expect(sqlMock).toHaveBeenCalledTimes(4)
   })
 
-  it('a duplicate delivery of the same event (order already PAID) makes the order-flip UPDATE a no-op, and token issuance finds nothing to issue', async () => {
+  // Phase 3E.3 — the qualifying payment transition also schedules
+  // automatic ticket email, in the SAME first statement as the order
+  // flip (never a 5th sql call).
+  it('checkout.session.completed with payment_status "paid" schedules ticket_email_status=\'pending\' inside the SAME order-flip statement — no extra sql call', async () => {
+    vi.resetModules()
+    const { processStripeWebhookEvent } = await import('@/lib/events/stripe')
+    queue([{ id: 'order-1' }], [{ id: 'att-1' }])
+    const event = {
+      type: 'checkout.session.completed',
+      data: { object: { id: 'cs_1', payment_status: 'paid', payment_intent: 'pi_1', metadata: { event_order_id: 'order-1' } } },
+    } as never
+    await processStripeWebhookEvent(event)
+    expect(sqlMock).toHaveBeenCalledTimes(4) // unchanged — no new statement added
+    const firstCallText = ((sqlMock.mock.calls[0] as unknown[])[0] as string[]).join('')
+    expect(firstCallText).toMatch(/UPDATE event_orders/)
+    expect(firstCallText).toMatch(/status = 'CONFIRMED'/)
+    expect(firstCallText).toMatch(/ticket_email_status = 'pending'/)
+    // Same statement, not a second one — the scheduling clause appears
+    // strictly between the UPDATE keyword and this statement's own
+    // WHERE clause, never in a separate sql`...` call.
+    expect(firstCallText.indexOf('ticket_email_status = \'pending\'')).toBeGreaterThan(firstCallText.indexOf('UPDATE event_orders'))
+    expect(firstCallText.indexOf('ticket_email_status = \'pending\'')).toBeLessThan(firstCallText.indexOf('WHERE id ='))
+  })
+
+  it('a duplicate delivery of the same event (order already PAID) makes the order-flip UPDATE a no-op, and token issuance finds nothing to issue — ticket_email_status is never touched on retry, because it is set by the exact same guarded statement that also matched zero rows', async () => {
     vi.resetModules()
     const { processStripeWebhookEvent } = await import('@/lib/events/stripe')
     queue([], []) // order-flip matches 0 rows (already PAID); attendee lookup finds no NULL tokens left
@@ -405,6 +429,96 @@ describe('processStripeWebhookEvent — idempotent state transitions', () => {
     const result = await processStripeWebhookEvent(event)
     expect(result.handled).toBe(false)
     expect(sqlMock).not.toHaveBeenCalled()
+  })
+})
+
+// ─── Phase 3E.3 — paid order ticket-email scheduling ──────────────────
+//
+// Reuses this file's own read()/stripComments() helpers (defined at the
+// top of the file) for static source-text containment, matching the
+// existing "Phase 4 — architecture containment" block's own idiom.
+// These are deliberately source-level (not mocked-call) proofs: the
+// STRONGEST possible evidence that a code path never does something is
+// that the literal text does not exist in the file at all, not merely
+// that a particular mocked test run didn't happen to exercise it.
+
+describe('Phase 3E.3 — paid order ticket-email scheduling: containment', () => {
+  const STRIPE_SOURCE = stripComments(read('lib/events/stripe.ts'))
+  const CHECKOUT_ROUTE_SOURCE = stripComments(read('app/api/public/events/[organisationSlug]/[eventSlug]/checkout/route.ts'))
+  const REFUND_ROUTE_SOURCE = stripComments(read('app/api/events/[id]/orders/[orderId]/refund/route.ts'))
+  const WEBHOOK_ROUTE_SOURCE = stripComments(read('app/api/public/events/webhooks/stripe/route.ts'))
+
+  function handlerBody(fnName: string): string {
+    const start = STRIPE_SOURCE.indexOf(`async function ${fnName}(`)
+    expect(start, `expected to find ${fnName}`).toBeGreaterThanOrEqual(0)
+    const end = STRIPE_SOURCE.indexOf('\n}', start)
+    return STRIPE_SOURCE.slice(start, end)
+  }
+
+  it('the qualifying-payment UPDATE still requires payment_status = \'PENDING\', exact order id, exact stripe_checkout_session_id, and exact stripe_account_id match — the SAME guard the scheduling clause now rides on', () => {
+    const body = handlerBody('handleCheckoutSessionCompleted')
+    expect(body).toMatch(/WHERE id = \$\{orderId\} AND stripe_checkout_session_id = \$\{session\.id\} AND payment_status = 'PENDING'/)
+    expect(body).toMatch(/AND stripe_account_id = \$\{eventAccount\}/)
+  })
+
+  it('no broad/backfill-shaped UPDATE exists anywhere in this file — every UPDATE targets an exact id/session/intent-scoped WHERE, never a bare status filter', () => {
+    // Every UPDATE event_orders statement in this file must have its
+    // own WHERE clause containing an exact identifying condition (id,
+    // stripe_checkout_session_id, or stripe_payment_intent_id) — never
+    // a query shaped like "WHERE ticket_email_status IS NULL" or
+    // "WHERE payment_status = 'PAID'" alone, which would risk touching
+    // more than one order.
+    const updates = STRIPE_SOURCE.match(/UPDATE event_orders\s*\n?\s*SET[\s\S]*?WHERE[^\n]*(\n[^\n]*)*?(?=RETURNING|\n\s*\n|\$)/g) ?? []
+    expect(updates.length).toBeGreaterThan(0)
+    for (const stmt of updates) {
+      const hasExactIdentifier = /WHERE id = \$\{orderId\}|WHERE stripe_checkout_session_id = \$\{session\.id\}|WHERE stripe_payment_intent_id = \$\{intent\.id\}/.test(stmt)
+      expect(hasExactIdentifier, stmt).toBe(true)
+    }
+    expect(STRIPE_SOURCE).not.toMatch(/ticket_email_status\s+IS\s+NULL/i)
+  })
+
+  it('handlePaymentIntentFailed never references ticket_email_status — a failed payment never schedules automatic email', () => {
+    expect(handlerBody('handlePaymentIntentFailed')).not.toMatch(/ticket_email_status/)
+  })
+
+  it('handleCheckoutSessionExpired never references ticket_email_status — an expired checkout never schedules automatic email', () => {
+    expect(handlerBody('handleCheckoutSessionExpired')).not.toMatch(/ticket_email_status/)
+  })
+
+  it('the paid checkout/reservation INSERT never sets ticket_email_status — a new paid order starts NULL, exactly like a historical order, while awaiting payment', () => {
+    expect(CHECKOUT_ROUTE_SOURCE).toMatch(/INSERT INTO event_orders/)
+    // Block-scope to the INSERT's own column list before asserting, to
+    // avoid a false negative/positive against unrelated text elsewhere
+    // in the file.
+    const start = CHECKOUT_ROUTE_SOURCE.indexOf('INSERT INTO event_orders')
+    const end = CHECKOUT_ROUTE_SOURCE.indexOf(')', start)
+    const columnList = CHECKOUT_ROUTE_SOURCE.slice(start, end)
+    expect(columnList).not.toMatch(/ticket_email_status/)
+  })
+
+  it('the refund route never references ticket_email_status — refund handling stays completely separate from initial ticket-email scheduling/state', () => {
+    expect(REFUND_ROUTE_SOURCE).not.toMatch(/ticket_email_status/)
+  })
+
+  it('lib/events/stripe.ts never imports or calls attemptAutomaticTicketEmail, sendTicketEmail, or sendEmail — no synchronous provider work inside the webhook path; delivery is the recovery cron\'s job', () => {
+    expect(STRIPE_SOURCE).not.toMatch(/attemptAutomaticTicketEmail|sendTicketEmail|sendEmail/)
+    expect(STRIPE_SOURCE).not.toMatch(/from ['"]@\/lib\/events\/ticketEmailDelivery['"]/)
+    expect(STRIPE_SOURCE).not.toMatch(/from ['"]@\/lib\/events\/ticketEmail['"]/)
+    expect(STRIPE_SOURCE).not.toMatch(/from ['"]@\/lib\/email['"]/)
+  })
+
+  it('the Stripe webhook route itself also never imports or calls the ticket-email system — the boundary holds at both layers', () => {
+    expect(WEBHOOK_ROUTE_SOURCE).not.toMatch(/attemptAutomaticTicketEmail|sendTicketEmail|sendEmail|ticketEmail/)
+  })
+
+  it('the async-payment-method gap is unchanged by this phase — checkout.session.async_payment_succeeded and payment_intent.succeeded remain unhandled event types, exactly as before (a separate, pre-existing payments-domain follow-up, not a 3E.3 defect)', () => {
+    expect(STRIPE_SOURCE).not.toMatch(/async_payment_succeeded/)
+    expect(STRIPE_SOURCE).not.toMatch(/'payment_intent\.succeeded'/)
+  })
+
+  it('the recovery executor and its cron route remain byte-for-byte unmodified by this phase — reused generically, no paid-specific branch', () => {
+    const recoverySource = stripComments(read('lib/events/ticketEmailRecovery.ts'))
+    expect(recoverySource).not.toMatch(/stripe|payment_status|payment_provider/i)
   })
 })
 
