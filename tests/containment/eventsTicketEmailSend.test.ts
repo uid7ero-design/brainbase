@@ -139,6 +139,29 @@ describe('sendTicketEmail — Case C: ambiguous/unknown outcome', () => {
     const result = await sendTicketEmail('jane@example.com', DATA)
     expect(result.result).toBe('unknown')
   })
+
+  // Phase 3E.2 remediation — lib/email.ts's sendEmail() now bounds its
+  // Resend fetch() behind AbortSignal.timeout(). A fetch aborted that
+  // way rejects with a DOMException ('TimeoutError'), which is neither
+  // an EmailSendError (not a definite non-2xx response) nor a plain
+  // Error with message 'Email send failed' — it is, correctly, an
+  // AMBIGUOUS outcome: the request may or may not have reached/been
+  // accepted by Resend before the local abort. This is not a new
+  // classification branch — it falls through to the SAME 'unknown'
+  // case as any other network-level exception, with zero new logic.
+  it('a provider timeout (DOMException "TimeoutError") is classified as "unknown" — never a definite rejection, never silently swallowed', async () => {
+    const timeoutError = new DOMException('The operation timed out.', 'TimeoutError')
+    sendEmailMock.mockRejectedValue(timeoutError)
+    const result = await sendTicketEmail('jane@example.com', DATA, { idempotencyKey: 'event-ticket-email-initial:order-1' })
+    expect(result.result).toBe('unknown')
+  })
+
+  it('a provider timeout does not rotate or otherwise change the idempotency key passed to sendEmail', async () => {
+    const timeoutError = new DOMException('The operation timed out.', 'TimeoutError')
+    sendEmailMock.mockRejectedValue(timeoutError)
+    await sendTicketEmail('jane@example.com', DATA, { idempotencyKey: 'event-ticket-email-initial:order-1' })
+    expect(sendEmailMock).toHaveBeenCalledWith(expect.objectContaining({ idempotencyKey: 'event-ticket-email-initial:order-1' }))
+  })
 })
 
 describe('sendTicketEmail — no automatic retry', () => {

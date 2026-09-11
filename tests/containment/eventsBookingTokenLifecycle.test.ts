@@ -83,7 +83,13 @@ describe('Free-order minting — app/api/public/events/.../register/route.ts', (
   })
 
   it('both ins_order CTEs (session-bound and non-session-bound branches) insert booking_token alongside the existing columns', () => {
-    const occurrences = (source.match(/INSERT INTO event_orders \([^)]*booking_token\)/g) ?? []).length
+    // booking_token no longer has to be the LAST column in the list —
+    // Phase 3E.2 added ticket_email_status after it (see
+    // tests/containment/eventsFreeRegistrationTicketEmail.test.ts for
+    // that column's own containment proof) — this only asserts
+    // booking_token is present as one of the inserted columns, in both
+    // branches.
+    const occurrences = (source.match(/INSERT INTO event_orders \([^)]*\bbooking_token\b[^)]*\)/g) ?? []).length
     expect(occurrences).toBe(2)
   })
 

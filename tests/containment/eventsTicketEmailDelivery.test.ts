@@ -30,6 +30,27 @@ let callCount = 0
 const sqlMock = vi.fn(() => Promise.resolve(responseQueue[callCount++] ?? []))
 vi.mock('@/lib/db', () => ({ default: sqlMock }))
 
+// Phase 3E.2 — attemptAutomaticTicketEmail's own dependencies, mocked
+// so this file can prove its orchestration logic (claim -> read -> send
+// -> mark -> audit) without ever making a real network call. No live
+// email is sent anywhere in this file.
+const sendTicketEmailMock = vi.fn()
+vi.mock('@/lib/events/ticketEmail', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/events/ticketEmail')>()
+  return { ...actual, sendTicketEmail: (...args: unknown[]) => sendTicketEmailMock(...args) }
+})
+
+const logAutomaticTicketEmailSentMock = vi.fn()
+const logAutomaticTicketEmailFailedMock = vi.fn()
+vi.mock('@/lib/events/auditLog', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/events/auditLog')>()
+  return {
+    ...actual,
+    logAutomaticTicketEmailSent: (...args: unknown[]) => logAutomaticTicketEmailSentMock(...args),
+    logAutomaticTicketEmailFailed: (...args: unknown[]) => logAutomaticTicketEmailFailedMock(...args),
+  }
+})
+
 function queue(...responses: unknown[][]) {
   responseQueue = responses
   callCount = 0
@@ -38,27 +59,33 @@ function queue(...responses: unknown[][]) {
 beforeEach(() => {
   sqlMock.mockClear()
   queue()
+  sendTicketEmailMock.mockReset()
+  logAutomaticTicketEmailSentMock.mockReset().mockResolvedValue(undefined)
+  logAutomaticTicketEmailFailedMock.mockReset().mockResolvedValue(undefined)
 })
 
 const delivery = await import('@/lib/events/ticketEmailDelivery')
 
-const SOURCE = stripComments(
-  fs.readFileSync(path.join(process.cwd(), 'lib/events/ticketEmailDelivery.ts'), 'utf-8'),
-)
-const RAW_SOURCE = fs.readFileSync(path.join(process.cwd(), 'lib/events/ticketEmailDelivery.ts'), 'utf-8')
-const MIGRATION_SOURCE = fs.readFileSync(
-  path.join(process.cwd(), 'scripts/add-events-ticket-email-delivery.sql'),
-  'utf-8',
-)
-const RESEND_ROUTE_SOURCE = fs.readFileSync(
-  path.join(process.cwd(), 'app/api/events/[id]/orders/[orderId]/resend-ticket-email/route.ts'),
-  'utf-8',
-)
-const REGISTER_ROUTE_SOURCE = fs.readFileSync(
-  path.join(process.cwd(), 'app/api/public/events/[organisationSlug]/[eventSlug]/register/route.ts'),
-  'utf-8',
-)
-const STRIPE_SOURCE = fs.readFileSync(path.join(process.cwd(), 'lib/events/stripe.ts'), 'utf-8')
+// Normalizes CRLF -> LF on every source file read below. Git's own
+// autocrlf checkout behaviour can hand this file CRLF line endings
+// depending on the worktree/environment it was checked out into
+// (confirmed: identical content, differing only by line-ending style,
+// between a freshly-edited file and the same file after a fresh `git
+// worktree add` checkout) — several containment checks below embed a
+// literal `\n` inside a multi-line search string, which silently stops
+// matching against `\r\n` content. Normalizing once here, rather than
+// making every individual search CRLF-tolerant, fixes this for the
+// whole file at the source.
+function readSource(relativePath: string): string {
+  return fs.readFileSync(path.join(process.cwd(), relativePath), 'utf-8').replace(/\r\n/g, '\n')
+}
+
+const SOURCE = stripComments(readSource('lib/events/ticketEmailDelivery.ts'))
+const RAW_SOURCE = readSource('lib/events/ticketEmailDelivery.ts')
+const MIGRATION_SOURCE = readSource('scripts/add-events-ticket-email-delivery.sql')
+const RESEND_ROUTE_SOURCE = readSource('app/api/events/[id]/orders/[orderId]/resend-ticket-email/route.ts')
+const REGISTER_ROUTE_SOURCE = readSource('app/api/public/events/[organisationSlug]/[eventSlug]/register/route.ts')
+const STRIPE_SOURCE = readSource('lib/events/stripe.ts')
 
 // Isolates the claim query's own WHERE clause text (between "UPDATE
 // event_orders" for the claim function and its matching "RETURNING id,
@@ -491,12 +518,20 @@ describe('MANUAL RESEND — unaffected, isolated from automatic delivery', () =>
   })
 })
 
-describe('NO AUTO SEND — 3E.1 has zero customer-facing send behaviour', () => {
-  it('the public free-registration route is completely untouched by this module', () => {
-    expect(REGISTER_ROUTE_SOURCE).not.toMatch(/ticket_email_|ticketEmailDelivery/)
-  })
+describe('NO AUTO SEND (paid) / NO CRON — Phase 3E.2 boundary', () => {
+  // Phase 3E.2 legitimately wires the FREE public registration route to
+  // this module (via attemptAutomaticTicketEmail, scheduling
+  // ticket_email_status='pending' in the same INSERT that creates a new
+  // order) — that route is therefore DELIBERATELY no longer "untouched"
+  // by this module, and the exact shape of that wiring (scope, timing,
+  // failure-isolation) is proven by
+  // tests/containment/eventsFreeRegistrationTicketEmail.test.ts
+  // instead, not here. What remains true, and is proven below: the PAID
+  // (Stripe) flow is still completely untouched (3E.3 remains a later,
+  // separately-approved phase), and there is still no cron/recovery
+  // executor anywhere in this phase.
 
-  it('the Stripe checkout-completed handler is completely untouched by this module', () => {
+  it('the Stripe checkout-completed handler is completely untouched by this module — paid automatic delivery (3E.3) remains unimplemented', () => {
     expect(STRIPE_SOURCE).not.toMatch(/ticket_email_|ticketEmailDelivery/)
   })
 
@@ -520,16 +555,30 @@ describe('NO AUTO SEND — 3E.1 has zero customer-facing send behaviour', () => 
     }
   })
 
-  it('claimTicketEmailDelivery/sweepStaleExhaustedTicketEmailLeases are exported (test-invocable) but never called by this module itself', () => {
-    // The module must not self-invoke its own claim/sweep functions at
-    // import time or via any internal scheduler.
+  it('this module never self-invokes claim/sweep at import time or via any internal scheduler', () => {
     expect(SOURCE).not.toMatch(/setInterval|setTimeout/)
-    // Only the function DEFINITIONS of claim/sweep should exist — no
-    // internal call site.
+  })
+
+  it('claimTicketEmailDelivery is called from exactly ONE real call site: attemptAutomaticTicketEmail\'s own orchestration (plus its own declaration)', () => {
     const claimCallSites = (SOURCE.match(/claimTicketEmailDelivery\(/g) ?? []).length
+    // 1 = the function's own declaration/signature, 1 = the real call
+    // inside attemptAutomaticTicketEmail. No other call site exists in
+    // this file.
+    expect(claimCallSites).toBe(2)
+  })
+
+  it('sweepStaleExhaustedTicketEmailLeases is STILL never called anywhere in this module — test-invocable only, no recovery executor exists yet (§15)', () => {
     const sweepCallSites = (SOURCE.match(/sweepStaleExhaustedTicketEmailLeases\(/g) ?? []).length
-    expect(claimCallSites).toBe(1) // the function's own declaration only
-    expect(sweepCallSites).toBe(1)
+    expect(sweepCallSites).toBe(1) // the function's own declaration only
+  })
+
+  it('attemptAutomaticTicketEmail is the ONLY function in this module with a real external caller — the free-registration route imports exactly this one export from this module', () => {
+    expect(REGISTER_ROUTE_SOURCE).toMatch(/import\s*\{\s*attemptAutomaticTicketEmail\s*\}\s*from\s*'@\/lib\/events\/ticketEmailDelivery'/)
+    // No OTHER primitive (claimTicketEmailDelivery, markTicketEmailSent,
+    // markTicketEmailFailed, sweepStaleExhaustedTicketEmailLeases,
+    // readClaimedOrderForDelivery) is imported directly by the route —
+    // it only ever goes through the orchestration wrapper.
+    expect(REGISTER_ROUTE_SOURCE).not.toMatch(/claimTicketEmailDelivery|markTicketEmailSent|markTicketEmailFailed|sweepStaleExhaustedTicketEmailLeases|readClaimedOrderForDelivery/)
   })
 })
 
@@ -587,5 +636,150 @@ describe('last_error bounding', () => {
 
   it('the migration\'s CHECK constraint backstops at 500 characters', () => {
     expect(MIGRATION_SOURCE).toContain('char_length(ticket_email_last_error) <= 500')
+  })
+})
+
+describe('attemptAutomaticTicketEmail — orchestration (Phase 3E.2)', () => {
+  const CLAIM_ROW = [{ id: 'order-1', ticket_email_claim_id: 'claim-a', ticket_email_attempt_count: 1 }]
+  const READ_ROW = [{
+    id: 'order-1', organisation_id: 'org-1', purchaser_name: 'Jane Doe', purchaser_email: 'jane@example.com',
+    booking_token: 'a'.repeat(64), event_name: 'Spring Gala',
+    organisation_name: 'Acme School', organisation_settings: null,
+    attendees: [{ name: 'Jane Doe', ticket_token: 'b'.repeat(64) }],
+  }]
+  const MULTI_READ_ROW = [{
+    id: 'order-1', organisation_id: 'org-1', purchaser_name: 'Jane Doe', purchaser_email: 'jane@example.com',
+    booking_token: 'a'.repeat(64), event_name: 'Spring Gala',
+    organisation_name: 'Acme School', organisation_settings: null,
+    attendees: [
+      { name: 'Jane Doe', ticket_token: 'b'.repeat(64) },
+      { name: 'John Doe', ticket_token: 'c'.repeat(64) },
+    ],
+  }]
+
+  it('not_claimed: claim returns zero rows -> outcome not_claimed, sendTicketEmail never called', async () => {
+    queue([])
+    const result = await delivery.attemptAutomaticTicketEmail('order-1')
+    expect(result).toEqual({ outcome: 'not_claimed' })
+    expect(sendTicketEmailMock).not.toHaveBeenCalled()
+  })
+
+  it('sent: claims, reads, sends, marks sent, and writes the automatic-sent audit', async () => {
+    sendTicketEmailMock.mockResolvedValue({ result: 'sent', providerMessageId: 'msg-123' })
+    queue(CLAIM_ROW, READ_ROW, [{ id: 'order-1' }])
+    const result = await delivery.attemptAutomaticTicketEmail('order-1')
+    expect(result).toEqual({ outcome: 'sent', providerMessageId: 'msg-123' })
+    expect(logAutomaticTicketEmailSentMock).toHaveBeenCalledWith(expect.objectContaining({
+      organisationId: 'org-1', orderId: 'order-1', attemptCount: 1, providerMessageId: 'msg-123',
+    }))
+    expect(logAutomaticTicketEmailFailedMock).not.toHaveBeenCalled()
+  })
+
+  it('sent: uses the deterministic idempotency key for this exact order', async () => {
+    sendTicketEmailMock.mockResolvedValue({ result: 'sent', providerMessageId: null })
+    queue(CLAIM_ROW, READ_ROW, [{ id: 'order-1' }])
+    await delivery.attemptAutomaticTicketEmail('order-1')
+    expect(sendTicketEmailMock).toHaveBeenCalledWith(
+      'jane@example.com',
+      expect.anything(),
+      { idempotencyKey: delivery.buildInitialTicketEmailIdempotencyKey('order-1') },
+    )
+  })
+
+  it('multi-attendee: booking_token and BOTH attendees (with their existing tokens) are passed through unchanged — no new token minting', async () => {
+    sendTicketEmailMock.mockResolvedValue({ result: 'sent', providerMessageId: null })
+    queue(CLAIM_ROW, MULTI_READ_ROW, [{ id: 'order-1' }])
+    await delivery.attemptAutomaticTicketEmail('order-1')
+    const [, data] = sendTicketEmailMock.mock.calls[0] as [string, { bookingToken: string | null; attendees: { name: string; ticketToken: string }[] }]
+    expect(data.bookingToken).toBe('a'.repeat(64))
+    expect(data.attendees).toEqual([
+      { name: 'Jane Doe', ticketToken: 'b'.repeat(64) },
+      { name: 'John Doe', ticketToken: 'c'.repeat(64) },
+    ])
+  })
+
+  it('failed (ordinary provider rejection): marks failed with reason provider_rejected, non-terminal audit', async () => {
+    sendTicketEmailMock.mockResolvedValue({ result: 'failed', error: 'The email provider rejected the request.' })
+    queue(CLAIM_ROW, READ_ROW, [{ id: 'order-1' }])
+    const result = await delivery.attemptAutomaticTicketEmail('order-1')
+    expect(result).toEqual({ outcome: 'failed', reason: 'provider_rejected' })
+    expect(logAutomaticTicketEmailFailedMock).toHaveBeenCalledWith(expect.objectContaining({ reason: 'provider_rejected', terminal: false }))
+  })
+
+  it('failed (unknown/ambiguous outcome): reason ambiguous_outcome, non-terminal', async () => {
+    sendTicketEmailMock.mockResolvedValue({ result: 'unknown', error: 'The email provider did not return a definite result.' })
+    queue(CLAIM_ROW, READ_ROW, [{ id: 'order-1' }])
+    const result = await delivery.attemptAutomaticTicketEmail('order-1')
+    expect(result).toEqual({ outcome: 'failed', reason: 'ambiguous_outcome' })
+    expect(logAutomaticTicketEmailFailedMock).toHaveBeenCalledWith(expect.objectContaining({ reason: 'ambiguous_outcome', terminal: false }))
+  })
+
+  // Phase 3E.2 remediation — a bounded provider timeout in lib/email.ts
+  // surfaces through sendTicketEmail() as result 'unknown' (see
+  // eventsTicketEmailSend.test.ts's own dedicated proof of that
+  // mapping) — this proves the ORCHESTRATION layer treats that outcome
+  // exactly like any other ambiguous result: a normal, bounded,
+  // retryable failure, never terminal, and never a reason to rotate the
+  // idempotency key.
+  it('a provider timeout (surfaced as result "unknown") records a normal retryable failure — same treatment as any other ambiguous outcome', async () => {
+    sendTicketEmailMock.mockResolvedValue({ result: 'unknown', error: 'The email provider did not return a definite result.' })
+    queue(CLAIM_ROW, READ_ROW, [{ id: 'order-1' }])
+    const result = await delivery.attemptAutomaticTicketEmail('order-1')
+    expect(result).toEqual({ outcome: 'failed', reason: 'ambiguous_outcome' })
+    expect(logAutomaticTicketEmailFailedMock).toHaveBeenCalledWith(expect.objectContaining({ reason: 'ambiguous_outcome', terminal: false }))
+  })
+
+  it('a provider timeout does not change the deterministic idempotency key used for this order', async () => {
+    sendTicketEmailMock.mockResolvedValue({ result: 'unknown', error: 'timeout' })
+    queue(CLAIM_ROW, READ_ROW, [{ id: 'order-1' }])
+    await delivery.attemptAutomaticTicketEmail('order-1')
+    expect(sendTicketEmailMock).toHaveBeenCalledWith(
+      expect.anything(), expect.anything(),
+      { idempotencyKey: delivery.buildInitialTicketEmailIdempotencyKey('order-1') },
+    )
+  })
+
+  it('failed (provider not configured): reason not_configured, non-terminal (retryable — configuration may become available later)', async () => {
+    sendTicketEmailMock.mockResolvedValue({ result: 'not_configured' })
+    queue(CLAIM_ROW, READ_ROW, [{ id: 'order-1' }])
+    const result = await delivery.attemptAutomaticTicketEmail('order-1')
+    expect(result).toEqual({ outcome: 'failed', reason: 'not_configured' })
+    expect(logAutomaticTicketEmailFailedMock).toHaveBeenCalledWith(expect.objectContaining({ reason: 'not_configured', terminal: false }))
+  })
+
+  it('failed (idempotency payload mismatch): reason idempotency_payload_mismatch, TERMINAL audit', async () => {
+    sendTicketEmailMock.mockResolvedValue({
+      result: 'failed', error: 'The email provider reported this request no longer matches a previous attempt.', idempotencyPayloadMismatch: true,
+    })
+    queue(CLAIM_ROW, READ_ROW, [{ id: 'order-1' }])
+    const result = await delivery.attemptAutomaticTicketEmail('order-1')
+    expect(result).toEqual({ outcome: 'failed', reason: 'idempotency_payload_mismatch' })
+    expect(logAutomaticTicketEmailFailedMock).toHaveBeenCalledWith(expect.objectContaining({ reason: 'idempotency_payload_mismatch', terminal: true }))
+  })
+
+  it('post-claim read comes back empty (structurally shouldn\'t happen): marks failed ambiguous_outcome, sendTicketEmail never called', async () => {
+    queue(CLAIM_ROW, [])
+    const result = await delivery.attemptAutomaticTicketEmail('order-1')
+    expect(result).toEqual({ outcome: 'failed', reason: 'ambiguous_outcome' })
+    expect(sendTicketEmailMock).not.toHaveBeenCalled()
+  })
+
+  it('an unexpected thrown error after a successful claim is caught, attempts best-effort cleanup, and never propagates', async () => {
+    sendTicketEmailMock.mockRejectedValue(new Error('totally unexpected'))
+    queue(CLAIM_ROW, READ_ROW, [{ id: 'order-1' }])
+    const result = await delivery.attemptAutomaticTicketEmail('order-1')
+    expect(result).toEqual({ outcome: 'failed', reason: 'ambiguous_outcome' })
+  })
+
+  it('never throws — every code path resolves', async () => {
+    queue([])
+    await expect(delivery.attemptAutomaticTicketEmail('order-1')).resolves.not.toThrow()
+  })
+
+  it('no real network call is ever made — sendTicketEmail is fully mocked in this file', async () => {
+    sendTicketEmailMock.mockResolvedValue({ result: 'sent', providerMessageId: null })
+    queue(CLAIM_ROW, READ_ROW, [{ id: 'order-1' }])
+    await delivery.attemptAutomaticTicketEmail('order-1')
+    expect(sendTicketEmailMock).toHaveBeenCalledTimes(1)
   })
 })

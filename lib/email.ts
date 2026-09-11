@@ -34,6 +34,50 @@ interface EmailOptions {
 
 const FROM = process.env.EMAIL_FROM ?? 'Brainbase <noreply@brainbase.app>';
 
+// Phase 3E.2 remediation — bounds every Resend send behind one explicit
+// provider timeout. Before this, the fetch() call below had no timeout
+// at all; that was tolerable while every caller was either a fire-
+// and-forget dev-console fallback path or a manager-initiated,
+// synchronously-awaited-by-a-human resend click, but 3E.2 put this
+// exact call on a PURCHASER'S registration critical path (the free-
+// registration route now `await`s attemptAutomaticTicketEmail() after
+// the order has already committed, specifically so a fire-and-forget
+// promise can't be killed mid-flight by the serverless runtime — see
+// that route's own comment) — an unbounded hang here would mean an
+// unbounded wait for the purchaser's own 201 response.
+//
+// AbortSignal.timeout(ms), not a manual AbortController + setTimeout:
+// this is already this repo's own established idiom for exactly this
+// (see e.g. lib/integrations/connectors/rest.ts, lib/brain/embedder.ts,
+// and every app/api/admin/founder-action/*/route.ts fetch call) —
+// proven supported in this codebase's actual Vercel/Node runtime, and
+// it needs no manual timer cleanup (the platform handles that
+// internally), unlike a hand-rolled AbortController+setTimeout pair.
+//
+// 10 seconds: comfortably comfortable network time for a single small
+// JSON POST, while remaining a small fraction of the 10-minute
+// LEASE_TIMEOUT_MINUTES lease this call always runs inside of (see
+// lib/events/ticketEmailDelivery.ts) — a purchaser is never kept
+// waiting anywhere near that long. Kept as a code constant, not an env
+// var — this repo's own "only add env vars actually required by the
+// chosen architecture" discipline, and there is no per-environment
+// reason this value would ever need to differ.
+//
+// A fetch() that is aborted this way REJECTS (it does not resolve with
+// some sentinel), with a DOMException whose message this file's own
+// EmailSendError class does NOT wrap — it is neither a non-2xx
+// response (so never becomes EmailSendError) nor the literal 'Email
+// send failed' Error, so it propagates unchanged exactly like any other
+// network-level exception already did before this constant existed
+// (see SendEmailResult's own doc comment above, and Case D of
+// tests/containment/emailSendResult.test.ts, which already asserted
+// this exact "abort/timeout-style exception propagates unchanged"
+// behaviour before this remediation — sendTicketEmail() in
+// lib/events/ticketEmail.ts already classifies any such propagated
+// exception as its 'unknown'/ambiguous-outcome case with ZERO
+// additional classification logic needed here).
+const EMAIL_SEND_TIMEOUT_MS = 10_000;
+
 // Return type widened (Phase 7) from Promise<void> to
 // Promise<SendEmailResult> so a caller that needs to know whether an
 // email was ACTUALLY accepted by Resend (the ticket-email resend
@@ -119,6 +163,7 @@ export async function sendEmail({ to, subject, html, attachments, idempotencyKey
         ? { attachments: attachments.map(a => ({ filename: a.filename, content: a.contentBase64 })) }
         : {}),
     }),
+    signal: AbortSignal.timeout(EMAIL_SEND_TIMEOUT_MS),
   });
 
   if (!res.ok) {
