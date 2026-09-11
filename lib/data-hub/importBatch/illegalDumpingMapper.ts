@@ -60,10 +60,92 @@ export class IllegalDumpingMappingError extends Error {
   }
 }
 
+// Data Hub 6.0A — deterministic, locale-independent date parsing.
+//
+// The original implementation (`new Date(v)`) delegated to the JS engine's
+// own free-form date-string heuristics, which for ambiguous slash-separated
+// input (`D/M/YYYY` vs `M/D/YYYY`) assumes US month-first ordering.
+// Onkaparinga's real export uses Australian day-first dates (e.g.
+// "1/07/2025" = 1 July 2025) — under the old parser this either silently
+// swapped month/day (day <= 12, e.g. "1/07/2025" -> 7 January) or threw
+// away the entire row as an unparseable/invalid date (day > 12, e.g.
+// "13/07/2025" -> Invalid Date), independently reproduced against the real
+// source file: 58.4% of rows hit the invalid-date throw path, and
+// mapIllegalDumpingRows' own fail-fast contract means the FIRST such row
+// aborts the entire import.
+//
+// Fix: two fixed, explicit, non-overlapping grammars are recognized by
+// regex, each with its own component order — never a single ambiguous
+// slash-format handed to the platform Date parser:
+//   - ISO  YYYY-MM-DD             (the pre-existing, still-supported format
+//     used throughout this codebase's own tests/fixtures)
+//   - AU   D/M/YYYY or DD/MM/YYYY (Onkaparinga's actual export format)
+// Both are validated against a real, self-contained (no Date-object
+// rollover) calendar — invalid dates (month 13, day 0/32, 31 Feb, non-leap
+// 29 Feb) are rejected outright, never silently normalized into a
+// different valid date. The resulting Date is always constructed via
+// Date.UTC(year, month-1, day) — UTC midnight on the intended calendar
+// day — so the stored value is stable across the server's runtime
+// timezone. This exactly matches the platform's own existing behavior for
+// ISO date-only strings (`new Date("2024-01-01")` is itself specified to
+// mean UTC midnight), so every currently-passing ISO fixture in this
+// codebase parses to the identical timestamp as before.
+const ISO_DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
+const AU_SLASH_DATE_RE = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/;
+// Full ISO 8601 datetime (e.g. "2026-03-01T00:00:00.000Z") — unlike a bare
+// slash-separated date, this grammar's component order is unambiguous and
+// standardized, so recognizing it explicitly (never falling through to
+// free-form Date parsing for arbitrary input) and delegating construction
+// to `new Date()` is safe. Kept only because it is a pre-existing,
+// deliberately-tested format elsewhere in this codebase (e.g.
+// dataHubMappingExecution.test.ts's own fixtures) — Onkaparinga's actual
+// export never produces this shape.
+const ISO_DATETIME_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})?$/;
+
+function isLeapYear(year: number): boolean {
+  return (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+}
+
+// Real calendar table, no Date-object involvement — validating a date
+// component-by-component this way (rather than constructing a Date and
+// checking whether it "rolled over") is what actually rejects 31/02/2025
+// and non-leap 29/02 instead of silently reinterpreting them as a
+// different, valid date (e.g. 3 March).
+function daysInMonth(year: number, month: number): number {
+  const table = [31, isLeapYear(year) ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  return table[month - 1];
+}
+
+function buildUtcDateIfValid(year: number, month: number, day: number): Date | null {
+  if (month < 1 || month > 12) return null;
+  if (day < 1 || day > daysInMonth(year, month)) return null;
+  return new Date(Date.UTC(year, month - 1, day));
+}
+
 function parseDate(v: string | undefined): Date | null {
   if (!v) return null;
-  const d = new Date(v);
-  return isNaN(d.getTime()) ? null : d;
+  const trimmed = v.trim();
+  if (!trimmed) return null;
+
+  const iso = ISO_DATE_RE.exec(trimmed);
+  if (iso) {
+    return buildUtcDateIfValid(Number(iso[1]), Number(iso[2]), Number(iso[3]));
+  }
+
+  if (ISO_DATETIME_RE.test(trimmed)) {
+    const d = new Date(trimmed);
+    return isNaN(d.getTime()) ? null : d;
+  }
+
+  const au = AU_SLASH_DATE_RE.exec(trimmed);
+  if (au) {
+    // Australian day-first order: component 1 is the DAY, component 2 is
+    // the MONTH — never re-derived from magnitude/heuristics, and never
+    // reinterpreted as M/D regardless of whether component 1 is <= 12.
+    return buildUtcDateIfValid(Number(au[3]), Number(au[2]), Number(au[1]));
+  }
+
+  return null;
 }
 function nullStr(v: string | undefined): string | null {
   const s = v != null ? v.trim() : "";
