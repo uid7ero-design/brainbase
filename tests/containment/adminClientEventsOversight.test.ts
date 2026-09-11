@@ -255,7 +255,13 @@ describe('Regression — /api/admin/impersonate no longer casts organisations.id
   })
 
   it('a non-super_admin is still rejected (403), unaffected by this fix', async () => {
-    getSessionMock.mockResolvedValue({ userId: 'u2', organisationId: 'org-a', role: 'manager', name: 'Luke' })
+    // SEC-1A: app/api/admin/impersonate/route.ts now authorizes via
+    // requireRole('super_admin') (lib/org.ts) rather than raw getSession()
+    // — @/lib/org is already mocked wholesale in this file (for the
+    // client-events route's own tests above), so a rejection is now
+    // expressed by rejecting requireRoleMock, not by changing what
+    // getSessionMock resolves to (which this route no longer calls at all).
+    requireRoleMock.mockRejectedValueOnce(new Error('Forbidden'))
     const res = await impersonateRoute.POST(new Request('http://localhost/api/admin/impersonate', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ orgId: 'org-a' }),
     }) as unknown as NextRequest)

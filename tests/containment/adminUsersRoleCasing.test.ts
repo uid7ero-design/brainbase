@@ -16,6 +16,13 @@ vi.mock('@/lib/db', () => ({
   default: (...args: unknown[]) => sqlMock(...args),
 }));
 
+// SEC-1A: requireSession() (lib/org.ts) calls cookies() internally to
+// resolve a super_admin's org_override — without this mock, the real
+// next/headers cookies() throws outside a real request context.
+vi.mock('next/headers', () => ({
+  cookies: async () => ({ get: () => undefined }),
+}));
+
 vi.mock('@/lib/tokens', () => ({
   createToken: vi.fn(async () => 'token-123'),
 }));
@@ -24,6 +31,17 @@ vi.mock('@/lib/email', () => ({
   sendEmail: vi.fn(async () => {}),
   verificationEmail: vi.fn(() => ({ subject: 'Verify', html: '<p></p>' })),
 }));
+
+// SEC-1A: this route's audit calls (lib/admin/auditLog.ts) are real,
+// unmocked here, and issue their own sql() calls — but since every test
+// below only configures `sqlMock.mockResolvedValueOnce(...)` for the
+// calls it actually cares about, an audit call beyond the configured
+// chain simply resolves to `undefined`, which logHrEvent-style
+// best-effort audit helpers already swallow internally (see
+// lib/admin/auditLog.ts's own try/catch) — it never affects these tests'
+// own assertions or the route's own response. Dedicated audit-content
+// coverage lives in tests/containment/adminAuditLog.test.ts and
+// tests/containment/adminUsersAuthoritativeSession.test.ts.
 
 const { GET, PATCH, DELETE, POST } = await import('@/app/api/admin/users/route');
 
@@ -90,6 +108,16 @@ function allQueryTextFromCalls(calls: unknown[][]): string {
 }
 
 const superAdminSession = { userId: 'admin1', organisationId: 'bb-org', role: 'super_admin', name: 'James' };
+const notSuperAdminSession = { userId: 'u1', organisationId: 'org-a', role: 'manager', name: 'Not James' };
+
+// SEC-1A: requireSession()'s own DB-authoritative lookup row for each
+// session above — the FIRST sql() call of every authorized request is now
+// this lookup (lib/org.ts), not the route's own business-logic query.
+// Queued as the leading `.mockResolvedValueOnce(...)` in every test below;
+// every other queued response (and every `sqlMock.mock.calls[N]` index)
+// shifts by exactly +1 versus the pre-SEC-1A version of this file.
+const superAdminRow = [{ id: 'admin1', organisation_id: 'bb-org', role: 'super_admin', status: 'ACTIVE' }];
+const notSuperAdminRow = [{ id: 'u1', organisation_id: 'org-a', role: 'manager', status: 'ACTIVE' }];
 
 // A user row exactly as the real UserRole enum stores it — uppercase.
 const lukeRowUppercase = {
@@ -103,7 +131,9 @@ describe('GET /api/admin/users — role display normalisation', () => {
 
   it('normalises the enum-stored uppercase role to lowercase for the edit form', async () => {
     getSessionMock.mockResolvedValue(superAdminSession);
-    sqlMock.mockResolvedValueOnce([lukeRowUppercase]);
+    sqlMock
+      .mockResolvedValueOnce(superAdminRow)
+      .mockResolvedValueOnce([lukeRowUppercase]);
 
     const res = await GET();
     const data = await res.json();
@@ -115,15 +145,22 @@ describe('PATCH /api/admin/users — role enum casing, id/schema type contract, 
   beforeEach(() => { getSessionMock.mockReset(); sqlMock.mockReset(); });
 
   it('rejects a non-super_admin caller', async () => {
-    getSessionMock.mockResolvedValue({ userId: 'u1', organisationId: 'org-a', role: 'manager', name: 'Not James' });
+    getSessionMock.mockResolvedValue(notSuperAdminSession);
+    sqlMock.mockResolvedValueOnce(notSuperAdminRow); // requireSession's own lookup — correctly identifies insufficient role
     const res = await PATCH(patchRequest({ role: LOWERCASE_ROLE }));
     expect(res.status).toBe(403);
-    expect(sqlMock).not.toHaveBeenCalled();
+    // Exactly one call happens now — requireSession's own DB-authoritative
+    // lookup, which is precisely how it correctly determines this caller
+    // is not super_admin. This replaces the pre-SEC-1A assertion that NO
+    // call happened at all, which is no longer true (and was only ever
+    // true because authorization was a raw JWT check with no DB step).
+    expect(sqlMock).toHaveBeenCalledTimes(1);
   });
 
   it('updates viewer -> manager: writes the UPPERCASE enum label to the DB but returns lowercase to the client', async () => {
     getSessionMock.mockResolvedValue(superAdminSession);
     sqlMock
+      .mockResolvedValueOnce(superAdminRow)
       .mockResolvedValueOnce([{ name: 'Luke Doughty', role: 'VIEWER', organisation_id: 'ld-tennis-org', email: 'luke@example.com', password_hash: 'hash' }])
       // RETURNING reflects what a real UserRole enum column actually stores — uppercase.
       .mockResolvedValueOnce([{ id: UUID_SHAPED_ID, email: 'luke@example.com', name: 'Luke Doughty', role: UPPERCASE_ROLE, organisation_id: 'ld-tennis-org', email_verified: true, created_at: new Date().toISOString() }])
@@ -137,7 +174,9 @@ describe('PATCH /api/admin/users — role enum casing, id/schema type contract, 
 
     // The actual UPDATE sent to Postgres must carry the UPPERCASE enum
     // label — this is the real production bug: it must NOT be lowercase.
-    const updateCallArgs = sqlMock.mock.calls[1];
+    // Index shifted from 1 -> 2: index 0 is now requireSession's own
+    // lookup, index 1 is the route's current-user SELECT, index 2 is this UPDATE.
+    const updateCallArgs = sqlMock.mock.calls[2];
     expect(updateCallArgs).toContain(UPPERCASE_ROLE);
     expect(updateCallArgs).not.toContain(LOWERCASE_ROLE);
 
@@ -151,6 +190,7 @@ describe('PATCH /api/admin/users — role enum casing, id/schema type contract, 
   it('still accepts and correctly uppercases a case-variant role submission (defence in depth)', async () => {
     getSessionMock.mockResolvedValue(superAdminSession);
     sqlMock
+      .mockResolvedValueOnce(superAdminRow)
       .mockResolvedValueOnce([{ name: 'Luke Doughty', role: 'VIEWER', organisation_id: 'ld-tennis-org', email: 'luke@example.com', password_hash: 'hash' }])
       .mockResolvedValueOnce([{ id: UUID_SHAPED_ID, email: 'luke@example.com', name: 'Luke Doughty', role: UPPERCASE_ROLE, organisation_id: 'ld-tennis-org', email_verified: true, created_at: new Date().toISOString() }])
       .mockResolvedValueOnce([{ name: 'LD Tennis' }]);
@@ -158,22 +198,27 @@ describe('PATCH /api/admin/users — role enum casing, id/schema type contract, 
     const res = await PATCH(patchRequest({ role: 'Manager', organisationId: 'ld-tennis-org' }));
     expect(res.status).toBe(200);
 
-    const updateCallArgs = sqlMock.mock.calls[1];
+    const updateCallArgs = sqlMock.mock.calls[2];
     expect(updateCallArgs).toContain(UPPERCASE_ROLE);
   });
 
   it('still rejects a genuinely invalid role', async () => {
     getSessionMock.mockResolvedValue(superAdminSession);
+    sqlMock.mockResolvedValueOnce(superAdminRow);
     const res = await PATCH(patchRequest({ role: 'owner' }));
     expect(res.status).toBe(400);
     const data = await res.json();
     expect(data.error).toContain('role must be one of');
-    expect(sqlMock).not.toHaveBeenCalled();
+    // Only requireSession's own lookup ran — the route's own validation
+    // rejected the body before any business-logic query.
+    expect(sqlMock).toHaveBeenCalledTimes(1);
   });
 
   it('returns a JSON error (not an uncaught throw) if the DB update fails', async () => {
     getSessionMock.mockResolvedValue(superAdminSession);
-    sqlMock.mockRejectedValueOnce(new Error('connection lost'));
+    sqlMock
+      .mockResolvedValueOnce(superAdminRow)
+      .mockRejectedValueOnce(new Error('connection lost'));
 
     const res = await PATCH(patchRequest({ role: LOWERCASE_ROLE, organisationId: 'ld-tennis-org' }));
     expect(res.status).toBe(500);
@@ -186,7 +231,9 @@ describe('PATCH /api/admin/users — role enum casing, id/schema type contract, 
 
   it('fails safely (404, not a DB error) for a non-UUID-shaped, nonexistent id', async () => {
     getSessionMock.mockResolvedValue(superAdminSession);
-    sqlMock.mockResolvedValueOnce([]); // no matching row
+    sqlMock
+      .mockResolvedValueOnce(superAdminRow)
+      .mockResolvedValueOnce([]); // no matching row
 
     const res = await PATCH(patchRequest({ role: LOWERCASE_ROLE }, 'does-not-exist'));
     expect(res.status).toBe(404);
@@ -198,6 +245,7 @@ describe('PATCH /api/admin/users — role enum casing, id/schema type contract, 
   it('organisation assignment is unaffected by the role/id fixes: omitting organisationId keeps the existing organisation', async () => {
     getSessionMock.mockResolvedValue(superAdminSession);
     sqlMock
+      .mockResolvedValueOnce(superAdminRow)
       .mockResolvedValueOnce([{ name: 'Luke Doughty', role: UPPERCASE_ROLE, organisation_id: 'ld-tennis-org', email: 'luke@example.com', password_hash: 'hash' }])
       .mockResolvedValueOnce([{ id: UUID_SHAPED_ID, email: 'luke@example.com', name: 'Luke Doughty', role: UPPERCASE_ROLE, organisation_id: 'ld-tennis-org', email_verified: true, created_at: new Date().toISOString() }])
       .mockResolvedValueOnce([{ name: 'LD Tennis' }]);
@@ -205,13 +253,14 @@ describe('PATCH /api/admin/users — role enum casing, id/schema type contract, 
     const res = await PATCH(patchRequest({ name: 'Luke Doughty' })); // no organisationId in body
     expect(res.status).toBe(200);
 
-    const updateCallArgs = sqlMock.mock.calls[1];
+    const updateCallArgs = sqlMock.mock.calls[2];
     expect(updateCallArgs).toContain('ld-tennis-org'); // fell back to current.organisation_id
   });
 
   it('preserves the existing role unchanged (already uppercase from the DB) when role is omitted from the request', async () => {
     getSessionMock.mockResolvedValue(superAdminSession);
     sqlMock
+      .mockResolvedValueOnce(superAdminRow)
       .mockResolvedValueOnce([{ name: 'Luke Doughty', role: UPPERCASE_ROLE, organisation_id: 'ld-tennis-org', email: 'luke@example.com', password_hash: 'hash' }])
       .mockResolvedValueOnce([{ id: UUID_SHAPED_ID, email: 'luke@example.com', name: 'Luke Doughty', role: UPPERCASE_ROLE, organisation_id: 'ld-tennis-org', email_verified: true, created_at: new Date().toISOString() }])
       .mockResolvedValueOnce([{ name: 'LD Tennis' }]);
@@ -221,7 +270,7 @@ describe('PATCH /api/admin/users — role enum casing, id/schema type contract, 
 
     // current.role (already uppercase, straight from the DB) must be used
     // as-is, not re-cased or corrupted when it falls through unchanged.
-    const updateCallArgs = sqlMock.mock.calls[1];
+    const updateCallArgs = sqlMock.mock.calls[2];
     expect(updateCallArgs).toContain(UPPERCASE_ROLE);
   });
 });
@@ -230,22 +279,28 @@ describe('DELETE /api/admin/users — id/schema type contract', () => {
   beforeEach(() => { getSessionMock.mockReset(); sqlMock.mockReset(); });
 
   it('rejects a non-super_admin caller', async () => {
-    getSessionMock.mockResolvedValue({ userId: 'u1', organisationId: 'org-a', role: 'manager', name: 'Not James' });
+    getSessionMock.mockResolvedValue(notSuperAdminSession);
+    sqlMock.mockResolvedValueOnce(notSuperAdminRow);
     const res = await DELETE(deleteRequest());
     expect(res.status).toBe(403);
-    expect(sqlMock).not.toHaveBeenCalled();
+    expect(sqlMock).toHaveBeenCalledTimes(1);
   });
 
   it('blocks deleting your own account', async () => {
     getSessionMock.mockResolvedValue(superAdminSession);
+    sqlMock.mockResolvedValueOnce(superAdminRow);
     const res = await DELETE(deleteRequest(superAdminSession.userId));
     expect(res.status).toBe(409);
-    expect(sqlMock).not.toHaveBeenCalled();
+    // Only requireSession's own lookup ran — the self-delete guard
+    // rejected before any DELETE statement was issued.
+    expect(sqlMock).toHaveBeenCalledTimes(1);
   });
 
   it('deletes a user by UUID-shaped id without casting it against the TEXT id column', async () => {
     getSessionMock.mockResolvedValue(superAdminSession);
-    sqlMock.mockResolvedValueOnce([]);
+    sqlMock
+      .mockResolvedValueOnce(superAdminRow)
+      .mockResolvedValueOnce([{ username: 'x', name: 'X', role: 'VIEWER', organisation_id: 'ld-tennis-org' }]);
 
     const res = await DELETE(deleteRequest());
     expect(res.status).toBe(200);
@@ -260,43 +315,50 @@ describe('POST /api/admin/users — role enum casing on creation', () => {
 
   it('still rejects an invalid role on create', async () => {
     getSessionMock.mockResolvedValue(superAdminSession);
+    sqlMock.mockResolvedValueOnce(superAdminRow);
     const res = await POST(postRequest({ username: 'newcoach', password: TEST_PASSWORD, name: 'New Coach', role: 'owner', organisationId: 'ld-tennis-org' }));
     expect(res.status).toBe(400);
-    expect(sqlMock).not.toHaveBeenCalled();
+    expect(sqlMock).toHaveBeenCalledTimes(1);
   });
 
   it('writes the UPPERCASE enum label even though a lowercase value was submitted, and returns lowercase to the client', async () => {
     getSessionMock.mockResolvedValue(superAdminSession);
-    sqlMock.mockResolvedValueOnce([{ id: 'new-id', email: 'newcoach@example.com', name: 'New Coach', role: UPPERCASE_ROLE, organisation_id: 'ld-tennis-org', email_verified: false, created_at: new Date().toISOString() }]);
+    sqlMock
+      .mockResolvedValueOnce(superAdminRow)
+      .mockResolvedValueOnce([{ id: 'new-id', email: 'newcoach@example.com', name: 'New Coach', role: UPPERCASE_ROLE, organisation_id: 'ld-tennis-org', email_verified: false, created_at: new Date().toISOString() }]);
 
     const res = await POST(postRequest({ username: 'newcoach', password: TEST_PASSWORD, name: 'New Coach', role: LOWERCASE_ROLE, organisationId: 'ld-tennis-org' }));
     expect(res.status).toBe(201);
     const data = await res.json();
     expect(data.user.role).toBe('manager');
 
-    const insertCallArgs = sqlMock.mock.calls[0];
+    const insertCallArgs = sqlMock.mock.calls[1];
     expect(insertCallArgs).toContain(UPPERCASE_ROLE);
     expect(insertCallArgs).not.toContain(LOWERCASE_ROLE);
   });
 
   it('also uppercases a mixed-case role submission', async () => {
     getSessionMock.mockResolvedValue(superAdminSession);
-    sqlMock.mockResolvedValueOnce([{ id: 'new-id', email: 'newcoach@example.com', name: 'New Coach', role: UPPERCASE_ROLE, organisation_id: 'ld-tennis-org', email_verified: false, created_at: new Date().toISOString() }]);
+    sqlMock
+      .mockResolvedValueOnce(superAdminRow)
+      .mockResolvedValueOnce([{ id: 'new-id', email: 'newcoach@example.com', name: 'New Coach', role: UPPERCASE_ROLE, organisation_id: 'ld-tennis-org', email_verified: false, created_at: new Date().toISOString() }]);
 
     const res = await POST(postRequest({ username: 'newcoach', password: TEST_PASSWORD, name: 'New Coach', role: 'MaNaGeR', organisationId: 'ld-tennis-org' }));
     expect(res.status).toBe(201);
 
-    const insertCallArgs = sqlMock.mock.calls[0];
+    const insertCallArgs = sqlMock.mock.calls[1];
     expect(insertCallArgs).toContain(UPPERCASE_ROLE);
   });
 
   it('generates the new user id as text (gen_random_uuid()::text), matching the TEXT id column — not a bare ::uuid value', async () => {
     getSessionMock.mockResolvedValue(superAdminSession);
-    sqlMock.mockResolvedValueOnce([{ id: 'new-id', email: 'newcoach@example.com', name: 'New Coach', role: UPPERCASE_ROLE, organisation_id: 'ld-tennis-org', email_verified: false, created_at: new Date().toISOString() }]);
+    sqlMock
+      .mockResolvedValueOnce(superAdminRow)
+      .mockResolvedValueOnce([{ id: 'new-id', email: 'newcoach@example.com', name: 'New Coach', role: UPPERCASE_ROLE, organisation_id: 'ld-tennis-org', email_verified: false, created_at: new Date().toISOString() }]);
 
     await POST(postRequest({ username: 'newcoach', password: TEST_PASSWORD, name: 'New Coach', role: LOWERCASE_ROLE, organisationId: 'ld-tennis-org' }));
 
-    const insertSql = (sqlMock.mock.calls[0][0] as string[]).join('');
+    const insertSql = (sqlMock.mock.calls[1][0] as string[]).join('');
     expect(insertSql).toContain('gen_random_uuid()::text');
     expect(insertSql).not.toContain('::uuid');
   });
@@ -320,47 +382,56 @@ describe('POST /api/admin/users — username/email column contract (root-cause f
 
   it('username and email are written to their own separate columns — email is optional and independent of username', async () => {
     getSessionMock.mockResolvedValue(superAdminSession);
-    sqlMock.mockResolvedValueOnce([{ id: 'new-id', username: 'jane.smith', email: 'jane@council.gov.au', name: 'Jane Smith', role: UPPERCASE_ROLE, organisation_id: 'ld-tennis-org', email_verified: false, created_at: new Date().toISOString() }]);
+    sqlMock
+      .mockResolvedValueOnce(superAdminRow)
+      .mockResolvedValueOnce([{ id: 'new-id', username: 'jane.smith', email: 'jane@council.gov.au', name: 'Jane Smith', role: UPPERCASE_ROLE, organisation_id: 'ld-tennis-org', email_verified: false, created_at: new Date().toISOString() }]);
 
     const res = await POST(postRequest({ username: 'jane.smith', email: 'jane@council.gov.au', password: TEST_PASSWORD, name: 'Jane Smith', role: LOWERCASE_ROLE, organisationId: 'ld-tennis-org' }));
     expect(res.status).toBe(201);
 
-    const insertSql = (sqlMock.mock.calls[0][0] as string[]).join('');
+    const insertSql = (sqlMock.mock.calls[1][0] as string[]).join('');
     expect(insertSql).toContain('INSERT INTO users (id, username, email, password_hash, name, role, organisation_id, email_verified, updated_at)');
-    const insertArgs = sqlMock.mock.calls[0]
+    const insertArgs = sqlMock.mock.calls[1]
     expect(insertArgs).toContain('jane.smith')
     expect(insertArgs).toContain('jane@council.gov.au')
   })
 
   it('username is required — a request with only an email (no username) is rejected before any DB call, matching the form\'s own required={f.key !== \'email\'} contract', async () => {
     getSessionMock.mockResolvedValue(superAdminSession)
+    sqlMock.mockResolvedValueOnce(superAdminRow)
     const res = await POST(postRequest({ email: 'jane@council.gov.au', password: TEST_PASSWORD, name: 'Jane Smith', role: LOWERCASE_ROLE, organisationId: 'ld-tennis-org' }))
     expect(res.status).toBe(400)
-    expect(sqlMock).not.toHaveBeenCalled()
+    expect(sqlMock).toHaveBeenCalledTimes(1)
   })
 
   it('email is genuinely optional — a username-only account (no email) still succeeds', async () => {
     getSessionMock.mockResolvedValue(superAdminSession)
-    sqlMock.mockResolvedValueOnce([{ id: 'new-id', username: 'jane.smith', email: null, name: 'Jane Smith', role: UPPERCASE_ROLE, organisation_id: 'ld-tennis-org', email_verified: false, created_at: new Date().toISOString() }])
+    sqlMock
+      .mockResolvedValueOnce(superAdminRow)
+      .mockResolvedValueOnce([{ id: 'new-id', username: 'jane.smith', email: null, name: 'Jane Smith', role: UPPERCASE_ROLE, organisation_id: 'ld-tennis-org', email_verified: false, created_at: new Date().toISOString() }])
 
     const res = await POST(postRequest({ username: 'jane.smith', password: TEST_PASSWORD, name: 'Jane Smith', role: LOWERCASE_ROLE, organisationId: 'ld-tennis-org' }))
     expect(res.status).toBe(201)
-    const insertArgs = sqlMock.mock.calls[0]
+    const insertArgs = sqlMock.mock.calls[1]
     expect(insertArgs).toContain(null)
   })
 
   it('the INSERT supplies updated_at explicitly (now()) — the other column with no database-level default', async () => {
     getSessionMock.mockResolvedValue(superAdminSession)
-    sqlMock.mockResolvedValueOnce([{ id: 'new-id', username: 'jane.smith', email: null, name: 'Jane Smith', role: UPPERCASE_ROLE, organisation_id: 'ld-tennis-org', email_verified: false, created_at: new Date().toISOString() }])
+    sqlMock
+      .mockResolvedValueOnce(superAdminRow)
+      .mockResolvedValueOnce([{ id: 'new-id', username: 'jane.smith', email: null, name: 'Jane Smith', role: UPPERCASE_ROLE, organisation_id: 'ld-tennis-org', email_verified: false, created_at: new Date().toISOString() }])
 
     await POST(postRequest({ username: 'jane.smith', password: TEST_PASSWORD, name: 'Jane Smith', role: LOWERCASE_ROLE, organisationId: 'ld-tennis-org' }))
-    const insertSql = (sqlMock.mock.calls[0][0] as string[]).join('')
+    const insertSql = (sqlMock.mock.calls[1][0] as string[]).join('')
     expect(insertSql).toMatch(/now\(\)/)
   })
 
   it('a username collision (unique-constraint violation) is reported as "Username already taken", distinguishing it from an email collision', async () => {
     getSessionMock.mockResolvedValue(superAdminSession)
-    sqlMock.mockRejectedValueOnce(new Error('duplicate key value violates unique constraint "users_username_key"'))
+    sqlMock
+      .mockResolvedValueOnce(superAdminRow)
+      .mockRejectedValueOnce(new Error('duplicate key value violates unique constraint "users_username_key"'))
 
     const res = await POST(postRequest({ username: 'jane.smith', password: TEST_PASSWORD, name: 'Jane Smith', role: LOWERCASE_ROLE, organisationId: 'ld-tennis-org' }))
     expect(res.status).toBe(409)
@@ -370,7 +441,9 @@ describe('POST /api/admin/users — username/email column contract (root-cause f
 
   it('an unexpected database error still returns a real JSON error body — never a bare re-throw', async () => {
     getSessionMock.mockResolvedValue(superAdminSession)
-    sqlMock.mockRejectedValueOnce(new Error('null value in column "username" of relation "users" violates not-null constraint'))
+    sqlMock
+      .mockResolvedValueOnce(superAdminRow)
+      .mockRejectedValueOnce(new Error('null value in column "username" of relation "users" violates not-null constraint'))
 
     const res = await POST(postRequest({ username: 'jane.smith', password: TEST_PASSWORD, name: 'Jane Smith', role: LOWERCASE_ROLE, organisationId: 'ld-tennis-org' }))
     expect(res.status).toBe(500)
@@ -380,7 +453,9 @@ describe('POST /api/admin/users — username/email column contract (root-cause f
 
   it('a failure in the verification-email step (createToken throwing — e.g. a missing email_tokens table, confirmed against real DEV) does NOT fail the request — the user row is already committed and this is a non-fatal side effect', async () => {
     getSessionMock.mockResolvedValue(superAdminSession)
-    sqlMock.mockResolvedValueOnce([{ id: 'new-id', username: 'jane.smith', email: 'jane@council.gov.au', name: 'Jane Smith', role: UPPERCASE_ROLE, organisation_id: 'ld-tennis-org', email_verified: false, created_at: new Date().toISOString() }])
+    sqlMock
+      .mockResolvedValueOnce(superAdminRow)
+      .mockResolvedValueOnce([{ id: 'new-id', username: 'jane.smith', email: 'jane@council.gov.au', name: 'Jane Smith', role: UPPERCASE_ROLE, organisation_id: 'ld-tennis-org', email_verified: false, created_at: new Date().toISOString() }])
     const { createToken } = await import('@/lib/tokens')
     vi.mocked(createToken).mockRejectedValueOnce(new Error('relation "email_tokens" does not exist'))
 

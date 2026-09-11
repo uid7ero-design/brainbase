@@ -153,25 +153,39 @@ describe('lib/org.ts source — the SELECT now retrieves status', () => {
   });
 });
 
-describe('Known alternate session helper that bypasses the authoritative DB check (report only — not fixed in this phase, see HR-0.5 report)', () => {
+describe('SEC-1A: the app/api/admin/users bypass documented by HR-0.5 is now fixed (was: "Known alternate session helper that bypasses the authoritative DB check")', () => {
   function read(relPath: string): string {
     return fs.readFileSync(path.join(process.cwd(), relPath), 'utf8');
   }
 
-  it('app/api/admin/users/route.ts authorizes GET/PATCH/DELETE/POST from the raw JWT session (getSession) directly, never calling requireSession()/requireRole() — this regression guard documents the bypass exists so it is not silently reintroduced as "already fixed"', () => {
-    // A doc comment in this file mentions requireSession() BY NAME (to
-    // explain a role-casing convention it mirrors) without ever importing
-    // or calling it — checking for an actual import/call, not the bare
-    // word, is what proves the bypass is real rather than a false positive
-    // off that comment.
+  it('app/api/admin/users/route.ts no longer authorizes from the raw JWT session (getSession) — it now calls requireRole(\'super_admin\') from @/lib/org for every method', () => {
+    // This test previously asserted the OPPOSITE — that the bypass existed
+    // and was deliberately not fixed in HR-0.5 — as a regression guard so
+    // it wouldn't be silently assumed fixed. SEC-1A fixed it; this test now
+    // guards the fix itself. See tests/containment/
+    // adminUsersAuthoritativeSession.test.ts for full behavioral coverage
+    // (this file only re-confirms the structural claim, matching this
+    // file's own established source-check convention above).
     const src = read('app/api/admin/users/route.ts');
     const codeOnly = src
       .replace(/\/\*[\s\S]*?\*\//g, '')   // strip /* */ block comments
       .replace(/\/\/[^\n]*/g, '');        // strip // line comments
-    expect(src).toContain("session.role?.toLowerCase() !== 'super_admin'");
-    expect(codeOnly).not.toMatch(/import\s*\{[^}]*\brequireSession\b/);
-    expect(codeOnly).not.toMatch(/import\s*\{[^}]*\brequireRole\b/);
-    expect(codeOnly).not.toMatch(/\brequireSession\s*\(\)/);
-    expect(codeOnly).not.toMatch(/\brequireRole\s*\(/);
+    expect(codeOnly).not.toMatch(/session\.role?\??\.toLowerCase\(\)\s*!==\s*'super_admin'/);
+    expect(codeOnly).toContain("from '@/lib/org'");
+    expect((codeOnly.match(/requireRole\(\s*'super_admin'\s*\)/g) ?? []).length).toBe(4);
+    expect(codeOnly).not.toMatch(/import\s*\{[^}]*\bgetSession\b/);
+    expect(codeOnly).not.toMatch(/\bgetSession\s*\(/);
+  });
+
+  it('app/api/admin/impersonate/route.ts (the other SEC-1A route) is likewise fixed', () => {
+    const src = read('app/api/admin/impersonate/route.ts');
+    const codeOnly = src
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/\/\/[^\n]*/g, '');
+    expect(codeOnly).not.toMatch(/session\.role\s*!==\s*'super_admin'/);
+    expect(codeOnly).toContain("from '@/lib/org'");
+    expect((codeOnly.match(/requireRole\(\s*'super_admin'\s*\)/g) ?? []).length).toBe(3);
+    expect(codeOnly).not.toMatch(/import\s*\{[^}]*\bgetSession\b/);
+    expect(codeOnly).not.toMatch(/\bgetSession\s*\(/);
   });
 });
