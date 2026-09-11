@@ -238,13 +238,16 @@ describe('Phase D.4.2 — capability icons across all three personas', () => {
   // 'quotes', same mirrored-in-both-branches pattern — counts updated
   // from 3 to 4; still no icon leaked onto a founder-only or
   // LD-Tennis-bespoke item.
-  it('Persona 2/3 (shared branch + LD Tennis branch): only Events, CRM, Organiser, and Commercial NavItem entries carry a capability prop, using this file\'s own already-computed regions — no icon leaked onto a founder-only or LD-Tennis-bespoke item', () => {
+  // HR-1 People Foundation added People as a fifth real capability-gated
+  // NavItem, mirroring Events/CRM/Organiser/Commercial exactly in both
+  // branches — counts updated from 4 to 5.
+  it('Persona 2/3 (shared branch + LD Tennis branch): only Events, CRM, Organiser, Commercial, and People NavItem entries carry a capability prop, using this file\'s own already-computed regions — no icon leaked onto a founder-only or LD-Tennis-bespoke item', () => {
     const sharedCapabilityProps = sharedRegion.match(/capability="[a-zA-Z]+"/g) ?? []
     const ldTennisCapabilityProps = ldTennisRegion.match(/capability="[a-zA-Z]+"/g) ?? []
-    expect(sharedCapabilityProps.length).toBe(4) // Events & Ticketing, CRM, Commercial, Organiser
-    expect(ldTennisCapabilityProps.length).toBe(4) // Events, CRM, Commercial, Organiser
+    expect(sharedCapabilityProps.length).toBe(5) // Events & Ticketing, CRM, Commercial, Organiser, People
+    expect(ldTennisCapabilityProps.length).toBe(5) // Events, CRM, Commercial, Organiser, People
     for (const prop of [...sharedCapabilityProps, ...ldTennisCapabilityProps]) {
-      expect(['capability="events"', 'capability="crm"', 'capability="organiser"', 'capability="quotes"']).toContain(prop)
+      expect(['capability="events"', 'capability="crm"', 'capability="organiser"', 'capability="quotes"', 'capability="people"']).toContain(prop)
     }
   })
 

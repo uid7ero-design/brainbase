@@ -240,11 +240,14 @@ describe('CapabilityIcon — TopNav wiring specifics (Phase D.4.2)', () => {
   // a valid capability id here, not an excluded one. Phase C3 added a
   // fourth mirrored item, Commercial (gated on 'quotes') — count grows
   // from 6 to 8.
-  it('TopNav only ever passes a capability icon to genuinely capability-gated items — exactly 8 call sites (LD Tennis Events/CRM/Commercial/Organiser + generic Events & Ticketing/CRM/Commercial/Organiser), never a fifth capability id', () => {
+  // HR-1 People Foundation — adds a fifth mirrored item, People (gated
+  // on 'people'), matching the Events/CRM/Organiser/Commercial pattern
+  // exactly (LD Tennis + generic branches) — count grows from 8 to 10.
+  it('TopNav only ever passes a capability icon to genuinely capability-gated items — exactly 10 call sites (LD Tennis Events/CRM/Commercial/Organiser/People + generic Events & Ticketing/CRM/Commercial/Organiser/People), never a sixth capability id', () => {
     const capabilityProps = topNavCode.match(/capability="[a-z]+"/g) ?? []
-    expect(capabilityProps).toHaveLength(8)
+    expect(capabilityProps).toHaveLength(10)
     for (const prop of capabilityProps) {
-      expect(['capability="events"', 'capability="crm"', 'capability="organiser"', 'capability="quotes"']).toContain(prop)
+      expect(['capability="events"', 'capability="crm"', 'capability="organiser"', 'capability="quotes"', 'capability="people"']).toContain(prop)
     }
   })
 

@@ -1292,6 +1292,16 @@ function AppNav({
       'quotes',
     );
 
+  // HR-1 People Foundation — same capability-driven pattern as
+  // hasEvents/hasCrm/hasOrganiser/hasCommercial above. Gated purely on
+  // the 'people' entitlement, never on role/dashboardVariant — People
+  // is a joinable per-organisation module like every other capability
+  // here, not a Founder OS/internal tool.
+  const hasPeople =
+    enabledCapabilities.includes(
+      'people',
+    );
+
   const initials = name
     .split(' ')
     .map(
@@ -1432,6 +1442,19 @@ function AppNav({
                 capability="organiser"
                 active={pathname.startsWith(
                   '/organiser',
+                )}
+              />
+            )}
+
+            {/* HR-1 People Foundation — same capability-gated pattern as
+                Organiser/CRM/Commercial above, never role-driven. */}
+            {hasPeople && (
+              <NavItem
+                href="/people"
+                label="People"
+                capability="people"
+                active={pathname.startsWith(
+                  '/people',
                 )}
               />
             )}
@@ -1661,6 +1684,19 @@ function AppNav({
                 capability="organiser"
                 active={pathname.startsWith(
                   '/organiser',
+                )}
+              />
+            )}
+
+            {/* HR-1 People Foundation — same capability-gated pattern as
+                Organiser/CRM/Commercial above, never role-driven. */}
+            {hasPeople && (
+              <NavItem
+                href="/people"
+                label="People"
+                capability="people"
+                active={pathname.startsWith(
+                  '/people',
                 )}
               />
             )}
