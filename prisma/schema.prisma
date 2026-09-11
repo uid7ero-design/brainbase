@@ -66,6 +66,8 @@ model Organisation {
   source_systems         SourceSystem[]
   source_mappings        SourceMapping[]
   mapping_versions       MappingVersion[]
+  source_record_identities   SourceRecordIdentity[]
+  source_record_observations SourceRecordObservation[]
 
   // stripe_account_id also carries a UNIQUE constraint in the live SQL
   // — a partial index (WHERE NOT NULL), same "Prisma mirrors, raw SQL
@@ -275,6 +277,7 @@ model ImportBatch {
   organisation Organisation  @relation(fields: [organisation_id], references: [id])
   uploader     User?         @relation(fields: [uploaded_by], references: [id], onDelete: SetNull)
   uploads      Upload[]
+  source_record_observations SourceRecordObservation[]
   // Composite tenant-scoped FK (MATCH SIMPLE) — a MATCH SIMPLE
   // constraint means a NULL source_system_id (every existing/legacy
   // row) is entirely exempt from this check. For a batch that DOES
@@ -395,6 +398,7 @@ model Upload {
   // that DOES carry lineage, it is structurally impossible to reference
   // a MappingVersion belonging to a different organisation_id.
   mapping_version    MappingVersion?    @relation(fields: [mapping_version_id, organisation_id], references: [id, organisation_id])
+  source_record_observations SourceRecordObservation[]
 
   @@index([organisation_id])
   @@index([schema_type])
@@ -406,6 +410,17 @@ model Upload {
   // constraint without conflict; only two genuinely-identical canonical
   // (import_batch_id, worksheet_index) pairs are ever rejected.
   @@unique([import_batch_id, worksheet_index])
+  // Data Hub 6.1A — required by SourceRecordObservation's composite
+  // tenant-scoped FK below. This is a NEW addition (Upload previously had
+  // no such constraint, unlike SourceSystem/ImportBatch/MappingVersion,
+  // which all already had one) — added deliberately here rather than
+  // reusing IllegalDumping.upload_id's own pre-existing bare, non-composite
+  // FK as a precedent: that inconsistency is explicitly out of scope to
+  // fix (see IllegalDumping.upload_id's own comment), but a BRAND NEW FK
+  // in this slice should not knowingly repeat it. Purely additive
+  // (a second unique index alongside the existing PK), zero behavior
+  // change, zero data risk.
+  @@unique([id, organisation_id])
   @@map("uploads")
 }
 
@@ -717,14 +732,211 @@ model IllegalDumping {
   metadata        Json           @default("{}")
   created_at      DateTime       @default(now())
   updated_at      DateTime       @updatedAt
+  // Data Hub 6.1A — additive, nullable reconciliation identity link.
+  // NULL for every existing row (zero backfill — no Ticket #/external
+  // identity is inferred retroactively) and for every row written by the
+  // separate, unhardened legacy /data writer (modules/dumping/index.ts),
+  // which this slice does not touch and which will never populate this
+  // column. @unique enforces "at most one current IllegalDumping
+  // projection per source identity" — mirrors Upload's own
+  // (import_batch_id, worksheet_index) NULL-exempt uniqueness pattern:
+  // Postgres's standard UNIQUE semantics treat every NULL as distinct, so
+  // all NULL rows (every existing/legacy row) coexist freely, and only a
+  // genuine duplicate non-NULL identity link is ever rejected. This
+  // column is populated only by a LATER, separately-authorized 6.1
+  // integration slice — this schema-only slice never writes it.
+  source_record_identity_id String?              @unique
   organisation    Organisation   @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
   upload          Upload?        @relation(fields: [upload_id], references: [id])
+  // Composite tenant-scoped FK (MATCH SIMPLE) — mirrors
+  // import_batches_source_system_org_fkey's own established precedent. A
+  // NULL source_record_identity_id (every existing/legacy row) is
+  // entirely exempt from this check. For a row that DOES carry a link, it
+  // is structurally impossible to reference a SourceRecordIdentity
+  // belonging to a different organisation_id.
+  source_record_identity SourceRecordIdentity? @relation(fields: [source_record_identity_id, organisation_id], references: [id, organisation_id])
 
+  // Required by the one-to-one source_record_identity relation's own
+  // composite FK shape above — Prisma's relation validator requires this
+  // even though source_record_identity_id already carries its own bare
+  // @unique; trivially satisfied, not a new real-world invariant.
+  @@unique([source_record_identity_id, organisation_id])
   @@index([organisation_id])
   @@index([status])
   @@index([report_date])
   @@index([suburb])
   @@map("illegal_dumping")
+}
+
+// Data Hub 6.1A — additive reconciliation persistence foundation
+// (schema-only; no runtime behavior change). Establishes durable source-
+// record identity + immutable observation history for a future,
+// separately-authorized reconciliation service (6.1B+). Zero rows are
+// created or read by any current runtime path as a result of this
+// slice — the 6.0C1 first-import guard (confirmWorksheet.ts) remains the
+// sole runtime authority blocking a second governed Illegal Dumping
+// import until that later slice actually wires reconciliation in.
+//
+// A SourceRecordIdentity represents one durable, source-owned business
+// record (e.g. one Onkaparinga Illegal Dumping "Ticket #") within one
+// tenant-owned SourceSystem — NOT a domain row (IllegalDumping), NOT a
+// worksheet/Upload, NOT an ImportBatch, NOT a MappingVersion. Deliberately
+// excludes all of the latter from its own identity — a different
+// MappingVersion, a different physical file (SHA), or a different Upload
+// must never create a second allowance for the SAME logical source
+// record (Phase 6.1 discovery, sections K/S/T).
+model SourceRecordIdentity {
+  id                 String   @id @default(cuid())
+  organisation_id    String
+  source_system_id   String
+  // Deliberately a plain String, not an enum — mirrors
+  // Upload.lineage_kind's own established precedent (also a discriminator
+  // expected to grow over time) exactly, and for the identical reason:
+  // adding a new domain must never require an enum ALTER TYPE migration.
+  // 'ILLEGAL_DUMPING' is the only value any current runtime path can ever
+  // produce (none does yet). Deliberately NOT Upload.lineage_kind itself
+  // (Phase 6.1 discovery, section K/Q) — lineage_kind is a GENERIC
+  // Data Hub worksheet-lineage discriminator ('LEGACY' | 'DATA_HUB'),
+  // shared by every domain; domain_kind is the separate, per-DOMAIN
+  // concept lineage_kind was never meant to carry, and conflating the two
+  // would make a future second Data Hub domain sharing one SourceSystem
+  // silently collide against this table's own identity uniqueness below.
+  domain_kind        String
+  // Generic external-identity value (e.g. Onkaparinga's own "Ticket #")
+  // — deliberately named generically, never Ticket-specific, since a
+  // future SourceSystem/domain may use an entirely different external-id
+  // vocabulary. Bounded/non-empty via a SQL CHECK constraint
+  // (source_record_identities_external_id_bounded_check, see
+  // scripts/create-datahub-reconciliation.sql) that this Prisma version
+  // cannot express directly — this comment is documentation only, not
+  // the enforcement itself.
+  source_external_id String
+  created_at         DateTime @default(now())
+  updated_at         DateTime @updatedAt
+
+  organisation    Organisation             @relation(fields: [organisation_id], references: [id])
+  // Deliberately NOT a Prisma @relation to SourceSystem (no navigable
+  // property, so SourceSystem's own model carries no reverse-relation
+  // field back to this one) — source_system_id/organisation_id are plain
+  // scalar columns here. The actual composite tenant-scoped FK
+  // (source_record_identities_source_system_org_fkey, MATCH SIMPLE) is
+  // still created and validated at the DATABASE level by
+  // scripts/create-datahub-reconciliation.sql exactly like every other
+  // composite FK in this file — cross-tenant references are exactly as
+  // structurally impossible as they would be with a Prisma relation.
+  // This is a deliberate modeling choice, not a weaker constraint: adding
+  // a real Prisma relation here would force a matching reverse-relation
+  // array field onto the SourceSystem model (Prisma's own opposite-
+  // relation-field validation requirement), which would introduce this
+  // phase's own vocabulary into SourceSystem's model body — the exact
+  // thing Phase 5B.1's own schema-containment test
+  // (tests/containment/dataHubSourceMappingSchema.test.ts, "no Phase 6 /
+  // Onkaparinga-specific schema leakage") exists to catch. Leaving this
+  // as a plain scalar FK avoids that collision without touching a 4th
+  // file (this phase's hard scope is exactly prisma/schema.prisma + one
+  // new SQL script + one new test file).
+  illegal_dumping IllegalDumping?
+  observations    SourceRecordObservation[]
+
+  // Required by IllegalDumping's and SourceRecordObservation's composite
+  // tenant-scoped FKs.
+  @@unique([id, organisation_id])
+  // THE identity invariant (Phase 6.1 discovery, section K) — a Ticket #
+  // may legitimately recur across different SourceSystems, different
+  // organisations, or (if a future second domain onboards through the
+  // same SourceSystem) different domain_kind values; only the exact
+  // 4-tuple below is a genuine duplicate.
+  @@unique([organisation_id, source_system_id, domain_kind, source_external_id])
+  @@index([organisation_id, source_system_id])
+  @@map("source_record_identities")
+}
+
+// Truthful PERSISTED outcome vocabulary only — deliberately narrower than
+// the full NEW/UNCHANGED/CHANGED/INVALID/CONFLICT PLANNER vocabulary a
+// future reconciliation service will compute in application code (Phase
+// 6.1 discovery, section AA/U/V): under the existing, unchanged
+// all-or-nothing Confirm architecture, an INVALID row fails the entire
+// mapper call before any transaction ever opens, and a CONFLICT is
+// designed to fail the whole worksheet the same way — neither can ever
+// reach a committed write, so encoding them here would be an impossible,
+// never-actually-persisted state. Only genuinely-reachable, committed
+// outcomes are represented.
+enum SourceRecordObservationOutcome {
+  NEW
+  UNCHANGED
+  CHANGED
+}
+
+// Immutable observation history — one row per (source identity, worksheet
+// Confirm) pair, appended forever, never updated or deleted by any
+// application code path. Immutability is enforced by PROCESS convention
+// only in this slice (no update/delete service exists or is added here) —
+// mirrors MappingVersion's own explicitly-documented precedent exactly
+// ("created once, never updated in place... enforced by process, not a
+// DB trigger"). Deliberately excludes raw source rows, Notes, and any
+// other customer PII — see change_summary below.
+model SourceRecordObservation {
+  id                         String                          @id @default(cuid())
+  organisation_id            String
+  source_record_identity_id String
+  import_batch_id            String
+  upload_id                  String
+  // Nullable — mirrors Upload.mapping_version_id's own established
+  // nullable precedent exactly: not every worksheet is mapped (a legacy/
+  // unmapped worksheet has no MappingVersion at all), and reconciliation
+  // must remain meaningful for both.
+  mapping_version_id         String?
+  observed_at                DateTime                        @default(now())
+  // Bounded to exactly a SHA-256 hex digest via a SQL CHECK constraint
+  // (source_record_observations_hash_bounded_check, see
+  // scripts/create-datahub-reconciliation.sql) that this Prisma version
+  // cannot express directly — this comment is documentation only. No
+  // hashing algorithm/canonical-field policy is implemented in this
+  // slice; this column only creates storage for a future slice's output.
+  canonical_hash              String
+  // Incremented only when the (not-yet-implemented) canonical-field list
+  // or normalization rule changes, so a future policy change can be
+  // distinguished from an actual source-data change when comparing
+  // historical hashes. Defaults to 1; no runtime path writes any value
+  // in this slice.
+  hash_version                Int                             @default(1)
+  outcome                     SourceRecordObservationOutcome
+  // Narrow, bounded, future-application-validated snapshot of ONLY the
+  // (not-yet-decided) source-owned canonical field values relevant to a
+  // CHANGED outcome — never a raw source row, never Notes, never any
+  // other customer PII. Nullable/deferred: no runtime path writes any
+  // value in this slice; the exact bounded shape is a 6.1B+ decision.
+  change_summary              Json?
+  created_at                  DateTime                        @default(now())
+
+  organisation    Organisation           @relation(fields: [organisation_id], references: [id])
+  // Composite tenant-scoped FK — structurally impossible to reference a
+  // SourceRecordIdentity belonging to a different organisation_id.
+  source_identity SourceRecordIdentity   @relation(fields: [source_record_identity_id, organisation_id], references: [id, organisation_id])
+  // Composite tenant-scoped FK — mirrors Upload's own established
+  // import_batch precedent exactly.
+  import_batch    ImportBatch            @relation(fields: [import_batch_id, organisation_id], references: [id, organisation_id])
+  // Composite tenant-scoped FK — newly added to Upload in this exact
+  // slice (see Upload.@@unique([id, organisation_id]) above) specifically
+  // to make this relationship structurally tenant-safe rather than a bare
+  // FK, per Phase 6.1A's own explicit requirement not to repeat
+  // IllegalDumping.upload_id's pre-existing, out-of-scope inconsistency.
+  upload          Upload                 @relation(fields: [upload_id, organisation_id], references: [id, organisation_id])
+  // Deliberately NOT a Prisma @relation to MappingVersion (mirrors
+  // SourceRecordIdentity.source_system_id's own identical choice above —
+  // see that field's comment for the full rationale). mapping_version_id/
+  // organisation_id remain plain scalar columns; the composite tenant-
+  // scoped FK (source_record_observations_mapping_version_org_fkey,
+  // MATCH SIMPLE — a NULL mapping_version_id is entirely exempt) is still
+  // created and validated at the DATABASE level by
+  // scripts/create-datahub-reconciliation.sql. Adding a real Prisma
+  // relation here would force a matching reverse-relation array field
+  // onto MappingVersion, tripping the same pre-existing Phase 5B.1
+  // schema-containment test this avoids on the SourceSystem side.
+
+  @@index([organisation_id, source_record_identity_id])
+  @@index([upload_id])
+  @@map("source_record_observations")
 }
 
 model MissedCollection {
