@@ -456,31 +456,25 @@ describe('Zero runtime reconciliation wiring (T21/T22/T25)', () => {
   })
 })
 
-// ═══════════════════════════════════════════════════════════════════
-// Diff containment — only the three authorized files changed
-// ═══════════════════════════════════════════════════════════════════
-
-describe('Diff containment — only authorized files changed vs. origin/main', () => {
-  it('the full diff touches exactly prisma/schema.prisma, the new migration script, and this test file', () => {
-    const changed = execSync(`git diff --name-only ${resolveBaseRef()}`, { cwd: REPO_ROOT, encoding: 'utf-8' })
-      .split('\n')
-      .map(l => l.trim())
-      .filter(Boolean)
-    const untracked = execSync('git ls-files --others --exclude-standard', { cwd: REPO_ROOT, encoding: 'utf-8' })
-      .split('\n')
-      .map(l => l.trim())
-      .filter(Boolean)
-    const allTouched = new Set([...changed, ...untracked])
-    const allowed = new Set([
-      'prisma/schema.prisma',
-      'scripts/create-datahub-reconciliation.sql',
-      'tests/containment/dataHubReconciliationSchemaFoundation.test.ts',
-    ])
-    for (const f of allTouched) {
-      expect(allowed.has(f), `unauthorized file in diff: ${f}`).toBe(true)
-    }
-  })
-})
+// Removed (post-merge cleanup): a "Diff containment — only authorized
+// files changed vs. origin/main" block used to live here, asserting
+// that `git diff --name-only origin/main` contained only this PR's
+// (6.1A's) own three historical files. That assertion was valid ONLY
+// while this PR was itself under review — resolveBaseRef() resolves to
+// whatever origin/main IS at test-run time, so once this PR merged,
+// origin/main itself absorbed those three files, and the SAME test
+// would then compare against ANY LATER PR's own (necessarily
+// different) changed files, which can never match this PR's own
+// hardcoded historical allowlist. It was conflating "diff against a
+// moving target ref" with "this PR's specific historical changeset" —
+// true only during this one PR's own active review window, not an
+// evergreen production invariant. Removed outright rather than
+// replaced, per the same repo convention T25/T22/the legacy-/data-
+// writer test above already use correctly: a "byte-identical to
+// origin/main" check scoped to one SPECIFIC named file remains a valid,
+// permanent guard (and all three of those are kept, unchanged); a check
+// of the REPO'S WHOLE diff against a single historical PR's own file
+// list is not.
 
 // ═══════════════════════════════════════════════════════════════════
 // Real disposable-Postgres proof — P1-P12
