@@ -1,6 +1,18 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import sql from '@/lib/db';
-import { getSession } from '@/lib/session';
+import { requireRole } from '@/lib/org';
+import { getClientIp } from '@/lib/clientIp';
+import { logAdminMigrationExecuted } from '@/lib/admin/auditLog';
+
+function forbidden() { return NextResponse.json({ error: 'Forbidden' }, { status: 403 }); }
+
+// SEC-1B1: request metadata for audit logging — matches the identical
+// helper already established in app/api/admin/impersonate/route.ts and
+// app/api/admin/users/route.ts during SEC-1A.
+function requestMeta(req: NextRequest): { ipAddress: string | null; userAgent: string | null } {
+  const ip = getClientIp(req);
+  return { ipAddress: ip === 'unknown' ? null : ip, userAgent: req.headers.get('user-agent') };
+}
 
 /**
  * POST /api/admin/migrate
@@ -8,11 +20,17 @@ import { getSession } from '@/lib/session';
  * and adds any missing columns to the existing users table.
  * Requires super_admin session.
  */
-export async function POST() {
-  const session = await getSession();
-  if (!session || session.role !== 'super_admin') {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-  }
+export async function POST(req: NextRequest) {
+  // SEC-1B1: was raw getSession() + `session.role !== 'super_admin'` — the
+  // JWT-only role claim, never revalidated against the DB. requireRole()
+  // (lib/org.ts) re-reads the caller's current role/organisation
+  // assignment from the database on every call, so a since-demoted,
+  // since-reassigned, or deleted user's still-valid JWT can no longer
+  // trigger this schema migration. Session is captured (not discarded)
+  // because the audit call at the end needs the DB-current actor id and
+  // organisation.
+  let session;
+  try { session = await requireRole('super_admin'); } catch { return forbidden(); }
 
   const steps: string[] = [];
   function step(label: string) { steps.push(label); }
@@ -1164,6 +1182,26 @@ export async function POST() {
   `;
   await sql`CREATE INDEX IF NOT EXISTS idx_organiser_action_confirmations_org_user ON organiser_action_confirmations(organisation_id, user_id)`;
   await sql`CREATE INDEX IF NOT EXISTS idx_organiser_action_confirmations_expires_at ON organiser_action_confirmations(expires_at)`;
+
+  // SEC-1B1: audit — this route was previously entirely unaudited. Placed
+  // as the last statement before the success response, inside the same
+  // try block as every migration step above, so a thrown exception at any
+  // earlier step (caught below) skips this call entirely — no success
+  // event is ever written for a migration that failed partway. Best-
+  // effort, per ADR-0003 (lib/admin/auditLog.ts's own insertAuditLog
+  // never throws), so a dropped audit write can never fail an otherwise-
+  // successful migration.
+  {
+    const { ipAddress, userAgent } = requestMeta(req);
+    await logAdminMigrationExecuted({
+      actorUserId: session.userId,
+      actorOrganisationId: session.organisationId,
+      stepsCompleted: steps.length,
+      lastStep: steps.at(-1) ?? null,
+      ipAddress,
+      userAgent,
+    });
+  }
 
   return NextResponse.json({ success: true, message: 'Migration complete.', steps });
 

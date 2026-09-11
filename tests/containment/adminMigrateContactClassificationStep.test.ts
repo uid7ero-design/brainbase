@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import fs from 'fs'
 import path from 'path'
+import type { NextRequest } from 'next/server'
 
 // Urgent CRM contact classification hotfix — wires the already-approved,
 // already-audited migration (scripts/add-crm-contact-classification.sql,
@@ -131,11 +132,17 @@ describe('app/api/admin/migrate/route.ts — prior migration steps remain intact
 // STATIC — route remains super_admin protected
 // ─────────────────────────────────────────────────────────────────────
 
-describe('app/api/admin/migrate/route.ts — auth is unchanged by this hotfix', () => {
-  it('still requires a session and super_admin role before any step runs, including the new one', () => {
-    expect(routeSource).toContain("import { getSession } from '@/lib/session'")
-    expect(routeSource).toMatch(/if \(!session \|\| session\.role !== 'super_admin'\)/)
-    const authIdx = routeSource.indexOf("session.role !== 'super_admin'")
+describe('app/api/admin/migrate/route.ts — auth is unchanged in THRESHOLD by this hotfix (SEC-1B1 hardened the MECHANISM separately)', () => {
+  it('still requires super_admin before any step runs, including the new one — now via the DB-authoritative requireRole(), not raw getSession()', () => {
+    // SEC-1B1 replaced the raw getSession()+manual-role-comparison gate
+    // with requireRole('super_admin') (lib/org.ts) — same threshold
+    // (super_admin only, unchanged by this hotfix or by SEC-1B1), DB-
+    // authoritative mechanism. See tests/containment/
+    // adminMigrateSec1b1AuthoritativeSession.test.ts for full behavioral
+    // coverage of the new mechanism itself.
+    expect(routeSource).toContain("import { requireRole } from '@/lib/org'")
+    expect(routeSource).toMatch(/requireRole\('super_admin'\)/)
+    const authIdx = routeSource.indexOf("requireRole('super_admin')")
     const step42Idx = routeSource.indexOf("step('42. crm_contacts.classification')")
     expect(authIdx).toBeGreaterThan(-1)
     expect(authIdx).toBeLessThan(step42Idx)
@@ -147,44 +154,121 @@ describe('app/api/admin/migrate/route.ts — auth is unchanged by this hotfix', 
 // authorized, and rejects when not
 // ─────────────────────────────────────────────────────────────────────
 
+function asNextRequest(req: Request): NextRequest {
+  return req as unknown as NextRequest
+}
+
+function migrateRequest(): NextRequest {
+  return asNextRequest(new Request('http://localhost/api/admin/migrate', { method: 'POST' }))
+}
+
+// SEC-1B1: requireRole('super_admin') (lib/org.ts) replaces raw getSession()
+// as the route's gate. Mocked here exactly per the established pattern in
+// tests/containment/orgHomeOrganisationId.test.ts (which tests lib/org.ts's
+// requireSession() directly): mock @/lib/session's getSession, @/lib/db's
+// sql (queue-based, since requireSession's own DB lookup is now the FIRST
+// sql call every request makes), and next/headers' cookies() (read by
+// requireSession for a super_admin's org_override, and required for
+// cookies() to not throw outside a real request context at all).
 const getSessionMock = vi.fn()
-vi.mock('@/lib/session', () => ({ getSession: () => getSessionMock() }))
+vi.mock('@/lib/session', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/session')>()
+  return { ...actual, getSession: (...args: unknown[]) => getSessionMock(...args) }
+})
 
 let calls: { text: string; values: unknown[] }[] = []
+let responseQueue: unknown[][] = []
+let callCount = 0
 const sqlMock = vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
   calls.push({ text: strings.join('?'), values })
-  return Promise.resolve([])
+  return Promise.resolve(responseQueue[callCount++] ?? [])
 })
 vi.mock('@/lib/db', () => ({
   default: (...args: unknown[]) => (sqlMock as unknown as (...a: unknown[]) => unknown)(...(args as [TemplateStringsArray, ...unknown[]])),
 }))
+
+const cookieStore = new Map<string, string>()
+vi.mock('next/headers', () => ({
+  cookies: async () => ({
+    get: (name: string) => (cookieStore.has(name) ? { value: cookieStore.get(name) } : undefined),
+  }),
+}))
+
+// requireRole audits nothing itself, but the route's own last-statement
+// audit call (logAdminMigrationExecuted) is real unless mocked, and it
+// would otherwise attempt a genuine sql`INSERT INTO audit_logs...` — mocked
+// here to a no-op so success-path tests only need to reason about the
+// migration-step sql calls above, not audit_logs insert shape (that's
+// covered separately in tests/containment/adminAuditLog.test.ts's SEC-1B1
+// extension).
+const auditMock = vi.fn<(...args: unknown[]) => Promise<void>>(async () => {})
+vi.mock('@/lib/admin/auditLog', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/admin/auditLog')>()
+  return { ...actual, logAdminMigrationExecuted: (...args: unknown[]) => auditMock(...args) }
+})
+
+function queue(...responses: unknown[][]) { responseQueue = responses; callCount = 0 }
 
 const { POST } = await import('@/app/api/admin/migrate/route')
 
 beforeEach(() => {
   getSessionMock.mockReset()
   sqlMock.mockClear()
+  auditMock.mockClear()
+  cookieStore.clear()
   calls = []
+  responseQueue = []
+  callCount = 0
 })
 
 describe('POST /api/admin/migrate — behavioural', () => {
   it('rejects with 403 when there is no session, before running any SQL', async () => {
     getSessionMock.mockResolvedValue(null)
-    const res = await POST()
+    const res = await POST(migrateRequest())
     expect(res.status).toBe(403)
     expect(sqlMock).not.toHaveBeenCalled()
   })
 
-  it('rejects with 403 when the session role is not super_admin, before running any SQL', async () => {
-    getSessionMock.mockResolvedValue({ userId: 'u1', role: 'manager' })
-    const res = await POST()
+  it('rejects with 403 when the DB-current role is below super_admin, before running any migration step (stale JWT / since-demoted user)', async () => {
+    getSessionMock.mockResolvedValue({ userId: 'u1', organisationId: 'org-a', role: 'super_admin', name: 'Stale JWT' })
+    queue([{ id: 'u1', organisation_id: 'org-a', role: 'manager' }])
+    const res = await POST(migrateRequest())
     expect(res.status).toBe(403)
-    expect(sqlMock).not.toHaveBeenCalled()
+    // requireRole's own requireSession() lookup is the only sql call made —
+    // rejection happens before any migration step runs.
+    expect(calls.length).toBe(1)
+    expect(calls[0].text).toContain('FROM users')
+    expect(calls.some(c => c.text.includes('CREATE TABLE'))).toBe(false)
   })
 
-  it('as super_admin, the run reaches and executes the classification step: adds the column, the guarded CHECK constraint, and the index', async () => {
-    getSessionMock.mockResolvedValue({ userId: 'admin1', role: 'super_admin' })
-    const res = await POST()
+  it('rejects with 403 when the user has been deleted since the JWT was issued (no matching DB row)', async () => {
+    getSessionMock.mockResolvedValue({ userId: 'gone', organisationId: 'org-a', role: 'super_admin', name: 'Deleted User' })
+    queue([])
+    const res = await POST(migrateRequest())
+    expect(res.status).toBe(403)
+    expect(calls.some(c => c.text.includes('CREATE TABLE'))).toBe(false)
+  })
+
+  it('rejects with 403 when the user has been moved to a different organisation since the JWT was issued', async () => {
+    getSessionMock.mockResolvedValue({ userId: 'u1', organisationId: 'org-a', role: 'super_admin', name: 'Reassigned User' })
+    queue([{ id: 'u1', organisation_id: 'org-b', role: 'super_admin' }])
+    const res = await POST(migrateRequest())
+    expect(res.status).toBe(403)
+    expect(calls.some(c => c.text.includes('CREATE TABLE'))).toBe(false)
+  })
+
+  it('rejects with 403 when the user has been deactivated (status INACTIVE) since the JWT was issued', async () => {
+    getSessionMock.mockResolvedValue({ userId: 'u1', organisationId: 'org-a', role: 'super_admin', name: 'Deactivated User' })
+    queue([{ id: 'u1', organisation_id: 'org-a', role: 'super_admin', status: 'INACTIVE' }])
+    const res = await POST(migrateRequest())
+    expect(res.status).toBe(403)
+    expect(calls.some(c => c.text.includes('CREATE TABLE'))).toBe(false)
+  })
+
+  it('as a currently-active DB-confirmed super_admin, the run reaches and executes the classification step: adds the column, the guarded CHECK constraint, and the index', async () => {
+    getSessionMock.mockResolvedValue({ userId: 'admin1', organisationId: 'org-a', role: 'super_admin', name: 'Admin One' })
+    queue([{ id: 'admin1', organisation_id: 'org-a', role: 'super_admin' }])
+    const res = await POST(migrateRequest())
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.success).toBe(true)
@@ -200,15 +284,27 @@ describe('POST /api/admin/migrate — behavioural', () => {
     const indexCall = calls.find(c => c.text.includes('idx_crm_contacts_classification'))
     expect(indexCall).toBeDefined()
     expect(indexCall!.text).toContain('ON crm_contacts(organisation_id, classification)')
+
+    // Successful run is audited exactly once, as the actor who ran it.
+    expect(auditMock).toHaveBeenCalledTimes(1)
+    expect(auditMock.mock.calls[0]?.[0]).toMatchObject({ actorUserId: 'admin1', actorOrganisationId: 'org-a' })
   })
 
   it('no call anywhere during the run is an UPDATE/DELETE/INSERT against crm_contacts', async () => {
-    getSessionMock.mockResolvedValue({ userId: 'admin1', role: 'super_admin' })
-    await POST()
+    getSessionMock.mockResolvedValue({ userId: 'admin1', organisationId: 'org-a', role: 'super_admin', name: 'Admin One' })
+    queue([{ id: 'admin1', organisation_id: 'org-a', role: 'super_admin' }])
+    await POST(migrateRequest())
     const crmContactsWrites = calls.filter(c =>
       c.text.includes('crm_contacts') && /UPDATE|DELETE|INSERT/i.test(c.text) && !c.text.includes('ADD COLUMN') && !c.text.includes('ADD CONSTRAINT'),
     )
     expect(crmContactsWrites).toEqual([])
+  })
+
+  it('no audit event is written when authorization fails', async () => {
+    getSessionMock.mockResolvedValue({ userId: 'u1', organisationId: 'org-a', role: 'super_admin', name: 'Stale JWT' })
+    queue([{ id: 'u1', organisation_id: 'org-a', role: 'manager' }])
+    await POST(migrateRequest())
+    expect(auditMock).not.toHaveBeenCalled()
   })
 })
 

@@ -217,3 +217,105 @@ export async function logUserDeleted(params: {
     userAgent: params.userAgent,
   });
 }
+
+// ── SEC-1B1: privileged migration/mutation tooling ───────────────────────
+//
+// None of these four events is organisation-scoped in the ordinary sense —
+// three of the four routes (full schema migration, session-table migration,
+// CRM classification migration) are platform-wide DDL, not tenant data, so
+// there is no real "target organisation" to attribute the event to. Per the
+// same reasoning already applied to impersonation events (HR-0.5/SEC-1A),
+// organisation_id is set to the ACTOR's own organisation (audit_logs.
+// organisation_id is NOT NULL with a real FK — the acting user's own row
+// always satisfies it) — "which tenant does this belong to" is answered as
+// "the operator who ran it", since these operations don't belong to any
+// tenant's own data. logDemoSeedExecuted is the one genuinely org-scoped
+// exception: the seed operation is scoped to and mutates exactly one real
+// tenant's data, so organisation_id there is that tenant's real id.
+//
+// resource_id is a STABLE identifier naming *what* was run, not a random
+// per-invocation id — these are singleton operations (there is exactly one
+// "full schema migration" a caller can run), so a stable string lets a
+// future query find every historical run of the same operation.
+
+export async function logAdminMigrationExecuted(params: {
+  actorUserId: string;
+  actorOrganisationId: string;
+  stepsCompleted: number;
+  lastStep: string | null;
+  ipAddress: string | null;
+  userAgent: string | null;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.actorOrganisationId,
+    userId: params.actorUserId,
+    action: 'admin_migration.executed',
+    resourceType: 'schema_migration',
+    resourceId: 'admin_migrate_full',
+    beforeState: null,
+    afterState: { stepsCompleted: params.stepsCompleted, lastStep: params.lastStep },
+    ipAddress: params.ipAddress,
+    userAgent: params.userAgent,
+  });
+}
+
+export async function logSessionMigrationExecuted(params: {
+  actorUserId: string;
+  actorOrganisationId: string;
+  results: string[];
+  ipAddress: string | null;
+  userAgent: string | null;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.actorOrganisationId,
+    userId: params.actorUserId,
+    action: 'session_migration.executed',
+    resourceType: 'schema_migration',
+    resourceId: 'admin_migrate_sessions',
+    beforeState: null,
+    afterState: { results: params.results },
+    ipAddress: params.ipAddress,
+    userAgent: params.userAgent,
+  });
+}
+
+export async function logCrmClassificationMigrationExecuted(params: {
+  actorUserId: string;
+  actorOrganisationId: string;
+  ipAddress: string | null;
+  userAgent: string | null;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.actorOrganisationId,
+    userId: params.actorUserId,
+    action: 'crm_classification_migration.executed',
+    resourceType: 'schema_migration',
+    resourceId: 'crm_contacts_classification',
+    beforeState: null,
+    afterState: { migration: 'crm_contacts.classification' },
+    ipAddress: params.ipAddress,
+    userAgent: params.userAgent,
+  });
+}
+
+export async function logDemoSeedExecuted(params: {
+  actorUserId: string;
+  organisationId: string;
+  fileId: string;
+  counts: { wasteRecords: number; fleetMetrics: number; serviceRequests: number };
+  enabledModules: string[];
+  ipAddress: string | null;
+  userAgent: string | null;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId,
+    userId: params.actorUserId,
+    action: 'demo_seed.executed',
+    resourceType: 'demo_seed',
+    resourceId: params.fileId,
+    beforeState: null,
+    afterState: { counts: params.counts, enabledModules: params.enabledModules },
+    ipAddress: params.ipAddress,
+    userAgent: params.userAgent,
+  });
+}

@@ -1,6 +1,17 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import sql from '@/lib/db';
-import { getSession } from '@/lib/session';
+import { requireRole } from '@/lib/org';
+import { getClientIp } from '@/lib/clientIp';
+import { logDemoSeedExecuted } from '@/lib/admin/auditLog';
+
+function forbidden() { return NextResponse.json({ error: 'Forbidden' }, { status: 403 }); }
+
+// SEC-1B1: request metadata for audit logging — matches the identical
+// helper already established in the other SEC-1A/SEC-1B1 admin routes.
+function requestMeta(req: NextRequest): { ipAddress: string | null; userAgent: string | null } {
+  const ip = getClientIp(req);
+  return { ipAddress: ip === 'unknown' ? null : ip, userAgent: req.headers.get('user-agent') };
+}
 
 /**
  * POST /api/admin/seed-demo
@@ -8,11 +19,20 @@ import { getSession } from '@/lib/session';
  * Safe to call multiple times — clears existing demo records first.
  * Requires super_admin or admin role.
  */
-export async function POST() {
-  const session = await getSession();
-  if (!session || !['super_admin', 'admin'].includes(session.role)) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-  }
+export async function POST(req: NextRequest) {
+  // SEC-1B1: was raw getSession() + `['super_admin','admin'].includes(
+  // session.role)` — the JWT-only role claim, never revalidated against
+  // the DB. requireRole('admin') is the exact existing-helper equivalent
+  // of that same threshold: lib/session.ts's ROLE_ORDER places 'admin'
+  // below 'super_admin', and roleGte()-based requireRole('admin') accepts
+  // both — identical to the old two-role allowlist, excluding manager/
+  // viewer/analyst exactly as before. organisationId now comes from
+  // requireSession()'s DB-authoritative resolution (lib/org.ts) rather
+  // than the raw JWT claim — an org-reassigned caller's stale JWT is
+  // rejected outright by that resolution's own cross-org-switch
+  // protection, rather than silently seeding data into their old org.
+  let session;
+  try { session = await requireRole('admin'); } catch { return forbidden(); }
   const orgId = session.organisationId;
 
   // ── Create a demo "uploaded file" record ──────────────────────────────────
@@ -272,6 +292,32 @@ export async function POST() {
         ON CONFLICT (organisation_id, module_id) DO NOTHING
       `;
     }
+  }
+
+  // SEC-1B1: audit — this route was previously entirely unaudited. This
+  // route has no try/catch at all (unchanged — DELETE/INSERT logic is not
+  // altered by this phase), so placing this as the literal last statement
+  // before the success response means an exception thrown at any earlier
+  // point aborts the function and skips this call entirely — no success
+  // event is ever written for a seed run that failed partway. Best-effort
+  // per ADR-0003 — a dropped audit write never fails this response. Unlike
+  // the other three SEC-1B1 routes, this one IS genuinely org-scoped, so
+  // organisation_id is the real tenant whose demo data was (re)seeded.
+  {
+    const { ipAddress, userAgent } = requestMeta(req);
+    await logDemoSeedExecuted({
+      actorUserId: session.userId,
+      organisationId: orgId,
+      fileId,
+      counts: {
+        wasteRecords: wasteRows.length,
+        fleetMetrics: VEHICLES.length * MONTHS.length,
+        serviceRequests: srSeq - 1,
+      },
+      enabledModules: enabledKeys,
+      ipAddress,
+      userAgent,
+    });
   }
 
   return NextResponse.json({

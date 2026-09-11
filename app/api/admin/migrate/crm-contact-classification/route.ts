@@ -1,6 +1,17 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import sql from '@/lib/db';
-import { getSession } from '@/lib/session';
+import { requireRole } from '@/lib/org';
+import { getClientIp } from '@/lib/clientIp';
+import { logCrmClassificationMigrationExecuted } from '@/lib/admin/auditLog';
+
+function forbidden() { return NextResponse.json({ error: 'Forbidden' }, { status: 403 }); }
+
+// SEC-1B1: request metadata for audit logging — matches the identical
+// helper already established in the other SEC-1A/SEC-1B1 admin routes.
+function requestMeta(req: NextRequest): { ipAddress: string | null; userAgent: string | null } {
+  const ip = getClientIp(req);
+  return { ipAddress: ip === 'unknown' ? null : ip, userAgent: req.headers.get('user-agent') };
+}
 
 /**
  * POST /api/admin/migrate/crm-contact-classification
@@ -24,11 +35,14 @@ import { getSession } from '@/lib/session';
  * session, nothing else — no API key, no bypass header, no alternate
  * credential.
  */
-export async function POST() {
-  const session = await getSession();
-  if (!session || session.role !== 'super_admin') {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-  }
+export async function POST(req: NextRequest) {
+  // SEC-1B1: was raw getSession() + `session.role !== 'super_admin'` — the
+  // JWT-only role claim, never revalidated against the DB. requireRole()
+  // re-reads the caller's current role/organisation assignment from the
+  // database on every call, so a since-demoted, since-reassigned, or
+  // deleted user's still-valid JWT can no longer trigger this migration.
+  let session;
+  try { session = await requireRole('super_admin'); } catch { return forbidden(); }
 
   try {
     await sql`ALTER TABLE crm_contacts ADD COLUMN IF NOT EXISTS classification TEXT`;
@@ -52,6 +66,20 @@ export async function POST() {
       END $$
     `;
     await sql`CREATE INDEX IF NOT EXISTS idx_crm_contacts_classification ON crm_contacts(organisation_id, classification)`;
+
+    // SEC-1B1: audit — this route was previously entirely unaudited.
+    // Placed as the last statement before the success response, inside
+    // the same try block as the migration statements above, so a thrown
+    // exception (caught below) skips this call entirely.
+    {
+      const { ipAddress, userAgent } = requestMeta(req);
+      await logCrmClassificationMigrationExecuted({
+        actorUserId: session.userId,
+        actorOrganisationId: session.organisationId,
+        ipAddress,
+        userAgent,
+      });
+    }
 
     return NextResponse.json({ success: true, migration: 'crm_contacts.classification' });
   } catch (err: unknown) {
