@@ -53,6 +53,31 @@ function blockScope(source: string, startMarker: string, endMarker: string): str
   return source.slice(start, end)
 }
 
+// Resolves a local ref that diffs cleanly against origin/main's content,
+// memoized for the whole file. A plain local dev checkout already has
+// `origin/main` available and this resolves instantly. A CI checkout
+// (actions/checkout@v4 defaults to a shallow, single-ref clone) has no
+// local `origin/main` ref at all — `git diff origin/main` there fails
+// with "fatal: bad revision 'origin/main'", not a real diff difference.
+// Explicitly fetching main (shallow, `--depth=1`) makes this resolve
+// identically in both environments without depending on any CI-specific
+// env var (GITHUB_BASE_REF etc.) or requiring a change to the pre-
+// existing, out-of-scope .github/workflows/ci.yml checkout step.
+let baseRef: string | null = null
+function resolveBaseRef(): string {
+  if (baseRef) return baseRef
+  try {
+    execSync('git rev-parse --verify origin/main', { cwd: REPO_ROOT, stdio: 'ignore' })
+    baseRef = 'origin/main'
+    return baseRef
+  } catch {
+    // fall through to explicit fetch
+  }
+  execSync('git fetch origin main --depth=1 -q', { cwd: REPO_ROOT })
+  baseRef = 'FETCH_HEAD'
+  return baseRef
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // T1-T3 — SourceRecordIdentity Prisma model shape
 // ═══════════════════════════════════════════════════════════════════
@@ -410,7 +435,7 @@ describe('Zero runtime reconciliation wiring (T21/T22/T25)', () => {
     const guardFile = 'lib/data-hub/importBatch/confirmWorksheet.ts'
     const fullPath = path.resolve(REPO_ROOT, guardFile)
     if (!fs.existsSync(fullPath)) return
-    const diff = execSync(`git diff origin/main -- "${guardFile}"`, { cwd: REPO_ROOT, encoding: 'utf-8' })
+    const diff = execSync(`git diff ${resolveBaseRef()} -- "${guardFile}"`, { cwd: REPO_ROOT, encoding: 'utf-8' })
     expect(diff.trim(), `expected zero diff to ${guardFile} vs origin/main`).toBe('')
   })
 
@@ -418,7 +443,7 @@ describe('Zero runtime reconciliation wiring (T21/T22/T25)', () => {
     const mapperFile = 'lib/data-hub/illegalDumpingMapper.ts'
     const fullPath = path.resolve(REPO_ROOT, mapperFile)
     if (!fs.existsSync(fullPath)) return
-    const diff = execSync(`git diff origin/main -- "${mapperFile}"`, { cwd: REPO_ROOT, encoding: 'utf-8' })
+    const diff = execSync(`git diff ${resolveBaseRef()} -- "${mapperFile}"`, { cwd: REPO_ROOT, encoding: 'utf-8' })
     expect(diff.trim(), `expected zero diff to ${mapperFile} vs origin/main`).toBe('')
   })
 
@@ -426,7 +451,7 @@ describe('Zero runtime reconciliation wiring (T21/T22/T25)', () => {
     const legacyFile = 'modules/dumping/index.ts'
     const fullPath = path.resolve(REPO_ROOT, legacyFile)
     if (!fs.existsSync(fullPath)) return
-    const diff = execSync(`git diff origin/main -- "${legacyFile}"`, { cwd: REPO_ROOT, encoding: 'utf-8' })
+    const diff = execSync(`git diff ${resolveBaseRef()} -- "${legacyFile}"`, { cwd: REPO_ROOT, encoding: 'utf-8' })
     expect(diff.trim(), `expected zero diff to ${legacyFile} vs origin/main`).toBe('')
   })
 })
@@ -437,7 +462,7 @@ describe('Zero runtime reconciliation wiring (T21/T22/T25)', () => {
 
 describe('Diff containment — only authorized files changed vs. origin/main', () => {
   it('the full diff touches exactly prisma/schema.prisma, the new migration script, and this test file', () => {
-    const changed = execSync('git diff --name-only origin/main', { cwd: REPO_ROOT, encoding: 'utf-8' })
+    const changed = execSync(`git diff --name-only ${resolveBaseRef()}`, { cwd: REPO_ROOT, encoding: 'utf-8' })
       .split('\n')
       .map(l => l.trim())
       .filter(Boolean)
