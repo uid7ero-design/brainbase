@@ -226,8 +226,8 @@ describe('Founder OS is untouched by the CRM restoration', () => {
     expect(FOUNDER_PAGE_SOURCE).not.toMatch(/fetch\(['"`]\/api\/crm\//)
   })
 
-  it('the founder-clients API still proxies to the external founder backend and is still super_admin-gated — unchanged by this phase', () => {
-    expect(FOUNDER_CLIENTS_API_SOURCE).toContain("session.role !== 'super_admin'")
+  it('the founder-clients API still proxies to the external founder backend and is still super_admin-gated — unchanged by this phase (SEC-1B2 hardened the gate to requireRole(), same threshold)', () => {
+    expect(FOUNDER_CLIENTS_API_SOURCE).toContain("requireRole('super_admin')")
     expect(FOUNDER_CLIENTS_API_SOURCE).toContain('NEXT_PUBLIC_API_URL')
   })
 

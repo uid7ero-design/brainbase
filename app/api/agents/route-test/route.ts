@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getSession } from '@/lib/session';
+import { requireRole } from '@/lib/org';
+import { getClientIp } from '@/lib/clientIp';
+import { logAgentRunExecuted } from '@/lib/admin/auditLog';
 import { route as routeToAgent } from '@/lib/agents/agentRouter';
 import * as insightAgent     from '@/lib/agents/insightAgent';
 import * as actionAgent      from '@/lib/agents/actionAgent';
@@ -7,11 +9,23 @@ import * as briefingAgent    from '@/lib/agents/briefingAgent';
 import * as dataIntakeAgent  from '@/lib/agents/dataIntakeAgent';
 import type { AgentInput } from '@/lib/agents/types';
 
+function forbidden() { return NextResponse.json({ error: 'Forbidden' }, { status: 403 }); }
+function requestMeta(req: NextRequest): { ipAddress: string | null; userAgent: string | null } {
+  const ip = getClientIp(req);
+  return { ipAddress: ip === 'unknown' ? null : ip, userAgent: req.headers.get('user-agent') };
+}
+
 export async function POST(req: NextRequest) {
-  const session = await getSession();
-  if (!session || session.role !== 'super_admin') {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-  }
+  // SEC-1B2: was raw getSession() + `session.role !== 'super_admin'` — the
+  // JWT-only role claim, never revalidated against the DB, and
+  // organisationId/userId were taken straight from that same stale claim.
+  // requireRole() (lib/org.ts) re-reads the caller's current role/
+  // organisation/status from the database on every call, so a since-
+  // demoted, since-deactivated, or deleted super_admin's still-valid JWT
+  // can no longer trigger a privileged agent run, and the org the agents
+  // read from is the caller's current DB-confirmed org, not a stale claim.
+  let session;
+  try { session = await requireRole('super_admin'); } catch { return forbidden(); }
 
   const { query } = await req.json() as { query: string };
   if (!query?.trim()) {
@@ -45,6 +59,24 @@ export async function POST(req: NextRequest) {
       agentError = (err as Error).message;
     }
     agentMs = Date.now() - agentStart;
+  }
+
+  // SEC-1B2: audit — privileged agent execution, previously entirely
+  // unaudited. Never logs the query text itself (a free-text prompt that
+  // may carry protected/tenant data) — only which agent ran, whether the
+  // chat fallback was used, and whether it errored.
+  {
+    const { ipAddress, userAgent } = requestMeta(req);
+    await logAgentRunExecuted({
+      actorUserId: session.userId,
+      actorOrganisationId: session.organisationId,
+      agent: routeResult.agent,
+      fallbackUsed,
+      hadError: agentError !== null,
+      routeSource: 'agents/route-test',
+      ipAddress,
+      userAgent,
+    });
   }
 
   return NextResponse.json({
