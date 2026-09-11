@@ -518,36 +518,27 @@ describe('MANUAL RESEND — unaffected, isolated from automatic delivery', () =>
   })
 })
 
-describe('NO AUTO SEND (paid) / NO CRON — Phase 3E.2 boundary', () => {
-  // Phase 3E.2 legitimately wires the FREE public registration route to
+describe('NO AUTO SEND (paid) / NO CRON SCHEDULE — Phase 3E.2/3E.2R boundary', () => {
+  // Phase 3E.2 legitimately wired the FREE public registration route to
   // this module (via attemptAutomaticTicketEmail, scheduling
   // ticket_email_status='pending' in the same INSERT that creates a new
-  // order) — that route is therefore DELIBERATELY no longer "untouched"
-  // by this module, and the exact shape of that wiring (scope, timing,
-  // failure-isolation) is proven by
-  // tests/containment/eventsFreeRegistrationTicketEmail.test.ts
-  // instead, not here. What remains true, and is proven below: the PAID
+  // order) — the exact shape of that wiring is proven by
+  // tests/containment/eventsFreeRegistrationTicketEmail.test.ts, not
+  // here. Phase 3E.2R legitimately added a SECOND caller of
+  // attemptAutomaticTicketEmail (lib/events/ticketEmailRecovery.ts,
+  // reached via app/api/cron/ticket-email-recovery/route.ts) — proven by
+  // tests/containment/eventsTicketEmailRecovery.test.ts and
+  // tests/containment/eventsCronTicketEmailRecoveryRoute.test.ts, not
+  // here either. What remains true, and is proven below: the PAID
   // (Stripe) flow is still completely untouched (3E.3 remains a later,
-  // separately-approved phase), and there is still no cron/recovery
-  // executor anywhere in this phase.
+  // separately-approved phase), and the new recovery route is NOT yet
+  // wired to any vercel.json cron schedule — it exists but is dormant.
 
   it('the Stripe checkout-completed handler is completely untouched by this module — paid automatic delivery (3E.3) remains unimplemented', () => {
     expect(STRIPE_SOURCE).not.toMatch(/ticket_email_|ticketEmailDelivery/)
   })
 
-  it('no cron or recovery route exists anywhere plausible in this phase', () => {
-    const candidatePaths = [
-      'app/api/events/recover-ticket-emails/route.ts',
-      'app/api/cron/ticket-emails/route.ts',
-      'app/api/events/ticket-email-recovery/route.ts',
-      'app/api/internal/ticket-email-recovery/route.ts',
-    ]
-    for (const p of candidatePaths) {
-      expect(fs.existsSync(path.join(process.cwd(), p))).toBe(false)
-    }
-  })
-
-  it('no vercel.json cron entry references ticket-email delivery', () => {
+  it('no vercel.json cron entry references ticket-email delivery yet — the recovery route exists but is not scheduled', () => {
     const vercelJsonPath = path.join(process.cwd(), 'vercel.json')
     if (fs.existsSync(vercelJsonPath)) {
       const content = fs.readFileSync(vercelJsonPath, 'utf-8')
@@ -559,25 +550,30 @@ describe('NO AUTO SEND (paid) / NO CRON — Phase 3E.2 boundary', () => {
     expect(SOURCE).not.toMatch(/setInterval|setTimeout/)
   })
 
-  it('claimTicketEmailDelivery is called from exactly ONE real call site: attemptAutomaticTicketEmail\'s own orchestration (plus its own declaration)', () => {
+  it('claimTicketEmailDelivery is called from exactly ONE real call site WITHIN THIS FILE: attemptAutomaticTicketEmail\'s own orchestration (plus its own declaration) — every caller, including the recovery executor, goes through that orchestration wrapper, never this primitive directly', () => {
     const claimCallSites = (SOURCE.match(/claimTicketEmailDelivery\(/g) ?? []).length
     // 1 = the function's own declaration/signature, 1 = the real call
     // inside attemptAutomaticTicketEmail. No other call site exists in
-    // this file.
+    // THIS file (lib/events/ticketEmailRecovery.ts's own containment
+    // tests separately prove it never imports/calls this primitive
+    // directly either).
     expect(claimCallSites).toBe(2)
   })
 
-  it('sweepStaleExhaustedTicketEmailLeases is STILL never called anywhere in this module — test-invocable only, no recovery executor exists yet (§15)', () => {
+  it('sweepStaleExhaustedTicketEmailLeases has no call site WITHIN this file besides its own declaration — its one real external caller is lib/events/ticketEmailRecovery.ts (Phase 3E.2R), proven in that file\'s own tests', () => {
     const sweepCallSites = (SOURCE.match(/sweepStaleExhaustedTicketEmailLeases\(/g) ?? []).length
     expect(sweepCallSites).toBe(1) // the function's own declaration only
   })
 
-  it('attemptAutomaticTicketEmail is the ONLY function in this module with a real external caller — the free-registration route imports exactly this one export from this module', () => {
+  it('attemptAutomaticTicketEmail has exactly two real external callers: the free-registration route, and the recovery executor — no other primitive is imported directly by either', () => {
     expect(REGISTER_ROUTE_SOURCE).toMatch(/import\s*\{\s*attemptAutomaticTicketEmail\s*\}\s*from\s*'@\/lib\/events\/ticketEmailDelivery'/)
     // No OTHER primitive (claimTicketEmailDelivery, markTicketEmailSent,
     // markTicketEmailFailed, sweepStaleExhaustedTicketEmailLeases,
-    // readClaimedOrderForDelivery) is imported directly by the route —
-    // it only ever goes through the orchestration wrapper.
+    // readClaimedOrderForDelivery) is imported directly by the
+    // free-registration route — it only ever goes through the
+    // orchestration wrapper. The recovery module's own equivalent
+    // containment assertion lives in
+    // tests/containment/eventsTicketEmailRecovery.test.ts, not here.
     expect(REGISTER_ROUTE_SOURCE).not.toMatch(/claimTicketEmailDelivery|markTicketEmailSent|markTicketEmailFailed|sweepStaleExhaustedTicketEmailLeases|readClaimedOrderForDelivery/)
   })
 })
@@ -702,7 +698,7 @@ describe('attemptAutomaticTicketEmail — orchestration (Phase 3E.2)', () => {
     sendTicketEmailMock.mockResolvedValue({ result: 'failed', error: 'The email provider rejected the request.' })
     queue(CLAIM_ROW, READ_ROW, [{ id: 'order-1' }])
     const result = await delivery.attemptAutomaticTicketEmail('order-1')
-    expect(result).toEqual({ outcome: 'failed', reason: 'provider_rejected' })
+    expect(result).toEqual({ outcome: 'failed', reason: 'provider_rejected', terminal: false })
     expect(logAutomaticTicketEmailFailedMock).toHaveBeenCalledWith(expect.objectContaining({ reason: 'provider_rejected', terminal: false }))
   })
 
@@ -710,8 +706,26 @@ describe('attemptAutomaticTicketEmail — orchestration (Phase 3E.2)', () => {
     sendTicketEmailMock.mockResolvedValue({ result: 'unknown', error: 'The email provider did not return a definite result.' })
     queue(CLAIM_ROW, READ_ROW, [{ id: 'order-1' }])
     const result = await delivery.attemptAutomaticTicketEmail('order-1')
-    expect(result).toEqual({ outcome: 'failed', reason: 'ambiguous_outcome' })
+    expect(result).toEqual({ outcome: 'failed', reason: 'ambiguous_outcome', terminal: false })
     expect(logAutomaticTicketEmailFailedMock).toHaveBeenCalledWith(expect.objectContaining({ reason: 'ambiguous_outcome', terminal: false }))
+  })
+
+  // Phase 3E.2R — the recovery executor tallies retryable vs terminal
+  // failures from this returned `terminal` field directly (see
+  // lib/events/ticketEmailRecovery.ts's own runTicketEmailRecovery()).
+  // isTerminalFailure() mirrors markTicketEmailFailed's own CASE
+  // expression: attempt_count >= MAX_ATTEMPTS is ALSO terminal, not just
+  // an idempotency payload mismatch — this proves that branch for a
+  // reason OTHER than idempotency_payload_mismatch (CLAIM_ROW above uses
+  // attempt_count=1 in every other test in this describe block; this one
+  // uses a fixture at exactly MAX_ATTEMPTS to prove the exhaustion path).
+  it('failed at exactly MAX_ATTEMPTS (ordinary provider rejection, not a payload mismatch): terminal is still true — exhaustion, not just payload mismatch, is terminal', async () => {
+    const EXHAUSTED_CLAIM_ROW = [{ id: 'order-1', ticket_email_claim_id: 'claim-a', ticket_email_attempt_count: delivery.MAX_ATTEMPTS }]
+    sendTicketEmailMock.mockResolvedValue({ result: 'failed', error: 'The email provider rejected the request.' })
+    queue(EXHAUSTED_CLAIM_ROW, READ_ROW, [{ id: 'order-1' }])
+    const result = await delivery.attemptAutomaticTicketEmail('order-1')
+    expect(result).toEqual({ outcome: 'failed', reason: 'provider_rejected', terminal: true })
+    expect(logAutomaticTicketEmailFailedMock).toHaveBeenCalledWith(expect.objectContaining({ reason: 'provider_rejected', terminal: true }))
   })
 
   // Phase 3E.2 remediation — a bounded provider timeout in lib/email.ts
@@ -725,7 +739,7 @@ describe('attemptAutomaticTicketEmail — orchestration (Phase 3E.2)', () => {
     sendTicketEmailMock.mockResolvedValue({ result: 'unknown', error: 'The email provider did not return a definite result.' })
     queue(CLAIM_ROW, READ_ROW, [{ id: 'order-1' }])
     const result = await delivery.attemptAutomaticTicketEmail('order-1')
-    expect(result).toEqual({ outcome: 'failed', reason: 'ambiguous_outcome' })
+    expect(result).toEqual({ outcome: 'failed', reason: 'ambiguous_outcome', terminal: false })
     expect(logAutomaticTicketEmailFailedMock).toHaveBeenCalledWith(expect.objectContaining({ reason: 'ambiguous_outcome', terminal: false }))
   })
 
@@ -743,24 +757,24 @@ describe('attemptAutomaticTicketEmail — orchestration (Phase 3E.2)', () => {
     sendTicketEmailMock.mockResolvedValue({ result: 'not_configured' })
     queue(CLAIM_ROW, READ_ROW, [{ id: 'order-1' }])
     const result = await delivery.attemptAutomaticTicketEmail('order-1')
-    expect(result).toEqual({ outcome: 'failed', reason: 'not_configured' })
+    expect(result).toEqual({ outcome: 'failed', reason: 'not_configured', terminal: false })
     expect(logAutomaticTicketEmailFailedMock).toHaveBeenCalledWith(expect.objectContaining({ reason: 'not_configured', terminal: false }))
   })
 
-  it('failed (idempotency payload mismatch): reason idempotency_payload_mismatch, TERMINAL audit', async () => {
+  it('failed (idempotency payload mismatch): reason idempotency_payload_mismatch, TERMINAL audit — terminal even at attempt_count=1, well below MAX_ATTEMPTS', async () => {
     sendTicketEmailMock.mockResolvedValue({
       result: 'failed', error: 'The email provider reported this request no longer matches a previous attempt.', idempotencyPayloadMismatch: true,
     })
     queue(CLAIM_ROW, READ_ROW, [{ id: 'order-1' }])
     const result = await delivery.attemptAutomaticTicketEmail('order-1')
-    expect(result).toEqual({ outcome: 'failed', reason: 'idempotency_payload_mismatch' })
+    expect(result).toEqual({ outcome: 'failed', reason: 'idempotency_payload_mismatch', terminal: true })
     expect(logAutomaticTicketEmailFailedMock).toHaveBeenCalledWith(expect.objectContaining({ reason: 'idempotency_payload_mismatch', terminal: true }))
   })
 
   it('post-claim read comes back empty (structurally shouldn\'t happen): marks failed ambiguous_outcome, sendTicketEmail never called', async () => {
     queue(CLAIM_ROW, [])
     const result = await delivery.attemptAutomaticTicketEmail('order-1')
-    expect(result).toEqual({ outcome: 'failed', reason: 'ambiguous_outcome' })
+    expect(result).toEqual({ outcome: 'failed', reason: 'ambiguous_outcome', terminal: false })
     expect(sendTicketEmailMock).not.toHaveBeenCalled()
   })
 
@@ -768,7 +782,22 @@ describe('attemptAutomaticTicketEmail — orchestration (Phase 3E.2)', () => {
     sendTicketEmailMock.mockRejectedValue(new Error('totally unexpected'))
     queue(CLAIM_ROW, READ_ROW, [{ id: 'order-1' }])
     const result = await delivery.attemptAutomaticTicketEmail('order-1')
-    expect(result).toEqual({ outcome: 'failed', reason: 'ambiguous_outcome' })
+    expect(result).toEqual({ outcome: 'failed', reason: 'ambiguous_outcome', terminal: false })
+  })
+
+  it('an unexpected thrown error BEFORE any claim was won (e.g. claimTicketEmailDelivery itself throws) is never terminal — the row was never touched', async () => {
+    // sqlMock's queue is exhausted after zero entries, so the claim's
+    // own `await sql\`...\`` call inside claimTicketEmailDelivery
+    // resolves to [] (queue() with no args) — that alone already
+    // returns 'not_claimed', not a thrown error, so this test instead
+    // proves the SAME safe `terminal: false` fallback via the
+    // catch-without-claim branch by making the mocked sql client itself
+    // reject outright.
+    queue()
+    sqlMock.mockRejectedValueOnce(new Error('connection reset'))
+    const result = await delivery.attemptAutomaticTicketEmail('order-1')
+    expect(result).toEqual({ outcome: 'failed', reason: 'ambiguous_outcome', terminal: false })
+    expect(sendTicketEmailMock).not.toHaveBeenCalled()
   })
 
   it('never throws — every code path resolves', async () => {

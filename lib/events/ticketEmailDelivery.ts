@@ -8,21 +8,25 @@ import { logAutomaticTicketEmailSent, logAutomaticTicketEmailFailed } from './au
 // ticket-email delivery: the claim/success/failure/stale-lease
 // primitives. Phase 3E.2 adds the orchestration wrapper
 // (attemptAutomaticTicketEmail, at the bottom of this file) and wires
-// it to exactly ONE caller: the public free-registration route, post-
+// it to its first caller: the public free-registration route, post-
 // commit (see that route's own comment). Paid orders are explicitly
-// OUT of scope for 3E.2 — lib/events/stripe.ts does not call anything
-// in this file yet; that remains a later, separately-approved 3E.3.
-// There is still NO cron/recovery executor in this phase (§15 of
-// 3E.2's own task spec) — a 'failed' order with a future
-// next_attempt_at is only ever revisited by another opportunistic
-// same-request attempt on a LATER registration-adjacent event for that
-// SAME order (there isn't one, for a one-shot free registration), so in
-// practice a retry genuinely waits for that later phase to exist. Every
-// order's ticket_email_status still stays NULL forever unless 3E.2's
-// own INSERT explicitly schedules a brand-new free order (see the
-// register route) — NULL remains structurally unclaimable (see
-// claimTicketEmailDelivery's own comment) for every pre-existing and
-// every paid order alike.
+// OUT of scope for 3E.2/3E.2R — lib/events/stripe.ts does not call
+// anything in this file yet; that remains a later, separately-approved
+// 3E.3.
+//
+// Phase 3E.2R adds lib/events/ticketEmailRecovery.ts as a SECOND caller
+// of attemptAutomaticTicketEmail (and the first real caller of
+// sweepStaleExhaustedTicketEmailLeases, previously test-invocable only)
+// — a bounded, periodically-invoked executor that revisits pending/due-
+// failed/stale-sending orders. No new send/claim/mark logic was added
+// for this: the recovery executor is purely a second, periodic CALLER
+// of the exact same primitives already defined below. Every order's
+// ticket_email_status still stays NULL forever unless an explicit INSERT
+// schedules it (currently only the free-registration route's own INSERT
+// — see the register route) — NULL remains structurally unclaimable
+// (see claimTicketEmailDelivery's own comment) for every pre-existing
+// and every paid order alike, regardless of how often the recovery
+// executor runs.
 //
 // State machine (full column-by-column rationale lives in
 // scripts/add-events-ticket-email-delivery.sql's header comment):
@@ -379,9 +383,13 @@ export async function markTicketEmailFailed(
 // claim and does NOT increment attempt_count; it only transitions an
 // exhausted, stale lease straight to terminal 'failed'.
 //
-// Bounded-batch, test-invocable only in this phase (§20 of this
-// implementation task) — NOT exposed through any route, cron, or UI
-// here. Real periodic invocation is a later, separately-approved phase.
+// Bounded-batch. Phase 3E.2R gives this its first real caller —
+// lib/events/ticketEmailRecovery.ts's runTicketEmailRecovery() calls
+// this FIRST, before candidate discovery (see that module's own
+// comment for why) — reached only via the CRON_SECRET-authenticated
+// route in app/api/cron/ticket-email-recovery/route.ts, which is not
+// yet wired to any vercel.json cron schedule (dormant until a
+// separately-approved rollout step adds one).
 export async function sweepStaleExhaustedTicketEmailLeases(limit: number = 20): Promise<number> {
   const rows = await sql`
     UPDATE event_orders
@@ -404,20 +412,43 @@ export async function sweepStaleExhaustedTicketEmailLeases(limit: number = 20): 
 }
 
 // Phase 3E.2 — the smallest orchestration wrapper needed to actually
-// invoke the 3E.1 primitives above for ONE specific order. This is the
-// ONLY function in this file any route calls (the free-registration
-// route, post-commit — see that route's own comment; a later,
-// separately-approved 3E.3 will call it from the Stripe webhook the
-// same way). It never throws — every internal failure, expected or
+// invoke the 3E.1 primitives above for ONE specific order. This was the
+// ONLY function in this file any route called in 3E.2 (the free-
+// registration route, post-commit — see that route's own comment); Phase
+// 3E.2R adds a second caller (lib/events/ticketEmailRecovery.ts) that
+// invokes this SAME function for previously-claimed-but-unresolved and
+// due-for-retry orders — no new send/claim/mark logic was introduced for
+// recovery, only a second caller of this existing orchestration. A
+// later, separately-approved 3E.3 will call it from the Stripe webhook
+// the same way. It never throws — every internal failure, expected or
 // not, is caught and converted into a safe outcome — so a caller can
 // invoke it with a plain best-effort `try { await
 // attemptAutomaticTicketEmail(orderId) } catch {}` and still be
 // completely safe even if this function's own internal safety net
 // somehow didn't catch something.
+//
+// terminal (Phase 3E.2R addition) — true when this exact failure will
+// NEVER be automatically retried again: either an idempotency payload
+// mismatch (always forced terminal regardless of attempt_count — see
+// markTicketEmailFailed's own forceTerminal comment) or attempt_count
+// has reached MAX_ATTEMPTS (mirrors markTicketEmailFailed's own CASE
+// expression exactly — see isTerminalFailure below). This lets a caller
+// (the recovery executor) tally retryable vs terminal failures without
+// re-deriving markTicketEmailFailed's own backoff logic itself.
 export type AutomaticTicketEmailOutcome =
   | { outcome: 'not_claimed' }
   | { outcome: 'sent'; providerMessageId: string | null }
-  | { outcome: 'failed'; reason: TicketEmailFailureReason };
+  | { outcome: 'failed'; reason: TicketEmailFailureReason; terminal: boolean };
+
+// Mirrors markTicketEmailFailed's own CASE expression exactly (the
+// forceTerminal / attempt_count >= MAX_ATTEMPTS conditions) — kept as a
+// single small helper so the two can never silently drift apart. Not
+// exported: only attemptAutomaticTicketEmail needs it, and every outside
+// caller reads the already-computed `terminal` field on its returned
+// outcome instead of recomputing this itself.
+function isTerminalFailure(reason: TicketEmailFailureReason, attemptCount: number): boolean {
+  return reason === 'idempotency_payload_mismatch' || attemptCount >= MAX_ATTEMPTS;
+}
 
 export async function attemptAutomaticTicketEmail(orderId: string): Promise<AutomaticTicketEmailOutcome> {
   let claim: TicketEmailDeliveryClaim | null = null;
@@ -432,16 +463,17 @@ export async function attemptAutomaticTicketEmail(orderId: string): Promise<Auto
       // but if the trusted read ever comes back empty/attendee-less,
       // record it honestly rather than silently doing nothing.
       await markTicketEmailFailed(orderId, claim.claimId, 'ambiguous_outcome', 'Order data unavailable immediately after claim.');
+      const terminal = isTerminalFailure('ambiguous_outcome', claim.attemptCount);
       // Only attempt the audit write if we actually have an
       // organisationId to attribute it to (order === null means the
       // trusted read found nothing at all — nothing to log against).
       if (order) {
         await logAutomaticTicketEmailFailed({
           organisationId: order.organisationId, orderId, attemptCount: claim.attemptCount,
-          terminal: false, reason: 'ambiguous_outcome',
+          terminal, reason: 'ambiguous_outcome',
         }).catch(err => console.error('[events] automatic ticket-email audit write failed (post-claim read empty)', err, { orderId }));
       }
-      return { outcome: 'failed', reason: 'ambiguous_outcome' };
+      return { outcome: 'failed', reason: 'ambiguous_outcome', terminal };
     }
 
     // Deterministic per-order key, reused verbatim on every automatic
@@ -496,22 +528,28 @@ export async function attemptAutomaticTicketEmail(orderId: string): Promise<Auto
     }
 
     await markTicketEmailFailed(orderId, claim.claimId, reason, errorMessage);
+    const terminal = isTerminalFailure(reason, claim.attemptCount);
     await logAutomaticTicketEmailFailed({
       organisationId: order.organisationId, orderId, attemptCount: claim.attemptCount,
-      terminal: reason === 'idempotency_payload_mismatch', reason,
+      terminal, reason,
     }).catch(err => console.error('[events] automatic ticket-email audit write failed after failure', err, { orderId }));
-    return { outcome: 'failed', reason };
+    return { outcome: 'failed', reason, terminal };
   } catch (err) {
     console.error('[events] attemptAutomaticTicketEmail: unexpected error', err, { orderId });
     if (claim) {
       // Best-effort cleanup so an unexpected internal error (not a
       // provider outcome — those are all handled above) doesn't leave
       // the lease stuck in 'sending' any longer than necessary. Never
-      // throws further; if this itself fails too, the stale-lease sweep
-      // (3E.1, not yet wired to run periodically — see §15) is the
-      // eventual fallback once a recovery executor exists.
+      // throws further; if this itself fails too, the periodic
+      // recovery executor (lib/events/ticketEmailRecovery.ts, Phase
+      // 3E.2R) is the eventual fallback.
       await markTicketEmailFailed(orderId, claim.claimId, 'ambiguous_outcome', 'Unexpected internal error during automatic delivery.').catch(() => {});
+      return { outcome: 'failed', reason: 'ambiguous_outcome', terminal: isTerminalFailure('ambiguous_outcome', claim.attemptCount) };
     }
-    return { outcome: 'failed', reason: 'ambiguous_outcome' };
+    // No claim was ever won (e.g. claimTicketEmailDelivery itself threw)
+    // — the row's own state is completely untouched by this attempt, so
+    // nothing here is actually "terminal": a later attempt (registration-
+    // adjacent or recovery) can still claim and try this order normally.
+    return { outcome: 'failed', reason: 'ambiguous_outcome', terminal: false };
   }
 }
