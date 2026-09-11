@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/sync",
       "schedule": "0 2 * * *"
+    },
+    {
+      "path": "/api/cron/ticket-email-recovery",
+      "schedule": "*/5 * * * *"
     }
   ]
 }

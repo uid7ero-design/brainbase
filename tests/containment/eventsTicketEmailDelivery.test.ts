@@ -531,19 +531,37 @@ describe('NO AUTO SEND (paid) / NO CRON SCHEDULE — Phase 3E.2/3E.2R boundary',
   // tests/containment/eventsCronTicketEmailRecoveryRoute.test.ts, not
   // here either. What remains true, and is proven below: the PAID
   // (Stripe) flow is still completely untouched (3E.3 remains a later,
-  // separately-approved phase), and the new recovery route is NOT yet
-  // wired to any vercel.json cron schedule — it exists but is dormant.
+  // separately-approved phase). The recovery route IS now wired to a
+  // vercel.json cron schedule (Phase 3E.2R cron-enablement rollout,
+  // gated on separately-verified Production cron-auth health — see that
+  // gate's own report) — proven below against the exact approved
+  // Production configuration, not merely "some schedule exists".
 
   it('the Stripe checkout-completed handler is completely untouched by this module — paid automatic delivery (3E.3) remains unimplemented', () => {
     expect(STRIPE_SOURCE).not.toMatch(/ticket_email_|ticketEmailDelivery/)
   })
 
-  it('no vercel.json cron entry references ticket-email delivery yet — the recovery route exists but is not scheduled', () => {
+  it('vercel.json contains exactly the approved cron configuration: sync unchanged at 0 2 * * *, ticket-email recovery at exactly */5 * * * *, nothing else', () => {
     const vercelJsonPath = path.join(process.cwd(), 'vercel.json')
-    if (fs.existsSync(vercelJsonPath)) {
-      const content = fs.readFileSync(vercelJsonPath, 'utf-8')
-      expect(content).not.toMatch(/ticket-email|ticketEmail/i)
-    }
+    const content = fs.readFileSync(vercelJsonPath, 'utf-8')
+    const parsed = JSON.parse(content) as { crons: { path: string; schedule: string }[] }
+
+    expect(parsed.crons).toHaveLength(2)
+
+    const paths = parsed.crons.map(c => c.path)
+    expect(new Set(paths).size).toBe(paths.length) // no duplicate paths
+
+    const syncEntries = parsed.crons.filter(c => c.path === '/api/cron/sync')
+    expect(syncEntries).toHaveLength(1)
+    expect(syncEntries[0].schedule).toBe('0 2 * * *')
+
+    const recoveryEntries = parsed.crons.filter(c => c.path === '/api/cron/ticket-email-recovery')
+    expect(recoveryEntries).toHaveLength(1)
+    expect(recoveryEntries[0].schedule).toBe('*/5 * * * *')
+
+    // No unrelated cron entry of any kind.
+    const knownPaths = new Set(['/api/cron/sync', '/api/cron/ticket-email-recovery'])
+    expect(parsed.crons.every(c => knownPaths.has(c.path))).toBe(true)
   })
 
   it('this module never self-invokes claim/sweep at import time or via any internal scheduler', () => {
