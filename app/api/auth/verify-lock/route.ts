@@ -2,14 +2,21 @@ import { NextRequest, NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
 import { headers } from 'next/headers';
 import sql from '@/lib/db';
-import { getSession } from '@/lib/session';
+import { requireSession } from '@/lib/org';
 import { checkRateLimit } from '@/lib/rateLimit';
 
 export async function POST(req: NextRequest) {
-  const session = await getSession();
-  if (!session) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  // SEC-1B3: was raw getSession() — the JWT-only claim, never revalidated
+  // against the DB. This route re-verifies the CURRENT session's own
+  // password (a client-side "lock screen" re-entry, not a pre-auth flow —
+  // a valid, already-established session cookie is a precondition either
+  // way), so requireSession() applies safely here: a since-deactivated,
+  // since-deleted, or since-reassigned user's still-valid JWT can no
+  // longer "unlock" under their old identity, even if they somehow still
+  // know their own password. The route's own existing password_hash
+  // lookup/bcrypt check below is unchanged.
+  let session;
+  try { session = await requireSession(); } catch { return NextResponse.json({ error: 'Unauthorized' }, { status: 401 }); }
 
   // Rate limit: 5 attempts per 15 min per user
   const ip = ((await headers()).get('x-forwarded-for') ?? 'unknown').split(',')[0].trim();

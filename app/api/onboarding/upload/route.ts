@@ -1,11 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getSession } from '@/lib/session';
+import { requireSession } from '@/lib/org';
 import sql from '@/lib/db';
 import * as XLSX from 'xlsx';
 
 export async function POST(req: NextRequest) {
-  const session = await getSession();
-  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  // SEC-1B3: was raw getSession() — the JWT-only claim, never revalidated
+  // against the DB. requireSession() (lib/org.ts) re-reads the caller's
+  // current role/organisation/status from the database on every call, so
+  // a since-deactivated, since-reassigned, or deleted user's still-valid
+  // JWT can no longer parse/register an uploaded file under their old
+  // identity. Gated before any file parsing, unchanged.
+  let session;
+  try { session = await requireSession(); } catch { return NextResponse.json({ error: 'Unauthorized' }, { status: 401 }); }
 
   const formData = await req.formData();
   const file = formData.get('file') as File | null;
