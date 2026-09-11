@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react';
-import { CalendarClock, LayoutGrid, Ticket, Users } from 'lucide-react';
+import { CalendarClock, LayoutGrid, Ticket, Users, UserRound } from 'lucide-react';
 
 // Phase D.4 — live production call sites: components/dashboard/
 // ModuleAccessCard.tsx (full container treatment) and, since D.4.2,
@@ -65,6 +65,9 @@ const CAPABILITY_ICON_MAP: Record<string, { Icon: typeof Users; color: string }>
   crm: { Icon: Users, color: '#8A4DFF' },
   events: { Icon: Ticket, color: '#FBBF24' },
   organiser: { Icon: CalendarClock, color: '#38BDF8' },
+  // HR-1 People Foundation — distinct from 'crm's Users icon/colour so
+  // the two capabilities read as visually different at a glance.
+  people: { Icon: UserRound, color: '#34D399' },
 };
 
 function alphaHex(base: string, hover: string, active: string, state: CapabilityIconState) {

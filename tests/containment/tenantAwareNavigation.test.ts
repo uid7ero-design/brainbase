@@ -253,7 +253,7 @@ describe('Phase D.4.2 — capability icons did not touch the underlying gating t
   // mirroring hasEvents/hasCrm exactly — every capability="..." prop in
   // this file is now one of events/crm/organiser, matching the three
   // gates that actually exist.
-  it('no capability id beyond events/crm/organiser was introduced anywhere in TopNav.tsx — every capability="..." prop matches a real gate', () => {
+  it('no capability id beyond events/crm/organiser/quotes/people was introduced anywhere in TopNav.tsx — every capability="..." prop matches a real gate', () => {
     const capabilityProps = topNavSource.match(/capability="[a-zA-Z]+"/g) ?? []
     expect(capabilityProps.length).toBeGreaterThan(0)
     for (const prop of capabilityProps) {
@@ -261,7 +261,9 @@ describe('Phase D.4.2 — capability icons did not touch the underlying gating t
       // Commercial NavItem's own real gate (hasCommercial =
       // enabledCapabilities.includes('quotes')), matching this test's own
       // "every capability prop matches a real gate" intent exactly.
-      expect(['capability="events"', 'capability="crm"', 'capability="organiser"', 'capability="quotes"']).toContain(prop)
+      // HR-1 People Foundation — 'people' added the same way (hasPeople =
+      // enabledCapabilities.includes('people')).
+      expect(['capability="events"', 'capability="crm"', 'capability="organiser"', 'capability="quotes"', 'capability="people"']).toContain(prop)
     }
   })
 })
