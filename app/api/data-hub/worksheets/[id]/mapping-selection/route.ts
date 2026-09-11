@@ -110,6 +110,9 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
         // 5B.4D — Confirm-only code (see failureTaxonomy.ts's own doc
         // comment), unreachable from selectWorksheetMapping.
         MAPPING_COMPILE_FAILED: 500,
+        // 6.0C1 — Confirm-only code (temporary first-import/repeat-import
+        // safety invariant), unreachable from selectWorksheetMapping.
+        SOURCE_ALREADY_IMPORTED: 500,
       };
       return NextResponse.json({ ok: false, error: result.message }, { status: statusByCode[result.code], headers: CACHE_HEADERS });
     }

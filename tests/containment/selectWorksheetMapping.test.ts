@@ -559,17 +559,26 @@ describe("mapping-selection route — auth/role/injection hardening", () => {
   });
 });
 
-describe("confirm-illegal-dumping route — exhaustiveness extended for 5B.4B codes, still unreachable from that service", () => {
-  it("statusByCode includes SOURCE_LINEAGE_REQUIRED and SOURCE_MAPPING_UNAVAILABLE, both mapped (compile-time exhaustiveness only)", () => {
+describe("confirm-illegal-dumping route — exhaustiveness extended for 5B.4B codes", () => {
+  it("statusByCode maps SOURCE_MAPPING_UNAVAILABLE (still unreachable, compile-time exhaustiveness only) and SOURCE_LINEAGE_REQUIRED (409 — genuinely reachable since 6.0C1's own NULL-source gate)", () => {
     const code = read("app/api/data-hub/worksheets/[id]/confirm-illegal-dumping/route.ts");
-    expect(code).toMatch(/SOURCE_LINEAGE_REQUIRED:\s*500/);
+    expect(code).toMatch(/SOURCE_LINEAGE_REQUIRED:\s*409/);
     expect(code).toMatch(/SOURCE_MAPPING_UNAVAILABLE:\s*500/);
   });
 
-  it("confirmDataHubWorksheet's own source never returns SOURCE_LINEAGE_REQUIRED or SOURCE_MAPPING_UNAVAILABLE (proven non-emitting)", () => {
+  // 6.0C1 — SOURCE_MAPPING_UNAVAILABLE remains genuinely non-emitting from
+  // confirmDataHubWorksheet (this service still does not integrate mapping
+  // SELECTION, only frozen mapping CONSUMPTION — a real, unchanged
+  // invariant). SOURCE_LINEAGE_REQUIRED is the opposite: 6.0C1 deliberately,
+  // newly authorizes confirmDataHubWorksheet to emit it (Step 3.5's
+  // NULL-source fail-closed gate, required for the temporary first-import/
+  // repeat-import safety invariant to be authoritative) — reusing the exact
+  // existing code/semantics rather than inventing a duplicate one, per this
+  // phase's own explicit instruction to prefer reuse.
+  it("confirmDataHubWorksheet's own source never returns SOURCE_MAPPING_UNAVAILABLE (still proven non-emitting) but DOES now reference SOURCE_LINEAGE_REQUIRED (6.0C1)", () => {
     const code = stripComments(read(CONFIRM_SERVICE_PATH));
-    expect(code).not.toMatch(/SOURCE_LINEAGE_REQUIRED/);
     expect(code).not.toMatch(/SOURCE_MAPPING_UNAVAILABLE/);
+    expect(code).toMatch(/SOURCE_LINEAGE_REQUIRED/);
   });
 });
 

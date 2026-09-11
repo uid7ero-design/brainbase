@@ -488,7 +488,7 @@ describe("confirmWorksheet — CSV-only format gate", () => {
     it(`${contentType} batch -> UNSUPPORTED_FORMAT, no storage GET attempted`, async () => {
       const { confirmDataHubWorksheet } = await freshService();
       uploadFindFirstMock.mockResolvedValue(worksheetRow());
-      importBatchFindUniqueMock.mockResolvedValue(batchRow({ content_type: contentType }));
+      importBatchFindUniqueMock.mockResolvedValue(batchRow({ content_type: contentType, source_system_id: "ss-1" }));
       const result = await confirmDataHubWorksheet({ organisationId: "org-1", worksheetUploadId: "worksheet-1", confirmedBy: "actor-1" });
       expect(result).toMatchObject({ ok: false, code: "UNSUPPORTED_FORMAT" });
       expect(storageGetMock).not.toHaveBeenCalled();
@@ -500,7 +500,7 @@ describe("confirmWorksheet — mandatory SHA-256 re-verification", () => {
   it("a storage body whose computed hash does not match the batch's persisted sha256 -> STORAGE_INTEGRITY_MISMATCH", async () => {
     const { confirmDataHubWorksheet } = await freshService();
     uploadFindFirstMock.mockResolvedValue(worksheetRow());
-    importBatchFindUniqueMock.mockResolvedValue(batchRow({ sha256: "not-the-real-hash" }));
+    importBatchFindUniqueMock.mockResolvedValue(batchRow({ sha256: "not-the-real-hash", source_system_id: "ss-1" }));
     storageGetMock.mockResolvedValue({ body: new TextEncoder().encode("report_date,location,waste_type\n") });
     const result = await confirmDataHubWorksheet({ organisationId: "org-1", worksheetUploadId: "worksheet-1", confirmedBy: "actor-1" });
     expect(result).toMatchObject({ ok: false, code: "STORAGE_INTEGRITY_MISMATCH" });
@@ -514,7 +514,7 @@ describe("confirmWorksheet — lost-race resolution inside the transaction resul
     const { createHash } = await import("node:crypto");
     const body = new TextEncoder().encode("report_date,location,waste_type\n2024-01-01,Main St,tyres\n");
     uploadFindFirstMock.mockResolvedValue(worksheetRow());
-    importBatchFindUniqueMock.mockResolvedValue(batchRow({ sha256: createHash("sha256").update(body).digest("hex") }));
+    importBatchFindUniqueMock.mockResolvedValue(batchRow({ sha256: createHash("sha256").update(body).digest("hex"), source_system_id: "ss-1" }));
     storageGetMock.mockResolvedValue({ body });
     transactionMock.mockResolvedValue({ claimed: false, currentStatus: "IMPORTED" });
     const result = await confirmDataHubWorksheet({ organisationId: "org-1", worksheetUploadId: "worksheet-1", confirmedBy: "actor-1" });
@@ -526,7 +526,7 @@ describe("confirmWorksheet — lost-race resolution inside the transaction resul
     const { createHash } = await import("node:crypto");
     const body = new TextEncoder().encode("report_date,location,waste_type\n2024-01-01,Main St,tyres\n");
     uploadFindFirstMock.mockResolvedValue(worksheetRow());
-    importBatchFindUniqueMock.mockResolvedValue(batchRow({ sha256: createHash("sha256").update(body).digest("hex") }));
+    importBatchFindUniqueMock.mockResolvedValue(batchRow({ sha256: createHash("sha256").update(body).digest("hex"), source_system_id: "ss-1" }));
     storageGetMock.mockResolvedValue({ body });
     transactionMock.mockResolvedValue({ claimed: false, currentStatus: "INELIGIBLE" });
     const result = await confirmDataHubWorksheet({ organisationId: "org-1", worksheetUploadId: "worksheet-1", confirmedBy: "actor-1" });
@@ -538,7 +538,7 @@ describe("confirmWorksheet — lost-race resolution inside the transaction resul
     const { createHash } = await import("node:crypto");
     const body = new TextEncoder().encode("report_date,location,waste_type\n2024-01-01,Main St,tyres\n");
     uploadFindFirstMock.mockResolvedValue(worksheetRow());
-    importBatchFindUniqueMock.mockResolvedValue(batchRow({ sha256: createHash("sha256").update(body).digest("hex") }));
+    importBatchFindUniqueMock.mockResolvedValue(batchRow({ sha256: createHash("sha256").update(body).digest("hex"), source_system_id: "ss-1" }));
     storageGetMock.mockResolvedValue({ body });
     transactionMock.mockResolvedValue({ claimed: true, importedRows: 1 });
     const result = await confirmDataHubWorksheet({ organisationId: "org-1", worksheetUploadId: "worksheet-1", confirmedBy: "actor-1" });
@@ -552,7 +552,7 @@ describe("confirmWorksheet — malformed/invalid CSV never reaches the transacti
     const { createHash } = await import("node:crypto");
     const body = new TextEncoder().encode("foo,bar\n1,2\n");
     uploadFindFirstMock.mockResolvedValue(worksheetRow());
-    importBatchFindUniqueMock.mockResolvedValue(batchRow({ sha256: createHash("sha256").update(body).digest("hex") }));
+    importBatchFindUniqueMock.mockResolvedValue(batchRow({ sha256: createHash("sha256").update(body).digest("hex"), source_system_id: "ss-1" }));
     storageGetMock.mockResolvedValue({ body });
     const result = await confirmDataHubWorksheet({ organisationId: "org-1", worksheetUploadId: "worksheet-1", confirmedBy: "actor-1" });
     expect(result).toMatchObject({ ok: false, code: "PARSER_REJECTED" });
@@ -576,7 +576,7 @@ describe("confirmWorksheet — malformed/invalid CSV never reaches the transacti
       "report_date,location,waste_type,report_date\n2024-01-01,Main St,tyres,2024-01-01\n"
     );
     uploadFindFirstMock.mockResolvedValue(worksheetRow());
-    importBatchFindUniqueMock.mockResolvedValue(batchRow({ sha256: createHash("sha256").update(body).digest("hex") }));
+    importBatchFindUniqueMock.mockResolvedValue(batchRow({ sha256: createHash("sha256").update(body).digest("hex"), source_system_id: "ss-1" }));
     storageGetMock.mockResolvedValue({ body });
     const result = await confirmDataHubWorksheet({ organisationId: "org-1", worksheetUploadId: "worksheet-1", confirmedBy: "actor-1" });
     expect(result).toMatchObject({ ok: false, code: "PARSER_REJECTED" });
@@ -591,7 +591,7 @@ describe("confirmWorksheet — malformed/invalid CSV never reaches the transacti
       "report_date,location,waste_type,location\n2024-01-01,Main St,tyres,Main St\n"
     );
     uploadFindFirstMock.mockResolvedValue(worksheetRow());
-    importBatchFindUniqueMock.mockResolvedValue(batchRow({ sha256: createHash("sha256").update(body).digest("hex") }));
+    importBatchFindUniqueMock.mockResolvedValue(batchRow({ sha256: createHash("sha256").update(body).digest("hex"), source_system_id: "ss-1" }));
     storageGetMock.mockResolvedValue({ body });
     const result = await confirmDataHubWorksheet({ organisationId: "org-1", worksheetUploadId: "worksheet-1", confirmedBy: "actor-1" });
     expect(result).toMatchObject({ ok: false, code: "PARSER_REJECTED" });
@@ -624,6 +624,18 @@ function mappingVersionRow(overrides: Partial<Record<string, unknown>> = {}) {
 function sourceMappingRow(overrides: Partial<Record<string, unknown>> = {}) {
   return { id: "sm-1", source_system_id: "ss-1", ...overrides };
 }
+// 6.0C1 — default tx.$queryRaw double for the two sequential guard queries
+// (SourceSystem FOR UPDATE lock, then the illegal_dumping existence check).
+// Call order is deterministic (lock always first) — this default lets the
+// guard pass through cleanly (lock succeeds, no prior success found) so
+// pre-existing tests exercising OTHER logic reach their own assertions
+// unaffected. Tests specifically targeting the guard itself override this.
+function defaultGuardQueryRawMock() {
+  return vi
+    .fn()
+    .mockResolvedValueOnce([{ id: "ss-1" }])
+    .mockResolvedValueOnce([{ prior_success: false }]);
+}
 function buildCsv(headers: string[], rows: string[][]): string {
   const lines = [headers.join(",")];
   for (const row of rows) lines.push(row.join(","));
@@ -644,7 +656,7 @@ describe("confirmWorksheet — 5B.4D legacy/mapped dual-path routing (T1-T4)", (
     const { confirmDataHubWorksheet } = await freshService();
     const { body, sha256 } = bufferAndHash(buildCsv(["report_date", "location", "waste_type"], [["2024-01-01", "Main St", "tyres"]]));
     uploadFindFirstMock.mockResolvedValue(worksheetRow({ mapping_version_id: null }));
-    importBatchFindUniqueMock.mockResolvedValue(batchRow({ sha256 }));
+    importBatchFindUniqueMock.mockResolvedValue(batchRow({ sha256, source_system_id: "ss-1" }));
     storageGetMock.mockResolvedValue({ body });
     transactionMock.mockResolvedValue({ claimed: true, importedRows: 1 });
     const result = await confirmDataHubWorksheet({ organisationId: "org-1", worksheetUploadId: "worksheet-1", confirmedBy: "actor-1" });
@@ -676,7 +688,11 @@ describe("confirmWorksheet — 5B.4D exact frozen-version lookup (T5-T11)", () =
     transactionMock.mockImplementation(async (callback: (tx: unknown) => Promise<unknown>) => {
       const updateManyMock = vi.fn().mockResolvedValue({ count: 1 });
       const createManyMock = vi.fn().mockResolvedValue(undefined);
-      const result = await callback({ upload: { updateMany: updateManyMock }, illegalDumping: { createMany: createManyMock } });
+      const result = await callback({
+        $queryRaw: defaultGuardQueryRawMock(),
+        upload: { updateMany: updateManyMock },
+        illegalDumping: { createMany: createManyMock },
+      });
       const claimArg = updateManyMock.mock.calls[0][0];
       expect(claimArg.where.mapping_version_id).toBe("mv-3");
       return result;
@@ -826,7 +842,11 @@ describe("confirmWorksheet — 5B.4D full-dataset mapping, never Preview's bound
       const createManyMock = vi.fn().mockImplementation(async (args: { data: unknown[] }) => {
         capturedCreateManyRowCount = args.data.length;
       });
-      return callback({ upload: { updateMany: updateManyMock }, illegalDumping: { createMany: createManyMock } });
+      return callback({
+        $queryRaw: defaultGuardQueryRawMock(),
+        upload: { updateMany: updateManyMock },
+        illegalDumping: { createMany: createManyMock },
+      });
     });
     const result = await confirmDataHubWorksheet({ organisationId: "org-1", worksheetUploadId: "worksheet-1", confirmedBy: "actor-1" });
     expect(result).toMatchObject({ ok: true, alreadyImported: false, importedRows: 37 });
@@ -847,7 +867,11 @@ describe("confirmWorksheet — 5B.4D domain write only after successful claim (T
     transactionMock.mockImplementation(async (callback: (tx: unknown) => Promise<unknown>) => {
       const updateManyMock = vi.fn().mockResolvedValue({ count: 0 });
       const findUniqueMock = vi.fn().mockResolvedValue({ canonical_status: "AWAITING_CONFIRMATION" });
-      return callback({ upload: { updateMany: updateManyMock, findUnique: findUniqueMock }, illegalDumping: { createMany: createManyMock } });
+      return callback({
+        $queryRaw: defaultGuardQueryRawMock(),
+        upload: { updateMany: updateManyMock, findUnique: findUniqueMock },
+        illegalDumping: { createMany: createManyMock },
+      });
     });
     const result = await confirmDataHubWorksheet({ organisationId: "org-1", worksheetUploadId: "worksheet-1", confirmedBy: "actor-1" });
     expect(result).toMatchObject({ ok: false, code: "WORKSHEET_NOT_ELIGIBLE" });
@@ -865,7 +889,11 @@ describe("confirmWorksheet — 5B.4D domain write only after successful claim (T
     transactionMock.mockImplementation(async (callback: (tx: unknown) => Promise<unknown>) => {
       const updateManyMock = vi.fn().mockResolvedValue({ count: 1 });
       const createManyMock = vi.fn().mockRejectedValue(new Error("simulated domain write failure"));
-      return callback({ upload: { updateMany: updateManyMock }, illegalDumping: { createMany: createManyMock } });
+      return callback({
+        $queryRaw: defaultGuardQueryRawMock(),
+        upload: { updateMany: updateManyMock },
+        illegalDumping: { createMany: createManyMock },
+      });
     });
     await expect(
       confirmDataHubWorksheet({ organisationId: "org-1", worksheetUploadId: "worksheet-1", confirmedBy: "actor-1" })
@@ -911,6 +939,7 @@ describe("confirmWorksheet — 5B.4D DETERMINISTIC selection-vs-confirm write-bo
     const createManyMock = vi.fn().mockResolvedValue(undefined);
     transactionMock.mockImplementation(async (callback: (tx: unknown) => Promise<unknown>) => {
       const tx = {
+        $queryRaw: defaultGuardQueryRawMock(),
         upload: {
           updateMany: async (args: { where: Record<string, unknown>; data: Record<string, unknown> }) => {
             // T2 — the race: a concurrent legitimate reselection wins,
@@ -966,7 +995,7 @@ describe("confirmWorksheet — 5B.4D DETERMINISTIC selection-vs-confirm write-bo
     const { confirmDataHubWorksheet } = await freshService();
     const { body, sha256 } = bufferAndHash(buildCsv(["report_date", "location", "waste_type"], [["2024-01-01", "Main St", "tyres"]]));
     uploadFindFirstMock.mockResolvedValue(worksheetRow({ mapping_version_id: null }));
-    importBatchFindUniqueMock.mockResolvedValue(batchRow({ sha256 }));
+    importBatchFindUniqueMock.mockResolvedValue(batchRow({ sha256, source_system_id: "ss-1" }));
     storageGetMock.mockResolvedValue({ body });
     let capturedWhereKeys: string[] = [];
     transactionMock.mockImplementation(async (callback: (tx: unknown) => Promise<unknown>) => {
@@ -975,7 +1004,11 @@ describe("confirmWorksheet — 5B.4D DETERMINISTIC selection-vs-confirm write-bo
         return { count: 1 };
       });
       const createManyMock = vi.fn().mockResolvedValue(undefined);
-      return callback({ upload: { updateMany: updateManyMock }, illegalDumping: { createMany: createManyMock } });
+      return callback({
+        $queryRaw: defaultGuardQueryRawMock(),
+        upload: { updateMany: updateManyMock },
+        illegalDumping: { createMany: createManyMock },
+      });
     });
     const result = await confirmDataHubWorksheet({ organisationId: "org-1", worksheetUploadId: "worksheet-1", confirmedBy: "actor-1" });
     expect(result).toMatchObject({ ok: true, alreadyImported: false });
@@ -997,6 +1030,7 @@ describe("confirmWorksheet — 5B.4D existing state-race remains independently p
     const createManyMock = vi.fn();
     transactionMock.mockImplementation(async (callback: (tx: unknown) => Promise<unknown>) => {
       const tx = {
+        $queryRaw: defaultGuardQueryRawMock(),
         upload: {
           updateMany: async (args: { where: Record<string, unknown>; data: Record<string, unknown> }) => {
             // A DIFFERENT concurrent actor wins this time: a real
