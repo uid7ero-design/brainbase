@@ -258,8 +258,20 @@ export default async function RootLayout({
                 serverSession below — OrgSwitcher no longer depends
                 entirely on its own client-side fetch('/api/me') just to
                 decide whether to render at all. See OrgSwitcher.tsx's
-                own header comment for the failure mode this closes. */}
-            <OrgSwitcher initialRole={session?.role ?? null} />
+                own header comment for the failure mode this closes.
+
+                key={session?.userId ?? 'anon'} — forces React to fully
+                remount OrgSwitcher (fresh useState/useEffect) whenever the
+                authenticated identity changes. Without this, a client-side
+                (soft) navigation across a login/logout transition can leave
+                the PREVIOUS identity's already-mounted component instance
+                in place: its own data-loading effect only runs once per
+                mount, so a stale `state.role`/org list from before the
+                identity change would otherwise persist onscreen until a
+                hard reload happened to occur for some unrelated reason.
+                Keying on userId (not just role) also resets it on a plain
+                user switch between two accounts sharing the same role. */}
+            <OrgSwitcher key={session?.userId ?? 'anon'} initialRole={session?.role ?? null} />
 
             <TopNav
               serverSession={

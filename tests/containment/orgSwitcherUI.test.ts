@@ -164,6 +164,37 @@ describe('OrgSwitcher — reuses the existing /api/admin/impersonate backend exc
   })
 })
 
+describe('OrgSwitcher remounts on identity change — stale-client-state fix', () => {
+  // Root cause (see this phase's own report): OrgSwitcher's data-loading
+  // effect runs exactly once per mount (useEffect(..., [])), and its
+  // client-side `state` is only seeded from `initialRole` on first mount
+  // (React's useState initializer is never re-consulted on a later
+  // render). A client-side (soft) navigation — e.g. the login page's
+  // router.push() in app/login/page.tsx — can leave a PREVIOUS identity's
+  // already-mounted OrgSwitcher instance in place across an authentication
+  // change, so a stale state.role/org list from before the identity
+  // change would otherwise persist onscreen. Keying the element on the
+  // authoritative session's userId forces React to discard that old
+  // instance and mount a brand-new one (fresh useState/useEffect)
+  // whenever the authenticated identity changes, closing this class of
+  // bug rather than just this one instance of it.
+  it('app/layout.tsx passes a session-derived `key` to <OrgSwitcher>, not just `initialRole`', () => {
+    const start = layoutSource.indexOf('<OrgSwitcher')
+    const end = layoutSource.indexOf('/>', start)
+    const element = layoutSource.slice(start, end)
+    expect(element).toMatch(/key=\{session\?\.userId\s*\?\?\s*'anon'\}/)
+    expect(element).toContain('initialRole={session?.role ?? null}')
+  })
+
+  it('the key is derived from the authoritative requireSession() result (session.userId), never a hardcoded or role-only value', () => {
+    const start = layoutSource.indexOf('<OrgSwitcher')
+    const end = layoutSource.indexOf('/>', start)
+    const element = layoutSource.slice(start, end)
+    expect(element).not.toMatch(/key=\{['"]/) // not a hardcoded string literal
+    expect(element).not.toContain('key={session?.role')
+  })
+})
+
 describe('CRM/Events nav reflects the ACTIVE impersonated organisation (not the founder\'s home org) — the second bug found and fixed alongside the visibility issue', () => {
   it('app/layout.tsx resolves session via requireSession() (org_override-aware), not the raw getSession() JWT decode', () => {
     expect(layoutSource).toContain("import { requireSession } from '@/lib/org';")
