@@ -151,3 +151,121 @@ describe("mapIllegalDumpingRows — non-regression: valid, non-duplicated header
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Data Hub 6.0A — deterministic Australian (D/M/YYYY) date parsing.
+//
+// Onkaparinga's real Illegal Dumping export uses day-first dates like
+// "1/07/2025" (1 July 2025). The pre-6.0A parser (`new Date(v)`) either
+// silently swapped month/day for day<=12 values or threw Invalid Date for
+// day>12 values — independently reproduced against the real source file
+// this authorization is scoped against (2,085/3,568 rows, 58.4%, produced
+// Invalid Date; the remaining 1,483, 41.6%, silently misparsed).
+//
+// Tested through the PUBLIC mapper (mapIllegalDumpingRows), never the
+// private parseDate helper directly, so these tests exercise the exact
+// same code path a real Confirm attempt does.
+// ---------------------------------------------------------------------------
+
+function mapOneRow(reportDate: string, resolutionDate?: string): ReturnType<typeof mapIllegalDumpingRows> {
+  const headers = ["report_date", "location", "waste_type", "resolution_date"];
+  return mapIllegalDumpingRows(headers, [[reportDate, "Main St", "tyres", resolutionDate ?? ""]]);
+}
+
+describe("mapIllegalDumpingRows — Australian D/M/YYYY date parsing (6.0A)", () => {
+  it("A. \"1/07/2025\" (single-digit day) maps to 1 July 2025, not 7 January", () => {
+    const mapped = mapOneRow("1/07/2025");
+    const d = mapped[0].report_date;
+    expect(d.getUTCFullYear()).toBe(2025);
+    expect(d.getUTCMonth()).toBe(6); // 0-indexed: July
+    expect(d.getUTCDate()).toBe(1);
+  });
+
+  it("B. \"01/07/2025\" (zero-padded day) maps to 1 July 2025", () => {
+    const d = mapOneRow("01/07/2025")[0].report_date;
+    expect(d.getUTCFullYear()).toBe(2025);
+    expect(d.getUTCMonth()).toBe(6);
+    expect(d.getUTCDate()).toBe(1);
+  });
+
+  it("C. \"13/07/2025\" (day > 12, would have thrown Invalid Date under the old parser) maps to 13 July 2025 without throwing", () => {
+    const d = mapOneRow("13/07/2025")[0].report_date;
+    expect(d.getUTCFullYear()).toBe(2025);
+    expect(d.getUTCMonth()).toBe(6);
+    expect(d.getUTCDate()).toBe(13);
+  });
+
+  it("D. \"31/12/2025\" (last day of a 31-day month) is valid", () => {
+    const d = mapOneRow("31/12/2025")[0].report_date;
+    expect(d.getUTCFullYear()).toBe(2025);
+    expect(d.getUTCMonth()).toBe(11);
+    expect(d.getUTCDate()).toBe(31);
+  });
+
+  it("E. \"29/02/2024\" (leap year) is valid", () => {
+    const d = mapOneRow("29/02/2024")[0].report_date;
+    expect(d.getUTCFullYear()).toBe(2024);
+    expect(d.getUTCMonth()).toBe(1);
+    expect(d.getUTCDate()).toBe(29);
+  });
+
+  it("F. \"29/02/2025\" (non-leap year) is invalid — required report_date failure", () => {
+    expect(() => mapOneRow("29/02/2025")).toThrow(IllegalDumpingMappingError);
+    expect(() => mapOneRow("29/02/2025")).toThrow(/report_date/);
+  });
+
+  it("G. \"31/02/2025\" (February never has 31 days) is invalid — never silently rolls over to a different valid date", () => {
+    expect(() => mapOneRow("31/02/2025")).toThrow(IllegalDumpingMappingError);
+  });
+
+  it("H. month 13 (\"1/13/2025\") is invalid", () => {
+    expect(() => mapOneRow("1/13/2025")).toThrow(IllegalDumpingMappingError);
+  });
+
+  it("I. day 0 (\"0/07/2025\") is invalid", () => {
+    expect(() => mapOneRow("0/07/2025")).toThrow(IllegalDumpingMappingError);
+  });
+
+  it("J. day 32 (\"32/07/2025\") is invalid", () => {
+    expect(() => mapOneRow("32/07/2025")).toThrow(IllegalDumpingMappingError);
+  });
+
+  it("K. a malformed date string is invalid", () => {
+    expect(() => mapOneRow("not-a-real-date-string")).toThrow(IllegalDumpingMappingError);
+  });
+
+  it("L. a blank optional resolution_date preserves the existing null behavior (no throw)", () => {
+    const mapped = mapOneRow("2024-01-01", "");
+    expect(mapped[0].resolution_date).toBeNull();
+  });
+
+  it("M. an invalid required report_date fails the row/import exactly as before (same error shape)", () => {
+    expect(() => mapOneRow("")).toThrow(IllegalDumpingMappingError);
+    expect(() => mapOneRow("")).toThrow(/report_date" is missing or not a valid date/);
+  });
+
+  it("N. the existing deliberately-supported ISO YYYY-MM-DD format remains supported and unchanged (matches the pre-6.0A UTC-midnight timestamp exactly)", () => {
+    const d = mapOneRow("2024-01-01")[0].report_date;
+    expect(d.toISOString()).toBe(new Date("2024-01-01").toISOString());
+  });
+
+  it("O. \"1/07/2025\" is explicitly NOT interpreted as January 7", () => {
+    const d = mapOneRow("1/07/2025")[0].report_date;
+    expect(d.getUTCMonth()).not.toBe(0); // not January
+    expect(d.getUTCDate()).not.toBe(7);
+  });
+
+  it("optional resolution_date, when present and valid in AU format, parses the same way as report_date", () => {
+    const mapped = mapOneRow("2024-01-01", "13/07/2025");
+    const rd = mapped[0].resolution_date;
+    expect(rd).not.toBeNull();
+    expect(rd!.getUTCFullYear()).toBe(2025);
+    expect(rd!.getUTCMonth()).toBe(6);
+    expect(rd!.getUTCDate()).toBe(13);
+  });
+
+  it("optional resolution_date, when present but invalid, is silently null (never throws — optional-field semantics unchanged)", () => {
+    const mapped = mapOneRow("2024-01-01", "31/02/2025");
+    expect(mapped[0].resolution_date).toBeNull();
+  });
+});
