@@ -618,6 +618,12 @@ export function ChatPanel({
     } : {
       position: "fixed", bottom: 86, right: 20,
       width: "min(520px, calc(100vw - 40px))", zIndex: 60,
+      // Phase D.4.6N-R1 — bounds the whole floating panel to the space
+      // actually available above its own bottom:86 anchor (plus a small
+      // top clearance) so the flex:1 message region below has a real
+      // height to shrink within, instead of the panel being free to grow
+      // past the viewport on short screens.
+      maxHeight: "calc(100vh - 106px)",
       display: "flex", flexDirection: "column",
       animation: "chatSlideUp 0.28s cubic-bezier(0.16,1,0.3,1)",
       borderRadius: 14, overflow: "hidden",
@@ -688,8 +694,18 @@ export function ChatPanel({
         )}
       </div>
 
-      {/* Messages */}
-      <div style={{ ...(docked ? { flex: 1 } : { maxHeight: 340 }), overflowY: "auto", padding: "12px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
+      {/* Messages — Phase D.4.6N-R1: floating mode now sizes this region
+          the same structural way docked mode always has (flex: 1 with
+          minHeight: 0, inside a height-bounded parent) instead of a
+          hardcoded maxHeight. A hardcoded, non-flex maxHeight left the
+          input bar below it as a same-flow sibling with no reserved
+          space, so taller content (e.g. the status-change confirmation
+          card's extra Current/New Status row) could visually and
+          pointer-interactively bleed into the input bar's hit area on
+          short viewports. flex + minHeight: 0 makes this region always
+          shrink to exactly the space left after the fixed header/footer,
+          so it scrolls correctly and never overlaps either sibling. */}
+      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "12px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
         {messages.length === 0 && !responding && (
           <div style={{ textAlign: "center", padding: "28px 0" }}>
             <div style={{ fontSize: 22, color: "rgba(124,58,237,0.45)", marginBottom: 8, letterSpacing: "0.1em" }}>◈</div>
