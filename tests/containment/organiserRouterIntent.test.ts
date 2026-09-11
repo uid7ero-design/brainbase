@@ -166,6 +166,144 @@ describe('organiserContext — named-board briefing override', () => {
   })
 })
 
+// ── Phase D.4.6M — Organiser-vs-social comment routing disambiguation ──────
+//
+// Root cause (see agentRouter.ts's own EXPLICIT_SOCIAL_RE/BARE_COMMENT_RE
+// header): ROUTE_KEYWORDS.social matched bare "comment" with no
+// accompanying platform noun, and shouldOverrideToChat() only ever
+// overrode the 'briefing' route — never 'social' — so an established
+// Organiser context could not rescue a short "post another comment"
+// follow-up, and a fully context-free "post a comment" silently and
+// confidently routed to social with no ambiguity signal at all.
+
+describe('D.4.6M — Organiser positive', () => {
+  it('A. explicit Organiser item wording -> chat via the pre-existing organiser-intent guard (unaffected by this phase)', async () => {
+    const r = await q('Post a comment on the Test 2 item saying hello')
+    expect(r.agent).toBe('chat')
+    expect(r.reason).toBe('organiser intent')
+  })
+
+  it('B. explicit Organiser wording -> chat via the organiser-intent guard', async () => {
+    const r = await q('Add a comment to this Organiser item')
+    expect(r.agent).toBe('chat')
+    expect(r.reason).toBe('organiser intent')
+  })
+
+  it('C. established Organiser context + short comment follow-up (no organiser noun) -> chat, routed to organiser', async () => {
+    const r = await qc('Post another comment saying hello', true)
+    expect(r.agent).toBe('chat')
+    expect(r.reason).toBe('organiser context — comment routed to organiser')
+  })
+
+  it('D. established Organiser context + "comment on this item" -> chat via the organiser-intent guard ("item" is present)', async () => {
+    const r = await qc('Comment on this item', true)
+    expect(r.agent).toBe('chat')
+    expect(r.reason).toBe('organiser intent')
+  })
+
+  it('the SAME short follow-up WITHOUT organiserContext is ambiguous, not silently Organiser-routed', async () => {
+    const r = await q('Post another comment saying hello')
+    expect(r.agent).toBe('chat')
+    expect(r.reason).toBe('ambiguous comment — routed to general chat for clarification')
+  })
+})
+
+describe('D.4.6M — social positive (unaffected by the new guard)', () => {
+  it('E. "Post a comment on our latest Instagram post" -> social', async () => {
+    const r = await q('Post a comment on our latest Instagram post')
+    expect(r.agent).toBe('social')
+  })
+
+  it('F. "Reply to that Facebook comment" -> social', async () => {
+    const r = await q('Reply to that Facebook comment')
+    expect(r.agent).toBe('social')
+  })
+
+  it('G. "Add a comment to the LinkedIn post" -> social', async () => {
+    const r = await q('Add a comment to the LinkedIn post')
+    expect(r.agent).toBe('social')
+  })
+
+  it('explicit social wording still routes social even WITH an established Organiser context', async () => {
+    const r = await qc('Post a comment on our latest Instagram post', true)
+    expect(r.agent).toBe('social')
+  })
+})
+
+describe('D.4.6M — ambiguous context-free comment wording', () => {
+  it('H. context-free "Post a comment" -> chat (safe neutral), never a silently-confident social/Organiser guess', async () => {
+    const r = await q('Post a comment')
+    expect(r.agent).toBe('chat')
+    expect(r.reason).toBe('ambiguous comment — routed to general chat for clarification')
+    expect(r.confidence).toBeLessThan(0.85)
+  })
+
+  it('I. context-free "Add a comment" -> chat (safe neutral)', async () => {
+    const r = await q('Add a comment')
+    expect(r.agent).toBe('chat')
+    expect(r.reason).toBe('ambiguous comment — routed to general chat for clarification')
+  })
+
+  it('ambiguous routing never returns "social" or invents an Organiser-specific reason for a context-free comment', async () => {
+    const r = await q('post a comment')
+    expect(r.agent).not.toBe('social')
+    expect(r.reason).not.toMatch(/organiser/i)
+  })
+})
+
+describe('D.4.6M — conflicting signals: explicit intent beats stale/established context', () => {
+  it('J. Organiser context + explicit Instagram wording -> social (explicit social wins)', async () => {
+    const r = await qc('Post a comment on our Instagram post', true)
+    expect(r.agent).toBe('social')
+  })
+
+  it('K. explicit Organiser item wording -> chat via the organiser-intent guard, regardless of any social-adjacent phrasing elsewhere in the same turn', async () => {
+    const r = await q('Post a comment on the Test 2 Organiser item saying hello')
+    expect(r.agent).toBe('chat')
+    expect(r.reason).toBe('organiser intent')
+  })
+})
+
+describe('D.4.6M — regression: unrelated routing and write-surface invariants unchanged', () => {
+  it('L. unrelated normal Helena requests unchanged', async () => {
+    expect((await q('why are missed bins increasing?')).agent).toBe('insight')
+    expect((await q('what should I do about fleet?')).agent).toBe('action')
+    expect((await q('what columns does this CSV have?')).agent).toBe('dataIntake')
+  })
+
+  it('M. non-comment social requests unchanged', async () => {
+    const r = await q('show me our Instagram engagement')
+    expect(r.agent).toBe('social')
+  })
+
+  it('N. Organiser read requests unchanged', async () => {
+    const r = await q('what changed on this board today?')
+    expect(r.agent).toBe('chat')
+    expect(r.reason).toBe('organiser intent')
+  })
+
+  it('O. exactly 5 Organiser Helena tools remain (source-shape invariant, cross-file)', async () => {
+    const fs = await import('fs')
+    const path = await import('path')
+    const source = fs.readFileSync(path.resolve(__dirname, '../../lib/organiser/helenaTools.ts'), 'utf8')
+    const names = [...source.matchAll(/name: '([a-z_]+)'/g)].map(m => m[1])
+    expect(names).toEqual([
+      'list_organiser_boards',
+      'list_organiser_items',
+      'get_organiser_board_activity',
+      'get_organiser_item_activity',
+      'propose_organiser_comment',
+    ])
+  })
+
+  it('P. exactly 1 write action remains (propose_organiser_comment is the only mutation-capable tool)', async () => {
+    const fs = await import('fs')
+    const path = await import('path')
+    const source = fs.readFileSync(path.resolve(__dirname, '../../lib/organiser/helenaTools.ts'), 'utf8')
+    expect(source).not.toMatch(/\b(create|update|move|delete)_organiser/)
+  })
+})
+
 describe('the guard is a small lexical check, not DB/capability-aware (source-shape invariant)', () => {
   it('router source never imports the db client or a capability-check module', async () => {
     const fs = await import('fs')
