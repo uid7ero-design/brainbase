@@ -694,17 +694,18 @@ export function ChatPanel({
         )}
       </div>
 
-      {/* Messages — Phase D.4.6N-R1: floating mode now sizes this region
-          the same structural way docked mode always has (flex: 1 with
-          minHeight: 0, inside a height-bounded parent) instead of a
-          hardcoded maxHeight. A hardcoded, non-flex maxHeight left the
-          input bar below it as a same-flow sibling with no reserved
-          space, so taller content (e.g. the status-change confirmation
-          card's extra Current/New Status row) could visually and
-          pointer-interactively bleed into the input bar's hit area on
-          short viewports. flex + minHeight: 0 makes this region always
-          shrink to exactly the space left after the fixed header/footer,
-          so it scrolls correctly and never overlaps either sibling. */}
+      {/* Phase D.4.6N-R1 — floating mode now sizes this region the same
+          structural way docked mode always has (flex: 1 with minHeight: 0,
+          inside a height-bounded parent) instead of a hardcoded maxHeight.
+          A hardcoded, non-flex maxHeight left the input bar below it as a
+          same-flow sibling with no reserved space, so taller content (e.g.
+          the status-change confirmation card's extra Current/New Status
+          row) could visually and pointer-interactively bleed into the
+          input bar's hit area on short viewports. flex + minHeight: 0
+          makes this region always shrink to exactly the space left after
+          the fixed header/footer, so it scrolls correctly and never
+          overlaps either sibling. */}
+      {/* Messages */}
       <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "12px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
         {messages.length === 0 && !responding && (
           <div style={{ textAlign: "center", padding: "28px 0" }}>
