@@ -52,7 +52,7 @@ export async function requireSession(): Promise<OrgSession> {
   if (!session?.organisationId) throw new Error('Unauthorized');
 
   const rows = await sql`
-    SELECT id, organisation_id, role
+    SELECT id, organisation_id, role, status
     FROM users
     WHERE id = ${session.userId}
     LIMIT 1
@@ -64,6 +64,25 @@ export async function requireSession(): Promise<OrgSession> {
   // Cross-org switch protection: if the DB org no longer matches the session,
   // the JWT was issued under a previous org assignment — reject it.
   if ((user.organisation_id as string) !== session.organisationId) {
+    throw new Error('Session invalid');
+  }
+
+  // HR-0.5: reject a session whose DB-backed user is not ACTIVE (status is
+  // a real Postgres enum — ACTIVE|INACTIVE|INVITED, prisma/schema.prisma).
+  // Only a POSITIVE non-ACTIVE value rejects; a missing/null status is
+  // treated as "no signal", not a denial. This is deliberate, not an
+  // oversight: users.status has no nullable marker in the schema, so a
+  // production row is expected to always carry a real value here — a
+  // missing value can only come from an unbackfilled legacy row (the same
+  // class of gap this codebase has already hit with users.updated_at
+  // having no real DB-level default despite its Prisma @updatedAt) or a
+  // test double predating this column, and neither has any evidence
+  // justifying locking that user out as a side effect of this fix. Reuses
+  // the same 'Session invalid' message as the cross-org-switch case above
+  // so a caller cannot distinguish "inactive" from "org changed" from the
+  // error text alone, matching this route's existing failure semantics.
+  const status = (user.status as string | undefined)?.toUpperCase();
+  if (status && status !== 'ACTIVE') {
     throw new Error('Session invalid');
   }
 
