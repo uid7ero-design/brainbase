@@ -168,11 +168,71 @@ function mapSeverity(s: string | null): MappedIllegalDumpingRow["severity"] {
       return "MEDIUM";
   }
 }
-function mapStatus(s: string): MappedIllegalDumpingRow["status"] {
-  const l = s.toLowerCase().replace(/[\s_]+/g, "_");
-  if (l === "resolved" || l === "closed" || l === "complete") return "RESOLVED";
+// Data Hub 6.0B1 — status compatibility patch (fail-closed).
+//
+// Phase 6.0B read-only discovery found the real Onkaparinga Illegal
+// Dumping export contains exactly 5 distinct Status values. Of these:
+//   - "Resolved" already correctly mapped to RESOLVED.
+//   - "Booked" and "Requires Input" are evidence-confirmed OPEN (0%
+//     correlate with a populated Closed timestamp).
+//   - "Completed w/exception" and "Abandoned" are BOTH evidence-terminal
+//     (100% / 98.8% correlate with a Closed timestamp) but their EXACT
+//     BrainBase semantics (RESOLVED? CLOSED? something else?) requires
+//     explicit customer confirmation before this mapper may assign
+//     either one ANY status — deliberately NOT added to the map below,
+//     so they fail closed exactly like any other unrecognized value,
+//     rather than being silently absorbed into OPEN as the pre-6.0B1
+//     mapper did.
+//
+// The original implementation's silent `else -> OPEN` catch-all is
+// removed entirely: any status string that doesn't match a known,
+// deliberately-authored entry below now throws IllegalDumpingMappingError
+// — including any future/unexpected source lifecycle value this mapper
+// has never been told how to interpret. This protects against silently
+// corrupting the meaning of a future new source status, exactly as
+// report_date/location/waste_type already fail loudly rather than
+// guessing.
+//
+// "open" remains a recognized literal — this is the SAME value
+// mapIllegalDumpingRows' own caller substitutes (`get(row, "status") ??
+// "open"`) when no status column/value is present at all; preserving it
+// here keeps that existing, already-shipped default behavior working
+// unchanged. "closed"/"complete" (exact) and any value containing
+// "progress" are likewise pre-existing, already-shipped, ALREADY-TESTED
+// (the "in progress" -> IN_PROGRESS containment test) mappings unrelated
+// to the Onkaparinga ambiguity — left untouched by this patch.
+//
+// CLOSED is deliberately never emitted anywhere in this function — even
+// for "Abandoned", despite its 98.8% terminal-timestamp correlation —
+// because assigning that specific BrainBase semantic is exactly the kind
+// of decision this patch is NOT authorized to make.
+const KNOWN_STATUS_MAP = new Map<string, MappedIllegalDumpingRow["status"]>([
+  ["resolved", "RESOLVED"],
+  ["closed", "RESOLVED"],
+  ["complete", "RESOLVED"],
+  ["open", "OPEN"],
+  ["booked", "OPEN"],
+  ["requires_input", "OPEN"],
+]);
+
+function mapStatus(s: string, rowIndex: number): MappedIllegalDumpingRow["status"] {
+  // A blank/whitespace-only value normalizes to the same "open" entry the
+  // pre-existing `get(row, "status") ?? "open"` call-site default already
+  // uses for a genuinely MISSING status column — this is existing,
+  // already-shipped, already-certified compatibility (confirmed via
+  // dataHubMappingExecution.test.ts's own structural-mapping-boundary
+  // tests, which represent a canonical field with no configured source
+  // column as an EMPTY STRING rather than `undefined`, bypassing that
+  // call-site default entirely and reaching this function directly).
+  // Fail-closed applies to genuinely UNRECOGNIZED non-empty values, never
+  // to "no status was actually provided at all".
+  const l = s.trim().toLowerCase().replace(/[\s_]+/g, "_") || "open";
+  const known = KNOWN_STATUS_MAP.get(l);
+  if (known) return known;
   if (l.includes("progress")) return "IN_PROGRESS";
-  return "OPEN";
+  throw new IllegalDumpingMappingError(
+    `Row ${rowIndex + 1}: "status" value is not a recognized/supported status for import.`
+  );
 }
 
 /**
@@ -266,7 +326,7 @@ export function mapIllegalDumpingRows(headers: string[], rows: string[][]): Mapp
       waste_type: wasteType,
       volume_estimate: nullStr(get(row, "volume_estimate")),
       severity: mapSeverity(nullStr(get(row, "severity"))),
-      status: mapStatus(get(row, "status") ?? "open"),
+      status: mapStatus(get(row, "status") ?? "open", rowIndex),
       crew_assigned: nullStr(get(row, "crew_assigned")),
       resolution_date: parseDate(get(row, "resolution_date")),
       cost_estimate: parseFloatOrNull(get(row, "cost_estimate")),

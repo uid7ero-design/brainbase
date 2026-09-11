@@ -269,3 +269,141 @@ describe("mapIllegalDumpingRows — Australian D/M/YYYY date parsing (6.0A)", ()
     expect(mapped[0].resolution_date).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Data Hub 6.0B1 — status fail-closed compatibility patch.
+//
+// Phase 6.0B read-only discovery found exactly 5 distinct Status values in
+// the real Onkaparinga Illegal Dumping export: Resolved (2,645), Completed
+// w/exception (731), Abandoned (173), Booked (18), Requires Input (1). The
+// pre-6.0B1 mapper silently mapped everything except "Resolved" to OPEN —
+// including 923 rows (25.9%) whose true BrainBase semantics were never
+// actually decided. This patch authorizes exactly three new mappings
+// (Resolved -> RESOLVED already existed; Booked -> OPEN and Requires
+// Input -> OPEN are evidence-confirmed, 0% Closed-timestamp correlation)
+// and explicitly BLOCKS two customer-confirmation-pending values
+// (Completed w/exception, Abandoned) rather than guessing RESOLVED or
+// CLOSED for them. The old catch-all `else -> OPEN` is removed entirely:
+// any status this mapper hasn't been deliberately taught now fails
+// closed, protecting against silently corrupting the meaning of a future
+// unexpected source lifecycle value.
+//
+// Tested through the PUBLIC mapper, never the private mapStatus helper
+// directly, mirroring the 6.0A test style above.
+// ---------------------------------------------------------------------------
+
+function mapOneRowWithStatus(status: string): ReturnType<typeof mapIllegalDumpingRows> {
+  const headers = ["report_date", "location", "waste_type", "status"];
+  return mapIllegalDumpingRows(headers, [["2024-01-01", "Main St", "tyres", status]]);
+}
+
+describe("mapIllegalDumpingRows — status fail-closed compatibility (6.0B1)", () => {
+  it("A. \"Resolved\" maps to RESOLVED", () => {
+    expect(mapOneRowWithStatus("Resolved")[0].status).toBe("RESOLVED");
+  });
+
+  it("B. a case/whitespace variant of Resolved (\"  RESOLVED  \") still maps to RESOLVED — existing normalization preserved", () => {
+    expect(mapOneRowWithStatus("  RESOLVED  ")[0].status).toBe("RESOLVED");
+  });
+
+  it("C. \"Booked\" maps to OPEN (evidence-confirmed: 0% Closed-timestamp correlation in the real file)", () => {
+    expect(mapOneRowWithStatus("Booked")[0].status).toBe("OPEN");
+  });
+
+  it("D. \"Requires Input\" maps to OPEN (evidence-confirmed: 0% Closed-timestamp correlation, 1 row)", () => {
+    expect(mapOneRowWithStatus("Requires Input")[0].status).toBe("OPEN");
+  });
+
+  it("E. \"Completed w/exception\" throws IllegalDumpingMappingError — customer confirmation required, never silently OPEN", () => {
+    expect(() => mapOneRowWithStatus("Completed w/exception")).toThrow(IllegalDumpingMappingError);
+  });
+
+  it("F. \"Abandoned\" throws IllegalDumpingMappingError — customer confirmation required, never silently OPEN", () => {
+    expect(() => mapOneRowWithStatus("Abandoned")).toThrow(IllegalDumpingMappingError);
+  });
+
+  it("G. an arbitrary unknown future status (\"Some New Future Status\") throws IllegalDumpingMappingError", () => {
+    expect(() => mapOneRowWithStatus("Some New Future Status")).toThrow(IllegalDumpingMappingError);
+  });
+
+  it("H. an unknown status never silently maps to OPEN — the only two possible outcomes are a deliberately-authored mapping or a thrown error", () => {
+    // The prior implementation's `return "OPEN"` catch-all is gone entirely:
+    // every branch of mapStatus now either returns a specific, deliberately-
+    // authored status or throws. This proves the throw for a genuinely
+    // unrecognized value, complementing G above with an explicit
+    // "not silently OPEN" framing.
+    let threw = false;
+    try {
+      mapOneRowWithStatus("Unexpected Workflow State");
+    } catch (e) {
+      threw = e instanceof IllegalDumpingMappingError;
+    }
+    expect(threw).toBe(true);
+  });
+
+  it("I. no known real Onkaparinga status value maps to CLOSED under this patch", () => {
+    const knownValues = ["Resolved", "Booked", "Requires Input"];
+    for (const v of knownValues) {
+      expect(mapOneRowWithStatus(v)[0].status).not.toBe("CLOSED");
+    }
+    // Abandoned (the obvious CLOSED candidate per discovery's own
+    // best-evidence analysis) is deliberately NOT given any status at
+    // all in this patch — it throws (F above) rather than being mapped
+    // to CLOSED without explicit customer authorization.
+  });
+
+  it("J. 6.0A Australian date parsing remains unaffected by this patch (spot-check)", () => {
+    const d = mapOneRow("13/07/2025")[0].report_date;
+    expect(d.getUTCFullYear()).toBe(2025);
+    expect(d.getUTCMonth()).toBe(6);
+    expect(d.getUTCDate()).toBe(13);
+  });
+
+  it("K. location-required behavior remains unchanged by this patch", () => {
+    const headers = ["report_date", "location", "waste_type", "status"];
+    expect(() => mapIllegalDumpingRows(headers, [["2024-01-01", "", "tyres", "Resolved"]])).toThrow(
+      /"location" is required/
+    );
+  });
+
+  it("L. a status failure aborts the ENTIRE mapping call synchronously — no partial results, even when an earlier row in the same call is otherwise valid", () => {
+    const headers = ["report_date", "location", "waste_type", "status"];
+    const rows = [
+      ["2024-01-01", "Main St", "tyres", "Resolved"],
+      ["2024-01-02", "Other St", "mattress", "Abandoned"],
+    ];
+    // mapIllegalDumpingRows is called by confirmWorksheet.ts strictly
+    // BEFORE prisma.$transaction opens — a synchronous throw here means
+    // execution never reaches any domain write path at all, for either
+    // row, even though row 1 alone would have mapped successfully.
+    expect(() => mapIllegalDumpingRows(headers, rows)).toThrow(IllegalDumpingMappingError);
+  });
+
+  it("preserves pre-existing, already-tested \"closed\"/\"complete\" exact-match and \"progress\"-substring mappings (unrelated to the Onkaparinga ambiguity, not part of this patch's scope)", () => {
+    expect(mapOneRowWithStatus("closed")[0].status).toBe("RESOLVED");
+    expect(mapOneRowWithStatus("complete")[0].status).toBe("RESOLVED");
+    expect(mapOneRowWithStatus("in progress")[0].status).toBe("IN_PROGRESS");
+  });
+
+  it("preserves the pre-existing missing-status-column default (literal \"open\" -> OPEN)", () => {
+    // No "status" header supplied at all — mirrors mapOneRow's own headers
+    // (report_date/location/waste_type/resolution_date, no status) and the
+    // existing `get(row, "status") ?? "open"` call-site default.
+    const mapped = mapOneRow("2024-01-01");
+    expect(mapped[0].status).toBe("OPEN");
+  });
+
+  it("preserves existing certified compatibility for a PRESENT status column whose value is an empty string (never throws — distinct from the fail-closed path for a genuinely unrecognized NON-EMPTY value)", () => {
+    // Discovered via regression: dataHubMappingExecution.test.ts's own
+    // toIllegalDumpingMapperInput adapter represents every
+    // ILLEGAL_DUMPING_KNOWN_HEADERS field with no configured source column
+    // as an empty STRING (never `undefined`), which bypasses
+    // mapIllegalDumpingRows' own `get(row, "status") ?? "open"` call-site
+    // default entirely and reaches mapStatus("") directly. This is
+    // existing, already-shipped, already-certified compatibility that
+    // fail-closed must not break — an empty status value means "no status
+    // was actually provided", not "an unrecognized status was provided".
+    expect(mapOneRowWithStatus("")[0].status).toBe("OPEN");
+    expect(mapOneRowWithStatus("   ")[0].status).toBe("OPEN");
+  });
+});
