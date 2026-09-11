@@ -19,6 +19,10 @@ const {
   logUserRoleChanged,
   logUserOrganisationChanged,
   logUserDeleted,
+  logAdminMigrationExecuted,
+  logSessionMigrationExecuted,
+  logCrmClassificationMigrationExecuted,
+  logDemoSeedExecuted,
 } = await import('@/lib/admin/auditLog');
 
 function sqlCallText(i: number): string {
@@ -204,6 +208,79 @@ describe('Failure semantics — best-effort, per ADR-0003', () => {
 
     expect(consoleSpy).toHaveBeenCalled();
     consoleSpy.mockRestore();
+  });
+});
+
+describe('SEC-1B1 — logAdminMigrationExecuted / logSessionMigrationExecuted / logCrmClassificationMigrationExecuted', () => {
+  it('logAdminMigrationExecuted attributes the actor\'s own org, a stable resource_id, and steps/lastStep in after_state', async () => {
+    await logAdminMigrationExecuted({
+      actorUserId: 'sa-1', actorOrganisationId: 'brainbase-org',
+      stepsCompleted: 44, lastStep: '44. organiser_action_confirmations',
+      ipAddress: '203.0.113.9', userAgent: 'test-agent/1.0',
+    });
+    const args = sqlCallArgs(0);
+    expect(args).toContain('brainbase-org'); // organisation_id = actor's own org, not tenant data
+    expect(args).toContain('sa-1');
+    expect(args).toContain('admin_migration.executed');
+    expect(args).toContain('schema_migration');
+    expect(args).toContain('admin_migrate_full'); // stable resource_id, not a per-invocation id
+    expect(args).toContain(JSON.stringify({ stepsCompleted: 44, lastStep: '44. organiser_action_confirmations' }));
+    expect(args).toContain(null); // before_state
+  });
+
+  it('logSessionMigrationExecuted carries the per-step results summary in after_state', async () => {
+    const results = ['✓ sessions table', '✗ session_instances: boom'];
+    await logSessionMigrationExecuted({
+      actorUserId: 'sa-1', actorOrganisationId: 'brainbase-org',
+      results, ipAddress: null, userAgent: null,
+    });
+    const args = sqlCallArgs(0);
+    expect(args).toContain('session_migration.executed');
+    expect(args).toContain('admin_migrate_sessions');
+    expect(args).toContain(JSON.stringify({ results }));
+  });
+
+  it('logCrmClassificationMigrationExecuted carries a fixed, non-secret migration identifier in after_state', async () => {
+    await logCrmClassificationMigrationExecuted({
+      actorUserId: 'sa-1', actorOrganisationId: 'brainbase-org',
+      ipAddress: null, userAgent: null,
+    });
+    const args = sqlCallArgs(0);
+    expect(args).toContain('crm_classification_migration.executed');
+    expect(args).toContain('crm_contacts_classification');
+    expect(args).toContain(JSON.stringify({ migration: 'crm_contacts.classification' }));
+  });
+
+  it('all three schema_migration events are resource_type "schema_migration" and never carry a password/secret field', async () => {
+    await logAdminMigrationExecuted({ actorUserId: 'sa-1', actorOrganisationId: 'org', stepsCompleted: 1, lastStep: null, ipAddress: null, userAgent: null });
+    await logSessionMigrationExecuted({ actorUserId: 'sa-1', actorOrganisationId: 'org', results: [], ipAddress: null, userAgent: null });
+    await logCrmClassificationMigrationExecuted({ actorUserId: 'sa-1', actorOrganisationId: 'org', ipAddress: null, userAgent: null });
+    for (let i = 0; i < 3; i++) {
+      expect(sqlCallArgs(i)).toContain('schema_migration');
+    }
+    expect(JSON.stringify(sqlMock.mock.calls)).not.toMatch(/password|secret|token|DATABASE_URL/i);
+  });
+});
+
+describe('SEC-1B1 — logDemoSeedExecuted', () => {
+  it('is the one genuinely org-scoped SEC-1B1 event: organisation_id is the real seeded tenant, resource_id is the demo file id, counts + enabled modules land in after_state', async () => {
+    await logDemoSeedExecuted({
+      actorUserId: 'admin-1', organisationId: 'tenant-org-9', fileId: 'file-xyz',
+      counts: { wasteRecords: 384, fleetMetrics: 96, serviceRequests: 261 },
+      enabledModules: ['waste_recycling', 'fleet_management', 'service_requests'],
+      ipAddress: '203.0.113.9', userAgent: 'test-agent/1.0',
+    });
+    const args = sqlCallArgs(0);
+    expect(args).toContain('tenant-org-9'); // organisation_id = the actual tenant seeded
+    expect(args).toContain('admin-1');
+    expect(args).toContain('demo_seed.executed');
+    expect(args).toContain('demo_seed');
+    expect(args).toContain('file-xyz'); // resource_id
+    expect(args).toContain(JSON.stringify({
+      counts: { wasteRecords: 384, fleetMetrics: 96, serviceRequests: 261 },
+      enabledModules: ['waste_recycling', 'fleet_management', 'service_requests'],
+    }));
+    expect(args).toContain(null); // before_state
   });
 });
 
