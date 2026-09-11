@@ -282,7 +282,7 @@ describe('D.4.6M — regression: unrelated routing and write-surface invariants 
     expect(r.reason).toBe('organiser intent')
   })
 
-  it('O. exactly 5 Organiser Helena tools remain (source-shape invariant, cross-file)', async () => {
+  it('O. exactly 6 Organiser Helena tools remain (source-shape invariant, cross-file) — updated in D.4.6N to add propose_organiser_status_change', async () => {
     const fs = await import('fs')
     const path = await import('path')
     const source = fs.readFileSync(path.resolve(__dirname, '../../lib/organiser/helenaTools.ts'), 'utf8')
@@ -293,10 +293,11 @@ describe('D.4.6M — regression: unrelated routing and write-surface invariants 
       'get_organiser_board_activity',
       'get_organiser_item_activity',
       'propose_organiser_comment',
+      'propose_organiser_status_change',
     ])
   })
 
-  it('P. exactly 1 write action remains (propose_organiser_comment is the only mutation-capable tool)', async () => {
+  it('P. exactly 2 write actions remain (propose_organiser_comment, propose_organiser_status_change) — no generic update/create/move/delete capability', async () => {
     const fs = await import('fs')
     const path = await import('path')
     const source = fs.readFileSync(path.resolve(__dirname, '../../lib/organiser/helenaTools.ts'), 'utf8')
@@ -311,5 +312,44 @@ describe('the guard is a small lexical check, not DB/capability-aware (source-sh
     const source = fs.readFileSync(path.resolve(__dirname, '../../lib/agents/agentRouter.ts'), 'utf8')
     expect(source).not.toMatch(/from ['"]@\/lib\/db['"]/)
     expect(source).not.toMatch(/requireCapability|checkCapability/)
+  })
+})
+
+// ── Phase D.4.6N — explicit Organiser status-change routing intent ─────────
+
+describe('D.4.6N — status-change intent guard', () => {
+  it('"Change Test 2 to Done" -> chat via the status-change intent guard (the phase\'s own primary example)', async () => {
+    const r = await q('Change Test 2 to Done')
+    expect(r.agent).toBe('chat')
+    expect(r.reason).toBe('organiser status-change intent')
+  })
+
+  it('"Set Test 2\'s status to In Progress" -> chat via the status-change intent guard', async () => {
+    const r = await q("Set Test 2's status to In Progress")
+    expect(r.agent).toBe('chat')
+    expect(r.reason).toBe('organiser status-change intent')
+  })
+
+  it('"Mark Test 2 as Done" -> chat via the status-change intent guard', async () => {
+    const r = await q('Mark Test 2 as Done')
+    expect(r.agent).toBe('chat')
+    expect(r.reason).toBe('organiser status-change intent')
+  })
+
+  it('a bare "done" with no change-verb never satisfies this guard on its own ("Are we done with the meeting?")', async () => {
+    const r = await q('Are we done with the meeting?')
+    expect(r.reason).not.toBe('organiser status-change intent')
+  })
+
+  it('a change-verb with neither "status" nor a canonical status value never satisfies this guard ("Change my password")', async () => {
+    const r = await q('Change my password')
+    expect(r.reason).not.toBe('organiser status-change intent')
+  })
+
+  it('organiserContext has no bearing on this guard — it fires purely on explicit wording, with or without established context', async () => {
+    const withContext = await qc('Change Test 2 to Done', true)
+    const withoutContext = await q('Change Test 2 to Done')
+    expect(withContext.reason).toBe('organiser status-change intent')
+    expect(withoutContext.reason).toBe('organiser status-change intent')
   })
 })

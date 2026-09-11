@@ -323,18 +323,24 @@ describe('Wiring — every live ChatPanel call site passes the new props through
 })
 
 describe('Accessibility (source-level)', () => {
-  it('Confirm/Cancel are native <button> elements (keyboard reachable by default), not clickable divs', () => {
+  it('Confirm/Cancel are native <button> elements (keyboard reachable by default), not clickable divs — 4 total in D.4.6N: one Confirm/Cancel pair per proposal-shape branch (comment, status change)', () => {
     const card = sliceFrom(CHATPANEL_SOURCE, 'function OrganiserActionCard(', 'export function ChatPanel(')
     expect(card).toContain('<button')
-    expect((card.match(/<button/g) || []).length).toBe(2)
+    expect((card.match(/<button/g) || []).length).toBe(4)
   })
 
-  it('card has an accessible region label and both buttons have explicit aria-labels', () => {
+  it('card has an accessible region label and both comment-branch buttons have explicit aria-labels', () => {
     const card = sliceFrom(CHATPANEL_SOURCE, 'function OrganiserActionCard(', 'export function ChatPanel(')
     expect(card).toContain('role="region"')
     expect(card).toContain('aria-label="Helena Organiser action awaiting your confirmation"')
     expect(card).toContain('aria-label="Confirm: post this exact comment now"')
     expect(card).toContain('aria-label="Cancel: do not post this comment"')
+  })
+
+  it('D.4.6N: the status-change branch\'s buttons also have explicit, distinct aria-labels', () => {
+    const card = sliceFrom(CHATPANEL_SOURCE, 'function OrganiserActionCard(', 'export function ChatPanel(')
+    expect(card).toContain("aria-label=\"Confirm: change this item's status now\"")
+    expect(card).toContain("aria-label=\"Cancel: do not change this item's status\"")
   })
 
   it('no window.confirm()/window.alert() browser dialog is used', () => {

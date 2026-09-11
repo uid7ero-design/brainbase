@@ -183,7 +183,11 @@ describe('one-shot mutation consumption across the 4-iteration tool loop', () =>
   it('the capture-and-clear of the token happens synchronously, before the first await inside each tool_use block\'s handling — never inside the async tool-execution body itself', () => {
     const idx = routeSource.indexOf('toolUseBlocks.map((block)')
     expect(idx).toBeGreaterThan(-1)
-    const block = routeSource.slice(idx, idx + 1200)
+    // Phase D.4.6N — widened from 1200: the one-shot guard's own comment
+    // now documents why BOTH write tools share this gate, pushing the
+    // actual code further from the search anchor. Still a generous bound,
+    // not a meaningful invariant in itself.
+    const block = routeSource.slice(idx, idx + 1800)
     expect(block).toMatch(/let confirmationTokenForThisCall: string \| undefined;/)
     expect(block).toMatch(/remainingConfirmationToken = undefined;/)
     // The clear must appear BEFORE the async IIFE that does the actual
@@ -194,8 +198,10 @@ describe('one-shot mutation consumption across the 4-iteration tool loop', () =>
     expect(asyncIdx).toBeGreaterThan(clearIdx)
   })
 
-  it('only propose_organiser_comment calls ever receive the captured token — every other tool name is unaffected', () => {
-    expect(routeSource).toMatch(/block\.name === 'propose_organiser_comment' && remainingConfirmationToken/)
+  it('D.4.6N: BOTH write-tool calls (propose_organiser_comment, propose_organiser_status_change) — and only those two — ever receive the captured token', () => {
+    expect(routeSource).toMatch(
+      /\(block\.name === 'propose_organiser_comment' \|\| block\.name === 'propose_organiser_status_change'\) &&\s*\n\s*remainingConfirmationToken/,
+    )
   })
 
   it('the captured-or-undefined token is passed as confirmationToken into executeOrganiserTool\'s contextDefaults — never the raw outer token', () => {
@@ -349,5 +355,46 @@ describe('no unrelated files were pulled into this change (spot-check imports)',
 
   it('agentRouter is imported unchanged — same import path and named export as before this phase', () => {
     expect(routeSource).toMatch(/import \{ route as routeToAgent \} from '@\/lib\/agents\/agentRouter';/)
+  })
+})
+
+// Phase D.4.6N — same deterministic-bypass requirement as D.4.6L, extended
+// to Helena's second write action (propose_organiser_status_change).
+describe('Phase D.4.6N — deterministic status-change result authority', () => {
+  it('ORGANISER_STATUS_CHANGE_OUTCOME_TEXT exists and covers every backend confirm+execute outcome except the dynamic "changed" template', () => {
+    const idx = routeSource.indexOf('const ORGANISER_STATUS_CHANGE_OUTCOME_TEXT')
+    expect(idx).toBeGreaterThan(-1)
+    const block = routeSource.slice(idx, idx + 1500)
+    for (const key of ['already_used_confirmation', 'expired_confirmation', 'invalid_confirmation', 'unauthorized', 'item_not_found', 'stale_item_state', 'failed']) {
+      expect(block).toMatch(new RegExp(`\\b${key}:`))
+    }
+    // 'changed' and 'proposed' are deliberately absent — 'changed' is a
+    // dynamic template (real item/status names), 'proposed' still gets
+    // ordinary model narration.
+    expect(block).not.toMatch(/\bchanged:/)
+    expect(block).not.toMatch(/\bproposed:/)
+  })
+
+  it('both write tools share the SAME short-circuit variable (organiserConfirmationOutcomeText): the status-change branch sets it from ORGANISER_STATUS_CHANGE_OUTCOME_TEXT, and there is only ONE `if (organiserConfirmationOutcomeText !== null)` guard in the whole file — so the ordering-vs-msgs-append guarantee Phase D.4.6L already proves for the comment action necessarily covers this action too, without a separate mutation-tested duplicate here', () => {
+    const statusChangeSetIdx = routeSource.indexOf('organiserConfirmationOutcomeText = ORGANISER_STATUS_CHANGE_OUTCOME_TEXT')
+    expect(statusChangeSetIdx).toBeGreaterThan(-1)
+
+    const outcomeCheckMatches = routeSource.match(/if \(organiserConfirmationOutcomeText !== null\)/g) ?? []
+    expect(outcomeCheckMatches.length).toBe(1)
+  })
+
+  it('the "changed" outcome is built ONLY from the tool result\'s own server-authoritative `item` object, never from confirmationTokenForThisCall\'s absence or model text', () => {
+    const idx = routeSource.indexOf("parsed.status === 'changed' && parsed.item")
+    expect(idx).toBeGreaterThan(-1)
+    const block = routeSource.slice(idx, idx + 300)
+    expect(block).toMatch(/parsed\.item\.name/)
+    expect(block).toMatch(/parsed\.item\.previous_status/)
+    expect(block).toMatch(/parsed\.item\.new_status/)
+  })
+
+  it('the one-shot confirmation-token guard is gated on EITHER write tool name, never a bare tool-name-agnostic check', () => {
+    expect(routeSource).toMatch(
+      /\(block\.name === 'propose_organiser_comment' \|\| block\.name === 'propose_organiser_status_change'\)/,
+    )
   })
 })

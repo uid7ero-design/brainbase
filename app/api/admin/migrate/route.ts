@@ -1183,6 +1183,24 @@ export async function POST(req: NextRequest) {
   await sql`CREATE INDEX IF NOT EXISTS idx_organiser_action_confirmations_org_user ON organiser_action_confirmations(organisation_id, user_id)`;
   await sql`CREATE INDEX IF NOT EXISTS idx_organiser_action_confirmations_expires_at ON organiser_action_confirmations(expires_at)`;
 
+  // Phase D.4.6N — Helena's second Organiser write action (guarded item
+  // status change) reuses the exact same durable ledger from step 44;
+  // this step only widens the action_type CHECK to also allow
+  // 'change_status', exactly the narrow, plain-ALTER-TABLE extension step
+  // 44's own header already anticipated ("extending it later... is a
+  // plain ALTER TABLE, not an ALTER TYPE migration"). Idempotent (DROP
+  // CONSTRAINT IF EXISTS + re-ADD, safe to rerun), non-destructive
+  // (existing 'post_comment' rows remain valid — the constraint is only
+  // ever widened, never narrowed), and scoped to only this one
+  // constraint — no new table, no new column. Mirrors step 43's own
+  // identical DROP/ADD pattern for organiser_activity.event_type.
+  step('45. organiser_action_confirmations.action_type — add change_status');
+  await sql`ALTER TABLE organiser_action_confirmations DROP CONSTRAINT IF EXISTS organiser_action_confirmations_action_type_check`;
+  await sql`
+    ALTER TABLE organiser_action_confirmations ADD CONSTRAINT organiser_action_confirmations_action_type_check
+    CHECK (action_type IN ('post_comment', 'change_status'))
+  `;
+
   // SEC-1B1: audit — this route was previously entirely unaudited. Placed
   // as the last statement before the success response, inside the same
   // try block as every migration step above, so a thrown exception at any

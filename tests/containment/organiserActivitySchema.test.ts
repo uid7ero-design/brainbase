@@ -191,8 +191,8 @@ describe('containment — no backfill, no existing-table changes, no unrelated s
     expect(BLOCK).not.toMatch(/'Unknown'/)
   })
 
-  it('does not ALTER any existing organiser_* table\'s COLUMNS/DATA (organiser_items in particular — no assignee_user_id column added) — the one deliberate exception is organiser_activity.event_type\'s own CHECK constraint, widened in D.4.6H to add comment.deleted (a constraint definition change, never a column or data change)', () => {
-    const knownConstraintWidening = /ALTER TABLE organiser_activity (DROP CONSTRAINT IF EXISTS organiser_activity_event_type_check|ADD CONSTRAINT organiser_activity_event_type_check CHECK[\s\S]*?\)\))/g
+  it('does not ALTER any existing organiser_* table\'s COLUMNS/DATA (organiser_items in particular — no assignee_user_id column added) — the deliberate exceptions are organiser_activity.event_type\'s own CHECK constraint (widened in D.4.6H to add comment.deleted) and organiser_action_confirmations.action_type\'s own CHECK constraint (widened in D.4.6N to add change_status) — both constraint definition changes, never a column or data change', () => {
+    const knownConstraintWidening = /ALTER TABLE organiser_(activity|action_confirmations) (DROP CONSTRAINT IF EXISTS organiser_(activity_event_type|action_confirmations_action_type)_check|ADD CONSTRAINT organiser_(activity_event_type|action_confirmations_action_type)_check[\s\S]*?\)\))/g
     const withoutKnownWidening = BLOCK.replace(knownConstraintWidening, '')
     expect(withoutKnownWidening).not.toMatch(/ALTER TABLE organiser_/)
     expect(MIGRATE_ROUTE_SOURCE).not.toMatch(/assignee_user_id/)
@@ -226,18 +226,31 @@ describe('containment — no backfill, no existing-table changes, no unrelated s
   // own dedicated coverage. This file's own concern stays narrow: prove
   // step 44 landed in the right position and that nothing beyond it
   // sneaked in unreviewed.
-  it('step 44 (organiser_action_confirmations) is the current highest step — no step numbered higher than 44 exists yet', () => {
+  it('step 45 (organiser_action_confirmations.action_type widening) is the current highest step — updated in D.4.6N; no step numbered higher than 45 exists yet', () => {
     const step40Idx = CODE.indexOf("step('40. organiser_activity')")
     const step41Idx = CODE.indexOf("step('41. organiser_activity_sanitise_scalar')")
     const step42Idx = CODE.indexOf("step('42. crm_contacts.classification')")
     const step43Idx = CODE.indexOf("step('43. organiser_activity.event_type")
     const step44Idx = CODE.indexOf("step('44. organiser_action_confirmations')")
+    const step45Idx = CODE.indexOf("step('45. organiser_action_confirmations.action_type")
     expect(step41Idx).toBeGreaterThan(step40Idx)
     expect(step42Idx).toBeGreaterThan(step41Idx)
     expect(step43Idx).toBeGreaterThan(step42Idx)
     expect(step44Idx).toBeGreaterThan(step43Idx)
-    expect(CODE).not.toMatch(/step\('4[5-9]\./)
+    expect(step45Idx).toBeGreaterThan(step44Idx)
+    expect(CODE).not.toMatch(/step\('4[6-9]\./)
     expect(CODE).not.toMatch(/step\('[5-9][0-9]\./)
+  })
+
+  it('step 45 idempotently widens the action_type CHECK to allow change_status, without touching any other column of organiser_action_confirmations', () => {
+    const step45Idx = CODE.indexOf("step('45. organiser_action_confirmations.action_type")
+    expect(step45Idx).toBeGreaterThan(-1)
+    const nextIdx = CODE.indexOf("return NextResponse.json({ success: true", step45Idx)
+    const STEP45_BLOCK = CODE.slice(step45Idx, nextIdx === -1 ? undefined : nextIdx)
+    expect(STEP45_BLOCK).toMatch(/ALTER TABLE organiser_action_confirmations DROP CONSTRAINT IF EXISTS organiser_action_confirmations_action_type_check/)
+    expect(STEP45_BLOCK).toMatch(/ALTER TABLE organiser_action_confirmations ADD CONSTRAINT organiser_action_confirmations_action_type_check/)
+    expect(STEP45_BLOCK).toMatch(/CHECK \(action_type IN \('post_comment', 'change_status'\)\)/)
+    expect(STEP45_BLOCK).not.toMatch(/CREATE TABLE|DROP TABLE|jti|expires_at/)
   })
 
   it('step 44 creates organiser_action_confirmations with jti PRIMARY KEY, TEXT org/user ids, a bounded action_type CHECK, and never stores the raw token or comment body', () => {

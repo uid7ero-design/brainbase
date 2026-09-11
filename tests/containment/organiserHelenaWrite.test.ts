@@ -44,7 +44,7 @@ vi.mock('@/lib/organiser/authorize', async (importOriginal) => {
   return { ...actual, authorizeOrganiserRequest: (...args: unknown[]) => authorizeOrganiserRequestMock(...args) }
 })
 
-const { authorizeHelenaOrganiserWrite, proposeOrExecuteOrganiserComment } = await import('@/lib/organiser/helenaWrite')
+const { authorizeHelenaOrganiserWrite, proposeOrExecuteOrganiserComment, proposeOrExecuteOrganiserStatusChange } = await import('@/lib/organiser/helenaWrite')
 
 const SESSION_MANAGER = { userId: 'u1', organisationId: 'org-a', role: 'manager', name: 'Manager Mia' }
 const SESSION_VIEWER = { userId: 'u1', organisationId: 'org-a', role: 'viewer', name: 'Viewer Vic' }
@@ -505,5 +505,320 @@ describe('mutation check: cross-tenant token guard', () => {
     })
     expect(result.ok).toBe(false)
     expect(sqlCalls).toHaveLength(0)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Phase D.4.6N — proposeOrExecuteOrganiserStatusChange: Helena's SECOND
+// Organiser write action. Same established testing philosophy as the
+// comment-action suite above: real integration through the actual function,
+// only sql/authorizeOrganiserRequest mocked.
+// ═══════════════════════════════════════════════════════════════════════════
+
+function executedStatusChangeRow(overrides: Partial<{ item_found: number; was_consumed: number; updated_id: string | null; item_name: string | null; new_status: string | null }> = {}) {
+  return [{
+    item_found: 1, was_consumed: 1,
+    updated_id: 'row-1', item_name: 'My Item', new_status: 'Done',
+    ...overrides,
+  }]
+}
+
+async function proposeStatusChange(overrides: Partial<{ organisationId: string; userId: string; actorName: string; itemId: string; desiredStatus: string }> = {}) {
+  sqlResult = [{ id: overrides.itemId ?? ITEM_A, name: 'My Item', status: 'Not Started' }]
+  const result = await proposeOrExecuteOrganiserStatusChange({
+    organisationId: 'org-a', userId: 'u1', actorName: 'Manager Mia',
+    itemId: ITEM_A, desiredStatus: 'Done',
+    ...overrides,
+  })
+  if (!result.ok || result.mode !== 'proposed') throw new Error('proposeStatusChange() helper expected a proposal')
+  return result
+}
+
+describe('proposeOrExecuteOrganiserStatusChange — propose mode (no confirmationToken)', () => {
+  beforeEach(() => {
+    authorizeOrganiserRequestMock.mockResolvedValue({ ok: true, session: SESSION_MANAGER })
+  })
+
+  it('valid item + valid new status -> proposal carrying current AND desired status, zero mutation', async () => {
+    sqlResult = [{ id: ITEM_A, name: 'My Item', status: 'Not Started' }]
+    const result = await proposeOrExecuteOrganiserStatusChange({
+      organisationId: 'org-a', userId: 'u1', actorName: 'Manager Mia', itemId: ITEM_A, desiredStatus: 'Done',
+    })
+    expect(result.ok).toBe(true)
+    if (result.ok && result.mode === 'proposed') {
+      expect(result.proposal).toEqual({ item_id: ITEM_A, item_name: 'My Item', current_status: 'Not Started', desired_status: 'Done' })
+      expect(result.confirmationToken).toBeTruthy()
+    } else {
+      throw new Error('expected proposed')
+    }
+    expect(sqlCalls.some(c => /UPDATE|INSERT/i.test(c.text))).toBe(false)
+  })
+
+  it('malformed item_id -> invalid_item_id, zero sql calls', async () => {
+    const result = await proposeOrExecuteOrganiserStatusChange({
+      organisationId: 'org-a', userId: 'u1', actorName: 'Manager Mia', itemId: 'not-a-uuid', desiredStatus: 'Done',
+    })
+    expect(result).toEqual({ ok: false, reason: 'invalid_item_id' })
+    expect(sqlCalls).toHaveLength(0)
+  })
+
+  it('an unrecognised status string -> invalid_status, zero sql calls (never silently coerced to a real status)', async () => {
+    const result = await proposeOrExecuteOrganiserStatusChange({
+      organisationId: 'org-a', userId: 'u1', actorName: 'Manager Mia', itemId: ITEM_A, desiredStatus: 'Completed',
+    })
+    expect(result).toEqual({ ok: false, reason: 'invalid_status' })
+    expect(sqlCalls).toHaveLength(0)
+  })
+
+  it('requested status already equals current status -> noop_same_status, zero mutation, no token minted', async () => {
+    sqlResult = [{ id: ITEM_A, name: 'My Item', status: 'Done' }]
+    const result = await proposeOrExecuteOrganiserStatusChange({
+      organisationId: 'org-a', userId: 'u1', actorName: 'Manager Mia', itemId: ITEM_A, desiredStatus: 'Done',
+    })
+    expect(result).toEqual({ ok: false, reason: 'noop_same_status' })
+    expect(sqlCalls.some(c => /UPDATE|INSERT/i.test(c.text))).toBe(false)
+  })
+
+  it('wrong-tenant item (well-formed UUID, no matching row) -> item_not_found', async () => {
+    sqlResult = []
+    const result = await proposeOrExecuteOrganiserStatusChange({
+      organisationId: 'org-a', userId: 'u1', actorName: 'Manager Mia', itemId: ITEM_A, desiredStatus: 'Done',
+    })
+    expect(result).toEqual({ ok: false, reason: 'item_not_found' })
+  })
+
+  it('the minted token embeds expectedCurrentStatus as the TRUE current status read from the DB, never the model-supplied desiredStatus twice', async () => {
+    sqlResult = [{ id: ITEM_A, name: 'My Item', status: 'Stuck' }]
+    const result = await proposeOrExecuteOrganiserStatusChange({
+      organisationId: 'org-a', userId: 'u1', actorName: 'Manager Mia', itemId: ITEM_A, desiredStatus: 'Done',
+    })
+    if (!result.ok || result.mode !== 'proposed') throw new Error('expected proposed')
+    const decode = (t: string) => JSON.parse(Buffer.from(t.split('.')[1], 'base64url').toString('utf8'))
+    const payload = decode(result.confirmationToken)
+    expect(payload.expectedCurrentStatus).toBe('Stuck')
+    expect(payload.desiredStatus).toBe('Done')
+    expect(typeof payload.jti).toBe('string')
+  })
+
+  it('model cannot supply organisationId/userId/jti — proposal always uses the trusted caller-supplied values, jti is server-minted', async () => {
+    sqlResult = [{ id: ITEM_A, name: 'My Item', status: 'Not Started' }]
+    const result = await proposeOrExecuteOrganiserStatusChange({
+      organisationId: 'org-a', userId: 'u1', actorName: 'Manager Mia', itemId: ITEM_A, desiredStatus: 'Done',
+    })
+    if (!result.ok || result.mode !== 'proposed') throw new Error('expected proposed')
+    const decode = (t: string) => JSON.parse(Buffer.from(t.split('.')[1], 'base64url').toString('utf8'))
+    const payload = decode(result.confirmationToken)
+    expect(payload.organisationId).toBe('org-a')
+    expect(payload.userId).toBe('u1')
+    expect(JTI_RE.test(payload.jti)).toBe(true)
+  })
+})
+
+describe('proposeOrExecuteOrganiserStatusChange — confirm+execute mode (confirmationToken present)', () => {
+  beforeEach(() => {
+    authorizeOrganiserRequestMock.mockResolvedValue({ ok: true, session: SESSION_MANAGER })
+  })
+
+  it('a valid token executes exactly once: ONE atomic statement, status changes, exactly one activity row implied by the single INSERT', async () => {
+    const proposal = await proposeStatusChange()
+    sqlCalls = []
+    sqlResultQueue = [executedStatusChangeRow()]
+    const result = await proposeOrExecuteOrganiserStatusChange({
+      organisationId: 'org-a', userId: 'u1', actorName: 'Manager Mia', itemId: ITEM_A, desiredStatus: 'Done',
+      confirmationToken: proposal.confirmationToken,
+    })
+    expect(result.ok).toBe(true)
+    if (result.ok && result.mode === 'executed') {
+      expect(result.item).toEqual({ id: 'row-1', name: 'My Item', previous_status: 'Not Started', new_status: 'Done' })
+    } else {
+      throw new Error('expected executed')
+    }
+    expect(sqlCalls).toHaveLength(1)
+    expect(sqlCalls[0].text).toMatch(/WITH target_item AS MATERIALIZED/)
+    expect(sqlCalls[0].text).toMatch(/FOR UPDATE/)
+    expect(sqlCalls[0].text).toMatch(/ON CONFLICT \(jti\) DO NOTHING/)
+    expect(sqlCalls[0].text).toMatch(/UPDATE organiser_items/)
+    expect(sqlCalls[0].text).toMatch(/INSERT INTO organiser_activity/)
+    expect(sqlCalls[0].text).toMatch(/'item\.updated'/)
+  })
+
+  it('altered item_id/desiredStatus in the SAME confirming call are ignored — only the originally-proposed transition is ever applied', async () => {
+    const proposal = await proposeStatusChange()
+    sqlCalls = []
+    sqlResultQueue = [executedStatusChangeRow()]
+    await proposeOrExecuteOrganiserStatusChange({
+      organisationId: 'org-a', userId: 'u1', actorName: 'Manager Mia',
+      itemId: ITEM_B, desiredStatus: 'Stuck',
+      confirmationToken: proposal.confirmationToken,
+    })
+    const updateCall = sqlCalls.find(c => /UPDATE organiser_items/.test(c.text))!
+    expect(updateCall.values).toContain('Done')
+    expect(updateCall.values).not.toContain('Stuck')
+    expect(updateCall.values).toContain(ITEM_A)
+    expect(updateCall.values).not.toContain(ITEM_B)
+  })
+
+  it('a bogus/tampered confirmationToken -> invalid_confirmation, zero sql calls', async () => {
+    const result = await proposeOrExecuteOrganiserStatusChange({
+      organisationId: 'org-a', userId: 'u1', actorName: 'Manager Mia', itemId: ITEM_A, desiredStatus: 'Done',
+      confirmationToken: 'not-a-real-token',
+    })
+    expect(result).toEqual({ ok: false, reason: 'invalid_confirmation' })
+    expect(sqlCalls).toHaveLength(0)
+  })
+
+  it('a token minted for a DIFFERENT organisationId is rejected — no cross-tenant execution, zero sql calls', async () => {
+    const proposal = await proposeStatusChange()
+    sqlCalls = []
+    const result = await proposeOrExecuteOrganiserStatusChange({
+      organisationId: 'org-DIFFERENT-TENANT', userId: 'u1', actorName: 'Manager Mia', itemId: ITEM_A, desiredStatus: 'Done',
+      confirmationToken: proposal.confirmationToken,
+    })
+    expect(result).toEqual({ ok: false, reason: 'invalid_confirmation' })
+    expect(sqlCalls).toHaveLength(0)
+  })
+
+  it('a token minted for a DIFFERENT userId is rejected — zero sql calls', async () => {
+    const proposal = await proposeStatusChange()
+    sqlCalls = []
+    const result = await proposeOrExecuteOrganiserStatusChange({
+      organisationId: 'org-a', userId: 'u2-DIFFERENT-ACTOR', actorName: 'Someone Else', itemId: ITEM_A, desiredStatus: 'Done',
+      confirmationToken: proposal.confirmationToken,
+    })
+    expect(result).toEqual({ ok: false, reason: 'invalid_confirmation' })
+    expect(sqlCalls).toHaveLength(0)
+  })
+
+  it('expired token -> expired_confirmation, distinct from invalid_confirmation, zero sql calls', async () => {
+    vi.useFakeTimers()
+    try {
+      const proposal = await proposeStatusChange()
+      sqlCalls = []
+      vi.advanceTimersByTime(3 * 60 * 1000)
+      const result = await proposeOrExecuteOrganiserStatusChange({
+        organisationId: 'org-a', userId: 'u1', actorName: 'Manager Mia', itemId: ITEM_A, desiredStatus: 'Done',
+        confirmationToken: proposal.confirmationToken,
+      })
+      expect(result).toEqual({ ok: false, reason: 'expired_confirmation' })
+      expect(sqlCalls).toHaveLength(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('target item no longer exists at confirm time -> item_not_found, token left unburned', async () => {
+    const proposal = await proposeStatusChange()
+    sqlCalls = []
+    sqlResultQueue = [executedStatusChangeRow({ item_found: 0, was_consumed: 0, updated_id: null, item_name: null, new_status: null })]
+    const result = await proposeOrExecuteOrganiserStatusChange({
+      organisationId: 'org-a', userId: 'u1', actorName: 'Manager Mia', itemId: ITEM_A, desiredStatus: 'Done',
+      confirmationToken: proposal.confirmationToken,
+    })
+    expect(result).toEqual({ ok: false, reason: 'item_not_found' })
+    expect(sqlCalls).toHaveLength(1)
+  })
+
+  it('D.4.6N: a token already present in the ledger (was_consumed=0, item_found=1) -> already_used_confirmation', async () => {
+    const proposal = await proposeStatusChange()
+    sqlCalls = []
+    sqlResultQueue = [executedStatusChangeRow({ item_found: 1, was_consumed: 0, updated_id: null, item_name: null, new_status: null })]
+    const result = await proposeOrExecuteOrganiserStatusChange({
+      organisationId: 'org-a', userId: 'u1', actorName: 'Manager Mia', itemId: ITEM_A, desiredStatus: 'Done',
+      confirmationToken: proposal.confirmationToken,
+    })
+    expect(result).toEqual({ ok: false, reason: 'already_used_confirmation' })
+  })
+
+  it('D.4.6N CRITICAL: item_found=1, was_consumed=1, but the UPDATE matched zero rows (stale status) -> stale_item_state — the jti was still burned', async () => {
+    const proposal = await proposeStatusChange()
+    sqlCalls = []
+    // Simulates the exact scenario: another actor changed the item's status
+    // between propose and confirm, so the atomic UPDATE's own
+    // `target_item.status = expectedCurrentStatus` guard matched zero rows
+    // even though the ledger consume succeeded (item existed).
+    sqlResultQueue = [executedStatusChangeRow({ item_found: 1, was_consumed: 1, updated_id: null, item_name: null, new_status: null })]
+    const result = await proposeOrExecuteOrganiserStatusChange({
+      organisationId: 'org-a', userId: 'u1', actorName: 'Manager Mia', itemId: ITEM_A, desiredStatus: 'Done',
+      confirmationToken: proposal.confirmationToken,
+    })
+    expect(result).toEqual({ ok: false, reason: 'stale_item_state' })
+  })
+
+  it('D.4.6N: replaying the exact same confirmationToken a second time (fresh call, same token) is rejected as already_used_confirmation', async () => {
+    const proposal = await proposeStatusChange()
+    sqlCalls = []
+    sqlResultQueue = [executedStatusChangeRow()]
+    const first = await proposeOrExecuteOrganiserStatusChange({
+      organisationId: 'org-a', userId: 'u1', actorName: 'Manager Mia', itemId: ITEM_A, desiredStatus: 'Done',
+      confirmationToken: proposal.confirmationToken,
+    })
+    expect(first.ok).toBe(true)
+
+    sqlResultQueue = [executedStatusChangeRow({ was_consumed: 0, updated_id: null, item_name: null, new_status: null })]
+    const second = await proposeOrExecuteOrganiserStatusChange({
+      organisationId: 'org-a', userId: 'u1', actorName: 'Manager Mia', itemId: ITEM_A, desiredStatus: 'Done',
+      confirmationToken: proposal.confirmationToken,
+    })
+    expect(second).toEqual({ ok: false, reason: 'already_used_confirmation' })
+  })
+
+  it('the jti is passed to the ledger INSERT exactly as decoded from the token, with action_type change_status', async () => {
+    const proposal = await proposeStatusChange()
+    sqlCalls = []
+    sqlResultQueue = [executedStatusChangeRow()]
+    await proposeOrExecuteOrganiserStatusChange({
+      organisationId: 'org-a', userId: 'u1', actorName: 'Manager Mia', itemId: ITEM_A, desiredStatus: 'Done',
+      confirmationToken: proposal.confirmationToken,
+    })
+    const decode = (t: string) => JSON.parse(Buffer.from(t.split('.')[1], 'base64url').toString('utf8'))
+    const { jti } = decode(proposal.confirmationToken)
+    expect(sqlCalls[0].values).toContain(jti)
+    // 'change_status' is embedded as a literal in the SQL text (matching
+    // the comment action's own 'post_comment' literal), never a bound
+    // parameter — checked against the query text, not the values array.
+    expect(sqlCalls[0].text).toMatch(/'change_status'/)
+  })
+
+  it('the actor written to organiser_activity is the CURRENT trusted session, not anything from the token payload', async () => {
+    const proposal = await proposeStatusChange()
+    sqlCalls = []
+    sqlResultQueue = [executedStatusChangeRow()]
+    await proposeOrExecuteOrganiserStatusChange({
+      organisationId: 'org-a', userId: 'u1', actorName: 'Manager Mia (current session)', itemId: ITEM_A, desiredStatus: 'Done',
+      confirmationToken: proposal.confirmationToken,
+    })
+    expect(sqlCalls[0].values).toContain('Manager Mia (current session)')
+  })
+})
+
+describe('source-shape invariants — status change', () => {
+  it('reuses one atomic CTE combining the ledger consume, the item status UPDATE, and organiser_activity — no separate/second mutation statement', () => {
+    expect(SOURCE).toMatch(/WITH target_item AS MATERIALIZED \(/)
+    expect(SOURCE).toMatch(/UPDATE organiser_items i\s*\n\s*SET status = \$\{verified\.desiredStatus\}/)
+    expect(SOURCE).toMatch(/target_item\.status = \$\{verified\.expectedCurrentStatus\}/)
+  })
+
+  it('reuses the EXISTING item.updated activity event type — no new event vocabulary introduced', () => {
+    const idx = SOURCE.indexOf('proposeOrExecuteOrganiserStatusChange')
+    const region = SOURCE.slice(idx, idx + 8000)
+    expect(region).toMatch(/'item\.updated'/)
+    expect(region).not.toMatch(/'item\.status_changed'/)
+    expect(region).not.toMatch(/'status\.changed'/)
+  })
+
+  it('the status change action_type widening reuses the SAME ledger table and ON CONFLICT (jti) mechanism as the comment action — no second ledger table', () => {
+    const codeOnly = SOURCE.replace(/\/\/.*$/gm, '')
+    const matches = [...codeOnly.matchAll(/ON CONFLICT \(jti\) DO NOTHING/g)]
+    expect(matches.length).toBe(2) // one per action's own atomic statement
+    expect(codeOnly).not.toMatch(/CREATE TABLE|organiser_action_confirmations_v2|organiser_status_confirmations/)
+  })
+
+  it('the canonical status list is exactly the 4 proven values from app/organiser/page.tsx\'s STATUS_OPTIONS — never invented', () => {
+    expect(SOURCE).toMatch(/ORGANISER_ITEM_STATUS_OPTIONS = \['Not Started', 'Working on it', 'Stuck', 'Done'\]/)
+  })
+
+  it('no generic update/create/move/delete item capability exists anywhere in this file', () => {
+    expect(SOURCE).not.toMatch(/\bupdateOrganiserItem\b|\bcreateOrganiserItem\b|\bmoveOrganiserItem\b|\bdeleteOrganiserItem\b/)
+    expect(SOURCE).not.toMatch(/field:\s*string.*value:\s*unknown|patch:\s*Record/)
   })
 })

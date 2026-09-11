@@ -73,6 +73,7 @@ async function neonCompatibleSql(strings: TemplateStringsArray, ...values: unkno
 vi.doMock('@/lib/db', () => ({ default: neonCompatibleSql }));
 
 let proposeOrExecuteOrganiserComment: typeof import('@/lib/organiser/helenaWrite').proposeOrExecuteOrganiserComment;
+let proposeOrExecuteOrganiserStatusChange: typeof import('@/lib/organiser/helenaWrite').proposeOrExecuteOrganiserStatusChange;
 
 const ORG = 'org-a';
 const OTHER_ORG = 'org-b';
@@ -91,7 +92,7 @@ async function freshItem(name: string): Promise<string> {
 }
 
 beforeAll(async () => {
-  ({ proposeOrExecuteOrganiserComment } = await import('@/lib/organiser/helenaWrite'));
+  ({ proposeOrExecuteOrganiserComment, proposeOrExecuteOrganiserStatusChange } = await import('@/lib/organiser/helenaWrite'));
 
   await prisma.$executeRawUnsafe(`
     INSERT INTO organisations (id, name, slug) VALUES ('org-a', 'Org A', 'org-a'), ('org-b', 'Org B', 'org-b')
@@ -468,5 +469,297 @@ describe('D.4.6L — ledger retention / cleanup (real Postgres)', () => {
       confirmationToken: proposal.confirmationToken,
     });
     expect(replay).toEqual({ ok: false, reason: 'already_used_confirmation' });
+  });
+});
+
+// Phase D.4.6N — real-Postgres proof for Helena's SECOND Organiser write
+// action (guarded item status change). Same disposable-container harness,
+// same real, unmodified proposeOrExecuteOrganiserStatusChange. The critical
+// new property this suite proves — that a mock cannot prove — is the
+// stale-state race: only real MVCC/FOR UPDATE semantics can demonstrate
+// that a concurrent status change is never silently overwritten.
+async function freshItemWithStatus(name: string, status: string): Promise<string> {
+  const rows = await prisma.$queryRawUnsafe<{ id: string }[]>(
+    `INSERT INTO organiser_items (board_id, organisation_id, name, status) VALUES ($1::uuid, $2, $3, $4) RETURNING id`,
+    boardId, ORG, name, status,
+  );
+  return rows[0].id;
+}
+
+describe('D.4.6N — guarded Organiser item status change (real Postgres)', () => {
+  it('1. normal status confirmation: exactly one status change, one activity row, one ledger row', async () => {
+    const itemId = await freshItemWithStatus('Status Item 1', 'Not Started');
+    const proposal = await proposeOrExecuteOrganiserStatusChange({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, desiredStatus: 'Done',
+    });
+    if (!proposal.ok || proposal.mode !== 'proposed') throw new Error('expected proposal');
+
+    const result = await proposeOrExecuteOrganiserStatusChange({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, desiredStatus: 'ignored',
+      confirmationToken: proposal.confirmationToken,
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok && result.mode === 'executed') {
+      expect(result.item.new_status).toBe('Done');
+      expect(result.item.previous_status).toBe('Not Started');
+    } else {
+      throw new Error('expected executed');
+    }
+
+    const statusRows = await prisma.$queryRawUnsafe<{ status: string }[]>(`SELECT status FROM organiser_items WHERE id = $1::uuid`, itemId);
+    expect(statusRows[0].status).toBe('Done');
+    expect(await countRows('organiser_activity', `item_id = '${itemId}' AND event_type = 'item.updated'`)).toBe(1);
+    expect(await countRows('organiser_action_confirmations', `item_id = '${itemId}'`)).toBe(1);
+  });
+
+  it('2. same token replayed in a SEPARATE call is rejected — zero second status change, zero second activity row', async () => {
+    const itemId = await freshItemWithStatus('Status Item 2', 'Not Started');
+    const proposal = await proposeOrExecuteOrganiserStatusChange({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, desiredStatus: 'Done',
+    });
+    if (!proposal.ok || proposal.mode !== 'proposed') throw new Error('expected proposal');
+
+    const first = await proposeOrExecuteOrganiserStatusChange({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, desiredStatus: 'ignored',
+      confirmationToken: proposal.confirmationToken,
+    });
+    expect(first.ok).toBe(true);
+
+    const replay = await proposeOrExecuteOrganiserStatusChange({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, desiredStatus: 'ignored',
+      confirmationToken: proposal.confirmationToken,
+    });
+    expect(replay).toEqual({ ok: false, reason: 'already_used_confirmation' });
+    expect(await countRows('organiser_activity', `item_id = '${itemId}' AND event_type = 'item.updated'`)).toBe(1);
+  });
+
+  it('3. CONCURRENT replay: two simultaneous confirmations with the exact same token -> exactly one succeeds, exactly one status change/activity/ledger row exists', async () => {
+    const itemId = await freshItemWithStatus('Concurrent Status Item', 'Not Started');
+    const proposal = await proposeOrExecuteOrganiserStatusChange({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, desiredStatus: 'Done',
+    });
+    if (!proposal.ok || proposal.mode !== 'proposed') throw new Error('expected proposal');
+
+    const [a, b] = await Promise.all([
+      proposeOrExecuteOrganiserStatusChange({
+        organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, desiredStatus: 'ignored',
+        confirmationToken: proposal.confirmationToken,
+      }),
+      proposeOrExecuteOrganiserStatusChange({
+        organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, desiredStatus: 'ignored',
+        confirmationToken: proposal.confirmationToken,
+      }),
+    ]);
+
+    const outcomes = [a, b];
+    const successes = outcomes.filter(r => r.ok && r.mode === 'executed');
+    const rejections = outcomes.filter(r => !r.ok && r.reason === 'already_used_confirmation');
+    expect(successes).toHaveLength(1);
+    expect(rejections).toHaveLength(1);
+
+    const statusRows = await prisma.$queryRawUnsafe<{ status: string }[]>(`SELECT status FROM organiser_items WHERE id = $1::uuid`, itemId);
+    expect(statusRows[0].status).toBe('Done');
+    expect(await countRows('organiser_activity', `item_id = '${itemId}' AND event_type = 'item.updated'`)).toBe(1);
+    expect(await countRows('organiser_action_confirmations', `item_id = '${itemId}'`)).toBe(1);
+  });
+
+  it('4. CRITICAL — STALE-STATE RACE: item changed by another actor between propose and confirm is NEVER overwritten', async () => {
+    const itemId = await freshItemWithStatus('Stale Race Item', 'Not Started');
+    const proposal = await proposeOrExecuteOrganiserStatusChange({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, desiredStatus: 'Done',
+    });
+    if (!proposal.ok || proposal.mode !== 'proposed') throw new Error('expected proposal');
+
+    // Simulates "another user changes the item to In Progress" via the
+    // exact same table a real human PATCH would touch — direct SQL here
+    // stands in for that other actor's own independent write.
+    await prisma.$executeRawUnsafe(`UPDATE organiser_items SET status = 'Working on it' WHERE id = $1::uuid`, itemId);
+
+    const result = await proposeOrExecuteOrganiserStatusChange({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, desiredStatus: 'ignored',
+      confirmationToken: proposal.confirmationToken,
+    });
+    expect(result).toEqual({ ok: false, reason: 'stale_item_state' });
+
+    // The item remains at the OTHER actor's value — never overwritten to
+    // the originally-proposed 'Done'.
+    const statusRows = await prisma.$queryRawUnsafe<{ status: string }[]>(`SELECT status FROM organiser_items WHERE id = $1::uuid`, itemId);
+    expect(statusRows[0].status).toBe('Working on it');
+    // No Helena status-change activity was recorded for the rejected transition.
+    expect(await countRows('organiser_activity', `item_id = '${itemId}' AND event_type = 'item.updated'`)).toBe(0);
+  });
+
+  it('5. the stale confirmation token is CONSUMED (burned) despite rejecting the write — cannot later become executable even if status cycles back', async () => {
+    const itemId = await freshItemWithStatus('Stale Consumption Item', 'Not Started');
+    const proposal = await proposeOrExecuteOrganiserStatusChange({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, desiredStatus: 'Done',
+    });
+    if (!proposal.ok || proposal.mode !== 'proposed') throw new Error('expected proposal');
+
+    await prisma.$executeRawUnsafe(`UPDATE organiser_items SET status = 'Working on it' WHERE id = $1::uuid`, itemId);
+    const staleResult = await proposeOrExecuteOrganiserStatusChange({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, desiredStatus: 'ignored',
+      confirmationToken: proposal.confirmationToken,
+    });
+    expect(staleResult).toEqual({ ok: false, reason: 'stale_item_state' });
+    // The jti IS in the ledger now — this is the deliberate asymmetry from
+    // item_not_found (see helenaWrite.ts's own header for why).
+    expect(await countRows('organiser_action_confirmations', `item_id = '${itemId}'`)).toBe(1);
+
+    // Cycle the status BACK to the originally-expected value within the
+    // token's own validity window — the exact scenario the deliberate
+    // consumption exists to guard against.
+    await prisma.$executeRawUnsafe(`UPDATE organiser_items SET status = 'Not Started' WHERE id = $1::uuid`, itemId);
+    const retryResult = await proposeOrExecuteOrganiserStatusChange({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, desiredStatus: 'ignored',
+      confirmationToken: proposal.confirmationToken,
+    });
+    expect(retryResult).toEqual({ ok: false, reason: 'already_used_confirmation' });
+    // Still zero Helena status-change activity from this token, ever.
+    expect(await countRows('organiser_activity', `item_id = '${itemId}' AND event_type = 'item.updated'`)).toBe(0);
+  });
+
+  it('6. expired token cannot change status and cannot mutate (jwtVerify itself rejects it before any SQL runs)', async () => {
+    const itemId = await freshItemWithStatus('Expired Status Item', 'Not Started');
+    const secret = new TextEncoder().encode(process.env.SESSION_SECRET!);
+    const pastExp = Math.floor(Date.now() / 1000) - 60;
+    const expiredToken = await new SignJWT({
+      purpose: 'organiser_action_confirm',
+      actionType: 'change_status',
+      organisationId: ORG,
+      userId: USER,
+      itemId,
+      expectedCurrentStatus: 'Not Started',
+      desiredStatus: 'Done',
+      jti: randomUUID(),
+    })
+      .setProtectedHeader({ alg: 'HS256' })
+      .setIssuedAt(pastExp - 120)
+      .setExpirationTime(pastExp)
+      .sign(secret);
+
+    const result = await proposeOrExecuteOrganiserStatusChange({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, desiredStatus: 'ignored',
+      confirmationToken: expiredToken,
+    });
+    expect(result).toEqual({ ok: false, reason: 'expired_confirmation' });
+    const statusRows = await prisma.$queryRawUnsafe<{ status: string }[]>(`SELECT status FROM organiser_items WHERE id = $1::uuid`, itemId);
+    expect(statusRows[0].status).toBe('Not Started');
+    expect(await countRows('organiser_action_confirmations', `item_id = '${itemId}'`)).toBe(0);
+  });
+
+  it('7. wrong-user token cannot change status — zero mutation, zero ledger row', async () => {
+    const itemId = await freshItemWithStatus('Wrong User Status Item', 'Not Started');
+    const proposal = await proposeOrExecuteOrganiserStatusChange({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, desiredStatus: 'Done',
+    });
+    if (!proposal.ok || proposal.mode !== 'proposed') throw new Error('expected proposal');
+
+    const result = await proposeOrExecuteOrganiserStatusChange({
+      organisationId: ORG, userId: 'someone-else', actorName: 'Someone Else', itemId, desiredStatus: 'ignored',
+      confirmationToken: proposal.confirmationToken,
+    });
+    expect(result).toEqual({ ok: false, reason: 'invalid_confirmation' });
+    expect(await countRows('organiser_action_confirmations', `item_id = '${itemId}'`)).toBe(0);
+  });
+
+  it('8. wrong-org token cannot change status — zero mutation, zero ledger row', async () => {
+    const itemId = await freshItemWithStatus('Wrong Org Status Item', 'Not Started');
+    const proposal = await proposeOrExecuteOrganiserStatusChange({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, desiredStatus: 'Done',
+    });
+    if (!proposal.ok || proposal.mode !== 'proposed') throw new Error('expected proposal');
+
+    const result = await proposeOrExecuteOrganiserStatusChange({
+      organisationId: OTHER_ORG, userId: OTHER_USER, actorName: 'Cross Tenant', itemId, desiredStatus: 'ignored',
+      confirmationToken: proposal.confirmationToken,
+    });
+    expect(result).toEqual({ ok: false, reason: 'invalid_confirmation' });
+    expect(await countRows('organiser_action_confirmations', `item_id = '${itemId}'`)).toBe(0);
+  });
+
+  it('9. tampered token (signature invalidated) cannot change status', async () => {
+    const itemId = await freshItemWithStatus('Tampered Status Item', 'Not Started');
+    const proposal = await proposeOrExecuteOrganiserStatusChange({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, desiredStatus: 'Done',
+    });
+    if (!proposal.ok || proposal.mode !== 'proposed') throw new Error('expected proposal');
+
+    const parts = proposal.confirmationToken.split('.');
+    const tampered = `${parts[0]}.${parts[1]}.${parts[2].slice(0, -2)}xx`;
+    const result = await proposeOrExecuteOrganiserStatusChange({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, desiredStatus: 'ignored',
+      confirmationToken: tampered,
+    });
+    expect(result).toEqual({ ok: false, reason: 'invalid_confirmation' });
+    expect(await countRows('organiser_action_confirmations', `item_id = '${itemId}'`)).toBe(0);
+  });
+
+  it('10. item_not_found leaves the token UNBURNED (deleted item, distinct from the stale-state case which DOES burn it)', async () => {
+    const itemId = await freshItemWithStatus('Will Be Deleted (Status)', 'Not Started');
+    const proposal = await proposeOrExecuteOrganiserStatusChange({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, desiredStatus: 'Done',
+    });
+    if (!proposal.ok || proposal.mode !== 'proposed') throw new Error('expected proposal');
+
+    await prisma.$executeRawUnsafe(`DELETE FROM organiser_items WHERE id = $1::uuid`, itemId);
+
+    const result = await proposeOrExecuteOrganiserStatusChange({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, desiredStatus: 'ignored',
+      confirmationToken: proposal.confirmationToken,
+    });
+    expect(result).toEqual({ ok: false, reason: 'item_not_found' });
+    expect(await countRows('organiser_action_confirmations', `item_id = '${itemId}'`)).toBe(0);
+  });
+
+  it('11. invalid status is rejected entirely at PROPOSE time, before any token is ever minted', async () => {
+    const itemId = await freshItemWithStatus('Invalid Status Item', 'Not Started');
+    const result = await proposeOrExecuteOrganiserStatusChange({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, desiredStatus: 'Completed',
+    });
+    expect(result).toEqual({ ok: false, reason: 'invalid_status' });
+    expect(await countRows('organiser_action_confirmations', `item_id = '${itemId}'`)).toBe(0);
+  });
+
+  it('12. requesting the status the item is already in is rejected at PROPOSE time as a no-op, before any token is ever minted', async () => {
+    const itemId = await freshItemWithStatus('Noop Status Item', 'Done');
+    const result = await proposeOrExecuteOrganiserStatusChange({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, desiredStatus: 'Done',
+    });
+    expect(result).toEqual({ ok: false, reason: 'noop_same_status' });
+    expect(await countRows('organiser_action_confirmations', `item_id = '${itemId}'`)).toBe(0);
+  });
+
+  it('13. existing comment confirmation still works correctly after the action_type CHECK expansion (step 45)', async () => {
+    const itemId = await freshItem('Post-Expansion Comment Item');
+    const proposal = await proposeOrExecuteOrganiserComment({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, body: 'still works after step 45',
+    });
+    if (!proposal.ok || proposal.mode !== 'proposed') throw new Error('expected proposal');
+    const result = await proposeOrExecuteOrganiserComment({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, body: 'ignored',
+      confirmationToken: proposal.confirmationToken,
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok && result.mode === 'executed') {
+      expect(result.comment.body).toBe('still works after step 45');
+    }
+  });
+
+  it('14. retention cleanup prunes long-expired rows of BOTH action types alike', async () => {
+    const jti1 = randomUUID();
+    const jti2 = randomUUID();
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO organiser_action_confirmations (jti, organisation_id, user_id, action_type, item_id, expires_at) VALUES ($1, $2, $3, 'post_comment', NULL, NOW() - INTERVAL '2 days')`,
+      jti1, ORG, USER,
+    );
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO organiser_action_confirmations (jti, organisation_id, user_id, action_type, item_id, expires_at) VALUES ($1, $2, $3, 'change_status', NULL, NOW() - INTERVAL '2 days')`,
+      jti2, ORG, USER,
+    );
+    const { pruneExpiredConfirmationsBestEffort } = await import('@/lib/organiser/helenaWrite');
+    await pruneExpiredConfirmationsBestEffort();
+    expect(await countRows('organiser_action_confirmations', `jti = '${jti1}'`)).toBe(0);
+    expect(await countRows('organiser_action_confirmations', `jti = '${jti2}'`)).toBe(0);
   });
 });
