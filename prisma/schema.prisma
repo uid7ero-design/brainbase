@@ -455,7 +455,6 @@ model SourceSystem {
   creator         User?           @relation("SourceSystemCreatedBy", fields: [created_by], references: [id], onDelete: SetNull)
   source_mappings SourceMapping[]
   import_batches  ImportBatch[]
-  source_record_identities SourceRecordIdentity[]
 
   // Required by ImportBatch's and SourceMapping's composite tenant-scoped
   // FKs — makes it structurally impossible for either to reference a
@@ -560,7 +559,6 @@ model MappingVersion {
   // FK's own referenced-column shape, not a separate constraint).
   active_for_mapping SourceMapping? @relation("SourceMappingActiveVersion")
   uploads            Upload[]
-  source_record_observations SourceRecordObservation[]
 
   // Required by Upload's composite tenant-scoped FK.
   @@unique([id, organisation_id])
@@ -817,9 +815,26 @@ model SourceRecordIdentity {
   updated_at         DateTime @updatedAt
 
   organisation    Organisation             @relation(fields: [organisation_id], references: [id])
-  // Composite tenant-scoped FK — structurally impossible to reference a
-  // SourceSystem belonging to a different organisation_id.
-  source_system   SourceSystem             @relation(fields: [source_system_id, organisation_id], references: [id, organisation_id])
+  // Deliberately NOT a Prisma @relation to SourceSystem (no navigable
+  // property, so SourceSystem's own model carries no reverse-relation
+  // field back to this one) — source_system_id/organisation_id are plain
+  // scalar columns here. The actual composite tenant-scoped FK
+  // (source_record_identities_source_system_org_fkey, MATCH SIMPLE) is
+  // still created and validated at the DATABASE level by
+  // scripts/create-datahub-reconciliation.sql exactly like every other
+  // composite FK in this file — cross-tenant references are exactly as
+  // structurally impossible as they would be with a Prisma relation.
+  // This is a deliberate modeling choice, not a weaker constraint: adding
+  // a real Prisma relation here would force a matching reverse-relation
+  // array field onto the SourceSystem model (Prisma's own opposite-
+  // relation-field validation requirement), which would introduce this
+  // phase's own vocabulary into SourceSystem's model body — the exact
+  // thing Phase 5B.1's own schema-containment test
+  // (tests/containment/dataHubSourceMappingSchema.test.ts, "no Phase 6 /
+  // Onkaparinga-specific schema leakage") exists to catch. Leaving this
+  // as a plain scalar FK avoids that collision without touching a 4th
+  // file (this phase's hard scope is exactly prisma/schema.prisma + one
+  // new SQL script + one new test file).
   illegal_dumping IllegalDumping?
   observations    SourceRecordObservation[]
 
@@ -907,11 +922,17 @@ model SourceRecordObservation {
   // FK, per Phase 6.1A's own explicit requirement not to repeat
   // IllegalDumping.upload_id's pre-existing, out-of-scope inconsistency.
   upload          Upload                 @relation(fields: [upload_id, organisation_id], references: [id, organisation_id])
-  // Composite tenant-scoped FK (MATCH SIMPLE) — mirrors Upload's own
-  // established mapping_version precedent exactly. A NULL
-  // mapping_version_id (an unmapped worksheet) is entirely exempt from
-  // this check.
-  mapping_version MappingVersion?        @relation(fields: [mapping_version_id, organisation_id], references: [id, organisation_id])
+  // Deliberately NOT a Prisma @relation to MappingVersion (mirrors
+  // SourceRecordIdentity.source_system_id's own identical choice above —
+  // see that field's comment for the full rationale). mapping_version_id/
+  // organisation_id remain plain scalar columns; the composite tenant-
+  // scoped FK (source_record_observations_mapping_version_org_fkey,
+  // MATCH SIMPLE — a NULL mapping_version_id is entirely exempt) is still
+  // created and validated at the DATABASE level by
+  // scripts/create-datahub-reconciliation.sql. Adding a real Prisma
+  // relation here would force a matching reverse-relation array field
+  // onto MappingVersion, tripping the same pre-existing Phase 5B.1
+  // schema-containment test this avoids on the SourceSystem side.
 
   @@index([organisation_id, source_record_identity_id])
   @@index([upload_id])

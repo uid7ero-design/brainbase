@@ -77,10 +77,9 @@ describe('SourceRecordIdentity — Prisma model shape', () => {
     expect(block).toContain('@@unique([id, organisation_id])')
   })
 
-  it('T3b. has a tenant-safe composite FK to SourceSystem via (source_system_id, organisation_id)', () => {
-    expect(block).toMatch(
-      /source_system\s+SourceSystem\s+@relation\(fields: \[source_system_id, organisation_id\], references: \[id, organisation_id\]\)/
-    )
+  it('T3b. source_system_id/organisation_id are plain scalar columns (deliberately no Prisma @relation navigation to SourceSystem, to avoid forcing a reverse-relation field onto SourceSystem\'s own model body — see the field\'s doc comment); the real tenant-safe composite FK is enforced at the database level by the migration script instead', () => {
+    expect(block).not.toMatch(/SourceSystem\s+@relation/)
+    expect(block.toLowerCase()).toContain('database level')
   })
 
   it('T27. domain_kind is a plain String, not a Postgres enum — mirrors Upload.lineage_kind\'s own established precedent (a discriminator expected to grow, avoiding future ALTER TYPE migrations)', () => {
@@ -176,13 +175,12 @@ describe('SourceRecordObservation — Prisma model shape', () => {
     )
   })
 
-  it('T11/T12. mapping_version_id is nullable with a tenant-safe composite FK to MappingVersion — mirrors Upload.mapping_version_id\'s own established nullable precedent exactly', () => {
+  it('T11/T12. mapping_version_id is nullable — mirrors Upload.mapping_version_id\'s own established nullable precedent exactly. Deliberately no Prisma @relation navigation to MappingVersion (same reasoning as SourceRecordIdentity.source_system_id — avoids forcing a reverse-relation field onto MappingVersion\'s own model body); the tenant-safe composite FK is still enforced at the database level by the migration script', () => {
     const line = block.split('\n').find(l => /^\s*mapping_version_id\s/.test(l))
     expect(line).toBeDefined()
     expect(line).toMatch(/mapping_version_id\s+String\?/)
-    expect(block).toMatch(
-      /mapping_version\s+MappingVersion\?\s+@relation\(fields: \[mapping_version_id, organisation_id\], references: \[id, organisation_id\]\)/
-    )
+    expect(block).not.toMatch(/MappingVersion\?\s+@relation/)
+    expect(block.toLowerCase()).toContain('database level')
   })
 
   it('T13. canonical_hash is a required (non-nullable) field, documented as a SHA-256 digest', () => {
