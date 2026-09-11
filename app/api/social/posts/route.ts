@@ -1,11 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getSession } from '@/lib/session';
+import { requireSession } from '@/lib/org';
 import sql from '@/lib/db';
 import { IS_DEMO_MODE, DEMO_POSTS, DEMO_COMMENTS } from '@/lib/social/demo';
 
 export async function GET(req: NextRequest) {
-  const session = await getSession();
-  if (!session?.organisationId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  // SEC-1B3: was raw getSession() — the JWT-only claim, never revalidated
+  // against the DB. requireSession() (lib/org.ts) re-reads the caller's
+  // current role/organisation/status from the database on every call, so
+  // a since-deactivated, since-reassigned, or deleted user's still-valid
+  // JWT can no longer read this org's social posts/comments.
+  let session;
+  try { session = await requireSession(); } catch { return NextResponse.json({ error: 'Unauthorized' }, { status: 401 }); }
 
   const oid   = session.organisationId;
   const limit = Math.min(parseInt(new URL(req.url).searchParams.get('limit') ?? '20'), 50);

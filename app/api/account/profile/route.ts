@@ -1,10 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import sql from '@/lib/db';
-import { getSession } from '@/lib/session';
+import { requireSession } from '@/lib/org';
 
 export async function GET() {
-  const session = await getSession();
-  if (!session) return NextResponse.json({ error: 'Unauthorised' }, { status: 401 });
+  // SEC-1B3: was raw getSession() — the JWT-only claim, never revalidated
+  // against the DB. requireSession() (lib/org.ts) re-reads the caller's
+  // current role/organisation/status from the database on every call, so
+  // a since-deactivated, since-reassigned, or deleted user's still-valid
+  // JWT can no longer read this profile/org projection.
+  let session;
+  try { session = await requireSession(); } catch { return NextResponse.json({ error: 'Unauthorised' }, { status: 401 }); }
 
   const [user] = await sql`
     SELECT
@@ -56,8 +61,10 @@ const ALLOWED_FIELDS = [
 ] as const;
 
 export async function PUT(req: NextRequest) {
-  const session = await getSession();
-  if (!session) return NextResponse.json({ error: 'Unauthorised' }, { status: 401 });
+  // SEC-1B3: was raw getSession() — see GET's own comment above for the
+  // full rationale.
+  let session;
+  try { session = await requireSession(); } catch { return NextResponse.json({ error: 'Unauthorised' }, { status: 401 }); }
 
   const body = await req.json() as Record<string, unknown>;
 

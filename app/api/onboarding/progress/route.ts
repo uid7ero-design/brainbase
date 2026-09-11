@@ -1,10 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getSession } from '@/lib/session';
+import { requireSession } from '@/lib/org';
 import sql from '@/lib/db';
 
+function forbidden() { return NextResponse.json({ error: 'Unauthorized' }, { status: 401 }); }
+
 export async function GET() {
-  const session = await getSession();
-  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  // SEC-1B3: was raw getSession() — the JWT-only claim, never revalidated
+  // against the DB. requireSession() (lib/org.ts) re-reads the caller's
+  // current role/organisation/status from the database on every call, so
+  // a since-deactivated, since-reassigned, or deleted user's still-valid
+  // JWT can no longer read/write onboarding progress under their old org.
+  let session;
+  try { session = await requireSession(); } catch { return forbidden(); }
 
   const rows = await sql`
     SELECT current_step, data, completed FROM onboarding_progress
@@ -19,8 +26,8 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  const session = await getSession();
-  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  let session;
+  try { session = await requireSession(); } catch { return forbidden(); }
 
   const { currentStep, data } = await req.json();
 

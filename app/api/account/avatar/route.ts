@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { writeFile } from 'fs/promises';
 import path from 'path';
-import { getSession } from '@/lib/session';
+import { requireSession } from '@/lib/org';
 import sql from '@/lib/db';
 
 const MAX_BYTES = 3 * 1024 * 1024; // 3 MB
@@ -14,8 +14,13 @@ const EXT_MAP: Record<string, string> = {
 };
 
 export async function POST(req: NextRequest) {
-  const session = await getSession();
-  if (!session?.userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  // SEC-1B3: was raw getSession() — the JWT-only claim, never revalidated
+  // against the DB. requireSession() (lib/org.ts) re-reads the caller's
+  // current role/organisation/status from the database on every call, so
+  // a since-deactivated, since-reassigned, or deleted user's still-valid
+  // JWT can no longer upload an avatar under their old identity.
+  let session;
+  try { session = await requireSession(); } catch { return NextResponse.json({ error: 'Unauthorized' }, { status: 401 }); }
 
   const formData = await req.formData();
   const file = formData.get('file') as File | null;

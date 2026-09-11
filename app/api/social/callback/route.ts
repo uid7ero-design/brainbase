@@ -1,13 +1,27 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getSession } from '@/lib/session';
+import { requireSession } from '@/lib/org';
 import { cookies } from 'next/headers';
 import sql from '@/lib/db';
 import { exchangeCodeForToken, getLongLivedToken, getConnectedIGAccount } from '@/lib/social/instagram';
 import { encrypt } from '@/lib/social/crypto';
 
 export async function GET(req: NextRequest) {
-  const session = await getSession();
-  if (!session) return NextResponse.redirect(new URL('/login', req.url));
+  // SEC-1B3: was raw getSession() — the JWT-only claim, never revalidated
+  // against the DB. This is the browser's OAuth redirect BACK to our own
+  // domain — our own session cookie travels with it exactly like any
+  // other same-site GET navigation, so this is not a pre-auth state; the
+  // caller must already have a fully-established session, same
+  // precondition getSession() already required. The separate
+  // social_oauth_state cookie below is the OAuth handshake's own CSRF
+  // check and is unrelated to (and unaffected by) this session check.
+  // requireSession() (lib/org.ts) re-reads the caller's current role/
+  // organisation/status from the database on every call, so a since-
+  // deactivated, since-reassigned, or deleted user's still-valid JWT can
+  // no longer complete this connection under their old org — same
+  // fallback (redirect to /login) as before, gated first, before any
+  // state/code parsing or external token exchange.
+  let session;
+  try { session = await requireSession(); } catch { return NextResponse.redirect(new URL('/login', req.url)); }
 
   const { searchParams } = new URL(req.url);
   const code  = searchParams.get('code');
