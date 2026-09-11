@@ -18,7 +18,12 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  const auth = await authorizeCommercialRequest(['quotes', 'invoicing'], COMMERCIAL_MIN_ROLE.createEdit);
+  // C6.9 remediation — widened to include 'purchasing', matching the
+  // sibling GET's own C6.3 widening (see that handler's comment): the
+  // catalogue is one shared, capability-agnostic resource, so a
+  // purchasing-only organisation must be able to create/maintain it too,
+  // not just read it.
+  const auth = await authorizeCommercialRequest(['quotes', 'invoicing', 'purchasing'], COMMERCIAL_MIN_ROLE.createEdit);
   if (!auth.ok) return auth.response;
 
   const body = await req.json();

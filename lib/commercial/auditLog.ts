@@ -535,6 +535,17 @@ export async function logPurchaseOrderUpdated(params: {
   });
 }
 
+// C6.9 remediation — draft-only deletion (lib/commercial/purchaseOrders.ts's
+// deleteDraftPurchaseOrder() refuses anything but an eligible, never-
+// submitted DRAFT row). Mirrors logInvoiceDeleted()/logQuoteDeleted()
+// exactly.
+export async function logPurchaseOrderDeleted(params: { organisationId: string; userId: string; purchaseOrderId: string }): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'commercial_purchase_order.deleted',
+    resourceType: 'commercial_purchase_order', resourceId: params.purchaseOrderId, beforeState: { status: 'DRAFT' }, afterState: null,
+  });
+}
+
 export async function logPurchaseOrderSubmitted(params: { organisationId: string; userId: string; purchaseOrderId: string }): Promise<void> {
   await insertAuditLog({
     organisationId: params.organisationId, userId: params.userId, action: 'commercial_purchase_order.submitted',
@@ -610,4 +621,47 @@ export async function logPurchaseOrderEmailSent(params: {
       })}::jsonb
     )
   `;
+}
+
+// C6.9 remediation — Commercial document attachments (Purchase Orders
+// first; generic document_type so this same pair serves a future
+// Invoices/Bills/Contracts attachment feature, matching every
+// document_type-keyed audit event already established in this file).
+// resource_type is 'commercial_document_attachment' (the attachment is
+// the thing that was created/removed), with document_type/document_id
+// carried in the state payload so a future `WHERE after_state->>
+// 'document_id' = ...` query can find every attachment event for a given
+// document without a join — same convention logPaymentRecorded() already
+// documents for its own invoice_id. Never logs file CONTENTS, only
+// metadata (category/filename/size), matching the gate's own explicit
+// "do not log sensitive file contents" requirement.
+export async function logCommercialAttachmentUploaded(params: {
+  organisationId: string; userId: string; attachmentId: string;
+  documentType: string; documentId: string;
+  category: string; originalFilename: string; sizeBytes: number;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'commercial_document_attachment.uploaded',
+    resourceType: 'commercial_document_attachment', resourceId: params.attachmentId, beforeState: null,
+    afterState: {
+      document_type: params.documentType, document_id: params.documentId,
+      category: params.category, original_filename: params.originalFilename, size_bytes: params.sizeBytes,
+    },
+  });
+}
+
+export async function logCommercialAttachmentRemoved(params: {
+  organisationId: string; userId: string; attachmentId: string;
+  documentType: string; documentId: string;
+  category: string; originalFilename: string;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'commercial_document_attachment.removed',
+    resourceType: 'commercial_document_attachment', resourceId: params.attachmentId,
+    beforeState: {
+      document_type: params.documentType, document_id: params.documentId,
+      category: params.category, original_filename: params.originalFilename,
+    },
+    afterState: null,
+  });
 }

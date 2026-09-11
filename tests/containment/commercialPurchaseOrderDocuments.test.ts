@@ -227,6 +227,14 @@ vi.mock('@/lib/commercial/documentDeliveries', () => ({
   listDeliveriesForDocument: (...a: unknown[]) => listDeliveriesForDocumentMock(...a),
 }))
 
+// C6.9 remediation 2 — GET .../purchase-orders/[id] now also resolves the
+// live linked supplier (see that route's own comment). Mocked here so
+// this pre-existing suite's real-route-handler calls never attempt a
+// real DB connection for a dependency this file's own scope (PDF/email
+// documents) never otherwise touches.
+const getSupplierMock = vi.fn()
+vi.mock('@/lib/commercial/suppliers', () => ({ getSupplier: (...a: unknown[]) => getSupplierMock(...a) }))
+
 const { POST: emailPOST } = await import('@/app/api/commercial/purchase-orders/[id]/email/route')
 const { GET: poDetailGET } = await import('@/app/api/commercial/purchase-orders/[id]/route')
 
@@ -242,6 +250,7 @@ beforeEach(() => {
   recordPurchaseOrderDeliveryAttemptMock.mockReset()
   secondsSinceLastAttemptMock.mockReset()
   listDeliveriesForDocumentMock.mockReset()
+  getSupplierMock.mockReset().mockResolvedValue(null)
 
   authorizeMock.mockResolvedValue({ ok: true, session: MANAGER_SESSION })
   getPurchaseOrderWithLinesMock.mockResolvedValue(ISSUED_PO)
