@@ -91,7 +91,14 @@ export type CallerOnlyOutcomeCode =
   // (structurallyValid: false, still a 200 with mappingErrors for the
   // reviewer), but Confirm cannot import a dataset it cannot fully map, so
   // this is a distinct hard-failure outcome unique to Confirm.
-  | "MAPPING_COMPILE_FAILED";
+  | "MAPPING_COMPILE_FAILED"
+  // 6.0C1 — Confirm-only: this organisation+SourceSystem already has
+  // committed Illegal Dumping domain rows from ANOTHER, already-imported
+  // worksheet. A temporary safety invariant (no reconciliation exists yet)
+  // — never leaks the prior worksheet/ImportBatch/organisation/
+  // SourceSystem identity or row counts. See confirmWorksheet.ts's own
+  // 6.0C1 header comment for the exact guard mechanism.
+  | "SOURCE_ALREADY_IMPORTED";
 
 export type FailureCode = PersistedFailureCode | CallerOnlyOutcomeCode;
 
@@ -130,6 +137,7 @@ export const CALLER_ONLY_OUTCOME_CODES: readonly CallerOnlyOutcomeCode[] = [
   "MAPPING_LINEAGE_UNAVAILABLE",
   "MAPPING_DOCUMENT_INVALID",
   "MAPPING_COMPILE_FAILED",
+  "SOURCE_ALREADY_IMPORTED",
 ];
 
 export function isPersistedFailureCode(code: string): code is PersistedFailureCode {
@@ -265,8 +273,14 @@ const MESSAGE_TEMPLATES: Record<FailureCode, string> = {
   // SOURCE_MAPPING_UNAVAILABLE below: it describes the CALLER'S OWN
   // batch's state (no SourceSystem lineage was ever established for it),
   // never a foreign resource — there is no existence-leak risk here.
+  // 6.0C1 — this code is now ALSO reused, unmodified, by
+  // confirmWorksheet.ts's own NULL-source fail-closed gate (the temporary
+  // repeat-import safety invariant cannot be authoritative without source
+  // lineage) — wording is deliberately consumer-neutral ("processed", not
+  // "selected"), mirroring MAPPING_LINEAGE_UNAVAILABLE's own established
+  // shared-code precedent below.
   SOURCE_LINEAGE_REQUIRED:
-    "This import batch has no associated source system. A mapping cannot be selected until one is assigned.",
+    "This import batch has no associated source system, which is required before it can be processed.",
   // Deliberately ONE generic message covering every rejection reason
   // (mapping does not exist, belongs to a different organisation, belongs
   // to a different source system than this batch, is inactive, has no
@@ -293,6 +307,12 @@ const MESSAGE_TEMPLATES: Record<FailureCode, string> = {
   // message.
   MAPPING_COMPILE_FAILED:
     "This worksheet's selected mapping does not match its current column headers and cannot currently be imported.",
+  // 6.0C1 — temporary first-import/repeat-import safety invariant. Never
+  // reveals the organisation, SourceSystem, prior ImportBatch/worksheet
+  // identity, or row counts — one fixed, generic message regardless of
+  // which specific prior worksheet established the existing success.
+  SOURCE_ALREADY_IMPORTED:
+    "This source already has an imported Illegal Dumping snapshot. Additional snapshots require reconciliation support.",
 };
 
 const MAX_MESSAGE_LENGTH = 500;

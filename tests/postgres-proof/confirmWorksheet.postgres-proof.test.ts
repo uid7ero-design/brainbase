@@ -73,7 +73,6 @@ describe("5B.4D confirmWorksheet — real disposable Postgres proof", () => {
   let sourceSystemS2: string;
   let sourceMappingId: string;
   let mappingVersionV3: string;
-  let mappingVersionV4: string;
   let actor1: string;
   let actor2: string;
 
@@ -113,16 +112,37 @@ describe("5B.4D confirmWorksheet — real disposable Postgres proof", () => {
       data: { organisation_id: organisationId, source_mapping_id: sourceMappingId, version_number: 3, mapping_document: MAPPING_DOCUMENT },
     });
     mappingVersionV3 = v3.id;
-
-    const v4 = await prisma.mappingVersion.create({
-      data: { organisation_id: organisationId, source_mapping_id: sourceMappingId, version_number: 4, mapping_document: MAPPING_DOCUMENT },
-    });
-    mappingVersionV4 = v4.id;
   }, 60_000);
 
   afterAll(async () => {
     await prisma.$disconnect();
   });
+
+  // 6.0C1 — a real committed IllegalDumping success now permanently
+  // occupies its organisation+SourceSystem allowance (see
+  // confirmWorksheet.ts's own 6.0C1 header comment). Scenarios below that
+  // need their OWN independent successful first import (B/C/H) therefore
+  // get a dedicated, freshly created SourceSystem+SourceMapping+
+  // MappingVersion lineage each, rather than reusing sourceSystemS1 (which
+  // scenario A already consumes) — this is a test-fixture-isolation change
+  // only; the guard's real identity (organisation_id + source_system_id)
+  // is exactly what is being respected here.
+  async function createMappedLineage(namePrefix: string, versionCount: number) {
+    const sourceSystem = await prisma.sourceSystem.create({
+      data: { organisation_id: organisationId, name: `${namePrefix} SourceSystem`, active: true },
+    });
+    const sourceMapping = await prisma.sourceMapping.create({
+      data: { organisation_id: organisationId, source_system_id: sourceSystem.id, name: `${namePrefix} SourceMapping`, active: true },
+    });
+    const mappingVersionIds: string[] = [];
+    for (let i = 1; i <= versionCount; i++) {
+      const v = await prisma.mappingVersion.create({
+        data: { organisation_id: organisationId, source_mapping_id: sourceMapping.id, version_number: i, mapping_document: MAPPING_DOCUMENT },
+      });
+      mappingVersionIds.push(v.id);
+    }
+    return { sourceSystemId: sourceSystem.id, sourceMappingId: sourceMapping.id, mappingVersionIds };
+  }
 
   /** Creates a fresh batch+worksheet (each Confirm scenario needs its own,
    * since Confirm mutates state — unlike Preview's read-only proof, which
@@ -196,12 +216,14 @@ describe("5B.4D confirmWorksheet — real disposable Postgres proof", () => {
   });
 
   it("B. activating v4 on the SAME SourceMapping WITHOUT reselection, THEN Confirm -> Confirm still uses (and claims against) v3, not v4", async () => {
+    const { sourceSystemId, sourceMappingId: bMappingId, mappingVersionIds } = await createMappedLineage("B", 2);
     const { worksheetId } = await createMappedWorksheet({
-      mappingVersionId: mappingVersionV3,
+      mappingVersionId: mappingVersionIds[0],
+      sourceSystemId,
       rows: [["2024-02-01", "Kerbside C", "Green Waste"]],
     });
 
-    await prisma.sourceMapping.update({ where: { id: sourceMappingId }, data: { active_mapping_version_id: mappingVersionV4 } });
+    await prisma.sourceMapping.update({ where: { id: bMappingId }, data: { active_mapping_version_id: mappingVersionIds[1] } });
 
     vi.resetModules();
     const { confirmDataHubWorksheet } = await import("../../lib/data-hub/importBatch/confirmWorksheet");
@@ -209,21 +231,20 @@ describe("5B.4D confirmWorksheet — real disposable Postgres proof", () => {
 
     expect(result).toMatchObject({ ok: true, alreadyImported: false, importedRows: 1 });
     const worksheetAfter = await prisma.upload.findUniqueOrThrow({ where: { id: worksheetId } });
-    expect(worksheetAfter.mapping_version_id).toBe(mappingVersionV3);
+    expect(worksheetAfter.mapping_version_id).toBe(mappingVersionIds[0]);
     expect(worksheetAfter.canonical_status).toBe("IMPORTED");
-
-    // restore for subsequent scenarios
-    await prisma.sourceMapping.update({ where: { id: sourceMappingId }, data: { active_mapping_version_id: null } });
   });
 
   it("C. deactivating SourceMapping and SourceSystem BEFORE Confirm -> frozen v3 still imports (frozen lineage survives deactivation)", async () => {
+    const { sourceSystemId, sourceMappingId: cMappingId, mappingVersionIds } = await createMappedLineage("C", 1);
     const { worksheetId } = await createMappedWorksheet({
-      mappingVersionId: mappingVersionV3,
+      mappingVersionId: mappingVersionIds[0],
+      sourceSystemId,
       rows: [["2024-03-01", "Kerbside D", "Furniture"]],
     });
 
-    await prisma.sourceMapping.update({ where: { id: sourceMappingId }, data: { active: false } });
-    await prisma.sourceSystem.update({ where: { id: sourceSystemS1 }, data: { active: false } });
+    await prisma.sourceMapping.update({ where: { id: cMappingId }, data: { active: false } });
+    await prisma.sourceSystem.update({ where: { id: sourceSystemId }, data: { active: false } });
 
     vi.resetModules();
     const { confirmDataHubWorksheet } = await import("../../lib/data-hub/importBatch/confirmWorksheet");
@@ -232,10 +253,6 @@ describe("5B.4D confirmWorksheet — real disposable Postgres proof", () => {
     expect(result).toMatchObject({ ok: true, alreadyImported: false, importedRows: 1 });
     const rows = await prisma.illegalDumping.findMany({ where: { upload_id: worksheetId } });
     expect(rows).toHaveLength(1);
-
-    // restore for subsequent scenarios
-    await prisma.sourceMapping.update({ where: { id: sourceMappingId }, data: { active: true } });
-    await prisma.sourceSystem.update({ where: { id: sourceSystemS1 }, data: { active: true } });
   });
 
   it("D. corrupted cross-source lineage (SourceMapping repointed to a DIFFERENT SourceSystem than the batch) -> safe MAPPING_LINEAGE_UNAVAILABLE, zero domain rows, worksheet stays AWAITING_CONFIRMATION", async () => {
@@ -286,8 +303,10 @@ describe("5B.4D confirmWorksheet — real disposable Postgres proof", () => {
   });
 
   it("H. replay after IMPORTED -> existing idempotency semantics (ok:true, alreadyImported:true), no duplicate domain rows, no re-write of confirmed_by/at", async () => {
+    const { sourceSystemId, mappingVersionIds } = await createMappedLineage("H", 1);
     const { worksheetId } = await createMappedWorksheet({
-      mappingVersionId: mappingVersionV3,
+      mappingVersionId: mappingVersionIds[0],
+      sourceSystemId,
       rows: [["2024-06-01", "Kerbside G", "Tyres"]],
     });
 
@@ -311,13 +330,15 @@ describe("5B.4D confirmWorksheet — real disposable Postgres proof", () => {
     expect(worksheetAfterSecond.confirmed_at).toEqual(worksheetAfterFirst.confirmed_at);
   });
 
-  it("legacy (NULL mapping_version_id) Confirm continues to work unchanged alongside mapped worksheets in the same real database", async () => {
+  it("legacy (NULL mapping_version_id) Confirm continues to work unchanged alongside mapped worksheets in the same real database, PROVIDED the batch still carries a real SourceSystem (6.0C1 requires source lineage on every Illegal Dumping Confirm, mapped or legacy)", async () => {
+    const { sourceSystemId } = await createMappedLineage("Legacy", 0);
     const csv = "report_date,location,waste_type\n2024-07-01,Legacy Site,Legacy Type\n";
     const body = Buffer.from(csv, "utf8");
     const sha256 = createHash("sha256").update(body).digest("hex");
     const batch = await prisma.importBatch.create({
       data: {
         organisation_id: organisationId,
+        source_system_id: sourceSystemId,
         original_filename: "legacy.csv",
         content_type: "csv",
         size_bytes: body.byteLength,
@@ -350,5 +371,61 @@ describe("5B.4D confirmWorksheet — real disposable Postgres proof", () => {
     const rows = await prisma.illegalDumping.findMany({ where: { upload_id: worksheet.id } });
     expect(rows).toHaveLength(1);
     expect(rows[0].location).toBe("Legacy Site");
+  });
+
+  // 6.0C1 T15 (real Postgres) — a batch with NO SourceSystem lineage at all
+  // (source_system_id IS NULL, the genuinely legacy/optional-source
+  // initiate path) fails closed BEFORE any storage/decode/domain work, in
+  // the REAL database, with zero side effects of any kind.
+  it("T15 (real Postgres). a worksheet whose parent batch has source_system_id = NULL fails closed with SOURCE_LINEAGE_REQUIRED, zero domain rows, worksheet remains AWAITING_CONFIRMATION, storage never touched", async () => {
+    const csv = "report_date,location,waste_type\n2024-08-01,No-Source Site,No-Source Type\n";
+    const body = Buffer.from(csv, "utf8");
+    const sha256 = createHash("sha256").update(body).digest("hex");
+    const batch = await prisma.importBatch.create({
+      data: {
+        organisation_id: organisationId,
+        // source_system_id deliberately omitted -> NULL, the exact
+        // pre-6.0C1 legacy/optional-source shape this guard must now
+        // reject for the Illegal Dumping Confirm path specifically.
+        original_filename: "no-source.csv",
+        content_type: "csv",
+        size_bytes: body.byteLength,
+        sha256,
+        storage_provider: "in-memory-proof-store",
+        storage_key: `proof-key-no-source-${Date.now()}`,
+        status: "READY",
+      },
+    });
+    // Deliberately NOT registered in inMemoryBlobs — Step 3.5 must reject
+    // this worksheet before Step 5's storage GET is ever attempted; if the
+    // guard regresses and storage IS reached, the mocked store throws
+    // ("no blob for key ..."), which would also fail this test (a
+    // different, but still correctly non-silent, symptom).
+    const worksheet = await prisma.upload.create({
+      data: {
+        organisation_id: organisationId,
+        original_name: "no-source.csv",
+        stored_path: "n/a",
+        mimetype: "text/csv",
+        size_bytes: body.byteLength,
+        lineage_kind: "DATA_HUB",
+        import_batch_id: batch.id,
+        worksheet_index: 0,
+        canonical_status: "AWAITING_CONFIRMATION",
+        mapping_version_id: null,
+      },
+    });
+
+    vi.resetModules();
+    const { confirmDataHubWorksheet } = await import("../../lib/data-hub/importBatch/confirmWorksheet");
+    const result = await confirmDataHubWorksheet({ organisationId, worksheetUploadId: worksheet.id, confirmedBy: actor1 });
+    expect(result).toMatchObject({ ok: false, code: "SOURCE_LINEAGE_REQUIRED" });
+
+    const rows = await prisma.illegalDumping.findMany({ where: { upload_id: worksheet.id } });
+    expect(rows).toHaveLength(0);
+    const worksheetAfter = await prisma.upload.findUniqueOrThrow({ where: { id: worksheet.id } });
+    expect(worksheetAfter.canonical_status).toBe("AWAITING_CONFIRMATION");
+    expect(worksheetAfter.confirmed_by).toBeNull();
+    expect(worksheetAfter.confirmed_at).toBeNull();
   });
 });

@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { Prisma } from "@prisma/client";
 import { prisma } from "../../prisma";
 import { buildImportBatchKey, RawFileStoreError } from "../storage/rawFileStore";
 import { createImportBatchStorage } from "./compositionRoot";
@@ -80,6 +81,44 @@ import { compileMapping, applyCompiledMappingToRows, toIllegalDumpingMapperInput
 // transaction itself is the sole claim boundary: if it rolls back, the
 // worksheet remains AWAITING_CONFIRMATION; if it commits, the worksheet is
 // IMPORTED atomically with its domain rows, in the same statement set.
+//
+// 6.0C1 — TEMPORARY FIRST-IMPORT / REPEAT-IMPORT FAIL-CLOSED GUARD: until
+// reconciliation exists, at most ONE distinct worksheet may successfully
+// commit IllegalDumping domain rows per organisation + non-null
+// SourceSystem. Two structural additions implement this:
+//   (a) Step 3.5 — a worksheet whose parent ImportBatch has
+//       source_system_id = NULL fails closed (SOURCE_LINEAGE_REQUIRED)
+//       BEFORE any storage/decode/mapping work — the guard cannot be
+//       authoritative without source lineage, and current initiate UI
+//       still permits an optional/legacy null-source choice (a SEPARATE,
+//       still-fully-supported path for every OTHER purpose — this gate is
+//       Illegal-Dumping-Confirm-specific, never a global SourceSystem
+//       requirement).
+//   (b) Step 8 — inside the SAME transaction as the existing claim, BEFORE
+//       it: an explicit `SELECT ... FOR UPDATE` lock on the batch's own
+//       SourceSystem row (tenant-scoped, parameterized via Prisma.sql —
+//       mirrors this codebase's own established event-capacity locking
+//       precedent, e.g. app/api/public/events/.../checkout/route.ts),
+//       THEN an EXISTS query against the illegal_dumping table itself
+//       (joined through upload_id -> import_batch_id -> source_system_id)
+//       — never Upload.canonical_status/lineage_kind, which are generic,
+//       not Illegal-Dumping-specific. If a prior committed success is
+//       found, this attempt fails SOURCE_ALREADY_IMPORTED before the
+//       existing worksheet claim/domain write ever runs. The lock
+//       serializes two concurrent first-import attempts for the same
+//       organisation+SourceSystem — Postgres blocks the second
+//       transaction's own FOR UPDATE request until the first commits or
+//       rolls back, so the second transaction's EXISTS query always
+//       observes the first's outcome.
+// Guard identity is deliberately organisation_id + source_system_id ONLY —
+// never mapping_version_id, sha256, filename, idempotency_key, ImportBatch
+// id, or worksheet id (a different version/file/batch/worksheet for the
+// SAME logical source must not create a second allowance). The guard never
+// filters by SourceSystem/SourceMapping/MappingVersion `active` — historical
+// success remains authoritative regardless of later deactivation, exactly
+// matching 5B.4B/5B.4C/5B.4D's own established consumption-vs-selection
+// rule. Same-worksheet idempotent replay is entirely unaffected — Step 2's
+// existing IMPORTED short-circuit fires before this guard is ever reached.
 
 // Empirically-derived (5A.2K.1-R) bounded timeout for the Step 8
 // transaction, replacing Prisma's 5000ms default -- see the Step 8 comment
@@ -183,6 +222,18 @@ export async function confirmDataHubWorksheet(
   if (!batch.sha256) {
     return fail("PROVIDER_FAILURE");
   }
+
+  // ---- Step 3.5 — 6.0C1 SOURCE SYSTEM REQUIREMENT. A worksheet whose
+  // parent batch has no SourceSystem lineage fails closed here, before any
+  // storage/decode/mapping work — the temporary repeat-import guard below
+  // cannot be authoritative without a SourceSystem to scope/lock by. This
+  // is Illegal-Dumping-Confirm-specific; the legacy/optional-source
+  // initiation path itself remains fully unchanged and supported for every
+  // other purpose. ----
+  if (batch.source_system_id === null) {
+    return fail("SOURCE_LINEAGE_REQUIRED");
+  }
+  const sourceSystemId = batch.source_system_id;
 
   // ---- Step 4 — CSV-only format gate. Deterministic, no fallback of any
   // kind for XLS/XLSX — this service never imports workbookParser.ts or
@@ -327,6 +378,52 @@ export async function confirmDataHubWorksheet(
   // transaction) is left at Prisma's default; only the execution timeout
   // is widened, since row count affects execution duration, not queueing. ----
   const result = await prisma.$transaction(async (tx) => {
+    // ---- 6.0C1 — FIRST-IMPORT / REPEAT-IMPORT GUARD (see header comment
+    // for the full mechanism). Runs BEFORE the existing worksheet claim,
+    // inside the SAME transaction, so a block here never reaches
+    // createMany and never claims the worksheet. ----
+
+    // (a) Lock the exact, trusted, tenant-scoped SourceSystem row. Both
+    // interpolated values are trusted (session-derived organisationId;
+    // sourceSystemId read from this worksheet's own persisted ImportBatch
+    // row in Step 3) — Prisma.sql parameterizes them as real query
+    // parameters, never string-concatenated into the SQL text.
+    const lockedSourceSystem = await tx.$queryRaw<{ id: string }[]>(Prisma.sql`
+      SELECT id FROM source_systems
+      WHERE id = ${sourceSystemId} AND organisation_id = ${organisationId}
+      FOR UPDATE
+    `);
+    if (lockedSourceSystem.length === 0) {
+      // The batch's own persisted source_system_id no longer resolves to a
+      // real, tenant-owned SourceSystem row — reuse the existing generic,
+      // non-leaking code for "the specified source system is not
+      // available."
+      return { claimed: false as const, blocked: "SOURCE_SYSTEM_UNAVAILABLE" as const };
+    }
+
+    // (b) Existence check against the ILLEGAL_DUMPING domain table itself
+    // (never Upload.canonical_status/lineage_kind, which are generic
+    // worksheet-lineage concepts, not Illegal-Dumping-specific) — joined
+    // through upload_id -> import_batch_id -> source_system_id. Both
+    // organisation_id and source_system_id are the same trusted values
+    // used for the lock above; never client-supplied. Deliberately no
+    // `active`/deleted_at filter anywhere in this query — historical
+    // success remains authoritative regardless of later SourceSystem/
+    // SourceMapping/MappingVersion deactivation or ImportBatch tombstoning.
+    const priorSuccess = await tx.$queryRaw<{ prior_success: boolean }[]>(Prisma.sql`
+      SELECT EXISTS (
+        SELECT 1
+        FROM illegal_dumping d
+        JOIN uploads u ON d.upload_id = u.id
+        JOIN import_batches b ON u.import_batch_id = b.id
+        WHERE d.organisation_id = ${organisationId}
+          AND b.source_system_id = ${sourceSystemId}
+      ) AS prior_success
+    `);
+    if (priorSuccess[0]?.prior_success) {
+      return { claimed: false as const, blocked: "SOURCE_ALREADY_IMPORTED" as const };
+    }
+
     const claim = await tx.upload.updateMany({
       where: {
         id: worksheetUploadId,
@@ -387,6 +484,14 @@ export async function confirmDataHubWorksheet(
   }, { timeout: IMPORT_TRANSACTION_TIMEOUT_MS });
 
   if (!result.claimed) {
+    // 6.0C1 — the guard (SourceSystem missing, or a prior success already
+    // exists for this organisation+SourceSystem) fired before the existing
+    // worksheet claim ever ran. Neither case ever reaches the existing
+    // lost-race/currentStatus resolution below.
+    if ("blocked" in result) {
+      const blockedCode = result.blocked as "SOURCE_SYSTEM_UNAVAILABLE" | "SOURCE_ALREADY_IMPORTED";
+      return fail(blockedCode);
+    }
     if (result.currentStatus === "IMPORTED") {
       return { ok: true, alreadyImported: true, worksheetUploadId };
     }

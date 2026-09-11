@@ -74,6 +74,10 @@ describe("failureTaxonomy — code sets", () => {
         // confirmWorksheet.ts). See failureTaxonomy.ts's own doc comment.
         // Never persisted.
         "MAPPING_COMPILE_FAILED",
+        // 6.0C1 — Confirm-only temporary first-import/repeat-import safety
+        // invariant (lib/data-hub/importBatch/confirmWorksheet.ts). Never
+        // persisted.
+        "SOURCE_ALREADY_IMPORTED",
       ])
     );
   });

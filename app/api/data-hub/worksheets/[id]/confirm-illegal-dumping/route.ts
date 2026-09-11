@@ -125,13 +125,29 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
       PERSISTENCE_CONFLICT: 500,
       INVALID_CURSOR: 500,
       INVALID_LIMIT: 500,
-      // 5B.4A — initiate-only code, unreachable from confirmDataHubWorksheet.
+      // 5B.4A — originally an initiate-only code. 6.0C1's own SourceSystem
+      // row lock (see confirmWorksheet.ts's 6.0C1 header comment) can, in
+      // principle, also return this if the batch's persisted
+      // source_system_id no longer resolves to a real, tenant-owned row —
+      // not expected in practice under this repo's deactivate-not-delete
+      // architecture (SourceSystem rows are never hard-deleted), so this
+      // remains a defensive/anomalous-state 500, not a normal client-facing
+      // conflict.
       SOURCE_SYSTEM_UNAVAILABLE: 500,
-      // 5B.4B — mapping-selection-only codes, unreachable from
+      // 5B.4B — mapping-selection-only, unreachable from
       // confirmDataHubWorksheet (this route does not integrate mapping
       // selection/execution in this slice).
-      SOURCE_LINEAGE_REQUIRED: 500,
       SOURCE_MAPPING_UNAVAILABLE: 500,
+      // 6.0C1 — SOURCE_LINEAGE_REQUIRED is now genuinely reachable: the
+      // batch's own parent ImportBatch has no SourceSystem lineage
+      // (Step 3.5's fail-closed gate). 409, matching mapping-selection's
+      // own status mapping for the identical shared code.
+      SOURCE_LINEAGE_REQUIRED: 409,
+      // 6.0C1 — this organisation+SourceSystem already has a prior
+      // committed Illegal Dumping success from another worksheet (the
+      // temporary repeat-import safety invariant). 409, a genuine conflict
+      // with existing committed state.
+      SOURCE_ALREADY_IMPORTED: 409,
       // 5B.4D — frozen mapping-lineage codes, now reachable when the
       // worksheet carries a persisted Upload.mapping_version_id. 409/500
       // match previewWorksheet's own route status mapping for the two
