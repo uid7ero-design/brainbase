@@ -319,3 +319,105 @@ export async function logDemoSeedExecuted(params: {
     userAgent: params.userAgent,
   });
 }
+
+// ── SEC-1B2: high-risk read/proxy/admin routes ───────────────────────────
+//
+// Same organisation_id reasoning as SEC-1B1's schema-migration events:
+// none of these four events concerns a single tenant's own data (a
+// cross-org report spans every org by design; the "founder" surfaces are
+// BrainBase's own internal sales pipeline, not tenant data at all) — so
+// organisation_id is set to the ACTOR's own organisation throughout.
+//
+// Per ADR-0003 and this phase's own audit exclusions: never logs raw AI
+// prompts/queries (they can carry protected/tenant data — only agent
+// name / fallback / error-presence is recorded), never logs a founder
+// route's response payload (only whether live vs. demo/fallback data was
+// used, or whether the external backend call actually succeeded), and
+// never logs access tokens, API keys, or raw session/cookie material.
+
+export async function logAdminCrossOrgReadAccessed(params: {
+  actorUserId: string;
+  actorOrganisationId: string;
+  filters: { orgId: string | null; from: string | null; to: string | null; agentName: string | null; routeType: string | null };
+  resultCounts: { totalRuns: number; byAgent: number; byRoute: number; recent: number };
+  ipAddress: string | null;
+  userAgent: string | null;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.actorOrganisationId,
+    userId: params.actorUserId,
+    action: 'admin_cross_org_read.accessed',
+    resourceType: 'agent_runs_report',
+    resourceId: params.filters.orgId ?? 'all-organisations',
+    beforeState: null,
+    afterState: { filters: params.filters, resultCounts: params.resultCounts },
+    ipAddress: params.ipAddress,
+    userAgent: params.userAgent,
+  });
+}
+
+export async function logAgentRunExecuted(params: {
+  actorUserId: string;
+  actorOrganisationId: string;
+  agent: string;
+  fallbackUsed: boolean;
+  hadError: boolean;
+  routeSource: string;
+  ipAddress: string | null;
+  userAgent: string | null;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.actorOrganisationId,
+    userId: params.actorUserId,
+    action: 'agent_run.executed',
+    resourceType: 'agent_run',
+    resourceId: params.agent,
+    beforeState: null,
+    afterState: { fallbackUsed: params.fallbackUsed, hadError: params.hadError, routeSource: params.routeSource },
+    ipAddress: params.ipAddress,
+    userAgent: params.userAgent,
+  });
+}
+
+export async function logFounderReadAccessed(params: {
+  actorUserId: string;
+  actorOrganisationId: string;
+  resource: 'founder_clients' | 'founder_intelligence' | 'founder_state';
+  source: 'live' | 'demo' | 'fallback';
+  ipAddress: string | null;
+  userAgent: string | null;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.actorOrganisationId,
+    userId: params.actorUserId,
+    action: 'founder_read.accessed',
+    resourceType: 'founder_backend',
+    resourceId: params.resource,
+    beforeState: null,
+    afterState: { source: params.source },
+    ipAddress: params.ipAddress,
+    userAgent: params.userAgent,
+  });
+}
+
+export async function logFounderActionExecuted(params: {
+  actorUserId: string;
+  actorOrganisationId: string;
+  action: 'add-lead' | 'advance-client-stage' | 'follow-up-client' | 'log-demo' | 'mark-analysis-reviewed';
+  backendInvoked: boolean;
+  backendOk: boolean;
+  ipAddress: string | null;
+  userAgent: string | null;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.actorOrganisationId,
+    userId: params.actorUserId,
+    action: 'founder_action.executed',
+    resourceType: 'founder_action',
+    resourceId: params.action,
+    beforeState: null,
+    afterState: { backendInvoked: params.backendInvoked, backendOk: params.backendOk },
+    ipAddress: params.ipAddress,
+    userAgent: params.userAgent,
+  });
+}

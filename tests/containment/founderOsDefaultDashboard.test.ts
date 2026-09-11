@@ -61,8 +61,8 @@ describe('7. client (non-super_admin) users cannot reach founder-only data throu
     expect(founderSource).toContain("fetch('/api/admin/founder-clients')")
   })
 
-  it('the founder-intelligence API route itself still independently enforces super_admin, even though the page no longer calls it', () => {
-    expect(intelRouteSrc).toContain("session.role !== 'super_admin'")
+  it('the founder-intelligence API route itself still independently enforces super_admin, even though the page no longer calls it (SEC-1B2 hardened the gate to requireRole(), same threshold)', () => {
+    expect(intelRouteSrc).toContain("requireRole('super_admin')")
   })
 
   it('the /admin section itself remains gated by middleware to super_admin only (Phase C1.6: now via the shared roleGte() helper, not a bespoke equality check — behaviourally identical, since nothing outranks super_admin)', () => {

@@ -23,6 +23,10 @@ const {
   logSessionMigrationExecuted,
   logCrmClassificationMigrationExecuted,
   logDemoSeedExecuted,
+  logAdminCrossOrgReadAccessed,
+  logAgentRunExecuted,
+  logFounderReadAccessed,
+  logFounderActionExecuted,
 } = await import('@/lib/admin/auditLog');
 
 function sqlCallText(i: number): string {
@@ -281,6 +285,108 @@ describe('SEC-1B1 — logDemoSeedExecuted', () => {
       enabledModules: ['waste_recycling', 'fleet_management', 'service_requests'],
     }));
     expect(args).toContain(null); // before_state
+  });
+});
+
+describe('SEC-1B2 — logAdminCrossOrgReadAccessed / logAgentRunExecuted', () => {
+  it('logAdminCrossOrgReadAccessed attributes the actor\'s own org, uses the orgId filter (or "all-organisations") as resource_id, and never carries row-level data', async () => {
+    await logAdminCrossOrgReadAccessed({
+      actorUserId: 'sa-1', actorOrganisationId: 'brainbase-org',
+      filters: { orgId: 'tenant-9', from: null, to: null, agentName: null, routeType: null },
+      resultCounts: { totalRuns: 42, byAgent: 3, byRoute: 2, recent: 42 },
+      ipAddress: '203.0.113.9', userAgent: 'test-agent/1.0',
+    });
+    const args = sqlCallArgs(0);
+    expect(args).toContain('brainbase-org');
+    expect(args).toContain('sa-1');
+    expect(args).toContain('admin_cross_org_read.accessed');
+    expect(args).toContain('agent_runs_report');
+    expect(args).toContain('tenant-9'); // resource_id = the orgId filter used
+    expect(args).toContain(JSON.stringify({
+      filters: { orgId: 'tenant-9', from: null, to: null, agentName: null, routeType: null },
+      resultCounts: { totalRuns: 42, byAgent: 3, byRoute: 2, recent: 42 },
+    }));
+  });
+
+  it('logAdminCrossOrgReadAccessed uses "all-organisations" as resource_id when no orgId filter was applied', async () => {
+    await logAdminCrossOrgReadAccessed({
+      actorUserId: 'sa-1', actorOrganisationId: 'brainbase-org',
+      filters: { orgId: null, from: null, to: null, agentName: null, routeType: null },
+      resultCounts: { totalRuns: 0, byAgent: 0, byRoute: 0, recent: 0 },
+      ipAddress: null, userAgent: null,
+    });
+    const args = sqlCallArgs(0);
+    expect(args).toContain('all-organisations');
+  });
+
+  it('logAgentRunExecuted records which agent ran and whether it fell back/errored — never the query text itself', async () => {
+    await logAgentRunExecuted({
+      actorUserId: 'sa-1', actorOrganisationId: 'brainbase-org',
+      agent: 'insight', fallbackUsed: false, hadError: false, routeSource: 'agents/route-test',
+      ipAddress: '203.0.113.9', userAgent: 'test-agent/1.0',
+    });
+    const args = sqlCallArgs(0);
+    expect(args).toContain('agent_run.executed');
+    expect(args).toContain('agent_run');
+    expect(args).toContain('insight'); // resource_id = which agent ran
+    expect(args).toContain(JSON.stringify({ fallbackUsed: false, hadError: false, routeSource: 'agents/route-test' }));
+  });
+
+  it('neither event ever carries a raw user query/prompt, row data, or secret', async () => {
+    await logAdminCrossOrgReadAccessed({
+      actorUserId: 'sa-1', actorOrganisationId: 'org',
+      filters: { orgId: null, from: null, to: null, agentName: null, routeType: null },
+      resultCounts: { totalRuns: 1, byAgent: 1, byRoute: 1, recent: 1 },
+      ipAddress: null, userAgent: null,
+    });
+    await logAgentRunExecuted({
+      actorUserId: 'sa-1', actorOrganisationId: 'org',
+      agent: 'briefing', fallbackUsed: false, hadError: false, routeSource: 'agents/route-test',
+      ipAddress: null, userAgent: null,
+    });
+    expect(JSON.stringify(sqlMock.mock.calls)).not.toMatch(/password|secret|token|input_query|DATABASE_URL/i);
+  });
+});
+
+describe('SEC-1B2 — logFounderReadAccessed / logFounderActionExecuted', () => {
+  it('logFounderReadAccessed attributes the actor\'s own org, the specific founder resource read, and whether live/demo/fallback data was used — never the payload', async () => {
+    await logFounderReadAccessed({
+      actorUserId: 'sa-1', actorOrganisationId: 'brainbase-org',
+      resource: 'founder_intelligence', source: 'live',
+      ipAddress: '203.0.113.9', userAgent: 'test-agent/1.0',
+    });
+    const args = sqlCallArgs(0);
+    expect(args).toContain('brainbase-org');
+    expect(args).toContain('sa-1');
+    expect(args).toContain('founder_read.accessed');
+    expect(args).toContain('founder_backend');
+    expect(args).toContain('founder_intelligence'); // resource_id
+    expect(args).toContain(JSON.stringify({ source: 'live' }));
+  });
+
+  it('logFounderActionExecuted attributes the actor\'s own org, the action slug as resource_id, and is honest about whether the external mutation actually succeeded', async () => {
+    await logFounderActionExecuted({
+      actorUserId: 'sa-1', actorOrganisationId: 'brainbase-org',
+      action: 'add-lead', backendInvoked: true, backendOk: false,
+      ipAddress: null, userAgent: null,
+    });
+    const args = sqlCallArgs(0);
+    expect(args).toContain('founder_action.executed');
+    expect(args).toContain('founder_action');
+    expect(args).toContain('add-lead'); // resource_id
+    expect(args).toContain(JSON.stringify({ backendInvoked: true, backendOk: false }));
+  });
+
+  it('neither event ever carries a secret, token, or the founder backend response payload', async () => {
+    await logFounderReadAccessed({
+      actorUserId: 'sa-1', actorOrganisationId: 'org', resource: 'founder_clients', source: 'fallback',
+      ipAddress: null, userAgent: null,
+    });
+    await logFounderActionExecuted({
+      actorUserId: 'sa-1', actorOrganisationId: 'org', action: 'log-demo', backendInvoked: true, backendOk: true,
+      ipAddress: null, userAgent: null,
+    });
+    expect(JSON.stringify(sqlMock.mock.calls)).not.toMatch(/password|secret|token|DATABASE_URL/i);
   });
 });
 
