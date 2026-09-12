@@ -161,6 +161,66 @@ describe('Edit Person UI — admin-gated wiring of the existing PersonForm edit 
   })
 })
 
+describe('PersonForm.tsx — edit PATCH payload is allowlisted, not the full fetched person object', () => {
+  // Root cause of the production bug this locks in: editing a person
+  // seeded `form` state from `initial` (the raw GET /api/hr/people/[id]
+  // response — id, organisation_id, linked_user_id, start_date, end_date,
+  // created_at, updated_at, team_name, manager_first_name,
+  // manager_last_name included), then spread that ENTIRE object into the
+  // PATCH body. PATCH /api/hr/people/[id] correctly rejects any field
+  // outside its own allowlist, so every edit failed with "Unknown or
+  // unsupported field: id". Fixed by building an explicit allowlisted
+  // payload for edit only; create is unaffected (see its own comment
+  // below) and untouched.
+  const src = stripComments(read('app/people/_components/PersonForm.tsx'))
+
+  it('defines an explicit EDITABLE_FIELDS allowlist containing exactly the fields this form has controls for, and nothing else — no `id`', () => {
+    const start = src.indexOf('const EDITABLE_FIELDS')
+    const end = src.indexOf('];', start)
+    expect(start).toBeGreaterThan(-1)
+    const block = src.slice(start, end)
+    for (const field of [
+      'first_name', 'last_name', 'preferred_name', 'work_email', 'work_phone',
+      'job_title', 'worker_type', 'employment_status', 'team_id', 'manager_person_id',
+    ]) {
+      expect(block).toContain(`'${field}'`)
+    }
+    expect(block).not.toMatch(/'id'/)
+    expect(block).not.toMatch(/'organisation_id'/)
+    expect(block).not.toMatch(/'created_at'/)
+    expect(block).not.toMatch(/'updated_at'/)
+    expect(block).not.toMatch(/'team_name'/)
+    expect(block).not.toMatch(/'manager_first_name'/)
+    expect(block).not.toMatch(/'manager_last_name'/)
+    expect(block).not.toMatch(/'linked_user_id'/)
+    expect(block).not.toMatch(/'start_date'/)
+    expect(block).not.toMatch(/'end_date'/)
+  })
+
+  it('submit() builds the PATCH body from EDITABLE_FIELDS in edit mode, never spreading `form`/`initial` directly into the request', () => {
+    const submitStart = src.indexOf('async function submit')
+    const submitEnd = src.indexOf('\n}', submitStart)
+    const block = src.slice(submitStart, submitEnd)
+    expect(block).toMatch(/isEdit\s*\?\s*Object\.fromEntries\(EDITABLE_FIELDS\.map/)
+    // The edit branch must not send the raw `form` object wholesale —
+    // that's exactly the bug. `: form` on the CREATE side of the ternary
+    // is fine and expected (see the next test).
+    expect(block).not.toMatch(/isEdit\s*\?\s*form\s*:/)
+  })
+
+  it('create (POST) still sends `form` as-is — unaffected by the edit-only allowlist, matching this route\'s own tolerance for extra fields', () => {
+    const submitStart = src.indexOf('async function submit')
+    const submitEnd = src.indexOf('\n}', submitStart)
+    const block = src.slice(submitStart, submitEnd)
+    expect(block).toMatch(/:\s*form\s*;?\s*$/m)
+  })
+
+  it('PATCH is still only sent when initial.id is present — create vs edit branching is unchanged', () => {
+    expect(src).toMatch(/const method = isEdit \? 'PATCH' : 'POST';/)
+    expect(src).toMatch(/const url = isEdit \? `\/api\/hr\/people\/\$\{initial!\.id\}` : '\/api\/hr\/people';/)
+  })
+})
+
 describe('components/brand/CapabilityIcon.tsx — people has its own distinct icon/colour, not a fallback', () => {
   const src = read('components/brand/CapabilityIcon.tsx');
 

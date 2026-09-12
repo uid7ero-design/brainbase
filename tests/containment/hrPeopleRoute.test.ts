@@ -302,6 +302,47 @@ describe('permissions — edit (PATCH /people/[id])', () => {
   });
 });
 
+// ── Field allowlist (regression guard for the exact production bug: the
+// edit UI was sending the full fetched person object — including `id` —
+// straight into the PATCH body; fixed in PersonForm.tsx, not here. These
+// tests lock in that PATCH's own strict rejection is the reason that bug
+// surfaced as a clean 400 rather than a silent no-op or a 500, and that
+// this backend behavior must not be weakened as part of fixing it. ──────
+
+describe('field allowlist (PATCH /people/[id]) — must not be weakened', () => {
+  it('rejects `id` in the body exactly as it did in production (the client-side bug this phase fixes)', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    queue([personRow({ id: 'p1' })]);
+    const res = await patchPerson(jsonRequest('http://localhost/api/hr/people/p1', 'PATCH', { id: 'p1', job_title: 'New Title' }), withParams('p1'));
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBe('Unknown or unsupported field: id');
+  });
+
+  it('still rejects other non-editable metadata fields (organisation_id, created_at, team_name) the same way', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    for (const field of ['organisation_id', 'created_at', 'team_name']) {
+      queue([personRow({ id: 'p1' })]);
+      const res = await patchPerson(jsonRequest('http://localhost/api/hr/people/p1', 'PATCH', { [field]: 'x' }), withParams('p1'));
+      expect(res.status, `expected ${field} to be rejected`).toBe(400);
+    }
+  });
+
+  it('a request with ONLY the allowlisted fields (no id/metadata) succeeds — the shape PersonForm now sends', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    queue([personRow({ id: 'p1' })], [personRow({ id: 'p1', job_title: 'New Title' })]);
+    const res = await patchPerson(
+      jsonRequest('http://localhost/api/hr/people/p1', 'PATCH', {
+        first_name: 'Ada', last_name: 'Lovelace', preferred_name: null,
+        work_email: 'ada@example.com', work_phone: '555-0100', job_title: 'New Title',
+        worker_type: 'employee', employment_status: 'active', team_id: null, manager_person_id: null,
+      }),
+      withParams('p1'),
+    );
+    expect(res.status).toBe(200);
+  });
+});
+
 // ── Tenant isolation ─────────────────────────────────────────────────
 
 describe('tenant isolation', () => {

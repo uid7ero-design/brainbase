@@ -47,12 +47,39 @@ export default function PersonForm({ initial, onSaved }: { initial?: Person; onS
   const set = (k: keyof Person) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setForm(f => ({ ...f, [k]: e.target.value }));
 
+  // Edit mode seeds `form` from `initial` — the raw object returned by
+  // GET /api/hr/people/[id] (PersonDrawer's fetch), which carries far
+  // more than this form ever exposes a control for: id, organisation_id,
+  // linked_user_id, start_date, end_date, created_at, updated_at, and the
+  // display-only join columns (team_name, manager_first_name,
+  // manager_last_name). Spreading `form` straight into the PATCH body
+  // sent every one of those back to the server; PATCH /api/hr/people/
+  // [id] correctly rejects any field outside its own allowlist (by
+  // design — see that route's own comment), so this always failed with
+  // "Unknown or unsupported field: id" (id being first in insertion
+  // order) the moment an edit was attempted. This allowlist contains
+  // exactly the fields this form has a control for — the same set the
+  // set() calls below ever write to — so it can never drift from what's
+  // actually editable here without both being updated together.
+  const EDITABLE_FIELDS = [
+    'first_name', 'last_name', 'preferred_name', 'work_email', 'work_phone',
+    'job_title', 'worker_type', 'employment_status', 'team_id', 'manager_person_id',
+  ] as const satisfies readonly (keyof Person)[];
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true); setError('');
-    const method = initial?.id ? 'PATCH' : 'POST';
-    const url = initial?.id ? `/api/hr/people/${initial.id}` : '/api/hr/people';
-    const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) });
+    const isEdit = Boolean(initial?.id);
+    const method = isEdit ? 'PATCH' : 'POST';
+    const url = isEdit ? `/api/hr/people/${initial!.id}` : '/api/hr/people';
+    // Create keeps sending `form` as-is (unchanged behavior) — POST
+    // /api/hr/people already picks only the fields it wants by explicit
+    // destructuring and silently ignores the rest, so it was never
+    // affected by this bug. Edit sends only the allowlisted fields.
+    const body: Person = isEdit
+      ? Object.fromEntries(EDITABLE_FIELDS.map(k => [k, form[k]]))
+      : form;
+    const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     const data = await res.json();
     if (!res.ok) { setError(data.error ?? 'Save failed.'); setSaving(false); return; }
     onSaved(data.person);
