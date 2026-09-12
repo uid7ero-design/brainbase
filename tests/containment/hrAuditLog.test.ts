@@ -170,6 +170,67 @@ describe('logHrEvent — redaction of disallowed sensitive fields', () => {
     const args = sqlCallArgs(0);
     expect(args).toContain(JSON.stringify({ team_id: 'team-b' }));
   });
+
+  // HR-1 addition — work_email/work_phone previously wrote their raw old
+  // and new values into before_state/after_state whenever changed (PATCH
+  // /api/hr/people/[id] builds these as a plain field-diff, with no
+  // per-field redaction of its own). Fixed by adding both to this file's
+  // own FORBIDDEN_STATE_KEYS, the single choke point every HR mutation
+  // route already calls through.
+  it('redacts work_email on both beforeState and afterState', async () => {
+    await logHrEvent(
+      { organisationId: 'org-1', userId: 'user-1' },
+      {
+        action: 'hr_person.updated', resourceType: 'hr_person', resourceId: 'person-1',
+        beforeState: { work_email: 'old@example.com' }, afterState: { work_email: 'new@example.com' },
+      },
+    );
+
+    const args = sqlCallArgs(0);
+    const jsonArgs = args.filter((a): a is string => typeof a === 'string' && a.startsWith('{'));
+    expect(jsonArgs.length).toBeGreaterThan(0);
+    for (const j of jsonArgs) {
+      expect(j).not.toContain('old@example.com');
+      expect(j).not.toContain('new@example.com');
+      expect(j).toContain('[redacted]');
+    }
+  });
+
+  it('redacts work_phone on both beforeState and afterState', async () => {
+    await logHrEvent(
+      { organisationId: 'org-1', userId: 'user-1' },
+      {
+        action: 'hr_person.updated', resourceType: 'hr_person', resourceId: 'person-1',
+        beforeState: { work_phone: '555-0100' }, afterState: { work_phone: '555-0199' },
+      },
+    );
+
+    const args = sqlCallArgs(0);
+    const jsonArgs = args.filter((a): a is string => typeof a === 'string' && a.startsWith('{'));
+    expect(jsonArgs.length).toBeGreaterThan(0);
+    for (const j of jsonArgs) {
+      expect(j).not.toContain('555-0100');
+      expect(j).not.toContain('555-0199');
+      expect(j).toContain('[redacted]');
+    }
+  });
+
+  it('redacting work_email does not suppress another real, non-sensitive field changed in the same call', async () => {
+    await logHrEvent(
+      { organisationId: 'org-1', userId: 'user-1' },
+      {
+        action: 'hr_person.updated', resourceType: 'hr_person', resourceId: 'person-1',
+        afterState: { job_title: 'Engineer', work_email: 'new@example.com' },
+      },
+    );
+
+    const args = sqlCallArgs(0);
+    const afterJson = args.find(a => typeof a === 'string' && a.includes('job_title')) as string;
+    expect(afterJson).toBeDefined();
+    expect(afterJson).toContain('Engineer');
+    expect(afterJson).not.toContain('new@example.com');
+    expect(afterJson).toContain('[redacted]');
+  });
 });
 
 describe('logHrEvent — failure semantics', () => {

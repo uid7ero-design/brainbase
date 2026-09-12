@@ -558,4 +558,192 @@ describe('audit', () => {
     const [, entry] = logHrEventMock.mock.calls[0] as [unknown, Record<string, unknown>];
     expect(JSON.stringify(entry)).not.toMatch(/work_email|work_phone/);
   });
+
+  // HR-1 addition — these tests exercise the REAL PATCH/POST route logic
+  // (field-diff construction, action-name branching), but this file mocks
+  // logHrEvent itself (see vi.mock('@/lib/hr/auditLog', ...) above), so the
+  // actual redaction of work_email/work_phone (which happens inside the
+  // REAL logHrEvent's redactState(), not here) is proven separately in
+  // tests/containment/hrAuditLog.test.ts against the unmocked
+  // implementation. What's proven here is that the route itself still
+  // builds the correct field-diff and picks the correct action name —
+  // i.e. that fixing the redaction did not require or accidentally cause
+  // any change to route-level payload construction or naming.
+
+  // Action-naming fix: a PATCH touching ANY of the 7 EMPLOYMENT_FIELDS
+  // (job_title, worker_type, team_id, manager_person_id, start_date,
+  // end_date, employment_status) used to resolve to
+  // 'hr_person.employment_status_changed' as a group, even when
+  // employment_status itself wasn't the field that changed — e.g. a
+  // job_title-only PATCH incorrectly logged as an "employment status
+  // changed" event. Corrected in app/api/hr/people/[id]/route.ts: only
+  // an actual employment_status change (or linked_user_id, which takes
+  // precedence — see the mixed-PATCH tests below) uses a specific
+  // action name; every other single-field change resolves to the
+  // generic 'hr_person.updated'. permission enforcement
+  // (canManageEmployment gating ALL 7 fields) is unaffected — these
+  // tests only assert the resulting action name.
+
+  it('a job_title-only PATCH logs only job_title in before/after state and resolves to hr_person.updated (job_title alone is NOT an employment_status change)', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    queue([personRow({ id: 'p1', job_title: 'Old title' })], [personRow({ id: 'p1', job_title: 'New title' })]);
+    await patchPerson(jsonRequest('http://localhost/api/hr/people/p1', 'PATCH', { job_title: 'New title' }), withParams('p1'));
+    const [, entry] = logHrEventMock.mock.calls[0] as [unknown, { action: string; beforeState: Record<string, unknown>; afterState: Record<string, unknown> }];
+    expect(entry.beforeState).toEqual({ job_title: 'Old title' });
+    expect(entry.afterState).toEqual({ job_title: 'New title' });
+    expect(entry.action).toBe('hr_person.updated');
+  });
+
+  it('a worker_type-only PATCH resolves to hr_person.updated', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    queue([personRow({ id: 'p1', worker_type: 'employee' })], [personRow({ id: 'p1', worker_type: 'contractor' })]);
+    await patchPerson(jsonRequest('http://localhost/api/hr/people/p1', 'PATCH', { worker_type: 'contractor' }), withParams('p1'));
+    const [, entry] = logHrEventMock.mock.calls[0] as [unknown, { action: string }];
+    expect(entry.action).toBe('hr_person.updated');
+  });
+
+  it('a team_id-only PATCH resolves to hr_person.updated', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    queue(
+      [personRow({ id: 'p1', team_id: null })],
+      [{ exists: true }], // isTeamInOrganisation
+      [personRow({ id: 'p1', team_id: 'team-a' })],
+    );
+    await patchPerson(jsonRequest('http://localhost/api/hr/people/p1', 'PATCH', { team_id: 'team-a' }), withParams('p1'));
+    const [, entry] = logHrEventMock.mock.calls[0] as [unknown, { action: string }];
+    expect(entry.action).toBe('hr_person.updated');
+  });
+
+  it('a manager_person_id-only PATCH resolves to hr_person.updated', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    queue(
+      [personRow({ id: 'p1', manager_person_id: null })],
+      [{ exists: true }], // isPersonInOrganisation
+      [personRow({ id: 'p1', manager_person_id: 'p2' })],
+    );
+    await patchPerson(jsonRequest('http://localhost/api/hr/people/p1', 'PATCH', { manager_person_id: 'p2' }), withParams('p1'));
+    const [, entry] = logHrEventMock.mock.calls[0] as [unknown, { action: string }];
+    expect(entry.action).toBe('hr_person.updated');
+  });
+
+  it('a start_date-only PATCH resolves to hr_person.updated', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    queue([personRow({ id: 'p1', start_date: null })], [personRow({ id: 'p1', start_date: '2026-01-01' })]);
+    await patchPerson(jsonRequest('http://localhost/api/hr/people/p1', 'PATCH', { start_date: '2026-01-01' }), withParams('p1'));
+    const [, entry] = logHrEventMock.mock.calls[0] as [unknown, { action: string }];
+    expect(entry.action).toBe('hr_person.updated');
+  });
+
+  it('an end_date-only PATCH resolves to hr_person.updated', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    queue([personRow({ id: 'p1', end_date: null })], [personRow({ id: 'p1', end_date: '2026-06-30' })]);
+    await patchPerson(jsonRequest('http://localhost/api/hr/people/p1', 'PATCH', { end_date: '2026-06-30' }), withParams('p1'));
+    const [, entry] = logHrEventMock.mock.calls[0] as [unknown, { action: string }];
+    expect(entry.action).toBe('hr_person.updated');
+  });
+
+  it('a preferred_name-only PATCH resolves to hr_person.updated', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    queue([personRow({ id: 'p1', preferred_name: null })], [personRow({ id: 'p1', preferred_name: 'Ada L.' })]);
+    await patchPerson(jsonRequest('http://localhost/api/hr/people/p1', 'PATCH', { preferred_name: 'Ada L.' }), withParams('p1'));
+    const [, entry] = logHrEventMock.mock.calls[0] as [unknown, { action: string }];
+    expect(entry.action).toBe('hr_person.updated');
+  });
+
+  it('employment_status action naming remains correct after the redaction fix', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    queue([personRow({ id: 'p1', employment_status: 'active' })], [personRow({ id: 'p1', employment_status: 'ended' })]);
+    await patchPerson(jsonRequest('http://localhost/api/hr/people/p1', 'PATCH', { employment_status: 'ended' }), withParams('p1'));
+    const [, entry] = logHrEventMock.mock.calls[0] as [unknown, { action: string }];
+    expect(entry.action).toBe('hr_person.employment_status_changed');
+  });
+
+  it('linked_user_id action naming remains correct after the redaction fix', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    queue([personRow({ id: 'p1', linked_user_id: null })], [{ id: 'user-2', organisation_id: 'org-a' }], [personRow({ id: 'p1', linked_user_id: 'user-2' })]);
+    await patchPerson(jsonRequest('http://localhost/api/hr/people/p1', 'PATCH', { linked_user_id: 'user-2' }), withParams('p1'));
+    const [, entry] = logHrEventMock.mock.calls[0] as [unknown, { action: string }];
+    expect(entry.action).toBe('hr_person.linked_user_changed');
+  });
+
+  // Mixed-field precedence: one action per audit row, so when several
+  // field groups change in the same PATCH, the route must pick a single
+  // label. Precedence (most to least specific): linked_user_id >
+  // employment_status > everything else ('updated'). beforeState/
+  // afterState always include every changed field regardless of which
+  // label wins — precedence only affects the `action` string, never
+  // which fields are recorded.
+
+  it('mixed PATCH: employment_status + job_title resolves to hr_person.employment_status_changed (employment_status wins over an ordinary employment field)', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    queue(
+      [personRow({ id: 'p1', employment_status: 'active', job_title: 'Old title' })],
+      [personRow({ id: 'p1', employment_status: 'ended', job_title: 'New title' })],
+    );
+    await patchPerson(jsonRequest('http://localhost/api/hr/people/p1', 'PATCH', { employment_status: 'ended', job_title: 'New title' }), withParams('p1'));
+    const [, entry] = logHrEventMock.mock.calls[0] as [unknown, { action: string; afterState: Record<string, unknown> }];
+    expect(entry.action).toBe('hr_person.employment_status_changed');
+    expect(entry.afterState).toEqual({ employment_status: 'ended', job_title: 'New title' });
+  });
+
+  it('mixed PATCH: employment_status + preferred_name resolves to hr_person.employment_status_changed (employment_status wins over an identity field too)', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    queue(
+      [personRow({ id: 'p1', employment_status: 'active', preferred_name: null })],
+      [personRow({ id: 'p1', employment_status: 'ended', preferred_name: 'Ada L.' })],
+    );
+    await patchPerson(jsonRequest('http://localhost/api/hr/people/p1', 'PATCH', { employment_status: 'ended', preferred_name: 'Ada L.' }), withParams('p1'));
+    const [, entry] = logHrEventMock.mock.calls[0] as [unknown, { action: string; afterState: Record<string, unknown> }];
+    expect(entry.action).toBe('hr_person.employment_status_changed');
+    expect(entry.afterState).toEqual({ employment_status: 'ended', preferred_name: 'Ada L.' });
+  });
+
+  it('mixed PATCH: employment_status + linked_user_id resolves to hr_person.linked_user_changed (linked_user_id outranks employment_status)', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    queue(
+      [personRow({ id: 'p1', employment_status: 'active', linked_user_id: null })],
+      [{ id: 'user-2', organisation_id: 'org-a' }], // isUserInOrganisation
+      [personRow({ id: 'p1', employment_status: 'ended', linked_user_id: 'user-2' })],
+    );
+    await patchPerson(jsonRequest('http://localhost/api/hr/people/p1', 'PATCH', { employment_status: 'ended', linked_user_id: 'user-2' }), withParams('p1'));
+    const [, entry] = logHrEventMock.mock.calls[0] as [unknown, { action: string; afterState: Record<string, unknown> }];
+    expect(entry.action).toBe('hr_person.linked_user_changed');
+    expect(entry.afterState).toEqual({ employment_status: 'ended', linked_user_id: 'user-2' });
+  });
+
+  it('mixed PATCH: linked_user_id + job_title resolves to hr_person.linked_user_changed (linked_user_id outranks an ordinary employment field too)', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    queue(
+      [personRow({ id: 'p1', linked_user_id: null, job_title: 'Old title' })],
+      [{ id: 'user-2', organisation_id: 'org-a' }], // isUserInOrganisation
+      [personRow({ id: 'p1', linked_user_id: 'user-2', job_title: 'New title' })],
+    );
+    await patchPerson(jsonRequest('http://localhost/api/hr/people/p1', 'PATCH', { linked_user_id: 'user-2', job_title: 'New title' }), withParams('p1'));
+    const [, entry] = logHrEventMock.mock.calls[0] as [unknown, { action: string; afterState: Record<string, unknown> }];
+    expect(entry.action).toBe('hr_person.linked_user_changed');
+    expect(entry.afterState).toEqual({ linked_user_id: 'user-2', job_title: 'New title' });
+  });
+
+  it('a mixed PATCH (job_title + work_email together) still includes job_title in the diff handed to logHrEvent — the route never drops other changed fields because a sensitive one changed too', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    queue(
+      [personRow({ id: 'p1', job_title: 'Old title', work_email: 'old@example.com' })],
+      [personRow({ id: 'p1', job_title: 'New title', work_email: 'new@example.com' })],
+    );
+    await patchPerson(jsonRequest('http://localhost/api/hr/people/p1', 'PATCH', { job_title: 'New title', work_email: 'new@example.com' }), withParams('p1'));
+    const [, entry] = logHrEventMock.mock.calls[0] as [unknown, { beforeState: Record<string, unknown>; afterState: Record<string, unknown> }];
+    expect(entry.afterState.job_title).toBe('New title');
+    expect(entry.afterState.work_email).toBe('new@example.com'); // raw here — this layer is pre-redaction; see hrAuditLog.test.ts
+  });
+
+  it('hr_person.created still never includes work_email/work_phone in afterState, even when both are supplied on create', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    queue([personRow({ id: 'p1', work_email: 'ada@example.com', work_phone: '555-0100' })]);
+    await createPerson(jsonRequest('http://localhost/api/hr/people', 'POST', {
+      first_name: 'Ada', last_name: 'Lovelace', work_email: 'ada@example.com', work_phone: '555-0100',
+    }));
+    const [, entry] = logHrEventMock.mock.calls[0] as [unknown, { afterState: Record<string, unknown> }];
+    expect(entry.afterState).not.toHaveProperty('work_email');
+    expect(entry.afterState).not.toHaveProperty('work_phone');
+  });
 });
