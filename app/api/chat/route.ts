@@ -220,6 +220,20 @@ export type PendingOrganiserAction = {
   tool: 'propose_organiser_status_change';
   confirmationToken: string;
   proposal: { item_id: string; item_name: string; current_status: string; desired_status: string };
+} | {
+  // Phase D.4.6O — Helena's third write action. Same shape/lifecycle as
+  // the two variants above: set only on a fresh 'proposed' result,
+  // cleared once/if this same request executes it (status "moved").
+  tool: 'propose_organiser_group_move';
+  confirmationToken: string;
+  proposal: {
+    item_id: string;
+    item_name: string;
+    source_group_id: string | null;
+    source_group_name: string | null;
+    destination_group_id: string;
+    destination_group_name: string;
+  };
 } | null;
 
 // Phase D.4.6L — backend execution truth, not free-form model narration, is
@@ -273,6 +287,29 @@ const ORGANISER_STATUS_CHANGE_OUTCOME_TEXT: Record<string, string> = {
   stale_item_state:
     "That item's status changed after this action was proposed, so I didn't overwrite it. Ask me to create a fresh status-change proposal.",
   failed: "I wasn't able to change that status. Please try again.",
+};
+
+// Phase D.4.6O — same deterministic-bypass mechanism as the two maps
+// above, for Helena's third write action (propose_organiser_group_move).
+// A separate map, not a shared one: 'already_used_confirmation'/
+// 'expired_confirmation'/'invalid_confirmation'/'unauthorized'/
+// 'item_not_found'/'failed' need their own group-move-specific wording,
+// and 'moved' (success) plus 'stale_item_location' have no equivalent in
+// either other map. 'moved' is a template, not a static string — see
+// ORGANISER_STATUS_CHANGE_OUTCOME_TEXT's own header for the identical
+// reasoning; the item/group names come only from the tool result's own
+// server-authoritative `item` object, never from the model.
+const ORGANISER_GROUP_MOVE_OUTCOME_TEXT: Record<string, string> = {
+  already_used_confirmation: 'That confirmation has already been used, so the item was not moved just now.',
+  expired_confirmation: 'That confirmation has expired. Please ask me again to move the item.',
+  invalid_confirmation: "I couldn't verify that confirmation, so the item was not moved. Please ask me again.",
+  unauthorized: "I'm not able to do that — this account doesn't have permission to make Organiser changes.",
+  item_not_found: "I couldn't move that — the item is no longer available.",
+  destination_not_found: "I couldn't move that — the destination group is no longer available.",
+  invalid_destination: "I couldn't move that — the destination group is no longer valid for this item's board.",
+  stale_item_location:
+    "That item moved to another group after this action was proposed, so I didn't overwrite the newer location. Ask me to create a fresh move proposal.",
+  failed: "I wasn't able to move that item. Please try again.",
 };
 
 // ─── Analysis helpers ─────────────────────────────────────────────────────────
@@ -589,7 +626,7 @@ async function callClaude(
         // EITHER kind to reach this line consumes it, exactly as the
         // single-write-tool case already worked for comment alone.
         if (
-          (block.name === 'propose_organiser_comment' || block.name === 'propose_organiser_status_change') &&
+          (block.name === 'propose_organiser_comment' || block.name === 'propose_organiser_status_change' || block.name === 'propose_organiser_group_move') &&
           remainingConfirmationToken
         ) {
           confirmationTokenForThisCall = remainingConfirmationToken;
@@ -676,6 +713,49 @@ async function callClaude(
                     `Done — I changed ${parsed.item.name} from ${parsed.item.previous_status} to ${parsed.item.new_status}.`;
                 } else if (Object.prototype.hasOwnProperty.call(ORGANISER_STATUS_CHANGE_OUTCOME_TEXT, parsed.status)) {
                   organiserConfirmationOutcomeText = ORGANISER_STATUS_CHANGE_OUTCOME_TEXT[parsed.status];
+                }
+              }
+            } catch {
+              // Malformed content is unreachable given executeOrganiserTool's
+              // own contract, but never let a parse failure here affect the
+              // tool_result already returned to the model.
+            }
+          } else if (block.name === 'propose_organiser_group_move') {
+            // Phase D.4.6O — same surfacing/short-circuit mechanism as the
+            // two branches above, for Helena's third write action.
+            try {
+              const parsed = JSON.parse(content) as {
+                status?: string;
+                proposal?: {
+                  item_id: string; item_name: string;
+                  source_group_id: string | null; source_group_name: string | null;
+                  destination_group_id: string; destination_group_name: string;
+                };
+                confirmation_token?: string;
+                item?: { id: string; name: string; previous_group_name: string | null; new_group_name: string };
+              };
+              if (parsed.status === 'proposed' && parsed.proposal && parsed.confirmation_token) {
+                pendingOrganiserAction = {
+                  tool: 'propose_organiser_group_move',
+                  confirmationToken: parsed.confirmation_token,
+                  proposal: parsed.proposal,
+                };
+              } else if (parsed.status === 'moved') {
+                pendingOrganiserAction = null;
+              }
+              if (confirmationTokenForThisCall && parsed.status) {
+                // 'moved' is a template, not a static lookup — see
+                // ORGANISER_GROUP_MOVE_OUTCOME_TEXT's own header for why
+                // the success wording names the real item/transition. The
+                // item/group names come only from this tool result's own
+                // server-authoritative `item` object, never from the
+                // model's current-turn text.
+                if (parsed.status === 'moved' && parsed.item) {
+                  const fromLabel = parsed.item.previous_group_name ?? 'no group';
+                  organiserConfirmationOutcomeText =
+                    `Done — I moved ${parsed.item.name} from ${fromLabel} to ${parsed.item.new_group_name}.`;
+                } else if (Object.prototype.hasOwnProperty.call(ORGANISER_GROUP_MOVE_OUTCOME_TEXT, parsed.status)) {
+                  organiserConfirmationOutcomeText = ORGANISER_GROUP_MOVE_OUTCOME_TEXT[parsed.status];
                 }
               }
             } catch {

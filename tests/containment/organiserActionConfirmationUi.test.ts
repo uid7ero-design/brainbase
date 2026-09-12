@@ -75,6 +75,13 @@ describe('A/B/C — confirmation card renders exact action summary', () => {
     expect(card).toContain('action.proposal?.body')
   })
 
+  it('D.4.6O: card shows a fixed "Move item" action label, the target item name, and the source/destination group names', () => {
+    const card = sliceFrom(CHATPANEL_SOURCE, 'function OrganiserActionCard(', 'export function ChatPanel(')
+    expect(card).toContain('Move item')
+    expect(card).toContain('action.proposal?.source_group_name')
+    expect(card).toContain('action.proposal?.destination_group_name')
+  })
+
   it('card is visually distinct from a normal chat message (no YOU/HLNΛ byline, own amber framing)', () => {
     const card = sliceFrom(CHATPANEL_SOURCE, 'function OrganiserActionCard(', 'export function ChatPanel(')
     expect(card).not.toContain('>YOU<')
@@ -323,10 +330,10 @@ describe('Wiring — every live ChatPanel call site passes the new props through
 })
 
 describe('Accessibility (source-level)', () => {
-  it('Confirm/Cancel are native <button> elements (keyboard reachable by default), not clickable divs — 4 total in D.4.6N: one Confirm/Cancel pair per proposal-shape branch (comment, status change)', () => {
+  it('Confirm/Cancel are native <button> elements (keyboard reachable by default), not clickable divs — 6 total in D.4.6O: one Confirm/Cancel pair per proposal-shape branch (comment, status change, group move)', () => {
     const card = sliceFrom(CHATPANEL_SOURCE, 'function OrganiserActionCard(', 'export function ChatPanel(')
     expect(card).toContain('<button')
-    expect((card.match(/<button/g) || []).length).toBe(4)
+    expect((card.match(/<button/g) || []).length).toBe(6)
   })
 
   it('card has an accessible region label and both comment-branch buttons have explicit aria-labels', () => {
@@ -341,6 +348,12 @@ describe('Accessibility (source-level)', () => {
     const card = sliceFrom(CHATPANEL_SOURCE, 'function OrganiserActionCard(', 'export function ChatPanel(')
     expect(card).toContain("aria-label=\"Confirm: change this item's status now\"")
     expect(card).toContain("aria-label=\"Cancel: do not change this item's status\"")
+  })
+
+  it('D.4.6O: the group-move branch\'s buttons also have explicit, distinct aria-labels', () => {
+    const card = sliceFrom(CHATPANEL_SOURCE, 'function OrganiserActionCard(', 'export function ChatPanel(')
+    expect(card).toContain('aria-label="Confirm: move this item now"')
+    expect(card).toContain('aria-label="Cancel: do not move this item"')
   })
 
   it('no window.confirm()/window.alert() browser dialog is used', () => {
@@ -366,6 +379,44 @@ describe('Accessibility (source-level)', () => {
 // proof that pixel-level overlap cannot be reproduced by a rendering-free
 // test environment (this repo has no jsdom/layout harness — see the file
 // header note above).
+// Phase D.4.6O-R1 — a long conversation could geometrically crush the
+// confirmation card's OWN wrapper down to a near-zero height instead of the
+// message-list container (region R above) simply scrolling: this card's
+// root div sets `overflow: hidden` (needed for its rounded corners), and per
+// the CSS Flexbox spec (§4.5, "Automatic Minimum Size of Flex Items") a flex
+// item's automatic minimum size resolves to 0 — not its content size —
+// whenever its own overflow is anything but visible. Combined with the
+// browser's flex-shrink default of 1, that let the flex column's shrink
+// algorithm silently squeeze this card's box down to a sliver once enough
+// prior messages accumulated, while its own children (Confirm/Cancel
+// included) kept rendering at their real, unclipped layout position outside
+// that collapsed box — unreachable by wheel/scrollbar/scrollTop and absent
+// from the container's own scrollHeight. Live Preview geometry (this
+// phase's own R1 report) is the load-bearing proof that the fix restores
+// real scrollability; this test proves the specific CSS property whose
+// absence caused it can never silently regress.
+describe('S — D.4.6O-R1: the confirmation card can never be flex-shrunk to a sliver by a long conversation', () => {
+  it('OrganiserActionCard\'s own root wrapper sets flexShrink: 0 directly on the same style object as its overflow: hidden', () => {
+    const card = sliceFrom(CHATPANEL_SOURCE, 'function OrganiserActionCard(', 'export function ChatPanel(')
+    const rootStyleBlock = stripLineComments(sliceFrom(
+      card,
+      'aria-label="Helena Organiser action awaiting your confirmation"',
+      '<span style={{ color: "#FBBF24"',
+    ))
+    expect(rootStyleBlock).toContain('overflow: "hidden"')
+    expect(rootStyleBlock).toContain('flexShrink: 0')
+  })
+
+  it('the guard is not accidentally placed on some other, unrelated card\'s root wrapper (AgentBadge/AnalysisCard) instead — both share the exact same vulnerable overflow:hidden pattern but are out of this phase\'s strict scope', () => {
+    const agentBadgeRoot = sliceFrom(CHATPANEL_SOURCE, 'function AgentBadge(', '{/* header */}')
+    const analysisCardRoot = sliceFrom(CHATPANEL_SOURCE, 'function AnalysisCard(', '{/* header row */}')
+    expect(agentBadgeRoot).toContain('overflow: "hidden"')
+    expect(agentBadgeRoot).not.toContain('flexShrink: 0')
+    expect(analysisCardRoot).toContain('overflow: "hidden"')
+    expect(analysisCardRoot).not.toContain('flexShrink: 0')
+  })
+})
+
 describe('R — the message-list region uses a real flex layout, never a hardcoded pixel cap, so it can never overlap the input bar below it', () => {
   it('the message-list container is a single, unconditional flex:1/minHeight:0 region — not a hardcoded maxHeight, and not branched per layout mode', () => {
     const idx = CHATPANEL_SOURCE.indexOf('{/* Messages')

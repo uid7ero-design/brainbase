@@ -198,9 +198,9 @@ describe('one-shot mutation consumption across the 4-iteration tool loop', () =>
     expect(asyncIdx).toBeGreaterThan(clearIdx)
   })
 
-  it('D.4.6N: BOTH write-tool calls (propose_organiser_comment, propose_organiser_status_change) — and only those two — ever receive the captured token', () => {
+  it('D.4.6O: ALL THREE write-tool calls (propose_organiser_comment, propose_organiser_status_change, propose_organiser_group_move) — and only those three — ever receive the captured token', () => {
     expect(routeSource).toMatch(
-      /\(block\.name === 'propose_organiser_comment' \|\| block\.name === 'propose_organiser_status_change'\) &&\s*\n\s*remainingConfirmationToken/,
+      /\(block\.name === 'propose_organiser_comment' \|\| block\.name === 'propose_organiser_status_change' \|\| block\.name === 'propose_organiser_group_move'\) &&\s*\n\s*remainingConfirmationToken/,
     )
   })
 
@@ -392,9 +392,54 @@ describe('Phase D.4.6N — deterministic status-change result authority', () => 
     expect(block).toMatch(/parsed\.item\.new_status/)
   })
 
-  it('the one-shot confirmation-token guard is gated on EITHER write tool name, never a bare tool-name-agnostic check', () => {
+  it('the one-shot confirmation-token guard is gated on one of the three write tool names, never a bare tool-name-agnostic check', () => {
     expect(routeSource).toMatch(
-      /\(block\.name === 'propose_organiser_comment' \|\| block\.name === 'propose_organiser_status_change'\)/,
+      /\(block\.name === 'propose_organiser_comment' \|\| block\.name === 'propose_organiser_status_change' \|\| block\.name === 'propose_organiser_group_move'\)/,
     )
+  })
+})
+
+describe('Phase D.4.6O — deterministic group-move result authority', () => {
+  it('ORGANISER_GROUP_MOVE_OUTCOME_TEXT exists and covers every backend confirm+execute outcome except the dynamic "moved" template', () => {
+    const idx = routeSource.indexOf('const ORGANISER_GROUP_MOVE_OUTCOME_TEXT')
+    expect(idx).toBeGreaterThan(-1)
+    const block = routeSource.slice(idx, idx + 1500)
+    for (const key of ['already_used_confirmation', 'expired_confirmation', 'invalid_confirmation', 'unauthorized', 'item_not_found', 'destination_not_found', 'invalid_destination', 'stale_item_location', 'failed']) {
+      expect(block).toMatch(new RegExp(`\\b${key}:`))
+    }
+    // 'moved' and 'proposed' are deliberately absent — 'moved' is a
+    // dynamic template (real item/group names), 'proposed' still gets
+    // ordinary model narration. 'ambiguous_destination'/'noop_same_group'
+    // are propose-time-only reasons with their own bounded note text,
+    // never routed through this confirm+execute-only outcome map.
+    expect(block).not.toMatch(/\bmoved:/)
+    expect(block).not.toMatch(/\bproposed:/)
+  })
+
+  it('the group-move branch sets the SAME shared short-circuit variable (organiserConfirmationOutcomeText) — still only ONE `if (organiserConfirmationOutcomeText !== null)` guard in the whole file, so the D.4.6L ordering guarantee covers all three actions without a third mutation-tested duplicate', () => {
+    const groupMoveSetIdx = routeSource.indexOf('organiserConfirmationOutcomeText = ORGANISER_GROUP_MOVE_OUTCOME_TEXT')
+    expect(groupMoveSetIdx).toBeGreaterThan(-1)
+
+    const outcomeCheckMatches = routeSource.match(/if \(organiserConfirmationOutcomeText !== null\)/g) ?? []
+    expect(outcomeCheckMatches.length).toBe(1)
+  })
+
+  it('the "moved" outcome is built ONLY from the tool result\'s own server-authoritative `item` object, never from confirmationTokenForThisCall\'s absence or model text', () => {
+    const idx = routeSource.indexOf("parsed.status === 'moved' && parsed.item")
+    expect(idx).toBeGreaterThan(-1)
+    const block = routeSource.slice(idx, idx + 400)
+    expect(block).toMatch(/parsed\.item\.name/)
+    expect(block).toMatch(/parsed\.item\.previous_group_name/)
+    expect(block).toMatch(/parsed\.item\.new_group_name/)
+  })
+
+  it('PendingOrganiserAction includes the group-move shape with source/destination group ids and names', () => {
+    const idx = routeSource.indexOf("tool: 'propose_organiser_group_move'")
+    expect(idx).toBeGreaterThan(-1)
+    const block = routeSource.slice(idx, idx + 400)
+    expect(block).toMatch(/source_group_id/)
+    expect(block).toMatch(/source_group_name/)
+    expect(block).toMatch(/destination_group_id/)
+    expect(block).toMatch(/destination_group_name/)
   })
 })

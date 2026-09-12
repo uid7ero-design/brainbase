@@ -328,6 +328,22 @@ function OrganiserActionCard({ action, submitting, onConfirm, onCancel }) {
         fontFamily: FONT,
         marginTop: 2,
         animation: "chatSlideUp 0.18s ease",
+        // Phase D.4.6O-R1 — this card's own `overflow: hidden` (needed for
+        // its rounded corners) makes the flexbox spec's "automatic minimum
+        // size" resolve to 0 instead of the card's actual content height
+        // (CSS Flexbox §4.5: a flex item's automatic min-size is 0 whenever
+        // its own overflow is anything but visible). Combined with the
+        // browser flex-shrink default of 1, that meant a long conversation
+        // — once the message list's cumulative content exceeded the
+        // scrollable region's flex-computed budget — could silently SHRINK
+        // this card down to a sliver instead of the container simply
+        // scrolling, while its children (Confirm/Cancel included) kept
+        // their real layout size and rendered outside the collapsed,
+        // clipped box: unreachable by wheel/scrollbar and invisible to
+        // scrollHeight. flexShrink: 0 removes this card from the shrink
+        // pool entirely, so the flex column can only ever grow past its
+        // container and scroll — never crush this card away.
+        flexShrink: 0,
       }}
     >
       <div style={{
@@ -345,13 +361,13 @@ function OrganiserActionCard({ action, submitting, onConfirm, onCancel }) {
         </span>
       </div>
 
-      {/* Phase D.4.6N — the card now renders one of two known proposal
+      {/* Phase D.4.6O — the card now renders one of three known proposal
           shapes, chosen purely by action.tool (a value this component only
           ever receives verbatim from useHelena.js's own
           pendingOrganiserAction state, itself only ever set from the
-          server's own tool_result — never model prose). No third shape,
-          no generic "field/value" rendering: adding a future action type
-          means adding another explicit branch here, not a generic
+          server's own tool_result — never model prose). No generic
+          "field/value" rendering: adding a future action type means
+          adding another explicit branch here, not a generic
           renderer. */}
       {action.tool === 'propose_organiser_status_change' ? (
         <div style={{ padding: "10px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
@@ -413,6 +429,80 @@ function OrganiserActionCard({ action, submitting, onConfirm, onCancel }) {
               onClick={onCancel}
               disabled={submitting}
               aria-label="Cancel: do not change this item's status"
+              style={{
+                flex: 1, padding: "8px 12px", borderRadius: 7,
+                background: "rgba(255,255,255,0.04)",
+                border: "1px solid rgba(255,255,255,0.12)",
+                color: submitting ? "rgba(255,255,255,0.20)" : "rgba(255,255,255,0.60)",
+                fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase",
+                cursor: submitting ? "default" : "pointer",
+                fontFamily: FONT, transition: "all 0.15s",
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : action.tool === 'propose_organiser_group_move' ? (
+        <div style={{ padding: "10px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
+          <div>
+            <div style={{ color: "rgba(255,255,255,0.30)", fontSize: 8, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", marginBottom: 2 }}>
+              Action
+            </div>
+            <div style={{ color: "rgba(255,255,255,0.85)", fontSize: 12 }}>Move item</div>
+          </div>
+
+          <div>
+            <div style={{ color: "rgba(255,255,255,0.30)", fontSize: 8, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", marginBottom: 2 }}>
+              Target
+            </div>
+            <div style={{ color: "rgba(255,255,255,0.85)", fontSize: 12, fontWeight: 600 }}>
+              {action.proposal?.item_name || 'Untitled item'}
+            </div>
+          </div>
+
+          <div style={{ display: "flex", gap: 16 }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ color: "rgba(255,255,255,0.30)", fontSize: 8, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", marginBottom: 2 }}>
+                From
+              </div>
+              <div style={{ color: "rgba(255,255,255,0.75)", fontSize: 12 }}>
+                {action.proposal?.source_group_name || 'No group'}
+              </div>
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ color: "rgba(255,255,255,0.30)", fontSize: 8, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", marginBottom: 2 }}>
+                To
+              </div>
+              <div style={{ color: "#34D399", fontSize: 12, fontWeight: 600 }}>
+                {action.proposal?.destination_group_name || '—'}
+              </div>
+            </div>
+          </div>
+
+          <div style={{ display: "flex", gap: 8, marginTop: 2 }}>
+            <button
+              type="button"
+              onClick={onConfirm}
+              disabled={submitting}
+              aria-label="Confirm: move this item now"
+              style={{
+                flex: 1, padding: "8px 12px", borderRadius: 7,
+                background: submitting ? "rgba(52,211,153,0.10)" : "rgba(52,211,153,0.20)",
+                border: `1px solid ${submitting ? "rgba(52,211,153,0.18)" : "rgba(52,211,153,0.45)"}`,
+                color: submitting ? "rgba(52,211,153,0.45)" : "#34D399",
+                fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase",
+                cursor: submitting ? "default" : "pointer",
+                fontFamily: FONT, transition: "all 0.15s",
+              }}
+            >
+              {submitting ? 'Moving…' : 'Confirm'}
+            </button>
+            <button
+              type="button"
+              onClick={onCancel}
+              disabled={submitting}
+              aria-label="Cancel: do not move this item"
               style={{
                 flex: 1, padding: "8px 12px", borderRadius: 7,
                 background: "rgba(255,255,255,0.04)",

@@ -70,10 +70,10 @@ const SOURCE = fs.readFileSync(path.resolve(__dirname, '../../lib/organiser/hele
 // ── Tool schemas ─────────────────────────────────────────────────────────────
 
 describe('buildOrganiserTools — schemas', () => {
-  it('returns exactly the 4 read tools plus the 2 guarded write/action tools (D.4.6I comment, D.4.6N status change) — 6 total, no more, no less', () => {
+  it('returns exactly the 4 read tools plus the 3 guarded write/action tools (D.4.6I comment, D.4.6N status change, D.4.6O group move) — 7 total, no more, no less', () => {
     const tools = buildOrganiserTools()
     expect(tools.map(t => t.name).sort()).toEqual([...ORGANISER_TOOL_NAMES].sort())
-    expect(tools).toHaveLength(6)
+    expect(tools).toHaveLength(7)
   })
 
   it('no tool schema includes an organisationId/organisation_id field anywhere', () => {
@@ -131,8 +131,8 @@ describe('buildOrganiserTools — schemas', () => {
 })
 
 describe('isOrganiserToolName', () => {
-  it('recognises exactly the 6 tool names, nothing else', () => {
-    expect(ORGANISER_TOOL_NAMES).toHaveLength(6)
+  it('recognises exactly the 7 tool names, nothing else', () => {
+    expect(ORGANISER_TOOL_NAMES).toHaveLength(7)
     for (const n of ORGANISER_TOOL_NAMES) expect(isOrganiserToolName(n)).toBe(true)
     expect(isOrganiserToolName('query_database')).toBe(false)
     expect(isOrganiserToolName('delete_organiser_item')).toBe(false)
@@ -662,8 +662,8 @@ describe('ORGANISER_SAFETY_PROMPT', () => {
     expect(ORGANISER_SAFETY_PROMPT).toMatch(/UTC/)
   })
 
-  it('is compact — under 2400 characters, so it does not meaningfully bloat every Helena request (raised from 2000 in D.4.6N to fit the second guarded write action\'s rules; trimmed to the minimum necessary rather than left to grow unchecked)', () => {
-    expect(ORGANISER_SAFETY_PROMPT.length).toBeLessThan(2400)
+  it('is compact — under 2800 characters, so it does not meaningfully bloat every Helena request (raised from 2400 in D.4.6N to fit the third guarded write action\'s rules; trimmed to the minimum necessary rather than left to grow unchecked)', () => {
+    expect(ORGANISER_SAFETY_PROMPT.length).toBeLessThan(2800)
   })
 })
 
@@ -1141,6 +1141,154 @@ describe('executeOrganiserTool — propose_organiser_status_change — confirm+e
     const proposeResult = JSON.parse(await executeOrganiserTool('propose_organiser_status_change', { item_id: ITEM_A, desired_status: 'Done' }))
     sqlResultQueue = [[{ item_found: 1, was_consumed: 1, updated_id: ITEM_A, item_name: 'Item A', new_status: 'Done' }]]
     const raw = await executeOrganiserTool('propose_organiser_status_change', { item_id: ITEM_A, desired_status: 'Done' }, {
+      confirmationToken: proposeResult.confirmation_token,
+    })
+    expect(raw).not.toContain('organisation_id')
+    expect(raw).not.toContain('org-a')
+  })
+})
+
+const GROUP_SRC = '11111111-1111-1111-1111-111111111111'
+const GROUP_DST = '22222222-2222-2222-2222-222222222222'
+const BOARD_X = '55555555-5555-5555-5555-555555555555'
+
+describe('executeOrganiserTool — propose_organiser_group_move — authorization', () => {
+  it('uses the stricter manager-floor write authorization, not the viewer-floor read authorization', async () => {
+    authorizeOrganiserRequestMock.mockResolvedValueOnce({ ok: true, session: MANAGER_SESSION })
+    sqlResultQueue = [[], [{ id: ITEM_A, name: 'Item A', board_id: BOARD_X, group_id: GROUP_SRC, source_group_name: 'Test' }], [{ id: GROUP_DST, name: 'Backlog' }]]
+    await executeOrganiserTool('propose_organiser_group_move', { item_id: ITEM_A, destination_group_name: 'Backlog' })
+    expect(authorizeOrganiserRequestMock).toHaveBeenCalledWith('manager')
+  })
+
+  it('viewer role -> status "unauthorized", generic denial, never reaches sql', async () => {
+    authorizeOrganiserRequestMock.mockResolvedValueOnce({ ok: false, response: new Response(null, { status: 403 }) })
+    const result = JSON.parse(await executeOrganiserTool('propose_organiser_group_move', { item_id: ITEM_A, destination_group_name: 'Backlog' }))
+    expect(result.status).toBe('unauthorized')
+    expect(result.error).toBeTruthy()
+    expect(sqlCalls).toHaveLength(0)
+  })
+})
+
+describe('executeOrganiserTool — propose_organiser_group_move — propose (no confirmation)', () => {
+  beforeEach(() => {
+    authorizeOrganiserRequestMock.mockResolvedValue({ ok: true, session: MANAGER_SESSION })
+  })
+
+  it('valid item + valid same-board destination -> status "proposed" with source/destination group and a confirmation token', async () => {
+    sqlResultQueue = [[], [{ id: ITEM_A, name: 'Item A', board_id: BOARD_X, group_id: GROUP_SRC, source_group_name: 'Test' }], [{ id: GROUP_DST, name: 'Backlog' }]]
+    const result = JSON.parse(await executeOrganiserTool('propose_organiser_group_move', { item_id: ITEM_A, destination_group_name: 'Backlog' }))
+    expect(result.status).toBe('proposed')
+    expect(result.proposal).toEqual({
+      item_id: ITEM_A, item_name: 'Item A',
+      source_group_id: GROUP_SRC, source_group_name: 'Test',
+      destination_group_id: GROUP_DST, destination_group_name: 'Backlog',
+    })
+    expect(result.confirmation_token).toBeTruthy()
+    expect(sqlCalls.some(c => /UPDATE|INSERT/i.test(c.text))).toBe(false)
+  })
+
+  it('no matching destination group on this board -> status "destination_not_found", bounded note, zero mutation', async () => {
+    sqlResultQueue = [[], [{ id: ITEM_A, name: 'Item A', board_id: BOARD_X, group_id: GROUP_SRC, source_group_name: 'Test' }], []]
+    const result = JSON.parse(await executeOrganiserTool('propose_organiser_group_move', { item_id: ITEM_A, destination_group_name: 'Nonexistent' }))
+    expect(result.status).toBe('destination_not_found')
+    expect(sqlCalls.some(c => /UPDATE|INSERT/i.test(c.text))).toBe(false)
+  })
+
+  it('ambiguous destination name (multiple matches) -> status "ambiguous_destination", never guesses, zero mutation', async () => {
+    sqlResultQueue = [[], [{ id: ITEM_A, name: 'Item A', board_id: BOARD_X, group_id: GROUP_SRC, source_group_name: 'Test' }], [{ id: GROUP_DST, name: 'Backlog' }, { id: 'dup', name: 'Backlog' }]]
+    const result = JSON.parse(await executeOrganiserTool('propose_organiser_group_move', { item_id: ITEM_A, destination_group_name: 'Backlog' }))
+    expect(result.status).toBe('ambiguous_destination')
+    expect(sqlCalls.some(c => /UPDATE|INSERT/i.test(c.text))).toBe(false)
+  })
+
+  it('destination already equals current group -> status "noop_same_group", bounded note, zero mutation, no confirmation token issued', async () => {
+    sqlResultQueue = [[], [{ id: ITEM_A, name: 'Item A', board_id: BOARD_X, group_id: GROUP_DST, source_group_name: 'Backlog' }], [{ id: GROUP_DST, name: 'Backlog' }]]
+    const result = JSON.parse(await executeOrganiserTool('propose_organiser_group_move', { item_id: ITEM_A, destination_group_name: 'Backlog' }))
+    expect(result.status).toBe('noop_same_group')
+    expect(result.confirmation_token).toBeUndefined()
+    expect(sqlCalls.some(c => /UPDATE|INSERT/i.test(c.text))).toBe(false)
+  })
+
+  it('a malformed item_id -> status "failed", no sql mutation', async () => {
+    const result = JSON.parse(await executeOrganiserTool('propose_organiser_group_move', { item_id: 'not-a-uuid', destination_group_name: 'Backlog' }))
+    expect(result.status).toBe('failed')
+    expect(sqlCalls.some(c => /UPDATE|INSERT/i.test(c.text))).toBe(false)
+  })
+})
+
+describe('executeOrganiserTool — propose_organiser_group_move — confirm+execute', () => {
+  beforeEach(() => {
+    authorizeOrganiserRequestMock.mockResolvedValue({ ok: true, session: MANAGER_SESSION })
+  })
+
+  it('a valid token -> status "moved" with the server-authoritative item/previous/new group', async () => {
+    sqlResultQueue = [[], [{ id: ITEM_A, name: 'Item A', board_id: BOARD_X, group_id: GROUP_SRC, source_group_name: 'Test' }], [{ id: GROUP_DST, name: 'Backlog' }]]
+    const proposeResult = JSON.parse(await executeOrganiserTool('propose_organiser_group_move', { item_id: ITEM_A, destination_group_name: 'Backlog' }))
+    sqlCalls = []
+    sqlResultQueue = [[{ item_found: 1, was_consumed: 1, dest_exists: true, dest_same_board: true, updated_id: ITEM_A, item_name: 'Item A' }]]
+    const result = JSON.parse(
+      await executeOrganiserTool('propose_organiser_group_move', { item_id: ITEM_A, destination_group_name: 'Backlog' }, {
+        confirmationToken: proposeResult.confirmation_token,
+      }),
+    )
+    expect(result.status).toBe('moved')
+    expect(result.action_type).toBe('move_group')
+    expect(result.item).toEqual({ id: ITEM_A, name: 'Item A', previous_group_name: 'Test', new_group_name: 'Backlog' })
+    expect(sqlCalls.filter(c => /UPDATE organiser_items/i.test(c.text))).toHaveLength(1)
+  })
+
+  it('D.4.6O CRITICAL: a stale item location (group changed since proposal) -> status "stale_item_location", never "moved"', async () => {
+    sqlResultQueue = [[], [{ id: ITEM_A, name: 'Item A', board_id: BOARD_X, group_id: GROUP_SRC, source_group_name: 'Test' }], [{ id: GROUP_DST, name: 'Backlog' }]]
+    const proposeResult = JSON.parse(await executeOrganiserTool('propose_organiser_group_move', { item_id: ITEM_A, destination_group_name: 'Backlog' }))
+    sqlResultQueue = [[{ item_found: 1, was_consumed: 1, dest_exists: true, dest_same_board: true, updated_id: null, item_name: null }]]
+    const result = JSON.parse(
+      await executeOrganiserTool('propose_organiser_group_move', { item_id: ITEM_A, destination_group_name: 'Backlog' }, {
+        confirmationToken: proposeResult.confirmation_token,
+      }),
+    )
+    expect(result.status).toBe('stale_item_location')
+    expect(result.status).not.toBe('moved')
+  })
+
+  it('D.4.6O: destination invalidated (moved to another board) since proposal -> status "invalid_destination", never "moved"', async () => {
+    sqlResultQueue = [[], [{ id: ITEM_A, name: 'Item A', board_id: BOARD_X, group_id: GROUP_SRC, source_group_name: 'Test' }], [{ id: GROUP_DST, name: 'Backlog' }]]
+    const proposeResult = JSON.parse(await executeOrganiserTool('propose_organiser_group_move', { item_id: ITEM_A, destination_group_name: 'Backlog' }))
+    sqlResultQueue = [[{ item_found: 1, was_consumed: 1, dest_exists: true, dest_same_board: false, updated_id: null, item_name: null }]]
+    const result = JSON.parse(
+      await executeOrganiserTool('propose_organiser_group_move', { item_id: ITEM_A, destination_group_name: 'Backlog' }, {
+        confirmationToken: proposeResult.confirmation_token,
+      }),
+    )
+    expect(result.status).toBe('invalid_destination')
+    expect(result.status).not.toBe('moved')
+  })
+
+  it('replaying the same confirmationToken a second time -> status "already_used_confirmation", never "moved" twice', async () => {
+    sqlResultQueue = [[], [{ id: ITEM_A, name: 'Item A', board_id: BOARD_X, group_id: GROUP_SRC, source_group_name: 'Test' }], [{ id: GROUP_DST, name: 'Backlog' }]]
+    const proposeResult = JSON.parse(await executeOrganiserTool('propose_organiser_group_move', { item_id: ITEM_A, destination_group_name: 'Backlog' }))
+    sqlResultQueue = [[{ item_found: 1, was_consumed: 1, dest_exists: true, dest_same_board: true, updated_id: ITEM_A, item_name: 'Item A' }]]
+    const first = JSON.parse(
+      await executeOrganiserTool('propose_organiser_group_move', { item_id: ITEM_A, destination_group_name: 'Backlog' }, {
+        confirmationToken: proposeResult.confirmation_token,
+      }),
+    )
+    expect(first.status).toBe('moved')
+
+    sqlResultQueue = [[{ item_found: 1, was_consumed: 0, dest_exists: true, dest_same_board: true, updated_id: null, item_name: null }]]
+    const second = JSON.parse(
+      await executeOrganiserTool('propose_organiser_group_move', { item_id: ITEM_A, destination_group_name: 'Backlog' }, {
+        confirmationToken: proposeResult.confirmation_token,
+      }),
+    )
+    expect(second.status).toBe('already_used_confirmation')
+    expect(second.status).not.toBe('moved')
+  })
+
+  it('the tool_result string for a successful group move never contains organisation_id', async () => {
+    sqlResultQueue = [[], [{ id: ITEM_A, name: 'Item A', board_id: BOARD_X, group_id: GROUP_SRC, source_group_name: 'Test' }], [{ id: GROUP_DST, name: 'Backlog' }]]
+    const proposeResult = JSON.parse(await executeOrganiserTool('propose_organiser_group_move', { item_id: ITEM_A, destination_group_name: 'Backlog' }))
+    sqlResultQueue = [[{ item_found: 1, was_consumed: 1, dest_exists: true, dest_same_board: true, updated_id: ITEM_A, item_name: 'Item A' }]]
+    const raw = await executeOrganiserTool('propose_organiser_group_move', { item_id: ITEM_A, destination_group_name: 'Backlog' }, {
       confirmationToken: proposeResult.confirmation_token,
     })
     expect(raw).not.toContain('organisation_id')

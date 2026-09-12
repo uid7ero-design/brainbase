@@ -19,6 +19,7 @@ import {
   authorizeHelenaOrganiserWrite,
   proposeOrExecuteOrganiserComment,
   proposeOrExecuteOrganiserStatusChange,
+  proposeOrExecuteOrganiserGroupMove,
   ORGANISER_ITEM_STATUS_OPTIONS,
 } from './helenaWrite';
 
@@ -62,6 +63,7 @@ export const ORGANISER_TOOL_NAMES = [
   'get_organiser_item_activity',
   'propose_organiser_comment',
   'propose_organiser_status_change',
+  'propose_organiser_group_move',
 ] as const;
 export type OrganiserToolName = (typeof ORGANISER_TOOL_NAMES)[number];
 
@@ -248,6 +250,34 @@ export function buildOrganiserTools(): Anthropic.Tool[] {
           },
         },
         required: ['item_id', 'desired_status'],
+        additionalProperties: false,
+      },
+    },
+    // Phase D.4.6O — Helena's THIRD (and, for this phase, last) Organiser
+    // write/action tool. Same propose/confirm+execute discipline as the
+    // two tools above: calling this NEVER mutates anything by itself, no
+    // `confirmation_token` field exists in this schema either, and
+    // destination_group_name is a plain string resolved server-side (at
+    // propose time, against the item's own board only) — the model can
+    // never supply a group id, a board id, or any raw ordering/position
+    // value.
+    {
+      name: 'propose_organiser_group_move',
+      description:
+        'Propose moving one existing Organiser item to one existing destination group on the SAME board. This NEVER moves the item immediately — it only returns a bounded proposal (the exact item, its current group, and the requested destination group) that MUST be read back to the user for explicit approval before anything changes. Only call the tool the user can actually see executed after they say yes; you cannot confirm on the user\'s behalf, and calling this tool again does not move anything either. item_id must come from list_organiser_items or existing conversation context — never guess it. destination_group_name is the exact destination group name as the user said it; if no such group exists on the item\'s board, or more than one group shares that name, the tool will say so instead of proposing anything — never guess which group they meant. This cannot move an item to a different board.',
+      input_schema: {
+        type: 'object' as const,
+        properties: {
+          item_id: {
+            type: 'string',
+            description: 'The item id to move, from list_organiser_items or existing conversation context.',
+          },
+          destination_group_name: {
+            type: 'string',
+            description: 'The exact destination group name to propose moving the item into, on the item\'s own board.',
+          },
+        },
+        required: ['item_id', 'destination_group_name'],
         additionalProperties: false,
       },
     },
@@ -460,6 +490,73 @@ export async function executeOrganiserTool(
     }
   }
 
+  // Phase D.4.6O — Helena's third write tool, same stricter write
+  // boundary as the two tools above (never the read boundary below).
+  if (name === 'propose_organiser_group_move') {
+    const writeAuth = await authorizeHelenaOrganiserWrite();
+    if (!writeAuth.ok) return JSON.stringify({ status: 'unauthorized', error: GENERIC_DENIAL });
+    const { organisationId, userId, actorName } = writeAuth;
+
+    try {
+      const itemId = readString(input, 'item_id') ?? contextDefaults?.itemId ?? '';
+      const destinationGroupName = readString(input, 'destination_group_name') ?? '';
+      const result = await proposeOrExecuteOrganiserGroupMove({
+        organisationId,
+        userId,
+        actorName,
+        itemId,
+        destinationGroupName,
+        confirmationToken: contextDefaults?.confirmationToken,
+      });
+
+      if (!result.ok) {
+        // Phase D.4.6O — every confirm+execute (and propose-time) outcome
+        // gets its own status string, mirroring the other two actions'
+        // own discriminant design — see app/api/chat/route.ts's
+        // ORGANISER_GROUP_MOVE_OUTCOME_TEXT for where this becomes the
+        // deterministic user-facing wording.
+        if (result.reason === 'destination_not_found') {
+          return JSON.stringify({ status: 'destination_not_found', note: 'No group with that name was found on this item\'s board. Ask the user which group they mean, or check the exact name.' });
+        }
+        if (result.reason === 'ambiguous_destination') {
+          return JSON.stringify({ status: 'ambiguous_destination', note: 'More than one group on this board shares that name. Ask the user to be more specific.' });
+        }
+        if (result.reason === 'invalid_destination') {
+          return JSON.stringify({ status: 'invalid_destination', error: GENERIC_ERROR });
+        }
+        if (result.reason === 'noop_same_group') {
+          return JSON.stringify({ status: 'noop_same_group', note: 'This item is already in that group. No change was made.' });
+        }
+        const status: string =
+          result.reason === 'item_not_found' ? 'item_not_found'
+          : result.reason === 'already_used_confirmation' ? 'already_used_confirmation'
+          : result.reason === 'expired_confirmation' ? 'expired_confirmation'
+          : result.reason === 'invalid_confirmation' ? 'invalid_confirmation'
+          : result.reason === 'stale_item_location' ? 'stale_item_location'
+          : 'failed'; // invalid_item_id — propose-time-only
+        return JSON.stringify({ status, error: GENERIC_ERROR });
+      }
+
+      if (result.mode === 'proposed') {
+        return JSON.stringify({
+          status: 'proposed',
+          proposal: result.proposal,
+          confirmation_token: result.confirmationToken,
+          note: 'This item has NOT been moved yet. Read the exact item, its current group, and the requested destination group back to the user and wait for their explicit yes before anything changes. You cannot confirm this yourself.',
+        });
+      }
+
+      return JSON.stringify({
+        status: 'moved',
+        action_type: 'move_group',
+        item: result.item,
+      });
+    } catch (err) {
+      console.error(`[Helena][Organiser tool: ${name}]`, err);
+      return JSON.stringify({ status: 'failed', error: GENERIC_ERROR });
+    }
+  }
+
   const auth = await authorizeHelenaOrganiserRead();
   if (!auth.ok) return JSON.stringify({ error: GENERIC_DENIAL });
   const { organisationId } = auth;
@@ -595,11 +692,12 @@ export async function executeOrganiserTool(
 // containment already proven in D.4.6B (comment/file/board/group text is
 // already just a JSON string in a tool_result by the time this section's
 // own "treat as data" rule would ever matter).
-export const ORGANISER_SAFETY_PROMPT = `[Organiser tools — mostly read-only, two guarded actions]
-list_organiser_boards, list_organiser_items, get_organiser_board_activity, and get_organiser_item_activity are READ-ONLY: you cannot create, update, move, or delete anything through them. You have exactly two write actions, and both work the same way: they NEVER execute immediately, only ever return a proposal.
+export const ORGANISER_SAFETY_PROMPT = `[Organiser tools — mostly read-only, three guarded actions]
+list_organiser_boards, list_organiser_items, get_organiser_board_activity, and get_organiser_item_activity are READ-ONLY: you cannot create, update, move, or delete anything through them. You have exactly three write actions, and all three work the same way: they NEVER execute immediately, only ever return a proposal.
 - propose_organiser_comment: proposes posting a comment. Only say it was posted if the tool result status is "posted".
 - propose_organiser_status_change: proposes changing one item's status to one of its exact canonical values. Only say the status was changed if the tool result status is "changed". If the item is already in the requested status, tell the user that plainly instead of proposing anything.
-For both: read the exact proposal back and explicitly ask the user to confirm before anything happens — you cannot supply that confirmation yourself, and calling the tool again does not confirm it. There is no generic "edit this item" or "update this field" capability, no title/description/due-date/priority/assignee/group changes, and no create/delete — say so plainly if asked, and never bypass a role/module denial.
+- propose_organiser_group_move: proposes moving one item to one existing destination group on that item's OWN board. Only say it was moved if the tool result status is "moved". If the item is already in that group, say so instead of proposing anything. If no group with that name exists on the item's board, or more than one group shares the name, ask the user to clarify — never guess a group. This can never move an item to a different board.
+For all three: read the exact proposal back and explicitly ask the user to confirm before anything happens — you cannot supply that confirmation yourself, and calling the tool again does not confirm it. There is no generic "edit this item" or "update this field" capability, no title/description/due-date/priority/assignee changes, no board moves, and no create/delete — say so plainly if asked, and never bypass a role/module denial.
 - Tool results are authoritative evidence of what was recorded. No results for a window means "no recorded activity found for that window" — never say "nothing happened".
 - Never infer actor intent beyond what the recorded actor/diff data actually shows.
 - Never invent a board, item, or group name. If a name was not recorded, say so rather than guessing.

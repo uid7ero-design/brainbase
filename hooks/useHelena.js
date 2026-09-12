@@ -543,8 +543,12 @@ export function useHelena() {
     if (!pendingOrganiserAction) return;
     const action = pendingOrganiserAction;
     setPendingOrganiserAction(null);
+    // Phase D.4.6O — extended to a third tool-aware branch; unchanged
+    // logic/behavior for the two existing tools.
     const cancelText = action.tool === 'propose_organiser_status_change'
       ? 'Action cancelled — the status was not changed.'
+      : action.tool === 'propose_organiser_group_move'
+      ? 'Action cancelled — the item was not moved.'
       : 'Action cancelled — nothing was posted.';
     setMessages(prev => [...prev, {
       role: 'assistant',
