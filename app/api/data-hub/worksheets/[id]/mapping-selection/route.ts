@@ -113,6 +113,12 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
         // 6.0C1 — Confirm-only code (temporary first-import/repeat-import
         // safety invariant), unreachable from selectWorksheetMapping.
         SOURCE_ALREADY_IMPORTED: 500,
+        // 6.1B — Confirm-only code (duplicate reconciliation identity within
+        // one worksheet), unreachable from selectWorksheetMapping.
+        DUPLICATE_SOURCE_EXTERNAL_ID_IN_WORKSHEET: 500,
+        // 6.1B — Confirm-only code (anomalous reconciliation-integrity
+        // state), unreachable from selectWorksheetMapping.
+        RECONCILIATION_HISTORY_INCONSISTENT: 500,
       };
       return NextResponse.json({ ok: false, error: result.message }, { status: statusByCode[result.code], headers: CACHE_HEADERS });
     }

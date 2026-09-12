@@ -21,7 +21,19 @@
 //      reading an unexpected column merely because a caller's mapping
 //      object said so.
 
-export const ILLEGAL_DUMPING_REQUIRED_HEADERS = ["report_date", "location", "waste_type"] as const;
+// Data Hub 6.1B — source_external_id joins the required/known header sets.
+// This is the GENERIC reconciliation identity key (e.g. Onkaparinga's own
+// "Ticket #", mapped to this canonical target via a MappingDocument — see
+// lib/data-hub/sourceMapping/mappingDocument.ts) — deliberately never named
+// after any one source's own terminology, since a future SourceSystem may
+// use an entirely different external-id vocabulary. Required for EVERY
+// governed Illegal Dumping confirmation once reconciliation is wired in
+// (confirmWorksheet.ts), because a stable source-owned identity value can
+// never be silently invented (Phase 6.1B architecture
+// review) — a source with no configured source_external_id mapping simply
+// cannot complete a governed confirmation, which is the correct, fail-
+// closed outcome, not a gap.
+export const ILLEGAL_DUMPING_REQUIRED_HEADERS = ["report_date", "location", "waste_type", "source_external_id"] as const;
 
 export const ILLEGAL_DUMPING_KNOWN_HEADERS = [
   "report_date",
@@ -36,6 +48,7 @@ export const ILLEGAL_DUMPING_KNOWN_HEADERS = [
   "resolution_date",
   "cost_estimate",
   "notes",
+  "source_external_id",
 ] as const;
 
 export interface MappedIllegalDumpingRow {
@@ -289,15 +302,35 @@ export function validateIllegalDumpingHeaders(headers: string[]): void {
   }
 }
 
+// Data Hub 6.1B — one mapped business row, paired with its reconciliation
+// identity value as a SIBLING, never a field on MappedIllegalDumpingRow
+// itself. This is a deliberate structural choice (Phase 6.1B architecture
+// review): keeping the identity value entirely outside the business-field
+// object makes it structurally impossible for a future canonical-hash
+// helper (which only ever receives a MappedIllegalDumpingRow) to
+// accidentally include the identity field in change-detection — no
+// "remember to exclude it" convention required.
+export interface MappedIllegalDumpingRecord {
+  row: MappedIllegalDumpingRow;
+  sourceExternalId: string;
+}
+
 /**
  * Maps decoded CSV rows (header + data rows) into canonical illegal-dumping
- * domain row shapes. Every row is validated independently; the FIRST
+ * domain row shapes, each paired with its reconciliation identity value
+ * (source_external_id). Every row is validated independently; the FIRST
  * invalid row throws immediately (never a partial/best-effort mapped set)
  * — the caller (confirmWorksheet.ts) is responsible for ensuring this
  * entire function runs, and either fully succeeds or is entirely
  * discarded, before any transaction opens.
+ *
+ * source_external_id follows the identical required-field discipline as
+ * report_date/location/waste_type — a missing or blank value throws,
+ * never a fabricated fallback. It is carried through exactly as it
+ * appears in the source (a trimmed string only — never numerically
+ * coerced, never leading-zero-stripped).
  */
-export function mapIllegalDumpingRows(headers: string[], rows: string[][]): MappedIllegalDumpingRow[] {
+export function mapIllegalDumpingRows(headers: string[], rows: string[][]): MappedIllegalDumpingRecord[] {
   validateIllegalDumpingHeaders(headers);
   const colIndex = new Map(headers.map((h, i) => [h, i]));
   const get = (row: string[], name: string): string | undefined => {
@@ -309,6 +342,7 @@ export function mapIllegalDumpingRows(headers: string[], rows: string[][]): Mapp
     const reportDate = parseDate(get(row, "report_date"));
     const location = nullStr(get(row, "location"));
     const wasteType = nullStr(get(row, "waste_type"));
+    const sourceExternalId = nullStr(get(row, "source_external_id"));
     if (!reportDate) {
       throw new IllegalDumpingMappingError(`Row ${rowIndex + 1}: "report_date" is missing or not a valid date.`);
     }
@@ -318,19 +352,25 @@ export function mapIllegalDumpingRows(headers: string[], rows: string[][]): Mapp
     if (!wasteType) {
       throw new IllegalDumpingMappingError(`Row ${rowIndex + 1}: "waste_type" is required.`);
     }
+    if (!sourceExternalId) {
+      throw new IllegalDumpingMappingError(`Row ${rowIndex + 1}: "source_external_id" is required.`);
+    }
     return {
-      report_date: reportDate,
-      location,
-      suburb: nullStr(get(row, "suburb")),
-      zone: nullStr(get(row, "zone")),
-      waste_type: wasteType,
-      volume_estimate: nullStr(get(row, "volume_estimate")),
-      severity: mapSeverity(nullStr(get(row, "severity"))),
-      status: mapStatus(get(row, "status") ?? "open", rowIndex),
-      crew_assigned: nullStr(get(row, "crew_assigned")),
-      resolution_date: parseDate(get(row, "resolution_date")),
-      cost_estimate: parseFloatOrNull(get(row, "cost_estimate")),
-      notes: nullStr(get(row, "notes")),
+      row: {
+        report_date: reportDate,
+        location,
+        suburb: nullStr(get(row, "suburb")),
+        zone: nullStr(get(row, "zone")),
+        waste_type: wasteType,
+        volume_estimate: nullStr(get(row, "volume_estimate")),
+        severity: mapSeverity(nullStr(get(row, "severity"))),
+        status: mapStatus(get(row, "status") ?? "open", rowIndex),
+        crew_assigned: nullStr(get(row, "crew_assigned")),
+        resolution_date: parseDate(get(row, "resolution_date")),
+        cost_estimate: parseFloatOrNull(get(row, "cost_estimate")),
+        notes: nullStr(get(row, "notes")),
+      },
+      sourceExternalId,
     };
   });
 }

@@ -225,6 +225,10 @@ describe("Data Hub importBatch — no barrel/index.ts anywhere in the new tree",
         // illegalDumpingMapper.ts (5A.2K.1) — the illegal-dumping CSV row
         // mapper used only by confirmWorksheet.ts. Also dark.
         "illegalDumpingMapper.ts",
+        // reconciliation.ts (6.1B) — pure, DB-free canonical-hash and
+        // duplicate-identity helpers used only by confirmWorksheet.ts.
+        // Also dark: no other runtime caller exists.
+        "reconciliation.ts",
         // inspectCsvWorksheet.ts (5A.2K.2) — the new xlsx-free, CSV-only
         // worksheet inspection service. LIVE as of this phase — exactly
         // one authorized importer, the new inspect route — see the

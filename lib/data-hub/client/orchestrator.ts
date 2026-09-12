@@ -165,7 +165,20 @@ export type DataHubImportState =
    * not contain. */
   | { phase: "previewReady"; batch: ImportBatchHandle; worksheet: WorksheetSummaryDTOClient; preview: WorksheetPreviewDTOClient }
   | { phase: "confirming"; batch: ImportBatchHandle; worksheet: WorksheetSummaryDTOClient }
-  | { phase: "imported"; batch: ImportBatchHandle; worksheetId: string; importedRows: number }
+  | {
+      phase: "imported";
+      batch: ImportBatchHandle;
+      worksheetId: string;
+      importedRows: number;
+      // Data Hub 6.1B — additive, OPTIONAL: only the live confirm-response
+      // path (confirmWorksheet below) supplies these; the resume/read
+      // path (attachImportedRowCounts-derived, further below) does not
+      // recompute a per-outcome breakdown and leaves them undefined
+      // rather than fabricating one.
+      newRows?: number;
+      unchangedRows?: number;
+      changedRows?: number;
+    }
   | { phase: "alreadyImported"; batch: ImportBatchHandle; worksheetId: string }
   | {
       phase: "confirmFailed";
@@ -884,7 +897,15 @@ export class DataHubIllegalDumpingImportSession {
     if (body.alreadyImported) {
       this.setState({ phase: "alreadyImported", batch, worksheetId: body.worksheetUploadId });
     } else {
-      this.setState({ phase: "imported", batch, worksheetId: body.worksheetUploadId, importedRows: body.importedRows });
+      this.setState({
+        phase: "imported",
+        batch,
+        worksheetId: body.worksheetUploadId,
+        importedRows: body.importedRows,
+        newRows: body.newRows,
+        unchangedRows: body.unchangedRows,
+        changedRows: body.changedRows,
+      });
     }
   }
 

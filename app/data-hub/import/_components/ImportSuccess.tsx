@@ -34,7 +34,7 @@ export default function ImportSuccess({
       </h2>
       <p style={{ fontSize: 13, color: "rgba(249,250,251,.72)" }}>
         {isFresh
-          ? `${state.importedRows} row(s) were imported.`
+          ? `${state.importedRows} row(s) were processed.`
           : "This worksheet had already been imported. No new rows were created."}
       </p>
 

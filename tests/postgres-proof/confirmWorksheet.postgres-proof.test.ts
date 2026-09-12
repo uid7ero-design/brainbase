@@ -64,8 +64,11 @@ function buildCsv(headers: string[], rows: string[][]): string {
   return [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
 }
 
-const MAPPED_HEADERS = ["Reported At", "Site", "Type"];
-const MAPPING_DOCUMENT = { fields: { report_date: "Reported At", location: "Site", waste_type: "Type" } };
+// 6.1B — source_external_id joined the required canonical targets;
+// included here so every existing fixture continues to compile+map
+// successfully unchanged.
+const MAPPED_HEADERS = ["Reported At", "Site", "Type", "Ext Ref"];
+const MAPPING_DOCUMENT = { fields: { report_date: "Reported At", location: "Site", waste_type: "Type", source_external_id: "Ext Ref" } };
 
 describe("5B.4D confirmWorksheet — real disposable Postgres proof", () => {
   let organisationId: string;
@@ -152,7 +155,11 @@ describe("5B.4D confirmWorksheet — real disposable Postgres proof", () => {
     sourceSystemId?: string;
     rows: string[][];
   }) {
-    const csv = buildCsv(MAPPED_HEADERS, opts.rows);
+    // 6.1B — auto-append a synthetic, unique source_external_id per row
+    // unless the caller already supplied one, so existing 3-column
+    // `opts.rows` call sites need no change.
+    const rowsWithExternalId = opts.rows.map((row, i) => (row.length >= 4 ? row : [...row, `EXT-${Date.now()}-${i}`]));
+    const csv = buildCsv(MAPPED_HEADERS, rowsWithExternalId);
     const body = Buffer.from(csv, "utf8");
     const sha256 = createHash("sha256").update(body).digest("hex");
 
@@ -332,7 +339,7 @@ describe("5B.4D confirmWorksheet — real disposable Postgres proof", () => {
 
   it("legacy (NULL mapping_version_id) Confirm continues to work unchanged alongside mapped worksheets in the same real database, PROVIDED the batch still carries a real SourceSystem (6.0C1 requires source lineage on every Illegal Dumping Confirm, mapped or legacy)", async () => {
     const { sourceSystemId } = await createMappedLineage("Legacy", 0);
-    const csv = "report_date,location,waste_type\n2024-07-01,Legacy Site,Legacy Type\n";
+    const csv = "report_date,location,waste_type,source_external_id\n2024-07-01,Legacy Site,Legacy Type,EXT-LEGACY-1\n";
     const body = Buffer.from(csv, "utf8");
     const sha256 = createHash("sha256").update(body).digest("hex");
     const batch = await prisma.importBatch.create({
@@ -378,7 +385,7 @@ describe("5B.4D confirmWorksheet — real disposable Postgres proof", () => {
   // initiate path) fails closed BEFORE any storage/decode/domain work, in
   // the REAL database, with zero side effects of any kind.
   it("T15 (real Postgres). a worksheet whose parent batch has source_system_id = NULL fails closed with SOURCE_LINEAGE_REQUIRED, zero domain rows, worksheet remains AWAITING_CONFIRMATION, storage never touched", async () => {
-    const csv = "report_date,location,waste_type\n2024-08-01,No-Source Site,No-Source Type\n";
+    const csv = "report_date,location,waste_type,source_external_id\n2024-08-01,No-Source Site,No-Source Type,EXT-NOSOURCE-1\n";
     const body = Buffer.from(csv, "utf8");
     const sha256 = createHash("sha256").update(body).digest("hex");
     const batch = await prisma.importBatch.create({

@@ -78,6 +78,14 @@ describe("failureTaxonomy — code sets", () => {
         // invariant (lib/data-hub/importBatch/confirmWorksheet.ts). Never
         // persisted.
         "SOURCE_ALREADY_IMPORTED",
+        // 6.1B — Confirm-only: two or more rows within one worksheet share
+        // an identical reconciliation identity (source_external_id).
+        // Never persisted.
+        "DUPLICATE_SOURCE_EXTERNAL_ID_IN_WORKSHEET",
+        // 6.1B — Confirm-only: an anomalous, fail-closed reconciliation-
+        // integrity state (a reconciliation identity exists with zero
+        // prior observation history). Never persisted.
+        "RECONCILIATION_HISTORY_INCONSISTENT",
       ])
     );
   });

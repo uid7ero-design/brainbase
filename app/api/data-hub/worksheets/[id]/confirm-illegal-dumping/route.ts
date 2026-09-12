@@ -82,7 +82,12 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
           ok: true,
           alreadyImported: false,
           worksheetUploadId: result.worksheetUploadId,
+          // 6.1B — importedRows preserves its pre-6.1B meaning; newRows/
+          // unchangedRows/changedRows are new, additive fields.
           importedRows: result.importedRows,
+          newRows: result.newRows,
+          unchangedRows: result.unchangedRows,
+          changedRows: result.changedRows,
         },
         { status: 200, headers: CACHE_HEADERS }
       );
@@ -143,10 +148,10 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
       // (Step 3.5's fail-closed gate). 409, matching mapping-selection's
       // own status mapping for the identical shared code.
       SOURCE_LINEAGE_REQUIRED: 409,
-      // 6.0C1 — this organisation+SourceSystem already has a prior
-      // committed Illegal Dumping success from another worksheet (the
-      // temporary repeat-import safety invariant). 409, a genuine conflict
-      // with existing committed state.
+      // 6.0C1 (SUPERSEDED BY 6.1B) — this code is no longer emitted by
+      // confirmDataHubWorksheet (per-record reconciliation replaced the
+      // coarse SourceSystem-wide guard); retained here only so this
+      // Record stays exhaustive against the full FailureCode union.
       SOURCE_ALREADY_IMPORTED: 409,
       // 5B.4D — frozen mapping-lineage codes, now reachable when the
       // worksheet carries a persisted Upload.mapping_version_id. 409/500
@@ -158,6 +163,17 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
       MAPPING_LINEAGE_UNAVAILABLE: 409,
       MAPPING_DOCUMENT_INVALID: 500,
       MAPPING_COMPILE_FAILED: 422,
+      // 6.1B — a structural data problem with the worksheet's own content
+      // (two rows share one reconciliation identity), matching
+      // PARSER_REJECTED/UNSUPPORTED_FORMAT's existing 422 treatment.
+      // Reachable now via Step 7.5's pre-transaction duplicate check.
+      DUPLICATE_SOURCE_EXTERNAL_ID_IN_WORKSHEET: 422,
+      // 6.1B — an anomalous, fail-closed reconciliation-integrity state
+      // (a SourceRecordIdentity exists with zero prior observations) —
+      // never expected in normal operation; 500 matches this route's own
+      // existing treatment of other defensive/anomalous-state codes (e.g.
+      // SOURCE_SYSTEM_UNAVAILABLE, MAPPING_DOCUMENT_INVALID).
+      RECONCILIATION_HISTORY_INCONSISTENT: 500,
     };
     return NextResponse.json(
       { ok: false, error: result.message },

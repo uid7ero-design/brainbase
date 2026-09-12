@@ -180,10 +180,25 @@ describe("selectWorksheetMapping — zero downstream integration", () => {
 // ─── No schema/migration change proof (structural, re-derived here) ───
 
 describe("selectWorksheetMapping — no Phase 6 / recognition / scheduling leakage", () => {
-  it("service and route contain no Phase 6 (external_id/reconciliation/Observation/SourceRecordIdentity), recognition, or lib/integrations reference", () => {
+  // Data Hub 6.1B — the route (never the service) now carries exactly two
+  // deliberate, authorized references: DUPLICATE_SOURCE_EXTERNAL_ID_IN_WORKSHEET
+  // and RECONCILIATION_HISTORY_INCONSISTENT, each one entry in its
+  // exhaustive FailureCode->status Record (TypeScript requires every route
+  // with such a Record to enumerate every code, even ones it can never
+  // actually return — see the existing, identical SOURCE_ALREADY_IMPORTED/
+  // MAPPING_COMPILE_FAILED precedent immediately above them). This is not
+  // new reconciliation BEHAVIOR reaching this route — selectWorksheetMapping
+  // itself is untouched (see the dedicated byte-identity/no-
+  // selectWorksheetMapping-reference tests elsewhere in this file) — only
+  // a type-exhaustiveness requirement satisfied with an unreachable-from-
+  // here status mapping, exactly like its predecessors.
+  it("service and route contain no Phase 6 (reconciliation/Observation/SourceRecordIdentity), recognition, or lib/integrations reference — 'external_id'/'reconciliation' are scoped to exclude the two authorized 6.1B exhaustive-mapping entries", () => {
     for (const file of [SERVICE_PATH, ROUTE_PATH]) {
       const code = stripComments(read(file));
-      expect(code).not.toMatch(/external_id|reconciliation|Observation|SourceRecordIdentity|Onkaparinga|TechnologyOne/i);
+      const withoutAuthorizedException = code
+        .replace(/DUPLICATE_SOURCE_EXTERNAL_ID_IN_WORKSHEET/g, "")
+        .replace(/RECONCILIATION_HISTORY_INCONSISTENT/g, "");
+      expect(withoutAuthorizedException).not.toMatch(/external_id|reconciliation|Observation|SourceRecordIdentity|Onkaparinga|TechnologyOne/i);
       expect(code).not.toMatch(/lib\/integrations/);
       expect(code).not.toMatch(/headerFingerprint|automaticRecognition|autoRecogni[sz]e/i);
     }

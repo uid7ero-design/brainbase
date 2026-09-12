@@ -98,7 +98,26 @@ export type CallerOnlyOutcomeCode =
   // — never leaks the prior worksheet/ImportBatch/organisation/
   // SourceSystem identity or row counts. See confirmWorksheet.ts's own
   // 6.0C1 header comment for the exact guard mechanism.
-  | "SOURCE_ALREADY_IMPORTED";
+  // SUPERSEDED BY 6.1B — this coarse SourceSystem-wide guard is removed
+  // from confirmWorksheet.ts's own runtime once per-record reconciliation
+  // is wired in (see the 6.1B header comment there). The code/message
+  // remain declared here (removing a FailureCode is a wider, unnecessary
+  // change) but no runtime path emits this outcome after 6.1B.
+  | "SOURCE_ALREADY_IMPORTED"
+  // 6.1B — Confirm-only: two or more rows within the SAME incoming
+  // worksheet share an identical source_external_id. These belong to the
+  // same source snapshot/import, never a longitudinal NEW/UNCHANGED/
+  // CHANGED sequence — allowing this would let input row order decide the
+  // final canonical IllegalDumping state. Never leaks the duplicated
+  // value itself.
+  | "DUPLICATE_SOURCE_EXTERNAL_ID_IN_WORKSHEET"
+  // 6.1B — Confirm-only: an anomalous, fail-closed reconciliation-
+  // integrity state — a reconciliation identity exists with ZERO prior
+  // observation history, which full transactional atomicity should make
+  // unreachable in normal operation. Never classified NEW, never a
+  // fabricated comparison hash. Never leaks the identity/source
+  // system/organisation involved.
+  | "RECONCILIATION_HISTORY_INCONSISTENT";
 
 export type FailureCode = PersistedFailureCode | CallerOnlyOutcomeCode;
 
@@ -138,6 +157,8 @@ export const CALLER_ONLY_OUTCOME_CODES: readonly CallerOnlyOutcomeCode[] = [
   "MAPPING_DOCUMENT_INVALID",
   "MAPPING_COMPILE_FAILED",
   "SOURCE_ALREADY_IMPORTED",
+  "DUPLICATE_SOURCE_EXTERNAL_ID_IN_WORKSHEET",
+  "RECONCILIATION_HISTORY_INCONSISTENT",
 ];
 
 export function isPersistedFailureCode(code: string): code is PersistedFailureCode {
@@ -313,6 +334,12 @@ const MESSAGE_TEMPLATES: Record<FailureCode, string> = {
   // which specific prior worksheet established the existing success.
   SOURCE_ALREADY_IMPORTED:
     "This source already has an imported Illegal Dumping snapshot. Additional snapshots require reconciliation support.",
+  // 6.1B — never reveals which value repeated or which rows collided.
+  DUPLICATE_SOURCE_EXTERNAL_ID_IN_WORKSHEET:
+    "One or more source record identifiers repeat within this worksheet; each governed row must reference a unique source record.",
+  // 6.1B — never reveals the identity/source system/organisation involved.
+  RECONCILIATION_HISTORY_INCONSISTENT:
+    "A source record identity exists without reconciliation history; this import cannot proceed safely.",
 };
 
 const MAX_MESSAGE_LENGTH = 500;

@@ -4,6 +4,7 @@ import {
   mapIllegalDumpingRows,
   IllegalDumpingMappingError,
   ILLEGAL_DUMPING_REQUIRED_HEADERS,
+  type MappedIllegalDumpingRow,
 } from "@/lib/data-hub/importBatch/illegalDumpingMapper";
 
 // Data Hub 5A.3A — duplicate-required-CSV-header fail-closed hardening.
@@ -29,28 +30,28 @@ describe("validateIllegalDumpingHeaders — baseline (missing headers, pre-exist
     expect(() => validateIllegalDumpingHeaders(["report_date", "location"])).toThrow(/waste_type/);
   });
 
-  it("B. all three required headers present exactly once, plus arbitrary optional headers, does not throw", () => {
+  it("B. all required headers present exactly once, plus arbitrary optional headers, does not throw", () => {
     expect(() =>
-      validateIllegalDumpingHeaders(["report_date", "location", "waste_type", "suburb", "notes"])
+      validateIllegalDumpingHeaders(["report_date", "location", "waste_type", "source_external_id", "suburb", "notes"])
     ).not.toThrow();
   });
 });
 
 describe("validateIllegalDumpingHeaders — duplicate REQUIRED header rejection (5A.3A)", () => {
   it("C. a duplicated report_date header throws IllegalDumpingMappingError naming report_date", () => {
-    const headers = ["report_date", "location", "waste_type", "report_date"];
+    const headers = ["report_date", "location", "waste_type", "source_external_id", "report_date"];
     expect(() => validateIllegalDumpingHeaders(headers)).toThrow(IllegalDumpingMappingError);
     expect(() => validateIllegalDumpingHeaders(headers)).toThrow(/duplicate/i);
     expect(() => validateIllegalDumpingHeaders(headers)).toThrow(/report_date/);
   });
 
   it("D. a duplicated location header throws, naming location", () => {
-    const headers = ["report_date", "location", "waste_type", "location"];
+    const headers = ["report_date", "location", "waste_type", "source_external_id", "location"];
     expect(() => validateIllegalDumpingHeaders(headers)).toThrow(/location/);
   });
 
   it("E. a duplicated waste_type header throws, naming waste_type", () => {
-    const headers = ["report_date", "location", "waste_type", "waste_type"];
+    const headers = ["report_date", "location", "waste_type", "source_external_id", "waste_type"];
     expect(() => validateIllegalDumpingHeaders(headers)).toThrow(/waste_type/);
   });
 
@@ -59,20 +60,20 @@ describe("validateIllegalDumpingHeaders — duplicate REQUIRED header rejection 
     // A naive "do the duplicate columns disagree?" check would let this
     // through; the correct behavior rejects it purely on header shape,
     // never inspecting row values to decide.
-    const headers = ["report_date", "location", "waste_type", "location"];
-    const rows = [["2024-01-01", "Main St", "tyres", "Main St"]];
+    const headers = ["report_date", "location", "waste_type", "location", "source_external_id"];
+    const rows = [["2024-01-01", "Main St", "tyres", "Main St", "EXT-1"]];
     expect(() => mapIllegalDumpingRows(headers, rows)).toThrow(IllegalDumpingMappingError);
     expect(() => mapIllegalDumpingRows(headers, rows)).toThrow(/duplicate/i);
   });
 
   it("G. a duplicated required header whose two occurrences DISAGREE is also rejected (baseline sanity check)", () => {
-    const headers = ["report_date", "location", "waste_type", "location"];
-    const rows = [["2024-01-01", "Main St", "tyres", "Oak Ave"]];
+    const headers = ["report_date", "location", "waste_type", "location", "source_external_id"];
+    const rows = [["2024-01-01", "Main St", "tyres", "Oak Ave", "EXT-1"]];
     expect(() => mapIllegalDumpingRows(headers, rows)).toThrow(IllegalDumpingMappingError);
   });
 
   it("H. multiple required headers duplicated simultaneously throws once, naming every duplicated header", () => {
-    const headers = ["report_date", "location", "waste_type", "report_date", "location"];
+    const headers = ["report_date", "location", "waste_type", "source_external_id", "report_date", "location"];
     let caught: unknown;
     try {
       validateIllegalDumpingHeaders(headers);
@@ -86,13 +87,16 @@ describe("validateIllegalDumpingHeaders — duplicate REQUIRED header rejection 
   });
 
   it("I. every required header individually and in combination is covered by ILLEGAL_DUMPING_REQUIRED_HEADERS (no hardcoded drift in this test file)", () => {
-    expect(ILLEGAL_DUMPING_REQUIRED_HEADERS).toEqual(["report_date", "location", "waste_type"]);
+    // Data Hub 6.1B — source_external_id joins the required-header set: the
+    // reconciliation identity key is required for every governed Illegal
+    // Dumping confirmation, exactly like report_date/location/waste_type.
+    expect(ILLEGAL_DUMPING_REQUIRED_HEADERS).toEqual(["report_date", "location", "waste_type", "source_external_id"]);
   });
 });
 
 describe("validateIllegalDumpingHeaders — duplicate identity matches the mapper's own exact-string matching (no invented normalization)", () => {
   it("J. differently-cased duplicate ('Report_Date' alongside 'report_date') is NOT treated as a duplicate of the canonical header — it is treated as the canonical header still being MISSING, exactly like every other case-sensitive mismatch in this module", () => {
-    const headers = ["Report_Date", "report_date", "location", "waste_type"];
+    const headers = ["Report_Date", "report_date", "location", "waste_type", "source_external_id"];
     // "report_date" IS present exactly once here (the second entry), so
     // this is actually valid — included primarily to document that casing
     // differences are never collapsed into "duplicate".
@@ -100,13 +104,13 @@ describe("validateIllegalDumpingHeaders — duplicate identity matches the mappe
   });
 
   it("K. a header row with ONLY a differently-cased variant ('Report_Date') is rejected as MISSING report_date, never as a duplicate", () => {
-    const headers = ["Report_Date", "location", "waste_type"];
+    const headers = ["Report_Date", "location", "waste_type", "source_external_id"];
     expect(() => validateIllegalDumpingHeaders(headers)).toThrow(/missing/i);
     expect(() => validateIllegalDumpingHeaders(headers)).toThrow(/report_date/);
   });
 
   it("L. leading/trailing whitespace on a header ('report_date ') is never trimmed — it is treated as a distinct, non-matching string, exactly mirroring decodeCsvOnly's own no-trim behavior, so it is rejected as MISSING report_date rather than silently matched or flagged as a duplicate", () => {
-    const headers = ["report_date ", "location", "waste_type"];
+    const headers = ["report_date ", "location", "waste_type", "source_external_id"];
     expect(() => validateIllegalDumpingHeaders(headers)).toThrow(/missing/i);
     expect(() => validateIllegalDumpingHeaders(headers)).toThrow(/report_date/);
   });
@@ -116,7 +120,7 @@ describe("validateIllegalDumpingHeaders — duplicate identity matches the mappe
     // check runs first (structural absence), so the error is the missing-
     // header error, not the duplicate error — duplicates are only checked
     // once every required header is confirmed present.
-    const headers = ["report_date", "location", "location"];
+    const headers = ["report_date", "location", "location", "source_external_id"];
     expect(() => validateIllegalDumpingHeaders(headers)).toThrow(/missing/i);
     expect(() => validateIllegalDumpingHeaders(headers)).toThrow(/waste_type/);
   });
@@ -124,31 +128,75 @@ describe("validateIllegalDumpingHeaders — duplicate identity matches the mappe
 
 describe("validateIllegalDumpingHeaders — duplicate OPTIONAL headers (investigated, deliberately out of scope for 5A.3A)", () => {
   it("a duplicated OPTIONAL header (severity) does NOT throw — the same last-occurrence-wins Map mechanism applies, but this hardening pass intentionally scopes to REQUIRED headers only (see the 5A.3A implementation report, Section 6)", () => {
-    const headers = ["report_date", "location", "waste_type", "severity", "severity"];
-    const rows = [["2024-01-01", "Main St", "tyres", "high", "low"]];
+    const headers = ["report_date", "location", "waste_type", "severity", "severity", "source_external_id"];
+    const rows = [["2024-01-01", "Main St", "tyres", "high", "low", "EXT-1"]];
     expect(() => mapIllegalDumpingRows(headers, rows)).not.toThrow();
     // Documents the actual observable behavior: the LAST "severity" column
     // (value "low") silently wins over the first ("high") — the exact
     // ambiguity risk this slice fixes for required headers, still present
     // for optional ones.
     const mapped = mapIllegalDumpingRows(headers, rows);
-    expect(mapped[0].severity).toBe("LOW");
+    expect(mapped[0].row.severity).toBe("LOW");
   });
 });
 
 describe("mapIllegalDumpingRows — non-regression: valid, non-duplicated headers still map correctly", () => {
   it("maps a well-formed row with all required + several optional headers present exactly once", () => {
-    const headers = ["report_date", "location", "waste_type", "suburb", "severity", "status"];
-    const rows = [["2024-01-15", "Main St", "tyres", "Riverside", "high", "in progress"]];
+    const headers = ["report_date", "location", "waste_type", "suburb", "severity", "status", "source_external_id"];
+    const rows = [["2024-01-15", "Main St", "tyres", "Riverside", "high", "in progress", "EXT-1"]];
     const mapped = mapIllegalDumpingRows(headers, rows);
     expect(mapped).toHaveLength(1);
-    expect(mapped[0]).toMatchObject({
+    expect(mapped[0].sourceExternalId).toBe("EXT-1");
+    expect(mapped[0].row).toMatchObject({
       location: "Main St",
       waste_type: "tyres",
       suburb: "Riverside",
       severity: "HIGH",
       status: "IN_PROGRESS",
     });
+  });
+});
+
+describe("mapIllegalDumpingRows — source_external_id (6.1B reconciliation identity)", () => {
+  it("carries the source_external_id value as a sibling of the mapped row, never inside MappedIllegalDumpingRow itself", () => {
+    const headers = ["report_date", "location", "waste_type", "source_external_id"];
+    const rows = [["2024-01-01", "Main St", "tyres", "TICKET-042"]];
+    const mapped = mapIllegalDumpingRows(headers, rows);
+    expect(mapped[0].sourceExternalId).toBe("TICKET-042");
+    expect(mapped[0].row).not.toHaveProperty("source_external_id");
+  });
+
+  it("preserves leading zeroes — never numerically coerced", () => {
+    const headers = ["report_date", "location", "waste_type", "source_external_id"];
+    const rows = [["2024-01-01", "Main St", "tyres", "00123"]];
+    const mapped = mapIllegalDumpingRows(headers, rows);
+    expect(mapped[0].sourceExternalId).toBe("00123");
+    expect(typeof mapped[0].sourceExternalId).toBe("string");
+  });
+
+  it("a missing source_external_id column fails via the existing required-header mechanism, before any row is ever mapped", () => {
+    const headers = ["report_date", "location", "waste_type"];
+    const rows = [["2024-01-01", "Main St", "tyres"]];
+    expect(() => mapIllegalDumpingRows(headers, rows)).toThrow(IllegalDumpingMappingError);
+    expect(() => mapIllegalDumpingRows(headers, rows)).toThrow(/source_external_id/);
+  });
+
+  it("a blank/whitespace-only source_external_id value fails the row — never silently accepted, never a fabricated fallback", () => {
+    const headers = ["report_date", "location", "waste_type", "source_external_id"];
+    const rows = [["2024-01-01", "Main St", "tyres", "   "]];
+    expect(() => mapIllegalDumpingRows(headers, rows)).toThrow(IllegalDumpingMappingError);
+    expect(() => mapIllegalDumpingRows(headers, rows)).toThrow(/source_external_id/);
+  });
+
+  it("is a legal, generic canonical target — not named after any one source's own terminology (e.g. Onkaparinga's 'Ticket #')", () => {
+    // The canonical name itself is the assertion here: this repo's mapper
+    // must never bake one customer's vocabulary into the universal Illegal
+    // Dumping schema — a source-specific header name (e.g. "Ticket #") is
+    // mapped to this generic target via a MappingDocument (see
+    // dataHubMappingExecution.test.ts), never hardcoded here.
+    const headers = ["report_date", "location", "waste_type", "source_external_id"];
+    expect(headers).not.toContain("ticket_number");
+    expect(headers).not.toContain("Ticket #");
   });
 });
 
@@ -167,9 +215,17 @@ describe("mapIllegalDumpingRows — non-regression: valid, non-duplicated header
 // same code path a real Confirm attempt does.
 // ---------------------------------------------------------------------------
 
-function mapOneRow(reportDate: string, resolutionDate?: string): ReturnType<typeof mapIllegalDumpingRows> {
-  const headers = ["report_date", "location", "waste_type", "resolution_date"];
-  return mapIllegalDumpingRows(headers, [[reportDate, "Main St", "tyres", resolutionDate ?? ""]]);
+// Data Hub 6.1B — source_external_id is now a required header for every
+// call. Unwrapped back to plain MappedIllegalDumpingRow[] here (never
+// {row, sourceExternalId}[]) so every existing `mapOneRow(...)[0].field`
+// call site below is completely unaffected by the 6.1B return-shape
+// change — this helper is the sole seam that absorbs it.
+function mapOneRow(reportDate: string, resolutionDate?: string): MappedIllegalDumpingRow[] {
+  const headers = ["report_date", "location", "waste_type", "resolution_date", "source_external_id"];
+  const mapped = mapIllegalDumpingRows(headers, [
+    [reportDate, "Main St", "tyres", resolutionDate ?? "", "EXT-1"],
+  ]);
+  return mapped.map((m) => m.row);
 }
 
 describe("mapIllegalDumpingRows — Australian D/M/YYYY date parsing (6.0A)", () => {
@@ -292,9 +348,11 @@ describe("mapIllegalDumpingRows — Australian D/M/YYYY date parsing (6.0A)", ()
 // directly, mirroring the 6.0A test style above.
 // ---------------------------------------------------------------------------
 
-function mapOneRowWithStatus(status: string): ReturnType<typeof mapIllegalDumpingRows> {
-  const headers = ["report_date", "location", "waste_type", "status"];
-  return mapIllegalDumpingRows(headers, [["2024-01-01", "Main St", "tyres", status]]);
+// Data Hub 6.1B — same unwrapping seam as mapOneRow above.
+function mapOneRowWithStatus(status: string): MappedIllegalDumpingRow[] {
+  const headers = ["report_date", "location", "waste_type", "status", "source_external_id"];
+  const mapped = mapIllegalDumpingRows(headers, [["2024-01-01", "Main St", "tyres", status, "EXT-1"]]);
+  return mapped.map((m) => m.row);
 }
 
 describe("mapIllegalDumpingRows — status fail-closed compatibility (6.0B1)", () => {
@@ -360,17 +418,17 @@ describe("mapIllegalDumpingRows — status fail-closed compatibility (6.0B1)", (
   });
 
   it("K. location-required behavior remains unchanged by this patch", () => {
-    const headers = ["report_date", "location", "waste_type", "status"];
-    expect(() => mapIllegalDumpingRows(headers, [["2024-01-01", "", "tyres", "Resolved"]])).toThrow(
+    const headers = ["report_date", "location", "waste_type", "status", "source_external_id"];
+    expect(() => mapIllegalDumpingRows(headers, [["2024-01-01", "", "tyres", "Resolved", "EXT-1"]])).toThrow(
       /"location" is required/
     );
   });
 
   it("L. a status failure aborts the ENTIRE mapping call synchronously — no partial results, even when an earlier row in the same call is otherwise valid", () => {
-    const headers = ["report_date", "location", "waste_type", "status"];
+    const headers = ["report_date", "location", "waste_type", "status", "source_external_id"];
     const rows = [
-      ["2024-01-01", "Main St", "tyres", "Resolved"],
-      ["2024-01-02", "Other St", "mattress", "Abandoned"],
+      ["2024-01-01", "Main St", "tyres", "Resolved", "EXT-1"],
+      ["2024-01-02", "Other St", "mattress", "Abandoned", "EXT-2"],
     ];
     // mapIllegalDumpingRows is called by confirmWorksheet.ts strictly
     // BEFORE prisma.$transaction opens — a synchronous throw here means

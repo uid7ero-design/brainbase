@@ -5,7 +5,12 @@ import { buildImportBatchKey, RawFileStoreError } from "../storage/rawFileStore"
 import { createImportBatchStorage } from "./compositionRoot";
 import { MAX_SOURCE_FILE_BYTES } from "../limits";
 import { decodeCsvOnly, CsvOnlyDecodeError } from "../csvOnlyDecoder";
-import { mapIllegalDumpingRows, IllegalDumpingMappingError, type MappedIllegalDumpingRow } from "./illegalDumpingMapper";
+import {
+  mapIllegalDumpingRows,
+  IllegalDumpingMappingError,
+  type MappedIllegalDumpingRecord,
+} from "./illegalDumpingMapper";
+import { computeCanonicalHash, findDuplicateSourceExternalId } from "./reconciliation";
 import { getMessageTemplate, type FailureCode } from "./failureTaxonomy";
 import { validateMappingDocument, type MappingDocument } from "../sourceMapping/mappingDocument";
 import { compileMapping, applyCompiledMappingToRows, toIllegalDumpingMapperInput } from "../sourceMapping/mappingExecution";
@@ -82,43 +87,69 @@ import { compileMapping, applyCompiledMappingToRows, toIllegalDumpingMapperInput
 // worksheet remains AWAITING_CONFIRMATION; if it commits, the worksheet is
 // IMPORTED atomically with its domain rows, in the same statement set.
 //
-// 6.0C1 — TEMPORARY FIRST-IMPORT / REPEAT-IMPORT FAIL-CLOSED GUARD: until
-// reconciliation exists, at most ONE distinct worksheet may successfully
-// commit IllegalDumping domain rows per organisation + non-null
-// SourceSystem. Two structural additions implement this:
-//   (a) Step 3.5 — a worksheet whose parent ImportBatch has
-//       source_system_id = NULL fails closed (SOURCE_LINEAGE_REQUIRED)
-//       BEFORE any storage/decode/mapping work — the guard cannot be
-//       authoritative without source lineage, and current initiate UI
-//       still permits an optional/legacy null-source choice (a SEPARATE,
-//       still-fully-supported path for every OTHER purpose — this gate is
-//       Illegal-Dumping-Confirm-specific, never a global SourceSystem
-//       requirement).
-//   (b) Step 8 — inside the SAME transaction as the existing claim, BEFORE
-//       it: an explicit `SELECT ... FOR UPDATE` lock on the batch's own
-//       SourceSystem row (tenant-scoped, parameterized via Prisma.sql —
-//       mirrors this codebase's own established event-capacity locking
-//       precedent, e.g. app/api/public/events/.../checkout/route.ts),
-//       THEN an EXISTS query against the illegal_dumping table itself
-//       (joined through upload_id -> import_batch_id -> source_system_id)
-//       — never Upload.canonical_status/lineage_kind, which are generic,
-//       not Illegal-Dumping-specific. If a prior committed success is
-//       found, this attempt fails SOURCE_ALREADY_IMPORTED before the
-//       existing worksheet claim/domain write ever runs. The lock
-//       serializes two concurrent first-import attempts for the same
-//       organisation+SourceSystem — Postgres blocks the second
-//       transaction's own FOR UPDATE request until the first commits or
-//       rolls back, so the second transaction's EXISTS query always
-//       observes the first's outcome.
-// Guard identity is deliberately organisation_id + source_system_id ONLY —
-// never mapping_version_id, sha256, filename, idempotency_key, ImportBatch
-// id, or worksheet id (a different version/file/batch/worksheet for the
-// SAME logical source must not create a second allowance). The guard never
-// filters by SourceSystem/SourceMapping/MappingVersion `active` — historical
-// success remains authoritative regardless of later deactivation, exactly
-// matching 5B.4B/5B.4C/5B.4D's own established consumption-vs-selection
-// rule. Same-worksheet idempotent replay is entirely unaffected — Step 2's
-// existing IMPORTED short-circuit fires before this guard is ever reached.
+// 6.0C1 (SUPERSEDED BY 6.1B) — TEMPORARY FIRST-IMPORT / REPEAT-IMPORT
+// FAIL-CLOSED GUARD. Until reconciliation existed, at most ONE distinct
+// worksheet could successfully commit IllegalDumping domain rows per
+// organisation + non-null SourceSystem — a coarse SourceSystem-wide
+// EXISTS check inside Step 8, before the claim, that unconditionally
+// blocked every worksheet after the first. That coarse check is REMOVED
+// as of 6.1B: per-record reconciliation (see the 6.1B block below) now
+// provides the real, permanent protection this guard was always a
+// temporary stand-in for — a second (or Nth) worksheet from the same
+// SourceSystem is now EXPECTED and CORRECT, with each of its records
+// individually classified NEW/UNCHANGED/CHANGED, rather than rejected
+// outright. Step 3.5's own NULL-source fail-closed gate (below) is
+// UNCHANGED — reconciliation identity still cannot be authoritative
+// without SourceSystem lineage, exactly as before.
+//
+// 6.1B — PER-RECORD RECONCILIATION (supersedes 6.0C1's coarse guard):
+// inside the SAME Step 8 transaction, immediately AFTER the existing
+// atomic worksheet claim succeeds (not before it — a confirmation that
+// loses the claim must reach zero reconciliation/domain mutations), each
+// mapped record is independently reconciled against its own
+// SourceRecordIdentity (organisation_id + source_system_id + domain_kind
+// 'ILLEGAL_DUMPING' + source_external_id):
+//   - Case A (identity newly created this transaction, no prior
+//     observation can exist): outcome NEW. A fresh IllegalDumping row is
+//     created, linked via source_record_identity_id.
+//   - Case B (identity pre-existed, at least one prior observation
+//     exists): outcome UNCHANGED (canonical hash matches the latest
+//     prior observation) or CHANGED (hash differs — the existing
+//     IllegalDumping row is updated in place via source_record_identity_id,
+//     using ONLY the source-controlled field allowlist — see
+//     reconciliation.ts's own CANONICAL_HASH_FIELDS, which is also that
+//     allowlist).
+//   - Case C (identity pre-existed but has ZERO prior observations — an
+//     inconsistent, should-be-unreachable state given full transactional
+//     atomicity): FAILS CLOSED with RECONCILIATION_HISTORY_INCONSISTENT,
+//     rolling back the entire transaction including the claim. Never
+//     classified NEW, never a fabricated comparison hash, never inferred
+//     from a unique-constraint failure.
+// Identity resolution uses a plain Prisma `create` attempt, catching a
+// P2002 unique-constraint violation to distinguish "just created" (Case
+// A) from "already existed" (Case B/C, resolved via a follow-up
+// `findUniqueOrThrow` on the same compound key) — functionally
+// equivalent to, and relying on the identical database-level
+// concurrency guarantee as, an `INSERT ... ON CONFLICT DO NOTHING
+// RETURNING id` (the schema's own unique constraint on
+// (organisation_id, source_system_id, domain_kind, source_external_id)
+// is the actual concurrency backstop either way), while letting Prisma
+// generate the identity's id client-side exactly like every other model
+// in this codebase, rather than hand-rolling a raw-SQL id generator.
+// Duplicate source_external_id values WITHIN one worksheet are rejected
+// pre-transaction (Step 7.5, see confirmWorksheet.ts's own
+// DUPLICATE_SOURCE_EXTERNAL_ID_IN_WORKSHEET check) — by the time this
+// per-record loop runs, every source_external_id in mappedRecords is
+// already guaranteed unique, so this loop never needs to handle two
+// DIFFERENT rows in the SAME worksheet resolving to the same identity.
+// The SourceSystem row lock acquired in step (a) below remains the sole
+// serialization point for CROSS-worksheet concurrency (two different,
+// concurrent confirmations for the same organisation+SourceSystem+
+// source_external_id) — the second transaction's own identity-create
+// attempt cannot even begin until the first transaction commits or rolls
+// back, so it always observes the first's committed identity/observation
+// state (or the schema's unique constraint rejects a residual race,
+// never silently).
 
 // Empirically-derived (5A.2K.1-R) bounded timeout for the Step 8
 // transaction, replacing Prisma's 5000ms default -- see the Step 8 comment
@@ -146,12 +177,34 @@ export interface ConfirmWorksheetTrustedContext {
 
 export type ConfirmWorksheetOutcome =
   | { ok: true; alreadyImported: true; worksheetUploadId: string }
-  | { ok: true; alreadyImported: false; worksheetUploadId: string; importedRows: number }
+  | {
+      ok: true;
+      alreadyImported: false;
+      worksheetUploadId: string;
+      // importedRows preserves its pre-6.1B meaning ("every row this
+      // worksheet successfully processed") — under the new reconciliation
+      // model that is exactly newRows + unchangedRows + changedRows, since
+      // every mapped row is classified into exactly one of the three.
+      importedRows: number;
+      newRows: number;
+      unchangedRows: number;
+      changedRows: number;
+    }
   | { ok: false; code: FailureCode; message: string };
 
 function fail(code: FailureCode): ConfirmWorksheetOutcome {
   return { ok: false, code, message: getMessageTemplate(code) };
 }
+
+// 6.1B — thrown ONLY for Case C (a SourceRecordIdentity exists with zero
+// prior observations, an inconsistent state that full transactional
+// atomicity should make unreachable in normal operation). Caught
+// specifically around the $transaction call below and converted into a
+// clean RECONCILIATION_HISTORY_INCONSISTENT outcome — never left to
+// propagate as an unexpected/uncaught error, and never confused with a
+// genuinely unexpected failure (e.g. a real constraint violation), which
+// still propagates uncaught exactly as before.
+class ReconciliationHistoryInconsistentError extends Error {}
 
 /**
  * Confirms and canonically imports one DATA_HUB worksheet's rows into the
@@ -184,6 +237,11 @@ export async function confirmDataHubWorksheet(
   if (!worksheet || worksheet.import_batch_id === null || worksheet.worksheet_index === null) {
     return fail("WORKSHEET_NOT_FOUND");
   }
+  // Captured into a plain local so its non-null narrowing survives being
+  // read from inside the Step 8 transaction closure below (property
+  // narrowing on `worksheet.import_batch_id` itself does not persist
+  // across a nested closure boundary).
+  const importBatchId = worksheet.import_batch_id;
 
   // 5B.4D — captured ONCE, here, immediately after this read. Every later
   // mapped-path lookup/compile/apply step AND the Step 8 atomic claim's own
@@ -328,12 +386,12 @@ export async function confirmDataHubWorksheet(
   // stays structural-only (Section 9), domain interpretation (dates,
   // status, required-value rules) remains exclusively that mapper's own
   // responsibility, never re-implemented here. ----
-  let mappedRows: MappedIllegalDumpingRow[];
+  let mappedRecords: MappedIllegalDumpingRecord[];
   try {
     const { headers, rows } = decodeCsvOnly(getResult.body);
 
     if (resolvedMapping === null) {
-      mappedRows = mapIllegalDumpingRows(headers, rows);
+      mappedRecords = mapIllegalDumpingRows(headers, rows);
     } else {
       // Compile against the REAL, FULL worksheet headers — reuses 5B.3's
       // unmodified compileMapping verbatim. compileMapping failure here is
@@ -347,13 +405,25 @@ export async function confirmDataHubWorksheet(
       // Apply to the FULL row set — never a bounded sample.
       const canonicalRows = applyCompiledMappingToRows(compiled.plan, rows);
       const { headers: domainHeaders, rows: domainRows } = toIllegalDumpingMapperInput(canonicalRows);
-      mappedRows = mapIllegalDumpingRows(domainHeaders, domainRows);
+      mappedRecords = mapIllegalDumpingRows(domainHeaders, domainRows);
     }
   } catch (err) {
     if (err instanceof CsvOnlyDecodeError || err instanceof IllegalDumpingMappingError) {
       return fail("PARSER_REJECTED");
     }
     throw err;
+  }
+
+  // ---- Step 7.5 — 6.1B: duplicate source_external_id rejection. Two rows
+  // sharing an identical reconciliation identity within the SAME incoming
+  // worksheet belong to the same source snapshot, never a longitudinal
+  // NEW/UNCHANGED/CHANGED sequence — allowing this would let input row
+  // order decide the final canonical IllegalDumping state and would create
+  // two historical observations for one source snapshot. Pure, synchronous,
+  // still entirely pre-transaction: zero writes on this path. ----
+  const duplicateSourceExternalId = findDuplicateSourceExternalId(mappedRecords.map((m) => m.sourceExternalId));
+  if (duplicateSourceExternalId !== null) {
+    return fail("DUPLICATE_SOURCE_EXTERNAL_ID_IN_WORKSHEET");
   }
 
   // ---- Step 8 — the single transaction. First statement is the atomic
@@ -377,120 +447,269 @@ export async function confirmDataHubWorksheet(
   // for the measurement record. maxWait (time to acquire/start the
   // transaction) is left at Prisma's default; only the execution timeout
   // is widened, since row count affects execution duration, not queueing. ----
-  const result = await prisma.$transaction(async (tx) => {
-    // ---- 6.0C1 — FIRST-IMPORT / REPEAT-IMPORT GUARD (see header comment
-    // for the full mechanism). Runs BEFORE the existing worksheet claim,
-    // inside the SAME transaction, so a block here never reaches
-    // createMany and never claims the worksheet. ----
+  const DOMAIN_KIND = "ILLEGAL_DUMPING";
 
-    // (a) Lock the exact, trusted, tenant-scoped SourceSystem row. Both
-    // interpolated values are trusted (session-derived organisationId;
-    // sourceSystemId read from this worksheet's own persisted ImportBatch
-    // row in Step 3) — Prisma.sql parameterizes them as real query
-    // parameters, never string-concatenated into the SQL text.
-    const lockedSourceSystem = await tx.$queryRaw<{ id: string }[]>(Prisma.sql`
-      SELECT id FROM source_systems
-      WHERE id = ${sourceSystemId} AND organisation_id = ${organisationId}
-      FOR UPDATE
-    `);
-    if (lockedSourceSystem.length === 0) {
-      // The batch's own persisted source_system_id no longer resolves to a
-      // real, tenant-owned SourceSystem row — reuse the existing generic,
-      // non-leaking code for "the specified source system is not
-      // available."
-      return { claimed: false as const, blocked: "SOURCE_SYSTEM_UNAVAILABLE" as const };
-    }
+  type Step8Result =
+    | { claimed: false; blocked: "SOURCE_SYSTEM_UNAVAILABLE" }
+    | { claimed: false; currentStatus: string | null }
+    | { claimed: true; newRows: number; unchangedRows: number; changedRows: number };
 
-    // (b) Existence check against the ILLEGAL_DUMPING domain table itself
-    // (never Upload.canonical_status/lineage_kind, which are generic
-    // worksheet-lineage concepts, not Illegal-Dumping-specific) — joined
-    // through upload_id -> import_batch_id -> source_system_id. Both
-    // organisation_id and source_system_id are the same trusted values
-    // used for the lock above; never client-supplied. Deliberately no
-    // `active`/deleted_at filter anywhere in this query — historical
-    // success remains authoritative regardless of later SourceSystem/
-    // SourceMapping/MappingVersion deactivation or ImportBatch tombstoning.
-    const priorSuccess = await tx.$queryRaw<{ prior_success: boolean }[]>(Prisma.sql`
-      SELECT EXISTS (
-        SELECT 1
-        FROM illegal_dumping d
-        JOIN uploads u ON d.upload_id = u.id
-        JOIN import_batches b ON u.import_batch_id = b.id
-        WHERE d.organisation_id = ${organisationId}
-          AND b.source_system_id = ${sourceSystemId}
-      ) AS prior_success
-    `);
-    if (priorSuccess[0]?.prior_success) {
-      return { claimed: false as const, blocked: "SOURCE_ALREADY_IMPORTED" as const };
-    }
+  let result: Step8Result;
+  try {
+    result = await prisma.$transaction(async (tx) => {
+      // (a) — unchanged verbatim: lock the exact, trusted, tenant-scoped
+      // SourceSystem row. Both interpolated values are trusted (session-
+      // derived organisationId; sourceSystemId read from this worksheet's
+      // own persisted ImportBatch row in Step 3) — Prisma.sql parameterizes
+      // them as real query parameters, never string-concatenated into the
+      // SQL text. Now the sole serialization point for cross-worksheet
+      // reconciliation concurrency (see the 6.1B header comment above).
+      const lockedSourceSystem = await tx.$queryRaw<{ id: string }[]>(Prisma.sql`
+        SELECT id FROM source_systems
+        WHERE id = ${sourceSystemId} AND organisation_id = ${organisationId}
+        FOR UPDATE
+      `);
+      if (lockedSourceSystem.length === 0) {
+        // The batch's own persisted source_system_id no longer resolves to a
+        // real, tenant-owned SourceSystem row — reuse the existing generic,
+        // non-leaking code for "the specified source system is not
+        // available."
+        return { claimed: false as const, blocked: "SOURCE_SYSTEM_UNAVAILABLE" as const };
+      }
 
-    const claim = await tx.upload.updateMany({
-      where: {
-        id: worksheetUploadId,
-        organisation_id: organisationId,
-        lineage_kind: "DATA_HUB",
-        canonical_status: "AWAITING_CONFIRMATION",
-        // 5B.4D — VERSION-BOUND ATOMIC CLAIM (Section 11/14 hard
-        // requirement). Present ONLY for a mapped worksheet
-        // (expectedMappingVersionId !== null) — a legacy worksheet's WHERE
-        // clause is byte-for-byte identical to the pre-5B.4D predicate
-        // above, never gaining this key at all. For a mapped worksheet,
-        // this is what binds the domain write about to happen in this same
-        // transaction to the EXACT MappingVersion that was resolved,
-        // revalidated, compiled, and applied outside the transaction — if
-        // a legitimate 5B.4B reselection changed Upload.mapping_version_id
-        // since Step 1's read, this predicate no longer matches the real
-        // row, the claim affects zero rows, and the existing lost-race
-        // resolution below (re-read canonical_status) already handles it
-        // safely — no new branch needed.
-        ...(expectedMappingVersionId !== null ? { mapping_version_id: expectedMappingVersionId } : {}),
-      },
-      data: {
-        canonical_status: "IMPORTED",
-        attempt_count: { increment: 1 },
-        last_attempt_at: new Date(),
-        // 5A.2L — set ONLY here, in the same atomic conditional UPDATE as
-        // the claim itself. If claim.count === 0 (lost the race, or the
-        // row wasn't actually eligible), this UPDATE affects zero rows and
-        // these values are never written to any row — never a separate
-        // statement, never set before the claim is known to have
-        // succeeded.
-        confirmed_by: confirmedBy,
-        confirmed_at: new Date(),
-      },
-    });
-
-    if (claim.count === 0) {
-      // Lost the race, or the row changed between Step 1's read and this
-      // transaction. Re-read the current state (still inside the same
-      // transaction) to distinguish "someone else already imported it"
-      // (idempotent success) from any other outcome.
-      const current = await tx.upload.findUnique({
-        where: { id: worksheetUploadId },
-        select: { canonical_status: true },
+      // (b) — 6.1B: the atomic conditional claim now runs immediately after
+      // the lock, BEFORE any reconciliation mutation (moved up from its
+      // pre-6.1B position after the now-removed coarse guard) — a
+      // confirmation that loses this claim must reach zero reconciliation/
+      // domain writes. Predicate/data shape is otherwise byte-for-byte
+      // unchanged from before 6.1B.
+      const claim = await tx.upload.updateMany({
+        where: {
+          id: worksheetUploadId,
+          organisation_id: organisationId,
+          lineage_kind: "DATA_HUB",
+          canonical_status: "AWAITING_CONFIRMATION",
+          // 5B.4D — VERSION-BOUND ATOMIC CLAIM (Section 11/14 hard
+          // requirement). Present ONLY for a mapped worksheet
+          // (expectedMappingVersionId !== null) — a legacy worksheet's WHERE
+          // clause is byte-for-byte identical to the pre-5B.4D predicate
+          // above, never gaining this key at all. For a mapped worksheet,
+          // this is what binds the domain write about to happen in this same
+          // transaction to the EXACT MappingVersion that was resolved,
+          // revalidated, compiled, and applied outside the transaction — if
+          // a legitimate 5B.4B reselection changed Upload.mapping_version_id
+          // since Step 1's read, this predicate no longer matches the real
+          // row, the claim affects zero rows, and the existing lost-race
+          // resolution below (re-read canonical_status) already handles it
+          // safely — no new branch needed.
+          ...(expectedMappingVersionId !== null ? { mapping_version_id: expectedMappingVersionId } : {}),
+        },
+        data: {
+          canonical_status: "IMPORTED",
+          attempt_count: { increment: 1 },
+          last_attempt_at: new Date(),
+          // 5A.2L — set ONLY here, in the same atomic conditional UPDATE as
+          // the claim itself. If claim.count === 0 (lost the race, or the
+          // row wasn't actually eligible), this UPDATE affects zero rows and
+          // these values are never written to any row — never a separate
+          // statement, never set before the claim is known to have
+          // succeeded.
+          confirmed_by: confirmedBy,
+          confirmed_at: new Date(),
+        },
       });
-      return { claimed: false as const, currentStatus: current?.canonical_status ?? null };
+
+      if (claim.count === 0) {
+        // Lost the race, or the row changed between Step 1's read and this
+        // transaction. Re-read the current state (still inside the same
+        // transaction) to distinguish "someone else already imported it"
+        // (idempotent success) from any other outcome. Zero reconciliation
+        // code below this point is ever reached in this branch.
+        const current = await tx.upload.findUnique({
+          where: { id: worksheetUploadId },
+          select: { canonical_status: true },
+        });
+        return { claimed: false as const, currentStatus: current?.canonical_status ?? null };
+      }
+
+      // (c) — 6.1B: per-record reconciliation, now that the claim is
+      // secured. Duplicate source_external_id values within this worksheet
+      // were already rejected pre-transaction (Step 7.5), so every
+      // record's identity key below is unique within this loop.
+      const newDomainRows: Array<
+        MappedIllegalDumpingRecord["row"] & {
+          organisation_id: string;
+          upload_id: string;
+          source_record_identity_id: string;
+        }
+      > = [];
+      let newRows = 0;
+      let unchangedRows = 0;
+      let changedRows = 0;
+
+      for (const record of mappedRecords) {
+        // Identity resolution: a plain create attempt, catching the
+        // schema's own unique-constraint violation (P2002) to distinguish
+        // "just created" (Case A) from "already existed" (Case B/C) — see
+        // the 6.1B header comment above for why this is functionally
+        // equivalent to INSERT ... ON CONFLICT DO NOTHING RETURNING id.
+        //
+        // SAVEPOINT REQUIRED (discovered by this phase's own real-Postgres
+        // proof, not merely defensive): Postgres aborts the ENTIRE
+        // enclosing transaction after any statement fails, including a
+        // unique-constraint violation — every subsequent statement in the
+        // same transaction is rejected (error 25P02) until either the
+        // whole transaction rolls back or execution returns to a
+        // SAVEPOINT taken before the failing statement. A plain
+        // try/catch around `create()` alone is therefore NOT sufficient
+        // to safely continue this transaction with a follow-up SELECT;
+        // this SAVEPOINT/ROLLBACK TO SAVEPOINT pair is what makes that
+        // safe. The savepoint name is a fixed literal reused across loop
+        // iterations — re-declaring a savepoint with the same name simply
+        // redefines it, which is standard, documented Postgres behavior.
+        let identityId: string;
+        let isNewIdentity: boolean;
+        await tx.$executeRaw`SAVEPOINT source_record_identity_create`;
+        try {
+          const createdIdentity = await tx.sourceRecordIdentity.create({
+            data: {
+              organisation_id: organisationId,
+              source_system_id: sourceSystemId,
+              domain_kind: DOMAIN_KIND,
+              source_external_id: record.sourceExternalId,
+            },
+            select: { id: true },
+          });
+          identityId = createdIdentity.id;
+          isNewIdentity = true;
+        } catch (err) {
+          if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+            await tx.$executeRaw`ROLLBACK TO SAVEPOINT source_record_identity_create`;
+            const existingIdentity = await tx.sourceRecordIdentity.findUniqueOrThrow({
+              where: {
+                organisation_id_source_system_id_domain_kind_source_external_id: {
+                  organisation_id: organisationId,
+                  source_system_id: sourceSystemId,
+                  domain_kind: DOMAIN_KIND,
+                  source_external_id: record.sourceExternalId,
+                },
+              },
+              select: { id: true },
+            });
+            identityId = existingIdentity.id;
+            isNewIdentity = false;
+          } else {
+            throw err;
+          }
+        }
+
+        const canonicalHash = computeCanonicalHash(record.row);
+
+        // Classification — the exact three-case rule (Phase 6.1B
+        // architecture review, Decision/Correction 7): explicitly queries
+        // for prior observation history rather than ever inferring it from
+        // identity existence alone.
+        let outcome: "NEW" | "UNCHANGED" | "CHANGED";
+        if (isNewIdentity) {
+          // Case A — no prior observation can exist for an identity this
+          // transaction just created.
+          outcome = "NEW";
+        } else {
+          const priorObservation = await tx.sourceRecordObservation.findFirst({
+            where: { organisation_id: organisationId, source_record_identity_id: identityId },
+            orderBy: { observed_at: "desc" },
+            select: { canonical_hash: true },
+          });
+          if (!priorObservation) {
+            // Case C — an inconsistent reconciliation state (identity
+            // pre-exists with zero observation history). Fail closed:
+            // never classify NEW, never fabricate a comparison hash, never
+            // infer this from a unique-constraint failure. Throwing here
+            // rolls back the ENTIRE transaction, including the claim above.
+            throw new ReconciliationHistoryInconsistentError();
+          }
+          // Case B.
+          outcome = priorObservation.canonical_hash === canonicalHash ? "UNCHANGED" : "CHANGED";
+        }
+
+        // Reconciliation history — one immutable observation per record
+        // per confirm, regardless of outcome. change_summary is
+        // deliberately left unset/null for this slice (matching the
+        // schema's own "nullable/deferred, no runtime path writes any
+        // value in this slice" documentation) — a future slice may choose
+        // to populate a bounded, non-PII description of what changed.
+        await tx.sourceRecordObservation.create({
+          data: {
+            organisation_id: organisationId,
+            source_record_identity_id: identityId,
+            import_batch_id: importBatchId,
+            upload_id: worksheetUploadId,
+            mapping_version_id: expectedMappingVersionId,
+            canonical_hash: canonicalHash,
+            outcome,
+          },
+        });
+
+        if (outcome === "NEW") {
+          newDomainRows.push({
+            ...record.row,
+            organisation_id: organisationId,
+            upload_id: worksheetUploadId,
+            source_record_identity_id: identityId,
+          });
+          newRows++;
+        } else if (outcome === "UNCHANGED") {
+          // No IllegalDumping mutation — the existing row is already
+          // current.
+          unchangedRows++;
+        } else {
+          // CHANGED — update the existing IllegalDumping row found via
+          // source_record_identity_id, using ONLY the source-controlled
+          // allowlist (reconciliation.ts's own CANONICAL_HASH_FIELDS —
+          // the same 12 fields the hash itself is computed over). Never a
+          // blind spread of the mapped row; never touches id/
+          // organisation_id/upload_id/source_record_identity_id/
+          // created_at/metadata.
+          await tx.illegalDumping.update({
+            where: { source_record_identity_id: identityId },
+            data: {
+              report_date: record.row.report_date,
+              location: record.row.location,
+              suburb: record.row.suburb,
+              zone: record.row.zone,
+              waste_type: record.row.waste_type,
+              volume_estimate: record.row.volume_estimate,
+              severity: record.row.severity,
+              status: record.row.status,
+              crew_assigned: record.row.crew_assigned,
+              resolution_date: record.row.resolution_date,
+              cost_estimate: record.row.cost_estimate,
+              notes: record.row.notes,
+            },
+          });
+          changedRows++;
+        }
+      }
+
+      if (newDomainRows.length > 0) {
+        await tx.illegalDumping.createMany({ data: newDomainRows });
+      }
+
+      return { claimed: true as const, newRows, unchangedRows, changedRows };
+    }, { timeout: IMPORT_TRANSACTION_TIMEOUT_MS });
+  } catch (err) {
+    if (err instanceof ReconciliationHistoryInconsistentError) {
+      return fail("RECONCILIATION_HISTORY_INCONSISTENT");
     }
-
-    await tx.illegalDumping.createMany({
-      data: mappedRows.map((row) => ({
-        organisation_id: organisationId,
-        upload_id: worksheetUploadId,
-        ...row,
-      })),
-    });
-
-    return { claimed: true as const, importedRows: mappedRows.length };
-  }, { timeout: IMPORT_TRANSACTION_TIMEOUT_MS });
+    throw err;
+  }
 
   if (!result.claimed) {
-    // 6.0C1 — the guard (SourceSystem missing, or a prior success already
-    // exists for this organisation+SourceSystem) fired before the existing
-    // worksheet claim ever ran. Neither case ever reaches the existing
-    // lost-race/currentStatus resolution below.
+    // The SourceSystem lock failed (SourceSystem row missing), or the
+    // worksheet claim itself lost the race. Zero reconciliation code was
+    // ever reached in either case.
     if ("blocked" in result) {
-      const blockedCode = result.blocked as "SOURCE_SYSTEM_UNAVAILABLE" | "SOURCE_ALREADY_IMPORTED";
-      return fail(blockedCode);
+      return fail(result.blocked);
     }
     if (result.currentStatus === "IMPORTED") {
       return { ok: true, alreadyImported: true, worksheetUploadId };
@@ -498,5 +717,13 @@ export async function confirmDataHubWorksheet(
     return fail("WORKSHEET_NOT_ELIGIBLE");
   }
 
-  return { ok: true, alreadyImported: false, worksheetUploadId, importedRows: result.importedRows };
+  return {
+    ok: true,
+    alreadyImported: false,
+    worksheetUploadId,
+    importedRows: result.newRows + result.unchangedRows + result.changedRows,
+    newRows: result.newRows,
+    unchangedRows: result.unchangedRows,
+    changedRows: result.changedRows,
+  };
 }
