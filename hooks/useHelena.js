@@ -533,12 +533,22 @@ export function useHelena() {
 
   // Cancel is entirely local: no request is ever sent, so there is
   // structurally nothing here that could mutate anything.
+  //
+  // Phase D.4.6N — the cancellation message is now action-aware ("nothing
+  // was posted" makes no sense for a cancelled status-change proposal).
+  // Keyed purely off action.tool, the same server-set discriminant the
+  // confirmation card itself renders from — never re-derived from chat
+  // text.
   const cancelOrganiserAction = useCallback(() => {
     if (!pendingOrganiserAction) return;
+    const action = pendingOrganiserAction;
     setPendingOrganiserAction(null);
+    const cancelText = action.tool === 'propose_organiser_status_change'
+      ? 'Action cancelled — the status was not changed.'
+      : 'Action cancelled — nothing was posted.';
     setMessages(prev => [...prev, {
       role: 'assistant',
-      content: 'Action cancelled — nothing was posted.',
+      content: cancelText,
       meta: { organiserActionCancelled: true },
     }]);
   }, [pendingOrganiserAction]);

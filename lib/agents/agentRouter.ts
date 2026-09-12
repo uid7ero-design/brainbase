@@ -165,6 +165,23 @@ export async function route(input: AgentInput): Promise<RouterResult> {
     return { agent: 'chat', confidence: 0.9, reason: 'organiser intent' };
   }
 
+  // Phase D.4.6N — explicit Organiser status-change intent guard. Bounded
+  // to an explicit change-verb (mark/set/change) combined with either the
+  // literal word "status" or one of the canonical Organiser status values
+  // (or "in progress", a common colloquial name for "Working on it") —
+  // never a bare mention of "done" alone, which appears constantly in
+  // unrelated English ("are we done?") and must never by itself route
+  // anywhere near a write-capable tool. This only routes to 'chat' (the
+  // SAME general Helena loop the Organiser-intent guard above already
+  // uses, where both Organiser write tools are registered) — it grants no
+  // authority and resolves no target itself; propose_organiser_status_change
+  // still independently validates the item and the requested status, and
+  // execution still requires explicit Confirm.
+  const STATUS_CHANGE_INTENT_RE = /\b(mark|set|change)\b[\s\S]{0,60}\b(status|not started|working on it|in progress|stuck|done)\b/i;
+  if (STATUS_CHANGE_INTENT_RE.test(query)) {
+    return { agent: 'chat', confidence: 0.9, reason: 'organiser status-change intent' };
+  }
+
   // Comment-routing disambiguation guard — see EXPLICIT_SOCIAL_RE/
   // BARE_COMMENT_RE's own header above. Only fires for bare "comment"
   // wording with no explicit social-platform noun; a query with both

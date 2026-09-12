@@ -70,10 +70,10 @@ const SOURCE = fs.readFileSync(path.resolve(__dirname, '../../lib/organiser/hele
 // ── Tool schemas ─────────────────────────────────────────────────────────────
 
 describe('buildOrganiserTools — schemas', () => {
-  it('returns exactly the 4 read tools plus the 1 D.4.6I write/action tool — 5 total, no more, no less', () => {
+  it('returns exactly the 4 read tools plus the 2 guarded write/action tools (D.4.6I comment, D.4.6N status change) — 6 total, no more, no less', () => {
     const tools = buildOrganiserTools()
     expect(tools.map(t => t.name).sort()).toEqual([...ORGANISER_TOOL_NAMES].sort())
-    expect(tools).toHaveLength(5)
+    expect(tools).toHaveLength(6)
   })
 
   it('no tool schema includes an organisationId/organisation_id field anywhere', () => {
@@ -131,13 +131,14 @@ describe('buildOrganiserTools — schemas', () => {
 })
 
 describe('isOrganiserToolName', () => {
-  it('recognises exactly the 5 tool names, nothing else', () => {
-    expect(ORGANISER_TOOL_NAMES).toHaveLength(5)
+  it('recognises exactly the 6 tool names, nothing else', () => {
+    expect(ORGANISER_TOOL_NAMES).toHaveLength(6)
     for (const n of ORGANISER_TOOL_NAMES) expect(isOrganiserToolName(n)).toBe(true)
     expect(isOrganiserToolName('query_database')).toBe(false)
     expect(isOrganiserToolName('delete_organiser_item')).toBe(false)
     expect(isOrganiserToolName('update_organiser_item')).toBe(false)
     expect(isOrganiserToolName('move_organiser_item')).toBe(false)
+    expect(isOrganiserToolName('create_organiser_item')).toBe(false)
     expect(isOrganiserToolName('')).toBe(false)
   })
 })
@@ -661,8 +662,8 @@ describe('ORGANISER_SAFETY_PROMPT', () => {
     expect(ORGANISER_SAFETY_PROMPT).toMatch(/UTC/)
   })
 
-  it('is compact — under 2000 characters, so it does not meaningfully bloat every Helena request (raised from 1500 in D.4.6I to fit the one new guarded write action\'s rules; trimmed to the minimum necessary rather than left to grow unchecked)', () => {
-    expect(ORGANISER_SAFETY_PROMPT.length).toBeLessThan(2000)
+  it('is compact — under 2400 characters, so it does not meaningfully bloat every Helena request (raised from 2000 in D.4.6N to fit the second guarded write action\'s rules; trimmed to the minimum necessary rather than left to grow unchecked)', () => {
+    expect(ORGANISER_SAFETY_PROMPT.length).toBeLessThan(2400)
   })
 })
 
@@ -1018,5 +1019,131 @@ describe('no raw mutation SQL in this file, and no write helper beyond the one s
     expect(SOURCE).toMatch(/from '\.\/helenaWrite'/)
     expect(SOURCE).toMatch(/proposeOrExecuteOrganiserComment/)
     expect(SOURCE).not.toMatch(/createOrganiserItem|updateOrganiserItem|deleteOrganiserItem|moveOrganiserItem|createOrganiserBoard|deleteOrganiserBoard/)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Phase D.4.6N — executeOrganiserTool: propose_organiser_status_change
+// dispatch. Same real-integration philosophy as the comment dispatch tests
+// above.
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('executeOrganiserTool — propose_organiser_status_change — authorization', () => {
+  it('uses the stricter manager-floor write authorization, not the viewer-floor read authorization', async () => {
+    authorizeOrganiserRequestMock.mockResolvedValueOnce({ ok: true, session: MANAGER_SESSION })
+    sqlResult = [{ id: ITEM_A, name: 'Item A', status: 'Not Started' }]
+    await executeOrganiserTool('propose_organiser_status_change', { item_id: ITEM_A, desired_status: 'Done' })
+    expect(authorizeOrganiserRequestMock).toHaveBeenCalledWith('manager')
+  })
+
+  it('viewer role -> status "unauthorized", generic denial, never reaches sql', async () => {
+    authorizeOrganiserRequestMock.mockResolvedValueOnce({ ok: false, response: new Response(null, { status: 403 }) })
+    const result = JSON.parse(await executeOrganiserTool('propose_organiser_status_change', { item_id: ITEM_A, desired_status: 'Done' }))
+    expect(result.status).toBe('unauthorized')
+    expect(result.error).toBeTruthy()
+    expect(sqlCalls).toHaveLength(0)
+  })
+})
+
+describe('executeOrganiserTool — propose_organiser_status_change — propose (no confirmation)', () => {
+  beforeEach(() => {
+    authorizeOrganiserRequestMock.mockResolvedValue({ ok: true, session: MANAGER_SESSION })
+  })
+
+  it('valid item + valid new status -> status "proposed" with current/desired status and a confirmation token', async () => {
+    sqlResult = [{ id: ITEM_A, name: 'Item A', status: 'Not Started' }]
+    const result = JSON.parse(await executeOrganiserTool('propose_organiser_status_change', { item_id: ITEM_A, desired_status: 'Done' }))
+    expect(result.status).toBe('proposed')
+    expect(result.proposal).toEqual({ item_id: ITEM_A, item_name: 'Item A', current_status: 'Not Started', desired_status: 'Done' })
+    expect(result.confirmation_token).toBeTruthy()
+    expect(sqlCalls.some(c => /UPDATE|INSERT/i.test(c.text))).toBe(false)
+  })
+
+  it('an invalid status value -> status "invalid_status", exposes the safe valid_statuses list, zero mutation', async () => {
+    const result = JSON.parse(await executeOrganiserTool('propose_organiser_status_change', { item_id: ITEM_A, desired_status: 'Completed' }))
+    expect(result.status).toBe('invalid_status')
+    expect(result.valid_statuses).toEqual(['Not Started', 'Working on it', 'Stuck', 'Done'])
+    expect(sqlCalls).toHaveLength(0)
+  })
+
+  it('requested status already equals current status -> status "noop_same_status", bounded note, zero mutation, no confirmation token issued', async () => {
+    sqlResult = [{ id: ITEM_A, name: 'Item A', status: 'Done' }]
+    const result = JSON.parse(await executeOrganiserTool('propose_organiser_status_change', { item_id: ITEM_A, desired_status: 'Done' }))
+    expect(result.status).toBe('noop_same_status')
+    expect(result.confirmation_token).toBeUndefined()
+    expect(sqlCalls.some(c => /UPDATE|INSERT/i.test(c.text))).toBe(false)
+  })
+
+  it('a malformed item_id -> status "failed", no sql mutation', async () => {
+    const result = JSON.parse(await executeOrganiserTool('propose_organiser_status_change', { item_id: 'not-a-uuid', desired_status: 'Done' }))
+    expect(result.status).toBe('failed')
+    expect(sqlCalls.some(c => /UPDATE|INSERT/i.test(c.text))).toBe(false)
+  })
+})
+
+describe('executeOrganiserTool — propose_organiser_status_change — confirm+execute', () => {
+  beforeEach(() => {
+    authorizeOrganiserRequestMock.mockResolvedValue({ ok: true, session: MANAGER_SESSION })
+  })
+
+  it('a valid token -> status "changed" with the server-authoritative item/previous/new status', async () => {
+    sqlResult = [{ id: ITEM_A, name: 'Item A', status: 'Not Started' }]
+    const proposeResult = JSON.parse(await executeOrganiserTool('propose_organiser_status_change', { item_id: ITEM_A, desired_status: 'Done' }))
+    sqlCalls = []
+    sqlResultQueue = [[{ item_found: 1, was_consumed: 1, updated_id: ITEM_A, item_name: 'Item A', new_status: 'Done' }]]
+    const result = JSON.parse(
+      await executeOrganiserTool('propose_organiser_status_change', { item_id: ITEM_A, desired_status: 'Done' }, {
+        confirmationToken: proposeResult.confirmation_token,
+      }),
+    )
+    expect(result.status).toBe('changed')
+    expect(result.action_type).toBe('change_status')
+    expect(result.item).toEqual({ id: ITEM_A, name: 'Item A', previous_status: 'Not Started', new_status: 'Done' })
+    expect(sqlCalls.filter(c => /UPDATE organiser_items/i.test(c.text))).toHaveLength(1)
+  })
+
+  it('D.4.6N CRITICAL: a stale item state (status changed since proposal) -> status "stale_item_state", never "changed"', async () => {
+    sqlResult = [{ id: ITEM_A, name: 'Item A', status: 'Not Started' }]
+    const proposeResult = JSON.parse(await executeOrganiserTool('propose_organiser_status_change', { item_id: ITEM_A, desired_status: 'Done' }))
+    sqlResultQueue = [[{ item_found: 1, was_consumed: 1, updated_id: null, item_name: null, new_status: null }]]
+    const result = JSON.parse(
+      await executeOrganiserTool('propose_organiser_status_change', { item_id: ITEM_A, desired_status: 'Done' }, {
+        confirmationToken: proposeResult.confirmation_token,
+      }),
+    )
+    expect(result.status).toBe('stale_item_state')
+    expect(result.status).not.toBe('changed')
+  })
+
+  it('replaying the same confirmationToken a second time -> status "already_used_confirmation", never "changed" twice', async () => {
+    sqlResult = [{ id: ITEM_A, name: 'Item A', status: 'Not Started' }]
+    const proposeResult = JSON.parse(await executeOrganiserTool('propose_organiser_status_change', { item_id: ITEM_A, desired_status: 'Done' }))
+    sqlResultQueue = [[{ item_found: 1, was_consumed: 1, updated_id: ITEM_A, item_name: 'Item A', new_status: 'Done' }]]
+    const first = JSON.parse(
+      await executeOrganiserTool('propose_organiser_status_change', { item_id: ITEM_A, desired_status: 'Done' }, {
+        confirmationToken: proposeResult.confirmation_token,
+      }),
+    )
+    expect(first.status).toBe('changed')
+
+    sqlResultQueue = [[{ item_found: 1, was_consumed: 0, updated_id: null, item_name: null, new_status: null }]]
+    const second = JSON.parse(
+      await executeOrganiserTool('propose_organiser_status_change', { item_id: ITEM_A, desired_status: 'Done' }, {
+        confirmationToken: proposeResult.confirmation_token,
+      }),
+    )
+    expect(second.status).toBe('already_used_confirmation')
+    expect(second.status).not.toBe('changed')
+  })
+
+  it('the tool_result string for a successful status change never contains organisation_id', async () => {
+    sqlResult = [{ id: ITEM_A, name: 'Item A', status: 'Not Started' }]
+    const proposeResult = JSON.parse(await executeOrganiserTool('propose_organiser_status_change', { item_id: ITEM_A, desired_status: 'Done' }))
+    sqlResultQueue = [[{ item_found: 1, was_consumed: 1, updated_id: ITEM_A, item_name: 'Item A', new_status: 'Done' }]]
+    const raw = await executeOrganiserTool('propose_organiser_status_change', { item_id: ITEM_A, desired_status: 'Done' }, {
+      confirmationToken: proposeResult.confirmation_token,
+    })
+    expect(raw).not.toContain('organisation_id')
+    expect(raw).not.toContain('org-a')
   })
 })

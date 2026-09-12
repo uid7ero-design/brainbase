@@ -345,74 +345,158 @@ function OrganiserActionCard({ action, submitting, onConfirm, onCancel }) {
         </span>
       </div>
 
-      <div style={{ padding: "10px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
-        <div>
-          <div style={{ color: "rgba(255,255,255,0.30)", fontSize: 8, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", marginBottom: 2 }}>
-            Action
+      {/* Phase D.4.6N — the card now renders one of two known proposal
+          shapes, chosen purely by action.tool (a value this component only
+          ever receives verbatim from useHelena.js's own
+          pendingOrganiserAction state, itself only ever set from the
+          server's own tool_result — never model prose). No third shape,
+          no generic "field/value" rendering: adding a future action type
+          means adding another explicit branch here, not a generic
+          renderer. */}
+      {action.tool === 'propose_organiser_status_change' ? (
+        <div style={{ padding: "10px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
+          <div>
+            <div style={{ color: "rgba(255,255,255,0.30)", fontSize: 8, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", marginBottom: 2 }}>
+              Action
+            </div>
+            <div style={{ color: "rgba(255,255,255,0.85)", fontSize: 12 }}>Change status</div>
           </div>
-          <div style={{ color: "rgba(255,255,255,0.85)", fontSize: 12 }}>Post comment</div>
-        </div>
 
-        <div>
-          <div style={{ color: "rgba(255,255,255,0.30)", fontSize: 8, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", marginBottom: 2 }}>
-            Target
+          <div>
+            <div style={{ color: "rgba(255,255,255,0.30)", fontSize: 8, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", marginBottom: 2 }}>
+              Target
+            </div>
+            <div style={{ color: "rgba(255,255,255,0.85)", fontSize: 12, fontWeight: 600 }}>
+              {action.proposal?.item_name || 'Untitled item'}
+            </div>
           </div>
-          <div style={{ color: "rgba(255,255,255,0.85)", fontSize: 12, fontWeight: 600 }}>
-            {action.proposal?.item_name || 'Untitled item'}
-          </div>
-        </div>
 
-        <div>
-          <div style={{ color: "rgba(255,255,255,0.30)", fontSize: 8, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", marginBottom: 2 }}>
-            Comment
+          <div style={{ display: "flex", gap: 16 }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ color: "rgba(255,255,255,0.30)", fontSize: 8, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", marginBottom: 2 }}>
+                Current status
+              </div>
+              <div style={{ color: "rgba(255,255,255,0.75)", fontSize: 12 }}>
+                {action.proposal?.current_status || '—'}
+              </div>
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ color: "rgba(255,255,255,0.30)", fontSize: 8, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", marginBottom: 2 }}>
+                New status
+              </div>
+              <div style={{ color: "#34D399", fontSize: 12, fontWeight: 600 }}>
+                {action.proposal?.desired_status || '—'}
+              </div>
+            </div>
           </div>
-          <div style={{
-            color: "rgba(255,255,255,0.75)", fontSize: 12, lineHeight: 1.5,
-            padding: "6px 8px", borderRadius: 6,
-            background: "rgba(0,0,0,0.22)", border: "1px solid rgba(255,255,255,0.06)",
-            whiteSpace: "pre-wrap", wordBreak: "break-word",
-          }}>
-            &ldquo;{action.proposal?.body || ''}&rdquo;
-          </div>
-        </div>
 
-        <div style={{ display: "flex", gap: 8, marginTop: 2 }}>
-          <button
-            type="button"
-            onClick={onConfirm}
-            disabled={submitting}
-            aria-label="Confirm: post this exact comment now"
-            style={{
-              flex: 1, padding: "8px 12px", borderRadius: 7,
-              background: submitting ? "rgba(52,211,153,0.10)" : "rgba(52,211,153,0.20)",
-              border: `1px solid ${submitting ? "rgba(52,211,153,0.18)" : "rgba(52,211,153,0.45)"}`,
-              color: submitting ? "rgba(52,211,153,0.45)" : "#34D399",
-              fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase",
-              cursor: submitting ? "default" : "pointer",
-              fontFamily: FONT, transition: "all 0.15s",
-            }}
-          >
-            {submitting ? 'Posting…' : 'Confirm'}
-          </button>
-          <button
-            type="button"
-            onClick={onCancel}
-            disabled={submitting}
-            aria-label="Cancel: do not post this comment"
-            style={{
-              flex: 1, padding: "8px 12px", borderRadius: 7,
-              background: "rgba(255,255,255,0.04)",
-              border: "1px solid rgba(255,255,255,0.12)",
-              color: submitting ? "rgba(255,255,255,0.20)" : "rgba(255,255,255,0.60)",
-              fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase",
-              cursor: submitting ? "default" : "pointer",
-              fontFamily: FONT, transition: "all 0.15s",
-            }}
-          >
-            Cancel
-          </button>
+          <div style={{ display: "flex", gap: 8, marginTop: 2 }}>
+            <button
+              type="button"
+              onClick={onConfirm}
+              disabled={submitting}
+              aria-label="Confirm: change this item's status now"
+              style={{
+                flex: 1, padding: "8px 12px", borderRadius: 7,
+                background: submitting ? "rgba(52,211,153,0.10)" : "rgba(52,211,153,0.20)",
+                border: `1px solid ${submitting ? "rgba(52,211,153,0.18)" : "rgba(52,211,153,0.45)"}`,
+                color: submitting ? "rgba(52,211,153,0.45)" : "#34D399",
+                fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase",
+                cursor: submitting ? "default" : "pointer",
+                fontFamily: FONT, transition: "all 0.15s",
+              }}
+            >
+              {submitting ? 'Changing…' : 'Confirm'}
+            </button>
+            <button
+              type="button"
+              onClick={onCancel}
+              disabled={submitting}
+              aria-label="Cancel: do not change this item's status"
+              style={{
+                flex: 1, padding: "8px 12px", borderRadius: 7,
+                background: "rgba(255,255,255,0.04)",
+                border: "1px solid rgba(255,255,255,0.12)",
+                color: submitting ? "rgba(255,255,255,0.20)" : "rgba(255,255,255,0.60)",
+                fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase",
+                cursor: submitting ? "default" : "pointer",
+                fontFamily: FONT, transition: "all 0.15s",
+              }}
+            >
+              Cancel
+            </button>
+          </div>
         </div>
-      </div>
+      ) : (
+        <div style={{ padding: "10px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
+          <div>
+            <div style={{ color: "rgba(255,255,255,0.30)", fontSize: 8, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", marginBottom: 2 }}>
+              Action
+            </div>
+            <div style={{ color: "rgba(255,255,255,0.85)", fontSize: 12 }}>Post comment</div>
+          </div>
+
+          <div>
+            <div style={{ color: "rgba(255,255,255,0.30)", fontSize: 8, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", marginBottom: 2 }}>
+              Target
+            </div>
+            <div style={{ color: "rgba(255,255,255,0.85)", fontSize: 12, fontWeight: 600 }}>
+              {action.proposal?.item_name || 'Untitled item'}
+            </div>
+          </div>
+
+          <div>
+            <div style={{ color: "rgba(255,255,255,0.30)", fontSize: 8, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", marginBottom: 2 }}>
+              Comment
+            </div>
+            <div style={{
+              color: "rgba(255,255,255,0.75)", fontSize: 12, lineHeight: 1.5,
+              padding: "6px 8px", borderRadius: 6,
+              background: "rgba(0,0,0,0.22)", border: "1px solid rgba(255,255,255,0.06)",
+              whiteSpace: "pre-wrap", wordBreak: "break-word",
+            }}>
+              &ldquo;{action.proposal?.body || ''}&rdquo;
+            </div>
+          </div>
+
+          <div style={{ display: "flex", gap: 8, marginTop: 2 }}>
+            <button
+              type="button"
+              onClick={onConfirm}
+              disabled={submitting}
+              aria-label="Confirm: post this exact comment now"
+              style={{
+                flex: 1, padding: "8px 12px", borderRadius: 7,
+                background: submitting ? "rgba(52,211,153,0.10)" : "rgba(52,211,153,0.20)",
+                border: `1px solid ${submitting ? "rgba(52,211,153,0.18)" : "rgba(52,211,153,0.45)"}`,
+                color: submitting ? "rgba(52,211,153,0.45)" : "#34D399",
+                fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase",
+                cursor: submitting ? "default" : "pointer",
+                fontFamily: FONT, transition: "all 0.15s",
+              }}
+            >
+              {submitting ? 'Posting…' : 'Confirm'}
+            </button>
+            <button
+              type="button"
+              onClick={onCancel}
+              disabled={submitting}
+              aria-label="Cancel: do not post this comment"
+              style={{
+                flex: 1, padding: "8px 12px", borderRadius: 7,
+                background: "rgba(255,255,255,0.04)",
+                border: "1px solid rgba(255,255,255,0.12)",
+                color: submitting ? "rgba(255,255,255,0.20)" : "rgba(255,255,255,0.60)",
+                fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase",
+                cursor: submitting ? "default" : "pointer",
+                fontFamily: FONT, transition: "all 0.15s",
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -534,6 +618,12 @@ export function ChatPanel({
     } : {
       position: "fixed", bottom: 86, right: 20,
       width: "min(520px, calc(100vw - 40px))", zIndex: 60,
+      // Phase D.4.6N-R1 — bounds the whole floating panel to the space
+      // actually available above its own bottom:86 anchor (plus a small
+      // top clearance) so the flex:1 message region below has a real
+      // height to shrink within, instead of the panel being free to grow
+      // past the viewport on short screens.
+      maxHeight: "calc(100vh - 106px)",
       display: "flex", flexDirection: "column",
       animation: "chatSlideUp 0.28s cubic-bezier(0.16,1,0.3,1)",
       borderRadius: 14, overflow: "hidden",
@@ -604,8 +694,19 @@ export function ChatPanel({
         )}
       </div>
 
+      {/* Phase D.4.6N-R1 — floating mode now sizes this region the same
+          structural way docked mode always has (flex: 1 with minHeight: 0,
+          inside a height-bounded parent) instead of a hardcoded maxHeight.
+          A hardcoded, non-flex maxHeight left the input bar below it as a
+          same-flow sibling with no reserved space, so taller content (e.g.
+          the status-change confirmation card's extra Current/New Status
+          row) could visually and pointer-interactively bleed into the
+          input bar's hit area on short viewports. flex + minHeight: 0
+          makes this region always shrink to exactly the space left after
+          the fixed header/footer, so it scrolls correctly and never
+          overlaps either sibling. */}
       {/* Messages */}
-      <div style={{ ...(docked ? { flex: 1 } : { maxHeight: 340 }), overflowY: "auto", padding: "12px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "12px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
         {messages.length === 0 && !responding && (
           <div style={{ textAlign: "center", padding: "28px 0" }}>
             <div style={{ fontSize: 22, color: "rgba(124,58,237,0.45)", marginBottom: 8, letterSpacing: "0.1em" }}>◈</div>

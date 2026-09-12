@@ -64,6 +64,28 @@ const MAX_BODY_LENGTH = 2000;
 
 const UUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 
+// Phase D.4.6N — the sole canonical status vocabulary for
+// organiser_items.status (a plain, non-enum TEXT column with no DB-level
+// CHECK constraint — see its own migration comment, step 35). Mirrors
+// app/organiser/page.tsx's own STATUS_OPTIONS constant EXACTLY; that file
+// is the only other place this list is defined, and it is what actually
+// renders as the status dropdown a human uses today, so these are proven
+// canonical values, not invented ones. Deliberately duplicated here rather
+// than imported: page.tsx is a client component and this is a
+// 'server-only' module, and this list is small enough that duplication
+// (this repo's own established convention for small format-structural
+// literals — see e.g. inspectCsvWorksheet.ts/confirmWorksheet.ts's shared
+// CSV_WORKSHEET_INDEX/NAME constants) is safer than adding a new shared
+// import edge for four strings. Board-specific custom "status"-TYPE
+// COLUMNS (organiser_columns, stored in items.custom_values) are a
+// SEPARATE, unrelated per-board custom-field feature — never confused
+// with this primary, global, non-customizable field.
+export const ORGANISER_ITEM_STATUS_OPTIONS = ['Not Started', 'Working on it', 'Stuck', 'Done'] as const;
+export type OrganiserItemStatus = (typeof ORGANISER_ITEM_STATUS_OPTIONS)[number];
+function isValidOrganiserItemStatus(value: string): value is OrganiserItemStatus {
+  return (ORGANISER_ITEM_STATUS_OPTIONS as readonly string[]).includes(value);
+}
+
 const secret = new TextEncoder().encode(process.env.SESSION_SECRET!);
 
 export type HelenaOrganiserWriteAuthResult =
@@ -407,6 +429,321 @@ export async function proposeOrExecuteOrganiserComment(
     ok: true,
     mode: 'proposed',
     proposal: { item_id: params.itemId, item_name: itemName, body },
+    confirmationToken,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Phase D.4.6N — Helena's SECOND (and, for this phase, LAST) Organiser
+// write action: changing the status of one explicit existing item. Same
+// propose/confirm+execute contract as proposeOrExecuteOrganiserComment
+// above (see that function's own header for the shared design rationale);
+// this is a deliberately SEPARATE function and a SEPARATE atomic SQL
+// statement, not a generic "update any field" capability — desiredStatus
+// is the only mutable value, and it is validated against
+// ORGANISER_ITEM_STATUS_OPTIONS both at propose time (fail fast, zero SQL)
+// and implicitly at confirm time (the token can never carry a value that
+// didn't pass that same check when minted).
+//
+// STALE-STATE / LOST-UPDATE PROTECTION — the critical new property this
+// phase adds beyond the comment action: the token binds not just the
+// desired status but the EXACT current status observed at propose time
+// (expectedCurrentStatus). At confirm time, the atomic statement locks the
+// target row (FOR UPDATE) and only applies the UPDATE when the row's
+// TRUE, currently-committed status still equals expectedCurrentStatus —
+// if another actor changed the item's status in between, the UPDATE's own
+// WHERE clause simply matches zero rows and nothing is overwritten. This
+// mirrors the exact race-safe FOR UPDATE + MATERIALIZED CTE pattern
+// already proven in app/api/organiser/items/[itemId]/route.ts's PATCH
+// handler (see that route's own header) — that route's own COALESCE-based
+// field merge doesn't need this extra guard for itself, but the pattern it
+// established (lock, then compare/branch off the locked row) is exactly
+// what's reused here.
+//
+// STALE-CONFIRMATION CONSUMPTION — deliberately asymmetric from
+// item_not_found: the ledger `consumed` INSERT is gated ONLY on the target
+// item existing (WHERE EXISTS target_item), never on the status actually
+// matching. This means a stale-state attempt DOES burn its jti (the token
+// becomes permanently unusable) even though it changes nothing — this is
+// intentional (see the phase's own Step 11 requirement): if the row were
+// left unconsumed, and the item's status later cycled back to
+// expectedCurrentStatus within the token's own validity window, the exact
+// same stale confirmation could unexpectedly become executable again. An
+// item_not_found outcome still leaves the token unburned, unchanged from
+// the comment action's own reasoning — a token that could never possibly
+// have mutated anything was never meaningfully "used".
+
+interface StatusChangeTokenPayload {
+  purpose: typeof TOKEN_PURPOSE;
+  actionType: 'change_status';
+  organisationId: string;
+  userId: string;
+  itemId: string;
+  /** Snapshot of the item's status AT PROPOSE TIME — the sole basis for
+   *  the stale-state comparison at confirm time. Never re-derived from a
+   *  fresh read at confirm time; it must be the exact value the user was
+   *  shown when they were asked to approve this specific change. */
+  expectedCurrentStatus: string;
+  desiredStatus: string;
+  jti: string;
+}
+
+async function signStatusChangeActionToken(payload: StatusChangeTokenPayload): Promise<string> {
+  return new SignJWT(payload as unknown as Record<string, unknown>)
+    .setProtectedHeader({ alg: 'HS256' })
+    .setIssuedAt()
+    .setExpirationTime(TOKEN_TTL)
+    .sign(secret);
+}
+
+type VerifyStatusChangeActionTokenResult =
+  | { ok: true; itemId: string; expectedCurrentStatus: string; desiredStatus: string; jti: string; exp: number }
+  | { ok: false; reason: 'expired' | 'invalid' };
+
+/** Deliberately a separate function from verifyActionToken (the
+ *  post_comment verifier) rather than a shared generic — see this
+ *  module's own D.4.6N header for why keeping the two action types'
+ *  verification paths independent is the safer choice here. Same
+ *  shape of checks: signature, purpose, actionType, session binding,
+ *  well-formed jti, and (new for this action) that both status values
+ *  are themselves still members of the canonical set — a token could
+ *  never have been minted with an invalid one, so this also catches a
+ *  token signed by a since-downgraded/incompatible build. */
+async function verifyStatusChangeActionToken(
+  token: string,
+  expected: { organisationId: string; userId: string },
+): Promise<VerifyStatusChangeActionTokenResult> {
+  try {
+    const { payload } = await jwtVerify(token, secret, { algorithms: ['HS256'] });
+    const p = payload as unknown as StatusChangeTokenPayload;
+    if (p.purpose !== TOKEN_PURPOSE) return { ok: false, reason: 'invalid' };
+    if (p.actionType !== 'change_status') return { ok: false, reason: 'invalid' };
+    if (p.organisationId !== expected.organisationId) return { ok: false, reason: 'invalid' };
+    if (p.userId !== expected.userId) return { ok: false, reason: 'invalid' };
+    if (typeof p.itemId !== 'string' || !UUID_RE.test(p.itemId)) return { ok: false, reason: 'invalid' };
+    if (typeof p.expectedCurrentStatus !== 'string' || !isValidOrganiserItemStatus(p.expectedCurrentStatus)) return { ok: false, reason: 'invalid' };
+    if (typeof p.desiredStatus !== 'string' || !isValidOrganiserItemStatus(p.desiredStatus)) return { ok: false, reason: 'invalid' };
+    if (typeof p.jti !== 'string' || !UUID_RE.test(p.jti)) return { ok: false, reason: 'invalid' };
+    const exp = (payload as { exp?: number }).exp;
+    if (typeof exp !== 'number') return { ok: false, reason: 'invalid' };
+    return { ok: true, itemId: p.itemId, expectedCurrentStatus: p.expectedCurrentStatus, desiredStatus: p.desiredStatus, jti: p.jti, exp };
+  } catch (err) {
+    if (err instanceof joseErrors.JWTExpired) return { ok: false, reason: 'expired' };
+    return { ok: false, reason: 'invalid' };
+  }
+}
+
+export type ProposeOrExecuteStatusChangeResult =
+  | {
+      ok: true;
+      mode: 'proposed';
+      proposal: { item_id: string; item_name: string; current_status: string; desired_status: string };
+      confirmationToken: string;
+    }
+  | {
+      ok: true;
+      mode: 'executed';
+      item: { id: string; name: string; previous_status: string; new_status: string };
+    }
+  | {
+      ok: false;
+      reason:
+        | 'invalid_item_id'
+        | 'item_not_found'
+        | 'invalid_status'
+        // Phase D.4.6N — the requested status already equals the item's
+        // current status. Deliberately never mints a token for this (see
+        // the phase's own Step 7): a no-op has nothing to confirm, and
+        // minting one anyway would just be an extra, pointless single-use
+        // token consuming ledger space for zero effect.
+        | 'noop_same_status'
+        | 'invalid_confirmation'
+        | 'expired_confirmation'
+        | 'already_used_confirmation'
+        // Phase D.4.6N — the token verified fully, but the item's TRUE
+        // current status (read under FOR UPDATE at confirm time) no
+        // longer matches expectedCurrentStatus. The jti IS still consumed
+        // (see this module's own header) — nothing was overwritten.
+        | 'stale_item_state';
+    };
+
+export interface ProposeOrExecuteStatusChangeParams {
+  organisationId: string;
+  userId: string;
+  actorName: string;
+  itemId: string;
+  desiredStatus: string;
+  /** Present ONLY when sourced from the trusted, non-model-controlled
+   *  top-level request field (see app/api/chat/route.ts) — never from a
+   *  model tool-call argument. Same trust boundary as
+   *  ProposeOrExecuteCommentParams.confirmationToken. */
+  confirmationToken?: string;
+}
+
+/**
+ * The single domain function behind Helena's second write tool. Reuses
+ * the exact same FOR UPDATE + MATERIALIZED CTE race-safety discipline
+ * already proven in app/api/organiser/items/[itemId]/route.ts's PATCH
+ * handler, combined with the exact same durable single-use ledger
+ * mechanism proposeOrExecuteOrganiserComment already uses (ON CONFLICT
+ * (jti) DO NOTHING against organiser_action_confirmations, migration step
+ * 45's action_type expansion). event_type 'item.updated' is the EXISTING
+ * canonical status-change activity event (already used by the human PATCH
+ * route for any field change, including status) — no new event vocabulary
+ * is introduced. metadata_json: {source: 'helena'} mirrors the comment
+ * action's own convention.
+ */
+export async function proposeOrExecuteOrganiserStatusChange(
+  params: ProposeOrExecuteStatusChangeParams,
+): Promise<ProposeOrExecuteStatusChangeResult> {
+  const { organisationId, userId, actorName } = params;
+
+  if (params.confirmationToken) {
+    // ── CONFIRM + EXECUTE ──────────────────────────────────────────────
+    // The model's CURRENT itemId/desiredStatus arguments are deliberately
+    // never consulted below this point — only the values embedded inside
+    // the verified token are used, exactly mirroring the comment action's
+    // own guarantee.
+    const verified = await verifyStatusChangeActionToken(params.confirmationToken, { organisationId, userId });
+    if (!verified.ok) {
+      return { ok: false, reason: verified.reason === 'expired' ? 'expired_confirmation' : 'invalid_confirmation' };
+    }
+
+    // ONE atomic statement performs, in order:
+    //   1. lock the target row (target_item, FOR UPDATE) — this is what
+    //      makes the stale-state comparison below race-safe: if another
+    //      transaction is mid-write on this exact row, this statement
+    //      blocks until it commits, then re-reads the TRUE latest status
+    //      (Postgres's own EvalPlanQual mechanism) rather than a stale
+    //      pre-lock snapshot;
+    //   2. attempt to durably consume this exact jti (consumed) — gated
+    //      ONLY on the item existing, never on the status matching (see
+    //      this module's own "STALE-CONFIRMATION CONSUMPTION" header for
+    //      why a stale attempt must still burn its token);
+    //   3. apply the UPDATE — gated on BOTH target_item/consumed existing
+    //      AND target_item.status still equalling expectedCurrentStatus;
+    //   4. insert the activity row — only if the UPDATE produced a row.
+    // Every outcome is distinguishable from the single final SELECT:
+    //   item_found=0                          -> item_not_found (token unburned)
+    //   item_found=1, was_consumed=0          -> already_used_confirmation
+    //   item_found=1, was_consumed=1, no row  -> stale_item_state (token burned)
+    //   item_found=1, was_consumed=1, row     -> executed
+    // If any part of this statement fails (e.g. a future CHECK-constraint
+    // violation on the activity insert), Postgres rolls back the ENTIRE
+    // statement — including the ledger consume and the status UPDATE — so
+    // a transient failure can never leave a partial status change or a
+    // permanently-burned token with nothing actually having committed.
+    const rows = await sql`
+      WITH target_item AS MATERIALIZED (
+        SELECT id, board_id, name, status FROM organiser_items
+        WHERE id = ${verified.itemId} AND organisation_id = ${organisationId}
+        FOR UPDATE
+      ),
+      consumed AS (
+        INSERT INTO organiser_action_confirmations (jti, organisation_id, user_id, action_type, item_id, expires_at)
+        SELECT ${verified.jti}, ${organisationId}, ${userId}, 'change_status', ${verified.itemId}, to_timestamp(${verified.exp})
+        WHERE EXISTS (SELECT 1 FROM target_item)
+        ON CONFLICT (jti) DO NOTHING
+        RETURNING jti
+      ),
+      updated AS (
+        UPDATE organiser_items i
+        SET status = ${verified.desiredStatus}, updated_at = NOW()
+        FROM target_item, consumed
+        WHERE i.id = target_item.id AND target_item.status = ${verified.expectedCurrentStatus}
+        RETURNING i.id, i.board_id, i.name, i.status
+      ),
+      activity_row AS (
+        INSERT INTO organiser_activity (
+          organisation_id, board_id, item_id, actor_user_id, actor_name,
+          event_type, entity_type, entity_id, before_json, after_json, metadata_json
+        )
+        SELECT
+          ${organisationId}, updated.board_id, updated.id, ${userId}, ${actorName},
+          'item.updated', 'item', updated.id::text,
+          jsonb_build_object('status', organiser_activity_sanitise_scalar(to_jsonb(${verified.expectedCurrentStatus}::text))),
+          jsonb_build_object('status', organiser_activity_sanitise_scalar(to_jsonb(updated.status))),
+          jsonb_build_object('source', 'helena')
+        FROM updated
+        RETURNING id
+      )
+      SELECT
+        (SELECT count(*) FROM target_item)::int AS item_found,
+        (SELECT count(*) FROM consumed)::int AS was_consumed,
+        updated.id AS updated_id, updated.name AS item_name, updated.status AS new_status
+      FROM (SELECT 1) AS one_row
+      LEFT JOIN updated ON true
+    `;
+
+    const row = rows[0] as {
+      item_found: number;
+      was_consumed: number;
+      updated_id: string | null;
+      item_name: string | null;
+      new_status: string | null;
+    };
+
+    if (row.item_found === 0) return { ok: false, reason: 'item_not_found' };
+    if (row.was_consumed === 0) return { ok: false, reason: 'already_used_confirmation' };
+    if (!row.updated_id) return { ok: false, reason: 'stale_item_state' };
+
+    return {
+      ok: true,
+      mode: 'executed',
+      item: {
+        id: row.updated_id,
+        name: row.item_name ?? '',
+        previous_status: verified.expectedCurrentStatus,
+        new_status: row.new_status ?? verified.desiredStatus,
+      },
+    };
+  }
+
+  // ── PROPOSE ────────────────────────────────────────────────────────────
+  if (!UUID_RE.test(params.itemId)) return { ok: false, reason: 'invalid_item_id' };
+  if (!isValidOrganiserItemStatus(params.desiredStatus)) return { ok: false, reason: 'invalid_status' };
+
+  // Phase D.4.6N — same opportunistic ledger maintenance as the comment
+  // action's own propose path (see pruneExpiredConfirmationsBestEffort's
+  // own header) — deliberately after the zero-sql-for-invalid-input
+  // checks above.
+  await pruneExpiredConfirmationsBestEffort();
+
+  const itemRows = await sql`
+    SELECT id, name, status FROM organiser_items
+    WHERE id = ${params.itemId} AND organisation_id = ${organisationId}
+    LIMIT 1
+  `;
+  if (itemRows.length === 0) return { ok: false, reason: 'item_not_found' };
+  const itemName = itemRows[0].name as string;
+  const currentStatus = itemRows[0].status as string;
+
+  if (currentStatus === params.desiredStatus) return { ok: false, reason: 'noop_same_status' };
+
+  const confirmationToken = await signStatusChangeActionToken({
+    purpose: TOKEN_PURPOSE,
+    actionType: 'change_status',
+    organisationId,
+    userId,
+    itemId: params.itemId,
+    expectedCurrentStatus: currentStatus,
+    desiredStatus: params.desiredStatus,
+    // Phase D.4.6N — minted fresh on every proposal, never derived from
+    // item/status (a resend of an identical proposal gets a different
+    // jti, and therefore its own independent single-use slot in the
+    // ledger) — same discipline as the comment action's own jti.
+    jti: randomUUID(),
+  });
+
+  return {
+    ok: true,
+    mode: 'proposed',
+    proposal: {
+      item_id: params.itemId,
+      item_name: itemName,
+      current_status: currentStatus,
+      desired_status: params.desiredStatus,
+    },
     confirmationToken,
   };
 }

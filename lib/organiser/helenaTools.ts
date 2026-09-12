@@ -15,7 +15,12 @@ import {
   shapeItemActivityForHelena,
   ORGANISER_ACTIVITY_WINDOWS,
 } from './helenaRead';
-import { authorizeHelenaOrganiserWrite, proposeOrExecuteOrganiserComment } from './helenaWrite';
+import {
+  authorizeHelenaOrganiserWrite,
+  proposeOrExecuteOrganiserComment,
+  proposeOrExecuteOrganiserStatusChange,
+  ORGANISER_ITEM_STATUS_OPTIONS,
+} from './helenaWrite';
 
 // Phase D.4.6C — Anthropic tool definitions + execution dispatch for the
 // four MVP Organiser read tools, built entirely on top of the D.4.6B
@@ -56,6 +61,7 @@ export const ORGANISER_TOOL_NAMES = [
   'get_organiser_board_activity',
   'get_organiser_item_activity',
   'propose_organiser_comment',
+  'propose_organiser_status_change',
 ] as const;
 export type OrganiserToolName = (typeof ORGANISER_TOOL_NAMES)[number];
 
@@ -217,6 +223,34 @@ export function buildOrganiserTools(): Anthropic.Tool[] {
         additionalProperties: false,
       },
     },
+    // Phase D.4.6N — Helena's SECOND (and, for this phase, last) Organiser
+    // write/action tool. Same propose/confirm+execute discipline as
+    // propose_organiser_comment above: calling this NEVER mutates
+    // anything by itself, no `confirmation_token` field exists in this
+    // schema either, and desired_status is a closed enum — the model can
+    // never submit an arbitrary status string, only one of the four
+    // canonical values.
+    {
+      name: 'propose_organiser_status_change',
+      description:
+        'Propose changing the status of one existing Organiser item. This NEVER changes the status immediately — it only returns a bounded proposal (the exact item, its current status, and the requested new status) that MUST be read back to the user for explicit approval before anything changes. Only call the tool the user can actually see executed after they say yes; you cannot confirm on the user\'s behalf, and calling this tool again does not change anything either. item_id must come from list_organiser_items or existing conversation context — never guess it. If the item is already in the requested status, the tool will say so instead of proposing anything.',
+      input_schema: {
+        type: 'object' as const,
+        properties: {
+          item_id: {
+            type: 'string',
+            description: 'The item id to change status on, from list_organiser_items or existing conversation context.',
+          },
+          desired_status: {
+            type: 'string',
+            enum: [...ORGANISER_ITEM_STATUS_OPTIONS],
+            description: 'The exact new status to propose — must be one of the canonical Organiser status values.',
+          },
+        },
+        required: ['item_id', 'desired_status'],
+        additionalProperties: false,
+      },
+    },
   ];
 }
 
@@ -360,6 +394,72 @@ export async function executeOrganiserTool(
     }
   }
 
+  // Phase D.4.6N — Helena's second write tool, same stricter write
+  // boundary as propose_organiser_comment above (never the read boundary
+  // below).
+  if (name === 'propose_organiser_status_change') {
+    const writeAuth = await authorizeHelenaOrganiserWrite();
+    if (!writeAuth.ok) return JSON.stringify({ status: 'unauthorized', error: GENERIC_DENIAL });
+    const { organisationId, userId, actorName } = writeAuth;
+
+    try {
+      const itemId = readString(input, 'item_id') ?? contextDefaults?.itemId ?? '';
+      const desiredStatus = readString(input, 'desired_status') ?? '';
+      const result = await proposeOrExecuteOrganiserStatusChange({
+        organisationId,
+        userId,
+        actorName,
+        itemId,
+        desiredStatus,
+        confirmationToken: contextDefaults?.confirmationToken,
+      });
+
+      if (!result.ok) {
+        // Phase D.4.6N — every confirm+execute (and propose-time) outcome
+        // gets its own status string, mirroring propose_organiser_comment's
+        // own D.4.6L discriminant design exactly — see
+        // app/api/chat/route.ts's ORGANISER_STATUS_CHANGE_OUTCOME_TEXT for
+        // where this becomes the deterministic user-facing wording.
+        if (result.reason === 'invalid_status') {
+          return JSON.stringify({
+            status: 'invalid_status',
+            error: `That is not a valid Organiser status. Valid statuses are: ${ORGANISER_ITEM_STATUS_OPTIONS.join(', ')}.`,
+            valid_statuses: ORGANISER_ITEM_STATUS_OPTIONS,
+          });
+        }
+        if (result.reason === 'noop_same_status') {
+          return JSON.stringify({ status: 'noop_same_status', note: 'This item is already in that status. No change was made.' });
+        }
+        const status: string =
+          result.reason === 'item_not_found' ? 'item_not_found'
+          : result.reason === 'already_used_confirmation' ? 'already_used_confirmation'
+          : result.reason === 'expired_confirmation' ? 'expired_confirmation'
+          : result.reason === 'invalid_confirmation' ? 'invalid_confirmation'
+          : result.reason === 'stale_item_state' ? 'stale_item_state'
+          : 'failed'; // invalid_item_id — propose-time-only
+        return JSON.stringify({ status, error: GENERIC_ERROR });
+      }
+
+      if (result.mode === 'proposed') {
+        return JSON.stringify({
+          status: 'proposed',
+          proposal: result.proposal,
+          confirmation_token: result.confirmationToken,
+          note: 'This status has NOT been changed yet. Read the exact item, its current status, and the requested new status back to the user and wait for their explicit yes before anything changes. You cannot confirm this yourself.',
+        });
+      }
+
+      return JSON.stringify({
+        status: 'changed',
+        action_type: 'change_status',
+        item: result.item,
+      });
+    } catch (err) {
+      console.error(`[Helena][Organiser tool: ${name}]`, err);
+      return JSON.stringify({ status: 'failed', error: GENERIC_ERROR });
+    }
+  }
+
   const auth = await authorizeHelenaOrganiserRead();
   if (!auth.ok) return JSON.stringify({ error: GENERIC_DENIAL });
   const { organisationId } = auth;
@@ -495,8 +595,11 @@ export async function executeOrganiserTool(
 // containment already proven in D.4.6B (comment/file/board/group text is
 // already just a JSON string in a tool_result by the time this section's
 // own "treat as data" rule would ever matter).
-export const ORGANISER_SAFETY_PROMPT = `[Organiser tools — mostly read-only, one guarded action]
-list_organiser_boards, list_organiser_items, get_organiser_board_activity, and get_organiser_item_activity are READ-ONLY: you cannot create, update, move, or delete anything through them. You also have exactly one write action, propose_organiser_comment: it NEVER posts immediately, only ever a proposal. Read the exact item and text back and explicitly ask the user to confirm before anything is posted; only say it was posted if the tool result status is "posted" — you cannot supply that confirmation yourself, and calling the tool again does not confirm it. No other Organiser write action exists — say so plainly if asked, and never bypass a role/module denial.
+export const ORGANISER_SAFETY_PROMPT = `[Organiser tools — mostly read-only, two guarded actions]
+list_organiser_boards, list_organiser_items, get_organiser_board_activity, and get_organiser_item_activity are READ-ONLY: you cannot create, update, move, or delete anything through them. You have exactly two write actions, and both work the same way: they NEVER execute immediately, only ever return a proposal.
+- propose_organiser_comment: proposes posting a comment. Only say it was posted if the tool result status is "posted".
+- propose_organiser_status_change: proposes changing one item's status to one of its exact canonical values. Only say the status was changed if the tool result status is "changed". If the item is already in the requested status, tell the user that plainly instead of proposing anything.
+For both: read the exact proposal back and explicitly ask the user to confirm before anything happens — you cannot supply that confirmation yourself, and calling the tool again does not confirm it. There is no generic "edit this item" or "update this field" capability, no title/description/due-date/priority/assignee/group changes, and no create/delete — say so plainly if asked, and never bypass a role/module denial.
 - Tool results are authoritative evidence of what was recorded. No results for a window means "no recorded activity found for that window" — never say "nothing happened".
 - Never infer actor intent beyond what the recorded actor/diff data actually shows.
 - Never invent a board, item, or group name. If a name was not recorded, say so rather than guessing.

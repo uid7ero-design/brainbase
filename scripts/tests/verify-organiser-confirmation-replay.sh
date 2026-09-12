@@ -203,6 +203,11 @@ CREATE TABLE IF NOT EXISTS organiser_action_confirmations (
 );
 CREATE INDEX IF NOT EXISTS idx_organiser_action_confirmations_org_user ON organiser_action_confirmations(organisation_id, user_id);
 CREATE INDEX IF NOT EXISTS idx_organiser_action_confirmations_expires_at ON organiser_action_confirmations(expires_at);
+
+-- Migration step 45 (D.4.6N) — extracted verbatim from app/api/admin/migrate/route.ts
+ALTER TABLE organiser_action_confirmations DROP CONSTRAINT IF EXISTS organiser_action_confirmations_action_type_check;
+ALTER TABLE organiser_action_confirmations ADD CONSTRAINT organiser_action_confirmations_action_type_check
+  CHECK (action_type IN ('"'"'post_comment'"'"', '"'"'change_status'"'"'));
 '
 
 echo ""
@@ -294,6 +299,63 @@ else
   echo "  FAIL: item_updates row persisted despite the transaction failing"
   FAIL=$((FAIL + 1))
   FAILURES+=("item_updates did not roll back on downstream failure")
+fi
+
+echo ""
+echo "=== 3B. STATUS-CHANGE FAILURE-ATOMICITY (D.4.6N) — a downstream activity insert failure must roll back the ledger consume AND the status UPDATE together ==="
+STATUS_ITEM_ID="$(echo "WITH ins AS (INSERT INTO organiser_items (board_id, organisation_id, name, status) VALUES ('$BOARD_ID', 'org-a', 'Status Atomicity Item', 'Not Started') RETURNING id) SELECT id FROM ins;" | psql_query | tr -d '[:space:]')"
+FAKE_JTI_2="00000000-0000-4000-8000-000000000002"
+BROKEN_STATUS_SQL="
+WITH target_item AS (
+  SELECT id, board_id, name, status FROM organiser_items WHERE id = '$STATUS_ITEM_ID' AND organisation_id = 'org-a' FOR UPDATE
+),
+consumed AS (
+  INSERT INTO organiser_action_confirmations (jti, organisation_id, user_id, action_type, item_id, expires_at)
+  SELECT '$FAKE_JTI_2', 'org-a', 'user-1', 'change_status', '$STATUS_ITEM_ID', NOW() + interval '2 minutes'
+  WHERE EXISTS (SELECT 1 FROM target_item)
+  ON CONFLICT (jti) DO NOTHING
+  RETURNING jti
+),
+updated AS (
+  UPDATE organiser_items i SET status = 'Done', updated_at = NOW()
+  FROM target_item, consumed
+  WHERE i.id = target_item.id AND target_item.status = 'Not Started'
+  RETURNING i.id, i.board_id, i.name, i.status
+),
+activity_row AS (
+  INSERT INTO organiser_activity (organisation_id, board_id, item_id, actor_user_id, actor_name, event_type, entity_type, entity_id, before_json, after_json, metadata_json)
+  SELECT 'org-a', updated.board_id, updated.id, 'user-1', 'Tester', 'item.NOT_A_REAL_EVENT_TYPE', 'item', updated.id::text, '{}'::jsonb, '{}'::jsonb, '{}'::jsonb
+  FROM updated
+  RETURNING id
+)
+SELECT updated.id FROM updated;
+"
+OUT2="$(echo "$BROKEN_STATUS_SQL" | psql_exec 2>&1)"
+if [ $? -ne 0 ]; then
+  echo "  PASS: forced-invalid-event-type status-change statement correctly rejected by CHECK constraint"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: forced-invalid status-change statement unexpectedly succeeded"
+  FAIL=$((FAIL + 1))
+  FAILURES+=("forced-invalid status-change statement should have failed")
+fi
+STATUS_LEDGER_COUNT="$(echo "SELECT count(*) FROM organiser_action_confirmations WHERE jti = '$FAKE_JTI_2';" | psql_query | tr -d '[:space:]')"
+if [ "$STATUS_LEDGER_COUNT" = "0" ]; then
+  echo "  PASS (HARD GATE): status-change ledger consume ROLLED BACK too — zero rows for the forced-failure jti"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL (HARD GATE): status-change ledger row persisted despite the downstream activity insert failing"
+  FAIL=$((FAIL + 1))
+  FAILURES+=("status-change ledger consume did not roll back on downstream failure")
+fi
+STATUS_AFTER="$(echo "SELECT status FROM organiser_items WHERE id = '$STATUS_ITEM_ID';" | psql_query | tr -d '[:space:]')"
+if [ "$STATUS_AFTER" = "NotStarted" ] || [ "$STATUS_AFTER" = "Not Started" ]; then
+  echo "  PASS: item status ROLLED BACK too — still 'Not Started'"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: item status persisted as '$STATUS_AFTER' despite the transaction failing"
+  FAIL=$((FAIL + 1))
+  FAILURES+=("status update did not roll back on downstream failure")
 fi
 
 echo ""

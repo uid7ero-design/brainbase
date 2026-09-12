@@ -213,6 +213,13 @@ export type PendingOrganiserAction = {
   tool: 'propose_organiser_comment';
   confirmationToken: string;
   proposal: { item_id: string; item_name: string; body: string };
+} | {
+  // Phase D.4.6N — Helena's second write action. Same shape/lifecycle as
+  // the comment variant above: set only on a fresh 'proposed' result,
+  // cleared once/if this same request executes it (status "changed").
+  tool: 'propose_organiser_status_change';
+  confirmationToken: string;
+  proposal: { item_id: string; item_name: string; current_status: string; desired_status: string };
 } | null;
 
 // Phase D.4.6L — backend execution truth, not free-form model narration, is
@@ -240,6 +247,32 @@ const ORGANISER_CONFIRMATION_OUTCOME_TEXT: Record<string, string> = {
   unauthorized: "I'm not able to post that — this account doesn't have permission to make Organiser changes.",
   item_not_found: "I couldn't post that — the item it was meant for is no longer available.",
   failed: "I wasn't able to post that comment. Please try again.",
+};
+
+// Phase D.4.6N — same deterministic-bypass mechanism as
+// ORGANISER_CONFIRMATION_OUTCOME_TEXT above, for Helena's second write
+// action (propose_organiser_status_change). A separate map, not a shared
+// one keyed by status alone: several status strings are shared in name
+// with the comment map (already_used_confirmation, expired_confirmation,
+// invalid_confirmation, unauthorized, item_not_found, failed) but need
+// their OWN status-change-specific wording — the comment map's text
+// ("nothing was posted") would be actively misleading for a status-change
+// failure. 'changed' (success) and 'stale_item_state' are unique to this
+// action and have no comment-side equivalent at all. 'changed' is
+// deliberately a template filled in below (item name / old / new status
+// are server-authoritative, sourced from the tool result's own `item`
+// object — never from the model) rather than a single static string, so
+// the success message names the real item and the real transition, per
+// the phase's own required example wording.
+const ORGANISER_STATUS_CHANGE_OUTCOME_TEXT: Record<string, string> = {
+  already_used_confirmation: 'That confirmation has already been used, so the status was not changed just now.',
+  expired_confirmation: 'That confirmation has expired. Please ask me again to change the status.',
+  invalid_confirmation: "I couldn't verify that confirmation, so the status was not changed. Please ask me again.",
+  unauthorized: "I'm not able to do that — this account doesn't have permission to make Organiser changes.",
+  item_not_found: "I couldn't change that — the item is no longer available.",
+  stale_item_state:
+    "That item's status changed after this action was proposed, so I didn't overwrite it. Ask me to create a fresh status-change proposal.",
+  failed: "I wasn't able to change that status. Please try again.",
 };
 
 // ─── Analysis helpers ─────────────────────────────────────────────────────────
@@ -548,7 +581,17 @@ async function callClaude(
         // block for the same tool in this exact same model response —
         // sees undefined.
         let confirmationTokenForThisCall: string | undefined;
-        if (block.name === 'propose_organiser_comment' && remainingConfirmationToken) {
+        // Phase D.4.6N — the one-shot guard now covers BOTH write tools:
+        // the trusted top-level organiserActionConfirmation field is a
+        // single value confirming whichever ONE action the user actually
+        // clicked Confirm on, and the verified token itself already
+        // carries its own actionType — so the FIRST write-tool call of
+        // EITHER kind to reach this line consumes it, exactly as the
+        // single-write-tool case already worked for comment alone.
+        if (
+          (block.name === 'propose_organiser_comment' || block.name === 'propose_organiser_status_change') &&
+          remainingConfirmationToken
+        ) {
           confirmationTokenForThisCall = remainingConfirmationToken;
           remainingConfirmationToken = undefined;
         }
@@ -596,6 +639,44 @@ async function callClaude(
                 Object.prototype.hasOwnProperty.call(ORGANISER_CONFIRMATION_OUTCOME_TEXT, parsed.status)
               ) {
                 organiserConfirmationOutcomeText = ORGANISER_CONFIRMATION_OUTCOME_TEXT[parsed.status];
+              }
+            } catch {
+              // Malformed content is unreachable given executeOrganiserTool's
+              // own contract, but never let a parse failure here affect the
+              // tool_result already returned to the model.
+            }
+          } else if (block.name === 'propose_organiser_status_change') {
+            // Phase D.4.6N — same surfacing/short-circuit mechanism as the
+            // comment branch above, for Helena's second write action.
+            try {
+              const parsed = JSON.parse(content) as {
+                status?: string;
+                proposal?: { item_id: string; item_name: string; current_status: string; desired_status: string };
+                confirmation_token?: string;
+                item?: { id: string; name: string; previous_status: string; new_status: string };
+              };
+              if (parsed.status === 'proposed' && parsed.proposal && parsed.confirmation_token) {
+                pendingOrganiserAction = {
+                  tool: 'propose_organiser_status_change',
+                  confirmationToken: parsed.confirmation_token,
+                  proposal: parsed.proposal,
+                };
+              } else if (parsed.status === 'changed') {
+                pendingOrganiserAction = null;
+              }
+              if (confirmationTokenForThisCall && parsed.status) {
+                // 'changed' is a template, not a static lookup — see
+                // ORGANISER_STATUS_CHANGE_OUTCOME_TEXT's own header for why
+                // the success wording names the real item/transition. The
+                // item/name/status values come only from this tool
+                // result's own server-authoritative `item` object, never
+                // from the model's current-turn text.
+                if (parsed.status === 'changed' && parsed.item) {
+                  organiserConfirmationOutcomeText =
+                    `Done — I changed ${parsed.item.name} from ${parsed.item.previous_status} to ${parsed.item.new_status}.`;
+                } else if (Object.prototype.hasOwnProperty.call(ORGANISER_STATUS_CHANGE_OUTCOME_TEXT, parsed.status)) {
+                  organiserConfirmationOutcomeText = ORGANISER_STATUS_CHANGE_OUTCOME_TEXT[parsed.status];
+                }
               }
             } catch {
               // Malformed content is unreachable given executeOrganiserTool's

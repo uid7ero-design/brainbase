@@ -323,13 +323,13 @@ describe('Wiring — every live ChatPanel call site passes the new props through
 })
 
 describe('Accessibility (source-level)', () => {
-  it('Confirm/Cancel are native <button> elements (keyboard reachable by default), not clickable divs', () => {
+  it('Confirm/Cancel are native <button> elements (keyboard reachable by default), not clickable divs — 4 total in D.4.6N: one Confirm/Cancel pair per proposal-shape branch (comment, status change)', () => {
     const card = sliceFrom(CHATPANEL_SOURCE, 'function OrganiserActionCard(', 'export function ChatPanel(')
     expect(card).toContain('<button')
-    expect((card.match(/<button/g) || []).length).toBe(2)
+    expect((card.match(/<button/g) || []).length).toBe(4)
   })
 
-  it('card has an accessible region label and both buttons have explicit aria-labels', () => {
+  it('card has an accessible region label and both comment-branch buttons have explicit aria-labels', () => {
     const card = sliceFrom(CHATPANEL_SOURCE, 'function OrganiserActionCard(', 'export function ChatPanel(')
     expect(card).toContain('role="region"')
     expect(card).toContain('aria-label="Helena Organiser action awaiting your confirmation"')
@@ -337,8 +337,62 @@ describe('Accessibility (source-level)', () => {
     expect(card).toContain('aria-label="Cancel: do not post this comment"')
   })
 
+  it('D.4.6N: the status-change branch\'s buttons also have explicit, distinct aria-labels', () => {
+    const card = sliceFrom(CHATPANEL_SOURCE, 'function OrganiserActionCard(', 'export function ChatPanel(')
+    expect(card).toContain("aria-label=\"Confirm: change this item's status now\"")
+    expect(card).toContain("aria-label=\"Cancel: do not change this item's status\"")
+  })
+
   it('no window.confirm()/window.alert() browser dialog is used', () => {
     expect(CHATPANEL_SOURCE).not.toContain('window.confirm(')
     expect(CHATPANEL_SOURCE).not.toContain('confirm(')
+  })
+})
+
+// Phase D.4.6N-R1 — the message-list region (which the confirmation card,
+// both comment and status-change shapes, renders inside — see the shared
+// `{pendingOrganiserAction && (<OrganiserActionCard .../>)}` block above)
+// must never be sized with a hardcoded, non-flex pixel cap while the input
+// bar below it sits in normal flow with no reserved space: on a short
+// enough viewport that combination let a tall enough card's Confirm/Cancel
+// button row be geometrically painted underneath the input bar, so a real
+// pointer click could not reach the buttons even though the DOM elements
+// existed (see the D.4.6N Preview-certification report's live
+// elementFromPoint reproduction). The fix is structural, not per-card-type:
+// there is exactly one message-list container shared by both proposal
+// shapes, so proving the container itself uses a proper bounded-flex
+// layout covers both cards identically — this is proven directly below,
+// and Preview geometry QA (see PR #198's R1 report) is the load-bearing
+// proof that pixel-level overlap cannot be reproduced by a rendering-free
+// test environment (this repo has no jsdom/layout harness — see the file
+// header note above).
+describe('R — the message-list region uses a real flex layout, never a hardcoded pixel cap, so it can never overlap the input bar below it', () => {
+  it('the message-list container is a single, unconditional flex:1/minHeight:0 region — not a hardcoded maxHeight, and not branched per layout mode', () => {
+    const idx = CHATPANEL_SOURCE.indexOf('{/* Messages')
+    expect(idx).toBeGreaterThan(-1)
+    const block = CHATPANEL_SOURCE.slice(idx, CHATPANEL_SOURCE.indexOf('{messages.length === 0', idx))
+    // The container's own style object must size it with flex, not a fixed
+    // pixel maxHeight — a hardcoded number here is exactly the regression
+    // this test exists to catch.
+    expect(block).toContain('flex: 1, minHeight: 0')
+    expect(block).not.toMatch(/maxHeight:\s*340\b/)
+    // Structural: this single container renders BOTH proposal shapes (see
+    // the shared pendingOrganiserAction block just below it in source,
+    // asserted elsewhere in this file) — so it is not conditioned on
+    // action.tool, meaning this one flex fix covers the comment card and
+    // the status-change card identically, never a per-card-type branch.
+    expect(block).not.toMatch(/docked\s*\?\s*\{\s*flex:\s*1\s*\}\s*:\s*\{\s*maxHeight/)
+  })
+
+  it('the floating-mode outer panel is height-bounded (so its flex:1 message child has a real budget to shrink within, instead of being free to grow past the viewport on short screens)', () => {
+    const idx = CHATPANEL_SOURCE.indexOf("position: \"fixed\", bottom: 86, right: 20,")
+    expect(idx).toBeGreaterThan(-1)
+    const block = CHATPANEL_SOURCE.slice(idx, idx + 500)
+    expect(block).toMatch(/maxHeight:\s*"calc\(100vh/)
+  })
+
+  it('the docked-mode outer panel remains height-bounded via its own height/maxHeight props (unchanged pre-existing contract), so the same flex:1 message child is valid there too', () => {
+    const idx = CHATPANEL_SOURCE.indexOf('position: "relative", width: "100%", maxWidth, height: "100%", maxHeight,')
+    expect(idx).toBeGreaterThan(-1)
   })
 })
