@@ -13,6 +13,9 @@ import path from 'path';
 function read(relPath: string): string {
   return fs.readFileSync(path.join(process.cwd(), relPath), 'utf8');
 }
+function stripComments(src: string): string {
+  return src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+}
 
 describe('app/people/layout.tsx — module gating', () => {
   const src = read('app/people/layout.tsx');
@@ -83,6 +86,80 @@ describe('app/people/page.tsx — admin-only UI actions are gated on the server-
     expect(src).toMatch(/canManage \? 'No people yet\. Add your first person to get started\.' : 'No people to show yet\.'/);
   });
 });
+
+describe('Edit Person UI — admin-gated wiring of the existing PersonForm edit capability', () => {
+  // PersonForm already fully supported edit mode (initial?.id present ->
+  // PATCH, otherwise POST) — this phase only wires an existing person
+  // into it from the read-only PersonDrawer. No change to PersonForm.tsx,
+  // PATCH /api/hr/people/[id], or lib/hr/access.ts was made or needed.
+  const drawerSrc = read('app/people/_components/PersonDrawer.tsx')
+  const pageSrc = read('app/people/page.tsx')
+
+  it('PersonDrawer\'s Edit button is wrapped in {canManage && (...)}, never rendered unconditionally', () => {
+    const btnIdx = drawerSrc.indexOf('<button onClick={() => onEdit(person)}')
+    expect(btnIdx).toBeGreaterThan(-1)
+    const before = drawerSrc.slice(Math.max(0, btnIdx - 100), btnIdx)
+    expect(before).toMatch(/\{canManage && \(/)
+  })
+
+  it('PersonDrawer accepts canManage and onEdit as props rather than deciding permission or performing the write itself', () => {
+    expect(drawerSrc).toMatch(/personId,\s*canManage,\s*onClose,\s*onEdit/)
+    // Comments (this file's own header) legitimately mention PersonForm
+    // by name in prose to explain why editing is NOT done here — strip
+    // them first so only real code is checked.
+    const codeOnly = stripComments(drawerSrc)
+    expect(codeOnly).not.toMatch(/<PersonForm\b/)
+    expect(codeOnly).not.toContain("from './PersonForm'")
+    expect(codeOnly).not.toMatch(/fetch\(`\/api\/hr\/people\/\$\{personId\}`,\s*\{\s*method:\s*'PATCH'/)
+  })
+
+  it('app/people/page.tsx passes canManage into PersonDrawer, not just onClose', () => {
+    const start = pageSrc.indexOf('<PersonDrawer')
+    const end = pageSrc.indexOf('/>', start)
+    const element = pageSrc.slice(start, end)
+    expect(element).toMatch(/canManage=\{canManage\}/)
+    expect(element).toMatch(/onEdit=\{/)
+  })
+
+  it('the page wires PersonDrawer\'s onEdit callback to open a dedicated Edit SlidePanel (not the same panel/state as Add Person)', () => {
+    expect(pageSrc).toMatch(/const \[editingPerson, setEditingPerson\] = useState<PersonDetail \| null>\(null\)/)
+    const panelIdx = pageSrc.indexOf('<SlidePanel open={editingPerson !== null}')
+    expect(panelIdx).toBeGreaterThan(-1)
+    // Distinct from the Add Person panel's own `showAdd` state.
+    expect(pageSrc).toMatch(/<SlidePanel open=\{showAdd\}/)
+  })
+
+  it('PersonForm receives the selected person as `initial` inside the Edit panel, entering edit mode rather than create mode', () => {
+    const panelStart = pageSrc.indexOf('<SlidePanel open={editingPerson !== null}')
+    const panelEnd = pageSrc.indexOf('</SlidePanel>', panelStart)
+    const panelBlock = pageSrc.slice(panelStart, panelEnd)
+    expect(panelBlock).toMatch(/<PersonForm initial=\{editingPerson\}/)
+  })
+
+  it('saving from the Edit panel closes it and refreshes the People list, mirroring the Add panel\'s own onSaved discipline', () => {
+    const panelStart = pageSrc.indexOf('<SlidePanel open={editingPerson !== null}')
+    const panelEnd = pageSrc.indexOf('</SlidePanel>', panelStart)
+    const panelBlock = pageSrc.slice(panelStart, panelEnd)
+    expect(panelBlock).toMatch(/onSaved=\{\(\) => \{ setEditingPerson\(null\); load\(\); \}\}/)
+  })
+
+  it('the existing Add Person path is untouched: same showAdd state, same unconditional-create PersonForm call (no `initial` prop)', () => {
+    const panelStart = pageSrc.indexOf('<SlidePanel open={showAdd}')
+    expect(panelStart).toBeGreaterThan(-1)
+    const panelEnd = pageSrc.indexOf('</SlidePanel>', panelStart)
+    const panelBlock = pageSrc.slice(panelStart, panelEnd)
+    expect(panelBlock).toContain('<PersonForm onSaved={() => { setShowAdd(false); load(); }} />')
+    expect(panelBlock).not.toContain('initial=')
+  })
+
+  it('selecting Edit closes the read-only drawer first (openPersonId reset) before opening the Edit panel', () => {
+    const onEditIdx = pageSrc.indexOf('onEdit={person =>')
+    expect(onEditIdx).toBeGreaterThan(-1)
+    const line = pageSrc.slice(onEditIdx, pageSrc.indexOf('}}', onEditIdx) + 2)
+    expect(line).toMatch(/setOpenPersonId\(null\)/)
+    expect(line).toMatch(/setEditingPerson\(person\)/)
+  })
+})
 
 describe('components/brand/CapabilityIcon.tsx — people has its own distinct icon/colour, not a fallback', () => {
   const src = read('components/brand/CapabilityIcon.tsx');

@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import SlidePanel from './_components/SlidePanel';
 import PersonForm from './_components/PersonForm';
-import PersonDrawer from './_components/PersonDrawer';
+import PersonDrawer, { type PersonDetail } from './_components/PersonDrawer';
 
 const CARD = '#0e1014'; const BORDER = '#1a1d24';
 
@@ -25,6 +25,14 @@ export default function PeoplePage() {
   const [showAdd, setShowAdd] = useState(false);
   const [search, setSearch] = useState('');
   const [openPersonId, setOpenPersonId] = useState<string | null>(null);
+  // The person currently being edited (Edit action from PersonDrawer) —
+  // separate from openPersonId/showAdd so the read-only drawer and the
+  // two write panels (Add, Edit) never fight over the same piece of
+  // state. PersonForm already fully supports edit mode given an
+  // `initial` person (see its own submit(): initial?.id present ->
+  // PATCH, otherwise POST) — this phase only wires an existing person
+  // into it, no change to PersonForm itself.
+  const [editingPerson, setEditingPerson] = useState<PersonDetail | null>(null);
   // canManage reflects whether THIS viewer is an HR administrator — a
   // task-oriented UX flag from GET /api/hr/people (never the raw
   // entitlement/grant record), used only to decide whether to show the
@@ -118,7 +126,18 @@ export default function PeoplePage() {
         <PersonForm onSaved={() => { setShowAdd(false); load(); }} />
       </SlidePanel>
 
-      <PersonDrawer personId={openPersonId} onClose={() => setOpenPersonId(null)} />
+      <SlidePanel open={editingPerson !== null} onClose={() => setEditingPerson(null)} title="Edit Person">
+        {editingPerson && (
+          <PersonForm initial={editingPerson} onSaved={() => { setEditingPerson(null); load(); }} />
+        )}
+      </SlidePanel>
+
+      <PersonDrawer
+        personId={openPersonId}
+        canManage={canManage}
+        onClose={() => setOpenPersonId(null)}
+        onEdit={person => { setOpenPersonId(null); setEditingPerson(person); }}
+      />
     </div>
   );
 }
