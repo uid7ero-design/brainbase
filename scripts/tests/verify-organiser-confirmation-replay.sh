@@ -114,11 +114,21 @@ CREATE TABLE IF NOT EXISTS organiser_boards (
   updated_at      TIMESTAMPTZ DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS organiser_groups (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  board_id        UUID NOT NULL REFERENCES organiser_boards(id) ON DELETE CASCADE,
+  organisation_id TEXT NOT NULL REFERENCES organisations(id),
+  name            TEXT NOT NULL,
+  color           TEXT,
+  position        INTEGER NOT NULL DEFAULT 0,
+  created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS organiser_items (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   board_id        UUID NOT NULL REFERENCES organiser_boards(id) ON DELETE CASCADE,
   organisation_id TEXT NOT NULL REFERENCES organisations(id),
-  group_id        UUID,
+  group_id        UUID REFERENCES organiser_groups(id) ON DELETE SET NULL,
   parent_item_id  UUID REFERENCES organiser_items(id) ON DELETE CASCADE,
   name            TEXT NOT NULL,
   status          TEXT NOT NULL DEFAULT '"'"'Not Started'"'"',
@@ -208,6 +218,11 @@ CREATE INDEX IF NOT EXISTS idx_organiser_action_confirmations_expires_at ON orga
 ALTER TABLE organiser_action_confirmations DROP CONSTRAINT IF EXISTS organiser_action_confirmations_action_type_check;
 ALTER TABLE organiser_action_confirmations ADD CONSTRAINT organiser_action_confirmations_action_type_check
   CHECK (action_type IN ('"'"'post_comment'"'"', '"'"'change_status'"'"'));
+
+-- Migration step 46 (D.4.6O) — extracted verbatim from app/api/admin/migrate/route.ts
+ALTER TABLE organiser_action_confirmations DROP CONSTRAINT IF EXISTS organiser_action_confirmations_action_type_check;
+ALTER TABLE organiser_action_confirmations ADD CONSTRAINT organiser_action_confirmations_action_type_check
+  CHECK (action_type IN ('"'"'post_comment'"'"', '"'"'change_status'"'"', '"'"'move_group'"'"'));
 '
 
 echo ""
@@ -356,6 +371,70 @@ else
   echo "  FAIL: item status persisted as '$STATUS_AFTER' despite the transaction failing"
   FAIL=$((FAIL + 1))
   FAILURES+=("status update did not roll back on downstream failure")
+fi
+
+echo ""
+echo "=== 3C. GROUP-MOVE FAILURE-ATOMICITY (D.4.6O) — a downstream activity insert failure must roll back the ledger consume AND the group_id UPDATE together ==="
+GROUP_A_ID="$(echo "WITH ins AS (INSERT INTO organiser_groups (board_id, organisation_id, name) VALUES ('$BOARD_ID', 'org-a', 'Group A') RETURNING id) SELECT id FROM ins;" | psql_query | tr -d '[:space:]')"
+GROUP_B_ID="$(echo "WITH ins AS (INSERT INTO organiser_groups (board_id, organisation_id, name) VALUES ('$BOARD_ID', 'org-a', 'Group B') RETURNING id) SELECT id FROM ins;" | psql_query | tr -d '[:space:]')"
+GROUP_ITEM_ID="$(echo "WITH ins AS (INSERT INTO organiser_items (board_id, organisation_id, name, status, group_id) VALUES ('$BOARD_ID', 'org-a', 'Group Move Atomicity Item', 'Not Started', '$GROUP_A_ID') RETURNING id) SELECT id FROM ins;" | psql_query | tr -d '[:space:]')"
+FAKE_JTI_3="00000000-0000-4000-8000-000000000003"
+BROKEN_GROUP_SQL="
+WITH target_item AS MATERIALIZED (
+  SELECT id, board_id, name, group_id FROM organiser_items WHERE id = '$GROUP_ITEM_ID' AND organisation_id = 'org-a' FOR UPDATE
+),
+dest_check AS (
+  SELECT
+    EXISTS (SELECT 1 FROM organiser_groups g WHERE g.id = '$GROUP_B_ID' AND g.organisation_id = 'org-a') AS dest_exists,
+    EXISTS (SELECT 1 FROM organiser_groups g, target_item WHERE g.id = '$GROUP_B_ID' AND g.organisation_id = 'org-a' AND g.board_id = target_item.board_id) AS dest_same_board
+),
+consumed AS (
+  INSERT INTO organiser_action_confirmations (jti, organisation_id, user_id, action_type, item_id, expires_at)
+  SELECT '$FAKE_JTI_3', 'org-a', 'user-1', 'move_group', '$GROUP_ITEM_ID', NOW() + interval '2 minutes'
+  WHERE EXISTS (SELECT 1 FROM target_item)
+  ON CONFLICT (jti) DO NOTHING
+  RETURNING jti
+),
+updated AS (
+  UPDATE organiser_items i SET group_id = '$GROUP_B_ID', updated_at = NOW()
+  FROM target_item, consumed, dest_check
+  WHERE i.id = target_item.id AND target_item.group_id IS NOT DISTINCT FROM '$GROUP_A_ID' AND dest_check.dest_same_board
+  RETURNING i.id, i.board_id, i.name, i.group_id
+),
+activity_row AS (
+  INSERT INTO organiser_activity (organisation_id, board_id, item_id, actor_user_id, actor_name, event_type, entity_type, entity_id, before_json, after_json, metadata_json)
+  SELECT 'org-a', updated.board_id, updated.id, 'user-1', 'Tester', 'item.NOT_A_REAL_EVENT_TYPE', 'item', updated.id::text, '{}'::jsonb, '{}'::jsonb, '{}'::jsonb
+  FROM updated
+  RETURNING id
+)
+SELECT updated.id FROM updated;
+"
+OUT3="$(echo "$BROKEN_GROUP_SQL" | psql_exec 2>&1)"
+if [ $? -ne 0 ]; then
+  echo "  PASS: forced-invalid-event-type group-move statement correctly rejected by CHECK constraint"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: forced-invalid group-move statement unexpectedly succeeded"
+  FAIL=$((FAIL + 1))
+  FAILURES+=("forced-invalid group-move statement should have failed")
+fi
+GROUP_LEDGER_COUNT="$(echo "SELECT count(*) FROM organiser_action_confirmations WHERE jti = '$FAKE_JTI_3';" | psql_query | tr -d '[:space:]')"
+if [ "$GROUP_LEDGER_COUNT" = "0" ]; then
+  echo "  PASS (HARD GATE): group-move ledger consume ROLLED BACK too — zero rows for the forced-failure jti"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL (HARD GATE): group-move ledger row persisted despite the downstream activity insert failing"
+  FAIL=$((FAIL + 1))
+  FAILURES+=("group-move ledger consume did not roll back on downstream failure")
+fi
+GROUP_AFTER="$(echo "SELECT group_id FROM organiser_items WHERE id = '$GROUP_ITEM_ID';" | psql_query | tr -d '[:space:]')"
+if [ "$GROUP_AFTER" = "$GROUP_A_ID" ]; then
+  echo "  PASS: item group_id ROLLED BACK too — still Group A"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: item group_id persisted as '$GROUP_AFTER' despite the transaction failing"
+  FAIL=$((FAIL + 1))
+  FAILURES+=("group_id update did not roll back on downstream failure")
 fi
 
 echo ""

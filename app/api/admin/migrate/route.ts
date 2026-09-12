@@ -1201,6 +1201,22 @@ export async function POST(req: NextRequest) {
     CHECK (action_type IN ('post_comment', 'change_status'))
   `;
 
+  // Phase D.4.6O — Helena's third Organiser write action (guarded group
+  // move) reuses the exact same durable ledger from step 44; this step
+  // only further widens the action_type CHECK to also allow 'move_group',
+  // the same narrow, plain-ALTER-TABLE extension step 45 itself already
+  // performed for 'change_status'. Idempotent (DROP CONSTRAINT IF EXISTS +
+  // re-ADD, safe to rerun), non-destructive (existing 'post_comment' and
+  // 'change_status' rows remain valid — the constraint is only ever
+  // widened, never narrowed), and scoped to only this one constraint — no
+  // new table, no new column.
+  step('46. organiser_action_confirmations.action_type — add move_group');
+  await sql`ALTER TABLE organiser_action_confirmations DROP CONSTRAINT IF EXISTS organiser_action_confirmations_action_type_check`;
+  await sql`
+    ALTER TABLE organiser_action_confirmations ADD CONSTRAINT organiser_action_confirmations_action_type_check
+    CHECK (action_type IN ('post_comment', 'change_status', 'move_group'))
+  `;
+
   // SEC-1B1: audit — this route was previously entirely unaudited. Placed
   // as the last statement before the success response, inside the same
   // try block as every migration step above, so a thrown exception at any

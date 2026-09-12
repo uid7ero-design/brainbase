@@ -182,6 +182,27 @@ export async function route(input: AgentInput): Promise<RouterResult> {
     return { agent: 'chat', confidence: 0.9, reason: 'organiser status-change intent' };
   }
 
+  // Phase D.4.6O — explicit Organiser group-move intent guard, the same
+  // bounded shape as STATUS_CHANGE_INTENT_RE above: an explicit move-verb
+  // (move/put) combined with a destination-container word within a short
+  // window — never a bare "move"/"put" alone, which appear constantly in
+  // unrelated English. This only routes to 'chat' (the same general
+  // Helena loop where all three Organiser write tools are registered) —
+  // it grants no authority and resolves no target itself;
+  // propose_organiser_group_move still independently resolves the item
+  // and the destination group name, and execution still requires
+  // explicit Confirm. Note ORGANISER_INTENT_RE above already catches the
+  // literal word "group"/"groups" (e.g. "move it into the Review group"),
+  // so this guard's own marginal value is phrasing that names a
+  // destination without ever saying "group" itself (e.g. "move Test 2 to
+  // Backlog") — bounded to the same verb+noun shape as every other guard
+  // in this router, never a group-name lookup (this router has no DB
+  // access, same constraint ORGANISER_INTENT_RE's own header documents).
+  const GROUP_MOVE_INTENT_RE = /\b(move|put)\b[\s\S]{0,60}\b(group|backlog|column|board|section|list)\b/i;
+  if (GROUP_MOVE_INTENT_RE.test(query)) {
+    return { agent: 'chat', confidence: 0.9, reason: 'organiser group-move intent' };
+  }
+
   // Comment-routing disambiguation guard — see EXPLICIT_SOCIAL_RE/
   // BARE_COMMENT_RE's own header above. Only fires for bare "comment"
   // wording with no explicit social-platform noun; a query with both

@@ -282,7 +282,7 @@ describe('D.4.6M — regression: unrelated routing and write-surface invariants 
     expect(r.reason).toBe('organiser intent')
   })
 
-  it('O. exactly 6 Organiser Helena tools remain (source-shape invariant, cross-file) — updated in D.4.6N to add propose_organiser_status_change', async () => {
+  it('O. exactly 7 Organiser Helena tools remain (source-shape invariant, cross-file) — updated in D.4.6O to add propose_organiser_group_move', async () => {
     const fs = await import('fs')
     const path = await import('path')
     const source = fs.readFileSync(path.resolve(__dirname, '../../lib/organiser/helenaTools.ts'), 'utf8')
@@ -294,14 +294,16 @@ describe('D.4.6M — regression: unrelated routing and write-surface invariants 
       'get_organiser_item_activity',
       'propose_organiser_comment',
       'propose_organiser_status_change',
+      'propose_organiser_group_move',
     ])
   })
 
-  it('P. exactly 2 write actions remain (propose_organiser_comment, propose_organiser_status_change) — no generic update/create/move/delete capability', async () => {
+  it('P. exactly 3 write actions remain (propose_organiser_comment, propose_organiser_status_change, propose_organiser_group_move) — no generic update/create/delete capability, and no BOARD move', async () => {
     const fs = await import('fs')
     const path = await import('path')
     const source = fs.readFileSync(path.resolve(__dirname, '../../lib/organiser/helenaTools.ts'), 'utf8')
-    expect(source).not.toMatch(/\b(create|update|move|delete)_organiser/)
+    expect(source).not.toMatch(/\b(create|update|delete)_organiser/)
+    expect(source).not.toMatch(/move_organiser_board|propose_organiser_board_move/)
   })
 })
 
@@ -351,5 +353,44 @@ describe('D.4.6N — status-change intent guard', () => {
     const withoutContext = await q('Change Test 2 to Done')
     expect(withContext.reason).toBe('organiser status-change intent')
     expect(withoutContext.reason).toBe('organiser status-change intent')
+  })
+})
+
+// ── Phase D.4.6O — explicit Organiser group-move routing intent ────────────
+
+describe('D.4.6O — group-move intent guard', () => {
+  it('"Move Test 2 to Backlog" -> chat (the phase\'s own primary example) — routed via either the group-move guard or the plain catch-all, both land on chat', async () => {
+    const r = await q('Move Test 2 to Backlog')
+    expect(r.agent).toBe('chat')
+  })
+
+  it('"Move Test 2 into the Review group" -> chat, naming "group" explicitly', async () => {
+    const r = await q('Move Test 2 into the Review group')
+    expect(r.agent).toBe('chat')
+  })
+
+  it('"Put Test 2 in Done Items" -> chat', async () => {
+    const r = await q('Put Test 2 in Done Items')
+    expect(r.agent).toBe('chat')
+  })
+
+  it('a bare "move"/"put" with no destination-container word still lands on chat via the plain catch-all, never a specialist agent misfire', async () => {
+    const r = await q('move on already')
+    expect(r.agent).toBe('chat')
+  })
+
+  it('organiserContext has no bearing on this guard — it fires purely on explicit wording, with or without established context', async () => {
+    const withContext = await qc('Move Test 2 to the Backlog column', true)
+    const withoutContext = await q('Move Test 2 to the Backlog column')
+    expect(withContext.agent).toBe('chat')
+    expect(withoutContext.agent).toBe('chat')
+  })
+
+  it('the guard grants no authority and resolves no target — routing to chat only, never a proposal or mutation (verified elsewhere: this router has no DB access, no sql import)', async () => {
+    const fs = await import('fs')
+    const path = await import('path')
+    const source = fs.readFileSync(path.resolve(__dirname, '../../lib/agents/agentRouter.ts'), 'utf8')
+    expect(source).not.toMatch(/from ['"]@\/lib\/db['"]/)
+    expect(source).toMatch(/GROUP_MOVE_INTENT_RE/)
   })
 })

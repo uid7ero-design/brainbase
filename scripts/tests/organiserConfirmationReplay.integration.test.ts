@@ -74,6 +74,7 @@ vi.doMock('@/lib/db', () => ({ default: neonCompatibleSql }));
 
 let proposeOrExecuteOrganiserComment: typeof import('@/lib/organiser/helenaWrite').proposeOrExecuteOrganiserComment;
 let proposeOrExecuteOrganiserStatusChange: typeof import('@/lib/organiser/helenaWrite').proposeOrExecuteOrganiserStatusChange;
+let proposeOrExecuteOrganiserGroupMove: typeof import('@/lib/organiser/helenaWrite').proposeOrExecuteOrganiserGroupMove;
 
 const ORG = 'org-a';
 const OTHER_ORG = 'org-b';
@@ -82,6 +83,11 @@ const OTHER_USER = 'user-2';
 const ACTOR_NAME = 'Integration Tester';
 
 let boardId: string;
+let otherBoardId: string;
+let groupA: string;
+let groupB: string;
+let otherBoardGroup: string;
+let otherOrgGroup: string;
 
 async function freshItem(name: string): Promise<string> {
   const rows = await prisma.$queryRawUnsafe<{ id: string }[]>(
@@ -92,7 +98,7 @@ async function freshItem(name: string): Promise<string> {
 }
 
 beforeAll(async () => {
-  ({ proposeOrExecuteOrganiserComment, proposeOrExecuteOrganiserStatusChange } = await import('@/lib/organiser/helenaWrite'));
+  ({ proposeOrExecuteOrganiserComment, proposeOrExecuteOrganiserStatusChange, proposeOrExecuteOrganiserGroupMove } = await import('@/lib/organiser/helenaWrite'));
 
   await prisma.$executeRawUnsafe(`
     INSERT INTO organisations (id, name, slug) VALUES ('org-a', 'Org A', 'org-a'), ('org-b', 'Org B', 'org-b')
@@ -108,6 +114,38 @@ beforeAll(async () => {
     `INSERT INTO organiser_boards (organisation_id, name) VALUES ('org-a', 'WORK') RETURNING id`,
   );
   boardId = boards[0].id;
+
+  // Phase D.4.6O — a second board (same org) for cross-board destination
+  // tests, plus real groups on each board/org for the group-move suite.
+  const otherBoards = await prisma.$queryRawUnsafe<{ id: string }[]>(
+    `INSERT INTO organiser_boards (organisation_id, name) VALUES ('org-a', 'OTHER BOARD') RETURNING id`,
+  );
+  otherBoardId = otherBoards[0].id;
+
+  const groupsA = await prisma.$queryRawUnsafe<{ id: string }[]>(
+    `INSERT INTO organiser_groups (board_id, organisation_id, name) VALUES ($1::uuid, 'org-a', 'Group A') RETURNING id`,
+    boardId,
+  );
+  groupA = groupsA[0].id;
+  const groupsB = await prisma.$queryRawUnsafe<{ id: string }[]>(
+    `INSERT INTO organiser_groups (board_id, organisation_id, name) VALUES ($1::uuid, 'org-a', 'Group B') RETURNING id`,
+    boardId,
+  );
+  groupB = groupsB[0].id;
+  const otherBoardGroups = await prisma.$queryRawUnsafe<{ id: string }[]>(
+    `INSERT INTO organiser_groups (board_id, organisation_id, name) VALUES ($1::uuid, 'org-a', 'Other Board Group') RETURNING id`,
+    otherBoardId,
+  );
+  otherBoardGroup = otherBoardGroups[0].id;
+
+  const otherOrgBoards = await prisma.$queryRawUnsafe<{ id: string }[]>(
+    `INSERT INTO organiser_boards (organisation_id, name) VALUES ('org-b', 'ORG B BOARD') RETURNING id`,
+  );
+  const otherOrgGroups = await prisma.$queryRawUnsafe<{ id: string }[]>(
+    `INSERT INTO organiser_groups (board_id, organisation_id, name) VALUES ($1::uuid, 'org-b', 'Org B Group') RETURNING id`,
+    otherOrgBoards[0].id,
+  );
+  otherOrgGroup = otherOrgGroups[0].id;
 });
 
 afterAll(async () => {
@@ -761,5 +799,431 @@ describe('D.4.6N — guarded Organiser item status change (real Postgres)', () =
     await pruneExpiredConfirmationsBestEffort();
     expect(await countRows('organiser_action_confirmations', `jti = '${jti1}'`)).toBe(0);
     expect(await countRows('organiser_action_confirmations', `jti = '${jti2}'`)).toBe(0);
+  });
+});
+
+// Phase D.4.6O — real-Postgres proof for Helena's THIRD Organiser write
+// action (guarded item group move). Same disposable-container harness, same
+// real, unmodified proposeOrExecuteOrganiserGroupMove. The critical new
+// properties this suite proves — that a mock cannot prove — are the
+// stale-location race AND the destination-invalidation race: only real
+// MVCC/FOR UPDATE semantics can demonstrate that a concurrent group change
+// (or a group deleted out from under the destination) is never silently
+// overwritten/completed.
+async function freshItemInGroup(name: string, groupId: string | null, board: string = boardId): Promise<string> {
+  const rows = await prisma.$queryRawUnsafe<{ id: string }[]>(
+    `INSERT INTO organiser_items (board_id, organisation_id, name, status, group_id) VALUES ($1::uuid, $2, $3, 'Not Started', $4::uuid) RETURNING id`,
+    board, ORG, name, groupId,
+  );
+  return rows[0].id;
+}
+
+describe('D.4.6O — guarded Organiser item group move (real Postgres)', () => {
+  it('1. normal same-board group move: exactly one group change, one activity row, one ledger row', async () => {
+    const itemId = await freshItemInGroup('Group Move Item 1', groupA);
+    const proposal = await proposeOrExecuteOrganiserGroupMove({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, destinationGroupName: 'Group B',
+    });
+    if (!proposal.ok || proposal.mode !== 'proposed') throw new Error('expected proposal');
+    expect(proposal.proposal.destination_group_id).toBe(groupB);
+
+    const result = await proposeOrExecuteOrganiserGroupMove({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, destinationGroupName: 'ignored',
+      confirmationToken: proposal.confirmationToken,
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok && result.mode === 'executed') {
+      expect(result.item.new_group_name).toBe('Group B');
+      expect(result.item.previous_group_name).toBe('Group A');
+    } else {
+      throw new Error('expected executed');
+    }
+
+    const groupRows = await prisma.$queryRawUnsafe<{ group_id: string }[]>(`SELECT group_id FROM organiser_items WHERE id = $1::uuid`, itemId);
+    expect(groupRows[0].group_id).toBe(groupB);
+    expect(await countRows('organiser_activity', `item_id = '${itemId}' AND event_type = 'item.moved'`)).toBe(1);
+    expect(await countRows('organiser_action_confirmations', `item_id = '${itemId}'`)).toBe(1);
+  });
+
+  it('2. same-group no-op is rejected entirely at PROPOSE time, before any token is ever minted', async () => {
+    const itemId = await freshItemInGroup('Group Move Noop Item', groupA);
+    const result = await proposeOrExecuteOrganiserGroupMove({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, destinationGroupName: 'Group A',
+    });
+    expect(result).toEqual({ ok: false, reason: 'noop_same_group' });
+    expect(await countRows('organiser_action_confirmations', `item_id = '${itemId}'`)).toBe(0);
+  });
+
+  it('3. same token replayed in a SEPARATE call is rejected — zero second group change, zero second activity row', async () => {
+    const itemId = await freshItemInGroup('Group Move Item 3', groupA);
+    const proposal = await proposeOrExecuteOrganiserGroupMove({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, destinationGroupName: 'Group B',
+    });
+    if (!proposal.ok || proposal.mode !== 'proposed') throw new Error('expected proposal');
+
+    const first = await proposeOrExecuteOrganiserGroupMove({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, destinationGroupName: 'ignored',
+      confirmationToken: proposal.confirmationToken,
+    });
+    expect(first.ok).toBe(true);
+
+    const replay = await proposeOrExecuteOrganiserGroupMove({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, destinationGroupName: 'ignored',
+      confirmationToken: proposal.confirmationToken,
+    });
+    expect(replay).toEqual({ ok: false, reason: 'already_used_confirmation' });
+    expect(await countRows('organiser_activity', `item_id = '${itemId}' AND event_type = 'item.moved'`)).toBe(1);
+  });
+
+  it('4. CONCURRENT replay: two simultaneous confirmations with the exact same token -> exactly one succeeds, exactly one group change/activity/ledger row exists', async () => {
+    const itemId = await freshItemInGroup('Concurrent Group Move Item', groupA);
+    const proposal = await proposeOrExecuteOrganiserGroupMove({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, destinationGroupName: 'Group B',
+    });
+    if (!proposal.ok || proposal.mode !== 'proposed') throw new Error('expected proposal');
+
+    const [a, b] = await Promise.all([
+      proposeOrExecuteOrganiserGroupMove({
+        organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, destinationGroupName: 'ignored',
+        confirmationToken: proposal.confirmationToken,
+      }),
+      proposeOrExecuteOrganiserGroupMove({
+        organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, destinationGroupName: 'ignored',
+        confirmationToken: proposal.confirmationToken,
+      }),
+    ]);
+
+    const outcomes = [a, b];
+    const successes = outcomes.filter(r => r.ok && r.mode === 'executed');
+    const rejections = outcomes.filter(r => !r.ok && r.reason === 'already_used_confirmation');
+    expect(successes).toHaveLength(1);
+    expect(rejections).toHaveLength(1);
+
+    const groupRows = await prisma.$queryRawUnsafe<{ group_id: string }[]>(`SELECT group_id FROM organiser_items WHERE id = $1::uuid`, itemId);
+    expect(groupRows[0].group_id).toBe(groupB);
+    expect(await countRows('organiser_activity', `item_id = '${itemId}' AND event_type = 'item.moved'`)).toBe(1);
+    expect(await countRows('organiser_action_confirmations', `item_id = '${itemId}'`)).toBe(1);
+  });
+
+  it('5. CRITICAL — STALE-LOCATION RACE: item moved by another actor between propose and confirm is NEVER overwritten', async () => {
+    const itemId = await freshItemInGroup('Stale Location Item', groupA);
+    const proposal = await proposeOrExecuteOrganiserGroupMove({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, destinationGroupName: 'Group B',
+    });
+    if (!proposal.ok || proposal.mode !== 'proposed') throw new Error('expected proposal');
+
+    // Simulates "another user moves the item to ungrouped" via the exact
+    // same column a real human drag-and-drop would touch.
+    await prisma.$executeRawUnsafe(`UPDATE organiser_items SET group_id = NULL WHERE id = $1::uuid`, itemId);
+
+    const result = await proposeOrExecuteOrganiserGroupMove({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, destinationGroupName: 'ignored',
+      confirmationToken: proposal.confirmationToken,
+    });
+    expect(result).toEqual({ ok: false, reason: 'stale_item_location' });
+
+    // The item remains at the OTHER actor's value (ungrouped) — never
+    // overwritten to the originally-proposed Group B.
+    const groupRows = await prisma.$queryRawUnsafe<{ group_id: string | null }[]>(`SELECT group_id FROM organiser_items WHERE id = $1::uuid`, itemId);
+    expect(groupRows[0].group_id).toBeNull();
+    expect(await countRows('organiser_activity', `item_id = '${itemId}' AND event_type = 'item.moved'`)).toBe(0);
+  });
+
+  it('6. the stale confirmation token is CONSUMED (burned) despite rejecting the move — cannot later become executable even if location cycles back', async () => {
+    const itemId = await freshItemInGroup('Stale Consumption Group Item', groupA);
+    const proposal = await proposeOrExecuteOrganiserGroupMove({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, destinationGroupName: 'Group B',
+    });
+    if (!proposal.ok || proposal.mode !== 'proposed') throw new Error('expected proposal');
+
+    await prisma.$executeRawUnsafe(`UPDATE organiser_items SET group_id = NULL WHERE id = $1::uuid`, itemId);
+    const staleResult = await proposeOrExecuteOrganiserGroupMove({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, destinationGroupName: 'ignored',
+      confirmationToken: proposal.confirmationToken,
+    });
+    expect(staleResult).toEqual({ ok: false, reason: 'stale_item_location' });
+    expect(await countRows('organiser_action_confirmations', `item_id = '${itemId}'`)).toBe(1);
+
+    // Cycle the group BACK to the originally-expected value within the
+    // token's own validity window — the exact scenario the deliberate
+    // consumption exists to guard against.
+    await prisma.$executeRawUnsafe(`UPDATE organiser_items SET group_id = $1::uuid WHERE id = $2::uuid`, groupA, itemId);
+    const retryResult = await proposeOrExecuteOrganiserGroupMove({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, destinationGroupName: 'ignored',
+      confirmationToken: proposal.confirmationToken,
+    });
+    expect(retryResult).toEqual({ ok: false, reason: 'already_used_confirmation' });
+    expect(await countRows('organiser_activity', `item_id = '${itemId}' AND event_type = 'item.moved'`)).toBe(0);
+  });
+
+  it('7. CRITICAL — DESTINATION-RACE: destination group deleted between propose and confirm -> destination_not_found, zero mutation, token still burned', async () => {
+    const disposableGroups = await prisma.$queryRawUnsafe<{ id: string }[]>(
+      `INSERT INTO organiser_groups (board_id, organisation_id, name) VALUES ($1::uuid, 'org-a', 'Disposable Group') RETURNING id`,
+      boardId,
+    );
+    const disposableGroup = disposableGroups[0].id;
+    const itemId = await freshItemInGroup('Destination Race Item', groupA);
+    const proposal = await proposeOrExecuteOrganiserGroupMove({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, destinationGroupName: 'Disposable Group',
+    });
+    if (!proposal.ok || proposal.mode !== 'proposed') throw new Error('expected proposal');
+
+    await prisma.$executeRawUnsafe(`DELETE FROM organiser_groups WHERE id = $1::uuid`, disposableGroup);
+
+    const result = await proposeOrExecuteOrganiserGroupMove({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, destinationGroupName: 'ignored',
+      confirmationToken: proposal.confirmationToken,
+    });
+    expect(result).toEqual({ ok: false, reason: 'destination_not_found' });
+
+    const groupRows = await prisma.$queryRawUnsafe<{ group_id: string }[]>(`SELECT group_id FROM organiser_items WHERE id = $1::uuid`, itemId);
+    expect(groupRows[0].group_id).toBe(groupA);
+    expect(await countRows('organiser_activity', `item_id = '${itemId}' AND event_type = 'item.moved'`)).toBe(0);
+    // Deliberately still burned — same asymmetry as the stale-location case.
+    expect(await countRows('organiser_action_confirmations', `item_id = '${itemId}'`)).toBe(1);
+  });
+
+  it('8. destination on a DIFFERENT board is never resolvable at propose time (board-scoped name lookup) -> destination_not_found', async () => {
+    const itemId = await freshItemInGroup('Cross Board Propose Item', groupA);
+    const result = await proposeOrExecuteOrganiserGroupMove({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, destinationGroupName: 'Other Board Group',
+    });
+    expect(result).toEqual({ ok: false, reason: 'destination_not_found' });
+    expect(await countRows('organiser_action_confirmations', `item_id = '${itemId}'`)).toBe(0);
+  });
+
+  it('9. CRITICAL — a token forged/tampered to point at a DIFFERENT board\'s group is rejected at CONFIRM time (invalid_destination), never a board move', async () => {
+    const itemId = await freshItemInGroup('Cross Board Confirm Item', groupA);
+    const secret = new TextEncoder().encode(process.env.SESSION_SECRET!);
+    const forgedToken = await new SignJWT({
+      purpose: 'organiser_action_confirm',
+      actionType: 'move_group',
+      organisationId: ORG,
+      userId: USER,
+      itemId,
+      boardId,
+      expectedSourceGroupId: groupA,
+      destinationGroupId: otherBoardGroup, // a REAL group id, but on a DIFFERENT board
+      sourceGroupName: 'Group A',
+      destinationGroupName: 'Other Board Group',
+      jti: randomUUID(),
+    })
+      .setProtectedHeader({ alg: 'HS256' })
+      .setIssuedAt()
+      .setExpirationTime('2m')
+      .sign(secret);
+
+    const result = await proposeOrExecuteOrganiserGroupMove({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, destinationGroupName: 'ignored',
+      confirmationToken: forgedToken,
+    });
+    expect(result).toEqual({ ok: false, reason: 'invalid_destination' });
+    const groupRows = await prisma.$queryRawUnsafe<{ group_id: string; board_id: string }[]>(`SELECT group_id, board_id FROM organiser_items WHERE id = $1::uuid`, itemId);
+    expect(groupRows[0].group_id).toBe(groupA);
+    expect(groupRows[0].board_id).toBe(boardId); // the item's own board never changed either
+    expect(await countRows('organiser_activity', `item_id = '${itemId}' AND event_type = 'item.moved'`)).toBe(0);
+  });
+
+  it('10. destination belonging to a DIFFERENT organisation is never resolvable at propose time -> destination_not_found', async () => {
+    const itemId = await freshItemInGroup('Cross Org Propose Item', groupA);
+    const result = await proposeOrExecuteOrganiserGroupMove({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, destinationGroupName: 'Org B Group',
+    });
+    expect(result).toEqual({ ok: false, reason: 'destination_not_found' });
+  });
+
+  it('11. a token forged to point at a DIFFERENT organisation\'s group is rejected at CONFIRM time (invalid_destination) — org isolation holds even under a forged token', async () => {
+    const itemId = await freshItemInGroup('Cross Org Confirm Item', groupA);
+    const secret = new TextEncoder().encode(process.env.SESSION_SECRET!);
+    const forgedToken = await new SignJWT({
+      purpose: 'organiser_action_confirm',
+      actionType: 'move_group',
+      organisationId: ORG,
+      userId: USER,
+      itemId,
+      boardId,
+      expectedSourceGroupId: groupA,
+      destinationGroupId: otherOrgGroup,
+      sourceGroupName: 'Group A',
+      destinationGroupName: 'Org B Group',
+      jti: randomUUID(),
+    })
+      .setProtectedHeader({ alg: 'HS256' })
+      .setIssuedAt()
+      .setExpirationTime('2m')
+      .sign(secret);
+
+    const result = await proposeOrExecuteOrganiserGroupMove({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, destinationGroupName: 'ignored',
+      confirmationToken: forgedToken,
+    });
+    // The dest_exists check is itself organisation_id-scoped, so a
+    // cross-organisation group id resolves as not existing AT ALL from
+    // this org's perspective — destination_not_found, not invalid_destination.
+    expect(result).toEqual({ ok: false, reason: 'destination_not_found' });
+    const groupRows = await prisma.$queryRawUnsafe<{ group_id: string }[]>(`SELECT group_id FROM organiser_items WHERE id = $1::uuid`, itemId);
+    expect(groupRows[0].group_id).toBe(groupA);
+  });
+
+  it('12. expired token cannot move the item and cannot mutate (jwtVerify itself rejects it before any SQL runs)', async () => {
+    const itemId = await freshItemInGroup('Expired Group Item', groupA);
+    const secret = new TextEncoder().encode(process.env.SESSION_SECRET!);
+    const pastExp = Math.floor(Date.now() / 1000) - 60;
+    const expiredToken = await new SignJWT({
+      purpose: 'organiser_action_confirm',
+      actionType: 'move_group',
+      organisationId: ORG,
+      userId: USER,
+      itemId,
+      boardId,
+      expectedSourceGroupId: groupA,
+      destinationGroupId: groupB,
+      sourceGroupName: 'Group A',
+      destinationGroupName: 'Group B',
+      jti: randomUUID(),
+    })
+      .setProtectedHeader({ alg: 'HS256' })
+      .setIssuedAt(pastExp - 120)
+      .setExpirationTime(pastExp)
+      .sign(secret);
+
+    const result = await proposeOrExecuteOrganiserGroupMove({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, destinationGroupName: 'ignored',
+      confirmationToken: expiredToken,
+    });
+    expect(result).toEqual({ ok: false, reason: 'expired_confirmation' });
+    expect(await countRows('organiser_action_confirmations', `item_id = '${itemId}'`)).toBe(0);
+  });
+
+  it('13. wrong-user token cannot move the item — zero mutation, zero ledger row', async () => {
+    const itemId = await freshItemInGroup('Wrong User Group Item', groupA);
+    const proposal = await proposeOrExecuteOrganiserGroupMove({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, destinationGroupName: 'Group B',
+    });
+    if (!proposal.ok || proposal.mode !== 'proposed') throw new Error('expected proposal');
+
+    const result = await proposeOrExecuteOrganiserGroupMove({
+      organisationId: ORG, userId: 'someone-else', actorName: 'Someone Else', itemId, destinationGroupName: 'ignored',
+      confirmationToken: proposal.confirmationToken,
+    });
+    expect(result).toEqual({ ok: false, reason: 'invalid_confirmation' });
+    expect(await countRows('organiser_action_confirmations', `item_id = '${itemId}'`)).toBe(0);
+  });
+
+  it('14. wrong-org token cannot move the item — zero mutation, zero ledger row', async () => {
+    const itemId = await freshItemInGroup('Wrong Org Group Item', groupA);
+    const proposal = await proposeOrExecuteOrganiserGroupMove({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, destinationGroupName: 'Group B',
+    });
+    if (!proposal.ok || proposal.mode !== 'proposed') throw new Error('expected proposal');
+
+    const result = await proposeOrExecuteOrganiserGroupMove({
+      organisationId: OTHER_ORG, userId: OTHER_USER, actorName: 'Cross Tenant', itemId, destinationGroupName: 'ignored',
+      confirmationToken: proposal.confirmationToken,
+    });
+    expect(result).toEqual({ ok: false, reason: 'invalid_confirmation' });
+    expect(await countRows('organiser_action_confirmations', `item_id = '${itemId}'`)).toBe(0);
+  });
+
+  it('15. tampered token (signature invalidated) cannot move the item', async () => {
+    const itemId = await freshItemInGroup('Tampered Group Item', groupA);
+    const proposal = await proposeOrExecuteOrganiserGroupMove({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, destinationGroupName: 'Group B',
+    });
+    if (!proposal.ok || proposal.mode !== 'proposed') throw new Error('expected proposal');
+
+    const parts = proposal.confirmationToken.split('.');
+    const tampered = `${parts[0]}.${parts[1]}.${parts[2].slice(0, -2)}xx`;
+    const result = await proposeOrExecuteOrganiserGroupMove({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, destinationGroupName: 'ignored',
+      confirmationToken: tampered,
+    });
+    expect(result).toEqual({ ok: false, reason: 'invalid_confirmation' });
+    expect(await countRows('organiser_action_confirmations', `item_id = '${itemId}'`)).toBe(0);
+  });
+
+  it('16. item_not_found leaves the token UNBURNED (deleted item, distinct from the stale-location/destination-invalid cases which DO burn it)', async () => {
+    const itemId = await freshItemInGroup('Will Be Deleted (Group)', groupA);
+    const proposal = await proposeOrExecuteOrganiserGroupMove({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, destinationGroupName: 'Group B',
+    });
+    if (!proposal.ok || proposal.mode !== 'proposed') throw new Error('expected proposal');
+
+    await prisma.$executeRawUnsafe(`DELETE FROM organiser_items WHERE id = $1::uuid`, itemId);
+
+    const result = await proposeOrExecuteOrganiserGroupMove({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, destinationGroupName: 'ignored',
+      confirmationToken: proposal.confirmationToken,
+    });
+    expect(result).toEqual({ ok: false, reason: 'item_not_found' });
+    expect(await countRows('organiser_action_confirmations', `item_id = '${itemId}'`)).toBe(0);
+  });
+
+  it('17. an item currently ungrouped can be proposed and moved into a real group — null source group handled correctly end-to-end', async () => {
+    const itemId = await freshItemInGroup('Ungrouped Item', null);
+    const proposal = await proposeOrExecuteOrganiserGroupMove({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, destinationGroupName: 'Group A',
+    });
+    if (!proposal.ok || proposal.mode !== 'proposed') throw new Error('expected proposal');
+    expect(proposal.proposal.source_group_id).toBeNull();
+
+    const result = await proposeOrExecuteOrganiserGroupMove({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, destinationGroupName: 'ignored',
+      confirmationToken: proposal.confirmationToken,
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok && result.mode === 'executed') {
+      expect(result.item.previous_group_name).toBeNull();
+      expect(result.item.new_group_name).toBe('Group A');
+    }
+    const groupRows = await prisma.$queryRawUnsafe<{ group_id: string }[]>(`SELECT group_id FROM organiser_items WHERE id = $1::uuid`, itemId);
+    expect(groupRows[0].group_id).toBe(groupA);
+  });
+
+  it('18. existing comment AND status-change confirmations still work correctly after the action_type CHECK expansion (step 46)', async () => {
+    const commentItemId = await freshItem('Post-Step46-Expansion Comment Item');
+    const commentProposal = await proposeOrExecuteOrganiserComment({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId: commentItemId, body: 'still works after step 46',
+    });
+    if (!commentProposal.ok || commentProposal.mode !== 'proposed') throw new Error('expected proposal');
+    const commentResult = await proposeOrExecuteOrganiserComment({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId: commentItemId, body: 'ignored',
+      confirmationToken: commentProposal.confirmationToken,
+    });
+    expect(commentResult.ok).toBe(true);
+
+    const statusItemId = await freshItemWithStatus('Post-Step46-Expansion Status Item', 'Not Started');
+    const statusProposal = await proposeOrExecuteOrganiserStatusChange({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId: statusItemId, desiredStatus: 'Done',
+    });
+    if (!statusProposal.ok || statusProposal.mode !== 'proposed') throw new Error('expected proposal');
+    const statusResult = await proposeOrExecuteOrganiserStatusChange({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId: statusItemId, desiredStatus: 'ignored',
+      confirmationToken: statusProposal.confirmationToken,
+    });
+    expect(statusResult.ok).toBe(true);
+  });
+
+  it('19. retention cleanup prunes long-expired rows of ALL THREE action types alike', async () => {
+    const jti1 = randomUUID();
+    const jti2 = randomUUID();
+    const jti3 = randomUUID();
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO organiser_action_confirmations (jti, organisation_id, user_id, action_type, item_id, expires_at) VALUES ($1, $2, $3, 'post_comment', NULL, NOW() - INTERVAL '2 days')`,
+      jti1, ORG, USER,
+    );
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO organiser_action_confirmations (jti, organisation_id, user_id, action_type, item_id, expires_at) VALUES ($1, $2, $3, 'change_status', NULL, NOW() - INTERVAL '2 days')`,
+      jti2, ORG, USER,
+    );
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO organiser_action_confirmations (jti, organisation_id, user_id, action_type, item_id, expires_at) VALUES ($1, $2, $3, 'move_group', NULL, NOW() - INTERVAL '2 days')`,
+      jti3, ORG, USER,
+    );
+    const { pruneExpiredConfirmationsBestEffort } = await import('@/lib/organiser/helenaWrite');
+    await pruneExpiredConfirmationsBestEffort();
+    expect(await countRows('organiser_action_confirmations', `jti = '${jti1}'`)).toBe(0);
+    expect(await countRows('organiser_action_confirmations', `jti = '${jti2}'`)).toBe(0);
+    expect(await countRows('organiser_action_confirmations', `jti = '${jti3}'`)).toBe(0);
   });
 });
