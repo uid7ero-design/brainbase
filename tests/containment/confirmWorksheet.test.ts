@@ -235,9 +235,26 @@ describe("confirmWorksheet — zero-row claim (claim.count === 0) structurally t
     expect(lastStatement.startsWith("return")).toBe(true);
   });
 
-  it("the domain write (tx.illegalDumping.createMany) is reached only via the code that follows the if-block's own closing brace, never from inside it", () => {
+  // 6.1B RETARGETED — the code immediately after the if-block's closing
+  // brace is no longer `await tx.illegalDumping.createMany(` directly: it
+  // is now the per-record reconciliation loop (identity resolution,
+  // classification, observation persistence) that PRECEDES the domain
+  // write, which happens later, gated by `newDomainRows.length > 0`. The
+  // underlying safety property this test exists to prove — createMany can
+  // never be reached from CODE INSIDE the if-block itself — is unchanged
+  // and still verified below via the createMany/if-block index comparison
+  // (mirroring the existing "textually follows the claim" test's own
+  // index-based technique, extended to this specific block).
+  it("the reconciliation loop (and, later, the domain write) is reached only via the code that follows the if-block's own closing brace, never from inside it", () => {
     const afterBlock = txBody.slice(openBraceIdx + ifBlock.length).trimStart();
-    expect(afterBlock.startsWith("await tx.illegalDumping.createMany(")).toBe(true);
+    expect(afterBlock.startsWith("await tx.illegalDumping.createMany(")).toBe(false);
+    // The if-block's own closing brace index and the createMany call's own
+    // index — createMany must sit strictly AFTER the if-block ends.
+    const ifBlockEndIdx = openBraceIdx + ifBlock.length;
+    const createManyIdx = txBody.indexOf("tx.illegalDumping.createMany(", ifBlockEndIdx);
+    expect(createManyIdx).toBeGreaterThanOrEqual(ifBlockEndIdx);
+    // And createMany must not appear anywhere INSIDE the if-block itself.
+    expect(ifBlock).not.toMatch(/tx\.illegalDumping\.createMany\(/);
   });
 });
 
@@ -540,9 +557,17 @@ describe("confirmWorksheet — lost-race resolution inside the transaction resul
     uploadFindFirstMock.mockResolvedValue(worksheetRow());
     importBatchFindUniqueMock.mockResolvedValue(batchRow({ sha256: createHash("sha256").update(body).digest("hex"), source_system_id: "ss-1" }));
     storageGetMock.mockResolvedValue({ body });
-    transactionMock.mockResolvedValue({ claimed: true, importedRows: 1 });
+    transactionMock.mockResolvedValue({ claimed: true, newRows: 1, unchangedRows: 0, changedRows: 0 });
     const result = await confirmDataHubWorksheet({ organisationId: "org-1", worksheetUploadId: "worksheet-1", confirmedBy: "actor-1" });
-    expect(result).toEqual({ ok: true, alreadyImported: false, worksheetUploadId: "worksheet-1", importedRows: 1 });
+    expect(result).toEqual({
+      ok: true,
+      alreadyImported: false,
+      worksheetUploadId: "worksheet-1",
+      importedRows: 1,
+      newRows: 1,
+      unchangedRows: 0,
+      changedRows: 0,
+    });
   });
 });
 
@@ -639,6 +664,26 @@ function defaultGuardQueryRawMock() {
     .mockResolvedValueOnce([{ id: "ss-1" }])
     .mockResolvedValueOnce([{ prior_success: false }]);
 }
+// 6.1B — default tx.sourceRecordIdentity/tx.sourceRecordObservation
+// doubles for the per-record reconciliation loop. sourceRecordIdentity.create
+// always succeeds (never throws P2002), so every mapped record classifies
+// NEW by default — the closest behavioral analog to the pre-6.1B
+// unconditional createMany these existing tests were written against
+// (claim/ordering/response-shape focus, not reconciliation outcomes).
+// Tests specifically targeting reconciliation classification override this.
+function defaultReconciliationTxMocks() {
+  let identityCounter = 0;
+  return {
+    sourceRecordIdentity: {
+      create: vi.fn().mockImplementation(async () => ({ id: `sri-${++identityCounter}` })),
+      findUniqueOrThrow: vi.fn(),
+    },
+    sourceRecordObservation: {
+      create: vi.fn().mockResolvedValue({}),
+      findFirst: vi.fn().mockResolvedValue(null),
+    },
+  };
+}
 function buildCsv(headers: string[], rows: string[][]): string {
   const lines = [headers.join(",")];
   for (const row of rows) lines.push(row.join(","));
@@ -666,9 +711,17 @@ describe("confirmWorksheet — 5B.4D legacy/mapped dual-path routing (T1-T4)", (
     uploadFindFirstMock.mockResolvedValue(worksheetRow({ mapping_version_id: null }));
     importBatchFindUniqueMock.mockResolvedValue(batchRow({ sha256, source_system_id: "ss-1" }));
     storageGetMock.mockResolvedValue({ body });
-    transactionMock.mockResolvedValue({ claimed: true, importedRows: 1 });
+    transactionMock.mockResolvedValue({ claimed: true, newRows: 1, unchangedRows: 0, changedRows: 0 });
     const result = await confirmDataHubWorksheet({ organisationId: "org-1", worksheetUploadId: "worksheet-1", confirmedBy: "actor-1" });
-    expect(result).toEqual({ ok: true, alreadyImported: false, worksheetUploadId: "worksheet-1", importedRows: 1 });
+    expect(result).toEqual({
+      ok: true,
+      alreadyImported: false,
+      worksheetUploadId: "worksheet-1",
+      importedRows: 1,
+      newRows: 1,
+      unchangedRows: 0,
+      changedRows: 0,
+    });
     expect(mappingVersionFindUniqueMock).not.toHaveBeenCalled();
     expect(sourceMappingFindUniqueMock).not.toHaveBeenCalled();
   });
@@ -700,6 +753,7 @@ describe("confirmWorksheet — 5B.4D exact frozen-version lookup (T5-T11)", () =
         $queryRaw: defaultGuardQueryRawMock(),
         upload: { updateMany: updateManyMock },
         illegalDumping: { createMany: createManyMock },
+        ...defaultReconciliationTxMocks(),
       });
       const claimArg = updateManyMock.mock.calls[0][0];
       expect(claimArg.where.mapping_version_id).toBe("mv-3");
@@ -765,7 +819,7 @@ describe("confirmWorksheet — 5B.4D consumption never consults active state (T1
     mappingVersionFindUniqueMock.mockResolvedValue(mappingVersionRow());
     sourceMappingFindUniqueMock.mockResolvedValue(sourceMappingRow({ active: false }));
     storageGetMock.mockResolvedValue({ body });
-    transactionMock.mockResolvedValue({ claimed: true, importedRows: 1 });
+    transactionMock.mockResolvedValue({ claimed: true, newRows: 1, unchangedRows: 0, changedRows: 0 });
     const result = await confirmDataHubWorksheet({ organisationId: "org-1", worksheetUploadId: "worksheet-1", confirmedBy: "actor-1" });
     expect(result).toMatchObject({ ok: true, alreadyImported: false, importedRows: 1 });
   });
@@ -778,7 +832,7 @@ describe("confirmWorksheet — 5B.4D consumption never consults active state (T1
     mappingVersionFindUniqueMock.mockResolvedValue(mappingVersionRow({ id: "mv-3", version_number: 3 }));
     sourceMappingFindUniqueMock.mockResolvedValue(sourceMappingRow());
     storageGetMock.mockResolvedValue({ body });
-    transactionMock.mockResolvedValue({ claimed: true, importedRows: 1 });
+    transactionMock.mockResolvedValue({ claimed: true, newRows: 1, unchangedRows: 0, changedRows: 0 });
     const result = await confirmDataHubWorksheet({ organisationId: "org-1", worksheetUploadId: "worksheet-1", confirmedBy: "actor-1" });
     expect(result).toMatchObject({ ok: true, alreadyImported: false, importedRows: 1 });
     expect(mappingVersionFindUniqueMock.mock.calls[0][0].where.id_organisation_id.id).toBe("mv-3");
@@ -854,6 +908,7 @@ describe("confirmWorksheet — 5B.4D full-dataset mapping, never Preview's bound
         $queryRaw: defaultGuardQueryRawMock(),
         upload: { updateMany: updateManyMock },
         illegalDumping: { createMany: createManyMock },
+        ...defaultReconciliationTxMocks(),
       });
     });
     const result = await confirmDataHubWorksheet({ organisationId: "org-1", worksheetUploadId: "worksheet-1", confirmedBy: "actor-1" });
@@ -879,6 +934,7 @@ describe("confirmWorksheet — 5B.4D domain write only after successful claim (T
         $queryRaw: defaultGuardQueryRawMock(),
         upload: { updateMany: updateManyMock, findUnique: findUniqueMock },
         illegalDumping: { createMany: createManyMock },
+        ...defaultReconciliationTxMocks(),
       });
     });
     const result = await confirmDataHubWorksheet({ organisationId: "org-1", worksheetUploadId: "worksheet-1", confirmedBy: "actor-1" });
@@ -901,6 +957,7 @@ describe("confirmWorksheet — 5B.4D domain write only after successful claim (T
         $queryRaw: defaultGuardQueryRawMock(),
         upload: { updateMany: updateManyMock },
         illegalDumping: { createMany: createManyMock },
+        ...defaultReconciliationTxMocks(),
       });
     });
     await expect(
@@ -966,6 +1023,7 @@ describe("confirmWorksheet — 5B.4D DETERMINISTIC selection-vs-confirm write-bo
           findUnique: async () => ({ canonical_status: realRow.canonical_status }),
         },
         illegalDumping: { createMany: createManyMock },
+        ...defaultReconciliationTxMocks(),
       };
       return callback(tx);
     });
@@ -1016,6 +1074,7 @@ describe("confirmWorksheet — 5B.4D DETERMINISTIC selection-vs-confirm write-bo
         $queryRaw: defaultGuardQueryRawMock(),
         upload: { updateMany: updateManyMock },
         illegalDumping: { createMany: createManyMock },
+        ...defaultReconciliationTxMocks(),
       });
     });
     const result = await confirmDataHubWorksheet({ organisationId: "org-1", worksheetUploadId: "worksheet-1", confirmedBy: "actor-1" });
@@ -1054,6 +1113,7 @@ describe("confirmWorksheet — 5B.4D existing state-race remains independently p
           findUnique: async () => ({ canonical_status: realRow.canonical_status }),
         },
         illegalDumping: { createMany: createManyMock },
+        ...defaultReconciliationTxMocks(),
       };
       return callback(tx);
     });

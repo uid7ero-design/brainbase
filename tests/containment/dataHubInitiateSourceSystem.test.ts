@@ -464,7 +464,17 @@ describe("initiate — source_system_id immutability containment", () => {
   // reason as previewWorksheet.ts above: frozen mapping-lineage consumption
   // must verify the same cross-source integrity invariant before it will
   // consume a frozen MappingVersion for Confirm, not just Preview.
-  it("T28-T31 exception (5B.4D, disclosed): confirmWorksheet.ts reads ImportBatch.source_system_id ONLY as a read-only Prisma select flag and in the one cross-source equality comparison — never assigns/writes it, never looks up SourceSystem", async () => {
+  //
+  // 6.1B — a THIRD, narrowly-bounded exception is now disclosed here too:
+  // reconciliation identity resolution writes source_system_id onto a NEW
+  // SourceRecordIdentity row (never onto ImportBatch/SourceSystem itself,
+  // never a SourceSystem lookup/reassignment) — the value written is the
+  // SAME already-trusted `sourceSystemId` local this test already proves
+  // is read-only from `batch.source_system_id`. This does not weaken the
+  // underlying invariant (SourceSystem itself remains immutable/never
+  // looked up here); it is a legitimate write of a DIFFERENT table's own
+  // foreign-key field, populated from that same trusted value.
+  it("T28-T31 exception (5B.4D + 6.1B, disclosed): confirmWorksheet.ts reads ImportBatch.source_system_id ONLY as a read-only Prisma select flag, in the one cross-source equality comparison, and writes it (as the already-trusted sourceSystemId local) onto new SourceRecordIdentity rows only — never reassigns ImportBatch/SourceSystem, never looks up SourceSystem", async () => {
     const fs = await import("node:fs");
     const path = await import("node:path");
     const source = fs
@@ -476,8 +486,17 @@ describe("initiate — source_system_id immutability containment", () => {
     expect(source).not.toMatch(/prisma\.sourceSystem\./);
     const assignments = [...source.matchAll(/source_system_id\s*:\s*([^\n,}]+)/g)].map((m) => m[1].trim());
     for (const value of assignments) {
-      expect(value).toBe("true");
+      // "true" — the existing Prisma select flag (previewWorksheet.ts's
+      // own identical pattern). "sourceSystemId" — 6.1B's new write onto
+      // SourceRecordIdentity, always the same already-trusted local
+      // variable, never a request-supplied or newly-looked-up value.
+      expect(["true", "sourceSystemId"]).toContain(value);
     }
+    // The 6.1B write site is scoped to exactly one place: the
+    // sourceRecordIdentity.create() data object, and the follow-up
+    // findUniqueOrThrow's own compound-key where clause — never anywhere
+    // resembling an ImportBatch/SourceSystem update.
+    expect(source).not.toMatch(/(?:importBatch|sourceSystem)\.update\([\s\S]{0,120}source_system_id/);
   });
 
   it("T32 (narrowed by Data Hub 5B.5B) — recovery/history read services never WRITE source_system_id — read.ts's own additive SELECT/DTO-mapping READ of it (the authorized 5B.5B recovery field) is the correct, intended state, never a write", async () => {

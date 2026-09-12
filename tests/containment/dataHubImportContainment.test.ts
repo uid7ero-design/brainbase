@@ -279,7 +279,10 @@ describe("T8: cancellation maps to abort()", () => {
 describe("T17: fresh imported success renders the real importedRows count", () => {
   it("ImportSuccess.tsx's imported branch interpolates state.importedRows, not a fabricated/hardcoded number", () => {
     const code = fs.readFileSync(path.join(IMPORT_DIR, "_components", "ImportSuccess.tsx"), "utf8");
-    expect(code).toMatch(/\$\{state\.importedRows\}\s*row\(s\)\s*were imported/);
+    // Data Hub 6.1B — wording updated from "were imported" to "were
+    // processed" (the numeric contract itself, state.importedRows, is
+    // unchanged — see confirmWorksheet.ts's own importedRows doc comment).
+    expect(code).toMatch(/\$\{state\.importedRows\}\s*row\(s\)\s*were processed/);
   });
 });
 
@@ -384,7 +387,10 @@ describe("QA-POLISH issue 1 — success-state alignment matches sibling flush-co
     const code = fs.readFileSync(path.join(IMPORT_DIR, "_components", "ImportSuccess.tsx"), "utf8");
     expect(code).toContain('role="status"');
     expect(code).toContain('aria-live="polite"');
-    expect(code).toMatch(/\$\{state\.importedRows\}\s*row\(s\)\s*were imported/);
+    // Data Hub 6.1B — wording updated from "were imported" to "were
+    // processed" (the numeric contract itself, state.importedRows, is
+    // unchanged — see confirmWorksheet.ts's own importedRows doc comment).
+    expect(code).toMatch(/\$\{state\.importedRows\}\s*row\(s\)\s*were processed/);
     expect(code).toContain("Start another import");
     expect(code).toContain("onClick={onStartAnother}");
   });

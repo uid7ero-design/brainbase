@@ -527,7 +527,20 @@ export type WorksheetPreviewResult = TransportResult<WorksheetPreviewResponseBod
 
 export type ConfirmIllegalDumpingSuccess =
   | { ok: true; alreadyImported: true; worksheetUploadId: string }
-  | { ok: true; alreadyImported: false; worksheetUploadId: string; importedRows: number };
+  | {
+      ok: true;
+      alreadyImported: false;
+      worksheetUploadId: string;
+      // Data Hub 6.1B — importedRows preserves its pre-6.1B meaning
+      // (every row this worksheet successfully processed); newRows/
+      // unchangedRows/changedRows are new, additive fields that always
+      // sum to importedRows. Existing consumers reading only
+      // importedRows are unaffected.
+      importedRows: number;
+      newRows: number;
+      unchangedRows: number;
+      changedRows: number;
+    };
 
 export type ConfirmFailureCodeClient =
   | "WORKSHEET_NOT_FOUND"
@@ -548,6 +561,9 @@ export type ConfirmFailureCodeClient =
   // Data Hub 6.1B — a worksheet with two rows sharing one reconciliation
   // identity (source_external_id) is rejected before any writes occur.
   | "DUPLICATE_SOURCE_EXTERNAL_ID_IN_WORKSHEET"
+  // Data Hub 6.1B — an anomalous, fail-closed reconciliation-integrity
+  // state (never expected in normal operation).
+  | "RECONCILIATION_HISTORY_INCONSISTENT"
   | string; // the route's own statusByCode map is intentionally exhaustive against a much larger union of server-internal-only codes this client will never actually observe; kept open here rather than duplicating that entire defensive list.
 
 export type ConfirmIllegalDumpingResponseBody = ConfirmIllegalDumpingSuccess | { ok: false; error: string; code?: ConfirmFailureCodeClient };

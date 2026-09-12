@@ -349,14 +349,31 @@ function toWorksheetDTO(row: WorksheetRow): Omit<WorksheetSummaryDTO, "importedR
 }
 
 /**
- * Attaches `importedRowCount` to a batch of worksheet DTOs in exactly ONE
- * additional query (never one query per row — see the 5A.3D.0 discovery's
- * own explicit N+1 warning). Only worksheets whose canonicalStatus is
- * already "IMPORTED" are even candidates for a real count; every other
- * worksheet gets `null` ("not applicable") without touching the database
- * at all. Tenant-scoped identically to every other query in this module —
- * organisation_id is asserted directly in the WHERE clause, never inferred
- * from the worksheet ids alone.
+ * Attaches `importedRowCount` to a batch of worksheet DTOs in exactly TWO
+ * additional queries (never one query per row — see the 5A.3D.0
+ * discovery's own explicit N+1 warning). Only worksheets whose
+ * canonicalStatus is already "IMPORTED" are even candidates for a real
+ * count; every other worksheet gets `null` ("not applicable") without
+ * touching the database at all. Tenant-scoped identically to every other
+ * query in this module — organisation_id is asserted directly in the
+ * WHERE clause, never inferred from the worksheet ids alone.
+ *
+ * Data Hub 6.1B — the count now prefers source_record_observations
+ * (grouped by upload_id) over illegal_dumping (grouped by upload_id)
+ * when the former has any rows for a given worksheet. This matters
+ * because, once reconciliation is active, a worksheet's own UNCHANGED/
+ * CHANGED-only records never insert a NEW illegal_dumping row (see
+ * confirmWorksheet.ts's own Step 8) — counting illegal_dumping rows
+ * alone would therefore silently undercount (potentially to zero) an
+ * otherwise fully-processed worksheet. Every governed confirmation
+ * (NEW/UNCHANGED/CHANGED alike) inserts exactly one observation per
+ * record with THIS worksheet's own upload_id regardless of outcome, so
+ * the observation count is the accurate "how many records did this
+ * worksheet process" total post-6.1B. A worksheet confirmed BEFORE
+ * 6.1B shipped has zero observations (reconciliation did not exist
+ * yet) — for those, the pre-existing illegal_dumping-based count
+ * remains the correct, and only available, source of truth, so it is
+ * kept as a fallback rather than replaced outright.
  */
 async function attachImportedRowCounts(
   dtos: Array<Omit<WorksheetSummaryDTO, "importedRowCount">>,
@@ -368,21 +385,34 @@ async function attachImportedRowCounts(
     return dtos.map((d) => ({ ...d, importedRowCount: null }));
   }
 
-  const counts = await prisma.illegalDumping.groupBy({
-    by: ["upload_id"],
-    where: { organisation_id: organisationId, upload_id: { in: importedIds } },
-    _count: { _all: true },
-  });
-  const countByUploadId = new Map(counts.map((c) => [c.upload_id as string, c._count._all]));
+  const [domainCounts, observationCounts] = await Promise.all([
+    prisma.illegalDumping.groupBy({
+      by: ["upload_id"],
+      where: { organisation_id: organisationId, upload_id: { in: importedIds } },
+      _count: { _all: true },
+    }),
+    prisma.sourceRecordObservation.groupBy({
+      by: ["upload_id"],
+      where: { organisation_id: organisationId, upload_id: { in: importedIds } },
+      _count: { _all: true },
+    }),
+  ]);
+  const domainCountByUploadId = new Map(domainCounts.map((c) => [c.upload_id as string, c._count._all]));
+  const observationCountByUploadId = new Map(observationCounts.map((c) => [c.upload_id, c._count._all]));
 
-  return dtos.map((d) => ({
-    ...d,
-    // A genuinely IMPORTED worksheet with zero matching rows in the map
-    // (no group returned for it) means zero domain rows exist — a real,
-    // truthful 0, never confused with the `null` "not applicable" case
-    // above (that branch is only reachable for a non-IMPORTED worksheet).
-    importedRowCount: d.canonicalStatus === "IMPORTED" ? (countByUploadId.get(d.id) ?? 0) : null,
-  }));
+  return dtos.map((d) => {
+    if (d.canonicalStatus !== "IMPORTED") {
+      return { ...d, importedRowCount: null };
+    }
+    // Prefer the reconciliation observation count (6.1B) when this
+    // worksheet has any — it reflects every record processed, not just
+    // the ones that produced a NEW domain row. Falls back to the
+    // pre-6.1B illegal_dumping count for a worksheet confirmed before
+    // reconciliation existed (zero observations, real domain rows).
+    const observationCount = observationCountByUploadId.get(d.id);
+    const importedRowCount = observationCount !== undefined ? observationCount : (domainCountByUploadId.get(d.id) ?? 0);
+    return { ...d, importedRowCount };
+  });
 }
 
 const IMPORT_BATCH_DETAIL_SELECT = {

@@ -432,8 +432,17 @@ describe('Zero runtime reconciliation wiring (T21/T22/T25)', () => {
     'modules/dumping/index.ts',
   ]
 
-  it('T21. no protected Data Hub runtime file references SourceRecordIdentity/SourceRecordObservation/source_record_identity_id', () => {
+  // T21 RETARGETED (6.1B) — confirmWorksheet.ts is now the ONE deliberate,
+  // authorized exception: 6.1B wires per-record reconciliation directly
+  // into its Step 8 transaction, so it now legitimately references
+  // SourceRecordIdentity/SourceRecordObservation/source_record_identity_id
+  // (via Prisma delegate calls, e.g. tx.sourceRecordIdentity.create). Every
+  // OTHER protected file must still have zero such reference — this is not
+  // a general loosening, only the one file 6.1B's own authorization
+  // specifically changes.
+  it('T21. no protected Data Hub runtime file OTHER THAN confirmWorksheet.ts (6.1B\'s own authorized reconciliation wiring point) references SourceRecordIdentity/SourceRecordObservation/source_record_identity_id', () => {
     for (const relPath of PROTECTED_FILES) {
+      if (relPath === 'lib/data-hub/importBatch/confirmWorksheet.ts') continue
       const fullPath = path.resolve(REPO_ROOT, relPath)
       if (!fs.existsSync(fullPath)) continue
       const source = fs.readFileSync(fullPath, 'utf-8')
@@ -441,6 +450,12 @@ describe('Zero runtime reconciliation wiring (T21/T22/T25)', () => {
       expect(source, `${relPath} must not reference SourceRecordObservation`).not.toContain('SourceRecordObservation')
       expect(source, `${relPath} must not reference source_record_identity_id`).not.toContain('source_record_identity_id')
     }
+  })
+
+  it('T21b (6.1B, new). confirmWorksheet.ts DOES reference reconciliation — proving T21\'s exclusion above is deliberate, not an accidental gap', () => {
+    const source = fs.readFileSync(path.resolve(REPO_ROOT, 'lib/data-hub/importBatch/confirmWorksheet.ts'), 'utf-8')
+    expect(source).toContain('sourceRecordIdentity')
+    expect(source).toContain('sourceRecordObservation')
   })
 
   // T25 RETARGETED (6.1B) — confirmWorksheet.ts is now intentionally,
