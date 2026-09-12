@@ -328,6 +328,22 @@ function OrganiserActionCard({ action, submitting, onConfirm, onCancel }) {
         fontFamily: FONT,
         marginTop: 2,
         animation: "chatSlideUp 0.18s ease",
+        // Phase D.4.6O-R1 — this card's own `overflow: hidden` (needed for
+        // its rounded corners) makes the flexbox spec's "automatic minimum
+        // size" resolve to 0 instead of the card's actual content height
+        // (CSS Flexbox §4.5: a flex item's automatic min-size is 0 whenever
+        // its own overflow is anything but visible). Combined with the
+        // browser flex-shrink default of 1, that meant a long conversation
+        // — once the message list's cumulative content exceeded the
+        // scrollable region's flex-computed budget — could silently SHRINK
+        // this card down to a sliver instead of the container simply
+        // scrolling, while its children (Confirm/Cancel included) kept
+        // their real layout size and rendered outside the collapsed,
+        // clipped box: unreachable by wheel/scrollbar and invisible to
+        // scrollHeight. flexShrink: 0 removes this card from the shrink
+        // pool entirely, so the flex column can only ever grow past its
+        // container and scroll — never crush this card away.
+        flexShrink: 0,
       }}
     >
       <div style={{
