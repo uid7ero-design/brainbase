@@ -674,6 +674,12 @@ function defaultGuardQueryRawMock() {
 function defaultReconciliationTxMocks() {
   let identityCounter = 0;
   return {
+    // 6.1B — the SAVEPOINT/ROLLBACK TO SAVEPOINT pair around identity
+    // creation (required by real Postgres transaction-abort semantics,
+    // see confirmWorksheet.ts's own header comment on this). A no-op
+    // double here since these mocked tests never trigger the P2002 catch
+    // path that would issue the ROLLBACK TO SAVEPOINT statement.
+    $executeRaw: vi.fn().mockResolvedValue(undefined),
     sourceRecordIdentity: {
       create: vi.fn().mockImplementation(async () => ({ id: `sri-${++identityCounter}` })),
       findUniqueOrThrow: vi.fn(),

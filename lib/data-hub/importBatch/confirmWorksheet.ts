@@ -553,8 +553,23 @@ export async function confirmDataHubWorksheet(
         // "just created" (Case A) from "already existed" (Case B/C) — see
         // the 6.1B header comment above for why this is functionally
         // equivalent to INSERT ... ON CONFLICT DO NOTHING RETURNING id.
+        //
+        // SAVEPOINT REQUIRED (discovered by this phase's own real-Postgres
+        // proof, not merely defensive): Postgres aborts the ENTIRE
+        // enclosing transaction after any statement fails, including a
+        // unique-constraint violation — every subsequent statement in the
+        // same transaction is rejected (error 25P02) until either the
+        // whole transaction rolls back or execution returns to a
+        // SAVEPOINT taken before the failing statement. A plain
+        // try/catch around `create()` alone is therefore NOT sufficient
+        // to safely continue this transaction with a follow-up SELECT;
+        // this SAVEPOINT/ROLLBACK TO SAVEPOINT pair is what makes that
+        // safe. The savepoint name is a fixed literal reused across loop
+        // iterations — re-declaring a savepoint with the same name simply
+        // redefines it, which is standard, documented Postgres behavior.
         let identityId: string;
         let isNewIdentity: boolean;
+        await tx.$executeRaw`SAVEPOINT source_record_identity_create`;
         try {
           const createdIdentity = await tx.sourceRecordIdentity.create({
             data: {
@@ -569,6 +584,7 @@ export async function confirmDataHubWorksheet(
           isNewIdentity = true;
         } catch (err) {
           if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+            await tx.$executeRaw`ROLLBACK TO SAVEPOINT source_record_identity_create`;
             const existingIdentity = await tx.sourceRecordIdentity.findUniqueOrThrow({
               where: {
                 organisation_id_source_system_id_domain_kind_source_external_id: {

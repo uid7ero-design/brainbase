@@ -200,9 +200,15 @@ function mockTransactionOnce(
   // value serves it.
   const queryRawMock = vi.fn().mockResolvedValue([{ id: "ss-1" }]);
 
+  // 6.1B — a no-op double for the SAVEPOINT/ROLLBACK TO SAVEPOINT pair
+  // around identity creation (required by real Postgres transaction-abort
+  // semantics — see confirmWorksheet.ts's own header comment).
+  const executeRawMock = vi.fn().mockResolvedValue(undefined);
+
   transactionMock.mockImplementation(async (callback: (tx: unknown) => Promise<unknown>) => {
     return callback({
       $queryRaw: queryRawMock,
+      $executeRaw: executeRawMock,
       upload: { updateMany: updateManyMock, findUnique: findUniqueMock },
       illegalDumping: { createMany: createManyMock, update: illegalDumpingUpdateMock },
       ...reconciliationTxMocks,

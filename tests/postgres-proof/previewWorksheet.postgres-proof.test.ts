@@ -82,7 +82,9 @@ describe("5B.4C previewWorksheet — real disposable Postgres proof", () => {
     });
     sourceMappingId = sourceMapping.id;
 
-    const document = { fields: { report_date: "Reported At", location: "Site", waste_type: "Type" } };
+    // 6.1B — source_external_id joined the required canonical targets;
+    // included here so this fixture continues to compile+map successfully.
+    const document = { fields: { report_date: "Reported At", location: "Site", waste_type: "Type", source_external_id: "Ext Ref" } };
 
     const v3 = await prisma.mappingVersion.create({
       data: {
@@ -104,7 +106,7 @@ describe("5B.4C previewWorksheet — real disposable Postgres proof", () => {
     });
     mappingVersionV4 = v4.id;
 
-    const csv = buildCsv(["Reported At", "Site", "Type"], [["2024-01-01", "Kerbside", "Dumped Rubbish"]]);
+    const csv = buildCsv(["Reported At", "Site", "Type", "Ext Ref"], [["2024-01-01", "Kerbside", "Dumped Rubbish", "EXT-1"]]);
     const body = Buffer.from(csv, "utf8");
     const sha256 = createHash("sha256").update(body).digest("hex");
 
