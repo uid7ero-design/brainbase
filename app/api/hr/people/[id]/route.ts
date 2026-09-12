@@ -91,7 +91,17 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const providedFields = Object.keys(body);
 
   const wantsIdentityChange = providedFields.some(f => (IDENTITY_FIELDS as readonly string[]).includes(f));
+  // wantsEmploymentChange stays broad (any of the 7 EMPLOYMENT_FIELDS) —
+  // it gates canManageEmployment() below and must keep covering job_title/
+  // worker_type/team_id/manager_person_id/start_date/end_date, not just
+  // employment_status itself. wantsEmploymentStatusChange is a narrower,
+  // audit-action-naming-only signal: previously the action-selection below
+  // reused wantsEmploymentChange, so changing ANY employment field alone
+  // (e.g. just job_title) incorrectly produced 'hr_person.
+  // employment_status_changed' instead of 'hr_person.updated'. See that
+  // action-selection block's own comment for the fix.
   const wantsEmploymentChange = providedFields.some(f => (EMPLOYMENT_FIELDS as readonly string[]).includes(f));
+  const wantsEmploymentStatusChange = providedFields.includes('employment_status');
   const wantsLinkChange = providedFields.includes('linked_user_id');
 
   if (wantsIdentityChange && !canEditPerson(ctx, target)) return forbidden();
@@ -200,10 +210,29 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       beforeState[key] = (existing as unknown as Record<string, unknown>)[key];
       afterState[key] = (updated as unknown as Record<string, unknown>)[key];
     }
-    const action = wantsEmploymentChange && !wantsIdentityChange && !wantsLinkChange
-      ? 'hr_person.employment_status_changed'
-      : wantsLinkChange
-        ? 'hr_person.linked_user_changed'
+    // Action naming — one action per audit row, so a PATCH that touches
+    // several field groups at once must pick the single most useful
+    // label rather than default to the generic 'updated'. Precedence
+    // (most to least specific): linked_user_id > employment_status >
+    // everything else. linked_user_id wins outright regardless of what
+    // else changed alongside it, since linking/unlinking is always a
+    // deliberate, explicit HR-administrator action (see this file's own
+    // header comment) worth surfacing on its own. employment_status
+    // wins over ordinary identity/contact/other-employment fields next,
+    // since it's the more operationally significant change — a mixed
+    // PATCH (e.g. employment_status + preferred_name) is still fully
+    // captured in beforeState/afterState either way; only the action
+    // LABEL changes, so labeling it employment_status_changed doesn't
+    // hide the identity-field change, it just names the row after its
+    // more significant component. Ordinary employment fields other than
+    // employment_status itself (job_title, worker_type, team_id,
+    // manager_person_id, start_date, end_date) fall through to
+    // 'updated' — they used to incorrectly share employment_status's
+    // action name via the broader wantsEmploymentChange check.
+    const action = wantsLinkChange
+      ? 'hr_person.linked_user_changed'
+      : wantsEmploymentStatusChange
+        ? 'hr_person.employment_status_changed'
         : 'hr_person.updated';
 
     await logHrEvent(

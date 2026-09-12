@@ -43,6 +43,22 @@ export type HrAuditEntry = {
 // small: HR-1+ may extend this list as real hr_* columns are defined, but
 // this phase creates no HR tables, so no real field names are assumed here
 // beyond the generic categories the brief itself names.
+//
+// work_email/work_phone (HR-1 addition): hr_people's own two 'confidential'-
+// tier contact fields (lib/hr/personFieldTiers.ts classifies them
+// identically, for read-visibility rather than audit purposes). PATCH
+// /api/hr/people/[id] builds before_state/after_state as a field-diff of
+// whatever the caller actually changed (Object.keys(updates)), with no
+// per-field filtering of its own — so before this addition, editing a
+// person's work email or phone wrote the raw old and new value straight
+// into audit_logs, unredacted, for the life of that row (this table has no
+// retention/purge mechanism — ADR-0003 §13). Redacting here, in the one
+// helper every HR mutation route already calls, fixes it for all of them
+// at once without touching route-level payload construction, without
+// affecting hr_person.created (which never included these fields in its
+// own hand-built afterState to begin with), and without altering
+// redactState()'s behavior for any other vertical's audit helper (this
+// Set is private to this file).
 const FORBIDDEN_STATE_KEYS = new Set([
   'password',
   'password_hash',
@@ -60,6 +76,8 @@ const FORBIDDEN_STATE_KEYS = new Set([
   'medical',
   'medical_notes',
   'medical_information',
+  'work_email',
+  'work_phone',
 ]);
 
 function redactState(state: Record<string, unknown> | null | undefined): Record<string, unknown> | null {
