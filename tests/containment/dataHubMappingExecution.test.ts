@@ -23,19 +23,30 @@ function doc(fields: Record<string, string>): MappingDocument {
 
 const MINIMAL_VALID_FIELDS = { report_date: "Call time", location: "Site Address", waste_type: "Type" };
 
+// Data Hub 6.1B — source_external_id joined ILLEGAL_DUMPING_REQUIRED_HEADERS,
+// so compileMapping's own required-target-completeness check (Section 1)
+// now also demands it be configured. MINIMAL_VALID_FIELDS is deliberately
+// LEFT UNCHANGED (it documents the pre-6.1B 3-field minimum and many tests
+// below only check error-CONTAINMENT, not exclusivity, so an additional
+// MAPPING_REQUIRED_TARGET_MISSING/MAPPING_SOURCE_HEADER_MISSING entry for
+// source_external_id doesn't affect them). Tests that specifically assert
+// `ok: true` or an EXACT result shape use this fuller fixture instead.
+const FULL_VALID_FIELDS = { ...MINIMAL_VALID_FIELDS, source_external_id: "Source ID" };
+const FULL_HEADERS_SUFFIX = ["Source ID"];
+
 describe("compileMapping — COMPILE", () => {
   it("T1 — a valid mapping + matching headers compiles", () => {
-    const headers = ["Call time", "Site Address", "Type"];
-    const result = compileMapping(doc(MINIMAL_VALID_FIELDS), headers);
+    const headers = ["Call time", "Site Address", "Type", ...FULL_HEADERS_SUFFIX];
+    const result = compileMapping(doc(FULL_VALID_FIELDS), headers);
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.plan).toHaveLength(3);
+      expect(result.plan).toHaveLength(4);
     }
   });
 
   it("T2 — source column reorder resolves correctly (headers in a different order than fields were declared)", () => {
-    const headers = ["Type", "Call time", "Site Address"];
-    const result = compileMapping(doc(MINIMAL_VALID_FIELDS), headers);
+    const headers = ["Type", "Call time", "Site Address", ...FULL_HEADERS_SUFFIX];
+    const result = compileMapping(doc(FULL_VALID_FIELDS), headers);
     expect(result.ok).toBe(true);
     if (result.ok) {
       const byTarget = Object.fromEntries(result.plan.map((f) => [f.canonicalTarget, f.columnIndex]));
@@ -46,10 +57,10 @@ describe("compileMapping — COMPILE", () => {
   });
 
   it("T3 — unused worksheet headers are allowed and do not affect the plan", () => {
-    const headers = ["Call time", "Site Address", "Type", "Unrelated Extra Column", "Another Unused One"];
-    const result = compileMapping(doc(MINIMAL_VALID_FIELDS), headers);
+    const headers = ["Call time", "Site Address", "Type", ...FULL_HEADERS_SUFFIX, "Unrelated Extra Column", "Another Unused One"];
+    const result = compileMapping(doc(FULL_VALID_FIELDS), headers);
     expect(result.ok).toBe(true);
-    if (result.ok) expect(result.plan).toHaveLength(3);
+    if (result.ok) expect(result.plan).toHaveLength(4);
   });
 
   it("T4 — a missing configured source header is rejected with MAPPING_SOURCE_HEADER_MISSING", () => {
@@ -80,8 +91,8 @@ describe("compileMapping — COMPILE", () => {
   });
 
   it("header matching is case-SENSITIVE — a header differing only in case is treated as a different, missing header (no case-folding per the chosen rule)", () => {
-    const headers = ["call time", "site address", "type"]; // lowercased vs. configured "Call time" etc.
-    const result = compileMapping(doc(MINIMAL_VALID_FIELDS), headers);
+    const headers = ["call time", "site address", "type", "source id"]; // lowercased vs. configured "Call time" etc.
+    const result = compileMapping(doc(FULL_VALID_FIELDS), headers);
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.errors.every((e) => e.code === "MAPPING_SOURCE_HEADER_MISSING")).toBe(true);
@@ -109,6 +120,9 @@ describe("compileMapping — COMPILE", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       const missingCodes = result.errors.filter((e) => e.code === "MAPPING_REQUIRED_TARGET_MISSING");
+      // Dynamically references ILLEGAL_DUMPING_REQUIRED_HEADERS (now 4
+      // entries as of 6.1B's source_external_id addition) — never
+      // hardcoded, so this test tracks the real required set automatically.
       expect(missingCodes.map((e) => (e as { canonicalTarget: string }).canonicalTarget).sort()).toEqual(
         [...ILLEGAL_DUMPING_REQUIRED_HEADERS].sort()
       );
@@ -147,8 +161,8 @@ describe("compileMapping — COMPILE", () => {
     }
   });
 
-  it("T9b — required-target-missing diagnostic ordering is stable across repeated calls, not just re-derivable by chance (exercises a document that omits ALL THREE required targets, so the shuffle-sensitive branch actually fires)", () => {
-    const document = doc({ suburb: "Suburb Name" }); // omits report_date/location/waste_type entirely
+  it("T9b — required-target-missing diagnostic ordering is stable across repeated calls, not just re-derivable by chance (exercises a document that omits ALL required targets, so the shuffle-sensitive branch actually fires)", () => {
+    const document = doc({ suburb: "Suburb Name" }); // omits every required target entirely
     const headers = ["Suburb Name"];
     const firstOrder = compileMapping(document, headers);
     expect(firstOrder.ok).toBe(false);
@@ -183,12 +197,12 @@ describe("compileMapping — COMPILE", () => {
   });
 
   it("T13/T31/T32 — a worksheet header literally named __proto__/constructor/prototype cannot affect the output prototype and is treated as ordinary text", () => {
-    const document = doc({ report_date: "__proto__", location: "constructor", waste_type: "prototype" });
-    const headers = ["__proto__", "constructor", "prototype"];
+    const document = doc({ report_date: "__proto__", location: "constructor", waste_type: "prototype", source_external_id: "extid" });
+    const headers = ["__proto__", "constructor", "prototype", "extid"];
     const result = compileMapping(document, headers);
     expect(result.ok).toBe(true);
     if (result.ok) {
-      const row = applyCompiledMappingToRow(result.plan, ["2026-01-01", "123 Main St", "Dumped Rubbish"]);
+      const row = applyCompiledMappingToRow(result.plan, ["2026-01-01", "123 Main St", "Dumped Rubbish", "SRC-1"]);
       expect(row.report_date).toBe("2026-01-01");
       expect(row.location).toBe("123 Main St");
       expect(row.waste_type).toBe("Dumped Rubbish");
@@ -214,8 +228,16 @@ describe("compileMapping — COMPILE", () => {
     // ILLEGAL_DUMPING_KNOWN_HEADERS allowlist, never `document.fields`'
     // own keys, so an unrecognized key can structurally never reach the
     // output plan regardless of how the document was constructed.
-    const bypassed = { fields: { not_a_real_target: "Some Header", report_date: "Call time", location: "Site Address", waste_type: "Type" } } as unknown as MappingDocument;
-    const result = compileMapping(bypassed, ["Some Header", "Call time", "Site Address", "Type"]);
+    const bypassed = {
+      fields: {
+        not_a_real_target: "Some Header",
+        report_date: "Call time",
+        location: "Site Address",
+        waste_type: "Type",
+        source_external_id: "Source ID",
+      },
+    } as unknown as MappingDocument;
+    const result = compileMapping(bypassed, ["Some Header", "Call time", "Site Address", "Type", "Source ID"]);
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.plan.every((f) => (ILLEGAL_DUMPING_KNOWN_HEADERS as readonly string[]).includes(f.canonicalTarget))).toBe(true);
@@ -223,7 +245,7 @@ describe("compileMapping — COMPILE", () => {
     }
   });
 
-  it("T15 — mapping fields are bounded by the same allowlist size 5B.2 already enforces (12)", () => {
+  it("T15 — mapping fields are bounded by the same allowlist size 5B.2 already enforces (dynamically 13 as of 6.1B's source_external_id addition)", () => {
     const allFields = Object.fromEntries(ILLEGAL_DUMPING_KNOWN_HEADERS.map((h, i) => [h, `Header ${i}`]));
     const result = validateMappingDocument({ fields: allFields });
     expect(result.ok).toBe(true);
@@ -236,8 +258,15 @@ describe("compileMapping — COMPILE", () => {
 });
 
 describe("applyCompiledMappingToRow — APPLY ROW", () => {
+  // Data Hub 6.1B — always compiles against FULL_VALID_FIELDS (source_
+  // external_id included) so every existing call site below keeps
+  // compiling successfully unchanged; a row shorter than the mapped
+  // source_external_id column (every existing row literal below) maps to
+  // "" per applyCompiledMappingToRow's own documented short-row behavior —
+  // never a fabricated value, and no existing assertion inspects that key
+  // unless updated below.
   function compiledPlan(headers: string[]): CompiledMappingPlan {
-    const result = compileMapping(doc(MINIMAL_VALID_FIELDS), headers);
+    const result = compileMapping(doc(FULL_VALID_FIELDS), [...headers, ...FULL_HEADERS_SUFFIX]);
     if (!result.ok) throw new Error("test fixture mapping failed to compile");
     return result.plan;
   }
@@ -245,7 +274,7 @@ describe("applyCompiledMappingToRow — APPLY ROW", () => {
   it("T16 — correct indices map correct values", () => {
     const plan = compiledPlan(["Call time", "Site Address", "Type"]);
     const row = applyCompiledMappingToRow(plan, ["2026-03-01", "1 High St", "Mattresses"]);
-    expect(row).toEqual({ report_date: "2026-03-01", location: "1 High St", waste_type: "Mattresses" });
+    expect(row).toEqual({ report_date: "2026-03-01", location: "1 High St", waste_type: "Mattresses", source_external_id: "" });
   });
 
   it("T17 — empty mapped cell values are preserved as empty strings, not dropped", () => {
@@ -266,7 +295,7 @@ describe("applyCompiledMappingToRow — APPLY ROW", () => {
   it("T19 — a wider row ignores unused cells; they never leak into the output", () => {
     const plan = compiledPlan(["Call time", "Site Address", "Type"]);
     const row = applyCompiledMappingToRow(plan, ["2026-03-01", "1 High St", "Mattresses", "extra1", "extra2"]);
-    expect(Object.keys(row).sort()).toEqual(["location", "report_date", "waste_type"]);
+    expect(Object.keys(row).sort()).toEqual(["location", "report_date", "source_external_id", "waste_type"]);
   });
 
   it("T20 — Unicode cell values are preserved exactly", () => {
@@ -285,7 +314,7 @@ describe("applyCompiledMappingToRow — APPLY ROW", () => {
   it("T22 — output contains ONLY canonical mapped fields, nothing else", () => {
     const plan = compiledPlan(["Call time", "Site Address", "Type"]);
     const row = applyCompiledMappingToRow(plan, ["2026-03-01", "1 High St", "Mattresses"]);
-    expect(Object.keys(row).sort()).toEqual(["location", "report_date", "waste_type"]);
+    expect(Object.keys(row).sort()).toEqual(["location", "report_date", "source_external_id", "waste_type"]);
   });
 
   it("T23 — output contains no source-header/index/mapping metadata", () => {
@@ -306,7 +335,7 @@ describe("applyCompiledMappingToRow — APPLY ROW", () => {
   it("T25 — reordered source columns with a freshly recompiled plan still map correctly", () => {
     const reorderedPlan = compiledPlan(["Type", "Call time", "Site Address"]);
     const row = applyCompiledMappingToRow(reorderedPlan, ["Mattresses", "2026-03-01", "1 High St"]);
-    expect(row).toEqual({ report_date: "2026-03-01", location: "1 High St", waste_type: "Mattresses" });
+    expect(row).toEqual({ report_date: "2026-03-01", location: "1 High St", waste_type: "Mattresses", source_external_id: "" });
   });
 
   it("applyCompiledMappingToRows maps a whole bounded batch, pure/synchronous", () => {
@@ -322,30 +351,31 @@ describe("applyCompiledMappingToRow — APPLY ROW", () => {
 
 describe("domain-mapper boundary — DOMAIN BOUNDARY", () => {
   it("T26 — a mapped structural row (via the narrow adapter) is accepted by the real, unmodified Illegal Dumping mapper", () => {
-    const headers = ["Call time", "Site Address", "Type"];
-    const compileResult = compileMapping(doc(MINIMAL_VALID_FIELDS), headers);
+    const headers = ["Call time", "Site Address", "Type", "Source ID"];
+    const compileResult = compileMapping(doc(FULL_VALID_FIELDS), headers);
     expect(compileResult.ok).toBe(true);
     if (!compileResult.ok) return;
     const canonicalRows = applyCompiledMappingToRows(compileResult.plan, [
-      ["2026-03-01T00:00:00.000Z", "1 High St", "Mattresses"],
+      ["2026-03-01T00:00:00.000Z", "1 High St", "Mattresses", "SRC-1"],
     ]);
     const { headers: adapterHeaders, rows: adapterRows } = toIllegalDumpingMapperInput(canonicalRows);
     const mapped = mapIllegalDumpingRows(adapterHeaders, adapterRows);
     expect(mapped).toHaveLength(1);
-    expect(mapped[0].location).toBe("1 High St");
-    expect(mapped[0].waste_type).toBe("Mattresses");
+    expect(mapped[0].sourceExternalId).toBe("SRC-1");
+    expect(mapped[0].row.location).toBe("1 High St");
+    expect(mapped[0].row.waste_type).toBe("Mattresses");
   });
 
   it("T27/T28 — business/value validation (severity/status interpretation, e.g.) occurs only inside the real domain mapper, never in mapping execution", () => {
-    const headers = ["Call time", "Site Address", "Type", "Severity"];
+    const headers = ["Call time", "Site Address", "Type", "Severity", "Source ID"];
     const compileResult = compileMapping(
-      doc({ ...MINIMAL_VALID_FIELDS, severity: "Severity" }),
+      doc({ ...FULL_VALID_FIELDS, severity: "Severity" }),
       headers
     );
     expect(compileResult.ok).toBe(true);
     if (!compileResult.ok) return;
     const canonicalRows = applyCompiledMappingToRows(compileResult.plan, [
-      ["2026-03-01T00:00:00.000Z", "1 High St", "Dumped Rubbish", "critical"],
+      ["2026-03-01T00:00:00.000Z", "1 High St", "Dumped Rubbish", "critical", "SRC-1"],
     ]);
     // The structural row still holds the RAW string "critical" — mapping
     // execution never interpreted it into the enum "CRITICAL".
@@ -353,26 +383,26 @@ describe("domain-mapper boundary — DOMAIN BOUNDARY", () => {
     const { headers: adapterHeaders, rows: adapterRows } = toIllegalDumpingMapperInput(canonicalRows);
     const mapped = mapIllegalDumpingRows(adapterHeaders, adapterRows);
     // Only the REAL domain mapper turns "critical" into the enum value.
-    expect(mapped[0].severity).toBe("CRITICAL");
+    expect(mapped[0].row.severity).toBe("CRITICAL");
   });
 
   it("T29 — mapping execution does not parse/normalize business dates; the raw string passes through unchanged", () => {
-    const headers = ["Call time", "Site Address", "Type"];
-    const compileResult = compileMapping(doc(MINIMAL_VALID_FIELDS), headers);
+    const headers = ["Call time", "Site Address", "Type", "Source ID"];
+    const compileResult = compileMapping(doc(FULL_VALID_FIELDS), headers);
     expect(compileResult.ok).toBe(true);
     if (!compileResult.ok) return;
-    const row = applyCompiledMappingToRow(compileResult.plan, ["not-a-real-date-string", "1 High St", "Mattresses"]);
+    const row = applyCompiledMappingToRow(compileResult.plan, ["not-a-real-date-string", "1 High St", "Mattresses", "SRC-1"]);
     // mapping execution never validates/parses this — it is still the raw
     // input string, unlike illegalDumpingMapper.ts's own parseDate.
     expect(row.report_date).toBe("not-a-real-date-string");
   });
 
   it("T30 — mapping execution invents no defaults for business fields (an unmapped optional field is simply absent, never a synthesized value)", () => {
-    const headers = ["Call time", "Site Address", "Type"];
-    const compileResult = compileMapping(doc(MINIMAL_VALID_FIELDS), headers);
+    const headers = ["Call time", "Site Address", "Type", "Source ID"];
+    const compileResult = compileMapping(doc(FULL_VALID_FIELDS), headers);
     expect(compileResult.ok).toBe(true);
     if (!compileResult.ok) return;
-    const row = applyCompiledMappingToRow(compileResult.plan, ["2026-03-01", "1 High St", "Mattresses"]);
+    const row = applyCompiledMappingToRow(compileResult.plan, ["2026-03-01", "1 High St", "Mattresses", "SRC-1"]);
     expect(Object.prototype.hasOwnProperty.call(row, "status")).toBe(false);
     expect(Object.prototype.hasOwnProperty.call(row, "severity")).toBe(false);
   });
@@ -399,11 +429,11 @@ describe("security — SECURITY", () => {
   });
 
   it("T35 — compileMapping/applyCompiledMappingToRow can only ever produce canonical-allowlisted output keys, never an arbitrary field", () => {
-    const headers = ["Call time", "Site Address", "Type"];
-    const compileResult = compileMapping(doc(MINIMAL_VALID_FIELDS), headers);
+    const headers = ["Call time", "Site Address", "Type", "Source ID"];
+    const compileResult = compileMapping(doc(FULL_VALID_FIELDS), headers);
     expect(compileResult.ok).toBe(true);
     if (!compileResult.ok) return;
-    const row = applyCompiledMappingToRow(compileResult.plan, ["2026-03-01", "1 High St", "Mattresses"]);
+    const row = applyCompiledMappingToRow(compileResult.plan, ["2026-03-01", "1 High St", "Mattresses", "SRC-1"]);
     for (const key of Object.keys(row)) {
       expect(ILLEGAL_DUMPING_KNOWN_HEADERS as readonly string[]).toContain(key);
     }
@@ -416,13 +446,15 @@ describe("performance — PERFORMANCE", () => {
     bigHeaders[10] = "Call time";
     bigHeaders[20] = "Site Address";
     bigHeaders[30] = "Type";
-    const compileResult = compileMapping(doc(MINIMAL_VALID_FIELDS), bigHeaders);
+    bigHeaders[40] = "Source ID";
+    const compileResult = compileMapping(doc(FULL_VALID_FIELDS), bigHeaders);
     expect(compileResult.ok).toBe(true);
     if (!compileResult.ok) return;
     const row = Array.from({ length: 500 }, () => "x");
     row[10] = "2026-01-01";
     row[20] = "1 High St";
     row[30] = "Mattresses";
+    row[40] = "SRC-1";
     const start = Date.now();
     for (let i = 0; i < 5000; i++) {
       applyCompiledMappingToRow(compileResult.plan, row);
@@ -430,12 +462,12 @@ describe("performance — PERFORMANCE", () => {
     const elapsedMs = Date.now() - start;
     // Generous bound — this is a determinism/complexity smoke check, not a
     // strict perf benchmark: 5000 applications against a 500-column plan
-    // of 3 mapped fields should be near-instant if apply is O(mappedFields)
+    // of 4 mapped fields should be near-instant if apply is O(mappedFields)
     // rather than O(mappedFields * headers).
     expect(elapsedMs).toBeLessThan(2000);
   });
 
-  it("T39 — the max allowed mapping size (all 12 canonical fields) compiles without issue", () => {
+  it("T39 — the max allowed mapping size (all known canonical fields) compiles without issue", () => {
     const allFields = Object.fromEntries(ILLEGAL_DUMPING_KNOWN_HEADERS.map((h, i) => [h, `H${i}`]));
     const validated = validateMappingDocument({ fields: allFields });
     expect(validated.ok).toBe(true);
@@ -444,13 +476,14 @@ describe("performance — PERFORMANCE", () => {
     expect(result.ok).toBe(true);
   });
 
-  it("T40 — over-bound mapping input (13+ fields) is rejected upstream by 5B.2's own validator, never reaching compileMapping", () => {
+  it("T40 — over-bound mapping input (one more than the max) is rejected upstream by 5B.2's own validator, never reaching compileMapping", () => {
     const tooMany: Record<string, string> = Object.fromEntries(
       ILLEGAL_DUMPING_KNOWN_HEADERS.map((h, i) => [h, `H${i}`])
     );
-    // 12 is the max; there is no 13th legal canonical target to add, which
-    // is itself the structural proof — attempting to smuggle an extra key
-    // fails validation before it could ever reach this module.
+    // The max is exactly ILLEGAL_DUMPING_KNOWN_HEADERS.length; there is no
+    // legal canonical target beyond that to add, which is itself the
+    // structural proof — attempting to smuggle an extra key fails
+    // validation before it could ever reach this module.
     const result = validateMappingDocument({ ...tooMany, extraTopLevelKey: "nope" });
     expect(result.ok).toBe(false);
   });
@@ -462,19 +495,20 @@ describe("property-style equivalence — deterministic generated cases", () => {
       "Call time": "2026-05-01",
       "Site Address": "9 Elm St",
       Type: "Organics",
+      "Source ID": "SRC-99",
       Extra1: "ignored-1",
       Extra2: "ignored-2",
     };
     const headerOrders: string[][] = [
-      ["Call time", "Site Address", "Type", "Extra1", "Extra2"],
-      ["Extra1", "Call time", "Extra2", "Site Address", "Type"],
-      ["Type", "Extra2", "Extra1", "Site Address", "Call time"],
-      ["Extra2", "Extra1", "Type", "Call time", "Site Address"],
+      ["Call time", "Site Address", "Type", "Source ID", "Extra1", "Extra2"],
+      ["Extra1", "Call time", "Extra2", "Site Address", "Type", "Source ID"],
+      ["Type", "Extra2", "Extra1", "Site Address", "Call time", "Source ID"],
+      ["Extra2", "Extra1", "Type", "Call time", "Site Address", "Source ID"],
     ];
     const fieldKeyOrders: Record<string, string>[] = [
-      { report_date: "Call time", location: "Site Address", waste_type: "Type" },
-      { waste_type: "Type", report_date: "Call time", location: "Site Address" },
-      { location: "Site Address", waste_type: "Type", report_date: "Call time" },
+      { report_date: "Call time", location: "Site Address", waste_type: "Type", source_external_id: "Source ID" },
+      { waste_type: "Type", report_date: "Call time", location: "Site Address", source_external_id: "Source ID" },
+      { location: "Site Address", waste_type: "Type", report_date: "Call time", source_external_id: "Source ID" },
     ];
 
     const results: unknown[] = [];
@@ -491,7 +525,7 @@ describe("property-style equivalence — deterministic generated cases", () => {
     // all resulting canonical rows must be identical regardless of header
     // order or mapping-document key order.
     for (const r of results) {
-      expect(r).toEqual({ report_date: "2026-05-01", location: "9 Elm St", waste_type: "Organics" });
+      expect(r).toEqual({ report_date: "2026-05-01", location: "9 Elm St", waste_type: "Organics", source_external_id: "SRC-99" });
     }
   });
 });

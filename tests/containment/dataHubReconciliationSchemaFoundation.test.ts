@@ -409,6 +409,18 @@ describe('scripts/create-datahub-reconciliation.sql — ensure_* drift-safety de
 // ═══════════════════════════════════════════════════════════════════
 
 describe('Zero runtime reconciliation wiring (T21/T22/T25)', () => {
+  // 6.1B — corrected three pre-existing path bugs (discovered during 6.1B's
+  // own planning discovery, disclosed to the user as pre-existing test-
+  // maintenance debt, not new runtime scope): these three entries were
+  // missing the importBatch/ or sourceMapping/ directory segment their real
+  // files live under, so `fs.existsSync` silently short-circuited every
+  // check below to a no-op PASS for all three, since 6.1A shipped. Only
+  // illegalDumpingMapper.ts's path is corrected here (it's the one file in
+  // this list 6.1B actually changes, and T22 below needs to genuinely
+  // observe that to be retargeted honestly rather than silently no-op).
+  // mappingExecution.ts/mappingDocument.ts's own path bugs are untouched —
+  // out of scope for 6.1B, since neither file's content changes in this
+  // phase — and should be reported to whoever owns 6.1A test maintenance.
   const PROTECTED_FILES = [
     'lib/data-hub/importBatch/confirmWorksheet.ts',
     'lib/data-hub/importBatch/failureTaxonomy.ts',
@@ -416,7 +428,7 @@ describe('Zero runtime reconciliation wiring (T21/T22/T25)', () => {
     'lib/data-hub/importBatch/selectWorksheetMapping.ts',
     'lib/data-hub/mappingExecution.ts',
     'lib/data-hub/mappingDocument.ts',
-    'lib/data-hub/illegalDumpingMapper.ts',
+    'lib/data-hub/importBatch/illegalDumpingMapper.ts',
     'modules/dumping/index.ts',
   ]
 
@@ -431,23 +443,37 @@ describe('Zero runtime reconciliation wiring (T21/T22/T25)', () => {
     }
   })
 
-  it('T25. the 6.0C1 first-import guard file is byte-identical to origin/main (no diff at all)', () => {
+  // T25 RETARGETED (6.1B) — confirmWorksheet.ts is now intentionally,
+  // authorizedly changed by Phase 6.1B (source_external_id plumbing +
+  // duplicate-identity pre-transaction validation; Checkpoint 2 of the
+  // same phase additionally wires the reconciliation transaction sequence
+  // and supersedes the 6.0C1 coarse guard). A byte-identity requirement
+  // against origin/main is retired for exactly this reason — mirroring
+  // this file's own established convention just below (the removed
+  // "Diff containment" block) for retiring a check whose premise a later,
+  // authorized change has legitimately outgrown, rather than silently
+  // leaving a check that would now incorrectly fail on approved work.
+  it('T25 (superseded by 6.1B). confirmWorksheet.ts intentionally diverges from origin/main as of Phase 6.1B (source_external_id plumbing, duplicate-identity validation, and reconciliation wiring) — this test now only documents that a diff exists, not its absence', () => {
     const guardFile = 'lib/data-hub/importBatch/confirmWorksheet.ts'
     const fullPath = path.resolve(REPO_ROOT, guardFile)
     if (!fs.existsSync(fullPath)) return
     const diff = execSync(`git diff ${resolveBaseRef()} -- "${guardFile}"`, { cwd: REPO_ROOT, encoding: 'utf-8' })
-    expect(diff.trim(), `expected zero diff to ${guardFile} vs origin/main`).toBe('')
+    expect(diff.trim().length, `expected a real, authorized 6.1B diff to ${guardFile} vs origin/main`).toBeGreaterThan(0)
   })
 
-  it('T22. illegalDumpingMapper.ts (the legacy create-path mapper) is byte-identical to origin/main', () => {
-    const mapperFile = 'lib/data-hub/illegalDumpingMapper.ts'
+  // T22 RETARGETED (6.1B) — illegalDumpingMapper.ts is now intentionally,
+  // authorizedly changed (source_external_id required-field extraction and
+  // the MappedIllegalDumpingRecord wrapper return shape). Same rationale
+  // as T25 above.
+  it('T22 (superseded by 6.1B). illegalDumpingMapper.ts intentionally diverges from origin/main as of Phase 6.1B (source_external_id extraction, MappedIllegalDumpingRecord wrapper shape) — this test now only documents that a diff exists, not its absence', () => {
+    const mapperFile = 'lib/data-hub/importBatch/illegalDumpingMapper.ts'
     const fullPath = path.resolve(REPO_ROOT, mapperFile)
     if (!fs.existsSync(fullPath)) return
     const diff = execSync(`git diff ${resolveBaseRef()} -- "${mapperFile}"`, { cwd: REPO_ROOT, encoding: 'utf-8' })
-    expect(diff.trim(), `expected zero diff to ${mapperFile} vs origin/main`).toBe('')
+    expect(diff.trim().length, `expected a real, authorized 6.1B diff to ${mapperFile} vs origin/main`).toBeGreaterThan(0)
   })
 
-  it('the legacy /data writer (modules/dumping/index.ts) is byte-identical to origin/main', () => {
+  it('the legacy /data writer (modules/dumping/index.ts) is byte-identical to origin/main — 6.1B does not touch this file', () => {
     const legacyFile = 'modules/dumping/index.ts'
     const fullPath = path.resolve(REPO_ROOT, legacyFile)
     if (!fs.existsSync(fullPath)) return

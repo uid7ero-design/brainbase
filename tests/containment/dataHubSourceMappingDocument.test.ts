@@ -123,10 +123,18 @@ describe("validateMappingDocument", () => {
     expect(r.document.fields.report_date).toBe("Call time");
   });
 
-  it("no field name/value in CANONICAL_TARGET_FIELDS looks like Phase 6/reconciliation/credential concepts", () => {
+  it("no field name/value in CANONICAL_TARGET_FIELDS looks like reconciliation-INTERNAL/credential concepts (source_external_id itself is a deliberate 6.1B exception — see below)", () => {
+    // Data Hub 6.1B — source_external_id was explicitly authorized as a
+    // canonical mapping target (the generic reconciliation identity key —
+    // e.g. Onkaparinga's own "Ticket #" maps to it; see
+    // illegalDumpingMapper.ts's own doc comment). This is the one
+    // deliberate exception to this guard, not a leak: it is a legitimate,
+    // source-facing MAPPING TARGET a customer's own MappingDocument
+    // configures, unlike the other forbidden concepts below, none of which
+    // any customer mapping should ever need to reference (they are
+    // reconciliation-INTERNAL bookkeeping: computed hashes, derived
+    // statuses, or credentials — never a raw source column).
     const forbidden = [
-      "external_id",
-      "source_external_id",
       "reconciliation_status",
       "canonical_hash",
       "credential",
@@ -134,6 +142,7 @@ describe("validateMappingDocument", () => {
       "api_key",
       "token",
     ];
+    expect(CANONICAL_TARGET_FIELDS).toContain("source_external_id");
     for (const target of CANONICAL_TARGET_FIELDS) {
       expect(forbidden).not.toContain(target);
     }

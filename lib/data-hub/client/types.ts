@@ -545,6 +545,9 @@ export type ConfirmFailureCodeClient =
   // 5B.5B — already returned by the server since 5B.4D, previously absent
   // from this client type.
   | "MAPPING_COMPILE_FAILED"
+  // Data Hub 6.1B — a worksheet with two rows sharing one reconciliation
+  // identity (source_external_id) is rejected before any writes occur.
+  | "DUPLICATE_SOURCE_EXTERNAL_ID_IN_WORKSHEET"
   | string; // the route's own statusByCode map is intentionally exhaustive against a much larger union of server-internal-only codes this client will never actually observe; kept open here rather than duplicating that entire defensive list.
 
 export type ConfirmIllegalDumpingResponseBody = ConfirmIllegalDumpingSuccess | { ok: false; error: string; code?: ConfirmFailureCodeClient };

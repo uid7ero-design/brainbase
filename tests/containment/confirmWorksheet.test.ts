@@ -512,7 +512,7 @@ describe("confirmWorksheet — lost-race resolution inside the transaction resul
   it("claim.count === 0 with currentStatus IMPORTED -> idempotent success (a concurrent attempt won)", async () => {
     const { confirmDataHubWorksheet } = await freshService();
     const { createHash } = await import("node:crypto");
-    const body = new TextEncoder().encode("report_date,location,waste_type\n2024-01-01,Main St,tyres\n");
+    const body = new TextEncoder().encode("report_date,location,waste_type,source_external_id\n2024-01-01,Main St,tyres,EXT-1\n");
     uploadFindFirstMock.mockResolvedValue(worksheetRow());
     importBatchFindUniqueMock.mockResolvedValue(batchRow({ sha256: createHash("sha256").update(body).digest("hex"), source_system_id: "ss-1" }));
     storageGetMock.mockResolvedValue({ body });
@@ -524,7 +524,7 @@ describe("confirmWorksheet — lost-race resolution inside the transaction resul
   it("claim.count === 0 with any other currentStatus -> WORKSHEET_NOT_ELIGIBLE, not a silent success", async () => {
     const { confirmDataHubWorksheet } = await freshService();
     const { createHash } = await import("node:crypto");
-    const body = new TextEncoder().encode("report_date,location,waste_type\n2024-01-01,Main St,tyres\n");
+    const body = new TextEncoder().encode("report_date,location,waste_type,source_external_id\n2024-01-01,Main St,tyres,EXT-1\n");
     uploadFindFirstMock.mockResolvedValue(worksheetRow());
     importBatchFindUniqueMock.mockResolvedValue(batchRow({ sha256: createHash("sha256").update(body).digest("hex"), source_system_id: "ss-1" }));
     storageGetMock.mockResolvedValue({ body });
@@ -536,7 +536,7 @@ describe("confirmWorksheet — lost-race resolution inside the transaction resul
   it("claimed true -> ok success with importedRows from the transaction result", async () => {
     const { confirmDataHubWorksheet } = await freshService();
     const { createHash } = await import("node:crypto");
-    const body = new TextEncoder().encode("report_date,location,waste_type\n2024-01-01,Main St,tyres\n");
+    const body = new TextEncoder().encode("report_date,location,waste_type,source_external_id\n2024-01-01,Main St,tyres,EXT-1\n");
     uploadFindFirstMock.mockResolvedValue(worksheetRow());
     importBatchFindUniqueMock.mockResolvedValue(batchRow({ sha256: createHash("sha256").update(body).digest("hex"), source_system_id: "ss-1" }));
     storageGetMock.mockResolvedValue({ body });
@@ -617,7 +617,10 @@ function mappingVersionRow(overrides: Partial<Record<string, unknown>> = {}) {
     id: "mv-3",
     source_mapping_id: "sm-1",
     version_number: 3,
-    mapping_document: { fields: { report_date: "Reported At", location: "Site", waste_type: "Type" } },
+    // 6.1B — source_external_id joined the required canonical targets;
+    // included here so every mapped-path fixture using this default
+    // continues to compile+map successfully unchanged.
+    mapping_document: { fields: { report_date: "Reported At", location: "Site", waste_type: "Type", source_external_id: "Ext Reference" } },
     ...overrides,
   };
 }
@@ -647,14 +650,19 @@ function bufferAndHash(text: string): { body: Buffer; sha256: string } {
   return { body, sha256 };
 }
 function mappedCsv(rows: string[][]): { body: Buffer; sha256: string } {
-  return bufferAndHash(buildCsv(["Reported At", "Site", "Type"], rows));
+  // 6.1B — every row gets a synthetic, unique source_external_id appended
+  // automatically so existing 3-column call sites need no change; callers
+  // that care about the actual identity value pass it as a 4th cell
+  // themselves (see mappedCsvWithIds below for that case).
+  const withExternalId = rows.map((row, i) => (row.length >= 4 ? row : [...row, `EXT-${i}`]));
+  return bufferAndHash(buildCsv(["Reported At", "Site", "Type", "Ext Reference"], withExternalId));
 }
 const CONFIRM_SERVICE_PATH = "lib/data-hub/importBatch/confirmWorksheet.ts";
 
 describe("confirmWorksheet — 5B.4D legacy/mapped dual-path routing (T1-T4)", () => {
   it("NULL mapping_version_id -> zero mappingVersion/sourceMapping lookups, legacy claim WHERE clause has no mapping_version_id key at all", async () => {
     const { confirmDataHubWorksheet } = await freshService();
-    const { body, sha256 } = bufferAndHash(buildCsv(["report_date", "location", "waste_type"], [["2024-01-01", "Main St", "tyres"]]));
+    const { body, sha256 } = bufferAndHash(buildCsv(["report_date", "location", "waste_type", "source_external_id"], [["2024-01-01", "Main St", "tyres", "EXT-1"]]));
     uploadFindFirstMock.mockResolvedValue(worksheetRow({ mapping_version_id: null }));
     importBatchFindUniqueMock.mockResolvedValue(batchRow({ sha256, source_system_id: "ss-1" }));
     storageGetMock.mockResolvedValue({ body });
@@ -993,7 +1001,7 @@ describe("confirmWorksheet — 5B.4D DETERMINISTIC selection-vs-confirm write-bo
 
   it("legacy (NULL expectedMappingVersionId) worksheets are structurally exempt from this race entirely — the claim WHERE clause never gains a mapping_version_id key, so no reselection-shaped mutation can ever apply to them", async () => {
     const { confirmDataHubWorksheet } = await freshService();
-    const { body, sha256 } = bufferAndHash(buildCsv(["report_date", "location", "waste_type"], [["2024-01-01", "Main St", "tyres"]]));
+    const { body, sha256 } = bufferAndHash(buildCsv(["report_date", "location", "waste_type", "source_external_id"], [["2024-01-01", "Main St", "tyres", "EXT-1"]]));
     uploadFindFirstMock.mockResolvedValue(worksheetRow({ mapping_version_id: null }));
     importBatchFindUniqueMock.mockResolvedValue(batchRow({ sha256, source_system_id: "ss-1" }));
     storageGetMock.mockResolvedValue({ body });

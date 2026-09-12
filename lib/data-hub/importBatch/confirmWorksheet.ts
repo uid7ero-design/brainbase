@@ -5,7 +5,12 @@ import { buildImportBatchKey, RawFileStoreError } from "../storage/rawFileStore"
 import { createImportBatchStorage } from "./compositionRoot";
 import { MAX_SOURCE_FILE_BYTES } from "../limits";
 import { decodeCsvOnly, CsvOnlyDecodeError } from "../csvOnlyDecoder";
-import { mapIllegalDumpingRows, IllegalDumpingMappingError, type MappedIllegalDumpingRow } from "./illegalDumpingMapper";
+import {
+  mapIllegalDumpingRows,
+  IllegalDumpingMappingError,
+  type MappedIllegalDumpingRecord,
+} from "./illegalDumpingMapper";
+import { findDuplicateSourceExternalId } from "./reconciliation";
 import { getMessageTemplate, type FailureCode } from "./failureTaxonomy";
 import { validateMappingDocument, type MappingDocument } from "../sourceMapping/mappingDocument";
 import { compileMapping, applyCompiledMappingToRows, toIllegalDumpingMapperInput } from "../sourceMapping/mappingExecution";
@@ -328,12 +333,12 @@ export async function confirmDataHubWorksheet(
   // stays structural-only (Section 9), domain interpretation (dates,
   // status, required-value rules) remains exclusively that mapper's own
   // responsibility, never re-implemented here. ----
-  let mappedRows: MappedIllegalDumpingRow[];
+  let mappedRecords: MappedIllegalDumpingRecord[];
   try {
     const { headers, rows } = decodeCsvOnly(getResult.body);
 
     if (resolvedMapping === null) {
-      mappedRows = mapIllegalDumpingRows(headers, rows);
+      mappedRecords = mapIllegalDumpingRows(headers, rows);
     } else {
       // Compile against the REAL, FULL worksheet headers — reuses 5B.3's
       // unmodified compileMapping verbatim. compileMapping failure here is
@@ -347,7 +352,7 @@ export async function confirmDataHubWorksheet(
       // Apply to the FULL row set — never a bounded sample.
       const canonicalRows = applyCompiledMappingToRows(compiled.plan, rows);
       const { headers: domainHeaders, rows: domainRows } = toIllegalDumpingMapperInput(canonicalRows);
-      mappedRows = mapIllegalDumpingRows(domainHeaders, domainRows);
+      mappedRecords = mapIllegalDumpingRows(domainHeaders, domainRows);
     }
   } catch (err) {
     if (err instanceof CsvOnlyDecodeError || err instanceof IllegalDumpingMappingError) {
@@ -355,6 +360,22 @@ export async function confirmDataHubWorksheet(
     }
     throw err;
   }
+
+  // ---- Step 7.5 — 6.1B: duplicate source_external_id rejection. Two rows
+  // sharing an identical reconciliation identity within the SAME incoming
+  // worksheet belong to the same source snapshot, never a longitudinal
+  // NEW/UNCHANGED/CHANGED sequence — allowing this would let input row
+  // order decide the final canonical IllegalDumping state and would create
+  // two historical observations for one source snapshot. Pure, synchronous,
+  // still entirely pre-transaction: zero writes on this path. ----
+  const duplicateSourceExternalId = findDuplicateSourceExternalId(mappedRecords.map((m) => m.sourceExternalId));
+  if (duplicateSourceExternalId !== null) {
+    return fail("DUPLICATE_SOURCE_EXTERNAL_ID_IN_WORKSHEET");
+  }
+
+  // 6.1B checkpoint 1 — Step 8 below is not yet reconciliation-aware; it
+  // consumes only the mapped business rows, exactly as before this phase.
+  const mappedRows = mappedRecords.map((m) => m.row);
 
   // ---- Step 8 — the single transaction. First statement is the atomic
   // conditional claim (an UPDATE whose own WHERE clause encodes every

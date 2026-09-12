@@ -158,6 +158,11 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
       MAPPING_LINEAGE_UNAVAILABLE: 409,
       MAPPING_DOCUMENT_INVALID: 500,
       MAPPING_COMPILE_FAILED: 422,
+      // 6.1B — a structural data problem with the worksheet's own content
+      // (two rows share one reconciliation identity), matching
+      // PARSER_REJECTED/UNSUPPORTED_FORMAT's existing 422 treatment.
+      // Reachable now via Step 7.5's pre-transaction duplicate check.
+      DUPLICATE_SOURCE_EXTERNAL_ID_IN_WORKSHEET: 422,
     };
     return NextResponse.json(
       { ok: false, error: result.message },

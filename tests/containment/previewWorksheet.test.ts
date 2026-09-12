@@ -653,9 +653,17 @@ describe("previewWorksheet — CSV correctness (quoting, embedded newlines/comma
 });
 
 describe("previewWorksheet — required-header presence", () => {
+  // Data Hub 6.1B — source_external_id joined ILLEGAL_DUMPING_REQUIRED_HEADERS
+  // (now 4 entries), which this describe block's own computation
+  // (previewWorksheet.ts derives requiredHeadersPresent/missingRequiredHeaders
+  // directly from that real export) reflects automatically. Fixtures below
+  // are updated to include it where the test's own point is "all required
+  // headers present"; the "missing"/"duplicated" tests now also (correctly)
+  // observe source_external_id as missing, since none of these fixtures
+  // configure it.
   it("all required headers present -> requiredHeadersPresent true, missingRequiredHeaders empty", async () => {
     const { previewWorksheet } = await freshService();
-    const csv = buildCsv(REQUIRED_HEADERS, [["2024-01-01", "loc", "type"]]);
+    const csv = buildCsv([...REQUIRED_HEADERS, "source_external_id"], [["2024-01-01", "loc", "type", "EXT-1"]]);
     const { body, sha256 } = bufferAndHash(csv);
     uploadFindFirstMock.mockResolvedValue(worksheetRow());
     importBatchFindUniqueMock.mockResolvedValue(batchRow({ sha256 }));
@@ -678,10 +686,11 @@ describe("previewWorksheet — required-header presence", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.preview.requiredHeadersPresent).toBe(false);
-    expect(result.preview.missingRequiredHeaders).toEqual(["waste_type"]);
+    // waste_type AND source_external_id (6.1B) are both genuinely absent.
+    expect(result.preview.missingRequiredHeaders).toEqual(["waste_type", "source_external_id"]);
   });
 
-  it("a duplicated required header -> requiredHeadersPresent false, missingRequiredHeaders empty (nothing is literally missing — an honest, distinct signal from 'missing')", async () => {
+  it("a duplicated required header -> requiredHeadersPresent false, missingRequiredHeaders lists only the genuinely-absent one(s) — an honest, distinct signal from 'missing'", async () => {
     const { previewWorksheet } = await freshService();
     const csv = buildCsv(["report_date", "report_date", "location", "waste_type"], [["2024-01-01", "2024-01-02", "loc", "type"]]);
     const { body, sha256 } = bufferAndHash(csv);
@@ -692,7 +701,9 @@ describe("previewWorksheet — required-header presence", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.preview.requiredHeadersPresent).toBe(false);
-    expect(result.preview.missingRequiredHeaders).toEqual([]);
+    // report_date is duplicated, not missing (honest distinct signal,
+    // unchanged); source_external_id (6.1B) is genuinely absent here.
+    expect(result.preview.missingRequiredHeaders).toEqual(["source_external_id"]);
   });
 });
 
@@ -766,7 +777,10 @@ function mappingVersionRow(overrides: Partial<Record<string, unknown>> = {}) {
     id: "mv-3",
     source_mapping_id: "sm-1",
     version_number: 3,
-    mapping_document: { fields: { report_date: "Reported At", location: "Site", waste_type: "Type" } },
+    // 6.1B — source_external_id joined the required canonical targets;
+    // included here so every mapped-path fixture using this default
+    // continues to compile+map successfully unchanged.
+    mapping_document: { fields: { report_date: "Reported At", location: "Site", waste_type: "Type", source_external_id: "Ext Reference" } },
     ...overrides,
   };
 }
@@ -774,7 +788,10 @@ function sourceMappingRow(overrides: Partial<Record<string, unknown>> = {}) {
   return { id: "sm-1", source_system_id: "ss-1", ...overrides };
 }
 function mappedCsv(rows: string[][]): { body: Buffer; sha256: string } {
-  return bufferAndHash(buildCsv(["Reported At", "Site", "Type"], rows));
+  // 6.1B — every row gets a synthetic, unique source_external_id appended
+  // automatically so existing 3-column call sites need no change.
+  const withExternalId = rows.map((row, i) => (row.length >= 4 ? row : [...row, `EXT-${i}`]));
+  return bufferAndHash(buildCsv(["Reported At", "Site", "Type", "Ext Reference"], withExternalId));
 }
 
 describe("previewWorksheet — 5B.4C legacy/mapped dual-path routing (T1/T3)", () => {
@@ -974,7 +991,8 @@ describe("previewWorksheet — 5B.4C compileMapping is genuinely invoked (T21/T2
     expect(result.preview.mapping?.mappingErrors).toContainEqual(
       expect.objectContaining({ code: "MAPPING_REQUIRED_TARGET_MISSING", canonicalTarget: "waste_type" })
     );
-    expect(result.preview.missingRequiredHeaders).toEqual(["waste_type"]);
+    // waste_type AND source_external_id (6.1B) are both unconfigured here.
+    expect(result.preview.missingRequiredHeaders).toEqual(["waste_type", "source_external_id"]);
   });
 
   it("Section 13: raw CSV header need not equal the canonical Illegal Dumping name when a valid mapping supplies it — 'Reported At'/'Site'/'Type' satisfy report_date/location/waste_type via the mapping, never via headers.includes()", async () => {
@@ -1000,9 +1018,12 @@ describe("previewWorksheet — 5B.4C row application + domain-mapper feed (T28/T
     // short (only 2 of 3 columns present) — the mapped "waste_type" cell
     // must resolve to "".
     const csv = buildCsv(
-      ["Reported At", "Site", "Type", "Unused Extra"],
+      ["Reported At", "Site", "Type", "Ext Reference", "Unused Extra"],
       [
-        ["2024-01-01", "Loc A", "Dumped Rubbish", "ignored-value"],
+        ["2024-01-01", "Loc A", "Dumped Rubbish", "EXT-1", "ignored-value"],
+        // Short row (only 2 of 4 mapped columns present) — both "Type" and
+        // "Ext Reference" fall back to "" per applyCompiledMappingToRow's
+        // own documented short-row behavior.
         ["2024-01-02", "Loc B"],
       ]
     );
@@ -1017,8 +1038,8 @@ describe("previewWorksheet — 5B.4C row application + domain-mapper feed (T28/T
     if (!result.ok) return;
     expect(result.preview.mapping?.structurallyValid).toBe(true);
     expect(result.preview.mapping?.mappedSampleRows).toEqual([
-      { report_date: "2024-01-01", location: "Loc A", waste_type: "Dumped Rubbish" },
-      { report_date: "2024-01-02", location: "Loc B", waste_type: "" },
+      { report_date: "2024-01-01", location: "Loc A", waste_type: "Dumped Rubbish", source_external_id: "EXT-1" },
+      { report_date: "2024-01-02", location: "Loc B", waste_type: "", source_external_id: "" },
     ]);
     // Row 2's mapped waste_type is "" (empty, business-required), so the
     // real, unmodified domain mapper correctly rejects it — proving actual

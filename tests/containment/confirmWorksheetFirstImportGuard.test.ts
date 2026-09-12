@@ -88,8 +88,13 @@ function batchRow(overrides: Partial<Record<string, unknown>> = {}) {
     ...overrides,
   };
 }
+// 6.1B — source_external_id joined the required headers; every row here
+// gets a synthetic, unique value auto-appended unless the caller already
+// supplied one, so this guard-focused fixture continues to compile+map
+// successfully unchanged for every existing call site.
 function csvBody(rows: string[][] = [["2024-01-01", "Main St", "tyres"]]) {
-  const lines = ["report_date,location,waste_type", ...rows.map((r) => r.join(","))];
+  const withExternalId = rows.map((r, i) => (r.length >= 4 ? r : [...r, `EXT-${i}`]));
+  const lines = ["report_date,location,waste_type,source_external_id", ...withExternalId.map((r) => r.join(","))];
   const body = Buffer.from(lines.join("\n") + "\n", "utf8");
   return { body, sha256: createHash("sha256").update(body).digest("hex") };
 }
@@ -326,7 +331,7 @@ describe("confirmWorksheet — 6.0C1 T6/M4: guard identity ignores mapping_versi
     const { body } = csvBody([["2024-01-01", "Main St", "tyres"]]);
     uploadFindFirstMock.mockResolvedValue(worksheetRow({ id: "worksheet-4", mapping_version_id: "mv-9" }));
     importBatchFindUniqueMock.mockResolvedValue(batchRow({ sha256: createHash("sha256").update(body).digest("hex"), source_system_id: "ss-1" }));
-    mappingVersionFindUniqueMock.mockResolvedValue({ source_mapping_id: "sm-1", mapping_document: { fields: { report_date: "report_date", location: "location", waste_type: "waste_type" } } });
+    mappingVersionFindUniqueMock.mockResolvedValue({ source_mapping_id: "sm-1", mapping_document: { fields: { report_date: "report_date", location: "location", waste_type: "waste_type", source_external_id: "source_external_id" } } });
     sourceMappingFindUniqueMock.mockResolvedValue({ source_system_id: "ss-1" });
     storageGetMock.mockResolvedValue({ body });
     mockTransactionOnce({ priorSuccesses: [{ organisationId: "org-1", sourceSystemId: "ss-1" }] }, "claim");
