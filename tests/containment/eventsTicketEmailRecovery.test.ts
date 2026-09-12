@@ -53,6 +53,15 @@ const recovery = await import('@/lib/events/ticketEmailRecovery')
 const SOURCE = stripComments(readSource('lib/events/ticketEmailRecovery.ts'))
 const RAW_SOURCE = readSource('lib/events/ticketEmailRecovery.ts')
 const STRIPE_SOURCE = readSource('lib/events/stripe.ts')
+// Comment-stripped variant — Phase 3E.3 added real (approved) code to
+// stripe.ts referencing ticket_email_status, and its own explanatory
+// comments legitimately name this file ("lib/events/ticketEmailRecovery.ts")
+// when describing why the recovery cron, not the webhook, owns delivery.
+// The contract this file's own "paid containment" tests care about is
+// CODE coupling (an import or a call), never a comment mentioning a
+// filename — checked against stripped source so a prose reference can
+// never produce a false positive.
+const STRIPE_SOURCE_STRIPPED = stripComments(STRIPE_SOURCE)
 
 describe('constants', () => {
   it('RECOVERY_BATCH_SIZE is 20', () => {
@@ -292,8 +301,14 @@ describe('paid containment (mandatory)', () => {
     expect(SOURCE).not.toMatch(/INSERT\s+INTO\s+event_orders/i)
   })
 
-  it('the Stripe checkout/webhook flow remains completely untouched by this phase', () => {
-    expect(STRIPE_SOURCE).not.toMatch(/ticketEmailRecovery|runTicketEmailRecovery/)
+  // Still-valid contract, kept unchanged in substance (per Phase 3E.3's
+  // own review of this file — this assertion is NOT obsolete, only its
+  // source variant needed a fix): stripe.ts (now legitimately touched by
+  // 3E.3's own narrow scheduling clause) has zero CODE coupling to this
+  // recovery module — no import, no call to runTicketEmailRecovery.
+  // Recovery remains entirely independent, cron-driven, and generic.
+  it('the Stripe checkout/webhook flow never imports or calls this recovery module — no code coupling, even after Phase 3E.3 added its own narrow scheduling clause elsewhere in stripe.ts', () => {
+    expect(STRIPE_SOURCE_STRIPPED).not.toMatch(/ticketEmailRecovery|runTicketEmailRecovery/)
   })
 
   it('this executor is generic — it discovers candidates purely by ticket_email_status, with no order-type/payment-method filter of any kind, so a future paid-scheduling phase can reuse it unchanged', () => {

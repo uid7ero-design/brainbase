@@ -86,6 +86,11 @@ const MIGRATION_SOURCE = readSource('scripts/add-events-ticket-email-delivery.sq
 const RESEND_ROUTE_SOURCE = readSource('app/api/events/[id]/orders/[orderId]/resend-ticket-email/route.ts')
 const REGISTER_ROUTE_SOURCE = readSource('app/api/public/events/[organisationSlug]/[eventSlug]/register/route.ts')
 const STRIPE_SOURCE = readSource('lib/events/stripe.ts')
+// Comment-stripped variant — needed for exact-occurrence counts (Phase
+// 3E.3's own containment tests below), since STRIPE_SOURCE's raw text
+// legitimately contains the literal string "ticket_email_status =
+// 'pending'" a second time inside that code's own explanatory comment.
+const STRIPE_SOURCE_STRIPPED = stripComments(STRIPE_SOURCE)
 
 // Isolates the claim query's own WHERE clause text (between "UPDATE
 // event_orders" for the claim function and its matching "RETURNING id,
@@ -537,8 +542,52 @@ describe('NO AUTO SEND (paid) / NO CRON SCHEDULE — Phase 3E.2/3E.2R boundary',
   // gate's own report) — proven below against the exact approved
   // Production configuration, not merely "some schedule exists".
 
-  it('the Stripe checkout-completed handler is completely untouched by this module — paid automatic delivery (3E.3) remains unimplemented', () => {
-    expect(STRIPE_SOURCE).not.toMatch(/ticket_email_|ticketEmailDelivery/)
+  // Phase 3E.3 — paid automatic delivery is now implemented, deliberately
+  // narrow: stripe.ts MAY reference ticket_email_status, but ONLY as one
+  // scheduling clause inside handleCheckoutSessionCompleted's own
+  // existing guarded UPDATE. This replaces the old "completely
+  // untouched" assertion (which is now obsolete BY DESIGN, not by
+  // regression) with a precise proof of the new, narrower boundary.
+  it('the ONLY ticket-email reference in lib/events/stripe.ts is the approved 3E.3 scheduling clause, inside handleCheckoutSessionCompleted\'s own guarded UPDATE — exactly one write, never an automatic send, never a ticketEmailDelivery import', () => {
+    // A. exactly one scheduling write exists anywhere in stripe.ts (comment-
+    // stripped, so this counts real code only — see STRIPE_SOURCE_STRIPPED's
+    // own comment for why the raw source legitimately contains this text twice)
+    const stripeScheduleMatches = STRIPE_SOURCE_STRIPPED.match(/ticket_email_status = 'pending'/g) ?? []
+    expect(stripeScheduleMatches.length).toBe(1)
+
+    // B/C. that write is inside handleCheckoutSessionCompleted, in the
+    // SAME UPDATE statement as status='CONFIRMED'/payment_status='PAID'
+    const fnStart = STRIPE_SOURCE.indexOf('async function handleCheckoutSessionCompleted(')
+    expect(fnStart).toBeGreaterThanOrEqual(0)
+    const fnEnd = STRIPE_SOURCE.indexOf('\n}', fnStart)
+    const fnBody = STRIPE_SOURCE.slice(fnStart, fnEnd)
+    expect(fnBody).toMatch(/ticket_email_status = 'pending'/)
+    const updateStart = fnBody.indexOf('UPDATE event_orders')
+    const updateEnd = fnBody.indexOf('RETURNING id, organisation_id')
+    expect(updateStart).toBeGreaterThanOrEqual(0)
+    expect(updateEnd).toBeGreaterThan(updateStart)
+    const updateStmt = fnBody.slice(updateStart, updateEnd)
+    expect(updateStmt).toMatch(/status = 'CONFIRMED'/)
+    expect(updateStmt).toMatch(/payment_status = 'PAID'/)
+    expect(updateStmt).toMatch(/ticket_email_status = 'pending'/)
+
+    // D. that same UPDATE retains payment_status = 'PENDING' in its WHERE guard
+    expect(updateStmt).toMatch(/WHERE id = \$\{orderId\}/)
+    expect(updateStmt).toMatch(/payment_status = 'PENDING'/)
+
+    // E. stripe.ts still never CALLS an automatic send or imports the
+    // delivery module directly — checked against comment-stripped source,
+    // since this file's own explanatory comments legitimately name these
+    // functions when explaining why they are deliberately NOT called.
+    expect(STRIPE_SOURCE_STRIPPED).not.toMatch(/attemptAutomaticTicketEmail\(|sendTicketEmail\(|sendEmail\(/)
+    expect(STRIPE_SOURCE_STRIPPED).not.toMatch(/from ['"]@\/lib\/events\/ticketEmailDelivery['"]/)
+
+    // F. delivery remains owned entirely by THIS module (ticketEmailDelivery.ts)
+    // — attemptAutomaticTicketEmail/claimTicketEmailDelivery/markTicketEmailSent/
+    // markTicketEmailFailed all remain defined here, unmodified by 3E.3,
+    // and this file's own orchestration tests (above) continue to pass
+    // unchanged — Stripe schedules; this module still owns every send.
+    expect(SOURCE).toMatch(/export async function attemptAutomaticTicketEmail/)
   })
 
   it('vercel.json contains exactly the approved cron configuration: sync unchanged at 0 2 * * *, ticket-email recovery at exactly */5 * * * *, nothing else', () => {

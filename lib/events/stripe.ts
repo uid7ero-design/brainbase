@@ -306,6 +306,30 @@ export async function processStripeWebhookEvent(event: Stripe.Event): Promise<We
 // did); after_state's "source": "stripe_webhook" is what makes that
 // explicit for anyone reading audit_logs later, distinguishing this row
 // from every human-actor entry lib/events/auditLog.ts writes.
+//
+// Phase 3E.3 — the SAME statement that flips a paid order to PAID/
+// CONFIRMED also now sets ticket_email_status = 'pending', scheduling it
+// into the existing 3E.1/3E.2/3E.2R automatic-delivery system. This is
+// deliberately folded into this one existing guarded UPDATE rather than
+// a separate write: the WHERE clause below (exact order id + exact
+// stripe_checkout_session_id + payment_status = 'PENDING' + exact
+// connected-account match) already guarantees this UPDATE applies AT
+// MOST ONCE per order, ever — a historical pre-Stripe order can never
+// match a real session's stripe_checkout_session_id, and a redelivered/
+// out-of-order webhook for an order already past PENDING matches zero
+// rows. Scheduling therefore inherits exactly-once semantics, historical-
+// NULL safety, and atomicity with the payment transition for free, with
+// no new guard, no new column, and no separate statement — a paid order
+// can never be observed as PAID+CONFIRMED but unscheduled, because there
+// is no crash window between the two facts: they are the same write.
+//
+// Deliberately NOT calling attemptAutomaticTicketEmail (or
+// sendTicketEmail/sendEmail) here — see this file's own module header
+// and the 3E.3 architecture decision: a Stripe webhook handler must stay
+// fast and predictable, and the already-live 5-minute recovery cron
+// (lib/events/ticketEmailRecovery.ts, unmodified by this phase) is
+// responsible for actually attempting delivery. ticket_email_status=
+// 'pending' here is scheduling only, never a send.
 async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session, eventAccount: string | null): Promise<void> {
   if (session.payment_status !== 'paid') return;
   const orderId = session.metadata?.event_order_id;
@@ -316,6 +340,7 @@ async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session, 
     WITH updated AS (
       UPDATE event_orders
       SET status = 'CONFIRMED', payment_status = 'PAID', paid_at = now(),
+          ticket_email_status = 'pending',
           stripe_payment_intent_id = COALESCE(${paymentIntentId}, stripe_payment_intent_id)
       WHERE id = ${orderId} AND stripe_checkout_session_id = ${session.id} AND payment_status = 'PENDING'
         AND stripe_account_id = ${eventAccount}
@@ -324,7 +349,7 @@ async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session, 
     INSERT INTO audit_logs (id, organisation_id, user_id, action, resource_type, resource_id, before_state, after_state)
     SELECT gen_random_uuid()::text, organisation_id, NULL, 'event_order.payment_succeeded', 'event_order', id,
       '{"payment_status":"PENDING"}'::jsonb,
-      '{"source":"stripe_webhook","payment_status":"PAID","status":"CONFIRMED"}'::jsonb
+      '{"source":"stripe_webhook","payment_status":"PAID","status":"CONFIRMED","ticket_email_status":"pending"}'::jsonb
     FROM updated
   `;
 

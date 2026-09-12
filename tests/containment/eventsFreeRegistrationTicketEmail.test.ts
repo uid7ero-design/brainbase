@@ -148,6 +148,14 @@ const ROUTE_SOURCE = stripComments(fs.readFileSync(
   'utf-8',
 ))
 const STRIPE_SOURCE = fs.readFileSync(path.join(process.cwd(), 'lib/events/stripe.ts'), 'utf-8')
+// Comment-stripped variant — Phase 3E.3 added real (approved) code AND
+// explanatory comments to stripe.ts that legitimately name
+// attemptAutomaticTicketEmail/ticketEmailDelivery when describing why
+// they are deliberately NOT called from the webhook. The contract this
+// file's own PAID CONTAINMENT tests care about is CODE coupling (an
+// import or an actual call), never a comment — checked against stripped
+// source so prose can never produce a false positive.
+const STRIPE_SOURCE_STRIPPED = stripComments(STRIPE_SOURCE)
 const RESEND_ROUTE_SOURCE = fs.readFileSync(
   path.join(process.cwd(), 'app/api/events/[id]/orders/[orderId]/resend-ticket-email/route.ts'),
   'utf-8',
@@ -335,13 +343,30 @@ describe('CLAIM FAILURE / TRANSACTION FAILURE — no provider call before or wit
   })
 })
 
-describe('PAID CONTAINMENT — lib/events/stripe.ts is completely untouched by 3E.2', () => {
-  it('stripe.ts contains zero reference to ticketEmailDelivery/attemptAutomaticTicketEmail', () => {
-    expect(STRIPE_SOURCE).not.toMatch(/ticketEmailDelivery|attemptAutomaticTicketEmail/)
+// Phase 3E.3 retitled: stripe.ts is no longer "completely untouched" —
+// it now legitimately schedules paid orders (a separate, approved
+// phase). What THIS describe block still proves, and must always keep
+// proving, is that the FREE registration path's own immediate-attempt
+// responsibility is never blurred with the paid path's schedule-only
+// responsibility, and that stripe.ts never calls into the delivery
+// system directly regardless of which flow reaches it.
+describe('PAID CONTAINMENT — lib/events/stripe.ts never sends automatically; paid scheduling stays schedule-only, distinct from free\'s immediate-attempt responsibility', () => {
+  it('stripe.ts contains zero CODE reference (import or call) to ticketEmailDelivery/attemptAutomaticTicketEmail — comments explaining why they are deliberately not called do not count as a violation', () => {
+    expect(STRIPE_SOURCE_STRIPPED).not.toMatch(/from ['"]@\/lib\/events\/ticketEmailDelivery['"]/)
+    expect(STRIPE_SOURCE_STRIPPED).not.toMatch(/attemptAutomaticTicketEmail\(/)
   })
 
-  it('stripe.ts still contains no ticket_email_ column reference beyond what 3E.1 already proved absent (paid scheduling remains unwired)', () => {
-    expect(STRIPE_SOURCE).not.toMatch(/ticket_email_status\s*=\s*'pending'/)
+  it('the only approved ticket-email references in stripe.ts are the exact 3E.3 scheduling clause (SQL) and its matching audit after_state key (JSON) — every occurrence of the column name is one of these two exact shapes, never a bare/generic column touch', () => {
+    const matches = STRIPE_SOURCE_STRIPPED.match(/ticket_email_status/g) ?? []
+    // Exactly two occurrences: the SQL SET clause, and its mirror in the
+    // audit_logs after_state JSON literal within the SAME statement.
+    expect(matches.length).toBe(2)
+    expect(STRIPE_SOURCE_STRIPPED).toMatch(/ticket_email_status = 'pending'/)
+    expect(STRIPE_SOURCE_STRIPPED).toMatch(/"ticket_email_status":"pending"/)
+  })
+
+  it('free registration retains full ownership of its own immediate post-commit delivery attempt — the register route still calls attemptAutomaticTicketEmail directly, unaffected by paid orders now being schedule-only', () => {
+    expect(ROUTE_SOURCE).toMatch(/attemptAutomaticTicketEmail\(orderId\)/)
   })
 })
 
