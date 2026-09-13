@@ -77,6 +77,31 @@ const { GET: getPerson, PATCH: patchPerson } = await import('@/app/api/hr/people
 
 function withParams(id: string) { return { params: Promise.resolve({ id }) }; }
 
+// Mirrors exactly what the real PersonForm client sends on every save
+// (app/people/_components/PersonForm.tsx's own EDITABLE_FIELDS) — all 10
+// editable fields, always, seeded from the existing row's current values
+// unless overridden. This is the realistic PATCH body shape; the many
+// single-key bodies used elsewhere in this file predate the discovery
+// that PersonForm never actually sends a sparse body, and remain valid
+// as targeted route-level checks, but this shape is what production
+// traffic actually looks like and is what the actual-change-detection
+// tests below deliberately exercise.
+function fullShapeBody(existing: ReturnType<typeof personRow>, overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    first_name: existing.first_name,
+    last_name: existing.last_name,
+    preferred_name: existing.preferred_name,
+    work_email: existing.work_email,
+    work_phone: existing.work_phone,
+    job_title: existing.job_title,
+    worker_type: existing.worker_type,
+    employment_status: existing.employment_status,
+    team_id: existing.team_id,
+    manager_person_id: existing.manager_person_id,
+    ...overrides,
+  };
+}
+
 beforeEach(() => {
   requireSessionMock.mockReset();
   requireCapabilityMock.mockReset();
@@ -745,5 +770,153 @@ describe('audit', () => {
     const [, entry] = logHrEventMock.mock.calls[0] as [unknown, { afterState: Record<string, unknown> }];
     expect(entry.afterState).not.toHaveProperty('work_email');
     expect(entry.afterState).not.toHaveProperty('work_phone');
+  });
+});
+
+// ── Actual-change detection (realistic full-shape PersonForm body) ─────
+//
+// Root cause this section regression-guards: the real PersonForm client
+// always submits all 10 editable fields on every save (see
+// fullShapeBody() above), not just the field(s) the user actually
+// edited. Every test above this point used a deliberately sparse,
+// single-key (or few-key) body — which happens to already be a true
+// value diff by construction, so those tests never caught that the
+// route's OWN change-detection was based on request-body key PRESENCE
+// (providedFields), not actual DB-value differences. In production, a
+// full-shape PATCH where only work_email genuinely changed produced
+// audit rows containing every one of the other 9 fields' UNCHANGED
+// current values, and — because `employment_status` is always present
+// in that body shape — every such edit was mislabeled
+// 'hr_person.employment_status_changed' regardless of what actually
+// changed. Fixed via `changedFields` in app/api/hr/people/[id]/route.ts
+// (a real diff against `existing`, computed after all permission/
+// validation checks below have already run against the REQUESTED
+// fields — see that variable's own comment).
+describe('actual-change detection (full-shape PersonForm body)', () => {
+  it('1. full-shape PATCH where only work_email differs: action=updated, audit state contains only work_email', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    const existing = personRow({ id: 'p1' });
+    const updated = personRow({ id: 'p1', work_email: 'new@example.com' });
+    queue([existing], [updated]);
+    await patchPerson(
+      jsonRequest('http://localhost/api/hr/people/p1', 'PATCH', fullShapeBody(existing, { work_email: 'new@example.com' })),
+      withParams('p1'),
+    );
+    const [, entry] = logHrEventMock.mock.calls[0] as [unknown, { action: string; beforeState: Record<string, unknown>; afterState: Record<string, unknown> }];
+    expect(entry.action).toBe('hr_person.updated');
+    expect(entry.beforeState).toEqual({ work_email: 'ada@example.com' });
+    expect(entry.afterState).toEqual({ work_email: 'new@example.com' });
+  });
+
+  it('2. full-shape PATCH where employment_status is present but UNCHANGED and job_title differs: action=updated, only job_title audited', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    const existing = personRow({ id: 'p1' }); // employment_status: 'active'
+    const updated = personRow({ id: 'p1', job_title: 'New title' });
+    queue([existing], [updated]);
+    await patchPerson(
+      jsonRequest('http://localhost/api/hr/people/p1', 'PATCH', fullShapeBody(existing, { job_title: 'New title', employment_status: 'active' })),
+      withParams('p1'),
+    );
+    const [, entry] = logHrEventMock.mock.calls[0] as [unknown, { action: string; beforeState: Record<string, unknown>; afterState: Record<string, unknown> }];
+    expect(entry.action).toBe('hr_person.updated');
+    expect(entry.beforeState).toEqual({ job_title: 'Engineer' });
+    expect(entry.afterState).toEqual({ job_title: 'New title' });
+  });
+
+  it('3. full-shape PATCH where only job_title differs: action=updated, only job_title in before/after', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    const existing = personRow({ id: 'p1' });
+    const updated = personRow({ id: 'p1', job_title: 'New title' });
+    queue([existing], [updated]);
+    await patchPerson(
+      jsonRequest('http://localhost/api/hr/people/p1', 'PATCH', fullShapeBody(existing, { job_title: 'New title' })),
+      withParams('p1'),
+    );
+    const [, entry] = logHrEventMock.mock.calls[0] as [unknown, { action: string; beforeState: Record<string, unknown>; afterState: Record<string, unknown> }];
+    expect(entry.action).toBe('hr_person.updated');
+    expect(Object.keys(entry.beforeState)).toEqual(['job_title']);
+    expect(Object.keys(entry.afterState)).toEqual(['job_title']);
+  });
+
+  it('4. full-shape PATCH where employment_status actually differs: action=employment_status_changed', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    const existing = personRow({ id: 'p1' }); // employment_status: 'active'
+    const updated = personRow({ id: 'p1', employment_status: 'ended' });
+    queue([existing], [updated]);
+    await patchPerson(
+      jsonRequest('http://localhost/api/hr/people/p1', 'PATCH', fullShapeBody(existing, { employment_status: 'ended' })),
+      withParams('p1'),
+    );
+    const [, entry] = logHrEventMock.mock.calls[0] as [unknown, { action: string }];
+    expect(entry.action).toBe('hr_person.employment_status_changed');
+  });
+
+  it('5. linked_user_id actually differs: action=linked_user_changed', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    const existing = personRow({ id: 'p1', linked_user_id: null });
+    const updated = personRow({ id: 'p1', linked_user_id: 'user-2' });
+    queue([existing], [{ id: 'user-2', organisation_id: 'org-a' }], [updated]);
+    await patchPerson(
+      jsonRequest('http://localhost/api/hr/people/p1', 'PATCH', { linked_user_id: 'user-2' }),
+      withParams('p1'),
+    );
+    const [, entry] = logHrEventMock.mock.calls[0] as [unknown, { action: string }];
+    expect(entry.action).toBe('hr_person.linked_user_changed');
+  });
+
+  it('6. job_title + employment_status both actually differ: employment_status_changed wins, both actual changed fields appear in audit state', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    const existing = personRow({ id: 'p1' });
+    const updated = personRow({ id: 'p1', job_title: 'New title', employment_status: 'ended' });
+    queue([existing], [updated]);
+    await patchPerson(
+      jsonRequest('http://localhost/api/hr/people/p1', 'PATCH', fullShapeBody(existing, { job_title: 'New title', employment_status: 'ended' })),
+      withParams('p1'),
+    );
+    const [, entry] = logHrEventMock.mock.calls[0] as [unknown, { action: string; beforeState: Record<string, unknown>; afterState: Record<string, unknown> }];
+    expect(entry.action).toBe('hr_person.employment_status_changed');
+    expect(entry.beforeState).toEqual({ job_title: 'Engineer', employment_status: 'active' });
+    expect(entry.afterState).toEqual({ job_title: 'New title', employment_status: 'ended' });
+  });
+
+  it('7. linked_user_id + another field actually differ: linked_user_changed wins, all actual changed fields remain present in audit state', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    const existing = personRow({ id: 'p1', linked_user_id: null });
+    const updated = personRow({ id: 'p1', linked_user_id: 'user-2', job_title: 'New title' });
+    queue([existing], [{ id: 'user-2', organisation_id: 'org-a' }], [updated]);
+    await patchPerson(
+      jsonRequest('http://localhost/api/hr/people/p1', 'PATCH', { linked_user_id: 'user-2', job_title: 'New title' }),
+      withParams('p1'),
+    );
+    const [, entry] = logHrEventMock.mock.calls[0] as [unknown, { action: string; beforeState: Record<string, unknown>; afterState: Record<string, unknown> }];
+    expect(entry.action).toBe('hr_person.linked_user_changed');
+    expect(entry.beforeState).toEqual({ linked_user_id: null, job_title: 'Engineer' });
+    expect(entry.afterState).toEqual({ linked_user_id: 'user-2', job_title: 'New title' });
+  });
+
+  it('8. true full-shape no-op PATCH: success response, no UPDATE, no updated_at bump, no audit event', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    const existing = personRow({ id: 'p1' });
+    queue([existing]); // only loadPerson — no UPDATE should be issued
+    const res = await patchPerson(
+      jsonRequest('http://localhost/api/hr/people/p1', 'PATCH', fullShapeBody(existing)),
+      withParams('p1'),
+    );
+    expect(res.status).toBe(200);
+    expect(logHrEventMock).not.toHaveBeenCalled();
+    expect(calls.length).toBe(1); // loadPerson only — no UPDATE ... SET ... issued
+    expect(calls.some(c => c.text.includes('UPDATE hr_people'))).toBe(false);
+  });
+
+  it('9. permission checks still use requested fields — a self-only (non-admin) caller submitting an unchanged employment_status is still rejected', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(SELF_ONLY_CTX('p1'));
+    const existing = personRow({ id: 'p1' });
+    queue([existing]); // rejected before any further query
+    const res = await patchPerson(
+      jsonRequest('http://localhost/api/hr/people/p1', 'PATCH', fullShapeBody(existing)),
+      withParams('p1'),
+    );
+    expect(res.status).toBe(403);
+    expect(logHrEventMock).not.toHaveBeenCalled();
   });
 });

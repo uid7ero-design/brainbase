@@ -90,18 +90,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const body = await req.json().catch(() => ({})) as Record<string, unknown>;
   const providedFields = Object.keys(body);
 
+  // These three ("wants...Change") reflect fields REQUESTED by the
+  // caller (key presence in the body) — they exist purely to decide
+  // authorization/validation below and must never be used to decide
+  // audit content (see changedFields further down, computed from actual
+  // DB-value differences once `updates` is built and validated).
   const wantsIdentityChange = providedFields.some(f => (IDENTITY_FIELDS as readonly string[]).includes(f));
-  // wantsEmploymentChange stays broad (any of the 7 EMPLOYMENT_FIELDS) —
-  // it gates canManageEmployment() below and must keep covering job_title/
-  // worker_type/team_id/manager_person_id/start_date/end_date, not just
-  // employment_status itself. wantsEmploymentStatusChange is a narrower,
-  // audit-action-naming-only signal: previously the action-selection below
-  // reused wantsEmploymentChange, so changing ANY employment field alone
-  // (e.g. just job_title) incorrectly produced 'hr_person.
-  // employment_status_changed' instead of 'hr_person.updated'. See that
-  // action-selection block's own comment for the fix.
   const wantsEmploymentChange = providedFields.some(f => (EMPLOYMENT_FIELDS as readonly string[]).includes(f));
-  const wantsEmploymentStatusChange = providedFields.includes('employment_status');
   const wantsLinkChange = providedFields.includes('linked_user_id');
 
   if (wantsIdentityChange && !canEditPerson(ctx, target)) return forbidden();
@@ -173,6 +168,35 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json({ error: 'No valid fields provided.' }, { status: 400 });
   }
 
+  // Actual-change detection — computed AFTER every validation/permission
+  // check above has already run against the REQUESTED fields
+  // (providedFields/wantsIdentityChange/wantsEmploymentChange/
+  // wantsLinkChange), so an unauthorized caller cannot bypass a
+  // permission gate merely by resubmitting a restricted field's current,
+  // unchanged value — that request is still rejected before this point,
+  // exactly as before. changedFields is used ONLY downstream, for audit
+  // action-naming/payload construction and true-no-op detection — never
+  // for authorization. `updates` (validated above) is compared directly
+  // against `existing`'s real DB values, not against `providedFields`
+  // (which only reflects request-body key presence — see this route's
+  // history: the real PersonForm client always submits all 10 editable
+  // fields on every save, so `providedFields` alone was never a reliable
+  // signal for what actually changed).
+  const changedFields = Object.keys(updates).filter(
+    key => (existing as unknown as Record<string, unknown>)[key] !== (updates as Record<string, unknown>)[key],
+  );
+
+  // True no-op — every submitted, permitted value already matches the
+  // existing row. Return success without writing anything: no SQL
+  // UPDATE (so updated_at is never bumped for a request that changed
+  // nothing), and no audit event (an unchanged-value resubmission is not
+  // a real event worth auditing). Response shape matches the normal
+  // success path exactly (`{ person: ... }`), just built from `existing`
+  // instead of a fresh UPDATE ... RETURNING row.
+  if (changedFields.length === 0) {
+    return NextResponse.json({ person: projectPersonRow(ctx, target, existing) });
+  }
+
   let rows;
   try {
     rows = await sql`
@@ -206,7 +230,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     const { ipAddress, userAgent } = extractRequestMeta(req);
     const beforeState: Record<string, unknown> = {};
     const afterState: Record<string, unknown> = {};
-    for (const key of Object.keys(updates)) {
+    for (const key of changedFields) {
       beforeState[key] = (existing as unknown as Record<string, unknown>)[key];
       afterState[key] = (updated as unknown as Record<string, unknown>)[key];
     }
@@ -215,23 +239,31 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     // label rather than default to the generic 'updated'. Precedence
     // (most to least specific): linked_user_id > employment_status >
     // everything else. linked_user_id wins outright regardless of what
-    // else changed alongside it, since linking/unlinking is always a
-    // deliberate, explicit HR-administrator action (see this file's own
-    // header comment) worth surfacing on its own. employment_status
-    // wins over ordinary identity/contact/other-employment fields next,
-    // since it's the more operationally significant change — a mixed
-    // PATCH (e.g. employment_status + preferred_name) is still fully
-    // captured in beforeState/afterState either way; only the action
-    // LABEL changes, so labeling it employment_status_changed doesn't
-    // hide the identity-field change, it just names the row after its
-    // more significant component. Ordinary employment fields other than
-    // employment_status itself (job_title, worker_type, team_id,
-    // manager_person_id, start_date, end_date) fall through to
-    // 'updated' — they used to incorrectly share employment_status's
-    // action name via the broader wantsEmploymentChange check.
-    const action = wantsLinkChange
+    // else actually changed alongside it, since linking/unlinking is
+    // always a deliberate, explicit HR-administrator action (see this
+    // file's own header comment) worth surfacing on its own.
+    // employment_status wins over ordinary identity/contact/other-
+    // employment fields next, since it's the more operationally
+    // significant change — a mixed PATCH (e.g. employment_status +
+    // preferred_name, both ACTUALLY changed) is still fully captured in
+    // beforeState/afterState either way; only the action LABEL changes,
+    // so labeling it employment_status_changed doesn't hide the
+    // identity-field change, it just names the row after its more
+    // significant component.
+    //
+    // Uses changedFields (actual value differences), NOT providedFields/
+    // wantsEmploymentChange (request-body key presence) — the real
+    // PersonForm client always submits all 10 editable fields on every
+    // save (see EDITABLE_FIELDS in app/people/_components/PersonForm.tsx),
+    // so an unchanged employment_status value being merely PRESENT in
+    // the body must never by itself select employment_status_changed,
+    // and an unchanged job_title/worker_type/team_id/manager_person_id/
+    // start_date/end_date value must never appear in the audit payload
+    // just because it was resubmitted unedited alongside a real change
+    // elsewhere.
+    const action = changedFields.includes('linked_user_id')
       ? 'hr_person.linked_user_changed'
-      : wantsEmploymentStatusChange
+      : changedFields.includes('employment_status')
         ? 'hr_person.employment_status_changed'
         : 'hr_person.updated';
 
