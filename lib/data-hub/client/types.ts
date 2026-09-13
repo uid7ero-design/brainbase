@@ -198,6 +198,80 @@ export type GetSourceMappingResponseBody = { sourceMapping: SourceMappingDTOClie
 export type GetSourceMappingResult = TransportResult<GetSourceMappingResponseBody>;
 
 // ---------------------------------------------------------------------------
+// Data Hub 6.1C — Source configuration ADMIN surface.
+//
+// Deliberately SEPARATE from SourceSystemDTOClient/SourceMappingDTOClient
+// above, which are narrow, import-selection-only types with documented
+// field omissions (see their own module comments — e.g.
+// SourceMappingDTOClient intentionally omits activeMappingVersionId). The
+// admin surface exists to manage the SourceSystem/SourceMapping/
+// MappingVersion lifecycle itself, so it needs the fuller server DTO shape
+// (description, timestamps, activeMappingVersionId, mapping_document).
+// Backed by the SAME six existing routes (app/api/data-hub/source-systems/**,
+// source-mappings/**) — no new backend endpoint, no duplicate API.
+// ---------------------------------------------------------------------------
+
+export interface SourceSystemAdminDTO {
+  id: string;
+  name: string;
+  description: string | null;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type ListSourceSystemsAdminResponseBody =
+  | { sourceSystems: SourceSystemAdminDTO[]; hasNextPage: boolean; nextCursor: string | null }
+  | { error: string };
+export type ListSourceSystemsAdminResult = TransportResult<ListSourceSystemsAdminResponseBody>;
+
+export type CreateSourceSystemResponseBody = { sourceSystem: SourceSystemAdminDTO } | { error: string };
+export type CreateSourceSystemResult = TransportResult<CreateSourceSystemResponseBody>;
+
+export type UpdateSourceSystemResponseBody = { sourceSystem: SourceSystemAdminDTO } | { error: string };
+export type UpdateSourceSystemResult = TransportResult<UpdateSourceSystemResponseBody>;
+
+export interface SourceMappingAdminDTO {
+  id: string;
+  sourceSystemId: string;
+  name: string;
+  active: boolean;
+  activeMappingVersionId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type ListSourceMappingsAdminResponseBody =
+  | { sourceMappings: SourceMappingAdminDTO[]; hasNextPage: boolean; nextCursor: string | null }
+  | { error: string };
+export type ListSourceMappingsAdminResult = TransportResult<ListSourceMappingsAdminResponseBody>;
+
+export type CreateSourceMappingResponseBody = { sourceMapping: SourceMappingAdminDTO } | { error: string };
+export type CreateSourceMappingResult = TransportResult<CreateSourceMappingResponseBody>;
+
+export type UpdateSourceMappingResponseBody = { sourceMapping: SourceMappingAdminDTO } | { error: string };
+export type UpdateSourceMappingResult = TransportResult<UpdateSourceMappingResponseBody>;
+
+export interface MappingVersionAdminDTO {
+  id: string;
+  sourceMappingId: string;
+  versionNumber: number;
+  mappingDocument: { fields: Record<string, string> };
+  createdAt: string;
+}
+
+export type ListMappingVersionsResponseBody =
+  | { mappingVersions: MappingVersionAdminDTO[]; hasNextPage: boolean; nextCursor: string | null }
+  | { error: string };
+export type ListMappingVersionsResult = TransportResult<ListMappingVersionsResponseBody>;
+
+export type CreateMappingVersionResponseBody = { mappingVersion: MappingVersionAdminDTO } | { error: string };
+export type CreateMappingVersionResult = TransportResult<CreateMappingVersionResponseBody>;
+
+export type ActivateMappingVersionResponseBody = { sourceMapping: SourceMappingAdminDTO } | { error: string };
+export type ActivateMappingVersionResult = TransportResult<ActivateMappingVersionResponseBody>;
+
+// ---------------------------------------------------------------------------
 // POST /api/data-hub/worksheets/[id]/mapping-selection (Data Hub 5B.4B,
 // consumed by the UI for the first time in 5B.5B)
 // Source: app/api/data-hub/worksheets/[id]/mapping-selection/route.ts.

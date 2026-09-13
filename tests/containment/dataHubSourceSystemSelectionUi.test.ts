@@ -342,6 +342,13 @@ describe("Section 18 — containment scoped to the 5B.5A call chain", () => {
     );
     // Excludes the listSourceMappings/getSourceMapping passthrough exports
     // — bounded up to the pre-existing resolveUploadPathname re-export.
+    // NOTE: this single exclusion's end anchor ("export { resolveUploadPathname };")
+    // also happens to sit after the 6.1C Source configuration ADMIN
+    // passthroughs block (a separately-authorized slice, inserted
+    // directly before that same export line) — so that new block is
+    // already fully covered by this one exclusion as a side effect; no
+    // second exclusion call is needed or possible (its own start anchor
+    // would already be gone from orchestratorSrc by the time it ran).
     orchestratorSrc = excludeBlock(orchestratorSrc, "// Data Hub 5B.5B — SourceMapping list/detail reads.", "export { resolveUploadPathname };");
 
     let httpClientSrc = fs.readFileSync(path.join(ROOT, "lib", "data-hub", "client", "httpClient.ts"), "utf8");
@@ -355,6 +362,14 @@ describe("Section 18 — containment scoped to the 5B.5A call chain", () => {
       "// POST /api/data-hub/worksheets/[id]/mapping-selection (Data Hub 5B.4B",
       "// POST /api/data-hub/worksheets/[id]/confirm-illegal-dumping"
     );
+    // Excludes the 6.1C Source configuration ADMIN calls block, which is
+    // the last thing in the file — no "next section" anchor exists after
+    // it, so this drops from its own start anchor to end of file.
+    {
+      const start = httpClientSrc.indexOf("// Data Hub 6.1C — Source configuration ADMIN calls.");
+      expect(start, "start anchor not found: 6.1C admin calls block").toBeGreaterThan(-1);
+      httpClientSrc = httpClientSrc.slice(0, start);
+    }
 
     for (const src of [orchestratorSrc, httpClientSrc]) {
       expect(src).not.toMatch(/sourceMappingId/);
