@@ -35,14 +35,28 @@ export async function POST(req: NextRequest) {
 
   try {
     const uniqueSlug = `${slug}-${Math.floor(Math.random() * 9000) + 1000}`;
+    // organisations.id and .updated_at both have NO database-level default
+    // — Organisation.id's Prisma model declares `@default(cuid())` and
+    // .updated_at uses plain `@updatedAt`, both APPLICATION-side defaults
+    // Prisma Client applies itself, never realized as a real Postgres
+    // DEFAULT expression. A raw SQL INSERT that omits them always fails
+    // with "null value in column ... violates not-null constraint".
+    // gen_random_uuid()::text / now() match the exact same established
+    // pattern app/api/admin/orgs/route.ts already uses for this identical
+    // gap.
     const [org] = await sql`
-      INSERT INTO organisations (name, slug, plan, status, settings)
-      VALUES (${orgName.trim()}, ${uniqueSlug}, 'TRIAL', 'ACTIVE', '{}')
+      INSERT INTO organisations (id, name, slug, plan, status, settings, updated_at)
+      VALUES (gen_random_uuid()::text, ${orgName.trim()}, ${uniqueSlug}, 'TRIAL', 'ACTIVE', '{}', now())
       RETURNING id
     `;
 
     const hash = await bcrypt.hash(password, 12);
 
+    // organisation_id is TEXT (cuid-based), never cast to ::uuid in raw
+    // SQL — see CLAUDE.md's own documented convention. org.id here is a
+    // gen_random_uuid()::text string, which is already the correct type
+    // for this column; casting it to ::uuid would attempt to insert a
+    // uuid-typed value into a text column.
     const [user] = await sql`
       INSERT INTO users (name, email, password_hash, role, status, organisation_id, email_verified)
       VALUES (
@@ -51,7 +65,7 @@ export async function POST(req: NextRequest) {
         ${hash},
         'ADMIN',
         'ACTIVE',
-        ${org.id}::uuid,
+        ${org.id},
         true
       )
       RETURNING id, name, role, organisation_id
