@@ -458,34 +458,48 @@ describe('Zero runtime reconciliation wiring (T21/T22/T25)', () => {
     expect(source).toContain('sourceRecordObservation')
   })
 
-  // T25 RETARGETED (6.1B) — confirmWorksheet.ts is now intentionally,
-  // authorizedly changed by Phase 6.1B (source_external_id plumbing +
-  // duplicate-identity pre-transaction validation; Checkpoint 2 of the
-  // same phase additionally wires the reconciliation transaction sequence
-  // and supersedes the 6.0C1 coarse guard). A byte-identity requirement
-  // against origin/main is retired for exactly this reason — mirroring
-  // this file's own established convention just below (the removed
-  // "Diff containment" block) for retiring a check whose premise a later,
-  // authorized change has legitimately outgrown, rather than silently
-  // leaving a check that would now incorrectly fail on approved work.
-  it('T25 (superseded by 6.1B). confirmWorksheet.ts intentionally diverges from origin/main as of Phase 6.1B (source_external_id plumbing, duplicate-identity validation, and reconciliation wiring) — this test now only documents that a diff exists, not its absence', () => {
-    const guardFile = 'lib/data-hub/importBatch/confirmWorksheet.ts'
-    const fullPath = path.resolve(REPO_ROOT, guardFile)
-    if (!fs.existsSync(fullPath)) return
-    const diff = execSync(`git diff ${resolveBaseRef()} -- "${guardFile}"`, { cwd: REPO_ROOT, encoding: 'utf-8' })
-    expect(diff.trim().length, `expected a real, authorized 6.1B diff to ${guardFile} vs origin/main`).toBeGreaterThan(0)
-  })
+  // T25 REMOVED (post-merge cleanup, same root cause as the "Diff
+  // containment" block removed further below): this used to assert that
+  // confirmWorksheet.ts's diff against origin/main was NON-EMPTY, which
+  // was only ever true while 6.1B's own PR was under review — resolveBaseRef()
+  // tracks a moving target, so once 6.1B merged, origin/main itself absorbed
+  // this file's 6.1B changes, and `git diff origin/main -- confirmWorksheet.ts`
+  // is correctly empty on every later checkout/PR, permanently failing this
+  // assertion for reasons having nothing to do with any later PR's own
+  // changes. A "must differ from a moving base ref" check can only ever be
+  // valid pre-merge; it is never an evergreen invariant. Not replaced with
+  // an equivalent direct-source assertion because the durable contract it
+  // was protecting — that confirmWorksheet.ts is genuinely wired into
+  // reconciliation (sourceRecordIdentity/sourceRecordObservation calls) —
+  // is already proven immediately below by T21b, which reads and asserts
+  // on the file's real source text rather than a branch-relative diff, so
+  // duplicating that proof here would add nothing.
 
-  // T22 RETARGETED (6.1B) — illegalDumpingMapper.ts is now intentionally,
-  // authorizedly changed (source_external_id required-field extraction and
-  // the MappedIllegalDumpingRecord wrapper return shape). Same rationale
-  // as T25 above.
-  it('T22 (superseded by 6.1B). illegalDumpingMapper.ts intentionally diverges from origin/main as of Phase 6.1B (source_external_id extraction, MappedIllegalDumpingRecord wrapper shape) — this test now only documents that a diff exists, not its absence', () => {
+  // T22 REPLACED (post-merge cleanup, same root cause as T25 above): this
+  // used to assert that illegalDumpingMapper.ts's diff against origin/main
+  // was NON-EMPTY, which permanently fails for the identical reason once
+  // 6.1B merged. Unlike T25, no other test in *this* file independently
+  // proves the 6.1B wiring landed in illegalDumpingMapper.ts specifically,
+  // so rather than deleting outright this is replaced with a direct
+  // source-text assertion of the actual intended 6.1B shape — source_external_id
+  // is a required header, and mapIllegalDumpingRows returns the
+  // MappedIllegalDumpingRecord {row, sourceExternalId} wrapper — which is
+  // an evergreen, branch-independent proof and needs no origin/main ref at
+  // all. (The full behavioral surface of this wiring, including error
+  // paths, is already covered in depth by tests/containment/illegalDumpingMapper.test.ts;
+  // this assertion exists only to keep that proof present in this file's
+  // own schema-foundation contract too.)
+  it('T22 (superseded by 6.1B — direct source assertion, no longer origin/main-relative). illegalDumpingMapper.ts contains the 6.1B source_external_id required-header extraction and the MappedIllegalDumpingRecord {row, sourceExternalId} wrapper shape', () => {
     const mapperFile = 'lib/data-hub/importBatch/illegalDumpingMapper.ts'
     const fullPath = path.resolve(REPO_ROOT, mapperFile)
     if (!fs.existsSync(fullPath)) return
-    const diff = execSync(`git diff ${resolveBaseRef()} -- "${mapperFile}"`, { cwd: REPO_ROOT, encoding: 'utf-8' })
-    expect(diff.trim().length, `expected a real, authorized 6.1B diff to ${mapperFile} vs origin/main`).toBeGreaterThan(0)
+    const source = fs.readFileSync(fullPath, 'utf-8')
+    expect(source).toContain(
+      'ILLEGAL_DUMPING_REQUIRED_HEADERS = ["report_date", "location", "waste_type", "source_external_id"]'
+    )
+    expect(source).toContain('export interface MappedIllegalDumpingRecord')
+    expect(source).toMatch(/sourceExternalId:\s*string/)
+    expect(source).toMatch(/sourceExternalId,\s*\n\s*\}/)
   })
 
   it('the legacy /data writer (modules/dumping/index.ts) is byte-identical to origin/main — 6.1B does not touch this file', () => {
