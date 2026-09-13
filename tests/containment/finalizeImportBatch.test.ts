@@ -220,6 +220,124 @@ describe("finalizeImportBatch — storage failure classification (Step 18)", () 
   });
 });
 
+// Data Hub 6.1C1 — Step 18 storage-verification failure observability.
+//
+// Both catch blocks previously discarded the underlying error entirely
+// (no logging at all), which is exactly what made the real first
+// Production Onkaparinga upload attempt undiagnosable from Vercel logs.
+// These tests prove: (a) a structured, non-PII diagnostic line is now
+// emitted for every storage-verification failure branch, and (b) nothing
+// sensitive (file content, a signed URL, credentials) ever appears in it —
+// only route/operation metadata, the BrainBase failure classification, the
+// import batch id, and the RawFileStoreError's own already-safe .code/
+// .message (see vercelBlobFileStore.ts: every message template it uses
+// only ever interpolates the storage key and byte sizes, never file
+// content).
+describe("finalizeImportBatch — Step 18 storage-verification failure logging (6.1C1)", () => {
+  it("head() throwing a RawFileStoreError logs op, importBatchId, failureCode, and the error's own code/message — never the raw thrown value only", async () => {
+    const { finalizeImportBatch } = await freshFinalize();
+    const { RawFileStoreError } = await import("@/lib/data-hub/storage/rawFileStore");
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    sqlMock.mockResolvedValueOnce([claimRow()]);
+    headMock.mockRejectedValue(new RawFileStoreError("PROVIDER_FAILURE", 'Failed to read metadata for key "orgs/org-1/batches/batch-1".'));
+    sqlMock.mockResolvedValueOnce([{ id: "batch-1" }]);
+    await finalizeImportBatch({ organisationId: "org-1" }, "batch-1");
+    expect(errorSpy).toHaveBeenCalledTimes(1);
+    const [, logged] = errorSpy.mock.calls[0];
+    expect(logged).toMatchObject({
+      op: "head",
+      importBatchId: "batch-1",
+      failureCode: "PROVIDER_FAILURE",
+      errorName: "RawFileStoreError",
+      errorCode: "PROVIDER_FAILURE",
+    });
+    expect(typeof logged.errorMessage).toBe("string");
+    errorSpy.mockRestore();
+  });
+
+  it("head() returning a clean null (STORAGE_NOT_FOUND) logs NOTHING — there is no error object at all on this path, only a classified clean result", async () => {
+    const { finalizeImportBatch } = await freshFinalize();
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    sqlMock.mockResolvedValueOnce([claimRow()]);
+    headMock.mockResolvedValue(null);
+    sqlMock.mockResolvedValueOnce([{ id: "batch-1" }]);
+    await finalizeImportBatch({ organisationId: "org-1" }, "batch-1");
+    expect(errorSpy).not.toHaveBeenCalled();
+    errorSpy.mockRestore();
+  });
+
+  it("get() throwing SIZE_LIMIT logs op=get and failureCode=SIZE_LIMIT", async () => {
+    const { finalizeImportBatch } = await freshFinalize();
+    const { RawFileStoreError } = await import("@/lib/data-hub/storage/rawFileStore");
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    sqlMock.mockResolvedValueOnce([claimRow()]);
+    headMock.mockResolvedValue({ provider: "vercel-blob-private", size: 999999999, etag: "e1" });
+    getMock.mockRejectedValue(new RawFileStoreError("SIZE_LIMIT", "too big"));
+    sqlMock.mockResolvedValueOnce([{ id: "batch-1" }]);
+    await finalizeImportBatch({ organisationId: "org-1" }, "batch-1");
+    expect(errorSpy).toHaveBeenCalledTimes(1);
+    const [, logged] = errorSpy.mock.calls[0];
+    expect(logged).toMatchObject({ op: "get", failureCode: "SIZE_LIMIT", errorCode: "SIZE_LIMIT" });
+    errorSpy.mockRestore();
+  });
+
+  it("get() throwing a generic PROVIDER_FAILURE after successful head() logs op=get and failureCode=PROVIDER_FAILURE", async () => {
+    const { finalizeImportBatch } = await freshFinalize();
+    const { RawFileStoreError } = await import("@/lib/data-hub/storage/rawFileStore");
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    sqlMock.mockResolvedValueOnce([claimRow()]);
+    headMock.mockResolvedValue({ provider: "vercel-blob-private", size: 8, etag: "e1" });
+    getMock.mockRejectedValue(new RawFileStoreError("PROVIDER_FAILURE", "network reset"));
+    sqlMock.mockResolvedValueOnce([{ id: "batch-1" }]);
+    await finalizeImportBatch({ organisationId: "org-1" }, "batch-1");
+    expect(errorSpy).toHaveBeenCalledTimes(1);
+    const [, logged] = errorSpy.mock.calls[0];
+    expect(logged).toMatchObject({ op: "get", failureCode: "PROVIDER_FAILURE" });
+    errorSpy.mockRestore();
+  });
+
+  it("never logs the error's .cause (the raw underlying SDK error object) — defense-in-depth even though RawFileStoreError's own messages are already safe", async () => {
+    const { finalizeImportBatch } = await freshFinalize();
+    const { RawFileStoreError } = await import("@/lib/data-hub/storage/rawFileStore");
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const sensitiveCause = new Error("SENSITIVE-UNDERLYING-SDK-DETAIL-should-never-appear");
+    sqlMock.mockResolvedValueOnce([claimRow()]);
+    headMock.mockRejectedValue(new RawFileStoreError("PROVIDER_FAILURE", "Failed to read metadata.", sensitiveCause));
+    sqlMock.mockResolvedValueOnce([{ id: "batch-1" }]);
+    await finalizeImportBatch({ organisationId: "org-1" }, "batch-1");
+    const [, logged] = errorSpy.mock.calls[0];
+    expect(JSON.stringify(logged)).not.toContain("SENSITIVE-UNDERLYING-SDK-DETAIL");
+    expect(logged).not.toHaveProperty("cause");
+    errorSpy.mockRestore();
+  });
+
+  it("never logs file content, source record values, or any customer-shaped data — the logged object's keys are exactly the safe, fixed set", async () => {
+    const { finalizeImportBatch } = await freshFinalize();
+    const { RawFileStoreError } = await import("@/lib/data-hub/storage/rawFileStore");
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    sqlMock.mockResolvedValueOnce([claimRow()]);
+    headMock.mockRejectedValue(new RawFileStoreError("PROVIDER_FAILURE", "Failed to read metadata."));
+    sqlMock.mockResolvedValueOnce([{ id: "batch-1" }]);
+    await finalizeImportBatch({ organisationId: "org-1" }, "batch-1");
+    const [, logged] = errorSpy.mock.calls[0];
+    expect(Object.keys(logged).sort()).toEqual(
+      ["errorCode", "errorMessage", "errorName", "failureCode", "importBatchId", "op"].sort()
+    );
+    errorSpy.mockRestore();
+  });
+
+  it("does not change the returned failure classification or retryability — observability only", async () => {
+    const { finalizeImportBatch } = await freshFinalize();
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    sqlMock.mockResolvedValueOnce([claimRow()]);
+    headMock.mockRejectedValue(new Error("network blip"));
+    sqlMock.mockResolvedValueOnce([{ id: "batch-1" }]);
+    const result = await finalizeImportBatch({ organisationId: "org-1" }, "batch-1");
+    expect(result).toMatchObject({ outcome: "FAILED", failureCode: "PROVIDER_FAILURE", retryable: true });
+    errorSpy.mockRestore();
+  });
+});
+
 describe("finalizeImportBatch — storage.get() is always called with an explicit maxBytes bound", () => {
   it("passes { maxBytes: MAX_SOURCE_FILE_BYTES } (exact, no +1 sentinel) to storage.get()", async () => {
     const { finalizeImportBatch } = await freshFinalize();

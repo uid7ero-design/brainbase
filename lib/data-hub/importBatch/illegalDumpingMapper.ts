@@ -115,6 +115,26 @@ const AU_SLASH_DATE_RE = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/;
 // export never produces this shape.
 const ISO_DATETIME_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})?$/;
 
+// Data Hub 6.1C1 — real Onkaparinga export datetime format.
+//
+// Confirmed against the actual first Production upload attempt: "Call
+// time"/"Closed timestamp" values are shaped "DD-MM-YYYY HH:mm" (e.g.
+// "13-05-2026 13:57"), a dash-separated day-first date, a single space, and
+// a 24-hour HH:mm time with no seconds/timezone — a fourth, genuinely
+// distinct grammar from the three above (dash-separated like ISO_DATE_RE,
+// but day-first like AU_SLASH_DATE_RE, with a time component like
+// ISO_DATETIME_RE, but matching neither exactly). Day/month accept 1-2
+// digits, deliberately mirroring AU_SLASH_DATE_RE's own `\d{1,2}` precedent
+// exactly (the established convention in this file for a day-first
+// grammar) rather than inventing a stricter, zero-padded-only rule for
+// this one format — a real export is just as likely to emit "9-3-2026" as
+// "09-03-2026" for an early-month single-digit day/month, and there is no
+// existing precedent anywhere in this file for rejecting that shape.
+// Minutes are required to be exactly two digits (real-world HH:mm exports
+// do not omit the leading zero on minutes), but hours accept 1-2 digits for
+// the same single-digit-tolerance reason as day/month.
+const AU_DASH_DATETIME_RE = /^(\d{1,2})-(\d{1,2})-(\d{4})\s+(\d{1,2}):(\d{2})$/;
+
 function isLeapYear(year: number): boolean {
   return (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
 }
@@ -133,6 +153,29 @@ function buildUtcDateIfValid(year: number, month: number, day: number): Date | n
   if (month < 1 || month > 12) return null;
   if (day < 1 || day > daysInMonth(year, month)) return null;
   return new Date(Date.UTC(year, month - 1, day));
+}
+
+// Data Hub 6.1C1 — the same real-calendar validation as buildUtcDateIfValid,
+// extended with an hour/minute component. Deliberately a SEPARATE function
+// (not an optional-parameter overload of buildUtcDateIfValid) so every
+// existing call site's signature/behavior is untouched — this is purely
+// additive. Never delegates to `new Date(someAssembledString)` (which would
+// silently accept out-of-range values via JS's own rollover semantics,
+// exactly the ambiguous-guessing behavior this whole file's own 6.0A header
+// comment documents rejecting) — hour/minute are validated explicitly, the
+// same "reject, never roll over" discipline as daysInMonth/isLeapYear above.
+function buildUtcDateTimeIfValid(
+  year: number,
+  month: number,
+  day: number,
+  hour: number,
+  minute: number
+): Date | null {
+  if (month < 1 || month > 12) return null;
+  if (day < 1 || day > daysInMonth(year, month)) return null;
+  if (hour < 0 || hour > 23) return null;
+  if (minute < 0 || minute > 59) return null;
+  return new Date(Date.UTC(year, month - 1, day, hour, minute));
 }
 
 function parseDate(v: string | undefined): Date | null {
@@ -156,6 +199,19 @@ function parseDate(v: string | undefined): Date | null {
     // the MONTH — never re-derived from magnitude/heuristics, and never
     // reinterpreted as M/D regardless of whether component 1 is <= 12.
     return buildUtcDateIfValid(Number(au[3]), Number(au[2]), Number(au[1]));
+  }
+
+  const auDashTime = AU_DASH_DATETIME_RE.exec(trimmed);
+  if (auDashTime) {
+    // Same day-first order/discipline as AU_SLASH_DATE_RE above: component
+    // 1 is the DAY, component 2 is the MONTH, never magnitude-derived.
+    return buildUtcDateTimeIfValid(
+      Number(auDashTime[3]),
+      Number(auDashTime[2]),
+      Number(auDashTime[1]),
+      Number(auDashTime[4]),
+      Number(auDashTime[5])
+    );
   }
 
   return null;
@@ -219,10 +275,53 @@ function mapSeverity(s: string | null): MappedIllegalDumpingRow["severity"] {
 // for "Abandoned", despite its 98.8% terminal-timestamp correlation —
 // because assigning that specific BrainBase semantic is exactly the kind
 // of decision this patch is NOT authorized to make.
+//
+// Data Hub 6.1C1 — "Completed w/exception" resolved, "Abandoned" still
+// deliberately unmapped.
+//
+// This is the exact customer-confirmation moment the 6.0B1 comment above
+// was waiting on, prompted by the real first Production upload attempt.
+// Investigated before deciding (never assumed): this codebase's ONLY other
+// place that assigns real-world meaning to IllegalDumping's CLOSED value is
+// app/api/illegal-dumping/kpi/route.ts's own resolved-count KPI —
+// `i.status === 'CLOSED' || i.resolution_date !== null` — which treats
+// CLOSED as SYNONYMOUS with "resolved" for reporting purposes, not as a
+// distinct "terminated without resolution" state. The only other CLOSED
+// usage anywhere in the app (components/ops/maintenance's own, entirely
+// separate MaintenanceStatus enum — a different domain, different model)
+// treats "Close Job" as an administrative step available ONLY AFTER
+// 'COMPLETED', i.e. always downstream of completion, never a synonym for
+// "gave up." Neither piece of real evidence supports CLOSED meaning
+// "abandoned, never resolved" anywhere in this system today.
+//
+//   - "Completed w/exception" -> RESOLVED. The word "Completed" plus its
+//     evidence-terminal correlation (100% of these rows carry a populated
+//     Closed timestamp, per the 6.0B discovery cited above) both point the
+//     same direction: the work was actually done, with some exception/
+//     caveat presumably recorded elsewhere (e.g. Notes) — not left undone.
+//     This is a faithful mapping, not a lossy one.
+//   - "Abandoned" -> still NOT mapped; still throws, exactly as before.
+//     "Abandoned" plausibly means "no further action will be taken, NOT
+//     resolved" — the opposite of what CLOSED's only real usage in this
+//     system (the KPI route above) currently means. Mapping it to CLOSED
+//     would make an abandoned, never-actually-resolved site silently count
+//     toward that route's "resolved" KPI — exactly the kind of lossy,
+//     silently-wrong mapping this patch is not authorized to make. Mapping
+//     it to RESOLVED would be worse (the site was explicitly NOT resolved).
+//     OPEN/IN_PROGRESS are factually wrong for a terminal state. No value
+//     in the current 4-value IncidentStatus enum (OPEN/IN_PROGRESS/
+//     RESOLVED/CLOSED) can faithfully represent "abandoned, not resolved"
+//     without contaminating an existing status's meaning — this remains a
+//     genuine architecture/product decision (a possible future dedicated
+//     status, or an explicit product ruling that CLOSED should mean this
+//     and the KPI route should change too), not something this mapper may
+//     resolve unilaterally. See the 6.1C1 remediation report for the full
+//     reasoning.
 const KNOWN_STATUS_MAP = new Map<string, MappedIllegalDumpingRow["status"]>([
   ["resolved", "RESOLVED"],
   ["closed", "RESOLVED"],
   ["complete", "RESOLVED"],
+  ["completed_w/exception", "RESOLVED"],
   ["open", "OPEN"],
   ["booked", "OPEN"],
   ["requires_input", "OPEN"],

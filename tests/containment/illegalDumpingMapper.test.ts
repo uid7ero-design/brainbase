@@ -327,6 +327,128 @@ describe("mapIllegalDumpingRows — Australian D/M/YYYY date parsing (6.0A)", ()
 });
 
 // ---------------------------------------------------------------------------
+// Data Hub 6.1C1 — DD-MM-YYYY HH:mm datetime parsing.
+//
+// The real first Production Onkaparinga upload attempt uses "Call time"/
+// "Closed timestamp" values shaped "DD-MM-YYYY HH:mm" (e.g.
+// "13-05-2026 13:57") — a fourth, distinct grammar from the three the
+// mapper already supported. This block proves the new AU_DASH_DATETIME_RE
+// branch, and that all three pre-existing formats remain unaffected.
+// ---------------------------------------------------------------------------
+
+describe("mapIllegalDumpingRows — DD-MM-YYYY HH:mm datetime parsing (6.1C1)", () => {
+  it("A. \"13-05-2026 13:57\" (the actual real-file example) maps to 13 May 2026, 13:57 UTC", () => {
+    const d = mapOneRow("13-05-2026 13:57")[0].report_date;
+    expect(d.getUTCFullYear()).toBe(2026);
+    expect(d.getUTCMonth()).toBe(4); // 0-indexed: May
+    expect(d.getUTCDate()).toBe(13);
+    expect(d.getUTCHours()).toBe(13);
+    expect(d.getUTCMinutes()).toBe(57);
+  });
+
+  it("B. \"28-08-2026 12:00\" (the second real-file example) maps to 28 August 2026, 12:00 UTC", () => {
+    const d = mapOneRow("28-08-2026 12:00")[0].report_date;
+    expect(d.getUTCFullYear()).toBe(2026);
+    expect(d.getUTCMonth()).toBe(7); // 0-indexed: August
+    expect(d.getUTCDate()).toBe(28);
+    expect(d.getUTCHours()).toBe(12);
+    expect(d.getUTCMinutes()).toBe(0);
+  });
+
+  it("C. \"01-02-2026 00:00\" (midnight, zero-padded) maps to 1 February 2026, 00:00 UTC", () => {
+    const d = mapOneRow("01-02-2026 00:00")[0].report_date;
+    expect(d.getUTCFullYear()).toBe(2026);
+    expect(d.getUTCMonth()).toBe(1); // 0-indexed: February
+    expect(d.getUTCDate()).toBe(1);
+    expect(d.getUTCHours()).toBe(0);
+    expect(d.getUTCMinutes()).toBe(0);
+  });
+
+  it("D. \"9-3-2026 08:05\" (single-digit day AND month, matching AU_SLASH_DATE_RE's own \\d{1,2} precedent) maps to 9 March 2026, 08:05 UTC — not misread as day-first-invalid or swapped", () => {
+    const d = mapOneRow("9-3-2026 08:05")[0].report_date;
+    expect(d.getUTCFullYear()).toBe(2026);
+    expect(d.getUTCMonth()).toBe(2); // 0-indexed: March
+    expect(d.getUTCDate()).toBe(9);
+    expect(d.getUTCHours()).toBe(8);
+    expect(d.getUTCMinutes()).toBe(5);
+  });
+
+  it("E. \"29-02-2024 10:00\" (leap year) is valid", () => {
+    const d = mapOneRow("29-02-2024 10:00")[0].report_date;
+    expect(d.getUTCFullYear()).toBe(2024);
+    expect(d.getUTCMonth()).toBe(1);
+    expect(d.getUTCDate()).toBe(29);
+  });
+
+  it("F. \"29-02-2025 10:00\" (non-leap year) is invalid — required report_date failure", () => {
+    expect(() => mapOneRow("29-02-2025 10:00")).toThrow(IllegalDumpingMappingError);
+    expect(() => mapOneRow("29-02-2025 10:00")).toThrow(/report_date/);
+  });
+
+  it("G. \"31-02-2026 10:00\" (February never has 31 days) is invalid — never silently rolls over", () => {
+    expect(() => mapOneRow("31-02-2026 10:00")).toThrow(IllegalDumpingMappingError);
+  });
+
+  it("H. month 13 (\"01-13-2026 10:00\") is invalid", () => {
+    expect(() => mapOneRow("01-13-2026 10:00")).toThrow(IllegalDumpingMappingError);
+  });
+
+  it("I. day 32 (\"32-01-2026 10:00\") is invalid", () => {
+    expect(() => mapOneRow("32-01-2026 10:00")).toThrow(IllegalDumpingMappingError);
+  });
+
+  it("J. day 0 (\"0-01-2026 10:00\") is invalid", () => {
+    expect(() => mapOneRow("0-01-2026 10:00")).toThrow(IllegalDumpingMappingError);
+  });
+
+  it("K. hour 24 (\"13-05-2026 24:00\") is invalid — never rolled over into the next day", () => {
+    expect(() => mapOneRow("13-05-2026 24:00")).toThrow(IllegalDumpingMappingError);
+  });
+
+  it("L. minute 60 (\"13-05-2026 13:60\") is invalid — never rolled over into the next hour", () => {
+    expect(() => mapOneRow("13-05-2026 13:60")).toThrow(IllegalDumpingMappingError);
+  });
+
+  it("M. never falls back to ambiguous Date.parse() guessing — an out-of-range component is rejected outright, not silently reinterpreted", () => {
+    // A permissive `new Date("32-01-2026 10:00")`-style parse would either
+    // return Invalid Date (caught anyway) or, worse, roll components over
+    // into a different valid date. The explicit calendar-table validation
+    // in buildUtcDateTimeIfValid is what actually guarantees rejection
+    // rather than reinterpretation — this spot-checks I/K/L above are
+    // genuine rejections, not coincidental Invalid Date results.
+    expect(() => mapOneRow("32-01-2026 10:00")).toThrow(/report_date/);
+  });
+
+  it("N. optional resolution_date (\"Closed timestamp\") also accepts the new format", () => {
+    const mapped = mapOneRow("2024-01-01", "28-08-2026 12:00");
+    const rd = mapped[0].resolution_date;
+    expect(rd).not.toBeNull();
+    expect(rd!.getUTCFullYear()).toBe(2026);
+    expect(rd!.getUTCMonth()).toBe(7);
+    expect(rd!.getUTCDate()).toBe(28);
+    expect(rd!.getUTCHours()).toBe(12);
+    expect(rd!.getUTCMinutes()).toBe(0);
+  });
+
+  it("O. regression — existing AU D/M/YYYY (date-only, no time) format is completely unaffected", () => {
+    const d = mapOneRow("13/07/2025")[0].report_date;
+    expect(d.getUTCFullYear()).toBe(2025);
+    expect(d.getUTCMonth()).toBe(6);
+    expect(d.getUTCDate()).toBe(13);
+  });
+
+  it("P. regression — existing ISO YYYY-MM-DD (date-only) format is completely unaffected", () => {
+    const d = mapOneRow("2024-01-01")[0].report_date;
+    expect(d.toISOString()).toBe(new Date("2024-01-01").toISOString());
+  });
+
+  it("Q. regression — existing full ISO 8601 datetime format is completely unaffected", () => {
+    const d = mapOneRow("2026-03-01T00:00:00.000Z")[0].report_date;
+    expect(d.toISOString()).toBe(new Date("2026-03-01T00:00:00.000Z").toISOString());
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Data Hub 6.0B1 — status fail-closed compatibility patch.
 //
 // Phase 6.0B read-only discovery found exactly 5 distinct Status values in
@@ -372,8 +494,12 @@ describe("mapIllegalDumpingRows — status fail-closed compatibility (6.0B1)", (
     expect(mapOneRowWithStatus("Requires Input")[0].status).toBe("OPEN");
   });
 
-  it("E. \"Completed w/exception\" throws IllegalDumpingMappingError — customer confirmation required, never silently OPEN", () => {
-    expect(() => mapOneRowWithStatus("Completed w/exception")).toThrow(IllegalDumpingMappingError);
+  it("E. \"Completed w/exception\" maps to RESOLVED (6.1C1 — customer-confirmation decision, see the KNOWN_STATUS_MAP header comment for the CLOSED-vs-RESOLVED evidence)", () => {
+    expect(mapOneRowWithStatus("Completed w/exception")[0].status).toBe("RESOLVED");
+  });
+
+  it("E1. a case/whitespace/punctuation-normalized variant of \"Completed w/exception\" still maps to RESOLVED", () => {
+    expect(mapOneRowWithStatus("  COMPLETED W/EXCEPTION  ")[0].status).toBe("RESOLVED");
   });
 
   it("F. \"Abandoned\" throws IllegalDumpingMappingError — customer confirmation required, never silently OPEN", () => {
