@@ -1297,7 +1297,18 @@ function AppNav({
   // the 'people' entitlement, never on role/dashboardVariant — People
   // is a joinable per-organisation module like every other capability
   // here, not a Founder OS/internal tool.
+  //
+  // HR-2 — `isSuperAdmin ||` reuses this file's own existing
+  // isSuperAdmin convention (see above) to mirror the same HR-specific
+  // module bypass app/people/layout.tsx and every HR API route under
+  // app/api/hr now apply via lib/hr/capability.ts's checkHrCapability()/
+  // requireHrCapability() — a super_admin sees this nav item even in an
+  // organisation that hasn't enabled People, since the page and every
+  // API route behind it are already independently reachable for them
+  // regardless of this pill's own visibility. No other capability pill
+  // in this file gains a role bypass from this change.
   const hasPeople =
+    isSuperAdmin ||
     enabledCapabilities.includes(
       'people',
     );

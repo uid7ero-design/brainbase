@@ -7,6 +7,17 @@ import type { NextRequest } from 'next/server';
 // (canManageHrAccess), or a platform super_admin (explicit bootstrap
 // handling for this one endpoint only — never an implicit grant
 // anywhere else; see the route's own header comment).
+//
+// HR-2 — the route's own isBootstrapSuperAdmin special-case is gone.
+// canManageHrAccess(ctx) (== ctx.isHrAdministrator) alone now decides
+// every case, because lib/hr/context.ts's resolveHrAccessContext()
+// resolves isHrAdministrator: true for role === 'super_admin'
+// unconditionally (see hrContextResolution.test.ts for that resolution
+// proof). Since resolveHrAccessContext is fully mocked in this file,
+// the super_admin bootstrap test below supplies SUPER_ADMIN_CTX
+// directly rather than relying on any route-level role check — proving
+// the route reaches the correct outcome purely from ctx, with zero
+// remaining role-awareness of its own.
 
 function asNextRequest(req: Request): NextRequest {
   return req as unknown as NextRequest;
@@ -45,6 +56,7 @@ function queue(...responses: unknown[][]) { responseQueue = responses; callCount
 
 const HR_ADMIN_CTX = { organisationId: 'org-a', selfPersonId: null, isHrAdministrator: true, hasRestrictedHrAccess: false };
 const NOBODY_CTX = { organisationId: 'org-a', selfPersonId: null, isHrAdministrator: false, hasRestrictedHrAccess: false };
+const SUPER_ADMIN_CTX = { organisationId: 'org-a', selfPersonId: null, isHrAdministrator: true, hasRestrictedHrAccess: true };
 
 function session(role: string) {
   return { userId: 'user-1', organisationId: 'org-a', homeOrganisationId: 'org-a', role, name: 'Test User' };
@@ -87,12 +99,21 @@ describe('POST /api/hr/administrators — authorization', () => {
     expect(res.status).toBe(201);
   });
 
-  it('a platform super_admin can grant the entitlement even with no existing hr_administrators row (genuine bootstrap case)', async () => {
+  it('a platform super_admin can grant the entitlement (bootstrap case) — resolveHrAccessContext already resolves isHrAdministrator: true for super_admin, with zero real hr_administrators rows needed', async () => {
     requireSessionMock.mockResolvedValue(session('super_admin'));
-    resolveHrAccessContextMock.mockResolvedValue(NOBODY_CTX); // zero hr_administrators rows exist yet
+    resolveHrAccessContextMock.mockResolvedValue(SUPER_ADMIN_CTX);
     queue([{ id: 'user-2', organisation_id: 'org-a' }], [{ id: 'grant-1' }]);
     const res = await grant(jsonRequest('http://localhost/api/hr/administrators', 'POST', { user_id: 'user-2' }));
     expect(res.status).toBe(201);
+    expect(resolveHrAccessContextMock).toHaveBeenCalledWith(expect.objectContaining({ role: 'super_admin' }));
+  });
+
+  it('the route itself has no remaining role-based bypass — a super_admin session whose resolved context lacks isHrAdministrator is still rejected', async () => {
+    requireSessionMock.mockResolvedValue(session('super_admin'));
+    resolveHrAccessContextMock.mockResolvedValue(NOBODY_CTX);
+    const res = await grant(jsonRequest('http://localhost/api/hr/administrators', 'POST', { user_id: 'user-2' }));
+    expect(res.status).toBe(403);
+    expect(sqlMock).not.toHaveBeenCalled();
   });
 
   it('rejects granting to a user in a different organisation (tenant isolation)', async () => {
@@ -140,6 +161,14 @@ describe('DELETE /api/hr/administrators — authorization', () => {
   it('an existing HR administrator can revoke another user\'s entitlement', async () => {
     requireSessionMock.mockResolvedValue(session('manager'));
     resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    queue([{ id: 'grant-1' }]);
+    const res = await revoke(asNextRequest(new Request('http://localhost/api/hr/administrators?userId=user-2', { method: 'DELETE' })));
+    expect(res.status).toBe(200);
+  });
+
+  it('a platform super_admin can revoke another user\'s entitlement with no existing hr_administrators row of their own', async () => {
+    requireSessionMock.mockResolvedValue(session('super_admin'));
+    resolveHrAccessContextMock.mockResolvedValue(SUPER_ADMIN_CTX);
     queue([{ id: 'grant-1' }]);
     const res = await revoke(asNextRequest(new Request('http://localhost/api/hr/administrators?userId=user-2', { method: 'DELETE' })));
     expect(res.status).toBe(200);

@@ -58,6 +58,16 @@ const HR_ADMIN_CTX = { organisationId: 'org-a', selfPersonId: null, isHrAdminist
 const SELF_ONLY_CTX = (selfPersonId: string) => ({ organisationId: 'org-a', selfPersonId, isHrAdministrator: false, hasRestrictedHrAccess: false });
 const NOBODY_CTX = { organisationId: 'org-a', selfPersonId: null, isHrAdministrator: false, hasRestrictedHrAccess: false };
 const MANAGER_CTX = (selfPersonId: string) => ({ organisationId: 'org-a', selfPersonId, isHrAdministrator: false, hasRestrictedHrAccess: false });
+// HR-2 — the exact shape lib/hr/context.ts's resolveHrAccessContext()
+// now resolves for a real super_admin caller (proven independently in
+// hrContextResolution.test.ts): isHrAdministrator/hasRestrictedHrAccess
+// both true, with NO hr_administrators row required. This file mocks
+// resolveHrAccessContext entirely (see its own header comment), so
+// these tests supply that already-proven shape directly rather than
+// re-deriving it — consistent with how HR_ADMIN_CTX/NOBODY_CTX/etc. are
+// already used throughout this file.
+const SUPER_ADMIN_CTX = { organisationId: 'org-a', selfPersonId: null, isHrAdministrator: true, hasRestrictedHrAccess: true };
+const SUPER_ADMIN_SESSION = { ...SESSION, role: 'super_admin' };
 
 function personRow(overrides: Partial<Record<string, unknown>> = {}) {
   return {
@@ -324,6 +334,132 @@ describe('permissions — edit (PATCH /people/[id])', () => {
     queue([personRow({ id: 'p1', manager_person_id: 'manager-1' })]);
     const res = await patchPerson(jsonRequest('http://localhost/api/hr/people/p1', 'PATCH', { preferred_name: 'X' }), withParams('p1'));
     expect(res.status).toBe(403);
+  });
+});
+
+// ── HR-2 — super_admin full HR access ───────────────────────────────
+//
+// super_admin gets full HR authority via SUPER_ADMIN_CTX (isHrAdministrator:
+// true, hasRestrictedHrAccess: true) with NO hr_administrators row —
+// resolveHrAccessContext() itself is mocked in this file (see header
+// comment), so these tests prove the ROUTE correctly grants every
+// action once handed that context, exactly like HR_ADMIN_CTX's own
+// tests prove for a real grant-backed HR administrator. Cross-org
+// validation (isTeamInOrganisation/isPersonInOrganisation/
+// isUserInOrganisation, and the organisation_id-scoped loadPerson WHERE
+// clause) is NOT mocked anywhere in this file — it's real code calling
+// the real (sql-mocked) lib/hr/validation.ts helpers — so proving it
+// still rejects cross-org references under a super_admin context is a
+// genuine test of the actual enforcement path, not a re-assertion of a
+// mock.
+
+describe('HR-2 — super_admin full HR access', () => {
+  it('super_admin can list people with zero hr_administrators rows', async () => {
+    requireSessionMock.mockResolvedValue(SUPER_ADMIN_SESSION);
+    resolveHrAccessContextMock.mockResolvedValue(SUPER_ADMIN_CTX);
+    queue([personRow({ id: 'p1' })]);
+    const res = await listPeople();
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.canManage).toBe(true);
+  });
+
+  it('super_admin can view a person', async () => {
+    requireSessionMock.mockResolvedValue(SUPER_ADMIN_SESSION);
+    resolveHrAccessContextMock.mockResolvedValue(SUPER_ADMIN_CTX);
+    queue([personRow({ id: 'p1' })]);
+    const res = await getPerson(asNextRequest(new Request('http://localhost/api/hr/people/p1')), withParams('p1'));
+    expect(res.status).toBe(200);
+  });
+
+  it('super_admin can create a person', async () => {
+    requireSessionMock.mockResolvedValue(SUPER_ADMIN_SESSION);
+    resolveHrAccessContextMock.mockResolvedValue(SUPER_ADMIN_CTX);
+    queue([personRow({ id: 'new-person' })]);
+    const res = await createPerson(jsonRequest('http://localhost/api/hr/people', 'POST', { first_name: 'Ada', last_name: 'Lovelace' }));
+    expect(res.status).toBe(201);
+  });
+
+  it('super_admin can edit identity/contact fields', async () => {
+    requireSessionMock.mockResolvedValue(SUPER_ADMIN_SESSION);
+    resolveHrAccessContextMock.mockResolvedValue(SUPER_ADMIN_CTX);
+    queue([personRow({ id: 'p1', preferred_name: null })], [personRow({ id: 'p1', preferred_name: 'Ada L.' })]);
+    const res = await patchPerson(jsonRequest('http://localhost/api/hr/people/p1', 'PATCH', { preferred_name: 'Ada L.' }), withParams('p1'));
+    expect(res.status).toBe(200);
+  });
+
+  it('super_admin can edit employment fields', async () => {
+    requireSessionMock.mockResolvedValue(SUPER_ADMIN_SESSION);
+    resolveHrAccessContextMock.mockResolvedValue(SUPER_ADMIN_CTX);
+    queue([personRow({ id: 'p1', employment_status: 'active' })], [personRow({ id: 'p1', employment_status: 'ended' })]);
+    const res = await patchPerson(jsonRequest('http://localhost/api/hr/people/p1', 'PATCH', { employment_status: 'ended' }), withParams('p1'));
+    expect(res.status).toBe(200);
+  });
+
+  it('super_admin can change linked_user_id', async () => {
+    requireSessionMock.mockResolvedValue(SUPER_ADMIN_SESSION);
+    resolveHrAccessContextMock.mockResolvedValue(SUPER_ADMIN_CTX);
+    queue([personRow({ id: 'p1', linked_user_id: null })], [{ id: 'user-2', organisation_id: 'org-a' }], [personRow({ id: 'p1', linked_user_id: 'user-2' })]);
+    const res = await patchPerson(jsonRequest('http://localhost/api/hr/people/p1', 'PATCH', { linked_user_id: 'user-2' }), withParams('p1'));
+    expect(res.status).toBe(200);
+  });
+
+  it('super_admin still cannot access a person belonging to a DIFFERENT organisation (loadPerson\'s organisation_id WHERE clause is unaffected by role)', async () => {
+    requireSessionMock.mockResolvedValue(SUPER_ADMIN_SESSION);
+    resolveHrAccessContextMock.mockResolvedValue(SUPER_ADMIN_CTX);
+    queue([]); // organisation_id filter excludes the cross-org row entirely
+    const res = await getPerson(asNextRequest(new Request('http://localhost/api/hr/people/org-b-person')), withParams('org-b-person'));
+    expect(res.status).toBe(404);
+    expect(calls[0].values).toContain('org-a'); // scoped to the super_admin's ACTIVE org, not a different one
+  });
+
+  it('super_admin still cannot assign a team belonging to a different organisation', async () => {
+    requireSessionMock.mockResolvedValue(SUPER_ADMIN_SESSION);
+    resolveHrAccessContextMock.mockResolvedValue(SUPER_ADMIN_CTX);
+    queue([]); // isTeamInOrganisation finds nothing for this org
+    const res = await createPerson(jsonRequest('http://localhost/api/hr/people', 'POST', { first_name: 'A', last_name: 'B', team_id: 'org-b-team' }));
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toMatch(/team/i);
+  });
+
+  it('super_admin still cannot assign a manager belonging to a different organisation', async () => {
+    requireSessionMock.mockResolvedValue(SUPER_ADMIN_SESSION);
+    resolveHrAccessContextMock.mockResolvedValue(SUPER_ADMIN_CTX);
+    queue([]); // isPersonInOrganisation finds nothing for this org
+    const res = await createPerson(jsonRequest('http://localhost/api/hr/people', 'POST', { first_name: 'A', last_name: 'B', manager_person_id: 'org-b-manager' }));
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toMatch(/manager/i);
+  });
+
+  it('super_admin still cannot link a user belonging to a different organisation', async () => {
+    requireSessionMock.mockResolvedValue(SUPER_ADMIN_SESSION);
+    resolveHrAccessContextMock.mockResolvedValue(SUPER_ADMIN_CTX);
+    queue([]); // isUserInOrganisation finds nothing for this org
+    const res = await createPerson(jsonRequest('http://localhost/api/hr/people', 'POST', { first_name: 'A', last_name: 'B', linked_user_id: 'org-b-user' }));
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toMatch(/linked user/i);
+  });
+
+  it('super_admin PATCH still cannot reassign a person to a cross-org team/manager', async () => {
+    requireSessionMock.mockResolvedValue(SUPER_ADMIN_SESSION);
+    resolveHrAccessContextMock.mockResolvedValue(SUPER_ADMIN_CTX);
+    queue([personRow({ id: 'p1' })], []); // loadPerson succeeds; isTeamInOrganisation finds nothing for this org
+    const res = await patchPerson(jsonRequest('http://localhost/api/hr/people/p1', 'PATCH', { team_id: 'org-b-team' }), withParams('p1'));
+    expect(res.status).toBe(400);
+    expect(calls.some(c => c.text.includes('UPDATE hr_people'))).toBe(false);
+  });
+
+  it('super_admin does not require a People module entitlement row — requireHrCapability bypasses the module check entirely', async () => {
+    requireSessionMock.mockResolvedValue(SUPER_ADMIN_SESSION);
+    resolveHrAccessContextMock.mockResolvedValue(SUPER_ADMIN_CTX);
+    requireCapabilityMock.mockRejectedValue(new Error('People module not enabled for this organisation'));
+    queue([personRow({ id: 'p1' })]);
+    const res = await listPeople();
+    expect(res.status).toBe(200);
+    expect(requireCapabilityMock).not.toHaveBeenCalled();
   });
 });
 

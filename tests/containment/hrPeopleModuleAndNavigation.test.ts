@@ -9,6 +9,16 @@ import path from 'path';
 // its children unless entitled; (2) TopNav.tsx only renders the People
 // nav item when 'people' is present in enabledCapabilities, mirroring
 // hasCrm/hasOrganiser exactly — no unconditional sidebar item exists.
+//
+// HR-2 — super_admin gets full HR access including People-module access
+// even when the organisation has NOT enabled People, via a People-specific
+// bypass (never a platform-wide requireCapability/checkCapability change):
+// app/people/layout.tsx now calls checkHrCapability (lib/hr/capability.ts)
+// instead of the raw checkCapability, and TopNav.tsx's hasPeople is now
+// `isSuperAdmin || enabledCapabilities.includes('people')`. Every other
+// role's behavior is unchanged — checkHrCapability delegates to the real
+// checkCapability for non-super_admin callers (see hrCapability's own
+// coverage for that delegation), and isSuperAdmin is false for them.
 
 function read(relPath: string): string {
   return fs.readFileSync(path.join(process.cwd(), relPath), 'utf8');
@@ -25,9 +35,10 @@ describe('app/people/layout.tsx — module gating', () => {
     expect(src).toMatch(/await requireSession\(\)/);
   });
 
-  it('checks the real "people" capability via the canonical capability helper, not a bespoke check', () => {
-    expect(src).toContain("import { checkCapability } from '@/lib/capabilities/requireCapability'");
-    expect(src).toMatch(/checkCapability\(session\.organisationId,\s*'people'\)/);
+  it('checks the "people" capability via the HR-specific wrapper (HR-2 super_admin bypass), not a raw checkCapability call', () => {
+    expect(src).toContain("import { checkHrCapability } from '@/lib/hr/capability'");
+    expect(src).not.toMatch(/import \{[^}]*\bcheckCapability\b[^}]*\} from '@\/lib\/capabilities\/requireCapability'/);
+    expect(src).toMatch(/checkHrCapability\(session\.organisationId,\s*session\.role\)/);
   });
 
   it('does not render children when the capability is not allowed', () => {
@@ -46,7 +57,18 @@ describe('components/nav/TopNav.tsx — People nav item is capability-gated, nev
   const src = read('components/nav/TopNav.tsx');
 
   it('computes hasPeople from enabledCapabilities, the same projection every other capability flag uses', () => {
-    expect(src).toMatch(/const hasPeople\s*=\s*\n?\s*enabledCapabilities\.includes\(\s*\n?\s*'people',?\s*\n?\s*\);/);
+    expect(src).toMatch(/const hasPeople\s*=\s*\n?\s*(?:isSuperAdmin\s*\|\|\s*\n?\s*)?enabledCapabilities\.includes\(\s*\n?\s*'people',?\s*\n?\s*\);/);
+  });
+
+  it('HR-2 — hasPeople is true for super_admin via the already-existing isSuperAdmin flag, regardless of enabledCapabilities', () => {
+    const start = src.indexOf('const hasPeople');
+    const end = src.indexOf(';', start);
+    const block = src.slice(start, end);
+    expect(block).toMatch(/isSuperAdmin\s*\|\|/);
+    // isSuperAdmin itself must be the same flag other super_admin-only
+    // nav items already use in this function scope — not a re-derivation.
+    expect(src).toMatch(/const isSuperAdmin\s*=\s*\n?\s*role === 'super_admin';/);
+    expect(src.indexOf('const isSuperAdmin')).toBeLessThan(start);
   });
 
   it('the People NavItem is wrapped in {hasPeople && (...)}, matching hasCrm/hasOrganiser/hasCommercial\'s own pattern exactly', () => {

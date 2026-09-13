@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import sql from '@/lib/db';
 import { requireSession, unauthorized, forbidden } from '@/lib/org';
-import { requireCapability, CapabilityDatabaseError } from '@/lib/capabilities/requireCapability';
+import { CapabilityDatabaseError } from '@/lib/capabilities/requireCapability';
+import { requireHrCapability } from '@/lib/hr/capability';
 import { resolveHrAccessContext } from '@/lib/hr/context';
 import { canManageHrAccess } from '@/lib/hr/access';
 import { logHrEvent } from '@/lib/hr/auditLog';
@@ -17,34 +18,29 @@ import { isUserInOrganisation } from '@/lib/hr/validation';
 // canManageHrAccess() (== ctx.isHrAdministrator) is false for every one
 // of its users until someone grants the first one.
 //
-// Two, and only two, callers may use this endpoint:
-//   1. An existing HR administrator (canManageHrAccess(ctx)) — the
-//      steady-state path, matching lib/hr/access.ts's own model
-//      exactly.
-//   2. A platform super_admin (requireRole('super_admin')) — explicit
-//      bootstrap/support handling ONLY for this one endpoint. This does
-//      NOT make super_admin an HR administrator anywhere else: no
-//      function in lib/hr/access.ts, and no other HR-1 route, ever
-//      checks session.role — canManageHrAccess/canViewPerson/
-//      canEditPerson/canManageEmployment remain governed exclusively by
-//      the hr_administrators/hr_people rows resolved in
-//      lib/hr/context.ts. A super_admin using this endpoint is
-//      performing a distinct, platform-level administrative action
-//      (comparable to enabling a module for an organisation), not
-//      exercising an implicit HR grant.
+// HR-2 — canManageHrAccess(ctx) alone is now sufficient for a
+// super_admin caller: lib/hr/context.ts's resolveHrAccessContext()
+// resolves isHrAdministrator: true for role === 'super_admin'
+// unconditionally (no hr_administrators row needed), so
+// canManageHrAccess(ctx) (== ctx.isHrAdministrator) is already true for
+// super_admin by the time it reaches this check. The route-level
+// bootstrap special-case this file used to carry (`isBootstrapSuperAdmin`)
+// is gone — it's fully subsumed by the central context resolution, not
+// duplicated here. Bootstrapping a brand-new organisation's first HR
+// administrator still works exactly as before: a super_admin can always
+// grant/revoke, with zero existing hr_administrators rows required.
 export async function POST(req: NextRequest) {
   let session;
   try { session = await requireSession(); } catch { return unauthorized(); }
   try {
-    await requireCapability(session.organisationId, 'people');
+    await requireHrCapability(session.organisationId, session.role);
   } catch (err) {
     if (err instanceof CapabilityDatabaseError) return NextResponse.json({ error: 'Unable to verify People access.' }, { status: 503 });
     return forbidden();
   }
 
-  const ctx = await resolveHrAccessContext({ organisationId: session.organisationId, userId: session.userId });
-  const isBootstrapSuperAdmin = session.role === 'super_admin';
-  if (!canManageHrAccess(ctx) && !isBootstrapSuperAdmin) return forbidden();
+  const ctx = await resolveHrAccessContext({ organisationId: session.organisationId, userId: session.userId, role: session.role });
+  if (!canManageHrAccess(ctx)) return forbidden();
 
   const body = await req.json().catch(() => ({})) as Record<string, unknown>;
   const userId = typeof body.user_id === 'string' ? body.user_id : '';
@@ -81,15 +77,14 @@ export async function DELETE(req: NextRequest) {
   let session;
   try { session = await requireSession(); } catch { return unauthorized(); }
   try {
-    await requireCapability(session.organisationId, 'people');
+    await requireHrCapability(session.organisationId, session.role);
   } catch (err) {
     if (err instanceof CapabilityDatabaseError) return NextResponse.json({ error: 'Unable to verify People access.' }, { status: 503 });
     return forbidden();
   }
 
-  const ctx = await resolveHrAccessContext({ organisationId: session.organisationId, userId: session.userId });
-  const isBootstrapSuperAdmin = session.role === 'super_admin';
-  if (!canManageHrAccess(ctx) && !isBootstrapSuperAdmin) return forbidden();
+  const ctx = await resolveHrAccessContext({ organisationId: session.organisationId, userId: session.userId, role: session.role });
+  if (!canManageHrAccess(ctx)) return forbidden();
 
   const userId = new URL(req.url).searchParams.get('userId');
   if (!userId) return NextResponse.json({ error: 'userId is required.' }, { status: 400 });

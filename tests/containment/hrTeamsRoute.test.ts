@@ -48,6 +48,12 @@ function queue(...responses: unknown[][]) { responseQueue = responses; callCount
 const SESSION = { userId: 'user-1', organisationId: 'org-a', homeOrganisationId: 'org-a', role: 'manager', name: 'Test User' };
 const HR_ADMIN_CTX = { organisationId: 'org-a', selfPersonId: null, isHrAdministrator: true, hasRestrictedHrAccess: false };
 const NOBODY_CTX = { organisationId: 'org-a', selfPersonId: null, isHrAdministrator: false, hasRestrictedHrAccess: false };
+// HR-2 — same already-proven shape used in hrPeopleRoute.test.ts's own
+// SUPER_ADMIN_CTX (see hrContextResolution.test.ts for the real
+// resolution proof); resolveHrAccessContext is fully mocked in this
+// file too, so this is supplied directly.
+const SUPER_ADMIN_CTX = { organisationId: 'org-a', selfPersonId: null, isHrAdministrator: true, hasRestrictedHrAccess: true };
+const SUPER_ADMIN_SESSION = { ...SESSION, role: 'super_admin' };
 
 const { GET: listTeams, POST: createTeam } = await import('@/app/api/hr/teams/route');
 
@@ -152,5 +158,40 @@ describe('POST /api/hr/teams', () => {
     resolveHrAccessContextMock.mockResolvedValue(NOBODY_CTX);
     await createTeam(jsonRequest('http://localhost/api/hr/teams', 'POST', { name: 'Sales' }));
     expect(logHrEventMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('HR-2 — super_admin full HR access', () => {
+  it('a super_admin can create a team with no HR administrator grant', async () => {
+    requireSessionMock.mockResolvedValue(SUPER_ADMIN_SESSION);
+    resolveHrAccessContextMock.mockResolvedValue(SUPER_ADMIN_CTX);
+    queue([{ id: 'team-a', organisation_id: 'org-a', name: 'Engineering', manager_person_id: null }]);
+    const res = await createTeam(jsonRequest('http://localhost/api/hr/teams', 'POST', { name: 'Engineering' }));
+    expect(res.status).toBe(201);
+    expect(resolveHrAccessContextMock).toHaveBeenCalledWith(expect.objectContaining({ role: 'super_admin' }));
+  });
+
+  it('existing HR administrator behavior is unchanged by the super_admin policy', async () => {
+    requireSessionMock.mockResolvedValue(SESSION);
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    queue([{ id: 'team-a', organisation_id: 'org-a', name: 'Engineering', manager_person_id: null }]);
+    const res = await createTeam(jsonRequest('http://localhost/api/hr/teams', 'POST', { name: 'Engineering' }));
+    expect(res.status).toBe(201);
+  });
+
+  it('an ordinary user remains denied even though super_admin now has full access', async () => {
+    requireSessionMock.mockResolvedValue(SESSION);
+    resolveHrAccessContextMock.mockResolvedValue(NOBODY_CTX);
+    const res = await createTeam(jsonRequest('http://localhost/api/hr/teams', 'POST', { name: 'Engineering' }));
+    expect(res.status).toBe(403);
+    expect(sqlMock).not.toHaveBeenCalled();
+  });
+
+  it('a super_admin creating a team still cannot assign a cross-organisation manager (tenant integrity)', async () => {
+    requireSessionMock.mockResolvedValue(SUPER_ADMIN_SESSION);
+    resolveHrAccessContextMock.mockResolvedValue(SUPER_ADMIN_CTX);
+    queue([]); // isPersonInOrganisation finds nothing for org-a
+    const res = await createTeam(jsonRequest('http://localhost/api/hr/teams', 'POST', { name: 'Engineering', manager_person_id: 'org-b-person' }));
+    expect(res.status).toBe(400);
   });
 });

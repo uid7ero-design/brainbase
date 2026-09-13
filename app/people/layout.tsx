@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation';
 import { requireSession } from '@/lib/org';
-import { checkCapability } from '@/lib/capabilities/requireCapability';
+import { checkHrCapability } from '@/lib/hr/capability';
 import { APP_HEADER_OFFSET_VH_CALC } from '@/lib/layout/headerOffset';
 
 // HR-1 People Foundation — page-level capability enforcement, mirroring
@@ -9,6 +9,14 @@ import { APP_HEADER_OFFSET_VH_CALC } from '@/lib/layout/headerOffset';
 // the actual authorization boundary; this is a UX gate so an unentitled
 // organisation sees a clear message instead of a page that only fails
 // once its data fetch returns 403.
+//
+// HR-2 — checkHrCapability() (lib/hr/capability.ts) resolves `allowed:
+// true` unconditionally for a super_admin caller, in their current
+// active organisation, without an organisation_modules row — matching
+// the same HR-specific bypass every HR API route under app/api/hr now
+// applies via requireHrCapability(). Every other role's behavior is
+// unchanged: a real checkCapability('people') lookup, same denial
+// screen as before.
 export default async function PeopleLayout({ children }: { children: React.ReactNode }) {
   let session;
   try {
@@ -17,7 +25,7 @@ export default async function PeopleLayout({ children }: { children: React.React
     redirect('/login');
   }
 
-  const capability = await checkCapability(session.organisationId, 'people');
+  const capability = await checkHrCapability(session.organisationId, session.role);
 
   if (!capability.allowed) {
     return (
