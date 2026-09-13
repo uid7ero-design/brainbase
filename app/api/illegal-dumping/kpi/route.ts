@@ -29,7 +29,14 @@ export async function GET(req: Request) {
     });
   }
 
-  const resolved     = incidents.filter(i => i.status === 'CLOSED' || i.resolution_date !== null).length;
+  // Data Hub 6.1C2 — ABANDONED is a terminal, NON-resolved status, but its
+  // real-world source rows (e.g. Onkaparinga's "Abandoned") commonly carry
+  // a populated resolution_date (a Closed timestamp recording when the
+  // record was closed out, not evidence it was resolved). The narrowest
+  // behavior-preserving fix: exclude ABANDONED from the resolution_date
+  // fallback specifically, leaving every other status's existing
+  // CLOSED/resolution_date semantics completely unchanged.
+  const resolved     = incidents.filter(i => i.status === 'CLOSED' || (i.status !== 'ABANDONED' && i.resolution_date !== null)).length;
   const recoveryRate = resolved / incidents.length * 100;
 
   const subMap = new Map<string, number>();

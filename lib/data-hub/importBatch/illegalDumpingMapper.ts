@@ -59,7 +59,7 @@ export interface MappedIllegalDumpingRow {
   waste_type: string;
   volume_estimate: string | null;
   severity: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
-  status: "OPEN" | "IN_PROGRESS" | "RESOLVED" | "CLOSED";
+  status: "OPEN" | "IN_PROGRESS" | "RESOLVED" | "CLOSED" | "ABANDONED";
   crew_assigned: string | null;
   resolution_date: Date | null;
   cost_estimate: number | null;
@@ -300,23 +300,22 @@ function mapSeverity(s: string | null): MappedIllegalDumpingRow["severity"] {
 //     same direction: the work was actually done, with some exception/
 //     caveat presumably recorded elsewhere (e.g. Notes) — not left undone.
 //     This is a faithful mapping, not a lossy one.
-//   - "Abandoned" -> still NOT mapped; still throws, exactly as before.
-//     "Abandoned" plausibly means "no further action will be taken, NOT
-//     resolved" — the opposite of what CLOSED's only real usage in this
-//     system (the KPI route above) currently means. Mapping it to CLOSED
-//     would make an abandoned, never-actually-resolved site silently count
-//     toward that route's "resolved" KPI — exactly the kind of lossy,
-//     silently-wrong mapping this patch is not authorized to make. Mapping
-//     it to RESOLVED would be worse (the site was explicitly NOT resolved).
-//     OPEN/IN_PROGRESS are factually wrong for a terminal state. No value
-//     in the current 4-value IncidentStatus enum (OPEN/IN_PROGRESS/
-//     RESOLVED/CLOSED) can faithfully represent "abandoned, not resolved"
-//     without contaminating an existing status's meaning — this remains a
-//     genuine architecture/product decision (a possible future dedicated
-//     status, or an explicit product ruling that CLOSED should mean this
-//     and the KPI route should change too), not something this mapper may
-//     resolve unilaterally. See the 6.1C1 remediation report for the full
-//     reasoning.
+//
+// Data Hub 6.1C2 — "Abandoned" resolved: ABANDONED, a new, dedicated,
+// terminal IncidentStatus value (scripts/create-illegal-dumping-abandoned-
+// status.sql). This is the exact product decision the 6.1C1 comment above
+// was left waiting on. ABANDONED is terminal, non-resolved, non-open,
+// non-in-progress — never CLOSED (whose only real usage in this system,
+// the KPI route's resolved-count, treats CLOSED as synonymous with
+// "resolved"), never RESOLVED (the site was explicitly NOT resolved), and
+// never OPEN/IN_PROGRESS (factually wrong for a terminal state). A
+// populated Closed timestamp (resolution_date) is preserved unchanged for
+// an ABANDONED row — it is legitimate operational metadata recording when
+// the record was closed out, not evidence of resolution; the correction
+// belongs in the KPI's own interpretation of resolution_date, not in
+// withholding the timestamp (see app/api/illegal-dumping/kpi/route.ts's
+// own updated resolved-calculation comment). See the 6.1C2 implementation
+// report for the full investigation and rationale.
 const KNOWN_STATUS_MAP = new Map<string, MappedIllegalDumpingRow["status"]>([
   ["resolved", "RESOLVED"],
   ["closed", "RESOLVED"],
@@ -325,6 +324,7 @@ const KNOWN_STATUS_MAP = new Map<string, MappedIllegalDumpingRow["status"]>([
   ["open", "OPEN"],
   ["booked", "OPEN"],
   ["requires_input", "OPEN"],
+  ["abandoned", "ABANDONED"],
 ]);
 
 function mapStatus(s: string, rowIndex: number): MappedIllegalDumpingRow["status"] {
