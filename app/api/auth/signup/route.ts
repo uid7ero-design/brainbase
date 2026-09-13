@@ -17,11 +17,17 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);
   if (!body) return NextResponse.json({ error: 'Invalid request.' }, { status: 400 });
 
-  const { name, email, orgName, password } = body as Record<string, string>;
+  const { name, username, email, orgName, password } = body as Record<string, string>;
 
-  if (!name?.trim() || !email?.trim() || !orgName?.trim() || !password) {
+  if (!name?.trim() || !username?.trim() || !email?.trim() || !orgName?.trim() || !password) {
     return NextResponse.json({ error: 'All fields are required.' }, { status: 400 });
   }
+
+  // Lowercased to match app/actions/auth.ts's login lookup, which always
+  // lowercases the submitted username before querying — storing any other
+  // casing here would make the exact username the user just chose fail to
+  // log back in.
+  const usernameLower = username.trim().toLowerCase();
 
   const emailLower = email.trim().toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailLower)) {
@@ -68,22 +74,9 @@ export async function POST(req: NextRequest) {
         INSERT INTO organisations (id, name, slug, plan, status, settings, updated_at)
         VALUES (${orgId}, ${orgName.trim()}, ${uniqueSlug}, 'TRIAL', 'ACTIVE', '{}', now())
       `,
-      // KNOWN OPEN GAP (tracked on PR #216, not fixed here): users.username
-      // is NOT NULL + UNIQUE with no database-level default, and is
-      // deliberately NOT supplied by this INSERT. app/signup/page.tsx
-      // never collects a username, and every other raw-SQL users INSERT
-      // in this codebase (app/api/admin/users/route.ts,
-      // app/actions/users.ts) treats username as a distinct,
-      // separately-collected, human-chosen value — app/api/admin/users/
-      // route.ts's own comment documents a prior bug where email was
-      // wrongly used as a username fallback. There is no established
-      // convention for deriving one at self-service signup, so this
-      // statement still fails on users.username until that product
-      // decision is made; left unresolved deliberately rather than
-      // inventing one.
       sql`
-        INSERT INTO users (id, name, email, password_hash, role, status, organisation_id, email_verified, updated_at)
-        VALUES (${userId}, ${name.trim()}, ${emailLower}, ${hash}, 'ADMIN', 'ACTIVE', ${orgId}, true, now())
+        INSERT INTO users (id, username, name, email, password_hash, role, status, organisation_id, email_verified, updated_at)
+        VALUES (${userId}, ${usernameLower}, ${name.trim()}, ${emailLower}, ${hash}, 'ADMIN', 'ACTIVE', ${orgId}, true, now())
       `,
     ]);
 
@@ -93,6 +86,9 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     const msg = (err as Error).message ?? '';
     if (msg.includes('unique') || msg.includes('duplicate') || msg.includes('already exists')) {
+      if (msg.includes('username')) {
+        return NextResponse.json({ error: 'Username already taken.' }, { status: 409 });
+      }
       return NextResponse.json({ error: 'An account with this email already exists.' }, { status: 409 });
     }
     console.error('[signup]', msg);

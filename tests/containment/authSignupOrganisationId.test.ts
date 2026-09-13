@@ -28,18 +28,22 @@ import type { NextRequest } from 'next/server'
 // RETURNING clause, which sql.transaction()'s flat pre-built query array
 // does not support.
 //
-// KNOWN OPEN GAP, NOT fixed by this pass (see PR #216 discussion): the
-// users INSERT still does not supply `username`, which is NOT NULL +
-// UNIQUE with no database-level default either. app/signup/page.tsx never
-// collects a username, and every other raw-SQL users INSERT in this
-// codebase treats username as a distinct, separately human-chosen value —
-// app/api/admin/users/route.ts's own comment documents a prior bug where
-// email was wrongly used as a username fallback, so that is deliberately
-// NOT reused here. There is no established convention for deriving one at
-// self-service signup; this is a product decision, not a raw-SQL bug, so
-// it is left open rather than invented. The test at the bottom of this
-// file documents this gap explicitly so it is not silently "fixed" by
-// accident without also being verified against a real live signup.
+// FINAL UNBLOCK (PR #216): the product decision is that public signup
+// collects an explicit, human-chosen username rather than deriving one
+// from email or generating one silently. app/signup/page.tsx now collects
+// it directly, and the users INSERT below supplies it. The stored value is
+// trimmed and lowercased — mirroring app/actions/users.ts's own
+// createUser() convention rather than app/api/admin/users/route.ts's
+// trim-only one — specifically because app/actions/auth.ts's login always
+// lowercases the submitted username before its `WHERE username = ...`
+// lookup; storing any other casing would make the exact username a user
+// just chose at signup fail to log back in. Duplicate usernames are
+// disambiguated from duplicate emails in the catch block below, mirroring
+// app/api/admin/users/route.ts's own `msg.includes('username') ? ... : ...`
+// pattern, while the pre-existing duplicate-email wording/behavior is left
+// unchanged. Because both INSERTs are still committed via one
+// sql.transaction() call, a duplicate-username failure on the second
+// statement cannot leave an orphan organisation from the first.
 
 function asNextRequest(req: Request): NextRequest {
   return req as unknown as NextRequest
@@ -95,6 +99,7 @@ function signupRequest(body: Record<string, unknown>): NextRequest {
 
 const VALID_BODY = {
   name: 'Test Founder',
+  username: 'testfounder',
   email: 'founder@example.com',
   orgName: 'Acme Co',
   password: 'correct-horse-battery',
@@ -162,7 +167,7 @@ describe('POST /api/auth/signup — users.id / users.updated_at no longer omitte
     queue([], [])
     await POST(signupRequest(VALID_BODY))
     const text = sqlCallText(1)
-    expect(text).toMatch(/INSERT INTO users \(id, name, email, password_hash, role, status, organisation_id, email_verified, updated_at\)/)
+    expect(text).toMatch(/INSERT INTO users \(id, username, name, email, password_hash, role, status, organisation_id, email_verified, updated_at\)/)
     expect(text).toMatch(/now\(\)/)
     expect(sqlCallArgs(1)).toContain(USER_UUID)
   })
@@ -277,10 +282,55 @@ describe('POST /api/auth/signup — unrelated behaviour unchanged', () => {
   })
 })
 
-describe('POST /api/auth/signup — KNOWN OPEN GAP: users.username (tracked on PR #216, not fixed by this pass)', () => {
-  it('the users INSERT still does not supply username — this is a deliberate, documented, unresolved gap, not an oversight; login (app/actions/auth.ts) authenticates strictly by username, and there is no established self-service username-derivation convention anywhere in this codebase to reuse', async () => {
+describe('POST /api/auth/signup — explicit username (PR #216 final unblock)', () => {
+  it('(A) still returns 400 when username is missing — never reaches the database', async () => {
+    const res = await POST(signupRequest({ ...VALID_BODY, username: '' }))
+    expect(res.status).toBe(400)
+    expect(transactionMock).not.toHaveBeenCalled()
+  })
+
+  it('(A) still returns 400 when username is only whitespace — never reaches the database', async () => {
+    const res = await POST(signupRequest({ ...VALID_BODY, username: '   ' }))
+    expect(res.status).toBe(400)
+    expect(transactionMock).not.toHaveBeenCalled()
+  })
+
+  it('(B) a valid username reaches the users INSERT (query 1) as a bound parameter', async () => {
     queue([], [])
     await POST(signupRequest(VALID_BODY))
-    expect(sqlCallText(1)).not.toMatch(/\busername\b/)
+    expect(sqlCallText(1)).toMatch(/INSERT INTO users \(id, username, /)
+    expect(sqlCallArgs(1)).toContain('testfounder')
+  })
+
+  it('(C) username is trimmed and lowercased before storage — matching app/actions/auth.ts login\'s own trim().toLowerCase() lookup, so the exact string a user types at signup is guaranteed to authenticate afterward', async () => {
+    queue([], [])
+    await POST(signupRequest({ ...VALID_BODY, username: '  TestFounder  ' }))
+    expect(sqlCallArgs(1)).toContain('testfounder')
+    expect(sqlCallArgs(1)).not.toContain('  TestFounder  ')
+    expect(sqlCallArgs(1)).not.toContain('TestFounder')
+  })
+
+  it('(D) a duplicate-username unique-constraint violation is mapped to a distinct 409, never the generic email-duplicate wording', async () => {
+    transactionMock.mockRejectedValueOnce(new Error('duplicate key value violates unique constraint "users_username_key"'))
+    const res = await POST(signupRequest(VALID_BODY))
+    expect(res.status).toBe(409)
+    const body = await res.json()
+    expect(body.error).toMatch(/username/i)
+    expect(body.error).not.toMatch(/email/i)
+  })
+
+  it('(E) a duplicate-username failure creates no partial organisation state — no session created, since both INSERTs share one atomic transaction', async () => {
+    transactionMock.mockRejectedValueOnce(new Error('duplicate key value violates unique constraint "users_username_key"'))
+    await POST(signupRequest(VALID_BODY))
+    expect(createSessionMock).not.toHaveBeenCalled()
+    expect(transactionMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('(F) the pre-existing duplicate-email 409 wording/behavior is unchanged now that username disambiguation exists alongside it', async () => {
+    transactionMock.mockRejectedValueOnce(new Error('duplicate key value violates unique constraint "users_email_key"'))
+    const res = await POST(signupRequest(VALID_BODY))
+    expect(res.status).toBe(409)
+    const body = await res.json()
+    expect(body.error).toMatch(/already exists/i)
   })
 })

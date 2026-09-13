@@ -15,6 +15,7 @@ export default function SignupPage() {
 
   const [form, setForm] = useState({
     name: '',
+    username: '',
     email: '',
     orgName: '',
     password: '',
@@ -78,6 +79,9 @@ export default function SignupPage() {
 
           body: JSON.stringify({
             name: form.name.trim(),
+
+            username:
+              form.username.trim(),
 
             email:
               form.email.trim(),
@@ -493,6 +497,29 @@ export default function SignupPage() {
                 placeholder="Your name"
                 value={form.name}
                 onChange={set('name')}
+                style={inputStyle}
+                onFocus={handleFocus}
+                onBlur={handleBlur}
+              />
+            </div>
+
+            {/* Username */}
+            <div>
+              <label
+                htmlFor="username"
+                style={labelStyle}
+              >
+                Username
+              </label>
+
+              <input
+                id="username"
+                type="text"
+                required
+                autoComplete="username"
+                placeholder="Choose a username"
+                value={form.username}
+                onChange={set('username')}
                 style={inputStyle}
                 onFocus={handleFocus}
                 onBlur={handleBlur}
