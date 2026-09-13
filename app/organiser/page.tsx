@@ -721,9 +721,10 @@ function CalendarView({ items, onOpenDrawer }: { items: OrganiserItem[]; onOpenD
 // (a mutation happened while this view is open — see its call site's
 // boardActivityRefreshKey, derived from boardData.items).
 function BoardActivity({
-  boardId, items, groupNamesById, onOpenItem, refreshKey,
+  boardId, items, groupNamesById, userNamesById, onOpenItem, refreshKey,
 }: {
   boardId: string; items: OrganiserItem[]; groupNamesById: Record<string, string>;
+  userNamesById: Record<string, string>;
   onOpenItem: (item: OrganiserItem) => void; refreshKey: string;
 }) {
   const t = useOpsTheme();
@@ -798,7 +799,7 @@ function BoardActivity({
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 8, maxWidth: 640 }}>
           {events.map(ev => {
-            const desc = describeBoardActivityEvent(ev, groupNamesById, liveItemNamesById);
+            const desc = describeBoardActivityEvent(ev, groupNamesById, liveItemNamesById, userNamesById);
             // Deleted items (and any non-item entity type, once a future
             // phase instruments one) have no live row to open — no
             // click-through for those, per section 19.
@@ -863,8 +864,8 @@ function BoardActivity({
 // possible "did something change" signal — no new global state, no extra
 // request beyond what a genuine mutation already causes.
 function ItemActivity({
-  itemId, updatedAt, groupNamesById,
-}: { itemId: string; updatedAt: string; groupNamesById: Record<string, string> }) {
+  itemId, updatedAt, groupNamesById, userNamesById,
+}: { itemId: string; updatedAt: string; groupNamesById: Record<string, string>; userNamesById: Record<string, string> }) {
   const t = useOpsTheme();
   const [events, setEvents] = useState<OrganiserActivityEvent[]>([]);
   const [loading, setLoading] = useState(true);
@@ -923,7 +924,7 @@ function ItemActivity({
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {events.map(ev => {
-            const desc = describeActivityEvent(ev, groupNamesById);
+            const desc = describeActivityEvent(ev, groupNamesById, userNamesById);
             return (
               <div key={ev.id} style={{ padding: "8px 10px", borderRadius: 8, background: t.ink(.025), border: `1px solid ${t.ink(.05)}` }}>
                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3, gap: 8 }}>
@@ -964,6 +965,15 @@ function ItemDrawer({
 }: { item: OrganiserItem; onClose: () => void; onUpdate: (id: string, patch: Record<string, unknown>) => void; groupNamesById: Record<string, string>; members: OrganiserMember[] }) {
   const t = useOpsTheme();
   const fieldEntries = Object.entries(item.fields || {});
+  // Phase D.4.6P — same id -> name lookup OrganiserPageContent's own
+  // userNamesById provides, built locally from this drawer's own already
+  // tenant-scoped ACTIVE-members prop (the same list the Assignee picker
+  // itself renders) rather than prop-drilling a second parallel map.
+  const userNamesById = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const m of members) map[m.id] = m.name;
+    return map;
+  }, [members]);
   const [files, setFiles] = useState<OrganiserFile[]>([]);
   const [updates, setUpdates] = useState<OrganiserUpdate[]>([]);
   const [newUpdate, setNewUpdate] = useState("");
@@ -1129,7 +1139,7 @@ function ItemDrawer({
             </div>
           </div>
 
-          <ItemActivity key={`${item.id}:${item.updated_at}`} itemId={item.id} updatedAt={item.updated_at} groupNamesById={groupNamesById} />
+          <ItemActivity key={`${item.id}:${item.updated_at}`} itemId={item.id} updatedAt={item.updated_at} groupNamesById={groupNamesById} userNamesById={userNamesById} />
 
           {fieldEntries.length > 0 && (
             <div>
@@ -1216,6 +1226,20 @@ function OrganiserPageContent() {
     for (const g of boardData?.groups ?? []) map[g.id] = g.name;
     return map;
   }, [boardData?.groups]);
+
+  // Phase D.4.6P — id -> name lookup for the Activity tabs' assignee_user_id
+  // resolution (lib/organiser/activityFormat.ts's resolveAssigneeLabel),
+  // mirroring groupNamesById's own shape exactly. Built from this
+  // organisation's own already tenant-scoped ACTIVE-members list (the same
+  // GET /api/organiser/members fetch the assignee picker itself uses) —
+  // never an independent fetch — so a deactivated/removed member since a
+  // given activity row was written safely falls back to "Another member"
+  // rather than showing a stale or fabricated name.
+  const userNamesById = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const m of members) map[m.id] = m.name;
+    return map;
+  }, [members]);
 
   // Phase D.4.5E — cheap "did anything on this board change" signal for
   // BoardActivity's refresh effect, the board-level analogue of
@@ -1541,6 +1565,7 @@ function OrganiserPageContent() {
                   boardId={activeBoard.id}
                   items={boardData.items}
                   groupNamesById={groupNamesById}
+                  userNamesById={userNamesById}
                   onOpenItem={setDrawerItem}
                   refreshKey={boardActivityRefreshKey}
                 />

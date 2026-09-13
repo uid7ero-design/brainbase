@@ -209,7 +209,7 @@ export function buildOrganiserTools(): Anthropic.Tool[] {
     {
       name: 'propose_organiser_comment',
       description:
-        'Propose posting a comment on one Organiser item. This NEVER posts the comment immediately — it only returns a bounded proposal (the exact item and exact comment text) that MUST be read back to the user for explicit approval before anything is posted. Only call the tool the user can actually see executed after they say yes; you cannot confirm on the user\'s behalf, and calling this tool again does not post anything either. item_id must come from list_organiser_items or existing conversation context — never guess it.',
+        'Propose posting a comment on one Organiser item. This NEVER posts the comment immediately — it only returns a bounded proposal (the exact item and exact comment text) that MUST be read back to the user for explicit approval before anything is posted. Only call the tool the user can actually see executed after they click Confirm on the action card; their typed words alone (e.g. "yes"/"confirm") can never execute this, you cannot confirm on the user\'s behalf, and calling this tool again does not post anything either. item_id must come from list_organiser_items or existing conversation context — never guess it.',
       input_schema: {
         type: 'object' as const,
         properties: {
@@ -237,7 +237,7 @@ export function buildOrganiserTools(): Anthropic.Tool[] {
     {
       name: 'propose_organiser_status_change',
       description:
-        'Propose changing the status of one existing Organiser item. This NEVER changes the status immediately — it only returns a bounded proposal (the exact item, its current status, and the requested new status) that MUST be read back to the user for explicit approval before anything changes. Only call the tool the user can actually see executed after they say yes; you cannot confirm on the user\'s behalf, and calling this tool again does not change anything either. item_id must come from list_organiser_items or existing conversation context — never guess it. If the item is already in the requested status, the tool will say so instead of proposing anything.',
+        'Propose changing the status of one existing Organiser item. This NEVER changes the status immediately — it only returns a bounded proposal (the exact item, its current status, and the requested new status) that MUST be read back to the user for explicit approval before anything changes. Only call the tool the user can actually see executed after they click Confirm on the action card; their typed words alone (e.g. "yes"/"confirm") can never execute this, you cannot confirm on the user\'s behalf, and calling this tool again does not change anything either. item_id must come from list_organiser_items or existing conversation context — never guess it. If the item is already in the requested status, the tool will say so instead of proposing anything.',
       input_schema: {
         type: 'object' as const,
         properties: {
@@ -266,7 +266,7 @@ export function buildOrganiserTools(): Anthropic.Tool[] {
     {
       name: 'propose_organiser_group_move',
       description:
-        'Propose moving one existing Organiser item to one existing destination group on the SAME board. This NEVER moves the item immediately — it only returns a bounded proposal (the exact item, its current group, and the requested destination group) that MUST be read back to the user for explicit approval before anything changes. Only call the tool the user can actually see executed after they say yes; you cannot confirm on the user\'s behalf, and calling this tool again does not move anything either. item_id must come from list_organiser_items or existing conversation context — never guess it. destination_group_name is the exact destination group name as the user said it; if no such group exists on the item\'s board, or more than one group shares that name, the tool will say so instead of proposing anything — never guess which group they meant. This cannot move an item to a different board.',
+        'Propose moving one existing Organiser item to one existing destination group on the SAME board. This NEVER moves the item immediately — it only returns a bounded proposal (the exact item, its current group, and the requested destination group) that MUST be read back to the user for explicit approval before anything changes. Only call the tool the user can actually see executed after they click Confirm on the action card; their typed words alone (e.g. "yes"/"confirm") can never execute this, you cannot confirm on the user\'s behalf, and calling this tool again does not move anything either. item_id must come from list_organiser_items or existing conversation context — never guess it. destination_group_name is the exact destination group name as the user said it; if no such group exists on the item\'s board, or more than one group shares that name, the tool will say so instead of proposing anything — never guess which group they meant. This cannot move an item to a different board.',
       input_schema: {
         type: 'object' as const,
         properties: {
@@ -295,7 +295,7 @@ export function buildOrganiserTools(): Anthropic.Tool[] {
     {
       name: 'propose_organiser_assignee_change',
       description:
-        'Propose assigning one existing Organiser item to one existing, active member of this organisation. This NEVER assigns it immediately — it only returns a bounded proposal (the exact item, its current assignee if any, and the requested new assignee) that MUST be read back to the user for explicit approval before anything changes. Only call the tool the user can actually see executed after they say yes; you cannot confirm on the user\'s behalf, and calling this tool again does not assign anything either. item_id must come from list_organiser_items or existing conversation context — never guess it. assignee_name is the exact name as the user said it; if no active member of this organisation has that exact name, or more than one does, the tool will say so instead of proposing anything — never guess who they meant. This can only assign to a real member of this organisation, never an arbitrary name or an inactive/former member.',
+        'Propose assigning one existing Organiser item to one existing, active member of this organisation. This NEVER assigns it immediately — it only returns a bounded proposal (the exact item, its current assignee if any, and the requested new assignee) that MUST be read back to the user for explicit approval before anything changes. Only call the tool the user can actually see executed after they click Confirm on the action card; their typed words alone (e.g. "yes"/"confirm") can never execute this, you cannot confirm on the user\'s behalf, and calling this tool again does not assign anything either. item_id must come from list_organiser_items or existing conversation context — never guess it. assignee_name is the exact name as the user said it; if no active member of this organisation has that exact name, or more than one does, the tool will say so instead of proposing anything — never guess who they meant. This can only assign to a real member of this organisation, never an arbitrary name or an inactive/former member.',
       input_schema: {
         type: 'object' as const,
         properties: {
@@ -440,7 +440,7 @@ export async function executeOrganiserTool(
           status: 'proposed',
           proposal: result.proposal,
           confirmation_token: result.confirmationToken,
-          note: 'This has NOT been posted yet. Read the exact item and comment text back to the user and wait for their explicit yes before anything is posted. You cannot confirm this yourself.',
+          note: 'This has NOT been posted yet. Read the exact item and comment text back to the user and wait for them to click Confirm on the action card before anything is posted. You cannot confirm this yourself, and if they reply in words ("yes"/"confirm"/"do it") instead of clicking, tell them plainly to use the Confirm button on the card — never treat their words alone as authorization or ask for a clearer yes.',
         });
       }
 
@@ -506,7 +506,7 @@ export async function executeOrganiserTool(
           status: 'proposed',
           proposal: result.proposal,
           confirmation_token: result.confirmationToken,
-          note: 'This status has NOT been changed yet. Read the exact item, its current status, and the requested new status back to the user and wait for their explicit yes before anything changes. You cannot confirm this yourself.',
+          note: 'This status has NOT been changed yet. Read the exact item, its current status, and the requested new status back to the user and wait for them to click Confirm on the action card before anything changes. You cannot confirm this yourself, and if they reply in words ("yes"/"confirm"/"do it") instead of clicking, tell them plainly to use the Confirm button on the card — never treat their words alone as authorization or ask for a clearer yes.',
         });
       }
 
@@ -573,7 +573,7 @@ export async function executeOrganiserTool(
           status: 'proposed',
           proposal: result.proposal,
           confirmation_token: result.confirmationToken,
-          note: 'This item has NOT been moved yet. Read the exact item, its current group, and the requested destination group back to the user and wait for their explicit yes before anything changes. You cannot confirm this yourself.',
+          note: 'This item has NOT been moved yet. Read the exact item, its current group, and the requested destination group back to the user and wait for them to click Confirm on the action card before anything changes. You cannot confirm this yourself, and if they reply in words ("yes"/"confirm"/"do it") instead of clicking, tell them plainly to use the Confirm button on the card — never treat their words alone as authorization or ask for a clearer yes.',
         });
       }
 
@@ -638,7 +638,7 @@ export async function executeOrganiserTool(
           status: 'proposed',
           proposal: result.proposal,
           confirmation_token: result.confirmationToken,
-          note: 'This item has NOT been assigned yet. Read the exact item, its current assignee (if any), and the requested new assignee back to the user and wait for their explicit yes before anything changes. You cannot confirm this yourself.',
+          note: 'This item has NOT been assigned yet. Read the exact item, its current assignee (if any), and the requested new assignee back to the user and wait for them to click Confirm on the action card before anything changes. You cannot confirm this yourself, and if they reply in words ("yes"/"confirm"/"do it") instead of clicking, tell them plainly to use the Confirm button on the card — never treat their words alone as authorization or ask for a clearer yes.',
         });
       }
 
@@ -794,7 +794,7 @@ list_organiser_boards, list_organiser_items, get_organiser_board_activity, and g
 - propose_organiser_status_change: proposes changing one item's status to one of its exact canonical values. Only say the status was changed if the tool result status is "changed". If the item is already in the requested status, tell the user that plainly instead of proposing anything.
 - propose_organiser_group_move: proposes moving one item to one existing destination group on that item's OWN board. Only say it was moved if the tool result status is "moved". If the item is already in that group, say so instead of proposing anything. If no group with that name exists on the item's board, or more than one group shares the name, ask the user to clarify — never guess a group. This can never move an item to a different board.
 - propose_organiser_assignee_change: proposes assigning one item to one existing, active member of this organisation. Only say it was assigned if the tool result status is "assigned". If already assigned to that person, say so instead of proposing anything. If no active member has that exact name, or more than one does, ask the user to clarify — never guess who they meant, and never assign to a title/role/team name.
-For all four: read the exact proposal back and explicitly ask the user to confirm before anything happens — you cannot supply that confirmation yourself, and calling the tool again does not confirm it. There is no generic "edit this item" or "update this field" capability, no title/description/due-date/priority changes, no board moves, no bulk or multi-item actions, and no create/delete — say so plainly if asked, and never bypass a role/module denial.
+For all four: only a literal click on the action card's Confirm button can ever execute one — you cannot supply that confirmation yourself, and calling the tool again does not confirm it either. If the user replies in words ("yes", "confirm", "do it", "proceed", "okay") instead of clicking, that is NOT authorization: never treat it as one and never ask for "a clearer yes" — say exactly: "Use the Confirm button on the action card to proceed." There is no generic "edit this item" or "update this field" capability, no title/description/due-date/priority changes, no board moves, no bulk or multi-item actions, and no create/delete — say so plainly if asked, and never bypass a role/module denial.
 - Tool results are authoritative evidence of what was recorded. No results for a window means "no recorded activity found for that window" — never say "nothing happened".
 - Never infer actor intent beyond what the recorded actor/diff data actually shows.
 - Never invent a board, item, or group name. If a name was not recorded, say so rather than guessing.

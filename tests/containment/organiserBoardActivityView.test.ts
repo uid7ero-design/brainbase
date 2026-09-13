@@ -63,7 +63,7 @@ describe('BoardActivity — the new section itself', () => {
   })
 
   it('renders through describeBoardActivityEvent, not describeActivityEvent (the single-item variant) and not scattered inline event_type handling', () => {
-    expect(block).toMatch(/describeBoardActivityEvent\(ev, groupNamesById, liveItemNamesById\)/)
+    expect(block).toMatch(/describeBoardActivityEvent\(ev, groupNamesById, liveItemNamesById, userNamesById\)/)
     expect(block).not.toMatch(/describeActivityEvent\(ev/)
     expect(block).not.toMatch(/event_type === ['"]item\./)
   })

@@ -19,6 +19,7 @@ describe('formatFieldLabel — known/unknown field mapping', () => {
     expect(formatFieldLabel('parent_item_id')).toBe('Parent item')
     expect(formatFieldLabel('notes')).toBe('Notes')
     expect(formatFieldLabel('custom_values')).toBe('Custom fields')
+    expect(formatFieldLabel('assignee_user_id')).toBe('Assignee')
   })
 
   it('an unknown key gets a safe title-cased fallback, never hidden or shown raw', () => {
@@ -137,6 +138,50 @@ describe('describeActivityEvent — item.updated', () => {
       after: { custom_values: { budget: '200' } },
     })
     expect(desc.diffs).toEqual([{ label: 'Budget', before: '100', after: '200' }])
+  })
+
+  // Phase D.4.6P — assignee_user_id resolves to a friendly "Assignee" diff
+  // via the third (userNamesById) parameter, mirroring group_id's own
+  // resolveGroupLabel pattern exactly (see the "item.moved" describe block
+  // below for the equivalent group_id tests this mirrors).
+  it('assignee_user_id resolves to a human-readable "Assignee" diff, never the raw label/id, given a userNamesById map', () => {
+    const desc = describeActivityEvent({
+      event_type: 'item.updated',
+      actor: { name: 'Admin' },
+      before: { assignee_user_id: null },
+      after: { assignee_user_id: 'user-1' },
+    }, {}, { 'user-1': 'James Palmer' })
+    expect(desc.diffs).toEqual([{ label: 'Assignee', before: 'Unassigned', after: 'James Palmer' }])
+  })
+
+  it('a null assignee_user_id renders as "Unassigned", never "None"', () => {
+    const desc = describeActivityEvent({
+      event_type: 'item.updated',
+      actor: { name: 'Admin' },
+      before: { assignee_user_id: 'user-1' },
+      after: { assignee_user_id: null },
+    }, {}, { 'user-1': 'James Palmer' })
+    expect(desc.diffs).toEqual([{ label: 'Assignee', before: 'James Palmer', after: 'Unassigned' }])
+  })
+
+  it('an assignee_user_id absent from the supplied name map falls back to "Another member" — never a raw id, never fabricated', () => {
+    const desc = describeActivityEvent({
+      event_type: 'item.updated',
+      actor: { name: 'Admin' },
+      before: { assignee_user_id: null },
+      after: { assignee_user_id: 'deleted-user-id' },
+    }, {}, { 'user-1': 'James Palmer' })
+    expect(desc.diffs).toEqual([{ label: 'Assignee', before: 'Unassigned', after: 'Another member' }])
+  })
+
+  it('with no userNamesById map supplied at all (backward-compatible default), an assignee change still renders safely, never raw/crashing', () => {
+    const desc = describeActivityEvent({
+      event_type: 'item.updated',
+      actor: { name: 'Admin' },
+      before: { assignee_user_id: null },
+      after: { assignee_user_id: 'user-1' },
+    })
+    expect(desc.diffs).toEqual([{ label: 'Assignee', before: 'Unassigned', after: 'Another member' }])
   })
 })
 

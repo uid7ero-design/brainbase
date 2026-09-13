@@ -30,6 +30,7 @@ const FIELD_LABELS: Record<string, string> = {
   parent_item_id: 'Parent item',
   notes: 'Notes',
   custom_values: 'Custom fields',
+  assignee_user_id: 'Assignee',
 };
 
 /** Maps a known before/after diff key to its user-friendly label; an
@@ -81,6 +82,24 @@ function resolveGroupLabel(groupId: unknown, groupNamesById: Record<string, stri
   return groupNamesById[groupId] ?? 'Another group';
 }
 
+/** Phase D.4.6P — resolves an assignee_user_id snapshot to its current
+ *  display name, mirroring resolveGroupLabel's own shape exactly: a plain
+ *  lookup against a caller-supplied map (built from the current
+ *  organisation's own already tenant-scoped ACTIVE-members list — see GET
+ *  /api/organiser/members — never an independent fetch/query of its own),
+ *  so this module can never introduce a cross-tenant lookup or a raw user
+ *  id as the primary display. null is a legitimate, common value (an
+ *  unassigned item) and gets its own distinct "Unassigned" label, never
+ *  confused with "no data" or an unrecognised id. A user id absent from
+ *  the map (deactivated, deleted, or simply not yet loaded client-side)
+ *  falls back to "Another member" rather than exposing the raw id or
+ *  fabricating a name. */
+function resolveAssigneeLabel(userId: unknown, userNamesById: Record<string, string>): string {
+  if (userId === null || userId === undefined) return 'Unassigned';
+  if (typeof userId !== 'string') return 'Another member';
+  return userNamesById[userId] ?? 'Another member';
+}
+
 export interface ActivityDiffRow {
   label: string;
   /** null means "no prior value to contrast" — the UI renders this row as
@@ -124,6 +143,7 @@ function buildDiffRows(
   before: Record<string, unknown> | null,
   after: Record<string, unknown> | null,
   groupNamesById: Record<string, string>,
+  userNamesById: Record<string, string> = {},
 ): ActivityDiffRow[] {
   const beforeObj = before ?? {};
   const afterObj = after ?? {};
@@ -156,6 +176,14 @@ function buildDiffRows(
       });
       continue;
     }
+    if (key === 'assignee_user_id') {
+      rows.push({
+        label: 'Assignee',
+        before: resolveAssigneeLabel(beforeObj.assignee_user_id, userNamesById),
+        after: resolveAssigneeLabel(afterObj.assignee_user_id, userNamesById),
+      });
+      continue;
+    }
     rows.push({
       label: formatFieldLabel(key),
       before: formatFieldValue(beforeObj[key]),
@@ -177,6 +205,7 @@ function describeEventInternal(
   event: ActivityEventLike,
   groupNamesById: Record<string, string>,
   itemLabel: string | null,
+  userNamesById: Record<string, string> = {},
 ): ActivityDescription {
   const actorLabel = event.actor?.name || 'Someone';
   const subject = itemLabel !== null ? `"${itemLabel}"` : 'this item';
@@ -190,15 +219,18 @@ function describeEventInternal(
     if ('group_id' in after) {
       diffs.push({ label: 'Group', before: null, after: resolveGroupLabel(after.group_id, groupNamesById) });
     }
+    if ('assignee_user_id' in after) {
+      diffs.push({ label: 'Assignee', before: null, after: resolveAssigneeLabel(after.assignee_user_id, userNamesById) });
+    }
     return { summary: `${actorLabel} created ${subject}`, diffs };
   }
 
   if (event.event_type === 'item.moved') {
-    return { summary: `${actorLabel} moved ${subject}`, diffs: buildDiffRows(event.before, event.after, groupNamesById) };
+    return { summary: `${actorLabel} moved ${subject}`, diffs: buildDiffRows(event.before, event.after, groupNamesById, userNamesById) };
   }
 
   if (event.event_type === 'item.updated') {
-    return { summary: `${actorLabel} updated ${subject}`, diffs: buildDiffRows(event.before, event.after, groupNamesById) };
+    return { summary: `${actorLabel} updated ${subject}`, diffs: buildDiffRows(event.before, event.after, groupNamesById, userNamesById) };
   }
 
   if (event.event_type === 'item.deleted') {
@@ -266,7 +298,7 @@ function describeEventInternal(
     summary: itemLabel !== null
       ? `${actorLabel} — ${event.event_type || 'activity'} on ${subject}`
       : `${actorLabel} — ${event.event_type || 'activity'}`,
-    diffs: buildDiffRows(event.before, event.after, groupNamesById),
+    diffs: buildDiffRows(event.before, event.after, groupNamesById, userNamesById),
   };
 }
 
@@ -380,8 +412,9 @@ function describeEntityEventInternal(
 export function describeActivityEvent(
   event: ActivityEventLike,
   groupNamesById: Record<string, string> = {},
+  userNamesById: Record<string, string> = {},
 ): ActivityDescription {
-  return describeEventInternal(event, groupNamesById, null);
+  return describeEventInternal(event, groupNamesById, null, userNamesById);
 }
 
 /** Phase D.4.6E — extracts the item id an activity event actually concerns,
@@ -445,6 +478,7 @@ export function describeBoardActivityEvent(
   event: ActivityEventLike & { entity_id: string; item_id?: string | null },
   groupNamesById: Record<string, string> = {},
   liveItemNamesById: Record<string, string> = {},
+  userNamesById: Record<string, string> = {},
 ): ActivityDescription {
   if (
     event.event_type.startsWith('board.') ||
@@ -454,5 +488,5 @@ export function describeBoardActivityEvent(
   ) {
     return describeEntityEventInternal(event, groupNamesById);
   }
-  return describeEventInternal(event, groupNamesById, resolveItemLabel(event, liveItemNamesById));
+  return describeEventInternal(event, groupNamesById, resolveItemLabel(event, liveItemNamesById), userNamesById);
 }

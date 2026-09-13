@@ -662,8 +662,47 @@ describe('ORGANISER_SAFETY_PROMPT', () => {
     expect(ORGANISER_SAFETY_PROMPT).toMatch(/UTC/)
   })
 
-  it('is compact — under 3300 characters, so it does not meaningfully bloat every Helena request (raised from 2400 in D.4.6N to fit the third guarded write action\'s rules, then to 3300 in D.4.6P to fit the fourth; trimmed to the minimum necessary rather than left to grow unchecked)', () => {
-    expect(ORGANISER_SAFETY_PROMPT.length).toBeLessThan(3300)
+  it('is compact — under 3500 characters, so it does not meaningfully bloat every Helena request (raised from 2400 in D.4.6N to fit the third guarded write action\'s rules, to 3300 in D.4.6P to fit the fourth, then to 3500 in the same phase\'s final merge review to fix misleading typed-confirmation wording; trimmed to the minimum necessary rather than left to grow unchecked)', () => {
+    expect(ORGANISER_SAFETY_PROMPT.length).toBeLessThan(3500)
+  })
+
+  // Phase D.4.6P (final merge review) — Preview QA showed the model
+  // narrating "Can you confirm with a clear yes to proceed?" when the user
+  // typed "yes" instead of clicking Confirm — technically harmless (zero
+  // mutation resulted, since the trusted confirmationToken only ever comes
+  // from the real button click) but misleading, since it implies typed
+  // text is a valid authorization channel. These tests prove the prompt's
+  // own wording can never regress back to that framing.
+  it('never instructs the model to wait for a typed/spoken "yes" as the confirmation signal — only a literal Confirm-button click', () => {
+    expect(ORGANISER_SAFETY_PROMPT).not.toMatch(/wait for (their|them to (say|type))\s+(an?\s+)?(explicit\s+)?yes\b/i)
+    expect(ORGANISER_SAFETY_PROMPT).toMatch(/only a literal click on the action card's Confirm button/i)
+  })
+
+  it('gives the exact deterministic wording to use when the user replies in words instead of clicking, and forbids asking for "a clearer yes"', () => {
+    expect(ORGANISER_SAFETY_PROMPT).toMatch(/Use the Confirm button on the action card to proceed\./)
+    expect(ORGANISER_SAFETY_PROMPT).toMatch(/never ask for "a clearer yes"/i)
+  })
+
+  it('none of the four tool descriptions tell the model to act "after they say yes" — all four require a literal Confirm-button click', () => {
+    const tools = buildOrganiserTools()
+    const writeTools = tools.filter(t => t.name.startsWith('propose_organiser_'))
+    expect(writeTools).toHaveLength(4)
+    for (const t of writeTools) {
+      const desc = (t as { description: string }).description
+      expect(desc).not.toMatch(/after they say yes/i)
+      expect(desc).toMatch(/after they click Confirm on the action card/i)
+      expect(desc).toMatch(/their typed words alone/i)
+    }
+  })
+
+  it('none of the four propose-mode "note" fields tell the model to wait for an "explicit yes" — all four require a literal Confirm-button click and forbid asking for a clearer yes', () => {
+    const noteMatches = [...SOURCE.matchAll(/note: '([^']*NOT been[^']*)'/g)].map(m => m[1])
+    expect(noteMatches).toHaveLength(4)
+    for (const note of noteMatches) {
+      expect(note).not.toMatch(/explicit yes/i)
+      expect(note).toMatch(/click Confirm on the action card/i)
+      expect(note).toMatch(/never treat their words alone as authorization or ask for a clearer yes/i)
+    }
   })
 })
 
