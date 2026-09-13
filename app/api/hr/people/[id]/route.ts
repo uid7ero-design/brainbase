@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import sql from '@/lib/db';
 import { requireSession, unauthorized, forbidden } from '@/lib/org';
-import { requireCapability, CapabilityDatabaseError } from '@/lib/capabilities/requireCapability';
+import { CapabilityDatabaseError } from '@/lib/capabilities/requireCapability';
+import { requireHrCapability } from '@/lib/hr/capability';
 import { resolveHrAccessContext } from '@/lib/hr/context';
 import { canViewPerson, canEditPerson, canManageEmployment } from '@/lib/hr/access';
 import { projectPersonRow, type HrPersonRow } from '@/lib/hr/projectPerson';
@@ -38,7 +39,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   let session;
   try { session = await requireSession(); } catch { return unauthorized(); }
   try {
-    await requireCapability(session.organisationId, 'people');
+    await requireHrCapability(session.organisationId, session.role);
   } catch (err) {
     if (err instanceof CapabilityDatabaseError) return NextResponse.json({ error: 'Unable to verify People access.' }, { status: 503 });
     return forbidden();
@@ -47,7 +48,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const person = await loadPerson(id, session.organisationId);
   if (!person) return NextResponse.json({ error: 'Not found.' }, { status: 404 });
 
-  const ctx = await resolveHrAccessContext({ organisationId: session.organisationId, userId: session.userId });
+  const ctx = await resolveHrAccessContext({ organisationId: session.organisationId, userId: session.userId, role: session.role });
   const target = { organisationId: person.organisation_id, personId: person.id, managerPersonId: person.manager_person_id };
   if (!canViewPerson(ctx, target)) return forbidden();
 
@@ -75,7 +76,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   let session;
   try { session = await requireSession(); } catch { return unauthorized(); }
   try {
-    await requireCapability(session.organisationId, 'people');
+    await requireHrCapability(session.organisationId, session.role);
   } catch (err) {
     if (err instanceof CapabilityDatabaseError) return NextResponse.json({ error: 'Unable to verify People access.' }, { status: 503 });
     return forbidden();
@@ -84,7 +85,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const existing = await loadPerson(id, session.organisationId);
   if (!existing) return NextResponse.json({ error: 'Not found.' }, { status: 404 });
 
-  const ctx = await resolveHrAccessContext({ organisationId: session.organisationId, userId: session.userId });
+  const ctx = await resolveHrAccessContext({ organisationId: session.organisationId, userId: session.userId, role: session.role });
   const target = { organisationId: existing.organisation_id, personId: existing.id, managerPersonId: existing.manager_person_id };
 
   const body = await req.json().catch(() => ({})) as Record<string, unknown>;
