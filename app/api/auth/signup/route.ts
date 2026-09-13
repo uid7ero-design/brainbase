@@ -35,48 +35,59 @@ export async function POST(req: NextRequest) {
 
   try {
     const uniqueSlug = `${slug}-${Math.floor(Math.random() * 9000) + 1000}`;
-    // organisations.id and .updated_at both have NO database-level default
-    // — Organisation.id's Prisma model declares `@default(cuid())` and
-    // .updated_at uses plain `@updatedAt`, both APPLICATION-side defaults
-    // Prisma Client applies itself, never realized as a real Postgres
-    // DEFAULT expression. A raw SQL INSERT that omits them always fails
-    // with "null value in column ... violates not-null constraint".
-    // gen_random_uuid()::text / now() match the exact same established
-    // pattern app/api/admin/orgs/route.ts already uses for this identical
-    // gap.
-    const [org] = await sql`
-      INSERT INTO organisations (id, name, slug, plan, status, settings, updated_at)
-      VALUES (gen_random_uuid()::text, ${orgName.trim()}, ${uniqueSlug}, 'TRIAL', 'ACTIVE', '{}', now())
-      RETURNING id
-    `;
-
     const hash = await bcrypt.hash(password, 12);
 
-    // organisation_id is TEXT (cuid-based), never cast to ::uuid in raw
-    // SQL — see CLAUDE.md's own documented convention. org.id here is a
-    // gen_random_uuid()::text string, which is already the correct type
-    // for this column; casting it to ::uuid would attempt to insert a
-    // uuid-typed value into a text column.
-    const [user] = await sql`
-      INSERT INTO users (name, email, password_hash, role, status, organisation_id, email_verified)
-      VALUES (
-        ${name.trim()},
-        ${emailLower},
-        ${hash},
-        'ADMIN',
-        'ACTIVE',
-        ${org.id},
-        true
-      )
-      RETURNING id, name, role, organisation_id
-    `;
+    // organisations.id/.updated_at and users.id/.updated_at all have NO
+    // database-level default (Organisation.id/.updated_at and
+    // User.id/.updated_at are all Prisma-Client-only conventions —
+    // @default(cuid())/@updatedAt — never realized as a real Postgres
+    // DEFAULT; confirmed independently by app/api/admin/orgs/route.ts's
+    // POST handler and app/api/admin/users/route.ts's POST handler,
+    // which already fix the identical gap for each table). Both ids are
+    // generated here in JS with crypto.randomUUID() rather than
+    // gen_random_uuid()::text specifically so the organisation id is
+    // known up front and can be shared into the users INSERT without
+    // depending on the first statement's own RETURNING output — which
+    // sql.transaction()'s flat, pre-built query array (see below) does
+    // not support.
+    const orgId = crypto.randomUUID();
+    const userId = crypto.randomUUID();
 
-    await createSession(
-      user.id as string,
-      user.organisation_id as string,
-      user.role as 'admin',
-      user.name as string,
-    );
+    // Both inserts are committed as one atomic unit via the neon
+    // serverless driver's own sql.transaction() primitive — already
+    // established against this exact sql client by
+    // lib/commercial/invoices.ts / lib/commercial/documentNumbering.ts.
+    // Previously these were two separate auto-committed statements, so a
+    // failure on the users INSERT could leave an orphan organisation
+    // with zero users — reproduced for real during PR #216's live
+    // Preview smoke test. organisation_id/user id are never cast to
+    // ::uuid in raw SQL — both columns are TEXT (cuid-based), per
+    // CLAUDE.md's own documented convention.
+    await sql.transaction([
+      sql`
+        INSERT INTO organisations (id, name, slug, plan, status, settings, updated_at)
+        VALUES (${orgId}, ${orgName.trim()}, ${uniqueSlug}, 'TRIAL', 'ACTIVE', '{}', now())
+      `,
+      // KNOWN OPEN GAP (tracked on PR #216, not fixed here): users.username
+      // is NOT NULL + UNIQUE with no database-level default, and is
+      // deliberately NOT supplied by this INSERT. app/signup/page.tsx
+      // never collects a username, and every other raw-SQL users INSERT
+      // in this codebase (app/api/admin/users/route.ts,
+      // app/actions/users.ts) treats username as a distinct,
+      // separately-collected, human-chosen value — app/api/admin/users/
+      // route.ts's own comment documents a prior bug where email was
+      // wrongly used as a username fallback. There is no established
+      // convention for deriving one at self-service signup, so this
+      // statement still fails on users.username until that product
+      // decision is made; left unresolved deliberately rather than
+      // inventing one.
+      sql`
+        INSERT INTO users (id, name, email, password_hash, role, status, organisation_id, email_verified, updated_at)
+        VALUES (${userId}, ${name.trim()}, ${emailLower}, ${hash}, 'ADMIN', 'ACTIVE', ${orgId}, true, now())
+      `,
+    ]);
+
+    await createSession(userId, orgId, 'admin', name.trim());
 
     return NextResponse.json({ success: true });
   } catch (err) {

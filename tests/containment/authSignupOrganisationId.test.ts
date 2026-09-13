@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest'
 import type { NextRequest } from 'next/server'
 
 // Discovered during Stripe Preview E2E verification (3E Stripe operational
@@ -12,20 +12,34 @@ import type { NextRequest } from 'next/server'
 // \"organisations\" violates not-null constraint" — confirmed by directly
 // reproducing it against a live Preview deployment before this fix.
 //
-// This is the exact same defect class app/api/admin/orgs/route.ts's POST
-// handler already had fixed (see tests/containment/adminOrgSavePath.test.ts's
-// "organisation creation no longer omits required NOT NULL columns" suite)
-// — this suite applies the identical, already-established fix pattern
-// (gen_random_uuid()::text / now()) to the signup route specifically.
+// A second defect (organisation_id cast to ::uuid against a TEXT column)
+// was fixed in the same first pass — see git history for that diff.
 //
-// A second, previously-unreachable defect was found on the very next
-// statement: the users INSERT cast organisation_id to `::uuid`
-// (`${org.id}::uuid`), but users.organisation_id is TEXT — this exact
-// ::uuid-on-a-TEXT-column anti-pattern is the same class of bug
-// adminOrgSavePath.test.ts's "TEXT id contract" suites already guard
-// against for the admin orgs route's PATCH/DELETE. It was never exercised
-// before this fix because execution never reached it — the prior
-// organisations.id violation always threw first.
+// A live Preview smoke test against that first pass then exposed a THIRD
+// defect: users.id has the exact same "no database-level default" problem
+// as organisations.id (User.id is also `@default(cuid())`), and the users
+// INSERT omitted both `id` and `updated_at` entirely. This overnight pass
+// fixes that by generating BOTH ids in JS with crypto.randomUUID() and
+// committing both INSERTs as one atomic unit via the neon driver's
+// sql.transaction() primitive (already established elsewhere in this
+// codebase — see lib/commercial/invoices.ts) — generating the org id in
+// JS, rather than via gen_random_uuid()::text inside Postgres, is what
+// lets the users INSERT reference the same id without depending on a
+// RETURNING clause, which sql.transaction()'s flat pre-built query array
+// does not support.
+//
+// KNOWN OPEN GAP, NOT fixed by this pass (see PR #216 discussion): the
+// users INSERT still does not supply `username`, which is NOT NULL +
+// UNIQUE with no database-level default either. app/signup/page.tsx never
+// collects a username, and every other raw-SQL users INSERT in this
+// codebase treats username as a distinct, separately human-chosen value —
+// app/api/admin/users/route.ts's own comment documents a prior bug where
+// email was wrongly used as a username fallback, so that is deliberately
+// NOT reused here. There is no established convention for deriving one at
+// self-service signup; this is a product decision, not a raw-SQL bug, so
+// it is left open rather than invented. The test at the bottom of this
+// file documents this gap explicitly so it is not silently "fixed" by
+// accident without also being verified against a real live signup.
 
 function asNextRequest(req: Request): NextRequest {
   return req as unknown as NextRequest
@@ -39,11 +53,22 @@ vi.mock('@/lib/clientIp', () => ({ getClientIp: () => '203.0.113.1' }))
 const createSessionMock = vi.fn()
 vi.mock('@/lib/session', () => ({ createSession: (...args: unknown[]) => createSessionMock(...args) }))
 
+// sql`...` calls now build a lazy, unawaited query; sql.transaction([...])
+// awaits the whole array as one atomic unit (the real neon driver's own
+// shape — see lib/commercial/invoices.ts). sqlMock records each built
+// query's template text + bound params via a queue()/rejection helper;
+// transactionMock mirrors real Promise.all-style "all succeed or the
+// first rejection wins" semantics.
 let responseQueue: unknown[][] = []
 let callCount = 0
 const sqlMock = vi.fn(() => Promise.resolve(responseQueue[callCount++] ?? []))
+const transactionMock = vi.fn((queries: unknown[]) => Promise.all(queries))
+
 vi.mock('@/lib/db', () => ({
-  default: (...args: unknown[]) => (sqlMock as unknown as (...a: unknown[]) => Promise<unknown[]>)(...args),
+  default: Object.assign(
+    (...args: unknown[]) => (sqlMock as unknown as (...a: unknown[]) => Promise<unknown[]>)(...args),
+    { transaction: (...args: unknown[]) => (transactionMock as unknown as (...a: unknown[]) => Promise<unknown[]>)(args[0]) },
+  ),
 }))
 
 function queue(...responses: unknown[][]) {
@@ -75,38 +100,48 @@ const VALID_BODY = {
   password: 'correct-horse-battery',
 }
 
-// A real, opaque, non-UUID-shaped TEXT id — proves the fix works for
-// whatever gen_random_uuid()::text actually returns, without assuming
-// any particular shape the route's own SQL happens to produce.
-const GENERATED_ORG_ID = '9f6a1c3e-52b1-4b7a-9c3d-8e2f1a0b7c5d'
+const ORG_UUID = '11111111-1111-4111-8111-111111111111'
+const USER_UUID = '22222222-2222-4222-8222-222222222222'
+
+const originalRandomUUID = globalThis.crypto.randomUUID.bind(globalThis.crypto)
+function mockUuidSequence(...ids: string[]) {
+  let i = 0
+  // Direct reassignment rather than vi.spyOn: crypto.randomUUID is
+  // inherited from Crypto.prototype with no own property descriptor on
+  // globalThis.crypto in this Node runtime, which vi.spyOn's
+  // save/restore logic does not handle cleanly. A plain own-property
+  // override (restored in afterAll below) works reliably instead.
+  globalThis.crypto.randomUUID = vi.fn(() => (ids[i++] ?? originalRandomUUID())) as typeof globalThis.crypto.randomUUID
+}
+
+afterAll(() => {
+  globalThis.crypto.randomUUID = originalRandomUUID
+})
 
 beforeEach(() => {
   checkRateLimitMock.mockReset()
   createSessionMock.mockReset()
   sqlMock.mockReset()
+  transactionMock.mockReset()
+  transactionMock.mockImplementation((queries: unknown[]) => Promise.all(queries))
   responseQueue = []
   callCount = 0
   checkRateLimitMock.mockReturnValue(true)
+  mockUuidSequence(ORG_UUID, USER_UUID)
 })
 
 describe('POST /api/auth/signup — organisation id no longer omitted (root-cause fix)', () => {
-  it('the organisations INSERT supplies id and updated_at explicitly — the exact two columns with no database-level default', async () => {
-    queue(
-      [{ id: GENERATED_ORG_ID }],
-      [{ id: 'user-1', name: VALID_BODY.name, role: 'ADMIN', organisation_id: GENERATED_ORG_ID }],
-    )
+  it('the organisations INSERT (query 0) supplies id and updated_at explicitly — the exact two columns with no database-level default', async () => {
+    queue([], [])
     await POST(signupRequest(VALID_BODY))
     const text = sqlCallText(0)
     expect(text).toMatch(/INSERT INTO organisations \(id, name, slug, plan, status, settings, updated_at\)/)
-    expect(text).toMatch(/gen_random_uuid\(\)::text/)
     expect(text).toMatch(/now\(\)/)
+    expect(sqlCallArgs(0)).toContain(ORG_UUID)
   })
 
   it('a successful signup no longer fails with the organisations.id NOT NULL violation — returns 200 success', async () => {
-    queue(
-      [{ id: GENERATED_ORG_ID }],
-      [{ id: 'user-1', name: VALID_BODY.name, role: 'ADMIN', organisation_id: GENERATED_ORG_ID }],
-    )
+    queue([], [])
     const res = await POST(signupRequest(VALID_BODY))
     expect(res.status).toBe(200)
     const body = await res.json()
@@ -114,8 +149,7 @@ describe('POST /api/auth/signup — organisation id no longer omitted (root-caus
   })
 
   it('directly reproduces the exact prior failure as a regression guard — the old NOT NULL error, if it recurred, would still surface as a safe 500, never an unhandled throw', async () => {
-    sqlMock.mockReset()
-    sqlMock.mockRejectedValueOnce(new Error('null value in column "id" of relation "organisations" violates not-null constraint'))
+    transactionMock.mockRejectedValueOnce(new Error('null value in column "id" of relation "organisations" violates not-null constraint'))
     const res = await POST(signupRequest(VALID_BODY))
     expect(res.status).toBe(500)
     const body = await res.json()
@@ -123,46 +157,79 @@ describe('POST /api/auth/signup — organisation id no longer omitted (root-caus
   })
 })
 
+describe('POST /api/auth/signup — users.id / users.updated_at no longer omitted (overnight fix)', () => {
+  it('the users INSERT (query 1) supplies id and updated_at explicitly, using a freshly generated id — not a value read back from the organisations INSERT', async () => {
+    queue([], [])
+    await POST(signupRequest(VALID_BODY))
+    const text = sqlCallText(1)
+    expect(text).toMatch(/INSERT INTO users \(id, name, email, password_hash, role, status, organisation_id, email_verified, updated_at\)/)
+    expect(text).toMatch(/now\(\)/)
+    expect(sqlCallArgs(1)).toContain(USER_UUID)
+  })
+
+  it('directly reproduces the exact users.id failure discovered by the live Preview smoke test as a regression guard', async () => {
+    transactionMock.mockRejectedValueOnce(new Error('null value in column "id" of relation "users" violates not-null constraint'))
+    const res = await POST(signupRequest(VALID_BODY))
+    expect(res.status).toBe(500)
+    const body = await res.json()
+    expect(typeof body.error).toBe('string')
+    expect(createSessionMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('POST /api/auth/signup — both inserts committed atomically', () => {
+  it('sql.transaction is invoked with exactly the two prepared queries, in order (organisations, then users)', async () => {
+    queue([], [])
+    await POST(signupRequest(VALID_BODY))
+    expect(transactionMock).toHaveBeenCalledTimes(1)
+    const queries = transactionMock.mock.calls[0][0] as unknown[]
+    expect(queries).toHaveLength(2)
+  })
+
+  it('the organisation id generated for the organisations INSERT is the exact same id used as users.organisation_id — no dependency on a RETURNING round-trip', async () => {
+    queue([], [])
+    await POST(signupRequest(VALID_BODY))
+    expect(sqlCallArgs(0)).toContain(ORG_UUID)
+    expect(sqlCallArgs(1)).toContain(ORG_UUID)
+  })
+
+  it('a failure anywhere in the transaction never creates a session — no half-signed-up state', async () => {
+    transactionMock.mockRejectedValueOnce(new Error('some unexpected database error'))
+    await POST(signupRequest(VALID_BODY))
+    expect(createSessionMock).not.toHaveBeenCalled()
+  })
+})
+
 describe('POST /api/auth/signup — organisation_id TEXT contract (no ::uuid cast)', () => {
-  it('no statement in the signup flow casts organisation_id to ::uuid — organisations.id/users.organisation_id are both TEXT', async () => {
-    queue(
-      [{ id: GENERATED_ORG_ID }],
-      [{ id: 'user-1', name: VALID_BODY.name, role: 'ADMIN', organisation_id: GENERATED_ORG_ID }],
-    )
+  it('no statement in the signup flow casts any id to ::uuid — organisations.id/users.id/users.organisation_id are all TEXT', async () => {
+    queue([], [])
     await POST(signupRequest(VALID_BODY))
     expect(sqlCallText(0)).not.toMatch(/::uuid/i)
     expect(sqlCallText(1)).not.toMatch(/::uuid/i)
   })
 
-  it('the users INSERT receives the exact organisation id string returned from the organisations INSERT, unmodified', async () => {
-    queue(
-      [{ id: GENERATED_ORG_ID }],
-      [{ id: 'user-1', name: VALID_BODY.name, role: 'ADMIN', organisation_id: GENERATED_ORG_ID }],
-    )
+  it('neither INSERT relies on gen_random_uuid() — both ids are generated once in JS and passed as bound parameters', async () => {
+    queue([], [])
     await POST(signupRequest(VALID_BODY))
-    expect(sqlCallArgs(1)).toContain(GENERATED_ORG_ID)
+    expect(sqlCallText(0)).not.toMatch(/gen_random_uuid/i)
+    expect(sqlCallText(1)).not.toMatch(/gen_random_uuid/i)
   })
+})
 
-  it('a non-UUID-shaped generated id (a cuid, or any opaque TEXT value) still succeeds — the old ::uuid cast would have thrown on syntax alone for this shape', async () => {
-    const CUID_SHAPED_ID = 'clx8f9a2b0000abc123def456'
-    queue(
-      [{ id: CUID_SHAPED_ID }],
-      [{ id: 'user-1', name: VALID_BODY.name, role: 'ADMIN', organisation_id: CUID_SHAPED_ID }],
-    )
-    const res = await POST(signupRequest(VALID_BODY))
-    expect(res.status).toBe(200)
-    expect(sqlCallArgs(1)).toContain(CUID_SHAPED_ID)
+describe('POST /api/auth/signup — role/status enum casing matches the real Postgres enums', () => {
+  it('role and status are supplied as the uppercase enum labels the schema actually defines (UserRole/UserStatus), matching every other raw-SQL users INSERT in this codebase', async () => {
+    queue([], [])
+    await POST(signupRequest(VALID_BODY))
+    expect(sqlCallText(1)).toMatch(/'ADMIN'/)
+    expect(sqlCallText(1)).toMatch(/'ACTIVE'/)
   })
 })
 
 describe('POST /api/auth/signup — organisation id propagation into the session', () => {
-  it('createSession is called with the same organisation id the user row was created against, not a re-derived or re-cast value', async () => {
-    queue(
-      [{ id: GENERATED_ORG_ID }],
-      [{ id: 'user-1', name: VALID_BODY.name, role: 'admin', organisation_id: GENERATED_ORG_ID }],
-    )
+  it('createSession is called with the freshly generated user id, organisation id, the lowercase "admin" role literal, and the trimmed name — never a value read back from the database', async () => {
+    queue([], [])
     await POST(signupRequest(VALID_BODY))
-    expect(createSessionMock).toHaveBeenCalledWith('user-1', GENERATED_ORG_ID, 'admin', VALID_BODY.name)
+    expect(createSessionMock).toHaveBeenCalledWith(USER_UUID, ORG_UUID, 'admin', VALID_BODY.name)
   })
 })
 
@@ -171,47 +238,49 @@ describe('POST /api/auth/signup — unrelated behaviour unchanged', () => {
     const res = await POST(signupRequest({ name: 'Test', email: '', orgName: 'Acme', password: 'password123' }))
     expect(res.status).toBe(400)
     expect(sqlMock).not.toHaveBeenCalled()
+    expect(transactionMock).not.toHaveBeenCalled()
   })
 
   it('still returns 400 for an invalid email address — never reaches the database', async () => {
     const res = await POST(signupRequest({ ...VALID_BODY, email: 'not-an-email' }))
     expect(res.status).toBe(400)
-    expect(sqlMock).not.toHaveBeenCalled()
+    expect(transactionMock).not.toHaveBeenCalled()
   })
 
   it('still returns 400 for a password under 8 characters — never reaches the database', async () => {
     const res = await POST(signupRequest({ ...VALID_BODY, password: 'short' }))
     expect(res.status).toBe(400)
-    expect(sqlMock).not.toHaveBeenCalled()
+    expect(transactionMock).not.toHaveBeenCalled()
   })
 
   it('still returns 429 when the rate limit is exceeded — never reaches the database', async () => {
     checkRateLimitMock.mockReturnValue(false)
     const res = await POST(signupRequest(VALID_BODY))
     expect(res.status).toBe(429)
-    expect(sqlMock).not.toHaveBeenCalled()
+    expect(transactionMock).not.toHaveBeenCalled()
   })
 
   it('a duplicate-email unique-constraint violation is still mapped to a 409, unchanged', async () => {
-    sqlMock.mockReset()
-    sqlMock.mockRejectedValueOnce(new Error('duplicate key value violates unique constraint "users_email_key"'))
+    transactionMock.mockRejectedValueOnce(new Error('duplicate key value violates unique constraint "users_email_key"'))
     const res = await POST(signupRequest(VALID_BODY))
     expect(res.status).toBe(409)
     const body = await res.json()
     expect(body.error).toMatch(/already exists/i)
   })
 
-  it('an unexpected database error on the user INSERT still returns a safe 500 JSON body, never an unhandled throw', async () => {
-    sqlMock.mockReset()
-    // Chained .mockImplementationOnce/.mockRejectedValueOnce are consumed
-    // in the exact order registered — call #1 (organisations INSERT)
-    // resolves normally, call #2 (users INSERT) rejects.
-    sqlMock
-      .mockImplementationOnce(() => Promise.resolve([{ id: GENERATED_ORG_ID }]))
-      .mockRejectedValueOnce(new Error('some unexpected database error'))
+  it('an unexpected database error still returns a safe 500 JSON body, never an unhandled throw', async () => {
+    transactionMock.mockRejectedValueOnce(new Error('some unexpected database error'))
     const res = await POST(signupRequest(VALID_BODY))
     expect(res.status).toBe(500)
     const body = await res.json()
     expect(typeof body.error).toBe('string')
+  })
+})
+
+describe('POST /api/auth/signup — KNOWN OPEN GAP: users.username (tracked on PR #216, not fixed by this pass)', () => {
+  it('the users INSERT still does not supply username — this is a deliberate, documented, unresolved gap, not an oversight; login (app/actions/auth.ts) authenticates strictly by username, and there is no established self-service username-derivation convention anywhere in this codebase to reuse', async () => {
+    queue([], [])
+    await POST(signupRequest(VALID_BODY))
+    expect(sqlCallText(1)).not.toMatch(/\busername\b/)
   })
 })
