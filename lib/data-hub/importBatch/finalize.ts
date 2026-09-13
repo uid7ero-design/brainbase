@@ -12,6 +12,47 @@ import {
 } from "./failureTaxonomy";
 import { claimForFinalize, completeReadyForFinalize, completeFailedForFinalize } from "./finalizeInternal";
 
+// Data Hub 6.1C1 — Step 18 storage-verification failure observability.
+//
+// Both storage.head()/storage.get() catches below previously discarded the
+// underlying error entirely (bare `catch {}` / `catch (err) {}` with no
+// logging), which meant a real Production STORAGE_NOT_FOUND/PROVIDER_FAILURE
+// (the actual first-ever governed Onkaparinga upload attempt hit exactly
+// this) could not be diagnosed from Vercel logs at all — only inferred by
+// elimination. This logs a SAFE, structured, non-PII diagnostic line before
+// returning the (unchanged) FAILED classification. FIELDS LOGGED: the
+// storage operation ("head"/"get"), the BrainBase failure classification
+// being returned, the import batch id, and — for a RawFileStoreError (the
+// ONLY error type either storage.head()/storage.get() ever actually throws;
+// see vercelBlobFileStore.ts's headInternal/get, which wrap every provider
+// failure in a RawFileStoreError with a fixed, developer-authored message
+// template) — its `.code` and `.message`. NEVER LOGGED: file contents,
+// source record values, Ticket #/name/address/phone/email/Notes values,
+// signed upload URLs, credentials/tokens, or the error's `.cause` (the raw
+// underlying SDK error object) — RawFileStoreError's own message templates
+// only ever interpolate the storage key (an internal
+// organisationId+importBatchId-derived path, never customer data) and byte
+// sizes, but `.cause` is deliberately never logged as a further, defense-
+// in-depth precaution against a future storage adapter ever attaching
+// something unexpected to it. Never changes the returned failure
+// classification or its retryability — STORAGE_NOT_FOUND/PROVIDER_FAILURE
+// continue to fail closed exactly as before; this is observability only.
+function logStorageVerificationFailure(
+  op: "head" | "get",
+  importBatchId: string,
+  failureCode: "STORAGE_NOT_FOUND" | "PROVIDER_FAILURE" | "SIZE_LIMIT",
+  err: unknown
+): void {
+  console.error("[dataHub.finalize.storageVerification]", {
+    op,
+    importBatchId,
+    failureCode,
+    errorName: err instanceof Error ? err.name : typeof err,
+    errorCode: err instanceof RawFileStoreError ? err.code : undefined,
+    errorMessage: err instanceof Error ? err.message : undefined,
+  });
+}
+
 // Data Hub 5A.2G.1 — finalize service (dark, route-free, transport-
 // independent).
 //
@@ -208,8 +249,9 @@ export async function finalizeImportBatch(
   let headMetadata;
   try {
     headMetadata = await storage.head(storageKey);
-  } catch {
+  } catch (err) {
     // head() THROWING -> PROVIDER_FAILURE, object existence UNKNOWN.
+    logStorageVerificationFailure("head", importBatchId, "PROVIDER_FAILURE", err);
     return completeFailedForFinalize(organisationId, importBatchId, generation, "PROVIDER_FAILURE");
   }
   if (headMetadata === null) {
@@ -230,12 +272,14 @@ export async function finalizeImportBatch(
       // A deterministic, evidenced fact about the object itself (it
       // exceeds the absolute system-wide cap) — not an ambiguous provider
       // failure. Maps directly to the taxonomy's own SIZE_LIMIT code.
+      logStorageVerificationFailure("get", importBatchId, "SIZE_LIMIT", err);
       return completeFailedForFinalize(organisationId, importBatchId, generation, "SIZE_LIMIT");
     }
     // Every other get() failure (a generic PROVIDER_FAILURE, or the rare
     // NOT_FOUND race where the object was removed between HEAD and GET)
     // occurs AFTER head() already confirmed existence — classified
     // PROVIDER_FAILURE, existence CONFIRMED, per Step 18.
+    logStorageVerificationFailure("get", importBatchId, "PROVIDER_FAILURE", err);
     return completeFailedForFinalize(organisationId, importBatchId, generation, "PROVIDER_FAILURE");
   }
 
