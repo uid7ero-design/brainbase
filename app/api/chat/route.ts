@@ -234,6 +234,20 @@ export type PendingOrganiserAction = {
     destination_group_id: string;
     destination_group_name: string;
   };
+} | {
+  // Phase D.4.6P — Helena's fourth write action. Same shape/lifecycle as
+  // the three variants above: set only on a fresh 'proposed' result,
+  // cleared once/if this same request executes it (status "assigned").
+  tool: 'propose_organiser_assignee_change';
+  confirmationToken: string;
+  proposal: {
+    item_id: string;
+    item_name: string;
+    previous_assignee_user_id: string | null;
+    previous_assignee_name: string | null;
+    new_assignee_user_id: string;
+    new_assignee_name: string;
+  };
 } | null;
 
 // Phase D.4.6L — backend execution truth, not free-form model narration, is
@@ -310,6 +324,29 @@ const ORGANISER_GROUP_MOVE_OUTCOME_TEXT: Record<string, string> = {
   stale_item_location:
     "That item moved to another group after this action was proposed, so I didn't overwrite the newer location. Ask me to create a fresh move proposal.",
   failed: "I wasn't able to move that item. Please try again.",
+};
+
+// Phase D.4.6P — same deterministic-bypass mechanism as the three maps
+// above, for Helena's fourth write action (propose_organiser_assignee_
+// change). A separate map, not a shared one: 'already_used_confirmation'/
+// 'expired_confirmation'/'invalid_confirmation'/'unauthorized'/
+// 'item_not_found'/'failed' need their own assignment-specific wording,
+// and 'assigned' (success) plus 'stale_item_assignee'/
+// 'assignee_no_longer_valid' have no equivalent in the other maps.
+// 'assigned' is a template, not a static string — see
+// ORGANISER_GROUP_MOVE_OUTCOME_TEXT's own header for the identical
+// reasoning; the item/assignee names come only from the tool result's own
+// server-authoritative `item` object, never from the model.
+const ORGANISER_ASSIGNEE_CHANGE_OUTCOME_TEXT: Record<string, string> = {
+  already_used_confirmation: 'That confirmation has already been used, so the assignee was not changed just now.',
+  expired_confirmation: 'That confirmation has expired. Please ask me again to change the assignee.',
+  invalid_confirmation: "I couldn't verify that confirmation, so the assignee was not changed. Please ask me again.",
+  unauthorized: "I'm not able to do that — this account doesn't have permission to make Organiser changes.",
+  item_not_found: "I couldn't reassign that — the item is no longer available.",
+  assignee_no_longer_valid: "I couldn't reassign that — that person is no longer an active member of this organisation.",
+  stale_item_assignee:
+    "That item was reassigned to someone else after this action was proposed, so I didn't overwrite the newer assignment. Ask me to create a fresh assignment proposal.",
+  failed: "I wasn't able to change that assignee. Please try again.",
 };
 
 // ─── Analysis helpers ─────────────────────────────────────────────────────────
@@ -626,7 +663,7 @@ async function callClaude(
         // EITHER kind to reach this line consumes it, exactly as the
         // single-write-tool case already worked for comment alone.
         if (
-          (block.name === 'propose_organiser_comment' || block.name === 'propose_organiser_status_change' || block.name === 'propose_organiser_group_move') &&
+          (block.name === 'propose_organiser_comment' || block.name === 'propose_organiser_status_change' || block.name === 'propose_organiser_group_move' || block.name === 'propose_organiser_assignee_change') &&
           remainingConfirmationToken
         ) {
           confirmationTokenForThisCall = remainingConfirmationToken;
@@ -756,6 +793,49 @@ async function callClaude(
                     `Done — I moved ${parsed.item.name} from ${fromLabel} to ${parsed.item.new_group_name}.`;
                 } else if (Object.prototype.hasOwnProperty.call(ORGANISER_GROUP_MOVE_OUTCOME_TEXT, parsed.status)) {
                   organiserConfirmationOutcomeText = ORGANISER_GROUP_MOVE_OUTCOME_TEXT[parsed.status];
+                }
+              }
+            } catch {
+              // Malformed content is unreachable given executeOrganiserTool's
+              // own contract, but never let a parse failure here affect the
+              // tool_result already returned to the model.
+            }
+          } else if (block.name === 'propose_organiser_assignee_change') {
+            // Phase D.4.6P — same surfacing/short-circuit mechanism as the
+            // three branches above, for Helena's fourth write action.
+            try {
+              const parsed = JSON.parse(content) as {
+                status?: string;
+                proposal?: {
+                  item_id: string; item_name: string;
+                  previous_assignee_user_id: string | null; previous_assignee_name: string | null;
+                  new_assignee_user_id: string; new_assignee_name: string;
+                };
+                confirmation_token?: string;
+                item?: { id: string; name: string; previous_assignee_name: string | null; new_assignee_name: string };
+              };
+              if (parsed.status === 'proposed' && parsed.proposal && parsed.confirmation_token) {
+                pendingOrganiserAction = {
+                  tool: 'propose_organiser_assignee_change',
+                  confirmationToken: parsed.confirmation_token,
+                  proposal: parsed.proposal,
+                };
+              } else if (parsed.status === 'assigned') {
+                pendingOrganiserAction = null;
+              }
+              if (confirmationTokenForThisCall && parsed.status) {
+                // 'assigned' is a template, not a static lookup — see
+                // ORGANISER_GROUP_MOVE_OUTCOME_TEXT's own header for why
+                // the success wording names the real item/transition. The
+                // item/assignee names come only from this tool result's
+                // own server-authoritative `item` object, never from the
+                // model's current-turn text.
+                if (parsed.status === 'assigned' && parsed.item) {
+                  const fromLabel = parsed.item.previous_assignee_name ?? 'unassigned';
+                  organiserConfirmationOutcomeText =
+                    `Done — I reassigned ${parsed.item.name} from ${fromLabel} to ${parsed.item.new_assignee_name}.`;
+                } else if (Object.prototype.hasOwnProperty.call(ORGANISER_ASSIGNEE_CHANGE_OUTCOME_TEXT, parsed.status)) {
+                  organiserConfirmationOutcomeText = ORGANISER_ASSIGNEE_CHANGE_OUTCOME_TEXT[parsed.status];
                 }
               }
             } catch {

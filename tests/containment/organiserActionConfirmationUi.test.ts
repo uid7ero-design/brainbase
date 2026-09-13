@@ -82,6 +82,13 @@ describe('A/B/C — confirmation card renders exact action summary', () => {
     expect(card).toContain('action.proposal?.destination_group_name')
   })
 
+  it('D.4.6P: card shows a fixed "Change assignee" action label, the target item name, and the previous/new assignee names', () => {
+    const card = sliceFrom(CHATPANEL_SOURCE, 'function OrganiserActionCard(', 'export function ChatPanel(')
+    expect(card).toContain('Change assignee')
+    expect(card).toContain('action.proposal?.previous_assignee_name')
+    expect(card).toContain('action.proposal?.new_assignee_name')
+  })
+
   it('card is visually distinct from a normal chat message (no YOU/HLNΛ byline, own amber framing)', () => {
     const card = sliceFrom(CHATPANEL_SOURCE, 'function OrganiserActionCard(', 'export function ChatPanel(')
     expect(card).not.toContain('>YOU<')
@@ -330,10 +337,10 @@ describe('Wiring — every live ChatPanel call site passes the new props through
 })
 
 describe('Accessibility (source-level)', () => {
-  it('Confirm/Cancel are native <button> elements (keyboard reachable by default), not clickable divs — 6 total in D.4.6O: one Confirm/Cancel pair per proposal-shape branch (comment, status change, group move)', () => {
+  it('Confirm/Cancel are native <button> elements (keyboard reachable by default), not clickable divs — 8 total in D.4.6P: one Confirm/Cancel pair per proposal-shape branch (comment, status change, group move, assignee change)', () => {
     const card = sliceFrom(CHATPANEL_SOURCE, 'function OrganiserActionCard(', 'export function ChatPanel(')
     expect(card).toContain('<button')
-    expect((card.match(/<button/g) || []).length).toBe(6)
+    expect((card.match(/<button/g) || []).length).toBe(8)
   })
 
   it('card has an accessible region label and both comment-branch buttons have explicit aria-labels', () => {
@@ -354,6 +361,12 @@ describe('Accessibility (source-level)', () => {
     const card = sliceFrom(CHATPANEL_SOURCE, 'function OrganiserActionCard(', 'export function ChatPanel(')
     expect(card).toContain('aria-label="Confirm: move this item now"')
     expect(card).toContain('aria-label="Cancel: do not move this item"')
+  })
+
+  it('D.4.6P: the assignee-change branch\'s buttons also have explicit, distinct aria-labels', () => {
+    const card = sliceFrom(CHATPANEL_SOURCE, 'function OrganiserActionCard(', 'export function ChatPanel(')
+    expect(card).toContain('aria-label="Confirm: assign this item now"')
+    expect(card).toContain('aria-label="Cancel: do not change this item\'s assignee"')
   })
 
   it('no window.confirm()/window.alert() browser dialog is used', () => {

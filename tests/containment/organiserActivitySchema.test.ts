@@ -191,11 +191,16 @@ describe('containment — no backfill, no existing-table changes, no unrelated s
     expect(BLOCK).not.toMatch(/'Unknown'/)
   })
 
-  it('does not ALTER any existing organiser_* table\'s COLUMNS/DATA (organiser_items in particular — no assignee_user_id column added) — the deliberate exceptions are organiser_activity.event_type\'s own CHECK constraint (widened in D.4.6H to add comment.deleted) and organiser_action_confirmations.action_type\'s own CHECK constraint (widened in D.4.6N to add change_status) — both constraint definition changes, never a column or data change', () => {
+  it('does not ALTER any existing organiser_* table\'s COLUMNS/DATA beyond the deliberate, disclosed exceptions — organiser_activity.event_type\'s own CHECK constraint (widened in D.4.6H to add comment.deleted), organiser_action_confirmations.action_type\'s own CHECK constraint (widened in D.4.6N/D.4.6O/D.4.6P to add change_status/move_group/change_assignee), and organiser_items.assignee_user_id (a NEW, additive, nullable column added in D.4.6P via ADD COLUMN IF NOT EXISTS — never a DROP/rewrite of any existing column, never touching organiser_items.owner)', () => {
     const knownConstraintWidening = /ALTER TABLE organiser_(activity|action_confirmations) (DROP CONSTRAINT IF EXISTS organiser_(activity_event_type|action_confirmations_action_type)_check|ADD CONSTRAINT organiser_(activity_event_type|action_confirmations_action_type)_check[\s\S]*?\)\))/g
-    const withoutKnownWidening = BLOCK.replace(knownConstraintWidening, '')
+    const knownAdditiveColumn = /ALTER TABLE organiser_items ADD COLUMN IF NOT EXISTS assignee_user_id TEXT REFERENCES users\(id\) ON DELETE SET NULL/g
+    const withoutKnownWidening = BLOCK.replace(knownConstraintWidening, '').replace(knownAdditiveColumn, '')
     expect(withoutKnownWidening).not.toMatch(/ALTER TABLE organiser_/)
-    expect(MIGRATE_ROUTE_SOURCE).not.toMatch(/assignee_user_id/)
+    // The exception is additive-only: never a DROP COLUMN, never a rewrite
+    // of an existing column's type/default, and organiser_items.owner
+    // (the legacy free-text field) is never touched by this or any step.
+    expect(MIGRATE_ROUTE_SOURCE).not.toMatch(/DROP COLUMN/)
+    expect(MIGRATE_ROUTE_SOURCE).not.toMatch(/ALTER TABLE organiser_items ALTER COLUMN owner/)
   })
 
   it('every existing migration step (1 through 39) is byte-unchanged in position — step 40 was appended, not inserted earlier or reordered', () => {
@@ -226,7 +231,7 @@ describe('containment — no backfill, no existing-table changes, no unrelated s
   // own dedicated coverage. This file's own concern stays narrow: prove
   // step 44 landed in the right position and that nothing beyond it
   // sneaked in unreviewed.
-  it('step 46 (organiser_action_confirmations.action_type widening for move_group) is the current highest step — updated in D.4.6O; no step numbered higher than 46 exists yet', () => {
+  it('step 48 (organiser_action_confirmations.action_type widening for change_assignee) is the current highest step — updated in D.4.6P; no step numbered higher than 48 exists yet', () => {
     const step40Idx = CODE.indexOf("step('40. organiser_activity')")
     const step41Idx = CODE.indexOf("step('41. organiser_activity_sanitise_scalar')")
     const step42Idx = CODE.indexOf("step('42. crm_contacts.classification')")
@@ -234,14 +239,40 @@ describe('containment — no backfill, no existing-table changes, no unrelated s
     const step44Idx = CODE.indexOf("step('44. organiser_action_confirmations')")
     const step45Idx = CODE.indexOf("step('45. organiser_action_confirmations.action_type")
     const step46Idx = CODE.indexOf("step('46. organiser_action_confirmations.action_type")
+    const step47Idx = CODE.indexOf("step('47. organiser_items.assignee_user_id')")
+    const step48Idx = CODE.indexOf("step('48. organiser_action_confirmations.action_type")
     expect(step41Idx).toBeGreaterThan(step40Idx)
     expect(step42Idx).toBeGreaterThan(step41Idx)
     expect(step43Idx).toBeGreaterThan(step42Idx)
     expect(step44Idx).toBeGreaterThan(step43Idx)
     expect(step45Idx).toBeGreaterThan(step44Idx)
     expect(step46Idx).toBeGreaterThan(step45Idx)
-    expect(CODE).not.toMatch(/step\('4[7-9]\./)
+    expect(step47Idx).toBeGreaterThan(step46Idx)
+    expect(step48Idx).toBeGreaterThan(step47Idx)
+    expect(CODE).not.toMatch(/step\('49\./)
     expect(CODE).not.toMatch(/step\('[5-9][0-9]\./)
+  })
+
+  it('step 47 adds organiser_items.assignee_user_id as a NEW, nullable, additive column (TEXT REFERENCES users(id) ON DELETE SET NULL) plus a lookup index — never touching organiser_items.owner or any other existing column', () => {
+    const step47Idx = CODE.indexOf("step('47. organiser_items.assignee_user_id')")
+    expect(step47Idx).toBeGreaterThan(-1)
+    const nextIdx = CODE.indexOf("step('48.", step47Idx)
+    const STEP47_BLOCK = CODE.slice(step47Idx, nextIdx === -1 ? undefined : nextIdx)
+    expect(STEP47_BLOCK).toMatch(/ALTER TABLE organiser_items ADD COLUMN IF NOT EXISTS assignee_user_id TEXT REFERENCES users\(id\) ON DELETE SET NULL/)
+    expect(STEP47_BLOCK).toMatch(/CREATE INDEX IF NOT EXISTS idx_organiser_items_assignee ON organiser_items\(assignee_user_id\)/)
+    expect(STEP47_BLOCK).not.toMatch(/owner/)
+    expect(STEP47_BLOCK).not.toMatch(/DROP COLUMN|ALTER COLUMN/)
+  })
+
+  it('step 48 idempotently widens the action_type CHECK to also allow change_assignee, without touching any other column of organiser_action_confirmations', () => {
+    const step48Idx = CODE.indexOf("step('48. organiser_action_confirmations.action_type")
+    expect(step48Idx).toBeGreaterThan(-1)
+    const nextIdx = CODE.indexOf("return NextResponse.json({ success: true", step48Idx)
+    const STEP48_BLOCK = CODE.slice(step48Idx, nextIdx === -1 ? undefined : nextIdx)
+    expect(STEP48_BLOCK).toMatch(/ALTER TABLE organiser_action_confirmations DROP CONSTRAINT IF EXISTS organiser_action_confirmations_action_type_check/)
+    expect(STEP48_BLOCK).toMatch(/ALTER TABLE organiser_action_confirmations ADD CONSTRAINT organiser_action_confirmations_action_type_check/)
+    expect(STEP48_BLOCK).toMatch(/CHECK \(action_type IN \('post_comment', 'change_status', 'move_group', 'change_assignee'\)\)/)
+    expect(STEP48_BLOCK).not.toMatch(/CREATE TABLE|DROP TABLE|jti|expires_at/)
   })
 
   it('step 45 idempotently widens the action_type CHECK to allow change_status, without touching any other column of organiser_action_confirmations', () => {

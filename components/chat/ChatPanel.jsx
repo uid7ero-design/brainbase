@@ -517,6 +517,80 @@ function OrganiserActionCard({ action, submitting, onConfirm, onCancel }) {
             </button>
           </div>
         </div>
+      ) : action.tool === 'propose_organiser_assignee_change' ? (
+        <div style={{ padding: "10px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
+          <div>
+            <div style={{ color: "rgba(255,255,255,0.30)", fontSize: 8, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", marginBottom: 2 }}>
+              Action
+            </div>
+            <div style={{ color: "rgba(255,255,255,0.85)", fontSize: 12 }}>Change assignee</div>
+          </div>
+
+          <div>
+            <div style={{ color: "rgba(255,255,255,0.30)", fontSize: 8, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", marginBottom: 2 }}>
+              Target
+            </div>
+            <div style={{ color: "rgba(255,255,255,0.85)", fontSize: 12, fontWeight: 600 }}>
+              {action.proposal?.item_name || 'Untitled item'}
+            </div>
+          </div>
+
+          <div style={{ display: "flex", gap: 16 }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ color: "rgba(255,255,255,0.30)", fontSize: 8, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", marginBottom: 2 }}>
+                Currently assigned
+              </div>
+              <div style={{ color: "rgba(255,255,255,0.75)", fontSize: 12 }}>
+                {action.proposal?.previous_assignee_name || 'Unassigned'}
+              </div>
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ color: "rgba(255,255,255,0.30)", fontSize: 8, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", marginBottom: 2 }}>
+                New assignee
+              </div>
+              <div style={{ color: "#34D399", fontSize: 12, fontWeight: 600 }}>
+                {action.proposal?.new_assignee_name || '—'}
+              </div>
+            </div>
+          </div>
+
+          <div style={{ display: "flex", gap: 8, marginTop: 2 }}>
+            <button
+              type="button"
+              onClick={onConfirm}
+              disabled={submitting}
+              aria-label="Confirm: assign this item now"
+              style={{
+                flex: 1, padding: "8px 12px", borderRadius: 7,
+                background: submitting ? "rgba(52,211,153,0.10)" : "rgba(52,211,153,0.20)",
+                border: `1px solid ${submitting ? "rgba(52,211,153,0.18)" : "rgba(52,211,153,0.45)"}`,
+                color: submitting ? "rgba(52,211,153,0.45)" : "#34D399",
+                fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase",
+                cursor: submitting ? "default" : "pointer",
+                fontFamily: FONT, transition: "all 0.15s",
+              }}
+            >
+              {submitting ? 'Assigning…' : 'Confirm'}
+            </button>
+            <button
+              type="button"
+              onClick={onCancel}
+              disabled={submitting}
+              aria-label="Cancel: do not change this item's assignee"
+              style={{
+                flex: 1, padding: "8px 12px", borderRadius: 7,
+                background: "rgba(255,255,255,0.04)",
+                border: "1px solid rgba(255,255,255,0.12)",
+                color: submitting ? "rgba(255,255,255,0.20)" : "rgba(255,255,255,0.60)",
+                fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase",
+                cursor: submitting ? "default" : "pointer",
+                fontFamily: FONT, transition: "all 0.15s",
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
       ) : (
         <div style={{ padding: "10px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
           <div>

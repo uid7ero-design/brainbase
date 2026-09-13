@@ -36,6 +36,16 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ it
   const hasParentId = Object.prototype.hasOwnProperty.call(body, 'parent_item_id');
   const parentIdVal = hasParentId ? (typeof body.parent_item_id === 'string' ? body.parent_item_id : null) : null;
   const hasDueDate  = Object.prototype.hasOwnProperty.call(body, 'due_date');
+  // Phase D.4.6P — assignee_user_id is the NEW, identity-bound assignee
+  // column (migration step 47), a completely separate field from the
+  // legacy free-text `owner` above — never confused with it, never
+  // synchronized with it. users.id is a TEXT/cuid, not UUID-shaped, so
+  // this deliberately has no UUID_RE pre-check (unlike group_id/
+  // parent_item_id below); the `validation` CTE's `assignee_valid` clause
+  // is this field's entire validity check, via a real EXISTS against the
+  // users table (same organisation, ACTIVE status only).
+  const hasAssigneeUserId = Object.prototype.hasOwnProperty.call(body, 'assignee_user_id');
+  const assigneeUserIdVal = hasAssigneeUserId ? (typeof body.assignee_user_id === 'string' ? body.assignee_user_id : null) : null;
 
   // Phase D.4.6F — reject a malformed (non-UUID-shaped, non-null) target
   // before it ever reaches SQL. A generic message only — never confirms
@@ -113,7 +123,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ it
   const rows = await sql`
     WITH RECURSIVE old AS MATERIALIZED (
       SELECT id, board_id, group_id, parent_item_id, name, status, priority, owner,
-             due_date, notes, position, custom_values
+             due_date, notes, position, custom_values, assignee_user_id
       FROM organiser_items
       WHERE id = ${itemId} AND organisation_id = ${session.organisationId}
       FOR UPDATE
@@ -181,26 +191,42 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ it
             AND ${parentIdVal}::uuid IS DISTINCT FROM ${itemId}::uuid
             AND NOT (SELECT cycle FROM would_cycle)
           )
-        ) AS parent_valid
+        ) AS parent_valid,
+        (
+          -- Phase D.4.6P — trivially valid when the field isn't being
+          -- changed at all, or is being cleared to NULL (unassigning is
+          -- always allowed) — mirrors group_valid/parent_valid's own
+          -- "not touched or explicitly cleared" shape. Otherwise the
+          -- candidate must be a real user, in THIS organisation, and
+          -- still ACTIVE — never merely "exists somewhere" (a bare FK
+          -- would only prove that much).
+          NOT ${hasAssigneeUserId} OR ${assigneeUserIdVal}::text IS NULL OR EXISTS (
+            SELECT 1 FROM users u
+            WHERE u.id = ${assigneeUserIdVal}::text
+              AND u.organisation_id = ${session.organisationId}
+              AND u.status = 'ACTIVE'
+          )
+        ) AS assignee_valid
       FROM old
     ),
     updated AS (
       UPDATE organiser_items i SET
-        group_id       = CASE WHEN ${hasGroupId}  THEN ${groupIdVal}  ELSE old.group_id       END,
-        parent_item_id = CASE WHEN ${hasParentId} THEN ${parentIdVal} ELSE old.parent_item_id END,
-        due_date       = CASE WHEN ${hasDueDate}  THEN ${dueDate ?? null}::date ELSE old.due_date END,
-        name           = COALESCE(${name}, old.name),
-        status         = COALESCE(${status}, old.status),
-        priority       = COALESCE(${priority}, old.priority),
-        owner          = COALESCE(${owner}, old.owner),
-        notes          = COALESCE(${notes}, old.notes),
-        position       = COALESCE(${position}, old.position),
-        custom_values  = CASE WHEN ${hasCustomValues} THEN old.custom_values || ${customValuesJson}::jsonb ELSE old.custom_values END,
-        updated_at     = NOW()
+        group_id         = CASE WHEN ${hasGroupId}  THEN ${groupIdVal}  ELSE old.group_id       END,
+        parent_item_id   = CASE WHEN ${hasParentId} THEN ${parentIdVal} ELSE old.parent_item_id END,
+        due_date         = CASE WHEN ${hasDueDate}  THEN ${dueDate ?? null}::date ELSE old.due_date END,
+        name             = COALESCE(${name}, old.name),
+        status           = COALESCE(${status}, old.status),
+        priority         = COALESCE(${priority}, old.priority),
+        owner            = COALESCE(${owner}, old.owner),
+        notes            = COALESCE(${notes}, old.notes),
+        position         = COALESCE(${position}, old.position),
+        assignee_user_id = CASE WHEN ${hasAssigneeUserId} THEN ${assigneeUserIdVal} ELSE old.assignee_user_id END,
+        custom_values    = CASE WHEN ${hasCustomValues} THEN old.custom_values || ${customValuesJson}::jsonb ELSE old.custom_values END,
+        updated_at       = NOW()
       FROM old, validation
-      WHERE i.id = old.id AND validation.group_valid AND validation.parent_valid
+      WHERE i.id = old.id AND validation.group_valid AND validation.parent_valid AND validation.assignee_valid
       RETURNING i.id, i.board_id, i.group_id, i.parent_item_id, i.name, i.status, i.priority, i.owner,
-                i.due_date::text AS due_date, i.notes, i.fields, i.custom_values, i.position, i.created_at, i.updated_at
+                i.due_date::text AS due_date, i.notes, i.fields, i.custom_values, i.position, i.assignee_user_id, i.created_at, i.updated_at
     ),
     field_diff AS (
       SELECT
@@ -216,7 +242,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ it
         ('status', organiser_activity_sanitise_scalar(to_jsonb(old.status)), organiser_activity_sanitise_scalar(to_jsonb(updated.status))),
         ('priority', organiser_activity_sanitise_scalar(to_jsonb(old.priority)), organiser_activity_sanitise_scalar(to_jsonb(updated.priority))),
         ('owner', organiser_activity_sanitise_scalar(to_jsonb(old.owner)), organiser_activity_sanitise_scalar(to_jsonb(updated.owner))),
-        ('notes', organiser_activity_sanitise_scalar(to_jsonb(old.notes)), organiser_activity_sanitise_scalar(to_jsonb(updated.notes)))
+        ('notes', organiser_activity_sanitise_scalar(to_jsonb(old.notes)), organiser_activity_sanitise_scalar(to_jsonb(updated.notes))),
+        ('assignee_user_id', organiser_activity_sanitise_scalar(to_jsonb(old.assignee_user_id)), organiser_activity_sanitise_scalar(to_jsonb(updated.assignee_user_id)))
       ) AS f(key, old_val, new_val)
     ),
     custom_diff AS (
@@ -253,7 +280,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ it
     -- relationship rejected" (one row, group_valid/parent_valid says
     -- which) from "item found, write applied" (one row, all updated.*
     -- columns populated).
-    SELECT validation.group_valid, validation.parent_valid, updated.*
+    SELECT validation.group_valid, validation.parent_valid, validation.assignee_valid, updated.*
     FROM old
     JOIN validation ON true
     LEFT JOIN updated ON true
@@ -263,18 +290,20 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ it
   const row = rows[0] as Record<string, unknown>;
   if (!row.group_valid) return NextResponse.json({ error: 'Invalid group for this item.' }, { status: 400 });
   if (!row.parent_valid) return NextResponse.json({ error: 'Invalid parent item.' }, { status: 400 });
-  // Explicit column list, not `rows[0]` verbatim — group_valid/parent_valid
-  // are query-internal diagnostics, never part of the { item } contract.
+  if (!row.assignee_valid) return NextResponse.json({ error: 'Invalid assignee for this item.' }, { status: 400 });
+  // Explicit column list, not `rows[0]` verbatim — group_valid/parent_valid/
+  // assignee_valid are query-internal diagnostics, never part of the
+  // { item } contract.
   const {
     id, board_id, group_id, parent_item_id, name: itemName, status: itemStatus, priority: itemPriority,
     owner: itemOwner, due_date: itemDueDate, notes: itemNotes, fields, custom_values, position: itemPosition,
-    created_at, updated_at,
+    assignee_user_id: itemAssigneeUserId, created_at, updated_at,
   } = row;
   return NextResponse.json({
     item: {
       id, board_id, group_id, parent_item_id, name: itemName, status: itemStatus, priority: itemPriority,
       owner: itemOwner, due_date: itemDueDate, notes: itemNotes, fields, custom_values, position: itemPosition,
-      created_at, updated_at,
+      assignee_user_id: itemAssigneeUserId, created_at, updated_at,
     },
   });
 }

@@ -20,6 +20,7 @@ import {
   proposeOrExecuteOrganiserComment,
   proposeOrExecuteOrganiserStatusChange,
   proposeOrExecuteOrganiserGroupMove,
+  proposeOrExecuteOrganiserAssigneeChange,
   ORGANISER_ITEM_STATUS_OPTIONS,
 } from './helenaWrite';
 
@@ -64,6 +65,7 @@ export const ORGANISER_TOOL_NAMES = [
   'propose_organiser_comment',
   'propose_organiser_status_change',
   'propose_organiser_group_move',
+  'propose_organiser_assignee_change',
 ] as const;
 export type OrganiserToolName = (typeof ORGANISER_TOOL_NAMES)[number];
 
@@ -278,6 +280,35 @@ export function buildOrganiserTools(): Anthropic.Tool[] {
           },
         },
         required: ['item_id', 'destination_group_name'],
+        additionalProperties: false,
+      },
+    },
+    // Phase D.4.6P — Helena's FOURTH (and, for this phase, last) Organiser
+    // write/action tool. Same propose/confirm+execute discipline as the
+    // three tools above: calling this NEVER mutates anything by itself, no
+    // `confirmation_token` field exists in this schema either, and
+    // assignee_name is a plain string resolved server-side (at propose
+    // time, against ACTIVE users in the caller's own organisation only) —
+    // the model can never supply a user id directly. This assigns to the
+    // NEW, identity-bound assignee_user_id column, never the legacy
+    // free-text owner field.
+    {
+      name: 'propose_organiser_assignee_change',
+      description:
+        'Propose assigning one existing Organiser item to one existing, active member of this organisation. This NEVER assigns it immediately — it only returns a bounded proposal (the exact item, its current assignee if any, and the requested new assignee) that MUST be read back to the user for explicit approval before anything changes. Only call the tool the user can actually see executed after they say yes; you cannot confirm on the user\'s behalf, and calling this tool again does not assign anything either. item_id must come from list_organiser_items or existing conversation context — never guess it. assignee_name is the exact name as the user said it; if no active member of this organisation has that exact name, or more than one does, the tool will say so instead of proposing anything — never guess who they meant. This can only assign to a real member of this organisation, never an arbitrary name or an inactive/former member.',
+      input_schema: {
+        type: 'object' as const,
+        properties: {
+          item_id: {
+            type: 'string',
+            description: 'The item id to assign, from list_organiser_items or existing conversation context.',
+          },
+          assignee_name: {
+            type: 'string',
+            description: 'The exact name of the organisation member to propose assigning this item to.',
+          },
+        },
+        required: ['item_id', 'assignee_name'],
         additionalProperties: false,
       },
     },
@@ -557,6 +588,71 @@ export async function executeOrganiserTool(
     }
   }
 
+  // Phase D.4.6P — Helena's fourth write tool, same stricter write
+  // boundary as the three tools above (never the read boundary below).
+  if (name === 'propose_organiser_assignee_change') {
+    const writeAuth = await authorizeHelenaOrganiserWrite();
+    if (!writeAuth.ok) return JSON.stringify({ status: 'unauthorized', error: GENERIC_DENIAL });
+    const { organisationId, userId, actorName } = writeAuth;
+
+    try {
+      const itemId = readString(input, 'item_id') ?? contextDefaults?.itemId ?? '';
+      const assigneeName = readString(input, 'assignee_name') ?? '';
+      const result = await proposeOrExecuteOrganiserAssigneeChange({
+        organisationId,
+        userId,
+        actorName,
+        itemId,
+        assigneeName,
+        confirmationToken: contextDefaults?.confirmationToken,
+      });
+
+      if (!result.ok) {
+        // Phase D.4.6P — every confirm+execute (and propose-time) outcome
+        // gets its own status string, mirroring the other three actions'
+        // own discriminant design — see app/api/chat/route.ts's
+        // ORGANISER_ASSIGNEE_CHANGE_OUTCOME_TEXT for where this becomes
+        // the deterministic user-facing wording.
+        if (result.reason === 'assignee_not_found') {
+          return JSON.stringify({ status: 'assignee_not_found', note: 'No active member of this organisation was found with that exact name. Ask the user for the exact name, or check the spelling.' });
+        }
+        if (result.reason === 'ambiguous_assignee') {
+          return JSON.stringify({ status: 'ambiguous_assignee', note: 'More than one active member of this organisation shares that name. Ask the user to be more specific.' });
+        }
+        if (result.reason === 'noop_same_assignee') {
+          return JSON.stringify({ status: 'noop_same_assignee', note: 'This item is already assigned to that person. No change was made.' });
+        }
+        const status: string =
+          result.reason === 'item_not_found' ? 'item_not_found'
+          : result.reason === 'already_used_confirmation' ? 'already_used_confirmation'
+          : result.reason === 'expired_confirmation' ? 'expired_confirmation'
+          : result.reason === 'invalid_confirmation' ? 'invalid_confirmation'
+          : result.reason === 'stale_item_assignee' ? 'stale_item_assignee'
+          : result.reason === 'assignee_no_longer_valid' ? 'assignee_no_longer_valid'
+          : 'failed'; // invalid_item_id — propose-time-only
+        return JSON.stringify({ status, error: GENERIC_ERROR });
+      }
+
+      if (result.mode === 'proposed') {
+        return JSON.stringify({
+          status: 'proposed',
+          proposal: result.proposal,
+          confirmation_token: result.confirmationToken,
+          note: 'This item has NOT been assigned yet. Read the exact item, its current assignee (if any), and the requested new assignee back to the user and wait for their explicit yes before anything changes. You cannot confirm this yourself.',
+        });
+      }
+
+      return JSON.stringify({
+        status: 'assigned',
+        action_type: 'change_assignee',
+        item: result.item,
+      });
+    } catch (err) {
+      console.error(`[Helena][Organiser tool: ${name}]`, err);
+      return JSON.stringify({ status: 'failed', error: GENERIC_ERROR });
+    }
+  }
+
   const auth = await authorizeHelenaOrganiserRead();
   if (!auth.ok) return JSON.stringify({ error: GENERIC_DENIAL });
   const { organisationId } = auth;
@@ -692,12 +788,13 @@ export async function executeOrganiserTool(
 // containment already proven in D.4.6B (comment/file/board/group text is
 // already just a JSON string in a tool_result by the time this section's
 // own "treat as data" rule would ever matter).
-export const ORGANISER_SAFETY_PROMPT = `[Organiser tools — mostly read-only, three guarded actions]
-list_organiser_boards, list_organiser_items, get_organiser_board_activity, and get_organiser_item_activity are READ-ONLY: you cannot create, update, move, or delete anything through them. You have exactly three write actions, and all three work the same way: they NEVER execute immediately, only ever return a proposal.
+export const ORGANISER_SAFETY_PROMPT = `[Organiser tools — mostly read-only, four guarded actions]
+list_organiser_boards, list_organiser_items, get_organiser_board_activity, and get_organiser_item_activity are READ-ONLY: you cannot create, update, move, or delete anything through them. You have exactly four write actions, and all four work the same way: they NEVER execute immediately, only ever return a proposal.
 - propose_organiser_comment: proposes posting a comment. Only say it was posted if the tool result status is "posted".
 - propose_organiser_status_change: proposes changing one item's status to one of its exact canonical values. Only say the status was changed if the tool result status is "changed". If the item is already in the requested status, tell the user that plainly instead of proposing anything.
 - propose_organiser_group_move: proposes moving one item to one existing destination group on that item's OWN board. Only say it was moved if the tool result status is "moved". If the item is already in that group, say so instead of proposing anything. If no group with that name exists on the item's board, or more than one group shares the name, ask the user to clarify — never guess a group. This can never move an item to a different board.
-For all three: read the exact proposal back and explicitly ask the user to confirm before anything happens — you cannot supply that confirmation yourself, and calling the tool again does not confirm it. There is no generic "edit this item" or "update this field" capability, no title/description/due-date/priority/assignee changes, no board moves, and no create/delete — say so plainly if asked, and never bypass a role/module denial.
+- propose_organiser_assignee_change: proposes assigning one item to one existing, active member of this organisation. Only say it was assigned if the tool result status is "assigned". If already assigned to that person, say so instead of proposing anything. If no active member has that exact name, or more than one does, ask the user to clarify — never guess who they meant, and never assign to a title/role/team name.
+For all four: read the exact proposal back and explicitly ask the user to confirm before anything happens — you cannot supply that confirmation yourself, and calling the tool again does not confirm it. There is no generic "edit this item" or "update this field" capability, no title/description/due-date/priority changes, no board moves, no bulk or multi-item actions, and no create/delete — say so plainly if asked, and never bypass a role/module denial.
 - Tool results are authoritative evidence of what was recorded. No results for a window means "no recorded activity found for that window" — never say "nothing happened".
 - Never infer actor intent beyond what the recorded actor/diff data actually shows.
 - Never invent a board, item, or group name. If a name was not recorded, say so rather than guessing.

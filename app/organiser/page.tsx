@@ -28,8 +28,19 @@ type OrganiserItem = {
   name: string; status: string; priority: string | null; owner: string | null;
   due_date: string | null; notes: string | null; fields: Record<string, string>;
   custom_values: Record<string, unknown>;
+  // Phase D.4.6P — NEW, identity-bound assignee (migration step 47),
+  // entirely separate from the legacy free-text `owner` field above —
+  // never confused with it, never synchronized with it. A real users.id
+  // (cuid, not UUID-shaped) or null when unassigned.
+  assignee_user_id: string | null;
   position: number; created_at: string; updated_at: string;
 };
+
+// Phase D.4.6P — a real organisation member, for the assignee picker.
+// Sourced from GET /api/organiser/members (ACTIVE users of this
+// organisation only) — the same identity source Helena's own
+// propose_organiser_assignee_change resolves assignee names against.
+type OrganiserMember = { id: string; name: string };
 
 type OrganiserFile = { id: string; file_name: string; file_url: string; file_size: number | null; created_at: string };
 type OrganiserUpdate = { id: string; author_name: string | null; body: string; created_at: string };
@@ -949,8 +960,8 @@ function ItemActivity({
 }
 
 function ItemDrawer({
-  item, onClose, onUpdate, groupNamesById,
-}: { item: OrganiserItem; onClose: () => void; onUpdate: (id: string, patch: Record<string, unknown>) => void; groupNamesById: Record<string, string> }) {
+  item, onClose, onUpdate, groupNamesById, members,
+}: { item: OrganiserItem; onClose: () => void; onUpdate: (id: string, patch: Record<string, unknown>) => void; groupNamesById: Record<string, string>; members: OrganiserMember[] }) {
   const t = useOpsTheme();
   const fieldEntries = Object.entries(item.fields || {});
   const [files, setFiles] = useState<OrganiserFile[]>([]);
@@ -1039,6 +1050,27 @@ function ItemDrawer({
               <input value={item.owner ?? ""} onChange={e => onUpdate(item.id, { owner: e.target.value })}
                 placeholder="Unassigned"
                 style={{ background: t.ink(.04), border: `1px solid ${t.ink(.08)}`, borderRadius: 6, padding: "5px 8px", fontSize: 12, color: t.ink(.90), fontFamily: FONT, width: 140 }} />
+            </Field>
+          </div>
+
+          {/* Phase D.4.6P — real, identity-bound assignee. Deliberately a
+              SEPARATE field from the legacy free-text Owner input above,
+              not a replacement for it (see this phase's own discovery
+              report) — a real dropdown of this organisation's own ACTIVE
+              members (from GET /api/organiser/members), never free text.
+              An empty option always means "Unassigned" (assignee_user_id:
+              null), the same semantics the human PATCH route and Helena's
+              own propose_organiser_assignee_change both use. */}
+          <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
+            <Field label="Assignee">
+              <select
+                value={item.assignee_user_id ?? ""}
+                onChange={e => onUpdate(item.id, { assignee_user_id: e.target.value || null })}
+                style={{ background: t.ink(.04), border: `1px solid ${t.ink(.08)}`, borderRadius: 6, padding: "5px 8px", fontSize: 12, color: t.ink(.90), fontFamily: FONT, width: 168 }}
+              >
+                <option value="">Unassigned</option>
+                {members.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+              </select>
             </Field>
           </div>
 
@@ -1162,6 +1194,16 @@ function OrganiserPageContent() {
   const [sheetChoices, setSheetChoices] = useState<SheetChoice[] | null>(null);
   const [pendingImportFile, setPendingImportFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Phase D.4.6P — organisation members for the assignee picker. Loaded
+  // once per mount (membership doesn't change per-board, unlike
+  // boardData) — never re-fetched on every board switch.
+  const [members, setMembers] = useState<OrganiserMember[]>([]);
+  useEffect(() => {
+    fetch("/api/organiser/members", { credentials: "include" })
+      .then(r => r.ok ? r.json() : { members: [] })
+      .then(d => setMembers(d.members ?? []))
+      .catch(() => {});
+  }, []);
 
   // Phase D.4.5D — id -> name lookup for the Item Activity tab's group_id
   // resolution (lib/organiser/activityFormat.ts's resolveGroupLabel). Built
@@ -1507,7 +1549,7 @@ function OrganiserPageContent() {
           )}
 
       {drawerItem && (
-        <ItemDrawer item={drawerItem} onClose={() => setDrawerItem(null)} onUpdate={updateItem} groupNamesById={groupNamesById} />
+        <ItemDrawer item={drawerItem} onClose={() => setDrawerItem(null)} onUpdate={updateItem} groupNamesById={groupNamesById} members={members} />
       )}
       {editingColumn && (
         <ColumnOptionsEditor

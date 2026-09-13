@@ -198,9 +198,9 @@ describe('one-shot mutation consumption across the 4-iteration tool loop', () =>
     expect(asyncIdx).toBeGreaterThan(clearIdx)
   })
 
-  it('D.4.6O: ALL THREE write-tool calls (propose_organiser_comment, propose_organiser_status_change, propose_organiser_group_move) — and only those three — ever receive the captured token', () => {
+  it('D.4.6P: ALL FOUR write-tool calls (propose_organiser_comment, propose_organiser_status_change, propose_organiser_group_move, propose_organiser_assignee_change) — and only those four — ever receive the captured token', () => {
     expect(routeSource).toMatch(
-      /\(block\.name === 'propose_organiser_comment' \|\| block\.name === 'propose_organiser_status_change' \|\| block\.name === 'propose_organiser_group_move'\) &&\s*\n\s*remainingConfirmationToken/,
+      /\(block\.name === 'propose_organiser_comment' \|\| block\.name === 'propose_organiser_status_change' \|\| block\.name === 'propose_organiser_group_move' \|\| block\.name === 'propose_organiser_assignee_change'\) &&\s*\n\s*remainingConfirmationToken/,
     )
   })
 
@@ -392,9 +392,9 @@ describe('Phase D.4.6N — deterministic status-change result authority', () => 
     expect(block).toMatch(/parsed\.item\.new_status/)
   })
 
-  it('the one-shot confirmation-token guard is gated on one of the three write tool names, never a bare tool-name-agnostic check', () => {
+  it('the one-shot confirmation-token guard is gated on one of the four write tool names, never a bare tool-name-agnostic check', () => {
     expect(routeSource).toMatch(
-      /\(block\.name === 'propose_organiser_comment' \|\| block\.name === 'propose_organiser_status_change' \|\| block\.name === 'propose_organiser_group_move'\)/,
+      /\(block\.name === 'propose_organiser_comment' \|\| block\.name === 'propose_organiser_status_change' \|\| block\.name === 'propose_organiser_group_move' \|\| block\.name === 'propose_organiser_assignee_change'\)/,
     )
   })
 })
@@ -441,5 +441,51 @@ describe('Phase D.4.6O — deterministic group-move result authority', () => {
     expect(block).toMatch(/source_group_name/)
     expect(block).toMatch(/destination_group_id/)
     expect(block).toMatch(/destination_group_name/)
+  })
+})
+
+describe('Phase D.4.6P — deterministic assignee-change result authority', () => {
+  it('ORGANISER_ASSIGNEE_CHANGE_OUTCOME_TEXT exists and covers every backend confirm+execute outcome except the dynamic "assigned" template', () => {
+    const idx = routeSource.indexOf('const ORGANISER_ASSIGNEE_CHANGE_OUTCOME_TEXT')
+    expect(idx).toBeGreaterThan(-1)
+    const block = routeSource.slice(idx, idx + 1500)
+    for (const key of ['already_used_confirmation', 'expired_confirmation', 'invalid_confirmation', 'unauthorized', 'item_not_found', 'assignee_no_longer_valid', 'stale_item_assignee', 'failed']) {
+      expect(block).toMatch(new RegExp(`\\b${key}:`))
+    }
+    // 'assigned' and 'proposed' are deliberately absent — 'assigned' is a
+    // dynamic template (real item/assignee names), 'proposed' still gets
+    // ordinary model narration. 'ambiguous_assignee'/'assignee_not_found'/
+    // 'noop_same_assignee' are propose-time-only reasons with their own
+    // bounded note text, never routed through this confirm+execute-only
+    // outcome map.
+    expect(block).not.toMatch(/\bassigned:/)
+    expect(block).not.toMatch(/\bproposed:/)
+  })
+
+  it('the assignee-change branch sets the SAME shared short-circuit variable (organiserConfirmationOutcomeText) — still only ONE `if (organiserConfirmationOutcomeText !== null)` guard in the whole file, so the D.4.6L ordering guarantee covers all four actions without a fourth mutation-tested duplicate', () => {
+    const assigneeChangeSetIdx = routeSource.indexOf('organiserConfirmationOutcomeText = ORGANISER_ASSIGNEE_CHANGE_OUTCOME_TEXT')
+    expect(assigneeChangeSetIdx).toBeGreaterThan(-1)
+
+    const outcomeCheckMatches = routeSource.match(/if \(organiserConfirmationOutcomeText !== null\)/g) ?? []
+    expect(outcomeCheckMatches.length).toBe(1)
+  })
+
+  it('the "assigned" outcome is built ONLY from the tool result\'s own server-authoritative `item` object, never from confirmationTokenForThisCall\'s absence or model text', () => {
+    const idx = routeSource.indexOf("parsed.status === 'assigned' && parsed.item")
+    expect(idx).toBeGreaterThan(-1)
+    const block = routeSource.slice(idx, idx + 400)
+    expect(block).toMatch(/parsed\.item\.name/)
+    expect(block).toMatch(/parsed\.item\.previous_assignee_name/)
+    expect(block).toMatch(/parsed\.item\.new_assignee_name/)
+  })
+
+  it('PendingOrganiserAction includes the assignee-change shape with previous/new assignee ids and names', () => {
+    const idx = routeSource.indexOf("tool: 'propose_organiser_assignee_change'")
+    expect(idx).toBeGreaterThan(-1)
+    const block = routeSource.slice(idx, idx + 400)
+    expect(block).toMatch(/previous_assignee_user_id/)
+    expect(block).toMatch(/previous_assignee_name/)
+    expect(block).toMatch(/new_assignee_user_id/)
+    expect(block).toMatch(/new_assignee_name/)
   })
 })

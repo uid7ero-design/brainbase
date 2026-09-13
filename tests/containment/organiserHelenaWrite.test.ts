@@ -44,7 +44,7 @@ vi.mock('@/lib/organiser/authorize', async (importOriginal) => {
   return { ...actual, authorizeOrganiserRequest: (...args: unknown[]) => authorizeOrganiserRequestMock(...args) }
 })
 
-const { authorizeHelenaOrganiserWrite, proposeOrExecuteOrganiserComment, proposeOrExecuteOrganiserStatusChange, proposeOrExecuteOrganiserGroupMove } = await import('@/lib/organiser/helenaWrite')
+const { authorizeHelenaOrganiserWrite, proposeOrExecuteOrganiserComment, proposeOrExecuteOrganiserStatusChange, proposeOrExecuteOrganiserGroupMove, proposeOrExecuteOrganiserAssigneeChange } = await import('@/lib/organiser/helenaWrite')
 
 const SESSION_MANAGER = { userId: 'u1', organisationId: 'org-a', role: 'manager', name: 'Manager Mia' }
 const SESSION_VIEWER = { userId: 'u1', organisationId: 'org-a', role: 'viewer', name: 'Viewer Vic' }
@@ -1195,11 +1195,11 @@ describe('source-shape invariants — status change', () => {
     expect(region).not.toMatch(/'status\.changed'/)
   })
 
-  it('the status change and group move action_type widenings reuse the SAME ledger table and ON CONFLICT (jti) mechanism as the comment action — no second/third ledger table', () => {
+  it('the status change, group move, and assignee change action_type widenings reuse the SAME ledger table and ON CONFLICT (jti) mechanism as the comment action — no second/third/fourth ledger table', () => {
     const codeOnly = SOURCE.replace(/\/\/.*$/gm, '')
     const matches = [...codeOnly.matchAll(/ON CONFLICT \(jti\) DO NOTHING/g)]
-    expect(matches.length).toBe(3) // one per action's own atomic statement
-    expect(codeOnly).not.toMatch(/CREATE TABLE|organiser_action_confirmations_v2|organiser_status_confirmations|organiser_group_move_confirmations/)
+    expect(matches.length).toBe(4) // one per action's own atomic statement
+    expect(codeOnly).not.toMatch(/CREATE TABLE|organiser_action_confirmations_v2|organiser_status_confirmations|organiser_group_move_confirmations|organiser_assignee_confirmations/)
   })
 
   it('the canonical status list is exactly the 4 proven values from app/organiser/page.tsx\'s STATUS_OPTIONS — never invented', () => {
@@ -1209,5 +1209,384 @@ describe('source-shape invariants — status change', () => {
   it('no generic update/create/move/delete item capability exists anywhere in this file', () => {
     expect(SOURCE).not.toMatch(/\bupdateOrganiserItem\b|\bcreateOrganiserItem\b|\bmoveOrganiserItem\b|\bdeleteOrganiserItem\b/)
     expect(SOURCE).not.toMatch(/field:\s*string.*value:\s*unknown|patch:\s*Record/)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Phase D.4.6P — proposeOrExecuteOrganiserAssigneeChange: Helena's FOURTH
+// Organiser write action. Same established testing philosophy as the three
+// suites above. PROPOSE mode makes THREE sequential sql calls in order
+// (prune, item+current-assignee lookup, candidate-user lookup) —
+// sqlResultQueue entries below are always supplied in that exact order.
+// ═══════════════════════════════════════════════════════════════════════════
+
+const USER_CURRENT = 'user-current-assignee'
+const USER_TARGET = 'user-target-assignee'
+
+function executedAssigneeChangeRow(overrides: Partial<{ item_found: number; was_consumed: number; target_valid: boolean; updated_id: string | null; item_name: string | null }> = {}) {
+  return [{
+    item_found: 1, was_consumed: 1, target_valid: true,
+    updated_id: 'row-1', item_name: 'My Item',
+    ...overrides,
+  }]
+}
+
+async function proposeAssigneeChange(overrides: Partial<{ organisationId: string; userId: string; actorName: string; itemId: string; assigneeName: string }> = {}, opts: { itemAssigneeUserId?: string | null; candidateRows?: { id: string; name: string }[] } = {}) {
+  sqlResultQueue = [
+    [], // prune (ignored)
+    [{ id: overrides.itemId ?? ITEM_A, name: 'My Item', board_id: BOARD_A, assignee_user_id: opts.itemAssigneeUserId === undefined ? USER_CURRENT : opts.itemAssigneeUserId, current_assignee_name: (opts.itemAssigneeUserId === undefined ? USER_CURRENT : opts.itemAssigneeUserId) === null ? null : 'Current Carl' }],
+    opts.candidateRows ?? [{ id: USER_TARGET, name: 'Target Tara' }],
+  ]
+  const result = await proposeOrExecuteOrganiserAssigneeChange({
+    organisationId: 'org-a', userId: 'u1', actorName: 'Manager Mia',
+    itemId: ITEM_A, assigneeName: 'Target Tara',
+    ...overrides,
+  })
+  if (!result.ok || result.mode !== 'proposed') throw new Error('proposeAssigneeChange() helper expected a proposal')
+  return result
+}
+
+describe('proposeOrExecuteOrganiserAssigneeChange — propose mode (no confirmationToken)', () => {
+  beforeEach(() => {
+    authorizeOrganiserRequestMock.mockResolvedValue({ ok: true, session: SESSION_MANAGER })
+  })
+
+  it('valid item + valid ACTIVE-in-org candidate -> proposal carrying previous AND new assignee, zero mutation', async () => {
+    const result = await proposeAssigneeChange()
+    expect(result.proposal).toEqual({
+      item_id: ITEM_A, item_name: 'My Item',
+      previous_assignee_user_id: USER_CURRENT, previous_assignee_name: 'Current Carl',
+      new_assignee_user_id: USER_TARGET, new_assignee_name: 'Target Tara',
+    })
+    expect(result.confirmationToken).toBeTruthy()
+    expect(sqlCalls.some(c => /UPDATE|INSERT/i.test(c.text))).toBe(false)
+  })
+
+  it('item currently unassigned (assignee_user_id null) -> proposal carries previous_assignee_user_id/name as null, not a crash', async () => {
+    const result = await proposeAssigneeChange({}, { itemAssigneeUserId: null })
+    expect(result.proposal.previous_assignee_user_id).toBeNull()
+    expect(result.proposal.previous_assignee_name).toBeNull()
+  })
+
+  it('malformed item_id -> invalid_item_id, zero sql calls', async () => {
+    const result = await proposeOrExecuteOrganiserAssigneeChange({
+      organisationId: 'org-a', userId: 'u1', actorName: 'Manager Mia', itemId: 'not-a-uuid', assigneeName: 'Target Tara',
+    })
+    expect(result).toEqual({ ok: false, reason: 'invalid_item_id' })
+    expect(sqlCalls).toHaveLength(0)
+  })
+
+  it('empty assignee name -> assignee_not_found, zero sql calls', async () => {
+    const result = await proposeOrExecuteOrganiserAssigneeChange({
+      organisationId: 'org-a', userId: 'u1', actorName: 'Manager Mia', itemId: ITEM_A, assigneeName: '   ',
+    })
+    expect(result).toEqual({ ok: false, reason: 'assignee_not_found' })
+    expect(sqlCalls).toHaveLength(0)
+  })
+
+  it('item not found (wrong tenant / missing) -> item_not_found', async () => {
+    sqlResultQueue = [[], []]
+    const result = await proposeOrExecuteOrganiserAssigneeChange({
+      organisationId: 'org-a', userId: 'u1', actorName: 'Manager Mia', itemId: ITEM_A, assigneeName: 'Target Tara',
+    })
+    expect(result).toEqual({ ok: false, reason: 'item_not_found' })
+  })
+
+  it('no ACTIVE user in this organisation has that exact name -> assignee_not_found (never guessed, never matches an INACTIVE or other-org user)', async () => {
+    sqlResultQueue = [
+      [],
+      [{ id: ITEM_A, name: 'My Item', board_id: BOARD_A, assignee_user_id: USER_CURRENT, current_assignee_name: 'Current Carl' }],
+      [],
+    ]
+    const result = await proposeOrExecuteOrganiserAssigneeChange({
+      organisationId: 'org-a', userId: 'u1', actorName: 'Manager Mia', itemId: ITEM_A, assigneeName: 'Nobody Here',
+    })
+    expect(result).toEqual({ ok: false, reason: 'assignee_not_found' })
+  })
+
+  it('more than one ACTIVE user shares the exact name -> ambiguous_assignee, never guessed', async () => {
+    sqlResultQueue = [
+      [],
+      [{ id: ITEM_A, name: 'My Item', board_id: BOARD_A, assignee_user_id: USER_CURRENT, current_assignee_name: 'Current Carl' }],
+      [{ id: USER_TARGET, name: 'Target Tara' }, { id: 'user-dup', name: 'Target Tara' }],
+    ]
+    const result = await proposeOrExecuteOrganiserAssigneeChange({
+      organisationId: 'org-a', userId: 'u1', actorName: 'Manager Mia', itemId: ITEM_A, assigneeName: 'Target Tara',
+    })
+    expect(result).toEqual({ ok: false, reason: 'ambiguous_assignee' })
+  })
+
+  it('target assignee equals the item\'s current assignee -> noop_same_assignee, zero mutation, no token minted', async () => {
+    sqlResultQueue = [
+      [],
+      [{ id: ITEM_A, name: 'My Item', board_id: BOARD_A, assignee_user_id: USER_TARGET, current_assignee_name: 'Target Tara' }],
+      [{ id: USER_TARGET, name: 'Target Tara' }],
+    ]
+    const result = await proposeOrExecuteOrganiserAssigneeChange({
+      organisationId: 'org-a', userId: 'u1', actorName: 'Manager Mia', itemId: ITEM_A, assigneeName: 'Target Tara',
+    })
+    expect(result).toEqual({ ok: false, reason: 'noop_same_assignee' })
+    expect(sqlCalls.some(c => /UPDATE|INSERT/i.test(c.text))).toBe(false)
+  })
+
+  it('assignee name matching is case-insensitive EXACT — never a substring/wildcard match', async () => {
+    await proposeAssigneeChange({ assigneeName: 'TARGET TARA' })
+    const candidateCall = sqlCalls[2]
+    expect(candidateCall.text).toMatch(/LOWER\(name\) = LOWER\(/)
+    expect(candidateCall.text).not.toMatch(/ILIKE|LIKE/)
+  })
+
+  it('the candidate lookup is scoped to ACTIVE status AND this organisation — both conditions in the WHERE clause, never filtered after the fact', async () => {
+    await proposeAssigneeChange()
+    const candidateCall = sqlCalls[2]
+    expect(candidateCall.text).toMatch(/organisation_id = /)
+    expect(candidateCall.text).toMatch(/status = 'ACTIVE'/)
+    expect(candidateCall.values).toContain('org-a')
+  })
+
+  it('the minted token embeds expectedCurrentAssigneeUserId/targetAssigneeUserId as the TRUE server-resolved ids, never the model-supplied name twice', async () => {
+    const proposal = await proposeAssigneeChange()
+    const decode = (t: string) => JSON.parse(Buffer.from(t.split('.')[1], 'base64url').toString('utf8'))
+    const payload = decode(proposal.confirmationToken)
+    expect(payload.expectedCurrentAssigneeUserId).toBe(USER_CURRENT)
+    expect(payload.targetAssigneeUserId).toBe(USER_TARGET)
+    expect(typeof payload.jti).toBe('string')
+  })
+
+  it('model cannot supply organisationId/userId/jti — proposal always uses trusted/server-resolved values, jti is server-minted', async () => {
+    const proposal = await proposeAssigneeChange()
+    const decode = (t: string) => JSON.parse(Buffer.from(t.split('.')[1], 'base64url').toString('utf8'))
+    const payload = decode(proposal.confirmationToken)
+    expect(payload.organisationId).toBe('org-a')
+    expect(payload.userId).toBe('u1')
+    expect(JTI_RE.test(payload.jti)).toBe(true)
+  })
+})
+
+describe('proposeOrExecuteOrganiserAssigneeChange — confirm+execute mode (confirmationToken present)', () => {
+  beforeEach(() => {
+    authorizeOrganiserRequestMock.mockResolvedValue({ ok: true, session: SESSION_MANAGER })
+  })
+
+  it('a valid token executes exactly once: ONE atomic statement, assignee changes, exactly one activity row implied by the single INSERT', async () => {
+    const proposal = await proposeAssigneeChange()
+    sqlCalls = []
+    sqlResultQueue = [executedAssigneeChangeRow()]
+    const result = await proposeOrExecuteOrganiserAssigneeChange({
+      organisationId: 'org-a', userId: 'u1', actorName: 'Manager Mia', itemId: ITEM_A, assigneeName: 'Target Tara',
+      confirmationToken: proposal.confirmationToken,
+    })
+    expect(result.ok).toBe(true)
+    if (result.ok && result.mode === 'executed') {
+      expect(result.item).toEqual({ id: 'row-1', name: 'My Item', previous_assignee_name: 'Current Carl', new_assignee_name: 'Target Tara' })
+    } else {
+      throw new Error('expected executed')
+    }
+    expect(sqlCalls).toHaveLength(1)
+    expect(sqlCalls[0].text).toMatch(/WITH target_item AS MATERIALIZED/)
+    expect(sqlCalls[0].text).toMatch(/FOR UPDATE/)
+    expect(sqlCalls[0].text).toMatch(/ON CONFLICT \(jti\) DO NOTHING/)
+    expect(sqlCalls[0].text).toMatch(/UPDATE organiser_items/)
+    expect(sqlCalls[0].text).toMatch(/INSERT INTO organiser_activity/)
+    expect(sqlCalls[0].text).toMatch(/'item\.updated'/)
+  })
+
+  it('altered item_id/assignee in the SAME confirming call are ignored — only the originally-proposed transition is ever applied', async () => {
+    const proposal = await proposeAssigneeChange()
+    sqlCalls = []
+    sqlResultQueue = [executedAssigneeChangeRow()]
+    await proposeOrExecuteOrganiserAssigneeChange({
+      organisationId: 'org-a', userId: 'u1', actorName: 'Manager Mia',
+      itemId: ITEM_B, assigneeName: 'Someone Else',
+      confirmationToken: proposal.confirmationToken,
+    })
+    const updateCall = sqlCalls.find(c => /UPDATE organiser_items/.test(c.text))!
+    expect(updateCall.values).toContain(USER_TARGET)
+    expect(updateCall.values).toContain(ITEM_A)
+    expect(updateCall.values).not.toContain(ITEM_B)
+  })
+
+  it('a bogus/tampered confirmationToken -> invalid_confirmation, zero sql calls', async () => {
+    const result = await proposeOrExecuteOrganiserAssigneeChange({
+      organisationId: 'org-a', userId: 'u1', actorName: 'Manager Mia', itemId: ITEM_A, assigneeName: 'Target Tara',
+      confirmationToken: 'not-a-real-token',
+    })
+    expect(result).toEqual({ ok: false, reason: 'invalid_confirmation' })
+    expect(sqlCalls).toHaveLength(0)
+  })
+
+  it('a token minted for a DIFFERENT organisationId is rejected — no cross-tenant execution, zero sql calls', async () => {
+    const proposal = await proposeAssigneeChange()
+    sqlCalls = []
+    const result = await proposeOrExecuteOrganiserAssigneeChange({
+      organisationId: 'org-DIFFERENT-TENANT', userId: 'u1', actorName: 'Manager Mia', itemId: ITEM_A, assigneeName: 'Target Tara',
+      confirmationToken: proposal.confirmationToken,
+    })
+    expect(result).toEqual({ ok: false, reason: 'invalid_confirmation' })
+    expect(sqlCalls).toHaveLength(0)
+  })
+
+  it('a token minted for a DIFFERENT userId is rejected — zero sql calls', async () => {
+    const proposal = await proposeAssigneeChange()
+    sqlCalls = []
+    const result = await proposeOrExecuteOrganiserAssigneeChange({
+      organisationId: 'org-a', userId: 'u2-DIFFERENT-ACTOR', actorName: 'Someone Else', itemId: ITEM_A, assigneeName: 'Target Tara',
+      confirmationToken: proposal.confirmationToken,
+    })
+    expect(result).toEqual({ ok: false, reason: 'invalid_confirmation' })
+    expect(sqlCalls).toHaveLength(0)
+  })
+
+  it('expired token -> expired_confirmation, distinct from invalid_confirmation, zero sql calls', async () => {
+    vi.useFakeTimers()
+    try {
+      const proposal = await proposeAssigneeChange()
+      sqlCalls = []
+      vi.advanceTimersByTime(3 * 60 * 1000)
+      const result = await proposeOrExecuteOrganiserAssigneeChange({
+        organisationId: 'org-a', userId: 'u1', actorName: 'Manager Mia', itemId: ITEM_A, assigneeName: 'Target Tara',
+        confirmationToken: proposal.confirmationToken,
+      })
+      expect(result).toEqual({ ok: false, reason: 'expired_confirmation' })
+      expect(sqlCalls).toHaveLength(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('target item no longer exists at confirm time -> item_not_found, token left unburned', async () => {
+    const proposal = await proposeAssigneeChange()
+    sqlCalls = []
+    sqlResultQueue = [executedAssigneeChangeRow({ item_found: 0, was_consumed: 0, target_valid: false, updated_id: null, item_name: null })]
+    const result = await proposeOrExecuteOrganiserAssigneeChange({
+      organisationId: 'org-a', userId: 'u1', actorName: 'Manager Mia', itemId: ITEM_A, assigneeName: 'Target Tara',
+      confirmationToken: proposal.confirmationToken,
+    })
+    expect(result).toEqual({ ok: false, reason: 'item_not_found' })
+    expect(sqlCalls).toHaveLength(1)
+  })
+
+  it('a token already present in the ledger (was_consumed=0, item_found=1) -> already_used_confirmation', async () => {
+    const proposal = await proposeAssigneeChange()
+    sqlCalls = []
+    sqlResultQueue = [executedAssigneeChangeRow({ item_found: 1, was_consumed: 0, updated_id: null, item_name: null })]
+    const result = await proposeOrExecuteOrganiserAssigneeChange({
+      organisationId: 'org-a', userId: 'u1', actorName: 'Manager Mia', itemId: ITEM_A, assigneeName: 'Target Tara',
+      confirmationToken: proposal.confirmationToken,
+    })
+    expect(result).toEqual({ ok: false, reason: 'already_used_confirmation' })
+  })
+
+  it('D.4.6P CRITICAL: item_found=1, was_consumed=1, target valid, but the UPDATE matched zero rows (stale assignee) -> stale_item_assignee — the jti was still burned', async () => {
+    const proposal = await proposeAssigneeChange()
+    sqlCalls = []
+    // Simulates the exact scenario: another actor reassigned the item to a
+    // DIFFERENT person between propose and confirm, so the atomic UPDATE's
+    // own `target_item.assignee_user_id IS NOT DISTINCT FROM
+    // expectedCurrentAssigneeUserId` guard matched zero rows even though the
+    // ledger consume succeeded.
+    sqlResultQueue = [executedAssigneeChangeRow({ item_found: 1, was_consumed: 1, target_valid: true, updated_id: null, item_name: null })]
+    const result = await proposeOrExecuteOrganiserAssigneeChange({
+      organisationId: 'org-a', userId: 'u1', actorName: 'Manager Mia', itemId: ITEM_A, assigneeName: 'Target Tara',
+      confirmationToken: proposal.confirmationToken,
+    })
+    expect(result).toEqual({ ok: false, reason: 'stale_item_assignee' })
+  })
+
+  it('D.4.6P: target user deactivated/deleted/moved to another org before confirm (target_valid=false) -> assignee_no_longer_valid — the jti was still burned', async () => {
+    const proposal = await proposeAssigneeChange()
+    sqlCalls = []
+    sqlResultQueue = [executedAssigneeChangeRow({ item_found: 1, was_consumed: 1, target_valid: false, updated_id: null, item_name: null })]
+    const result = await proposeOrExecuteOrganiserAssigneeChange({
+      organisationId: 'org-a', userId: 'u1', actorName: 'Manager Mia', itemId: ITEM_A, assigneeName: 'Target Tara',
+      confirmationToken: proposal.confirmationToken,
+    })
+    expect(result).toEqual({ ok: false, reason: 'assignee_no_longer_valid' })
+  })
+
+  it('D.4.6P: replaying the exact same confirmationToken a second time (fresh call, same token) is rejected as already_used_confirmation', async () => {
+    const proposal = await proposeAssigneeChange()
+    sqlCalls = []
+    sqlResultQueue = [executedAssigneeChangeRow()]
+    const first = await proposeOrExecuteOrganiserAssigneeChange({
+      organisationId: 'org-a', userId: 'u1', actorName: 'Manager Mia', itemId: ITEM_A, assigneeName: 'Target Tara',
+      confirmationToken: proposal.confirmationToken,
+    })
+    expect(first.ok).toBe(true)
+
+    sqlResultQueue = [executedAssigneeChangeRow({ was_consumed: 0, updated_id: null, item_name: null })]
+    const second = await proposeOrExecuteOrganiserAssigneeChange({
+      organisationId: 'org-a', userId: 'u1', actorName: 'Manager Mia', itemId: ITEM_A, assigneeName: 'Target Tara',
+      confirmationToken: proposal.confirmationToken,
+    })
+    expect(second).toEqual({ ok: false, reason: 'already_used_confirmation' })
+  })
+
+  it('the jti is passed to the ledger INSERT exactly as decoded from the token, with action_type change_assignee', async () => {
+    const proposal = await proposeAssigneeChange()
+    sqlCalls = []
+    sqlResultQueue = [executedAssigneeChangeRow()]
+    await proposeOrExecuteOrganiserAssigneeChange({
+      organisationId: 'org-a', userId: 'u1', actorName: 'Manager Mia', itemId: ITEM_A, assigneeName: 'Target Tara',
+      confirmationToken: proposal.confirmationToken,
+    })
+    const decode = (t: string) => JSON.parse(Buffer.from(t.split('.')[1], 'base64url').toString('utf8'))
+    const { jti } = decode(proposal.confirmationToken)
+    expect(sqlCalls[0].values).toContain(jti)
+    expect(sqlCalls[0].text).toMatch(/'change_assignee'/)
+  })
+
+  it('the actor written to organiser_activity is the CURRENT trusted session, not anything from the token payload', async () => {
+    const proposal = await proposeAssigneeChange()
+    sqlCalls = []
+    sqlResultQueue = [executedAssigneeChangeRow()]
+    await proposeOrExecuteOrganiserAssigneeChange({
+      organisationId: 'org-a', userId: 'u1', actorName: 'Manager Mia (current session)', itemId: ITEM_A, assigneeName: 'Target Tara',
+      confirmationToken: proposal.confirmationToken,
+    })
+    expect(sqlCalls[0].values).toContain('Manager Mia (current session)')
+  })
+})
+
+describe('source-shape invariants — assignee change', () => {
+  it('reuses one atomic CTE combining the ledger consume, the item assignee_user_id UPDATE, and organiser_activity — no separate/second mutation statement', () => {
+    expect(SOURCE).toMatch(/WITH target_item AS MATERIALIZED \(/)
+    expect(SOURCE).toMatch(/UPDATE organiser_items i\s*\n\s*SET assignee_user_id = \$\{verified\.targetAssigneeUserId\}/)
+    expect(SOURCE).toMatch(/target_item\.assignee_user_id IS NOT DISTINCT FROM \$\{verified\.expectedCurrentAssigneeUserId\}/)
+  })
+
+  it('reuses the EXISTING item.updated activity event type — no new event vocabulary introduced (assignment is a scalar field edit, unlike group move\'s dedicated item.moved event)', () => {
+    const idx = SOURCE.indexOf('proposeOrExecuteOrganiserAssigneeChange')
+    const region = SOURCE.slice(idx, idx + 10000)
+    expect(region).toMatch(/'item\.updated'/)
+    expect(region).not.toMatch(/'item\.assigned'/)
+    expect(region).not.toMatch(/'item\.reassigned'/)
+  })
+
+  it('the target user is revalidated (organisation + ACTIVE) INSIDE the confirm-time atomic statement — never trusted merely because it passed at propose time', () => {
+    const idx = SOURCE.indexOf('proposeOrExecuteOrganiserAssigneeChange')
+    const region = SOURCE.slice(idx, idx + 10000)
+    expect(region).toMatch(/target_check/)
+    expect(region).toMatch(/target_valid/)
+  })
+
+  it('the ledger consume for assignee change is gated ONLY on the item existing, never on target validity (stale-confirmation-consumption asymmetry)', () => {
+    const idx = SOURCE.indexOf('proposeOrExecuteOrganiserAssigneeChange')
+    const region = SOURCE.slice(idx, idx + 10000)
+    const consumedIdx = region.indexOf('consumed AS (')
+    const consumedBlock = region.slice(consumedIdx, region.indexOf('updated AS (', consumedIdx))
+    expect(consumedBlock).toMatch(/WHERE EXISTS \(SELECT 1 FROM target_item\)/)
+    expect(consumedBlock).not.toMatch(/target_check/)
+  })
+
+  it('the model never supplies a user id directly — the tool param is assigneeName (a plain string), resolved server-side only', () => {
+    const idx = SOURCE.indexOf('ProposeOrExecuteAssigneeChangeParams')
+    const region = SOURCE.slice(idx, idx + 1200)
+    expect(region).toMatch(/assigneeName: string/)
+    expect(region).not.toMatch(/assigneeUserId/)
+  })
+
+  it('no bulk or multi-item assignment capability exists anywhere in this file', () => {
+    expect(SOURCE).not.toMatch(/itemIds\s*:\s*string\[\]|assigneeUserIds\s*:\s*string\[\]/)
   })
 })

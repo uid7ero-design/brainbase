@@ -1176,3 +1176,421 @@ export async function proposeOrExecuteOrganiserGroupMove(
     confirmationToken,
   };
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// Phase D.4.6P — Helena's FOURTH (and, for this phase, last) Organiser
+// write action: assigning one existing item to one existing, ACTIVE,
+// same-organisation user. Same propose/confirm+execute contract as the
+// three actions above (see proposeOrExecuteOrganiserComment's own header).
+//
+// IDENTITY MODEL — organiser_items.assignee_user_id (migration step 47) is
+// a NEW, separate column from the legacy, free-text organiser_items.owner.
+// The model NEVER supplies a user id directly — only a plain assigneeName
+// string (the user's own words), resolved server-side, at PROPOSE time
+// only, to exactly one ACTIVE user in the caller's own organisation. This
+// mirrors propose_organiser_group_move's destinationGroupName resolution
+// exactly (see that action's own header): exact, case-insensitive name
+// match, never ILIKE/substring, never guessed. users.name has NO
+// uniqueness constraint (see prisma/schema.prisma's User model — only
+// username/email are @unique), so more than one same-named ACTIVE user in
+// the same organisation surfaces as 'ambiguous_assignee', never an
+// arbitrarily-picked row. INACTIVE users and users from a different
+// organisation are structurally invisible to this lookup (both conditions
+// are part of the WHERE clause), never merely filtered after the fact.
+//
+// STALE-ASSIGNMENT PROTECTION (mirrors D.4.6O's stale-location guard) —
+// the token binds expectedCurrentAssigneeUserId, the item's
+// assignee_user_id AT PROPOSE TIME (nullable — an item can be
+// unassigned). At confirm time, the atomic statement locks the target row
+// (FOR UPDATE) and only applies the UPDATE when the row's TRUE, currently-
+// committed assignee_user_id (NULL-safe IS NOT DISTINCT FROM) still equals
+// expectedCurrentAssigneeUserId — if another actor reassigned the item in
+// the interim, the UPDATE's own WHERE clause matches zero rows and nothing
+// is overwritten.
+//
+// TARGET-RACE PROTECTION — the target user is re-validated (exists, same
+// organisation, still ACTIVE) INSIDE the same atomic confirm-time
+// statement, never trusted merely because it passed validation at propose
+// time — if the target user was deactivated, deleted, or (were it ever
+// possible) moved to another organisation in the interim, the UPDATE's own
+// WHERE clause matches zero rows and nothing is overwritten.
+//
+// STALE-CONFIRMATION CONSUMPTION — identical asymmetry to the other two
+// stale-guarded actions: the ledger `consumed` INSERT is gated ONLY on the
+// target item existing, never on the current-assignee or target-validity
+// checks passing. A stale-assignee or target-no-longer-valid attempt DOES
+// burn its jti; only item_not_found leaves it unburned — see this module's
+// own "STALE-CONFIRMATION CONSUMPTION" header above for the full
+// reasoning, unchanged here.
+//
+// ACTIVITY — reuses the ALREADY-EXISTING 'item.updated' event_type (the
+// same event the human PATCH route emits for owner/status/priority/notes
+// field edits) — no new event vocabulary is introduced. Assignment is a
+// plain scalar field edit, structurally unlike a group move (which changes
+// which group/board container an item belongs to and therefore earns its
+// own 'item.moved' event) — see the human PATCH route's own event_type
+// CASE expression, which only ever fires 'item.moved' for a group_id/
+// parent_item_id change.
+
+interface AssigneeChangeTokenPayload {
+  purpose: typeof TOKEN_PURPOSE;
+  actionType: 'change_assignee';
+  organisationId: string;
+  userId: string;
+  itemId: string;
+  /** Snapshot of the item's assignee_user_id AT PROPOSE TIME — null when
+   *  the item was unassigned. The sole basis for the stale-assignment
+   *  comparison at confirm time; never re-derived from a fresh read at
+   *  confirm time. */
+  expectedCurrentAssigneeUserId: string | null;
+  targetAssigneeUserId: string;
+  /** Display-only snapshots (never the security check) — a user renaming
+   *  themselves between propose and confirm is cosmetic, not a correctness
+   *  issue. */
+  previousAssigneeName: string | null;
+  targetAssigneeName: string;
+  jti: string;
+}
+
+async function signAssigneeChangeActionToken(payload: AssigneeChangeTokenPayload): Promise<string> {
+  return new SignJWT(payload as unknown as Record<string, unknown>)
+    .setProtectedHeader({ alg: 'HS256' })
+    .setIssuedAt()
+    .setExpirationTime(TOKEN_TTL)
+    .sign(secret);
+}
+
+type VerifyAssigneeChangeActionTokenResult =
+  | {
+      ok: true;
+      itemId: string;
+      expectedCurrentAssigneeUserId: string | null;
+      targetAssigneeUserId: string;
+      previousAssigneeName: string | null;
+      targetAssigneeName: string;
+      jti: string;
+      exp: number;
+    }
+  | { ok: false; reason: 'expired' | 'invalid' };
+
+/** Deliberately a separate function from the other three verifiers — see
+ *  this module's own D.4.6N header for why keeping each action type's
+ *  verification path independent is the safer choice. Same shape of
+ *  checks: signature, purpose, actionType, session binding, well-formed
+ *  jti/ids; expectedCurrentAssigneeUserId is allowed to be null (an
+ *  unassigned item) but targetAssigneeUserId (a real users.id, cuid —
+ *  never UUID-shaped) must always be a non-empty string. */
+async function verifyAssigneeChangeActionToken(
+  token: string,
+  expected: { organisationId: string; userId: string },
+): Promise<VerifyAssigneeChangeActionTokenResult> {
+  try {
+    const { payload } = await jwtVerify(token, secret, { algorithms: ['HS256'] });
+    const p = payload as unknown as AssigneeChangeTokenPayload;
+    if (p.purpose !== TOKEN_PURPOSE) return { ok: false, reason: 'invalid' };
+    if (p.actionType !== 'change_assignee') return { ok: false, reason: 'invalid' };
+    if (p.organisationId !== expected.organisationId) return { ok: false, reason: 'invalid' };
+    if (p.userId !== expected.userId) return { ok: false, reason: 'invalid' };
+    if (typeof p.itemId !== 'string' || !UUID_RE.test(p.itemId)) return { ok: false, reason: 'invalid' };
+    if (p.expectedCurrentAssigneeUserId !== null && typeof p.expectedCurrentAssigneeUserId !== 'string') {
+      return { ok: false, reason: 'invalid' };
+    }
+    if (typeof p.targetAssigneeUserId !== 'string' || p.targetAssigneeUserId.length === 0) return { ok: false, reason: 'invalid' };
+    if (p.previousAssigneeName !== null && typeof p.previousAssigneeName !== 'string') return { ok: false, reason: 'invalid' };
+    if (typeof p.targetAssigneeName !== 'string') return { ok: false, reason: 'invalid' };
+    if (typeof p.jti !== 'string' || !UUID_RE.test(p.jti)) return { ok: false, reason: 'invalid' };
+    const exp = (payload as { exp?: number }).exp;
+    if (typeof exp !== 'number') return { ok: false, reason: 'invalid' };
+    return {
+      ok: true,
+      itemId: p.itemId,
+      expectedCurrentAssigneeUserId: p.expectedCurrentAssigneeUserId,
+      targetAssigneeUserId: p.targetAssigneeUserId,
+      previousAssigneeName: p.previousAssigneeName,
+      targetAssigneeName: p.targetAssigneeName,
+      jti: p.jti,
+      exp,
+    };
+  } catch (err) {
+    if (err instanceof joseErrors.JWTExpired) return { ok: false, reason: 'expired' };
+    return { ok: false, reason: 'invalid' };
+  }
+}
+
+export type ProposeOrExecuteAssigneeChangeResult =
+  | {
+      ok: true;
+      mode: 'proposed';
+      proposal: {
+        item_id: string;
+        item_name: string;
+        previous_assignee_user_id: string | null;
+        previous_assignee_name: string | null;
+        new_assignee_user_id: string;
+        new_assignee_name: string;
+      };
+      confirmationToken: string;
+    }
+  | {
+      ok: true;
+      mode: 'executed';
+      item: { id: string; name: string; previous_assignee_name: string | null; new_assignee_name: string };
+    }
+  | {
+      ok: false;
+      reason:
+        | 'invalid_item_id'
+        | 'item_not_found'
+        // Phase D.4.6P — no ACTIVE user in this organisation has that
+        // exact name. Never guessed.
+        | 'assignee_not_found'
+        // Phase D.4.6P — more than one ACTIVE user in this organisation
+        // shares that exact name. The user must give a more specific name
+        // (e.g. include a surname) or the proposal must be re-issued once
+        // disambiguated.
+        | 'ambiguous_assignee'
+        // Phase D.4.6P — the named user already equals the item's current
+        // assignee. Deliberately never mints a token for this (mirrors
+        // noop_same_status/noop_same_group): a no-op has nothing to
+        // confirm.
+        | 'noop_same_assignee'
+        | 'invalid_confirmation'
+        | 'expired_confirmation'
+        | 'already_used_confirmation'
+        // Phase D.4.6P — the token verified fully, but the item's TRUE
+        // current assignee (read under FOR UPDATE at confirm time) no
+        // longer matches expectedCurrentAssigneeUserId. The jti IS still
+        // consumed (see this module's own header) — nothing was
+        // overwritten.
+        | 'stale_item_assignee'
+        // Phase D.4.6P — the token verified fully and the current
+        // assignee still matched, but the TARGET user is no longer a
+        // valid candidate (deactivated, deleted, or no longer in this
+        // organisation) at confirm time. The jti IS still consumed —
+        // nothing was overwritten.
+        | 'assignee_no_longer_valid';
+    };
+
+export interface ProposeOrExecuteAssigneeChangeParams {
+  organisationId: string;
+  userId: string;
+  actorName: string;
+  itemId: string;
+  /** Plain target-assignee name as the model/user expressed it — never a
+   *  user id the model could supply directly. Resolved server-side, at
+   *  PROPOSE time only, to exactly one ACTIVE user in the caller's own
+   *  organisation; the resolved id is what the confirmation token actually
+   *  binds. */
+  assigneeName: string;
+  /** Present ONLY when sourced from the trusted, non-model-controlled
+   *  top-level request field (see app/api/chat/route.ts) — never from a
+   *  model tool-call argument. Same trust boundary as the other three
+   *  actions' confirmationToken. */
+  confirmationToken?: string;
+}
+
+/**
+ * The single domain function behind Helena's fourth write tool. Reuses the
+ * exact same FOR UPDATE + MATERIALIZED CTE race-safety discipline already
+ * proven for status change and group move, combined with the exact same
+ * durable single-use ledger conflict-detection mechanism against
+ * organiser_action_confirmations (migration step 48's action_type
+ * expansion). event_type 'item.updated' is the EXISTING canonical
+ * field-edit activity event (already used by the human PATCH route for
+ * any owner/status/priority/notes change) — no new event vocabulary is
+ * introduced.
+ */
+export async function proposeOrExecuteOrganiserAssigneeChange(
+  params: ProposeOrExecuteAssigneeChangeParams,
+): Promise<ProposeOrExecuteAssigneeChangeResult> {
+  const { organisationId, userId, actorName } = params;
+
+  if (params.confirmationToken) {
+    // ── CONFIRM + EXECUTE ──────────────────────────────────────────────
+    // The model's CURRENT itemId/assigneeName arguments are deliberately
+    // never consulted below this point — only the values embedded inside
+    // the verified token are used, exactly mirroring the other three
+    // actions' own guarantee.
+    const verified = await verifyAssigneeChangeActionToken(params.confirmationToken, { organisationId, userId });
+    if (!verified.ok) {
+      return { ok: false, reason: verified.reason === 'expired' ? 'expired_confirmation' : 'invalid_confirmation' };
+    }
+
+    // ONE atomic statement performs, in order:
+    //   1. lock the target row (target_item, FOR UPDATE) — race-safety
+    //      foundation for the stale-assignment comparison below, identical
+    //      in spirit to the group-move action's own target_item lock;
+    //   2. compute target_check — whether the target user still exists,
+    //      is still in this organisation, and is still ACTIVE — computed
+    //      independently of whether target_item found a row, so it always
+    //      resolves to a harmless false when the item itself is missing;
+    //   3. attempt to durably consume this exact jti (consumed) — gated
+    //      ONLY on the item existing, never on the current-assignee or
+    //      target-validity checks passing (see this module's own
+    //      "STALE-CONFIRMATION CONSUMPTION" header);
+    //   4. apply the UPDATE — gated on target_item/consumed existing AND
+    //      target_item.assignee_user_id still matching
+    //      expectedCurrentAssigneeUserId (NULL-safe) AND the target user
+    //      still being valid;
+    //   5. insert the activity row — only if the UPDATE produced a row.
+    // Every outcome is distinguishable from the single final SELECT:
+    //   item_found=0                                      -> item_not_found (token unburned)
+    //   item_found=1, was_consumed=0                       -> already_used_confirmation
+    //   item_found=1, consumed=1, !target_valid            -> assignee_no_longer_valid (token burned)
+    //   item_found=1, consumed=1, target valid, mismatch   -> stale_item_assignee (token burned)
+    //   item_found=1, consumed=1, target valid, matched    -> executed
+    // If any part of this statement fails, Postgres rolls back the ENTIRE
+    // statement — including the ledger consume and the assignee UPDATE —
+    // so a transient failure can never leave a partial assignment or a
+    // permanently-burned token with nothing actually having committed.
+    const rows = await sql`
+      WITH target_item AS MATERIALIZED (
+        SELECT id, board_id, name, assignee_user_id FROM organiser_items
+        WHERE id = ${verified.itemId} AND organisation_id = ${organisationId}
+        FOR UPDATE
+      ),
+      target_check AS (
+        SELECT EXISTS (
+          SELECT 1 FROM users u
+          WHERE u.id = ${verified.targetAssigneeUserId}
+            AND u.organisation_id = ${organisationId}
+            AND u.status = 'ACTIVE'
+        ) AS target_valid
+      ),
+      consumed AS (
+        INSERT INTO organiser_action_confirmations (jti, organisation_id, user_id, action_type, item_id, expires_at)
+        SELECT ${verified.jti}, ${organisationId}, ${userId}, 'change_assignee', ${verified.itemId}, to_timestamp(${verified.exp})
+        WHERE EXISTS (SELECT 1 FROM target_item)
+        ON CONFLICT (jti) DO NOTHING
+        RETURNING jti
+      ),
+      updated AS (
+        UPDATE organiser_items i
+        SET assignee_user_id = ${verified.targetAssigneeUserId}, updated_at = NOW()
+        FROM target_item, consumed, target_check
+        WHERE i.id = target_item.id
+          AND target_item.assignee_user_id IS NOT DISTINCT FROM ${verified.expectedCurrentAssigneeUserId}
+          AND target_check.target_valid
+        RETURNING i.id, i.board_id, i.name, i.assignee_user_id
+      ),
+      activity_row AS (
+        INSERT INTO organiser_activity (
+          organisation_id, board_id, item_id, actor_user_id, actor_name,
+          event_type, entity_type, entity_id, before_json, after_json, metadata_json
+        )
+        SELECT
+          ${organisationId}, updated.board_id, updated.id, ${userId}, ${actorName},
+          'item.updated', 'item', updated.id::text,
+          jsonb_build_object('assignee_user_id', organiser_activity_sanitise_scalar(to_jsonb(${verified.expectedCurrentAssigneeUserId}::text))),
+          jsonb_build_object('assignee_user_id', organiser_activity_sanitise_scalar(to_jsonb(updated.assignee_user_id))),
+          jsonb_build_object('source', 'helena')
+        FROM updated
+        RETURNING id
+      )
+      SELECT
+        (SELECT count(*) FROM target_item)::int AS item_found,
+        (SELECT count(*) FROM consumed)::int AS was_consumed,
+        (SELECT target_valid FROM target_check) AS target_valid,
+        updated.id AS updated_id, updated.name AS item_name
+      FROM (SELECT 1) AS one_row
+      LEFT JOIN updated ON true
+    `;
+
+    const row = rows[0] as {
+      item_found: number;
+      was_consumed: number;
+      target_valid: boolean;
+      updated_id: string | null;
+      item_name: string | null;
+    };
+
+    if (row.item_found === 0) return { ok: false, reason: 'item_not_found' };
+    if (row.was_consumed === 0) return { ok: false, reason: 'already_used_confirmation' };
+    if (!row.updated_id) {
+      if (!row.target_valid) return { ok: false, reason: 'assignee_no_longer_valid' };
+      return { ok: false, reason: 'stale_item_assignee' };
+    }
+
+    return {
+      ok: true,
+      mode: 'executed',
+      item: {
+        id: row.updated_id,
+        name: row.item_name ?? '',
+        previous_assignee_name: verified.previousAssigneeName,
+        new_assignee_name: verified.targetAssigneeName,
+      },
+    };
+  }
+
+  // ── PROPOSE ────────────────────────────────────────────────────────────
+  if (!UUID_RE.test(params.itemId)) return { ok: false, reason: 'invalid_item_id' };
+  const assigneeName = params.assigneeName.trim();
+  if (assigneeName.length === 0) return { ok: false, reason: 'assignee_not_found' };
+
+  // Phase D.4.6P — same opportunistic ledger maintenance as the other
+  // three actions' own propose path (see pruneExpiredConfirmationsBestEffort's
+  // own header) — deliberately after the zero-sql-for-invalid-input checks
+  // above.
+  await pruneExpiredConfirmationsBestEffort();
+
+  const itemRows = await sql`
+    SELECT i.id, i.name, i.board_id, i.assignee_user_id, u.name AS current_assignee_name
+    FROM organiser_items i
+    LEFT JOIN users u ON u.id = i.assignee_user_id
+    WHERE i.id = ${params.itemId} AND i.organisation_id = ${organisationId}
+    LIMIT 1
+  `;
+  if (itemRows.length === 0) return { ok: false, reason: 'item_not_found' };
+  const item = itemRows[0] as { id: string; name: string; board_id: string; assignee_user_id: string | null; current_assignee_name: string | null };
+
+  // Phase D.4.6P — organisation-scoped, ACTIVE-only, case-insensitive
+  // EXACT name match (never ILIKE wildcards, never a substring match) —
+  // mirrors propose_organiser_group_move's destinationGroupName resolution
+  // exactly (see that action's own header). An INACTIVE user or a user in
+  // a different organisation is structurally invisible to this lookup —
+  // both conditions are part of the WHERE clause, never filtered after
+  // the fact.
+  const candidateRows = await sql`
+    SELECT id, name FROM users
+    WHERE organisation_id = ${organisationId}
+      AND status = 'ACTIVE'
+      AND LOWER(name) = LOWER(${assigneeName})
+  `;
+  if (candidateRows.length === 0) return { ok: false, reason: 'assignee_not_found' };
+  if (candidateRows.length > 1) return { ok: false, reason: 'ambiguous_assignee' };
+  const candidate = candidateRows[0] as { id: string; name: string };
+
+  if (item.assignee_user_id === candidate.id) return { ok: false, reason: 'noop_same_assignee' };
+
+  const confirmationToken = await signAssigneeChangeActionToken({
+    purpose: TOKEN_PURPOSE,
+    actionType: 'change_assignee',
+    organisationId,
+    userId,
+    itemId: params.itemId,
+    expectedCurrentAssigneeUserId: item.assignee_user_id,
+    targetAssigneeUserId: candidate.id,
+    previousAssigneeName: item.current_assignee_name,
+    targetAssigneeName: candidate.name,
+    // Phase D.4.6P — minted fresh on every proposal, never derived from
+    // item/assignee (a resend of an identical proposal gets a different
+    // jti, and therefore its own independent single-use slot in the
+    // ledger) — same discipline as the other three actions' own jti.
+    jti: randomUUID(),
+  });
+
+  return {
+    ok: true,
+    mode: 'proposed',
+    proposal: {
+      item_id: params.itemId,
+      item_name: item.name,
+      previous_assignee_user_id: item.assignee_user_id,
+      previous_assignee_name: item.current_assignee_name,
+      new_assignee_user_id: candidate.id,
+      new_assignee_name: candidate.name,
+    },
+    confirmationToken,
+  };
+}
