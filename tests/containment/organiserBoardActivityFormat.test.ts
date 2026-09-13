@@ -172,6 +172,22 @@ describe('describeBoardActivityEvent — summaries always name the affected item
     expect(desc.diffs).toEqual([{ label: 'Group', before: 'Test', after: 'Test 222' }])
   })
 
+  // Phase D.4.6P — board-feed assignee resolution: proves the fourth
+  // (userNamesById) parameter reaches describeBoardActivityEvent's own
+  // item.updated path, not just describeActivityEvent's (see
+  // organiserActivityFormat.test.ts for the equivalent single-item tests
+  // this mirrors) — both surfaces share the same underlying resolver.
+  it('item.updated resolves an assignee_user_id diff to a friendly "Assignee" row in the board feed too, given a userNamesById map', () => {
+    const desc = describeBoardActivityEvent({
+      event_type: 'item.updated',
+      actor: { name: 'Admin' },
+      entity_id: 'i1',
+      before: { assignee_user_id: null },
+      after: { assignee_user_id: 'user-1' },
+    }, {}, { i1: 'Follow up supplier' }, { 'user-1': 'James Palmer' })
+    expect(desc.diffs).toEqual([{ label: 'Assignee', before: 'Unassigned', after: 'James Palmer' }])
+  })
+
   it('item.deleted names the item via its before snapshot, with no diffs', () => {
     const desc = describeBoardActivityEvent({
       event_type: 'item.deleted',
