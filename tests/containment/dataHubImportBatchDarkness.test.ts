@@ -95,6 +95,18 @@ const C0_PREVIEW_ROUTE = path.join("app", "api", "data-hub", "worksheets", "[id]
 // route.
 const B4B_MAPPING_SELECTION_ROUTE = path.join("app", "api", "data-hub", "worksheets", "[id]", "mapping-selection", "route.ts");
 
+// 6.1C — the Source configuration admin UI is the FIRST direct
+// app/**/components/** importer of illegalDumpingMapper.ts's canonical
+// field-vocabulary constants (ILLEGAL_DUMPING_KNOWN_HEADERS/
+// REQUIRED_HEADERS only — no mapper function, no row-shaped data). This
+// is a deliberate, explicitly-authorized reuse (the 6.1C spec's own
+// instruction: "do not duplicate these definitions manually if an
+// existing shared constant/type can be safely reused") rather than an
+// accidental new reachability path — confirmWorksheet.ts remains the only
+// caller of the module's actual mapping FUNCTIONS.
+const C61C_SOURCES_ADMIN_CLIENT = path.join("app", "data-hub", "sources", "SourcesAdminClient.tsx");
+const C61C_MAPPING_ROW_VALIDATION = path.join("app", "data-hub", "sources", "mappingRowValidation.ts");
+
 // Module name (as it appears in `.../importBatch/<name>`) -> the exact
 // set of app/**/components/** files authorized to import it.
 const AUTHORIZED_IMPORTERS_BY_MODULE: Record<string, Set<string>> = {
@@ -118,13 +130,14 @@ const AUTHORIZED_IMPORTERS_BY_MODULE: Record<string, Set<string>> = {
   // 5A.2K.1 -> 5A.2K.2 — the dark canonical worksheet-confirmation
   // service and its illegal-dumping row mapper gain their FIRST runtime
   // caller of any kind in this phase: exactly the new confirm route.
-  // illegalDumpingMapper.ts is never imported directly by any app route —
-  // it is reached only transitively, through confirmWorksheet.ts — so its
-  // own authorized-importer set (per this test's app/**/components/**
-  // regex, which matches DIRECT importers only) remains empty even though
-  // it is no longer unreachable at runtime.
+  // illegalDumpingMapper.ts's actual mapping FUNCTIONS are still reached
+  // only transitively, through confirmWorksheet.ts — no app route calls
+  // them directly. Its canonical-vocabulary CONSTANTS
+  // (ILLEGAL_DUMPING_KNOWN_HEADERS/REQUIRED_HEADERS) gained their first
+  // direct app/**/components/** importers in 6.1C — see that constant's
+  // own declarations above for the rationale.
   confirmWorksheet: new Set([K2_CONFIRM_ROUTE]),
-  illegalDumpingMapper: new Set(),
+  illegalDumpingMapper: new Set([C61C_SOURCES_ADMIN_CLIENT, C61C_MAPPING_ROW_VALIDATION]),
   // 5A.3C.0 — the new bounded, read-only CSV worksheet preview service.
   // Exactly one authorized importer: its own new route.
   previewWorksheet: new Set([C0_PREVIEW_ROUTE]),

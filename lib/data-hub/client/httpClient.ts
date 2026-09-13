@@ -45,6 +45,24 @@ import type {
   TransportResult,
   WorksheetPreviewResponseBody,
   WorksheetPreviewResult,
+  ListSourceSystemsAdminResponseBody,
+  ListSourceSystemsAdminResult,
+  CreateSourceSystemResponseBody,
+  CreateSourceSystemResult,
+  UpdateSourceSystemResponseBody,
+  UpdateSourceSystemResult,
+  ListSourceMappingsAdminResponseBody,
+  ListSourceMappingsAdminResult,
+  CreateSourceMappingResponseBody,
+  CreateSourceMappingResult,
+  UpdateSourceMappingResponseBody,
+  UpdateSourceMappingResult,
+  ListMappingVersionsResponseBody,
+  ListMappingVersionsResult,
+  CreateMappingVersionResponseBody,
+  CreateMappingVersionResult,
+  ActivateMappingVersionResponseBody,
+  ActivateMappingVersionResult,
 } from "./types";
 
 export interface HttpClientConfig {
@@ -464,6 +482,185 @@ export async function confirmIllegalDumping(
     config,
     resolveUrl(config, `/api/data-hub/worksheets/${encodeURIComponent(worksheetId)}/confirm-illegal-dumping`),
     { method: "POST" },
+    callOptions
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Data Hub 6.1C — Source configuration ADMIN calls. All six compose the
+// SAME existing routes as listSourceSystems/listSourceMappings/
+// getSourceMapping above (no new backend endpoint) — these differ only in
+// requesting the fuller admin DTO shape, allowing `active=all`, and adding
+// the five mutating calls (create/update/activate) that the import-flow
+// read-only helpers above never needed. organisation_id is never sent by
+// any of these — every route resolves it exclusively from the session.
+// ---------------------------------------------------------------------------
+
+export interface ListSourceSystemsAdminParams {
+  active?: "true" | "false" | "all";
+  cursor?: string;
+  limit?: number;
+}
+
+export async function listSourceSystemsAdmin(
+  params: ListSourceSystemsAdminParams = {},
+  config?: HttpClientConfig,
+  callOptions?: CallOptions
+): Promise<ListSourceSystemsAdminResult> {
+  const search = new URLSearchParams();
+  search.set("active", params.active ?? "all");
+  if (params.cursor !== undefined) search.set("cursor", params.cursor);
+  if (params.limit !== undefined) search.set("limit", String(params.limit));
+  return executeCall<ListSourceSystemsAdminResponseBody>(
+    config,
+    resolveUrl(config, `/api/data-hub/source-systems?${search.toString()}`),
+    { method: "GET" },
+    callOptions
+  );
+}
+
+export interface CreateSourceSystemInput {
+  name: string;
+  description?: string | null;
+}
+
+export async function createSourceSystem(
+  input: CreateSourceSystemInput,
+  config?: HttpClientConfig,
+  callOptions?: CallOptions
+): Promise<CreateSourceSystemResult> {
+  return executeCall<CreateSourceSystemResponseBody>(
+    config,
+    resolveUrl(config, "/api/data-hub/source-systems"),
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) },
+    callOptions
+  );
+}
+
+export interface UpdateSourceSystemInput {
+  name?: string;
+  description?: string | null;
+  active?: boolean;
+}
+
+export async function updateSourceSystem(
+  sourceSystemId: string,
+  input: UpdateSourceSystemInput,
+  config?: HttpClientConfig,
+  callOptions?: CallOptions
+): Promise<UpdateSourceSystemResult> {
+  return executeCall<UpdateSourceSystemResponseBody>(
+    config,
+    resolveUrl(config, `/api/data-hub/source-systems/${encodeURIComponent(sourceSystemId)}`),
+    { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) },
+    callOptions
+  );
+}
+
+export interface ListSourceMappingsAdminParams {
+  sourceSystemId: string;
+  active?: "true" | "false" | "all";
+  cursor?: string;
+  limit?: number;
+}
+
+export async function listSourceMappingsAdmin(
+  params: ListSourceMappingsAdminParams,
+  config?: HttpClientConfig,
+  callOptions?: CallOptions
+): Promise<ListSourceMappingsAdminResult> {
+  const search = new URLSearchParams();
+  search.set("active", params.active ?? "all");
+  search.set("sourceSystemId", params.sourceSystemId);
+  if (params.cursor !== undefined) search.set("cursor", params.cursor);
+  if (params.limit !== undefined) search.set("limit", String(params.limit));
+  return executeCall<ListSourceMappingsAdminResponseBody>(
+    config,
+    resolveUrl(config, `/api/data-hub/source-mappings?${search.toString()}`),
+    { method: "GET" },
+    callOptions
+  );
+}
+
+export interface CreateSourceMappingInput {
+  sourceSystemId: string;
+  name: string;
+}
+
+export async function createSourceMapping(
+  input: CreateSourceMappingInput,
+  config?: HttpClientConfig,
+  callOptions?: CallOptions
+): Promise<CreateSourceMappingResult> {
+  return executeCall<CreateSourceMappingResponseBody>(
+    config,
+    resolveUrl(config, "/api/data-hub/source-mappings"),
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) },
+    callOptions
+  );
+}
+
+export interface UpdateSourceMappingInput {
+  name?: string;
+  active?: boolean;
+}
+
+export async function updateSourceMapping(
+  sourceMappingId: string,
+  input: UpdateSourceMappingInput,
+  config?: HttpClientConfig,
+  callOptions?: CallOptions
+): Promise<UpdateSourceMappingResult> {
+  return executeCall<UpdateSourceMappingResponseBody>(
+    config,
+    resolveUrl(config, `/api/data-hub/source-mappings/${encodeURIComponent(sourceMappingId)}`),
+    { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) },
+    callOptions
+  );
+}
+
+export async function listMappingVersions(
+  sourceMappingId: string,
+  params: { cursor?: string; limit?: number } = {},
+  config?: HttpClientConfig,
+  callOptions?: CallOptions
+): Promise<ListMappingVersionsResult> {
+  const search = new URLSearchParams();
+  if (params.cursor !== undefined) search.set("cursor", params.cursor);
+  if (params.limit !== undefined) search.set("limit", String(params.limit));
+  const qs = search.toString();
+  return executeCall<ListMappingVersionsResponseBody>(
+    config,
+    resolveUrl(config, `/api/data-hub/source-mappings/${encodeURIComponent(sourceMappingId)}/versions${qs ? `?${qs}` : ""}`),
+    { method: "GET" },
+    callOptions
+  );
+}
+
+export async function createMappingVersion(
+  sourceMappingId: string,
+  mappingDocument: { fields: Record<string, string> },
+  config?: HttpClientConfig,
+  callOptions?: CallOptions
+): Promise<CreateMappingVersionResult> {
+  return executeCall<CreateMappingVersionResponseBody>(
+    config,
+    resolveUrl(config, `/api/data-hub/source-mappings/${encodeURIComponent(sourceMappingId)}/versions`),
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mappingDocument }) },
+    callOptions
+  );
+}
+
+export async function activateMappingVersion(
+  sourceMappingId: string,
+  mappingVersionId: string,
+  config?: HttpClientConfig,
+  callOptions?: CallOptions
+): Promise<ActivateMappingVersionResult> {
+  return executeCall<ActivateMappingVersionResponseBody>(
+    config,
+    resolveUrl(config, `/api/data-hub/source-mappings/${encodeURIComponent(sourceMappingId)}/activate-version`),
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mappingVersionId }) },
     callOptions
   );
 }

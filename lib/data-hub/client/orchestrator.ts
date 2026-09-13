@@ -37,10 +37,25 @@ import {
   listSourceSystems as callListSourceSystems,
   listWorksheetsForBatch as callListWorksheets,
   selectWorksheetMapping as callSelectWorksheetMapping,
+  listSourceSystemsAdmin as callListSourceSystemsAdmin,
+  createSourceSystem as callCreateSourceSystem,
+  updateSourceSystem as callUpdateSourceSystem,
+  listSourceMappingsAdmin as callListSourceMappingsAdmin,
+  createSourceMapping as callCreateSourceMapping,
+  updateSourceMapping as callUpdateSourceMapping,
+  listMappingVersions as callListMappingVersions,
+  createMappingVersion as callCreateMappingVersion,
+  activateMappingVersion as callActivateMappingVersion,
   type HttpClientConfig,
   type ListImportBatchesParams,
   type ListSourceMappingsParams,
   type ListSourceSystemsParams,
+  type ListSourceSystemsAdminParams,
+  type CreateSourceSystemInput,
+  type UpdateSourceSystemInput,
+  type ListSourceMappingsAdminParams,
+  type CreateSourceMappingInput,
+  type UpdateSourceMappingInput,
 } from "./httpClient";
 import { uploadFileDirectToBlob, resolveUploadPathname, type DirectUploadResult } from "./blobUpload";
 import { generateIdempotencyKey } from "./fileHash";
@@ -1197,6 +1212,49 @@ export function listSourceMappings(
 
 export function getSourceMapping(sourceMappingId: string, config?: HttpClientConfig) {
   return callGetSourceMapping(sourceMappingId, config);
+}
+
+// ---------------------------------------------------------------------------
+// Data Hub 6.1C — Source configuration ADMIN passthroughs. Same rationale
+// as listSourceSystems/listSourceMappings above: plain functions, existing
+// here solely to preserve this package's "UI never imports httpClient.ts
+// directly" boundary. Zero behavior beyond the underlying httpClient.ts call.
+// ---------------------------------------------------------------------------
+
+export function listSourceSystemsAdmin(params: ListSourceSystemsAdminParams = {}, config?: HttpClientConfig) {
+  return callListSourceSystemsAdmin(params, config);
+}
+
+export function createSourceSystem(input: CreateSourceSystemInput, config?: HttpClientConfig) {
+  return callCreateSourceSystem(input, config);
+}
+
+export function updateSourceSystem(sourceSystemId: string, input: UpdateSourceSystemInput, config?: HttpClientConfig) {
+  return callUpdateSourceSystem(sourceSystemId, input, config);
+}
+
+export function listSourceMappingsAdmin(params: ListSourceMappingsAdminParams, config?: HttpClientConfig) {
+  return callListSourceMappingsAdmin(params, config);
+}
+
+export function createSourceMapping(input: CreateSourceMappingInput, config?: HttpClientConfig) {
+  return callCreateSourceMapping(input, config);
+}
+
+export function updateSourceMapping(sourceMappingId: string, input: UpdateSourceMappingInput, config?: HttpClientConfig) {
+  return callUpdateSourceMapping(sourceMappingId, input, config);
+}
+
+export function listMappingVersions(sourceMappingId: string, params: { cursor?: string; limit?: number } = {}, config?: HttpClientConfig) {
+  return callListMappingVersions(sourceMappingId, params, config);
+}
+
+export function createMappingVersion(sourceMappingId: string, mappingDocument: { fields: Record<string, string> }, config?: HttpClientConfig) {
+  return callCreateMappingVersion(sourceMappingId, mappingDocument, config);
+}
+
+export function activateMappingVersion(sourceMappingId: string, mappingVersionId: string, config?: HttpClientConfig) {
+  return callActivateMappingVersion(sourceMappingId, mappingVersionId, config);
 }
 
 export { resolveUploadPathname };
