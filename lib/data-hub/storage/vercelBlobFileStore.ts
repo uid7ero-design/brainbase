@@ -336,9 +336,34 @@ export function createVercelBlobFileStore(config: VercelBlobFileStoreConfig): Ra
         );
       }
 
+      // 6.1C3 — useCache: false is REQUIRED here, not optional hardening.
+      // Root-caused from a real Production failure: get() defaults to
+      // useCache: true, meaning reads are served through Vercel's CDN
+      // cache. Official docs (vercel.com/docs/vercel-blob/private-storage
+      // #consistent-reads): "Reads are served through Vercel's CDN cache
+      // by default. ... During that window, get() can return the
+      // previous version. When a read must reflect the latest write,
+      // such as fetching a file right after updating it, pass
+      // useCache: false. This serves the read directly from origin
+      // storage and guarantees the latest content." This adapter's get()
+      // is called moments after every object's ONLY write (Data Hub
+      // finalize immediately verifies what the browser just uploaded) —
+      // the exact "fetch right after write" case the docs name. head()
+      // has no useCache option at all (BlobCommandOptions, confirmed in
+      // node_modules/@vercel/blob/dist/create-folder-BM6BTlko.d.ts, carries
+      // no such field — only GetCommandOptions does), so headInternal()'s
+      // own etag is always origin-fresh; without useCache: false here,
+      // get()'s etag could legitimately differ from it via a stale CDN
+      // edge response, producing a false-positive "etag changed between
+      // HEAD and GET" rejection of a perfectly intact upload (observed
+      // verbatim in Production, ImportBatch d63aa2ef-...). The extra
+      // Fast-Origin-Transfer cost of an uncached read is a one-time,
+      // per-batch cost here, not a hot content-delivery path — the
+      // documented tradeoff Vercel's own guidance recommends accepting
+      // for exactly this scenario.
       let getResult;
       try {
-        getResult = await blobGet(key, { access: "private", storeId, token });
+        getResult = await blobGet(key, { access: "private", storeId, token, useCache: false });
       } catch (err) {
         throw new RawFileStoreError("PROVIDER_FAILURE", `Failed to read object at key "${key}".`, err);
       }
@@ -367,6 +392,16 @@ export function createVercelBlobFileStore(config: VercelBlobFileStoreConfig): Ra
       // nothing extra and needs no contract expansion. Only compared
       // when both are present — this is additional hardening, not a
       // new required field.
+      //
+      // 6.1C3 — KEPT, not removed, after the useCache: false fix above.
+      // Official docs never guarantee HEAD/GET etag equality under
+      // caching (which is why it produced a real false positive), but
+      // give no reason to doubt equality once BOTH reads are genuinely
+      // origin-fresh (head() has no cache path at all; get() now has
+      // caching explicitly disabled) — at that point a mismatch would
+      // indicate a real anomaly (e.g. a concurrent overwrite this system
+      // never issues), so this remains a legitimate, low-noise safety
+      // net rather than the false-positive source it was before the fix.
       if (metadata.etag && getResult.blob.etag && metadata.etag !== getResult.blob.etag) {
         throw new RawFileStoreError(
           "PROVIDER_FAILURE",
