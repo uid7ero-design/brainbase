@@ -95,6 +95,16 @@ export default function UsersClient({ users, orgs, currentUserId }: { users: Use
                     style={{ background: '#111318', border: `1px solid ${BORDER}`, borderRadius: 6, color: ROLE_COLORS[u.role as Role] ?? '#9ca3af', fontSize: 12, padding: '4px 8px', cursor: 'pointer' }}
                   >
                     {ROLES.map(r => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
+                    {/* 'analyst' is deliberately excluded from ROLES above
+                        (not assignable through this UI — see the comment
+                        on ROLES) but IS a real value users.role can hold.
+                        Without this row-specific option, an analyst row's
+                        bound value would match none of the options above
+                        and hit the exact same display bug this fix
+                        addresses, silently showing "Super Admin" instead.
+                        Appending it only for a row that already holds it
+                        keeps it out of every other row's assignable list. */}
+                    {u.role === 'analyst' && <option value="analyst">{ROLE_LABELS.analyst}</option>}
                   </select>
                 </td>
                 <td style={{ padding: '14px 16px' }}>
