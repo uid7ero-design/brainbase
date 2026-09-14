@@ -8,10 +8,28 @@ import { canViewPerson } from '@/lib/hr/access';
 import { projectPersonRow, type HrPersonRow } from '@/lib/hr/projectPerson';
 import { logHrEvent } from '@/lib/hr/auditLog';
 import { extractRequestMeta } from '@/lib/hr/requestMeta';
+import { toDateStr } from '@/lib/date';
 import {
-  isValidWorkerType, isValidEmploymentStatus,
+  isValidWorkerType, isValidEmploymentStatus, isValidHrDate,
   isTeamInOrganisation, isTeamActive, isPersonInOrganisation, isUserInOrganisation,
 } from '@/lib/hr/validation';
+
+// HR-2 Step 1C — see app/api/hr/people/[id]/route.ts's own identical
+// helper for the full empirically-confirmed rationale (the `sql` client
+// returns a Postgres DATE column as a native JS Date object, not the
+// 'YYYY-MM-DD' string HrPersonRow's type declares). Duplicated here
+// rather than shared, matching this file's own existing convention of a
+// route-local loadPerson()-shaped helper rather than a new shared
+// lib/hr/*.ts module for a two-call-site concern.
+function normalizePersonDates(row: HrPersonRow): HrPersonRow {
+  const start = row.start_date as unknown;
+  const end = row.end_date as unknown;
+  return {
+    ...row,
+    start_date: start instanceof Date ? toDateStr(start) : (start as string | null),
+    end_date: end instanceof Date ? toDateStr(end) : (end as string | null),
+  };
+}
 
 // HR-1 — GET lists the people the caller may view (lib/hr/access.ts's
 // canViewPerson(), applied per row), never the whole organisation
@@ -45,8 +63,9 @@ export async function GET() {
     WHERE p.organisation_id = ${session.organisationId}
     ORDER BY p.first_name, p.last_name
   ` as HrPersonRow[];
+  const normalizedRows = rows.map(normalizePersonDates);
 
-  const visible = rows.filter(row =>
+  const visible = normalizedRows.filter(row =>
     canViewPerson(ctx, { organisationId: row.organisation_id, personId: row.id, managerPersonId: row.manager_person_id }),
   );
 
@@ -128,7 +147,16 @@ export async function POST(req: NextRequest) {
   const workEmail = typeof body.work_email === 'string' ? body.work_email.trim() || null : null;
   const workPhone = typeof body.work_phone === 'string' ? body.work_phone.trim() || null : null;
   const jobTitle = typeof body.job_title === 'string' ? body.job_title.trim() || null : null;
+
+  // HR-2 Step 1C — start_date is the only date field POST accepts today
+  // (end_date is not, and this slice does not add it — see this file's
+  // own history). Strict format/calendar validation via the shared
+  // isValidHrDate() helper; no ordering check is needed or possible
+  // here since there is no end_date to compare against at create time.
   const startDate = typeof body.start_date === 'string' ? body.start_date : null;
+  if (startDate !== null && !isValidHrDate(startDate)) {
+    return NextResponse.json({ error: 'Invalid start_date.', code: 'invalid_start_date' }, { status: 400 });
+  }
 
   let rows;
   try {
@@ -149,7 +177,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Could not create person.' }, { status: 500 });
   }
 
-  const created = rows[0] as HrPersonRow;
+  const created = normalizePersonDates(rows[0] as HrPersonRow);
 
   {
     const { ipAddress, userAgent } = extractRequestMeta(req);

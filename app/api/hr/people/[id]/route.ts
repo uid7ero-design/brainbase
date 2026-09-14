@@ -8,10 +8,42 @@ import { canViewPerson, canEditPerson, canManageEmployment } from '@/lib/hr/acce
 import { projectPersonRow, type HrPersonRow } from '@/lib/hr/projectPerson';
 import { logHrEvent } from '@/lib/hr/auditLog';
 import { extractRequestMeta } from '@/lib/hr/requestMeta';
+import { toDateStr } from '@/lib/date';
 import {
-  isValidWorkerType, isValidEmploymentStatus,
+  isValidWorkerType, isValidEmploymentStatus, isValidHrDate,
   isTeamInOrganisation, isTeamActive, isPersonInOrganisation, isUserInOrganisation,
 } from '@/lib/hr/validation';
+import { wouldCreateManagerCycle } from '@/lib/hr/reportingLines';
+
+// HR-2 Step 1C — empirically confirmed (by directly invoking
+// @neondatabase/serverless's own registered OID-1082 type parser; see
+// this phase's own report) that this repo's `sql` client returns a
+// Postgres DATE column as a native JS Date object, not the 'YYYY-MM-DD'
+// string HrPersonRow's own type declares — the SAME, already-documented
+// behavior lib/commercial/dates.ts's own Phase C3-EMAIL-FIX comment
+// describes for the identical driver/column type. Left un-normalized,
+// this breaks two things: (1) PR #212's changedFields diff, since
+// `existing.start_date` (a Date) is never `===`-equal to
+// `updates.start_date` (always a raw request-body string), so any
+// resubmission of an unchanged date is misdetected as a real change;
+// (2) API/audit output, since a raw Date serializes via
+// `Date.prototype.toJSON()`/`toISOString()` into a full timestamp
+// instead of a plain date. Normalizing immediately after every raw SQL
+// read — using this repo's own existing, already-proven
+// lib/date.ts#toDateStr() (local-getter based, matching how the driver
+// itself constructs the Date from local components) — fixes both at
+// the one point every downstream comparison/response already flows
+// through, without touching lib/hr/access.ts, lib/hr/context.ts, or any
+// same-org validation semantics.
+function normalizePersonDates(row: HrPersonRow): HrPersonRow {
+  const start = row.start_date as unknown;
+  const end = row.end_date as unknown;
+  return {
+    ...row,
+    start_date: start instanceof Date ? toDateStr(start) : (start as string | null),
+    end_date: end instanceof Date ? toDateStr(end) : (end as string | null),
+  };
+}
 
 async function loadPerson(id: string, organisationId: string): Promise<HrPersonRow | null> {
   // organisation_id is part of the WHERE clause, not applied after the
@@ -31,7 +63,8 @@ async function loadPerson(id: string, organisationId: string): Promise<HrPersonR
     WHERE p.id = ${id}::uuid AND p.organisation_id = ${organisationId}
     LIMIT 1
   ` as HrPersonRow[];
-  return rows[0] ?? null;
+  const row = rows[0];
+  return row ? normalizePersonDates(row) : null;
 }
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -161,11 +194,56 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     if (managerPersonId && !(await isPersonInOrganisation(managerPersonId, session.organisationId))) {
       return NextResponse.json({ error: 'Invalid manager.' }, { status: 400 });
     }
+    // HR-2 Step 1C — only an ACTUAL manager_person_id change is checked
+    // against cycle formation, mirroring team_id's own already-proven
+    // `teamId !== existing.team_id` gate (HR-2 Step 1B) exactly, one
+    // field over. Resubmitting the person's current, unchanged manager
+    // (alongside any other real edit) must never trigger a cycle query,
+    // and clearing the manager (managerPersonId === null) is always
+    // allowed without any traversal — both preserved by this same `&&`
+    // short-circuit.
+    if (managerPersonId && managerPersonId !== existing.manager_person_id) {
+      const wouldCycle = await wouldCreateManagerCycle({
+        organisationId: session.organisationId,
+        personId: existing.id,
+        proposedManagerPersonId: managerPersonId,
+      });
+      if (wouldCycle) {
+        return NextResponse.json({ error: 'This assignment would create a manager cycle.', code: 'manager_cycle' }, { status: 400 });
+      }
+    }
     updates.manager_person_id = managerPersonId;
   }
 
-  if ('start_date' in body) updates.start_date = typeof body.start_date === 'string' ? body.start_date : null;
-  if ('end_date' in body) updates.end_date = typeof body.end_date === 'string' ? body.end_date : null;
+  // HR-2 Step 1C — strict format/calendar validation first (each field
+  // independently), then an EFFECTIVE-resulting-state ordering check
+  // below — using the RESULTING start/end pair (this request's
+  // validated value where provided, otherwise the person's existing,
+  // already-normalized value), not merely the fields present in THIS
+  // request. This is what correctly catches e.g. a PATCH that only
+  // sends a new start_date landing after the person's existing,
+  // untouched end_date.
+  if ('start_date' in body) {
+    const v = typeof body.start_date === 'string' ? body.start_date : null;
+    if (v !== null && !isValidHrDate(v)) {
+      return NextResponse.json({ error: 'Invalid start_date.', code: 'invalid_start_date' }, { status: 400 });
+    }
+    updates.start_date = v;
+  }
+  if ('end_date' in body) {
+    const v = typeof body.end_date === 'string' ? body.end_date : null;
+    if (v !== null && !isValidHrDate(v)) {
+      return NextResponse.json({ error: 'Invalid end_date.', code: 'invalid_end_date' }, { status: 400 });
+    }
+    updates.end_date = v;
+  }
+  {
+    const effectiveStart = ('start_date' in updates ? updates.start_date : existing.start_date) as string | null;
+    const effectiveEnd = ('end_date' in updates ? updates.end_date : existing.end_date) as string | null;
+    if (effectiveStart !== null && effectiveEnd !== null && effectiveEnd < effectiveStart) {
+      return NextResponse.json({ error: 'end_date cannot be before start_date.', code: 'invalid_employment_dates' }, { status: 400 });
+    }
+  }
 
   if ('linked_user_id' in body) {
     const linkedUserId = typeof body.linked_user_id === 'string' && body.linked_user_id ? body.linked_user_id : null;
@@ -234,7 +312,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json({ error: 'Could not update person.' }, { status: 500 });
   }
 
-  const updated = rows[0] as HrPersonRow;
+  const updated = normalizePersonDates(rows[0] as HrPersonRow);
   const updatedTarget = { organisationId: updated.organisation_id, personId: updated.id, managerPersonId: updated.manager_person_id };
 
   {
