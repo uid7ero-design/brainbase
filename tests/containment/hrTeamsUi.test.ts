@@ -16,7 +16,7 @@ import path from 'path';
 // gated on the same canManage flag.
 
 function read(relPath: string): string {
-  return fs.readFileSync(path.join(process.cwd(), relPath), 'utf8');
+  return fs.readFileSync(path.join(process.cwd(), relPath), 'utf8').replace(/\r\n/g, '\n');
 }
 function stripComments(src: string): string {
   return src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
