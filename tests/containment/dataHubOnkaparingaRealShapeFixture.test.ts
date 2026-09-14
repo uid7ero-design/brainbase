@@ -207,8 +207,33 @@ describe("Onkaparinga real-shape fixture — end-to-end through the actual Previ
     expect(mapped[0].row.report_date.getUTCDate()).toBe(9);
   });
 
-  it("E. \"Abandoned\" (the third real observed Status value) still fails closed end-to-end — this fixture proves the 6.1C1 decision holds through the FULL real pipeline, not just the mapper in isolation", () => {
-    const bytes = buildCsv([syntheticRow({ "Ticket #": "00789", Status: "Abandoned" })]);
+  it("E. \"Abandoned\" (the third real observed Status value) now succeeds end-to-end and maps to ABANDONED with resolution_date still populated (6.1C2) — this fixture proves the decision holds through the FULL real pipeline, not just the mapper in isolation", () => {
+    const bytes = buildCsv([
+      syntheticRow({ "Ticket #": "00789", Status: "Abandoned", "Closed timestamp": "28-08-2026 12:00" }),
+    ]);
+    const decoded = decodeCsvOnly(bytes);
+    const compileResult = compileMapping(onkaparingaMappingDocument(), decoded.headers);
+    expect(compileResult.ok).toBe(true);
+    if (!compileResult.ok) return;
+    const canonicalRows = applyCompiledMappingToRows(compileResult.plan, decoded.rows);
+    const { headers: mapperHeaders, rows: mapperRows } = toIllegalDumpingMapperInput(canonicalRows);
+    const mapped = mapIllegalDumpingRows(mapperHeaders, mapperRows);
+
+    expect(mapped).toHaveLength(1);
+    expect(mapped[0].sourceExternalId).toBe("00789");
+    expect(mapped[0].row.status).toBe("ABANDONED");
+    // The Closed timestamp is legitimate operational metadata and must NOT
+    // be suppressed for an ABANDONED row — the correction belongs in the
+    // KPI's own interpretation (app/api/illegal-dumping/kpi/route.ts), not
+    // in withholding this value.
+    expect(mapped[0].row.resolution_date).not.toBeNull();
+    expect(mapped[0].row.resolution_date!.getUTCFullYear()).toBe(2026);
+    expect(mapped[0].row.resolution_date!.getUTCMonth()).toBe(7); // August
+    expect(mapped[0].row.resolution_date!.getUTCDate()).toBe(28);
+  });
+
+  it("E1. an unrecognized future Status value still fails closed end-to-end, proving fail-closed behavior survives the ABANDONED addition (not just Abandoned itself)", () => {
+    const bytes = buildCsv([syntheticRow({ "Ticket #": "00999", Status: "Some Future Workflow State" })]);
     const decoded = decodeCsvOnly(bytes);
     const compileResult = compileMapping(onkaparingaMappingDocument(), decoded.headers);
     expect(compileResult.ok).toBe(true);

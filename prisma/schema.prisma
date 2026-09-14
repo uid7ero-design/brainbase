@@ -2011,6 +2011,15 @@ enum IncidentStatus {
   IN_PROGRESS
   RESOLVED
   CLOSED
+  // Data Hub 6.1C2 — terminal, non-resolved outcome (e.g. Onkaparinga's
+  // real "Abandoned" source status). Deliberately distinct from CLOSED,
+  // whose only real runtime meaning (app/api/illegal-dumping/kpi/route.ts's
+  // resolved-count KPI) is synonymous with "resolved" — see
+  // lib/data-hub/importBatch/illegalDumpingMapper.ts's KNOWN_STATUS_MAP
+  // header comment for the full investigation and rationale. Additive only
+  // — scripts/create-illegal-dumping-abandoned-status.sql is the
+  // hand-written migration; no other IncidentStatus value changes.
+  ABANDONED
 }
 
 enum MissedStatus {

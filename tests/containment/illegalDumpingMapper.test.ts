@@ -502,8 +502,12 @@ describe("mapIllegalDumpingRows — status fail-closed compatibility (6.0B1)", (
     expect(mapOneRowWithStatus("  COMPLETED W/EXCEPTION  ")[0].status).toBe("RESOLVED");
   });
 
-  it("F. \"Abandoned\" throws IllegalDumpingMappingError — customer confirmation required, never silently OPEN", () => {
-    expect(() => mapOneRowWithStatus("Abandoned")).toThrow(IllegalDumpingMappingError);
+  it("F. \"Abandoned\" maps to ABANDONED (6.1C2 — customer-confirmation decision: terminal, non-resolved, never CLOSED/RESOLVED/OPEN/IN_PROGRESS)", () => {
+    expect(mapOneRowWithStatus("Abandoned")[0].status).toBe("ABANDONED");
+  });
+
+  it("F1. a case/whitespace-normalized variant of \"Abandoned\" still maps to ABANDONED", () => {
+    expect(mapOneRowWithStatus("  ABANDONED  ")[0].status).toBe("ABANDONED");
   });
 
   it("G. an arbitrary unknown future status (\"Some New Future Status\") throws IllegalDumpingMappingError", () => {
@@ -525,15 +529,16 @@ describe("mapIllegalDumpingRows — status fail-closed compatibility (6.0B1)", (
     expect(threw).toBe(true);
   });
 
-  it("I. no known real Onkaparinga status value maps to CLOSED under this patch", () => {
-    const knownValues = ["Resolved", "Booked", "Requires Input"];
+  it("I. no known real Onkaparinga status value maps to CLOSED — Abandoned included (6.1C2)", () => {
+    const knownValues = ["Resolved", "Booked", "Requires Input", "Abandoned"];
     for (const v of knownValues) {
       expect(mapOneRowWithStatus(v)[0].status).not.toBe("CLOSED");
     }
     // Abandoned (the obvious CLOSED candidate per discovery's own
-    // best-evidence analysis) is deliberately NOT given any status at
-    // all in this patch — it throws (F above) rather than being mapped
-    // to CLOSED without explicit customer authorization.
+    // best-evidence analysis) is deliberately given its OWN dedicated
+    // ABANDONED status (F above), never CLOSED — mapping it to CLOSED
+    // would have silently counted it toward the KPI route's "resolved"
+    // metric, exactly the lossy mapping this whole investigation avoided.
   });
 
   it("J. 6.0A Australian date parsing remains unaffected by this patch (spot-check)", () => {
@@ -554,7 +559,11 @@ describe("mapIllegalDumpingRows — status fail-closed compatibility (6.0B1)", (
     const headers = ["report_date", "location", "waste_type", "status", "source_external_id"];
     const rows = [
       ["2024-01-01", "Main St", "tyres", "Resolved", "EXT-1"],
-      ["2024-01-02", "Other St", "mattress", "Abandoned", "EXT-2"],
+      // "Abandoned" is no longer an unrecognized status as of 6.1C2 (it now
+      // maps to ABANDONED, F above) — an arbitrary unknown value is used
+      // here instead, to keep proving the same "whole batch aborts
+      // synchronously" invariant this test exists for.
+      ["2024-01-02", "Other St", "mattress", "Some Unrecognized Status", "EXT-2"],
     ];
     // mapIllegalDumpingRows is called by confirmWorksheet.ts strictly
     // BEFORE prisma.$transaction opens — a synchronous throw here means
