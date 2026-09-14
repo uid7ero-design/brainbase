@@ -592,6 +592,75 @@ describe('tenant isolation', () => {
   });
 });
 
+// ── HR-2 Step 1B — archived-team assignment rules ───────────────────
+//
+// Policy: a person may REMAIN on, or LEAVE, an archived team; a person
+// may never be NEWLY assigned or MOVED onto an archived team. Create has
+// no "existing" assignment to compare against, so any non-null team_id
+// there is always treated as a new assignment. PATCH only applies the
+// archived check when team_id is an ACTUAL value change — resubmitting
+// the person's current (possibly archived) team_id, even alongside a
+// real edit to an unrelated field, must succeed unchanged (the same
+// discipline PR #212 established for changedFields/audit content,
+// applied here to an authorization decision instead).
+
+describe('archived-team assignment rules', () => {
+  it('create rejects a team_id pointing at an archived team', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    queue([{ exists: true }], []); // isTeamInOrganisation succeeds; isTeamActive finds nothing (archived)
+    const res = await createPerson(jsonRequest('http://localhost/api/hr/people', 'POST', { first_name: 'A', last_name: 'B', team_id: 'archived-team' }));
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.code).toBe('team_archived');
+    expect(calls.some(c => c.text.includes('INSERT INTO hr_people'))).toBe(false);
+  });
+
+  it('PATCH rejects moving a person onto a DIFFERENT, archived team', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    // existing team_id is 'team-b' (a different, active team); the
+    // request moves to 'archived-team' — an actual change, so
+    // isTeamActive applies and fails.
+    queue([personRow({ id: 'p1', team_id: 'team-b' })], [{ exists: true }], []);
+    const res = await patchPerson(jsonRequest('http://localhost/api/hr/people/p1', 'PATCH', { team_id: 'archived-team' }), withParams('p1'));
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.code).toBe('team_archived');
+    expect(calls.some(c => c.text.includes('UPDATE hr_people'))).toBe(false);
+  });
+
+  it('PATCH allows resubmitting the SAME (possibly archived) team_id unchanged, alongside a real edit to an unrelated field', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    const existing = personRow({ id: 'p1', team_id: 'archived-team', job_title: 'Engineer' });
+    // team_id resubmitted identically to existing.team_id — isTeamActive
+    // must never be called (only 3 sql calls total: loadPerson,
+    // isTeamInOrganisation, UPDATE — never a 4th, archived-state call).
+    queue([existing], [{ exists: true }], [personRow({ id: 'p1', team_id: 'archived-team', job_title: 'New Title' })]);
+    const res = await patchPerson(jsonRequest('http://localhost/api/hr/people/p1', 'PATCH', { team_id: 'archived-team', job_title: 'New Title' }), withParams('p1'));
+    expect(res.status).toBe(200);
+    expect(sqlMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('PATCH allows clearing team_id (moving to null) while currently on an archived team', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    const existing = personRow({ id: 'p1', team_id: 'archived-team' });
+    // team_id: null skips both isTeamInOrganisation and isTeamActive
+    // entirely (both guarded by `if (teamId && ...)`) — only loadPerson
+    // and UPDATE run.
+    queue([existing], [personRow({ id: 'p1', team_id: null })]);
+    const res = await patchPerson(jsonRequest('http://localhost/api/hr/people/p1', 'PATCH', { team_id: null }), withParams('p1'));
+    expect(res.status).toBe(200);
+    expect(sqlMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('PATCH allows moving from an archived team onto a DIFFERENT, active team', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    const existing = personRow({ id: 'p1', team_id: 'archived-team' });
+    queue([existing], [{ exists: true }], [{ exists: true }], [personRow({ id: 'p1', team_id: 'active-team' })]);
+    const res = await patchPerson(jsonRequest('http://localhost/api/hr/people/p1', 'PATCH', { team_id: 'active-team' }), withParams('p1'));
+    expect(res.status).toBe(200);
+  });
+});
+
 // ── Data behaviour ───────────────────────────────────────────────────
 
 describe('data behaviour', () => {
@@ -625,7 +694,9 @@ describe('data behaviour', () => {
 
   it('a valid team assignment succeeds', async () => {
     resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
-    queue([{ exists: true }], [personRow({ id: 'p1', team_id: 'team-a' })]);
+    // isTeamInOrganisation, then HR-2 Step 1B's isTeamActive (create has
+    // no "existing" to compare against, so it always applies), then INSERT.
+    queue([{ exists: true }], [{ exists: true }], [personRow({ id: 'p1', team_id: 'team-a' })]);
     const res = await createPerson(jsonRequest('http://localhost/api/hr/people', 'POST', { first_name: 'A', last_name: 'B', team_id: 'team-a' }));
     expect(res.status).toBe(201);
   });
@@ -768,6 +839,7 @@ describe('audit', () => {
     queue(
       [personRow({ id: 'p1', team_id: null })],
       [{ exists: true }], // isTeamInOrganisation
+      [{ exists: true }], // HR-2 Step 1B — isTeamActive (team_id is an actual change: null -> 'team-a')
       [personRow({ id: 'p1', team_id: 'team-a' })],
     );
     await patchPerson(jsonRequest('http://localhost/api/hr/people/p1', 'PATCH', { team_id: 'team-a' }), withParams('p1'));

@@ -10,7 +10,7 @@ import { logHrEvent } from '@/lib/hr/auditLog';
 import { extractRequestMeta } from '@/lib/hr/requestMeta';
 import {
   isValidWorkerType, isValidEmploymentStatus,
-  isTeamInOrganisation, isPersonInOrganisation, isUserInOrganisation,
+  isTeamInOrganisation, isTeamActive, isPersonInOrganisation, isUserInOrganisation,
 } from '@/lib/hr/validation';
 
 // HR-1 — GET lists the people the caller may view (lib/hr/access.ts's
@@ -98,9 +98,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid employment_status.' }, { status: 400 });
   }
 
+  // HR-2 Step 1B — a brand-new person has no "existing" assignment to
+  // compare against, so any non-null team_id here is by definition a
+  // NEW assignment — isTeamActive() always applies (unlike PATCH, which
+  // only applies it when team_id is an actual value change).
   const teamId = typeof body.team_id === 'string' && body.team_id ? body.team_id : null;
   if (teamId && !(await isTeamInOrganisation(teamId, session.organisationId))) {
     return NextResponse.json({ error: 'Invalid team.' }, { status: 400 });
+  }
+  if (teamId && !(await isTeamActive(teamId, session.organisationId))) {
+    return NextResponse.json({ error: 'Cannot assign to an archived team.', code: 'team_archived' }, { status: 400 });
   }
 
   const managerPersonId = typeof body.manager_person_id === 'string' && body.manager_person_id ? body.manager_person_id : null;

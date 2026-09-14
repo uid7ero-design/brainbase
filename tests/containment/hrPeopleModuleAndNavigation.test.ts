@@ -97,11 +97,17 @@ describe('app/people/page.tsx — admin-only UI actions are gated on the server-
 
   it('"+ Add Person" is wrapped in {canManage && (...)}, never rendered unconditionally', () => {
     // Anchor on the actual <button> JSX, not any prose mention of
-    // "+ Add Person" in a comment elsewhere in the file.
+    // "+ Add Person" in a comment elsewhere in the file. Uses
+    // lastIndexOf (nearest preceding gate) rather than a fixed-size
+    // lookback window, since HR-2 Step 1B added a "Manage Teams" link
+    // ahead of this button inside the same canManage block.
     const btnIdx = src.indexOf('<button onClick={() => setShowAdd(true)}');
     expect(btnIdx).toBeGreaterThan(-1);
-    const before = src.slice(Math.max(0, btnIdx - 100), btnIdx);
-    expect(before).toMatch(/\{canManage && \(/);
+    const gateIdx = src.lastIndexOf('{canManage && (', btnIdx);
+    expect(gateIdx).toBeGreaterThan(-1);
+    // No closing of that gate between it and the button — still inside it.
+    const between = src.slice(gateIdx, btnIdx);
+    expect(between).not.toMatch(/\)\}/);
   });
 
   it('the empty-state call-to-action text is also conditioned on canManage', () => {

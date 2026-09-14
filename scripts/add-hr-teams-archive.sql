@@ -1,0 +1,71 @@
+-- HR-2 Step 1B — hr_teams.archived_at.
+-- Run once, manually, against the database. NOT run automatically by
+-- this task.
+--
+-- Purpose: lets a team be retired without a hard DELETE. hr_teams rows
+-- can never actually be hard-deleted anyway while any hr_people.team_id
+-- or hr_teams.manager_person_id still references them (both FKs have no
+-- ON DELETE clause, i.e. Postgres's default NO ACTION) — archiving is
+-- the only retirement mechanism this domain has ever needed, not a
+-- stylistic preference over a delete endpoint that was never viable.
+--
+-- Modeled directly on scripts/add-session-archive.sql's own
+-- archived_at column — same nullability, same semantics, same
+-- composite index shape, on the closest existing precedent for exactly
+-- this problem in this codebase:
+--   NULL      = active (assignable; returned by GET /api/hr/teams by
+--               default).
+--   NOT NULL  = archived (frozen — PATCH /api/hr/teams/[id] rejects any
+--               edit with 409 team_archived while archived_at is set;
+--               excluded from GET /api/hr/teams unless the caller is an
+--               HR administrator or super_admin AND passes
+--               ?include_archived=1).
+--
+-- Archiving/restoring never touches hr_people.team_id — a person who
+-- was on a team when it was archived stays on it; only a NEW
+-- assignment or a change onto an archived team is rejected at the
+-- application layer (see app/api/hr/people/route.ts and
+-- app/api/hr/people/[id]/route.ts).
+--
+-- Additive only: adds one nullable column plus one supporting index.
+-- No DEFAULT, no backfill — a bare ADD COLUMN gives every existing team
+-- archived_at = NULL automatically, so every team that exists today
+-- reads as active immediately after this migration runs, with nothing
+-- to reconcile. Does not touch organisations, users, modules,
+-- organisation_modules, hr_people, hr_administrators, or any other
+-- existing table/constraint.
+--
+-- Rollback:
+--
+--   Application rollback (the normal case — reverting the HR-2 Step 1B
+--   application code alone): do nothing to the schema. Leave
+--   archived_at and its index in place. An unused nullable column with
+--   no application code reading or writing it is inert and harmless —
+--   this is the same ordering discipline scripts/add-session-archive.sql
+--   itself was rolled out under (schema first, alone; application code
+--   second).
+--
+--   Full schema rollback (only if this feature is being permanently
+--   abandoned, never as a routine deploy-rollback step):
+--     DROP INDEX IF EXISTS idx_hr_teams_archived_at;
+--     ALTER TABLE hr_teams DROP COLUMN IF EXISTS archived_at;
+--
+--   WARNING: once any team has actually been archived in production,
+--   running the full schema rollback above PERMANENTLY DESTROYS which
+--   teams were archived and when — that information exists nowhere
+--   else (it is not derived from audit_logs; hr_team.archived/
+--   hr_team.restored audit rows record the event but do not
+--   reconstruct current archived_at state). Do not run the DROP COLUMN
+--   step casually, and never as an automated/scripted step — treat it
+--   as a manual, explicitly-approved, one-way data-loss decision, not
+--   a routine rollback action.
+
+ALTER TABLE hr_teams
+  ADD COLUMN IF NOT EXISTS archived_at timestamptz NULL;
+
+-- Supports both "organisation-scoped active teams" (the GET default:
+-- organisation_id = ? AND archived_at IS NULL) and "organisation-scoped
+-- active+archived" (GET ?include_archived=1: organisation_id = ?, with
+-- archived_at unfiltered) — same composite shape and same rationale as
+-- idx_sessions_archived_at in scripts/add-session-archive.sql.
+CREATE INDEX IF NOT EXISTS idx_hr_teams_archived_at ON hr_teams (organisation_id, archived_at);

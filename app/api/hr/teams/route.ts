@@ -16,7 +16,22 @@ import { isPersonInOrganisation } from '@/lib/hr/validation';
 // for every viewer of the directory, not HR administrators only.
 // Creating/renaming a team is a structural change, HR-administrator
 // only.
-export async function GET() {
+//
+// HR-2 Step 1B — archived teams. Default GET behavior (no query param)
+// is UNCHANGED for every caller: organisation-scoped, active
+// (archived_at IS NULL) teams only — this is deliberately what
+// PersonForm's own unfiltered `fetch('/api/hr/teams')` already relies
+// on, so archived teams stop appearing in the person-edit team
+// dropdown with zero client-side change. ?include_archived=1 additionally
+// requires the caller to be HR management authority (ctx.isHrAdministrator
+// — already true for both a real HR-administrator grant and, via HR-2
+// Step 1A's central resolveHrAccessContext(), super_admin) — an
+// ordinary module-entitled user (manager, linked user) may still list
+// team names as before, but may not enumerate archived ones. Matches
+// the exact `include_archived=1` query-param convention already used
+// by app/api/dashboard/sessions/route.ts for the identical archived_at
+// pattern.
+export async function GET(req: NextRequest) {
   let session;
   try { session = await requireSession(); } catch { return unauthorized(); }
   try {
@@ -26,10 +41,18 @@ export async function GET() {
     return forbidden();
   }
 
+  const includeArchived = new URL(req.url).searchParams.get('include_archived') === '1';
+
+  if (includeArchived) {
+    const ctx = await resolveHrAccessContext({ organisationId: session.organisationId, userId: session.userId, role: session.role });
+    if (!ctx.isHrAdministrator) return forbidden();
+  }
+
   const teams = await sql`
-    SELECT id, organisation_id, name, description, manager_person_id, created_at, updated_at
+    SELECT id, organisation_id, name, description, manager_person_id, archived_at, created_at, updated_at
     FROM hr_teams
     WHERE organisation_id = ${session.organisationId}
+      AND (${includeArchived} OR archived_at IS NULL)
     ORDER BY name
   `;
 
