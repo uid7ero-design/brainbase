@@ -387,27 +387,47 @@ export function createVercelBlobFileStore(config: VercelBlobFileStoreConfig): Ra
         throw new RawFileStoreError("PROVIDER_FAILURE", `Provider returned no content stream for key "${key}".`);
       }
 
-      // Declared-etag consistency: both HEAD and GET metadata carry an
-      // etag in the installed SDK's types, so comparing them costs
-      // nothing extra and needs no contract expansion. Only compared
-      // when both are present — this is additional hardening, not a
-      // new required field.
+      // 6.1C4 — NO cross-endpoint etag equality check here, by design.
+      // A prior version of this adapter compared metadata.etag (from
+      // headInternal(), always origin-fresh) against getResult.blob.etag
+      // and threw PROVIDER_FAILURE on any mismatch. The 6.1C3 useCache:
+      // false fix (above) was believed to make that comparison safe by
+      // forcing both reads origin-fresh — but real Production evidence
+      // then reproduced the exact same mismatch 4-for-4 on post-fix
+      // attempts, including brand-new uploads with no prior write to
+      // race against. No official Vercel documentation or SDK source
+      // (node_modules/@vercel/blob/dist/*.d.ts) states that independently
+      // fetched HEAD and GET etags are guaranteed byte-identical for the
+      // same unchanged object — both are documented only as "The ETag of
+      // the blob. Can be used with `ifMatch` for conditional writes,"
+      // with no cross-endpoint equality contract. Treating their
+      // inequality as a fatal integrity signal was therefore an
+      // unsupported assumption, not a verified provider guarantee, and
+      // it was empirically blocking legitimate uploads.
       //
-      // 6.1C3 — KEPT, not removed, after the useCache: false fix above.
-      // Official docs never guarantee HEAD/GET etag equality under
-      // caching (which is why it produced a real false positive), but
-      // give no reason to doubt equality once BOTH reads are genuinely
-      // origin-fresh (head() has no cache path at all; get() now has
-      // caching explicitly disabled) — at that point a mismatch would
-      // indicate a real anomaly (e.g. a concurrent overwrite this system
-      // never issues), so this remains a legitimate, low-noise safety
-      // net rather than the false-positive source it was before the fix.
-      if (metadata.etag && getResult.blob.etag && metadata.etag !== getResult.blob.etag) {
-        throw new RawFileStoreError(
-          "PROVIDER_FAILURE",
-          `Object at key "${key}" etag changed between HEAD and GET.`
-        );
-      }
+      // Provider etags remain useful, retained opaque metadata (returned
+      // on RawFileMetadata/RawFilePutResult, usable for future
+      // conditional-write (`ifMatch`) calls) — this adapter simply no
+      // longer treats disagreement between two independently-fetched
+      // etag values as proof of a corrupted or wrong object.
+      //
+      // Authoritative source-file integrity is NOT provided by this
+      // adapter at all — it is enforced downstream, independently, by
+      // finalizeImportBatch()'s own Step 19: a persisted-size comparison
+      // (body.byteLength vs. the never-mutated size_bytes) and a
+      // SHA-256 digest compared against the client-declared
+      // expected_sha256. Those checks do not depend on etags in any way
+      // and are unchanged by this file.
+      //
+      // Concurrency note: no overwrite-detection capability is lost by
+      // removing this check. The direct-upload token
+      // (directUploadAuth.ts) is minted with allowOverwrite: false, and
+      // this adapter's own put() also passes allowOverwrite: false — a
+      // second writer can never silently overwrite an object already at
+      // this key; the provider itself rejects the write. A mismatch
+      // between two etag reads of what is structurally a single,
+      // never-overwritten object was never actually observable evidence
+      // of a real concurrent write in this system.
 
       const reader = getResult.stream.getReader();
       const chunks: Uint8Array[] = [];

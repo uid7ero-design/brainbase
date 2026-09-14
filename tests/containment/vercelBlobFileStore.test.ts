@@ -435,14 +435,25 @@ describe("vercelBlobFileStore — get", () => {
     await expect(store.get("org_a/importbatch_b")).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 
-  it("extra. an etag mismatch between HEAD and GET metadata -> PROVIDER_FAILURE", async () => {
+  it("6.1C4. a HEAD/GET etag mismatch no longer fails get() — real Production evidence proved the comparison itself was an unsupported assumption, not a valid integrity signal (superseded 'extra' test from 6.1C3, which asserted the old, now-removed PROVIDER_FAILURE behavior)", async () => {
     headMock.mockResolvedValue(headResult({ size: 4, etag: "etag-head" }));
     getMock.mockResolvedValue(getResult([new Uint8Array([1, 2, 3, 4])], { etag: "etag-get-different" }));
     const store = makeStore();
-    await expect(store.get("org_a/importbatch_b")).rejects.toMatchObject({ code: "PROVIDER_FAILURE" });
+    const result = await store.get("org_a/importbatch_b");
+    expect(Array.from(result.body)).toEqual([1, 2, 3, 4]);
+    expect(result.metadata.etag).toBe("etag-head");
   });
 
-  it("6.1C3. useCache:false is passed to get() — required, not optional, to avoid a stale CDN-cached read causing a false-positive etag mismatch on a read that happens moments after the object's only write (see vercelBlobFileStore.ts's own comment and https://vercel.com/docs/vercel-blob/private-storage#consistent-reads)", async () => {
+  it("6.1C4. mismatched HEAD/GET etags with correct bytes still succeed and the returned metadata.size matches the actual body — the adapter no longer treats etag disagreement as evidence the bytes themselves are wrong", async () => {
+    headMock.mockResolvedValue(headResult({ size: 4, etag: "etag-a" }));
+    getMock.mockResolvedValue(getResult([new Uint8Array([9, 9, 9, 9])], { etag: "etag-b", size: 4 }));
+    const store = makeStore();
+    const result = await store.get("org_a/importbatch_b");
+    expect(Array.from(result.body)).toEqual([9, 9, 9, 9]);
+    expect(result.metadata.size).toBe(result.body.byteLength);
+  });
+
+  it("6.1C3. useCache:false is passed to get() — required, not optional: origin-fresh reads remain desirable for finalize verification independent of the (now-removed) etag comparison (see vercelBlobFileStore.ts's own comment and https://vercel.com/docs/vercel-blob/private-storage#consistent-reads)", async () => {
     headMock.mockResolvedValue(headResult({ size: 4 }));
     getMock.mockResolvedValue(getResult([new Uint8Array([1, 2, 3, 4])]));
     const store = makeStore();
@@ -450,12 +461,17 @@ describe("vercelBlobFileStore — get", () => {
     expect(getMock.mock.calls[0][1]).toMatchObject({ useCache: false });
   });
 
-  it("6.1C3. matching etags under a forced-fresh (useCache:false) read still succeed — the comparison itself was never the defect, a stale cached read was", async () => {
+  it("6.1C4. matching etags still succeed (trivial happy path, kept for regression coverage now that mismatch is also accepted)", async () => {
     headMock.mockResolvedValue(headResult({ size: 4, etag: "etag-consistent" }));
     getMock.mockResolvedValue(getResult([new Uint8Array([1, 2, 3, 4])], { etag: "etag-consistent" }));
     const store = makeStore();
     const result = await store.get("org_a/importbatch_b");
     expect(Array.from(result.body)).toEqual([1, 2, 3, 4]);
+  });
+
+  it("6.1C4. adapter source no longer contains the etag equality/PROVIDER_FAILURE throw text", () => {
+    const src = stripComments(read("lib/data-hub/storage/vercelBlobFileStore.ts"));
+    expect(src).not.toContain("etag changed between HEAD and GET");
   });
 });
 
