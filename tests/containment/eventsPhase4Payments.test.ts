@@ -684,11 +684,37 @@ describe('Phase 4 — architecture containment (no scope creep beyond the brief)
     expect(sessLockIdx).toBeGreaterThan(ttLockIdx)
   })
 
-  it('the free registration route is completely unmodified in its capacity-gate SQL shape (Phase 2/3 behaviour preserved)', () => {
+  // Updated by the Events/Ticketing production-readiness audit's stale-
+  // reservation capacity-parity fix: the free registration route's Phase
+  // 2/3 capacity-gate SQL SHAPE is still fully preserved (still FOR
+  // UPDATE, still the same sold_tt-gated insert), but it now deliberately
+  // carries a narrow, READ-ONLY reference to payment_status/expires_at —
+  // mirroring the paid checkout route's own stale-pending-reservation
+  // exclusion so a free registrant can't get a false "sold out" because
+  // of another purchaser's abandoned paid Checkout. This does not make
+  // the free route a payment route: it still never calls Stripe, never
+  // imports lib/events/stripe.ts, and never WRITES payment_status/
+  // expires_at (those columns keep their schema defaults —
+  // NOT_REQUIRED/NULL — for every order this route creates, exactly as
+  // before) — it only READS them, in one WHERE-clause exclusion, to
+  // decide what already counts against capacity.
+  it('the free registration route\'s capacity-gate SQL shape is otherwise preserved, still never calls Stripe or writes payment/Stripe columns — the only change is a narrow, read-only stale-reservation exclusion mirroring the paid route', () => {
     const code = stripComments(read('app/api/public/events/[organisationSlug]/[eventSlug]/register/route.ts'))
     expect(code).toMatch(/FOR UPDATE/)
     expect(code).toMatch(/sold_tt\.qty \+ \$\{validated\.quantity\} <=/)
-    expect(code).not.toMatch(/stripe|payment_status|expires_at/i)
+    // Still architecturally separate from Stripe entirely.
+    expect(code).not.toMatch(/stripe/i)
+    // Still never WRITES payment_status/expires_at — every event_orders
+    // INSERT's own column list must not name either column.
+    const insertColumnLists = code.match(/INSERT INTO event_orders \([^)]*\)/gi) ?? []
+    expect(insertColumnLists.length).toBeGreaterThan(0)
+    for (const columnList of insertColumnLists) {
+      expect(columnList).not.toMatch(/payment_status/i)
+      expect(columnList).not.toMatch(/expires_at/i)
+    }
+    // The one authorized exception: a read-only reference in the sold-
+    // quantity exclusion, identical to the paid route's own predicate.
+    expect(code).toContain("(eo.payment_status <> 'PENDING' OR eo.expires_at > NOW())")
   })
 
   it('no Production migration was applied by this test suite (schema file exists but is not auto-executed)', () => {
