@@ -852,6 +852,7 @@ describe('audit', () => {
     queue(
       [personRow({ id: 'p1', manager_person_id: null })],
       [{ exists: true }], // isPersonInOrganisation
+      [{ would_cycle: false }], // HR-2 Step 1C — wouldCreateManagerCycle (manager_person_id is an actual change: null -> 'p2')
       [personRow({ id: 'p1', manager_person_id: 'p2' })],
     );
     await patchPerson(jsonRequest('http://localhost/api/hr/people/p1', 'PATCH', { manager_person_id: 'p2' }), withParams('p1'));
@@ -1126,5 +1127,381 @@ describe('actual-change detection (full-shape PersonForm body)', () => {
     );
     expect(res.status).toBe(403);
     expect(logHrEventMock).not.toHaveBeenCalled();
+  });
+});
+
+// ── HR-2 Step 1C — manager-cycle protection ─────────────────────────
+//
+// wouldCreateManagerCycle() (lib/hr/reportingLines.ts) is fully mocked
+// here via the same `sql` mock every other DB call in this file already
+// goes through — these tests prove the ROUTE's wiring (when to call it,
+// how its boolean result maps to a response, that it is skipped exactly
+// when PR #212 no-op discipline requires). The recursive CTE's own
+// graph-walking correctness (2/3/4+-node cycles, pre-existing corrupt
+// cycles terminating safely, org scoping, a 20-hop chain) was
+// independently verified against a real disposable PostgreSQL database
+// — see tests/containment/hrReportingLines.test.ts's own header comment
+// and this phase's report for the full scenario list.
+
+describe('manager-cycle protection (PATCH manager_person_id)', () => {
+  it('rejects an assignment that would create a 2-node cycle (B would report to A, who already reports to B)', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    const existing = personRow({ id: 'p1', manager_person_id: 'p-old-manager' });
+    queue([existing], [{ exists: true }], [{ would_cycle: true }]);
+    const res = await patchPerson(jsonRequest('http://localhost/api/hr/people/p1', 'PATCH', { manager_person_id: 'p-new-manager' }), withParams('p1'));
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.code).toBe('manager_cycle');
+    expect(calls.some(c => c.text.includes('UPDATE hr_people'))).toBe(false);
+  });
+
+  it('rejects an assignment that would create a 3-node cycle (A->B->C, C would then report to A)', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    const existing = personRow({ id: 'p-c', manager_person_id: null });
+    queue([existing], [{ exists: true }], [{ would_cycle: true }]);
+    const res = await patchPerson(jsonRequest('http://localhost/api/hr/people/p-c', 'PATCH', { manager_person_id: 'p-a' }), withParams('p-c'));
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.code).toBe('manager_cycle');
+  });
+
+  it('rejects an assignment that would create a longer (4+-node) cycle', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    const existing = personRow({ id: 'p-d', manager_person_id: null });
+    queue([existing], [{ exists: true }], [{ would_cycle: true }]);
+    const res = await patchPerson(jsonRequest('http://localhost/api/hr/people/p-d', 'PATCH', { manager_person_id: 'p-a' }), withParams('p-d'));
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.code).toBe('manager_cycle');
+  });
+
+  it('accepts a valid, non-cyclic same-org manager assignment', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    const existing = personRow({ id: 'p1', manager_person_id: 'p-old-manager' });
+    queue([existing], [{ exists: true }], [{ would_cycle: false }], [personRow({ id: 'p1', manager_person_id: 'p-new-manager' })]);
+    const res = await patchPerson(jsonRequest('http://localhost/api/hr/people/p1', 'PATCH', { manager_person_id: 'p-new-manager' }), withParams('p1'));
+    expect(res.status).toBe(200);
+  });
+
+  it('accepts clearing the manager (-> null), with zero cycle-check queries issued', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    const existing = personRow({ id: 'p1', manager_person_id: 'p-old-manager' });
+    queue([existing], [personRow({ id: 'p1', manager_person_id: null })]);
+    const res = await patchPerson(jsonRequest('http://localhost/api/hr/people/p1', 'PATCH', { manager_person_id: null }), withParams('p1'));
+    expect(res.status).toBe(200);
+    expect(sqlMock).toHaveBeenCalledTimes(2); // loadPerson, UPDATE only — no isPersonInOrganisation, no cycle check
+  });
+
+  it('same-manager resubmission (no actual change) does not call the cycle-check query, and true-no-ops', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    const existing = personRow({ id: 'p1', manager_person_id: 'p-same-manager' });
+    queue([existing], [{ exists: true }]); // loadPerson, isPersonInOrganisation only — no 3rd (cycle) response needed
+    const res = await patchPerson(jsonRequest('http://localhost/api/hr/people/p1', 'PATCH', { manager_person_id: 'p-same-manager' }), withParams('p1'));
+    expect(res.status).toBe(200);
+    expect(sqlMock).toHaveBeenCalledTimes(2); // no cycle query, no UPDATE (true no-op)
+    expect(logHrEventMock).not.toHaveBeenCalled();
+  });
+
+  it('same-manager resubmission alongside a real, unrelated field change still succeeds and still never calls the cycle-check query', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    const existing = personRow({ id: 'p1', manager_person_id: 'p-same-manager', job_title: 'Old Title' });
+    queue([existing], [{ exists: true }], [personRow({ id: 'p1', manager_person_id: 'p-same-manager', job_title: 'New Title' })]);
+    const res = await patchPerson(jsonRequest('http://localhost/api/hr/people/p1', 'PATCH', { manager_person_id: 'p-same-manager', job_title: 'New Title' }), withParams('p1'));
+    expect(res.status).toBe(200);
+    expect(sqlMock).toHaveBeenCalledTimes(3); // loadPerson, isPersonInOrganisation, UPDATE — no cycle query
+  });
+
+  it('direct self-management remains rejected exactly as before (unchanged by this phase)', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    queue([personRow({ id: 'p1' })]);
+    const res = await patchPerson(jsonRequest('http://localhost/api/hr/people/p1', 'PATCH', { manager_person_id: 'p1' }), withParams('p1'));
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBe('A person cannot manage themselves.');
+    // Only loadPerson ran (needed to know existing.id for the self-check
+    // itself) — rejected before isPersonInOrganisation, before any
+    // cycle-check query, and before any UPDATE, same as before this phase.
+    expect(sqlMock).toHaveBeenCalledTimes(1);
+    expect(calls.some(c => c.text.includes('UPDATE hr_people'))).toBe(false);
+  });
+
+  it('cross-org manager assignment remains rejected (isPersonInOrganisation unchanged, cycle check never reached)', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    queue([personRow({ id: 'p1' })], []); // isPersonInOrganisation finds nothing for this org
+    const res = await patchPerson(jsonRequest('http://localhost/api/hr/people/p1', 'PATCH', { manager_person_id: 'org-b-manager' }), withParams('p1'));
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toMatch(/manager/i);
+    expect(calls.some(c => c.text.includes('UPDATE hr_people'))).toBe(false);
+  });
+
+  it('manager read visibility remains direct-only (isDirectManager, unaffected by cycle protection) — a skip-level manager still cannot view confidential fields', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(MANAGER_CTX('manager-1'));
+    // p1 reports to p-middle, who reports to manager-1 — manager-1 is a
+    // SKIP-LEVEL (grandparent) manager of p1, not p1's direct manager.
+    queue([personRow({ id: 'p1', manager_person_id: 'p-middle', work_email: 'secret@example.com' })]);
+    const res = await getPerson(asNextRequest(new Request('http://localhost/api/hr/people/p1')), withParams('p1'));
+    expect(res.status).toBe(403); // canViewPerson is false: not self, not a DIRECT manager, not HR admin
+  });
+});
+
+// ── HR-2 Step 1C — date format validation ───────────────────────────
+
+describe('date format validation (create)', () => {
+  it('accepts a valid YYYY-MM-DD start_date', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    queue([personRow({ id: 'p1', start_date: '2026-09-14' })]);
+    const res = await createPerson(jsonRequest('http://localhost/api/hr/people', 'POST', { first_name: 'A', last_name: 'B', start_date: '2026-09-14' }));
+    expect(res.status).toBe(201);
+  });
+
+  it('accepts a valid leap-year date (2028-02-29)', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    queue([personRow({ id: 'p1', start_date: '2028-02-29' })]);
+    const res = await createPerson(jsonRequest('http://localhost/api/hr/people', 'POST', { first_name: 'A', last_name: 'B', start_date: '2028-02-29' }));
+    expect(res.status).toBe(201);
+  });
+
+  it('rejects a non-leap-year Feb 29 (2026-02-29)', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    const res = await createPerson(jsonRequest('http://localhost/api/hr/people', 'POST', { first_name: 'A', last_name: 'B', start_date: '2026-02-29' }));
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.code).toBe('invalid_start_date');
+    expect(sqlMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects month 13 (2026-13-01)', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    const res = await createPerson(jsonRequest('http://localhost/api/hr/people', 'POST', { first_name: 'A', last_name: 'B', start_date: '2026-13-01' }));
+    expect(res.status).toBe(400);
+  });
+
+  it('rejects April 31 (2026-04-31)', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    const res = await createPerson(jsonRequest('http://localhost/api/hr/people', 'POST', { first_name: 'A', last_name: 'B', start_date: '2026-04-31' }));
+    expect(res.status).toBe(400);
+  });
+
+  it('rejects a locale-style date (14/09/2026)', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    const res = await createPerson(jsonRequest('http://localhost/api/hr/people', 'POST', { first_name: 'A', last_name: 'B', start_date: '14/09/2026' }));
+    expect(res.status).toBe(400);
+  });
+
+  it('rejects a timestamp string (2026-09-14T00:00:00Z)', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    const res = await createPerson(jsonRequest('http://localhost/api/hr/people', 'POST', { first_name: 'A', last_name: 'B', start_date: '2026-09-14T00:00:00Z' }));
+    expect(res.status).toBe(400);
+  });
+
+  it('rejects an empty string (a clean 400, not the historical 500)', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    const res = await createPerson(jsonRequest('http://localhost/api/hr/people', 'POST', { first_name: 'A', last_name: 'B', start_date: '' }));
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.code).toBe('invalid_start_date');
+  });
+
+  it('rejects a whitespace-only string', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    const res = await createPerson(jsonRequest('http://localhost/api/hr/people', 'POST', { first_name: 'A', last_name: 'B', start_date: '   ' }));
+    expect(res.status).toBe(400);
+  });
+
+  it('accepts null (no start_date)', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    queue([personRow({ id: 'p1', start_date: null })]);
+    const res = await createPerson(jsonRequest('http://localhost/api/hr/people', 'POST', { first_name: 'A', last_name: 'B', start_date: null }));
+    expect(res.status).toBe(201);
+  });
+});
+
+describe('date format validation (patch)', () => {
+  it('accepts a valid YYYY-MM-DD start_date', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    queue([personRow({ id: 'p1' })], [personRow({ id: 'p1', start_date: '2026-09-14' })]);
+    const res = await patchPerson(jsonRequest('http://localhost/api/hr/people/p1', 'PATCH', { start_date: '2026-09-14' }), withParams('p1'));
+    expect(res.status).toBe(200);
+  });
+
+  it('accepts a valid leap-year end_date (2028-02-29)', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    queue([personRow({ id: 'p1' })], [personRow({ id: 'p1', end_date: '2028-02-29' })]);
+    const res = await patchPerson(jsonRequest('http://localhost/api/hr/people/p1', 'PATCH', { end_date: '2028-02-29' }), withParams('p1'));
+    expect(res.status).toBe(200);
+  });
+
+  it('rejects a non-leap-year Feb 29 start_date (2026-02-29)', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    queue([personRow({ id: 'p1' })]);
+    const res = await patchPerson(jsonRequest('http://localhost/api/hr/people/p1', 'PATCH', { start_date: '2026-02-29' }), withParams('p1'));
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.code).toBe('invalid_start_date');
+  });
+
+  it('rejects month 13 for end_date', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    queue([personRow({ id: 'p1' })]);
+    const res = await patchPerson(jsonRequest('http://localhost/api/hr/people/p1', 'PATCH', { end_date: '2026-13-01' }), withParams('p1'));
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.code).toBe('invalid_end_date');
+  });
+
+  it('rejects April 31', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    queue([personRow({ id: 'p1' })]);
+    const res = await patchPerson(jsonRequest('http://localhost/api/hr/people/p1', 'PATCH', { start_date: '2026-04-31' }), withParams('p1'));
+    expect(res.status).toBe(400);
+  });
+
+  it('rejects a locale-style date', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    queue([personRow({ id: 'p1' })]);
+    const res = await patchPerson(jsonRequest('http://localhost/api/hr/people/p1', 'PATCH', { start_date: '14/09/2026' }), withParams('p1'));
+    expect(res.status).toBe(400);
+  });
+
+  it('rejects a timestamp string', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    queue([personRow({ id: 'p1' })]);
+    const res = await patchPerson(jsonRequest('http://localhost/api/hr/people/p1', 'PATCH', { end_date: '2026-09-14T00:00:00Z' }), withParams('p1'));
+    expect(res.status).toBe(400);
+  });
+
+  it('rejects an empty string (a clean 400, not the historical 500)', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    queue([personRow({ id: 'p1' })]);
+    const res = await patchPerson(jsonRequest('http://localhost/api/hr/people/p1', 'PATCH', { start_date: '' }), withParams('p1'));
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.code).toBe('invalid_start_date');
+  });
+
+  it('rejects a whitespace-only string', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    queue([personRow({ id: 'p1' })]);
+    const res = await patchPerson(jsonRequest('http://localhost/api/hr/people/p1', 'PATCH', { end_date: '   ' }), withParams('p1'));
+    expect(res.status).toBe(400);
+  });
+
+  it('accepts null (clearing the date)', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    queue([personRow({ id: 'p1', start_date: '2026-01-01' })], [personRow({ id: 'p1', start_date: null })]);
+    const res = await patchPerson(jsonRequest('http://localhost/api/hr/people/p1', 'PATCH', { start_date: null }), withParams('p1'));
+    expect(res.status).toBe(200);
+  });
+});
+
+// ── HR-2 Step 1C — effective-state date ordering ────────────────────
+
+describe('effective-state date ordering (PATCH)', () => {
+  it('accepts start before end', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    queue([personRow({ id: 'p1' })], [personRow({ id: 'p1', start_date: '2026-01-01', end_date: '2026-12-31' })]);
+    const res = await patchPerson(jsonRequest('http://localhost/api/hr/people/p1', 'PATCH', { start_date: '2026-01-01', end_date: '2026-12-31' }), withParams('p1'));
+    expect(res.status).toBe(200);
+  });
+
+  it('accepts start == end (same-day)', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    queue([personRow({ id: 'p1' })], [personRow({ id: 'p1', start_date: '2026-06-01', end_date: '2026-06-01' })]);
+    const res = await patchPerson(jsonRequest('http://localhost/api/hr/people/p1', 'PATCH', { start_date: '2026-06-01', end_date: '2026-06-01' }), withParams('p1'));
+    expect(res.status).toBe(200);
+  });
+
+  it('rejects end before start', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    queue([personRow({ id: 'p1' })]);
+    const res = await patchPerson(jsonRequest('http://localhost/api/hr/people/p1', 'PATCH', { start_date: '2026-12-31', end_date: '2026-01-01' }), withParams('p1'));
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.code).toBe('invalid_employment_dates');
+    expect(calls.some(c => c.text.includes('UPDATE hr_people'))).toBe(false);
+  });
+
+  it('rejects a PATCH changing ONLY start_date into an invalid resulting order against the person\'s existing end_date', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    const existing = personRow({ id: 'p1', start_date: '2026-01-01', end_date: '2026-12-31' });
+    queue([existing]);
+    const res = await patchPerson(jsonRequest('http://localhost/api/hr/people/p1', 'PATCH', { start_date: '2027-01-01' }), withParams('p1'));
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.code).toBe('invalid_employment_dates');
+  });
+
+  it('rejects a PATCH changing ONLY end_date into an invalid resulting order against the person\'s existing start_date', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    const existing = personRow({ id: 'p1', start_date: '2026-06-01', end_date: '2026-12-31' });
+    queue([existing]);
+    const res = await patchPerson(jsonRequest('http://localhost/api/hr/people/p1', 'PATCH', { end_date: '2026-01-01' }), withParams('p1'));
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.code).toBe('invalid_employment_dates');
+  });
+
+  it('accepts clearing end_date even when start_date remains set', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    const existing = personRow({ id: 'p1', start_date: '2026-06-01', end_date: '2026-12-31' });
+    queue([existing], [personRow({ id: 'p1', start_date: '2026-06-01', end_date: null })]);
+    const res = await patchPerson(jsonRequest('http://localhost/api/hr/people/p1', 'PATCH', { end_date: null }), withParams('p1'));
+    expect(res.status).toBe(200);
+  });
+
+  it('accepts end_date without start_date', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    const existing = personRow({ id: 'p1', start_date: null, end_date: null });
+    queue([existing], [personRow({ id: 'p1', end_date: '2026-12-31' })]);
+    const res = await patchPerson(jsonRequest('http://localhost/api/hr/people/p1', 'PATCH', { end_date: '2026-12-31' }), withParams('p1'));
+    expect(res.status).toBe(200);
+  });
+});
+
+// ── HR-2 Step 1C — date no-op and audit correctness ─────────────────
+
+describe('date no-op and audit correctness', () => {
+  it('identical date resubmission causes no UPDATE, no updated_at bump, and no audit event', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    const existing = personRow({ id: 'p1', start_date: '2026-01-01', end_date: '2026-12-31' });
+    queue([existing]);
+    const res = await patchPerson(jsonRequest('http://localhost/api/hr/people/p1', 'PATCH', { start_date: '2026-01-01', end_date: '2026-12-31' }), withParams('p1'));
+    expect(res.status).toBe(200);
+    expect(calls.length).toBe(1); // loadPerson only
+    expect(calls.some(c => c.text.includes('UPDATE hr_people'))).toBe(false);
+    expect(logHrEventMock).not.toHaveBeenCalled();
+  });
+
+  it('an actual start_date change audits only start_date, in canonical form', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    const existing = personRow({ id: 'p1', start_date: '2026-01-01', end_date: '2026-12-31' });
+    queue([existing], [personRow({ id: 'p1', start_date: '2026-02-01', end_date: '2026-12-31' })]);
+    await patchPerson(jsonRequest('http://localhost/api/hr/people/p1', 'PATCH', { start_date: '2026-02-01', end_date: '2026-12-31' }), withParams('p1'));
+    expect(logHrEventMock).toHaveBeenCalledTimes(1);
+    const [, entry] = logHrEventMock.mock.calls[0] as [unknown, { beforeState: Record<string, unknown>; afterState: Record<string, unknown> }];
+    expect(entry.beforeState).toEqual({ start_date: '2026-01-01' });
+    expect(entry.afterState).toEqual({ start_date: '2026-02-01' });
+  });
+
+  it('an actual end_date change audits only end_date, in canonical form', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    const existing = personRow({ id: 'p1', start_date: '2026-01-01', end_date: '2026-12-31' });
+    queue([existing], [personRow({ id: 'p1', start_date: '2026-01-01', end_date: '2026-11-30' })]);
+    await patchPerson(jsonRequest('http://localhost/api/hr/people/p1', 'PATCH', { start_date: '2026-01-01', end_date: '2026-11-30' }), withParams('p1'));
+    expect(logHrEventMock).toHaveBeenCalledTimes(1);
+    const [, entry] = logHrEventMock.mock.calls[0] as [unknown, { beforeState: Record<string, unknown>; afterState: Record<string, unknown> }];
+    expect(entry.beforeState).toEqual({ end_date: '2026-12-31' });
+    expect(entry.afterState).toEqual({ end_date: '2026-11-30' });
+  });
+
+  it('date audit state uses canonical YYYY-MM-DD string values, never a raw Date/timestamp shape', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    const existing = personRow({ id: 'p1', start_date: '2026-01-01' });
+    queue([existing], [personRow({ id: 'p1', start_date: '2026-03-15' })]);
+    await patchPerson(jsonRequest('http://localhost/api/hr/people/p1', 'PATCH', { start_date: '2026-03-15' }), withParams('p1'));
+    const [, entry] = logHrEventMock.mock.calls[0] as [unknown, { afterState: Record<string, unknown> }];
+    expect(entry.afterState.start_date).toBe('2026-03-15');
+    expect(entry.afterState.start_date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 });
