@@ -111,6 +111,74 @@ describe('csvEscapeField', () => {
   })
 })
 
+// ─────────────────────────────────────────────────────────────────────
+// CSV/formula-injection neutralization (CWE-1236) — a public registrant
+// fully controls purchaser/attendee name/email/phone, and a value
+// beginning with =, +, -, or @ can be interpreted as a formula by
+// Excel/Sheets/LibreOffice when the exported CSV is opened. RFC 4180
+// quoting alone (tested above) does nothing to stop this — none of
+// those four characters trigger quoting on their own.
+// ─────────────────────────────────────────────────────────────────────
+
+describe('csvEscapeField — formula-injection neutralization', () => {
+  it('A. a leading "=" is neutralized', () => {
+    expect(csvEscapeField('=1+1')).toBe("'=1+1")
+  })
+
+  it('B. a leading "+" is neutralized', () => {
+    expect(csvEscapeField('+SUM(A1:A2)')).toBe("'+SUM(A1:A2)")
+  })
+
+  it('C. a leading "-" is neutralized', () => {
+    expect(csvEscapeField('-1+2')).toBe("'-1+2")
+  })
+
+  it('D. a leading "@" is neutralized', () => {
+    expect(csvEscapeField('@SUM(A1:A2)')).toBe("'@SUM(A1:A2)")
+  })
+
+  it('E. normal names/values with no dangerous leading character are byte-identical to current behaviour', () => {
+    expect(csvEscapeField('Alice Smith')).toBe('Alice Smith')
+    expect(csvEscapeField('jane@example.invalid')).toBe('jane@example.invalid')
+    expect(csvEscapeField('')).toBe('')
+  })
+
+  it('a value already starting with a single quote is left untouched — never double-prefixed', () => {
+    expect(csvEscapeField("'already quoted")).toBe("'already quoted")
+  })
+
+  it('an "@" appearing mid-value (e.g. an email address) is never touched, only a LEADING @/=/+/- triggers neutralization', () => {
+    expect(csvEscapeField('jane@example.invalid')).toBe('jane@example.invalid')
+  })
+
+  it('F/G/H. formula-neutralization composes correctly with existing comma/quote/newline quoting — a malicious value that also needs RFC 4180 quoting gets BOTH protections', () => {
+    // F: comma
+    expect(csvEscapeField('=SUM(A1,A2)')).toBe('"\'=SUM(A1,A2)"')
+    // G: embedded quote, doubled, inside the outer quote pair
+    expect(csvEscapeField('=HYPERLINK("https://example.invalid","Click")'))
+      .toBe('"\'=HYPERLINK(""https://example.invalid"",""Click"")"')
+    // H: embedded newline
+    expect(csvEscapeField('=1+1\nmore')).toBe('"\'=1+1\nmore"')
+  })
+
+  it('the exact hostile example from the audit is fully neutralized', () => {
+    const hostile = '=HYPERLINK("https://example.invalid","Click")'
+    const escaped = csvEscapeField(hostile)
+    // The cell no longer starts with "=" once unquoted by a spreadsheet
+    // application — it starts with the neutralizing single quote.
+    expect(escaped.startsWith('"\'=')).toBe(true)
+    // The exact hostile text still round-trips (informational, not
+    // stripped) — RFC 4180 doubles the embedded quotes as usual.
+    expect(escaped).toContain('HYPERLINK')
+  })
+
+  it('a genuinely negative-looking value is still neutralized (this export has no numeric column that can legitimately start with "-": total_cents has a real Postgres CHECK (total_cents >= 0) constraint — scripts/create-events-phase2.sql)', () => {
+    expect(csvEscapeField('-5')).toBe("'-5")
+    const schemaSrc = read('scripts/create-events-phase2.sql')
+    expect(schemaSrc).toMatch(/total_cents\s+INTEGER\s+NOT NULL DEFAULT 0 CHECK \(total_cents >= 0\)/)
+  })
+})
+
 describe('buildCsv', () => {
   it('starts with a UTF-8 BOM (U+FEFF)', () => {
     const csv = buildCsv(['A'], [['x']])
@@ -267,6 +335,56 @@ describe('CSV export — attendee grain and content', () => {
     const res = await exportRoute.GET(getReq(), CTX)
     expect(res.headers.get('Content-Type')).toContain('text/csv')
     expect(res.headers.get('Content-Disposition')).toContain('attachment')
+  })
+
+  // I. a hostile, public-registration-style value (this is exactly the
+  // kind of field a real registrant fully controls, end to end through
+  // the real export route — not just the helper in isolation) produces a
+  // safe exported CSV: neither purchaser_name nor attendee_name can begin
+  // with =, +, -, or @ in the actual downloaded file.
+  it('I. a hostile purchaser/attendee name from public registration is neutralized in the real exported CSV, not just the helper', async () => {
+    textMatchMock([
+      { match: 'FROM events', rows: EVENT_ROW },
+      {
+        match: 'FROM event_attendees',
+        rows: [{
+          ...FULL_ATTENDEE_ROW,
+          purchaser_name: '=HYPERLINK("https://example.invalid","Click")',
+          attendee_name: '+SUM(A1:A2)',
+        }],
+      },
+    ])
+    const res = await exportRoute.GET(getReq(), CTX)
+    const csv = await res.text()
+    // A raw, un-neutralized formula would sit directly after a field
+    // delimiter or quote with no protective leading "'" — assert that
+    // exact dangerous shape is absent, and the neutralized shape is present.
+    expect(csv).not.toMatch(/[,\r\n"]=HYPERLINK/)
+    expect(csv).not.toMatch(/[,\r\n"]\+SUM/)
+    expect(csv).toContain("'=HYPERLINK")
+    expect(csv).toContain("'+SUM(A1:A2)")
+  })
+
+  // J. this same hostile row must not newly expose anything the export's
+  // own documented privacy exclusions already forbid — formula
+  // neutralization must not have been implemented by, e.g., routing
+  // through some new field/column that leaks token/QR/Stripe data.
+  it('J. the hostile-input export still contains none of the forbidden token/QR/Stripe identifiers', async () => {
+    textMatchMock([
+      { match: 'FROM events', rows: EVENT_ROW },
+      {
+        match: 'FROM event_attendees',
+        rows: [{
+          ...FULL_ATTENDEE_ROW,
+          purchaser_name: '=HYPERLINK("https://example.invalid","Click")',
+        }],
+      },
+    ])
+    const res = await exportRoute.GET(getReq(), CTX)
+    const csv = (await res.text()).toLowerCase()
+    for (const forbidden of ['ticket_token', 'qr_', 'stripe_checkout_session_id', 'stripe_payment_intent_id', 'stripe_account_id', 'crm_contact_id', 'checked_in_by_user_id']) {
+      expect(csv).not.toContain(forbidden)
+    }
   })
 })
 
