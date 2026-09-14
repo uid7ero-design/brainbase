@@ -10,7 +10,7 @@ import { logHrEvent } from '@/lib/hr/auditLog';
 import { extractRequestMeta } from '@/lib/hr/requestMeta';
 import {
   isValidWorkerType, isValidEmploymentStatus,
-  isTeamInOrganisation, isPersonInOrganisation, isUserInOrganisation,
+  isTeamInOrganisation, isTeamActive, isPersonInOrganisation, isUserInOrganisation,
 } from '@/lib/hr/validation';
 
 async function loadPerson(id: string, organisationId: string): Promise<HrPersonRow | null> {
@@ -139,6 +139,16 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     const teamId = typeof body.team_id === 'string' && body.team_id ? body.team_id : null;
     if (teamId && !(await isTeamInOrganisation(teamId, session.organisationId))) {
       return NextResponse.json({ error: 'Invalid team.' }, { status: 400 });
+    }
+    // HR-2 Step 1B — only an ACTUAL team_id change is checked against
+    // archive state. A person may keep an existing (even archived) team
+    // assignment untouched (this PATCH resubmitting the same team_id
+    // alongside an unrelated field change must not suddenly fail), and
+    // may always be cleared off a team (teamId === null here always
+    // passes this check) — only a genuine move ONTO a specific,
+    // different, archived team is rejected.
+    if (teamId && teamId !== existing.team_id && !(await isTeamActive(teamId, session.organisationId))) {
+      return NextResponse.json({ error: 'Cannot assign to an archived team.', code: 'team_archived' }, { status: 400 });
     }
     updates.team_id = teamId;
   }

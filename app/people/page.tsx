@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import SlidePanel from './_components/SlidePanel';
 import PersonForm from './_components/PersonForm';
 import PersonDrawer, { type PersonDetail } from './_components/PersonDrawer';
@@ -77,7 +78,14 @@ export default function PeoplePage() {
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search…"
             style={{ padding: '8px 12px', background: CARD, border: `1px solid ${BORDER}`, borderRadius: 8, color: '#f9fafb', fontSize: 13, outline: 'none', width: 200 }} />
           {canManage && (
-            <button onClick={() => setShowAdd(true)} style={btn('#1a6aff')}>+ Add Person</button>
+            <>
+              {/* HR-2 Step 1B — Teams management, gated identically to
+                  "+ Add Person" on the same server-returned canManage
+                  flag; app/people/teams itself independently re-derives
+                  the same flag before showing any management action. */}
+              <Link href="/people/teams" style={{ ...btn('transparent'), border: '1px solid #1a1d24', textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>Manage Teams</Link>
+              <button onClick={() => setShowAdd(true)} style={btn('#1a6aff')}>+ Add Person</button>
+            </>
           )}
         </div>
       </div>
