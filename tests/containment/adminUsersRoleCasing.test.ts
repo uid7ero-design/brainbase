@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { NextRequest } from 'next/server';
+import fs from 'fs';
+import path from 'path';
 
 function asNextRequest(req: Request): NextRequest {
   return req as unknown as NextRequest;
@@ -464,4 +466,118 @@ describe('POST /api/admin/users — username/email column contract (root-cause f
     const body = await res.json()
     expect(body.user.username).toBe('jane.smith')
   })
+});
+
+// app/admin/users/page.tsx + app/admin/users/UsersClient.tsx — a SEPARATE
+// surface from the /api/admin/users route tested above (this page issues
+// its own raw SQL query directly and never calls that route's GET
+// handler), with its own independent instance of the exact same defect
+// class already fixed above: users.role comes back from Postgres
+// UPPERCASE, but UsersClient's <select> options
+// (super_admin/admin/manager/viewer) are lowercase. Since the bound
+// value={u.role} never matched any <option value=...>, every row's
+// dropdown silently fell back to displaying the browser-default first
+// option — "Super Admin" — regardless of the row's actual stored role.
+// The role mutation itself (updateUserRole) always worked correctly; this
+// was purely a display/state-normalisation bug, confirmed live during
+// Stripe Preview testing.
+//
+// Static source-text assertion, not a claim of proven rendering
+// behaviour — this project has no jsdom/React Testing Library harness
+// (same caveat spelled out across every other *StaticCheck.test.ts file
+// in this suite, e.g. clientDayOverviewStaticCheck.test.ts). The genuine
+// end-to-end proof for this fix is the Preview verification described in
+// this PR, not this suite.
+const adminUsersPageSource = fs.readFileSync(path.resolve(__dirname, '../../app/admin/users/page.tsx'), 'utf-8');
+const usersClientSource = fs.readFileSync(path.resolve(__dirname, '../../app/admin/users/UsersClient.tsx'), 'utf-8');
+
+describe('app/admin/users/page.tsx — role normalised to lowercase before reaching UsersClient', () => {
+  it('the users list passed to UsersClient is lowercased server-side, not left as the raw enum casing', () => {
+    expect(adminUsersPageSource).toMatch(/\.map\(u => \(\{ \.\.\.u, role: u\.role\.toLowerCase\(\) \}\)\)/);
+  });
+
+  it('normalisation runs unconditionally on every request (not just once at first paint) — this page re-runs in full on every navigation/revalidation, including the revalidatePath(\'/admin/users\') updateUserRole() itself triggers, so a role change is re-normalised on every subsequent render, never just the initial load', () => {
+    // The normalisation is inline in the same request handler that issues
+    // the SQL query and renders <UsersClient> — there is no separate
+    // one-time/cached code path that could serve a stale, un-normalised
+    // list after a role change.
+    const queryIndex = adminUsersPageSource.indexOf('FROM users u');
+    const mapIndex = adminUsersPageSource.indexOf('.toLowerCase()');
+    const renderIndex = adminUsersPageSource.indexOf('<UsersClient');
+    expect(queryIndex).toBeGreaterThan(-1);
+    expect(mapIndex).toBeGreaterThan(queryIndex);
+    expect(renderIndex).toBeGreaterThan(mapIndex);
+  });
+
+  // A. B. C. D. — every assignable enum label the schema actually defines
+  // lowercases to exactly the Role/option value UsersClient expects. Real
+  // (non-mocked) JS string semantics — a genuine behavioural check, not
+  // source-text matching — tying the schema's own documented enum labels
+  // (see the UPPERCASE_ROLE / adminOrgSavePath comments above) to the
+  // exact values UsersClient's ROLES/ROLE_LABELS use.
+  it('A. SUPER_ADMIN normalises to the exact value UsersClient renders as "Super Admin"', () => {
+    expect('SUPER_ADMIN'.toLowerCase()).toBe('super_admin');
+    expect(usersClientSource).toMatch(/super_admin:\s*'Super Admin'/);
+  });
+  it('B. ADMIN normalises to the exact value UsersClient renders as "Admin"', () => {
+    expect('ADMIN'.toLowerCase()).toBe('admin');
+    expect(usersClientSource).toMatch(/admin:\s*'Admin'/);
+  });
+  it('C. MANAGER normalises to the exact value UsersClient renders as "Manager"', () => {
+    expect('MANAGER'.toLowerCase()).toBe('manager');
+    expect(usersClientSource).toMatch(/manager:\s*'Manager'/);
+  });
+  it('D. VIEWER normalises to the exact value UsersClient renders as "Viewer"', () => {
+    expect('VIEWER'.toLowerCase()).toBe('viewer');
+    expect(usersClientSource).toMatch(/viewer:\s*'Viewer'/);
+  });
+});
+
+describe('app/admin/users/UsersClient.tsx — role <select> value always matches one of its own <option>s', () => {
+  it('E. ANALYST is intentionally excluded from the general assignable ROLES list (Phase C1.6 — no defined privilege placement), but a row whose actual role IS analyst gets its own matching <option> so it still displays "Analyst" instead of falling back to "Super Admin"', () => {
+    // The general list stays exactly 4 values — this fix does not make
+    // analyst newly assignable through this UI.
+    expect(usersClientSource).toMatch(/const ROLES: Role\[\] = \['super_admin', 'admin', 'manager', 'viewer'\]/);
+    // But the row-specific fallback option exists for a row that already
+    // holds it, using the same ROLE_LABELS.analyst entry the file already
+    // carried (Phase C1.6) for exactly this reason.
+    expect(usersClientSource).toMatch(/u\.role === 'analyst' && <option value="analyst">\{ROLE_LABELS\.analyst\}<\/option>/);
+  });
+
+  it('F. selecting "Manager" from the dropdown invokes updateUserRole(userId, \'manager\') — the option\'s value is the lowercase Role literal, not the display label', () => {
+    expect(usersClientSource).toMatch(/\{ROLES\.map\(r => <option key=\{r\} value=\{r\}>\{ROLE_LABELS\[r\]\}<\/option>\)\}/);
+    expect(usersClientSource).toContain("onChange={e => handleRoleChange(u.id, e.target.value as Role)}");
+    expect(usersClientSource).toContain('function handleRoleChange(userId: string, role: Role) {');
+    expect(usersClientSource).toContain('startTransition(() => updateUserRole(userId, role));');
+  });
+
+  it('G. after a role change, the next render still displays the newly-assigned role rather than snapping back to "Super Admin" — updateUserRole() calls revalidatePath(\'/admin/users\'), which re-runs page.tsx (and its normalisation) from scratch, not a client-side-only optimistic update that could drift from the real stored value', () => {
+    const actionsSource = fs.readFileSync(path.resolve(__dirname, '../../app/actions/users.ts'), 'utf-8');
+    expect(actionsSource).toMatch(/export async function updateUserRole\(userId: string, role: Role\) \{[\s\S]*?revalidatePath\('\/admin\/users'\);/);
+  });
+
+  it('H. the own-row disabled protection (a super_admin cannot change their own active role through this dropdown) is unchanged by this fix', () => {
+    expect(usersClientSource).toContain('disabled={u.id === currentUserId}');
+  });
+});
+
+// §5 (error handling) — reported per this task's own instructions rather
+// than fixed: handleRoleChange/handleDelete both fire updateUserRole()/
+// deleteUser() inside startTransition(() => ...) without awaiting or
+// catching the returned promise. This is pre-existing, and identical for
+// both call sites (not something this fix introduces or makes worse) — a
+// thrown Unauthorized/Invalid-role/DB error surfaces nowhere in the UI.
+// This component has no lightweight established error-display pattern
+// that fits a fire-and-forget void-returning action (createUser/
+// updateUserDetails/resetUserPassword all use useActionState, which
+// updateUserRole/deleteUser deliberately do not — converting them would
+// change their call signature for no reason related to the role-casing
+// bug this task targets). Left unchanged, per the explicit instruction to
+// report rather than broaden scope into a notification/toast refactor.
+describe('app/admin/users/UsersClient.tsx — role-change error handling (pre-existing limitation, confirmed unchanged)', () => {
+  it('updateUserRole and deleteUser are both still fire-and-forget inside startTransition, with no .catch/error surface — a known, pre-existing limitation shared identically by both call sites, not introduced by this fix', () => {
+    expect(usersClientSource).toContain('startTransition(() => updateUserRole(userId, role));');
+    expect(usersClientSource).toContain('startTransition(() => deleteUser(user.id));');
+    expect(usersClientSource).not.toMatch(/updateUserRole\([^)]*\)\.catch/);
+  });
 });
