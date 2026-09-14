@@ -861,10 +861,27 @@ model SourceRecordIdentity {
 // reach a committed write, so encoding them here would be an impossible,
 // never-actually-persisted state. Only genuinely-reachable, committed
 // outcomes are represented.
+// 6.1D1 — @@map is REQUIRED here, not stylistic. Prisma has no way to infer
+// a database object's real name from usage; without an explicit @@map, the
+// generated client quotes the enum by its bare Prisma-schema name
+// ("SourceRecordObservationOutcome", PascalCase) in every generated SQL
+// statement. The actual Postgres type — created by
+// scripts/create-datahub-reconciliation.sql, already live in Production —
+// is public.source_record_observation_outcome (lowercase, snake_case).
+// Without this mapping, every real prisma.sourceRecordObservation.create()
+// call fails with Postgres 42704 ("type ... does not exist") — this exact
+// failure reached Production on Onkaparinga's first real governed Confirm
+// attempt (worksheet cmu17oxyx0002w3d629y32rjt), because no prior proof
+// exercised a real generated Prisma Client against the real (lowercase)
+// type name — see tests/postgres-proof/sourceRecordObservationOutcomeMapping.postgres-proof.test.ts
+// for the regression proof this gap demanded. No database change — the
+// Postgres type name was already correct; only this metadata was wrong.
 enum SourceRecordObservationOutcome {
   NEW
   UNCHANGED
   CHANGED
+
+  @@map("source_record_observation_outcome")
 }
 
 // Immutable observation history — one row per (source identity, worksheet
