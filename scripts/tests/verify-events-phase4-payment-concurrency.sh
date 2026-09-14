@@ -358,6 +358,44 @@ order_id_for() {
 }
 
 retry_sql() {
+  # $4 (optional): the prior stripe_checkout_session_id this caller
+  # verified against Stripe before calling — mirrors the route's own
+  # `verifiedSessionId` guard (events-stripe-retry-double-charge). Every
+  # order this harness seeds via reserve_ticket_type_sql() never has a
+  # stripe_checkout_session_id set (that INSERT never sets it), so every
+  # EXISTING call site below correctly omits $4, matching the real
+  # column state (NULL) exactly — this guard is a genuinely NEW
+  # concurrency protection (see section H), not a behavior change to
+  # sections F/G above.
+  local order_id="$1" tt_id="$2" qty="$3" prior_session_id="${4:-}"
+  local session_guard_value="NULL"
+  if [ -n "$prior_session_id" ]; then session_guard_value="'$prior_session_id'"; fi
+  cat <<SQL
+BEGIN;
+SELECT capacity FROM event_ticket_types WHERE id = '$tt_id' AND organisation_id = 'org-a' FOR UPDATE;
+WITH sold_tt AS (
+  SELECT COALESCE(SUM(oi.quantity), 0) AS qty FROM event_order_items oi JOIN event_orders eo ON eo.id = oi.order_id AND eo.organisation_id = oi.organisation_id
+  WHERE oi.ticket_type_id = '$tt_id' AND oi.organisation_id = 'org-a' AND eo.id <> '$order_id'
+    AND eo.status <> 'CANCELLED' AND (eo.payment_status <> 'PENDING' OR eo.expires_at > NOW())
+)
+UPDATE event_orders eo
+SET expires_at = NOW() + interval '30 minutes', stripe_checkout_session_id = NULL
+FROM sold_tt
+WHERE eo.id = '$order_id' AND eo.organisation_id = 'org-a' AND eo.payment_status = 'PENDING'
+  AND eo.stripe_checkout_session_id IS NOT DISTINCT FROM $session_guard_value
+  AND sold_tt.qty + $qty <= (SELECT capacity FROM event_ticket_types WHERE id = '$tt_id' AND organisation_id = 'org-a')
+RETURNING eo.id;
+COMMIT;
+SQL
+}
+
+# Same shape as retry_sql() but WITHOUT the stripe_checkout_session_id
+# guard — used only by section H's mutation proof below to demonstrate
+# the harness is genuinely sensitive to this exact defect. Never used
+# against the actual candidate route; a scratch copy of the statement
+# sequence only, exactly matching this file's own established mutation-
+# proof convention (see the MUTATION PROOF section further down).
+retry_sql_no_session_guard() {
   local order_id="$1" tt_id="$2" qty="$3"
   cat <<SQL
 BEGIN;
@@ -423,6 +461,61 @@ ORDER_G_ID="$(order_id_for order-g)"
 run_concurrent_pair "$(retry_sql "$ORDER_G_ID" tt-g 1)" "$(reserve_ticket_type_sql tt-g NewBuyer-g 1)"
 expect_eq "G. exactly one of {retry the expired order, a brand-new reservation} wins the single last slot" \
   "SELECT COALESCE(SUM(quantity),0) FROM event_order_items oi JOIN event_orders eo ON eo.id=oi.order_id WHERE oi.ticket_type_id='tt-g' AND eo.status<>'CANCELLED' AND (eo.payment_status<>'PENDING' OR eo.expires_at>NOW());" "1"
+
+echo ""
+echo "=== H: two concurrent retries on the SAME order (events-stripe-retry-double-charge concurrency guard) ==="
+# Two manager Retry requests arriving simultaneously for the SAME
+# order both read the SAME prior stripe_checkout_session_id BEFORE
+# either mutates anything (mirroring the route's own pre-flight Stripe
+# check), then both attempt this same guarded UPDATE. Without the
+# stripe_checkout_session_id IS NOT DISTINCT FROM guard, both could
+# succeed and both create a replacement Stripe Checkout Session for the
+# same order — this section proves only one can.
+reset_db; bootstrap
+echo "INSERT INTO event_ticket_types (id, event_id, organisation_id, name, price_cents, capacity, active) VALUES ('tt-h', 'event-1', 'org-a', 'Premium', 2500, 5, true);" | psql_exec >/dev/null 2>&1
+echo "$(reserve_ticket_type_sql tt-h order-h 1)" | psql_exec >/dev/null 2>&1
+ORDER_H_ID="$(order_id_for order-h)"
+echo "UPDATE event_orders SET stripe_checkout_session_id = 'cs_old_session_h' WHERE id = '$ORDER_H_ID';" | psql_exec >/dev/null 2>&1
+run_concurrent_pair \
+  "$(retry_sql "$ORDER_H_ID" tt-h 1 cs_old_session_h)" \
+  "$(retry_sql "$ORDER_H_ID" tt-h 1 cs_old_session_h)"
+H_A_ROWS="$(grep -c '^UPDATE 1$' "$OUT_A" || true)"
+H_B_ROWS="$(grep -c '^UPDATE 1$' "$OUT_B" || true)"
+H_TOTAL_WINNERS=$((H_A_ROWS + H_B_ROWS))
+if [ "$H_TOTAL_WINNERS" -eq 1 ]; then
+  echo "  PASS: H. exactly one of the two concurrent retries' guarded UPDATE returned a row (the other matched zero rows and would never call Stripe to create a second session)"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: H. expected exactly 1 of 2 concurrent retries to succeed, got $H_TOTAL_WINNERS"
+  FAIL=$((FAIL + 1))
+  FAILURES+=("H. concurrent same-order retry guard")
+fi
+expect_eq "H2. the order's stripe_checkout_session_id was cleared exactly once (by whichever retry won) — never corrupted by a partial double-write" \
+  "SELECT (stripe_checkout_session_id IS NULL)::text FROM event_orders WHERE id='$ORDER_H_ID';" "true"
+expect_eq "H3. capacity for this order was never double-extended — still exactly 1 unit, no duplicate item row" \
+  "SELECT COALESCE(SUM(quantity),0) FROM event_order_items WHERE order_id='$ORDER_H_ID';" "1"
+
+echo ""
+echo "=== H MUTATION PROOF — without the session guard, both concurrent retries CAN succeed ==="
+reset_db; bootstrap
+echo "INSERT INTO event_ticket_types (id, event_id, organisation_id, name, price_cents, capacity, active) VALUES ('tt-h-mut', 'event-1', 'org-a', 'Premium', 2500, 5, true);" | psql_exec >/dev/null 2>&1
+echo "$(reserve_ticket_type_sql tt-h-mut order-h-mut 1)" | psql_exec >/dev/null 2>&1
+ORDER_H_MUT_ID="$(order_id_for order-h-mut)"
+echo "UPDATE event_orders SET stripe_checkout_session_id = 'cs_old_session_h_mut' WHERE id = '$ORDER_H_MUT_ID';" | psql_exec >/dev/null 2>&1
+run_concurrent_pair \
+  "$(retry_sql_no_session_guard "$ORDER_H_MUT_ID" tt-h-mut 1)" \
+  "$(retry_sql_no_session_guard "$ORDER_H_MUT_ID" tt-h-mut 1)"
+HM_A_ROWS="$(grep -c '^UPDATE 1$' "$OUT_A" || true)"
+HM_B_ROWS="$(grep -c '^UPDATE 1$' "$OUT_B" || true)"
+HM_TOTAL_WINNERS=$((HM_A_ROWS + HM_B_ROWS))
+if [ "$HM_TOTAL_WINNERS" -eq 2 ]; then
+  echo "  PASS (mutation correctly reproduces the defect — harness is genuinely sensitive to it): without the guard, both concurrent retries' UPDATE returned a row, i.e. both would go on to create a separate Stripe Checkout Session"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL (mutation did not reproduce the defect — got $HM_TOTAL_WINNERS/2 successes, expected 2): the harness may not actually be sensitive to this defect class"
+  FAIL=$((FAIL + 1))
+  FAILURES+=("H mutation proof did not reproduce the pre-fix double-success")
+fi
 
 echo ""
 echo "=== CONCURRENCY (blocking gate) — repeated genuine race, no forced delay ==="

@@ -430,6 +430,121 @@ async function handlePaymentIntentFailed(intent: Stripe.PaymentIntent, eventAcco
   if (orderId) await recordEventBookingActivityForOrder(orderId);
 }
 
+// ── Retry double-charge guard ───────────────────────────────────────
+//
+// Root cause this section closes: the retry route (app/api/events/[id]/
+// orders/[orderId]/retry/route.ts) previously created a brand-new
+// Checkout Session for a locally-PENDING order with NO check of
+// whether the order's PRIOR Checkout Session/PaymentIntent had already
+// succeeded on Stripe's side — BrainBase's own payment_status can lag
+// behind Stripe's true state for as long as the success webhook is
+// delayed, failed, or hasn't arrived yet. This is read-only: it never
+// mutates Stripe, never creates a new Stripe object, and is called
+// BEFORE any DB write in the retry route (see that route's own
+// comment on why the order's stored stripe_checkout_session_id must be
+// read and inspected before the capacity-reacquisition step, which
+// nulls it out as part of preparing for a replacement session).
+
+export type ExistingCheckoutAttempt = {
+  sessionStatus: Stripe.Checkout.Session.Status | null;
+  sessionPaymentStatus: Stripe.Checkout.Session.PaymentStatus;
+  paymentIntentStatus: Stripe.PaymentIntent.Status | null;
+};
+
+// Retrieves the CURRENT Stripe-side state of a previously-created
+// Checkout Session, expanding its PaymentIntent in the SAME request
+// (Checkout automatically creates a PaymentIntent for every
+// mode:'payment' session, so this needs no second round trip) —
+// read-only, never mutates Stripe. `connectedAccountId` MUST be the
+// order's own historically-stored stripe_account_id (see
+// createRefund's identical rule above), never the organisation's
+// current Connect setting, so a reconnected/changed account can never
+// cause this to retrieve — or worse, silently miss — the account that
+// actually processed the original attempt.
+export async function retrieveExistingCheckoutAttempt(
+  sessionId: string,
+  connectedAccountId: string,
+): Promise<ExistingCheckoutAttempt> {
+  const stripe = getStripeClient();
+  const checkoutSession = await stripe.checkout.sessions.retrieve(
+    sessionId,
+    { expand: ['payment_intent'] },
+    { stripeAccount: connectedAccountId },
+  );
+  const paymentIntent = typeof checkoutSession.payment_intent === 'string' ? null : checkoutSession.payment_intent;
+  return {
+    sessionStatus: checkoutSession.status,
+    sessionPaymentStatus: checkoutSession.payment_status,
+    paymentIntentStatus: paymentIntent?.status ?? null,
+  };
+}
+
+export type RetrySafetyDecision =
+  | 'SAFE_TO_RETRY'               // no prior Stripe attempt exists at all — nothing to check
+  | 'SAFE_PREVIOUS_ATTEMPT_DEAD'  // prior attempt conclusively cannot still become paid
+  | 'UNSAFE_ALREADY_PAID'         // Stripe reports the prior attempt already succeeded
+  | 'UNSAFE_STILL_ACTIVE'         // prior Checkout Session is still open and could still be completed
+  | 'UNSAFE_PROCESSING'           // prior PaymentIntent may still settle without any new attempt
+  | 'UNSAFE_AMBIGUOUS';           // unrecognised/inconsistent state — fail closed, never guess
+
+// Pure decision function (no I/O) — the actual double-charge guard's
+// logic, kept separate from retrieveExistingCheckoutAttempt() so it is
+// directly unit-testable against every state in the matrix without
+// mocking a live Stripe call for each case. Philosophy (per the
+// governing audit): retry is safe ONLY when the previous attempt is
+// conclusively NOT paid and cannot still become paid through that same
+// attempt; any ambiguous or unrecognised state fails closed.
+//
+// session.payment_status = 'paid' is checked FIRST and independently —
+// this mirrors handleCheckoutSessionCompleted's own webhook principle
+// above (never trust the event/session TYPE alone; payment_status is
+// the authoritative signal) — a paid session is unsafe regardless of
+// whatever its PaymentIntent object separately reports.
+export function classifyRetrySafety(attempt: ExistingCheckoutAttempt): RetrySafetyDecision {
+  if (attempt.sessionPaymentStatus === 'paid') return 'UNSAFE_ALREADY_PAID';
+
+  switch (attempt.paymentIntentStatus) {
+    case 'succeeded':
+      return 'UNSAFE_ALREADY_PAID';
+    case 'processing':
+    case 'requires_capture':
+      // Funds may already be authorized/collected, or settlement is
+      // already underway — a NEW Checkout attempt does not cancel this
+      // one, so allowing retry here risks the customer paying twice.
+      return 'UNSAFE_PROCESSING';
+    case 'requires_action':
+    case 'requires_confirmation':
+      // Still potentially completable through the SAME attempt — but
+      // only actually still reachable by the customer while the
+      // session itself is open. If the session is not open despite the
+      // PaymentIntent claiming it can still be confirmed/actioned, that
+      // is an inconsistent combination this code has no confident
+      // interpretation for — fail closed rather than guess.
+      return attempt.sessionStatus === 'open' ? 'UNSAFE_STILL_ACTIVE' : 'UNSAFE_AMBIGUOUS';
+    case 'requires_payment_method':
+    case 'canceled':
+    case null:
+      break; // not independently blocking on its own — fall through to session status below
+    default:
+      return 'UNSAFE_AMBIGUOUS'; // unrecognised/future SDK PaymentIntent status — fail closed
+  }
+
+  switch (attempt.sessionStatus) {
+    case 'open':
+      return 'UNSAFE_STILL_ACTIVE';
+    case 'expired':
+      return 'SAFE_PREVIOUS_ATTEMPT_DEAD';
+    case 'complete':
+      // Already confirmed not 'paid' above — 'unpaid'/'no_payment_required'
+      // with status='complete' means an async payment method may still
+      // settle later (see handleCheckoutSessionCompleted's own comment
+      // on this exact Stripe nuance) — treat as still potentially live.
+      return 'UNSAFE_PROCESSING';
+    default:
+      return 'UNSAFE_AMBIGUOUS'; // null or unrecognised/future SDK status — fail closed
+  }
+}
+
 export type CreateRefundResult = { ok: true } | { ok: false; error: string };
 
 // Full refund only (§22). Called by the manager-only refund route
