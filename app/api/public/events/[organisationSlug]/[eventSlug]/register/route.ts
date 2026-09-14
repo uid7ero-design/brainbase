@@ -220,6 +220,23 @@ export async function POST(req: NextRequest, { params }: Ctx) {
   // statement whose OWN WHERE clause decides whether it inserts
   // anything) rather than JS code deciding, after reading step 3's
   // result, whether to submit step 5 at all.
+  //
+  // Stale-reservation parity with the paid checkout route (events/
+  // ticketing production-readiness audit) — every "sold" aggregate
+  // below (including the diagnostic-only counts) now also excludes a
+  // PENDING paid reservation whose expires_at has passed:
+  // `AND (payment_status <> 'PENDING' OR expires_at > NOW())`, exactly
+  // mirroring app/api/public/events/[organisationSlug]/[eventSlug]/
+  // checkout/route.ts's own capacity-gated transaction. Without this, a
+  // free registration on a session/ticket type shared with an abandoned
+  // paid Checkout could receive a false "sold out" for as long as that
+  // Checkout's `checkout.session.expired` webhook is delayed or never
+  // arrives — the free route has no other mechanism that self-heals
+  // that the way the paid route's own new-reservation attempts already
+  // do. A CONFIRMED free order (payment_status='NOT_REQUIRED') and a
+  // currently-valid pending paid reservation both still count, exactly
+  // preserving existing behaviour; only a STALE pending reservation is
+  // newly excluded.
   let transactionResults: unknown[];
   try {
     transactionResults = validated.event_session_id
@@ -230,26 +247,26 @@ export async function POST(req: NextRequest, { params }: Ctx) {
             SELECT COALESCE(SUM(oi.quantity), 0)::int AS qty
             FROM event_order_items oi
             JOIN event_orders eo ON eo.id = oi.order_id AND eo.organisation_id = oi.organisation_id
-            WHERE oi.ticket_type_id = ${validated.ticket_type_id} AND oi.organisation_id = ${organisationId} AND eo.status <> 'CANCELLED'
+            WHERE oi.ticket_type_id = ${validated.ticket_type_id} AND oi.organisation_id = ${organisationId} AND eo.status <> 'CANCELLED' AND (eo.payment_status <> 'PENDING' OR eo.expires_at > NOW())
           `,
           sql`
             SELECT COALESCE(SUM(oi.quantity), 0)::int AS qty
             FROM event_order_items oi
             JOIN event_orders eo ON eo.id = oi.order_id AND eo.organisation_id = oi.organisation_id
-            WHERE oi.event_session_id = ${validated.event_session_id} AND oi.organisation_id = ${organisationId} AND eo.status <> 'CANCELLED'
+            WHERE oi.event_session_id = ${validated.event_session_id} AND oi.organisation_id = ${organisationId} AND eo.status <> 'CANCELLED' AND (eo.payment_status <> 'PENDING' OR eo.expires_at > NOW())
           `,
           sql`
             WITH sold_tt AS (
               SELECT COALESCE(SUM(oi.quantity), 0) AS qty
               FROM event_order_items oi
               JOIN event_orders eo ON eo.id = oi.order_id AND eo.organisation_id = oi.organisation_id
-              WHERE oi.ticket_type_id = ${validated.ticket_type_id} AND oi.organisation_id = ${organisationId} AND eo.status <> 'CANCELLED'
+              WHERE oi.ticket_type_id = ${validated.ticket_type_id} AND oi.organisation_id = ${organisationId} AND eo.status <> 'CANCELLED' AND (eo.payment_status <> 'PENDING' OR eo.expires_at > NOW())
             ),
             sold_sess AS (
               SELECT COALESCE(SUM(oi.quantity), 0) AS qty
               FROM event_order_items oi
               JOIN event_orders eo ON eo.id = oi.order_id AND eo.organisation_id = oi.organisation_id
-              WHERE oi.event_session_id = ${validated.event_session_id} AND oi.organisation_id = ${organisationId} AND eo.status <> 'CANCELLED'
+              WHERE oi.event_session_id = ${validated.event_session_id} AND oi.organisation_id = ${organisationId} AND eo.status <> 'CANCELLED' AND (eo.payment_status <> 'PENDING' OR eo.expires_at > NOW())
             ),
             ins_order AS (
               -- No FOR UPDATE needed here: the ticket-type/session rows
@@ -324,14 +341,14 @@ export async function POST(req: NextRequest, { params }: Ctx) {
             SELECT COALESCE(SUM(oi.quantity), 0)::int AS qty
             FROM event_order_items oi
             JOIN event_orders eo ON eo.id = oi.order_id AND eo.organisation_id = oi.organisation_id
-            WHERE oi.ticket_type_id = ${validated.ticket_type_id} AND oi.organisation_id = ${organisationId} AND eo.status <> 'CANCELLED'
+            WHERE oi.ticket_type_id = ${validated.ticket_type_id} AND oi.organisation_id = ${organisationId} AND eo.status <> 'CANCELLED' AND (eo.payment_status <> 'PENDING' OR eo.expires_at > NOW())
           `,
           sql`
             WITH sold_tt AS (
               SELECT COALESCE(SUM(oi.quantity), 0) AS qty
               FROM event_order_items oi
               JOIN event_orders eo ON eo.id = oi.order_id AND eo.organisation_id = oi.organisation_id
-              WHERE oi.ticket_type_id = ${validated.ticket_type_id} AND oi.organisation_id = ${organisationId} AND eo.status <> 'CANCELLED'
+              WHERE oi.ticket_type_id = ${validated.ticket_type_id} AND oi.organisation_id = ${organisationId} AND eo.status <> 'CANCELLED' AND (eo.payment_status <> 'PENDING' OR eo.expires_at > NOW())
             ),
             ins_order AS (
               -- No FOR UPDATE needed here — see the session-bound branch's

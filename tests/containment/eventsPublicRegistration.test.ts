@@ -421,6 +421,84 @@ describe('Public registration — transaction structure (R1: split lock / post-l
   })
 })
 
+// Events/Ticketing production-readiness audit — free registration's
+// "sold" aggregates previously lacked the same stale-pending-
+// reservation exclusion the paid checkout route already had, which
+// could produce a false "sold out" 409 for a free registrant when a
+// session/ticket type is shared with an abandoned paid Checkout whose
+// expiry webhook is delayed or never arrives. This suite proves the
+// STRUCTURE of the fix (the predicate is present, in the right
+// statements, identical to the paid route's own predicate) — real,
+// timestamped-data behavioural proof (an expired PENDING reservation
+// is genuinely excluded, a non-expired one genuinely still counts)
+// is the job of the real-Postgres harness at scripts/tests/
+// verify-events-phase2-concurrency.sh, exactly matching this file's
+// own stated division of responsibility (see header comment above).
+describe('Public registration — stale-reservation capacity parity with paid Checkout', () => {
+  const STALE_PREDICATE = "(eo.payment_status <> 'PENDING' OR eo.expires_at > NOW())"
+
+  it('C/D. the diagnostic ticket-type count statement (non-session branch) excludes a stale PENDING reservation, mirroring the paid route', async () => {
+    queue(ORG_ROW, PUBLISHED_EVENT_ROW, FREE_ACTIVE_TICKET_TYPE_ROW)
+    await registerRoute.POST(req(VALID_BODY), CTX)
+    // 0=org, 1=event, 2=ticket-type, 3=active-questions, 4=lock, 5=diagnostic count.
+    expect(callText(5)).toContain(STALE_PREDICATE)
+  })
+
+  it('the capacity-gated insert statement (non-session branch) — the actual gate that produces the false-409 — excludes a stale PENDING reservation in its sold_tt CTE', async () => {
+    queue(ORG_ROW, PUBLISHED_EVENT_ROW, FREE_ACTIVE_TICKET_TYPE_ROW)
+    await registerRoute.POST(req(VALID_BODY), CTX)
+    const insertText = callText(6)
+    expect(insertText).toMatch(/sold_tt AS \(\s*SELECT[^)]*\)/i)
+    expect(insertText).toContain(STALE_PREDICATE)
+  })
+
+  it('session-bound branch: both diagnostic count statements exclude a stale PENDING reservation', async () => {
+    queue(ORG_ROW, PUBLISHED_EVENT_ROW, FREE_ACTIVE_TICKET_TYPE_ROW, SESSION_ROW)
+    await registerRoute.POST(req({ ...VALID_BODY, event_session_id: 'sess-1' }), CTX)
+    // 0=org, 1=event, 2=ticket-type, 3=session, 4=active-questions, 5=lock tt, 6=lock session, 7=diag tt, 8=diag sess, 9=insert.
+    expect(callText(7)).toContain(STALE_PREDICATE)
+    expect(callText(8)).toContain(STALE_PREDICATE)
+  })
+
+  it('session-bound branch: the capacity-gated insert excludes a stale PENDING reservation in BOTH its sold_tt and sold_sess CTEs', async () => {
+    queue(ORG_ROW, PUBLISHED_EVENT_ROW, FREE_ACTIVE_TICKET_TYPE_ROW, SESSION_ROW)
+    await registerRoute.POST(req({ ...VALID_BODY, event_session_id: 'sess-1' }), CTX)
+    const insertText = callText(9)
+    const soldTtCte = insertText.match(/sold_tt AS \([\s\S]*?\),\s*sold_sess/i)?.[0] ?? ''
+    const soldSessCte = insertText.match(/sold_sess AS \([\s\S]*?\),\s*ins_order/i)?.[0] ?? ''
+    expect(soldTtCte).toContain(STALE_PREDICATE)
+    expect(soldSessCte).toContain(STALE_PREDICATE)
+  })
+
+  it('a currently-valid (non-expired) pending paid reservation and a CONFIRMED free order both still count — only the time comparison is new, no other clause was touched', async () => {
+    queue(ORG_ROW, PUBLISHED_EVENT_ROW, FREE_ACTIVE_TICKET_TYPE_ROW)
+    await registerRoute.POST(req(VALID_BODY), CTX)
+    const insertText = callText(6)
+    // Both existing clauses remain, unmodified, alongside the new one.
+    expect(insertText).toContain("eo.status <> 'CANCELLED'")
+    expect(insertText).toMatch(/JOIN event_orders eo ON eo\.id = oi\.order_id/i)
+  })
+
+  it('mirrors the paid Checkout route\'s own stale-reservation predicate BYTE FOR BYTE — one established rule, not a second, independently-invented interpretation', () => {
+    const registerSrc = fs.readFileSync(
+      path.join(process.cwd(), 'app/api/public/events/[organisationSlug]/[eventSlug]/register/route.ts'),
+      'utf8',
+    )
+    const checkoutSrc = fs.readFileSync(
+      path.join(process.cwd(), 'app/api/public/events/[organisationSlug]/[eventSlug]/checkout/route.ts'),
+      'utf8',
+    )
+    expect(checkoutSrc).toContain(STALE_PREDICATE)
+    expect(registerSrc).toContain(STALE_PREDICATE)
+    // Every occurrence in each file is the exact same substring — no
+    // route re-derives its own variant wording of the same rule.
+    const registerCount = registerSrc.split(STALE_PREDICATE).length - 1
+    const checkoutCount = checkoutSrc.split(STALE_PREDICATE).length - 1
+    expect(registerCount).toBeGreaterThanOrEqual(6)
+    expect(checkoutCount).toBeGreaterThanOrEqual(2)
+  })
+})
+
 describe('Public registration — capacity enforcement outcome', () => {
   it('capacity-exceeded (empty RETURNING from the transaction, no SQL error) -> 409, not 500, not 201', async () => {
     queue(ORG_ROW, PUBLISHED_EVENT_ROW, FREE_ACTIVE_TICKET_TYPE_ROW)
