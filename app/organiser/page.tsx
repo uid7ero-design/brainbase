@@ -163,6 +163,133 @@ function OptionsPillSelect({
   );
 }
 
+// D.4.6P-R3 (PR #214 UI blocker fix, second pass) — the Assignee field's
+// previous fix (per-<option> inline style, matching PillSelect/
+// OptionsPillSelect above) turned out NOT to be reliable in real Chrome:
+// live Preview QA showed the native <select> popup still rendering with
+// the browser's default white/light panel and OS-highlight color despite
+// the same styling technique. Per-<option> background/color is
+// apparently NOT consistently honored by Chromium's native list-box
+// rendering on every platform, so this is a real platform limitation of
+// the native control, not something more inline styling can fix.
+//
+// Replaces the native <select> with a fully custom-rendered, always-
+// themed picker — the same accessible pattern already proven elsewhere
+// in this codebase (see app/events/_components/ui.tsx's FilterDropdown:
+// a plain <button> trigger with aria-haspopup="listbox"/aria-expanded,
+// and an absolutely-positioned role="listbox" panel of role="option"
+// <button>s). Re-implemented locally here (not imported cross-domain
+// from app/events) so it can use Organiser's own useOpsTheme() tokens
+// (t.ink()/t.menuBg) exactly like every other control in this drawer —
+// FilterDropdown's own palette is hardcoded dark-only and would not
+// respect Organiser's light theme. Every option/trigger element is a
+// real, independently focusable/activatable native <button> — Tab moves
+// between them, Enter/Space activates, and the browser's own visible
+// focus ring is never suppressed, so keyboard accessibility comes from
+// the platform rather than being reimplemented.
+//
+// This is presentation-only: value/onChange still carry exactly the
+// same assignee_user_id semantics ("" => Unassigned => null, otherwise
+// a member id) that item.tsx's onUpdate/PATCH route and Helena's own
+// propose_organiser_assignee_change already use — no authority,
+// validation, PATCH route, or activity-logging change of any kind.
+function AssigneeDropdown({
+  value, members, onChange,
+}: {
+  value: string;
+  members: OrganiserMember[];
+  onChange: (value: string) => void;
+}) {
+  const t = useOpsTheme();
+  const [open, setOpen] = useState(false);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    function onClickOutside(e: MouseEvent) {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", onClickOutside);
+    return () => document.removeEventListener("mousedown", onClickOutside);
+  }, []);
+
+  function select(next: string) {
+    onChange(next);
+    setOpen(false);
+    triggerRef.current?.focus();
+  }
+
+  const selectedLabel = value ? (members.find(m => m.id === value)?.name ?? "Unassigned") : "Unassigned";
+
+  return (
+    <div
+      ref={wrapperRef}
+      style={{ position: "relative", width: 168 }}
+      onKeyDown={e => {
+        if (e.key === "Escape") {
+          setOpen(false);
+          triggerRef.current?.focus();
+        }
+      }}
+    >
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label="Assignee"
+        style={{
+          display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, width: "100%",
+          background: open ? t.ink(.06) : t.ink(.04), border: `1px solid ${t.ink(.08)}`, borderRadius: 6,
+          padding: "5px 8px", fontSize: 12, color: t.ink(.90), fontFamily: FONT, cursor: "pointer",
+        }}
+      >
+        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{selectedLabel}</span>
+        <svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor" style={{ flexShrink: 0, opacity: .6, transform: open ? "rotate(180deg)" : undefined, transition: "transform .12s" }} aria-hidden="true">
+          <path d="M1 2l3 3 3-3" />
+        </svg>
+      </button>
+
+      {open && (
+        <div
+          role="listbox"
+          aria-label="Assignee"
+          style={{
+            position: "absolute", top: "100%", left: 0, marginTop: 4, width: "100%",
+            background: t.menuBg, border: `1px solid ${t.ink(.10)}`, borderRadius: 8,
+            boxShadow: "0 12px 32px rgba(0,0,0,.45)", padding: 4, zIndex: 20,
+            maxHeight: 220, overflowY: "auto",
+          }}
+        >
+          {[{ id: "", name: "Unassigned" }, ...members].map(opt => {
+            const isSelected = opt.id === value;
+            return (
+              <button
+                key={opt.id || "__unassigned__"}
+                type="button"
+                role="option"
+                aria-selected={isSelected}
+                onClick={() => select(opt.id)}
+                style={{
+                  display: "block", width: "100%", textAlign: "left", padding: "6px 9px",
+                  background: "none", border: "none", borderRadius: 6, cursor: "pointer",
+                  color: isSelected ? "#a5b4fc" : t.ink(.85), fontSize: 12, fontWeight: isSelected ? 600 : 400,
+                  fontFamily: FONT,
+                }}
+                onMouseEnter={e => { e.currentTarget.style.background = t.ink(.05); }}
+                onMouseLeave={e => { e.currentTarget.style.background = "none"; }}
+              >
+                {opt.name}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function InlineText({
   value, placeholder, onSave, bold,
 }: {
@@ -1085,21 +1212,11 @@ function ItemDrawer({
               own propose_organiser_assignee_change both use. */}
           <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
             <Field label="Assignee">
-              <select
+              <AssigneeDropdown
                 value={item.assignee_user_id ?? ""}
-                onChange={e => onUpdate(item.id, { assignee_user_id: e.target.value || null })}
-                style={{ background: t.ink(.04), border: `1px solid ${t.ink(.08)}`, borderRadius: 6, padding: "5px 8px", fontSize: 12, color: t.ink(.90), fontFamily: FONT, width: 168 }}
-              >
-                {/* D.4.6P-R2 (PR #214 UI blocker fix) — matches the same
-                    per-option style PillSelect/OptionsPillSelect already
-                    use above; Chromium/Windows respects inline background/
-                    color on <option> even though it ignores full CSS on
-                    the native <select> popup otherwise. This select had
-                    no option styling at all, so its open panel fell back
-                    to the browser's default light theme. */}
-                <option value="" style={{ background: t.menuBg, color: t.ink(.90) }}>Unassigned</option>
-                {members.map(m => <option key={m.id} value={m.id} style={{ background: t.menuBg, color: t.ink(.90) }}>{m.name}</option>)}
-              </select>
+                members={members}
+                onChange={v => onUpdate(item.id, { assignee_user_id: v || null })}
+              />
             </Field>
           </div>
 
