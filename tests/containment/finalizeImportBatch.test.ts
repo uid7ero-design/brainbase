@@ -255,14 +255,19 @@ describe("finalizeImportBatch — Step 18 storage-verification failure logging (
     errorSpy.mockRestore();
   });
 
-  it("head() returning a clean null (STORAGE_NOT_FOUND) logs NOTHING — there is no error object at all on this path, only a classified clean result", async () => {
+  it("6.1C3 — head() returning a clean null (STORAGE_NOT_FOUND) now logs op/importBatchId/failureCode — this branch was the disclosed logging gap found during the second real Production failure's diagnosis; there is still no error object on this path (a clean null, not an exception), so errorName/errorCode/errorMessage reflect that absence rather than a thrown value", async () => {
     const { finalizeImportBatch } = await freshFinalize();
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     sqlMock.mockResolvedValueOnce([claimRow()]);
     headMock.mockResolvedValue(null);
     sqlMock.mockResolvedValueOnce([{ id: "batch-1" }]);
     await finalizeImportBatch({ organisationId: "org-1" }, "batch-1");
-    expect(errorSpy).not.toHaveBeenCalled();
+    expect(errorSpy).toHaveBeenCalledTimes(1);
+    const [, logged] = errorSpy.mock.calls[0];
+    expect(logged).toMatchObject({ op: "head", importBatchId: "batch-1", failureCode: "STORAGE_NOT_FOUND" });
+    expect(logged.errorCode).toBeUndefined();
+    expect(logged.errorMessage).toBeUndefined();
+    expect(JSON.stringify(logged)).not.toContain("SENSITIVE");
     errorSpy.mockRestore();
   });
 

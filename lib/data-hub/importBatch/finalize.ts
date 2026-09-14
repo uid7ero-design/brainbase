@@ -256,7 +256,13 @@ export async function finalizeImportBatch(
   }
   if (headMetadata === null) {
     // head() returning a clean null -> STORAGE_NOT_FOUND. The ONLY way to
-    // reach this code.
+    // reach this code. 6.1C3 — this branch previously returned with zero
+    // observability (unlike its sibling catch two lines above), the exact
+    // gap identified during the second real Production failure's own
+    // diagnosis. There is no thrown `err` here (a clean `null`, not an
+    // exception), so `undefined` is passed — logStorageVerificationFailure
+    // already renders a non-Error value safely (`errorName: typeof err`).
+    logStorageVerificationFailure("head", importBatchId, "STORAGE_NOT_FOUND", undefined);
     return completeFailedForFinalize(organisationId, importBatchId, generation, "STORAGE_NOT_FOUND");
   }
 

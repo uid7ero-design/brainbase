@@ -441,6 +441,22 @@ describe("vercelBlobFileStore — get", () => {
     const store = makeStore();
     await expect(store.get("org_a/importbatch_b")).rejects.toMatchObject({ code: "PROVIDER_FAILURE" });
   });
+
+  it("6.1C3. useCache:false is passed to get() — required, not optional, to avoid a stale CDN-cached read causing a false-positive etag mismatch on a read that happens moments after the object's only write (see vercelBlobFileStore.ts's own comment and https://vercel.com/docs/vercel-blob/private-storage#consistent-reads)", async () => {
+    headMock.mockResolvedValue(headResult({ size: 4 }));
+    getMock.mockResolvedValue(getResult([new Uint8Array([1, 2, 3, 4])]));
+    const store = makeStore();
+    await store.get("org_a/importbatch_b");
+    expect(getMock.mock.calls[0][1]).toMatchObject({ useCache: false });
+  });
+
+  it("6.1C3. matching etags under a forced-fresh (useCache:false) read still succeed — the comparison itself was never the defect, a stale cached read was", async () => {
+    headMock.mockResolvedValue(headResult({ size: 4, etag: "etag-consistent" }));
+    getMock.mockResolvedValue(getResult([new Uint8Array([1, 2, 3, 4])], { etag: "etag-consistent" }));
+    const store = makeStore();
+    const result = await store.get("org_a/importbatch_b");
+    expect(Array.from(result.body)).toEqual([1, 2, 3, 4]);
+  });
 });
 
 // ─── DELETE (38-42) ─────────────────────────────────────────────────
