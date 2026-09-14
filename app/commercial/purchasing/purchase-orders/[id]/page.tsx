@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState, useCallback } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { PurchaseOrderStatusBadge } from '../../_status';
 import { formatMoneyCents } from '@/lib/commercial/money';
@@ -28,12 +28,24 @@ type Line = {
   unit_snapshot: string | null; quantity: number; unit_price_cents: number; tax_code_snapshot: string | null;
   tax_rate_snapshot: string; line_subtotal_cents: number; line_tax_cents: number; line_total_cents: number;
 };
-type Supplier = { id: string; name: string };
+type Supplier = {
+  id: string; name: string;
+  contact_name: string | null; email: string | null; phone: string | null; billing_address: string | null;
+};
 type Product = { id: string; name: string; default_unit_price_cents: number; default_tax_code_id: string | null; sku: string | null; unit_label: string | null; active: boolean };
 type TaxCode = { id: string; code: string; name: string; rate: string };
 // Phase C6.5 — mirrors app/commercial/quotes/[id]/page.tsx's own
 // identical Delivery type exactly.
 type Delivery = { id: string; channel: string; recipient: string; status: string; attempted_at: string; error_summary: string | null };
+// C6.9 remediation — Supporting Documents.
+type AttachmentCategory = 'SUPPLIER_QUOTE' | 'SPECIFICATION' | 'SCOPE_OF_WORK' | 'APPROVAL' | 'OTHER';
+const ATTACHMENT_CATEGORY_LABELS: Record<AttachmentCategory, string> = {
+  SUPPLIER_QUOTE: 'Supplier Quote', SPECIFICATION: 'Specification', SCOPE_OF_WORK: 'Scope of Work', APPROVAL: 'Approval', OTHER: 'Other',
+};
+type Attachment = {
+  id: string; category: AttachmentCategory; original_filename: string; size_bytes: number;
+  uploaded_by_name: string | null; created_at: string;
+};
 
 // Client-side role check only — UX gating, not enforcement. The real
 // floor is authorizeCommercialRequest('purchasing', COMMERCIAL_MIN_ROLE.createEdit)
@@ -58,9 +70,16 @@ function clientRoleGte(role: string | undefined, min: string): boolean {
 // cost_centre_id remains fully API/domain-settable, just not from this UI.
 export default function PurchaseOrderDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const router = useRouter();
   const [po, setPo] = useState<PurchaseOrder | null>(null);
   const [lines, setLines] = useState<Line[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  // C6.9 remediation — the CURRENT/live linked supplier, as returned by
+  // GET .../purchase-orders/:id (supplier_id resolved server-side, see
+  // that route's own comment). Used for pre-issue display only — never
+  // for ISSUED/CANCELLED, which always render the frozen
+  // supplier_*_snapshot fields instead (see the render logic below).
+  const [linkedSupplier, setLinkedSupplier] = useState<Supplier | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
   const [taxCodes, setTaxCodes] = useState<TaxCode[]>([]);
   const [loading, setLoading] = useState(true);
@@ -83,6 +102,9 @@ export default function PurchaseOrderDetailPage() {
   const [confirmingIssue, setConfirmingIssue] = useState(false);
   const [confirmingCancel, setConfirmingCancel] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
+  // C6.9 remediation — Delete Draft confirmation state, same
+  // inline-panel convention as every other lifecycle action on this page.
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   // Phase C6.5 — email confirmation/result state, mirroring
   // app/commercial/invoices/[id]/page.tsx's own confirmingVoid-style
@@ -95,6 +117,13 @@ export default function PurchaseOrderDetailPage() {
   const [confirmingEmail, setConfirmingEmail] = useState(false);
   const [emailResult, setEmailResult] = useState('');
   const [deliveries, setDeliveries] = useState<Delivery[]>([]);
+
+  // C6.9 remediation — Supporting Documents state.
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [uploadCategory, setUploadCategory] = useState<AttachmentCategory>('SUPPLIER_QUOTE');
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploadBusy, setUploadBusy] = useState(false);
+  const [uploadError, setUploadError] = useState('');
 
   // header edit form state
   const [editingHeader, setEditingHeader] = useState(false);
@@ -123,7 +152,11 @@ export default function PurchaseOrderDetailPage() {
     setPo(data.purchaseOrder);
     setLines(data.lines);
     setDeliveries(data.deliveries ?? []);
+    setLinkedSupplier(data.supplier ?? null);
     setLoading(false);
+
+    const attachmentsRes = await fetch(`/api/commercial/purchase-orders/${id}/attachments`);
+    if (attachmentsRes.ok) setAttachments((await attachmentsRes.json()).attachments ?? []);
 
     const [suppliersRes, productsRes, taxCodesRes, meRes] = await Promise.all([
       fetch('/api/commercial/suppliers'), fetch('/api/commercial/products'), fetch('/api/commercial/tax-codes'), fetch('/api/me'),
@@ -313,6 +346,57 @@ export default function PurchaseOrderDetailPage() {
     load();
   }
 
+  // C6.9 remediation — safe discard for a never-issued, never-submitted
+  // DRAFT. The server independently re-verifies the full eligibility
+  // gate (see deleteDraftPurchaseOrder()'s own comment) — this button is
+  // only ever rendered when the client already knows it should be
+  // eligible (isDraft, no purchase_order_number, no submitted_at), but
+  // that is UX gating only, never the actual enforcement. Redirects away
+  // on success since this PO no longer exists.
+  async function deleteAction() {
+    setBusy(true); setActionError('');
+    const res = await fetch(`/api/commercial/purchase-orders/${id}`, { method: 'DELETE' });
+    const data = await res.json().catch(() => ({}));
+    setBusy(false);
+    if (!res.ok) { setActionError(data.error ?? 'Failed to delete draft purchase order.'); return; }
+    router.push('/commercial/purchasing/purchase-orders');
+  }
+
+  // C6.9 remediation — Supporting Documents upload/remove. Uploads go
+  // through the server route (multipart/form-data), which streams
+  // straight into the dedicated private Commercial attachment store —
+  // never a client-side Blob SDK call, never a raw store URL returned to
+  // this page.
+  async function uploadAttachment(e: React.FormEvent) {
+    e.preventDefault();
+    if (!uploadFile) { setUploadError('Choose a file first.'); return; }
+    setUploadBusy(true); setUploadError('');
+    const fd = new FormData();
+    fd.append('file', uploadFile);
+    fd.append('category', uploadCategory);
+    const res = await fetch(`/api/commercial/purchase-orders/${id}/attachments`, { method: 'POST', body: fd });
+    const data = await res.json().catch(() => ({}));
+    setUploadBusy(false);
+    if (!res.ok) { setUploadError(data.error ?? 'Upload failed.'); return; }
+    setUploadFile(null);
+    load();
+  }
+
+  async function removeAttachment(attachmentId: string) {
+    setUploadBusy(true); setUploadError('');
+    const res = await fetch(`/api/commercial/purchase-orders/${id}/attachments/${attachmentId}`, { method: 'DELETE' });
+    const data = await res.json().catch(() => ({}));
+    setUploadBusy(false);
+    if (!res.ok) { setUploadError(data.error ?? 'Failed to remove document.'); return; }
+    load();
+  }
+
+  function formatBytes(n: number): string {
+    if (n < 1024) return `${n} B`;
+    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+    return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
   // Phase C6.5 — sends the exact server-generated PDF (built fresh,
   // server-side, from this PO's own persisted snapshot/line/total
   // fields) to the supplier's ISSUED snapshot email, via
@@ -358,6 +442,14 @@ export default function PurchaseOrderDetailPage() {
             <button onClick={() => setConfirmingSubmit(true)} disabled={busy || lines.length === 0} title={lines.length === 0 ? 'Add at least one line before submitting.' : undefined} style={btn('#1a6aff')}>
               Submit for Approval
             </button>
+          )}
+          {/* C6.9 remediation — only ever offered for a DRAFT that was
+              NEVER submitted (no purchase_order_number, no submitted_at)
+              — see deleteDraftPurchaseOrder()'s own comment for why a
+              returned-then-DRAFT PO with real approval history is
+              deliberately excluded. */}
+          {isDraft && canEdit && po.purchase_order_number == null && po.submitted_at == null && !confirmingDelete && (
+            <button onClick={() => setConfirmingDelete(true)} disabled={busy} style={btn('rgba(239,68,68,0.15)', '#f87171')}>Delete Draft</button>
           )}
           {isPendingApproval && isAdmin && !confirmingApprove && !confirmingReturn && (
             <button onClick={() => setConfirmingApprove(true)} disabled={busy} style={btn('#1a6aff')}>Approve</button>
@@ -472,6 +564,17 @@ export default function PurchaseOrderDetailPage() {
         </div>
       )}
 
+      {confirmingDelete && (
+        <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 12, padding: '16px 20px', marginBottom: 20 }}>
+          <p style={{ fontSize: 13, color: '#f9fafb', margin: '0 0 4px' }}>Delete this draft purchase order permanently? This cannot be undone.</p>
+          <p style={{ fontSize: 12, color: '#9ca3af', margin: '0 0 12px' }}>It has never been submitted and has no purchase order number — nothing else is affected.</p>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={deleteAction} disabled={busy} style={btn('#f87171', '#1a0505')}>Yes, Delete Draft</button>
+            <button onClick={() => setConfirmingDelete(false)} disabled={busy} style={btn('#1f2937')}>Keep Draft</button>
+          </div>
+        </div>
+      )}
+
       {editingHeader ? (
         <form onSubmit={saveHeader} style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: '20px 24px', marginBottom: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div>
@@ -529,12 +632,35 @@ export default function PurchaseOrderDetailPage() {
         <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: '20px 24px', marginBottom: 20, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
           <div>
             <div style={miniLbl}>Supplier</div>
-            <div style={{ fontSize: 14 }}>
-              <Link href={`/commercial/purchasing/suppliers/${po.supplier_id}`} style={{ color: '#f9fafb', textDecoration: 'none' }}>{po.supplier_name_snapshot ?? '—'}</Link>
-            </div>
-            {po.supplier_contact_name_snapshot && <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>{po.supplier_contact_name_snapshot}</div>}
-            {(po.supplier_email_snapshot || po.supplier_phone_snapshot) && (
-              <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>{[po.supplier_email_snapshot, po.supplier_phone_snapshot].filter(Boolean).join(' · ')}</div>
+            {/* C6.9 remediation — DRAFT/PENDING_APPROVAL/APPROVED render
+                the CURRENT linked supplier (live data, always correct);
+                ISSUED/CANCELLED render the frozen supplier_*_snapshot
+                fields instead, since those documents must stay
+                historically immutable even if the live supplier record
+                later changes. Root cause of the old bug: this block
+                unconditionally read the snapshot fields, which are only
+                ever populated at issue time — pre-issue they are all
+                null, hence the permanent "—". */}
+            {(po.status === 'ISSUED' || po.status === 'CANCELLED') ? (
+              <>
+                <div style={{ fontSize: 14 }}>
+                  <Link href={`/commercial/purchasing/suppliers/${po.supplier_id}`} style={{ color: '#f9fafb', textDecoration: 'none' }}>{po.supplier_name_snapshot ?? '—'}</Link>
+                </div>
+                {po.supplier_contact_name_snapshot && <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>{po.supplier_contact_name_snapshot}</div>}
+                {(po.supplier_email_snapshot || po.supplier_phone_snapshot) && (
+                  <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>{[po.supplier_email_snapshot, po.supplier_phone_snapshot].filter(Boolean).join(' · ')}</div>
+                )}
+              </>
+            ) : (
+              <>
+                <div style={{ fontSize: 14 }}>
+                  <Link href={`/commercial/purchasing/suppliers/${po.supplier_id}`} style={{ color: '#f9fafb', textDecoration: 'none' }}>{linkedSupplier?.name ?? '—'}</Link>
+                </div>
+                {linkedSupplier?.contact_name && <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>{linkedSupplier.contact_name}</div>}
+                {(linkedSupplier?.email || linkedSupplier?.phone) && (
+                  <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>{[linkedSupplier?.email, linkedSupplier?.phone].filter(Boolean).join(' · ')}</div>
+                )}
+              </>
             )}
           </div>
           <div>
@@ -599,15 +725,22 @@ export default function PurchaseOrderDetailPage() {
         {isDraft && canEdit && (
           <form onSubmit={addLine} style={{ padding: '16px', borderTop: `1px solid ${BORDER}`, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
             <div style={{ flex: '2 1 180px' }}>
-              <div style={miniLbl}>Product</div>
+              {/* C6.9 remediation — clarified wording: internal-catalogue
+                  selection is explicitly optional, and a freeform
+                  supplier line (the common Purchasing case — buying from
+                  an external supplier, not from BrainBase's own sales
+                  catalogue) is a normal, first-class path, not a
+                  fallback. product_id remains fully optional in the
+                  domain/API — this is a labeling change only. */}
+              <div style={miniLbl}>Internal Product / Service (optional)</div>
               <select value={newProductId} onChange={e => applyProductDefaults(e.target.value)} style={sel}>
-                <option value="">— Freeform line —</option>
+                <option value="">Or enter a freeform supplier line below</option>
                 {products.filter(p => p.active).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
             </div>
             <div style={{ flex: '2 1 180px' }}>
               <div style={miniLbl}>Description</div>
-              <input value={newDescription} onChange={e => setNewDescription(e.target.value)} style={sel} placeholder="Line description" />
+              <input value={newDescription} onChange={e => setNewDescription(e.target.value)} style={sel} placeholder="Freeform supplier line description" />
             </div>
             <div style={{ width: 70 }}>
               <div style={miniLbl}>Qty</div>
@@ -637,6 +770,55 @@ export default function PurchaseOrderDetailPage() {
           <TotalRow label="Tax" value={formatMoneyCents(po.tax_cents, po.currency)} />
           <TotalRow label="Total" value={formatMoneyCents(po.total_cents, po.currency)} bold />
         </div>
+      </div>
+
+      {/* C6.9 remediation — Supporting Documents. Visible in every
+          status (retention: attachments must stay accessible after
+          issue/cancellation, never gated tighter than the PO itself).
+          Upload/remove only offered while DRAFT — see the attachments
+          routes' own comment for why no other status supports mutation. */}
+      <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, marginBottom: 20 }}>
+        <div style={{ padding: '16px 24px 0' }}>
+          <div style={miniLbl}>Supporting Documents</div>
+        </div>
+        {uploadError && <p style={{ color: '#f87171', fontSize: 13, margin: '8px 24px 0' }}>{uploadError}</p>}
+        {attachments.length === 0 && (
+          <div style={{ padding: '12px 24px 16px', fontSize: 13, color: '#6b7280' }}>No supporting documents yet.</div>
+        )}
+        {attachments.length > 0 && (
+          <div style={{ padding: '8px 24px 16px' }}>
+            {attachments.map(a => (
+              <div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', fontSize: 13, borderTop: `1px solid ${BORDER}` }}>
+                <div>
+                  <a href={`/api/commercial/purchase-orders/${id}/attachments/${a.id}`} style={{ color: '#f9fafb', textDecoration: 'none' }}>{a.original_filename}</a>
+                  <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>
+                    {ATTACHMENT_CATEGORY_LABELS[a.category]} · {formatBytes(a.size_bytes)} · {a.uploaded_by_name ?? 'Unknown'} · {formatCommercialDate(a.created_at)}
+                  </div>
+                </div>
+                {isDraft && canEdit && (
+                  <button onClick={() => removeAttachment(a.id)} disabled={uploadBusy} style={{ background: 'none', border: 'none', color: '#f87171', fontSize: 12, cursor: 'pointer', padding: 0 }}>Remove</button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+        {isDraft && canEdit && (
+          <form onSubmit={uploadAttachment} style={{ padding: '16px 24px', borderTop: `1px solid ${BORDER}`, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+            <div style={{ flex: '1 1 160px' }}>
+              <div style={miniLbl}>Category</div>
+              <select value={uploadCategory} onChange={e => setUploadCategory(e.target.value as AttachmentCategory)} style={sel}>
+                {(Object.keys(ATTACHMENT_CATEGORY_LABELS) as AttachmentCategory[]).map(c => <option key={c} value={c}>{ATTACHMENT_CATEGORY_LABELS[c]}</option>)}
+              </select>
+            </div>
+            <div style={{ flex: '2 1 220px' }}>
+              <div style={miniLbl}>File</div>
+              <input type="file" onChange={e => setUploadFile(e.target.files?.[0] ?? null)} style={sel} />
+            </div>
+            <button type="submit" disabled={uploadBusy || !uploadFile} style={{ padding: '9px 16px', background: '#1a6aff', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+              + Attach Document
+            </button>
+          </form>
+        )}
       </div>
 
       {deliveries.length > 0 && (

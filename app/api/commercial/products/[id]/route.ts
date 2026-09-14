@@ -5,7 +5,9 @@ import { getProduct, updateProduct, deactivateProduct, reactivateProduct } from 
 type Ctx = { params: Promise<{ id: string }> };
 
 export async function GET(_req: NextRequest, { params }: Ctx) {
-  const auth = await authorizeCommercialRequest(['quotes', 'invoicing'], COMMERCIAL_MIN_ROLE.view);
+  // C6.9 remediation — widened to include 'purchasing' (see the base
+  // route's identical GET/POST comment).
+  const auth = await authorizeCommercialRequest(['quotes', 'invoicing', 'purchasing'], COMMERCIAL_MIN_ROLE.view);
   if (!auth.ok) return auth.response;
   const { id } = await params;
 
@@ -15,7 +17,8 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
 }
 
 export async function PUT(req: NextRequest, { params }: Ctx) {
-  const auth = await authorizeCommercialRequest(['quotes', 'invoicing'], COMMERCIAL_MIN_ROLE.createEdit);
+  // C6.9 remediation — widened to include 'purchasing' (see GET/POST above).
+  const auth = await authorizeCommercialRequest(['quotes', 'invoicing', 'purchasing'], COMMERCIAL_MIN_ROLE.createEdit);
   if (!auth.ok) return auth.response;
   const { id } = await params;
 
@@ -40,7 +43,8 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
 }
 
 export async function PATCH(req: NextRequest, { params }: Ctx) {
-  const auth = await authorizeCommercialRequest(['quotes', 'invoicing'], COMMERCIAL_MIN_ROLE.createEdit);
+  // C6.9 remediation — widened to include 'purchasing' (see GET/POST above).
+  const auth = await authorizeCommercialRequest(['quotes', 'invoicing', 'purchasing'], COMMERCIAL_MIN_ROLE.createEdit);
   if (!auth.ok) return auth.response;
   const { id } = await params;
 

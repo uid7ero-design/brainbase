@@ -6,7 +6,7 @@ import { getTaxCode } from './taxCodes';
 import { sumCents, lineTotalCents, applyRatePercentCents, isValidCents } from './money';
 import { assertPurchaseOrderTransition, assertPurchaseOrderEditable, type PurchaseOrderStatus } from './purchaseOrderLifecycle';
 import {
-  logPurchaseOrderCreated, logPurchaseOrderUpdated, logPurchaseOrderSubmitted, logPurchaseOrderApproved,
+  logPurchaseOrderCreated, logPurchaseOrderUpdated, logPurchaseOrderDeleted, logPurchaseOrderSubmitted, logPurchaseOrderApproved,
   logPurchaseOrderReturned, logPurchaseOrderIssued, logPurchaseOrderCancelled,
 } from './auditLog';
 
@@ -287,6 +287,47 @@ export async function updateDraftPurchaseOrder(params: {
   });
 
   return after;
+}
+
+// C6.9 remediation — safe discard/delete for a never-issued DRAFT,
+// mirroring deleteDraftInvoice()/deleteDraftQuote() exactly (same
+// status-gated-in-the-WHERE-clause shape, same hard DELETE, same
+// draft-only audit event). commercial_purchase_order_lines has
+// ON DELETE CASCADE onto this table (see
+// scripts/create-commercial-purchasing.sql), so line rows are cleaned up
+// atomically by the database itself — no separate line-delete step, no
+// orphan-row risk, no explicit transaction needed here.
+//
+// Eligibility is intentionally STRICTER than the quote/invoice
+// precedent: status = 'DRAFT' AND purchase_order_number IS NULL (never
+// issued — permanent numbering is assigned exactly once, at ISSUE, and
+// is never cleared) AND submitted_at IS NULL (never even submitted for
+// approval). That last condition is deliberate, not copied from quotes/
+// invoices (which have no PENDING_APPROVAL/return concept at all): a PO
+// that was submitted and then returned to DRAFT already carries real
+// approval-workflow history (a submit + a return, each with their own
+// audit event and a persisted return_reason) — hard-deleting it would
+// silently orphan that trail's meaning ("why was this returned, by
+// whom") with no PO left to explain it. Only a DRAFT that was NEVER
+// submitted — exactly the shape of the abandoned first-attempt draft
+// left over from the C6.8 Production smoke — is eligible. A
+// once-submitted PO, even back in DRAFT after a return, must instead
+// stay discoverable/editable and eventually re-submitted, cancelled (via
+// re-submit → approve → issue → cancel), or left as a permanent DRAFT
+// record — never silently erased.
+export async function deleteDraftPurchaseOrder(params: {
+  organisationId: string; userId: string; purchaseOrderId: string;
+}): Promise<boolean> {
+  const rows = (await sql`
+    DELETE FROM commercial_purchase_orders
+    WHERE id = ${params.purchaseOrderId} AND organisation_id = ${params.organisationId}
+      AND status = 'DRAFT' AND purchase_order_number IS NULL AND submitted_at IS NULL
+    RETURNING id
+  `) as { id: string }[];
+  if (rows.length === 0) return false;
+
+  await logPurchaseOrderDeleted({ organisationId: params.organisationId, userId: params.userId, purchaseOrderId: params.purchaseOrderId });
+  return true;
 }
 
 // ── Lines ─────────────────────────────────────────────────────────────
