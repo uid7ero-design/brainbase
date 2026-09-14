@@ -1,6 +1,7 @@
 "use client";
 
 import React, { Suspense, useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { createPortal } from "react-dom";
 import { useSearchParams } from "next/navigation";
 import OrganiserShell from "@/components/organiser/OrganiserShell";
 import OrganiserRail from "@/components/organiser/OrganiserRail";
@@ -1028,7 +1029,18 @@ function ItemDrawer({
     setNewUpdate("");
   }
 
-  return (
+  // D.4.6P-R2 (PR #214 UI blocker fix) — OrganiserShell wraps this drawer's
+  // page tree in its own `position: fixed; z-index: 50` box, which
+  // establishes a stacking context. A z-index set on a descendant (this
+  // drawer's own 200) is only ever compared *inside* that context, so it
+  // can never out-rank siblings of OrganiserShell itself — TopNav
+  // (position: sticky, z-index: 100) and the HLNA assistant bar
+  // (z-index: 60-70) both live outside it and always painted over the
+  // drawer regardless of the drawer's own z-index. Portaling straight to
+  // document.body escapes that trap entirely, the same fix TopNav.tsx
+  // already uses for its own dropdown menus (see its own comment there).
+  // No layout/offset math needed — once escaped, 200 already beats both.
+  const drawerContent = (
     <div style={{ position: "fixed", inset: 0, zIndex: 200, display: "flex", justifyContent: "flex-end" }}>
       <div onClick={onClose} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,.45)" }} />
       <div style={{
@@ -1078,8 +1090,15 @@ function ItemDrawer({
                 onChange={e => onUpdate(item.id, { assignee_user_id: e.target.value || null })}
                 style={{ background: t.ink(.04), border: `1px solid ${t.ink(.08)}`, borderRadius: 6, padding: "5px 8px", fontSize: 12, color: t.ink(.90), fontFamily: FONT, width: 168 }}
               >
-                <option value="">Unassigned</option>
-                {members.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                {/* D.4.6P-R2 (PR #214 UI blocker fix) — matches the same
+                    per-option style PillSelect/OptionsPillSelect already
+                    use above; Chromium/Windows respects inline background/
+                    color on <option> even though it ignores full CSS on
+                    the native <select> popup otherwise. This select had
+                    no option styling at all, so its open panel fell back
+                    to the browser's default light theme. */}
+                <option value="" style={{ background: t.menuBg, color: t.ink(.90) }}>Unassigned</option>
+                {members.map(m => <option key={m.id} value={m.id} style={{ background: t.menuBg, color: t.ink(.90) }}>{m.name}</option>)}
               </select>
             </Field>
           </div>
@@ -1158,6 +1177,8 @@ function ItemDrawer({
       </div>
     </div>
   );
+
+  return typeof document !== "undefined" ? createPortal(drawerContent, document.body) : null;
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
