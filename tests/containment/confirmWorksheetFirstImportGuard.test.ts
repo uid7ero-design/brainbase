@@ -124,62 +124,73 @@ beforeEach(() => {
   storageGetMock.mockReset();
 });
 
-// 6.1B — default tx.sourceRecordIdentity/tx.sourceRecordObservation
-// doubles: identity.create always succeeds (never throws P2002), so every
-// mapped record classifies NEW by default. Tests specifically proving
-// "a SECOND worksheet reaches reconciliation and is classified against
-// EXISTING history" override this to simulate a pre-existing identity
-// (P2002 on create, a resolvable findUniqueOrThrow, and a real prior
-// observation to compare against).
+// 6.1D2 — default tx.sourceRecordIdentity/tx.sourceRecordObservation
+// doubles, modeling the BATCHED API (supersedes the old per-row
+// create()/findUniqueOrThrow()/findFirst() shape): findMany is called
+// once up front (existing lookup) and, only for ids missing from that
+// result, once more after createMany (the reload). This default double
+// tracks state across those two calls itself — the FIRST findMany call
+// finds nothing (nothing pre-exists), createMany "creates" whatever was
+// requested (recording a generated id per external_id), and the SECOND
+// findMany call (the reload) returns exactly what was just created — so
+// every mapped record classifies NEW by default, matching the old
+// default's own behavior exactly. Tests specifically proving "a SECOND
+// worksheet reaches reconciliation and is classified against EXISTING
+// history" override this via existingIdentityReconciliationTxMocks below.
 function defaultReconciliationTxMocks() {
   let identityCounter = 0;
+  const createdIdentities = new Map<string, string>();
+  const createManyMock = vi.fn().mockImplementation(async ({ data }: { data: Array<{ source_external_id: string }> }) => {
+    for (const row of data) {
+      if (!createdIdentities.has(row.source_external_id)) {
+        createdIdentities.set(row.source_external_id, `sri-${++identityCounter}`);
+      }
+    }
+    return { count: data.length };
+  });
+  const findManyMock = vi.fn().mockImplementation(async ({ where }: { where: { source_external_id: { in: string[] } } }) => {
+    const requestedIds = where.source_external_id.in;
+    return requestedIds
+      .filter((extId) => createdIdentities.has(extId))
+      .map((extId) => ({ id: createdIdentities.get(extId), source_external_id: extId }));
+  });
   return {
     sourceRecordIdentity: {
-      create: vi.fn().mockImplementation(async () => ({ id: `sri-${++identityCounter}` })),
-      findUniqueOrThrow: vi.fn(),
+      findMany: findManyMock,
+      createMany: createManyMock,
     },
     sourceRecordObservation: {
-      create: vi.fn().mockResolvedValue({}),
-      findFirst: vi.fn().mockResolvedValue(null),
+      createMany: vi.fn().mockResolvedValue({ count: 0 }),
     },
   };
 }
 
-// 6.1B — a P2002-like error shape sourceRecordIdentity.create's own catch
-// block recognizes as "identity already exists" (see confirmWorksheet.ts's
-// own `err instanceof Prisma.PrismaClientKnownRequestError && err.code ===
-// "P2002"` check). Constructing a real PrismaClientKnownRequestError
-// requires @prisma/client's own class + a clientVersion string; simplest
-// or most direct route in a unit test is to import the real class.
-import { Prisma } from "@prisma/client";
-function p2002Error(): Prisma.PrismaClientKnownRequestError {
-  return new Prisma.PrismaClientKnownRequestError("Unique constraint failed", {
-    code: "P2002",
-    clientVersion: "test",
-  });
-}
-
-// 6.1B — simulates "this worksheet's SourceSystem already has a prior
-// governed import" by making sourceRecordIdentity.create always reject
-// with P2002 (identity pre-exists) and findUniqueOrThrow resolve to a
-// fixed identity id, with a real prior observation available for hash
-// comparison. `matchingHash: true` yields UNCHANGED; `false` yields
-// CHANGED — either way, the record reaches classification, never a
-// worksheet-level block.
+// 6.1D2 — simulates "this worksheet's SourceSystem already has a prior
+// governed import": the FIRST sourceRecordIdentity.findMany call resolves
+// EVERY requested external_id to the same fixed pre-existing identity id
+// (so newExternalIds is empty — createMany/the reload findMany are never
+// reached), and __priorObservationRows carries the row
+// mockTransactionOnce below feeds to the SECOND tx.$queryRaw call (the
+// batched prior-observation DISTINCT ON lookup that superseded the old
+// per-row sourceRecordObservation.findFirst()). `matchingHash: true`
+// yields UNCHANGED; `false` yields CHANGED — either way, the record
+// reaches classification, never a worksheet-level block.
 function existingIdentityReconciliationTxMocks(opts: { priorHash: string; matchingHash: boolean }) {
-  const observationCreateMock = vi.fn().mockResolvedValue({});
+  const observationCreateManyMock = vi.fn().mockResolvedValue({ count: 1 });
   return {
     sourceRecordIdentity: {
-      create: vi.fn().mockRejectedValue(p2002Error()),
-      findUniqueOrThrow: vi.fn().mockResolvedValue({ id: "sri-existing" }),
+      findMany: vi.fn().mockImplementation(async ({ where }: { where: { source_external_id: { in: string[] } } }) =>
+        where.source_external_id.in.map((extId) => ({ id: "sri-existing", source_external_id: extId }))
+      ),
+      createMany: vi.fn().mockResolvedValue({ count: 0 }),
     },
     sourceRecordObservation: {
-      create: observationCreateMock,
-      findFirst: vi.fn().mockResolvedValue({
-        canonical_hash: opts.matchingHash ? opts.priorHash : "0".repeat(64),
-      }),
+      createMany: observationCreateManyMock,
     },
-    __observationCreateMock: observationCreateMock,
+    __priorObservationRows: [
+      { source_record_identity_id: "sri-existing", canonical_hash: opts.matchingHash ? opts.priorHash : "0".repeat(64) },
+    ],
+    __observationCreateMock: observationCreateManyMock,
   };
 }
 
@@ -195,14 +206,23 @@ function mockTransactionOnce(
   else if (claimBehavior === "lose") updateManyMock.mockResolvedValue({ count: 0 });
   else updateManyMock.mockRejectedValue(new Error("simulated claim failure"));
 
-  // 6.1B — the SourceSystem FOR UPDATE lock is the ONLY tx.$queryRaw call
-  // remaining (the coarse existence check is removed) — a single resolved
-  // value serves it.
-  const queryRawMock = vi.fn().mockResolvedValue([{ id: "ss-1" }]);
+  // 6.1D2 — tx.$queryRaw is now called up to TWICE per transaction: always
+  // once for the SourceSystem FOR UPDATE lock, and a SECOND time only if
+  // any pre-existing identity needs its prior observation resolved (the
+  // batched DISTINCT ON query that superseded the old per-row
+  // sourceRecordObservation.findFirst()). Chain both responses up front —
+  // if the second call never happens (the default all-NEW case), the
+  // queued value is simply never consumed, which is harmless.
+  const queryRawMock = vi.fn();
+  queryRawMock.mockResolvedValueOnce([{ id: "ss-1" }]);
+  queryRawMock.mockResolvedValueOnce((reconciliationTxMocks as { __priorObservationRows?: unknown[] }).__priorObservationRows ?? []);
 
-  // 6.1B — a no-op double for the SAVEPOINT/ROLLBACK TO SAVEPOINT pair
-  // around identity creation (required by real Postgres transaction-abort
-  // semantics — see confirmWorksheet.ts's own header comment).
+  // 6.1D2 — the per-row SAVEPOINT/ROLLBACK TO SAVEPOINT pair no longer
+  // exists in production code (superseded by createMany({skipDuplicates:
+  // true}), safe under the SourceSystem lock's own serialization — see
+  // confirmWorksheet.ts's own header comment) — tx.$executeRaw is no
+  // longer called by the reconciliation path at all. Kept as a harmless,
+  // unused double in case any other code path still references it.
   const executeRawMock = vi.fn().mockResolvedValue(undefined);
 
   transactionMock.mockImplementation(async (callback: (tx: unknown) => Promise<unknown>) => {
@@ -432,15 +452,19 @@ describe("confirmWorksheet — 6.0C1 T8/M6: a rolled-back transaction (claim thr
     uploadFindFirstMock.mockResolvedValue(worksheetRow());
     importBatchFindUniqueMock.mockResolvedValue(batchRow({ sha256, source_system_id: "ss-1" }));
     storageGetMock.mockResolvedValue({ body });
-    // Identity pre-exists (P2002) but has ZERO prior observations -> Case C.
+    // Identity pre-exists (found by the first findMany call) but has ZERO
+    // prior observations -> Case C. No __priorObservationRows is set here,
+    // so mockTransactionOnce's second $queryRaw call defaults to `[]` —
+    // exactly "identity exists, zero observation history."
     mockTransactionOnce("claim", {
       sourceRecordIdentity: {
-        create: vi.fn().mockRejectedValue(p2002Error()),
-        findUniqueOrThrow: vi.fn().mockResolvedValue({ id: "sri-existing" }),
+        findMany: vi.fn().mockImplementation(async ({ where }: { where: { source_external_id: { in: string[] } } }) =>
+          where.source_external_id.in.map((extId) => ({ id: "sri-existing", source_external_id: extId }))
+        ),
+        createMany: vi.fn().mockResolvedValue({ count: 0 }),
       },
       sourceRecordObservation: {
-        create: vi.fn().mockResolvedValue({}),
-        findFirst: vi.fn().mockResolvedValue(null),
+        createMany: vi.fn().mockResolvedValue({ count: 0 }),
       },
     });
     const result = await confirmDataHubWorksheet({ organisationId: "org-1", worksheetUploadId: "worksheet-1", confirmedBy: "actor-1" });
@@ -590,7 +614,7 @@ describe("confirmWorksheet — 6.0C1 mutation-target predicate shape (M2/M3 stru
 //     actually supplies all four key components on every create attempt) ─
 
 describe("confirmWorksheet — 6.1B reconciliation identity key shape", () => {
-  it("every sourceRecordIdentity.create call supplies organisation_id, source_system_id, domain_kind, and source_external_id — never a partial key", async () => {
+  it("every identity row supplied to sourceRecordIdentity.createMany includes organisation_id, source_system_id, domain_kind, and source_external_id — never a partial key", async () => {
     const { confirmDataHubWorksheet } = await freshService();
     const { body, sha256 } = csvBody([["2024-01-01", "Main St", "tyres", "EXT-42"]]);
     uploadFindFirstMock.mockResolvedValue(worksheetRow());
@@ -599,14 +623,17 @@ describe("confirmWorksheet — 6.1B reconciliation identity key shape", () => {
     const reconciliationMocks = defaultReconciliationTxMocks();
     mockTransactionOnce("claim", reconciliationMocks);
     await confirmDataHubWorksheet({ organisationId: "org-1", worksheetUploadId: "worksheet-1", confirmedBy: "actor-1" });
-    expect(reconciliationMocks.sourceRecordIdentity.create).toHaveBeenCalledWith(
+    expect(reconciliationMocks.sourceRecordIdentity.createMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: {
-          organisation_id: "org-1",
-          source_system_id: "ss-1",
-          domain_kind: "ILLEGAL_DUMPING",
-          source_external_id: "EXT-42",
-        },
+        data: [
+          {
+            organisation_id: "org-1",
+            source_system_id: "ss-1",
+            domain_kind: "ILLEGAL_DUMPING",
+            source_external_id: "EXT-42",
+          },
+        ],
+        skipDuplicates: true,
       })
     );
   });
