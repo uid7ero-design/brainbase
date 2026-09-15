@@ -8,6 +8,7 @@ import OrganiserRail from "@/components/organiser/OrganiserRail";
 import { useOpsTheme } from "@/components/ops/theme";
 import { useAppStore } from "@/lib/state/useAppStore";
 import { describeActivityEvent, describeBoardActivityEvent, type ActivityEventLike } from "@/lib/organiser/activityFormat";
+import { enqueueCoalesced, type CoalescingQueueMap } from "@/lib/organiser/coalescingMutationQueue";
 
 const FONT = 'var(--font-inter), "Inter", -apple-system, sans-serif';
 
@@ -1487,13 +1488,20 @@ function OrganiserPageContent() {
   // mutation triggered it) against an out-of-order network response: if
   // a newer load has been kicked off by the time an older one resolves,
   // the older one's result is discarded rather than overwriting fresher
-  // board state. itemOpSeqRef is the equivalent per-item-per-field guard
-  // for updateItem (see its own comment) — keyed by the same
-  // `item:<id>:<fieldKey>` convention as saveStatus, so editing one
-  // field on an item never affects a concurrent edit to a different
-  // field on the same item.
+  // board state.
   const boardLoadSeqRef = useRef(0);
-  const itemOpSeqRef = useRef<Record<string, number>>({});
+
+  // D.4.7B-R1 — replaces the original itemOpSeqRef response-sequence guard.
+  // That guard only decided which RESPONSE the client trusted; it could
+  // never prevent two overlapping REQUESTS for the same item+field from
+  // being dispatched to the server back-to-back, so a network-delayed
+  // earlier request could still commit last and leave server truth
+  // diverged from what the client displayed. This queue guarantees at
+  // most one PATCH in flight per `item:<id>:<fieldKey>` key at a time —
+  // see lib/organiser/coalescingMutationQueue.ts's own header for the
+  // full reasoning — which is what actually makes server commit order
+  // deterministic, not just client display order.
+  const itemFieldQueueRef = useRef<CoalescingQueueMap<Record<string, unknown>>>({});
 
   // Lightweight, single-slot transient notice for mutations with no
   // natural inline anchor to show Saving/Saved/error next to (group/item
@@ -1687,63 +1695,16 @@ function OrganiserPageContent() {
     await loadBoardData(activeId);
     return true;
   }
-  // D.4.7B — the mutation reliability + save-state foundation every later
-  // inline-editing/autosave phase builds on. Three additions over the
-  // prior version, all scoped to THIS function's own optimistic update:
-  //
-  // 1. Response handling: the PATCH's success/failure is now actually
-  //    inspected (res.ok) and a thrown network error is caught — neither
-  //    was true before, so a rejected write previously left the
-  //    optimistic state in place forever with zero indication anything
-  //    was wrong.
-  // 2. Field-scoped rollback: only the exact fields this call patched are
-  //    snapshotted before the optimistic merge and restored on failure —
-  //    never a whole-item or whole-board rollback, so an unrelated
-  //    concurrent edit to a different field is never touched.
-  // 3. Per-field sequencing (itemOpSeqRef, keyed identically to
-  //    saveStatus): rapid edits to the SAME field on the SAME item
-  //    (e.g. Status A→B then immediately B→C) each claim a sequence
-  //    number, and a settling request only applies its own
-  //    rollback/success/reload if no newer edit to that exact field has
-  //    started since — so a slow response to the first request can never
-  //    revert or reconcile over a second, already-in-flight or already-
-  //    settled edit. This is a client-display guarantee (the UI never
-  //    regresses to a stale value) — it does not and cannot control
-  //    server-side write ordering, which the server's own request
-  //    handling is responsible for.
-  //
-  // Deliberately NOT wired up here: any Notes-specific debounce or
-  // visible Saving/Saved UI. Notes still calls this same function on
-  // every keystroke (unchanged in this phase), so it already benefits
-  // from the sequencing guarantee above (an old keystroke's failure can
-  // never stomp a newer, already-superseded keystroke), but a failure on
-  // the LATEST keystroke (nothing newer yet issued) will still roll the
-  // textarea back to the last successfully-saved text — reverting only
-  // the unsaved-since-last-success delta, never silently further than
-  // that. D.4.7C closes this exposure window entirely by moving Notes to
-  // blur/debounced saves; see that phase's own header for the intended
-  // wiring (pass `item:<id>:notes` as the status key to Field once Notes
-  // gets its own Field wrapper and visible save state).
-  async function updateItem(id: string, patch: Record<string, unknown>) {
-    const fieldKey = Object.keys(patch).sort().join(",");
-    const statusKey = `item:${id}:${fieldKey}`;
-    const mySeq = (itemOpSeqRef.current[statusKey] ?? 0) + 1;
-    itemOpSeqRef.current[statusKey] = mySeq;
-
-    let prevSnapshot: Record<string, unknown> | null = null;
-    const patchKeys = Object.keys(patch);
-
-    // Optimistic local update so pills/dates/cells feel instant.
+  // Applies `patch` optimistically to both boardData and drawerItem —
+  // extracted so both the coalesced (queued-while-in-flight) path and the
+  // dispatched-request path in updateItem below can share it verbatim.
+  function applyOptimisticItemPatch(id: string, patch: Record<string, unknown>) {
     setBoardData(prev => {
       if (!prev) return prev;
       return {
         ...prev,
         items: prev.items.map(i => {
           if (i.id !== id) return i;
-          if (!prevSnapshot) {
-            prevSnapshot = {};
-            for (const k of patchKeys) (prevSnapshot as Record<string, unknown>)[k] = (i as unknown as Record<string, unknown>)[k];
-          }
           const merged = { ...i, ...patch } as OrganiserItem;
           if (patch.custom_values && typeof patch.custom_values === "object") {
             merged.custom_values = { ...i.custom_values, ...(patch.custom_values as Record<string, unknown>) };
@@ -1760,34 +1721,114 @@ function OrganiserPageContent() {
       }
       return merged;
     });
+  }
+  function restoreItemFields(id: string, snapshot: Record<string, unknown>) {
+    setBoardData(prev => prev ? { ...prev, items: prev.items.map(i => i.id === id ? ({ ...i, ...snapshot } as OrganiserItem) : i) } : prev);
+    setDrawerItem(prev => prev && prev.id === id ? ({ ...prev, ...snapshot } as OrganiserItem) : prev);
+  }
+  // Reads the CURRENT (pre-optimistic-patch) values of `keys` for item
+  // `id`, preferring drawerItem when it's the open item (the most "live"
+  // copy a user is looking at) and falling back to boardData. Only ever
+  // called synchronously at the very start of a fresh (non-coalesced)
+  // mutation chain — see updateItem below — never from deep inside an
+  // async continuation, so there's no risk of reading stale React state
+  // from an old render's closure.
+  function readCurrentItemFields(id: string, keys: string[]): Record<string, unknown> {
+    const source = (drawerItem && drawerItem.id === id) ? drawerItem : boardData?.items.find(i => i.id === id);
+    const out: Record<string, unknown> = {};
+    if (source) for (const k of keys) out[k] = (source as unknown as Record<string, unknown>)[k];
+    return out;
+  }
 
+  // D.4.7B / D.4.7B-R1 — the mutation reliability + save-state foundation
+  // every later inline-editing/autosave phase builds on.
+  //
+  // 1. Response handling: the PATCH's success/failure is actually
+  //    inspected (res.ok) and a thrown network error is caught — a
+  //    rejected write no longer leaves the optimistic state in place
+  //    forever with zero indication anything was wrong.
+  // 2. Field-scoped rollback: only the exact fields this call patched are
+  //    snapshotted and restored on failure — never a whole-item or
+  //    whole-board rollback, so an unrelated concurrent edit to a
+  //    different field is never touched.
+  // 3. Server-ordering (D.4.7B-R1): D.4.7B's original per-field sequence
+  //    number (itemOpSeqRef) only decided which RESPONSE the client
+  //    trusted — it could never stop two overlapping REQUESTS for the
+  //    same item+field from being dispatched to the server back-to-back,
+  //    so a network-delayed earlier request could still commit LAST and
+  //    leave server truth diverged from what the client displayed (the
+  //    PATCH route is an unconditional overwrite, not a compare-and-
+  //    swap). enqueueCoalesced (lib/organiser/coalescingMutationQueue.ts)
+  //    replaces that guard: at most one PATCH is ever in flight per
+  //    `item:<id>:<fieldKey>` key. A same-field edit made while one is
+  //    already in flight replaces the pending value (never queues more
+  //    than one) and is only actually sent once the in-flight call has
+  //    fully settled — so the server always receives writes for a given
+  //    item+field in the client's intended order, never racing to commit
+  //    last. `hasNewerPending()` lets each step know whether it's safe to
+  //    finalize (rollback/markSaved/reload) or whether a newer value is
+  //    already about to supersede it — see its own JSDoc.
+  //
+  // Deliberately NOT wired up here: any Notes-specific debounce or
+  // visible Saving/Saved UI. Notes still calls this same function on
+  // every keystroke (unchanged in this phase), so it already benefits
+  // from the ordering guarantee above, but a failure on the LATEST
+  // keystroke (nothing newer yet issued) will still roll the textarea
+  // back to the last successfully-saved text — reverting only the
+  // unsaved-since-last-success delta, never silently further than that.
+  // D.4.7C closes this exposure window entirely by moving Notes to
+  // blur/debounced saves; see that phase's own header for the intended
+  // wiring (pass `item:<id>:notes` as the status key to Field once Notes
+  // gets its own Field wrapper and visible save state).
+  async function updateItem(id: string, patch: Record<string, unknown>) {
+    const fieldKey = Object.keys(patch).sort().join(",");
+    const statusKey = `item:${id}:${fieldKey}`;
+    const patchKeys = Object.keys(patch);
+
+    // Always apply optimistically and mark saving immediately, whether or
+    // not a request for this exact item+field is already in flight — the
+    // UI stays instant even while the actual network dispatch is queued
+    // behind an earlier one.
+    applyOptimisticItemPatch(id, patch);
     markSaving(statusKey);
 
-    let ok = false;
-    try {
-      const res = await fetch(`/api/organiser/items/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify(patch) });
-      ok = res.ok;
-    } catch {
-      ok = false;
-    }
+    // Captured lazily, once, by the first (non-coalesced) attempt in this
+    // chain — see below. Updated to the just-applied patch's own values
+    // after each attempt that actually succeeds, so a LATER failure in
+    // the same chain rolls back to the last genuinely server-confirmed
+    // value, never further than that.
+    let confirmedBase: Record<string, unknown> | null = null;
 
-    // A newer edit to this exact item+field has been issued since — that
-    // newer operation now owns rollback/reconciliation for this key;
-    // applying this stale response's outcome would regress the UI.
-    if (itemOpSeqRef.current[statusKey] !== mySeq) return;
+    await enqueueCoalesced(itemFieldQueueRef.current, statusKey, patch, async (value, hasNewerPending) => {
+      if (confirmedBase === null) confirmedBase = readCurrentItemFields(id, patchKeys);
 
-    if (!ok) {
-      if (prevSnapshot) {
-        const snap = prevSnapshot as Record<string, unknown>;
-        setBoardData(prev => prev ? { ...prev, items: prev.items.map(i => i.id === id ? ({ ...i, ...snap } as OrganiserItem) : i) } : prev);
-        setDrawerItem(prev => prev && prev.id === id ? ({ ...prev, ...snap } as OrganiserItem) : prev);
+      let ok = false;
+      try {
+        const res = await fetch(`/api/organiser/items/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify(value) });
+        ok = res.ok;
+      } catch {
+        ok = false;
       }
-      markError(statusKey, "Couldn't save. Your previous value was restored.");
-      return;
-    }
 
-    markSaved(statusKey);
-    if (activeId) loadBoardData(activeId);
+      if (!ok) {
+        if (!hasNewerPending()) {
+          restoreItemFields(id, confirmedBase as Record<string, unknown>);
+          markError(statusKey, "Couldn't save. Your previous value was restored.");
+        }
+        // else: a newer value is already queued to try next — don't roll
+        // back yet (the optimistic UI already shows that newer value);
+        // leave confirmedBase as-is since this attempt was never confirmed.
+        return;
+      }
+
+      confirmedBase = { ...(confirmedBase as Record<string, unknown>), ...value };
+      if (!hasNewerPending()) {
+        markSaved(statusKey);
+        if (activeId) loadBoardData(activeId);
+      }
+      // else: don't flash Saved — a newer value is already pending and
+      // will be attempted next; only the LAST step's outcome is reported.
+    });
   }
   async function deleteItem(id: string) {
     let ok = false;

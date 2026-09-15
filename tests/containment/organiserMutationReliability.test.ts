@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest'
 import fs from 'fs'
 import path from 'path'
 
-// D.4.7B — Organiser mutation reliability + save-state foundation.
+// D.4.7B / D.4.7B-R1 — Organiser mutation reliability + save-state
+// foundation, hardened for deterministic server write ordering.
 // Static source-text containment only — this repo has no jsdom/React
 // Testing Library harness (see AGENTS.md/CLAUDE.md and every other
 // containment test file's own note). Each block-scoped assertion below
@@ -15,6 +16,17 @@ import path from 'path'
 // UI. Board/column mutations (createBoard, addColumn, etc.) share the
 // identical pre-existing silent-failure pattern but are deliberately
 // left untouched — out of this phase's named scope, not overlooked.
+//
+// D.4.7B-R1 replaced updateItem's client-only response-sequence guard
+// (itemOpSeqRef) with a per item+field coalescing send queue
+// (enqueueCoalesced, lib/organiser/coalescingMutationQueue.ts) so that
+// server COMMIT order — not just client display order — matches the
+// user's intended edit order. The actual concurrency/ordering GUARANTEE
+// is proven with real executed async/await in
+// tests/containment/coalescingMutationQueue.test.ts (this repo's only
+// pure, dependency-free module able to be tested that way); the tests
+// below prove updateItem is correctly WIRED to that primitive, which is
+// all static source-text containment can honestly claim to prove.
 
 const root = path.resolve(__dirname, '../..')
 const read = (p: string) => fs.readFileSync(path.join(root, p), 'utf8').replace(/\r\n/g, '\n')
@@ -38,6 +50,12 @@ const deleteItemBlock = () => block('async function deleteItem(', '\n  async fun
 const loadBoardDataBlock = () => block('const loadBoardData = useCallback(', '\n  useEffect(() => { loadBoards(); }')
 const addItemRowBlock = () => block('function AddItemRow(', '\nfunction AddColumnButton(')
 const submitNewGroupBlock = () => block('async function submitNewGroup(', '\n  const groupNamesById')
+// D.4.7B-R1 — the three helpers inserted immediately before updateItem
+// (applyOptimisticItemPatch, restoreItemFields, readCurrentItemFields).
+// Markers are code tokens only (not comments) since pageCode has all
+// comments stripped already.
+const restoreItemFieldsBlock = () => block('function restoreItemFields(', '\n  function readCurrentItemFields(')
+const readCurrentItemFieldsBlock = () => block('function readCurrentItemFields(', '\n  async function updateItem(')
 
 describe('updateItem — response handling (A, B, F)', () => {
   it('inspects res.ok and treats non-2xx as failure, not just a resolved promise', () => {
@@ -59,27 +77,29 @@ describe('updateItem — response handling (A, B, F)', () => {
 })
 
 describe('updateItem — field-scoped optimistic rollback (A, B)', () => {
-  it('snapshots only the exact patched fields before the optimistic merge, not the whole item', () => {
+  it('captures the current (pre-optimistic-patch) values of only the exact patched fields, once per mutation chain', () => {
     const b = updateItemBlock()
     expect(b).toMatch(/const patchKeys = Object\.keys\(patch\)/)
-    expect(b).toMatch(/for \(const k of patchKeys\) \(prevSnapshot as Record<string, unknown>\)\[k\] = /)
+    expect(b).toMatch(/if \(confirmedBase === null\) confirmedBase = readCurrentItemFields\(id, patchKeys\);/)
+    // readCurrentItemFields itself only copies the requested keys, never the whole item.
+    const rb = readCurrentItemFieldsBlock()
+    expect(rb).toMatch(/for \(const k of keys\) out\[k\] = /)
+    expect(rb).not.toMatch(/\.\.\.source/)
   })
 
-  it('restores exactly the snapshotted fields on failure, in both boardData and drawerItem', () => {
+  it('restores exactly the last server-confirmed fields on failure, in both boardData and drawerItem', () => {
     const b = updateItemBlock()
-    expect(b).toMatch(/if \(prevSnapshot\) \{/)
-    expect(b).toMatch(/items: prev\.items\.map\(i => i\.id === id \? \(\{ \.\.\.i, \.\.\.snap \} as OrganiserItem\) : i\)/)
-    expect(b).toMatch(/setDrawerItem\(prev => prev && prev\.id === id \? \(\{ \.\.\.prev, \.\.\.snap \} as OrganiserItem\) : prev\)/)
+    expect(b).toMatch(/restoreItemFields\(id, confirmedBase as Record<string, unknown>\);/)
+    // restoreItemFields itself is the thing that touches boardData/drawerItem.
+    const rb = restoreItemFieldsBlock()
+    expect(rb).toMatch(/items: prev\.items\.map\(i => i\.id === id \? \(\{ \.\.\.i, \.\.\.snapshot \} as OrganiserItem\) : i\)/)
+    expect(rb).toMatch(/setDrawerItem\(prev => prev && prev\.id === id \? \(\{ \.\.\.prev, \.\.\.snapshot \} as OrganiserItem\) : prev\)/)
   })
 
-  it('never rolls back the whole board — only this item is touched in the rollback branch', () => {
-    const b = updateItemBlock()
-    // The rollback branch's setBoardData call must map over existing items
-    // and only replace the matching id, never replace the items array wholesale.
-    const rollbackRegionStart = b.indexOf('if (!ok) {')
-    const rollbackRegion = b.slice(rollbackRegionStart, rollbackRegionStart + 400)
-    expect(rollbackRegion).toMatch(/prev\.items\.map\(/)
-    expect(rollbackRegion).not.toMatch(/items:\s*\[/)
+  it('never rolls back the whole board — restoreItemFields only ever maps over existing items, never replaces the array wholesale', () => {
+    const rb = restoreItemFieldsBlock()
+    expect(rb).toMatch(/prev\.items\.map\(/)
+    expect(rb).not.toMatch(/items:\s*\[/)
   })
 })
 
@@ -94,29 +114,40 @@ describe('updateItem — save-state visibility (D, E)', () => {
   })
 })
 
-describe('updateItem — concurrency / stale-response protection (H)', () => {
-  it('claims a per-item-per-field sequence number before the optimistic update, and re-checks it after the request settles', () => {
+describe('updateItem — D.4.7B-R1 server-ordering protection via a per item+field coalescing queue (H)', () => {
+  it('routes every write through enqueueCoalesced keyed by item+field (statusKey), replacing the old client-only response-sequence guard entirely', () => {
     const b = updateItemBlock()
     expect(b).toMatch(/const fieldKey = Object\.keys\(patch\)\.sort\(\)\.join\(","\)/)
     expect(b).toMatch(/const statusKey = `item:\$\{id\}:\$\{fieldKey\}`/)
-    expect(b).toMatch(/const mySeq = \(itemOpSeqRef\.current\[statusKey\] \?\? 0\) \+ 1/)
-    expect(b).toMatch(/itemOpSeqRef\.current\[statusKey\] = mySeq/)
+    expect(b).toMatch(/await enqueueCoalesced\(itemFieldQueueRef\.current, statusKey, patch, async \(value, hasNewerPending\) => \{/)
+    // the old response-sequence-number guard must be fully gone from the
+    // whole file, not merely absent from this block — it is superseded,
+    // not layered alongside enqueueCoalesced.
+    expect(pageCode).not.toMatch(/itemOpSeqRef/)
   })
 
-  it('discards a stale settled request — skips rollback/save-state/reload if a newer edit to the same item+field has since started', () => {
+  it('dispatches the fetch itself INSIDE the coalesced callback, not before enqueueCoalesced is called — this is what actually guarantees at most one in-flight PATCH per item+field', () => {
     const b = updateItemBlock()
-    expect(b).toMatch(/if \(itemOpSeqRef\.current\[statusKey\] !== mySeq\) return;/)
-    // the guard must appear AFTER the fetch settles and BEFORE any rollback/markSaved/reload
-    const guardIdx = b.indexOf('if (itemOpSeqRef.current[statusKey] !== mySeq) return;')
-    expect(guardIdx).toBeGreaterThan(b.indexOf('} catch {\n      ok = false;\n    }'))
-    expect(guardIdx).toBeLessThan(b.indexOf('markSaved(statusKey)'))
+    const enqueueIdx = b.indexOf('await enqueueCoalesced(itemFieldQueueRef.current, statusKey, patch, async (value, hasNewerPending) => {')
+    const fetchIdx = b.indexOf('fetch(`/api/organiser/items/${id}`', enqueueIdx)
+    expect(enqueueIdx).toBeGreaterThan(-1)
+    expect(fetchIdx).toBeGreaterThan(enqueueIdx)
   })
 
-  it('keys the sequence guard by item+field, not by item alone — editing one field must never invalidate a concurrent edit to a different field on the same item', () => {
+  it('gates BOTH the failure-rollback branch and the success-finalize branch on hasNewerPending() — an intermediate step in a coalesced chain never rolls back or reports Saved on behalf of a value a newer edit is about to supersede', () => {
     const b = updateItemBlock()
-    // statusKey embeds fieldKey, and itemOpSeqRef is indexed by statusKey (not bare id)
-    expect(b).not.toMatch(/itemOpSeqRef\.current\[id\]/)
-    expect(b).toMatch(/itemOpSeqRef\.current\[statusKey\]/)
+    expect(b).toMatch(/if \(!ok\) \{\s*if \(!hasNewerPending\(\)\) \{\s*restoreItemFields\(id, confirmedBase as Record<string, unknown>\);\s*markError\(statusKey, "Couldn't save\. Your previous value was restored\."\);\s*\}/)
+    expect(b).toMatch(/if \(!hasNewerPending\(\)\) \{\s*markSaved\(statusKey\);\s*if \(activeId\) loadBoardData\(activeId\);\s*\}/)
+  })
+
+  it('keys the coalescing queue by item+field, not by item alone — a concurrent edit to a different field on the same item uses a different queue key entirely', () => {
+    const b = updateItemBlock()
+    expect(b).not.toMatch(/itemFieldQueueRef\.current\[id\]/)
+    expect(b).toMatch(/statusKey = `item:\$\{id\}:\$\{fieldKey\}`/)
+    // itemFieldQueueRef is declared as a map (Record<string, ...>) keyed by
+    // whatever string enqueueCoalesced is called with — proven independently,
+    // for real, by coalescingMutationQueue.test.ts's own "different fields on
+    // the SAME item never block each other" test.
   })
 })
 
