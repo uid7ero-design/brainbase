@@ -93,6 +93,15 @@ import path from 'path';
 // only the lib/db sql-client seam — createPurchaseOrder/postPurchaseReceipt/
 // cancelPurchaseOrder etc. all take already-trusted organisationId/userId
 // directly (auth happens one layer up, at the route handlers).
+//
+// C7.4 addition: scripts/tests/supplierBillConcurrency.integration
+// .test.ts (the strict, VALUE-based over-billing guard's own
+// real-Postgres concurrency proof, the PO-cancel-vs-bill-post mutual
+// exclusion invariant, and the STORED-generated-column canonicalisation
+// behind the duplicate-supplier-invoice-number constraint — see
+// scripts/tests/verify-supplier-bill-concurrency.sh) is added alongside
+// the existing specs, for the same reason and with the same
+// explicit-file-argument isolation.
 export default defineConfig({
   test: {
     environment: 'node',
@@ -109,6 +118,7 @@ export default defineConfig({
       'scripts/tests/selectWorksheetMapping.integration.test.ts',
       'scripts/tests/organiserConfirmationReplay.integration.test.ts',
       'scripts/tests/purchaseReceiptConcurrency.integration.test.ts',
+      'scripts/tests/supplierBillConcurrency.integration.test.ts',
     ],
     testTimeout: 30_000,
     hookTimeout: 30_000,
