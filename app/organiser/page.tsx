@@ -8,6 +8,7 @@ import OrganiserRail from "@/components/organiser/OrganiserRail";
 import { useOpsTheme } from "@/components/ops/theme";
 import { useAppStore } from "@/lib/state/useAppStore";
 import { describeActivityEvent, describeBoardActivityEvent, type ActivityEventLike } from "@/lib/organiser/activityFormat";
+import { enqueueCoalesced, type CoalescingQueueMap } from "@/lib/organiser/coalescingMutationQueue";
 
 const FONT = 'var(--font-inter), "Inter", -apple-system, sans-serif';
 
@@ -42,6 +43,44 @@ type OrganiserItem = {
 // organisation only) — the same identity source Helena's own
 // propose_organiser_assignee_change resolves assignee names against.
 type OrganiserMember = { id: string; name: string };
+
+// D.4.7B — mutation reliability + save-state foundation. A single,
+// reusable model every scalar field mutation (status/priority/due date/
+// assignee, and group rename) reports into, keyed by a caller-chosen
+// string (convention: `item:<id>:<patchFieldKey>` or `group:<id>:name`)
+// so unrelated fields/items never share or clobber each other's
+// indicator. `message` is only ever a short, safe, user-facing string —
+// never a raw server error, stack trace, or internal id (see
+// updateItem's own catch handling for where that boundary is enforced).
+type SaveState = "idle" | "saving" | "saved" | "error";
+type SaveStatus = { state: SaveState; message?: string };
+
+// Compact, silent-when-idle indicator for tight row/grid contexts (the
+// table view's Status/Priority/due-date cells) — a small colored dot
+// with the real message only in its title tooltip, so it never disturbs
+// the existing dense grid layout.
+function SaveDot({ status }: { status?: SaveStatus }) {
+  if (!status || status.state === "idle") return null;
+  const color = status.state === "saving" ? "#8B5CF6" : status.state === "saved" ? "#22C55E" : "#EF4444";
+  return (
+    <span
+      title={status.state === "error" ? (status.message ?? "Couldn't save") : status.state === "saving" ? "Saving…" : "Saved"}
+      style={{
+        display: "inline-block", width: 6, height: 6, borderRadius: "50%", background: color,
+        marginLeft: 5, flexShrink: 0, animation: status.state === "saving" ? "bb-save-pulse 1s ease-in-out infinite" : undefined,
+      }}
+    />
+  );
+}
+
+// Fuller text indicator for the drawer's own Field labels, where there's
+// room for the actual word instead of just a dot.
+function SaveStatusText({ status }: { status?: SaveStatus }) {
+  if (!status || status.state === "idle") return null;
+  if (status.state === "saving") return <span style={{ fontSize: 9.5, fontWeight: 600, color: "rgba(139,92,246,.85)", marginLeft: 6, textTransform: "none", letterSpacing: 0 }}>Saving…</span>;
+  if (status.state === "saved") return <span style={{ fontSize: 9.5, fontWeight: 600, color: "#22C55E", marginLeft: 6, textTransform: "none", letterSpacing: 0 }}>Saved</span>;
+  return <span style={{ fontSize: 9.5, fontWeight: 600, color: "#EF4444", marginLeft: 6, textTransform: "none", letterSpacing: 0 }}>{status.message ?? "Couldn't save"}</span>;
+}
 
 type OrganiserFile = { id: string; file_name: string; file_url: string; file_size: number | null; created_at: string };
 type OrganiserUpdate = { id: string; author_name: string | null; body: string; created_at: string };
@@ -291,9 +330,14 @@ function AssigneeDropdown({
 }
 
 function InlineText({
-  value, placeholder, onSave, bold,
+  value, placeholder, onSave, bold, status,
 }: {
   value: string; placeholder?: string; onSave: (v: string) => void; bold?: boolean;
+  // D.4.7B — optional; both call sites (item title in the drawer, group
+  // name here in GroupSection) now pass their own `item:<id>:name` /
+  // `group:<id>:name` saveStatus entry so a rename failure is visible
+  // right next to the text, not just as a silent no-op.
+  status?: SaveStatus;
 }) {
   const t = useOpsTheme();
   const [editing, setEditing] = useState(false);
@@ -302,16 +346,19 @@ function InlineText({
 
   if (!editing) {
     return (
-      <span
-        onClick={() => setEditing(true)}
-        title="Click to edit"
-        style={{
-          cursor: "text", fontWeight: bold ? 600 : 400,
-          color: value ? t.ink(.90) : t.ink(.28),
-          fontSize: bold ? 13 : 12, lineHeight: 1.4,
-        }}
-      >
-        {value || placeholder || "—"}
+      <span style={{ display: "inline-flex", alignItems: "center" }}>
+        <span
+          onClick={() => setEditing(true)}
+          title="Click to edit"
+          style={{
+            cursor: "text", fontWeight: bold ? 600 : 400,
+            color: value ? t.ink(.90) : t.ink(.28),
+            fontSize: bold ? 13 : 12, lineHeight: 1.4,
+          }}
+        >
+          {value || placeholder || "—"}
+        </span>
+        <SaveStatusText status={status} />
       </span>
     );
   }
@@ -383,24 +430,50 @@ function CustomCell({ column, value, onChange }: { column: OrganiserColumn; valu
 
 // ── ADD-ITEM ROW ─────────────────────────────────────────────────────────────
 
-function AddItemRow({ onAdd, indent }: { onAdd: (name: string) => void; indent?: boolean }) {
+// D.4.7B — duplicate-submit safe: a `submitting` flag guards Enter while
+// a create request is in flight (repeated Enter, or the browser's own
+// key-repeat while held down, cannot fire a second POST), the control
+// returns to usable state after success (submitting cleared, input
+// cleared), and a failed create restores the typed name so the user can
+// retry without retyping — the input is only ever cleared on confirmed
+// success. `onAdd` returning a boolean is the only contract change; the
+// underlying create request itself is unchanged.
+function AddItemRow({ onAdd, indent }: { onAdd: (name: string) => Promise<boolean>; indent?: boolean }) {
   const t = useOpsTheme();
   const [value, setValue] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit() {
+    const trimmed = value.trim();
+    if (!trimmed || submitting) return;
+    setSubmitting(true);
+    setError(null);
+    const ok = await onAdd(trimmed);
+    setSubmitting(false);
+    if (ok) {
+      setValue("");
+    } else {
+      setError("Couldn't create item. Try again.");
+    }
+  }
+
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 12px", paddingLeft: indent ? 44 : 12 }}>
       <span style={{ color: "rgba(139,92,246,.6)", fontSize: 14, lineHeight: 1 }}>+</span>
       <input
         value={value}
-        onChange={e => setValue(e.target.value)}
-        onKeyDown={e => {
-          if (e.key === "Enter" && value.trim()) { onAdd(value.trim()); setValue(""); }
-        }}
+        disabled={submitting}
+        onChange={e => { setValue(e.target.value); if (error) setError(null); }}
+        onKeyDown={e => { if (e.key === "Enter") submit(); }}
         placeholder={indent ? "Add subitem…" : "Add item…"}
         style={{
           flex: 1, background: "transparent", border: "none", outline: "none",
-          fontSize: 12, color: t.ink(.90), fontFamily: FONT,
+          fontSize: 12, color: submitting ? t.ink(.45) : t.ink(.90), fontFamily: FONT,
         }}
       />
+      {submitting && <span style={{ fontSize: 10.5, color: "rgba(139,92,246,.8)", flexShrink: 0 }}>Adding…</span>}
+      {error && <span style={{ fontSize: 10.5, color: "#EF4444", flexShrink: 0 }}>{error}</span>}
     </div>
   );
 }
@@ -521,13 +594,17 @@ function ColumnOptionsEditor({ column, onSave, onClose }: { column: OrganiserCol
 // ── ITEM ROW ─────────────────────────────────────────────────────────────────
 
 function ItemRow({
-  item, depth, columns, onUpdate, onDelete, onOpenDrawer, hasChildren, collapsed, onToggleCollapse,
+  item, depth, columns, onUpdate, onDelete, onOpenDrawer, hasChildren, collapsed, onToggleCollapse, saveStatus,
 }: {
   item: OrganiserItem; depth: number; columns: OrganiserColumn[];
   onUpdate: (id: string, patch: Record<string, unknown>) => void;
   onDelete: (id: string) => void;
   onOpenDrawer: (item: OrganiserItem) => void;
   hasChildren: boolean; collapsed: boolean; onToggleCollapse: () => void;
+  // D.4.7B — keyed by `item:<id>:<field>`, same convention as ItemDrawer's
+  // Field-level indicators; only this row's own item id's entries are
+  // ever relevant, looked up per field below.
+  saveStatus: Record<string, SaveStatus>;
 }) {
   const t = useOpsTheme();
   const [hover, setHover] = useState(false);
@@ -567,18 +644,27 @@ function ItemRow({
         </span>
       </div>
 
-      <PillSelect value={item.status} options={STATUS_OPTIONS} colorFor={statusColor} onChange={v => onUpdate(item.id, { status: v })} />
-      <PillSelect value={item.priority ?? ""} options={PRIORITY_OPTIONS} colorFor={priorityColor} onChange={v => onUpdate(item.id, { priority: v })} placeholder="Priority" />
+      <span style={{ display: "flex", alignItems: "center", minWidth: 0 }}>
+        <PillSelect value={item.status} options={STATUS_OPTIONS} colorFor={statusColor} onChange={v => onUpdate(item.id, { status: v })} />
+        <SaveDot status={saveStatus[`item:${item.id}:status`]} />
+      </span>
+      <span style={{ display: "flex", alignItems: "center", minWidth: 0 }}>
+        <PillSelect value={item.priority ?? ""} options={PRIORITY_OPTIONS} colorFor={priorityColor} onChange={v => onUpdate(item.id, { priority: v })} placeholder="Priority" />
+        <SaveDot status={saveStatus[`item:${item.id}:priority`]} />
+      </span>
 
-      <input
-        type="date"
-        value={item.due_date ?? ""}
-        onChange={e => onUpdate(item.id, { due_date: e.target.value || null })}
-        style={{
-          background: t.ink(.04), border: `1px solid ${t.ink(.08)}`, borderRadius: 6,
-          padding: "3px 6px", fontSize: 11, color: item.due_date ? t.ink(.90) : t.ink(.30), fontFamily: FONT, colorScheme: "dark",
-        }}
-      />
+      <span style={{ display: "flex", alignItems: "center", minWidth: 0 }}>
+        <input
+          type="date"
+          value={item.due_date ?? ""}
+          onChange={e => onUpdate(item.id, { due_date: e.target.value || null })}
+          style={{
+            background: t.ink(.04), border: `1px solid ${t.ink(.08)}`, borderRadius: 6,
+            padding: "3px 6px", fontSize: 11, color: item.due_date ? t.ink(.90) : t.ink(.30), fontFamily: FONT, colorScheme: "dark",
+          }}
+        />
+        <SaveDot status={saveStatus[`item:${item.id}:due_date`]} />
+      </span>
 
       <span style={{ fontSize: 11.5, color: t.ink(.55), overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
         {item.owner || "—"}
@@ -613,12 +699,12 @@ function ItemRow({
 
 function GroupSection({
   group, items, columns, onUpdateItem, onDeleteItem, onAddItem, onOpenDrawer, onRenameGroup, onDeleteGroup,
-  onAddColumn, onRenameColumn, onDeleteColumn, onEditColumnOptions,
+  onAddColumn, onRenameColumn, onDeleteColumn, onEditColumnOptions, saveStatus,
 }: {
   group: OrganiserGroup | null; items: OrganiserItem[]; columns: OrganiserColumn[];
   onUpdateItem: (id: string, patch: Record<string, unknown>) => void;
   onDeleteItem: (id: string) => void;
-  onAddItem: (name: string, groupId: string | null, parentItemId: string | null) => void;
+  onAddItem: (name: string, groupId: string | null, parentItemId: string | null) => Promise<boolean>;
   onOpenDrawer: (item: OrganiserItem) => void;
   onRenameGroup: (id: string, name: string) => void;
   onDeleteGroup: (id: string) => void;
@@ -626,6 +712,7 @@ function GroupSection({
   onRenameColumn: (id: string, name: string) => void;
   onDeleteColumn: (id: string) => void;
   onEditColumnOptions: (column: OrganiserColumn) => void;
+  saveStatus: Record<string, SaveStatus>;
 }) {
   const t = useOpsTheme();
   const [open, setOpen] = useState(true);
@@ -647,7 +734,7 @@ function GroupSection({
         <span style={{ width: 8, height: 8, borderRadius: "50%", background: color, flexShrink: 0 }} />
         <div style={{ flex: 1, minWidth: 0 }}>
           {group ? (
-            <InlineText value={group.name} bold onSave={v => onRenameGroup(group.id, v)} />
+            <InlineText value={group.name} bold onSave={v => onRenameGroup(group.id, v)} status={saveStatus[`group:${group.id}:name`]} />
           ) : (
             <span style={{ fontSize: 13, fontWeight: 600, color: t.ink(.45) }}>No group</span>
           )}
@@ -685,12 +772,14 @@ function GroupSection({
                   onUpdate={onUpdateItem} onDelete={onDeleteItem} onOpenDrawer={onOpenDrawer}
                   hasChildren={kids.length > 0} collapsed={collapsed}
                   onToggleCollapse={() => setCollapsedParents(prev => { const n = new Set(prev); n.has(item.id) ? n.delete(item.id) : n.add(item.id); return n; })}
+                  saveStatus={saveStatus}
                 />
                 {!collapsed && kids.map(child => (
                   <ItemRow
                     key={child.id} item={child} depth={1} columns={columns}
                     onUpdate={onUpdateItem} onDelete={onDeleteItem} onOpenDrawer={onOpenDrawer}
                     hasChildren={false} collapsed={false} onToggleCollapse={() => {}}
+                    saveStatus={saveStatus}
                   />
                 ))}
                 {!collapsed && (
@@ -1089,8 +1178,14 @@ function ItemActivity({
 }
 
 function ItemDrawer({
-  item, onClose, onUpdate, groupNamesById, members,
-}: { item: OrganiserItem; onClose: () => void; onUpdate: (id: string, patch: Record<string, unknown>) => void; groupNamesById: Record<string, string>; members: OrganiserMember[] }) {
+  item, onClose, onUpdate, groupNamesById, members, saveStatus,
+}: {
+  item: OrganiserItem; onClose: () => void; onUpdate: (id: string, patch: Record<string, unknown>) => void;
+  groupNamesById: Record<string, string>; members: OrganiserMember[];
+  // D.4.7B — same shared, `item:<id>:<field>`-keyed store as the table
+  // row; only this open item's own entries are ever looked up below.
+  saveStatus: Record<string, SaveStatus>;
+}) {
   const t = useOpsTheme();
   const fieldEntries = Object.entries(item.fields || {});
   // Phase D.4.6P — same id -> name lookup OrganiserPageContent's own
@@ -1178,7 +1273,7 @@ function ItemDrawer({
       }}>
         <div style={{ padding: "16px 18px", borderBottom: `1px solid ${t.ink(.06)}`, display: "flex", alignItems: "flex-start", gap: 10 }}>
           <div style={{ flex: 1 }}>
-            <InlineText value={item.name} bold onSave={v => onUpdate(item.id, { name: v })} />
+            <InlineText value={item.name} bold onSave={v => onUpdate(item.id, { name: v })} status={saveStatus[`item:${item.id}:name`]} />
           </div>
           <button onClick={onClose} style={{ width: 26, height: 26, borderRadius: 7, background: t.ink(.05), border: `1px solid ${t.ink(.08)}`, color: t.ink(.5), cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
@@ -1187,11 +1282,11 @@ function ItemDrawer({
 
         <div style={{ flex: 1, overflowY: "auto", padding: "16px 18px", display: "flex", flexDirection: "column", gap: 16 }}>
           <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
-            <Field label="Status"><PillSelect value={item.status} options={STATUS_OPTIONS} colorFor={statusColor} onChange={v => onUpdate(item.id, { status: v })} /></Field>
-            <Field label="Priority"><PillSelect value={item.priority ?? ""} options={PRIORITY_OPTIONS} colorFor={priorityColor} onChange={v => onUpdate(item.id, { priority: v })} placeholder="None" /></Field>
+            <Field label="Status" status={saveStatus[`item:${item.id}:status`]}><PillSelect value={item.status} options={STATUS_OPTIONS} colorFor={statusColor} onChange={v => onUpdate(item.id, { status: v })} /></Field>
+            <Field label="Priority" status={saveStatus[`item:${item.id}:priority`]}><PillSelect value={item.priority ?? ""} options={PRIORITY_OPTIONS} colorFor={priorityColor} onChange={v => onUpdate(item.id, { priority: v })} placeholder="None" /></Field>
           </div>
           <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
-            <Field label="Due date">
+            <Field label="Due date" status={saveStatus[`item:${item.id}:due_date`]}>
               <input type="date" value={item.due_date ?? ""} onChange={e => onUpdate(item.id, { due_date: e.target.value || null })}
                 style={{ background: t.ink(.04), border: `1px solid ${t.ink(.08)}`, borderRadius: 6, padding: "5px 8px", fontSize: 12, color: t.ink(.90), fontFamily: FONT, colorScheme: "dark" }} />
             </Field>
@@ -1211,7 +1306,7 @@ function ItemDrawer({
               null), the same semantics the human PATCH route and Helena's
               own propose_organiser_assignee_change both use. */}
           <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
-            <Field label="Assignee">
+            <Field label="Assignee" status={saveStatus[`item:${item.id}:assignee_user_id`]}>
               <AssigneeDropdown
                 value={item.assignee_user_id ?? ""}
                 members={members}
@@ -1298,11 +1393,14 @@ function ItemDrawer({
   return typeof document !== "undefined" ? createPortal(drawerContent, document.body) : null;
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({ label, children, status }: { label: string; children: React.ReactNode; status?: SaveStatus }) {
   const t = useOpsTheme();
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-      <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: ".08em", color: t.ink(.30), textTransform: "uppercase" }}>{label}</span>
+      <span style={{ display: "flex", alignItems: "center", fontSize: 9.5, fontWeight: 700, letterSpacing: ".08em", color: t.ink(.30), textTransform: "uppercase" }}>
+        {label}
+        <SaveStatusText status={status} />
+      </span>
       {children}
     </div>
   );
@@ -1337,11 +1435,83 @@ function OrganiserPageContent() {
   const [editingColumn, setEditingColumn] = useState<OrganiserColumn | null>(null);
   const [addingGroup, setAddingGroup] = useState(false);
   const [groupName, setGroupName] = useState("");
+  // D.4.7B — duplicate-submit guard for +New group, mirroring AddItemRow:
+  // the Enter key AND the Add button both route through this one submit
+  // path, guarded by groupSubmitting so a fast double-click/Enter-then-
+  // click cannot fire two POSTs for the same name.
+  const [groupSubmitting, setGroupSubmitting] = useState(false);
+  const [groupError, setGroupError] = useState<string | null>(null);
+  async function submitNewGroup() {
+    const trimmed = groupName.trim();
+    if (!trimmed || groupSubmitting) return;
+    setGroupSubmitting(true);
+    setGroupError(null);
+    const ok = await createGroup(trimmed);
+    setGroupSubmitting(false);
+    if (ok) {
+      setGroupName("");
+      setAddingGroup(false);
+    } else {
+      setGroupError("Couldn't create group. Try again.");
+    }
+  }
   const [importMsg, setImportMsg] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const [sheetChoices, setSheetChoices] = useState<SheetChoice[] | null>(null);
   const [pendingImportFile, setPendingImportFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // D.4.7B — mutation reliability + save-state foundation.
+  //
+  // saveStatus: one shared, keyed store every scalar-field mutation
+  // reports into (see the SaveStatus type's own header comment for the
+  // key convention). markSaving/markSaved/markError are the only
+  // writers; markSaved schedules its own auto-clear back to "idle" after
+  // a short, fixed delay, guarded so a newer status written in the
+  // meantime (e.g. a fresh edit already saving again) is never
+  // stomped back to idle by an old timer.
+  const [saveStatus, setSaveStatus] = useState<Record<string, SaveStatus>>({});
+  function markSaving(key: string) {
+    setSaveStatus(prev => ({ ...prev, [key]: { state: "saving" } }));
+  }
+  function markSaved(key: string) {
+    setSaveStatus(prev => ({ ...prev, [key]: { state: "saved" } }));
+    setTimeout(() => {
+      setSaveStatus(prev => (prev[key]?.state === "saved" ? { ...prev, [key]: { state: "idle" } } : prev));
+    }, 1600);
+  }
+  function markError(key: string, message: string) {
+    setSaveStatus(prev => ({ ...prev, [key]: { state: "error", message } }));
+  }
+
+  // boardLoadSeqRef guards EVERY loadBoardData call (regardless of which
+  // mutation triggered it) against an out-of-order network response: if
+  // a newer load has been kicked off by the time an older one resolves,
+  // the older one's result is discarded rather than overwriting fresher
+  // board state.
+  const boardLoadSeqRef = useRef(0);
+
+  // D.4.7B-R1 — replaces the original itemOpSeqRef response-sequence guard.
+  // That guard only decided which RESPONSE the client trusted; it could
+  // never prevent two overlapping REQUESTS for the same item+field from
+  // being dispatched to the server back-to-back, so a network-delayed
+  // earlier request could still commit last and leave server truth
+  // diverged from what the client displayed. This queue guarantees at
+  // most one PATCH in flight per `item:<id>:<fieldKey>` key at a time —
+  // see lib/organiser/coalescingMutationQueue.ts's own header for the
+  // full reasoning — which is what actually makes server commit order
+  // deterministic, not just client display order.
+  const itemFieldQueueRef = useRef<CoalescingQueueMap<Record<string, unknown>>>({});
+
+  // Lightweight, single-slot transient notice for mutations with no
+  // natural inline anchor to show Saving/Saved/error next to (group/item
+  // delete, group create when the add-row has already closed). Not a
+  // general toast framework — one message at a time, auto-clearing.
+  const [pageNotice, setPageNotice] = useState<string | null>(null);
+  function showPageNotice(message: string) {
+    setPageNotice(message);
+    setTimeout(() => setPageNotice(prev => (prev === message ? null : prev)), 4000);
+  }
   // Phase D.4.6P — organisation members for the assignee picker. Loaded
   // once per mount (membership doesn't change per-board, unlike
   // boardData) — never re-fetched on every board switch.
@@ -1415,9 +1585,24 @@ function OrganiserPageContent() {
   }, [activeId, requestedBoardId]);
 
   const loadBoardData = useCallback(async (boardId: string) => {
-    const res = await fetch(`/api/organiser/boards/${boardId}`, { credentials: "include" });
+    // D.4.7B — sequence-guarded against out-of-order responses: every
+    // call claims the next number, and a response is only ever applied
+    // if no newer call has started since. Without this, a slow reload
+    // triggered by an earlier edit could resolve after (and silently
+    // overwrite) a newer reload that already reflects a more recent
+    // edit — reintroducing exactly the stale-response regression D.4.7B
+    // exists to close off, at the one place ALL mutations converge.
+    const seq = ++boardLoadSeqRef.current;
+    let res: Response;
+    try {
+      res = await fetch(`/api/organiser/boards/${boardId}`, { credentials: "include" });
+    } catch {
+      return;
+    }
+    if (boardLoadSeqRef.current !== seq) return;
     if (!res.ok) { setBoardData(null); return; }
     const d = await res.json();
+    if (boardLoadSeqRef.current !== seq) return;
     setBoardData(d);
   }, []);
 
@@ -1441,31 +1626,79 @@ function OrganiserPageContent() {
     await loadBoards(nextActive ?? undefined);
   }
 
-  async function createGroup(name: string) {
-    if (!activeId) return;
-    await fetch(`/api/organiser/boards/${activeId}/groups`, { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ name }) });
+  // D.4.7B — createGroup now returns a boolean success indicator (used by
+  // the +New group UI's own duplicate-submit guard below) and never
+  // silently ignores a non-2xx/network failure — both are treated as
+  // failure and reported back to the caller, which is responsible for
+  // surfacing them (this function has no natural inline anchor of its
+  // own to show an error against).
+  async function createGroup(name: string): Promise<boolean> {
+    if (!activeId) return false;
+    try {
+      const res = await fetch(`/api/organiser/boards/${activeId}/groups`, { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ name }) });
+      if (!res.ok) return false;
+    } catch {
+      return false;
+    }
     await loadBoardData(activeId);
+    return true;
   }
   async function renameGroup(id: string, name: string) {
-    await fetch(`/api/organiser/groups/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ name }) });
+    const key = `group:${id}:name`;
+    markSaving(key);
+    let ok = false;
+    try {
+      const res = await fetch(`/api/organiser/groups/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ name }) });
+      ok = res.ok;
+    } catch {
+      ok = false;
+    }
+    if (!ok) {
+      markError(key, "Couldn't rename group.");
+      return;
+    }
+    markSaved(key);
     if (activeId) loadBoardData(activeId);
   }
   async function deleteGroup(id: string) {
     if (!confirm("Delete this group? Its items will move to “No group”.")) return;
-    await fetch(`/api/organiser/groups/${id}`, { method: "DELETE", credentials: "include" });
+    let ok = false;
+    try {
+      const res = await fetch(`/api/organiser/groups/${id}`, { method: "DELETE", credentials: "include" });
+      ok = res.ok;
+    } catch {
+      ok = false;
+    }
+    if (!ok) {
+      showPageNotice("Couldn't delete group. Try again.");
+      return;
+    }
     if (activeId) loadBoardData(activeId);
   }
 
-  async function addItem(name: string, groupId: string | null, parentItemId: string | null) {
-    if (!activeId) return;
-    await fetch(`/api/organiser/boards/${activeId}/items`, {
-      method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include",
-      body: JSON.stringify({ name, group_id: groupId, parent_item_id: parentItemId }),
-    });
+  // D.4.7B — addItem now returns a boolean success indicator (used by
+  // AddItemRow's own duplicate-submit guard below). No optimistic local
+  // item is fabricated here — the server remains the sole source of the
+  // new item's id/position/timestamps, exactly as before; this change is
+  // purely "stop pretending every POST succeeded."
+  async function addItem(name: string, groupId: string | null, parentItemId: string | null): Promise<boolean> {
+    if (!activeId) return false;
+    try {
+      const res = await fetch(`/api/organiser/boards/${activeId}/items`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include",
+        body: JSON.stringify({ name, group_id: groupId, parent_item_id: parentItemId }),
+      });
+      if (!res.ok) return false;
+    } catch {
+      return false;
+    }
     await loadBoardData(activeId);
+    return true;
   }
-  async function updateItem(id: string, patch: Record<string, unknown>) {
-    // Optimistic local update so pills/dates/cells feel instant.
+  // Applies `patch` optimistically to both boardData and drawerItem —
+  // extracted so both the coalesced (queued-while-in-flight) path and the
+  // dispatched-request path in updateItem below can share it verbatim.
+  function applyOptimisticItemPatch(id: string, patch: Record<string, unknown>) {
     setBoardData(prev => {
       if (!prev) return prev;
       return {
@@ -1488,11 +1721,127 @@ function OrganiserPageContent() {
       }
       return merged;
     });
-    await fetch(`/api/organiser/items/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify(patch) });
-    if (activeId) loadBoardData(activeId);
+  }
+  function restoreItemFields(id: string, snapshot: Record<string, unknown>) {
+    setBoardData(prev => prev ? { ...prev, items: prev.items.map(i => i.id === id ? ({ ...i, ...snapshot } as OrganiserItem) : i) } : prev);
+    setDrawerItem(prev => prev && prev.id === id ? ({ ...prev, ...snapshot } as OrganiserItem) : prev);
+  }
+  // Reads the CURRENT (pre-optimistic-patch) values of `keys` for item
+  // `id`, preferring drawerItem when it's the open item (the most "live"
+  // copy a user is looking at) and falling back to boardData. Only ever
+  // called synchronously at the very start of a fresh (non-coalesced)
+  // mutation chain — see updateItem below — never from deep inside an
+  // async continuation, so there's no risk of reading stale React state
+  // from an old render's closure.
+  function readCurrentItemFields(id: string, keys: string[]): Record<string, unknown> {
+    const source = (drawerItem && drawerItem.id === id) ? drawerItem : boardData?.items.find(i => i.id === id);
+    const out: Record<string, unknown> = {};
+    if (source) for (const k of keys) out[k] = (source as unknown as Record<string, unknown>)[k];
+    return out;
+  }
+
+  // D.4.7B / D.4.7B-R1 — the mutation reliability + save-state foundation
+  // every later inline-editing/autosave phase builds on.
+  //
+  // 1. Response handling: the PATCH's success/failure is actually
+  //    inspected (res.ok) and a thrown network error is caught — a
+  //    rejected write no longer leaves the optimistic state in place
+  //    forever with zero indication anything was wrong.
+  // 2. Field-scoped rollback: only the exact fields this call patched are
+  //    snapshotted and restored on failure — never a whole-item or
+  //    whole-board rollback, so an unrelated concurrent edit to a
+  //    different field is never touched.
+  // 3. Server-ordering (D.4.7B-R1): D.4.7B's original per-field sequence
+  //    number (itemOpSeqRef) only decided which RESPONSE the client
+  //    trusted — it could never stop two overlapping REQUESTS for the
+  //    same item+field from being dispatched to the server back-to-back,
+  //    so a network-delayed earlier request could still commit LAST and
+  //    leave server truth diverged from what the client displayed (the
+  //    PATCH route is an unconditional overwrite, not a compare-and-
+  //    swap). enqueueCoalesced (lib/organiser/coalescingMutationQueue.ts)
+  //    replaces that guard: at most one PATCH is ever in flight per
+  //    `item:<id>:<fieldKey>` key. A same-field edit made while one is
+  //    already in flight replaces the pending value (never queues more
+  //    than one) and is only actually sent once the in-flight call has
+  //    fully settled — so the server always receives writes for a given
+  //    item+field in the client's intended order, never racing to commit
+  //    last. `hasNewerPending()` lets each step know whether it's safe to
+  //    finalize (rollback/markSaved/reload) or whether a newer value is
+  //    already about to supersede it — see its own JSDoc.
+  //
+  // Deliberately NOT wired up here: any Notes-specific debounce or
+  // visible Saving/Saved UI. Notes still calls this same function on
+  // every keystroke (unchanged in this phase), so it already benefits
+  // from the ordering guarantee above, but a failure on the LATEST
+  // keystroke (nothing newer yet issued) will still roll the textarea
+  // back to the last successfully-saved text — reverting only the
+  // unsaved-since-last-success delta, never silently further than that.
+  // D.4.7C closes this exposure window entirely by moving Notes to
+  // blur/debounced saves; see that phase's own header for the intended
+  // wiring (pass `item:<id>:notes` as the status key to Field once Notes
+  // gets its own Field wrapper and visible save state).
+  async function updateItem(id: string, patch: Record<string, unknown>) {
+    const fieldKey = Object.keys(patch).sort().join(",");
+    const statusKey = `item:${id}:${fieldKey}`;
+    const patchKeys = Object.keys(patch);
+
+    // Always apply optimistically and mark saving immediately, whether or
+    // not a request for this exact item+field is already in flight — the
+    // UI stays instant even while the actual network dispatch is queued
+    // behind an earlier one.
+    applyOptimisticItemPatch(id, patch);
+    markSaving(statusKey);
+
+    // Captured lazily, once, by the first (non-coalesced) attempt in this
+    // chain — see below. Updated to the just-applied patch's own values
+    // after each attempt that actually succeeds, so a LATER failure in
+    // the same chain rolls back to the last genuinely server-confirmed
+    // value, never further than that.
+    let confirmedBase: Record<string, unknown> | null = null;
+
+    await enqueueCoalesced(itemFieldQueueRef.current, statusKey, patch, async (value, hasNewerPending) => {
+      if (confirmedBase === null) confirmedBase = readCurrentItemFields(id, patchKeys);
+
+      let ok = false;
+      try {
+        const res = await fetch(`/api/organiser/items/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify(value) });
+        ok = res.ok;
+      } catch {
+        ok = false;
+      }
+
+      if (!ok) {
+        if (!hasNewerPending()) {
+          restoreItemFields(id, confirmedBase as Record<string, unknown>);
+          markError(statusKey, "Couldn't save. Your previous value was restored.");
+        }
+        // else: a newer value is already queued to try next — don't roll
+        // back yet (the optimistic UI already shows that newer value);
+        // leave confirmedBase as-is since this attempt was never confirmed.
+        return;
+      }
+
+      confirmedBase = { ...(confirmedBase as Record<string, unknown>), ...value };
+      if (!hasNewerPending()) {
+        markSaved(statusKey);
+        if (activeId) loadBoardData(activeId);
+      }
+      // else: don't flash Saved — a newer value is already pending and
+      // will be attempted next; only the LAST step's outcome is reported.
+    });
   }
   async function deleteItem(id: string) {
-    await fetch(`/api/organiser/items/${id}`, { method: "DELETE", credentials: "include" });
+    let ok = false;
+    try {
+      const res = await fetch(`/api/organiser/items/${id}`, { method: "DELETE", credentials: "include" });
+      ok = res.ok;
+    } catch {
+      ok = false;
+    }
+    if (!ok) {
+      showPageNotice("Couldn't delete item. Try again.");
+      return;
+    }
     setDrawerItem(prev => prev && prev.id === id ? null : prev);
     if (activeId) loadBoardData(activeId);
   }
@@ -1579,6 +1928,7 @@ function OrganiserPageContent() {
     >
       <style dangerouslySetInnerHTML={{ __html: `
         @keyframes drawer-in { from{ transform: translateX(24px); opacity:.4 } to{ transform:none; opacity:1 } }
+        @keyframes bb-save-pulse { 0%,100% { opacity: 1 } 50% { opacity: .35 } }
         input[type=date]::-webkit-calendar-picker-indicator { filter: invert(1) opacity(.4); cursor: pointer; }
       ` }} />
 
@@ -1635,6 +1985,17 @@ function OrganiserPageContent() {
                 </div>
               )}
 
+              {/* D.4.7B — single-slot transient error notice for mutations
+                  with no natural inline anchor (delete failures); see
+                  showPageNotice's own comment. Same visual convention as
+                  the import-message banner above, error-toned. */}
+              {pageNotice && (
+                <div style={{ margin: "10px 20px 0", padding: "8px 12px", borderRadius: 8, background: "rgba(239,68,68,.10)", border: "1px solid rgba(239,68,68,.28)", color: "#f87171", fontSize: 11.5, display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ flex: 1 }}>{pageNotice}</span>
+                  <button onClick={() => setPageNotice(null)} style={{ background: "transparent", border: "none", color: "inherit", cursor: "pointer", fontSize: 13 }}>×</button>
+                </div>
+              )}
+
               {sheetChoices && pendingImportFile && (
                 <SheetPicker
                   fileName={pendingImportFile.name}
@@ -1653,6 +2014,7 @@ function OrganiserPageContent() {
                       onUpdateItem={updateItem} onDeleteItem={deleteItem} onAddItem={addItem}
                       onOpenDrawer={setDrawerItem} onRenameGroup={renameGroup} onDeleteGroup={deleteGroup}
                       onAddColumn={addColumn} onRenameColumn={renameColumn} onDeleteColumn={deleteColumn} onEditColumnOptions={setEditingColumn}
+                      saveStatus={saveStatus}
                     />
                   ))}
                   {boardData && boardData.items.some(i => !i.group_id) && (
@@ -1661,19 +2023,22 @@ function OrganiserPageContent() {
                       onUpdateItem={updateItem} onDeleteItem={deleteItem} onAddItem={addItem}
                       onOpenDrawer={setDrawerItem} onRenameGroup={renameGroup} onDeleteGroup={deleteGroup}
                       onAddColumn={addColumn} onRenameColumn={renameColumn} onDeleteColumn={deleteColumn} onEditColumnOptions={setEditingColumn}
+                      saveStatus={saveStatus}
                     />
                   )}
 
                   {addingGroup && (
-                    <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
                       <input
-                        autoFocus value={groupName} onChange={e => setGroupName(e.target.value)}
+                        autoFocus value={groupName} disabled={groupSubmitting}
+                        onChange={e => { setGroupName(e.target.value); if (groupError) setGroupError(null); }}
                         placeholder="Group name…"
-                        onKeyDown={e => { if (e.key === "Enter" && groupName.trim()) { createGroup(groupName.trim()); setGroupName(""); setAddingGroup(false); } if (e.key === "Escape") { setGroupName(""); setAddingGroup(false); } }}
+                        onKeyDown={e => { if (e.key === "Enter") submitNewGroup(); if (e.key === "Escape") { setGroupName(""); setGroupError(null); setAddingGroup(false); } }}
                         style={{ fontSize: 12.5, fontFamily: FONT, background: t.ink(.05), border: "1px solid rgba(139,92,246,.4)", borderRadius: 8, padding: "7px 10px", color: t.ink(.94), outline: "none", flex: 1, maxWidth: 260 }}
                       />
-                      <button onClick={() => { if (groupName.trim()) createGroup(groupName.trim()); setGroupName(""); setAddingGroup(false); }} style={btnStyle(true, t)}>Add</button>
-                      <button onClick={() => { setGroupName(""); setAddingGroup(false); }} style={btnStyle(false, t)}>Cancel</button>
+                      <button onClick={submitNewGroup} disabled={groupSubmitting} style={btnStyle(true, t)}>{groupSubmitting ? "Adding…" : "Add"}</button>
+                      <button onClick={() => { setGroupName(""); setGroupError(null); setAddingGroup(false); }} style={btnStyle(false, t)}>Cancel</button>
+                      {groupError && <span style={{ fontSize: 10.5, color: "#EF4444" }}>{groupError}</span>}
                     </div>
                   )}
 
@@ -1712,7 +2077,7 @@ function OrganiserPageContent() {
           )}
 
       {drawerItem && (
-        <ItemDrawer item={drawerItem} onClose={() => setDrawerItem(null)} onUpdate={updateItem} groupNamesById={groupNamesById} members={members} />
+        <ItemDrawer item={drawerItem} onClose={() => setDrawerItem(null)} onUpdate={updateItem} groupNamesById={groupNamesById} members={members} saveStatus={saveStatus} />
       )}
       {editingColumn && (
         <ColumnOptionsEditor
