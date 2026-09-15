@@ -545,6 +545,35 @@ export function classifyRetrySafety(attempt: ExistingCheckoutAttempt): RetrySafe
   }
 }
 
+// ── Checkout-vs-Retry race closure (PR #231 follow-up) ──────────────
+//
+// Both the public checkout route (first-ever session creation for an
+// order) and the retry route (every subsequent one) now guard their
+// own DB write-back of a freshly-created Stripe Checkout Session id
+// with a compare-and-set on `expires_at` (see each route's own
+// comment) — captured immediately before calling Stripe, so a
+// concurrent generation change (another retry, or this same order's
+// reservation being reacquired again) makes the write-back match zero
+// rows instead of silently overwriting a newer, already-active
+// session. When that happens, the just-created session this function
+// cleans up is an orphan: never referenced by the DB, never shown to
+// any user, and never paid. Best-effort only — a failure to expire it
+// leaves it to expire naturally on its own Stripe-side `expires_at`
+// (the exact same fate as any customer-abandoned Checkout Session),
+// which is an acceptable fallback, not a broken invariant: the DB
+// never wrote this session id anywhere, so the webhook handlers' own
+// exact-session-id guard (see handleCheckoutSessionCompleted/
+// handleCheckoutSessionExpired above) already ensures nothing this
+// orphan session does can ever mutate the order again, paid or not.
+export async function expireCheckoutSession(sessionId: string, connectedAccountId: string): Promise<void> {
+  try {
+    const stripe = getStripeClient();
+    await stripe.checkout.sessions.expire(sessionId, {}, { stripeAccount: connectedAccountId });
+  } catch (err) {
+    console.error('[events stripe] failed to expire an orphaned Checkout Session that lost the DB write-back race', sessionId, err);
+  }
+}
+
 export type CreateRefundResult = { ok: true } | { ok: false; error: string };
 
 // Full refund only (§22). Called by the manager-only refund route

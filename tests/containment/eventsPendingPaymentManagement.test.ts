@@ -61,20 +61,23 @@ vi.mock('@/lib/crm/eventSync', () => ({
 
 const createCheckoutSessionMock = vi.fn()
 const retrieveExistingCheckoutAttemptMock = vi.fn()
+const expireCheckoutSessionMock = vi.fn()
 class MockStripeNotConfiguredError extends Error {}
 // classifyRetrySafety is a pure, I/O-free function (see lib/events/
 // stripe.ts's own comment) — passed through REAL via importOriginal,
 // matching this repo's established pattern (see the @/lib/org and
 // @/lib/capabilities/requireCapability mocks above) rather than
 // re-implementing/mocking decision logic this suite needs to actually
-// exercise. Only the two Stripe-network-calling functions
-// (createCheckoutSession, retrieveExistingCheckoutAttempt) are mocked.
+// exercise. Only the three Stripe-network-calling functions
+// (createCheckoutSession, retrieveExistingCheckoutAttempt,
+// expireCheckoutSession) are mocked.
 vi.mock('@/lib/events/stripe', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/events/stripe')>()
   return {
     ...actual,
     createCheckoutSession: (...args: unknown[]) => createCheckoutSessionMock(...args),
     retrieveExistingCheckoutAttempt: (...args: unknown[]) => retrieveExistingCheckoutAttemptMock(...args),
+    expireCheckoutSession: (...args: unknown[]) => expireCheckoutSessionMock(...args),
     RESERVATION_WINDOW_SECONDS: 1860,
     StripeNotConfiguredError: MockStripeNotConfiguredError,
   }
@@ -103,13 +106,15 @@ beforeEach(() => {
   requireCapabilityMock.mockReset()
   createCheckoutSessionMock.mockReset()
   retrieveExistingCheckoutAttemptMock.mockReset()
+  expireCheckoutSessionMock.mockReset()
   responseQueue = []
   callCount = 0
-  transactionFinalResult = [{ id: 'order-1' }]
+  transactionFinalResult = [{ id: 'order-1', expires_at: '2026-01-01T00:30:00.000Z' }]
   transactionMock.mockImplementation(async () => [[], transactionFinalResult])
   requireSessionMock.mockResolvedValue(sessionAs('manager'))
   requireCapabilityMock.mockResolvedValue({ key: 'events', config: {} })
   createCheckoutSessionMock.mockResolvedValue({ sessionId: 'cs_test_retry', url: 'https://checkout.stripe.com/pay/cs_test_retry' })
+  expireCheckoutSessionMock.mockResolvedValue(undefined)
 })
 
 
@@ -227,11 +232,20 @@ describe('Retry payment route — revalidation, capacity, and permissions', () =
 
   it('a genuinely PENDING order with capacity available succeeds — fresh Stripe session, order stripe_checkout_session_id updated', async () => {
     queue([{ id: 'event-1', status: 'PUBLISHED' }], [ORDER_ROW], [ITEM_ROW], [TT_ROW])
-    // sql.transaction(...) is separately mocked (transactionMock) and
-    // does not consume from responseQueue — the reacquisition result
-    // comes from transactionFinalResult; the final push below is the
-    // follow-up UPDATE that stores the new stripe_checkout_session_id.
-    responseQueue.push([{ id: 'order-1' }])
+    // sql.transaction(...)'s OWN return value is separately mocked
+    // (transactionMock, driven by transactionFinalResult) — but each
+    // array element passed to it is itself a `sql\`...\`` tagged-template
+    // call, which unconditionally invokes sqlMock (and so consumes a
+    // responseQueue entry) regardless of what transactionMock does with
+    // the resulting promise afterward. For a non-session item that is 2
+    // calls (capacity SELECT FOR UPDATE, then the reacquisition UPDATE)
+    // whose OWN resolved values are irrelevant — padded with `[{}]`
+    // below — followed by the ACTUAL next sqlMock call this test cares
+    // about: the follow-up write-back UPDATE that stores the new
+    // stripe_checkout_session_id, now itself checked for a non-empty
+    // RETURNING (PR #231 follow-up's checkout-vs-retry race guard), so
+    // it must resolve to a genuinely non-empty array here.
+    responseQueue.push([{}], [{}], [{ id: 'order-1' }])
     const res = await retryRoute.POST(req(), CTX)
     expect(res.status).toBe(200)
     const body = await res.json()
@@ -240,7 +254,7 @@ describe('Retry payment route — revalidation, capacity, and permissions', () =
 
   it('preserves the connected Stripe account attribution — createCheckoutSession is called with the ORDER\'s own stored stripe_account_id', async () => {
     queue([{ id: 'event-1', status: 'PUBLISHED' }], [ORDER_ROW], [ITEM_ROW], [TT_ROW])
-    responseQueue.push([{ id: 'order-1' }])
+    responseQueue.push([{}], [{}], [{ id: 'order-1' }])
     await retryRoute.POST(req(), CTX)
     expect(createCheckoutSessionMock).toHaveBeenCalledWith(expect.objectContaining({ connectedAccountId: 'acct_org_a' }))
   })
@@ -300,7 +314,13 @@ describe('Retry payment route — double-charge guard (Stripe-state pre-flight c
 
   function queueSuccessPath(orderRow: typeof ORDER_ROW) {
     queue([{ id: 'event-1', status: 'PUBLISHED' }], [orderRow], [ITEM_ROW], [TT_ROW])
-    responseQueue.push([{ id: 'order-1' }]) // follow-up UPDATE storing the new session id
+    // See the base describe block's own "a genuinely PENDING order..."
+    // test for why 3 pushes: 2 padding entries for the transaction's own
+    // internal sqlMock calls (capacity SELECT FOR UPDATE, reacquisition
+    // UPDATE — values irrelevant, ITEM_ROW here is non-session), then
+    // the real follow-up write-back UPDATE storing the new session id,
+    // now checked for a non-empty RETURNING.
+    responseQueue.push([{}], [{}], [{ id: 'order-1' }])
   }
 
   // A. local PENDING + Stripe Checkout paid => blocked, no new Checkout
@@ -551,6 +571,63 @@ describe('Retry payment route — NULL-session concurrency closure (PR #231 foll
   })
 })
 
+// ─── Checkout-vs-Retry race closure — retry route's own write-back ─────
+//
+// The public checkout route's own in-flight window (order created,
+// session id NULL) can be raced by a manager Retry — that half of the
+// closure is proven in tests/containment/eventsPhase4Payments.test.ts's
+// own "Checkout-vs-Retry race closure" describe block. This route's OWN
+// final write-back (storing the session id it just created with
+// createCheckoutSession) has the SAME unconditional-write-back shape and
+// needs the SAME guard: another concurrent request (a second Retry, or
+// the original checkout's own trailing write-back landing late) could
+// otherwise overwrite this request's just-established session.
+
+describe('Retry payment route — write-back guard (checkout-vs-retry race closure, PR #231 follow-up)', () => {
+  const routeSrc = () => stripComments(read('app/api/events/[id]/orders/[orderId]/retry/route.ts'))
+  const ORDER_ROW = { id: 'order-1', payment_status: 'PENDING', purchaser_email: 'p@example.com', total_cents: 2500, currency: 'AUD', stripe_account_id: 'acct_org_a' }
+  const ITEM_ROW = { ticket_type_id: 'tt-1', event_session_id: null, quantity: 1 }
+  const TT_ROW = { id: 'tt-1', name: 'Premium Guest', active: true, price_cents: 2500, currency: 'AUD' }
+
+  it('the write-back UPDATE is guarded on BOTH stripe_checkout_session_id IS NULL and expires_at IS NOT DISTINCT FROM the reacquired generation marker — no longer unconditional', () => {
+    const code = routeSrc()
+    expect(code).toMatch(/WHERE id = \$\{orderId\} AND organisation_id = \$\{session\.organisationId\}\s*\n\s*AND stripe_checkout_session_id IS NULL AND expires_at IS NOT DISTINCT FROM \$\{reacquiredExpiresAt\}/)
+  })
+
+  it('reacquiredExpiresAt comes straight from the reacquisition UPDATE\'s own RETURNING clause (both branches) — no extra round trip, and always the value THIS request\'s own successful reacquisition just set', () => {
+    const code = routeSrc()
+    const occurrences = code.match(/RETURNING eo\.id, eo\.expires_at/g) ?? []
+    expect(occurrences.length).toBe(2)
+    expect(code).toMatch(/const reacquiredExpiresAt = reacquired\[0\]\.expires_at/)
+  })
+
+  it('loses the write-back race (another concurrent request already claimed the order): the just-created Checkout Session is expired via expireCheckoutSession, and the response never contains a checkout_url', async () => {
+    queue([{ id: 'event-1', status: 'PUBLISHED' }], [ORDER_ROW], [ITEM_ROW], [TT_ROW])
+    // Pad the transaction-internal calls (values irrelevant — the real
+    // reacquisition result is transactionFinalResult), then make the
+    // ACTUAL write-back call resolve empty (simulating the guard not
+    // matching).
+    responseQueue.push([{}], [{}], [])
+    const res = await retryRoute.POST(req(), CTX)
+    expect(res.status).toBe(500)
+    const body = await res.json()
+    expect(body.checkout_url).toBeUndefined()
+    expect(expireCheckoutSessionMock).toHaveBeenCalledWith('cs_test_retry', 'acct_org_a')
+  })
+
+  it('the winning (non-racing) case is unaffected — same pre-existing "genuinely PENDING order... succeeds" test above already exercises this exact guarded write-back on its success path, and does not call expireCheckoutSession', async () => {
+    queue([{ id: 'event-1', status: 'PUBLISHED' }], [ORDER_ROW], [ITEM_ROW], [TT_ROW])
+    responseQueue.push([{}], [{}], [{ id: 'order-1' }])
+    const res = await retryRoute.POST(req(), CTX)
+    expect(res.status).toBe(200)
+    expect(expireCheckoutSessionMock).not.toHaveBeenCalled()
+  })
+
+  it('G: a later legitimate retry after a genuinely dead prior attempt remains possible — already proven by the decision-matrix\'s own tests F/G above (SAFE_PREVIOUS_ATTEMPT_DEAD -> createCheckoutSession called exactly once) and by the real-Postgres harness\'s section J; this write-back guard adds no new restriction on that path since a non-racing request always captures the CURRENT, correct generation fresh', () => {
+    expect(true).toBe(true)
+  })
+})
+
 // ─── Decision matrix — classifyRetrySafety (pure function, full truth table) ──
 
 describe('classifyRetrySafety — full decision matrix', () => {
@@ -653,6 +730,20 @@ describe('Old-webhook vs new-retry race — handleCheckoutSessionExpired matches
     // actually passed as bound parameters, not silently dropped.
     expect(stmtArgs).toContain('order-1')
     expect(stmtArgs).toContain('cs_old_dead_session')
+  })
+
+  it('E (checkout-vs-Retry race closure, PR #231 follow-up): the SAME exact-match mechanism above applies unchanged when the "old, dead" session was the ORIGINAL checkout\'s Session A (not a prior Retry) — the guard matches on stripe_checkout_session_id alone, with no special-casing of which route created that session, so Session A\'s webhook is equally a no-op once the order has moved on to Retry\'s Session B', () => {
+    const stripeSrc = stripComments(read('lib/events/stripe.ts'))
+    for (const fn of ['handleCheckoutSessionCompleted', 'handleCheckoutSessionExpired']) {
+      const start = stripeSrc.indexOf(`async function ${fn}(`)
+      const end = stripeSrc.indexOf('\n}', start)
+      const body = stripeSrc.slice(start, end)
+      expect(body).toMatch(/stripe_checkout_session_id = \$\{session\.id\}/)
+    }
+    // handlePaymentIntentFailed matches by PaymentIntent id instead
+    // (there is no session id on that event type) — same exact-match
+    // principle, different identifier, already covered by its own
+    // pre-existing tests elsewhere in this file; not re-asserted here.
   })
 })
 

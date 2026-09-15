@@ -456,6 +456,42 @@ COMMIT;
 SQL
 }
 
+# ─── Checkout-vs-Retry write-back statements (checkout-vs-retry closure,
+# PR #231 follow-up section K below) — mirror the guarded write-back
+# BOTH the public checkout route (app/api/public/events/.../checkout/
+# route.ts) and this retry route now perform after createCheckoutSession
+# succeeds: `UPDATE event_orders SET stripe_checkout_session_id = ...
+# WHERE id = ... AND stripe_checkout_session_id IS NULL AND expires_at
+# IS NOT DISTINCT FROM <captured-before-calling-Stripe>`. Both routes use
+# the IDENTICAL shape, so one shared generator function covers both.
+writeback_sql() {
+  local order_id="$1" session_id="$2" captured_expires_at="$3"
+  cat <<SQL
+BEGIN;
+UPDATE event_orders SET stripe_checkout_session_id = '$session_id'
+WHERE id = '$order_id' AND stripe_checkout_session_id IS NULL
+  AND expires_at = '$captured_expires_at'::timestamptz
+RETURNING id;
+COMMIT;
+SQL
+}
+
+# The ORIGINAL (pre-fix) unconditional write-back shape — used only by
+# section K's mutation proof, to demonstrate the harness is genuinely
+# sensitive to the checkout-vs-retry defect. Matches EXACTLY what both
+# routes' write-back statements looked like before this fix: no guard
+# beyond the order id itself.
+writeback_sql_no_guard() {
+  local order_id="$1" session_id="$2"
+  cat <<SQL
+BEGIN;
+UPDATE event_orders SET stripe_checkout_session_id = '$session_id'
+WHERE id = '$order_id'
+RETURNING id;
+COMMIT;
+SQL
+}
+
 reset_db; bootstrap
 expect_success "F setup: capacity=1 paid ticket type" \
   "INSERT INTO event_ticket_types (id, event_id, organisation_id, name, price_cents, capacity, active) VALUES ('tt-f', 'event-1', 'org-a', 'Premium', 2500, 1, true);"
@@ -646,6 +682,109 @@ else
   FAIL=$((FAIL + 1))
   FAILURES+=("I mutation proof did not reproduce the pre-fix NULL-session double-success")
 fi
+
+echo ""
+echo "=== K: checkout-vs-Retry race — original checkout's Stripe call resolves AFTER a Retry has already reacquired the order (PR #231 follow-up) ==="
+# Exact sequence from the closure task: (1) original checkout INSERTs
+# the order (session id NULL) and commits — (2) a manager Retry races in
+# before the original checkout's own Stripe call returns, reacquires the
+# order (advancing expires_at) and creates its OWN Session B, writing it
+# back successfully — (3) the original checkout's Stripe call FINALLY
+# resolves with its own Session A, and attempts its write-back using the
+# STALE expires_at it captured back in step 1. Must fail closed (0 rows)
+# and must NOT overwrite Retry's already-current Session B.
+reset_db; bootstrap
+echo "INSERT INTO event_ticket_types (id, event_id, organisation_id, name, price_cents, capacity, active) VALUES ('tt-k', 'event-1', 'org-a', 'Premium', 2500, 5, true);" | psql_exec >/dev/null 2>&1
+echo "$(reserve_ticket_type_sql tt-k order-k 1)" | psql_exec >/dev/null 2>&1
+ORDER_K_ID="$(order_id_for order-k)"
+# Step 1: this is exactly what the checkout route captures right after
+# its own reservation commits, before calling Stripe.
+K_CAPTURED_EXPIRES="$(expires_at_for "$ORDER_K_ID")"
+
+# Step 2: Retry races in first (mirrors it winning the window while the
+# original checkout's Stripe call is still in flight) — reacquires using
+# the SAME K_CAPTURED_EXPIRES (it read the order in the same state the
+# original checkout did), then writes back its OWN Session B.
+echo "$(retry_sql "$ORDER_K_ID" tt-k 1 "" "$K_CAPTURED_EXPIRES")" | psql_exec >/dev/null 2>&1
+K_EXPIRES_AFTER_RETRY="$(expires_at_for "$ORDER_K_ID")"
+echo "$(writeback_sql "$ORDER_K_ID" cs_test_session_B "$K_EXPIRES_AFTER_RETRY")" | psql_exec >/dev/null 2>&1
+expect_eq "K setup: Retry's Session B is now the order's active session" \
+  "SELECT stripe_checkout_session_id FROM event_orders WHERE id='$ORDER_K_ID';" "cs_test_session_B"
+
+# Step 3: the original checkout's write-back FINALLY runs, using its
+# STALE K_CAPTURED_EXPIRES (captured back in step 1, before Retry ran).
+echo "$(writeback_sql "$ORDER_K_ID" cs_test_session_A "$K_CAPTURED_EXPIRES")" | psql_exec >"$DIAG_OUT" 2>&1
+K_A_ROWS="$(grep -c '^UPDATE 1$' "$DIAG_OUT" || true)"
+if [ "$K_A_ROWS" -eq 0 ]; then
+  echo "  PASS: K. (test A) the original checkout's stale write-back correctly affected ZERO rows — Session A was never written to the DB"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: K. the original checkout's stale write-back incorrectly succeeded ($K_A_ROWS rows) — it would have overwritten Retry's Session B"
+  FAIL=$((FAIL + 1))
+  FAILURES+=("K. checkout-vs-retry stale write-back was not blocked")
+fi
+expect_eq "K2. (test A) Session B remains the order's active session after the stale write-back attempt — never overwritten by the losing Session A" \
+  "SELECT stripe_checkout_session_id FROM event_orders WHERE id='$ORDER_K_ID';" "cs_test_session_B"
+expect_eq "K3. capacity for this order was never double-extended across the whole sequence — still exactly 1 unit" \
+  "SELECT COALESCE(SUM(quantity),0) FROM event_order_items WHERE order_id='$ORDER_K_ID';" "1"
+
+echo ""
+echo "=== K MUTATION PROOF (test H) — without the write-back guard, the stale original checkout write-back overwrites the winning Retry session ==="
+reset_db; bootstrap
+echo "INSERT INTO event_ticket_types (id, event_id, organisation_id, name, price_cents, capacity, active) VALUES ('tt-k-mut', 'event-1', 'org-a', 'Premium', 2500, 5, true);" | psql_exec >/dev/null 2>&1
+echo "$(reserve_ticket_type_sql tt-k-mut order-k-mut 1)" | psql_exec >/dev/null 2>&1
+ORDER_KM_ID="$(order_id_for order-k-mut)"
+KM_CAPTURED_EXPIRES="$(expires_at_for "$ORDER_KM_ID")"
+echo "$(retry_sql "$ORDER_KM_ID" tt-k-mut 1 "" "$KM_CAPTURED_EXPIRES")" | psql_exec >/dev/null 2>&1
+KM_EXPIRES_AFTER_RETRY="$(expires_at_for "$ORDER_KM_ID")"
+echo "$(writeback_sql "$ORDER_KM_ID" cs_test_session_B_mut "$KM_EXPIRES_AFTER_RETRY")" | psql_exec >/dev/null 2>&1
+# The OLD, unguarded write-back shape — this is what both routes did
+# before this fix.
+echo "$(writeback_sql_no_guard "$ORDER_KM_ID" cs_test_session_A_mut)" | psql_exec >/dev/null 2>&1
+KM_FINAL_SESSION="$(echo "SELECT stripe_checkout_session_id FROM event_orders WHERE id='$ORDER_KM_ID';" | psql_query | tr -d '[:space:]')"
+if [ "$KM_FINAL_SESSION" = "cs_test_session_A_mut" ]; then
+  echo "  PASS (mutation correctly reproduces the checkout-vs-retry defect — harness is genuinely sensitive to it): without the write-back guard, the stale original checkout write-back silently overwrote Retry's already-active Session B with its own stale Session A"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL (mutation did not reproduce the checkout-vs-retry defect — final session was '$KM_FINAL_SESSION', expected the stale session to have won): the harness may not actually be sensitive to this defect class"
+  FAIL=$((FAIL + 1))
+  FAILURES+=("K mutation proof did not reproduce the pre-fix checkout-vs-retry overwrite")
+fi
+
+echo ""
+echo "=== K (test B) reverse ordering — original checkout's write-back succeeds FIRST, a subsequent Retry then correctly sees an active session and is blocked by the EXISTING #231 guard, no new session created ==="
+reset_db; bootstrap
+echo "INSERT INTO event_ticket_types (id, event_id, organisation_id, name, price_cents, capacity, active) VALUES ('tt-k2', 'event-1', 'org-a', 'Premium', 2500, 5, true);" | psql_exec >/dev/null 2>&1
+echo "$(reserve_ticket_type_sql tt-k2 order-k2 1)" | psql_exec >/dev/null 2>&1
+ORDER_K2_ID="$(order_id_for order-k2)"
+K2_CAPTURED_EXPIRES="$(expires_at_for "$ORDER_K2_ID")"
+# Original checkout's write-back wins (no race — this is the common case).
+echo "$(writeback_sql "$ORDER_K2_ID" cs_test_session_A2 "$K2_CAPTURED_EXPIRES")" | psql_exec >/dev/null 2>&1
+expect_eq "K(B) setup: the original checkout's Session A2 is now the order's active session" \
+  "SELECT stripe_checkout_session_id FROM event_orders WHERE id='$ORDER_K2_ID';" "cs_test_session_A2"
+# A subsequent Retry — in the REAL route, this would first hit the
+# EXISTING #231 Stripe pre-flight check (retrieveExistingCheckoutAttempt
+# against Session A2, classified via classifyRetrySafety — proven
+# separately in the mocked route suite's decision-matrix tests) and
+# never even reach this reacquisition statement while Session A2 is
+# still live/unsafe. What THIS statement proves at the DB layer: even a
+# Retry that (hypothetically) reached the reacquisition step using a
+# STALE belief that the session was still NULL is independently blocked
+# by the pre-existing session-id guard — Session A2 is non-NULL, so
+# `stripe_checkout_session_id IS NOT DISTINCT FROM NULL` no longer
+# matches, regardless of whether expires_at also happened to change.
+echo "$(retry_sql "$ORDER_K2_ID" tt-k2 1 "" "$K2_CAPTURED_EXPIRES")" | psql_exec >"$DIAG_OUT" 2>&1
+K2_ROWS="$(grep -c '^UPDATE 1$' "$DIAG_OUT" || true)"
+if [ "$K2_ROWS" -eq 0 ]; then
+  echo "  PASS: K(B). a Retry attempting to reacquire an order whose original checkout already established an active session is blocked — zero rows, no session created"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: K(B). the Retry incorrectly reacquired an order with an already-active original-checkout session"
+  FAIL=$((FAIL + 1))
+  FAILURES+=("K(B). retry incorrectly reacquired after checkout's write-back already won")
+fi
+expect_eq "K2b. Session A2 remains untouched — the blocked Retry attempt changed nothing" \
+  "SELECT stripe_checkout_session_id FROM event_orders WHERE id='$ORDER_K2_ID';" "cs_test_session_A2"
 
 echo ""
 echo "=== CONCURRENCY (blocking gate) — repeated genuine race, no forced delay ==="

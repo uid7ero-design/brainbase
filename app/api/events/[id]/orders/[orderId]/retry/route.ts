@@ -4,7 +4,7 @@ import sql from '@/lib/db';
 import { authorizeEventsRequest } from '@/lib/events/authorize';
 import {
   createCheckoutSession, RESERVATION_WINDOW_SECONDS, StripeNotConfiguredError,
-  retrieveExistingCheckoutAttempt, classifyRetrySafety,
+  retrieveExistingCheckoutAttempt, classifyRetrySafety, expireCheckoutSession,
 } from '@/lib/events/stripe';
 
 type Ctx = { params: Promise<{ id: string; orderId: string }> };
@@ -240,7 +240,7 @@ export async function POST(_req: Request, { params }: Ctx) {
               AND eo.expires_at IS NOT DISTINCT FROM ${verifiedExpiresAt}
               AND sold_tt.qty + ${item.quantity} <= (SELECT capacity FROM event_ticket_types WHERE id = ${item.ticket_type_id} AND organisation_id = ${session.organisationId})
               AND sold_sess.qty + ${item.quantity} <= (SELECT capacity FROM event_sessions WHERE id = ${item.event_session_id} AND organisation_id = ${session.organisationId})
-            RETURNING eo.id
+            RETURNING eo.id, eo.expires_at
           `,
         ])
       : await sql.transaction([
@@ -258,7 +258,7 @@ export async function POST(_req: Request, { params }: Ctx) {
               AND eo.stripe_checkout_session_id IS NOT DISTINCT FROM ${verifiedSessionId}
               AND eo.expires_at IS NOT DISTINCT FROM ${verifiedExpiresAt}
               AND sold_tt.qty + ${item.quantity} <= (SELECT capacity FROM event_ticket_types WHERE id = ${item.ticket_type_id} AND organisation_id = ${session.organisationId})
-            RETURNING eo.id
+            RETURNING eo.id, eo.expires_at
           `,
         ]);
   } catch (err) {
@@ -266,7 +266,7 @@ export async function POST(_req: Request, { params }: Ctx) {
     return NextResponse.json({ error: 'Could not retry payment. Please try again.' }, { status: 500 });
   }
 
-  const reacquired = transactionResults[transactionResults.length - 1] as { id: string }[];
+  const reacquired = transactionResults[transactionResults.length - 1] as { id: string; expires_at: string }[];
   if (!reacquired.length) {
     // Zero rows now has three possible causes, all correctly reported
     // with the same message: genuine capacity exhaustion (the
@@ -282,6 +282,16 @@ export async function POST(_req: Request, { params }: Ctx) {
     // whatever the winner's attempt produced.
     return NextResponse.json({ error: 'This ticket type is no longer available in the requested quantity.' }, { status: 409 });
   }
+  // Checkout-vs-Retry race closure (PR #231 follow-up) — the fresh
+  // expires_at THIS request's own reacquisition just set, straight from
+  // its own RETURNING clause (no extra round trip). Guards the write-
+  // back below the exact same way the public checkout route's own
+  // write-back is guarded (see that route's header comment): if yet
+  // another concurrent request reacquires this SAME order again before
+  // this request's own Stripe call returns, the write-back will
+  // correctly detect that and fail closed rather than overwrite a
+  // newer, already-active session.
+  const reacquiredExpiresAt = reacquired[0].expires_at;
 
   const h = await headers();
   const host = h.get('x-forwarded-host') ?? h.get('host') ?? 'localhost:3000';
@@ -311,7 +321,26 @@ export async function POST(_req: Request, { params }: Ctx) {
       cancelUrl,
       connectedAccountId: order.stripe_account_id,
     });
-    await sql`UPDATE event_orders SET stripe_checkout_session_id = ${sessionId} WHERE id = ${orderId} AND organisation_id = ${session.organisationId}`;
+    // No longer unconditional (PR #231 follow-up) — same guard shape as
+    // the public checkout route's own write-back: requires BOTH the
+    // column still being NULL (this request's own reacquisition just
+    // set it, so it should still be exactly that) and expires_at still
+    // matching what this request's reacquisition returned. Either
+    // failing means another concurrent request has already claimed this
+    // order's active session; the session just created here must be
+    // treated as an orphan — never written to the DB, never returned to
+    // this manager, best-effort expired in Stripe immediately.
+    const writeBack = await sql`
+      UPDATE event_orders SET stripe_checkout_session_id = ${sessionId}
+      WHERE id = ${orderId} AND organisation_id = ${session.organisationId}
+        AND stripe_checkout_session_id IS NULL AND expires_at IS NOT DISTINCT FROM ${reacquiredExpiresAt}
+      RETURNING id
+    `;
+    if (!writeBack.length) {
+      console.error('[events order retry] lost the write-back race to a concurrent request — expiring orphaned Checkout Session', { orderId, sessionId });
+      await expireCheckoutSession(sessionId, order.stripe_account_id);
+      return NextResponse.json({ error: 'Could not create a new checkout session. Please try again.' }, { status: 500 });
+    }
     return NextResponse.json({ checkout_url: url });
   } catch (err) {
     // Capacity has already been re-extended above (a real, live hold —
