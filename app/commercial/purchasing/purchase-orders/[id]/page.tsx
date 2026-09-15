@@ -46,6 +46,9 @@ type Attachment = {
   id: string; category: AttachmentCategory; original_filename: string; size_bytes: number;
   uploaded_by_name: string | null; created_at: string;
 };
+// Phase C7.3 — linked purchase receipts summary (list-shaped, matches
+// GET /api/commercial/purchase-orders/[id]/receipts).
+type PurchaseReceiptSummary = { id: string; receipt_number: string | null; status: string; received_date: string | null; created_at: string };
 
 // Client-side role check only — UX gating, not enforcement. The real
 // floor is authorizeCommercialRequest('purchasing', COMMERCIAL_MIN_ROLE.createEdit)
@@ -118,6 +121,13 @@ export default function PurchaseOrderDetailPage() {
   const [emailResult, setEmailResult] = useState('');
   const [deliveries, setDeliveries] = useState<Delivery[]>([]);
 
+  // Phase C7.3 — linked purchase receipts + derived received-to-date,
+  // per PO line. Both DERIVED at read time server-side — never a stored
+  // column on this PO or its lines (see lib/commercial/purchaseReceipts.ts's
+  // getReceivedQuantitiesForPurchaseOrder()).
+  const [receipts, setReceipts] = useState<PurchaseReceiptSummary[]>([]);
+  const [receivedQuantities, setReceivedQuantities] = useState<Record<string, number>>({});
+
   // C6.9 remediation — Supporting Documents state.
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [uploadCategory, setUploadCategory] = useState<AttachmentCategory>('SUPPLIER_QUOTE');
@@ -174,6 +184,14 @@ export default function PurchaseOrderDetailPage() {
 
     const attachmentsRes = await fetch(`/api/commercial/purchase-orders/${id}/attachments`);
     if (attachmentsRes.ok) setAttachments((await attachmentsRes.json()).attachments ?? []);
+
+    // Phase C7.3 — linked purchase receipts + derived received-to-date.
+    const receiptsRes = await fetch(`/api/commercial/purchase-orders/${id}/receipts`);
+    if (receiptsRes.ok) {
+      const receiptsData = await receiptsRes.json();
+      setReceipts(receiptsData.purchaseReceipts ?? []);
+      setReceivedQuantities(receiptsData.receivedQuantities ?? {});
+    }
 
     const [suppliersRes, productsRes, taxCodesRes, meRes] = await Promise.all([
       fetch('/api/commercial/suppliers'), fetch('/api/commercial/products'), fetch('/api/commercial/tax-codes'), fetch('/api/me'),
@@ -797,6 +815,45 @@ export default function PurchaseOrderDetailPage() {
           <TotalRow label="Total" value={formatMoneyCents(po.total_cents, po.currency)} bold />
         </div>
       </div>
+
+      {/* Phase C7.3 — linked Purchase Receipts + derived received-to-
+          date. Only shown once the PO has actually been issued (a
+          DRAFT/PENDING_APPROVAL/APPROVED PO cannot have any receipts by
+          construction — createPurchaseReceipt() rejects a non-ISSUED
+          PO). "New Receipt" is offered only while ISSUED (a CANCELLED
+          PO cannot accept new receipts — see postPurchaseReceiptAtomically()'s
+          own PO-status guard); the receipt list itself remains visible
+          after cancellation for historical record-keeping. */}
+      {(isIssued || isCancelled) && (
+        <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, marginBottom: 20, padding: '16px 24px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <div style={miniLbl}>Purchase Receipts</div>
+            {isIssued && canEdit && (
+              <a href={`/commercial/purchasing/purchase-receipts/new?purchaseOrderId=${po.id}`} style={{ fontSize: 12, color: '#60a5fa', textDecoration: 'none' }}>+ New Receipt</a>
+            )}
+          </div>
+          {receipts.length === 0 && <p style={{ fontSize: 13, color: '#4b5563', margin: 0 }}>No purchase receipts yet.</p>}
+          {receipts.map(r => (
+            <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', fontSize: 13 }}>
+              <a href={`/commercial/purchasing/purchase-receipts/${r.id}`} style={{ color: '#f9fafb', textDecoration: 'none' }}>
+                {r.receipt_number ?? 'Draft'}
+              </a>
+              <span style={{ color: '#6b7280' }}>{r.status}{r.received_date ? ` · ${r.received_date}` : ''}</span>
+            </div>
+          ))}
+          {lines.length > 0 && Object.keys(receivedQuantities).length > 0 && (
+            <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${BORDER}` }}>
+              <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 6 }}>Received to date (posted receipts only)</div>
+              {lines.map(l => (
+                <div key={l.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#9ca3af', padding: '3px 0' }}>
+                  <span>{l.description_snapshot}</span>
+                  <span>{receivedQuantities[l.id] ?? 0} / {l.quantity}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* C6.9 remediation — Supporting Documents. Visible in every
           status (retention: attachments must stay accessible after

@@ -665,3 +665,58 @@ export async function logCommercialAttachmentRemoved(params: {
     afterState: null,
   });
 }
+
+// ── Purchase receipts (Phase C7.3) ───────────────────────────────────
+//
+// Mirrors the purchase-order audit functions above exactly (action
+// namespace '<resource_type>.<verb>', resource_type the literal noun a
+// future `WHERE resource_type = '...'` query would filter on).
+
+export async function logPurchaseReceiptCreated(params: {
+  organisationId: string; userId: string; purchaseReceiptId: string;
+  after: { purchase_order_id: string };
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'commercial_purchase_receipt.created',
+    resourceType: 'commercial_purchase_receipt', resourceId: params.purchaseReceiptId, beforeState: null, afterState: params.after,
+  });
+}
+
+export async function logPurchaseReceiptUpdated(params: {
+  organisationId: string; userId: string; purchaseReceiptId: string;
+  before: Record<string, unknown>; after: Record<string, unknown>;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'commercial_purchase_receipt.updated',
+    resourceType: 'commercial_purchase_receipt', resourceId: params.purchaseReceiptId, beforeState: params.before, afterState: params.after,
+  });
+}
+
+export async function logPurchaseReceiptDeleted(params: {
+  organisationId: string; userId: string; purchaseReceiptId: string;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'commercial_purchase_receipt.deleted',
+    resourceType: 'commercial_purchase_receipt', resourceId: params.purchaseReceiptId, beforeState: { status: 'DRAFT' }, afterState: null,
+  });
+}
+
+export async function logPurchaseReceiptPosted(params: {
+  organisationId: string; userId: string; purchaseReceiptId: string; receiptNumber: string;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'commercial_purchase_receipt.posted',
+    resourceType: 'commercial_purchase_receipt', resourceId: params.purchaseReceiptId,
+    beforeState: { status: 'DRAFT' }, afterState: { status: 'POSTED', receipt_number: params.receiptNumber },
+  });
+}
+
+export async function logPurchaseReceiptCancelled(params: {
+  organisationId: string; userId: string; purchaseReceiptId: string; cancelReason: string;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'commercial_purchase_receipt.cancelled',
+    resourceType: 'commercial_purchase_receipt', resourceId: params.purchaseReceiptId,
+    beforeState: { status: 'POSTED' }, afterState: { status: 'CANCELLED', cancel_reason: params.cancelReason },
+  });
+}

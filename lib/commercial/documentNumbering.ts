@@ -35,13 +35,19 @@ import { logDocumentSequenceConfigured } from './auditLog';
 // value from the just-updated (POST-increment) row in the same
 // expression — see the SQL comment inline below for the exact algebra.
 
-export type CommercialDocumentType = 'QUOTE' | 'INVOICE' | 'CREDIT_NOTE' | 'PURCHASE_ORDER';
+// Phase C7.3 — 'PURCHASE_RECEIPT' added, matching the identical
+// registration every prior document type (QUOTE/INVOICE/CREDIT_NOTE/
+// PURCHASE_ORDER) already went through — this is a one-line-per-type
+// extension of the existing generic allocator, never a new numbering
+// system.
+export type CommercialDocumentType = 'QUOTE' | 'INVOICE' | 'CREDIT_NOTE' | 'PURCHASE_ORDER' | 'PURCHASE_RECEIPT';
 
 const DEFAULT_PREFIX: Record<CommercialDocumentType, string> = {
   QUOTE: 'QUO-',
   INVOICE: 'INV-',
   CREDIT_NOTE: 'CRN-',
   PURCHASE_ORDER: 'PO-',
+  PURCHASE_RECEIPT: 'GR-',
 };
 
 const DEFAULT_PADDING = 6;

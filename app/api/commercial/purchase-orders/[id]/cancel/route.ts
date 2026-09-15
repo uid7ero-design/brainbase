@@ -29,7 +29,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Failed to cancel purchase order.';
     if (message.includes('not found')) return NextResponse.json({ error: message }, { status: 404 });
-    if (message.includes('concurrently') || message.includes('Cannot transition purchase order')) {
+    if (message.includes('concurrently') || message.includes('Cannot transition purchase order') || message.includes('posted purchase receipts')) {
       return NextResponse.json({ error: message }, { status: 409 });
     }
     return NextResponse.json({ error: message }, { status: 400 });
