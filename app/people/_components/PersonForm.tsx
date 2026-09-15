@@ -29,6 +29,8 @@ type Person = {
   team_id?: string | null;
   manager_person_id?: string | null;
   linked_user_id?: string | null;
+  start_date?: string | null;
+  end_date?: string | null;
 };
 type Team = { id: string; name: string };
 type ManagerOption = { id: string; first_name: string; last_name: string };
@@ -84,6 +86,20 @@ export default function PersonForm({ initial, onSaved, canManage }: { initial?: 
   const set = (k: keyof Person) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setForm(f => ({ ...f, [k]: e.target.value }));
 
+  // HR-2 Step 1D2 — a native <input type="date"> reports a cleared
+  // value as e.target.value === '', not null/undefined. Unlike
+  // preferred_name/work_email/work_phone/job_title, PATCH /api/hr/
+  // people/[id] does NOT trim/coalesce '' to null for start_date/
+  // end_date — it validates any non-null string against isValidHrDate()
+  // (see that route's own start_date/end_date handling), so submitting
+  // '' would incorrectly 400 as invalid_start_date/invalid_end_date
+  // instead of clearing the field. This is the one place a plain
+  // set() would be wrong for a date field; it does no format
+  // validation and no end>=start comparison of its own — the server
+  // remains the sole authority for both.
+  const setDate = (k: 'start_date' | 'end_date') => (e: React.ChangeEvent<HTMLInputElement>) =>
+    setForm(f => ({ ...f, [k]: e.target.value || null }));
+
   // Edit mode seeds `form` from `initial` — the raw object returned by
   // GET /api/hr/people/[id] (PersonDrawer's fetch), which carries far
   // more than this form ever exposes a control for: id, organisation_id,
@@ -109,9 +125,16 @@ export default function PersonForm({ initial, onSaved, canManage }: { initial?: 
   // non-admin smuggle a link change through; PATCH's own
   // ctx.isHrAdministrator check for linked_user_id remains the real
   // boundary either way.
+  // HR-2 Step 1D2 — start_date/end_date added. Both are edit-only here
+  // (see the End Date control's own comment below for why end_date has
+  // no create-mode control at all: POST /api/hr/people does not accept
+  // it). start_date IS accepted by POST, but create mode sends `form`
+  // directly rather than through this allowlist (see submit() below),
+  // so this list only governs what an EDIT PATCH submits.
   const EDITABLE_FIELDS = [
     'first_name', 'last_name', 'preferred_name', 'work_email', 'work_phone',
     'job_title', 'worker_type', 'employment_status', 'team_id', 'manager_person_id', 'linked_user_id',
+    'start_date', 'end_date',
   ] as const satisfies readonly (keyof Person)[];
 
   async function submit(e: React.FormEvent) {
@@ -160,6 +183,26 @@ export default function PersonForm({ initial, onSaved, canManage }: { initial?: 
           </select>
         </div>
       </div>
+
+      {/* HR-2 Step 1D2 — POST /api/hr/people accepts start_date but not
+          end_date (see that route's own history/comments), so End Date
+          has no create-mode control at all — rendering it and silently
+          dropping it, or sending it and letting the server ignore it,
+          would both be more confusing than simply not offering it until
+          the person exists to PATCH. Server remains the sole authority
+          on format/calendar validity and end>=start ordering; this form
+          adds no client-side date parsing or ordering logic of its
+          own — invalid_start_date/invalid_end_date/invalid_employment_
+          dates all surface through the existing generic error
+          rendering below, unchanged. */}
+      {initial?.id ? (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <Field label="Start Date" type="date" value={form.start_date ?? ''} onChange={setDate('start_date')} />
+          <Field label="End Date" type="date" value={form.end_date ?? ''} onChange={setDate('end_date')} />
+        </div>
+      ) : (
+        <Field label="Start Date" type="date" value={form.start_date ?? ''} onChange={setDate('start_date')} />
+      )}
 
       <div>
         <label style={lbl}>Team</label>
@@ -225,11 +268,11 @@ export default function PersonForm({ initial, onSaved, canManage }: { initial?: 
   );
 }
 
-function Field({ label, value, onChange, required }: { label: string; value: string; onChange: (e: React.ChangeEvent<HTMLInputElement>) => void; required?: boolean }) {
+function Field({ label, value, onChange, required, type = 'text' }: { label: string; value: string; onChange: (e: React.ChangeEvent<HTMLInputElement>) => void; required?: boolean; type?: string }) {
   return (
     <div>
       <label style={lbl}>{label}</label>
-      <input value={value} onChange={onChange} required={required}
+      <input type={type} value={value} onChange={onChange} required={required}
         style={{ width: '100%', padding: '9px 12px', background: '#111318', border: '1px solid #1a1d24', borderRadius: 8, color: '#f9fafb', fontSize: 14, outline: 'none', boxSizing: 'border-box' }} />
     </div>
   );

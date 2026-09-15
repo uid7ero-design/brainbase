@@ -222,6 +222,10 @@ describe('PersonForm.tsx — edit PATCH payload is allowlisted, not the full fet
       // therefore belongs in this "must contain" list, not the
       // "must NOT contain" list below.
       'linked_user_id',
+      // HR-2 Step 1D2 — start_date/end_date now have real controls
+      // (date inputs, edit-mode End Date gated on initial?.id) and
+      // therefore belong in this "must contain" list too.
+      'start_date', 'end_date',
     ]) {
       expect(block).toContain(`'${field}'`)
     }
@@ -232,8 +236,6 @@ describe('PersonForm.tsx — edit PATCH payload is allowlisted, not the full fet
     expect(block).not.toMatch(/'team_name'/)
     expect(block).not.toMatch(/'manager_first_name'/)
     expect(block).not.toMatch(/'manager_last_name'/)
-    expect(block).not.toMatch(/'start_date'/)
-    expect(block).not.toMatch(/'end_date'/)
   })
 
   it('submit() builds the PATCH body from EDITABLE_FIELDS in edit mode, never spreading `form`/`initial` directly into the request', () => {
