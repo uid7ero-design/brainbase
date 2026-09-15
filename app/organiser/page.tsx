@@ -1,6 +1,7 @@
 "use client";
 
 import React, { Suspense, useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { createPortal } from "react-dom";
 import { useSearchParams } from "next/navigation";
 import OrganiserShell from "@/components/organiser/OrganiserShell";
 import OrganiserRail from "@/components/organiser/OrganiserRail";
@@ -28,8 +29,19 @@ type OrganiserItem = {
   name: string; status: string; priority: string | null; owner: string | null;
   due_date: string | null; notes: string | null; fields: Record<string, string>;
   custom_values: Record<string, unknown>;
+  // Phase D.4.6P — NEW, identity-bound assignee (migration step 47),
+  // entirely separate from the legacy free-text `owner` field above —
+  // never confused with it, never synchronized with it. A real users.id
+  // (cuid, not UUID-shaped) or null when unassigned.
+  assignee_user_id: string | null;
   position: number; created_at: string; updated_at: string;
 };
+
+// Phase D.4.6P — a real organisation member, for the assignee picker.
+// Sourced from GET /api/organiser/members (ACTIVE users of this
+// organisation only) — the same identity source Helena's own
+// propose_organiser_assignee_change resolves assignee names against.
+type OrganiserMember = { id: string; name: string };
 
 type OrganiserFile = { id: string; file_name: string; file_url: string; file_size: number | null; created_at: string };
 type OrganiserUpdate = { id: string; author_name: string | null; body: string; created_at: string };
@@ -148,6 +160,133 @@ function OptionsPillSelect({
         <option key={o.label} value={o.label} style={{ background: t.menuBg, color: t.ink(.90) }}>{o.label}</option>
       ))}
     </select>
+  );
+}
+
+// D.4.6P-R3 (PR #214 UI blocker fix, second pass) — the Assignee field's
+// previous fix (per-<option> inline style, matching PillSelect/
+// OptionsPillSelect above) turned out NOT to be reliable in real Chrome:
+// live Preview QA showed the native <select> popup still rendering with
+// the browser's default white/light panel and OS-highlight color despite
+// the same styling technique. Per-<option> background/color is
+// apparently NOT consistently honored by Chromium's native list-box
+// rendering on every platform, so this is a real platform limitation of
+// the native control, not something more inline styling can fix.
+//
+// Replaces the native <select> with a fully custom-rendered, always-
+// themed picker — the same accessible pattern already proven elsewhere
+// in this codebase (see app/events/_components/ui.tsx's FilterDropdown:
+// a plain <button> trigger with aria-haspopup="listbox"/aria-expanded,
+// and an absolutely-positioned role="listbox" panel of role="option"
+// <button>s). Re-implemented locally here (not imported cross-domain
+// from app/events) so it can use Organiser's own useOpsTheme() tokens
+// (t.ink()/t.menuBg) exactly like every other control in this drawer —
+// FilterDropdown's own palette is hardcoded dark-only and would not
+// respect Organiser's light theme. Every option/trigger element is a
+// real, independently focusable/activatable native <button> — Tab moves
+// between them, Enter/Space activates, and the browser's own visible
+// focus ring is never suppressed, so keyboard accessibility comes from
+// the platform rather than being reimplemented.
+//
+// This is presentation-only: value/onChange still carry exactly the
+// same assignee_user_id semantics ("" => Unassigned => null, otherwise
+// a member id) that item.tsx's onUpdate/PATCH route and Helena's own
+// propose_organiser_assignee_change already use — no authority,
+// validation, PATCH route, or activity-logging change of any kind.
+function AssigneeDropdown({
+  value, members, onChange,
+}: {
+  value: string;
+  members: OrganiserMember[];
+  onChange: (value: string) => void;
+}) {
+  const t = useOpsTheme();
+  const [open, setOpen] = useState(false);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    function onClickOutside(e: MouseEvent) {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", onClickOutside);
+    return () => document.removeEventListener("mousedown", onClickOutside);
+  }, []);
+
+  function select(next: string) {
+    onChange(next);
+    setOpen(false);
+    triggerRef.current?.focus();
+  }
+
+  const selectedLabel = value ? (members.find(m => m.id === value)?.name ?? "Unassigned") : "Unassigned";
+
+  return (
+    <div
+      ref={wrapperRef}
+      style={{ position: "relative", width: 168 }}
+      onKeyDown={e => {
+        if (e.key === "Escape") {
+          setOpen(false);
+          triggerRef.current?.focus();
+        }
+      }}
+    >
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label="Assignee"
+        style={{
+          display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, width: "100%",
+          background: open ? t.ink(.06) : t.ink(.04), border: `1px solid ${t.ink(.08)}`, borderRadius: 6,
+          padding: "5px 8px", fontSize: 12, color: t.ink(.90), fontFamily: FONT, cursor: "pointer",
+        }}
+      >
+        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{selectedLabel}</span>
+        <svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor" style={{ flexShrink: 0, opacity: .6, transform: open ? "rotate(180deg)" : undefined, transition: "transform .12s" }} aria-hidden="true">
+          <path d="M1 2l3 3 3-3" />
+        </svg>
+      </button>
+
+      {open && (
+        <div
+          role="listbox"
+          aria-label="Assignee"
+          style={{
+            position: "absolute", top: "100%", left: 0, marginTop: 4, width: "100%",
+            background: t.menuBg, border: `1px solid ${t.ink(.10)}`, borderRadius: 8,
+            boxShadow: "0 12px 32px rgba(0,0,0,.45)", padding: 4, zIndex: 20,
+            maxHeight: 220, overflowY: "auto",
+          }}
+        >
+          {[{ id: "", name: "Unassigned" }, ...members].map(opt => {
+            const isSelected = opt.id === value;
+            return (
+              <button
+                key={opt.id || "__unassigned__"}
+                type="button"
+                role="option"
+                aria-selected={isSelected}
+                onClick={() => select(opt.id)}
+                style={{
+                  display: "block", width: "100%", textAlign: "left", padding: "6px 9px",
+                  background: "none", border: "none", borderRadius: 6, cursor: "pointer",
+                  color: isSelected ? "#a5b4fc" : t.ink(.85), fontSize: 12, fontWeight: isSelected ? 600 : 400,
+                  fontFamily: FONT,
+                }}
+                onMouseEnter={e => { e.currentTarget.style.background = t.ink(.05); }}
+                onMouseLeave={e => { e.currentTarget.style.background = "none"; }}
+              >
+                {opt.name}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -710,9 +849,10 @@ function CalendarView({ items, onOpenDrawer }: { items: OrganiserItem[]; onOpenD
 // (a mutation happened while this view is open — see its call site's
 // boardActivityRefreshKey, derived from boardData.items).
 function BoardActivity({
-  boardId, items, groupNamesById, onOpenItem, refreshKey,
+  boardId, items, groupNamesById, userNamesById, onOpenItem, refreshKey,
 }: {
   boardId: string; items: OrganiserItem[]; groupNamesById: Record<string, string>;
+  userNamesById: Record<string, string>;
   onOpenItem: (item: OrganiserItem) => void; refreshKey: string;
 }) {
   const t = useOpsTheme();
@@ -787,7 +927,7 @@ function BoardActivity({
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 8, maxWidth: 640 }}>
           {events.map(ev => {
-            const desc = describeBoardActivityEvent(ev, groupNamesById, liveItemNamesById);
+            const desc = describeBoardActivityEvent(ev, groupNamesById, liveItemNamesById, userNamesById);
             // Deleted items (and any non-item entity type, once a future
             // phase instruments one) have no live row to open — no
             // click-through for those, per section 19.
@@ -852,8 +992,8 @@ function BoardActivity({
 // possible "did something change" signal — no new global state, no extra
 // request beyond what a genuine mutation already causes.
 function ItemActivity({
-  itemId, updatedAt, groupNamesById,
-}: { itemId: string; updatedAt: string; groupNamesById: Record<string, string> }) {
+  itemId, updatedAt, groupNamesById, userNamesById,
+}: { itemId: string; updatedAt: string; groupNamesById: Record<string, string>; userNamesById: Record<string, string> }) {
   const t = useOpsTheme();
   const [events, setEvents] = useState<OrganiserActivityEvent[]>([]);
   const [loading, setLoading] = useState(true);
@@ -912,7 +1052,7 @@ function ItemActivity({
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {events.map(ev => {
-            const desc = describeActivityEvent(ev, groupNamesById);
+            const desc = describeActivityEvent(ev, groupNamesById, userNamesById);
             return (
               <div key={ev.id} style={{ padding: "8px 10px", borderRadius: 8, background: t.ink(.025), border: `1px solid ${t.ink(.05)}` }}>
                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3, gap: 8 }}>
@@ -949,10 +1089,19 @@ function ItemActivity({
 }
 
 function ItemDrawer({
-  item, onClose, onUpdate, groupNamesById,
-}: { item: OrganiserItem; onClose: () => void; onUpdate: (id: string, patch: Record<string, unknown>) => void; groupNamesById: Record<string, string> }) {
+  item, onClose, onUpdate, groupNamesById, members,
+}: { item: OrganiserItem; onClose: () => void; onUpdate: (id: string, patch: Record<string, unknown>) => void; groupNamesById: Record<string, string>; members: OrganiserMember[] }) {
   const t = useOpsTheme();
   const fieldEntries = Object.entries(item.fields || {});
+  // Phase D.4.6P — same id -> name lookup OrganiserPageContent's own
+  // userNamesById provides, built locally from this drawer's own already
+  // tenant-scoped ACTIVE-members prop (the same list the Assignee picker
+  // itself renders) rather than prop-drilling a second parallel map.
+  const userNamesById = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const m of members) map[m.id] = m.name;
+    return map;
+  }, [members]);
   const [files, setFiles] = useState<OrganiserFile[]>([]);
   const [updates, setUpdates] = useState<OrganiserUpdate[]>([]);
   const [newUpdate, setNewUpdate] = useState("");
@@ -1007,7 +1156,18 @@ function ItemDrawer({
     setNewUpdate("");
   }
 
-  return (
+  // D.4.6P-R2 (PR #214 UI blocker fix) — OrganiserShell wraps this drawer's
+  // page tree in its own `position: fixed; z-index: 50` box, which
+  // establishes a stacking context. A z-index set on a descendant (this
+  // drawer's own 200) is only ever compared *inside* that context, so it
+  // can never out-rank siblings of OrganiserShell itself — TopNav
+  // (position: sticky, z-index: 100) and the HLNA assistant bar
+  // (z-index: 60-70) both live outside it and always painted over the
+  // drawer regardless of the drawer's own z-index. Portaling straight to
+  // document.body escapes that trap entirely, the same fix TopNav.tsx
+  // already uses for its own dropdown menus (see its own comment there).
+  // No layout/offset math needed — once escaped, 200 already beats both.
+  const drawerContent = (
     <div style={{ position: "fixed", inset: 0, zIndex: 200, display: "flex", justifyContent: "flex-end" }}>
       <div onClick={onClose} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,.45)" }} />
       <div style={{
@@ -1039,6 +1199,24 @@ function ItemDrawer({
               <input value={item.owner ?? ""} onChange={e => onUpdate(item.id, { owner: e.target.value })}
                 placeholder="Unassigned"
                 style={{ background: t.ink(.04), border: `1px solid ${t.ink(.08)}`, borderRadius: 6, padding: "5px 8px", fontSize: 12, color: t.ink(.90), fontFamily: FONT, width: 140 }} />
+            </Field>
+          </div>
+
+          {/* Phase D.4.6P — real, identity-bound assignee. Deliberately a
+              SEPARATE field from the legacy free-text Owner input above,
+              not a replacement for it (see this phase's own discovery
+              report) — a real dropdown of this organisation's own ACTIVE
+              members (from GET /api/organiser/members), never free text.
+              An empty option always means "Unassigned" (assignee_user_id:
+              null), the same semantics the human PATCH route and Helena's
+              own propose_organiser_assignee_change both use. */}
+          <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
+            <Field label="Assignee">
+              <AssigneeDropdown
+                value={item.assignee_user_id ?? ""}
+                members={members}
+                onChange={v => onUpdate(item.id, { assignee_user_id: v || null })}
+              />
             </Field>
           </div>
 
@@ -1097,7 +1275,7 @@ function ItemDrawer({
             </div>
           </div>
 
-          <ItemActivity key={`${item.id}:${item.updated_at}`} itemId={item.id} updatedAt={item.updated_at} groupNamesById={groupNamesById} />
+          <ItemActivity key={`${item.id}:${item.updated_at}`} itemId={item.id} updatedAt={item.updated_at} groupNamesById={groupNamesById} userNamesById={userNamesById} />
 
           {fieldEntries.length > 0 && (
             <div>
@@ -1116,6 +1294,8 @@ function ItemDrawer({
       </div>
     </div>
   );
+
+  return typeof document !== "undefined" ? createPortal(drawerContent, document.body) : null;
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
@@ -1162,6 +1342,16 @@ function OrganiserPageContent() {
   const [sheetChoices, setSheetChoices] = useState<SheetChoice[] | null>(null);
   const [pendingImportFile, setPendingImportFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Phase D.4.6P — organisation members for the assignee picker. Loaded
+  // once per mount (membership doesn't change per-board, unlike
+  // boardData) — never re-fetched on every board switch.
+  const [members, setMembers] = useState<OrganiserMember[]>([]);
+  useEffect(() => {
+    fetch("/api/organiser/members", { credentials: "include" })
+      .then(r => r.ok ? r.json() : { members: [] })
+      .then(d => setMembers(d.members ?? []))
+      .catch(() => {});
+  }, []);
 
   // Phase D.4.5D — id -> name lookup for the Item Activity tab's group_id
   // resolution (lib/organiser/activityFormat.ts's resolveGroupLabel). Built
@@ -1174,6 +1364,20 @@ function OrganiserPageContent() {
     for (const g of boardData?.groups ?? []) map[g.id] = g.name;
     return map;
   }, [boardData?.groups]);
+
+  // Phase D.4.6P — id -> name lookup for the Activity tabs' assignee_user_id
+  // resolution (lib/organiser/activityFormat.ts's resolveAssigneeLabel),
+  // mirroring groupNamesById's own shape exactly. Built from this
+  // organisation's own already tenant-scoped ACTIVE-members list (the same
+  // GET /api/organiser/members fetch the assignee picker itself uses) —
+  // never an independent fetch — so a deactivated/removed member since a
+  // given activity row was written safely falls back to "Another member"
+  // rather than showing a stale or fabricated name.
+  const userNamesById = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const m of members) map[m.id] = m.name;
+    return map;
+  }, [members]);
 
   // Phase D.4.5E — cheap "did anything on this board change" signal for
   // BoardActivity's refresh effect, the board-level analogue of
@@ -1499,6 +1703,7 @@ function OrganiserPageContent() {
                   boardId={activeBoard.id}
                   items={boardData.items}
                   groupNamesById={groupNamesById}
+                  userNamesById={userNamesById}
                   onOpenItem={setDrawerItem}
                   refreshKey={boardActivityRefreshKey}
                 />
@@ -1507,7 +1712,7 @@ function OrganiserPageContent() {
           )}
 
       {drawerItem && (
-        <ItemDrawer item={drawerItem} onClose={() => setDrawerItem(null)} onUpdate={updateItem} groupNamesById={groupNamesById} />
+        <ItemDrawer item={drawerItem} onClose={() => setDrawerItem(null)} onUpdate={updateItem} groupNamesById={groupNamesById} members={members} />
       )}
       {editingColumn && (
         <ColumnOptionsEditor

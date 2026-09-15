@@ -26,7 +26,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ boa
 
   const items = await sql`
     SELECT id, group_id, parent_item_id, name, status, priority, owner,
-           due_date::text AS due_date, notes, fields, custom_values, position, created_at, updated_at
+           due_date::text AS due_date, notes, fields, custom_values, position, assignee_user_id, created_at, updated_at
     FROM organiser_items
     WHERE board_id = ${boardId} AND organisation_id = ${session.organisationId}
     ORDER BY position ASC, created_at ASC

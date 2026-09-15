@@ -1217,6 +1217,38 @@ export async function POST(req: NextRequest) {
     CHECK (action_type IN ('post_comment', 'change_status', 'move_group'))
   `;
 
+  // Phase D.4.6P — real, identity-bound Organiser item assignment.
+  // organiser_items.owner (a plain free-text TEXT column, no FK, no CHECK)
+  // predates this phase and is NOT touched here — it stays exactly as-is,
+  // untouched and unmigrated (see the phase's own discovery report: reusing
+  // owner for Helena's write would let the model set an arbitrary,
+  // unvalidated string as "authority", which is unsafe). assignee_user_id
+  // is a NEW, separate, nullable column, following the exact same
+  // TEXT REFERENCES users(id) ON DELETE SET NULL shape already established
+  // by crm_deals.assigned_to (see app/api/crm/deals/route.ts) — the
+  // repository's own canonical identity-bound "assignee/owner" pattern.
+  // ON DELETE SET NULL (not CASCADE/RESTRICT) means a deleted user simply
+  // leaves affected items unassigned, never blocks the user deletion and
+  // never deletes the item. Single nullable scalar column — single-
+  // assignee only, matching owner's own cardinality; no join table.
+  step('47. organiser_items.assignee_user_id');
+  await sql`ALTER TABLE organiser_items ADD COLUMN IF NOT EXISTS assignee_user_id TEXT REFERENCES users(id) ON DELETE SET NULL`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_organiser_items_assignee ON organiser_items(assignee_user_id)`;
+
+  // Phase D.4.6P — Helena's FOURTH write action (propose_organiser_assignee_
+  // change) reuses the exact same durable ledger from step 44, mirroring
+  // steps 45/46's own narrow, idempotent action_type widening. No new
+  // organiser_activity event_type is needed (assignee changes reuse the
+  // existing 'item.updated' event, exactly like owner/status/priority field
+  // edits already do — see lib/organiser/helenaWrite.ts's own header for why
+  // this is NOT the same as a group move's dedicated 'item.moved' event).
+  step('48. organiser_action_confirmations.action_type — add change_assignee');
+  await sql`ALTER TABLE organiser_action_confirmations DROP CONSTRAINT IF EXISTS organiser_action_confirmations_action_type_check`;
+  await sql`
+    ALTER TABLE organiser_action_confirmations ADD CONSTRAINT organiser_action_confirmations_action_type_check
+    CHECK (action_type IN ('post_comment', 'change_status', 'move_group', 'change_assignee'))
+  `;
+
   // SEC-1B1: audit — this route was previously entirely unaudited. Placed
   // as the last statement before the success response, inside the same
   // try block as every migration step above, so a thrown exception at any

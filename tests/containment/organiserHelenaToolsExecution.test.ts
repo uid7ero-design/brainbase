@@ -70,10 +70,10 @@ const SOURCE = fs.readFileSync(path.resolve(__dirname, '../../lib/organiser/hele
 // ── Tool schemas ─────────────────────────────────────────────────────────────
 
 describe('buildOrganiserTools — schemas', () => {
-  it('returns exactly the 4 read tools plus the 3 guarded write/action tools (D.4.6I comment, D.4.6N status change, D.4.6O group move) — 7 total, no more, no less', () => {
+  it('returns exactly the 4 read tools plus the 4 guarded write/action tools (D.4.6I comment, D.4.6N status change, D.4.6O group move, D.4.6P assignee change) — 8 total, no more, no less', () => {
     const tools = buildOrganiserTools()
     expect(tools.map(t => t.name).sort()).toEqual([...ORGANISER_TOOL_NAMES].sort())
-    expect(tools).toHaveLength(7)
+    expect(tools).toHaveLength(8)
   })
 
   it('no tool schema includes an organisationId/organisation_id field anywhere', () => {
@@ -131,8 +131,8 @@ describe('buildOrganiserTools — schemas', () => {
 })
 
 describe('isOrganiserToolName', () => {
-  it('recognises exactly the 7 tool names, nothing else', () => {
-    expect(ORGANISER_TOOL_NAMES).toHaveLength(7)
+  it('recognises exactly the 8 tool names, nothing else', () => {
+    expect(ORGANISER_TOOL_NAMES).toHaveLength(8)
     for (const n of ORGANISER_TOOL_NAMES) expect(isOrganiserToolName(n)).toBe(true)
     expect(isOrganiserToolName('query_database')).toBe(false)
     expect(isOrganiserToolName('delete_organiser_item')).toBe(false)
@@ -662,8 +662,47 @@ describe('ORGANISER_SAFETY_PROMPT', () => {
     expect(ORGANISER_SAFETY_PROMPT).toMatch(/UTC/)
   })
 
-  it('is compact — under 2800 characters, so it does not meaningfully bloat every Helena request (raised from 2400 in D.4.6N to fit the third guarded write action\'s rules; trimmed to the minimum necessary rather than left to grow unchecked)', () => {
-    expect(ORGANISER_SAFETY_PROMPT.length).toBeLessThan(2800)
+  it('is compact — under 3500 characters, so it does not meaningfully bloat every Helena request (raised from 2400 in D.4.6N to fit the third guarded write action\'s rules, to 3300 in D.4.6P to fit the fourth, then to 3500 in the same phase\'s final merge review to fix misleading typed-confirmation wording; trimmed to the minimum necessary rather than left to grow unchecked)', () => {
+    expect(ORGANISER_SAFETY_PROMPT.length).toBeLessThan(3500)
+  })
+
+  // Phase D.4.6P (final merge review) — Preview QA showed the model
+  // narrating "Can you confirm with a clear yes to proceed?" when the user
+  // typed "yes" instead of clicking Confirm — technically harmless (zero
+  // mutation resulted, since the trusted confirmationToken only ever comes
+  // from the real button click) but misleading, since it implies typed
+  // text is a valid authorization channel. These tests prove the prompt's
+  // own wording can never regress back to that framing.
+  it('never instructs the model to wait for a typed/spoken "yes" as the confirmation signal — only a literal Confirm-button click', () => {
+    expect(ORGANISER_SAFETY_PROMPT).not.toMatch(/wait for (their|them to (say|type))\s+(an?\s+)?(explicit\s+)?yes\b/i)
+    expect(ORGANISER_SAFETY_PROMPT).toMatch(/only a literal click on the action card's Confirm button/i)
+  })
+
+  it('gives the exact deterministic wording to use when the user replies in words instead of clicking, and forbids asking for "a clearer yes"', () => {
+    expect(ORGANISER_SAFETY_PROMPT).toMatch(/Use the Confirm button on the action card to proceed\./)
+    expect(ORGANISER_SAFETY_PROMPT).toMatch(/never ask for "a clearer yes"/i)
+  })
+
+  it('none of the four tool descriptions tell the model to act "after they say yes" — all four require a literal Confirm-button click', () => {
+    const tools = buildOrganiserTools()
+    const writeTools = tools.filter(t => t.name.startsWith('propose_organiser_'))
+    expect(writeTools).toHaveLength(4)
+    for (const t of writeTools) {
+      const desc = (t as { description: string }).description
+      expect(desc).not.toMatch(/after they say yes/i)
+      expect(desc).toMatch(/after they click Confirm on the action card/i)
+      expect(desc).toMatch(/their typed words alone/i)
+    }
+  })
+
+  it('none of the four propose-mode "note" fields tell the model to wait for an "explicit yes" — all four require a literal Confirm-button click and forbid asking for a clearer yes', () => {
+    const noteMatches = [...SOURCE.matchAll(/note: '([^']*NOT been[^']*)'/g)].map(m => m[1])
+    expect(noteMatches).toHaveLength(4)
+    for (const note of noteMatches) {
+      expect(note).not.toMatch(/explicit yes/i)
+      expect(note).toMatch(/click Confirm on the action card/i)
+      expect(note).toMatch(/never treat their words alone as authorization or ask for a clearer yes/i)
+    }
   })
 })
 
@@ -1293,5 +1332,169 @@ describe('executeOrganiserTool — propose_organiser_group_move — confirm+exec
     })
     expect(raw).not.toContain('organisation_id')
     expect(raw).not.toContain('org-a')
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Phase D.4.6P — propose_organiser_assignee_change: Helena's FOURTH guarded
+// write/action tool. Same established testing philosophy as the
+// propose_organiser_group_move suite above.
+// ═══════════════════════════════════════════════════════════════════════════
+
+const USER_CUR = 'user-current-assignee'
+const USER_TGT = 'user-target-assignee'
+
+describe('executeOrganiserTool — propose_organiser_assignee_change — authorization', () => {
+  it('uses the stricter manager-floor write authorization, not the viewer-floor read authorization', async () => {
+    authorizeOrganiserRequestMock.mockResolvedValueOnce({ ok: true, session: MANAGER_SESSION })
+    sqlResultQueue = [[], [{ id: ITEM_A, name: 'Item A', board_id: BOARD_X, assignee_user_id: USER_CUR, current_assignee_name: 'Current Carl' }], [{ id: USER_TGT, name: 'Target Tara' }]]
+    await executeOrganiserTool('propose_organiser_assignee_change', { item_id: ITEM_A, assignee_name: 'Target Tara' })
+    expect(authorizeOrganiserRequestMock).toHaveBeenCalledWith('manager')
+  })
+
+  it('viewer role -> status "unauthorized", generic denial, never reaches sql', async () => {
+    authorizeOrganiserRequestMock.mockResolvedValueOnce({ ok: false, response: new Response(null, { status: 403 }) })
+    const result = JSON.parse(await executeOrganiserTool('propose_organiser_assignee_change', { item_id: ITEM_A, assignee_name: 'Target Tara' }))
+    expect(result.status).toBe('unauthorized')
+    expect(result.error).toBeTruthy()
+    expect(sqlCalls).toHaveLength(0)
+  })
+})
+
+describe('executeOrganiserTool — propose_organiser_assignee_change — propose (no confirmation)', () => {
+  beforeEach(() => {
+    authorizeOrganiserRequestMock.mockResolvedValue({ ok: true, session: MANAGER_SESSION })
+  })
+
+  it('valid item + valid ACTIVE-in-org candidate -> status "proposed" with previous/new assignee and a confirmation token', async () => {
+    sqlResultQueue = [[], [{ id: ITEM_A, name: 'Item A', board_id: BOARD_X, assignee_user_id: USER_CUR, current_assignee_name: 'Current Carl' }], [{ id: USER_TGT, name: 'Target Tara' }]]
+    const result = JSON.parse(await executeOrganiserTool('propose_organiser_assignee_change', { item_id: ITEM_A, assignee_name: 'Target Tara' }))
+    expect(result.status).toBe('proposed')
+    expect(result.proposal).toEqual({
+      item_id: ITEM_A, item_name: 'Item A',
+      previous_assignee_user_id: USER_CUR, previous_assignee_name: 'Current Carl',
+      new_assignee_user_id: USER_TGT, new_assignee_name: 'Target Tara',
+    })
+    expect(result.confirmation_token).toBeTruthy()
+    expect(sqlCalls.some(c => /UPDATE|INSERT/i.test(c.text))).toBe(false)
+  })
+
+  it('no ACTIVE member with that exact name -> status "assignee_not_found", bounded note, zero mutation', async () => {
+    sqlResultQueue = [[], [{ id: ITEM_A, name: 'Item A', board_id: BOARD_X, assignee_user_id: USER_CUR, current_assignee_name: 'Current Carl' }], []]
+    const result = JSON.parse(await executeOrganiserTool('propose_organiser_assignee_change', { item_id: ITEM_A, assignee_name: 'Nobody Here' }))
+    expect(result.status).toBe('assignee_not_found')
+    expect(sqlCalls.some(c => /UPDATE|INSERT/i.test(c.text))).toBe(false)
+  })
+
+  it('ambiguous assignee name (multiple ACTIVE matches) -> status "ambiguous_assignee", never guesses, zero mutation', async () => {
+    sqlResultQueue = [[], [{ id: ITEM_A, name: 'Item A', board_id: BOARD_X, assignee_user_id: USER_CUR, current_assignee_name: 'Current Carl' }], [{ id: USER_TGT, name: 'Target Tara' }, { id: 'dup', name: 'Target Tara' }]]
+    const result = JSON.parse(await executeOrganiserTool('propose_organiser_assignee_change', { item_id: ITEM_A, assignee_name: 'Target Tara' }))
+    expect(result.status).toBe('ambiguous_assignee')
+    expect(sqlCalls.some(c => /UPDATE|INSERT/i.test(c.text))).toBe(false)
+  })
+
+  it('target already equals current assignee -> status "noop_same_assignee", bounded note, zero mutation, no confirmation token issued', async () => {
+    sqlResultQueue = [[], [{ id: ITEM_A, name: 'Item A', board_id: BOARD_X, assignee_user_id: USER_TGT, current_assignee_name: 'Target Tara' }], [{ id: USER_TGT, name: 'Target Tara' }]]
+    const result = JSON.parse(await executeOrganiserTool('propose_organiser_assignee_change', { item_id: ITEM_A, assignee_name: 'Target Tara' }))
+    expect(result.status).toBe('noop_same_assignee')
+    expect(result.confirmation_token).toBeUndefined()
+    expect(sqlCalls.some(c => /UPDATE|INSERT/i.test(c.text))).toBe(false)
+  })
+
+  it('a malformed item_id -> status "failed", no sql mutation', async () => {
+    const result = JSON.parse(await executeOrganiserTool('propose_organiser_assignee_change', { item_id: 'not-a-uuid', assignee_name: 'Target Tara' }))
+    expect(result.status).toBe('failed')
+    expect(sqlCalls.some(c => /UPDATE|INSERT/i.test(c.text))).toBe(false)
+  })
+})
+
+describe('executeOrganiserTool — propose_organiser_assignee_change — confirm+execute', () => {
+  beforeEach(() => {
+    authorizeOrganiserRequestMock.mockResolvedValue({ ok: true, session: MANAGER_SESSION })
+  })
+
+  it('a valid token -> status "assigned" with the server-authoritative item/previous/new assignee', async () => {
+    sqlResultQueue = [[], [{ id: ITEM_A, name: 'Item A', board_id: BOARD_X, assignee_user_id: USER_CUR, current_assignee_name: 'Current Carl' }], [{ id: USER_TGT, name: 'Target Tara' }]]
+    const proposeResult = JSON.parse(await executeOrganiserTool('propose_organiser_assignee_change', { item_id: ITEM_A, assignee_name: 'Target Tara' }))
+    sqlCalls = []
+    sqlResultQueue = [[{ item_found: 1, was_consumed: 1, target_valid: true, updated_id: ITEM_A, item_name: 'Item A' }]]
+    const result = JSON.parse(
+      await executeOrganiserTool('propose_organiser_assignee_change', { item_id: ITEM_A, assignee_name: 'Target Tara' }, {
+        confirmationToken: proposeResult.confirmation_token,
+      }),
+    )
+    expect(result.status).toBe('assigned')
+    expect(result.action_type).toBe('change_assignee')
+    expect(result.item).toEqual({ id: ITEM_A, name: 'Item A', previous_assignee_name: 'Current Carl', new_assignee_name: 'Target Tara' })
+    expect(sqlCalls.filter(c => /UPDATE organiser_items/i.test(c.text))).toHaveLength(1)
+  })
+
+  it('D.4.6P CRITICAL: a stale assignee (reassigned since proposal) -> status "stale_item_assignee", never "assigned"', async () => {
+    sqlResultQueue = [[], [{ id: ITEM_A, name: 'Item A', board_id: BOARD_X, assignee_user_id: USER_CUR, current_assignee_name: 'Current Carl' }], [{ id: USER_TGT, name: 'Target Tara' }]]
+    const proposeResult = JSON.parse(await executeOrganiserTool('propose_organiser_assignee_change', { item_id: ITEM_A, assignee_name: 'Target Tara' }))
+    sqlResultQueue = [[{ item_found: 1, was_consumed: 1, target_valid: true, updated_id: null, item_name: null }]]
+    const result = JSON.parse(
+      await executeOrganiserTool('propose_organiser_assignee_change', { item_id: ITEM_A, assignee_name: 'Target Tara' }, {
+        confirmationToken: proposeResult.confirmation_token,
+      }),
+    )
+    expect(result.status).toBe('stale_item_assignee')
+    expect(result.status).not.toBe('assigned')
+  })
+
+  it('D.4.6P: target user deactivated since proposal -> status "assignee_no_longer_valid", never "assigned"', async () => {
+    sqlResultQueue = [[], [{ id: ITEM_A, name: 'Item A', board_id: BOARD_X, assignee_user_id: USER_CUR, current_assignee_name: 'Current Carl' }], [{ id: USER_TGT, name: 'Target Tara' }]]
+    const proposeResult = JSON.parse(await executeOrganiserTool('propose_organiser_assignee_change', { item_id: ITEM_A, assignee_name: 'Target Tara' }))
+    sqlResultQueue = [[{ item_found: 1, was_consumed: 1, target_valid: false, updated_id: null, item_name: null }]]
+    const result = JSON.parse(
+      await executeOrganiserTool('propose_organiser_assignee_change', { item_id: ITEM_A, assignee_name: 'Target Tara' }, {
+        confirmationToken: proposeResult.confirmation_token,
+      }),
+    )
+    expect(result.status).toBe('assignee_no_longer_valid')
+    expect(result.status).not.toBe('assigned')
+  })
+
+  it('replaying the same confirmationToken a second time -> status "already_used_confirmation", never "assigned" twice', async () => {
+    sqlResultQueue = [[], [{ id: ITEM_A, name: 'Item A', board_id: BOARD_X, assignee_user_id: USER_CUR, current_assignee_name: 'Current Carl' }], [{ id: USER_TGT, name: 'Target Tara' }]]
+    const proposeResult = JSON.parse(await executeOrganiserTool('propose_organiser_assignee_change', { item_id: ITEM_A, assignee_name: 'Target Tara' }))
+    sqlResultQueue = [[{ item_found: 1, was_consumed: 1, target_valid: true, updated_id: ITEM_A, item_name: 'Item A' }]]
+    const first = JSON.parse(
+      await executeOrganiserTool('propose_organiser_assignee_change', { item_id: ITEM_A, assignee_name: 'Target Tara' }, {
+        confirmationToken: proposeResult.confirmation_token,
+      }),
+    )
+    expect(first.status).toBe('assigned')
+
+    sqlResultQueue = [[{ item_found: 1, was_consumed: 0, target_valid: true, updated_id: null, item_name: null }]]
+    const second = JSON.parse(
+      await executeOrganiserTool('propose_organiser_assignee_change', { item_id: ITEM_A, assignee_name: 'Target Tara' }, {
+        confirmationToken: proposeResult.confirmation_token,
+      }),
+    )
+    expect(second.status).toBe('already_used_confirmation')
+    expect(second.status).not.toBe('assigned')
+  })
+
+  it('the tool_result string for a successful assignee change never contains organisation_id', async () => {
+    sqlResultQueue = [[], [{ id: ITEM_A, name: 'Item A', board_id: BOARD_X, assignee_user_id: USER_CUR, current_assignee_name: 'Current Carl' }], [{ id: USER_TGT, name: 'Target Tara' }]]
+    const proposeResult = JSON.parse(await executeOrganiserTool('propose_organiser_assignee_change', { item_id: ITEM_A, assignee_name: 'Target Tara' }))
+    sqlResultQueue = [[{ item_found: 1, was_consumed: 1, target_valid: true, updated_id: ITEM_A, item_name: 'Item A' }]]
+    const raw = await executeOrganiserTool('propose_organiser_assignee_change', { item_id: ITEM_A, assignee_name: 'Target Tara' }, {
+      confirmationToken: proposeResult.confirmation_token,
+    })
+    expect(raw).not.toContain('organisation_id')
+    expect(raw).not.toContain('org-a')
+  })
+})
+
+describe('propose_organiser_assignee_change tool schema', () => {
+  it('requires item_id and assignee_name, never accepts a user id field', () => {
+    const tools = buildOrganiserTools()
+    const tool = tools.find(t => t.name === 'propose_organiser_assignee_change')!
+    const schema = tool.input_schema as { required?: string[]; properties: Record<string, unknown> }
+    expect(schema.required).toEqual(['item_id', 'assignee_name'])
+    expect(Object.keys(schema.properties).sort()).toEqual(['assignee_name', 'item_id'])
+    expect(JSON.stringify(schema)).not.toMatch(/assignee_user_id|user_id/)
   })
 })

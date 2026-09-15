@@ -282,7 +282,7 @@ describe('D.4.6M — regression: unrelated routing and write-surface invariants 
     expect(r.reason).toBe('organiser intent')
   })
 
-  it('O. exactly 7 Organiser Helena tools remain (source-shape invariant, cross-file) — updated in D.4.6O to add propose_organiser_group_move', async () => {
+  it('O. exactly 8 Organiser Helena tools remain (source-shape invariant, cross-file) — updated in D.4.6P to add propose_organiser_assignee_change', async () => {
     const fs = await import('fs')
     const path = await import('path')
     const source = fs.readFileSync(path.resolve(__dirname, '../../lib/organiser/helenaTools.ts'), 'utf8')
@@ -295,6 +295,7 @@ describe('D.4.6M — regression: unrelated routing and write-surface invariants 
       'propose_organiser_comment',
       'propose_organiser_status_change',
       'propose_organiser_group_move',
+      'propose_organiser_assignee_change',
     ])
   })
 

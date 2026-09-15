@@ -87,7 +87,7 @@ beforeEach(() => {
 // statement) — call index 2 is the one this phase actually changed.
 describe('POST /api/organiser/boards/[boardId]/items — item.created', () => {
   it('the third statement builds an INSERT into organiser_items AND an INSERT into organiser_activity, combined via a writable CTE (one round trip, one atomic unit)', async () => {
-    queue([{ id: 'board-1' }], [{ next: 0 }], [{ id: 'item-new', name: 'New Item', status: 'Not Started', board_id: 'board-1', group_valid: true, parent_valid: true }])
+    queue([{ id: 'board-1' }], [{ next: 0 }], [{ id: 'item-new', name: 'New Item', status: 'Not Started', board_id: 'board-1', group_valid: true, parent_valid: true, assignee_valid: true }])
     await boardItemsRoute.POST(jsonReq('http://localhost/x', 'POST', { name: 'New Item' }), BOARD_CTX)
     const text = queryText(2)
     // Phase D.4.6H — WITH validation (not plain WITH inserted): the new
@@ -206,7 +206,7 @@ describe('POST /api/organiser/boards/[boardId]/items — item.created', () => {
   })
 
   it('response shape is unchanged: { item: <row> }', async () => {
-    queue([{ id: 'board-1' }], [{ next: 0 }], [{ id: 'item-new', name: 'New Item', group_valid: true, parent_valid: true }])
+    queue([{ id: 'board-1' }], [{ next: 0 }], [{ id: 'item-new', name: 'New Item', group_valid: true, parent_valid: true, assignee_valid: true }])
     const res = await boardItemsRoute.POST(jsonReq('http://localhost/x', 'POST', { name: 'New Item' }), BOARD_CTX)
     const body = await res.json()
     expect(body).toEqual({ item: { id: 'item-new', name: 'New Item' } })
@@ -239,7 +239,7 @@ describe('POST — group_id/parent_item_id relationship validation (structural, 
   })
 
   it('a null (or omitted) group_id/parent_item_id is never rejected as malformed — it still reaches SQL and creates the item', async () => {
-    queue([{ id: 'board-1' }], [{ next: 0 }], [{ id: 'item-new', name: 'New Item', group_valid: true, parent_valid: true }])
+    queue([{ id: 'board-1' }], [{ next: 0 }], [{ id: 'item-new', name: 'New Item', group_valid: true, parent_valid: true, assignee_valid: true }])
     const res = await boardItemsRoute.POST(jsonReq('http://localhost/x', 'POST', { name: 'New Item', group_id: null, parent_item_id: null }), BOARD_CTX)
     expect(sqlMock).toHaveBeenCalledTimes(3)
     expect(res.status).toBe(200)
@@ -270,7 +270,7 @@ describe('POST — group_id/parent_item_id relationship validation (structural, 
   })
 
   it('a rejected relationship never leaks group_valid/parent_valid into a successful response body\'s field set (and a rejection never has one, since it 400s)', async () => {
-    queue([{ id: 'board-1' }], [{ next: 0 }], [{ id: 'item-new', name: 'X', group_valid: true, parent_valid: true }])
+    queue([{ id: 'board-1' }], [{ next: 0 }], [{ id: 'item-new', name: 'X', group_valid: true, parent_valid: true, assignee_valid: true }])
     const res = await boardItemsRoute.POST(jsonReq('http://localhost/x', 'POST', { name: 'X' }), BOARD_CTX)
     const body = await res.json()
     expect(body.item).not.toHaveProperty('group_valid')
@@ -278,7 +278,7 @@ describe('POST — group_id/parent_item_id relationship validation (structural, 
   })
 
   it('the group EXISTS check is scoped to organisation_id AND board_id, not id alone', async () => {
-    queue([{ id: 'board-1' }], [{ next: 0 }], [{ id: 'item-new', group_valid: true, parent_valid: true }])
+    queue([{ id: 'board-1' }], [{ next: 0 }], [{ id: 'item-new', group_valid: true, parent_valid: true, assignee_valid: true }])
     await boardItemsRoute.POST(jsonReq('http://localhost/x', 'POST', { name: 'New Item', group_id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' }), BOARD_CTX)
     const text = queryText(2)
     const idx = text.indexOf('FROM organiser_groups g')
@@ -289,7 +289,7 @@ describe('POST — group_id/parent_item_id relationship validation (structural, 
   })
 
   it('the parent EXISTS check is scoped to organisation_id AND board_id — no cycle check needed on CREATE (a brand-new item can never already be an ancestor of anything)', async () => {
-    queue([{ id: 'board-1' }], [{ next: 0 }], [{ id: 'item-new', group_valid: true, parent_valid: true }])
+    queue([{ id: 'board-1' }], [{ next: 0 }], [{ id: 'item-new', group_valid: true, parent_valid: true, assignee_valid: true }])
     await boardItemsRoute.POST(jsonReq('http://localhost/x', 'POST', { name: 'New Item', parent_item_id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' }), BOARD_CTX)
     const text = queryText(2)
     const idx = text.indexOf('FROM organiser_items p')
@@ -303,7 +303,7 @@ describe('POST — group_id/parent_item_id relationship validation (structural, 
 
 describe('PATCH /api/organiser/items/[itemId] — atomic before/after capture', () => {
   it('the statement locks the old row (FOR UPDATE, MATERIALIZED) before updating it', async () => {
-    queue([{ id: 'item-1', status: 'Working on it', group_valid: true, parent_valid: true }])
+    queue([{ id: 'item-1', status: 'Working on it', group_valid: true, parent_valid: true, assignee_valid: true }])
     await itemIdRoute.PATCH(jsonReq('http://localhost/x', 'PATCH', { status: 'Working on it' }), ITEM_CTX)
     const text = queryText(0)
     // Phase D.4.6F — WITH RECURSIVE (not plain WITH): the new `ancestors`
@@ -315,13 +315,13 @@ describe('PATCH /api/organiser/items/[itemId] — atomic before/after capture', 
   })
 
   it('no pre-SELECT statement exists outside the one atomic statement — exactly one sql call for the whole PATCH', async () => {
-    queue([{ id: 'item-1', group_valid: true, parent_valid: true }])
+    queue([{ id: 'item-1', group_valid: true, parent_valid: true, assignee_valid: true }])
     await itemIdRoute.PATCH(jsonReq('http://localhost/x', 'PATCH', { status: 'X' }), ITEM_CTX)
     expect(sqlMock).toHaveBeenCalledTimes(1)
   })
 
   it('the tenant predicate (organisation_id) is present in the locked old CTE itself, not only in a later clause', async () => {
-    queue([{ id: 'item-1', group_valid: true, parent_valid: true }])
+    queue([{ id: 'item-1', group_valid: true, parent_valid: true, assignee_valid: true }])
     await itemIdRoute.PATCH(jsonReq('http://localhost/x', 'PATCH', { status: 'X' }), ITEM_CTX)
     const text = queryText(0)
     const oldCteEnd = text.indexOf('),', text.indexOf('WITH RECURSIVE old AS MATERIALIZED'))
@@ -330,21 +330,21 @@ describe('PATCH /api/organiser/items/[itemId] — atomic before/after capture', 
   })
 
   it('updated depends on old AND validation (FROM old, validation ... WHERE i.id = old.id AND validation.group_valid AND validation.parent_valid) — the update reads its "keep old value" fallback from the locked row, and a rejected relationship blocks the write entirely, not a bare column reference', async () => {
-    queue([{ id: 'item-1', group_valid: true, parent_valid: true }])
+    queue([{ id: 'item-1', group_valid: true, parent_valid: true, assignee_valid: true }])
     await itemIdRoute.PATCH(jsonReq('http://localhost/x', 'PATCH', { status: 'X' }), ITEM_CTX)
     const text = queryText(0)
     expect(text).toMatch(/FROM old, validation\s*\n\s*WHERE i\.id = old\.id AND validation\.group_valid AND validation\.parent_valid/)
   })
 
   it('activity_row depends on both old and updated (FROM old, updated, field_diff, custom_diff)', async () => {
-    queue([{ id: 'item-1', group_valid: true, parent_valid: true }])
+    queue([{ id: 'item-1', group_valid: true, parent_valid: true, assignee_valid: true }])
     await itemIdRoute.PATCH(jsonReq('http://localhost/x', 'PATCH', { status: 'X' }), ITEM_CTX)
     const text = queryText(0)
     expect(text).toMatch(/FROM old, updated, field_diff, custom_diff/)
   })
 
   it('the final response selects from updated only, matching the pre-existing RETURNING column list', async () => {
-    queue([{ id: 'item-1', group_id: null, parent_item_id: null, name: 'X', status: 'Y', priority: null, owner: null, due_date: null, notes: null, fields: {}, custom_values: {}, position: 0, created_at: 'a', updated_at: 'b', group_valid: true, parent_valid: true }])
+    queue([{ id: 'item-1', group_id: null, parent_item_id: null, name: 'X', status: 'Y', priority: null, owner: null, due_date: null, notes: null, fields: {}, custom_values: {}, position: 0, created_at: 'a', updated_at: 'b', group_valid: true, parent_valid: true, assignee_valid: true }])
     const res = await itemIdRoute.PATCH(jsonReq('http://localhost/x', 'PATCH', { status: 'Y' }), ITEM_CTX)
     const body = await res.json()
     expect(body.item).toEqual({ id: 'item-1', group_id: null, parent_item_id: null, name: 'X', status: 'Y', priority: null, owner: null, due_date: null, notes: null, fields: {}, custom_values: {}, position: 0, created_at: 'a', updated_at: 'b' })
@@ -360,7 +360,7 @@ describe('PATCH /api/organiser/items/[itemId] — atomic before/after capture', 
 
 describe('PATCH — event classification and suppression (structural)', () => {
   it('event_type is item.moved iff group_id or parent_item_id genuinely changed, item.updated otherwise (NULL-safe IS DISTINCT FROM)', async () => {
-    queue([{ id: 'item-1', group_valid: true, parent_valid: true }])
+    queue([{ id: 'item-1', group_valid: true, parent_valid: true, assignee_valid: true }])
     await itemIdRoute.PATCH(jsonReq('http://localhost/x', 'PATCH', { status: 'X' }), ITEM_CTX)
     const text = queryText(0)
     expect(text).toMatch(/old\.group_id IS DISTINCT FROM updated\.group_id OR old\.parent_item_id IS DISTINCT FROM updated\.parent_item_id/)
@@ -369,7 +369,7 @@ describe('PATCH — event classification and suppression (structural)', () => {
   })
 
   it('position is never part of the field_diff LATERAL VALUES list — position-only changes cannot produce a diff key or gate the suppression check', async () => {
-    queue([{ id: 'item-1', group_valid: true, parent_valid: true }])
+    queue([{ id: 'item-1', group_valid: true, parent_valid: true, assignee_valid: true }])
     await itemIdRoute.PATCH(jsonReq('http://localhost/x', 'PATCH', { position: 5 }), ITEM_CTX)
     const text = queryText(0)
     const latStart = text.indexOf('LATERAL (VALUES')
@@ -379,14 +379,14 @@ describe('PATCH — event classification and suppression (structural)', () => {
   })
 
   it('the suppression gate requires field_diff.any_changed OR custom_diff.any_changed before any activity row is inserted', async () => {
-    queue([{ id: 'item-1', group_valid: true, parent_valid: true }])
+    queue([{ id: 'item-1', group_valid: true, parent_valid: true, assignee_valid: true }])
     await itemIdRoute.PATCH(jsonReq('http://localhost/x', 'PATCH', { status: 'X' }), ITEM_CTX)
     const text = queryText(0)
     expect(text).toMatch(/WHERE field_diff\.any_changed IS TRUE OR custom_diff\.any_changed IS TRUE/)
   })
 
   it('changed-field detection uses IS DISTINCT FROM (actual value comparison), not "was the key present in the request"', async () => {
-    queue([{ id: 'item-1', group_valid: true, parent_valid: true }])
+    queue([{ id: 'item-1', group_valid: true, parent_valid: true, assignee_valid: true }])
     await itemIdRoute.PATCH(jsonReq('http://localhost/x', 'PATCH', { status: 'X' }), ITEM_CTX)
     const text = queryText(0)
     expect(text).toMatch(/f\.old_val IS DISTINCT FROM f\.new_val/)
@@ -395,7 +395,7 @@ describe('PATCH — event classification and suppression (structural)', () => {
 
 describe('PATCH — custom_values key-level diff (structural)', () => {
   it('diffs via jsonb_each over the REQUESTED custom_values payload, comparing each requested key against the locked old value — not the full merged object', async () => {
-    queue([{ id: 'item-1', group_valid: true, parent_valid: true }])
+    queue([{ id: 'item-1', group_valid: true, parent_valid: true, assignee_valid: true }])
     await itemIdRoute.PATCH(jsonReq('http://localhost/x', 'PATCH', { custom_values: { b: 3 } }), ITEM_CTX)
     const text = queryText(0)
     expect(text).toMatch(/jsonb_each\(\?::jsonb\) AS kv\(key, value\)/)
@@ -405,14 +405,14 @@ describe('PATCH — custom_values key-level diff (structural)', () => {
   })
 
   it('preserves the existing merge semantics (old.custom_values || requested) — unchanged from before this phase', async () => {
-    queue([{ id: 'item-1', group_valid: true, parent_valid: true }])
+    queue([{ id: 'item-1', group_valid: true, parent_valid: true, assignee_valid: true }])
     await itemIdRoute.PATCH(jsonReq('http://localhost/x', 'PATCH', { custom_values: { b: 3 } }), ITEM_CTX)
     const text = queryText(0)
     expect(text).toMatch(/old\.custom_values \|\|/)
   })
 
   it('every diffed value (field-level and custom_values) is passed through organiser_activity_sanitise_scalar', async () => {
-    queue([{ id: 'item-1', group_valid: true, parent_valid: true }])
+    queue([{ id: 'item-1', group_valid: true, parent_valid: true, assignee_valid: true }])
     await itemIdRoute.PATCH(jsonReq('http://localhost/x', 'PATCH', { status: 'X', custom_values: { b: 3 } }), ITEM_CTX)
     const text = queryText(0)
     const count = (text.match(/organiser_activity_sanitise_scalar/g) ?? []).length
@@ -422,7 +422,7 @@ describe('PATCH — custom_values key-level diff (structural)', () => {
 
 describe('PATCH — actor and tenant binding (never from request body)', () => {
   it('actor_user_id/actor_name/organisation_id come from session values, never request body fields', async () => {
-    queue([{ id: 'item-1', group_valid: true, parent_valid: true }])
+    queue([{ id: 'item-1', group_valid: true, parent_valid: true, assignee_valid: true }])
     await itemIdRoute.PATCH(jsonReq('http://localhost/x', 'PATCH', {
       status: 'X', actor_user_id: 'fake-id', actor_name: 'Fake Name', userId: 'fake2', organisationId: 'org-evil',
     }), ITEM_CTX)
@@ -472,7 +472,7 @@ describe('PATCH — group_id/parent_item_id relationship validation (structural)
   })
 
   it('a null group_id/parent_item_id is never rejected as malformed — it still reaches SQL', async () => {
-    queue([{ id: 'item-1', group_valid: true, parent_valid: true }])
+    queue([{ id: 'item-1', group_valid: true, parent_valid: true, assignee_valid: true }])
     const res = await itemIdRoute.PATCH(jsonReq('http://localhost/x', 'PATCH', { group_id: null, parent_item_id: null }), ITEM_CTX)
     expect(sqlMock).toHaveBeenCalledTimes(1)
     expect(res.status).toBe(200)
@@ -502,16 +502,55 @@ describe('PATCH — group_id/parent_item_id relationship validation (structural)
     expect(await res.json()).toEqual({ error: 'Invalid group for this item.' })
   })
 
-  it('a rejected relationship never leaks group_valid/parent_valid into a successful response body\'s field set', async () => {
-    queue([{ id: 'item-1', name: 'X', group_valid: true, parent_valid: true }])
+  // Phase D.4.6P — assignee_valid is the third relationship check, added
+  // alongside group_valid/parent_valid. Same structural shape: a bare FK
+  // on assignee_user_id only proves a users row exists SOMEWHERE, never
+  // that it's an ACTIVE member of this item's own organisation — that
+  // invariant is what assignee_valid actually proves (see the route's own
+  // validation CTE).
+  it('row shape assignee_valid: false maps to 400 "Invalid assignee for this item." — a generic message, never naming the target\'s real organisation', async () => {
+    queue([{ id: 'item-1', group_valid: true, parent_valid: true, assignee_valid: false }])
+    const res = await itemIdRoute.PATCH(jsonReq('http://localhost/x', 'PATCH', { assignee_user_id: 'some-user-id' }), ITEM_CTX)
+    expect(res.status).toBe(400)
+    const body = await res.json()
+    expect(body).toEqual({ error: 'Invalid assignee for this item.' })
+    expect(JSON.stringify(body)).not.toMatch(/organisation/i)
+  })
+
+  it('group_valid/parent_valid still take precedence over assignee_valid when multiple checks fail (deterministic ordering)', async () => {
+    queue([{ id: 'item-1', group_valid: false, parent_valid: true, assignee_valid: false }])
+    const res = await itemIdRoute.PATCH(jsonReq('http://localhost/x', 'PATCH', {
+      group_id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', assignee_user_id: 'some-user-id',
+    }), ITEM_CTX)
+    expect(await res.json()).toEqual({ error: 'Invalid group for this item.' })
+  })
+
+  it('a null assignee_user_id (unassigning) is never rejected as malformed — it still reaches SQL and succeeds', async () => {
+    queue([{ id: 'item-1', group_valid: true, parent_valid: true, assignee_valid: true }])
+    const res = await itemIdRoute.PATCH(jsonReq('http://localhost/x', 'PATCH', { assignee_user_id: null }), ITEM_CTX)
+    expect(sqlMock).toHaveBeenCalledTimes(1)
+    expect(res.status).toBe(200)
+  })
+
+  it('a rejected relationship never leaks group_valid/parent_valid/assignee_valid into a successful response body\'s field set', async () => {
+    queue([{ id: 'item-1', name: 'X', group_valid: true, parent_valid: true, assignee_valid: true }])
     const res = await itemIdRoute.PATCH(jsonReq('http://localhost/x', 'PATCH', { status: 'Y' }), ITEM_CTX)
     const body = await res.json()
     expect(body.item).not.toHaveProperty('group_valid')
     expect(body.item).not.toHaveProperty('parent_valid')
+    expect(body.item).not.toHaveProperty('assignee_valid')
+  })
+
+  it('the assignee EXISTS check is scoped to organisation_id AND status = \'ACTIVE\', not id alone — never trusts a bare FK', async () => {
+    queue([{ id: 'item-1', group_valid: true, parent_valid: true, assignee_valid: true }])
+    await itemIdRoute.PATCH(jsonReq('http://localhost/x', 'PATCH', { assignee_user_id: 'some-user-id' }), ITEM_CTX)
+    const text = sqlMock.mock.calls[0][0].join('')
+    expect(text).toMatch(/u\.organisation_id = /)
+    expect(text).toMatch(/u\.status = 'ACTIVE'/)
   })
 
   it('the group EXISTS check is scoped to organisation_id AND board_id (old.board_id), not id alone', async () => {
-    queue([{ id: 'item-1', group_valid: true, parent_valid: true }])
+    queue([{ id: 'item-1', group_valid: true, parent_valid: true, assignee_valid: true }])
     await itemIdRoute.PATCH(jsonReq('http://localhost/x', 'PATCH', { group_id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' }), ITEM_CTX)
     const text = queryText(0)
     const idx = text.indexOf('FROM organiser_groups g')
@@ -522,7 +561,7 @@ describe('PATCH — group_id/parent_item_id relationship validation (structural)
   })
 
   it('the parent EXISTS check is scoped to organisation_id AND board_id (old.board_id), and excludes self via IS DISTINCT FROM', async () => {
-    queue([{ id: 'item-1', group_valid: true, parent_valid: true }])
+    queue([{ id: 'item-1', group_valid: true, parent_valid: true, assignee_valid: true }])
     await itemIdRoute.PATCH(jsonReq('http://localhost/x', 'PATCH', { parent_item_id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' }), ITEM_CTX)
     const text = queryText(0)
     const idx = text.indexOf('FROM organiser_items p')
@@ -534,7 +573,7 @@ describe('PATCH — group_id/parent_item_id relationship validation (structural)
   })
 
   it('cycle detection walks ancestors via a cycle-safe (visited-array-guarded) recursive CTE, scoped by organisation_id', async () => {
-    queue([{ id: 'item-1', group_valid: true, parent_valid: true }])
+    queue([{ id: 'item-1', group_valid: true, parent_valid: true, assignee_valid: true }])
     await itemIdRoute.PATCH(jsonReq('http://localhost/x', 'PATCH', { parent_item_id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' }), ITEM_CTX)
     const text = queryText(0)
     expect(text).toContain('WITH RECURSIVE')
@@ -556,7 +595,7 @@ describe('PATCH — group_id/parent_item_id relationship validation (structural)
   })
 
   it('field-only PATCHes (no group_id/parent_item_id in the body) never touch the group/parent EXISTS clauses\' bound values — hasGroupId/hasParentId gate them to trivially true', async () => {
-    queue([{ id: 'item-1', group_valid: true, parent_valid: true }])
+    queue([{ id: 'item-1', group_valid: true, parent_valid: true, assignee_valid: true }])
     await itemIdRoute.PATCH(jsonReq('http://localhost/x', 'PATCH', { status: 'X' }), ITEM_CTX)
     const text = queryText(0)
     expect(text).toMatch(/NOT \?\s*OR \?::uuid IS NULL OR EXISTS/)

@@ -73,7 +73,7 @@ describe('ItemActivity — the new section itself', () => {
     const start = pageCode.indexOf('function ItemActivity(')
     const end = pageCode.indexOf('\nfunction ItemDrawer(', start)
     const block = pageCode.slice(start, end)
-    expect(block).toMatch(/describeActivityEvent\(ev, groupNamesById\)/)
+    expect(block).toMatch(/describeActivityEvent\(ev, groupNamesById, userNamesById\)/)
     expect(block).not.toMatch(/event_type === ['"]item\./)
   })
 })
@@ -87,10 +87,15 @@ describe('ItemDrawer — extended cleanly, not redesigned', () => {
     expect(block).toMatch(/groupNamesById: Record<string, string>/)
   })
 
+  it('builds userNamesById locally from its own members prop (D.4.6P), not a second independent fetch, and passes it to ItemActivity', () => {
+    expect(block).toMatch(/const userNamesById = useMemo\(\(\) => \{/)
+    expect(block).toMatch(/for \(const m of members\) map\[m\.id\] = m\.name;/)
+  })
+
   it('renders exactly one ItemActivity, scoped to this item and reactive to its updated_at', () => {
     const matches = block.match(/<ItemActivity /g) ?? []
     expect(matches).toHaveLength(1)
-    expect(block).toMatch(/<ItemActivity key=\{`\$\{item\.id\}:\$\{item\.updated_at\}`\} itemId=\{item\.id\} updatedAt=\{item\.updated_at\} groupNamesById=\{groupNamesById\} \/>/)
+    expect(block).toMatch(/<ItemActivity key=\{`\$\{item\.id\}:\$\{item\.updated_at\}`\} itemId=\{item\.id\} updatedAt=\{item\.updated_at\} groupNamesById=\{groupNamesById\} userNamesById=\{userNamesById\} \/>/)
   })
 
   it('is keyed by itemId:updated_at — a fresh instance mounts (loading/error/events reset naturally) whenever either changes, rather than the effect resetting state imperatively', () => {

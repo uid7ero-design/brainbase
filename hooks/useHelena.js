@@ -549,6 +549,8 @@ export function useHelena() {
       ? 'Action cancelled — the status was not changed.'
       : action.tool === 'propose_organiser_group_move'
       ? 'Action cancelled — the item was not moved.'
+      : action.tool === 'propose_organiser_assignee_change'
+      ? 'Action cancelled — the assignee was not changed.'
       : 'Action cancelled — nothing was posted.';
     setMessages(prev => [...prev, {
       role: 'assistant',

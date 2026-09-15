@@ -4,6 +4,14 @@
 # protection via the new organiser_action_confirmations ledger, migration
 # step 44 — see app/api/admin/migrate/route.ts).
 #
+# Phase D.4.6P — extended to also bootstrap organiser_items.assignee_user_id
+# (step 47), users.status (needed for the new ACTIVE-only assignee
+# resolution), and the action_type CHECK's change_assignee widening (step
+# 48), plus a matching failure-atomicity proof (section 3D) and the real
+# propose/confirm/replay/concurrency suite for the fourth guarded write
+# action (organiserConfirmationReplay.integration.test.ts's own D.4.6P
+# describe block, run via section 4 below like every other action).
+#
 # WHY THIS EXISTS: the entire safety property this phase adds — "at most
 # one request can both consume a token and execute the mutation" — is
 # enforced by Postgres's own UNIQUE/PRIMARY KEY conflict-resolution
@@ -100,7 +108,7 @@ psql_query() {
 # verbatim from app/api/admin/migrate/route.ts. ─────────────────────────
 SCHEMA_SQL='
 CREATE TABLE IF NOT EXISTS organisations (id TEXT PRIMARY KEY, name TEXT NOT NULL, slug TEXT NOT NULL UNIQUE);
-CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, organisation_id TEXT NOT NULL REFERENCES organisations(id) ON DELETE CASCADE, username TEXT NOT NULL UNIQUE, name TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, organisation_id TEXT NOT NULL REFERENCES organisations(id) ON DELETE CASCADE, username TEXT NOT NULL UNIQUE, name TEXT NOT NULL, status TEXT NOT NULL DEFAULT '"'"'ACTIVE'"'"');
 
 CREATE TABLE IF NOT EXISTS organiser_boards (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -142,6 +150,9 @@ CREATE TABLE IF NOT EXISTS organiser_items (
   updated_at      TIMESTAMPTZ DEFAULT NOW()
 );
 ALTER TABLE organiser_items ADD COLUMN IF NOT EXISTS custom_values JSONB NOT NULL DEFAULT '"'"'{}'"'"';
+-- Migration step 47 (D.4.6P) — extracted verbatim from app/api/admin/migrate/route.ts
+ALTER TABLE organiser_items ADD COLUMN IF NOT EXISTS assignee_user_id TEXT REFERENCES users(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_organiser_items_assignee ON organiser_items(assignee_user_id);
 
 CREATE TABLE IF NOT EXISTS organiser_activity (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -223,6 +234,11 @@ ALTER TABLE organiser_action_confirmations ADD CONSTRAINT organiser_action_confi
 ALTER TABLE organiser_action_confirmations DROP CONSTRAINT IF EXISTS organiser_action_confirmations_action_type_check;
 ALTER TABLE organiser_action_confirmations ADD CONSTRAINT organiser_action_confirmations_action_type_check
   CHECK (action_type IN ('"'"'post_comment'"'"', '"'"'change_status'"'"', '"'"'move_group'"'"'));
+
+-- Migration step 48 (D.4.6P) — extracted verbatim from app/api/admin/migrate/route.ts
+ALTER TABLE organiser_action_confirmations DROP CONSTRAINT IF EXISTS organiser_action_confirmations_action_type_check;
+ALTER TABLE organiser_action_confirmations ADD CONSTRAINT organiser_action_confirmations_action_type_check
+  CHECK (action_type IN ('"'"'post_comment'"'"', '"'"'change_status'"'"', '"'"'move_group'"'"', '"'"'change_assignee'"'"'));
 '
 
 echo ""
@@ -435,6 +451,67 @@ else
   echo "  FAIL: item group_id persisted as '$GROUP_AFTER' despite the transaction failing"
   FAIL=$((FAIL + 1))
   FAILURES+=("group_id update did not roll back on downstream failure")
+fi
+
+echo ""
+echo "=== 3D. ASSIGNEE-CHANGE FAILURE-ATOMICITY (D.4.6P) — a downstream activity insert failure must roll back the ledger consume AND the assignee_user_id UPDATE together ==="
+echo "INSERT INTO users (id, organisation_id, username, name, status) VALUES ('user-assignee-target', 'org-a', 'user-assignee-target', 'Atomicity Assignee', 'ACTIVE') ON CONFLICT (id) DO NOTHING;" | psql_exec >/dev/null
+ASSIGNEE_ITEM_ID="$(echo "WITH ins AS (INSERT INTO organiser_items (board_id, organisation_id, name, status) VALUES ('$BOARD_ID', 'org-a', 'Assignee Atomicity Item', 'Not Started') RETURNING id) SELECT id FROM ins;" | psql_query | tr -d '[:space:]')"
+FAKE_JTI_4="00000000-0000-4000-8000-000000000004"
+BROKEN_ASSIGNEE_SQL="
+WITH target_item AS MATERIALIZED (
+  SELECT id, board_id, name, assignee_user_id FROM organiser_items WHERE id = '$ASSIGNEE_ITEM_ID' AND organisation_id = 'org-a' FOR UPDATE
+),
+target_check AS (
+  SELECT EXISTS (SELECT 1 FROM users u WHERE u.id = 'user-assignee-target' AND u.organisation_id = 'org-a' AND u.status = 'ACTIVE') AS target_valid
+),
+consumed AS (
+  INSERT INTO organiser_action_confirmations (jti, organisation_id, user_id, action_type, item_id, expires_at)
+  SELECT '$FAKE_JTI_4', 'org-a', 'user-1', 'change_assignee', '$ASSIGNEE_ITEM_ID', NOW() + interval '2 minutes'
+  WHERE EXISTS (SELECT 1 FROM target_item)
+  ON CONFLICT (jti) DO NOTHING
+  RETURNING jti
+),
+updated AS (
+  UPDATE organiser_items i SET assignee_user_id = 'user-assignee-target', updated_at = NOW()
+  FROM target_item, consumed, target_check
+  WHERE i.id = target_item.id AND target_item.assignee_user_id IS NULL AND target_check.target_valid
+  RETURNING i.id, i.board_id, i.name, i.assignee_user_id
+),
+activity_row AS (
+  INSERT INTO organiser_activity (organisation_id, board_id, item_id, actor_user_id, actor_name, event_type, entity_type, entity_id, before_json, after_json, metadata_json)
+  SELECT 'org-a', updated.board_id, updated.id, 'user-1', 'Tester', 'item.NOT_A_REAL_EVENT_TYPE', 'item', updated.id::text, '{}'::jsonb, '{}'::jsonb, '{}'::jsonb
+  FROM updated
+  RETURNING id
+)
+SELECT updated.id FROM updated;
+"
+OUT4="$(echo "$BROKEN_ASSIGNEE_SQL" | psql_exec 2>&1)"
+if [ $? -ne 0 ]; then
+  echo "  PASS: forced-invalid-event-type assignee-change statement correctly rejected by CHECK constraint"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: forced-invalid assignee-change statement unexpectedly succeeded"
+  FAIL=$((FAIL + 1))
+  FAILURES+=("forced-invalid assignee-change statement should have failed")
+fi
+ASSIGNEE_LEDGER_COUNT="$(echo "SELECT count(*) FROM organiser_action_confirmations WHERE jti = '$FAKE_JTI_4';" | psql_query | tr -d '[:space:]')"
+if [ "$ASSIGNEE_LEDGER_COUNT" = "0" ]; then
+  echo "  PASS (HARD GATE): assignee-change ledger consume ROLLED BACK too — zero rows for the forced-failure jti"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL (HARD GATE): assignee-change ledger row persisted despite the downstream activity insert failing"
+  FAIL=$((FAIL + 1))
+  FAILURES+=("assignee-change ledger consume did not roll back on downstream failure")
+fi
+ASSIGNEE_AFTER="$(echo "SELECT assignee_user_id FROM organiser_items WHERE id = '$ASSIGNEE_ITEM_ID';" | psql_query | tr -d '[:space:]')"
+if [ -z "$ASSIGNEE_AFTER" ]; then
+  echo "  PASS: item assignee_user_id ROLLED BACK too — still unassigned"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: item assignee_user_id persisted as '$ASSIGNEE_AFTER' despite the transaction failing"
+  FAIL=$((FAIL + 1))
+  FAILURES+=("assignee_user_id update did not roll back on downstream failure")
 fi
 
 echo ""

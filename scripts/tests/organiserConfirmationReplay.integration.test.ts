@@ -75,6 +75,7 @@ vi.doMock('@/lib/db', () => ({ default: neonCompatibleSql }));
 let proposeOrExecuteOrganiserComment: typeof import('@/lib/organiser/helenaWrite').proposeOrExecuteOrganiserComment;
 let proposeOrExecuteOrganiserStatusChange: typeof import('@/lib/organiser/helenaWrite').proposeOrExecuteOrganiserStatusChange;
 let proposeOrExecuteOrganiserGroupMove: typeof import('@/lib/organiser/helenaWrite').proposeOrExecuteOrganiserGroupMove;
+let proposeOrExecuteOrganiserAssigneeChange: typeof import('@/lib/organiser/helenaWrite').proposeOrExecuteOrganiserAssigneeChange;
 
 const ORG = 'org-a';
 const OTHER_ORG = 'org-b';
@@ -98,7 +99,7 @@ async function freshItem(name: string): Promise<string> {
 }
 
 beforeAll(async () => {
-  ({ proposeOrExecuteOrganiserComment, proposeOrExecuteOrganiserStatusChange, proposeOrExecuteOrganiserGroupMove } = await import('@/lib/organiser/helenaWrite'));
+  ({ proposeOrExecuteOrganiserComment, proposeOrExecuteOrganiserStatusChange, proposeOrExecuteOrganiserGroupMove, proposeOrExecuteOrganiserAssigneeChange } = await import('@/lib/organiser/helenaWrite'));
 
   await prisma.$executeRawUnsafe(`
     INSERT INTO organisations (id, name, slug) VALUES ('org-a', 'Org A', 'org-a'), ('org-b', 'Org B', 'org-b')
@@ -108,6 +109,20 @@ beforeAll(async () => {
     INSERT INTO users (id, organisation_id, username, name) VALUES
       ('user-1', 'org-a', 'user-1', 'User One'),
       ('user-2', 'org-b', 'user-2', 'User Two')
+    ON CONFLICT (id) DO NOTHING
+  `);
+  // Phase D.4.6P — real users for the assignee-change suite: an ACTIVE
+  // in-org candidate (target-active), an INACTIVE in-org user (never a
+  // valid target), two ACTIVE in-org users sharing an exact name
+  // (ambiguity), and an ACTIVE user in a DIFFERENT organisation (never
+  // resolvable from org-a).
+  await prisma.$executeRawUnsafe(`
+    INSERT INTO users (id, organisation_id, username, name, status) VALUES
+      ('target-active', 'org-a', 'target-active', 'Target Tara', 'ACTIVE'),
+      ('target-inactive', 'org-a', 'target-inactive', 'Inactive Ivan', 'INACTIVE'),
+      ('target-dup-a', 'org-a', 'target-dup-a', 'Duplicate Dana', 'ACTIVE'),
+      ('target-dup-b', 'org-a', 'target-dup-b', 'Duplicate Dana', 'ACTIVE'),
+      ('target-other-org', 'org-b', 'target-other-org', 'Other Org Oscar', 'ACTIVE')
     ON CONFLICT (id) DO NOTHING
   `);
   const boards = await prisma.$queryRawUnsafe<{ id: string }[]>(
@@ -1204,10 +1219,24 @@ describe('D.4.6O — guarded Organiser item group move (real Postgres)', () => {
     expect(statusResult.ok).toBe(true);
   });
 
-  it('19. retention cleanup prunes long-expired rows of ALL THREE action types alike', async () => {
+  it('18b. existing comment/status/group-move confirmations still work correctly after the action_type CHECK expansion (step 48)', async () => {
+    const commentItemId = await freshItem('Post-Step48-Expansion Comment Item');
+    const commentProposal = await proposeOrExecuteOrganiserComment({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId: commentItemId, body: 'still works after step 48',
+    });
+    if (!commentProposal.ok || commentProposal.mode !== 'proposed') throw new Error('expected proposal');
+    const commentResult = await proposeOrExecuteOrganiserComment({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId: commentItemId, body: 'ignored',
+      confirmationToken: commentProposal.confirmationToken,
+    });
+    expect(commentResult.ok).toBe(true);
+  });
+
+  it('19. retention cleanup prunes long-expired rows of ALL FOUR action types alike', async () => {
     const jti1 = randomUUID();
     const jti2 = randomUUID();
     const jti3 = randomUUID();
+    const jti4 = randomUUID();
     await prisma.$executeRawUnsafe(
       `INSERT INTO organiser_action_confirmations (jti, organisation_id, user_id, action_type, item_id, expires_at) VALUES ($1, $2, $3, 'post_comment', NULL, NOW() - INTERVAL '2 days')`,
       jti1, ORG, USER,
@@ -1220,10 +1249,366 @@ describe('D.4.6O — guarded Organiser item group move (real Postgres)', () => {
       `INSERT INTO organiser_action_confirmations (jti, organisation_id, user_id, action_type, item_id, expires_at) VALUES ($1, $2, $3, 'move_group', NULL, NOW() - INTERVAL '2 days')`,
       jti3, ORG, USER,
     );
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO organiser_action_confirmations (jti, organisation_id, user_id, action_type, item_id, expires_at) VALUES ($1, $2, $3, 'change_assignee', NULL, NOW() - INTERVAL '2 days')`,
+      jti4, ORG, USER,
+    );
     const { pruneExpiredConfirmationsBestEffort } = await import('@/lib/organiser/helenaWrite');
     await pruneExpiredConfirmationsBestEffort();
     expect(await countRows('organiser_action_confirmations', `jti = '${jti1}'`)).toBe(0);
     expect(await countRows('organiser_action_confirmations', `jti = '${jti2}'`)).toBe(0);
     expect(await countRows('organiser_action_confirmations', `jti = '${jti3}'`)).toBe(0);
+    expect(await countRows('organiser_action_confirmations', `jti = '${jti4}'`)).toBe(0);
+  });
+});
+
+// Phase D.4.6P — real-Postgres proof for Helena's FOURTH Organiser write
+// action (guarded item assignee change). Same disposable-container harness,
+// same real, unmodified proposeOrExecuteOrganiserAssigneeChange. The
+// critical new properties this suite proves — that a mock cannot prove —
+// are the stale-assignee race AND the target-invalidation race: only real
+// MVCC/FOR UPDATE semantics can demonstrate that a concurrent reassignment
+// (or a target user deactivated out from under the confirmation) is never
+// silently overwritten/completed.
+async function freshItemWithAssignee(name: string, assigneeUserId: string | null): Promise<string> {
+  const rows = await prisma.$queryRawUnsafe<{ id: string }[]>(
+    `INSERT INTO organiser_items (board_id, organisation_id, name, status, assignee_user_id) VALUES ($1::uuid, $2, $3, 'Not Started', $4) RETURNING id`,
+    boardId, ORG, name, assigneeUserId,
+  );
+  return rows[0].id;
+}
+
+describe('D.4.6P — guarded Organiser item assignee change (real Postgres)', () => {
+  it('1. normal assignment: exactly one assignee change, one activity row (item.updated), one ledger row', async () => {
+    const itemId = await freshItemWithAssignee('Assignee Item 1', null);
+    const proposal = await proposeOrExecuteOrganiserAssigneeChange({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, assigneeName: 'Target Tara',
+    });
+    if (!proposal.ok || proposal.mode !== 'proposed') throw new Error('expected proposal');
+    expect(proposal.proposal.new_assignee_user_id).toBe('target-active');
+
+    const result = await proposeOrExecuteOrganiserAssigneeChange({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, assigneeName: 'ignored',
+      confirmationToken: proposal.confirmationToken,
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok && result.mode === 'executed') {
+      expect(result.item.new_assignee_name).toBe('Target Tara');
+      expect(result.item.previous_assignee_name).toBeNull();
+    } else {
+      throw new Error('expected executed');
+    }
+
+    const rows = await prisma.$queryRawUnsafe<{ assignee_user_id: string }[]>(`SELECT assignee_user_id FROM organiser_items WHERE id = $1::uuid`, itemId);
+    expect(rows[0].assignee_user_id).toBe('target-active');
+    expect(await countRows('organiser_activity', `item_id = '${itemId}' AND event_type = 'item.updated'`)).toBe(1);
+    expect(await countRows('organiser_action_confirmations', `item_id = '${itemId}'`)).toBe(1);
+  });
+
+  it('2. same-assignee no-op is rejected entirely at PROPOSE time, before any token is ever minted', async () => {
+    const itemId = await freshItemWithAssignee('Assignee Noop Item', 'target-active');
+    const result = await proposeOrExecuteOrganiserAssigneeChange({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, assigneeName: 'Target Tara',
+    });
+    expect(result).toEqual({ ok: false, reason: 'noop_same_assignee' });
+    expect(await countRows('organiser_action_confirmations', `item_id = '${itemId}'`)).toBe(0);
+  });
+
+  it('3. same token replayed in a SEPARATE call is rejected — zero second assignee change, zero second activity row', async () => {
+    const itemId = await freshItemWithAssignee('Assignee Item 3', null);
+    const proposal = await proposeOrExecuteOrganiserAssigneeChange({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, assigneeName: 'Target Tara',
+    });
+    if (!proposal.ok || proposal.mode !== 'proposed') throw new Error('expected proposal');
+
+    const first = await proposeOrExecuteOrganiserAssigneeChange({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, assigneeName: 'ignored',
+      confirmationToken: proposal.confirmationToken,
+    });
+    expect(first.ok).toBe(true);
+
+    const replay = await proposeOrExecuteOrganiserAssigneeChange({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, assigneeName: 'ignored',
+      confirmationToken: proposal.confirmationToken,
+    });
+    expect(replay).toEqual({ ok: false, reason: 'already_used_confirmation' });
+    expect(await countRows('organiser_activity', `item_id = '${itemId}' AND event_type = 'item.updated'`)).toBe(1);
+  });
+
+  it('4. CONCURRENT replay: two simultaneous confirmations with the exact same token -> exactly one succeeds, exactly one assignee change/activity/ledger row exists', async () => {
+    const itemId = await freshItemWithAssignee('Concurrent Assignee Item', null);
+    const proposal = await proposeOrExecuteOrganiserAssigneeChange({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, assigneeName: 'Target Tara',
+    });
+    if (!proposal.ok || proposal.mode !== 'proposed') throw new Error('expected proposal');
+
+    const [a, b] = await Promise.all([
+      proposeOrExecuteOrganiserAssigneeChange({
+        organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, assigneeName: 'ignored',
+        confirmationToken: proposal.confirmationToken,
+      }),
+      proposeOrExecuteOrganiserAssigneeChange({
+        organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, assigneeName: 'ignored',
+        confirmationToken: proposal.confirmationToken,
+      }),
+    ]);
+
+    const outcomes = [a, b];
+    const successes = outcomes.filter(r => r.ok && r.mode === 'executed');
+    const rejections = outcomes.filter(r => !r.ok && r.reason === 'already_used_confirmation');
+    expect(successes).toHaveLength(1);
+    expect(rejections).toHaveLength(1);
+
+    const rows = await prisma.$queryRawUnsafe<{ assignee_user_id: string }[]>(`SELECT assignee_user_id FROM organiser_items WHERE id = $1::uuid`, itemId);
+    expect(rows[0].assignee_user_id).toBe('target-active');
+    expect(await countRows('organiser_activity', `item_id = '${itemId}' AND event_type = 'item.updated'`)).toBe(1);
+    expect(await countRows('organiser_action_confirmations', `item_id = '${itemId}'`)).toBe(1);
+  });
+
+  it('5. CRITICAL — STALE-ASSIGNEE RACE: item reassigned by another actor between propose and confirm is NEVER overwritten', async () => {
+    const itemId = await freshItemWithAssignee('Stale Assignee Item', null);
+    const proposal = await proposeOrExecuteOrganiserAssigneeChange({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, assigneeName: 'Target Tara',
+    });
+    if (!proposal.ok || proposal.mode !== 'proposed') throw new Error('expected proposal');
+
+    // Simulates "another user assigns the item to someone else" via the
+    // exact same column a real human PATCH would touch.
+    await prisma.$executeRawUnsafe(`UPDATE organiser_items SET assignee_user_id = 'target-dup-a' WHERE id = $1::uuid`, itemId);
+
+    const result = await proposeOrExecuteOrganiserAssigneeChange({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, assigneeName: 'ignored',
+      confirmationToken: proposal.confirmationToken,
+    });
+    expect(result).toEqual({ ok: false, reason: 'stale_item_assignee' });
+
+    // The item remains at the OTHER actor's value — never overwritten to
+    // the originally-proposed target.
+    const rows = await prisma.$queryRawUnsafe<{ assignee_user_id: string }[]>(`SELECT assignee_user_id FROM organiser_items WHERE id = $1::uuid`, itemId);
+    expect(rows[0].assignee_user_id).toBe('target-dup-a');
+    expect(await countRows('organiser_activity', `item_id = '${itemId}' AND event_type = 'item.updated'`)).toBe(0);
+  });
+
+  it('6. the stale confirmation token is CONSUMED (burned) despite rejecting the assignment — cannot later become executable even if assignee cycles back', async () => {
+    const itemId = await freshItemWithAssignee('Stale Consumption Assignee Item', null);
+    const proposal = await proposeOrExecuteOrganiserAssigneeChange({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, assigneeName: 'Target Tara',
+    });
+    if (!proposal.ok || proposal.mode !== 'proposed') throw new Error('expected proposal');
+
+    await prisma.$executeRawUnsafe(`UPDATE organiser_items SET assignee_user_id = 'target-dup-a' WHERE id = $1::uuid`, itemId);
+    const staleResult = await proposeOrExecuteOrganiserAssigneeChange({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, assigneeName: 'ignored',
+      confirmationToken: proposal.confirmationToken,
+    });
+    expect(staleResult).toEqual({ ok: false, reason: 'stale_item_assignee' });
+    expect(await countRows('organiser_action_confirmations', `item_id = '${itemId}'`)).toBe(1);
+
+    // Cycle the assignee BACK to null (the originally-expected value)
+    // within the token's own validity window.
+    await prisma.$executeRawUnsafe(`UPDATE organiser_items SET assignee_user_id = NULL WHERE id = $1::uuid`, itemId);
+    const retryResult = await proposeOrExecuteOrganiserAssigneeChange({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, assigneeName: 'ignored',
+      confirmationToken: proposal.confirmationToken,
+    });
+    expect(retryResult).toEqual({ ok: false, reason: 'already_used_confirmation' });
+    expect(await countRows('organiser_activity', `item_id = '${itemId}' AND event_type = 'item.updated'`)).toBe(0);
+  });
+
+  it('7. CRITICAL — TARGET-RACE: target user deactivated between propose and confirm -> assignee_no_longer_valid, zero mutation, token still burned', async () => {
+    await prisma.$executeRawUnsafe(`
+      INSERT INTO users (id, organisation_id, username, name, status) VALUES ('target-disposable', 'org-a', 'target-disposable', 'Disposable Dana', 'ACTIVE')
+      ON CONFLICT (id) DO NOTHING
+    `);
+    const itemId = await freshItemWithAssignee('Target Race Item', null);
+    const proposal = await proposeOrExecuteOrganiserAssigneeChange({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, assigneeName: 'Disposable Dana',
+    });
+    if (!proposal.ok || proposal.mode !== 'proposed') throw new Error('expected proposal');
+
+    await prisma.$executeRawUnsafe(`UPDATE users SET status = 'INACTIVE' WHERE id = 'target-disposable'`);
+
+    const result = await proposeOrExecuteOrganiserAssigneeChange({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, assigneeName: 'ignored',
+      confirmationToken: proposal.confirmationToken,
+    });
+    expect(result).toEqual({ ok: false, reason: 'assignee_no_longer_valid' });
+
+    const rows = await prisma.$queryRawUnsafe<{ assignee_user_id: string | null }[]>(`SELECT assignee_user_id FROM organiser_items WHERE id = $1::uuid`, itemId);
+    expect(rows[0].assignee_user_id).toBeNull();
+    expect(await countRows('organiser_activity', `item_id = '${itemId}' AND event_type = 'item.updated'`)).toBe(0);
+    // Deliberately still burned — same asymmetry as the stale-assignee case.
+    expect(await countRows('organiser_action_confirmations', `item_id = '${itemId}'`)).toBe(1);
+    await prisma.$executeRawUnsafe(`UPDATE users SET status = 'ACTIVE' WHERE id = 'target-disposable'`);
+  });
+
+  it('8. an ambiguous name (two ACTIVE users sharing it) is never resolvable at propose time -> ambiguous_assignee', async () => {
+    const itemId = await freshItemWithAssignee('Ambiguous Assignee Item', null);
+    const result = await proposeOrExecuteOrganiserAssigneeChange({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, assigneeName: 'Duplicate Dana',
+    });
+    expect(result).toEqual({ ok: false, reason: 'ambiguous_assignee' });
+    expect(await countRows('organiser_action_confirmations', `item_id = '${itemId}'`)).toBe(0);
+  });
+
+  it('9. a name matching only an INACTIVE user is never resolvable at propose time -> assignee_not_found', async () => {
+    const itemId = await freshItemWithAssignee('Inactive Target Item', null);
+    const result = await proposeOrExecuteOrganiserAssigneeChange({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, assigneeName: 'Inactive Ivan',
+    });
+    expect(result).toEqual({ ok: false, reason: 'assignee_not_found' });
+  });
+
+  it('10. a name belonging to a DIFFERENT organisation is never resolvable at propose time -> assignee_not_found', async () => {
+    const itemId = await freshItemWithAssignee('Cross Org Propose Assignee Item', null);
+    const result = await proposeOrExecuteOrganiserAssigneeChange({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, assigneeName: 'Other Org Oscar',
+    });
+    expect(result).toEqual({ ok: false, reason: 'assignee_not_found' });
+  });
+
+  it('11. a token forged to target a DIFFERENT organisation\'s user is rejected at CONFIRM time (assignee_no_longer_valid) — org isolation holds even under a forged token', async () => {
+    const itemId = await freshItemWithAssignee('Cross Org Confirm Assignee Item', null);
+    const secret = new TextEncoder().encode(process.env.SESSION_SECRET!);
+    const forgedToken = await new SignJWT({
+      purpose: 'organiser_action_confirm',
+      actionType: 'change_assignee',
+      organisationId: ORG,
+      userId: USER,
+      itemId,
+      expectedCurrentAssigneeUserId: null,
+      targetAssigneeUserId: 'target-other-org',
+      previousAssigneeName: null,
+      targetAssigneeName: 'Other Org Oscar',
+      jti: randomUUID(),
+    })
+      .setProtectedHeader({ alg: 'HS256' })
+      .setIssuedAt()
+      .setExpirationTime('2m')
+      .sign(secret);
+
+    const result = await proposeOrExecuteOrganiserAssigneeChange({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, assigneeName: 'ignored',
+      confirmationToken: forgedToken,
+    });
+    // target_check is itself organisation_id-scoped, so a cross-org user id
+    // resolves as not-a-valid-target from this org's perspective.
+    expect(result).toEqual({ ok: false, reason: 'assignee_no_longer_valid' });
+    const rows = await prisma.$queryRawUnsafe<{ assignee_user_id: string | null }[]>(`SELECT assignee_user_id FROM organiser_items WHERE id = $1::uuid`, itemId);
+    expect(rows[0].assignee_user_id).toBeNull();
+  });
+
+  it('12. expired token cannot assign and cannot mutate (jwtVerify itself rejects it before any SQL runs)', async () => {
+    const itemId = await freshItemWithAssignee('Expired Assignee Item', null);
+    const secret = new TextEncoder().encode(process.env.SESSION_SECRET!);
+    const pastExp = Math.floor(Date.now() / 1000) - 60;
+    const expiredToken = await new SignJWT({
+      purpose: 'organiser_action_confirm',
+      actionType: 'change_assignee',
+      organisationId: ORG,
+      userId: USER,
+      itemId,
+      expectedCurrentAssigneeUserId: null,
+      targetAssigneeUserId: 'target-active',
+      previousAssigneeName: null,
+      targetAssigneeName: 'Target Tara',
+      jti: randomUUID(),
+    })
+      .setProtectedHeader({ alg: 'HS256' })
+      .setIssuedAt(pastExp - 120)
+      .setExpirationTime(pastExp)
+      .sign(secret);
+
+    const result = await proposeOrExecuteOrganiserAssigneeChange({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, assigneeName: 'ignored',
+      confirmationToken: expiredToken,
+    });
+    expect(result).toEqual({ ok: false, reason: 'expired_confirmation' });
+    expect(await countRows('organiser_action_confirmations', `item_id = '${itemId}'`)).toBe(0);
+  });
+
+  it('13. wrong-user token cannot assign the item — zero mutation, zero ledger row', async () => {
+    const itemId = await freshItemWithAssignee('Wrong User Assignee Item', null);
+    const proposal = await proposeOrExecuteOrganiserAssigneeChange({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, assigneeName: 'Target Tara',
+    });
+    if (!proposal.ok || proposal.mode !== 'proposed') throw new Error('expected proposal');
+
+    const result = await proposeOrExecuteOrganiserAssigneeChange({
+      organisationId: ORG, userId: 'someone-else', actorName: 'Someone Else', itemId, assigneeName: 'ignored',
+      confirmationToken: proposal.confirmationToken,
+    });
+    expect(result).toEqual({ ok: false, reason: 'invalid_confirmation' });
+    expect(await countRows('organiser_action_confirmations', `item_id = '${itemId}'`)).toBe(0);
+  });
+
+  it('14. wrong-org token cannot assign the item — zero mutation, zero ledger row', async () => {
+    const itemId = await freshItemWithAssignee('Wrong Org Assignee Item', null);
+    const proposal = await proposeOrExecuteOrganiserAssigneeChange({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, assigneeName: 'Target Tara',
+    });
+    if (!proposal.ok || proposal.mode !== 'proposed') throw new Error('expected proposal');
+
+    const result = await proposeOrExecuteOrganiserAssigneeChange({
+      organisationId: OTHER_ORG, userId: OTHER_USER, actorName: 'Cross Tenant', itemId, assigneeName: 'ignored',
+      confirmationToken: proposal.confirmationToken,
+    });
+    expect(result).toEqual({ ok: false, reason: 'invalid_confirmation' });
+    expect(await countRows('organiser_action_confirmations', `item_id = '${itemId}'`)).toBe(0);
+  });
+
+  it('15. tampered token (signature invalidated) cannot assign the item', async () => {
+    const itemId = await freshItemWithAssignee('Tampered Assignee Item', null);
+    const proposal = await proposeOrExecuteOrganiserAssigneeChange({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, assigneeName: 'Target Tara',
+    });
+    if (!proposal.ok || proposal.mode !== 'proposed') throw new Error('expected proposal');
+
+    const parts = proposal.confirmationToken.split('.');
+    const tampered = `${parts[0]}.${parts[1]}.${parts[2].slice(0, -2)}xx`;
+    const result = await proposeOrExecuteOrganiserAssigneeChange({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, assigneeName: 'ignored',
+      confirmationToken: tampered,
+    });
+    expect(result).toEqual({ ok: false, reason: 'invalid_confirmation' });
+    expect(await countRows('organiser_action_confirmations', `item_id = '${itemId}'`)).toBe(0);
+  });
+
+  it('16. item_not_found leaves the token UNBURNED (deleted item, distinct from the stale-assignee/target-invalid cases which DO burn it)', async () => {
+    const itemId = await freshItemWithAssignee('Will Be Deleted (Assignee)', null);
+    const proposal = await proposeOrExecuteOrganiserAssigneeChange({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, assigneeName: 'Target Tara',
+    });
+    if (!proposal.ok || proposal.mode !== 'proposed') throw new Error('expected proposal');
+
+    await prisma.$executeRawUnsafe(`DELETE FROM organiser_items WHERE id = $1::uuid`, itemId);
+
+    const result = await proposeOrExecuteOrganiserAssigneeChange({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, assigneeName: 'ignored',
+      confirmationToken: proposal.confirmationToken,
+    });
+    expect(result).toEqual({ ok: false, reason: 'item_not_found' });
+    expect(await countRows('organiser_action_confirmations', `item_id = '${itemId}'`)).toBe(0);
+  });
+
+  it('17. an item currently assigned can be reassigned to a different real user — non-null previous assignee handled correctly end-to-end', async () => {
+    const itemId = await freshItemWithAssignee('Reassignment Item', 'target-dup-a');
+    const proposal = await proposeOrExecuteOrganiserAssigneeChange({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, assigneeName: 'Target Tara',
+    });
+    if (!proposal.ok || proposal.mode !== 'proposed') throw new Error('expected proposal');
+    expect(proposal.proposal.previous_assignee_user_id).toBe('target-dup-a');
+
+    const result = await proposeOrExecuteOrganiserAssigneeChange({
+      organisationId: ORG, userId: USER, actorName: ACTOR_NAME, itemId, assigneeName: 'ignored',
+      confirmationToken: proposal.confirmationToken,
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok && result.mode === 'executed') {
+      expect(result.item.previous_assignee_name).toBe('Duplicate Dana');
+      expect(result.item.new_assignee_name).toBe('Target Tara');
+    }
+    const rows = await prisma.$queryRawUnsafe<{ assignee_user_id: string }[]>(`SELECT assignee_user_id FROM organiser_items WHERE id = $1::uuid`, itemId);
+    expect(rows[0].assignee_user_id).toBe('target-active');
   });
 });

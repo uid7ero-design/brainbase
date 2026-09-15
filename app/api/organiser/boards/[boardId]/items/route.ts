@@ -84,7 +84,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ boa
       SELECT ${boardId}::uuid, ${session.organisationId}, ${groupId}::uuid, ${parentItemId}::uuid, ${name}, ${status}, ${position}
       FROM validation
       WHERE validation.group_valid AND validation.parent_valid
-      RETURNING id, board_id, group_id, parent_item_id, name, status, priority, owner, due_date::text AS due_date, notes, fields, custom_values, position, created_at, updated_at
+      RETURNING id, board_id, group_id, parent_item_id, name, status, priority, owner, due_date::text AS due_date, notes, fields, custom_values, position, assignee_user_id, created_at, updated_at
     ),
     activity_row AS (
       INSERT INTO organiser_activity (
@@ -117,12 +117,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ boa
   // way despite the new validation/LEFT JOIN plumbing above.
   const {
     id, group_id, parent_item_id, name: itemName, status: itemStatus, priority, owner,
-    due_date, notes, fields, custom_values, position: itemPosition, created_at, updated_at,
+    due_date, notes, fields, custom_values, position: itemPosition, assignee_user_id, created_at, updated_at,
   } = row;
   return NextResponse.json({
     item: {
       id, group_id, parent_item_id, name: itemName, status: itemStatus, priority, owner,
-      due_date, notes, fields, custom_values, position: itemPosition, created_at, updated_at,
+      due_date, notes, fields, custom_values, position: itemPosition, assignee_user_id, created_at, updated_at,
     },
   });
 }
