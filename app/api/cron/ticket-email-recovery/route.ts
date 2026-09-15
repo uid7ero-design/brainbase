@@ -10,9 +10,12 @@ import { secureCompare } from '@/lib/secureCompare';
  * terminally sweeps stale-exhausted leases. Generic across free/paid —
  * see that module's own header comment.
  *
- * NOT yet wired to any vercel.json cron schedule — dormant in Production
- * until a separately-approved rollout step adds one. Until then this
- * route only ever runs when explicitly invoked with the correct secret.
+ * Wired to vercel.json's cron schedule (currently every 15 minutes —
+ * see that file). The recovery state machine below is timestamp-driven
+ * (next_attempt_at / claimed_at comparisons in lib/events/
+ * ticketEmailRecovery.ts), not dependent on any particular polling
+ * cadence — the schedule only controls how promptly a due candidate is
+ * picked up, never correctness.
  *
  * Protected by CRON_SECRET env var — fails closed: if the secret isn't
  * configured, the endpoint refuses every request rather than running
