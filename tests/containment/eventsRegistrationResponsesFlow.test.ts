@@ -78,9 +78,11 @@ vi.mock('@/lib/events/ticketEmailDelivery', () => ({
 }))
 
 const createCheckoutSessionMock = vi.fn()
+const expireCheckoutSessionMock = vi.fn()
 class MockStripeNotConfiguredError extends Error {}
 vi.mock('@/lib/events/stripe', () => ({
   createCheckoutSession: (...args: unknown[]) => createCheckoutSessionMock(...args),
+  expireCheckoutSession: (...args: unknown[]) => expireCheckoutSessionMock(...args),
   RESERVATION_WINDOW_SECONDS: 1860,
   StripeNotConfiguredError: MockStripeNotConfiguredError,
 }))
@@ -134,6 +136,7 @@ beforeEach(() => {
   checkRateLimitMock.mockReset()
   checkPaidTicketingEligibilityMock.mockReset()
   createCheckoutSessionMock.mockReset()
+  expireCheckoutSessionMock.mockReset()
   syncEventOrderContactMock.mockClear()
   recordEventBookingActivityMock.mockClear()
   responseQueue = []
@@ -145,7 +148,24 @@ beforeEach(() => {
   checkRateLimitMock.mockReturnValue(true)
   checkPaidTicketingEligibilityMock.mockResolvedValue({ eligible: true, accountId: 'acct_connected' })
   createCheckoutSessionMock.mockResolvedValue({ sessionId: 'cs_test_1', url: 'https://checkout.stripe.com/pay/cs_test_1' })
+  expireCheckoutSessionMock.mockResolvedValue(undefined)
 })
+
+// PR #231 follow-up (checkout-vs-retry race closure): the paid checkout
+// route now issues 2 new statements past the reservation transaction —
+// a generation-marker SELECT (expires_at) and a checked write-back
+// UPDATE (both against sqlMock, same as every other statement in this
+// route) — that this file's existing positional responseQueue() calls
+// were written before. Rather than hand-counting the exact index for
+// every test (fragile — a future statement added anywhere in the
+// route's success path would silently shift it again), every "succeeds"
+// test below pads with enough generic truthy entries to cover the new
+// calls regardless of exact position; the value's CONTENT is never
+// inspected by route logic for these two statements (the generation
+// value only needs to round-trip opaquely, and only writeBack.length
+// truthiness is checked), so a shared, deliberately generous constant
+// is safe here.
+const RACE_CLOSURE_PADDING: unknown[][] = [[{ expires_at: '2026-01-01T00:00:00.000Z' }], [{ id: 'order-1' }], [{ id: 'order-1' }]]
 
 describe('Free registration — required-field enforcement blocks the reservation entirely', () => {
   it('a required ORDER question with no answer -> 400, capacity transaction never reached', async () => {
@@ -351,7 +371,7 @@ describe('Paid checkout — responses persisted before the Stripe redirect (§8)
   })
 
   it('a valid submission writes responses BEFORE createCheckoutSession is invoked', async () => {
-    queue(ORG_ROW, PUBLISHED_EVENT_ROW, PAID_ACTIVE_TICKET_TYPE_ROW, [ORDER_QUESTION])
+    queue(ORG_ROW, PUBLISHED_EVENT_ROW, PAID_ACTIVE_TICKET_TYPE_ROW, [ORDER_QUESTION], ...RACE_CLOSURE_PADDING, ...RACE_CLOSURE_PADDING)
     transactionFinalResult = [{ id: 'att-1', order_id: 'order-1' }]
     const res = await checkoutRoute.POST(req(CHECKOUT_URL, {
       ticket_type_id: 'tt-1', quantity: 1, purchaser_name: 'Jane', purchaser_email: 'jane@example.com',
@@ -384,7 +404,7 @@ describe('Paid checkout — responses persisted before the Stripe redirect (§8)
   })
 
   it('no active questions and no submitted responses -> checkout proceeds to Stripe exactly as before Phase 4B, no responses write attempted', async () => {
-    queue(ORG_ROW, PUBLISHED_EVENT_ROW, PAID_ACTIVE_TICKET_TYPE_ROW, [])
+    queue(ORG_ROW, PUBLISHED_EVENT_ROW, PAID_ACTIVE_TICKET_TYPE_ROW, [], ...RACE_CLOSURE_PADDING, ...RACE_CLOSURE_PADDING)
     transactionFinalResult = [{ id: 'att-1', order_id: 'order-1' }]
     const res = await checkoutRoute.POST(req(CHECKOUT_URL, {
       ticket_type_id: 'tt-1', quantity: 1, purchaser_name: 'Jane', purchaser_email: 'jane@example.com',

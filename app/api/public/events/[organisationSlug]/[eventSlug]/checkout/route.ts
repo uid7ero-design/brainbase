@@ -5,7 +5,7 @@ import { resolvePublicEvent } from '@/lib/events/publicResolve';
 import { validatePublicRegistrationInput, type PublicRegistrationInput } from '@/lib/events/publicValidation';
 import { checkRateLimit } from '@/lib/rateLimit';
 import { getClientIp } from '@/lib/clientIp';
-import { createCheckoutSession, RESERVATION_WINDOW_SECONDS, StripeNotConfiguredError } from '@/lib/events/stripe';
+import { createCheckoutSession, RESERVATION_WINDOW_SECONDS, StripeNotConfiguredError, expireCheckoutSession } from '@/lib/events/stripe';
 import { checkPaidTicketingEligibility } from '@/lib/events/stripeConnect';
 import { listActiveQuestions, validateSubmittedResponses, writeRegistrationResponses } from '@/lib/events/registrationQuestions';
 import { syncEventOrderContact } from '@/lib/crm/eventSync';
@@ -241,6 +241,20 @@ export async function POST(req: NextRequest, { params }: Ctx) {
   }
   const orderId = insertResult[0].order_id;
 
+  // ── Checkout-vs-Retry race closure (PR #231 follow-up) ──────────────
+  // Captured as early as practical after the order becomes visible (and
+  // therefore already Retry-able by a manager) — this order's own
+  // `expires_at`, exactly as the reservation transaction above just set
+  // it, acts as a generation/version stamp for the SAME compare-and-set
+  // mechanism the retry route uses (see that route's own header
+  // comment). It is what makes the guarded write-back below safe: if a
+  // manager Retry reacquires this SAME order (and therefore advances
+  // its expires_at) before this request's own Stripe call returns, the
+  // write-back below will correctly detect that and fail closed rather
+  // than overwrite a newer, already-active session.
+  const [orderGenRow] = await sql`SELECT expires_at FROM event_orders WHERE id = ${orderId}`;
+  const capturedExpiresAt = (orderGenRow as { expires_at: string } | undefined)?.expires_at ?? null;
+
   // Phase 4B §8 — responses MUST be persisted before the Stripe
   // redirect: they need to survive the browser leaving and coming back,
   // and retry payment (which never re-touches attendees/responses, see
@@ -254,7 +268,13 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     await writeRegistrationResponses(organisationId, event.id, orderId, insertResult.map(row => row.id), validatedResponses);
   } catch (err) {
     console.error('[public checkout] response write failed, releasing reservation', err, { orderId });
-    await sql`UPDATE event_orders SET status = 'CANCELLED', payment_status = 'FAILED' WHERE id = ${orderId} AND payment_status = 'PENDING'`;
+    // Guarded the same way as the Stripe-creation write-back below
+    // (PR #231 follow-up): if a manager Retry has already reacquired
+    // this order (advancing expires_at) in the time this request took
+    // to fail, that generation is no longer this request's to cancel —
+    // the guard makes this a safe no-op instead of destroying Retry's
+    // already-active reservation out from under it.
+    await sql`UPDATE event_orders SET status = 'CANCELLED', payment_status = 'FAILED' WHERE id = ${orderId} AND payment_status = 'PENDING' AND expires_at IS NOT DISTINCT FROM ${capturedExpiresAt}`;
     return NextResponse.json({ error: 'Checkout could not be started. Please try again.' }, { status: 500 });
   }
 
@@ -281,9 +301,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
   //
   // If this fails (network error, misconfiguration), the reservation
   // just created must not be left as an indefinite hold — release it
-  // immediately rather than waiting 30 minutes for expiry. Safe to do
-  // unconditionally: this order was created by THIS request and has no
-  // stripe_checkout_session_id yet, so nothing else can be racing on it.
+  // immediately rather than waiting 30 minutes for expiry.
   const h = await headers();
   const host = h.get('x-forwarded-host') ?? h.get('host') ?? 'localhost:3000';
   const proto = h.get('x-forwarded-proto') ?? (host.startsWith('localhost') ? 'http' : 'https');
@@ -304,10 +322,35 @@ export async function POST(req: NextRequest, { params }: Ctx) {
       connectedAccountId,
     });
 
-    await sql`UPDATE event_orders SET stripe_checkout_session_id = ${sessionId} WHERE id = ${orderId}`;
+    // ── Checkout-vs-Retry race closure (PR #231 follow-up) ────────────
+    // No longer unconditional: a manager Retry could have reacquired
+    // this SAME order (advancing its expires_at) while the Stripe call
+    // above was in flight. The guard requires BOTH the column still
+    // being NULL and expires_at still matching exactly what this
+    // request captured before calling Stripe — either condition failing
+    // means someone else has already claimed this order's active
+    // session, and the session just created here (`sessionId`) must be
+    // treated as an orphan: never written to the DB, never returned to
+    // this purchaser, best-effort expired in Stripe immediately (see
+    // expireCheckoutSession's own comment for why best-effort is safe
+    // even on failure).
+    const writeBack = await sql`
+      UPDATE event_orders SET stripe_checkout_session_id = ${sessionId}
+      WHERE id = ${orderId} AND stripe_checkout_session_id IS NULL
+        AND expires_at IS NOT DISTINCT FROM ${capturedExpiresAt}
+      RETURNING id
+    `;
+    if (!writeBack.length) {
+      console.error('[public checkout] lost the write-back race to a concurrent Retry — expiring orphaned Checkout Session', { orderId, sessionId });
+      await expireCheckoutSession(sessionId, connectedAccountId);
+      return NextResponse.json({ error: 'Checkout could not be started. Please try again.' }, { status: 500 });
+    }
     return NextResponse.json({ checkout_url: url }, { status: 201 });
   } catch (err) {
-    await sql`UPDATE event_orders SET status = 'CANCELLED', payment_status = 'FAILED' WHERE id = ${orderId} AND payment_status = 'PENDING'`;
+    // Guarded the same way as the write-back above and the
+    // writeRegistrationResponses failure branch further up (PR #231
+    // follow-up) — see that branch's own comment for why.
+    await sql`UPDATE event_orders SET status = 'CANCELLED', payment_status = 'FAILED' WHERE id = ${orderId} AND payment_status = 'PENDING' AND expires_at IS NOT DISTINCT FROM ${capturedExpiresAt}`;
     if (err instanceof StripeNotConfiguredError) {
       console.error('[public checkout] Stripe is not configured', err);
       return NextResponse.json({ error: 'Paid checkout is not currently available.' }, { status: 503 });

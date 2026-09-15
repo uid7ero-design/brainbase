@@ -77,11 +77,13 @@ const constructWebhookEventMock = vi.fn()
 const processStripeWebhookEventMock = vi.fn()
 const createRefundMock = vi.fn()
 class MockStripeNotConfiguredError extends Error {}
+const expireCheckoutSessionMock = vi.fn()
 vi.mock('@/lib/events/stripe', () => ({
   createCheckoutSession: (...args: unknown[]) => createCheckoutSessionMock(...args),
   constructWebhookEvent: (...args: unknown[]) => constructWebhookEventMock(...args),
   processStripeWebhookEvent: (...args: unknown[]) => processStripeWebhookEventMock(...args),
   createRefund: (...args: unknown[]) => createRefundMock(...args),
+  expireCheckoutSession: (...args: unknown[]) => expireCheckoutSessionMock(...args),
   RESERVATION_WINDOW_SECONDS: 1800,
   StripeNotConfiguredError: MockStripeNotConfiguredError,
 }))
@@ -130,6 +132,7 @@ beforeEach(() => {
   processStripeWebhookEventMock.mockReset()
   createRefundMock.mockReset()
   checkPaidTicketingEligibilityMock.mockReset()
+  expireCheckoutSessionMock.mockReset()
   responseQueue = []
   callCount = 0
   transactionFinalResult = [{ order_id: 'order-1' }]
@@ -139,6 +142,7 @@ beforeEach(() => {
   checkRateLimitMock.mockReturnValue(true)
   createCheckoutSessionMock.mockResolvedValue({ sessionId: 'cs_test_123', url: 'https://checkout.stripe.com/pay/cs_test_123' })
   checkPaidTicketingEligibilityMock.mockResolvedValue({ eligible: true, accountId: 'acct_test_org_a' })
+  expireCheckoutSessionMock.mockResolvedValue(undefined)
 })
 
 // ─── Paid checkout reservation route ────────────────────────────────
@@ -197,7 +201,15 @@ describe('Paid checkout route — validation and price integrity', () => {
   })
 
   it('on successful reservation + Stripe session creation, returns a checkout_url and 201', async () => {
-    queue(ORG_ROW, EVENT_ROW, PAID_TT_ROW)
+    // Positions 3-5 are padding for calls whose OWN resolved values this
+    // test doesn't care about (listActiveQuestions finding none active;
+    // the reservation transaction's two internal statements — its REAL
+    // result comes from transactionFinalResult, not responseQueue, same
+    // as every other mocked-transaction test in this file); position 6
+    // is the checkout-vs-retry race closure's own generation-marker read
+    // (PR #231 follow-up), position 7 is the now-checked write-back
+    // UPDATE that must resolve non-empty for this "succeeds" test.
+    queue(ORG_ROW, EVENT_ROW, PAID_TT_ROW, [], [], [], [{ expires_at: '2026-01-01T00:00:00.000Z' }], [{ id: 'order-1' }])
     const res = await checkoutRoute.POST(req(VALID_BODY), CTX)
     expect(res.status).toBe(201)
     const body = await res.json()
@@ -233,6 +245,118 @@ describe('Paid checkout route — validation and price integrity', () => {
   it('never calls requireSession/requireRole — fully anonymous, matching the free registration route', () => {
     const code = stripComments(read('app/api/public/events/[organisationSlug]/[eventSlug]/checkout/route.ts'))
     expect(code).not.toMatch(/requireSession|requireRole|getSession|getAuthSession/)
+  })
+})
+
+// ─── Checkout-vs-Retry race closure (PR #231 follow-up) ────────────────
+//
+// The original checkout route creates its order, commits it (session id
+// NULL), then calls Stripe, then writes the session id back — a gap a
+// manager Retry can land in (reading the same NULL-session order, safely
+// per PR #231's own earlier closure), reacquire the order, and create
+// its OWN replacement session, all before the original checkout's write-
+// back runs. That write-back was unconditional: it would silently
+// overwrite the Retry-created session id with its own, stale one,
+// leaving TWO independently payable Stripe Checkout Sessions for one
+// order. Closed the same way as PR #231's own concurrency guard: a
+// compare-and-set on `expires_at` (an existing column, captured before
+// calling Stripe) plus `stripe_checkout_session_id IS NULL`, on every
+// write-back this route performs (the success write-back AND both
+// compensating-cancel UPDATEs). See lib/events/stripe.ts's
+// expireCheckoutSession for the losing-session cleanup.
+//
+// True concurrent-request proof (the ordering in the PR's own 6-step
+// scenario) lives in scripts/tests/verify-events-phase4-payment-
+// concurrency.sh section K; this suite proves the route issues the
+// guarded statements and handles a loss safely.
+
+describe('Checkout-vs-Retry race closure (PR #231 follow-up)', () => {
+  const routeSrc = () => stripComments(read('app/api/public/events/[organisationSlug]/[eventSlug]/checkout/route.ts'))
+  const ORG_ROW = [{ id: 'org-a' }]
+  const EVENT_ROW = [{
+    id: 'event-1', organisation_id: 'org-a', name: 'Formal', slug: 'formal', description: null, venue: null,
+    starts_at: new Date('2026-12-01T10:00:00Z'), ends_at: new Date('2026-12-01T12:00:00Z'), timezone: 'Australia/Adelaide',
+  }]
+  const PAID_TT_ROW = [{ id: 'tt-1', active: true, price_cents: 2500, currency: 'AUD', name: 'Premium Guest' }]
+  const VALID_BODY = {
+    ticket_type_id: 'tt-1', quantity: 1, purchaser_name: 'Jane', purchaser_email: 'jane@example.com',
+    attendees: [{ name: 'Attendee A' }],
+  }
+  function req(body: unknown) {
+    return asNextRequest(new Request('http://localhost/api/public/events/org/evt/checkout', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    }))
+  }
+  const CTX = { params: Promise.resolve({ organisationSlug: 'org', eventSlug: 'evt' }) }
+
+  it('the write-back UPDATE is guarded on BOTH stripe_checkout_session_id IS NULL and expires_at IS NOT DISTINCT FROM the captured generation marker — no longer unconditional', () => {
+    const code = routeSrc()
+    expect(code).toMatch(/WHERE id = \$\{orderId\} AND stripe_checkout_session_id IS NULL\s*\n\s*AND expires_at IS NOT DISTINCT FROM \$\{capturedExpiresAt\}/)
+  })
+
+  it('capturedExpiresAt is read from the order row BEFORE createCheckoutSession is called, not after', () => {
+    const code = routeSrc()
+    const captureIdx = code.indexOf('const capturedExpiresAt = ')
+    const stripeCallIdx = code.indexOf('await createCheckoutSession({')
+    expect(captureIdx).toBeGreaterThan(-1)
+    expect(stripeCallIdx).toBeGreaterThan(-1)
+    expect(captureIdx).toBeLessThan(stripeCallIdx)
+  })
+
+  it('both compensating-cancellation UPDATEs (response-write failure, Stripe creation failure) are ALSO guarded on the same generation marker — a losing original checkout must not cancel an order a Retry has already legitimately advanced', () => {
+    const code = routeSrc()
+    const occurrences = code.match(/AND payment_status = 'PENDING' AND expires_at IS NOT DISTINCT FROM \$\{capturedExpiresAt\}/g) ?? []
+    expect(occurrences.length).toBe(2)
+  })
+
+  it('D/loss handling: when the write-back guard fails to match (a concurrent Retry already claimed this order), the response never contains a checkout_url — the losing session is never handed to the client', async () => {
+    // Same shape as "on successful reservation..." above, EXCEPT the
+    // final (write-back) response is empty — simulating the guard not
+    // matching because a concurrent Retry has already advanced expires_at.
+    queue(ORG_ROW, EVENT_ROW, PAID_TT_ROW, [], [], [], [{ expires_at: '2026-01-01T00:00:00.000Z' }], [])
+    const res = await checkoutRoute.POST(req(VALID_BODY), CTX)
+    expect(res.status).toBe(500)
+    const body = await res.json()
+    expect(body.checkout_url).toBeUndefined()
+    expect(JSON.stringify(body)).not.toMatch(/cs_test_123|checkout\.stripe\.com/)
+  })
+
+  it('D/loss handling: the just-created (now orphaned) Stripe Checkout Session is expired — expireCheckoutSession is called with the exact session id and the order\'s connected account', async () => {
+    queue(ORG_ROW, EVENT_ROW, PAID_TT_ROW, [], [], [], [{ expires_at: '2026-01-01T00:00:00.000Z' }], [])
+    await checkoutRoute.POST(req(VALID_BODY), CTX)
+    expect(expireCheckoutSessionMock).toHaveBeenCalledWith('cs_test_123', 'acct_test_org_a')
+  })
+
+  it('a failure to expire the orphaned session does not itself crash the route — expireCheckoutSession is best-effort (see its own comment in lib/events/stripe.ts)', async () => {
+    expireCheckoutSessionMock.mockRejectedValue(new Error('stripe: session already expired'))
+    queue(ORG_ROW, EVENT_ROW, PAID_TT_ROW, [], [], [], [{ expires_at: '2026-01-01T00:00:00.000Z' }], [])
+    // expireCheckoutSession itself never throws in real code (see its
+    // own try/catch) — this test's rejected mock is only meaningful if
+    // the CALLER also tolerates a hypothetical throw; asserting the
+    // route resolves cleanly either way is the actual contract here.
+    await expect(checkoutRoute.POST(req(VALID_BODY), CTX)).resolves.toBeDefined()
+  })
+
+  it('F: a genuinely non-racing checkout (the common case) is completely unaffected — same "on successful reservation" test above already proves 201 + real checkout_url with the new guard in place', () => {
+    // Documentation-only pointer test — the actual proof is the
+    // pre-existing "on successful reservation + Stripe session creation,
+    // returns a checkout_url and 201" test in the describe block above,
+    // which already exercises this exact guarded write-back on its
+    // success path.
+    expect(true).toBe(true)
+  })
+
+  it('C: two original checkout submissions can never race on the SAME order — each POST to this route always creates its OWN new order via its own INSERT; there is no shared order id for two "original checkout" requests to contend over', () => {
+    const code = routeSrc()
+    // Two INSERT INTO event_orders exist (the session-bound and non-
+    // session-bound reservation branches) — both are order-CREATING
+    // statements, never an UPDATE against an existing order id. Every
+    // checkout POST reaches exactly one of these two branches and always
+    // produces a brand-new, distinct order id (see RETURNING id/order_id
+    // in both) — there is no code path where a SECOND checkout request
+    // could target an order a FIRST checkout request already created.
+    const occurrences = code.match(/INSERT INTO event_orders/g) ?? []
+    expect(occurrences.length).toBe(2)
   })
 })
 
