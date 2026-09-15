@@ -694,12 +694,26 @@ export async function issuePurchaseOrder(params: { organisationId: string; userI
 // purchase_order_number, totals, lines, and every snapshot field
 // untouched — CANCELLED never deletes or renumbers anything, matching
 // voidInvoice()'s "immutable issued financial document" principle
-// exactly. No receiving/payment concurrency guard is needed here (unlike
-// voidInvoice()'s active_paid check) — no receiving or payment subsystem
-// exists for Purchasing in C6.2, so a plain status-guarded UPDATE is
-// sufficient; Postgres's own row-level locking still makes two
-// concurrent cancel attempts on the same PO safe (only one can ever see
-// status = 'ISSUED' and apply).
+// exactly.
+//
+// Phase C7.3 — now ALSO blocked while any POSTED, non-cancelled purchase
+// receipt exists against this PO (an ISSUED PO with real received goods/
+// services against it must not be cancelled out from under them). The
+// guard is a NOT EXISTS clause INSIDE this same UPDATE's WHERE clause —
+// not a separate pre-read — specifically so a receipt-post racing this
+// cancel cannot produce an invalid final state: postPurchaseReceiptAtomically()
+// (lib/commercial/purchaseReceipts.ts) takes its own FOR UPDATE lock on
+// this exact PO row (requiring status = 'ISSUED') before it will post,
+// so whichever of the two transactions reaches this row first forces the
+// other to block and then re-evaluate its own guard against the
+// now-current, committed status/receipt-existence — a receipt cannot be
+// POSTED against an already-cancelled PO, and a PO cannot be cancelled
+// out from under an already-POSTED receipt, regardless of interleaving.
+// A plain status-guarded UPDATE remains sufficient for the ordinary
+// (no receipt involved) concurrent-cancel case, exactly as before —
+// Postgres's own row-level locking still makes two concurrent cancel
+// attempts on the same PO safe (only one can ever see status = 'ISSUED'
+// and apply).
 export async function cancelPurchaseOrder(params: { organisationId: string; userId: string; purchaseOrderId: string; reason: string }): Promise<CommercialPurchaseOrder> {
   const trimmedReason = params.reason.trim();
   if (!trimmedReason) throw new Error('cancel_reason is required');
@@ -711,10 +725,32 @@ export async function cancelPurchaseOrder(params: { organisationId: string; user
   const rows = (await sql`
     UPDATE commercial_purchase_orders SET status = 'CANCELLED', cancelled_by = ${params.userId}, cancelled_at = now(), cancel_reason = ${trimmedReason}, updated_at = now()
     WHERE id = ${params.purchaseOrderId} AND organisation_id = ${params.organisationId} AND status = 'ISSUED'
+      AND NOT EXISTS (
+        SELECT 1 FROM commercial_purchase_receipts cpr
+        WHERE cpr.purchase_order_id = commercial_purchase_orders.id
+          AND cpr.organisation_id = commercial_purchase_orders.organisation_id
+          AND cpr.status = 'POSTED'
+      )
     RETURNING *
   `) as CommercialPurchaseOrder[];
   const cancelled = rows[0];
-  if (!cancelled) throw new Error('purchase order status changed concurrently; cancel aborted');
+  if (!cancelled) {
+    // The atomic UPDATE affected zero rows — determine why, for a clear
+    // error message only (this read is NOT the authorization decision;
+    // that already happened, correctly, inside the guarded UPDATE above).
+    const current = await getPurchaseOrder(params.organisationId, params.purchaseOrderId);
+    if (current?.status === 'ISSUED') {
+      const activeReceipts = (await sql`
+        SELECT 1 FROM commercial_purchase_receipts
+        WHERE purchase_order_id = ${params.purchaseOrderId} AND organisation_id = ${params.organisationId} AND status = 'POSTED'
+        LIMIT 1
+      `) as unknown[];
+      if (activeReceipts.length > 0) {
+        throw new Error('This purchase order has one or more posted purchase receipts and cannot be cancelled. Cancel the receipt(s) first.');
+      }
+    }
+    throw new Error('purchase order status changed concurrently; cancel aborted');
+  }
 
   await logPurchaseOrderCancelled({ organisationId: params.organisationId, userId: params.userId, purchaseOrderId: params.purchaseOrderId, cancelReason: trimmedReason });
   return cancelled;
