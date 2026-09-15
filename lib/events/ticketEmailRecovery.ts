@@ -10,7 +10,7 @@ import {
 // Phase 3E.2R — generic recovery executor for AUTOMATIC ticket-email
 // delivery. Reached only via the CRON_SECRET-authenticated route in
 // app/api/cron/ticket-email-recovery/route.ts (see that file's own
-// comment) — not yet wired to any vercel.json cron schedule.
+// comment), which is wired to vercel.json's cron schedule.
 //
 // This module introduces NO new send/claim/mark logic. Candidate
 // discovery below is a plain, bounded SELECT of order ids ONLY — it
