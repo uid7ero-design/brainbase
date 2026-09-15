@@ -664,30 +664,47 @@ function defaultGuardQueryRawMock() {
     .mockResolvedValueOnce([{ id: "ss-1" }])
     .mockResolvedValueOnce([{ prior_success: false }]);
 }
-// 6.1B — default tx.sourceRecordIdentity/tx.sourceRecordObservation
-// doubles for the per-record reconciliation loop. sourceRecordIdentity.create
-// always succeeds (never throws P2002), so every mapped record classifies
-// NEW by default — the closest behavioral analog to the pre-6.1B
-// unconditional createMany these existing tests were written against
-// (claim/ordering/response-shape focus, not reconciliation outcomes).
-// Tests specifically targeting reconciliation classification override this.
+// 6.1D2 — default tx.sourceRecordIdentity/tx.sourceRecordObservation
+// doubles for the BATCHED per-worksheet reconciliation design.
+// findMany (Step 1, the "before" preload) always returns empty, so every
+// incoming source_external_id is treated as missing/new — the closest
+// behavioral analog to the pre-6.1B unconditional createMany these
+// existing tests were written against (claim/ordering/response-shape
+// focus, not reconciliation outcomes): every mapped record classifies
+// NEW by default. createMany assigns a deterministic per-call id; the
+// post-insert findMany reload returns exactly those same ids, keyed by
+// source_external_id, mirroring what a real Postgres round trip would
+// return. Tests specifically targeting reconciliation classification
+// (pre-existing identities, UNCHANGED/CHANGED, Case C) override this.
 function defaultReconciliationTxMocks() {
   let identityCounter = 0;
+  const created = new Map<string, string>();
   return {
-    // 6.1B — the SAVEPOINT/ROLLBACK TO SAVEPOINT pair around identity
-    // creation (required by real Postgres transaction-abort semantics,
-    // see confirmWorksheet.ts's own header comment on this). A no-op
-    // double here since these mocked tests never trigger the P2002 catch
-    // path that would issue the ROLLBACK TO SAVEPOINT statement.
-    $executeRaw: vi.fn().mockResolvedValue(undefined),
     sourceRecordIdentity: {
-      create: vi.fn().mockImplementation(async () => ({ id: `sri-${++identityCounter}` })),
-      findUniqueOrThrow: vi.fn(),
+      // Step 1's "before" preload always returns empty (nothing
+      // pre-exists yet in this default double); Step 4's post-createMany
+      // reload returns exactly the ids just assigned below, keyed by
+      // source_external_id — both calls share this one mock, distinguished
+      // only by which external ids have been recorded in `created` so far.
+      findMany: vi.fn().mockImplementation(async ({ where }: { where: { source_external_id: { in: string[] } } }) => {
+        const ids = where.source_external_id.in;
+        return ids.filter((extId) => created.has(extId)).map((extId) => ({ id: created.get(extId), source_external_id: extId }));
+      }),
+      createMany: vi.fn().mockImplementation(async ({ data }: { data: Array<{ source_external_id: string }> }) => {
+        for (const row of data) created.set(row.source_external_id, `sri-${++identityCounter}`);
+        return { count: data.length };
+      }),
     },
     sourceRecordObservation: {
-      create: vi.fn().mockResolvedValue({}),
-      findFirst: vi.fn().mockResolvedValue(null),
+      createMany: vi.fn().mockResolvedValue({ count: 0 }),
     },
+    // Deliberately does NOT define $queryRaw — that's already supplied by
+    // defaultGuardQueryRawMock() (spread BEFORE this helper at every call
+    // site) for the SourceSystem lock query. This helper's own batched
+    // design only issues a SECOND $queryRaw call (the prior-observation
+    // DISTINCT ON preload) when at least one incoming record resolves to
+    // a pre-existing identity — never true in this default all-missing
+    // double, so no second mocked response is needed here.
   };
 }
 function buildCsv(headers: string[], rows: string[][]): string {

@@ -125,31 +125,132 @@ import { compileMapping, applyCompiledMappingToRows, toIllegalDumpingMapperInput
 //     rolling back the entire transaction including the claim. Never
 //     classified NEW, never a fabricated comparison hash, never inferred
 //     from a unique-constraint failure.
-// Identity resolution uses a plain Prisma `create` attempt, catching a
-// P2002 unique-constraint violation to distinguish "just created" (Case
-// A) from "already existed" (Case B/C, resolved via a follow-up
-// `findUniqueOrThrow` on the same compound key) — functionally
-// equivalent to, and relying on the identical database-level
-// concurrency guarantee as, an `INSERT ... ON CONFLICT DO NOTHING
-// RETURNING id` (the schema's own unique constraint on
-// (organisation_id, source_system_id, domain_kind, source_external_id)
-// is the actual concurrency backstop either way), while letting Prisma
-// generate the identity's id client-side exactly like every other model
-// in this codebase, rather than hand-rolling a raw-SQL id generator.
+// 6.1D2 — BATCHED (supersedes the per-row create/SAVEPOINT loop below this
+// comment's own original text). The per-row design above was measured
+// against Onkaparinga's real 405-row first import to issue ~3 sequential
+// DB round trips per row (~1,218 total for this one file), landing at or
+// past IMPORT_TRANSACTION_TIMEOUT_MS and producing a real Production
+// Prisma P2028 ("Transaction API error: Transaction not found") — the
+// query engine had already closed the transaction out from under the
+// call in flight when its own configured timeout elapsed. The
+// reconciliation MODEL (identity key, NEW/UNCHANGED/CHANGED semantics,
+// Case C fail-closed, the 12-field CHANGED allowlist, immutable
+// observation history, tenant scoping) is completely unchanged — only
+// HOW identities/observations are resolved and written is now bounded
+// (O(1) queries plus O(changed-rows) individual updates) instead of
+// O(all-rows).
+//
+// WHY A BULK createMany({skipDuplicates:true}) IS SAFE HERE, WITHOUT ANY
+// SAVEPOINT (Phase 6.1D2 architecture review — this is the Section D
+// concurrency proof, not an assumption): the SourceSystem row lock
+// acquired in step (a) below is a real Postgres row-level FOR UPDATE
+// lock, held for the ENTIRE transaction. A second, concurrent
+// confirmation for the SAME organisation+SourceSystem cannot even
+// acquire that lock — its own step (a) blocks — until this transaction
+// commits or rolls back. That means, for the whole duration of this
+// transaction, THIS is the only writer that can possibly be inserting a
+// SourceRecordIdentity row scoped to this SourceSystem. Any unique-
+// constraint conflict a bulk identity insert could hit is therefore
+// guaranteed to be against a row that was ALREADY COMMITTED by some
+// earlier, already-finished transaction (a genuine prior import) — never
+// a row a concurrent transaction is racing to insert right now. Given
+// that, `createMany({ skipDuplicates: true })` (Postgres:
+// `INSERT ... ON CONFLICT DO NOTHING`) is unconditionally safe: it never
+// raises a unique-violation error in the first place (unlike a bare
+// `create()`), so there is no failing statement for a SAVEPOINT to
+// protect the surrounding transaction from — the exact failure mode the
+// old per-row SAVEPOINT/ROLLBACK TO SAVEPOINT dance existed to handle
+// (Postgres poisoning the whole transaction after any statement error)
+// simply cannot occur with this bulk, conflict-tolerant statement.
+// `skipDuplicates` is true defense-in-depth here (it should never
+// actually skip anything beyond genuinely pre-existing rows from earlier
+// imports, since within-worksheet duplicates were already rejected
+// pre-transaction at Step 7.5, and the lock rules out any concurrent
+// writer), not the primary safety mechanism — the FOR UPDATE lock is.
+//
+// Concrete sequence (all still inside this SAME transaction, after the
+// claim, before any commit):
+//   1. ONE findMany: for every incoming source_external_id, does a
+//      SourceRecordIdentity already exist? (organisation_id +
+//      source_system_id + domain_kind + source_external_id IN (...)).
+//   2. Compute the "missing" subset (Case A / NEW candidates) as
+//      everything Step 1 did NOT return.
+//   3. If any are missing: ONE createMany({skipDuplicates:true}) inserts
+//      them.
+//   4. If any were missing: ONE findMany reloads exactly that missing
+//      subset to obtain their newly-persisted ids (safe and
+//      deterministic — nothing else could have written them in the
+//      meantime, per the lock argument above) — this is the exact
+//      "re-query the complete identity set in one query" step Phase
+//      6.1D2's own architecture review requires.
+//   5. For the (usually much smaller) pre-existing subset only: ONE raw
+//      SQL query using `DISTINCT ON (source_record_identity_id) ...
+//      ORDER BY source_record_identity_id, observed_at DESC, id DESC`
+//      loads each pre-existing identity's LATEST prior observation hash
+//      in a single bounded round trip. TIE-BREAKER NOTE: the pre-6.1D2
+//      per-row code's own `findFirst({orderBy: {observed_at: "desc"}})`
+//      had NO explicit secondary sort key at all — under a genuine
+//      `observed_at` tie (two observations for the same identity with
+//      identical microsecond timestamps), its result was whatever order
+//      Postgres happened to return, not a documented, intended
+//      tie-breaker. This batched query adds `id DESC` as an explicit,
+//      deterministic secondary key — a disclosed clarification of an
+//      existing ambiguity, not a change to any previously-guaranteed
+//      behavior (none was guaranteed under a tie before this).
+//   6. Case C check (fail-closed, BEFORE any further write in this
+//      transaction): any pre-existing identity absent from Step 5's
+//      result has zero observation history — throws
+//      ReconciliationHistoryInconsistentError immediately, exactly as
+//      before, rolling back everything including the claim.
+//   7. Classify every record NEW (Step 2's missing set) / UNCHANGED /
+//      CHANGED (Step 5's hash comparison) — the exact same three-case
+//      rule and the exact same `computeCanonicalHash()` helper as
+//      before, byte-for-byte unchanged.
+//   8. ONE createMany writes every NEW/UNCHANGED/CHANGED
+//      SourceRecordObservation row for this worksheet in one statement —
+//      observations are pure, conflict-free inserts (no unique
+//      constraint to violate), so no skipDuplicates/conflict handling is
+//      needed here at all. `observed_at` is captured ONCE (a single
+//      `new Date()`) and applied to every row in this batch — every
+//      observation created by the SAME Confirm event genuinely
+//      happened at the same instant; this is more semantically correct
+//      than the old per-row code's incidentally-increasing timestamps,
+//      and cannot introduce an ordering ambiguity for a FUTURE Confirm's
+//      own DISTINCT ON query, since at most one observation per identity
+//      is ever created within a single worksheet (duplicates are
+//      rejected pre-transaction).
+//   9. NEW domain rows remain batched into one createMany (unchanged
+//      from before 6.1D2). CHANGED domain rows remain individual
+//      `update()` calls, per Phase 6.1D2's own explicit allowance — this
+//      subset is expected to be small in real usage (only rows whose
+//      governed fields actually differ from the prior import), and a
+//      safe, semantics-preserving bulk-update equivalent (a single
+//      statement conditionally updating N different rows to N different
+//      values) was judged not worth the added complexity/risk for a
+//      subset this size; UNCHANGED rows still receive zero domain write.
+//
+// Total query count for this transaction, independent of row count: the
+// SourceSystem lock (1) + the claim (1) + identity preload (1) +
+// identity insert (1, only if any are new) + identity reload (1, only if
+// any are new) + prior-observation preload (1, only if any are
+// pre-existing) + observation insert (1) + NEW domain insert (1, only if
+// any are new) = at most 8 queries, PLUS one individual `update()` per
+// CHANGED row only (never per NEW/UNCHANGED row). For Onkaparinga's real
+// 405-row, all-NEW first import specifically: lock + claim + identity
+// preload (returns empty) + identity insert (405 rows, one statement) +
+// identity reload (405 rows, one statement) + observation insert (405
+// rows, one statement) + domain insert (405 rows, one statement) = 7
+// queries total, replacing the old design's ~1,218 — see
+// tests/postgres-proof/confirmWorksheetBatchedReconciliation.postgres-proof.test.ts
+// for the real-Postgres correctness + measured-performance proof.
+//
 // Duplicate source_external_id values WITHIN one worksheet are rejected
 // pre-transaction (Step 7.5, see confirmWorksheet.ts's own
 // DUPLICATE_SOURCE_EXTERNAL_ID_IN_WORKSHEET check) — by the time this
-// per-record loop runs, every source_external_id in mappedRecords is
-// already guaranteed unique, so this loop never needs to handle two
-// DIFFERENT rows in the SAME worksheet resolving to the same identity.
-// The SourceSystem row lock acquired in step (a) below remains the sole
-// serialization point for CROSS-worksheet concurrency (two different,
-// concurrent confirmations for the same organisation+SourceSystem+
-// source_external_id) — the second transaction's own identity-create
-// attempt cannot even begin until the first transaction commits or rolls
-// back, so it always observes the first's committed identity/observation
-// state (or the schema's unique constraint rejects a residual race,
-// never silently).
+// batched resolution runs, every source_external_id in mappedRecords is
+// already guaranteed unique, so the identity preload/insert/reload steps
+// above never need to handle two DIFFERENT rows in the SAME worksheet
+// resolving to the same identity.
 
 // Empirically-derived (5A.2K.1-R) bounded timeout for the Step 8
 // transaction, replacing Prisma's 5000ms default -- see the Step 8 comment
@@ -532,10 +633,96 @@ export async function confirmDataHubWorksheet(
         return { claimed: false as const, currentStatus: current?.canonical_status ?? null };
       }
 
-      // (c) — 6.1B: per-record reconciliation, now that the claim is
-      // secured. Duplicate source_external_id values within this worksheet
-      // were already rejected pre-transaction (Step 7.5), so every
-      // record's identity key below is unique within this loop.
+      // (c) — 6.1D2: batched per-worksheet reconciliation, now that the
+      // claim is secured. See the extended header comment above for the
+      // full design/safety rationale. Duplicate source_external_id values
+      // within this worksheet were already rejected pre-transaction (Step
+      // 7.5), so every record's identity key below is unique within this
+      // worksheet.
+      const allExternalIds = mappedRecords.map((r) => r.sourceExternalId);
+
+      // Step 1 — ONE query: which of these identities already exist?
+      const existingBefore = await tx.sourceRecordIdentity.findMany({
+        where: {
+          organisation_id: organisationId,
+          source_system_id: sourceSystemId,
+          domain_kind: DOMAIN_KIND,
+          source_external_id: { in: allExternalIds },
+        },
+        select: { id: true, source_external_id: true },
+      });
+      const identityIdByExternalId = new Map<string, string>();
+      for (const row of existingBefore) identityIdByExternalId.set(row.source_external_id, row.id);
+      const newExternalIds = allExternalIds.filter((extId) => !identityIdByExternalId.has(extId));
+      const newExternalIdSet = new Set(newExternalIds);
+
+      // Steps 3-4 — bulk-create exactly the missing identities, then
+      // reload exactly that subset for their persisted ids. See the
+      // header comment above for why `skipDuplicates` is safe here with
+      // no SAVEPOINT: the SourceSystem lock already rules out any
+      // concurrent writer for the whole duration of this transaction.
+      if (newExternalIds.length > 0) {
+        await tx.sourceRecordIdentity.createMany({
+          data: newExternalIds.map((extId) => ({
+            organisation_id: organisationId,
+            source_system_id: sourceSystemId,
+            domain_kind: DOMAIN_KIND,
+            source_external_id: extId,
+          })),
+          skipDuplicates: true,
+        });
+        const createdIdentities = await tx.sourceRecordIdentity.findMany({
+          where: {
+            organisation_id: organisationId,
+            source_system_id: sourceSystemId,
+            domain_kind: DOMAIN_KIND,
+            source_external_id: { in: newExternalIds },
+          },
+          select: { id: true, source_external_id: true },
+        });
+        for (const row of createdIdentities) identityIdByExternalId.set(row.source_external_id, row.id);
+      }
+
+      // Step 5 — ONE bounded query: the latest prior observation for
+      // every PRE-EXISTING identity only (never the ones just created —
+      // Case A/NEW never needs a prior-observation lookup). DISTINCT ON
+      // + an explicit `id DESC` secondary sort — see the header comment
+      // above for why this secondary key is a disclosed clarification of
+      // a pre-existing ambiguity, not a behavior change.
+      const preExistingIdentityIds = allExternalIds
+        .filter((extId) => !newExternalIdSet.has(extId))
+        .map((extId) => identityIdByExternalId.get(extId) as string);
+
+      const priorHashByIdentityId = new Map<string, string>();
+      if (preExistingIdentityIds.length > 0) {
+        const priorObservations = await tx.$queryRaw<{ source_record_identity_id: string; canonical_hash: string }[]>(
+          Prisma.sql`
+            SELECT DISTINCT ON (source_record_identity_id) source_record_identity_id, canonical_hash
+            FROM source_record_observations
+            WHERE organisation_id = ${organisationId}
+              AND source_record_identity_id = ANY(${preExistingIdentityIds}::text[])
+            ORDER BY source_record_identity_id, observed_at DESC, id DESC
+          `
+        );
+        for (const row of priorObservations) priorHashByIdentityId.set(row.source_record_identity_id, row.canonical_hash);
+
+        // Step 6 — Case C fail-closed check, BEFORE any further write in
+        // this transaction: a pre-existing identity absent from the
+        // result above has zero observation history. Never classify NEW,
+        // never fabricate a comparison hash, never infer this from a
+        // unique-constraint failure. Throwing here rolls back the ENTIRE
+        // transaction, including the claim.
+        for (const identityId of preExistingIdentityIds) {
+          if (!priorHashByIdentityId.has(identityId)) {
+            throw new ReconciliationHistoryInconsistentError();
+          }
+        }
+      }
+
+      // Step 7 — classify every record, and Step 9 — build the batched
+      // writes. CHANGED domain updates remain individual `update()` calls
+      // (Phase 6.1D2's own explicit allowance for this smaller subset).
+      const observedAt = new Date();
       const newDomainRows: Array<
         MappedIllegalDumpingRecord["row"] & {
           organisation_id: string;
@@ -543,111 +730,46 @@ export async function confirmDataHubWorksheet(
           source_record_identity_id: string;
         }
       > = [];
+      const observationRows: Array<{
+        organisation_id: string;
+        source_record_identity_id: string;
+        import_batch_id: string;
+        upload_id: string;
+        mapping_version_id: string | null;
+        observed_at: Date;
+        canonical_hash: string;
+        outcome: "NEW" | "UNCHANGED" | "CHANGED";
+      }> = [];
       let newRows = 0;
       let unchangedRows = 0;
       let changedRows = 0;
 
       for (const record of mappedRecords) {
-        // Identity resolution: a plain create attempt, catching the
-        // schema's own unique-constraint violation (P2002) to distinguish
-        // "just created" (Case A) from "already existed" (Case B/C) — see
-        // the 6.1B header comment above for why this is functionally
-        // equivalent to INSERT ... ON CONFLICT DO NOTHING RETURNING id.
-        //
-        // SAVEPOINT REQUIRED (discovered by this phase's own real-Postgres
-        // proof, not merely defensive): Postgres aborts the ENTIRE
-        // enclosing transaction after any statement fails, including a
-        // unique-constraint violation — every subsequent statement in the
-        // same transaction is rejected (error 25P02) until either the
-        // whole transaction rolls back or execution returns to a
-        // SAVEPOINT taken before the failing statement. A plain
-        // try/catch around `create()` alone is therefore NOT sufficient
-        // to safely continue this transaction with a follow-up SELECT;
-        // this SAVEPOINT/ROLLBACK TO SAVEPOINT pair is what makes that
-        // safe. The savepoint name is a fixed literal reused across loop
-        // iterations — re-declaring a savepoint with the same name simply
-        // redefines it, which is standard, documented Postgres behavior.
-        let identityId: string;
-        let isNewIdentity: boolean;
-        await tx.$executeRaw`SAVEPOINT source_record_identity_create`;
-        try {
-          const createdIdentity = await tx.sourceRecordIdentity.create({
-            data: {
-              organisation_id: organisationId,
-              source_system_id: sourceSystemId,
-              domain_kind: DOMAIN_KIND,
-              source_external_id: record.sourceExternalId,
-            },
-            select: { id: true },
-          });
-          identityId = createdIdentity.id;
-          isNewIdentity = true;
-        } catch (err) {
-          if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
-            await tx.$executeRaw`ROLLBACK TO SAVEPOINT source_record_identity_create`;
-            const existingIdentity = await tx.sourceRecordIdentity.findUniqueOrThrow({
-              where: {
-                organisation_id_source_system_id_domain_kind_source_external_id: {
-                  organisation_id: organisationId,
-                  source_system_id: sourceSystemId,
-                  domain_kind: DOMAIN_KIND,
-                  source_external_id: record.sourceExternalId,
-                },
-              },
-              select: { id: true },
-            });
-            identityId = existingIdentity.id;
-            isNewIdentity = false;
-          } else {
-            throw err;
-          }
-        }
-
+        const identityId = identityIdByExternalId.get(record.sourceExternalId) as string;
         const canonicalHash = computeCanonicalHash(record.row);
+        const isNewIdentity = newExternalIdSet.has(record.sourceExternalId);
 
-        // Classification — the exact three-case rule (Phase 6.1B
-        // architecture review, Decision/Correction 7): explicitly queries
-        // for prior observation history rather than ever inferring it from
-        // identity existence alone.
         let outcome: "NEW" | "UNCHANGED" | "CHANGED";
         if (isNewIdentity) {
           // Case A — no prior observation can exist for an identity this
           // transaction just created.
           outcome = "NEW";
         } else {
-          const priorObservation = await tx.sourceRecordObservation.findFirst({
-            where: { organisation_id: organisationId, source_record_identity_id: identityId },
-            orderBy: { observed_at: "desc" },
-            select: { canonical_hash: true },
-          });
-          if (!priorObservation) {
-            // Case C — an inconsistent reconciliation state (identity
-            // pre-exists with zero observation history). Fail closed:
-            // never classify NEW, never fabricate a comparison hash, never
-            // infer this from a unique-constraint failure. Throwing here
-            // rolls back the ENTIRE transaction, including the claim above.
-            throw new ReconciliationHistoryInconsistentError();
-          }
-          // Case B.
-          outcome = priorObservation.canonical_hash === canonicalHash ? "UNCHANGED" : "CHANGED";
+          // Case B — Case C was already ruled out for every pre-existing
+          // identity above, so this lookup is guaranteed present here.
+          const priorHash = priorHashByIdentityId.get(identityId) as string;
+          outcome = priorHash === canonicalHash ? "UNCHANGED" : "CHANGED";
         }
 
-        // Reconciliation history — one immutable observation per record
-        // per confirm, regardless of outcome. change_summary is
-        // deliberately left unset/null for this slice (matching the
-        // schema's own "nullable/deferred, no runtime path writes any
-        // value in this slice" documentation) — a future slice may choose
-        // to populate a bounded, non-PII description of what changed.
-        await tx.sourceRecordObservation.create({
-          data: {
-            organisation_id: organisationId,
-            source_record_identity_id: identityId,
-            import_batch_id: importBatchId,
-            upload_id: worksheetUploadId,
-            mapping_version_id: expectedMappingVersionId,
-            canonical_hash: canonicalHash,
-            outcome,
-          },
+        observationRows.push({
+          organisation_id: organisationId,
+          source_record_identity_id: identityId,
+          import_batch_id: importBatchId,
+          upload_id: worksheetUploadId,
+          mapping_version_id: expectedMappingVersionId,
+          observed_at: observedAt,
+          canonical_hash: canonicalHash,
+          outcome,
         });
 
         if (outcome === "NEW") {
@@ -691,6 +813,13 @@ export async function confirmDataHubWorksheet(
         }
       }
 
+      // Step 8 — one batched observation insert for the whole worksheet.
+      if (observationRows.length > 0) {
+        await tx.sourceRecordObservation.createMany({ data: observationRows });
+      }
+
+      // Step 9 (continued) — one batched NEW-domain insert, unchanged from
+      // before 6.1D2.
       if (newDomainRows.length > 0) {
         await tx.illegalDumping.createMany({ data: newDomainRows });
       }
