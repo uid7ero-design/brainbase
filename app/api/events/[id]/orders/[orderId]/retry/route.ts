@@ -11,7 +11,7 @@ type Ctx = { params: Promise<{ id: string; orderId: string }> };
 
 type OrderRow = {
   id: string; payment_status: string; purchaser_email: string; total_cents: number; currency: string; stripe_account_id: string | null;
-  stripe_checkout_session_id: string | null;
+  stripe_checkout_session_id: string | null; expires_at: string | null;
 };
 type ItemRow = { ticket_type_id: string; event_session_id: string | null; quantity: number };
 type TicketTypeRow = { id: string; name: string; active: boolean; price_cents: number; currency: string };
@@ -81,13 +81,45 @@ const RETRY_BLOCKED_MESSAGES: Record<string, string> = {
 // and both independently reach a SAFE conclusion can no longer both
 // succeed — only the first to commit can still match that exact prior
 // value; the second finds it already changed and fails the existing
-// "capacity no longer available" 409 path. (A narrower residual gap —
-// two concurrent retries racing on an order that already has NO prior
-// session id at all, e.g. a rare crash-recovery orphan state — is not
-// closed by this guard, since that column would read NULL for both;
-// documented as a follow-up, not fixed here, per this PR's own scope
-// discipline against inventing new locking primitives for an
-// exceedingly narrow compound edge case.)
+// "capacity no longer available" 409 path.
+//
+// ── NULL-session concurrency closure (PR #231 follow-up) ────────────
+// The stripe_checkout_session_id guard above is NULL-blind by
+// construction: an order can genuinely have NO prior session id yet —
+// e.g. the brief in-flight window on the public checkout route between
+// its capacity-reserving INSERT committing (order becomes visible,
+// column NULL) and its own follow-up UPDATE writing the new session id
+// back, or that same window recurring inside a retry itself, or either
+// window never completing at all (a crashed/timed-out request), which
+// leaves the order genuinely PENDING with a permanently-NULL session
+// id. Two concurrent Retry requests hitting that exact state both read
+// stripe_checkout_session_id = NULL, both skip the Stripe pre-flight
+// check entirely (there is nothing to verify yet), and — before this
+// fix — both satisfied `IS NOT DISTINCT FROM NULL` on the reacquisition
+// UPDATE below, since that UPDATE unconditionally re-sets the column to
+// NULL, so the second request's guard value (also NULL) still matched
+// even after the first had already committed. NULL cannot serve as its
+// own version token.
+//
+// Fixed with a second, independent compare-and-set guard on the SAME
+// UPDATE, reusing `expires_at` — a column that already exists purely
+// for reservation-window bookkeeping — as a generation/version stamp:
+// `verifiedExpiresAt` captures the order's expires_at at the exact same
+// moment as `verifiedSessionId` above, and the guarded UPDATE requires
+// `eo.expires_at IS NOT DISTINCT FROM ${verifiedExpiresAt}` in addition
+// to the session guard. Critically, every successful reacquisition
+// (including a first-ever one on a NULL-session order) sets expires_at
+// to a brand-new `NOW() + RESERVATION_WINDOW_SECONDS` — so it changes
+// on every winning retry regardless of whether the session guard was
+// discriminating or not, and the loser's captured (stale) value can no
+// longer match once the winner has committed. No schema change, no new
+// column, no distributed lock, no Stripe idempotency key: just an
+// existing timestamp column doing double duty as the row's own version
+// counter, exactly the same `IS NOT DISTINCT FROM` idiom already in use
+// one line above it. A later, genuinely sequential retry (not racing
+// anyone) always re-reads the CURRENT expires_at fresh at the top of
+// its own request, so this never blocks a legitimate future retry —
+// only two requests racing on the exact same stale snapshot.
 export async function POST(_req: Request, { params }: Ctx) {
   const auth = await authorizeEventsRequest('manager');
   if (!auth.ok) return auth.response;
@@ -115,7 +147,7 @@ export async function POST(_req: Request, { params }: Ctx) {
   }
 
   const orderRows = await sql`
-    SELECT id, payment_status, purchaser_email, total_cents, currency, stripe_account_id, stripe_checkout_session_id
+    SELECT id, payment_status, purchaser_email, total_cents, currency, stripe_account_id, stripe_checkout_session_id, expires_at
     FROM event_orders WHERE id = ${orderId} AND event_id = ${eventId} AND organisation_id = ${session.organisationId} LIMIT 1
   `;
   const order = orderRows[0] as OrderRow | undefined;
@@ -155,6 +187,12 @@ export async function POST(_req: Request, { params }: Ctx) {
   // same SAFE conclusion — cannot also succeed once the first has
   // already transitioned it.
   const verifiedSessionId = order.stripe_checkout_session_id ?? null;
+  // Captured unconditionally (not just when verifiedSessionId exists) —
+  // this is the generation/version stamp for the NULL-session
+  // concurrency guard below, and a NULL-session order needs it just as
+  // much as a session-bearing one does. See the header comment's
+  // "NULL-session concurrency closure" section.
+  const verifiedExpiresAt = order.expires_at ?? null;
   if (verifiedSessionId) {
     let attempt;
     try {
@@ -199,6 +237,7 @@ export async function POST(_req: Request, { params }: Ctx) {
             FROM sold_tt, sold_sess
             WHERE eo.id = ${orderId} AND eo.organisation_id = ${session.organisationId} AND eo.payment_status = 'PENDING'
               AND eo.stripe_checkout_session_id IS NOT DISTINCT FROM ${verifiedSessionId}
+              AND eo.expires_at IS NOT DISTINCT FROM ${verifiedExpiresAt}
               AND sold_tt.qty + ${item.quantity} <= (SELECT capacity FROM event_ticket_types WHERE id = ${item.ticket_type_id} AND organisation_id = ${session.organisationId})
               AND sold_sess.qty + ${item.quantity} <= (SELECT capacity FROM event_sessions WHERE id = ${item.event_session_id} AND organisation_id = ${session.organisationId})
             RETURNING eo.id
@@ -217,6 +256,7 @@ export async function POST(_req: Request, { params }: Ctx) {
             FROM sold_tt
             WHERE eo.id = ${orderId} AND eo.organisation_id = ${session.organisationId} AND eo.payment_status = 'PENDING'
               AND eo.stripe_checkout_session_id IS NOT DISTINCT FROM ${verifiedSessionId}
+              AND eo.expires_at IS NOT DISTINCT FROM ${verifiedExpiresAt}
               AND sold_tt.qty + ${item.quantity} <= (SELECT capacity FROM event_ticket_types WHERE id = ${item.ticket_type_id} AND organisation_id = ${session.organisationId})
             RETURNING eo.id
           `,
@@ -228,16 +268,18 @@ export async function POST(_req: Request, { params }: Ctx) {
 
   const reacquired = transactionResults[transactionResults.length - 1] as { id: string }[];
   if (!reacquired.length) {
-    // Zero rows now has two possible causes, both correctly reported
+    // Zero rows now has three possible causes, all correctly reported
     // with the same message: genuine capacity exhaustion (the
     // pre-existing meaning), OR this request lost the concurrency race
-    // against another Retry request for the SAME order (the new
-    // stripe_checkout_session_id IS NOT DISTINCT FROM guard above) —
-    // in the latter case the winning request is already creating (or
-    // has already created) the one replacement session this order
-    // gets, so reporting the same "try again" 409 here is correct: a
-    // manager who retries again will simply see whatever the winner's
-    // attempt produced.
+    // against another Retry request for the SAME order — via either
+    // the stripe_checkout_session_id guard (a prior session existed) or
+    // the expires_at guard (no prior session id existed for either
+    // racer — see the header comment's "NULL-session concurrency
+    // closure" section) — in either race-loss case the winning request
+    // is already creating (or has already created) the one replacement
+    // session this order gets, so reporting the same "try again" 409
+    // here is correct: a manager who retries again will simply see
+    // whatever the winner's attempt produced.
     return NextResponse.json({ error: 'This ticket type is no longer available in the requested quantity.' }, { status: 409 });
   }
 

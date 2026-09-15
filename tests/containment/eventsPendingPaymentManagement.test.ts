@@ -468,6 +468,89 @@ describe('Retry payment route — double-charge guard (Stripe-state pre-flight c
   })
 })
 
+// ─── NULL-session concurrency closure (PR #231 follow-up) ──────────────
+//
+// PR #231's own final review identified a reachable gap the original
+// stripe_checkout_session_id guard (test M above) cannot close: an
+// order can genuinely have NO prior session id at all (the brief
+// in-flight window on the public checkout route between its order-
+// creating INSERT committing and its own follow-up UPDATE writing the
+// new session id back — or that same window recurring inside a retry,
+// or either window never completing at all, e.g. a crashed/timed-out
+// request). Two concurrent Retry requests hitting that exact state both
+// read stripe_checkout_session_id = NULL and both satisfy
+// `IS NOT DISTINCT FROM NULL` even after one has already committed,
+// since NULL cannot serve as its own version token. Closed by reusing
+// `expires_at` (an existing column, no schema change) as a second,
+// independent compare-and-set guard — every successful reacquisition
+// sets it to a brand-new value, so it discriminates even when the
+// session guard cannot. This suite proves route-level wiring via
+// source-text (matching this file's own established convention — see
+// test M's own comment); the actual concurrent-request proof against
+// real Postgres lives in scripts/tests/verify-events-phase4-payment-
+// concurrency.sh sections I (closure), I MUTATION PROOF (sensitivity),
+// and J (a later legitimate retry remains possible).
+
+describe('Retry payment route — NULL-session concurrency closure (PR #231 follow-up)', () => {
+  const routeSrc = () => stripComments(read('app/api/events/[id]/orders/[orderId]/retry/route.ts'))
+
+  it('P. both capacity-reacquisition UPDATE branches (session-bound and non-session-bound) include the new expires_at compare-and-set guard', () => {
+    const code = routeSrc()
+    const occurrences = code.match(/eo\.expires_at IS NOT DISTINCT FROM \$\{verifiedExpiresAt\}/g) ?? []
+    expect(occurrences.length).toBe(2)
+  })
+
+  it('Q. verifiedExpiresAt is captured UNCONDITIONALLY — before the `if (verifiedSessionId)` branch, not inside it — so a NULL-session order still gets a guard value', () => {
+    const code = routeSrc()
+    const captureIdx = code.indexOf('const verifiedExpiresAt = order.expires_at')
+    const branchIdx = code.indexOf('if (verifiedSessionId) {')
+    expect(captureIdx).toBeGreaterThan(-1)
+    expect(branchIdx).toBeGreaterThan(-1)
+    expect(captureIdx).toBeLessThan(branchIdx)
+  })
+
+  it('the order SELECT includes expires_at, so verifiedExpiresAt always reflects the exact row this request read (never a separate, potentially-stale query)', () => {
+    const code = routeSrc()
+    expect(code).toMatch(/SELECT id, payment_status, purchaser_email, total_cents, currency, stripe_account_id, stripe_checkout_session_id, expires_at\s*\n\s*FROM event_orders/)
+  })
+
+  it('A/B/C. two concurrent Retry requests with NO prior session id — real-Postgres proof (exactly one reaches the reacquisition UPDATE, the other deterministically fails it, the winner proceeds normally) lives in scripts/tests/verify-events-phase4-payment-concurrency.sh section I; this suite proves the route issues the guarded statement that makes that outcome possible', () => {
+    const code = routeSrc()
+    expect(code).toMatch(/eo\.expires_at IS NOT DISTINCT FROM \$\{verifiedExpiresAt\}/)
+  })
+
+  it('D. a later legitimate retry after the winning attempt eventually becomes dead remains possible — proven at the DB layer in scripts/tests/verify-events-phase4-payment-concurrency.sh section J (a sequential, non-racing retry re-reads expires_at fresh and succeeds); at the route layer, verifiedExpiresAt is read fresh from the order row on EVERY request, never cached or reused across requests', () => {
+    const code = routeSrc()
+    // Only ONE assignment of verifiedExpiresAt exists in the whole file,
+    // and it reads directly off the just-fetched `order` row — there is
+    // no alternate/cached code path that could reuse a stale value.
+    const assignments = code.match(/const verifiedExpiresAt = /g) ?? []
+    expect(assignments.length).toBe(1)
+    expect(code).toMatch(/const verifiedExpiresAt = order\.expires_at \?\? null/)
+  })
+
+  it('E. mutation proof that the harness is genuinely sensitive to the NULL-session defect lives in scripts/tests/verify-events-phase4-payment-concurrency.sh section "I MUTATION PROOF" (retry_sql_no_expires_guard reproduces both concurrent retries winning)', () => {
+    const harness = read('scripts/tests/verify-events-phase4-payment-concurrency.sh')
+    expect(harness).toMatch(/retry_sql_no_expires_guard/)
+    expect(harness).toMatch(/I MUTATION PROOF/)
+  })
+
+  it('F. the pre-existing stripe_checkout_session_id guard (test M) is untouched by this change — both guards coexist in the same WHERE clause, the new one does not replace the old one', () => {
+    const code = routeSrc()
+    expect(code).toMatch(/eo\.stripe_checkout_session_id IS NOT DISTINCT FROM \$\{verifiedSessionId\}\s*\n\s*AND eo\.expires_at IS NOT DISTINCT FROM \$\{verifiedExpiresAt\}/)
+  })
+
+  it('no schema/migration change was needed — expires_at is an existing event_orders column (see scripts/add-events-payments.sql), never newly added here', () => {
+    const migrationFiles = ['scripts/add-events-payments.sql']
+    for (const f of migrationFiles) {
+      expect(fs.existsSync(f)).toBe(true)
+    }
+    const code = routeSrc()
+    // The route itself contains no DDL of any kind.
+    expect(code).not.toMatch(/ALTER TABLE|CREATE TABLE|ADD COLUMN/i)
+  })
+})
+
 // ─── Decision matrix — classifyRetrySafety (pure function, full truth table) ──
 
 describe('classifyRetrySafety — full decision matrix', () => {

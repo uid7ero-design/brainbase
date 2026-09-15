@@ -357,17 +357,29 @@ order_id_for() {
   echo "SELECT id FROM event_orders WHERE purchaser_name = '$1';" | psql_query | tr -d '[:space:]'
 }
 
+expires_at_for() {
+  # NOT tr -d '[:space:]' — that would also strip the internal space
+  # between the date and time portions of the timestamptz text (e.g.
+  # "2026-09-15 07:17:25.768267+00"), corrupting the value. Only trims
+  # the trailing newline psql_query's pipeline leaves behind.
+  echo "SELECT expires_at FROM event_orders WHERE id = '$1';" | psql_query | tr -d '\n'
+}
+
 retry_sql() {
   # $4 (optional): the prior stripe_checkout_session_id this caller
   # verified against Stripe before calling — mirrors the route's own
-  # `verifiedSessionId` guard (events-stripe-retry-double-charge). Every
-  # order this harness seeds via reserve_ticket_type_sql() never has a
-  # stripe_checkout_session_id set (that INSERT never sets it), so every
-  # EXISTING call site below correctly omits $4, matching the real
-  # column state (NULL) exactly — this guard is a genuinely NEW
-  # concurrency protection (see section H), not a behavior change to
-  # sections F/G above.
-  local order_id="$1" tt_id="$2" qty="$3" prior_session_id="${4:-}"
+  # `verifiedSessionId` guard (events-stripe-retry-double-charge).
+  # $5 (required from every call site below — mirrors the route's own
+  # `verifiedExpiresAt` guard, PR #231 follow-up): the order's expires_at
+  # AT THE MOMENT this caller read it, before this statement runs. Every
+  # call site fetches this fresh via expires_at_for() immediately before
+  # calling retry_sql(), exactly mirroring the route reading it in the
+  # same initial SELECT as stripe_checkout_session_id. This is what
+  # closes the NULL-session concurrency gap (section I): expires_at is
+  # never NULL for a live PENDING order, so — unlike the session guard —
+  # it is a genuine, always-discriminating version stamp even when two
+  # racers both see stripe_checkout_session_id = NULL.
+  local order_id="$1" tt_id="$2" qty="$3" prior_session_id="${4:-}" prior_expires_at="${5:?retry_sql: \$5 (prior_expires_at) is required — fetch via expires_at_for() first}"
   local session_guard_value="NULL"
   if [ -n "$prior_session_id" ]; then session_guard_value="'$prior_session_id'"; fi
   cat <<SQL
@@ -383,6 +395,7 @@ SET expires_at = NOW() + interval '30 minutes', stripe_checkout_session_id = NUL
 FROM sold_tt
 WHERE eo.id = '$order_id' AND eo.organisation_id = 'org-a' AND eo.payment_status = 'PENDING'
   AND eo.stripe_checkout_session_id IS NOT DISTINCT FROM $session_guard_value
+  AND eo.expires_at = '$prior_expires_at'::timestamptz
   AND sold_tt.qty + $qty <= (SELECT capacity FROM event_ticket_types WHERE id = '$tt_id' AND organisation_id = 'org-a')
 RETURNING eo.id;
 COMMIT;
@@ -415,14 +428,43 @@ COMMIT;
 SQL
 }
 
+# Same shape as retry_sql() but WITHOUT the expires_at guard (PR #231
+# follow-up) — used only by section I's mutation proof below. Retains
+# the (here, non-discriminating, since both racers pass '') session
+# guard exactly as pre-#231-follow-up code had it, to isolate proof of
+# the NEW guard's necessity specifically for the NULL-session case.
+retry_sql_no_expires_guard() {
+  local order_id="$1" tt_id="$2" qty="$3" prior_session_id="${4:-}"
+  local session_guard_value="NULL"
+  if [ -n "$prior_session_id" ]; then session_guard_value="'$prior_session_id'"; fi
+  cat <<SQL
+BEGIN;
+SELECT capacity FROM event_ticket_types WHERE id = '$tt_id' AND organisation_id = 'org-a' FOR UPDATE;
+WITH sold_tt AS (
+  SELECT COALESCE(SUM(oi.quantity), 0) AS qty FROM event_order_items oi JOIN event_orders eo ON eo.id = oi.order_id AND eo.organisation_id = oi.organisation_id
+  WHERE oi.ticket_type_id = '$tt_id' AND oi.organisation_id = 'org-a' AND eo.id <> '$order_id'
+    AND eo.status <> 'CANCELLED' AND (eo.payment_status <> 'PENDING' OR eo.expires_at > NOW())
+)
+UPDATE event_orders eo
+SET expires_at = NOW() + interval '30 minutes', stripe_checkout_session_id = NULL
+FROM sold_tt
+WHERE eo.id = '$order_id' AND eo.organisation_id = 'org-a' AND eo.payment_status = 'PENDING'
+  AND eo.stripe_checkout_session_id IS NOT DISTINCT FROM $session_guard_value
+  AND sold_tt.qty + $qty <= (SELECT capacity FROM event_ticket_types WHERE id = '$tt_id' AND organisation_id = 'org-a')
+RETURNING eo.id;
+COMMIT;
+SQL
+}
+
 reset_db; bootstrap
 expect_success "F setup: capacity=1 paid ticket type" \
   "INSERT INTO event_ticket_types (id, event_id, organisation_id, name, price_cents, capacity, active) VALUES ('tt-f', 'event-1', 'org-a', 'Premium', 2500, 1, true);"
 expect_success "F1. reserve the one slot (order-f1, still-valid expires_at)" \
   "$(reserve_ticket_type_sql tt-f order-f1 1)"
 ORDER_F1_ID="$(order_id_for order-f1)"
+ORDER_F1_EXPIRES="$(expires_at_for "$ORDER_F1_ID")"
 expect_success "F2. retrying the SAME still-valid order succeeds (self-exclusion means it never conflicts with itself)" \
-  "$(retry_sql "$ORDER_F1_ID" tt-f 1)"
+  "$(retry_sql "$ORDER_F1_ID" tt-f 1 "" "$ORDER_F1_EXPIRES")"
 expect_eq "F2b. capacity still shows exactly 1 held (not 2 — retry never double-counts)" \
   "SELECT COALESCE(SUM(quantity),0) FROM event_order_items WHERE ticket_type_id='tt-f';" "1"
 
@@ -432,8 +474,9 @@ expect_success "F3 setup: capacity=1 paid ticket type" \
 expect_success "F3. seed an EXPIRED PENDING reservation (order-f3)" \
   "$(reserve_ticket_type_sql tt-f3 order-f3 1 "NOW() - interval '1 minute'")"
 ORDER_F3_ID="$(order_id_for order-f3)"
+ORDER_F3_EXPIRES="$(expires_at_for "$ORDER_F3_ID")"
 expect_success "F4. retrying the expired order reacquires capacity — no one else is competing for it" \
-  "$(retry_sql "$ORDER_F3_ID" tt-f3 1)"
+  "$(retry_sql "$ORDER_F3_ID" tt-f3 1 "" "$ORDER_F3_EXPIRES")"
 expect_eq "F4b. the retried order's expires_at is now in the future again (reacquired, not still expired)" \
   "SELECT (expires_at > NOW())::text FROM event_orders WHERE id='$ORDER_F3_ID';" "true"
 
@@ -443,10 +486,11 @@ expect_success "F5 setup: capacity=1 paid ticket type" \
 expect_success "F5. seed an EXPIRED PENDING reservation (order-f5)" \
   "$(reserve_ticket_type_sql tt-f5 order-f5 1 "NOW() - interval '1 minute'")"
 ORDER_F5_ID="$(order_id_for order-f5)"
+ORDER_F5_EXPIRES="$(expires_at_for "$ORDER_F5_ID")"
 expect_success "F6. a DIFFERENT fresh reservation takes the now-free capacity first" \
   "$(reserve_ticket_type_sql tt-f5 order-f5-competitor 1)"
 expect_success "F7. retrying the original expired order now correctly finds NO available capacity (0 rows, no error) — cannot oversell" \
-  "$(retry_sql "$ORDER_F5_ID" tt-f5 1)"
+  "$(retry_sql "$ORDER_F5_ID" tt-f5 1 "" "$ORDER_F5_EXPIRES")"
 expect_eq "F7b. the original order's expires_at is still in the past — retry did NOT reacquire it" \
   "SELECT (expires_at > NOW())::text FROM event_orders WHERE id='$ORDER_F5_ID';" "false"
 expect_eq "F7c. capacity still shows exactly 1 (the competitor's), never 2" \
@@ -458,7 +502,8 @@ reset_db; bootstrap
 echo "INSERT INTO event_ticket_types (id, event_id, organisation_id, name, price_cents, capacity, active) VALUES ('tt-g', 'event-1', 'org-a', 'Premium', 2500, 1, true);" | psql_exec >/dev/null 2>&1
 echo "$(reserve_ticket_type_sql tt-g order-g 1 "NOW() - interval '1 minute'")" | psql_exec >/dev/null 2>&1
 ORDER_G_ID="$(order_id_for order-g)"
-run_concurrent_pair "$(retry_sql "$ORDER_G_ID" tt-g 1)" "$(reserve_ticket_type_sql tt-g NewBuyer-g 1)"
+ORDER_G_EXPIRES="$(expires_at_for "$ORDER_G_ID")"
+run_concurrent_pair "$(retry_sql "$ORDER_G_ID" tt-g 1 "" "$ORDER_G_EXPIRES")" "$(reserve_ticket_type_sql tt-g NewBuyer-g 1)"
 expect_eq "G. exactly one of {retry the expired order, a brand-new reservation} wins the single last slot" \
   "SELECT COALESCE(SUM(quantity),0) FROM event_order_items oi JOIN event_orders eo ON eo.id=oi.order_id WHERE oi.ticket_type_id='tt-g' AND eo.status<>'CANCELLED' AND (eo.payment_status<>'PENDING' OR eo.expires_at>NOW());" "1"
 
@@ -476,9 +521,10 @@ echo "INSERT INTO event_ticket_types (id, event_id, organisation_id, name, price
 echo "$(reserve_ticket_type_sql tt-h order-h 1)" | psql_exec >/dev/null 2>&1
 ORDER_H_ID="$(order_id_for order-h)"
 echo "UPDATE event_orders SET stripe_checkout_session_id = 'cs_old_session_h' WHERE id = '$ORDER_H_ID';" | psql_exec >/dev/null 2>&1
+ORDER_H_EXPIRES="$(expires_at_for "$ORDER_H_ID")"
 run_concurrent_pair \
-  "$(retry_sql "$ORDER_H_ID" tt-h 1 cs_old_session_h)" \
-  "$(retry_sql "$ORDER_H_ID" tt-h 1 cs_old_session_h)"
+  "$(retry_sql "$ORDER_H_ID" tt-h 1 cs_old_session_h "$ORDER_H_EXPIRES")" \
+  "$(retry_sql "$ORDER_H_ID" tt-h 1 cs_old_session_h "$ORDER_H_EXPIRES")"
 H_A_ROWS="$(grep -c '^UPDATE 1$' "$OUT_A" || true)"
 H_B_ROWS="$(grep -c '^UPDATE 1$' "$OUT_B" || true)"
 H_TOTAL_WINNERS=$((H_A_ROWS + H_B_ROWS))
@@ -515,6 +561,90 @@ else
   echo "  FAIL (mutation did not reproduce the defect — got $HM_TOTAL_WINNERS/2 successes, expected 2): the harness may not actually be sensitive to this defect class"
   FAIL=$((FAIL + 1))
   FAILURES+=("H mutation proof did not reproduce the pre-fix double-success")
+fi
+
+echo ""
+echo "=== I: two concurrent retries on an order with NO prior session id at all (PR #231 follow-up) ==="
+# The exact reachable gap identified in PR #231's final-closure review:
+# an order can be genuinely PENDING with stripe_checkout_session_id
+# NULL (the brief in-flight window on the ORIGINAL checkout route
+# between its order-creating INSERT committing and its own follow-up
+# UPDATE writing the session id back — or that same window recurring
+# inside a retry, or either window never completing at all). Two
+# concurrent Retry requests hitting that exact state both read
+# stripe_checkout_session_id = NULL and skip the Stripe pre-flight
+# check entirely (nothing to verify yet) — section H's own session-id
+# guard is NULL-blind here (`IS NOT DISTINCT FROM NULL` matches
+# regardless of who else raced), so before the expires_at guard this
+# section proves, BOTH could win and BOTH would go on to create a
+# separate real Stripe Checkout Session for the same order.
+reset_db; bootstrap
+echo "INSERT INTO event_ticket_types (id, event_id, organisation_id, name, price_cents, capacity, active) VALUES ('tt-i', 'event-1', 'org-a', 'Premium', 2500, 5, true);" | psql_exec >/dev/null 2>&1
+echo "$(reserve_ticket_type_sql tt-i order-i 1)" | psql_exec >/dev/null 2>&1
+ORDER_I_ID="$(order_id_for order-i)"
+expect_eq "I setup: the seeded order genuinely has NO stripe_checkout_session_id yet, matching the real reachable gap" \
+  "SELECT (stripe_checkout_session_id IS NULL)::text FROM event_orders WHERE id='$ORDER_I_ID';" "true"
+ORDER_I_EXPIRES="$(expires_at_for "$ORDER_I_ID")"
+run_concurrent_pair \
+  "$(retry_sql "$ORDER_I_ID" tt-i 1 "" "$ORDER_I_EXPIRES")" \
+  "$(retry_sql "$ORDER_I_ID" tt-i 1 "" "$ORDER_I_EXPIRES")"
+I_A_ROWS="$(grep -c '^UPDATE 1$' "$OUT_A" || true)"
+I_B_ROWS="$(grep -c '^UPDATE 1$' "$OUT_B" || true)"
+I_TOTAL_WINNERS=$((I_A_ROWS + I_B_ROWS))
+if [ "$I_TOTAL_WINNERS" -eq 1 ]; then
+  echo "  PASS: I. (test A/B/C) exactly one of the two concurrent NULL-session retries' guarded UPDATE returned a row — the loser matched zero rows (deterministic 409) and would never call Stripe to create a second session; the winner reacquired capacity normally"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: I. expected exactly 1 of 2 concurrent NULL-session retries to succeed, got $I_TOTAL_WINNERS"
+  FAIL=$((FAIL + 1))
+  FAILURES+=("I. concurrent NULL-session same-order retry guard")
+fi
+expect_eq "I2. capacity for this order was never double-extended — still exactly 1 unit, no duplicate item row" \
+  "SELECT COALESCE(SUM(quantity),0) FROM event_order_items WHERE order_id='$ORDER_I_ID';" "1"
+
+echo ""
+echo "=== J: a later, genuinely sequential retry remains possible after the winning generation later becomes dead (test D) ==="
+# Not a race — proves the expires_at guard is a rolling generation
+# marker, not a one-time-use lock: order-i (from section I above)
+# already won once (its expires_at already advanced past
+# ORDER_I_EXPIRES). Must run BEFORE the I MUTATION PROOF below, which
+# reset_db's the whole database. A later, single, non-concurrent Retry
+# — exactly what happens once that winning attempt's own Stripe session
+# later genuinely expires or its PaymentIntent is canceled
+# (classifyRetrySafety's SAFE_PREVIOUS_ATTEMPT_DEAD, proven separately
+# against real Stripe-shaped data in the mocked route suite) — must
+# still succeed by reading the CURRENT expires_at fresh.
+ORDER_I_EXPIRES_AFTER_WIN="$(expires_at_for "$ORDER_I_ID")"
+if [ "$ORDER_I_EXPIRES_AFTER_WIN" = "$ORDER_I_EXPIRES" ]; then
+  echo "  FAIL: J setup: order-i's expires_at did not change after section I — cannot prove generation rollover"
+  FAIL=$((FAIL + 1))
+  FAILURES+=("J setup: expires_at unchanged after winning retry")
+else
+  expect_success "J. a later sequential retry against the SAME order succeeds using the freshly-current expires_at (the guard never permanently locks out legitimate future retries)" \
+    "$(retry_sql "$ORDER_I_ID" tt-i 1 "" "$ORDER_I_EXPIRES_AFTER_WIN")"
+  expect_eq "J2. capacity still shows exactly 1 held for this order after the second legitimate retry (never double-counted)" \
+    "SELECT COALESCE(SUM(quantity),0) FROM event_order_items WHERE order_id='$ORDER_I_ID';" "1"
+fi
+
+echo ""
+echo "=== I MUTATION PROOF (test E) — without the expires_at guard, both concurrent NULL-session retries CAN succeed ==="
+reset_db; bootstrap
+echo "INSERT INTO event_ticket_types (id, event_id, organisation_id, name, price_cents, capacity, active) VALUES ('tt-i-mut', 'event-1', 'org-a', 'Premium', 2500, 5, true);" | psql_exec >/dev/null 2>&1
+echo "$(reserve_ticket_type_sql tt-i-mut order-i-mut 1)" | psql_exec >/dev/null 2>&1
+ORDER_I_MUT_ID="$(order_id_for order-i-mut)"
+run_concurrent_pair \
+  "$(retry_sql_no_expires_guard "$ORDER_I_MUT_ID" tt-i-mut 1 "")" \
+  "$(retry_sql_no_expires_guard "$ORDER_I_MUT_ID" tt-i-mut 1 "")"
+IM_A_ROWS="$(grep -c '^UPDATE 1$' "$OUT_A" || true)"
+IM_B_ROWS="$(grep -c '^UPDATE 1$' "$OUT_B" || true)"
+IM_TOTAL_WINNERS=$((IM_A_ROWS + IM_B_ROWS))
+if [ "$IM_TOTAL_WINNERS" -eq 2 ]; then
+  echo "  PASS (mutation correctly reproduces the NULL-session defect — harness is genuinely sensitive to it): without the expires_at guard, both concurrent NULL-session retries' UPDATE returned a row, i.e. both would go on to create a separate Stripe Checkout Session"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL (mutation did not reproduce the NULL-session defect — got $IM_TOTAL_WINNERS/2 successes, expected 2): the harness may not actually be sensitive to this defect class"
+  FAIL=$((FAIL + 1))
+  FAILURES+=("I mutation proof did not reproduce the pre-fix NULL-session double-success")
 fi
 
 echo ""
