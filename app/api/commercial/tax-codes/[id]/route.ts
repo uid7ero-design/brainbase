@@ -9,9 +9,13 @@ type Ctx = { params: Promise<{ id: string }> };
 // a tax code may already be referenced by an issued quote line's
 // tax_code_snapshot/tax_rate_snapshot (a plain TEXT/NUMERIC snapshot,
 // not an FK — see scripts/create-commercial-quotes.sql), so removing
-// the row itself would be both destructive and unnecessary.
+// the row itself would be both destructive and unnecessary. Phase
+// C7.2 — widened to include 'purchasing', matching GET/POST
+// /api/commercial/tax-codes (Phase C6.3 / C7.2): a purchasing-only
+// organisation must be able to deactivate a tax code it can also
+// create.
 export async function DELETE(_req: NextRequest, { params }: Ctx) {
-  const auth = await authorizeCommercialRequest(['quotes', 'invoicing'], COMMERCIAL_MIN_ROLE.administer);
+  const auth = await authorizeCommercialRequest(['quotes', 'invoicing', 'purchasing'], COMMERCIAL_MIN_ROLE.administer);
   if (!auth.ok) return auth.response;
   const { id } = await params;
 

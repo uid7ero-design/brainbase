@@ -145,15 +145,32 @@ export default function PurchaseOrderDetailPage() {
   const [newPrice, setNewPrice] = useState('');
   const [newTaxCodeId, setNewTaxCodeId] = useState('');
 
-  const load = useCallback(async () => {
+  // Phase C7.2 — narrow refresh: re-fetches only the PO itself (header
+  // fields, lines, deliveries, the live linked supplier) from the one
+  // GET route that already returns all four together in a single
+  // response. Extracted out of load() below so a line mutation (which
+  // only ever changes the PO's own lines/totals) can refresh exactly
+  // what changed without re-fetching suppliers/products/tax-codes/
+  // /api/me — none of which a line add/remove can affect — the way the
+  // full load() chain previously forced on every single line mutation.
+  // Returns whether the fetch succeeded so callers (including load()
+  // itself) can decide what to do next without duplicating the
+  // response-shape logic.
+  const refreshPoAndLines = useCallback(async (): Promise<boolean> => {
     const res = await fetch(`/api/commercial/purchase-orders/${id}`);
-    if (!res.ok) { setLoading(false); return; }
+    if (!res.ok) return false;
     const data = await res.json();
     setPo(data.purchaseOrder);
     setLines(data.lines);
     setDeliveries(data.deliveries ?? []);
     setLinkedSupplier(data.supplier ?? null);
+    return true;
+  }, [id]);
+
+  const load = useCallback(async () => {
+    const ok = await refreshPoAndLines();
     setLoading(false);
+    if (!ok) return;
 
     const attachmentsRes = await fetch(`/api/commercial/purchase-orders/${id}/attachments`);
     if (attachmentsRes.ok) setAttachments((await attachmentsRes.json()).attachments ?? []);
@@ -169,7 +186,7 @@ export default function PurchaseOrderDetailPage() {
       setCanEdit(clientRoleGte(me.role, 'manager'));
       setIsAdmin(clientRoleGte(me.role, 'admin'));
     }
-  }, [id]);
+  }, [id, refreshPoAndLines]);
 
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { load(); }, [load]);
@@ -248,7 +265,16 @@ export default function PurchaseOrderDetailPage() {
     setBusy(false);
     if (!res.ok) { setActionError(data.error ?? 'Failed to add line.'); return; }
     setNewProductId(''); setNewDescription(''); setNewQuantity('1'); setNewPrice(''); setNewTaxCodeId('');
-    load();
+    // Phase C7.2 — awaited, narrow refresh (PO + lines only) instead of
+    // the full load() chain: adding a line can only change this PO's
+    // own lines and recalculated totals, never suppliers/products/
+    // tax-codes/the current user's role, so re-fetching those on every
+    // line add was both unnecessary and — because the previous
+    // fire-and-forget `load()` call let the cleared form render before
+    // any of its several sequential fetches resolved — the direct cause
+    // of the observed "form resets, then the new line pops in later"
+    // visual lag.
+    await refreshPoAndLines();
   }
 
   async function removeLine(lineId: string) {

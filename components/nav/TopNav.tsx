@@ -1282,14 +1282,30 @@ function AppNav({
     );
 
   // Phase C3 — same capability-driven pattern as hasEvents/hasCrm/
-  // hasOrganiser above. Gated on 'quotes' specifically (not a
-  // dedicated 'commercial' key — none exists): Quotes is the only real
-  // Commercial transactional workflow this phase builds, and the
-  // Commercial shell's own layout (app/commercial/layout.tsx) enforces
-  // the identical gate server-side.
+  // hasOrganiser above. Originally gated on 'quotes' alone (not a
+  // dedicated 'commercial' key — none exists), because Quotes was the
+  // only real Commercial transactional workflow that phase built.
+  //
+  // Phase C7.2 — widened to 'quotes' OR 'invoicing' OR 'purchasing'.
+  // app/commercial/layout.tsx (the actual server-side gate this pill
+  // links to) already checks all three and only blocks entry when NONE
+  // are enabled — this pill had fallen behind that gate, so a
+  // purchasing-only organisation (entitled, and able to reach every
+  // Purchasing route/page directly) saw no way to discover /commercial
+  // from the top nav at all. This is a visibility-only fix: nothing
+  // here is a security boundary (the layout and every Commercial route
+  // already enforce their own capability checks independently), so
+  // widening which capabilities SHOW this pill cannot grant access to
+  // anything a viewer couldn't already reach by URL.
   const hasCommercial =
     enabledCapabilities.includes(
       'quotes',
+    ) ||
+    enabledCapabilities.includes(
+      'invoicing',
+    ) ||
+    enabledCapabilities.includes(
+      'purchasing',
     );
 
   // HR-1 People Foundation — same capability-driven pattern as

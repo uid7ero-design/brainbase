@@ -8,9 +8,12 @@ import { seedStandardAustralianTaxCodes } from '@/lib/commercial/taxCodeBootstra
 // this is not a more sensitive action than creating one tax code by
 // hand, it just creates up to three. Idempotent: safe to click more than
 // once (see lib/commercial/taxCodeBootstrap.ts's own ON CONFLICT DO
-// NOTHING).
+// NOTHING). Phase C7.2 — widened to include 'purchasing', matching
+// POST/DELETE /api/commercial/tax-codes: a purchasing-only organisation
+// must be able to seed the same standard codes it can otherwise create
+// by hand one at a time.
 export async function POST() {
-  const auth = await authorizeCommercialRequest(['quotes', 'invoicing'], COMMERCIAL_MIN_ROLE.administer);
+  const auth = await authorizeCommercialRequest(['quotes', 'invoicing', 'purchasing'], COMMERCIAL_MIN_ROLE.administer);
   if (!auth.ok) return auth.response;
 
   const result = await seedStandardAustralianTaxCodes(auth.session.organisationId);
