@@ -453,4 +453,144 @@ describe("6.1D2 confirmWorksheet BATCHED reconciliation — real disposable Post
     const outcomes = observations.map((o) => o.outcome).sort();
     expect(outcomes).toEqual(["NEW", "UNCHANGED"]);
   }, 60_000);
+
+  it("P8. Forced failure AFTER identity creation (and observation insert) rolls back everything, including the claim — real atomic-transaction negative control (Phase 6.1D4)", async () => {
+    // FAILURE-INJECTION DESIGN (6.1D4 Section B/C): a test-only Postgres
+    // trigger, created ONLY against THIS disposable container's own
+    // `illegal_dumping` table via a plain runtime `$executeRawUnsafe` call
+    // from this test file — never added to
+    // scripts/create-datahub-reconciliation.sql or any other real
+    // migration script, never applied to prisma/schema.prisma, and never
+    // reachable by Production/Preview (which only ever run the real,
+    // committed migration scripts). It deterministically rejects exactly
+    // one, deliberately marked row (location = 'P8_POISON_LOCATION') at
+    // the REAL `tx.illegalDumping.createMany()` call inside
+    // confirmWorksheet.ts's own transaction (Step 9) — the actual
+    // production code path, never mocked. That statement is textually and
+    // causally AFTER identity creation (Steps 3-4,
+    // confirmWorksheet.ts lines 664-684 as freshly re-read for this test)
+    // and observation insert (Step 8, lines 816-818) in the real file, so
+    // a rollback proven here necessarily also proves identity AND
+    // observation rollback — a STRONGER guarantee than targeting only the
+    // observation stage would give.
+    //
+    // A real, already-existing Postgres constraint (e.g. a NOT NULL/CHECK
+    // on illegal_dumping or source_record_observations) was deliberately
+    // NOT used here: every column mapIllegalDumpingRows can produce is
+    // already validated by that pure, pre-transaction mapper (Step 7) at
+    // least as strictly as the DB schema requires, so no CSV-craftable
+    // value can naturally reach a real DB constraint violation at the
+    // domain/observation-insert stage without first being rejected by the
+    // mapper long before the transaction even opens — confirmed by
+    // reading illegalDumpingMapper.ts's own required-field/enum
+    // validation. A disposable-container-only trigger is therefore the
+    // correct, narrowest mechanism available, exactly as anticipated by
+    // the authorization's own Section B "acceptable examples" list.
+    await prisma.$executeRawUnsafe(`
+      CREATE OR REPLACE FUNCTION public.p8_test_only_reject_poison_location()
+      RETURNS trigger AS $trigger$
+      BEGIN
+        IF NEW.location = 'P8_POISON_LOCATION' THEN
+          RAISE EXCEPTION 'P8 test-only: deliberately rejecting insert of a poisoned domain row (this trigger exists ONLY in this disposable test container -- never in scripts/create-datahub-reconciliation.sql or any other real migration script, and never applied to Production/Preview)';
+        END IF;
+        RETURN NEW;
+      END;
+      $trigger$ LANGUAGE plpgsql;
+    `);
+    await prisma.$executeRawUnsafe(`
+      CREATE TRIGGER p8_test_only_reject_poison_location_trigger
+      BEFORE INSERT ON illegal_dumping
+      FOR EACH ROW EXECUTE FUNCTION public.p8_test_only_reject_poison_location();
+    `);
+
+    try {
+      const goodRows = rowsFor("P8", 4);
+      const poisonRow = ["2024-01-01", "P8_POISON_LOCATION", "tyres", `P8-poison-${Date.now()}`];
+      const rows = [...goodRows, poisonRow];
+      const allExtIds = rows.map((r) => r[3]);
+
+      const { worksheetId, batchId } = await createWorksheet(organisationId, sourceSystemId, "p8-poison", rows);
+
+      // Baseline — every source_external_id here is freshly generated
+      // with Date.now(), never used by any other test in this file, so
+      // this must be exactly zero before the attempt.
+      const identityBaselineCount = await prisma.sourceRecordIdentity.count({
+        where: { organisation_id: organisationId, source_system_id: sourceSystemId, source_external_id: { in: allExtIds } },
+      });
+      expect(identityBaselineCount).toBe(0);
+
+      const { confirmDataHubWorksheet } = await freshConfirm();
+      const client = new PrismaClient({ log: [{ level: "query", emit: "event" }] });
+      const statementLog: string[] = [];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (client as any).$on("query", (e: { query: string }) => {
+        statementLog.push(e.query);
+      });
+
+      let caughtError: unknown = null;
+      try {
+        await runWithClient(client, () =>
+          confirmDataHubWorksheet({ organisationId, worksheetUploadId: worksheetId, confirmedBy: actor1 })
+        );
+        throw new Error("P8 expected confirmDataHubWorksheet to reject, but it resolved normally");
+      } catch (err) {
+        caughtError = err;
+      } finally {
+        await client.$disconnect();
+      }
+
+      // The transaction must have genuinely rejected via the real
+      // trigger — this is NOT Case C or any other classified {ok:false}
+      // outcome. confirmWorksheet.ts's own catch block only intercepts
+      // ReconciliationHistoryInconsistentError and re-throws everything
+      // else uncaught, exactly as it must for a genuinely unexpected DB
+      // error like this one.
+      expect(caughtError).toBeTruthy();
+      expect(String((caughtError as Error)?.message ?? caughtError)).toMatch(/P8 test-only/);
+
+      // QUERY-INSTRUMENTATION PROOF (Section C): confirm the REAL SQL
+      // statement log — not an assumption from reading the source file —
+      // shows identity creation and observation insertion were genuinely
+      // attempted, in that order, BEFORE the failing domain insert.
+      // Prisma logs each statement in the literal order it sent them to
+      // Postgres.
+      const identityInsertIndex = statementLog.findIndex((q) => /INSERT INTO\s+"?public"?\.?"?source_record_identities"?/i.test(q));
+      const observationInsertIndex = statementLog.findIndex((q) => /INSERT INTO\s+"?public"?\.?"?source_record_observations"?/i.test(q));
+      const domainInsertIndex = statementLog.findIndex((q) => /INSERT INTO\s+"?public"?\.?"?illegal_dumping"?/i.test(q));
+      expect(identityInsertIndex).toBeGreaterThanOrEqual(0);
+      expect(observationInsertIndex).toBeGreaterThanOrEqual(0);
+      expect(domainInsertIndex).toBeGreaterThanOrEqual(0);
+      expect(identityInsertIndex).toBeLessThan(domainInsertIndex);
+      expect(observationInsertIndex).toBeLessThan(domainInsertIndex);
+
+      // ROLLBACK PROOF — using the SEPARATE, ordinary `prisma` fixture
+      // client (a fresh connection entirely outside the failed
+      // transaction), confirm every write from this attempt is gone,
+      // back to the exact pre-attempt baseline. This is the actual
+      // required proof: not that rollback is "expected," but that it
+      // demonstrably happened.
+      const identityCountAfter = await prisma.sourceRecordIdentity.count({
+        where: { organisation_id: organisationId, source_system_id: sourceSystemId, source_external_id: { in: allExtIds } },
+      });
+      expect(identityCountAfter).toBe(0);
+      const observationCountAfter = await prisma.sourceRecordObservation.count({ where: { upload_id: worksheetId } });
+      expect(observationCountAfter).toBe(0);
+      const domainCountAfter = await prisma.illegalDumping.count({ where: { upload_id: worksheetId } });
+      expect(domainCountAfter).toBe(0);
+
+      const worksheetAfter = await prisma.upload.findUniqueOrThrow({ where: { id: worksheetId } });
+      expect(worksheetAfter.canonical_status).toBe("AWAITING_CONFIRMATION"); // full rollback, including the claim.
+      expect(worksheetAfter.confirmed_by).toBeNull();
+      expect(worksheetAfter.confirmed_at).toBeNull();
+      expect(worksheetAfter.attempt_count).toBe(0);
+
+      const batchAfter = await prisma.importBatch.findUniqueOrThrow({ where: { id: batchId } });
+      expect(batchAfter.status).toBe("READY"); // untouched -- Confirm never mutates ImportBatch.status.
+    } finally {
+      // Clean up the test-only trigger regardless of outcome, so it can
+      // never affect any other test in this file even on a retry.
+      await prisma.$executeRawUnsafe(`DROP TRIGGER IF EXISTS p8_test_only_reject_poison_location_trigger ON illegal_dumping;`);
+      await prisma.$executeRawUnsafe(`DROP FUNCTION IF EXISTS public.p8_test_only_reject_poison_location();`);
+    }
+  }, 60_000);
 });
