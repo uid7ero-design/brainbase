@@ -1,4 +1,5 @@
 import 'server-only';
+import { NeonDbError } from '@neondatabase/serverless';
 import sql from '@/lib/db';
 
 // HR-1 — shared server-side validation for hr_people writes. Every
@@ -94,4 +95,30 @@ export async function isPersonInOrganisation(personId: string, organisationId: s
 export async function isUserInOrganisation(userId: string, organisationId: string): Promise<boolean> {
   const rows = await sql`SELECT 1 FROM users WHERE id = ${userId} AND organisation_id = ${organisationId} LIMIT 1`;
   return rows.length > 0;
+}
+
+// HR-2 Step 1D1 (corrective pass) — both app/api/hr/people/route.ts's
+// POST and app/api/hr/people/[id]/route.ts's PATCH explicitly assign
+// hr_people.linked_user_id and therefore both need the exact same
+// narrow race-time duplicate-link classification (isUserInOrganisation()
+// alone cannot catch this: two concurrent writes can each pass that
+// check before either commits, so only the DB's own
+// UNIQUE(organisation_id, linked_user_id) constraint — named
+// hr_people_organisation_id_linked_user_id_key in
+// scripts/create-hr-people.sql — is the actual concurrency-safe source
+// of truth). Extracted here, once, rather than duplicated in both
+// route files, since both call sites need byte-identical matching
+// logic. Matched narrowly: `err instanceof NeonDbError` (this repo's
+// `sql` client's own documented error class — see
+// @neondatabase/serverless's published type declaration, which types
+// `.code`/`.constraint` explicitly as the real Postgres wire-protocol
+// error fields this class exists to carry) AND the exact SQLSTATE
+// 23505 (unique_violation) AND the exact constraint name — never a
+// broad "any 23505" match. An unrelated 23505 (a different constraint
+// entirely) or any other error must fall through to each caller's own
+// existing, unchanged generic error handling.
+export function isLinkedUserUniqueViolation(err: unknown): boolean {
+  return err instanceof NeonDbError
+    && err.code === '23505'
+    && err.constraint === 'hr_people_organisation_id_linked_user_id_key';
 }

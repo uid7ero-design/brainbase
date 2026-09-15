@@ -176,7 +176,14 @@ describe('Edit Person UI — admin-gated wiring of the existing PersonForm edit 
     expect(panelStart).toBeGreaterThan(-1)
     const panelEnd = pageSrc.indexOf('</SlidePanel>', panelStart)
     const panelBlock = pageSrc.slice(panelStart, panelEnd)
-    expect(panelBlock).toContain('<PersonForm onSaved={() => { setShowAdd(false); load(); }} />')
+    // HR-2 Step 1D1 added a canManage={canManage} prop to this same
+    // call site — matched loosely (not an exact full-string match) so
+    // that addition doesn't make this assertion brittle; the two
+    // invariants this test actually cares about (still an unconditional
+    // create — no `initial` prop — and still wired to the same
+    // onSaved callback) are checked directly instead.
+    expect(panelBlock).toContain('<PersonForm')
+    expect(panelBlock).toContain("onSaved={() => { setShowAdd(false); load(); }}")
     expect(panelBlock).not.toContain('initial=')
   })
 
@@ -210,6 +217,11 @@ describe('PersonForm.tsx — edit PATCH payload is allowlisted, not the full fet
     for (const field of [
       'first_name', 'last_name', 'preferred_name', 'work_email', 'work_phone',
       'job_title', 'worker_type', 'employment_status', 'team_id', 'manager_person_id',
+      // HR-2 Step 1D1 — linked_user_id now has a real control (the
+      // Linked BrainBase Account select, canManage-gated) and
+      // therefore belongs in this "must contain" list, not the
+      // "must NOT contain" list below.
+      'linked_user_id',
     ]) {
       expect(block).toContain(`'${field}'`)
     }
@@ -220,7 +232,6 @@ describe('PersonForm.tsx — edit PATCH payload is allowlisted, not the full fet
     expect(block).not.toMatch(/'team_name'/)
     expect(block).not.toMatch(/'manager_first_name'/)
     expect(block).not.toMatch(/'manager_last_name'/)
-    expect(block).not.toMatch(/'linked_user_id'/)
     expect(block).not.toMatch(/'start_date'/)
     expect(block).not.toMatch(/'end_date'/)
   })

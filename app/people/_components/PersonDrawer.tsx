@@ -24,6 +24,12 @@ export type PersonDetail = {
   employment_status: string;
   team_id?: string | null;
   manager_person_id?: string | null;
+  // HR-2 Step 1D1 — same reason team_id/manager_person_id are captured
+  // above: PersonForm's edit mode needs the real, current value to
+  // pre-select the Linked Account control; already returned by GET
+  // /api/hr/people/[id] today (lib/hr/personFieldTiers.ts classifies
+  // it 'internal', same tier as team_id/manager_person_id).
+  linked_user_id?: string | null;
   team_name?: string | null;
   manager_first_name?: string | null;
   manager_last_name?: string | null;
@@ -93,6 +99,22 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
           <Row label="Manager" value={person.manager_first_name ? `${person.manager_first_name} ${person.manager_last_name}` : '—'} />
           {'work_email' in person && <Row label="Work Email" value={person.work_email ?? '—'} />}
           {'work_phone' in person && <Row label="Work Phone" value={person.work_phone ?? '—'} />}
+          {/* HR-2 Step 1D1 — management control, not a general
+              employee-directory field: gated on canManage (the same
+              flag that already gates the Edit button below), NOT on
+              this field's own 'internal' API tier — a direct manager
+              or the person themself can already see this same field
+              tier elsewhere (e.g. team_id/manager_person_id), but
+              account-linking state specifically stays HR-admin-only
+              here, matching this slice's own locked authority model.
+              A safe state only (Linked/Not linked) — resolving the
+              linked account's own name/email here would require
+              fetching the full org-wide GET /api/hr/linkable-users
+              list just to enrich one read-only row, which this drawer
+              does not otherwise need; PersonForm's own edit-mode
+              picker (which already fetches that list for its own
+              purpose) is where the human-readable account is shown. */}
+          {canManage && <Row label="Linked BrainBase Account" value={person.linked_user_id ? 'Linked' : 'Not linked'} />}
         </div>
       )}
     </SlidePanel>
