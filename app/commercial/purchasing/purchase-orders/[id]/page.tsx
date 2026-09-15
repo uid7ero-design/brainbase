@@ -49,6 +49,9 @@ type Attachment = {
 // Phase C7.3 — linked purchase receipts summary (list-shaped, matches
 // GET /api/commercial/purchase-orders/[id]/receipts).
 type PurchaseReceiptSummary = { id: string; receipt_number: string | null; status: string; received_date: string | null; created_at: string };
+// Phase C7.4 — linked supplier bills summary (list-shaped, matches
+// GET /api/commercial/purchase-orders/[id]/bills).
+type SupplierBillSummary = { id: string; bill_number: string | null; status: string; supplier_invoice_number: string; due_date: string | null; total_cents: number; created_at: string };
 
 // Client-side role check only — UX gating, not enforcement. The real
 // floor is authorizeCommercialRequest('purchasing', COMMERCIAL_MIN_ROLE.createEdit)
@@ -128,6 +131,13 @@ export default function PurchaseOrderDetailPage() {
   const [receipts, setReceipts] = useState<PurchaseReceiptSummary[]>([]);
   const [receivedQuantities, setReceivedQuantities] = useState<Record<string, number>>({});
 
+  // Phase C7.4 — linked supplier bills + derived billed-to-date (VALUE,
+  // not quantity), per PO line. Both DERIVED at read time server-side —
+  // never a stored column on this PO or its lines (see lib/commercial/
+  // supplierBills.ts's getBilledAmountsForPurchaseOrder()).
+  const [supplierBills, setSupplierBills] = useState<SupplierBillSummary[]>([]);
+  const [billedAmounts, setBilledAmounts] = useState<Record<string, number>>({});
+
   // C6.9 remediation — Supporting Documents state.
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [uploadCategory, setUploadCategory] = useState<AttachmentCategory>('SUPPLIER_QUOTE');
@@ -191,6 +201,14 @@ export default function PurchaseOrderDetailPage() {
       const receiptsData = await receiptsRes.json();
       setReceipts(receiptsData.purchaseReceipts ?? []);
       setReceivedQuantities(receiptsData.receivedQuantities ?? {});
+    }
+
+    // Phase C7.4 — linked supplier bills + derived billed-to-date.
+    const billsRes = await fetch(`/api/commercial/purchase-orders/${id}/bills`);
+    if (billsRes.ok) {
+      const billsData = await billsRes.json();
+      setSupplierBills(billsData.supplierBills ?? []);
+      setBilledAmounts(billsData.billedAmounts ?? {});
     }
 
     const [suppliersRes, productsRes, taxCodesRes, meRes] = await Promise.all([
@@ -848,6 +866,44 @@ export default function PurchaseOrderDetailPage() {
                 <div key={l.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#9ca3af', padding: '3px 0' }}>
                   <span>{l.description_snapshot}</span>
                   <span>{receivedQuantities[l.id] ?? 0} / {l.quantity}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Phase C7.4 — linked Supplier Bills + derived billed-to-date
+          (VALUE, not quantity — a bill is a money fact). Same visibility
+          rule as the receipts panel above: only shown once ISSUED (a
+          non-ISSUED PO cannot have any bills by construction —
+          createSupplierBill() rejects a non-ISSUED PO); "New Bill" is
+          offered only while ISSUED; the bill list itself remains visible
+          after cancellation for historical record-keeping. */}
+      {(isIssued || isCancelled) && (
+        <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, marginBottom: 20, padding: '16px 24px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <div style={miniLbl}>Supplier Bills</div>
+            {isIssued && canEdit && (
+              <a href={`/commercial/purchasing/supplier-bills/new?purchaseOrderId=${po.id}`} style={{ fontSize: 12, color: '#60a5fa', textDecoration: 'none' }}>+ New Bill</a>
+            )}
+          </div>
+          {supplierBills.length === 0 && <p style={{ fontSize: 13, color: '#4b5563', margin: 0 }}>No supplier bills yet.</p>}
+          {supplierBills.map(b => (
+            <div key={b.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', fontSize: 13 }}>
+              <a href={`/commercial/purchasing/supplier-bills/${b.id}`} style={{ color: '#f9fafb', textDecoration: 'none' }}>
+                {b.bill_number ?? 'Draft'} — {b.supplier_invoice_number}
+              </a>
+              <span style={{ color: '#6b7280' }}>{b.status}{b.status === 'POSTED' ? ` · ${formatMoneyCents(b.total_cents, po.currency)}` : ''}</span>
+            </div>
+          ))}
+          {lines.length > 0 && Object.keys(billedAmounts).length > 0 && (
+            <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${BORDER}` }}>
+              <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 6 }}>Billed to date (posted bills only)</div>
+              {lines.map(l => (
+                <div key={l.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#9ca3af', padding: '3px 0' }}>
+                  <span>{l.description_snapshot}</span>
+                  <span>{formatMoneyCents(billedAmounts[l.id] ?? 0, po.currency)} / {formatMoneyCents(l.line_total_cents, po.currency)}</span>
                 </div>
               ))}
             </div>
