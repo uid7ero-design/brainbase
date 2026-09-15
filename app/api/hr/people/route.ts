@@ -12,6 +12,7 @@ import { toDateStr } from '@/lib/date';
 import {
   isValidWorkerType, isValidEmploymentStatus, isValidHrDate,
   isTeamInOrganisation, isTeamActive, isPersonInOrganisation, isUserInOrganisation,
+  isLinkedUserUniqueViolation,
 } from '@/lib/hr/validation';
 
 // HR-2 Step 1C — see app/api/hr/people/[id]/route.ts's own identical
@@ -173,6 +174,22 @@ export async function POST(req: NextRequest) {
       RETURNING *
     `;
   } catch (err) {
+    // HR-2 Step 1D1 (corrective pass) — this INSERT explicitly assigns
+    // linked_user_id, so it is subject to the exact same race-time
+    // duplicate-link constraint violation PATCH /api/hr/people/[id]
+    // already handles. See isLinkedUserUniqueViolation() in
+    // lib/hr/validation.ts for the shared, narrow matching logic. An
+    // unrelated 23505 or any other error falls through to the
+    // unchanged generic 500 below. Caught here, before the audit block
+    // and success response below ever run, so a duplicate-link failure
+    // writes no audit event and leaves no partially-created hr_person
+    // row (a single atomic INSERT either fully commits or not at all).
+    if (isLinkedUserUniqueViolation(err)) {
+      return NextResponse.json(
+        { error: 'That BrainBase account is already linked to another person.', code: 'linked_user_already_linked' },
+        { status: 409 },
+      );
+    }
     console.error('[hr/people POST] insert failed', err);
     return NextResponse.json({ error: 'Could not create person.' }, { status: 500 });
   }

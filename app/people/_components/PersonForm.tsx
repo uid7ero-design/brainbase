@@ -28,21 +28,58 @@ type Person = {
   employment_status?: string;
   team_id?: string | null;
   manager_person_id?: string | null;
+  linked_user_id?: string | null;
 };
 type Team = { id: string; name: string };
 type ManagerOption = { id: string; first_name: string; last_name: string };
+// HR-2 Step 1D1 — the exact, deliberately narrow shape GET
+// /api/hr/linkable-users returns (see that route's own header comment
+// for why: no role, no status, no password/tokens, no other
+// organisation's users). `selectable` (added in the Step 1D1
+// corrective pass) is the authoritative disabling signal — server-
+// computed so this component never has to re-derive "is this account
+// pickable" from a raw status enum.
+type LinkableUser = { id: string; name: string; email: string | null; already_linked: boolean; linked_person_id: string | null; selectable: boolean };
 
-export default function PersonForm({ initial, onSaved }: { initial?: Person; onSaved: (p: Person) => void }) {
+// canManage: the SAME server-derived, HR-administrator UX flag
+// app/people/page.tsx already computes (from GET /api/hr/people's own
+// ctx.isHrAdministrator projection) and already uses to gate whether
+// this form is even reachable at all (both the "+ Add Person" button
+// and PersonDrawer's "Edit" button are themselves canManage-gated —
+// this form is therefore never mounted for a non-admin viewer in the
+// first place). Threaded through explicitly anyway, rather than relied
+// on as an implicit invariant of how callers happen to mount this
+// component today, so the linked-account control's own visibility
+// doesn't silently depend on that never changing. This is a UX
+// courtesy only, exactly like every other canManage gate in this
+// module — PATCH /api/hr/people/[id]'s own ctx.isHrAdministrator check
+// remains the actual, unchanged security boundary regardless of what
+// this prop is set to.
+export default function PersonForm({ initial, onSaved, canManage }: { initial?: Person; onSaved: (p: Person) => void; canManage: boolean }) {
   const [form, setForm] = useState<Person>(initial ?? { worker_type: 'employee', employment_status: 'active' });
   const [teams, setTeams] = useState<Team[]>([]);
   const [managers, setManagers] = useState<ManagerOption[]>([]);
+  const [linkableUsers, setLinkableUsers] = useState<LinkableUser[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
     fetch('/api/hr/teams').then(r => r.json()).then(d => setTeams(d.teams ?? []));
     fetch('/api/hr/people').then(r => r.json()).then(d => setManagers(d.people ?? []));
-  }, []);
+    // HR-2 Step 1D1 — fetched only when this management UI actually
+    // needs it, matching this route's own HR-administrator-only gate
+    // (a fetch from a non-admin viewer would just 403 harmlessly, but
+    // there is no reason to issue it at all when canManage is false).
+    // Corrective pass — editing an existing person passes person_id so
+    // the route can include that person's own currently-linked account
+    // even if it has since gone inactive (see that route's own header
+    // comment); create-person mode has no person_id and therefore
+    // requests ACTIVE candidates only, unchanged from before.
+    if (canManage) {
+      const url = initial?.id ? `/api/hr/linkable-users?person_id=${initial.id}` : '/api/hr/linkable-users';
+      fetch(url).then(r => r.json()).then(d => setLinkableUsers(d.users ?? []));
+    }
+  }, [canManage, initial?.id]);
 
   const set = (k: keyof Person) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setForm(f => ({ ...f, [k]: e.target.value }));
@@ -61,9 +98,20 @@ export default function PersonForm({ initial, onSaved }: { initial?: Person; onS
   // exactly the fields this form has a control for — the same set the
   // set() calls below ever write to — so it can never drift from what's
   // actually editable here without both being updated together.
+  // HR-2 Step 1D1 — linked_user_id added. Still submitted unconditionally
+  // like every other field here (matching this form's own established,
+  // deliberate "always send the full editable shape" convention — see
+  // PATCH /api/hr/people/[id]'s own PR #212 changedFields handling,
+  // which already correctly treats an unchanged resubmitted value as a
+  // no-op regardless). A non-admin viewer never reaches this branch at
+  // all (canManage gates this form's very existence — see this
+  // component's own header comment), so this addition cannot let a
+  // non-admin smuggle a link change through; PATCH's own
+  // ctx.isHrAdministrator check for linked_user_id remains the real
+  // boundary either way.
   const EDITABLE_FIELDS = [
     'first_name', 'last_name', 'preferred_name', 'work_email', 'work_phone',
-    'job_title', 'worker_type', 'employment_status', 'team_id', 'manager_person_id',
+    'job_title', 'worker_type', 'employment_status', 'team_id', 'manager_person_id', 'linked_user_id',
   ] as const satisfies readonly (keyof Person)[];
 
   async function submit(e: React.FormEvent) {
@@ -130,6 +178,44 @@ export default function PersonForm({ initial, onSaved }: { initial?: Person; onS
           ))}
         </select>
       </div>
+
+      {/* HR-2 Step 1D1 — explicit-linking-only control. Never
+          auto-selected or highlighted by work_email match: the
+          selected value comes ONLY from `initial.linked_user_id`
+          (editing an already-linked person) or a deliberate choice
+          made here — nothing in this component ever reads form.work_email
+          to influence this field. Corrective pass — `disabled` now
+          comes straight from the server-computed `selectable` field
+          (GET /api/hr/linkable-users) rather than being re-derived
+          here, so this component never has to know WHY a candidate
+          isn't pickable (already linked to someone else, or — since
+          this route can now also return the person's own currently-
+          linked account even after it goes inactive — simply no
+          longer an active account). `isCurrentLink` is kept only to
+          pick the more accurate label text; it plays no part in
+          disabling. Either way, the actual, concurrency-safe rejection
+          of picking an unavailable account still lives in the DB's own
+          UNIQUE constraint (see PATCH /api/hr/people/[id]'s own 409
+          linked_user_already_linked handling) — this disabling is a UX
+          courtesy only. */}
+      {canManage && (
+        <div>
+          <label style={lbl}>Linked BrainBase Account</label>
+          <select value={form.linked_user_id ?? ''} onChange={set('linked_user_id')} style={sel}>
+            <option value="">— No linked account —</option>
+            {linkableUsers.map(u => {
+              const disabled = !u.selectable;
+              const isCurrentLink = u.id === form.linked_user_id;
+              const label = disabled ? (isCurrentLink ? ' — currently linked (inactive)' : ' — already linked') : '';
+              return (
+                <option key={u.id} value={u.id} disabled={disabled}>
+                  {u.name}{u.email ? ` (${u.email})` : ''}{label}
+                </option>
+              );
+            })}
+          </select>
+        </div>
+      )}
 
       {error && <p style={{ color: '#f87171', fontSize: 13, margin: 0 }}>{error}</p>}
       <button type="submit" disabled={saving} style={{ padding: '10px 0', background: '#1a6aff', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: saving ? 'default' : 'pointer' }}>

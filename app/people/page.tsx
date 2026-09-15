@@ -131,12 +131,12 @@ export default function PeoplePage() {
       </div>
 
       <SlidePanel open={showAdd} onClose={() => setShowAdd(false)} title="Add Person">
-        <PersonForm onSaved={() => { setShowAdd(false); load(); }} />
+        <PersonForm canManage={canManage} onSaved={() => { setShowAdd(false); load(); }} />
       </SlidePanel>
 
       <SlidePanel open={editingPerson !== null} onClose={() => setEditingPerson(null)} title="Edit Person">
         {editingPerson && (
-          <PersonForm initial={editingPerson} onSaved={() => { setEditingPerson(null); load(); }} />
+          <PersonForm initial={editingPerson} canManage={canManage} onSaved={() => { setEditingPerson(null); load(); }} />
         )}
       </SlidePanel>
 

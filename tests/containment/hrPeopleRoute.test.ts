@@ -1505,3 +1505,199 @@ describe('date no-op and audit correctness', () => {
     expect(entry.afterState.start_date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 });
+
+// ── HR-2 Step 1D1 — explicit BrainBase account linking ──────────────
+//
+// Cross-org rejection, HR-admin/super_admin permission, self-linked-
+// user denial, unlink, and audit-precedence coverage for
+// linked_user_id already exist earlier in this file (see the "self-
+// linked user CANNOT change", "super_admin can change linked_user_id",
+// and action-naming-precedence describe blocks). This block covers the
+// remaining explicit scenarios HR-2 Step 1D1 requires: manager denial,
+// relink, same-value no-op, and the new duplicate-link 409 translation.
+
+describe('HR-2 Step 1D1 — explicit account linking', () => {
+  it('a manager (module-entitled, non-admin, non-self) cannot link', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(MANAGER_CTX('manager-1'));
+    queue([personRow({ id: 'p1', linked_user_id: null })]);
+    const res = await patchPerson(jsonRequest('http://localhost/api/hr/people/p1', 'PATCH', { linked_user_id: 'user-2' }), withParams('p1'));
+    expect(res.status).toBe(403);
+    expect(calls.some(c => c.text.includes('UPDATE hr_people'))).toBe(false);
+  });
+
+  it('relink A -> B succeeds when B is free (same-org, not already linked elsewhere)', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    queue(
+      [personRow({ id: 'p1', linked_user_id: 'user-a' })],
+      [{ id: 'user-b', organisation_id: 'org-a' }], // isUserInOrganisation(user-b)
+      [personRow({ id: 'p1', linked_user_id: 'user-b' })],
+    );
+    const res = await patchPerson(jsonRequest('http://localhost/api/hr/people/p1', 'PATCH', { linked_user_id: 'user-b' }), withParams('p1'));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.person.linked_user_id).toBe('user-b');
+  });
+
+  it('resubmitting the same linked_user_id (no actual change) writes no UPDATE, bumps no updated_at, and logs no audit', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    const existing = personRow({ id: 'p1', linked_user_id: 'user-a' });
+    queue([existing], [{ id: 'user-a', organisation_id: 'org-a' }]); // loadPerson, isUserInOrganisation only
+    const res = await patchPerson(jsonRequest('http://localhost/api/hr/people/p1', 'PATCH', { linked_user_id: 'user-a' }), withParams('p1'));
+    expect(res.status).toBe(200);
+    expect(calls.some(c => c.text.includes('UPDATE hr_people'))).toBe(false);
+    expect(logHrEventMock).not.toHaveBeenCalled();
+  });
+
+  it('linking never grants HR-administrator authority — ctx.isHrAdministrator resolution is untouched by this write (resolveHrAccessContext is called once, up front, and never re-derived from the just-written linked_user_id)', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    queue(
+      [personRow({ id: 'p1', linked_user_id: null })],
+      [{ id: 'user-2', organisation_id: 'org-a' }],
+      [personRow({ id: 'p1', linked_user_id: 'user-2' })],
+    );
+    await patchPerson(jsonRequest('http://localhost/api/hr/people/p1', 'PATCH', { linked_user_id: 'user-2' }), withParams('p1'));
+    expect(resolveHrAccessContextMock).toHaveBeenCalledTimes(1);
+  });
+
+  describe('duplicate-link conflict (race-time DB unique violation)', () => {
+    it('the exact hr_people_organisation_id_linked_user_id_key violation returns 409 linked_user_already_linked, with no raw Postgres message leaked', async () => {
+      const { NeonDbError } = await import('@neondatabase/serverless');
+      resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+      sqlMock.mockImplementationOnce((strings: TemplateStringsArray, ...values: unknown[]) => {
+        calls.push({ text: strings.join('?'), values });
+        return Promise.resolve([personRow({ id: 'p1', linked_user_id: null })]); // loadPerson
+      });
+      sqlMock.mockImplementationOnce((strings: TemplateStringsArray, ...values: unknown[]) => {
+        calls.push({ text: strings.join('?'), values });
+        return Promise.resolve([{ id: 'user-2', organisation_id: 'org-a' }]); // isUserInOrganisation
+      });
+      sqlMock.mockImplementationOnce(() => {
+        const err = new NeonDbError('duplicate key value violates unique constraint "hr_people_organisation_id_linked_user_id_key"');
+        err.code = '23505';
+        err.constraint = 'hr_people_organisation_id_linked_user_id_key';
+        throw err;
+      });
+      const res = await patchPerson(jsonRequest('http://localhost/api/hr/people/p1', 'PATCH', { linked_user_id: 'user-2' }), withParams('p1'));
+      expect(res.status).toBe(409);
+      const body = await res.json();
+      expect(body).toEqual({ error: 'That BrainBase account is already linked to another person.', code: 'linked_user_already_linked' });
+      expect(JSON.stringify(body)).not.toMatch(/duplicate key|constraint|hr_people_organisation_id/);
+    });
+
+    it('an unrelated 23505 (a different constraint) is NOT mislabeled as linked_user_already_linked — falls through to the generic 500', async () => {
+      const { NeonDbError } = await import('@neondatabase/serverless');
+      resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+      sqlMock.mockImplementationOnce((strings: TemplateStringsArray, ...values: unknown[]) => {
+        calls.push({ text: strings.join('?'), values });
+        return Promise.resolve([personRow({ id: 'p1', linked_user_id: null })]);
+      });
+      sqlMock.mockImplementationOnce((strings: TemplateStringsArray, ...values: unknown[]) => {
+        calls.push({ text: strings.join('?'), values });
+        return Promise.resolve([{ id: 'user-2', organisation_id: 'org-a' }]);
+      });
+      sqlMock.mockImplementationOnce(() => {
+        const err = new NeonDbError('duplicate key value violates unique constraint "some_other_table_pkey"');
+        err.code = '23505';
+        err.constraint = 'some_other_table_pkey';
+        throw err;
+      });
+      const res = await patchPerson(jsonRequest('http://localhost/api/hr/people/p1', 'PATCH', { linked_user_id: 'user-2' }), withParams('p1'));
+      expect(res.status).toBe(500);
+      const body = await res.json();
+      expect(body.code).not.toBe('linked_user_already_linked');
+      expect(body.error).toBe('Could not update person.');
+    });
+
+    it('an unrelated DB error (not a 23505 at all) preserves the existing generic 500 handling', async () => {
+      resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+      sqlMock.mockImplementationOnce((strings: TemplateStringsArray, ...values: unknown[]) => {
+        calls.push({ text: strings.join('?'), values });
+        return Promise.resolve([personRow({ id: 'p1', linked_user_id: null })]);
+      });
+      sqlMock.mockImplementationOnce((strings: TemplateStringsArray, ...values: unknown[]) => {
+        calls.push({ text: strings.join('?'), values });
+        return Promise.resolve([{ id: 'user-2', organisation_id: 'org-a' }]);
+      });
+      sqlMock.mockImplementationOnce(() => {
+        throw new Error('connection reset');
+      });
+      const res = await patchPerson(jsonRequest('http://localhost/api/hr/people/p1', 'PATCH', { linked_user_id: 'user-2' }), withParams('p1'));
+      expect(res.status).toBe(500);
+      const body = await res.json();
+      expect(body.error).toBe('Could not update person.');
+    });
+  });
+
+  // HR-2 Step 1D1 (corrective pass) — POST /api/hr/people's INSERT also
+  // explicitly assigns linked_user_id (see this file's own header
+  // comment on POST body handling below), so it is subject to the
+  // exact same race-time duplicate-link constraint violation as PATCH
+  // above. These three tests mirror the PATCH block's own three cases
+  // exactly, now routed through the shared isLinkedUserUniqueViolation()
+  // helper (lib/hr/validation.ts) rather than duplicated inline logic.
+  describe('duplicate-link conflict (race-time DB unique violation) — POST /people', () => {
+    it('the exact hr_people_organisation_id_linked_user_id_key violation returns 409 linked_user_already_linked, with no raw Postgres message leaked, no audit event, and no partially-created person', async () => {
+      const { NeonDbError } = await import('@neondatabase/serverless');
+      resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+      sqlMock.mockImplementationOnce((strings: TemplateStringsArray, ...values: unknown[]) => {
+        calls.push({ text: strings.join('?'), values });
+        return Promise.resolve([{ id: 'user-2', organisation_id: 'org-a' }]); // isUserInOrganisation
+      });
+      sqlMock.mockImplementationOnce(() => {
+        const err = new NeonDbError('duplicate key value violates unique constraint "hr_people_organisation_id_linked_user_id_key"');
+        err.code = '23505';
+        err.constraint = 'hr_people_organisation_id_linked_user_id_key';
+        throw err; // INSERT
+      });
+      const res = await createPerson(jsonRequest('http://localhost/api/hr/people', 'POST', { first_name: 'A', last_name: 'B', linked_user_id: 'user-2' }));
+      expect(res.status).toBe(409);
+      const body = await res.json();
+      expect(body).toEqual({ error: 'That BrainBase account is already linked to another person.', code: 'linked_user_already_linked' });
+      expect(JSON.stringify(body)).not.toMatch(/duplicate key|constraint|hr_people_organisation_id/);
+      expect(logHrEventMock).not.toHaveBeenCalled();
+      // isUserInOrganisation (recorded in `calls`) then the INSERT
+      // attempt itself (throws before it can push to `calls`, but
+      // sqlMock's own call count still proves it was actually
+      // attempted) — exactly two sql invocations, no retry, no
+      // partially-created row possible since a single INSERT statement
+      // either fully commits or throws.
+      expect(calls).toHaveLength(1);
+      expect(sqlMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('an unrelated 23505 (a different constraint) is NOT mislabeled as linked_user_already_linked — falls through to the existing generic 500', async () => {
+      const { NeonDbError } = await import('@neondatabase/serverless');
+      resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+      sqlMock.mockImplementationOnce((strings: TemplateStringsArray, ...values: unknown[]) => {
+        calls.push({ text: strings.join('?'), values });
+        return Promise.resolve([{ id: 'user-2', organisation_id: 'org-a' }]);
+      });
+      sqlMock.mockImplementationOnce(() => {
+        const err = new NeonDbError('duplicate key value violates unique constraint "some_other_table_pkey"');
+        err.code = '23505';
+        err.constraint = 'some_other_table_pkey';
+        throw err;
+      });
+      const res = await createPerson(jsonRequest('http://localhost/api/hr/people', 'POST', { first_name: 'A', last_name: 'B', linked_user_id: 'user-2' }));
+      expect(res.status).toBe(500);
+      const body = await res.json();
+      expect(body.code).not.toBe('linked_user_already_linked');
+      expect(body.error).toBe('Could not create person.');
+    });
+
+    it('an unrelated DB error (not a 23505 at all) preserves the existing generic 500 handling', async () => {
+      resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+      sqlMock.mockImplementationOnce((strings: TemplateStringsArray, ...values: unknown[]) => {
+        calls.push({ text: strings.join('?'), values });
+        return Promise.resolve([{ id: 'user-2', organisation_id: 'org-a' }]);
+      });
+      sqlMock.mockImplementationOnce(() => {
+        throw new Error('connection reset');
+      });
+      const res = await createPerson(jsonRequest('http://localhost/api/hr/people', 'POST', { first_name: 'A', last_name: 'B', linked_user_id: 'user-2' }));
+      expect(res.status).toBe(500);
+      const body = await res.json();
+      expect(body.error).toBe('Could not create person.');
+    });
+  });
+});

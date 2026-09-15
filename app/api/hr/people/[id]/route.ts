@@ -12,6 +12,7 @@ import { toDateStr } from '@/lib/date';
 import {
   isValidWorkerType, isValidEmploymentStatus, isValidHrDate,
   isTeamInOrganisation, isTeamActive, isPersonInOrganisation, isUserInOrganisation,
+  isLinkedUserUniqueViolation,
 } from '@/lib/hr/validation';
 import { wouldCreateManagerCycle } from '@/lib/hr/reportingLines';
 
@@ -308,6 +309,23 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       RETURNING *
     `;
   } catch (err) {
+    // HR-2 Step 1D1 (corrective pass) — a race-time duplicate link. The
+    // DB's own UNIQUE(organisation_id, linked_user_id) constraint is
+    // the actual concurrency-safe source of truth here, not merely a
+    // UX pre-check: two concurrent PATCHes could both pass
+    // isUserInOrganisation() before either commits, so only the
+    // database itself can correctly reject the second write. See
+    // isLinkedUserUniqueViolation() in lib/hr/validation.ts for the
+    // exact matching logic (shared with POST /api/hr/people, which
+    // has the identical race). An unrelated 23505 (a different
+    // constraint entirely) or any other error falls through to the
+    // unchanged, generic 500 below, exactly as it always has.
+    if (isLinkedUserUniqueViolation(err)) {
+      return NextResponse.json(
+        { error: 'That BrainBase account is already linked to another person.', code: 'linked_user_already_linked' },
+        { status: 409 },
+      );
+    }
     console.error('[hr/people PATCH] update failed', err);
     return NextResponse.json({ error: 'Could not update person.' }, { status: 500 });
   }
