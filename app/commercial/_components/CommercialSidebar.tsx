@@ -48,6 +48,10 @@ export default function CommercialSidebar({ quotesEnabled = false, invoicingEnab
     ...(invoicingEnabled ? [{ href: '/commercial/invoices', label: 'Invoices' }] : []),
     ...(purchasingEnabled ? [
       { href: '/commercial/purchasing/purchase-orders', label: 'Purchase Orders' },
+      // Phase C7.3 — Purchase Receipts, gated on the identical
+      // 'purchasing' capability as Purchase Orders/Suppliers (no new
+      // capability key was introduced for receipts).
+      { href: '/commercial/purchasing/purchase-receipts', label: 'Purchase Receipts' },
       { href: '/commercial/purchasing/suppliers', label: 'Suppliers' },
     ] : []),
     ...BASE_NAV_ITEMS.slice(3),
