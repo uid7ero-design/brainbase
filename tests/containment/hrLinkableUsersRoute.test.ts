@@ -162,7 +162,10 @@ describe('GET /api/hr/linkable-users — response minimization', () => {
     queue([]);
     await listLinkableUsers(getRequest(BASE_URL));
     const selectText = calls[0].text.toLowerCase();
-    for (const forbidden of ['password', 'role', 'email_verified', 'last_login_at', 'preferences']) {
+    for (const forbidden of [
+      'password', 'role', 'email_verified', 'last_login_at', 'preferences',
+      'token', 'mfa', 'last_seen', 'org_name', 'organisation_name',
+    ]) {
       expect(selectText).not.toContain(forbidden);
     }
   });
@@ -248,16 +251,33 @@ describe('GET /api/hr/linkable-users — person_id (currently-linked-inactive-us
 describe('GET /api/hr/linkable-users — linkability', () => {
   it('an unlinked same-org active user has already_linked: false', async () => {
     resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
-    queue([{ id: 'user-2', name: 'Emma Palmer', email: 'emma@example.com', linked_person_id: null }]);
+    queue([{ id: 'user-2', name: 'Emma Palmer', email: 'emma@example.com', status: 'ACTIVE', linked_person_id: null }]);
     const res = await listLinkableUsers(getRequest(BASE_URL));
     const body = await res.json();
     expect(body.users[0].already_linked).toBe(false);
     expect(body.users[0].linked_person_id).toBeNull();
   });
 
+  it('an ACTIVE unlinked candidate (no person_id in the request) is selectable', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    queue([{ id: 'user-2', name: 'Emma Palmer', email: 'emma@example.com', status: 'ACTIVE', linked_person_id: null }]);
+    const res = await listLinkableUsers(getRequest(BASE_URL));
+    const body = await res.json();
+    expect(body.users[0].selectable).toBe(true);
+  });
+
+  it('an ACTIVE candidate already linked to a DIFFERENT person (no person_id in the request) is not selectable', async () => {
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    queue([{ id: 'user-2', name: 'Emma Palmer', email: 'emma@example.com', status: 'ACTIVE', linked_person_id: 'person-9' }]);
+    const res = await listLinkableUsers(getRequest(BASE_URL));
+    const body = await res.json();
+    expect(body.users[0].already_linked).toBe(true);
+    expect(body.users[0].selectable).toBe(false);
+  });
+
   it('a user already linked to a person has already_linked: true and the linked_person_id', async () => {
     resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
-    queue([{ id: 'user-2', name: 'Emma Palmer', email: 'emma@example.com', linked_person_id: 'person-9' }]);
+    queue([{ id: 'user-2', name: 'Emma Palmer', email: 'emma@example.com', status: 'ACTIVE', linked_person_id: 'person-9' }]);
     const res = await listLinkableUsers(getRequest(BASE_URL));
     const body = await res.json();
     expect(body.users[0].already_linked).toBe(true);
