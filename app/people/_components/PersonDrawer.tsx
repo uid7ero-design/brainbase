@@ -24,6 +24,17 @@ export type PersonDetail = {
   employment_status: string;
   team_id?: string | null;
   manager_person_id?: string | null;
+  // HR-2 Step 1D2 — 'internal' tier (lib/hr/personFieldTiers.ts), same
+  // as team_id/manager_person_id/employment_status above: visible to
+  // anyone who can view the record at all, not gated behind canManage
+  // (unlike the Linked BrainBase Account row below, which is a
+  // deliberate authority-model exception, not a field-tier one).
+  // Already returned as a canonical 'YYYY-MM-DD' string (or null) by
+  // GET /api/hr/people/[id] — that route's own loadPerson() applies
+  // normalizePersonDates() before ever returning a row, so this
+  // component never receives a raw Date object to handle.
+  start_date?: string | null;
+  end_date?: string | null;
   // HR-2 Step 1D1 — same reason team_id/manager_person_id are captured
   // above: PersonForm's edit mode needs the real, current value to
   // pre-select the Linked Account control; already returned by GET
@@ -97,6 +108,8 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
           <Row label="Worker Type" value={person.worker_type} />
           <Row label="Team" value={person.team_name ?? '—'} />
           <Row label="Manager" value={person.manager_first_name ? `${person.manager_first_name} ${person.manager_last_name}` : '—'} />
+          <Row label="Start Date" value={person.start_date ?? '—'} />
+          <Row label="End Date" value={person.end_date ?? '—'} />
           {'work_email' in person && <Row label="Work Email" value={person.work_email ?? '—'} />}
           {'work_phone' in person && <Row label="Work Phone" value={person.work_phone ?? '—'} />}
           {/* HR-2 Step 1D1 — management control, not a general
