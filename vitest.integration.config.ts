@@ -83,6 +83,16 @@ import path from 'path';
 // explicit-file-argument isolation. Unlike the Data Hub specs above, this
 // one needs no auth seam (proposeOrExecuteOrganiserComment takes already-
 // trusted values directly) — only the lib/db sql-client seam.
+//
+// C7.3 addition: scripts/tests/purchaseReceiptConcurrency.integration
+// .test.ts (the strict over-receipt guard's own real-Postgres concurrency
+// proof, plus the PO-cancel-vs-receipt-post mutual exclusion invariant —
+// see scripts/tests/verify-purchase-receipt-concurrency.sh) is added
+// alongside the existing specs, for the same reason and with the same
+// explicit-file-argument isolation. Like the D.4.6K suite, this one needs
+// only the lib/db sql-client seam — createPurchaseOrder/postPurchaseReceipt/
+// cancelPurchaseOrder etc. all take already-trusted organisationId/userId
+// directly (auth happens one layer up, at the route handlers).
 export default defineConfig({
   test: {
     environment: 'node',
@@ -98,6 +108,7 @@ export default defineConfig({
       'scripts/tests/datahubSourceMappingServices.integration.test.ts',
       'scripts/tests/selectWorksheetMapping.integration.test.ts',
       'scripts/tests/organiserConfirmationReplay.integration.test.ts',
+      'scripts/tests/purchaseReceiptConcurrency.integration.test.ts',
     ],
     testTimeout: 30_000,
     hookTimeout: 30_000,
