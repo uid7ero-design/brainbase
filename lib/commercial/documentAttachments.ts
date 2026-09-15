@@ -17,7 +17,12 @@ import { logCommercialAttachmentUploaded, logCommercialAttachmentRemoved } from 
 // string), asserting tenant ownership before anything is written.
 
 export type CommercialAttachmentCategory = 'SUPPLIER_QUOTE' | 'SPECIFICATION' | 'SCOPE_OF_WORK' | 'APPROVAL' | 'OTHER';
-export type CommercialAttachmentDocumentType = 'purchase_order';
+// Phase C7.3 — 'purchase_receipt' added (see scripts/widen-commercial-
+// document-attachments-for-purchase-receipts.sql for the matching DB
+// CHECK widening). Reuses this exact table/store/audit path — no second
+// Blob/storage mechanism, no raw Blob URL ever returned to a client for
+// either document type.
+export type CommercialAttachmentDocumentType = 'purchase_order' | 'purchase_receipt';
 
 const VALID_CATEGORIES: CommercialAttachmentCategory[] = ['SUPPLIER_QUOTE', 'SPECIFICATION', 'SCOPE_OF_WORK', 'APPROVAL', 'OTHER'];
 
@@ -228,6 +233,154 @@ export async function removePurchaseOrderAttachment(params: {
     // the removal is already audited; a Blob cleanup failure must never
     // surface as a failed remove to the caller. Logged for operator
     // visibility only.
+    console.error('[commercial attachments] failed to delete Blob object after row removal (ignored)', err);
+  }
+  return true;
+}
+
+// ── Purchase receipts (Phase C7.3) ───────────────────────────────────
+//
+// Mirrors every purchase-order attachment function above exactly,
+// hardcoding documentType = 'purchase_receipt' instead — matching this
+// codebase's own established convention (see lib/commercial/
+// documentDeliveries.ts's three near-identical recordXDeliveryAttempt()
+// functions, one per document type) rather than genericizing a single
+// parametrized function. Reuses every shared primitive unchanged:
+// CommercialAttachmentCategory/VALID_CATEGORIES, MAX_ATTACHMENT_BYTES/
+// ALLOWED_ATTACHMENT_MIME_TYPES, assertSameOrganisation(),
+// sanitiseFilename(), createCommercialAttachmentStore()/
+// buildCommercialAttachmentKey() (both already document-type-generic),
+// and the already document-type-generic logCommercialAttachmentUploaded/
+// Removed() audit functions.
+
+export async function listAttachmentsForPurchaseReceipt(
+  organisationId: string, purchaseReceiptId: string,
+): Promise<CommercialDocumentAttachmentWithUploader[]> {
+  return (await sql`
+    SELECT a.*, u.name AS uploaded_by_name
+    FROM commercial_document_attachments a
+    LEFT JOIN users u ON u.id = a.uploaded_by
+    WHERE a.organisation_id = ${organisationId} AND a.document_type = 'purchase_receipt' AND a.document_id = ${purchaseReceiptId}
+    ORDER BY a.created_at DESC
+  `) as CommercialDocumentAttachmentWithUploader[];
+}
+
+// Tenant- AND parent-document-scoped single-row lookup — used by both
+// the download and remove routes so neither can be reached for an
+// attachment that exists but belongs to a different receipt or
+// organisation.
+export async function getPurchaseReceiptAttachment(
+  organisationId: string, purchaseReceiptId: string, attachmentId: string,
+): Promise<CommercialDocumentAttachment | null> {
+  const rows = (await sql`
+    SELECT * FROM commercial_document_attachments
+    WHERE id = ${attachmentId} AND organisation_id = ${organisationId}
+      AND document_type = 'purchase_receipt' AND document_id = ${purchaseReceiptId}
+  `) as CommercialDocumentAttachment[];
+  return rows[0] ?? null;
+}
+
+// The ONLY way to write a purchase-receipt attachment row + its Blob
+// object. `purchaseReceipt` must be the already-resolved row from a
+// tenant-scoped lookup (getPurchaseReceipt(session.organisationId, id)),
+// mirroring uploadPurchaseOrderAttachment()'s identical discipline.
+export async function uploadPurchaseReceiptAttachment(params: {
+  organisationId: string;
+  userId: string;
+  purchaseReceipt: { id: string; organisation_id: string };
+  category: string;
+  originalFilename: string;
+  mimeType: string;
+  bytes: Uint8Array;
+}): Promise<UploadAttachmentResult> {
+  assertSameOrganisation(params.organisationId, params.purchaseReceipt.organisation_id, 'purchase_receipt');
+
+  if (!VALID_CATEGORIES.includes(params.category as CommercialAttachmentCategory)) {
+    return { ok: false, error: `category must be one of: ${VALID_CATEGORIES.join(', ')}.` };
+  }
+  if (!ALLOWED_ATTACHMENT_MIME_TYPES.includes(params.mimeType as (typeof ALLOWED_ATTACHMENT_MIME_TYPES)[number])) {
+    return { ok: false, error: `File type "${params.mimeType}" is not allowed.` };
+  }
+  if (params.bytes.byteLength === 0) {
+    return { ok: false, error: 'File is empty.' };
+  }
+  if (params.bytes.byteLength > MAX_ATTACHMENT_BYTES) {
+    return { ok: false, error: `File exceeds the ${MAX_ATTACHMENT_BYTES / (1024 * 1024)}MB limit.` };
+  }
+
+  const attachmentId = randomUUID();
+  const storageKey = buildCommercialAttachmentKey(params.organisationId, 'purchase_receipt', params.purchaseReceipt.id, attachmentId);
+  const store = createCommercialAttachmentStore();
+
+  try {
+    await store.put(storageKey, params.bytes, { contentType: params.mimeType });
+  } catch (err) {
+    const message = err instanceof RawFileStoreError ? err.message : 'Failed to store the uploaded file.';
+    return { ok: false, error: message };
+  }
+
+  try {
+    const rows = (await sql`
+      INSERT INTO commercial_document_attachments (
+        id, organisation_id, document_type, document_id, category,
+        original_filename, mime_type, size_bytes, storage_key, uploaded_by
+      ) VALUES (
+        ${attachmentId}, ${params.organisationId}, 'purchase_receipt', ${params.purchaseReceipt.id}, ${params.category},
+        ${sanitiseFilename(params.originalFilename)}, ${params.mimeType}, ${params.bytes.byteLength}, ${storageKey}, ${params.userId}
+      )
+      RETURNING *
+    `) as CommercialDocumentAttachment[];
+    const attachment = rows[0];
+
+    await logCommercialAttachmentUploaded({
+      organisationId: params.organisationId, userId: params.userId, attachmentId: attachment.id,
+      documentType: 'purchase_receipt', documentId: params.purchaseReceipt.id,
+      category: attachment.category, originalFilename: attachment.original_filename, sizeBytes: attachment.size_bytes,
+    });
+
+    return { ok: true, attachment };
+  } catch (err) {
+    try { await store.delete(storageKey); } catch { /* best-effort only */ }
+    return { ok: false, error: err instanceof Error ? err.message : 'Failed to record the uploaded file.' };
+  }
+}
+
+export async function downloadPurchaseReceiptAttachmentBytes(attachment: CommercialDocumentAttachment): Promise<Uint8Array> {
+  const store = createCommercialAttachmentStore();
+  const { body } = await store.get(attachment.storage_key, { maxBytes: MAX_ATTACHMENT_BYTES });
+  return body;
+}
+
+// The ONLY way to remove a purchase-receipt attachment. `purchaseReceipt`
+// must be the already-resolved, tenant-scoped parent row (same
+// discipline as removePurchaseOrderAttachment() above).
+export async function removePurchaseReceiptAttachment(params: {
+  organisationId: string;
+  userId: string;
+  purchaseReceipt: { id: string; organisation_id: string };
+  attachmentId: string;
+}): Promise<boolean> {
+  assertSameOrganisation(params.organisationId, params.purchaseReceipt.organisation_id, 'purchase_receipt');
+
+  const rows = (await sql`
+    DELETE FROM commercial_document_attachments
+    WHERE id = ${params.attachmentId} AND organisation_id = ${params.organisationId}
+      AND document_type = 'purchase_receipt' AND document_id = ${params.purchaseReceipt.id}
+    RETURNING *
+  `) as CommercialDocumentAttachment[];
+  const removed = rows[0];
+  if (!removed) return false;
+
+  await logCommercialAttachmentRemoved({
+    organisationId: params.organisationId, userId: params.userId, attachmentId: removed.id,
+    documentType: 'purchase_receipt', documentId: params.purchaseReceipt.id,
+    category: removed.category, originalFilename: removed.original_filename,
+  });
+
+  try {
+    const store = createCommercialAttachmentStore();
+    await store.delete(removed.storage_key);
+  } catch (err) {
     console.error('[commercial attachments] failed to delete Blob object after row removal (ignored)', err);
   }
   return true;
