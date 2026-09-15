@@ -22,9 +22,12 @@ export async function GET() {
 // in lib/commercial/authorize.ts — the same floor
 // commercial_document_sequences' configureDocumentSequence() uses, not
 // the lower 'createEdit' floor used by ordinary document mutations like
-// creating a quote.
+// creating a quote. Phase C7.2 — widened to include 'purchasing',
+// matching this file's own GET handler (Phase C6.3): a purchasing-only
+// organisation must be able to administer the same tax codes its PO
+// lines already read via GET, not just read someone else's.
 export async function POST(req: NextRequest) {
-  const auth = await authorizeCommercialRequest(['quotes', 'invoicing'], COMMERCIAL_MIN_ROLE.administer);
+  const auth = await authorizeCommercialRequest(['quotes', 'invoicing', 'purchasing'], COMMERCIAL_MIN_ROLE.administer);
   if (!auth.ok) return auth.response;
 
   const body = await req.json().catch(() => ({}));

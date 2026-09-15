@@ -41,10 +41,16 @@ vi.mock('@/lib/commercial/products', () => ({
 
 const listTaxCodesMock = vi.fn()
 const createTaxCodeMock = vi.fn()
+const deactivateTaxCodeMock = vi.fn()
 vi.mock('@/lib/commercial/taxCodes', () => ({
   listTaxCodes: (...a: unknown[]) => listTaxCodesMock(...a),
   createTaxCode: (...a: unknown[]) => createTaxCodeMock(...a),
-  deactivateTaxCode: vi.fn(),
+  deactivateTaxCode: (...a: unknown[]) => deactivateTaxCodeMock(...a),
+}))
+
+const seedStandardAustralianTaxCodesMock = vi.fn()
+vi.mock('@/lib/commercial/taxCodeBootstrap', () => ({
+  seedStandardAustralianTaxCodes: (...a: unknown[]) => seedStandardAustralianTaxCodesMock(...a),
 }))
 
 const getBusinessProfileMock = vi.fn()
@@ -62,7 +68,9 @@ vi.mock('@/lib/commercial/invoices', () => ({ listInvoices: (...a: unknown[]) =>
 
 const { GET: customersGET, POST: customersPOST } = await import('@/app/api/commercial/customers/route')
 const { GET: productsGET, POST: productsPOST } = await import('@/app/api/commercial/products/route')
-const { GET: taxCodesGET } = await import('@/app/api/commercial/tax-codes/route')
+const { GET: taxCodesGET, POST: taxCodesPOST } = await import('@/app/api/commercial/tax-codes/route')
+const { DELETE: taxCodeDELETE } = await import('@/app/api/commercial/tax-codes/[id]/route')
+const { POST: taxCodesBootstrapPOST } = await import('@/app/api/commercial/tax-codes/bootstrap/route')
 const { GET: profileGET } = await import('@/app/api/commercial/settings/business-profile/route')
 const { GET: quotesGET } = await import('@/app/api/commercial/quotes/route')
 const { GET: invoicesGET } = await import('@/app/api/commercial/invoices/route')
@@ -96,13 +104,17 @@ beforeEach(() => {
   requireCapabilityMock.mockReset()
   listCustomersMock.mockReset(); createCustomerMock.mockReset()
   listProductsMock.mockReset(); createProductMock.mockReset()
-  listTaxCodesMock.mockReset(); createTaxCodeMock.mockReset()
+  listTaxCodesMock.mockReset(); createTaxCodeMock.mockReset(); deactivateTaxCodeMock.mockReset()
+  seedStandardAustralianTaxCodesMock.mockReset()
   getBusinessProfileMock.mockReset(); setBusinessProfileMock.mockReset()
   listQuotesMock.mockReset()
   listInvoicesMock.mockReset()
   listCustomersMock.mockResolvedValue([])
   listProductsMock.mockResolvedValue([])
   listTaxCodesMock.mockResolvedValue([])
+  createTaxCodeMock.mockResolvedValue({ id: 't1', code: 'GST', name: 'GST 10%', rate: '10.00' })
+  deactivateTaxCodeMock.mockResolvedValue(true)
+  seedStandardAustralianTaxCodesMock.mockResolvedValue({ created: [], skipped: ['GST', 'GST_FREE', 'NO_TAX'] })
   getBusinessProfileMock.mockResolvedValue({ organisationName: 'Acme', profile: { tradingName: null, address: null, email: null, phone: null, abn: null } })
   listQuotesMock.mockResolvedValue([])
   listInvoicesMock.mockResolvedValue([])
@@ -195,7 +207,6 @@ describe('Phase C4.4A (Finding 3) — 5. lower roles remain blocked on shared re
   it('a manager cannot POST a new tax code for a quotes-only organisation (administer floor still enforced)', async () => {
     requireSessionMock.mockResolvedValue(sessionFor('manager'))
     mockCapabilities(['quotes'])
-    const { POST: taxCodesPOST } = await import('@/app/api/commercial/tax-codes/route')
     const res = await taxCodesPOST(jsonReq({ code: 'GST', name: 'GST 10%', rate: 10 }))
     expect(res.status).toBe(403)
     expect(createTaxCodeMock).not.toHaveBeenCalled()
@@ -255,5 +266,74 @@ describe('Phase C6.3 — a purchasing-only organisation can read products/tax-co
     const res = await customersGET()
     expect(res.status).toBe(403)
     expect(listCustomersMock).not.toHaveBeenCalled()
+  })
+})
+
+// Phase C7.2 — repository-confirmed C6 follow-up. Phase C6.3 widened
+// tax-codes GET to ['quotes','invoicing','purchasing'] (asserted above),
+// but left POST (create), DELETE (deactivate), and the bootstrap POST
+// (seed-standard-codes) at ['quotes','invoicing'] only — a
+// purchasing-only organisation could read tax codes but never
+// administer its own. This block proves all three administration
+// routes are now reachable for a purchasing-only organisation at the
+// existing 'admin' (administer) role floor, and that the floor itself
+// is unchanged (a manager, even purchasing-only, still cannot
+// administer tax codes — the pre-existing test above already covers
+// the quotes-only case for that same floor).
+describe('Phase C7.2 — a purchasing-only organisation can administer tax codes (create, deactivate, bootstrap), not just read them', () => {
+  beforeEach(() => { requireSessionMock.mockResolvedValue(sessionFor('admin')); mockCapabilities(['purchasing']) })
+
+  it('POST /api/commercial/tax-codes succeeds (create)', async () => {
+    const res = await taxCodesPOST(jsonReq({ code: 'GST', name: 'GST 10%', rate: 10 }))
+    expect(res.status).toBe(201)
+    expect(createTaxCodeMock).toHaveBeenCalled()
+  })
+
+  it('DELETE /api/commercial/tax-codes/[id] succeeds (deactivate)', async () => {
+    const res = await taxCodeDELETE(plainReq(), { params: Promise.resolve({ id: 'tax-1' }) })
+    expect(res.status).toBe(200)
+    expect(deactivateTaxCodeMock).toHaveBeenCalled()
+  })
+
+  it('POST /api/commercial/tax-codes/bootstrap succeeds (seed standard codes)', async () => {
+    const res = await taxCodesBootstrapPOST()
+    expect(res.status).toBe(200)
+    expect(seedStandardAustralianTaxCodesMock).toHaveBeenCalled()
+  })
+
+  it('the administer role floor is still enforced for a purchasing-only organisation — a manager cannot create a tax code even though the capability check now passes', async () => {
+    requireSessionMock.mockResolvedValue(sessionFor('manager'))
+    const res = await taxCodesPOST(jsonReq({ code: 'GST', name: 'GST 10%', rate: 10 }))
+    expect(res.status).toBe(403)
+    expect(createTaxCodeMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('Phase C7.2 — quotes-only and invoicing-only organisations retain full tax-code administration (regression guard)', () => {
+  it('quotes-only, admin role: POST/DELETE/bootstrap all still succeed', async () => {
+    requireSessionMock.mockResolvedValue(sessionFor('admin'))
+    mockCapabilities(['quotes'])
+    expect((await taxCodesPOST(jsonReq({ code: 'GST', name: 'GST 10%', rate: 10 }))).status).toBe(201)
+    expect((await taxCodeDELETE(plainReq(), { params: Promise.resolve({ id: 'tax-1' }) })).status).toBe(200)
+    expect((await taxCodesBootstrapPOST()).status).toBe(200)
+  })
+
+  it('invoicing-only, admin role: POST/DELETE/bootstrap all still succeed', async () => {
+    requireSessionMock.mockResolvedValue(sessionFor('admin'))
+    mockCapabilities(['invoicing'])
+    expect((await taxCodesPOST(jsonReq({ code: 'GST', name: 'GST 10%', rate: 10 }))).status).toBe(201)
+    expect((await taxCodeDELETE(plainReq(), { params: Promise.resolve({ id: 'tax-1' }) })).status).toBe(200)
+    expect((await taxCodesBootstrapPOST()).status).toBe(200)
+  })
+
+  it('an organisation with NONE of quotes/invoicing/purchasing still cannot administer tax codes', async () => {
+    requireSessionMock.mockResolvedValue(sessionFor('admin'))
+    mockCapabilities([])
+    expect((await taxCodesPOST(jsonReq({ code: 'GST', name: 'GST 10%', rate: 10 }))).status).toBe(403)
+    expect((await taxCodeDELETE(plainReq(), { params: Promise.resolve({ id: 'tax-1' }) })).status).toBe(403)
+    expect((await taxCodesBootstrapPOST()).status).toBe(403)
+    expect(createTaxCodeMock).not.toHaveBeenCalled()
+    expect(deactivateTaxCodeMock).not.toHaveBeenCalled()
+    expect(seedStandardAustralianTaxCodesMock).not.toHaveBeenCalled()
   })
 })
