@@ -714,6 +714,18 @@ export async function issuePurchaseOrder(params: { organisationId: string; userI
 // Postgres's own row-level locking still makes two concurrent cancel
 // attempts on the same PO safe (only one can ever see status = 'ISSUED'
 // and apply).
+//
+// Phase C7.4 — a second, independent NOT EXISTS clause added the exact
+// same way: an ISSUED PO with any POSTED, non-cancelled supplier bill
+// against it must not be cancelled out from under it either. Both
+// guards live inside this SAME UPDATE's WHERE clause, ANDed together —
+// neither one weakens or replaces the other, and the identical
+// mutual-FOR-UPDATE-lock reasoning applies: postSupplierBillAtomically()
+// (lib/commercial/supplierBills.ts) takes its own FOR UPDATE lock on
+// this exact PO row (requiring status = 'ISSUED') before it will post, so
+// whichever of this cancel and a racing bill-post reaches the row first
+// forces the other to block and then re-evaluate against the
+// now-current, committed state.
 export async function cancelPurchaseOrder(params: { organisationId: string; userId: string; purchaseOrderId: string; reason: string }): Promise<CommercialPurchaseOrder> {
   const trimmedReason = params.reason.trim();
   if (!trimmedReason) throw new Error('cancel_reason is required');
@@ -731,6 +743,12 @@ export async function cancelPurchaseOrder(params: { organisationId: string; user
           AND cpr.organisation_id = commercial_purchase_orders.organisation_id
           AND cpr.status = 'POSTED'
       )
+      AND NOT EXISTS (
+        SELECT 1 FROM commercial_supplier_bills csb
+        WHERE csb.source_purchase_order_id = commercial_purchase_orders.id
+          AND csb.organisation_id = commercial_purchase_orders.organisation_id
+          AND csb.status = 'POSTED'
+      )
     RETURNING *
   `) as CommercialPurchaseOrder[];
   const cancelled = rows[0];
@@ -747,6 +765,14 @@ export async function cancelPurchaseOrder(params: { organisationId: string; user
       `) as unknown[];
       if (activeReceipts.length > 0) {
         throw new Error('This purchase order has one or more posted purchase receipts and cannot be cancelled. Cancel the receipt(s) first.');
+      }
+      const activeBills = (await sql`
+        SELECT 1 FROM commercial_supplier_bills
+        WHERE source_purchase_order_id = ${params.purchaseOrderId} AND organisation_id = ${params.organisationId} AND status = 'POSTED'
+        LIMIT 1
+      `) as unknown[];
+      if (activeBills.length > 0) {
+        throw new Error('This purchase order has one or more posted supplier bills and cannot be cancelled. Cancel the bill(s) first.');
       }
     }
     throw new Error('purchase order status changed concurrently; cancel aborted');

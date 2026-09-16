@@ -40,7 +40,12 @@ import { logDocumentSequenceConfigured } from './auditLog';
 // PURCHASE_ORDER) already went through — this is a one-line-per-type
 // extension of the existing generic allocator, never a new numbering
 // system.
-export type CommercialDocumentType = 'QUOTE' | 'INVOICE' | 'CREDIT_NOTE' | 'PURCHASE_ORDER' | 'PURCHASE_RECEIPT';
+//
+// Phase C7.4 — 'SUPPLIER_BILL' added the same way. bill_number
+// (BrainBase's own internal document number) is distinct from
+// supplier_invoice_number (the supplier's own identifier, never
+// allocated by this module — see lib/commercial/supplierBills.ts).
+export type CommercialDocumentType = 'QUOTE' | 'INVOICE' | 'CREDIT_NOTE' | 'PURCHASE_ORDER' | 'PURCHASE_RECEIPT' | 'SUPPLIER_BILL';
 
 const DEFAULT_PREFIX: Record<CommercialDocumentType, string> = {
   QUOTE: 'QUO-',
@@ -48,6 +53,7 @@ const DEFAULT_PREFIX: Record<CommercialDocumentType, string> = {
   CREDIT_NOTE: 'CRN-',
   PURCHASE_ORDER: 'PO-',
   PURCHASE_RECEIPT: 'GR-',
+  SUPPLIER_BILL: 'BILL-',
 };
 
 const DEFAULT_PADDING = 6;
