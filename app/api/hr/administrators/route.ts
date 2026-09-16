@@ -29,6 +29,55 @@ import { isUserInOrganisation } from '@/lib/hr/validation';
 // duplicated here. Bootstrapping a brand-new organisation's first HR
 // administrator still works exactly as before: a super_admin can always
 // grant/revoke, with zero existing hr_administrators rows required.
+//
+// HR Administrator Management UI — GET added so the settings page this
+// file's own header comment always said was deferred ("no dedicated
+// settings page is built in this phase") can finally list who
+// currently holds the grant, and offer a same-org candidate pool to
+// grant it to next. Gated identically to POST/DELETE
+// (canManageHrAccess(ctx) — HR administrator or super_admin only, no
+// route-local role check): listing WHO the HR administrators are is
+// itself sensitive organisational metadata, not a general-read action.
+// Response is one minimal, deliberately narrow allowlist — id, name,
+// email, and the domain-specific is_hr_administrator boolean (computed
+// via a same-organisation LEFT JOIN against hr_administrators, never a
+// second round trip) — mirroring GET /api/hr/linkable-users's own
+// shape exactly. Never role, status, password/password_hash, tokens,
+// or any other organisation's rows. No email/name matching of any
+// kind: the boolean is a plain per-row existence check against this
+// caller's own already-resolved organisation_id, not an identity
+// inference.
+export async function GET() {
+  let session;
+  try { session = await requireSession(); } catch { return unauthorized(); }
+  try {
+    await requireHrCapability(session.organisationId, session.role);
+  } catch (err) {
+    if (err instanceof CapabilityDatabaseError) return NextResponse.json({ error: 'Unable to verify People access.' }, { status: 503 });
+    return forbidden();
+  }
+
+  const ctx = await resolveHrAccessContext({ organisationId: session.organisationId, userId: session.userId, role: session.role });
+  if (!canManageHrAccess(ctx)) return forbidden();
+
+  const rows = await sql`
+    SELECT u.id, u.name, u.email, (ha.id IS NOT NULL) AS is_hr_administrator
+    FROM users u
+    LEFT JOIN hr_administrators ha ON ha.user_id = u.id AND ha.organisation_id = u.organisation_id
+    WHERE u.organisation_id = ${session.organisationId}
+    ORDER BY u.name
+  `;
+
+  const users = rows.map(row => ({
+    id: row.id as string,
+    name: row.name as string,
+    email: (row.email as string | null) ?? null,
+    is_hr_administrator: Boolean(row.is_hr_administrator),
+  }));
+
+  return NextResponse.json({ users });
+}
+
 export async function POST(req: NextRequest) {
   let session;
   try { session = await requireSession(); } catch { return unauthorized(); }
