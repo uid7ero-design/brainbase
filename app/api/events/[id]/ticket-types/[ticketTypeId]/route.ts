@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import sql from '@/lib/db';
 import { authorizeEventsRequest } from '@/lib/events/authorize';
 import { validateEventTicketTypeInput, mergeField, type EventTicketTypeInput } from '@/lib/events/validation';
+import { logEventTicketTypeUpdated, logEventTicketTypeDeleted } from '@/lib/events/auditLog';
 
 type Ctx = { params: Promise<{ id: string; ticketTypeId: string }> };
 
@@ -50,7 +51,12 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
     RETURNING *
   `;
   if (!rows.length) return NextResponse.json({ error: 'Not found.' }, { status: 404 });
-  return NextResponse.json({ ticket_type: rows[0] });
+  const updated = rows[0] as Record<string, unknown>;
+  await logEventTicketTypeUpdated({
+    organisationId: session.organisationId, userId: session.userId, eventId: id, ticketTypeId,
+    before: existing as never, after: updated as never,
+  });
+  return NextResponse.json({ ticket_type: updated });
 }
 
 export async function DELETE(_req: NextRequest, { params }: Ctx) {
@@ -62,8 +68,12 @@ export async function DELETE(_req: NextRequest, { params }: Ctx) {
   const rows = await sql`
     DELETE FROM event_ticket_types
     WHERE id = ${ticketTypeId} AND event_id = ${id} AND organisation_id = ${session.organisationId}
-    RETURNING id
+    RETURNING id, name, description, price_cents, capacity, active, sort_order
   `;
   if (!rows.length) return NextResponse.json({ error: 'Not found.' }, { status: 404 });
+  await logEventTicketTypeDeleted({
+    organisationId: session.organisationId, userId: session.userId, eventId: id, ticketTypeId,
+    before: rows[0] as never,
+  });
   return NextResponse.json({ success: true });
 }

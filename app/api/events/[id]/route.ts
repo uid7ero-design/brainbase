@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import sql from '@/lib/db';
 import { authorizeEventsRequest } from '@/lib/events/authorize';
 import { validateEventInput, toIsoString, mergeField, type EventInput } from '@/lib/events/validation';
+import { logEventUpdated, logEventPublished, logEventUnpublished } from '@/lib/events/auditLog';
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -81,7 +82,28 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
       RETURNING *
     `;
     if (!rows.length) return NextResponse.json({ error: 'Not found.' }, { status: 404 });
-    return NextResponse.json({ event: rows[0] });
+    const updated = rows[0] as Record<string, unknown>;
+
+    // Phase 8 — publish/unpublish must be clearly distinguishable from
+    // an ordinary edit (task's own explicit requirement), so the status
+    // transition is classified here, at the route, before choosing which
+    // logger to call — the logger functions themselves stay dumb/generic.
+    // "Unpublish" is deliberately narrow — PUBLISHED -> DRAFT only,
+    // matching the real-world "Unpublish" action (revert to an editable
+    // draft that could be republished later). PUBLISHED -> CANCELLED is
+    // a different, more final lifecycle transition (see event_orders'
+    // own CANCELLED handling elsewhere in this module) and is NOT
+    // relabelled as "unpublished" — it still falls through to the
+    // ordinary event.updated path below, alongside every other field
+    // edit, correctly carrying the status change in its own diff.
+    const becamePublished = existing.status !== updated.status && updated.status === 'PUBLISHED';
+    const leftPublished = existing.status === 'PUBLISHED' && updated.status === 'DRAFT';
+    const auditParams = { organisationId: session.organisationId, userId: session.userId, eventId: id, before: existing as never, after: updated as never };
+    if (becamePublished) await logEventPublished(auditParams);
+    else if (leftPublished) await logEventUnpublished(auditParams);
+    else await logEventUpdated(auditParams);
+
+    return NextResponse.json({ event: updated });
   } catch (err) {
     if (err instanceof Error && /organisation_id_slug_key/i.test(err.message)) {
       return NextResponse.json({ error: 'An event with this slug already exists.' }, { status: 409 });

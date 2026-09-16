@@ -81,12 +81,39 @@ vi.mock('next/headers', () => ({
   headers: async () => new Map([['host', 'localhost:3000']]),
 }))
 
+// Phase 8 — app/events/payments/connect/return/page.tsx's default export
+// is a real Next.js Server Component (an async function), directly
+// callable in this Vitest environment once its own imports are mocked.
+// The REAL redirect() always throws internally to unwind the request —
+// callers (this page's own catch block on requireRole failure) rely on
+// that to guarantee nothing after it ever executes. A silent no-op mock
+// would let `session` be read while still undefined on that path — the
+// mock instead reproduces the throw (see callReturnPage() below, which
+// expects and swallows it).
+const redirectMock = vi.fn()
+vi.mock('next/navigation', () => ({
+  redirect: (...args: unknown[]) => { redirectMock(...args); throw new Error('NEXT_REDIRECT'); },
+}))
+
 function queue(...responses: unknown[][]) { responseQueue = responses; callCount = 0 }
 function sessionAs(role: string, organisationId = 'org-a') { return { userId: 'staff-1', organisationId, role } }
+
+// Same decoding convention as tests/containment/eventsManagementAuditLogging.test.ts —
+// see that file's own comment for the exact column/value index mapping.
+function auditInserts(): { organisationId: unknown; userId: unknown; action: unknown; resourceType: unknown; resourceId: unknown; before: unknown; after: unknown }[] {
+  return (sqlMock.mock.calls as unknown as unknown[][])
+    .filter(c => (c[0] as TemplateStringsArray).join(' ').includes('INSERT INTO audit_logs'))
+    .map(c => ({
+      organisationId: c[2], userId: c[3], action: c[4], resourceType: c[5], resourceId: c[6],
+      before: c[7] ? JSON.parse(c[7] as string) : null,
+      after: c[8] ? JSON.parse(c[8] as string) : null,
+    }))
+}
 
 const connectRoute = await import('@/app/api/events/payments/connect/route')
 const stripeConnectLib = await import('@/lib/events/stripeConnect')
 const { processStripeWebhookEvent } = await import('@/lib/events/stripe')
+const connectReturnPage = await import('@/app/events/payments/connect/return/page')
 
 beforeEach(() => {
   sqlMock.mockClear()
@@ -96,6 +123,7 @@ beforeEach(() => {
   stripeAccountsCreateMock.mockReset()
   stripeAccountsRetrieveMock.mockReset()
   stripeAccountLinksCreateMock.mockReset()
+  redirectMock.mockReset()
   responseQueue = []
   callCount = 0
   requireSessionMock.mockResolvedValue(sessionAs('manager'))
@@ -160,6 +188,41 @@ describe('Connect route — auth and idempotent account creation', () => {
     expect(stripeAccountLinksCreateMock).toHaveBeenCalledWith(expect.objectContaining({ account: 'acct_existing' }))
   })
 
+  it('Phase 8: a fresh account creation is audited as stripe_connect_account.onboarding_initiated, new_account: true, resource_id = the new account id', async () => {
+    queue(
+      [{ stripe_account_id: null, stripe_account_status: 'NOT_CONNECTED', stripe_charges_enabled: false, stripe_payouts_enabled: false, stripe_details_submitted: false, stripe_connected_at: null, stripe_last_synced_at: null }],
+      [{ name: 'LD Tennis' }],
+      [],
+      [{ stripe_account_id: 'acct_new', stripe_account_status: 'NOT_CONNECTED', stripe_charges_enabled: false, stripe_payouts_enabled: false, stripe_details_submitted: false, stripe_connected_at: null, stripe_last_synced_at: null }],
+    )
+    stripeAccountsCreateMock.mockResolvedValue({ id: 'acct_new' })
+    stripeAccountLinksCreateMock.mockResolvedValue({ url: 'https://connect.stripe.com/setup/acct_new' })
+    const res = await connectRoute.POST()
+    expect(res.status).toBe(200)
+    const inserts = auditInserts()
+    expect(inserts).toHaveLength(1)
+    expect(inserts[0].action).toBe('stripe_connect_account.onboarding_initiated')
+    expect(inserts[0].resourceType).toBe('stripe_connect_account')
+    expect(inserts[0].resourceId).toBe('acct_new')
+    expect(inserts[0].organisationId).toBe('org-a')
+    expect(inserts[0].userId).toBe('staff-1')
+    expect(inserts[0].after).toEqual({ new_account: true })
+    // The onboarding URL itself is never written to audit_logs.
+    expect(JSON.stringify(inserts[0])).not.toMatch(/connect\.stripe\.com/)
+  })
+
+  it('Phase 8: re-onboarding an already-connected account is audited with new_account: false', async () => {
+    queue([{ stripe_account_id: 'acct_existing', stripe_account_status: 'ONBOARDING', stripe_charges_enabled: false, stripe_payouts_enabled: false, stripe_details_submitted: false, stripe_connected_at: null, stripe_last_synced_at: null }])
+    stripeAccountLinksCreateMock.mockResolvedValue({ url: 'https://connect.stripe.com/setup/acct_existing' })
+    const res = await connectRoute.POST()
+    expect(res.status).toBe(200)
+    const inserts = auditInserts()
+    expect(inserts).toHaveLength(1)
+    expect(inserts[0].action).toBe('stripe_connect_account.onboarding_initiated')
+    expect(inserts[0].resourceId).toBe('acct_existing')
+    expect(inserts[0].after).toEqual({ new_account: false })
+  })
+
   it('organisation is derived only from the authenticated session — the route reads no request body at all', () => {
     const code = stripComments(read('app/api/events/payments/connect/route.ts'))
     expect(code).not.toMatch(/req\.json\(\)|await req\./)
@@ -176,6 +239,61 @@ describe('Connect route — auth and idempotent account creation', () => {
     expect(returnBody).not.toMatch(/account_id:/)
     expect(returnBody).not.toMatch(/accountId,/)
     expect(returnBody).toMatch(/accountId !== null/)
+  })
+})
+
+// ─── Phase 8 — Connect return page: status-refresh audit ──────────────
+
+async function callReturnPage(): Promise<void> {
+  try {
+    await connectReturnPage.default()
+  } catch (err) {
+    if (!(err instanceof Error) || err.message !== 'NEXT_REDIRECT') throw err
+  }
+}
+
+describe('Stripe Connect return page — status-refresh audit (Phase 8)', () => {
+  it('a refresh that changes the stored status/flags is audited as stripe_connect_account.status_refreshed, carrying only status/flags — never a full Stripe object', async () => {
+    const before = { stripe_account_id: 'acct_1', stripe_account_status: 'ONBOARDING', stripe_charges_enabled: false, stripe_payouts_enabled: false, stripe_details_submitted: false, stripe_connected_at: null, stripe_last_synced_at: null }
+    const after = { stripe_account_id: 'acct_1', stripe_account_status: 'CONNECTED', stripe_charges_enabled: true, stripe_payouts_enabled: true, stripe_details_submitted: true, stripe_connected_at: new Date('2026-01-01'), stripe_last_synced_at: new Date('2026-01-02') }
+    queue(
+      [before], // this page's own `getConnectAccountState` (before)
+      [before], // refreshConnectedAccountStatus's own internal getConnectAccountState
+      [after],  // the guarded UPDATE ... RETURNING
+    )
+    stripeAccountsRetrieveMock.mockResolvedValue({
+      details_submitted: true, charges_enabled: true, payouts_enabled: true, requirements: { currently_due: [], past_due: [] },
+    })
+    await callReturnPage()
+    expect(redirectMock).toHaveBeenCalledWith('/events/payments')
+    const inserts = auditInserts()
+    expect(inserts).toHaveLength(1)
+    expect(inserts[0].action).toBe('stripe_connect_account.status_refreshed')
+    expect(inserts[0].resourceType).toBe('stripe_connect_account')
+    expect(inserts[0].resourceId).toBe('acct_1')
+    expect(inserts[0].before).toEqual({ status: 'ONBOARDING', charges_enabled: false, payouts_enabled: false, details_submitted: false })
+    expect(inserts[0].after).toEqual({ status: 'CONNECTED', charges_enabled: true, payouts_enabled: true, details_submitted: true })
+    // No Stripe account object, requirements array, or any onboarding/
+    // link URL ever reaches audit_logs — only the four derived flags.
+    expect(JSON.stringify(inserts[0])).not.toMatch(/requirements|connect\.stripe\.com|acct_1.{0,3}"business_profile"/)
+  })
+
+  it('a refresh that changes NOTHING writes no audit row — only writes when the stored state actually changes', async () => {
+    const unchanged = { stripe_account_id: 'acct_2', stripe_account_status: 'ACTION_REQUIRED', stripe_charges_enabled: true, stripe_payouts_enabled: false, stripe_details_submitted: true, stripe_connected_at: null, stripe_last_synced_at: null }
+    queue([unchanged], [unchanged], [unchanged])
+    stripeAccountsRetrieveMock.mockResolvedValue({
+      details_submitted: true, charges_enabled: true, payouts_enabled: false, requirements: { currently_due: [], past_due: [] },
+    })
+    await callReturnPage()
+    expect(redirectMock).toHaveBeenCalledWith('/events/payments')
+    expect(auditInserts()).toHaveLength(0)
+  })
+
+  it('an unauthenticated/insufficient-role visit redirects to /dashboard and never reaches the audit code', async () => {
+    requireRoleMock.mockRejectedValue(new Error('Forbidden'))
+    await callReturnPage()
+    expect(redirectMock).toHaveBeenCalledWith('/dashboard')
+    expect(sqlMock).not.toHaveBeenCalled()
   })
 })
 

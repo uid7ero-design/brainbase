@@ -110,15 +110,28 @@ export async function getConnectAccountState(organisationId: string): Promise<Co
   return toState(row);
 }
 
+export type GetOrCreateConnectedAccountResult = {
+  accountId: string;
+  // Phase 8 — lets the calling route's audit entry distinguish "a new
+  // Stripe account was created for this organisation" from "onboarding
+  // was (re-)initiated against an already-existing account", without an
+  // extra DB read: this function already knows which branch it took.
+  // In the exceedingly narrow race noted below (a concurrent request
+  // wins the guarded UPDATE first), this is still reported `true` — an
+  // account.create call genuinely happened on this request's own path,
+  // even though the persisted id ended up being the other request's.
+  created: boolean;
+};
+
 // Idempotent (§7): if the organisation already has a stripe_account_id,
 // it is reused unconditionally — repeated clicks never create a
 // second Stripe account for one organisation. organisationId must
 // already be session-derived by the caller (see the connect route);
 // this function trusts it rather than re-deriving tenancy itself,
 // matching every other lib/events/*.ts function's own convention.
-export async function getOrCreateConnectedAccount(organisationId: string): Promise<string> {
+export async function getOrCreateConnectedAccount(organisationId: string): Promise<GetOrCreateConnectedAccountResult> {
   const existing = await getConnectAccountState(organisationId);
-  if (existing.accountId) return existing.accountId;
+  if (existing.accountId) return { accountId: existing.accountId, created: false };
 
   const orgRows = await sql`SELECT name FROM organisations WHERE id = ${organisationId} LIMIT 1`;
   const orgName = (orgRows[0] as { name: string } | undefined)?.name ?? 'Organisation';
@@ -143,7 +156,7 @@ export async function getOrCreateConnectedAccount(organisationId: string): Promi
     WHERE id = ${organisationId} AND stripe_account_id IS NULL
   `;
   const finalState = await getConnectAccountState(organisationId);
-  return finalState.accountId ?? account.id;
+  return { accountId: finalState.accountId ?? account.id, created: true };
 }
 
 // Stripe Connect Express onboarding (§6): a fresh, single-use Account

@@ -3,6 +3,7 @@ import { headers } from 'next/headers';
 import { authorizeEventsRequest } from '@/lib/events/authorize';
 import { getConnectAccountState, getOrCreateConnectedAccount, createOnboardingLink } from '@/lib/events/stripeConnect';
 import { StripeNotConfiguredError } from '@/lib/events/stripe';
+import { logStripeConnectOnboardingInitiated } from '@/lib/events/auditLog';
 
 async function originFromHeaders(): Promise<string> {
   const h = await headers();
@@ -45,13 +46,21 @@ export async function POST() {
   const { session } = auth;
 
   try {
-    const accountId = await getOrCreateConnectedAccount(session.organisationId);
+    const { accountId, created } = await getOrCreateConnectedAccount(session.organisationId);
     const origin = await originFromHeaders();
     const onboardingUrl = await createOnboardingLink(
       accountId,
       `${origin}/events/payments/connect/return`,
       `${origin}/events/payments/connect/refresh`,
     );
+    // Phase 8 — audited only once the full onboarding flow has actually
+    // been handed to the manager (a real onboarding_url was obtained),
+    // matching this module's own established "log after the real
+    // mutation/action has succeeded" convention (see lib/events/
+    // auditLog.ts's own header comment).
+    await logStripeConnectOnboardingInitiated({
+      organisationId: session.organisationId, userId: session.userId, accountId, newAccount: created,
+    });
     return NextResponse.json({ onboarding_url: onboardingUrl });
   } catch (err) {
     if (err instanceof StripeNotConfiguredError) {
