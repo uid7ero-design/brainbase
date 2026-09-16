@@ -51,6 +51,16 @@ vi.mock('@/lib/events/auditLog', async (importOriginal) => {
   }
 })
 
+// Resend delivery-status visibility (additive) — mocked so this file's
+// existing queued-sql-response counts for attemptAutomaticTicketEmail's
+// claim/read/mark sequence are completely unaffected by the new
+// recordTicketEmailDeliveryAccepted call site; its own behaviour is
+// proven separately in tests/containment/eventsTicketEmailDeliveryTracking.test.ts.
+const recordTicketEmailDeliveryAcceptedMock = vi.fn()
+vi.mock('@/lib/events/ticketEmailDeliveryTracking', () => ({
+  recordTicketEmailDeliveryAccepted: (...args: unknown[]) => recordTicketEmailDeliveryAcceptedMock(...args),
+}))
+
 function queue(...responses: unknown[][]) {
   responseQueue = responses
   callCount = 0
@@ -62,6 +72,7 @@ beforeEach(() => {
   sendTicketEmailMock.mockReset()
   logAutomaticTicketEmailSentMock.mockReset().mockResolvedValue(undefined)
   logAutomaticTicketEmailFailedMock.mockReset().mockResolvedValue(undefined)
+  recordTicketEmailDeliveryAcceptedMock.mockReset().mockResolvedValue(undefined)
 })
 
 const delivery = await import('@/lib/events/ticketEmailDelivery')
@@ -736,6 +747,18 @@ describe('attemptAutomaticTicketEmail — orchestration (Phase 3E.2)', () => {
       organisationId: 'org-1', orderId: 'order-1', attemptCount: 1, providerMessageId: 'msg-123',
     }))
     expect(logAutomaticTicketEmailFailedMock).not.toHaveBeenCalled()
+    // Resend delivery-status visibility — a non-null provider message id
+    // records a delivery-tracking row, tagged as this order's automatic send.
+    expect(recordTicketEmailDeliveryAcceptedMock).toHaveBeenCalledWith({
+      organisationId: 'org-1', orderId: 'order-1', sendSource: 'automatic', providerMessageId: 'msg-123',
+    })
+  })
+
+  it('sent with a null provider message id (rare 2xx-but-unparseable-body edge case): does NOT record a delivery-tracking row — nothing correlatable exists', async () => {
+    sendTicketEmailMock.mockResolvedValue({ result: 'sent', providerMessageId: null })
+    queue(CLAIM_ROW, READ_ROW, [{ id: 'order-1' }])
+    await delivery.attemptAutomaticTicketEmail('order-1')
+    expect(recordTicketEmailDeliveryAcceptedMock).not.toHaveBeenCalled()
   })
 
   it('sent: uses the deterministic idempotency key for this exact order', async () => {
@@ -767,6 +790,7 @@ describe('attemptAutomaticTicketEmail — orchestration (Phase 3E.2)', () => {
     const result = await delivery.attemptAutomaticTicketEmail('order-1')
     expect(result).toEqual({ outcome: 'failed', reason: 'provider_rejected', terminal: false })
     expect(logAutomaticTicketEmailFailedMock).toHaveBeenCalledWith(expect.objectContaining({ reason: 'provider_rejected', terminal: false }))
+    expect(recordTicketEmailDeliveryAcceptedMock).not.toHaveBeenCalled()
   })
 
   it('failed (unknown/ambiguous outcome): reason ambiguous_outcome, non-terminal', async () => {
