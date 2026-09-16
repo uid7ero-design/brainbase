@@ -84,6 +84,13 @@ export default function PeoplePage() {
                   flag; app/people/teams itself independently re-derives
                   the same flag before showing any management action. */}
               <Link href="/people/teams" style={{ ...btn('transparent'), border: '1px solid #1a1d24', textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>Manage Teams</Link>
+              {/* HR Administrator Management UI — gated identically to
+                  "Manage Teams" above, on the same server-returned
+                  canManage flag; app/people/administrators itself
+                  independently re-derives authorization via its own
+                  GET /api/hr/administrators call (canManageHrAccess),
+                  not this flag. */}
+              <Link href="/people/administrators" style={{ ...btn('transparent'), border: '1px solid #1a1d24', textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>Manage Administrators</Link>
               <button onClick={() => setShowAdd(true)} style={btn('#1a6aff')}>+ Add Person</button>
             </>
           )}
