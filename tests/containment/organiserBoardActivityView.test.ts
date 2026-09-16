@@ -147,8 +147,8 @@ describe('ItemDrawer architecture unchanged by this phase', () => {
   const end = pageCode.indexOf('\nfunction Field(', start)
   const block = pageCode.slice(start, end)
 
-  it('still takes exactly the same props as after D.4.5D — no new prop added for the board feed', () => {
-    expect(block).toMatch(/item: OrganiserItem; onClose: \(\) => void; onUpdate: \(id: string, patch: Record<string, unknown>\) => void; groupNamesById: Record<string, string>/)
+  it('still takes exactly the same props as after D.4.5D — no new prop added for the board feed (D.4.6P\'s members and D.4.7B\'s saveStatus are separate, later, intentional additions unrelated to the board feed — not a regression of this test\'s own original guarantee)', () => {
+    expect(block).toMatch(/item: OrganiserItem; onClose: \(\) => void; onUpdate: \(id: string, patch: Record<string, unknown>\) => void;\s*groupNamesById: Record<string, string>; members: OrganiserMember\[\];/)
   })
 
   it('still renders exactly one ItemActivity (the D.4.5D single-item tab), untouched', () => {
