@@ -194,6 +194,14 @@ describe("6.2B1 reporting-period foundation — real disposable Postgres proof",
         lineage_kind: "DATA_HUB",
         import_batch_id: batch.id,
         worksheet_index: 0,
+        // read.ts's own toWorksheetDTO invariant requires every DATA_HUB-lineage
+        // row to carry these three structural columns non-null (P1 below reads
+        // this worksheet back through getWorksheet, unlike this fixture's own
+        // sibling in confirmWorksheetReconciliation.postgres-proof.test.ts,
+        // which never does).
+        worksheet_name: `${label}.csv`,
+        worksheet_visibility: "visible",
+        worksheet_is_empty: false,
         canonical_status: "AWAITING_CONFIRMATION",
         mapping_version_id: null,
       },
@@ -209,13 +217,22 @@ describe("6.2B1 reporting-period foundation — real disposable Postgres proof",
     expect(row.period_source).toBeNull();
 
     // Also proves the read.ts DTO path faithfully preserves this NULL.
-    vi.resetModules();
-    const { getWorksheet } = await import("../../lib/data-hub/importBatch/read");
-    const result = await getWorksheet({ organisationId, worksheetId });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.worksheet.periodStart).toBeNull();
-    expect(result.worksheet.periodEnd).toBeNull();
+    // read.ts is routed through the SAME AsyncLocalStorage-scoped `@/lib/prisma`
+    // mock as selectWorksheetPeriod.ts/confirmWorksheet.ts (see this file's own
+    // header) — its calls must run inside runWithClient, exactly like every
+    // other cross-module call in this proof file.
+    const client = new PrismaClient();
+    try {
+      vi.resetModules();
+      const { getWorksheet } = await import("../../lib/data-hub/importBatch/read");
+      const result = await runWithClient(client, () => getWorksheet({ organisationId, worksheetId }));
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.worksheet.periodStart).toBeNull();
+      expect(result.worksheet.periodEnd).toBeNull();
+    } finally {
+      await client.$disconnect();
+    }
   });
 
   it("P2. the pair/range CHECK constraint rejects a one-sided pair and start>end, and accepts a valid pair", async () => {
