@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import sql from '@/lib/db';
 import { authorizeEventsRequest } from '@/lib/events/authorize';
 import { validateEventInput, type EventInput } from '@/lib/events/validation';
+import { logEventCreated } from '@/lib/events/auditLog';
 
 export async function GET() {
   const auth = await authorizeEventsRequest('viewer');
@@ -55,7 +56,12 @@ export async function POST(req: NextRequest) {
       )
       RETURNING *
     `;
-    return NextResponse.json({ event: rows[0] }, { status: 201 });
+    const created = rows[0] as Record<string, unknown>;
+    await logEventCreated({
+      organisationId: session.organisationId, userId: session.userId, eventId: created.id as string,
+      after: created as never,
+    });
+    return NextResponse.json({ event: created }, { status: 201 });
   } catch (err) {
     // events_organisation_id_slug_key — slug already used within this
     // organisation (slugs are unique per-organisation only; see the

@@ -39,10 +39,20 @@ import sql from '@/lib/db';
 // underlying mutation it is describing. Call these functions AFTER the
 // real mutation has already committed successfully.
 
+// resourceType is now a parameter (Phase 8 — management/Connect audit
+// coverage) rather than the hardcoded literal 'event_order' every call
+// site used exclusively until now. Every existing call below passes
+// 'event_order' explicitly, so this is purely additive — no existing
+// call site's behaviour changes. A single resource_type per audited
+// entity (never a finer-grained sub-resource) still applies per entity
+// family, matching ADR-0003 §10 — 'event', 'event_session',
+// 'event_ticket_type', and 'stripe_connect_account' are each their own
+// literal, exactly like 'event_order' already is.
 async function insertAuditLog(entry: {
   organisationId: string;
   userId: string | null;
   action: string;
+  resourceType: string;
   resourceId: string;
   beforeState: Record<string, unknown> | null;
   afterState: Record<string, unknown> | null;
@@ -51,7 +61,7 @@ async function insertAuditLog(entry: {
     await sql`
       INSERT INTO audit_logs (id, organisation_id, user_id, action, resource_type, resource_id, before_state, after_state)
       VALUES (
-        ${crypto.randomUUID()}, ${entry.organisationId}, ${entry.userId}, ${entry.action}, 'event_order', ${entry.resourceId},
+        ${crypto.randomUUID()}, ${entry.organisationId}, ${entry.userId}, ${entry.action}, ${entry.resourceType}, ${entry.resourceId},
         ${entry.beforeState ? JSON.stringify(entry.beforeState) : null}::jsonb,
         ${entry.afterState ? JSON.stringify(entry.afterState) : null}::jsonb
       )
@@ -61,6 +71,42 @@ async function insertAuditLog(entry: {
   }
 }
 
+// Shared by every *Updated logger below (event/session/ticket type) —
+// ADR-0003 §4: before_state/after_state must carry "the specific fields
+// that changed, never the entire row." Compares only the caller-supplied
+// field allowlist (each entity's own safe, non-sensitive catalog fields
+// — see each logger's own comment) and returns null/undefined-free
+// before/after objects containing ONLY the fields that actually differ.
+// Returns null for both when nothing in the allowlist changed (e.g. a
+// PATCH that only touched a field outside the list) — callers should
+// skip writing an audit entry entirely in that case rather than log an
+// empty no-op.
+function diffFields<T extends Record<string, unknown>>(
+  before: T, after: T, fields: readonly (keyof T)[],
+): { before: Record<string, unknown>; after: Record<string, unknown> } | null {
+  const beforeOut: Record<string, unknown> = {};
+  const afterOut: Record<string, unknown> = {};
+  let changed = false;
+  for (const field of fields) {
+    const b = before[field] ?? null;
+    const a = after[field] ?? null;
+    // Dates may arrive as Date instances or strings depending on the
+    // driver's return shape for a freshly-inserted/updated row vs. one
+    // read back from an existing SELECT — compare by ISO string value,
+    // not reference/type, so an unchanged timestamp is never reported
+    // as "changed" merely because of a shape mismatch between the two
+    // sides being compared.
+    const bCmp = b instanceof Date ? b.toISOString() : b;
+    const aCmp = a instanceof Date ? a.toISOString() : a;
+    if (bCmp !== aCmp) {
+      changed = true;
+      beforeOut[field as string] = bCmp;
+      afterOut[field as string] = aCmp;
+    }
+  }
+  return changed ? { before: beforeOut, after: afterOut } : null;
+}
+
 export async function logPurchaserEdited(params: {
   organisationId: string; userId: string; orderId: string;
   before: { purchaser_name: string; purchaser_email: string; purchaser_phone: string | null };
@@ -68,7 +114,7 @@ export async function logPurchaserEdited(params: {
 }): Promise<void> {
   await insertAuditLog({
     organisationId: params.organisationId, userId: params.userId, action: 'event_order.purchaser_edited',
-    resourceId: params.orderId, beforeState: params.before, afterState: params.after,
+    resourceType: 'event_order', resourceId: params.orderId, beforeState: params.before, afterState: params.after,
   });
 }
 
@@ -79,7 +125,7 @@ export async function logAttendeeEdited(params: {
 }): Promise<void> {
   await insertAuditLog({
     organisationId: params.organisationId, userId: params.userId, action: 'event_order.attendee_edited',
-    resourceId: params.orderId, beforeState: { attendee_id: params.attendeeId, ...params.before },
+    resourceType: 'event_order', resourceId: params.orderId, beforeState: { attendee_id: params.attendeeId, ...params.before },
     afterState: { attendee_id: params.attendeeId, ...params.after },
   });
 }
@@ -99,7 +145,7 @@ export async function logResponseEdited(params: {
 }): Promise<void> {
   await insertAuditLog({
     organisationId: params.organisationId, userId: params.userId, action: 'event_order.response_edited',
-    resourceId: params.orderId,
+    resourceType: 'event_order', resourceId: params.orderId,
     beforeState: { response_id: params.responseId, question_id: params.questionId, field_type: params.fieldType },
     afterState: null,
   });
@@ -108,14 +154,14 @@ export async function logResponseEdited(params: {
 export async function logCheckedIn(params: { organisationId: string; userId: string; orderId: string; attendeeId: string }): Promise<void> {
   await insertAuditLog({
     organisationId: params.organisationId, userId: params.userId, action: 'event_order.checked_in',
-    resourceId: params.orderId, beforeState: null, afterState: { attendee_id: params.attendeeId },
+    resourceType: 'event_order', resourceId: params.orderId, beforeState: null, afterState: { attendee_id: params.attendeeId },
   });
 }
 
 export async function logCheckInUndone(params: { organisationId: string; userId: string; orderId: string; attendeeId: string }): Promise<void> {
   await insertAuditLog({
     organisationId: params.organisationId, userId: params.userId, action: 'event_order.check_in_undone',
-    resourceId: params.orderId, beforeState: { attendee_id: params.attendeeId }, afterState: null,
+    resourceType: 'event_order', resourceId: params.orderId, beforeState: { attendee_id: params.attendeeId }, afterState: null,
   });
 }
 
@@ -136,7 +182,7 @@ export async function logCancelled(params: {
 }): Promise<void> {
   await insertAuditLog({
     organisationId: params.organisationId, userId: params.userId, action: 'event_order.cancelled',
-    resourceId: params.orderId,
+    resourceType: 'event_order', resourceId: params.orderId,
     beforeState: { event_id: params.eventId, ...params.before },
     afterState: { event_id: params.eventId, ...params.after },
   });
@@ -145,7 +191,7 @@ export async function logCancelled(params: {
 export async function logRefunded(params: { organisationId: string; userId: string; orderId: string }): Promise<void> {
   await insertAuditLog({
     organisationId: params.organisationId, userId: params.userId, action: 'event_order.refunded',
-    resourceId: params.orderId, beforeState: null, afterState: null,
+    resourceType: 'event_order', resourceId: params.orderId, beforeState: null, afterState: null,
   });
 }
 
@@ -158,21 +204,21 @@ export async function logRefunded(params: { organisationId: string; userId: stri
 export async function logNoteAdded(params: { organisationId: string; userId: string; orderId: string; noteId: string }): Promise<void> {
   await insertAuditLog({
     organisationId: params.organisationId, userId: params.userId, action: 'event_order.note_added',
-    resourceId: params.orderId, beforeState: null, afterState: { note_id: params.noteId },
+    resourceType: 'event_order', resourceId: params.orderId, beforeState: null, afterState: { note_id: params.noteId },
   });
 }
 
 export async function logNoteEdited(params: { organisationId: string; userId: string; orderId: string; noteId: string }): Promise<void> {
   await insertAuditLog({
     organisationId: params.organisationId, userId: params.userId, action: 'event_order.note_edited',
-    resourceId: params.orderId, beforeState: { note_id: params.noteId }, afterState: null,
+    resourceType: 'event_order', resourceId: params.orderId, beforeState: { note_id: params.noteId }, afterState: null,
   });
 }
 
 export async function logNoteDeleted(params: { organisationId: string; userId: string; orderId: string; noteId: string }): Promise<void> {
   await insertAuditLog({
     organisationId: params.organisationId, userId: params.userId, action: 'event_order.note_deleted',
-    resourceId: params.orderId, beforeState: { note_id: params.noteId }, afterState: null,
+    resourceType: 'event_order', resourceId: params.orderId, beforeState: { note_id: params.noteId }, afterState: null,
   });
 }
 
@@ -251,7 +297,7 @@ export async function logAutomaticTicketEmailSent(params: {
 }): Promise<void> {
   await insertAuditLog({
     organisationId: params.organisationId, userId: null, action: 'event_order.ticket_email_sent',
-    resourceId: params.orderId, beforeState: null,
+    resourceType: 'event_order', resourceId: params.orderId, beforeState: null,
     afterState: {
       source: 'automatic',
       attempt_count: params.attemptCount,
@@ -272,7 +318,204 @@ export async function logAutomaticTicketEmailFailed(params: {
 }): Promise<void> {
   await insertAuditLog({
     organisationId: params.organisationId, userId: null, action: 'event_order.ticket_email_failed',
-    resourceId: params.orderId, beforeState: null,
+    resourceType: 'event_order', resourceId: params.orderId, beforeState: null,
     afterState: { source: 'automatic', attempt_count: params.attemptCount, terminal: params.terminal, reason: params.reason },
+  });
+}
+
+// ── Event / session / ticket-type management audit (Phase 8) ────────
+//
+// Closes the gap the Events production-readiness audit named: event
+// create/edit/publish/unpublish and EventSession/EventTicketType
+// management previously had NO audit coverage at all, unlike
+// check-in/refund/cancellation above. Same file, same table, same
+// best-effort-after-the-mutation-commits discipline as every function
+// above — every route calling these is human-initiated and already
+// gated by authorizeEventsRequest('manager') before the mutation runs,
+// which is exactly ADR-0003 §3's criterion for "acceptable as a
+// separate, best-effort write" (no webhook-style redelivery risk that
+// would require transactional atomicity instead).
+//
+// resource_type is 'event' / 'event_session' / 'event_ticket_type'
+// respectively — each its own literal (ADR-0003 §10), matching how
+// 'event_order' is already its own literal above; sessions and ticket
+// types are independently manager-visible/editable catalog entities in
+// their own right (their own list rows, their own Edit/Delete
+// controls), not sub-objects folded under a parent's resource_type the
+// way order line items are under 'event_order'. eventId is carried
+// inside every session/ticket-type entry's before/after state (matching
+// logCancelled's own established precedent above) so "which event does
+// this belong to" is answered without a join.
+//
+// Only safe catalog fields ever appear in before/after — name, slug,
+// description, venue, artwork_url, status, starts_at, ends_at, timezone
+// (event); name, starts_at, ends_at, capacity (session); name,
+// description, price_cents, capacity, active, sort_order (ticket type).
+// None of these are PII, payment credentials, or Stripe secrets — they
+// are the same public event-catalog data already returned by this
+// module's own GET routes.
+
+const EVENT_AUDIT_FIELDS = ['name', 'slug', 'description', 'venue', 'artwork_url', 'status', 'starts_at', 'ends_at', 'timezone'] as const;
+const EVENT_SESSION_AUDIT_FIELDS = ['name', 'starts_at', 'ends_at', 'capacity'] as const;
+const EVENT_TICKET_TYPE_AUDIT_FIELDS = ['name', 'description', 'price_cents', 'capacity', 'active', 'sort_order'] as const;
+
+type EventRow = Record<(typeof EVENT_AUDIT_FIELDS)[number], unknown>;
+type EventSessionRow = Record<(typeof EVENT_SESSION_AUDIT_FIELDS)[number], unknown>;
+type EventTicketTypeRow = Record<(typeof EVENT_TICKET_TYPE_AUDIT_FIELDS)[number], unknown>;
+
+function pickFields<T extends Record<string, unknown>>(row: T, fields: readonly (keyof T)[]): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const f of fields) {
+    const v = row[f];
+    out[f as string] = v instanceof Date ? v.toISOString() : v;
+  }
+  return out;
+}
+
+export async function logEventCreated(params: { organisationId: string; userId: string; eventId: string; after: EventRow }): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'event.created',
+    resourceType: 'event', resourceId: params.eventId, beforeState: null, afterState: pickFields(params.after, EVENT_AUDIT_FIELDS),
+  });
+}
+
+// Callers (app/api/events/[id]/route.ts's PATCH) decide whether a given
+// status transition is specifically a publish/unpublish edge (calling
+// logEventPublished/logEventUnpublished instead) or an ordinary edit —
+// this function is the ordinary-edit / non-publish-boundary path,
+// including a status change that ISN'T a publish/unpublish edge (e.g.
+// DRAFT -> CANCELLED). Returns without writing anything if the diff
+// against the safe field list is empty (a PATCH that only touched a
+// field outside the allowlist, if one existed, would otherwise log a
+// content-free no-op row).
+export async function logEventUpdated(params: { organisationId: string; userId: string; eventId: string; before: EventRow; after: EventRow }): Promise<void> {
+  const diff = diffFields(params.before, params.after, EVENT_AUDIT_FIELDS);
+  if (!diff) return;
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'event.updated',
+    resourceType: 'event', resourceId: params.eventId, beforeState: diff.before, afterState: diff.after,
+  });
+}
+
+export async function logEventPublished(params: { organisationId: string; userId: string; eventId: string; before: EventRow; after: EventRow }): Promise<void> {
+  const diff = diffFields(params.before, params.after, EVENT_AUDIT_FIELDS);
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'event.published',
+    resourceType: 'event', resourceId: params.eventId,
+    beforeState: diff?.before ?? { status: params.before.status }, afterState: diff?.after ?? { status: params.after.status },
+  });
+}
+
+export async function logEventUnpublished(params: { organisationId: string; userId: string; eventId: string; before: EventRow; after: EventRow }): Promise<void> {
+  const diff = diffFields(params.before, params.after, EVENT_AUDIT_FIELDS);
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'event.unpublished',
+    resourceType: 'event', resourceId: params.eventId,
+    beforeState: diff?.before ?? { status: params.before.status }, afterState: diff?.after ?? { status: params.after.status },
+  });
+}
+
+export async function logEventSessionCreated(params: {
+  organisationId: string; userId: string; eventId: string; sessionId: string; after: EventSessionRow;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'event_session.created',
+    resourceType: 'event_session', resourceId: params.sessionId, beforeState: null,
+    afterState: { event_id: params.eventId, ...pickFields(params.after, EVENT_SESSION_AUDIT_FIELDS) },
+  });
+}
+
+export async function logEventSessionUpdated(params: {
+  organisationId: string; userId: string; eventId: string; sessionId: string; before: EventSessionRow; after: EventSessionRow;
+}): Promise<void> {
+  const diff = diffFields(params.before, params.after, EVENT_SESSION_AUDIT_FIELDS);
+  if (!diff) return;
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'event_session.updated',
+    resourceType: 'event_session', resourceId: params.sessionId,
+    beforeState: { event_id: params.eventId, ...diff.before }, afterState: { event_id: params.eventId, ...diff.after },
+  });
+}
+
+// Called with the row DELETE ... RETURNING already produced — enough
+// pre-delete state to identify what was removed (name/starts_at/
+// ends_at/capacity) without a separate read-then-delete round trip.
+export async function logEventSessionDeleted(params: {
+  organisationId: string; userId: string; eventId: string; sessionId: string; before: EventSessionRow;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'event_session.deleted',
+    resourceType: 'event_session', resourceId: params.sessionId,
+    beforeState: { event_id: params.eventId, ...pickFields(params.before, EVENT_SESSION_AUDIT_FIELDS) }, afterState: null,
+  });
+}
+
+export async function logEventTicketTypeCreated(params: {
+  organisationId: string; userId: string; eventId: string; ticketTypeId: string; after: EventTicketTypeRow;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'event_ticket_type.created',
+    resourceType: 'event_ticket_type', resourceId: params.ticketTypeId, beforeState: null,
+    afterState: { event_id: params.eventId, ...pickFields(params.after, EVENT_TICKET_TYPE_AUDIT_FIELDS) },
+  });
+}
+
+export async function logEventTicketTypeUpdated(params: {
+  organisationId: string; userId: string; eventId: string; ticketTypeId: string; before: EventTicketTypeRow; after: EventTicketTypeRow;
+}): Promise<void> {
+  const diff = diffFields(params.before, params.after, EVENT_TICKET_TYPE_AUDIT_FIELDS);
+  if (!diff) return;
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'event_ticket_type.updated',
+    resourceType: 'event_ticket_type', resourceId: params.ticketTypeId,
+    beforeState: { event_id: params.eventId, ...diff.before }, afterState: { event_id: params.eventId, ...diff.after },
+  });
+}
+
+export async function logEventTicketTypeDeleted(params: {
+  organisationId: string; userId: string; eventId: string; ticketTypeId: string; before: EventTicketTypeRow;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'event_ticket_type.deleted',
+    resourceType: 'event_ticket_type', resourceId: params.ticketTypeId,
+    beforeState: { event_id: params.eventId, ...pickFields(params.before, EVENT_TICKET_TYPE_AUDIT_FIELDS) }, afterState: null,
+  });
+}
+
+// ── Stripe Connect audit (Phase 8) ───────────────────────────────────
+//
+// resource_type 'stripe_connect_account', resource_id = the Stripe
+// connected account id (acct_...) — already an acceptable, non-secret
+// identifier by this codebase's own existing convention (stored in
+// plain DB columns organisations.stripe_account_id/event_orders.
+// stripe_account_id, and passed to createRefund/createCheckoutSession
+// throughout lib/events/stripe.ts) — never the secret key, webhook
+// secret, or any onboarding-link URL, none of which are ever accepted
+// as parameters here.
+export async function logStripeConnectOnboardingInitiated(params: {
+  organisationId: string; userId: string; accountId: string; newAccount: boolean;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'stripe_connect_account.onboarding_initiated',
+    resourceType: 'stripe_connect_account', resourceId: params.accountId, beforeState: null,
+    afterState: { new_account: params.newAccount },
+  });
+}
+
+// Callers (app/events/payments/connect/return/page.tsx) compare the
+// cached state before and after refreshConnectedAccountStatus() and
+// only call this when at least one field actually changed — an
+// unchanged refresh (Stripe reports exactly what BrainBase already had
+// cached) intentionally writes nothing, matching the task's own
+// "where the stored BrainBase state changes" scope.
+export async function logStripeConnectStatusRefreshed(params: {
+  organisationId: string; userId: string; accountId: string;
+  before: { status: string; charges_enabled: boolean; payouts_enabled: boolean; details_submitted: boolean };
+  after: { status: string; charges_enabled: boolean; payouts_enabled: boolean; details_submitted: boolean };
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'stripe_connect_account.status_refreshed',
+    resourceType: 'stripe_connect_account', resourceId: params.accountId,
+    beforeState: params.before, afterState: params.after,
   });
 }

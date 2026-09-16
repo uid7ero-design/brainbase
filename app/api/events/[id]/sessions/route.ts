@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import sql from '@/lib/db';
 import { authorizeEventsRequest } from '@/lib/events/authorize';
 import { validateEventSessionInput, type EventSessionInput } from '@/lib/events/validation';
+import { logEventSessionCreated } from '@/lib/events/auditLog';
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -58,5 +59,10 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     VALUES (${id}, ${session.organisationId}, ${(body.name as string).trim()}, ${body.starts_at as string}, ${body.ends_at as string}, ${body.capacity as number})
     RETURNING *
   `;
-  return NextResponse.json({ event_session: rows[0] }, { status: 201 });
+  const created = rows[0] as Record<string, unknown>;
+  await logEventSessionCreated({
+    organisationId: session.organisationId, userId: session.userId, eventId: id, sessionId: created.id as string,
+    after: created as never,
+  });
+  return NextResponse.json({ event_session: created }, { status: 201 });
 }

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import sql from '@/lib/db';
 import { authorizeEventsRequest } from '@/lib/events/authorize';
 import { validateEventTicketTypeInput, type EventTicketTypeInput } from '@/lib/events/validation';
+import { logEventTicketTypeCreated } from '@/lib/events/auditLog';
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -60,5 +61,10 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     )
     RETURNING *
   `;
-  return NextResponse.json({ ticket_type: rows[0] }, { status: 201 });
+  const created = rows[0] as Record<string, unknown>;
+  await logEventTicketTypeCreated({
+    organisationId: session.organisationId, userId: session.userId, eventId: id, ticketTypeId: created.id as string,
+    after: created as never,
+  });
+  return NextResponse.json({ ticket_type: created }, { status: 201 });
 }
