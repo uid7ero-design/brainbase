@@ -10,8 +10,10 @@ import { secureCompare } from '@/lib/secureCompare';
  * terminally sweeps stale-exhausted leases. Generic across free/paid —
  * see that module's own header comment.
  *
- * Wired to vercel.json's cron schedule (currently every 15 minutes —
- * see that file). The recovery state machine below is timestamp-driven
+ * Wired to vercel.json's cron schedule (currently hourly, on the hour —
+ * see that file; reduced from every 15 minutes to cut unnecessary Neon
+ * compute wakeups once recovery runs consistently showed zero work).
+ * The recovery state machine below is timestamp-driven
  * (next_attempt_at / claimed_at comparisons in lib/events/
  * ticketEmailRecovery.ts), not dependent on any particular polling
  * cadence — the schedule only controls how promptly a due candidate is
