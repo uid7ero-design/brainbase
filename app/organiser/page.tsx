@@ -9,6 +9,7 @@ import { useOpsTheme } from "@/components/ops/theme";
 import { useAppStore } from "@/lib/state/useAppStore";
 import { describeActivityEvent, describeBoardActivityEvent, type ActivityEventLike } from "@/lib/organiser/activityFormat";
 import { enqueueCoalesced, type CoalescingQueueMap } from "@/lib/organiser/coalescingMutationQueue";
+import { createNotesAutosaveTimer, type NotesAutosaveTimer } from "@/lib/organiser/notesAutosave";
 
 const FONT = 'var(--font-inter), "Inter", -apple-system, sans-serif';
 
@@ -1071,7 +1072,7 @@ function BoardActivity({
 // Read-only history for one item, sourced from GET /api/organiser/activity
 // (lib/organiser/activityRead.ts — tenant-scoped, deletion-safe, keyset-
 // paginated). Mounted only while the item drawer is open (ItemDrawer only
-// renders when drawerItem is set), so activity is never fetched for a
+// renders when openItem is non-null), so activity is never fetched for a
 // closed drawer. Re-fetches from page 1 whenever `itemId` OR `updatedAt`
 // changes — `updatedAt` changing means this same item was just mutated
 // (status/priority/owner/due date/notes/custom field edit, or a move) via
@@ -1079,6 +1080,14 @@ function BoardActivity({
 // needs to appear without requiring the drawer to be closed and reopened.
 // This reuses the item's own already-tracked updated_at as the cheapest
 // possible "did something change" signal — no new global state, no extra
+// request. D.4.7C fixed the one thing that used to make this a broken
+// promise in practice: `item` here is now ALWAYS derived fresh from
+// boardData.items (see openItem at this file's top-level component), so
+// `item.updated_at` genuinely changes after loadBoardData() reloads post-
+// mutation — before D.4.7C, `item` was a separately-held `drawerItem`
+// snapshot whose `updated_at` was frozen at drawer-open time and never
+// updated, so this key never actually changed and Activity silently never
+// refreshed while the drawer stayed open.
 // request beyond what a genuine mutation already causes.
 function ItemActivity({
   itemId, updatedAt, groupNamesById, userNamesById,
@@ -1200,6 +1209,7 @@ function ItemDrawer({
   const [files, setFiles] = useState<OrganiserFile[]>([]);
   const [updates, setUpdates] = useState<OrganiserUpdate[]>([]);
   const [newUpdate, setNewUpdate] = useState("");
+  const [updateError, setUpdateError] = useState<string | null>(null);
   const [uploadingFile, setUploadingFile] = useState(false);
   const [fileError, setFileError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -1208,6 +1218,129 @@ function ItemDrawer({
     fetch(`/api/organiser/items/${item.id}/files`, { credentials: "include" }).then(r => r.ok ? r.json() : { files: [] }).then(d => setFiles(d.files ?? [])).catch(() => {});
     fetch(`/api/organiser/items/${item.id}/updates`, { credentials: "include" }).then(r => r.ok ? r.json() : { updates: [] }).then(d => setUpdates(d.updates ?? [])).catch(() => {});
   }, [item.id]);
+
+  // D.4.7C — Notes local draft + debounced autosave.
+  //
+  // Before this phase, the Notes textarea called onUpdate(id, { notes })
+  // directly on every keystroke — R1's coalescing queue kept that
+  // network-safe (at most one PATCH in flight, latest intent always wins),
+  // but per-keystroke PATCH traffic is undesirable on its own, and typing
+  // was one keystroke away from momentarily showing whatever boardData.
+  // notes last settled to.
+  //
+  // notesDraft is now the ONLY thing the textarea renders — entirely local
+  // component state, decoupled from item.notes (the authoritative,
+  // boardData-derived value). notesDirty is true whenever the draft holds
+  // something not yet confirmed identical to item.notes: from the first
+  // keystroke, through the debounce window, through the in-flight PATCH,
+  // and (critically) through a FAILED save — a rejected write must never
+  // silently replace the user's typed text with the rolled-back
+  // authoritative value the way a dropdown's rollback safely can. dirty is
+  // cleared only when this exact key's SaveStatus reaches "saved" (see the
+  // effect below) — reusing the same generic saveStatus/markSaved signal
+  // every other field already produces, rather than inventing a second,
+  // parallel notion of "the request for this field settled successfully."
+  //
+  // notesAutosave is one stable controller instance reused across item
+  // switches (ItemDrawer is not remounted when the open item changes).
+  // Lazily created via useState's own initializer (never a ref) — this
+  // repo's lint config (react-hooks/refs) flags reading/writing a ref
+  // during render, so the controller instance itself, and the "which item
+  // did we last see" bookkeeping below, are ALL plain state, compared and
+  // conditionally updated synchronously during render (React's documented
+  // "adjusting state when a prop changes" pattern — see the block below).
+  // See notesAutosave.ts's own header for why a timer scheduled for one
+  // item can never fire with a different item's id or value.
+  const notesKey = `item:${item.id}:notes`;
+  const [notesDraft, setNotesDraft] = useState(item.notes ?? "");
+  const [notesDirty, setNotesDirty] = useState(false);
+  const [notesAutosave] = useState<NotesAutosaveTimer<string>>(() =>
+    createNotesAutosaveTimer<string>(
+      (itemId, value) => onUpdate(itemId, { notes: value }),
+      { debounceMs: 800 },
+    ),
+  );
+  const [notesSeenItemId, setNotesSeenItemId] = useState(item.id);
+  const [notesSeenValue, setNotesSeenValue] = useState(item.notes ?? "");
+
+  // Synchronous state adjustment during render (no effect, no ref) — this
+  // repo's lint config (react-hooks/set-state-in-effect) flags a plain
+  // setState call inside a useEffect body for exactly this kind of "sync
+  // local state to a changed prop" job, and react-hooks/refs flags reading
+  // a ref during render, so both the item-switch case and the same-item
+  // authoritative-refresh case are expressed as comparisons against
+  // ordinary state instead, each firing only when something has actually
+  // changed since the last render (so this can't loop).
+  if (notesSeenItemId !== item.id) {
+    // Item switch (this SAME ItemDrawer instance now shows a different
+    // item) — re-initialise local draft state for the NEW item.
+    setNotesSeenItemId(item.id);
+    setNotesSeenValue(item.notes ?? "");
+    setNotesDraft(item.notes ?? "");
+    setNotesDirty(false);
+  } else if (notesSeenValue !== (item.notes ?? "")) {
+    // Same item, background authoritative refresh (this client's own
+    // reconciliation/rollback, or — were it ever wired up — a server-side
+    // change): adopt the fresh item.notes into the draft ONLY while
+    // clean. A dirty draft (unsent edit, in-flight save, or a failure the
+    // user hasn't since resolved) must never be overwritten here.
+    setNotesSeenValue(item.notes ?? "");
+    if (!notesDirty) setNotesDraft(item.notes ?? "");
+  }
+
+  // The generic saveStatus store is the authoritative "did the LATEST
+  // intended value actually persist" signal (see updateItem's own
+  // hasNewerPending()-gated markSaved) — reusing it here, rather than
+  // inferring success from onUpdate's own return value, is deliberate:
+  // updateItem resolves immediately (without waiting) for a call that
+  // gets coalesced behind an in-flight one for the same key, so its
+  // return value alone can't be trusted to mean "this exact value saved."
+  // Same render-time-comparison shape as above, for the same lint reason.
+  const notesSaveState = saveStatus[notesKey]?.state;
+  const [notesSeenSaveState, setNotesSeenSaveState] = useState(notesSaveState);
+  if (notesSeenSaveState !== notesSaveState) {
+    setNotesSeenSaveState(notesSaveState);
+    if (notesSaveState === "saved") setNotesDirty(false);
+  }
+
+  // Flushes a dirty draft as a genuine effect (an actual side effect —
+  // dispatching a save — unlike the render-time state adjustments above)
+  // whenever this drawer is about to stop showing THIS item: either
+  // switching to a different item (cleanup runs before the effect
+  // re-fires for the new item.id) or the drawer closing outright (cleanup
+  // runs on unmount, regardless of dependency array). Using peek()+
+  // cancel() here (not in handleNotesChange or the render body) means a
+  // failed-to-debounce edit typed right before switching/closing is never
+  // silently discarded.
+  useEffect(() => {
+    return () => {
+      const pending = notesAutosave.peek();
+      if (pending) {
+        notesAutosave.cancel();
+        onUpdate(pending.itemId, { notes: pending.value });
+      }
+    };
+  }, [item.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function handleNotesChange(value: string) {
+    setNotesDraft(value);
+    if (value === (item.notes ?? "")) {
+      // Back to the authoritative value (e.g. the user undid their own
+      // edit) — nothing to send, and nothing to protect from reconciliation.
+      notesAutosave.cancel();
+      setNotesDirty(false);
+      return;
+    }
+    setNotesDirty(true);
+    notesAutosave.schedule(item.id, value);
+  }
+
+  function flushNotesNow() {
+    const pending = notesAutosave.peek();
+    if (!pending) return;
+    notesAutosave.cancel();
+    onUpdate(pending.itemId, { notes: pending.value });
+  }
 
   async function uploadFile(file: File) {
     setUploadingFile(true);
@@ -1242,13 +1375,27 @@ function ItemDrawer({
       setFileError("Couldn't delete file. Check your connection and try again.");
     }
   }
+  // D.4.7C — was previously "fake success": it cleared the input and
+  // never surfaced an error regardless of whether the POST actually
+  // succeeded. Now mirrors uploadFile/deleteFile's own res.ok + catch
+  // pattern — the input (and the user's typed text) is only cleared on a
+  // confirmed success, matching Step 3's "on failure, do not fake success."
   async function addUpdate() {
     const body = newUpdate.trim();
     if (!body) return;
-    const res = await fetch(`/api/organiser/items/${item.id}/updates`, { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ body }) });
-    const d = await res.json();
-    if (d.update) setUpdates(prev => [d.update, ...prev]);
-    setNewUpdate("");
+    setUpdateError(null);
+    try {
+      const res = await fetch(`/api/organiser/items/${item.id}/updates`, { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ body }) });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok || !d.update) {
+        setUpdateError(`Couldn't post update (${res.status}).`);
+        return;
+      }
+      setUpdates(prev => [d.update, ...prev]);
+      setNewUpdate("");
+    } catch {
+      setUpdateError("Couldn't post update. Check your connection and try again.");
+    }
   }
 
   // D.4.6P-R2 (PR #214 UI blocker fix) — OrganiserShell wraps this drawer's
@@ -1315,10 +1462,11 @@ function ItemDrawer({
             </Field>
           </div>
 
-          <Field label="Notes">
+          <Field label="Notes" status={saveStatus[notesKey]}>
             <textarea
-              value={item.notes ?? ""}
-              onChange={e => onUpdate(item.id, { notes: e.target.value })}
+              value={notesDraft}
+              onChange={e => handleNotesChange(e.target.value)}
+              onBlur={flushNotesNow}
               rows={4}
               placeholder="Add notes…"
               style={{ background: t.ink(.04), border: `1px solid ${t.ink(.08)}`, borderRadius: 8, padding: "8px 10px", fontSize: 12.5, color: t.ink(.90), fontFamily: FONT, resize: "vertical", width: "100%" }}
@@ -1357,6 +1505,9 @@ function ItemDrawer({
               style={{ width: "100%", background: t.ink(.04), border: `1px solid ${t.ink(.08)}`, borderRadius: 8, padding: "6px 9px", fontSize: 11.5, color: t.ink(.90), fontFamily: FONT, resize: "vertical", marginBottom: 6 }}
             />
             <button onClick={addUpdate} disabled={!newUpdate.trim()} style={{ ...btnStyle(true, t), marginBottom: 10 }}>Post update</button>
+            {updateError && (
+              <div style={{ fontSize: 11, color: "#EF4444", marginBottom: 8 }}>{updateError}</div>
+            )}
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {updates.map(u => (
                 <div key={u.id} style={{ padding: "8px 10px", borderRadius: 8, background: t.ink(.025), border: `1px solid ${t.ink(.05)}` }}>
@@ -1431,7 +1582,20 @@ function OrganiserPageContent() {
   const [boardData, setBoardData] = useState<BoardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<ViewMode>("table");
-  const [drawerItem, setDrawerItem] = useState<OrganiserItem | null>(null);
+  // D.4.7C — the open drawer tracks only WHICH item is open, never a
+  // separate copy of the item's own data. `openItem` (derived below, once
+  // boardData is in scope) is looked up fresh from boardData.items on
+  // every render, so a `loadBoardData()` refresh — from this client's own
+  // mutation, or (were it ever wired up) a server-side/Helena change —
+  // updates the open drawer's fields automatically, with no separate
+  // "drawerItem" copy that could ever drift out of sync with boardData.
+  // Before this phase, `drawerItem: OrganiserItem | null` held its own
+  // snapshot of the item, patched in parallel by applyOptimisticItemPatch/
+  // restoreItemFields — a split-brain that meant ItemActivity's own
+  // `${item.id}:${item.updated_at}` refresh key never actually changed
+  // after a mutation (drawerItem.updated_at was frozen at open-time), so
+  // Activity silently never refreshed while the drawer stayed open.
+  const [openDrawerItemId, setOpenDrawerItemId] = useState<string | null>(null);
   const [editingColumn, setEditingColumn] = useState<OrganiserColumn | null>(null);
   const [addingGroup, setAddingGroup] = useState(false);
   const [groupName, setGroupName] = useState("");
@@ -1695,9 +1859,11 @@ function OrganiserPageContent() {
     await loadBoardData(activeId);
     return true;
   }
-  // Applies `patch` optimistically to both boardData and drawerItem —
-  // extracted so both the coalesced (queued-while-in-flight) path and the
-  // dispatched-request path in updateItem below can share it verbatim.
+  // D.4.7C — applies `patch` optimistically to boardData ONLY. Before this
+  // phase this also patched a separate `drawerItem` copy; now that the
+  // open drawer's item is DERIVED from boardData.items (see openItem
+  // below), patching boardData alone is sufficient — the open drawer
+  // reflects it automatically, with no second write site to keep in sync.
   function applyOptimisticItemPatch(id: string, patch: Record<string, unknown>) {
     setBoardData(prev => {
       if (!prev) return prev;
@@ -1713,28 +1879,19 @@ function OrganiserPageContent() {
         }),
       };
     });
-    setDrawerItem(prev => {
-      if (!prev || prev.id !== id) return prev;
-      const merged = { ...prev, ...patch } as OrganiserItem;
-      if (patch.custom_values && typeof patch.custom_values === "object") {
-        merged.custom_values = { ...prev.custom_values, ...(patch.custom_values as Record<string, unknown>) };
-      }
-      return merged;
-    });
   }
   function restoreItemFields(id: string, snapshot: Record<string, unknown>) {
     setBoardData(prev => prev ? { ...prev, items: prev.items.map(i => i.id === id ? ({ ...i, ...snapshot } as OrganiserItem) : i) } : prev);
-    setDrawerItem(prev => prev && prev.id === id ? ({ ...prev, ...snapshot } as OrganiserItem) : prev);
   }
   // Reads the CURRENT (pre-optimistic-patch) values of `keys` for item
-  // `id`, preferring drawerItem when it's the open item (the most "live"
-  // copy a user is looking at) and falling back to boardData. Only ever
-  // called synchronously at the very start of a fresh (non-coalesced)
-  // mutation chain — see updateItem below — never from deep inside an
-  // async continuation, so there's no risk of reading stale React state
-  // from an old render's closure.
+  // `id` from boardData — the single source of truth now that the open
+  // drawer no longer holds its own separate copy. Only ever called
+  // synchronously at the very start of a fresh (non-coalesced) mutation
+  // chain — see updateItem below — never from deep inside an async
+  // continuation, so there's no risk of reading stale React state from an
+  // old render's closure.
   function readCurrentItemFields(id: string, keys: string[]): Record<string, unknown> {
-    const source = (drawerItem && drawerItem.id === id) ? drawerItem : boardData?.items.find(i => i.id === id);
+    const source = boardData?.items.find(i => i.id === id);
     const out: Record<string, unknown> = {};
     if (source) for (const k of keys) out[k] = (source as unknown as Record<string, unknown>)[k];
     return out;
@@ -1842,7 +1999,7 @@ function OrganiserPageContent() {
       showPageNotice("Couldn't delete item. Try again.");
       return;
     }
-    setDrawerItem(prev => prev && prev.id === id ? null : prev);
+    setOpenDrawerItemId(prev => prev === id ? null : prev);
     if (activeId) loadBoardData(activeId);
   }
 
@@ -1897,6 +2054,13 @@ function OrganiserPageContent() {
 
   const activeBoard = boards.find(b => b.id === activeId) ?? null;
   const columns = boardData?.columns ?? [];
+  // D.4.7C — the single derivation point for "what item is the drawer
+  // showing." Looked up fresh from boardData.items on every render, so
+  // any boardData refresh (this client's own mutations today; a future
+  // server-side/Helena change tomorrow) is reflected immediately without
+  // a second, separately-maintained item copy that could drift stale.
+  const openItem = boardData?.items.find(i => i.id === openDrawerItemId) ?? null;
+  const openDrawerForItem = (item: OrganiserItem) => setOpenDrawerItemId(item.id);
 
   // Phase D.4.6D — publish the current board/item to Helena (via
   // useAppStore's organiserContext) whenever either changes, exactly
@@ -1912,10 +2076,10 @@ function OrganiserPageContent() {
   // comment on why this field is deliberately not persisted.
   useEffect(() => {
     useAppStore.getState().setOrganiserContext(
-      activeBoard || drawerItem ? { boardId: activeBoard?.id, itemId: drawerItem?.id } : null,
+      activeBoard || openDrawerItemId ? { boardId: activeBoard?.id, itemId: openDrawerItemId ?? undefined } : null,
     );
     return () => useAppStore.getState().setOrganiserContext(null);
-  }, [activeBoard?.id, drawerItem?.id]);
+  }, [activeBoard?.id, openDrawerItemId]);
 
   return (
     <OrganiserShell
@@ -2012,7 +2176,7 @@ function OrganiserPageContent() {
                     <GroupSection
                       key={g.id} group={g} items={boardData.items} columns={columns}
                       onUpdateItem={updateItem} onDeleteItem={deleteItem} onAddItem={addItem}
-                      onOpenDrawer={setDrawerItem} onRenameGroup={renameGroup} onDeleteGroup={deleteGroup}
+                      onOpenDrawer={openDrawerForItem} onRenameGroup={renameGroup} onDeleteGroup={deleteGroup}
                       onAddColumn={addColumn} onRenameColumn={renameColumn} onDeleteColumn={deleteColumn} onEditColumnOptions={setEditingColumn}
                       saveStatus={saveStatus}
                     />
@@ -2021,7 +2185,7 @@ function OrganiserPageContent() {
                     <GroupSection
                       group={null} items={boardData.items} columns={columns}
                       onUpdateItem={updateItem} onDeleteItem={deleteItem} onAddItem={addItem}
-                      onOpenDrawer={setDrawerItem} onRenameGroup={renameGroup} onDeleteGroup={deleteGroup}
+                      onOpenDrawer={openDrawerForItem} onRenameGroup={renameGroup} onDeleteGroup={deleteGroup}
                       onAddColumn={addColumn} onRenameColumn={renameColumn} onDeleteColumn={deleteColumn} onEditColumnOptions={setEditingColumn}
                       saveStatus={saveStatus}
                     />
@@ -2052,13 +2216,13 @@ function OrganiserPageContent() {
 
               {view === "board" && boardData && (
                 <div style={{ flex: 1, overflow: "hidden" }}>
-                  <KanbanView items={boardData.items} onOpenDrawer={setDrawerItem} onUpdateItem={updateItem} />
+                  <KanbanView items={boardData.items} onOpenDrawer={openDrawerForItem} onUpdateItem={updateItem} />
                 </div>
               )}
 
               {view === "calendar" && boardData && (
                 <div style={{ flex: 1, overflow: "hidden" }}>
-                  <CalendarView items={boardData.items} onOpenDrawer={setDrawerItem} />
+                  <CalendarView items={boardData.items} onOpenDrawer={openDrawerForItem} />
                 </div>
               )}
 
@@ -2069,15 +2233,15 @@ function OrganiserPageContent() {
                   items={boardData.items}
                   groupNamesById={groupNamesById}
                   userNamesById={userNamesById}
-                  onOpenItem={setDrawerItem}
+                  onOpenItem={openDrawerForItem}
                   refreshKey={boardActivityRefreshKey}
                 />
               )}
             </>
           )}
 
-      {drawerItem && (
-        <ItemDrawer item={drawerItem} onClose={() => setDrawerItem(null)} onUpdate={updateItem} groupNamesById={groupNamesById} members={members} saveStatus={saveStatus} />
+      {openItem && (
+        <ItemDrawer item={openItem} onClose={() => setOpenDrawerItemId(null)} onUpdate={updateItem} groupNamesById={groupNamesById} members={members} saveStatus={saveStatus} />
       )}
       {editingColumn && (
         <ColumnOptionsEditor

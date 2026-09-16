@@ -89,7 +89,7 @@ describe('BoardActivity — mounted only while the Activity view is selected', (
     expect(block).toMatch(/key=\{`\$\{activeBoard\.id\}:\$\{boardActivityRefreshKey\}`\}/)
     expect(block).toMatch(/boardId=\{activeBoard\.id\}/)
     expect(block).toMatch(/items=\{boardData\.items\}/)
-    expect(block).toMatch(/onOpenItem=\{setDrawerItem\}/)
+    expect(block).toMatch(/onOpenItem=\{openDrawerForItem\}/)
   })
 
   it('table/board/calendar content is gated on their own distinct view checks — switching to Activity does not also render them', () => {
@@ -98,7 +98,7 @@ describe('BoardActivity — mounted only while the Activity view is selected', (
     expect(pageCode).toMatch(/\{view === "calendar" && boardData && \(/)
   })
 
-  it('does not open the item drawer automatically — no drawerItem/setDrawerItem call outside an explicit click handler', () => {
+  it('does not open the item drawer automatically — no onOpenItem call outside an explicit click handler', () => {
     const start = pageCode.indexOf('function BoardActivity(')
     // stripComments removes the '// ── ITEM DETAIL DRAWER' section-header
   // comment this block used to end at, so it must be located by the next
