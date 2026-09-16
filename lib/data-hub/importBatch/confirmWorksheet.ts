@@ -333,7 +333,15 @@ export async function confirmDataHubWorksheet(
   // outcome, reusing read.ts's own established code/semantics verbatim. ----
   const worksheet = await prisma.upload.findFirst({
     where: { id: worksheetUploadId, organisation_id: organisationId, lineage_kind: "DATA_HUB" },
-    select: { id: true, import_batch_id: true, worksheet_index: true, canonical_status: true, mapping_version_id: true },
+    select: {
+      id: true,
+      import_batch_id: true,
+      worksheet_index: true,
+      canonical_status: true,
+      mapping_version_id: true,
+      period_start: true,
+      period_end: true,
+    },
   });
   if (!worksheet || worksheet.import_batch_id === null || worksheet.worksheet_index === null) {
     return fail("WORKSHEET_NOT_FOUND");
@@ -393,6 +401,44 @@ export async function confirmDataHubWorksheet(
     return fail("SOURCE_LINEAGE_REQUIRED");
   }
   const sourceSystemId = batch.source_system_id;
+
+  // ---- Step 3.6 — 6.2B1 REPORTING-PERIOD REQUIREMENT. Resolves the
+  // worksheet's authoritative SourceSystem (already-trusted, tenant-scoped
+  // sourceSystemId from Step 3.5) to read its own
+  // reporting_period_required policy flag. This is a pre-transaction
+  // VALIDATION gate only — it never writes a period (that is exclusively
+  // selectWorksheetPeriod's own job, already frozen onto the worksheet
+  // before Confirm ever runs), never infers one (no filename parsing, no
+  // IllegalDumping.report_date min/max, no fallback of any kind), and
+  // fully preserves existing behavior for every SourceSystem where
+  // reporting_period_required is false (including every SourceSystem
+  // configured before this slice, which all default to false on
+  // migration) — for those, a NULL period is valid and Confirm proceeds
+  // exactly as it always has. Placed here, before storage/decode/mapping
+  // work, mirroring Step 3.5's own "fail fast on a lineage precondition"
+  // discipline.
+  //
+  // sourceSystemId cannot actually be null here — Step 3.5 immediately
+  // above already fails closed with SOURCE_LINEAGE_REQUIRED on a null
+  // batch.source_system_id for this exact function, before this line is
+  // ever reached. The `sourceSystemId === null` branch is purely
+  // defensive (never observed at runtime); it exists so this lookup can
+  // never be attempted with a null id if Step 3.5's own gate is ever
+  // refactored, rather than relying on that ordering being preserved
+  // forever by convention alone. ----
+  const authoritativeSourceSystem =
+    sourceSystemId === null
+      ? null
+      : await prisma.sourceSystem.findUnique({
+          where: { id_organisation_id: { id: sourceSystemId, organisation_id: organisationId } },
+          select: { reporting_period_required: true },
+        });
+  if (
+    authoritativeSourceSystem?.reporting_period_required === true &&
+    (worksheet.period_start === null || worksheet.period_end === null)
+  ) {
+    return fail("REPORTING_PERIOD_REQUIRED");
+  }
 
   // ---- Step 4 — CSV-only format gate. Deterministic, no fallback of any
   // kind for XLS/XLSX — this service never imports workbookParser.ts or

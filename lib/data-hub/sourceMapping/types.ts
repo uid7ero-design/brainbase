@@ -93,6 +93,11 @@ export interface SourceSystemDTO {
   createdBy: string | null;
   createdAt: string;
   updatedAt: string;
+  // Data Hub 6.2B1 — additive admin-editable policy flag (see
+  // confirmWorksheet.ts's own Step 3.6). Defaults to false for every
+  // existing SourceSystem; toggling it for any already-configured source
+  // is a separate, explicit admin action, never performed automatically.
+  reportingPeriodRequired: boolean;
 }
 
 export interface SourceMappingDTO {

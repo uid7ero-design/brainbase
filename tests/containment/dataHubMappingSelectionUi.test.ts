@@ -57,6 +57,10 @@ const FAKE_WORKSHEET = {
   lastFailureMessage: null,
   lastFailureRetryable: null,
   importedRowCount: null,
+  periodStart: null,
+  periodEnd: null,
+  periodSource: null,
+  reportingPeriodRequired: false,
 };
 
 function mappedPreview(overrides: {

@@ -20,6 +20,8 @@ function row(id: string, overrides: Partial<ImportBatchSummaryDTOClient> = {}): 
     sizeBytes: 100,
     createdAt: "2026-09-01T00:00:00.000Z",
     updatedAt: "2026-09-01T00:00:00.000Z",
+    periodStart: null,
+    periodEnd: null,
     ...overrides,
   };
 }

@@ -15,7 +15,8 @@ import { statusForFailureCode } from "@/lib/data-hub/sourceMapping/httpStatus";
 // generic PATCH of arbitrary columns" for the `active` transition.
 
 const CACHE_HEADERS = { "Cache-Control": "private, no-store" } as const;
-const KNOWN_PATCH_FIELDS = new Set(["name", "description", "active"]);
+// Data Hub 6.2B1 — reportingPeriodRequired joined the known PATCH fields.
+const KNOWN_PATCH_FIELDS = new Set(["name", "description", "active", "reportingPeriodRequired"]);
 
 function hasUnknownField(body: Record<string, unknown>): boolean {
   return Object.keys(body).some((k) => !KNOWN_PATCH_FIELDS.has(k));
@@ -73,16 +74,43 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
 
   const hasMetadata = "name" in body || "description" in body;
   const hasActive = "active" in body;
-  if (!hasMetadata && !hasActive) {
+  // Data Hub 6.2B1 — an additive third recognized field, independent of
+  // name/description/active.
+  const hasReportingPeriodRequired = "reportingPeriodRequired" in body;
+  if (!hasMetadata && !hasActive && !hasReportingPeriodRequired) {
     return NextResponse.json({ error: "The request was not valid." }, { status: 400, headers: CACHE_HEADERS });
   }
   if (hasActive && typeof body.active !== "boolean") {
     return NextResponse.json({ error: "The request was not valid." }, { status: 400, headers: CACHE_HEADERS });
   }
+  if (hasReportingPeriodRequired && typeof body.reportingPeriodRequired !== "boolean") {
+    return NextResponse.json({ error: "The request was not valid." }, { status: 400, headers: CACHE_HEADERS });
+  }
 
   try {
-    if (hasMetadata) {
-      const result = await updateSourceSystem(session.organisationId, id, { name: body.name, description: body.description });
+    if (hasMetadata || hasReportingPeriodRequired) {
+      // Data Hub 6.2B1 — updateSourceSystem's own validateNameAndDescription
+      // requires a real name string; a PATCH that toggles ONLY
+      // reportingPeriodRequired (no name/description present) echoes back
+      // the record's own CURRENT name/description unchanged, rather than
+      // requiring every caller to resend metadata it never intended to
+      // touch. Never a partial/best-effort write — a failed lookup here
+      // fails the whole PATCH closed before any mutation is attempted.
+      let nameInput = body.name;
+      let descriptionInput = body.description;
+      if (!hasMetadata) {
+        const current = await getSourceSystem(session.organisationId, id);
+        if (!current.ok) {
+          return NextResponse.json({ error: current.message }, { status: statusForFailureCode(current.code), headers: CACHE_HEADERS });
+        }
+        nameInput = current.sourceSystem.name;
+        descriptionInput = current.sourceSystem.description;
+      }
+      const result = await updateSourceSystem(session.organisationId, id, {
+        name: nameInput,
+        description: descriptionInput,
+        reportingPeriodRequired: hasReportingPeriodRequired ? body.reportingPeriodRequired : undefined,
+      });
       if (!result.ok) {
         return NextResponse.json({ error: result.message }, { status: statusForFailureCode(result.code), headers: CACHE_HEADERS });
       }

@@ -14,6 +14,7 @@ import {
   shouldRenderPreviewTable,
   type ReviewPhase,
 } from "../confirmEligibility";
+import PeriodSelector, { type PeriodOverride } from "./PeriodSelector";
 import { useFrozenSourceMappingLabel, useSourceMappings } from "../useSourceMappings";
 
 // Data Hub 5A.3C.1 — the REVIEW screen: confirmationReady, previewing,
@@ -78,6 +79,32 @@ export default function ReviewPanel({
     setAcknowledged(false);
   }
 
+  // Data Hub 6.2B1 — mirrors the acknowledgement reset above: a stale
+  // optimistic period override must never survive onto a DIFFERENT
+  // worksheet's Review screen. Reset whenever the worksheet identity
+  // itself changes (never merely on phase change within the SAME
+  // worksheet, which would otherwise wipe a just-made selection the
+  // instant loadPreview's own previewing->previewReady transition fires).
+  const [periodOverride, setPeriodOverride] = useState<PeriodOverride | null>(null);
+  const [prevWorksheetId, setPrevWorksheetId] = useState(state.worksheet.id);
+  if (state.worksheet.id !== prevWorksheetId) {
+    setPrevWorksheetId(state.worksheet.id);
+    setPeriodOverride(null);
+  }
+
+  // Data Hub 6.2B1 — the worksheet snapshot used for confirm-eligibility and
+  // for PeriodSelector's own initial display: the orchestrator's own
+  // state.worksheet, freshened with a just-succeeded selection's dates when
+  // one exists. There is no server preview-equivalent for reporting period
+  // (no re-fetch happens after a successful selection, unlike mapping's own
+  // runLoadPreview) — this local override is the ONLY mechanism that keeps
+  // Confirm's own eligibility check in sync with a selection made THIS
+  // render session, and it is discarded (see above) the moment a different
+  // worksheet is reviewed.
+  const effectiveWorksheet = periodOverride
+    ? { ...state.worksheet, periodStart: periodOverride.periodStart, periodEnd: periodOverride.periodEnd, periodSource: periodOverride.periodSource }
+    : state.worksheet;
+
   useEffect(() => {
     if (state.phase === "confirmationReady") {
       // Auto-offer preview — the manager can always choose not to wait; this
@@ -88,7 +115,7 @@ export default function ReviewPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.phase === "confirmationReady"]);
 
-  const eligible = isConfirmEligible(state, acknowledged);
+  const eligible = isConfirmEligible({ ...state, worksheet: effectiveWorksheet }, acknowledged);
 
   // Data Hub 5B.5B — the SINGLE source of truth for "what mapping is
   // currently frozen for this worksheet" is previewReady's own
@@ -107,6 +134,8 @@ export default function ReviewPanel({
       </h2>
 
       <MappingSelector session={session} batch={state.batch} worksheet={state.worksheet} frozenMapping={frozenMapping} />
+
+      <PeriodSelector session={session} worksheet={effectiveWorksheet} onSelected={setPeriodOverride} />
 
       {state.phase === "confirmationReady" || state.phase === "previewing" ? (
         <div aria-live="polite" aria-busy="true" style={{ fontSize: 13, color: "rgba(249,250,251,.6)", marginTop: 10 }}>
