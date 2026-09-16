@@ -326,9 +326,10 @@ export async function processStripeWebhookEvent(event: Stripe.Event): Promise<We
 // Deliberately NOT calling attemptAutomaticTicketEmail (or
 // sendTicketEmail/sendEmail) here — see this file's own module header
 // and the 3E.3 architecture decision: a Stripe webhook handler must stay
-// fast and predictable, and the already-live 5-minute recovery cron
-// (lib/events/ticketEmailRecovery.ts, unmodified by this phase) is
-// responsible for actually attempting delivery. ticket_email_status=
+// fast and predictable, and the already-live recovery cron (see
+// vercel.json for its current cadence; lib/events/ticketEmailRecovery.ts,
+// unmodified by this phase) is responsible for actually attempting
+// delivery. ticket_email_status=
 // 'pending' here is scheduling only, never a send.
 async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session, eventAccount: string | null): Promise<void> {
   if (session.payment_status !== 'paid') return;
