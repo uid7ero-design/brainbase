@@ -23,12 +23,34 @@ export type ReviewPhase = Extract<
  *    true (the UI does not know header/mapping status here at all — see
  *    screenGroup's previewFailed copy).
  * previewing itself is NEVER eligible (still loading).
+ *
+ * Data Hub 6.2B1 — additionally, ALWAYS (regardless of phase otherwise
+ * eligible above): if the worksheet's authoritative SourceSystem requires a
+ * reporting period, both periodStart and periodEnd must already be
+ * selected. This mirrors confirmWorksheet.ts's own server-side Step 3.6
+ * gate client-side, purely for a truthful disabled Confirm button — the
+ * server's own gate remains the sole enforcement; this is never relied on
+ * for correctness.
  */
 export function isConfirmEligible(state: ReviewPhase, previewFailedAcknowledged: boolean): boolean {
+  if (!isPeriodRequirementSatisfied(state.worksheet)) return false;
   if (state.phase === "confirmationReady") return true;
   if (state.phase === "previewReady") return !hasMissingRequiredHeaders(state) && !hasStructuralMappingFailure(state);
   if (state.phase === "previewFailed") return previewFailedAcknowledged;
   return false;
+}
+
+/**
+ * Data Hub 6.2B1 — the single source of truth for "has this worksheet's own
+ * reporting-period requirement (if any) been satisfied". A worksheet whose
+ * authoritative SourceSystem does not require a period is always satisfied
+ * (reportingPeriodRequired === false) — this never re-derives that flag
+ * from anything else. Both periodStart and periodEnd must be present
+ * together (mirrors the server's own CHECK constraint pairing).
+ */
+export function isPeriodRequirementSatisfied(worksheet: { reportingPeriodRequired: boolean; periodStart: string | null; periodEnd: string | null }): boolean {
+  if (!worksheet.reportingPeriodRequired) return true;
+  return worksheet.periodStart !== null && worksheet.periodEnd !== null;
 }
 
 /**

@@ -117,7 +117,21 @@ export type CallerOnlyOutcomeCode =
   // unreachable in normal operation. Never classified NEW, never a
   // fabricated comparison hash. Never leaks the identity/source
   // system/organisation involved.
-  | "RECONCILIATION_HISTORY_INCONSISTENT";
+  | "RECONCILIATION_HISTORY_INCONSISTENT"
+  // 6.2B1 — Confirm-only: the worksheet's authoritative parent
+  // SourceSystem has reporting_period_required = true, but
+  // Upload.period_start/period_end are not both set. Never inferred (no
+  // filename parsing, no report_date min/max, no fallback) — the operator
+  // must select a period via selectWorksheetPeriod before Confirm can
+  // proceed. Never leaks the SourceSystem's own identity/configuration.
+  | "REPORTING_PERIOD_REQUIRED"
+  // 6.2B1 — selectWorksheetPeriod-only: the supplied periodStart/periodEnd
+  // failed validation — malformed/non-calendar-date, only one boundary
+  // supplied, or periodStart after periodEnd. Deliberately ONE generic
+  // code covering every validation failure, mirroring this file family's
+  // own established non-distinguishing discipline; never echoes the
+  // caller's own invalid input back in the message.
+  | "INVALID_REPORTING_PERIOD";
 
 export type FailureCode = PersistedFailureCode | CallerOnlyOutcomeCode;
 
@@ -159,6 +173,8 @@ export const CALLER_ONLY_OUTCOME_CODES: readonly CallerOnlyOutcomeCode[] = [
   "SOURCE_ALREADY_IMPORTED",
   "DUPLICATE_SOURCE_EXTERNAL_ID_IN_WORKSHEET",
   "RECONCILIATION_HISTORY_INCONSISTENT",
+  "REPORTING_PERIOD_REQUIRED",
+  "INVALID_REPORTING_PERIOD",
 ];
 
 export function isPersistedFailureCode(code: string): code is PersistedFailureCode {
@@ -340,6 +356,12 @@ const MESSAGE_TEMPLATES: Record<FailureCode, string> = {
   // 6.1B — never reveals the identity/source system/organisation involved.
   RECONCILIATION_HISTORY_INCONSISTENT:
     "A source record identity exists without reconciliation history; this import cannot proceed safely.",
+  // 6.2B1 — never reveals the SourceSystem's own name/configuration.
+  REPORTING_PERIOD_REQUIRED:
+    "This worksheet's source requires a reporting period to be selected before it can be confirmed.",
+  // 6.2B1 — never echoes the caller's own supplied values.
+  INVALID_REPORTING_PERIOD:
+    "The reporting period supplied is not valid. Provide both a start and end date, each a real calendar date, with the start on or before the end.",
 };
 
 const MAX_MESSAGE_LENGTH = 500;

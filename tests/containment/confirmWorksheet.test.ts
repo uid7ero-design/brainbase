@@ -337,6 +337,16 @@ const uploadFindUniqueMock = vi.fn();
 const importBatchFindUniqueMock = vi.fn();
 const mappingVersionFindUniqueMock = vi.fn();
 const sourceMappingFindUniqueMock = vi.fn();
+// Data Hub 6.2B1 — Step 3.6's own SourceSystem policy lookup. Defaults to
+// `{ reporting_period_required: false }` (never undefined/throwing) so
+// every pre-6.2B1 test in this file — none of which is testing this new
+// gate — is completely unaffected, exactly mirroring this file's own
+// established "additive mock, safe default" convention for
+// mappingVersion/sourceMapping above. Only reached when
+// batch.source_system_id is non-null (see confirmWorksheet.ts's own
+// null-guard) — tests that keep the default `source_system_id: null`
+// batch fixture never call this mock at all.
+const sourceSystemFindUniqueMock = vi.fn().mockResolvedValue({ reporting_period_required: false });
 const transactionMock = vi.fn();
 
 vi.mock("@/lib/prisma", () => ({
@@ -356,6 +366,9 @@ vi.mock("@/lib/prisma", () => ({
     },
     sourceMapping: {
       findUnique: (...args: unknown[]) => sourceMappingFindUniqueMock(...args),
+    },
+    sourceSystem: {
+      findUnique: (...args: unknown[]) => sourceSystemFindUniqueMock(...args),
     },
     $transaction: (...args: unknown[]) => transactionMock(...args),
   },
@@ -415,6 +428,8 @@ beforeEach(() => {
   importBatchFindUniqueMock.mockReset();
   mappingVersionFindUniqueMock.mockReset();
   sourceMappingFindUniqueMock.mockReset();
+  sourceSystemFindUniqueMock.mockReset();
+  sourceSystemFindUniqueMock.mockResolvedValue({ reporting_period_required: false });
   transactionMock.mockReset();
   storageGetMock.mockReset();
 });

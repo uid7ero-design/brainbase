@@ -29,6 +29,7 @@ const SOURCE_SYSTEM_SELECT = {
   created_by: true,
   created_at: true,
   updated_at: true,
+  reporting_period_required: true,
 } satisfies Prisma.SourceSystemSelect;
 
 type SourceSystemRow = Prisma.SourceSystemGetPayload<{ select: typeof SOURCE_SYSTEM_SELECT }>;
@@ -42,6 +43,7 @@ function toDTO(row: SourceSystemRow): SourceSystemDTO {
     createdBy: row.created_by,
     createdAt: row.created_at.toISOString(),
     updatedAt: row.updated_at.toISOString(),
+    reportingPeriodRequired: row.reporting_period_required,
   };
 }
 
@@ -184,10 +186,20 @@ export async function listSourceSystems(
     activeFilter === "all" ? Prisma.empty : Prisma.sql`AND active = ${activeFilter === "true"}`;
 
   const rows = await prisma.$queryRaw<
-    { id: string; name: string; description: string | null; active: boolean; created_by: string | null; created_at: Date; updated_at: Date }[]
+    {
+      id: string;
+      name: string;
+      description: string | null;
+      active: boolean;
+      created_by: string | null;
+      created_at: Date;
+      updated_at: Date;
+      reporting_period_required: boolean;
+    }[]
   >(Prisma.sql`
     SELECT id, name, description, active, created_by,
-      date_trunc('milliseconds', created_at) AS created_at, updated_at
+      date_trunc('milliseconds', created_at) AS created_at, updated_at,
+      reporting_period_required
     FROM source_systems
     WHERE organisation_id = ${organisationId}
       ${activeFragment}
@@ -220,24 +232,34 @@ export type UpdateSourceSystemResult =
   | ReturnType<typeof fail<"SOURCE_SYSTEM_NOT_FOUND" | "VALIDATION_ERROR" | "DUPLICATE_NAME">>;
 
 /**
- * Updates ONLY name/description. id, organisation_id, created_by,
+ * Updates name/description and (Data Hub 6.2B1, additive) the
+ * reportingPeriodRequired policy flag. id, organisation_id, created_by,
  * created_at are never accepted as input and therefore can never be
  * mutated through this function regardless of what a caller's request
  * body contains — see the route layer's own hand-constructed input for
- * the matching HTTP-boundary proof.
+ * the matching HTTP-boundary proof. reportingPeriodRequired is entirely
+ * optional (undefined leaves the existing value untouched) — a caller
+ * updating only name/description never has to also resend this flag.
  */
 export async function updateSourceSystem(
   organisationId: string,
   id: string,
-  input: { name?: unknown; description?: unknown }
+  input: { name?: unknown; description?: unknown; reportingPeriodRequired?: unknown }
 ): Promise<UpdateSourceSystemResult> {
   const validated = validateNameAndDescription(input);
   if (!validated.ok) return fail("VALIDATION_ERROR");
+  if (input.reportingPeriodRequired !== undefined && typeof input.reportingPeriodRequired !== "boolean") {
+    return fail("VALIDATION_ERROR");
+  }
 
   try {
     const result = await prisma.sourceSystem.updateMany({
       where: { id, organisation_id: organisationId },
-      data: { name: validated.value.name, description: validated.value.description },
+      data: {
+        name: validated.value.name,
+        description: validated.value.description,
+        ...(input.reportingPeriodRequired !== undefined ? { reporting_period_required: input.reportingPeriodRequired } : {}),
+      },
     });
     if (result.count === 0) return fail("SOURCE_SYSTEM_NOT_FOUND");
   } catch (err) {

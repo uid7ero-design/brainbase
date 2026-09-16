@@ -103,6 +103,15 @@ export type ReadFailureCode = "BATCH_NOT_FOUND" | "WORKSHEET_NOT_FOUND" | "INVAL
 
 export type WorksheetVisibility = "visible" | "hidden" | "veryHidden";
 
+// Data Hub 6.2B1 — formats a Postgres DATE column's own Prisma
+// representation (a JS Date at UTC midnight) as a plain "YYYY-MM-DD"
+// string. Never used for a real timestamp column (createdAt/updatedAt/
+// confirmedAt keep their existing Date-passthrough convention) — only for
+// period_start/period_end, which are DATE, not TIMESTAMPTZ.
+function toDateOnlyString(date: Date): string {
+  return date.toISOString().slice(0, 10);
+}
+
 // The full set of currently-DB-valid canonical_status values (see
 // uploads_canonical_status_check in scripts/create-import-batches.sql).
 // inspectWorksheets.ts (5A.2H.1) only ever writes AWAITING_CONFIRMATION
@@ -120,6 +129,21 @@ export interface ImportBatchSummaryDTO {
   sizeBytes: number;
   createdAt: Date;
   updatedAt: Date;
+  // Data Hub 6.2B1 — a READ-TIME aggregate over this batch's own DATA_HUB
+  // worksheets' Upload.period_start/period_end (MIN start, MAX end across
+  // every worksheet that has one selected) — never a persisted column on
+  // import_batches itself. Both null when the batch has no worksheets with
+  // a period recorded yet (including every batch imported before this
+  // field existed) — Import History must render that as "Not recorded",
+  // never as an error. A multi-worksheet batch spanning several distinct
+  // per-worksheet periods is intentionally summarized as its own outer
+  // range here, not as a per-worksheet breakdown — this is a
+  // batch-history-list aggregate, not a substitute for a worksheet's own
+  // individual periodStart/periodEnd (see WorksheetSummaryDTO for that).
+  // Plain "YYYY-MM-DD" strings (never Date/timestamp) — see
+  // WorksheetSummaryDTO.periodStart's own comment for why.
+  periodStart: string | null;
+  periodEnd: string | null;
 }
 
 export interface ImportBatchDetailDTO extends ImportBatchSummaryDTO {
@@ -183,6 +207,28 @@ export interface WorksheetSummaryDTO {
   // must still report truthfully rather than collapsing into "not
   // applicable").
   importedRowCount: number | null;
+  // Data Hub 6.2B1 — governed reporting-period lineage, read straight off
+  // Upload.period_start/period_end/period_source. NULL for every
+  // worksheet that has never had a period selected, including every
+  // worksheet IMPORTED before this field existed (no backfill, no
+  // inference) — the review UI and Import History must render that as
+  // "Not recorded", never as an error state. Deliberately a plain
+  // "YYYY-MM-DD" string (never a Date/timestamp) — matches
+  // selectWorksheetPeriod.ts's own response shape exactly, so a
+  // freshly-selected period and a re-fetched one are byte-identical, and
+  // so a date-only value can never pick up a spurious time-of-day/
+  // timezone component in transit.
+  periodStart: string | null;
+  periodEnd: string | null;
+  periodSource: string | null;
+  // Data Hub 6.2B1 — resolved from the worksheet's authoritative parent
+  // SourceSystem.reporting_period_required policy flag at READ TIME
+  // (never persisted on Upload itself) — purely informational for the
+  // review UI (drives whether the period selector is presented as
+  // required before Confirm will succeed). False for a worksheet with no
+  // governing SourceSystem at all (SOURCE_LINEAGE_REQUIRED territory).
+  // Does not expose any other SourceSystem field.
+  reportingPeriodRequired: boolean;
 }
 
 export interface GetImportBatchTrustedContext {
@@ -246,7 +292,7 @@ interface ImportBatchRow {
   updated_at: Date;
 }
 
-function toSummaryDTO(row: ImportBatchRow): ImportBatchSummaryDTO {
+function toSummaryDTO(row: ImportBatchRow): Omit<ImportBatchSummaryDTO, "periodStart" | "periodEnd"> {
   return {
     id: row.id,
     status: row.status,
@@ -270,7 +316,7 @@ interface ImportBatchDetailRow extends ImportBatchRow {
   source_system_id: string | null;
 }
 
-function toDetailDTO(row: ImportBatchDetailRow): ImportBatchDetailDTO {
+function toDetailDTO(row: ImportBatchDetailRow): Omit<ImportBatchDetailDTO, "periodStart" | "periodEnd"> {
   return {
     ...toSummaryDTO(row),
     sha256: row.sha256,
@@ -302,6 +348,9 @@ interface WorksheetRow {
   last_failure_code: string | null;
   last_failure_message: string | null;
   last_failure_retryable: boolean | null;
+  period_start: Date | null;
+  period_end: Date | null;
+  period_source: string | null;
 }
 
 // toWorksheetDTO deliberately stays a pure, synchronous mapping (no
@@ -310,7 +359,9 @@ interface WorksheetRow {
 // keeps the row->DTO shape mapping trivially unit-testable and keeps the
 // one real query this feature needs visible at each call site rather than
 // hidden inside a mapper.
-function toWorksheetDTO(row: WorksheetRow): Omit<WorksheetSummaryDTO, "importedRowCount"> {
+function toWorksheetDTO(
+  row: WorksheetRow
+): Omit<WorksheetSummaryDTO, "importedRowCount" | "reportingPeriodRequired"> {
   // Defensive invariant (mirrors inspectWorksheets.ts's own precedent,
   // Step 6/9 of that module): a row matched by lineage_kind = 'DATA_HUB'
   // is guaranteed by uploads_lineage_coherence_check to have every one of
@@ -345,6 +396,9 @@ function toWorksheetDTO(row: WorksheetRow): Omit<WorksheetSummaryDTO, "importedR
     lastFailureCode: row.last_failure_code,
     lastFailureMessage: row.last_failure_message,
     lastFailureRetryable: row.last_failure_retryable,
+    periodStart: row.period_start === null ? null : toDateOnlyString(row.period_start),
+    periodEnd: row.period_end === null ? null : toDateOnlyString(row.period_end),
+    periodSource: row.period_source,
   };
 }
 
@@ -376,9 +430,9 @@ function toWorksheetDTO(row: WorksheetRow): Omit<WorksheetSummaryDTO, "importedR
  * kept as a fallback rather than replaced outright.
  */
 async function attachImportedRowCounts(
-  dtos: Array<Omit<WorksheetSummaryDTO, "importedRowCount">>,
+  dtos: Array<Omit<WorksheetSummaryDTO, "importedRowCount" | "reportingPeriodRequired">>,
   organisationId: string
-): Promise<WorksheetSummaryDTO[]> {
+): Promise<Array<Omit<WorksheetSummaryDTO, "reportingPeriodRequired">>> {
   const importedIds = dtos.filter((d) => d.canonicalStatus === "IMPORTED").map((d) => d.id);
 
   if (importedIds.length === 0) {
@@ -413,6 +467,28 @@ async function attachImportedRowCounts(
     const importedRowCount = observationCount !== undefined ? observationCount : (domainCountByUploadId.get(d.id) ?? 0);
     return { ...d, importedRowCount };
   });
+}
+
+/**
+ * Data Hub 6.2B1 — resolves whether the worksheet's authoritative parent
+ * SourceSystem currently requires a reporting period before confirmation.
+ * Purely a READ-TIME projection of SourceSystem.reporting_period_required
+ * (never persisted on Upload) — drives whether the review UI presents the
+ * period selector as required, nothing else. A NULL sourceSystemId
+ * (SOURCE_LINEAGE_REQUIRED territory) or a since-deleted/foreign
+ * SourceSystem row both resolve to false, never an error — this is an
+ * informational flag, not an authorization check.
+ */
+async function resolveReportingPeriodRequired(
+  organisationId: string,
+  sourceSystemId: string | null
+): Promise<boolean> {
+  if (sourceSystemId === null) return false;
+  const sourceSystem = await prisma.sourceSystem.findUnique({
+    where: { id_organisation_id: { id: sourceSystemId, organisation_id: organisationId } },
+    select: { reporting_period_required: true },
+  });
+  return sourceSystem?.reporting_period_required ?? false;
 }
 
 const IMPORT_BATCH_DETAIL_SELECT = {
@@ -453,7 +529,54 @@ const WORKSHEET_SELECT = {
   last_failure_code: true,
   last_failure_message: true,
   last_failure_retryable: true,
+  period_start: true,
+  period_end: true,
+  period_source: true,
 } satisfies Prisma.UploadSelect;
+
+/**
+ * Data Hub 6.2B1 — attaches a batch-level reporting-period aggregate
+ * (periodStart/periodEnd) to one or more ImportBatchSummaryDTO-shaped
+ * objects, in exactly ONE additional grouped query (never one query per
+ * batch — mirrors attachImportedRowCounts's own "bounded, batched"
+ * discipline exactly). MIN(period_start)/MAX(period_end) across every
+ * DATA_HUB worksheet of that batch that has a period recorded; both null
+ * when none do. Tenant-scoped identically to every other query in this
+ * module.
+ */
+async function attachReportingPeriodRange<T extends { id: string }>(
+  dtos: T[],
+  organisationId: string
+): Promise<Array<T & { periodStart: string | null; periodEnd: string | null }>> {
+  if (dtos.length === 0) return [];
+
+  const ranges = await prisma.upload.groupBy({
+    by: ["import_batch_id"],
+    where: {
+      organisation_id: organisationId,
+      import_batch_id: { in: dtos.map((d) => d.id) },
+      lineage_kind: "DATA_HUB",
+      period_start: { not: null },
+    },
+    _min: { period_start: true },
+    _max: { period_end: true },
+  });
+  const rangeByBatchId = new Map(
+    ranges.map((r) => [
+      r.import_batch_id as string,
+      {
+        periodStart: r._min.period_start === null ? null : toDateOnlyString(r._min.period_start),
+        periodEnd: r._max.period_end === null ? null : toDateOnlyString(r._max.period_end),
+      },
+    ])
+  );
+
+  return dtos.map((d) => ({
+    ...d,
+    periodStart: rangeByBatchId.get(d.id)?.periodStart ?? null,
+    periodEnd: rangeByBatchId.get(d.id)?.periodEnd ?? null,
+  }));
+}
 
 /**
  * Fetches one ImportBatch by tenant-scoped id. Wrong-tenant, nonexistent,
@@ -470,7 +593,8 @@ export async function getImportBatch(context: GetImportBatchTrustedContext): Pro
   if (!batch || batch.deleted_at !== null) {
     return fail("BATCH_NOT_FOUND");
   }
-  return { ok: true, batch: toDetailDTO(batch) };
+  const [withPeriod] = await attachReportingPeriodRange([toDetailDTO(batch)], organisationId);
+  return { ok: true, batch: withPeriod };
 }
 
 // ---------------------------------------------------------------------------
@@ -603,7 +727,8 @@ export async function listImportBatches(context: ListImportBatchesTrustedContext
   const last = page[page.length - 1];
   const nextCursor = hasNextPage && last ? encodeCursor({ createdAt: last.created_at, id: last.id }) : null;
 
-  return { ok: true, batches: page.map(toSummaryDTO), hasNextPage, nextCursor };
+  const batches = await attachReportingPeriodRange(page.map(toSummaryDTO), organisationId);
+  return { ok: true, batches, hasNextPage, nextCursor };
 }
 
 /**
@@ -628,14 +753,17 @@ export async function getWorksheet(context: GetWorksheetTrustedContext): Promise
 
   const parent = await prisma.importBatch.findUnique({
     where: { id_organisation_id: { id: row.import_batch_id, organisation_id: organisationId } },
-    select: { deleted_at: true },
+    select: { deleted_at: true, source_system_id: true },
   });
   if (!parent || parent.deleted_at !== null) {
     return fail("WORKSHEET_NOT_FOUND");
   }
 
-  const [worksheet] = await attachImportedRowCounts([toWorksheetDTO(row)], organisationId);
-  return { ok: true, worksheet };
+  const [[worksheetWithCount], reportingPeriodRequired] = await Promise.all([
+    attachImportedRowCounts([toWorksheetDTO(row)], organisationId),
+    resolveReportingPeriodRequired(organisationId, parent.source_system_id),
+  ]);
+  return { ok: true, worksheet: { ...worksheetWithCount, reportingPeriodRequired } };
 }
 
 /**
@@ -657,7 +785,7 @@ export async function listWorksheetsForBatch(
 
   const batch = await prisma.importBatch.findUnique({
     where: { id_organisation_id: { id: importBatchId, organisation_id: organisationId } },
-    select: { deleted_at: true },
+    select: { deleted_at: true, source_system_id: true },
   });
   if (!batch || batch.deleted_at !== null) {
     return fail("BATCH_NOT_FOUND");
@@ -670,6 +798,12 @@ export async function listWorksheetsForBatch(
     take: WORKSHEET_LIST_DEFENSIVE_BOUND,
   });
 
-  const worksheets = await attachImportedRowCounts(rows.map(toWorksheetDTO), organisationId);
+  // Every worksheet in one ImportBatch shares that batch's own single
+  // source_system_id — resolved once per call, not once per worksheet.
+  const [worksheetsWithCounts, reportingPeriodRequired] = await Promise.all([
+    attachImportedRowCounts(rows.map(toWorksheetDTO), organisationId),
+    resolveReportingPeriodRequired(organisationId, batch.source_system_id),
+  ]);
+  const worksheets = worksheetsWithCounts.map((w) => ({ ...w, reportingPeriodRequired }));
   return { ok: true, worksheets };
 }

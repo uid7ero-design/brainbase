@@ -119,6 +119,11 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
         // 6.1B — Confirm-only code (anomalous reconciliation-integrity
         // state), unreachable from selectWorksheetMapping.
         RECONCILIATION_HISTORY_INCONSISTENT: 500,
+        // Data Hub 6.2B1 — Confirm-only (REPORTING_PERIOD_REQUIRED) /
+        // selectWorksheetPeriod-only (INVALID_REPORTING_PERIOD) codes, both
+        // unreachable from selectWorksheetMapping.
+        REPORTING_PERIOD_REQUIRED: 500,
+        INVALID_REPORTING_PERIOD: 500,
       };
       return NextResponse.json({ ok: false, error: result.message }, { status: statusByCode[result.code], headers: CACHE_HEADERS });
     }

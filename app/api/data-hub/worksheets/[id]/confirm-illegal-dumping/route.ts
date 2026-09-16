@@ -106,6 +106,11 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
       PROVIDER_FAILURE: 500,
       STORAGE_INTEGRITY_MISMATCH: 500,
       PARSER_REJECTED: 422,
+      // Data Hub 6.2B1 — confirmDataHubWorksheet's own new Step 3.6 gate
+      // (reachable: the worksheet's authoritative SourceSystem requires a
+      // period that has not been selected). 409, matching
+      // WORKSHEET_NOT_ELIGIBLE's own "precondition not met" status.
+      REPORTING_PERIOD_REQUIRED: 409,
       // The remaining FailureCode union members are unreachable from
       // confirmDataHubWorksheet's own implementation (verified by direct
       // source read) but are included so this mapping remains exhaustive
@@ -174,6 +179,10 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
       // existing treatment of other defensive/anomalous-state codes (e.g.
       // SOURCE_SYSTEM_UNAVAILABLE, MAPPING_DOCUMENT_INVALID).
       RECONCILIATION_HISTORY_INCONSISTENT: 500,
+      // Data Hub 6.2B1 — selectWorksheetPeriod-only, unreachable from
+      // confirmDataHubWorksheet (this route never validates period input
+      // itself — Step 3.6 only checks presence, never format).
+      INVALID_REPORTING_PERIOD: 500,
     };
     return NextResponse.json(
       { ok: false, error: result.message },

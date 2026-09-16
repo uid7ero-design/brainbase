@@ -42,6 +42,9 @@ import type {
   MappingSelectionRequestInput,
   MappingSelectionResponseBody,
   MappingSelectionResult,
+  PeriodSelectionRequestInput,
+  PeriodSelectionResponseBody,
+  PeriodSelectionResult,
   TransportResult,
   WorksheetPreviewResponseBody,
   WorksheetPreviewResult,
@@ -470,6 +473,33 @@ export async function selectWorksheetMapping(
 }
 
 // ---------------------------------------------------------------------------
+// POST /api/data-hub/worksheets/[id]/period-selection (Data Hub 6.2B1)
+//
+// REQUEST ALLOWLIST (mirrors the route's own comment and
+// PeriodSelectionRequestInput's own comment exactly): the body sent is
+// ALWAYS exactly `{ periodStart, periodEnd }` — a hand-constructed object
+// literal, never a spread of a caller-supplied input.
+// ---------------------------------------------------------------------------
+
+export async function selectWorksheetPeriod(
+  worksheetId: string,
+  input: PeriodSelectionRequestInput,
+  config?: HttpClientConfig,
+  callOptions?: CallOptions
+): Promise<PeriodSelectionResult> {
+  return executeCall<PeriodSelectionResponseBody>(
+    config,
+    resolveUrl(config, `/api/data-hub/worksheets/${encodeURIComponent(worksheetId)}/period-selection`),
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ periodStart: input.periodStart, periodEnd: input.periodEnd }),
+    },
+    callOptions
+  );
+}
+
+// ---------------------------------------------------------------------------
 // POST /api/data-hub/worksheets/[id]/confirm-illegal-dumping
 // ---------------------------------------------------------------------------
 
@@ -541,6 +571,8 @@ export interface UpdateSourceSystemInput {
   name?: string;
   description?: string | null;
   active?: boolean;
+  // Data Hub 6.2B1 — admin-editable policy flag.
+  reportingPeriodRequired?: boolean;
 }
 
 export async function updateSourceSystem(
