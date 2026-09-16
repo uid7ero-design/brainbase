@@ -87,13 +87,14 @@ describe('updateItem — field-scoped optimistic rollback (A, B)', () => {
     expect(rb).not.toMatch(/\.\.\.source/)
   })
 
-  it('restores exactly the last server-confirmed fields on failure, in both boardData and drawerItem', () => {
+  it('restores exactly the last server-confirmed fields on failure, in boardData — the drawer\'s own item is derived from boardData (D.4.7C), so there is no separate drawer copy left to keep in sync', () => {
     const b = updateItemBlock()
     expect(b).toMatch(/restoreItemFields\(id, confirmedBase as Record<string, unknown>\);/)
-    // restoreItemFields itself is the thing that touches boardData/drawerItem.
     const rb = restoreItemFieldsBlock()
     expect(rb).toMatch(/items: prev\.items\.map\(i => i\.id === id \? \(\{ \.\.\.i, \.\.\.snapshot \} as OrganiserItem\) : i\)/)
-    expect(rb).toMatch(/setDrawerItem\(prev => prev && prev\.id === id \? \(\{ \.\.\.prev, \.\.\.snapshot \} as OrganiserItem\) : prev\)/)
+    // D.4.7C removed the separate drawerItem state entirely — confirm the
+    // old parallel write is genuinely gone, not just untested.
+    expect(rb).not.toMatch(/setDrawerItem/)
   })
 
   it('never rolls back the whole board — restoreItemFields only ever maps over existing items, never replaces the array wholesale', () => {
@@ -273,7 +274,7 @@ describe('deleteItem — mutation safety (K)', () => {
   it('only closes the drawer / reloads the board after a confirmed successful delete', () => {
     const b = deleteItemBlock()
     const guardIdx = b.indexOf('showPageNotice("Couldn\'t delete item. Try again.")')
-    const closeIdx = b.indexOf('setDrawerItem(prev => prev && prev.id === id ? null : prev)')
+    const closeIdx = b.indexOf('setOpenDrawerItemId(prev => prev === id ? null : prev)')
     expect(closeIdx).toBeGreaterThan(guardIdx)
   })
 })
@@ -290,10 +291,19 @@ describe('save-state model — no cross-item/field clobbering, auto-clear (G)', 
   })
 })
 
-describe('scope boundary — Notes/Owner deliberately not wired to visible save-state this phase', () => {
-  it('the Notes Field usage does not yet receive a status prop (explicitly deferred to D.4.7C)', () => {
-    const start = pageCode.indexOf('<Field label="Notes">')
+describe('scope boundary — Owner deliberately not wired to visible save-state (Notes now is, as of D.4.7C)', () => {
+  it('the Owner Field usage still does not receive a status prop — out of both D.4.7B and D.4.7C scope', () => {
+    const start = pageCode.indexOf('<Field label="Owner">')
     expect(start).toBeGreaterThan(-1)
     expect(pageCode.slice(start, start + 30)).not.toMatch(/status=/)
+  })
+
+  // D.4.7C — Notes moved from directly calling onUpdate on every keystroke
+  // (D.4.7B's deliberate scope boundary) to a local debounced draft wired
+  // to the same generic saveStatus store every other field uses.
+  it('the Notes Field usage now receives saveStatus[`item:<id>:notes`], matching every other wired field\'s convention', () => {
+    const start = pageCode.indexOf('<Field label="Notes"')
+    expect(start).toBeGreaterThan(-1)
+    expect(pageCode.slice(start, start + 60)).toMatch(/status=\{saveStatus\[notesKey\]\}/)
   })
 })
