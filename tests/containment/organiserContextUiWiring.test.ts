@@ -53,25 +53,31 @@ describe('app/organiser/page.tsx — publishing current board/item context', () 
     expect(pageSource).toMatch(/import \{ useAppStore \} from "@\/lib\/state\/useAppStore";/)
   })
 
-  it('publishes {boardId, itemId} — IDs only, never activeBoard.name/drawerItem.name — derived from activeBoard/drawerItem', () => {
+  // D.4.7C renamed the underlying state from a separately-held `drawerItem`
+  // object to `openDrawerItemId` (just the id — see
+  // organiserDrawerFreshness.test.ts for the full drawer-source-of-truth
+  // refactor this phase made). This context publisher only ever needed the
+  // id, so the rename is a pure passthrough here — still IDs only, never a
+  // name.
+  it('publishes {boardId, itemId} — IDs only, never activeBoard.name/an item name — derived from activeBoard/openDrawerItemId', () => {
     const idx = pageSource.indexOf('useAppStore.getState().setOrganiserContext(')
     expect(idx).toBeGreaterThan(-1)
     const block = pageSource.slice(idx, idx + 300)
     expect(block).toMatch(/boardId:\s*activeBoard\?\.id/)
-    expect(block).toMatch(/itemId:\s*drawerItem\?\.id/)
-    expect(block).not.toMatch(/activeBoard\?\.name|drawerItem\?\.name|boardName|itemName/)
+    expect(block).toMatch(/itemId:\s*openDrawerItemId \?\? undefined/)
+    expect(block).not.toMatch(/activeBoard\?\.name|boardName|itemName/)
   })
 
   it('clears the context on unmount (effect cleanup), mirroring DashboardShell.tsx\'s own dashboardAiContext pattern — this is what prevents stale board/item context from leaking to another page', () => {
     const idx = pageSource.indexOf('useAppStore.getState().setOrganiserContext(')
-    const effectEnd = pageSource.indexOf('}, [activeBoard?.id, drawerItem?.id]);', idx)
+    const effectEnd = pageSource.indexOf('}, [activeBoard?.id, openDrawerItemId]);', idx)
     expect(effectEnd).toBeGreaterThan(idx)
     const block = pageSource.slice(idx, effectEnd)
     expect(block).toMatch(/return \(\) => useAppStore\.getState\(\)\.setOrganiserContext\(null\);/)
   })
 
   it('the effect re-runs whenever the board or item id changes — not on every render, and not missing either dependency', () => {
-    expect(pageSource).toMatch(/\}, \[activeBoard\?\.id, drawerItem\?\.id\]\);/)
+    expect(pageSource).toMatch(/\}, \[activeBoard\?\.id, openDrawerItemId\]\);/)
   })
 })
 

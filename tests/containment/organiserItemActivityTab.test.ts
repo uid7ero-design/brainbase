@@ -125,11 +125,16 @@ describe('OrganiserPageContent — groupNamesById is derived, not independently 
     expect(block).not.toMatch(/fetch\(/)
   })
 
-  it('is passed into ItemDrawer only when the drawer is actually open (drawerItem is truthy) — activity is never fetched for a closed drawer', () => {
-    const idx = pageCode.indexOf('{drawerItem && (')
+  // D.4.7C renamed the drawer's open/closed state from a separately-held
+  // `drawerItem` object to `openItem`, derived fresh from boardData.items
+  // (see organiserDrawerFreshness.test.ts) — still gated the same way:
+  // ItemDrawer (and therefore this activity tab) only ever mounts while
+  // an item is actually open.
+  it('is passed into ItemDrawer only when the drawer is actually open (openItem is truthy) — activity is never fetched for a closed drawer', () => {
+    const idx = pageCode.indexOf('{openItem && (')
     expect(idx).toBeGreaterThan(-1)
     const block = pageCode.slice(idx, idx + 300)
-    expect(block).toMatch(/<ItemDrawer item=\{drawerItem\}[\s\S]*groupNamesById=\{groupNamesById\}/)
+    expect(block).toMatch(/<ItemDrawer item=\{openItem\}[\s\S]*groupNamesById=\{groupNamesById\}/)
   })
 })
 

@@ -156,7 +156,10 @@ describe('app/organiser/page.tsx — re-parented under OrganiserShell, no functi
     // multiple lines. Updated to match that real, deliberate shape rather
     // than the old single-line form — see organiserItemActivityTab.test.ts
     // for this same wiring's own dedicated coverage.
-    expect(pageCode).toMatch(/\{drawerItem && \(\s*\n\s*<ItemDrawer item=\{drawerItem\}/)
+    // D.4.7C renamed drawerItem -> openItem (derived from boardData.items
+    // rather than held as its own separate copy — see
+    // organiserDrawerFreshness.test.ts) — same gating, same JSX shape.
+    expect(pageCode).toMatch(/\{openItem && \(\s*\n\s*<ItemDrawer item=\{openItem\}/)
     expect(pageCode).toMatch(/\{editingColumn && \(/)
     expect(pageCode).toContain('<ColumnOptionsEditor')
   })
