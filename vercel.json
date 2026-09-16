@@ -6,7 +6,7 @@
     },
     {
       "path": "/api/cron/ticket-email-recovery",
-      "schedule": "*/15 * * * *"
+      "schedule": "0 * * * *"
     }
   ]
 }

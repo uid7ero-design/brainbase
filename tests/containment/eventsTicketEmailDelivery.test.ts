@@ -590,7 +590,7 @@ describe('NO AUTO SEND (paid) / NO CRON SCHEDULE — Phase 3E.2/3E.2R boundary',
     expect(SOURCE).toMatch(/export async function attemptAutomaticTicketEmail/)
   })
 
-  it('vercel.json contains exactly the approved cron configuration: sync unchanged at 0 2 * * *, ticket-email recovery at exactly */15 * * * *, nothing else', () => {
+  it('vercel.json contains exactly the approved cron configuration: sync unchanged at 0 2 * * *, ticket-email recovery at exactly 0 * * * * (hourly), nothing else', () => {
     const vercelJsonPath = path.join(process.cwd(), 'vercel.json')
     const content = fs.readFileSync(vercelJsonPath, 'utf-8')
     const parsed = JSON.parse(content) as { crons: { path: string; schedule: string }[] }
@@ -606,7 +606,7 @@ describe('NO AUTO SEND (paid) / NO CRON SCHEDULE — Phase 3E.2/3E.2R boundary',
 
     const recoveryEntries = parsed.crons.filter(c => c.path === '/api/cron/ticket-email-recovery')
     expect(recoveryEntries).toHaveLength(1)
-    expect(recoveryEntries[0].schedule).toBe('*/15 * * * *')
+    expect(recoveryEntries[0].schedule).toBe('0 * * * *')
 
     // No unrelated cron entry of any kind.
     const knownPaths = new Set(['/api/cron/sync', '/api/cron/ticket-email-recovery'])
