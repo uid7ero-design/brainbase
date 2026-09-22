@@ -1708,7 +1708,15 @@ function OrganiserPageContent() {
     setGroupSubmitting(false);
     if (ok) {
       setGroupName("");
-      groupNameInputRef.current?.focus();
+      // The input is still `disabled={groupSubmitting}` in the DOM at this
+      // exact point — setGroupSubmitting(false) above hasn't been flushed
+      // into a real render yet (we're still inside the same synchronous
+      // continuation), and a disabled input silently refuses focus(). A
+      // macrotask defers this past that render, matching Test A7's live
+      // requirement (a static check that the call merely exists would
+      // have missed this — it only surfaces with a real disabled->enabled
+      // transition in the browser).
+      setTimeout(() => groupNameInputRef.current?.focus(), 0);
     } else {
       setGroupError("Couldn't create group. Try again.");
     }

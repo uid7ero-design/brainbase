@@ -92,9 +92,17 @@ describe('A. repeatable group creation', () => {
   })
 
   describe('A7 — focus continuation after success', () => {
-    it('a ref is attached to the group-name input and re-focused on confirmed success', () => {
+    // Live Preview QA caught a real bug a plain static-text check would
+    // have missed: `groupNameInputRef.current?.focus()` called
+    // synchronously right after `setGroupSubmitting(false)` is a no-op —
+    // the input's `disabled={groupSubmitting}` attribute in the real DOM
+    // hasn't flushed to `false` yet at that point (still mid-continuation,
+    // same tick), and a disabled input silently refuses focus(). Deferred
+    // via setTimeout(...,0) so it runs after React actually commits the
+    // re-render that clears `disabled`.
+    it('a ref is attached to the group-name input and re-focused (deferred past the disabled->enabled render) on confirmed success', () => {
       const b = submitNewGroupBlock()
-      expect(b).toMatch(/groupNameInputRef\.current\?\.focus\(\);/)
+      expect(b).toMatch(/setTimeout\(\(\) => groupNameInputRef\.current\?\.focus\(\), 0\);/)
       const jsx = addingGroupJsxBlock()
       expect(jsx).toMatch(/ref=\{groupNameInputRef\}/)
     })
