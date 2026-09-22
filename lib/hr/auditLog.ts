@@ -7,11 +7,6 @@ import sql from '@/lib/db';
 // pattern to copy per-vertical... not a shared generic utility." Does NOT
 // touch organiser_activity (the separate, largely-unwired mechanism HR-0
 // found) and does NOT introduce a third audit table.
-//
-// No hr_* tables exist yet (HR-0.5 is a prerequisites-only phase, per its
-// own brief) — nothing calls logHrEvent() yet. This file defines and tests
-// the contract HR-1+ mutation routes will call once hr_people/hr_teams/
-// hr_documents/hr_administrators are created.
 
 export type HrAuditActor = {
   organisationId: string;
@@ -35,30 +30,64 @@ export type HrAuditEntry = {
   afterState?: Record<string, unknown> | null;
 };
 
-// Fields that must never reach audit_logs even if present on a caller's
-// before/after snapshot object — HR-0.5 §4's own exclusion list (passwords,
-// secrets, tokens, raw identity documents, full highly-restricted records),
-// enforced here rather than trusted to every future call site, matching
-// ADR-0003 §7/§8's PII/secrets discipline. Deliberately conservative and
-// small: HR-1+ may extend this list as real hr_* columns are defined, but
-// this phase creates no HR tables, so no real field names are assumed here
-// beyond the generic categories the brief itself names.
-//
-// work_email/work_phone (HR-1 addition): hr_people's own two 'confidential'-
-// tier contact fields (lib/hr/personFieldTiers.ts classifies them
-// identically, for read-visibility rather than audit purposes). PATCH
-// /api/hr/people/[id] builds before_state/after_state as a field-diff of
-// whatever the caller actually changed (Object.keys(updates)), with no
-// per-field filtering of its own — so before this addition, editing a
-// person's work email or phone wrote the raw old and new value straight
-// into audit_logs, unredacted, for the life of that row (this table has no
-// retention/purge mechanism — ADR-0003 §13). Redacting here, in the one
-// helper every HR mutation route already calls, fixes it for all of them
-// at once without touching route-level payload construction, without
-// affecting hr_person.created (which never included these fields in its
-// own hand-built afterState to begin with), and without altering
-// redactState()'s behavior for any other vertical's audit helper (this
-// Set is private to this file).
+type AuditFieldPolicy = {
+  allowed: ReadonlySet<string>;
+  idOnly: ReadonlySet<string>;
+  redacted: ReadonlySet<string>;
+  omitted: ReadonlySet<string>;
+};
+
+const HR_PERSON_AUDIT_POLICY: AuditFieldPolicy = {
+  allowed: new Set([
+    'job_title',
+    'worker_type',
+    'employment_status',
+    'start_date',
+    'end_date',
+  ]),
+  idOnly: new Set([
+    'linked_user_id',
+    'team_id',
+    'manager_person_id',
+  ]),
+  redacted: new Set([
+    'first_name',
+    'last_name',
+    'preferred_name',
+    'work_email',
+    'work_phone',
+  ]),
+  omitted: new Set([
+    'id',
+    'organisation_id',
+    'created_at',
+    'updated_at',
+  ]),
+};
+
+const HR_TEAM_AUDIT_POLICY: AuditFieldPolicy = {
+  allowed: new Set([
+    'name',
+    'archived_at',
+  ]),
+  idOnly: new Set([
+    'manager_person_id',
+  ]),
+  redacted: new Set([
+    'description',
+  ]),
+  omitted: new Set([
+    'id',
+    'organisation_id',
+    'created_at',
+    'updated_at',
+  ]),
+};
+
+// Generic guard retained for HR resource types that do not yet have a
+// field-by-field projection (for example a future hr_document event).
+// People and Teams do NOT use this blacklist; their explicit policies
+// below are fail-closed, with every unclassified key redacted by default.
 const FORBIDDEN_STATE_KEYS = new Set([
   'password',
   'password_hash',
@@ -80,31 +109,83 @@ const FORBIDDEN_STATE_KEYS = new Set([
   'work_phone',
 ]);
 
-function redactState(state: Record<string, unknown> | null | undefined): Record<string, unknown> | null {
+function legacyRedactState(
+  state: Record<string, unknown> | null | undefined,
+): Record<string, unknown> | null {
   if (!state) return null;
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(state)) {
     out[key] = FORBIDDEN_STATE_KEYS.has(key.toLowerCase()) ? '[redacted]' : value;
   }
-  return out;
+  return Object.keys(out).length > 0 ? out : null;
+}
+
+function policyForResource(resourceType: string): AuditFieldPolicy | null {
+  if (resourceType === 'hr_person') return HR_PERSON_AUDIT_POLICY;
+  if (resourceType === 'hr_team') return HR_TEAM_AUDIT_POLICY;
+  return null;
+}
+
+function projectHrAuditState(
+  resourceType: string,
+  state: Record<string, unknown> | null | undefined,
+): Record<string, unknown> | null {
+  if (!state) return null;
+
+  const policy = policyForResource(resourceType);
+  if (!policy) return legacyRedactState(state);
+
+  const projected: Record<string, unknown> = {};
+
+  for (const [key, value] of Object.entries(state)) {
+    if (policy.omitted.has(key)) {
+      continue;
+    }
+
+    if (policy.allowed.has(key)) {
+      projected[key] = value;
+      continue;
+    }
+
+    if (policy.idOnly.has(key)) {
+      projected[key] = typeof value === 'string' || value === null
+        ? value
+        : '[redacted]';
+      continue;
+    }
+
+    if (policy.redacted.has(key)) {
+      projected[key] = '[redacted]';
+      continue;
+    }
+
+    // FAIL CLOSED: a newly-added HR People/Teams field must never start
+    // writing its raw value to audit_logs merely because a route includes
+    // it in beforeState/afterState. It stays visible as "changed", but its
+    // value remains protected until explicitly classified above.
+    projected[key] = '[redacted]';
+  }
+
+  return Object.keys(projected).length > 0 ? projected : null;
 }
 
 /**
  * Writes one HR audit entry to audit_logs. Best-effort / non-transactional,
- * per ADR-0003 §3 & §11: every HR mutation this will eventually cover is
+ * per ADR-0003 §3 & §11: every current HR mutation covered here is
  * human-initiated and already gated by session/role/capability checks
  * before the business-state write runs, so a dropped audit write afterward
  * does not retroactively make the action ambiguous. A write failure is
  * caught, logged via console.error, and MUST NOT propagate to (or fail)
- * the caller's own mutation — this phase does not change that platform-
- * wide failure semantic; a future restricted-HR operation that genuinely
- * needs fail-closed audit semantics is an explicit, separate decision for
- * a later phase (HR-0's own §J risk list), not assumed here.
+ * the caller's own mutation.
+ *
+ * hr_person and hr_team payloads are projected through explicit,
+ * resource-specific allowlists. Unknown future fields fail closed to
+ * "[redacted]" rather than passing through raw.
  */
 export async function logHrEvent(actor: HrAuditActor, entry: HrAuditEntry): Promise<void> {
   try {
-    const before = redactState(entry.beforeState);
-    const after = redactState(entry.afterState);
+    const before = projectHrAuditState(entry.resourceType, entry.beforeState);
+    const after = projectHrAuditState(entry.resourceType, entry.afterState);
 
     await sql`
       INSERT INTO audit_logs (
