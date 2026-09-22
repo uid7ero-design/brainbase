@@ -102,7 +102,7 @@ describe('POST /api/hr/administrators — authorization', () => {
   it('an existing HR administrator can grant the entitlement to another user', async () => {
     requireSessionMock.mockResolvedValue(session('manager'));
     resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
-    queue([{ id: 'user-2', organisation_id: 'org-a' }], [{ id: 'grant-1' }]);
+    queue([{ exists: 1 }], [{ id: 'grant-1' }]);
     const res = await grant(jsonRequest('http://localhost/api/hr/administrators', 'POST', { user_id: 'user-2' }));
     expect(res.status).toBe(201);
   });
@@ -110,7 +110,7 @@ describe('POST /api/hr/administrators — authorization', () => {
   it('a platform super_admin can grant the entitlement (bootstrap case) — resolveHrAccessContext already resolves isHrAdministrator: true for super_admin, with zero real hr_administrators rows needed', async () => {
     requireSessionMock.mockResolvedValue(session('super_admin'));
     resolveHrAccessContextMock.mockResolvedValue(SUPER_ADMIN_CTX);
-    queue([{ id: 'user-2', organisation_id: 'org-a' }], [{ id: 'grant-1' }]);
+    queue([{ exists: 1 }], [{ id: 'grant-1' }]);
     const res = await grant(jsonRequest('http://localhost/api/hr/administrators', 'POST', { user_id: 'user-2' }));
     expect(res.status).toBe(201);
     expect(resolveHrAccessContextMock).toHaveBeenCalledWith(expect.objectContaining({ role: 'super_admin' }));
@@ -127,15 +127,63 @@ describe('POST /api/hr/administrators — authorization', () => {
   it('rejects granting to a user in a different organisation (tenant isolation)', async () => {
     requireSessionMock.mockResolvedValue(session('manager'));
     resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
-    queue([]); // isUserInOrganisation finds nothing for this org
+    queue([]); // isActiveUserInOrganisation finds no ACTIVE same-org user
     const res = await grant(jsonRequest('http://localhost/api/hr/administrators', 'POST', { user_id: 'org-b-user' }));
     expect(res.status).toBe(400);
+  });
+
+  it('the grant eligibility lookup is explicitly ACTIVE-only and same-org', async () => {
+    requireSessionMock.mockResolvedValue(session('manager'));
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    queue([{ exists: 1 }], [{ id: 'grant-1' }]);
+
+    const res = await grant(jsonRequest('http://localhost/api/hr/administrators', 'POST', { user_id: 'user-2' }));
+
+    expect(res.status).toBe(201);
+    expect(calls[0].text).toContain('organisation_id');
+    expect(calls[0].text).toContain("status = 'ACTIVE'");
+    expect(calls[0].values).toContain('user-2');
+    expect(calls[0].values).toContain('org-a');
+  });
+
+  it('rejects an INACTIVE same-org user before INSERT and writes no audit event', async () => {
+    requireSessionMock.mockResolvedValue(session('manager'));
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    queue([]); // ACTIVE-only eligibility lookup returns no row for INACTIVE
+
+    const res = await grant(jsonRequest('http://localhost/api/hr/administrators', 'POST', { user_id: 'user-inactive' }));
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({
+      code: 'hr_admin_user_not_eligible',
+      error: 'User is not eligible for HR administrator access.',
+    });
+    expect(sqlMock).toHaveBeenCalledTimes(1);
+    expect(calls[0].text).toContain("status = 'ACTIVE'");
+    expect(logHrEventMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects an INVITED same-org user before INSERT and writes no audit event', async () => {
+    requireSessionMock.mockResolvedValue(session('manager'));
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    queue([]); // ACTIVE-only eligibility lookup returns no row for INVITED
+
+    const res = await grant(jsonRequest('http://localhost/api/hr/administrators', 'POST', { user_id: 'user-invited' }));
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({
+      code: 'hr_admin_user_not_eligible',
+      error: 'User is not eligible for HR administrator access.',
+    });
+    expect(sqlMock).toHaveBeenCalledTimes(1);
+    expect(calls[0].text).toContain("status = 'ACTIVE'");
+    expect(logHrEventMock).not.toHaveBeenCalled();
   });
 
   it('a successful grant writes exactly one hr_administrator.granted audit event', async () => {
     requireSessionMock.mockResolvedValue(session('manager'));
     resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
-    queue([{ id: 'user-2', organisation_id: 'org-a' }], [{ id: 'grant-1' }]);
+    queue([{ exists: 1 }], [{ id: 'grant-1' }]);
     await grant(jsonRequest('http://localhost/api/hr/administrators', 'POST', { user_id: 'user-2' }));
     expect(logHrEventMock).toHaveBeenCalledTimes(1);
     const [, entry] = logHrEventMock.mock.calls[0] as [unknown, Record<string, unknown>];
@@ -284,12 +332,12 @@ describe('GET /api/hr/administrators — response minimization', () => {
   it('response contains ONLY the approved fields — no password/role/token/security metadata', async () => {
     requireSessionMock.mockResolvedValue(session('manager'));
     resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
-    queue([{ id: 'user-2', name: 'Emma Palmer', email: 'emma@example.com', is_hr_administrator: true }]);
+    queue([{ id: 'user-2', name: 'Emma Palmer', email: 'emma@example.com', status: 'ACTIVE', is_hr_administrator: true }]);
     const res = await list();
     const body = await res.json();
     expect(body.users).toHaveLength(1);
     const keys = Object.keys(body.users[0]).sort();
-    expect(keys).toEqual(['email', 'id', 'is_hr_administrator', 'name'].sort());
+    expect(keys).toEqual(['email', 'grant_eligible', 'id', 'is_hr_administrator', 'name'].sort());
   });
 
   it('never selects password, password_hash, role, email_verified, last_login_at, preferences, or org metadata from the DB', async () => {
@@ -307,13 +355,74 @@ describe('GET /api/hr/administrators — response minimization', () => {
     requireSessionMock.mockResolvedValue(session('manager'));
     resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
     queue([
-      { id: 'user-2', name: 'Emma Palmer', email: 'emma@example.com', is_hr_administrator: true },
-      { id: 'user-3', name: 'Sam Lee', email: 'sam@example.com', is_hr_administrator: false },
+      { id: 'user-2', name: 'Emma Palmer', email: 'emma@example.com', status: 'ACTIVE', is_hr_administrator: true },
+      { id: 'user-3', name: 'Sam Lee', email: 'sam@example.com', status: 'ACTIVE', is_hr_administrator: false },
     ]);
     const res = await list();
     const body = await res.json();
     expect(body.users.find((u: { id: string }) => u.id === 'user-2').is_hr_administrator).toBe(true);
     expect(body.users.find((u: { id: string }) => u.id === 'user-3').is_hr_administrator).toBe(false);
+  });
+
+  it('GET fetches ACTIVE users plus any already-granted HR administrator, preserving stale grants for revoke', async () => {
+    requireSessionMock.mockResolvedValue(session('manager'));
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    queue([]);
+
+    await list();
+
+    expect(calls[0].text).toContain("u.status = 'ACTIVE'");
+    expect(calls[0].text).toContain('OR ha.id IS NOT NULL');
+  });
+
+  it('an ACTIVE non-admin is returned as grant_eligible without exposing raw status', async () => {
+    requireSessionMock.mockResolvedValue(session('manager'));
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    queue([
+      { id: 'user-3', name: 'Sam Lee', email: 'sam@example.com', status: 'ACTIVE', is_hr_administrator: false },
+    ]);
+
+    const res = await list();
+    const body = await res.json();
+
+    expect(body.users[0]).toEqual({
+      id: 'user-3',
+      name: 'Sam Lee',
+      email: 'sam@example.com',
+      is_hr_administrator: false,
+      grant_eligible: true,
+    });
+    expect(body.users[0]).not.toHaveProperty('status');
+  });
+
+  it('an INACTIVE existing administrator remains visible and revocable but is not grant eligible', async () => {
+    requireSessionMock.mockResolvedValue(session('manager'));
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    queue([
+      { id: 'user-4', name: 'Former Admin', email: 'former@example.com', status: 'INACTIVE', is_hr_administrator: true },
+    ]);
+
+    const res = await list();
+    const body = await res.json();
+
+    expect(body.users[0].is_hr_administrator).toBe(true);
+    expect(body.users[0].grant_eligible).toBe(false);
+    expect(body.users[0]).not.toHaveProperty('status');
+  });
+
+  it('an INVITED existing administrator remains visible and revocable but is not grant eligible', async () => {
+    requireSessionMock.mockResolvedValue(session('manager'));
+    resolveHrAccessContextMock.mockResolvedValue(HR_ADMIN_CTX);
+    queue([
+      { id: 'user-5', name: 'Invited Admin', email: 'invited@example.com', status: 'INVITED', is_hr_administrator: true },
+    ]);
+
+    const res = await list();
+    const body = await res.json();
+
+    expect(body.users[0].is_hr_administrator).toBe(true);
+    expect(body.users[0].grant_eligible).toBe(false);
+    expect(body.users[0]).not.toHaveProperty('status');
   });
 
   it('no email/name matching logic exists — the query never filters or joins by email/name at all', async () => {
