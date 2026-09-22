@@ -39,14 +39,15 @@ import { isActiveUserInOrganisation } from '@/lib/hr/validation';
 // route-local role check): listing WHO the HR administrators are is
 // itself sensitive organisational metadata, not a general-read action.
 // Response is one minimal, deliberately narrow allowlist — id, name,
-// email, and the domain-specific is_hr_administrator boolean (computed
-// via a same-organisation LEFT JOIN against hr_administrators, never a
-// second round trip) — mirroring GET /api/hr/linkable-users's own
-// shape exactly. Never role, status, password/password_hash, tokens,
-// or any other organisation's rows. No email/name matching of any
-// kind: the boolean is a plain per-row existence check against this
-// caller's own already-resolved organisation_id, not an identity
-// inference.
+// email, the domain-specific is_hr_administrator boolean, and a
+// server-computed grant_eligible boolean. Raw users.status is selected
+// only so the server can enforce ACTIVE-only grant eligibility; it is
+// never returned to the browser. The query returns ACTIVE users plus
+// any user who already has an hr_administrators row, so a stale grant
+// on an INACTIVE/INVITED account stays visible and revocable without
+// making non-active ungranted users enumerable. Never role, raw status,
+// password/password_hash, tokens, or any other organisation's rows.
+// No email/name matching of any kind.
 export async function GET() {
   let session;
   try { session = await requireSession(); } catch { return unauthorized(); }
