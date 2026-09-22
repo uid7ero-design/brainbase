@@ -7,7 +7,7 @@ import { resolveHrAccessContext } from '@/lib/hr/context';
 import { canManageHrAccess } from '@/lib/hr/access';
 import { logHrEvent } from '@/lib/hr/auditLog';
 import { extractRequestMeta } from '@/lib/hr/requestMeta';
-import { isUserInOrganisation } from '@/lib/hr/validation';
+import { isActiveUserInOrganisation } from '@/lib/hr/validation';
 
 // HR-1 — explicit HR-administrator entitlement management. Deliberately
 // NOT part of the People directory UI (no dedicated settings page is
@@ -61,10 +61,16 @@ export async function GET() {
   if (!canManageHrAccess(ctx)) return forbidden();
 
   const rows = await sql`
-    SELECT u.id, u.name, u.email, (ha.id IS NOT NULL) AS is_hr_administrator
+    SELECT
+      u.id,
+      u.name,
+      u.email,
+      u.status,
+      (ha.id IS NOT NULL) AS is_hr_administrator
     FROM users u
     LEFT JOIN hr_administrators ha ON ha.user_id = u.id AND ha.organisation_id = u.organisation_id
     WHERE u.organisation_id = ${session.organisationId}
+      AND (u.status = 'ACTIVE' OR ha.id IS NOT NULL)
     ORDER BY u.name
   `;
 
@@ -73,6 +79,7 @@ export async function GET() {
     name: row.name as string,
     email: (row.email as string | null) ?? null,
     is_hr_administrator: Boolean(row.is_hr_administrator),
+    grant_eligible: row.status === 'ACTIVE',
   }));
 
   return NextResponse.json({ users });
@@ -94,8 +101,14 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({})) as Record<string, unknown>;
   const userId = typeof body.user_id === 'string' ? body.user_id : '';
   if (!userId) return NextResponse.json({ error: 'user_id is required.' }, { status: 400 });
-  if (!(await isUserInOrganisation(userId, session.organisationId))) {
-    return NextResponse.json({ error: 'Invalid user.' }, { status: 400 });
+  if (!(await isActiveUserInOrganisation(userId, session.organisationId))) {
+    return NextResponse.json(
+      {
+        error: 'User is not eligible for HR administrator access.',
+        code: 'hr_admin_user_not_eligible',
+      },
+      { status: 400 },
+    );
   }
 
   let rows;
