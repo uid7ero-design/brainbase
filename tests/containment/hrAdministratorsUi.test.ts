@@ -37,7 +37,13 @@ describe('app/people/administrators/page.tsx — HR administrator grant/revoke U
 
   it('derives the candidate/administrator split from the fetched response only, via is_hr_administrator, never a client-only guess or a second endpoint', () => {
     expect(src).toMatch(/administrators\s*=\s*users\.filter\(u => u\.is_hr_administrator\)/);
-    expect(src).toMatch(/candidates\s*=\s*users\.filter\(u => !u\.is_hr_administrator\)/);
+    expect(src).toMatch(/candidates\s*=\s*users\.filter\(u => !u\.is_hr_administrator && u\.grant_eligible\)/);
+  });
+
+  it('grant candidates are filtered by the server-computed grant_eligible flag, never by client-side status inference', () => {
+    expect(src).toMatch(/candidates\s*=\s*users\.filter\(u => !u\.is_hr_administrator && u\.grant_eligible\)/);
+    expect(src).not.toMatch(/u\.status/);
+    expect(src).not.toMatch(/ACTIVE|INACTIVE|INVITED/);
   });
 
   it('grant is explicit-selection-only — a <select> populated from candidates, no free-text user id entry, no auto-selection', () => {

@@ -97,6 +97,29 @@ export async function isUserInOrganisation(userId: string, organisationId: strin
   return rows.length > 0;
 }
 
+/**
+ * Resolves whether `userId` is a real ACTIVE users row in
+ * `organisationId`.
+ *
+ * Deliberately separate from isUserInOrganisation(): explicit People-account
+ * linking sometimes needs pure same-org existence semantics, while granting a
+ * privileged HR-administrator entitlement must only target an account that is
+ * currently session-eligible. lib/org.ts's requireSession() already rejects
+ * INACTIVE and INVITED users; this helper keeps the grant boundary aligned with
+ * that same ACTIVE-only rule without changing unrelated linking behavior.
+ */
+export async function isActiveUserInOrganisation(userId: string, organisationId: string): Promise<boolean> {
+  const rows = await sql`
+    SELECT 1
+    FROM users
+    WHERE id = ${userId}
+      AND organisation_id = ${organisationId}
+      AND status = 'ACTIVE'
+    LIMIT 1
+  `;
+  return rows.length > 0;
+}
+
 // HR-2 Step 1D1 (corrective pass) — both app/api/hr/people/route.ts's
 // POST and app/api/hr/people/[id]/route.ts's PATCH explicitly assign
 // hr_people.linked_user_id and therefore both need the exact same

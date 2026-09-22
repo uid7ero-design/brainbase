@@ -7,7 +7,7 @@ import { resolveHrAccessContext } from '@/lib/hr/context';
 import { canManageHrAccess } from '@/lib/hr/access';
 import { logHrEvent } from '@/lib/hr/auditLog';
 import { extractRequestMeta } from '@/lib/hr/requestMeta';
-import { isUserInOrganisation } from '@/lib/hr/validation';
+import { isActiveUserInOrganisation } from '@/lib/hr/validation';
 
 // HR-1 — explicit HR-administrator entitlement management. Deliberately
 // NOT part of the People directory UI (no dedicated settings page is
@@ -39,14 +39,15 @@ import { isUserInOrganisation } from '@/lib/hr/validation';
 // route-local role check): listing WHO the HR administrators are is
 // itself sensitive organisational metadata, not a general-read action.
 // Response is one minimal, deliberately narrow allowlist — id, name,
-// email, and the domain-specific is_hr_administrator boolean (computed
-// via a same-organisation LEFT JOIN against hr_administrators, never a
-// second round trip) — mirroring GET /api/hr/linkable-users's own
-// shape exactly. Never role, status, password/password_hash, tokens,
-// or any other organisation's rows. No email/name matching of any
-// kind: the boolean is a plain per-row existence check against this
-// caller's own already-resolved organisation_id, not an identity
-// inference.
+// email, the domain-specific is_hr_administrator boolean, and a
+// server-computed grant_eligible boolean. Raw users.status is selected
+// only so the server can enforce ACTIVE-only grant eligibility; it is
+// never returned to the browser. The query returns ACTIVE users plus
+// any user who already has an hr_administrators row, so a stale grant
+// on an INACTIVE/INVITED account stays visible and revocable without
+// making non-active ungranted users enumerable. Never role, raw status,
+// password/password_hash, tokens, or any other organisation's rows.
+// No email/name matching of any kind.
 export async function GET() {
   let session;
   try { session = await requireSession(); } catch { return unauthorized(); }
@@ -61,10 +62,16 @@ export async function GET() {
   if (!canManageHrAccess(ctx)) return forbidden();
 
   const rows = await sql`
-    SELECT u.id, u.name, u.email, (ha.id IS NOT NULL) AS is_hr_administrator
+    SELECT
+      u.id,
+      u.name,
+      u.email,
+      u.status,
+      (ha.id IS NOT NULL) AS is_hr_administrator
     FROM users u
     LEFT JOIN hr_administrators ha ON ha.user_id = u.id AND ha.organisation_id = u.organisation_id
     WHERE u.organisation_id = ${session.organisationId}
+      AND (u.status = 'ACTIVE' OR ha.id IS NOT NULL)
     ORDER BY u.name
   `;
 
@@ -73,6 +80,7 @@ export async function GET() {
     name: row.name as string,
     email: (row.email as string | null) ?? null,
     is_hr_administrator: Boolean(row.is_hr_administrator),
+    grant_eligible: row.status === 'ACTIVE',
   }));
 
   return NextResponse.json({ users });
@@ -94,8 +102,14 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({})) as Record<string, unknown>;
   const userId = typeof body.user_id === 'string' ? body.user_id : '';
   if (!userId) return NextResponse.json({ error: 'user_id is required.' }, { status: 400 });
-  if (!(await isUserInOrganisation(userId, session.organisationId))) {
-    return NextResponse.json({ error: 'Invalid user.' }, { status: 400 });
+  if (!(await isActiveUserInOrganisation(userId, session.organisationId))) {
+    return NextResponse.json(
+      {
+        error: 'User is not eligible for HR administrator access.',
+        code: 'hr_admin_user_not_eligible',
+      },
+      { status: 400 },
+    );
   }
 
   let rows;
