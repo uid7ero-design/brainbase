@@ -46,6 +46,16 @@ vi.mock('@/lib/events/ticketEmail', async (importOriginal) => {
 const generateTicketTokenMock = vi.fn()
 vi.mock('@/lib/events/ticketToken', () => ({ generateTicketToken: (...args: unknown[]) => generateTicketTokenMock(...args) }))
 
+// Resend delivery-status visibility (additive) — mocked so this route's
+// existing queued-sql-response counts for its own lookups/audit write are
+// unaffected by the new recordTicketEmailDeliveryAccepted call site; its
+// own behaviour is proven separately in
+// tests/containment/eventsTicketEmailDeliveryTracking.test.ts.
+const recordTicketEmailDeliveryAcceptedMock = vi.fn()
+vi.mock('@/lib/events/ticketEmailDeliveryTracking', () => ({
+  recordTicketEmailDeliveryAccepted: (...args: unknown[]) => recordTicketEmailDeliveryAcceptedMock(...args),
+}))
+
 const route = await import('@/app/api/events/[id]/orders/[orderId]/resend-ticket-email/route')
 
 function queue(...responses: QueueEntry[]) { responseQueue = responses; callCount = 0 }
@@ -77,6 +87,7 @@ beforeEach(() => {
   requireCapabilityMock.mockReset()
   sendTicketEmailMock.mockReset()
   generateTicketTokenMock.mockReset()
+  recordTicketEmailDeliveryAcceptedMock.mockReset().mockResolvedValue(undefined)
   responseQueue = []
   callCount = 0
   requireSessionMock.mockResolvedValue(sessionAs('manager'))
@@ -262,6 +273,15 @@ describe('PROVIDER — Case B: sent', () => {
     const body = await res.json()
     expect(body).toEqual({ ok: true, result: 'sent', attendee_count: 1 })
   })
+
+  it('records a delivery-tracking row tagged as this order\'s manual send, distinct from an automatic send', async () => {
+    sendTicketEmailMock.mockResolvedValue({ result: 'sent', providerMessageId: 'resend-msg-9' })
+    queue(EVENT_ROW, ELIGIBLE_ORDER_ROW, NO_PRIOR_ATTEMPT, [])
+    await route.POST(req(), ctx())
+    expect(recordTicketEmailDeliveryAcceptedMock).toHaveBeenCalledWith({
+      organisationId: 'org-a', orderId: 'order-1', sendSource: 'manual', providerMessageId: 'resend-msg-9',
+    })
+  })
 })
 
 describe('PROVIDER — Case A: hard failure', () => {
@@ -275,6 +295,7 @@ describe('PROVIDER — Case A: hard failure', () => {
     expect(body.result).toBe('failed')
     const insertCall = sqlMock.mock.calls.find(call => (call[0] as TemplateStringsArray).join('').includes('INSERT INTO audit_logs'))
     expect(insertCall).toBeDefined()
+    expect(recordTicketEmailDeliveryAcceptedMock).not.toHaveBeenCalled()
   })
 })
 

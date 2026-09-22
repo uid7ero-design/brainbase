@@ -3,6 +3,7 @@ import sql from '@/lib/db';
 import { sendTicketEmail, maskEmailForAudit } from './ticketEmail';
 import { normaliseTicketEmailBranding } from '@/lib/organisations/branding';
 import { logAutomaticTicketEmailSent, logAutomaticTicketEmailFailed } from './auditLog';
+import { recordTicketEmailDeliveryAccepted } from './ticketEmailDeliveryTracking';
 
 // Phase 3E.1 — durable, lease-based foundation for AUTOMATIC initial
 // ticket-email delivery: the claim/success/failure/stale-lease
@@ -503,6 +504,18 @@ export async function attemptAutomaticTicketEmail(orderId: string): Promise<Auto
         organisationId: order.organisationId, orderId, attemptCount: claim.attemptCount,
         providerMessageId: sendResult.providerMessageId, recipientMasked,
       }).catch(err => console.error('[events] automatic ticket-email audit write failed after send', err, { orderId }));
+      // Resend delivery-status visibility (additive) — only when Resend
+      // actually returned a message id (sendResult.id can theoretically
+      // be null on a 2xx whose body failed to parse; nothing correlatable
+      // exists in that rare case, so there is nothing to record). Never
+      // affects the send outcome itself — see recordTicketEmailDeliveryAccepted's
+      // own best-effort/never-throws comment.
+      if (sendResult.providerMessageId) {
+        await recordTicketEmailDeliveryAccepted({
+          organisationId: order.organisationId, orderId, sendSource: 'automatic',
+          providerMessageId: sendResult.providerMessageId,
+        });
+      }
       return { outcome: 'sent', providerMessageId: sendResult.providerMessageId };
     }
 
