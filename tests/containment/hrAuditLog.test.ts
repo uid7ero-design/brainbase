@@ -271,3 +271,196 @@ describe('lib/hr/auditLog.ts source — no competing audit mechanism', () => {
     expect(src).toContain("from '@/lib/db'");
   });
 });
+
+
+describe('logHrEvent — fail-closed People and Teams audit projection', () => {
+  function jsonStates(): Record<string, unknown>[] {
+    return sqlCallArgs(0)
+      .filter((a): a is string => typeof a === 'string' && a.startsWith('{'))
+      .map(a => JSON.parse(a) as Record<string, unknown>);
+  }
+
+  it('hr_person allows approved employment fields and ID-only relationships', async () => {
+    await logHrEvent(
+      { organisationId: 'org-1', userId: 'user-1' },
+      {
+        action: 'hr_person.updated',
+        resourceType: 'hr_person',
+        resourceId: 'person-1',
+        afterState: {
+          job_title: 'Operations Manager',
+          worker_type: 'employee',
+          employment_status: 'active',
+          start_date: '2026-09-01',
+          end_date: null,
+          linked_user_id: 'user-2',
+          team_id: 'team-1',
+          manager_person_id: 'person-2',
+        },
+      },
+    );
+
+    expect(jsonStates()).toContainEqual({
+      job_title: 'Operations Manager',
+      worker_type: 'employee',
+      employment_status: 'active',
+      start_date: '2026-09-01',
+      end_date: null,
+      linked_user_id: 'user-2',
+      team_id: 'team-1',
+      manager_person_id: 'person-2',
+    });
+  });
+
+  it('hr_person redacts direct identity/contact values but preserves the changed keys', async () => {
+    await logHrEvent(
+      { organisationId: 'org-1', userId: 'user-1' },
+      {
+        action: 'hr_person.updated',
+        resourceType: 'hr_person',
+        resourceId: 'person-1',
+        beforeState: {
+          first_name: 'Alex',
+          last_name: 'Example',
+          preferred_name: 'Al',
+          work_email: 'alex@example.com',
+          work_phone: '0400000000',
+        },
+        afterState: {
+          first_name: 'Jordan',
+          last_name: 'Example',
+          preferred_name: 'J',
+          work_email: 'jordan@example.com',
+          work_phone: '0411111111',
+        },
+      },
+    );
+
+    const states = jsonStates();
+    expect(states).toHaveLength(2);
+    for (const state of states) {
+      expect(state).toEqual({
+        first_name: '[redacted]',
+        last_name: '[redacted]',
+        preferred_name: '[redacted]',
+        work_email: '[redacted]',
+        work_phone: '[redacted]',
+      });
+    }
+  });
+
+  it('hr_person omits duplicate audit metadata fields', async () => {
+    await logHrEvent(
+      { organisationId: 'org-1', userId: 'user-1' },
+      {
+        action: 'hr_person.updated',
+        resourceType: 'hr_person',
+        resourceId: 'person-1',
+        afterState: {
+          id: 'person-1',
+          organisation_id: 'org-1',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-09-01T00:00:00Z',
+          job_title: 'Coordinator',
+        },
+      },
+    );
+
+    expect(jsonStates()).toContainEqual({ job_title: 'Coordinator' });
+  });
+
+  it('hr_person fails closed for an unclassified future field', async () => {
+    await logHrEvent(
+      { organisationId: 'org-1', userId: 'user-1' },
+      {
+        action: 'hr_person.updated',
+        resourceType: 'hr_person',
+        resourceId: 'person-1',
+        afterState: {
+          job_title: 'Coordinator',
+          future_sensitive_field: 'must-never-leak',
+        },
+      },
+    );
+
+    const state = jsonStates()[0];
+    expect(state).toEqual({
+      job_title: 'Coordinator',
+      future_sensitive_field: '[redacted]',
+    });
+    expect(JSON.stringify(state)).not.toContain('must-never-leak');
+  });
+
+  it('hr_person ID-only fields fail closed when a caller supplies a non-primitive object', async () => {
+    await logHrEvent(
+      { organisationId: 'org-1', userId: 'user-1' },
+      {
+        action: 'hr_person.updated',
+        resourceType: 'hr_person',
+        resourceId: 'person-1',
+        afterState: {
+          manager_person_id: { id: 'person-2', name: 'Sensitive Manager Name' },
+        },
+      },
+    );
+
+    expect(jsonStates()).toContainEqual({ manager_person_id: '[redacted]' });
+  });
+
+  it('hr_team allows name/archive lifecycle, keeps manager as ID-only, and redacts description', async () => {
+    await logHrEvent(
+      { organisationId: 'org-1', userId: 'user-1' },
+      {
+        action: 'hr_team.updated',
+        resourceType: 'hr_team',
+        resourceId: 'team-1',
+        afterState: {
+          name: 'Operations North',
+          archived_at: null,
+          manager_person_id: 'person-2',
+          description: 'Contains free-text HR commentary',
+        },
+      },
+    );
+
+    expect(jsonStates()).toContainEqual({
+      name: 'Operations North',
+      archived_at: null,
+      manager_person_id: 'person-2',
+      description: '[redacted]',
+    });
+  });
+
+  it('hr_team fails closed for any unclassified future field', async () => {
+    await logHrEvent(
+      { organisationId: 'org-1', userId: 'user-1' },
+      {
+        action: 'hr_team.updated',
+        resourceType: 'hr_team',
+        resourceId: 'team-1',
+        afterState: { future_team_notes: 'private free text' },
+      },
+    );
+
+    expect(jsonStates()).toContainEqual({ future_team_notes: '[redacted]' });
+  });
+
+  it('an all-omitted People snapshot becomes null rather than an empty JSON object', async () => {
+    await logHrEvent(
+      { organisationId: 'org-1', userId: 'user-1' },
+      {
+        action: 'hr_person.updated',
+        resourceType: 'hr_person',
+        resourceId: 'person-1',
+        afterState: {
+          id: 'person-1',
+          organisation_id: 'org-1',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-09-01T00:00:00Z',
+        },
+      },
+    );
+
+    expect(sqlCallArgs(0)).toContain(null);
+  });
+});
