@@ -215,3 +215,78 @@ export async function resequenceOrganiserItemScope(
   const rows = results[results.length - 1] as ValidationRow[];
   return resultFromRows(rows);
 }
+
+// Phase D.4.7E (Slice E2) — group reorder. A SIBLING primitive, not a
+// generalisation of resequenceOrganiserItemScope above: `organiser_groups`
+// is a different table with different columns, and this repo's own
+// convention (see this file's own header) is literal SQL per case, never a
+// dynamic table-name/fragment abstraction. Reuses `resultFromRows` — that
+// function only interprets validation-flag columns and is table-agnostic
+// by construction — but has its own well-formedness guard and its own
+// two-statement lock-then-validate-and-resequence transaction, following
+// the exact same concurrency discipline documented at the top of this file.
+
+export type OrganiserGroupReorderScope = { organisationId: string; boardId: string };
+
+function groupScopeIdsAreWellFormed(scope: OrganiserGroupReorderScope, orderedGroupIds: string[]): boolean {
+  if (!UUID_RE.test(scope.boardId)) return false;
+  return orderedGroupIds.every((id) => UUID_RE.test(id));
+}
+
+/**
+ * Resequences one board's groups to contiguous positions 0..N-1, matching
+ * the exact order of `orderedGroupIds`. Race-safe under concurrent calls
+ * against the SAME board (same FOR-UPDATE-lock-first discipline as
+ * resequenceOrganiserItemScope). Writes NOTHING and returns `{ok:false}`
+ * if `orderedGroupIds` is not an exact permutation of the board's current
+ * groups, or if any id involved is not UUID-shaped. Never writes
+ * `organiser_activity`.
+ */
+export async function resequenceOrganiserGroupScope(
+  scope: OrganiserGroupReorderScope,
+  orderedGroupIds: string[],
+): Promise<ResequenceResult> {
+  if (!groupScopeIdsAreWellFormed(scope, orderedGroupIds)) {
+    return { ok: false, reason: 'malformed' };
+  }
+
+  const { organisationId, boardId } = scope;
+
+  const results = await sql.transaction([
+    sql`
+      SELECT id FROM organiser_groups
+      WHERE organisation_id = ${organisationId} AND board_id = ${boardId}
+      FOR UPDATE
+    `,
+    sql`
+      WITH scope_rows AS (
+        SELECT id FROM organiser_groups
+        WHERE organisation_id = ${organisationId} AND board_id = ${boardId}
+      ),
+      requested AS (
+        SELECT id, ord - 1 AS ord
+        FROM unnest(${orderedGroupIds}::uuid[]) WITH ORDINALITY AS t(id, ord)
+      ),
+      validation AS (
+        SELECT
+          (SELECT COUNT(*) FROM requested) = (SELECT COUNT(DISTINCT id) FROM requested) AS no_duplicates,
+          NOT EXISTS (SELECT id FROM requested EXCEPT SELECT id FROM scope_rows) AS no_foreign,
+          NOT EXISTS (SELECT id FROM scope_rows EXCEPT SELECT id FROM requested) AS no_missing,
+          (SELECT COUNT(*) FROM requested) = (SELECT COUNT(*) FROM scope_rows) AS count_matches
+      ),
+      resequenced AS (
+        UPDATE organiser_groups g SET position = r.ord
+        FROM requested r
+        WHERE g.id = r.id AND g.organisation_id = ${organisationId}
+          AND (SELECT no_duplicates AND no_foreign AND no_missing AND count_matches FROM validation)
+        RETURNING g.id, g.position
+      )
+      SELECT validation.no_duplicates, validation.no_foreign, validation.no_missing, validation.count_matches,
+             resequenced.id, resequenced.position
+      FROM validation LEFT JOIN resequenced ON true
+    `,
+  ]);
+
+  const rows = results[results.length - 1] as ValidationRow[];
+  return resultFromRows(rows);
+}

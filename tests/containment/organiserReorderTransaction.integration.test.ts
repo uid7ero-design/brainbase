@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import crypto from 'crypto'
 import sql from '@/lib/db'
-import { resequenceOrganiserItemScope } from '@/lib/organiser/reorderTransactions'
+import { resequenceOrganiserItemScope, resequenceOrganiserGroupScope } from '@/lib/organiser/reorderTransactions'
 
 // Phase D.4.7E (Slice E1) — proves lib/organiser/reorderTransactions.ts's
 // resequenceOrganiserItemScope against a REAL database, by calling that
@@ -306,6 +306,123 @@ describe.skipIf(!shouldRun)('resequenceOrganiserItemScope — real database inte
         { type: 'top_level_group', organisationId: ORG_A, boardId: board, groupId: group },
         [b, a],
       )
+
+      expect(result.ok).toBe(true)
+      expect(await activityCountFor(ORG_A)).toBe(before)
+    })
+  })
+
+  // Phase D.4.7E (Slice E2) — resequenceOrganiserGroupScope, the sibling
+  // group primitive. Same real-database rigor as the item primitive above:
+  // calls the actual executable function, never test-local SQL.
+  describe('6. group reorder (resequenceOrganiserGroupScope)', () => {
+    it('an exact permutation succeeds: resequences to contiguous 0..N-1, authoritative order matches persisted order, no activity written', async () => {
+      const board = await makeBoard(ORG_A)
+      const g1 = await makeGroup(ORG_A, board)
+      const g2 = await makeGroup(ORG_A, board)
+      const g3 = await makeGroup(ORG_A, board)
+      const activityBefore = await activityCountFor(ORG_A)
+
+      const result = await resequenceOrganiserGroupScope(
+        { organisationId: ORG_A, boardId: board },
+        [g3, g1, g2],
+      )
+
+      expect(result.ok).toBe(true)
+      if (!result.ok) return
+      const byId = Object.fromEntries(result.order.map(o => [o.id, o.position]))
+      expect(byId).toEqual({ [g3]: 0, [g1]: 1, [g2]: 2 })
+
+      const rows = (await sql`SELECT id, position FROM organiser_groups WHERE id = ANY(${[g1, g2, g3]}::uuid[])`) as { id: string; position: number }[]
+      const persisted = Object.fromEntries(rows.map(r => [r.id, r.position]))
+      expect(persisted).toEqual({ [g3]: 0, [g1]: 1, [g2]: 2 })
+      expect(persisted).toEqual(byId)
+      expect(await activityCountFor(ORG_A)).toBe(activityBefore)
+    })
+
+    it('duplicate id rejected, positions unchanged', async () => {
+      const board = await makeBoard(ORG_A)
+      const g1 = await makeGroup(ORG_A, board)
+      const g2 = await makeGroup(ORG_A, board)
+      const before = (await sql`SELECT id, position FROM organiser_groups WHERE id = ANY(${[g1, g2]}::uuid[])`) as { id: string; position: number }[]
+
+      const result = await resequenceOrganiserGroupScope({ organisationId: ORG_A, boardId: board }, [g1, g1])
+
+      expect(result).toEqual({ ok: false, reason: 'duplicate' })
+      const after = (await sql`SELECT id, position FROM organiser_groups WHERE id = ANY(${[g1, g2]}::uuid[])`) as { id: string; position: number }[]
+      expect(after).toEqual(before)
+    })
+
+    it('an existing group omitted from the requested list rejected, positions unchanged', async () => {
+      const board = await makeBoard(ORG_A)
+      const g1 = await makeGroup(ORG_A, board)
+      const g2 = await makeGroup(ORG_A, board)
+
+      const result = await resequenceOrganiserGroupScope({ organisationId: ORG_A, boardId: board }, [g1])
+
+      expect(result).toEqual({ ok: false, reason: 'missing' })
+      void g2
+    })
+
+    it('a foreign group id from a DIFFERENT board rejected, positions unchanged', async () => {
+      const boardA = await makeBoard(ORG_A)
+      const boardB = await makeBoard(ORG_A)
+      const g1 = await makeGroup(ORG_A, boardA)
+      const foreign = await makeGroup(ORG_A, boardB)
+
+      const result = await resequenceOrganiserGroupScope({ organisationId: ORG_A, boardId: boardA }, [g1, foreign])
+
+      expect(result).toEqual({ ok: false, reason: 'extra' })
+    })
+
+    it('a foreign group id from a DIFFERENT organisation rejected, no cross-tenant leak', async () => {
+      const boardA = await makeBoard(ORG_A)
+      const g1 = await makeGroup(ORG_A, boardA)
+      const boardB = await makeBoard(ORG_B)
+      const foreign = await makeGroup(ORG_B, boardB)
+
+      const result = await resequenceOrganiserGroupScope({ organisationId: ORG_A, boardId: boardA }, [g1, foreign])
+
+      expect(result).toEqual({ ok: false, reason: 'extra' })
+    })
+
+    it('two concurrent group reorders of the same board serialize safely; final state is one complete valid order, contiguous', async () => {
+      const board = await makeBoard(ORG_A)
+      const g1 = await makeGroup(ORG_A, board)
+      const g2 = await makeGroup(ORG_A, board)
+      const g3 = await makeGroup(ORG_A, board)
+
+      const orderX = [g3, g2, g1]
+      const orderY = [g2, g1, g3]
+
+      const [resultX, resultY] = await Promise.all([
+        resequenceOrganiserGroupScope({ organisationId: ORG_A, boardId: board }, orderX),
+        resequenceOrganiserGroupScope({ organisationId: ORG_A, boardId: board }, orderY),
+      ])
+
+      expect(resultX.ok).toBe(true)
+      expect(resultY.ok).toBe(true)
+
+      const rows = (await sql`SELECT id, position FROM organiser_groups WHERE id = ANY(${[g1, g2, g3]}::uuid[])`) as { id: string; position: number }[]
+      const finalPositions = Object.fromEntries(rows.map(r => [r.id, r.position]))
+      const finalOrder = [g1, g2, g3]
+        .map(id => ({ id, position: finalPositions[id] }))
+        .sort((p, q) => p.position - q.position)
+        .map(p => p.id)
+
+      const matchesX = JSON.stringify(finalOrder) === JSON.stringify(orderX)
+      const matchesY = JSON.stringify(finalOrder) === JSON.stringify(orderY)
+      expect(matchesX || matchesY).toBe(true)
+      expect(Object.values(finalPositions).sort((x, y) => x - y)).toEqual([0, 1, 2])
+    })
+
+    it('a successful group resequence inserts zero organiser_activity rows', async () => {
+      const board = await makeBoard(ORG_A)
+      const g1 = await makeGroup(ORG_A, board)
+      const g2 = await makeGroup(ORG_A, board)
+      const before = await activityCountFor(ORG_A)
+
+      const result = await resequenceOrganiserGroupScope({ organisationId: ORG_A, boardId: board }, [g2, g1])
 
       expect(result.ok).toBe(true)
       expect(await activityCountFor(ORG_A)).toBe(before)

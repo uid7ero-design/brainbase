@@ -785,7 +785,7 @@ function ItemRow({
 
 function GroupSection({
   group, items, columns, onUpdateItem, onDeleteItem, onAddItem, onOpenDrawer, onRenameGroup, onDeleteGroup,
-  onAddColumn, onRenameColumn, onDeleteColumn, onEditColumnOptions, saveStatus,
+  onAddColumn, onRenameColumn, onDeleteColumn, onEditColumnOptions, saveStatus, onGroupDragHandleStart,
 }: {
   group: OrganiserGroup | null; items: OrganiserItem[]; columns: OrganiserColumn[];
   onUpdateItem: (id: string, patch: Record<string, unknown>) => void;
@@ -799,6 +799,11 @@ function GroupSection({
   onDeleteColumn: (id: string) => void;
   onEditColumnOptions: (column: OrganiserColumn) => void;
   saveStatus: Record<string, SaveStatus>;
+  // D.4.7E (Slice E2) — omitted entirely for the synthetic "No group"
+  // bucket (group === null): that section has no persisted row/position of
+  // its own, so it must never become a drag source or be counted as part
+  // of the reorderable scope. Only present for a real group.
+  onGroupDragHandleStart?: () => void;
 }) {
   const t = useOpsTheme();
   const [open, setOpen] = useState(true);
@@ -814,6 +819,17 @@ function GroupSection({
   return (
     <div style={{ marginBottom: 18, borderRadius: 12, overflow: "hidden", background: t.paper(.6), border: `1px solid ${t.ink(.06)}` }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 12px", background: `${color}10`, borderBottom: open ? `1px solid ${t.ink(.06)}` : "none" }}>
+        {onGroupDragHandleStart && (
+          <span
+            draggable
+            onDragStart={e => { e.dataTransfer.effectAllowed = "move"; onGroupDragHandleStart(); }}
+            title="Drag to reorder"
+            aria-label="Reorder group"
+            style={{ width: 14, height: 18, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", cursor: "grab", color: t.ink(.22) }}
+          >
+            <svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor"><circle cx="2.5" cy="2.5" r="1.4" /><circle cx="7.5" cy="2.5" r="1.4" /><circle cx="2.5" cy="7" r="1.4" /><circle cx="7.5" cy="7" r="1.4" /><circle cx="2.5" cy="11.5" r="1.4" /><circle cx="7.5" cy="11.5" r="1.4" /></svg>
+          </span>
+        )}
         <button onClick={() => setOpen(o => !o)} style={{ width: 18, height: 18, display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", cursor: "pointer", color, transform: open ? "none" : "rotate(-90deg)", transition: "transform .12s" }}>
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"><polyline points="6 9 12 15 18 9" /></svg>
         </button>
@@ -1768,6 +1784,12 @@ function OrganiserPageContent() {
   // full reasoning — which is what actually makes server commit order
   // deterministic, not just client display order.
   const itemFieldQueueRef = useRef<CoalescingQueueMap<Record<string, unknown>>>({});
+  // D.4.7E (Slice E2) — separate from itemFieldQueueRef (different value
+  // shape: a full ordered-id array, not a field patch). Keyed
+  // `board:<boardId>:group-order` today; E3/E4's own item/subitem reorder
+  // will use their own distinct key shapes on this same ref, matching the
+  // discovery report's own recommendation.
+  const reorderQueueRef = useRef<CoalescingQueueMap<string[]>>({});
 
   // Lightweight, single-slot transient notice for mutations with no
   // natural inline anchor to show Saving/Saved/error next to (group/item
@@ -1940,6 +1962,94 @@ function OrganiserPageContent() {
       return;
     }
     if (activeId) loadBoardData(activeId);
+  }
+
+  // D.4.7E (Slice E2) — group reorder within one board. Mirrors updateItem's
+  // own optimistic/coalesced/rollback shape (see that function's own header
+  // comment), adapted for a full-order payload instead of a single-field
+  // patch: `confirmedOrder` is captured ONCE per coalesced chain (lazily, on
+  // the first attempt), from the board state as it stood immediately BEFORE
+  // this drag's own optimistic reorder — so a LATER failure in the same
+  // chain rolls back to the last genuinely server-confirmed order, never to
+  // an intermediate optimistic state a newer drag has already superseded.
+  // A 409 (the board's real group order changed elsewhere since this
+  // client's own copy was loaded) is handled differently from every other
+  // failure: since the client's whole mental model of the order is stale,
+  // not just this one write, a full board reload is the only honest
+  // recovery — reverting to `confirmedOrder` would just reapply a second
+  // stale order.
+  async function reorderGroups(orderedGroupIds: string[]) {
+    if (!activeId || !boardData) return;
+    const key = `board:${activeId}:group-order`;
+    const preDragGroups = boardData.groups;
+
+    setBoardData(prev => {
+      if (!prev) return prev;
+      const byId = new Map(prev.groups.map(g => [g.id, g]));
+      const reordered = orderedGroupIds.map(id => byId.get(id)).filter((g): g is OrganiserGroup => !!g);
+      const reorderedIds = new Set(reordered.map(g => g.id));
+      const missing = prev.groups.filter(g => !reorderedIds.has(g.id));
+      return { ...prev, groups: [...reordered, ...missing] };
+    });
+
+    let confirmedOrder: string[] | null = null;
+
+    await enqueueCoalesced(reorderQueueRef.current, key, orderedGroupIds, async (value, hasNewerPending) => {
+      if (confirmedOrder === null) confirmedOrder = preDragGroups.map(g => g.id);
+
+      let res: Response | null = null;
+      try {
+        res = await fetch(`/api/organiser/boards/${activeId}/groups/reorder`, {
+          method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include",
+          body: JSON.stringify({ ordered_group_ids: value }),
+        });
+      } catch {
+        res = null;
+      }
+
+      if (hasNewerPending()) return;
+
+      if (res && res.status === 409) {
+        if (activeId) loadBoardData(activeId);
+        return;
+      }
+      if (!res || !res.ok) {
+        showPageNotice("Couldn't save group order. Reverting.");
+        const restoreTo = confirmedOrder;
+        setBoardData(prev => {
+          if (!prev) return prev;
+          const byId = new Map(prev.groups.map(g => [g.id, g]));
+          const restored = restoreTo.map(id => byId.get(id)).filter((g): g is OrganiserGroup => !!g);
+          const restoredIds = new Set(restored.map(g => g.id));
+          const missing = prev.groups.filter(g => !restoredIds.has(g.id));
+          return { ...prev, groups: [...restored, ...missing] };
+        });
+        return;
+      }
+
+      const data = await res.json().catch(() => null) as { order?: { id: string; position: number }[] } | null;
+      if (data?.order) {
+        confirmedOrder = value;
+        const posById = new Map(data.order.map(o => [o.id, o.position]));
+        setBoardData(prev => {
+          if (!prev) return prev;
+          return { ...prev, groups: prev.groups.map(g => (posById.has(g.id) ? { ...g, position: posById.get(g.id)! } : g)) };
+        });
+      }
+    });
+  }
+
+  const [draggingGroupId, setDraggingGroupId] = useState<string | null>(null);
+  function handleGroupDrop(targetGroupId: string) {
+    const draggedId = draggingGroupId;
+    setDraggingGroupId(null);
+    if (!draggedId || draggedId === targetGroupId || !boardData) return;
+    const currentIds = boardData.groups.map(g => g.id);
+    const without = currentIds.filter(id => id !== draggedId);
+    const targetIndex = without.indexOf(targetGroupId);
+    if (targetIndex === -1) return;
+    const reordered = [...without.slice(0, targetIndex), draggedId, ...without.slice(targetIndex)];
+    reorderGroups(reordered);
   }
 
   // D.4.7B — addItem now returns a boolean success indicator (used by
@@ -2275,13 +2385,20 @@ function OrganiserPageContent() {
               {view === "table" && (
                 <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px 60px" }}>
                   {boardData?.groups.map(g => (
-                    <GroupSection
-                      key={g.id} group={g} items={boardData.items} columns={columns}
-                      onUpdateItem={updateItem} onDeleteItem={deleteItem} onAddItem={addItem}
-                      onOpenDrawer={openDrawerForItem} onRenameGroup={renameGroup} onDeleteGroup={deleteGroup}
-                      onAddColumn={addColumn} onRenameColumn={renameColumn} onDeleteColumn={deleteColumn} onEditColumnOptions={setEditingColumn}
-                      saveStatus={saveStatus}
-                    />
+                    <div
+                      key={g.id}
+                      onDragOver={e => { if (draggingGroupId) e.preventDefault(); }}
+                      onDrop={e => { e.preventDefault(); handleGroupDrop(g.id); }}
+                    >
+                      <GroupSection
+                        group={g} items={boardData.items} columns={columns}
+                        onUpdateItem={updateItem} onDeleteItem={deleteItem} onAddItem={addItem}
+                        onOpenDrawer={openDrawerForItem} onRenameGroup={renameGroup} onDeleteGroup={deleteGroup}
+                        onAddColumn={addColumn} onRenameColumn={renameColumn} onDeleteColumn={deleteColumn} onEditColumnOptions={setEditingColumn}
+                        saveStatus={saveStatus}
+                        onGroupDragHandleStart={() => setDraggingGroupId(g.id)}
+                      />
+                    </div>
                   ))}
                   {boardData && boardData.items.some(i => !i.group_id) && (
                     <GroupSection
