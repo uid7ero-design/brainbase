@@ -330,35 +330,94 @@ function AssigneeDropdown({
   );
 }
 
+// D.4.7D — dirty-draft protection, generic to every InlineText call site
+// (group name, item name in both the drawer and the table, custom text
+// columns, board name). Before this phase, a plain `useEffect(() => {
+// setDraft(value) }, [value])` overwrote `draft` on ANY authoritative
+// change — including while the user had unsaved edits mid-keystroke —
+// silently erasing typed text. This mirrors D.4.7C's Notes fix exactly,
+// generalized: `seenValue` is the last authoritative value this instance
+// has observed; a change is reconciled into `draft` only while the draft
+// isn't dirty. `dirty` is local-only (never derived from saveStatus, since
+// InlineText's callers don't all supply one — see CustomCell/board name
+// above, which pass no `status` at all).
+//
+// Render-time comparison state (not a ref, not a plain effect) for the
+// same lint reasons as D.4.7C's Notes reconciliation: this repo's
+// react-hooks/refs rule disallows reading a ref during render, and
+// react-hooks/set-state-in-effect disallows an effect whose only job is
+// syncing local state to a changed prop — both are exactly what a
+// naive fix would reach for.
 function InlineText({
-  value, placeholder, onSave, bold, status,
+  value, placeholder, onSave, bold, status, renderTrigger,
 }: {
   value: string; placeholder?: string; onSave: (v: string) => void; bold?: boolean;
-  // D.4.7B — optional; both call sites (item title in the drawer, group
-  // name here in GroupSection) now pass their own `item:<id>:name` /
-  // `group:<id>:name` saveStatus entry so a rename failure is visible
-  // right next to the text, not just as a silent no-op.
+  // D.4.7B — optional; call sites that care about visible save/error
+  // state (item title in the drawer and in the table, group name) pass
+  // their own `item:<id>:name` / `group:<id>:name` saveStatus entry so a
+  // rename failure is visible right next to the text, not just a silent
+  // no-op. Call sites with no natural save-state story (custom text
+  // columns, the board title) simply omit it.
   status?: SaveStatus;
+  // D.4.7D — optional override for the "not editing" display. Every
+  // existing call site omits this and keeps today's exact behavior (the
+  // text itself is the click-to-edit trigger). ItemRow's table-row name
+  // cell is the one exception: a table item's name must open the drawer
+  // on a plain click while STILL offering a way to rename inline (see
+  // the row's own edit-icon trigger) — two different interactions on one
+  // name, which the default single click-to-edit span can't express.
+  // Routing that through a render prop reuses 100% of this component's
+  // dirty-draft/commit/cancel logic rather than duplicating it in ItemRow.
+  renderTrigger?: (args: { display: string; startEdit: () => void }) => React.ReactNode;
 }) {
   const t = useOpsTheme();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
-  useEffect(() => { setDraft(value); }, [value]);
+  const [dirty, setDirty] = useState(false);
+  const [seenValue, setSeenValue] = useState(value);
+
+  if (seenValue !== value) {
+    setSeenValue(value);
+    // A dirty draft is preserved untouched here — this is the entire
+    // point. A clean one (including "not currently editing at all")
+    // adopts the new authoritative value immediately.
+    if (!dirty) setDraft(value);
+  }
+
+  function commitEdit() {
+    setEditing(false);
+    setDirty(false);
+    if (draft !== value) onSave(draft);
+  }
+  function cancelEdit() {
+    // Reset draft to the LATEST authoritative `value` (this render's own
+    // prop, not whatever it was when editing began) — satisfies "Escape
+    // restores the newest value, not the value from edit start." Setting
+    // dirty=false and draft=value together means even a stray blur this
+    // triggers is a harmless no-op under commitEdit's own `draft !== value`
+    // guard — no separate suppression flag needed.
+    setDraft(value);
+    setDirty(false);
+    setEditing(false);
+  }
 
   if (!editing) {
+    const display = value || placeholder || "—";
     return (
-      <span style={{ display: "inline-flex", alignItems: "center" }}>
-        <span
-          onClick={() => setEditing(true)}
-          title="Click to edit"
-          style={{
-            cursor: "text", fontWeight: bold ? 600 : 400,
-            color: value ? t.ink(.90) : t.ink(.28),
-            fontSize: bold ? 13 : 12, lineHeight: 1.4,
-          }}
-        >
-          {value || placeholder || "—"}
-        </span>
+      <span style={{ display: "inline-flex", alignItems: "center", minWidth: 0 }}>
+        {renderTrigger ? renderTrigger({ display, startEdit: () => setEditing(true) }) : (
+          <span
+            onClick={() => setEditing(true)}
+            title="Click to edit"
+            style={{
+              cursor: "text", fontWeight: bold ? 600 : 400,
+              color: value ? t.ink(.90) : t.ink(.28),
+              fontSize: bold ? 13 : 12, lineHeight: 1.4,
+            }}
+          >
+            {display}
+          </span>
+        )}
         <SaveStatusText status={status} />
       </span>
     );
@@ -367,11 +426,11 @@ function InlineText({
     <input
       autoFocus
       value={draft}
-      onChange={e => setDraft(e.target.value)}
-      onBlur={() => { setEditing(false); if (draft !== value) onSave(draft); }}
+      onChange={e => { setDraft(e.target.value); setDirty(true); }}
+      onBlur={commitEdit}
       onKeyDown={e => {
         if (e.key === "Enter") { (e.target as HTMLInputElement).blur(); }
-        if (e.key === "Escape") { setDraft(value); setEditing(false); }
+        if (e.key === "Escape") { e.preventDefault(); cancelEdit(); }
       }}
       style={{
         fontSize: bold ? 13 : 12, fontWeight: bold ? 600 : 400, fontFamily: FONT,
@@ -636,13 +695,39 @@ function ItemRow({
             <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"><polyline points="6 9 12 15 18 9" /></svg>
           </button>
         ) : <span style={{ width: 16, flexShrink: 0 }} />}
-        <span
-          onClick={() => onOpenDrawer(item)}
-          title="Open details"
-          style={{ cursor: "pointer", fontSize: depth === 0 ? 12.5 : 12, fontWeight: depth === 0 ? 600 : 400, color: t.ink(.90), overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-        >
-          {item.name}
-        </span>
+        {/* D.4.7D — inline rename in the table, without losing the
+            existing "click the name to open the drawer" interaction.
+            InlineText's own dirty-draft/save-status machinery is reused
+            verbatim via renderTrigger — only the "not editing" display is
+            customised here: the name text itself still opens the drawer,
+            and a separate hover-revealed pencil icon (mirroring this
+            row's own hover-revealed delete icon below) starts the rename.
+            The two can never fire off the same click. */}
+        <InlineText
+          value={item.name}
+          onSave={v => onUpdate(item.id, { name: v })}
+          status={saveStatus[`item:${item.id}:name`]}
+          renderTrigger={({ display, startEdit }) => (
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 4, minWidth: 0 }}>
+              <span
+                onClick={() => onOpenDrawer(item)}
+                title="Open details"
+                style={{ cursor: "pointer", fontSize: depth === 0 ? 12.5 : 12, fontWeight: depth === 0 ? 600 : 400, color: t.ink(.90), overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+              >
+                {display}
+              </span>
+              {hover && (
+                <button
+                  onClick={startEdit}
+                  title="Rename"
+                  style={{ width: 16, height: 16, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", cursor: "pointer", color: t.ink(.30) }}
+                >
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
+                </button>
+              )}
+            </span>
+          )}
+        />
       </div>
 
       <span style={{ display: "flex", alignItems: "center", minWidth: 0 }}>
@@ -1605,6 +1690,15 @@ function OrganiserPageContent() {
   // click cannot fire two POSTs for the same name.
   const [groupSubmitting, setGroupSubmitting] = useState(false);
   const [groupError, setGroupError] = useState<string | null>(null);
+  // D.4.7D — repeatable group creation, modeled directly on AddItemRow:
+  // a confirmed success clears the input and keeps the creation UI open
+  // (never `setAddingGroup(false)`) so the user can immediately type the
+  // next group name, exactly like the item-add row already does. Same
+  // `createGroup(name): Promise<boolean>` path, same duplicate-submit
+  // guard, same failure semantics (retain typed name, show error, stay
+  // open, allow retry) — only the "what happens on success" branch
+  // changed from D.4.7B's one-shot close.
+  const groupNameInputRef = useRef<HTMLInputElement>(null);
   async function submitNewGroup() {
     const trimmed = groupName.trim();
     if (!trimmed || groupSubmitting) return;
@@ -1614,7 +1708,15 @@ function OrganiserPageContent() {
     setGroupSubmitting(false);
     if (ok) {
       setGroupName("");
-      setAddingGroup(false);
+      // The input is still `disabled={groupSubmitting}` in the DOM at this
+      // exact point — setGroupSubmitting(false) above hasn't been flushed
+      // into a real render yet (we're still inside the same synchronous
+      // continuation), and a disabled input silently refuses focus(). A
+      // macrotask defers this past that render, matching Test A7's live
+      // requirement (a static check that the call merely exists would
+      // have missed this — it only surfaces with a real disabled->enabled
+      // transition in the browser).
+      setTimeout(() => groupNameInputRef.current?.focus(), 0);
     } else {
       setGroupError("Couldn't create group. Try again.");
     }
@@ -2194,6 +2296,7 @@ function OrganiserPageContent() {
                   {addingGroup && (
                     <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
                       <input
+                        ref={groupNameInputRef}
                         autoFocus value={groupName} disabled={groupSubmitting}
                         onChange={e => { setGroupName(e.target.value); if (groupError) setGroupError(null); }}
                         placeholder="Group name…"
