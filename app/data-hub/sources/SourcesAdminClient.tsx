@@ -384,6 +384,22 @@ function SourceSystemsSection({
     }
   }
 
+  // Data Hub 6.2B1 — a direct toggle, no confirmation step (unlike
+  // ActivationToggle's own deactivate-confirmation flow): this policy flag
+  // only changes whether Confirm requires a period going forward, and
+  // never mutates or discards any existing worksheet/import data, so it
+  // does not carry the same blast radius as deactivating a whole source.
+  async function handleToggleReportingPeriodRequired(s: SourceSystemAdminDTO) {
+    setBusyId(s.id);
+    const result = await updateSourceSystem(s.id, { reportingPeriodRequired: !s.reportingPeriodRequired });
+    setBusyId(null);
+    if (result.kind === "response" && isSuccessBody<{ sourceSystem: SourceSystemAdminDTO }, "sourceSystem">(result.body, "sourceSystem")) {
+      load();
+    } else {
+      dispatch({ type: "LOAD_FAILURE", message: describeError(result) });
+    }
+  }
+
   return (
     <section style={panelStyle}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
@@ -474,6 +490,19 @@ function SourceSystemsSection({
                     }}
                   >
                     Edit
+                  </button>
+                  <button
+                    type="button"
+                    style={buttonStyle("secondary", !isAdmin)}
+                    disabled={!isAdmin || busyId === s.id}
+                    title={
+                      !isAdmin
+                        ? "Requires admin"
+                        : "Require a reporting period before an import for this source can be confirmed"
+                    }
+                    onClick={() => handleToggleReportingPeriodRequired(s)}
+                  >
+                    {s.reportingPeriodRequired ? "Period required: On" : "Period required: Off"}
                   </button>
                   <ActivationToggle active={s.active} disabled={!isAdmin} busy={busyId === s.id} onToggle={() => handleToggleActive(s)} />
                 </div>

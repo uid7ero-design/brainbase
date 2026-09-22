@@ -45,6 +45,12 @@ const uploadFindUniqueMock = vi.fn();
 const importBatchFindUniqueMock = vi.fn();
 const mappingVersionFindUniqueMock = vi.fn();
 const sourceMappingFindUniqueMock = vi.fn();
+// Data Hub 6.2B1 — Step 3.6's own SourceSystem policy lookup. Every
+// fixture in this file defaults source_system_id to "ss-1" (non-null), so
+// this mock IS reached by every test here — defaults to
+// `{ reporting_period_required: false }` so none of this file's
+// pre-6.2B1 reconciliation-focused tests is affected.
+const sourceSystemFindUniqueMock = vi.fn().mockResolvedValue({ reporting_period_required: false });
 const transactionMock = vi.fn();
 
 vi.mock("@/lib/prisma", () => ({
@@ -61,6 +67,9 @@ vi.mock("@/lib/prisma", () => ({
     },
     sourceMapping: {
       findUnique: (...args: unknown[]) => sourceMappingFindUniqueMock(...args),
+    },
+    sourceSystem: {
+      findUnique: (...args: unknown[]) => sourceSystemFindUniqueMock(...args),
     },
     $transaction: (...args: unknown[]) => transactionMock(...args),
   },
@@ -120,6 +129,8 @@ beforeEach(() => {
   importBatchFindUniqueMock.mockReset();
   mappingVersionFindUniqueMock.mockReset();
   sourceMappingFindUniqueMock.mockReset();
+  sourceSystemFindUniqueMock.mockReset();
+  sourceSystemFindUniqueMock.mockResolvedValue({ reporting_period_required: false });
   transactionMock.mockReset();
   storageGetMock.mockReset();
 });
