@@ -720,3 +720,58 @@ export async function logPurchaseReceiptCancelled(params: {
     beforeState: { status: 'POSTED' }, afterState: { status: 'CANCELLED', cancel_reason: params.cancelReason },
   });
 }
+
+// ── Supplier bills (Phase C7.4) ──────────────────────────────────────
+//
+// Mirrors the purchase-receipt audit functions above exactly (action
+// namespace '<resource_type>.<verb>', resource_type the literal noun a
+// future `WHERE resource_type = '...'` query would filter on).
+
+export async function logSupplierBillCreated(params: {
+  organisationId: string; userId: string; supplierBillId: string;
+  after: { source_purchase_order_id: string; supplier_invoice_number: string };
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'commercial_supplier_bill.created',
+    resourceType: 'commercial_supplier_bill', resourceId: params.supplierBillId, beforeState: null, afterState: params.after,
+  });
+}
+
+export async function logSupplierBillUpdated(params: {
+  organisationId: string; userId: string; supplierBillId: string;
+  before: Record<string, unknown>; after: Record<string, unknown>;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'commercial_supplier_bill.updated',
+    resourceType: 'commercial_supplier_bill', resourceId: params.supplierBillId, beforeState: params.before, afterState: params.after,
+  });
+}
+
+export async function logSupplierBillDeleted(params: {
+  organisationId: string; userId: string; supplierBillId: string;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'commercial_supplier_bill.deleted',
+    resourceType: 'commercial_supplier_bill', resourceId: params.supplierBillId, beforeState: { status: 'DRAFT' }, afterState: null,
+  });
+}
+
+export async function logSupplierBillPosted(params: {
+  organisationId: string; userId: string; supplierBillId: string; billNumber: string; totalCents: number;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'commercial_supplier_bill.posted',
+    resourceType: 'commercial_supplier_bill', resourceId: params.supplierBillId,
+    beforeState: { status: 'DRAFT' }, afterState: { status: 'POSTED', bill_number: params.billNumber, total_cents: params.totalCents },
+  });
+}
+
+export async function logSupplierBillCancelled(params: {
+  organisationId: string; userId: string; supplierBillId: string; cancelReason: string;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'commercial_supplier_bill.cancelled',
+    resourceType: 'commercial_supplier_bill', resourceId: params.supplierBillId,
+    beforeState: { status: 'POSTED' }, afterState: { status: 'CANCELLED', cancel_reason: params.cancelReason },
+  });
+}

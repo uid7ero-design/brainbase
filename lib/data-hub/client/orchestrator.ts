@@ -37,6 +37,7 @@ import {
   listSourceSystems as callListSourceSystems,
   listWorksheetsForBatch as callListWorksheets,
   selectWorksheetMapping as callSelectWorksheetMapping,
+  selectWorksheetPeriod as callSelectWorksheetPeriod,
   listSourceSystemsAdmin as callListSourceSystemsAdmin,
   createSourceSystem as callCreateSourceSystem,
   updateSourceSystem as callUpdateSourceSystem,
@@ -826,6 +827,47 @@ export class DataHubIllegalDumpingImportSession {
       mappingVersionId: body.mappingVersionId,
       versionNumber: body.versionNumber,
     };
+  }
+
+  // Data Hub 6.2B1 — mirrors selectMapping's own shape exactly: same
+  // reachable-phase precondition, same "re-run against server ground truth
+  // afterward rather than optimistically patching local state" discipline.
+  // Reporting period has no downstream Preview content to refresh (unlike
+  // mapping), so there is no equivalent runLoadPreview re-fetch here — the
+  // caller (PeriodSelector) already holds the just-returned
+  // periodStart/periodEnd/periodSource for immediate display, and the
+  // worksheet's own reportingPeriodRequired gate is re-checked fresh by the
+  // server on every Confirm attempt regardless of this call's outcome.
+  async selectPeriod(
+    periodStart: string,
+    periodEnd: string
+  ): Promise<
+    | { ok: true; periodStart: string; periodEnd: string; periodSource: "MANUAL" }
+    | { ok: false; error: string }
+  > {
+    if (
+      this.state.phase !== "confirmationReady" &&
+      this.state.phase !== "previewing" &&
+      this.state.phase !== "previewFailed" &&
+      this.state.phase !== "previewReady"
+    ) {
+      throw new Error(`data-hub client: selectPeriod() called from unexpected phase "${this.state.phase}".`);
+    }
+    const { worksheet } = this.state;
+
+    const result = await callSelectWorksheetPeriod(worksheet.id, { periodStart, periodEnd }, this.config);
+    if (result.kind !== "response") {
+      return {
+        ok: false,
+        error: result.kind === "networkUncertain" ? result.message : "The period selection response could not be parsed.",
+      };
+    }
+    const body = result.body;
+    if (!body.ok) {
+      return { ok: false, error: body.error };
+    }
+
+    return { ok: true, periodStart: body.periodStart, periodEnd: body.periodEnd, periodSource: body.periodSource };
   }
 
   private async runLoadPreview(batch: ImportBatchHandle, worksheet: WorksheetSummaryDTOClient): Promise<void> {

@@ -52,6 +52,10 @@ export default function CommercialSidebar({ quotesEnabled = false, invoicingEnab
       // 'purchasing' capability as Purchase Orders/Suppliers (no new
       // capability key was introduced for receipts).
       { href: '/commercial/purchasing/purchase-receipts', label: 'Purchase Receipts' },
+      // Phase C7.4 — Supplier Bills, gated the identical way (still the
+      // 'purchasing' capability — the C7.4 brief explicitly said not to
+      // repurpose the unused 'expenses' capability yet).
+      { href: '/commercial/purchasing/supplier-bills', label: 'Supplier Bills' },
       { href: '/commercial/purchasing/suppliers', label: 'Suppliers' },
     ] : []),
     ...BASE_NAV_ITEMS.slice(3),

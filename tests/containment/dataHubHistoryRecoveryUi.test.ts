@@ -375,6 +375,8 @@ describe("T32/M20: no new backend route", () => {
         "app/api/data-hub/worksheets/[id]/route.ts",
         // 5B.4B addition:
         "app/api/data-hub/worksheets/[id]/mapping-selection/route.ts",
+        // 6.2B1 addition:
+        "app/api/data-hub/worksheets/[id]/period-selection/route.ts",
         // 5B.2 additions:
         "app/api/data-hub/source-systems/route.ts",
         "app/api/data-hub/source-systems/[id]/route.ts",
@@ -461,6 +463,10 @@ describe("T38: terminal recovery states always offer a path back to /data-hub/im
         lastFailureMessage: null,
         lastFailureRetryable: null,
         importedRowCount: null,
+        periodStart: null,
+        periodEnd: null,
+        periodSource: null,
+        reportingPeriodRequired: false,
       },
       reason: "INELIGIBLE",
     });
@@ -489,6 +495,10 @@ describe("T38: terminal recovery states always offer a path back to /data-hub/im
         lastFailureMessage: null,
         lastFailureRetryable: null,
         importedRowCount: null,
+        periodStart: null,
+        periodEnd: null,
+        periodSource: null,
+        reportingPeriodRequired: false,
       },
     };
     const ineligible = deriveErrorOverlayCopy({ ...base, worksheet: { ...base.worksheet, canonicalStatus: "INELIGIBLE" }, reason: "INELIGIBLE" });

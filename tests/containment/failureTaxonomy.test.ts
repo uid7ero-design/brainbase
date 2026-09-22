@@ -86,6 +86,14 @@ describe("failureTaxonomy — code sets", () => {
         // integrity state (a reconciliation identity exists with zero
         // prior observation history). Never persisted.
         "RECONCILIATION_HISTORY_INCONSISTENT",
+        // 6.2B1 — Confirm-only: the worksheet's authoritative SourceSystem
+        // requires a reporting period that has not been selected
+        // (lib/data-hub/importBatch/confirmWorksheet.ts). Never persisted.
+        "REPORTING_PERIOD_REQUIRED",
+        // 6.2B1 — selectWorksheetPeriod-only: malformed/missing/out-of-order
+        // period dates (lib/data-hub/importBatch/selectWorksheetPeriod.ts).
+        // Never persisted.
+        "INVALID_REPORTING_PERIOD",
       ])
     );
   });

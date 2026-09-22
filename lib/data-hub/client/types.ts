@@ -218,6 +218,9 @@ export interface SourceSystemAdminDTO {
   active: boolean;
   createdAt: string;
   updatedAt: string;
+  // Data Hub 6.2B1 — admin-editable policy flag (see
+  // confirmWorksheet.ts's own Step 3.6 / SourceSystemDTO's own comment).
+  reportingPeriodRequired: boolean;
 }
 
 export type ListSourceSystemsAdminResponseBody =
@@ -303,6 +306,32 @@ export type MappingSelectionResponseBody =
 export type MappingSelectionResult = TransportResult<MappingSelectionResponseBody>;
 
 // ---------------------------------------------------------------------------
+// POST /api/data-hub/worksheets/[id]/period-selection (Data Hub 6.2B1)
+// Source: app/api/data-hub/worksheets/[id]/period-selection/route.ts.
+//
+// REQUEST ALLOWLIST (mirrors the route's own comment exactly): exactly two
+// fields, periodStart and periodEnd, both ISO calendar-date strings
+// ("YYYY-MM-DD"). Never organisationId, sourceSystemId, or periodSource —
+// the server always sets periodSource to the fixed literal "MANUAL".
+// ---------------------------------------------------------------------------
+
+export interface PeriodSelectionRequestInput {
+  periodStart: string;
+  periodEnd: string;
+}
+
+export type PeriodSelectionResponseBody =
+  | { ok: true; worksheetUploadId: string; periodStart: string; periodEnd: string; periodSource: "MANUAL" }
+  // Mirrors MappingSelectionResponseBody's own comment: no machine-readable
+  // `code` on the wire — every failure (WORKSHEET_NOT_FOUND/
+  // WORKSHEET_NOT_ELIGIBLE/SOURCE_LINEAGE_REQUIRED/INVALID_REPORTING_PERIOD)
+  // is surfaced identically via this same generic, already manager-safe
+  // `error` string.
+  | { ok: false; error: string };
+
+export type PeriodSelectionResult = TransportResult<PeriodSelectionResponseBody>;
+
+// ---------------------------------------------------------------------------
 // POST /api/data-hub/import-batches/[id]/finalize
 // Source: app/api/data-hub/import-batches/[id]/finalize/route.ts, POST.
 //
@@ -377,6 +406,13 @@ export interface ImportBatchDetailDTOClient {
    * SourceMapping filtering after a reload/recovery — never re-derived
    * from stale client memory. */
   sourceSystemId: string | null;
+  // Data Hub 6.2B1 — batch-level reporting-period aggregate, mirrors
+  // read.ts's own ImportBatchSummaryDTO.periodStart/periodEnd comment
+  // exactly (MIN/MAX across this batch's own DATA_HUB worksheets; both
+  // null when none has a period recorded). ISO calendar-date strings
+  // ("YYYY-MM-DD"), not timestamps.
+  periodStart: string | null;
+  periodEnd: string | null;
 }
 
 export type GetImportBatchResponseBody = { batch: ImportBatchDetailDTOClient } | { error: string };
@@ -405,6 +441,12 @@ export interface ImportBatchSummaryDTOClient {
   sizeBytes: number;
   createdAt: string;
   updatedAt: string;
+  // Data Hub 6.2B1 — batch-level reporting-period aggregate, mirrors
+  // read.ts's own ImportBatchSummaryDTO.periodStart/periodEnd comment
+  // exactly (MIN/MAX across this batch's own DATA_HUB worksheets; both
+  // null when none has a period recorded). Plain "YYYY-MM-DD" strings.
+  periodStart: string | null;
+  periodEnd: string | null;
 }
 
 export type ListImportBatchesResponseBody =
@@ -488,6 +530,18 @@ export interface WorksheetSummaryDTOClient {
   // result and must never be collapsed into `null` — see read.ts's own
   // attachImportedRowCounts comment.
   importedRowCount: number | null;
+  // Data Hub 6.2B1 — governed reporting-period lineage, mirrored from
+  // read.ts's own WorksheetSummaryDTO. NULL for every worksheet with no
+  // period selected yet, including every worksheet IMPORTED before this
+  // field existed — the UI must render that as "Not recorded", never as
+  // an error. ISO calendar-date strings ("YYYY-MM-DD"), not timestamps.
+  periodStart: string | null;
+  periodEnd: string | null;
+  periodSource: string | null;
+  // Data Hub 6.2B1 — whether this worksheet's authoritative parent
+  // SourceSystem currently requires a period before Confirm will succeed.
+  // Drives whether the review UI presents PeriodSelector as required.
+  reportingPeriodRequired: boolean;
 }
 
 export type ListWorksheetsResponseBody = { worksheets: WorksheetSummaryDTOClient[] } | { error: string };

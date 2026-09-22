@@ -249,11 +249,21 @@ describe('5B.1 — actor/audit fields', () => {
 
 // ── T16/T17/T18 — no Phase 6 leakage ───────────────────────────────────
 describe('5B.1 — no Phase 6 / Onkaparinga-specific schema leakage', () => {
+  // Data Hub 6.2B1 — 'reporting_period' was REMOVED from this list by
+  // explicit, authorized architecture correction: reporting period is no
+  // longer a Phase-6/Onkaparinga-specific concept this 5B.1 foundation
+  // must stay free of. It is now a deliberate, generic, domain-independent
+  // Data Hub concept (Upload.period_start/period_end/period_source plus
+  // SourceSystem.reporting_period_required — see
+  // scripts/create-datahub-reporting-period.sql), added directly to
+  // SourceSystem precisely so it is NOT tied to any one governed source.
+  // Every OTHER term below remains genuinely Phase-6/Onkaparinga-specific
+  // and must still never appear in these generic foundation models.
   const phase6Terms = [
     'SourceRecordIdentity', 'source_record_identity',
     'Observation', 'observation',
     'external_id', 'source_external_id', 'reconciliation_status',
-    'canonical_hash', 'reporting_period', 'snapshot',
+    'canonical_hash', 'snapshot',
     'onkaparinga', 'technologyone', 'technology_one',
     'ticket_number', 'ticket_#', 'ticket#',
   ]

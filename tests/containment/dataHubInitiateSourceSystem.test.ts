@@ -474,7 +474,7 @@ describe("initiate — source_system_id immutability containment", () => {
   // underlying invariant (SourceSystem itself remains immutable/never
   // looked up here); it is a legitimate write of a DIFFERENT table's own
   // foreign-key field, populated from that same trusted value.
-  it("T28-T31 exception (5B.4D + 6.1B, disclosed): confirmWorksheet.ts reads ImportBatch.source_system_id ONLY as a read-only Prisma select flag, in the one cross-source equality comparison, and writes it (as the already-trusted sourceSystemId local) onto new SourceRecordIdentity rows only — never reassigns ImportBatch/SourceSystem, never looks up SourceSystem", async () => {
+  it("T28-T31 exception (5B.4D + 6.1B + 6.2B1, disclosed): confirmWorksheet.ts reads ImportBatch.source_system_id ONLY as a read-only Prisma select flag, in the one cross-source equality comparison, writes it (as the already-trusted sourceSystemId local) onto new SourceRecordIdentity rows only, and performs exactly ONE narrow, read-only SourceSystem.reporting_period_required lookup (never any other field, never a write) — never reassigns ImportBatch/SourceSystem", async () => {
     const fs = await import("node:fs");
     const path = await import("node:path");
     const source = fs
@@ -483,7 +483,16 @@ describe("initiate — source_system_id immutability containment", () => {
       .replace(/(^|[^:])\/\/.*$/gm, "$1");
     expect(source).toMatch(/source_system_id:\s*true/);
     expect(source).toMatch(/sourceMapping\.source_system_id\s*!==\s*batch\.source_system_id/);
-    expect(source).not.toMatch(/prisma\.sourceSystem\./);
+    // 6.2B1 — exactly ONE SourceSystem access is now disclosed: a
+    // read-only findUnique selecting reporting_period_required only,
+    // tenant-scoped via the same trusted id_organisation_id compound key
+    // convention used everywhere else in this file family. Never
+    // `.update(`/`.create(`/`.upsert(`/`.delete(` on sourceSystem, and no
+    // OTHER `prisma.sourceSystem.` call site exists.
+    const sourceSystemCalls = [...source.matchAll(/prisma\.sourceSystem\.(\w+)/g)].map((m) => m[1]);
+    expect(sourceSystemCalls).toEqual(["findUnique"]);
+    expect(source).toMatch(/select:\s*\{\s*reporting_period_required:\s*true\s*\}/);
+    expect(source).not.toMatch(/sourceSystem\.(update|create|upsert|delete)/);
     const assignments = [...source.matchAll(/source_system_id\s*:\s*([^\n,}]+)/g)].map((m) => m[1].trim());
     for (const value of assignments) {
       // "true" — the existing Prisma select flag (previewWorksheet.ts's

@@ -95,6 +95,11 @@ const C0_PREVIEW_ROUTE = path.join("app", "api", "data-hub", "worksheets", "[id]
 // route.
 const B4B_MAPPING_SELECTION_ROUTE = path.join("app", "api", "data-hub", "worksheets", "[id]", "mapping-selection", "route.ts");
 
+// 6.2B1 — the new dedicated worksheet reporting-period-selection service.
+// Its FIRST runtime caller of any kind, exactly the new period-selection
+// route.
+const B621_PERIOD_SELECTION_ROUTE = path.join("app", "api", "data-hub", "worksheets", "[id]", "period-selection", "route.ts");
+
 // 6.1C — the Source configuration admin UI is the FIRST direct
 // app/**/components/** importer of illegalDumpingMapper.ts's canonical
 // field-vocabulary constants (ILLEGAL_DUMPING_KNOWN_HEADERS/
@@ -144,6 +149,9 @@ const AUTHORIZED_IMPORTERS_BY_MODULE: Record<string, Set<string>> = {
   // 5B.4B — the new dedicated worksheet mapping-selection service. Exactly
   // one authorized importer: its own new route.
   selectWorksheetMapping: new Set([B4B_MAPPING_SELECTION_ROUTE]),
+  // 6.2B1 — the new dedicated worksheet reporting-period-selection
+  // service. Exactly one authorized importer: its own new route.
+  selectWorksheetPeriod: new Set([B621_PERIOD_SELECTION_ROUTE]),
 };
 
 describe("Data Hub importBatch — exactly the authorized H.3/5A.2I route set imports each module; nothing else imports any file in this tree (verified by static inspection)", () => {
@@ -257,6 +265,11 @@ describe("Data Hub importBatch — no barrel/index.ts anywhere in the new tree",
         // authorized importer, the new mapping-selection route — see the
         // AUTHORIZED_IMPORTERS_BY_MODULE map above.
         "selectWorksheetMapping.ts",
+        // selectWorksheetPeriod.ts (6.2B1) — the new dedicated worksheet
+        // reporting-period-selection service. LIVE as of this phase —
+        // exactly one authorized importer, the new period-selection route
+        // — see the AUTHORIZED_IMPORTERS_BY_MODULE map above.
+        "selectWorksheetPeriod.ts",
       ])
     );
   });

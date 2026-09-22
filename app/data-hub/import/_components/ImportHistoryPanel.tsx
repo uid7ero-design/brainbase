@@ -13,8 +13,9 @@ import { describeBatchHistoryStatus } from "../historyStatusCopy";
 //
 // Every field rendered here comes directly from ImportBatchSummaryDTOClient
 // (lib/data-hub/client/types.ts) — id, status, originalFilename, sizeBytes,
-// createdAt/updatedAt only. No storage key/etag/sha256/uploadedBy/
-// organisationId exists on this DTO to accidentally render (spec Section 9/39).
+// createdAt/updatedAt, and (Data Hub 6.2B1) periodStart/periodEnd only. No
+// storage key/etag/sha256/uploadedBy/organisationId exists on this DTO to
+// accidentally render (spec Section 9/39).
 export default function ImportHistoryPanel() {
   const { state, loadMore } = useImportHistory();
 
@@ -102,10 +103,17 @@ export default function ImportHistoryPanel() {
 function HistoryRow({
   row,
 }: {
-  row: { id: string; status: string; originalFilename: string; createdAt: string };
+  row: { id: string; status: string; originalFilename: string; createdAt: string; periodStart: string | null; periodEnd: string | null };
 }) {
   const presentation = describeBatchHistoryStatus(row.status as Parameters<typeof describeBatchHistoryStatus>[0]);
   const created = formatHistoryDate(row.createdAt);
+  // Data Hub 6.2B1 — a batch-level MIN/MAX aggregate over its own DATA_HUB
+  // worksheets' periods (read.ts's own attachReportingPeriodRange). NULL
+  // for every batch with no worksheet period recorded, including every
+  // batch imported before this field existed — rendered as plain,
+  // non-error caption text, never a warning/alert styling.
+  const periodCaption =
+    row.periodStart !== null && row.periodEnd !== null ? `Period ${row.periodStart} to ${row.periodEnd}` : "Period not recorded";
 
   const content = (
     <div
@@ -137,6 +145,7 @@ function HistoryRow({
         <div style={{ fontSize: 11, color: "rgba(249,250,251,.45)", marginTop: 2 }}>
           {created}
           {presentation.caption ? ` · ${presentation.caption}` : ""}
+          {` · ${periodCaption}`}
         </div>
       </div>
       <StatusBadge label={presentation.label} status={row.status} />

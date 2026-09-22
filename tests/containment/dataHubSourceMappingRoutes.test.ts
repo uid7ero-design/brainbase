@@ -130,7 +130,8 @@ describe("5B.2 routes — mass-assignment / injection hardening", () => {
 
   it("T70 — PATCH routes reject any field outside their own explicit allowlist", () => {
     const sysSrc = read(ROUTES.sourceSystemsById);
-    expect(sysSrc).toContain('new Set(["name", "description", "active"])');
+    // 6.2B1 — reportingPeriodRequired joined the known PATCH fields.
+    expect(sysSrc).toContain('new Set(["name", "description", "active", "reportingPeriodRequired"])');
     expect(sysSrc).toContain("hasUnknownField");
 
     const mapSrc = read(ROUTES.sourceMappingsById);

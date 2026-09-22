@@ -29,6 +29,10 @@ const FAKE_WORKSHEET = {
   lastFailureMessage: null,
   lastFailureRetryable: null,
   importedRowCount: null,
+  periodStart: null,
+  periodEnd: null,
+  periodSource: null,
+  reportingPeriodRequired: false,
 };
 
 function preview(overrides: Partial<{ rowCount: number; sampleRowCount: number; truncated: boolean; requiredHeadersPresent: boolean; missingRequiredHeaders: string[] }> = {}) {

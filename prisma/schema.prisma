@@ -373,6 +373,28 @@ model Upload {
   // later 5B integration slice. See
   // scripts/create-datahub-source-mappings.sql.
   mapping_version_id String?
+  // Data Hub 6.2B1 — additive, nullable governed reporting-period lineage.
+  // NULL for every existing row (zero backfill — no period is inferred
+  // retroactively for any already-IMPORTED worksheet). Both fields are
+  // set together, exactly once
+  // per selection call, by the same trusted, tenant-scoped, transactional
+  // conditional-write pattern already established by
+  // selectWorksheetMapping.ts for mapping_version_id — see
+  // selectWorksheetPeriod.ts. May be reselected while the worksheet is
+  // still AWAITING_CONFIRMATION; frozen (never mutated again) once
+  // confirmDataHubWorksheet's own claim succeeds. A CHECK constraint
+  // (uploads_period_pair_check in scripts/create-datahub-reporting-
+  // period.sql) enforces "both NULL or both non-NULL, and start <= end
+  // when present" — this Prisma version cannot express that directly; do
+  // not weaken the SQL to compensate, this comment is documentation only.
+  period_start  DateTime? @db.Date
+  period_end    DateTime? @db.Date
+  // Plain String, not an enum — mirrors lineage_kind/domain_kind's own
+  // established precedent exactly, for the identical reason: a future
+  // detection source ("filename", "source_metadata") must never require
+  // an ALTER TYPE migration. "MANUAL" is the only value any 6.2B1 runtime
+  // path can produce; always server-set, never accepted from a caller.
+  period_source String?
   debtor_accounts    DebtorAccount[]
   evidence_records   EvidenceRecord[]
   hlna_insights      HlnaInsight[]
@@ -450,6 +472,18 @@ model SourceSystem {
   created_by      String?
   created_at      DateTime  @default(now())
   updated_at      DateTime  @updatedAt
+  // Data Hub 6.2B1 — additive, NOT NULL DEFAULT false policy flag. When
+  // true, confirmDataHubWorksheet requires every worksheet governed by
+  // this SourceSystem to carry a non-null Upload.period_start/period_end
+  // before confirmation can proceed (REPORTING_PERIOD_REQUIRED otherwise).
+  // Deliberately per-SourceSystem, not a global default — some governed
+  // sources may have no meaningful reporting period at all. Every
+  // existing row defaults to false on migration, preserving existing
+  // confirmation behavior for every SourceSystem configured before this
+  // slice — enabling it for any specific already-configured SourceSystem
+  // is a separate, explicit, later Production configuration action, never
+  // performed by this migration.
+  reporting_period_required Boolean @default(false)
 
   organisation    Organisation    @relation(fields: [organisation_id], references: [id])
   creator         User?           @relation("SourceSystemCreatedBy", fields: [created_by], references: [id], onDelete: SetNull)

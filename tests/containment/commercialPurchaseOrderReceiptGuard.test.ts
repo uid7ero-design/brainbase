@@ -69,12 +69,13 @@ describe('Phase C7.3 — cancelPurchaseOrder(): behavioural — a POSTED receipt
       .rejects.toThrow(/posted purchase receipts and cannot be cancelled/)
   })
 
-  it('when the guarded UPDATE affects zero rows and NO active receipt exists, falls back to the generic concurrent-change message', async () => {
+  it('when the guarded UPDATE affects zero rows and NO active receipt (nor bill — Phase C7.4) exists, falls back to the generic concurrent-change message', async () => {
     sqlMock
       .mockResolvedValueOnce([poRow()])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([poRow()])
       .mockResolvedValueOnce([]) // no active receipts
+      .mockResolvedValueOnce([]) // no active bills (Phase C7.4 — cancelPurchaseOrder() also checks this now)
 
     const { cancelPurchaseOrder } = await import('@/lib/commercial/purchaseOrders')
     await expect(cancelPurchaseOrder({ organisationId: ORG, userId: 'user-1', purchaseOrderId: 'po-1', reason: 'no longer needed' }))

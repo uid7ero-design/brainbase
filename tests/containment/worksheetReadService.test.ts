@@ -585,3 +585,46 @@ describe("read — 5A.3D.0 imported-row-count (static containment)", () => {
     expect(code.slice(listFnStart, listFnEnd)).toMatch(/attachImportedRowCounts\(/);
   });
 });
+
+// Data Hub 6.2B1 — K14/K15: a historical, pre-6.2B1 IMPORTED worksheet
+// (NULL period_start/period_end/period_source) remains fully readable
+// through getWorksheet/listWorksheetsForBatch, and the DTO mapping never
+// substitutes a fabricated default for that NULL. Real-Postgres proof P1
+// is the actual behavioral proof of "historical NULL stays readable
+// end-to-end against a genuine DB" — this file proves the SOURCE never
+// contains logic that could coerce a NULL into anything else.
+describe("read.ts — K14/K15: WorksheetSummaryDTO faithfully preserves a NULL reporting period", () => {
+  const code = read(SERVICE_PATH);
+
+  it("toWorksheetDTO maps period_start/period_end through an explicit null check, never a fallback/default value", () => {
+    const fnStart = code.indexOf("function toWorksheetDTO(");
+    const fnEnd = code.indexOf("\n}\n", fnStart);
+    const fnBlock = code.slice(fnStart, fnEnd);
+    expect(fnBlock).toMatch(/periodStart:\s*row\.period_start === null \? null : toDateOnlyString\(row\.period_start\)/);
+    expect(fnBlock).toMatch(/periodEnd:\s*row\.period_end === null \? null : toDateOnlyString\(row\.period_end\)/);
+    // No `??` fallback/default anywhere near the period mapping — a NULL
+    // must surface as NULL, never coalesced to an empty string or "today".
+    expect(fnBlock).not.toMatch(/period_(start|end)\s*\?\?/);
+  });
+
+  it("WorksheetSummaryDTO's own periodStart/periodEnd/periodSource fields are all nullable (string | null), never a non-optional string", () => {
+    const dtoStart = code.indexOf("export interface WorksheetSummaryDTO");
+    const dtoEnd = code.indexOf("\n}\n", dtoStart);
+    const dtoBlock = code.slice(dtoStart, dtoEnd);
+    expect(dtoBlock).toMatch(/periodStart:\s*string \| null/);
+    expect(dtoBlock).toMatch(/periodEnd:\s*string \| null/);
+    expect(dtoBlock).toMatch(/periodSource:\s*string \| null/);
+  });
+
+  it("attachReportingPeriodRange defaults an absent aggregate to null, never to today's date or an empty string", () => {
+    const fnStart = code.indexOf("async function attachReportingPeriodRange");
+    const fnEnd = code.indexOf("\n}\n", fnStart);
+    const fnBlock = code.slice(fnStart, fnEnd);
+    expect(fnBlock).toMatch(/rangeByBatchId\.get\(d\.id\)\?\.periodStart \?\? null/);
+    expect(fnBlock).toMatch(/rangeByBatchId\.get\(d\.id\)\?\.periodEnd \?\? null/);
+  });
+
+  it("no inference/detection logic exists anywhere near the period mapping (K16: filename/report_date/row min-max)", () => {
+    expect(stripComments(code)).not.toMatch(/originalFilename.*period|period.*originalFilename/);
+  });
+});

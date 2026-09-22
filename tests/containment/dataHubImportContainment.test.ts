@@ -429,6 +429,10 @@ describe("QA-POLISH issue 2 — invalid-header Review no longer shows the contra
       lastFailureMessage: null,
       lastFailureRetryable: null,
       importedRowCount: null,
+      periodStart: null,
+      periodEnd: null,
+      periodSource: null,
+      reportingPeriodRequired: false,
     };
     const preview = (requiredHeadersPresent: boolean) => ({
       worksheetId: "w1",
@@ -486,6 +490,10 @@ describe("QA-POLISH issue 2 — invalid-header Review no longer shows the contra
       lastFailureMessage: null,
       lastFailureRetryable: null,
       importedRowCount: null,
+      periodStart: null,
+      periodEnd: null,
+      periodSource: null,
+      reportingPeriodRequired: false,
     };
     const missingState = {
       phase: "previewReady" as const,
