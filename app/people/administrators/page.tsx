@@ -29,7 +29,7 @@ import { useEffect, useState } from 'react';
 // already established, never a blocking native window.confirm().
 const CARD = '#0e1014'; const BORDER = '#1a1d24';
 
-type AdminUser = { id: string; name: string; email: string | null; is_hr_administrator: boolean };
+type AdminUser = { id: string; name: string; email: string | null; is_hr_administrator: boolean; grant_eligible: boolean };
 
 export default function AdministratorsPage() {
   const [users, setUsers] = useState<AdminUser[]>([]);
@@ -55,7 +55,7 @@ export default function AdministratorsPage() {
   useEffect(() => { queueMicrotask(() => { load(); }); }, []);
 
   const administrators = users.filter(u => u.is_hr_administrator);
-  const candidates = users.filter(u => !u.is_hr_administrator);
+  const candidates = users.filter(u => !u.is_hr_administrator && u.grant_eligible);
 
   async function grant() {
     if (!selectedUserId) return;
