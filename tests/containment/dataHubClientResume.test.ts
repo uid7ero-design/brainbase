@@ -719,6 +719,9 @@ describe("T30 — no new backend route was introduced", () => {
         "worksheets/[id]/mapping-selection/route.ts",
         // 6.2B1 addition:
         "worksheets/[id]/period-selection/route.ts",
+        // 6.2C3 additions (read-only detection + explicit acceptance):
+        "worksheets/[id]/period-detection/route.ts",
+        "worksheets/[id]/period-detection/accept/route.ts",
         // 5B.2 additions:
         "source-systems/route.ts",
         "source-systems/[id]/route.ts",

@@ -332,6 +332,73 @@ export type PeriodSelectionResponseBody =
 export type PeriodSelectionResult = TransportResult<PeriodSelectionResponseBody>;
 
 // ---------------------------------------------------------------------------
+// GET /api/data-hub/worksheets/[id]/period-detection (Data Hub 6.2C3)
+// Source: app/api/data-hub/worksheets/[id]/period-detection/route.ts.
+//
+// Hand-mirrored (never imported) from the route's own literal response and
+// lib/data-hub/reportingPeriod/onkaparingaDetector.ts's DetectionOutcome/
+// DetectorReasonCode unions — re-verify against both if either changes.
+// Read-only: a detection result is NEVER a recorded period; only
+// WorksheetSummaryDTOClient.periodStart/periodEnd are.
+// ---------------------------------------------------------------------------
+
+export type PeriodDetectionOutcomeClient = "EXACT" | "AMBIGUOUS" | "ABSENT";
+
+export type PeriodDetectionReasonCodeClient =
+  | "EXACT_CORROBORATED"
+  | "EXACT_EXPLICIT_METADATA"
+  | "TRUSTED_SIGNALS_CONFLICT"
+  | "MONTH_WITHOUT_YEAR"
+  | "FILENAME_ONLY_UNCORROBORATED"
+  | "MULTIPLE_FILENAME_CANDIDATES"
+  | "EXPECTED_CONTENT_SIGNAL_MISSING"
+  | "INVALID_FILENAME_PERIOD"
+  | "INVALID_PERIOD_RANGE"
+  | "MULTIPERIOD_TREND_ONLY"
+  | "NO_TRUSTED_PERIOD_SIGNAL"
+  | "UNRECOGNISED_SOURCE_SCHEMA";
+
+export interface PeriodBoundsClient {
+  start: string;
+  end: string;
+}
+
+export interface PeriodDetectionApplicableClient {
+  applicable: true;
+  outcome: PeriodDetectionOutcomeClient;
+  period: PeriodBoundsClient | null;
+  suggestedPeriod: PeriodBoundsClient | null;
+  reasonCode: PeriodDetectionReasonCodeClient;
+  requiresManualSelection: boolean;
+}
+
+export type PeriodDetectionClient = { applicable: false } | PeriodDetectionApplicableClient;
+
+export type PeriodDetectionResponseBody =
+  | { ok: true; applicable: false }
+  | ({ ok: true } & PeriodDetectionApplicableClient)
+  | { ok: false; error: string }
+  // 401/403 from requireRole carry only `{ error }`.
+  | { error: string };
+
+export type PeriodDetectionResult = TransportResult<PeriodDetectionResponseBody>;
+
+// ---------------------------------------------------------------------------
+// POST /api/data-hub/worksheets/[id]/period-detection/accept (Data Hub 6.2C3)
+// Source: app/api/data-hub/worksheets/[id]/period-detection/accept/route.ts.
+//
+// REQUEST: no body at all. The server recomputes detection itself and
+// persists only a current EXACT result — the client never sends dates.
+// ---------------------------------------------------------------------------
+
+export type AcceptDetectedPeriodResponseBody =
+  | { ok: true; worksheetUploadId: string; periodStart: string; periodEnd: string; periodSource: "DETECTED" }
+  | { ok: false; error: string }
+  | { error: string };
+
+export type AcceptDetectedPeriodResult = TransportResult<AcceptDetectedPeriodResponseBody>;
+
+// ---------------------------------------------------------------------------
 // POST /api/data-hub/import-batches/[id]/finalize
 // Source: app/api/data-hub/import-batches/[id]/finalize/route.ts, POST.
 //

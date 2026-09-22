@@ -18,6 +18,10 @@
 // polyfill or global override changes the default.
 
 import type {
+  AcceptDetectedPeriodResponseBody,
+  AcceptDetectedPeriodResult,
+  PeriodDetectionResponseBody,
+  PeriodDetectionResult,
   ConfirmIllegalDumpingResponseBody,
   ConfirmIllegalDumpingResult,
   FinalizeResponseBody,
@@ -495,6 +499,43 @@ export async function selectWorksheetPeriod(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ periodStart: input.periodStart, periodEnd: input.periodEnd }),
     },
+    callOptions
+  );
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/data-hub/worksheets/[id]/period-detection (Data Hub 6.2C3)
+// ---------------------------------------------------------------------------
+
+export async function getWorksheetPeriodDetection(
+  worksheetId: string,
+  config?: HttpClientConfig,
+  callOptions?: CallOptions
+): Promise<PeriodDetectionResult> {
+  return executeCall<PeriodDetectionResponseBody>(
+    config,
+    resolveUrl(config, `/api/data-hub/worksheets/${encodeURIComponent(worksheetId)}/period-detection`),
+    { method: "GET" },
+    callOptions
+  );
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/data-hub/worksheets/[id]/period-detection/accept (Data Hub 6.2C3)
+//
+// Deliberately sends NO body — the server recomputes the detected period
+// itself; there is nothing a client could legitimately supply.
+// ---------------------------------------------------------------------------
+
+export async function acceptDetectedWorksheetPeriod(
+  worksheetId: string,
+  config?: HttpClientConfig,
+  callOptions?: CallOptions
+): Promise<AcceptDetectedPeriodResult> {
+  return executeCall<AcceptDetectedPeriodResponseBody>(
+    config,
+    resolveUrl(config, `/api/data-hub/worksheets/${encodeURIComponent(worksheetId)}/period-detection/accept`),
+    { method: "POST" },
     callOptions
   );
 }
