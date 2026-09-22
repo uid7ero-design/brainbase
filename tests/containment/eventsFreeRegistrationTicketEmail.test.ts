@@ -371,8 +371,8 @@ describe('PAID CONTAINMENT — lib/events/stripe.ts never sends automatically; p
 })
 
 describe('MANUAL RESEND — untouched by 3E.2', () => {
-  it('the manual resend route still does not reference attemptAutomaticTicketEmail or ticketEmailDelivery', () => {
-    expect(RESEND_ROUTE_SOURCE).not.toMatch(/ticketEmailDelivery|attemptAutomaticTicketEmail/)
+  it('the manual resend route still does not reference attemptAutomaticTicketEmail or the automatic send/claim/retry state machine (lib/events/ticketEmailDelivery) — the Resend delivery-status-visibility phase\'s own lib/events/ticketEmailDeliveryTracking module is a deliberately separate, narrower import, not this one', () => {
+    expect(RESEND_ROUTE_SOURCE).not.toMatch(/'@\/lib\/events\/ticketEmailDelivery'|attemptAutomaticTicketEmail/)
   })
 
   it('the manual resend route still does not pass an idempotencyKey', () => {

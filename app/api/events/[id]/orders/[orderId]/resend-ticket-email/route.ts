@@ -4,6 +4,7 @@ import { authorizeEventsRequest } from '@/lib/events/authorize';
 import { isOrderEligibleForTicketEmail, sendTicketEmail, maskEmailForAudit } from '@/lib/events/ticketEmail';
 import { logTicketEmailResent } from '@/lib/events/auditLog';
 import { normaliseTicketEmailBranding } from '@/lib/organisations/branding';
+import { recordTicketEmailDeliveryAccepted } from '@/lib/events/ticketEmailDeliveryTracking';
 
 type Ctx = { params: Promise<{ id: string; orderId: string }> };
 
@@ -203,6 +204,19 @@ export async function POST(_req: Request, { params }: Ctx) {
       },
       { status: 500 },
     );
+  }
+
+  // Resend delivery-status visibility (additive) — every manual resend
+  // creates a genuinely NEW, distinct Resend message (this route passes
+  // no idempotency key — see sendTicketEmail above), so each click gets
+  // its own row rather than overwriting the automatic send's (or an
+  // earlier manual send's) correlation. Best-effort/never-throws; never
+  // affects this route's response.
+  if (sendResult.providerMessageId) {
+    await recordTicketEmailDeliveryAccepted({
+      organisationId: session.organisationId, orderId, sendSource: 'manual',
+      providerMessageId: sendResult.providerMessageId,
+    });
   }
 
   return NextResponse.json({ ok: true, result: 'sent', attendee_count: eligibleAttendees.length });
