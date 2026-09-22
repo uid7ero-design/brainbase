@@ -1,0 +1,262 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://brainbase.internal/data-hub/reporting-period/onkaparinga-detector.schema.json",
+  "title": "Onkaparinga reporting-period detector — pure contract",
+  "description": "Structural contract for the 6.2C2 pure/read-only detector, evidence items, manual selection, and confirmation-eligibility gate. Semantic cross-consistency (date ordering, evidence-vs-outcome agreement) is NOT expressible here and is asserted by the containment test suite instead.",
+  "$defs": {
+    "isoCalendarDate": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+    },
+    "periodBounds": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["start", "end"],
+      "properties": {
+        "start": { "$ref": "#/$defs/isoCalendarDate" },
+        "end": { "$ref": "#/$defs/isoCalendarDate" }
+      }
+    },
+    "detectionOutcome": {
+      "type": "string",
+      "enum": ["EXACT", "AMBIGUOUS", "ABSENT"]
+    },
+    "detectorReasonCode": {
+      "type": "string",
+      "enum": [
+        "EXACT_CORROBORATED",
+        "EXACT_EXPLICIT_METADATA",
+        "TRUSTED_SIGNALS_CONFLICT",
+        "MONTH_WITHOUT_YEAR",
+        "FILENAME_ONLY_UNCORROBORATED",
+        "MULTIPLE_FILENAME_CANDIDATES",
+        "EXPECTED_CONTENT_SIGNAL_MISSING",
+        "INVALID_FILENAME_PERIOD",
+        "INVALID_PERIOD_RANGE",
+        "MULTIPERIOD_TREND_ONLY",
+        "NO_TRUSTED_PERIOD_SIGNAL",
+        "UNRECOGNISED_SOURCE_SCHEMA"
+      ]
+    },
+    "evidenceType": {
+      "type": "string",
+      "enum": [
+        "EXPLICIT_PERIOD_METADATA",
+        "FILENAME_PERIOD",
+        "WORKBOOK_OVERVIEW_MONTH",
+        "SERVICE_EXCEPTION_TOTALS_MONTH",
+        "TRENDS_PERIOD_CORROBORATION",
+        "OPERATIONAL_ROW_DATES",
+        "UPLOAD_TIMESTAMP",
+        "FILE_TIMESTAMP",
+        "SOURCE_SCHEMA_MATCH"
+      ]
+    },
+    "evidenceAuthority": {
+      "type": "string",
+      "enum": ["AUTHORITATIVE", "STRONG", "CORROBORATING", "NON_AUTHORITATIVE"]
+    },
+    "evidenceStatus": {
+      "type": "string",
+      "enum": ["SUPPORTS", "CONFLICTS", "MISSING", "INVALID", "IGNORED"]
+    },
+    "evidenceCandidate": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["month", "year", "start", "end"],
+      "properties": {
+        "month": { "type": ["integer", "null"], "minimum": 1, "maximum": 12 },
+        "year": { "type": ["integer", "null"], "minimum": 1900, "maximum": 2999 },
+        "start": { "oneOf": [{ "$ref": "#/$defs/isoCalendarDate" }, { "type": "null" }] },
+        "end": { "oneOf": [{ "$ref": "#/$defs/isoCalendarDate" }, { "type": "null" }] }
+      }
+    },
+    "evidenceItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "source", "authority", "status", "candidate", "details"],
+      "properties": {
+        "type": { "$ref": "#/$defs/evidenceType" },
+        "source": { "type": "string", "minLength": 1 },
+        "authority": { "$ref": "#/$defs/evidenceAuthority" },
+        "status": { "$ref": "#/$defs/evidenceStatus" },
+        "candidate": { "$ref": "#/$defs/evidenceCandidate" },
+        "details": { "type": "string" }
+      },
+      "allOf": [
+        {
+          "comment": "A NON_AUTHORITATIVE-authority evidence item must always be IGNORED — enforced structurally here; the corresponding 'never determines period/suggestion' behavior is a semantic test assertion.",
+          "if": { "properties": { "authority": { "const": "NON_AUTHORITATIVE" } } },
+          "then": { "properties": { "status": { "const": "IGNORED" } } }
+        }
+      ]
+    },
+    "detectorResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "outcome",
+        "period",
+        "suggestedPeriod",
+        "reasonCode",
+        "requiresManualSelection",
+        "evidence"
+      ],
+      "properties": {
+        "outcome": { "$ref": "#/$defs/detectionOutcome" },
+        "period": { "oneOf": [{ "$ref": "#/$defs/periodBounds" }, { "type": "null" }] },
+        "suggestedPeriod": { "oneOf": [{ "$ref": "#/$defs/periodBounds" }, { "type": "null" }] },
+        "reasonCode": { "$ref": "#/$defs/detectorReasonCode" },
+        "requiresManualSelection": { "type": "boolean" },
+        "evidence": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/evidenceItem" },
+          "minItems": 1
+        }
+      },
+      "if": { "properties": { "outcome": { "const": "EXACT" } } },
+      "then": {
+        "properties": {
+          "period": { "$ref": "#/$defs/periodBounds" },
+          "requiresManualSelection": { "const": false }
+        }
+      },
+      "else": {
+        "properties": {
+          "period": { "type": "null" },
+          "requiresManualSelection": { "const": true }
+        }
+      }
+    },
+    "manualSelectionReasonCode": {
+      "type": "string",
+      "enum": [
+        "MANUAL_SELECTION_VALID",
+        "MANUAL_SELECTION_INVALID_RANGE",
+        "MANUAL_SELECTION_MISSING_START",
+        "MANUAL_SELECTION_MISSING_END"
+      ]
+    },
+    "manualSelectionResult": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["valid", "start", "end", "reasonCode"],
+          "properties": {
+            "valid": { "const": true },
+            "start": { "$ref": "#/$defs/isoCalendarDate" },
+            "end": { "$ref": "#/$defs/isoCalendarDate" },
+            "reasonCode": { "const": "MANUAL_SELECTION_VALID" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["valid", "reasonCode"],
+          "properties": {
+            "valid": { "const": false },
+            "reasonCode": {
+              "enum": [
+                "MANUAL_SELECTION_INVALID_RANGE",
+                "MANUAL_SELECTION_MISSING_START",
+                "MANUAL_SELECTION_MISSING_END"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "gateReasonCode": {
+      "type": "string",
+      "enum": [
+        "PERIOD_OPTIONAL",
+        "PERIOD_PRESENT",
+        "PERIOD_REQUIRED_NOT_PERSISTED",
+        "PERIOD_REQUIRED_AMBIGUOUS",
+        "PERIOD_REQUIRED_ABSENT",
+        "PERIOD_INVALID"
+      ]
+    },
+    "confirmationEligibilityResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["allowed", "reasonCode"],
+      "properties": {
+        "allowed": { "type": "boolean" },
+        "reasonCode": { "$ref": "#/$defs/gateReasonCode" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "reasonCode": { "const": "PERIOD_PRESENT" } } },
+          "then": { "properties": { "allowed": { "const": true } } }
+        },
+        {
+          "if": { "properties": { "reasonCode": { "const": "PERIOD_OPTIONAL" } } },
+          "then": { "properties": { "allowed": { "const": true } } }
+        },
+        {
+          "if": { "properties": { "reasonCode": { "const": "PERIOD_REQUIRED_NOT_PERSISTED" } } },
+          "then": { "properties": { "allowed": { "const": false } } }
+        },
+        {
+          "if": { "properties": { "reasonCode": { "const": "PERIOD_REQUIRED_AMBIGUOUS" } } },
+          "then": { "properties": { "allowed": { "const": false } } }
+        },
+        {
+          "if": { "properties": { "reasonCode": { "const": "PERIOD_REQUIRED_ABSENT" } } },
+          "then": { "properties": { "allowed": { "const": false } } }
+        },
+        {
+          "if": { "properties": { "reasonCode": { "const": "PERIOD_INVALID" } } },
+          "then": { "properties": { "allowed": { "const": false } } }
+        }
+      ]
+    },
+    "globalInvariants": {
+      "type": "object",
+      "description": "Fixed-value invariant assertion fixture for the 6.2C2 phase — every field is a compile-time/structural constant, never a live counter, because this module performs no writes and touches no I/O of any kind.",
+      "additionalProperties": false,
+      "required": [
+        "database_write_count",
+        "production_configuration_write_count",
+        "source_system_toggle_write_count",
+        "file_mutation_count",
+        "prohibited_evidence_sources_used_for_period",
+        "silent_conflict_resolution",
+        "historical_backfill"
+      ],
+      "properties": {
+        "database_write_count": { "const": 0 },
+        "production_configuration_write_count": { "const": 0 },
+        "source_system_toggle_write_count": { "const": 0 },
+        "file_mutation_count": { "const": 0 },
+        "prohibited_evidence_sources_used_for_period": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "operational_row_dates",
+            "upload_timestamp",
+            "filesystem_timestamp",
+            "xlsx_modified_timestamp"
+          ],
+          "properties": {
+            "operational_row_dates": { "const": false },
+            "upload_timestamp": { "const": false },
+            "filesystem_timestamp": { "const": false },
+            "xlsx_modified_timestamp": { "const": false }
+          }
+        },
+        "silent_conflict_resolution": { "const": false },
+        "historical_backfill": { "const": false }
+      }
+    }
+  },
+  "oneOf": [
+    { "$ref": "#/$defs/detectorResult" },
+    { "$ref": "#/$defs/evidenceItem" },
+    { "$ref": "#/$defs/manualSelectionResult" },
+    { "$ref": "#/$defs/confirmationEligibilityResult" },
+    { "$ref": "#/$defs/globalInvariants" }
+  ]
+}
