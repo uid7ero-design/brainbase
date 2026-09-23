@@ -9,7 +9,10 @@
 // is independently testable under this repo's node-only Vitest environment.
 import type { DataHubImportState } from "@/lib/data-hub/client/orchestrator";
 
-export type ScreenGroup = "select" | "uploading" | "processing" | "review" | "confirm" | "success";
+// Data Hub 6.2D1 — "inventory" is the XLSX structural worksheet inventory
+// (worksheetInventoryReady). Deliberately NOT part of "review": that group
+// renders ReviewPanel, which auto-loads a preview and exposes Confirm.
+export type ScreenGroup = "select" | "uploading" | "processing" | "review" | "inventory" | "confirm" | "success";
 
 const UPLOADING_PHASES = new Set([
   "initiating",
@@ -48,6 +51,7 @@ export function deriveScreenGroup(phase: DataHubImportState["phase"]): ScreenGro
   if (UPLOADING_PHASES.has(phase)) return "uploading";
   if (PROCESSING_PHASES.has(phase)) return "processing";
   if (REVIEW_PHASES.has(phase)) return "review";
+  if (phase === "worksheetInventoryReady") return "inventory";
   if (CONFIRM_PHASES.has(phase)) return "confirm";
   if (SUCCESS_PHASES.has(phase)) return "success";
   // Exhaustiveness fallback — a phase this module has never seen. Never

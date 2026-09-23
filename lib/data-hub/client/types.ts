@@ -532,7 +532,10 @@ export type ListImportBatchesResult = TransportResult<ListImportBatchesResponseB
 // NO validation output, and (load-bearing for the next step) NO worksheet
 // `id` — see WorksheetDescriptorClient's own comment. Never add a field
 // here that isn't literally present in inspectCsvWorksheet.ts's own
-// PersistedCsvWorksheetDescriptor.
+// PersistedCsvWorksheetDescriptor / inspectWorksheets.ts's own
+// PersistedWorksheetDescriptor (Data Hub 6.2D1: an XLSX batch is inspected
+// via the latter, so visibility may be hidden/veryHidden — CSV is always
+// "visible").
 // ---------------------------------------------------------------------------
 
 export type CsvWorksheetCanonicalStatusClient = "AWAITING_CONFIRMATION" | "INELIGIBLE";
@@ -540,7 +543,7 @@ export type CsvWorksheetCanonicalStatusClient = "AWAITING_CONFIRMATION" | "INELI
 export interface WorksheetDescriptorClient {
   worksheetIndex: number;
   worksheetName: string;
-  worksheetVisibility: "visible";
+  worksheetVisibility: "visible" | "hidden" | "veryHidden";
   worksheetIsEmpty: boolean;
   canonicalStatus: CsvWorksheetCanonicalStatusClient;
 }

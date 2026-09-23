@@ -83,9 +83,17 @@ describe("5A.2K.2 routes — no xlsx/workbookParser/inspectWorksheets dependency
     });
   }
 
-  it("inspect route imports only inspectCsvWorksheet from the importBatch tree", () => {
+  // 6.2D1 — the inspect route now imports ONLY the inspectImportBatch.ts
+  // content_type dispatcher (csv -> inspectCsvWorksheet, xlsx ->
+  // inspectWorksheets). It therefore loads xlsx TRANSITIVELY by design; the
+  // source-text checks above still hold (no direct xlsx/workbookParser/
+  // inspectWorksheets import in the route file itself). The confirm route's
+  // own xlsx-freedom is unchanged. Dispatch behavior is proven in
+  // dataHubXlsxStructuralInspection.test.ts.
+  it("inspect route imports only inspectImportBatch from the importBatch tree", () => {
     const stripped = stripComments(read(INSPECT_ROUTE));
-    expect(stripped).toMatch(/from\s+["']@\/lib\/data-hub\/importBatch\/inspectCsvWorksheet["']/);
+    expect(stripped).toMatch(/from\s+["']@\/lib\/data-hub\/importBatch\/inspectImportBatch["']/);
+    expect(stripped).not.toMatch(/from\s+["'][^"']*importBatch\/inspectCsvWorksheet["']/);
     expect(stripped).not.toMatch(/from\s+["'][^"']*importBatch\/confirmWorksheet["']/);
     expect(stripped).not.toMatch(/from\s+["'][^"']*importBatch\/illegalDumpingMapper["']/);
     expect(stripped).not.toMatch(/from\s+["'][^"']*importBatch\/finalize["']/);
@@ -142,14 +150,14 @@ describe("5A.2K.2 inspect route — LOAD-BEARING storage authority (never accept
     const body = extractPostHandlerBody(INSPECT_ROUTE);
     expect(body).not.toMatch(/body\.(content[_-]?[Tt]ype|format)/);
   });
-  it("the only inputs to inspectCsvWorksheet are the trusted context and the path id", () => {
+  it("the only inputs to inspectImportBatch are the trusted context and the path id", () => {
     expect(stripped).toMatch(
-      /inspectCsvWorksheet\(\s*\{\s*organisationId:\s*session\.organisationId,\s*importBatchId:\s*id\s*\}\s*\)/
+      /inspectImportBatch\(\s*\{\s*organisationId:\s*session\.organisationId,\s*importBatchId:\s*id\s*\}\s*\)/
     );
   });
-  it("never performs a route-level pre-read/precheck before calling inspectCsvWorksheet, and calls it exactly once", () => {
+  it("never performs a route-level pre-read/precheck before calling inspectImportBatch, and calls it exactly once", () => {
     expect(stripped).not.toMatch(/findUnique|findFirst|\$queryRaw/);
-    const matches = stripped.match(/inspectCsvWorksheet\(/g) ?? [];
+    const matches = stripped.match(/inspectImportBatch\(/g) ?? [];
     expect(matches.length).toBe(1);
   });
 });
@@ -221,7 +229,7 @@ describe("5A.2K.2 routes — deterministic error mapping, no leaked internals", 
     expect(body).toMatch(/result\.message/);
   });
 
-  it("inspect route's status-by-code mapping is exhaustive against InspectCsvWorksheetFailureCode (TypeScript Record enforces this at compile time — this test asserts the literal keys are present in source, as a redundant, independently-readable proof)", () => {
+  it("inspect route's status-by-code mapping is exhaustive against InspectCsvWorksheetFailureCode (6.2D1: re-exported as InspectImportBatchFailureCode — a superset of every inspectWorksheets code) (TypeScript Record enforces this at compile time — this test asserts the literal keys are present in source, as a redundant, independently-readable proof)", () => {
     const stripped = stripComments(read(INSPECT_ROUTE));
     const expectedCodes = [
       "BATCH_NOT_FOUND",

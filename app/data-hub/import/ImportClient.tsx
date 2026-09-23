@@ -7,6 +7,7 @@ import FileSelector from "./_components/FileSelector";
 import UploadProgress from "./_components/UploadProgress";
 import ProcessingStatus from "./_components/ProcessingStatus";
 import ReviewPanel from "./_components/ReviewPanel";
+import WorksheetInventoryPanel from "./_components/WorksheetInventoryPanel";
 import ImportSuccess from "./_components/ImportSuccess";
 import ImportError from "./_components/ImportError";
 import ImportHistoryPanel from "./_components/ImportHistoryPanel";
@@ -125,6 +126,12 @@ function ImportFlow({ onRestart }: { onRestart: () => void }) {
             session={session}
             onRestart={onRestart}
           />
+        )}
+
+        {/* Data Hub 6.2D1 — XLSX structural inventory: never given the
+            session, so no Confirm/preview path exists from this screen. */}
+        {screenGroup === "inventory" && state.phase === "worksheetInventoryReady" && (
+          <WorksheetInventoryPanel state={state} onRestart={onRestart} />
         )}
 
         {screenGroup === "confirm" &&
