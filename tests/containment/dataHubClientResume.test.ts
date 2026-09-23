@@ -740,11 +740,10 @@ describe("T30 — no new backend route was introduced", () => {
 // ---------------------------------------------------------------------------
 
 describe("T31 — no XLS/XLSX enablement", () => {
-  it("recovery code never references xlsx/xls or workbookParser", () => {
+  it("recovery code may invalidate XLSX preview state but never imports workbookParser or xlsx parsing", () => {
     const src = orchestratorSource();
     const start = src.indexOf("async resumeFromBatchId(");
     const recoverySection = src.slice(start);
-    expect(recoverySection.toLowerCase()).not.toMatch(/xlsx/);
     expect(recoverySection).not.toMatch(/workbookParser/);
   });
 });

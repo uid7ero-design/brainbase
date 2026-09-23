@@ -623,13 +623,13 @@ describe("D1 — an XLSX-inspected AWAITING_CONFIRMATION worksheet is still neit
 
   // Direct HTTP calls against an XLSX worksheet id — the server alone
   // decides, whatever the browser does.
-  it("DIRECT preview API on an XLSX worksheet -> 422, storage never touched", async () => {
-    uploadFindFirstMock.mockResolvedValue(xlsxWorksheetRow);
+  it("DIRECT preview API rejects an ineligible XLSX worksheet before storage", async () => {
+    uploadFindFirstMock.mockResolvedValue({ ...xlsxWorksheetRow, worksheet_visibility: "hidden", worksheet_is_empty: false });
     importBatchFindUniqueMock.mockResolvedValue(xlsxBatchRow);
     vi.resetModules();
     const { GET } = await import("@/app/api/data-hub/worksheets/[id]/preview/route");
     const res = await GET(postRequest(undefined, "http://x/api/data-hub/worksheets/worksheet-1/preview"), routeCtx("worksheet-1"));
-    expect(res.status).toBe(422);
+    expect(res.status).toBe(409);
     expect(JSON.stringify(await res.json())).not.toContain(SECRET_CELL);
     expect(storageGetMock).not.toHaveBeenCalled();
   });
@@ -750,6 +750,7 @@ function routedFetch(routes: {
   initiate?: unknown;
   finalize?: unknown;
   inspect?: unknown;
+  preview?: unknown | ((url: string) => Promise<Response>);
 }) {
   const calls: string[] = [];
   const fetchImpl = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
@@ -770,6 +771,9 @@ function routedFetch(routes: {
     if (method === "GET" && u.endsWith("/worksheets")) {
       const w = typeof routes.worksheets === "function" ? routes.worksheets() : routes.worksheets;
       return jsonResponse(200, { worksheets: w ?? [] });
+    }
+    if (method === "GET" && u.endsWith("/preview")) {
+      return typeof routes.preview === "function" ? routes.preview(u) : jsonResponse(200, routes.preview);
     }
     if (method === "GET" && /\/import-batches\/[^/]+$/.test(u)) return jsonResponse(200, { batch: routes.batch });
     throw new Error(`unexpected request: ${method} ${u}`);
@@ -842,6 +846,250 @@ describe("D1 orchestrator — fresh flow", () => {
     expect(a.session.getState().phase).toBe("worksheetInventoryReady");
     const b = await driveFreshSession({ fileName: "spoof.xlsx", serverContentType: "csv", worksheets: [worksheetDTO(0)] });
     expect(b.session.getState().phase).toBe("confirmationReady");
+  });
+
+  it("eligible selection enters XLSX-only preview state; back restores inventory; confirm remains blocked", async () => {
+    const worksheets = [worksheetDTO(0), worksheetDTO(2)];
+    const { createIllegalDumpingImportSession } = await freshSessionModule();
+    const { fetchImpl, calls } = routedFetch({
+      batch: batchDetail("xlsx"), worksheets,
+      preview: { ok: true, preview: { worksheetId: "ws-2", worksheetName: "Sheet 2", worksheetIndex: 2, rowCount: 1, columnCount: 1, headers: ["a"], sampleRows: [["b"]], sampleRowCount: 1, truncated: false } },
+    });
+    const session = createIllegalDumpingImportSession({ fetchImpl });
+    await session.resumeFromBatchId("batch-1");
+    const pending = session.previewXlsxWorksheet("ws-2");
+    expect(session.getState().phase).toBe("xlsxWorksheetPreviewing");
+    await pending;
+    expect(session.getState().phase).toBe("xlsxWorksheetPreviewReady");
+    await expect(session.confirm()).rejects.toThrow(/unexpected phase/);
+    session.backToWorksheetInventory();
+    const state = session.getState();
+    expect(state.phase).toBe("worksheetInventoryReady");
+    if (state.phase === "worksheetInventoryReady") expect(state.worksheets.map((w) => w.id)).toEqual(["ws-0", "ws-2"]);
+    expect(calls.filter((call) => call.endsWith("/preview"))).toEqual(["GET /api/data-hub/worksheets/ws-2/preview"]);
+  });
+
+  it("back during an in-flight preview invalidates its late completion", async () => {
+    let resolvePreview!: (response: Response) => void;
+    const deferred = new Promise<Response>((resolve) => { resolvePreview = resolve; });
+    const worksheets = [worksheetDTO(0)];
+    const { createIllegalDumpingImportSession } = await freshSessionModule();
+    const { fetchImpl } = routedFetch({ batch: batchDetail("xlsx"), worksheets, preview: () => deferred });
+    const session = createIllegalDumpingImportSession({ fetchImpl });
+    await session.resumeFromBatchId("batch-1");
+    const pending = session.previewXlsxWorksheet("ws-0");
+    expect(session.getState().phase).toBe("xlsxWorksheetPreviewing");
+    session.backToWorksheetInventory();
+    resolvePreview(jsonResponse(200, { ok: true, preview: { worksheetId: "ws-0", worksheetName: "Sheet 0", worksheetIndex: 0, rowCount: 1, columnCount: 1, headers: ["a"], sampleRows: [["late"]], sampleRowCount: 1, truncated: false } }));
+    await pending;
+    expect(session.getState().phase).toBe("worksheetInventoryReady");
+  });
+
+  it("a newer preview selection supersedes an older deferred request", async () => {
+    const resolvers = new Map<string, (response: Response) => void>();
+    const worksheets = [worksheetDTO(0), worksheetDTO(1)];
+    const { createIllegalDumpingImportSession } = await freshSessionModule();
+    const { fetchImpl } = routedFetch({
+      batch: batchDetail("xlsx"),
+      worksheets,
+      preview: (url: string) => new Promise<Response>((resolve) => { resolvers.set(url, resolve); }),
+    });
+    const session = createIllegalDumpingImportSession({ fetchImpl });
+    await session.resumeFromBatchId("batch-1");
+    const older = session.previewXlsxWorksheet("ws-0");
+    const newer = session.previewXlsxWorksheet("ws-1");
+    resolvers.get("/api/data-hub/worksheets/ws-1/preview")!(jsonResponse(200, { ok: true, preview: { worksheetId: "ws-1", worksheetName: "Sheet 1", worksheetIndex: 1, rowCount: 1, columnCount: 1, headers: ["new"], sampleRows: [["winner"]], sampleRowCount: 1, truncated: false } }));
+    await newer;
+    expect(session.getState()).toMatchObject({ phase: "xlsxWorksheetPreviewReady", worksheet: { id: "ws-1" } });
+    resolvers.get("/api/data-hub/worksheets/ws-0/preview")!(jsonResponse(500, { ok: false, code: "PROVIDER_FAILURE", error: "late failure" }));
+    await older;
+    expect(session.getState()).toMatchObject({ phase: "xlsxWorksheetPreviewReady", worksheet: { id: "ws-1" } });
+  });
+
+  it("dispose during an in-flight preview suppresses its late completion", async () => {
+    let resolvePreview!: (response: Response) => void;
+    const deferred = new Promise<Response>((resolve) => { resolvePreview = resolve; });
+    const worksheets = [worksheetDTO(0)];
+    const { createIllegalDumpingImportSession } = await freshSessionModule();
+    const { fetchImpl } = routedFetch({ batch: batchDetail("xlsx"), worksheets, preview: () => deferred });
+    const session = createIllegalDumpingImportSession({ fetchImpl });
+    await session.resumeFromBatchId("batch-1");
+    const pending = session.previewXlsxWorksheet("ws-0");
+    session.dispose();
+    resolvePreview(jsonResponse(200, { ok: true, preview: { worksheetId: "ws-0", worksheetName: "Sheet 0", worksheetIndex: 0, rowCount: 1, columnCount: 1, headers: ["a"], sampleRows: [["late"]], sampleRowCount: 1, truncated: false } }));
+    await pending;
+    expect(session.getState().phase).toBe("xlsxWorksheetPreviewing");
+  });
+
+  it("rejects a worksheet id outside the inventory without a request", async () => {
+    const { session, calls } = await driveFreshSession({ fileName: "one.xlsx", serverContentType: "xlsx", worksheets: [worksheetDTO(0)] });
+    const before = calls.length;
+    await expect(session.previewXlsxWorksheet("foreign")).rejects.toThrow(/does not belong/);
+    expect(calls).toHaveLength(before);
+  });
+
+  // ─── D2 — selection / retry / race / confirm-block hardening ───────────
+  const xlsxPreviewBody = (id: string, cell = "v") => ({
+    ok: true,
+    preview: { worksheetId: id, worksheetName: `Sheet ${id.slice(3)}`, worksheetIndex: Number(id.slice(3)), rowCount: 1, columnCount: 1, headers: ["h"], sampleRows: [[cell]], sampleRowCount: 1, truncated: false },
+  });
+
+  it("D2-29. hidden / veryHidden / empty / INELIGIBLE / SKIPPED / IMPORTED selections throw with no request", async () => {
+    const worksheets = [
+      worksheetDTO(0, { worksheetVisibility: "hidden" }),
+      worksheetDTO(1, { worksheetVisibility: "veryHidden" }),
+      worksheetDTO(2, { worksheetIsEmpty: true }),
+      worksheetDTO(3, { canonicalStatus: "INELIGIBLE" }),
+      worksheetDTO(4, { canonicalStatus: "SKIPPED" }),
+      worksheetDTO(5, { canonicalStatus: "IMPORTED" }),
+    ];
+    const { session, calls } = await driveFreshSession({ fileName: "w.xlsx", serverContentType: "xlsx", worksheets });
+    const before = calls.length;
+    for (const w of worksheets) await expect(session.previewXlsxWorksheet(w.id)).rejects.toThrow(/not eligible/);
+    expect(calls).toHaveLength(before);
+    expect(session.getState().phase).toBe("worksheetInventoryReady");
+  });
+
+  it("D2-30/31. no auto-preview; a single-sheet workbook needs an explicit selection, which sends exactly one GET", async () => {
+    const { createIllegalDumpingImportSession } = await freshSessionModule();
+    const { fetchImpl, calls } = routedFetch({ batch: batchDetail("xlsx"), worksheets: [worksheetDTO(0)], preview: xlsxPreviewBody("ws-0") });
+    const session = createIllegalDumpingImportSession({ fetchImpl });
+    await session.resumeFromBatchId("batch-1");
+    expect(session.getState().phase).toBe("worksheetInventoryReady");
+    expect(calls.some((c) => c.endsWith("/preview"))).toBe(false);
+    await session.previewXlsxWorksheet("ws-0");
+    expect(session.getState().phase).toBe("xlsxWorksheetPreviewReady");
+    expect(calls.filter((c) => c.endsWith("/preview"))).toEqual(["GET /api/data-hub/worksheets/ws-0/preview"]);
+  });
+
+  it("D2-33. Retry re-requests the SAME worksheet after a failure; retry is refused outside the failed state", async () => {
+    let attempt = 0;
+    const { createIllegalDumpingImportSession } = await freshSessionModule();
+    const { fetchImpl, calls } = routedFetch({
+      batch: batchDetail("xlsx"),
+      worksheets: [worksheetDTO(0), worksheetDTO(1)],
+      preview: async () => (++attempt === 1 ? jsonResponse(500, { ok: false, code: "PROVIDER_FAILURE", error: "Storage failed." }) : jsonResponse(200, xlsxPreviewBody("ws-1"))),
+    });
+    const session = createIllegalDumpingImportSession({ fetchImpl });
+    await session.resumeFromBatchId("batch-1");
+    await session.previewXlsxWorksheet("ws-1");
+    expect(session.getState()).toMatchObject({ phase: "xlsxWorksheetPreviewFailed", code: "PROVIDER_FAILURE", worksheet: { id: "ws-1" } });
+    await session.retryXlsxWorksheetPreview();
+    expect(session.getState()).toMatchObject({ phase: "xlsxWorksheetPreviewReady", worksheet: { id: "ws-1" } });
+    expect(calls.filter((c) => c.endsWith("/preview"))).toEqual(["GET /api/data-hub/worksheets/ws-1/preview", "GET /api/data-hub/worksheets/ws-1/preview"]);
+    await expect(session.retryXlsxWorksheetPreview()).rejects.toThrow(/unexpected phase/);
+  });
+
+  it("D2-32. Back from Ready and from Failed restores the identical verified inventory with no request", async () => {
+    const worksheets = [worksheetDTO(0), worksheetDTO(1)];
+    const { createIllegalDumpingImportSession } = await freshSessionModule();
+    let ok = true;
+    const { fetchImpl, calls } = routedFetch({
+      batch: batchDetail("xlsx"), worksheets,
+      preview: async () => (ok ? jsonResponse(200, xlsxPreviewBody("ws-0")) : jsonResponse(409, { ok: false, code: "WORKSHEET_NOT_ELIGIBLE", error: "Not eligible." })),
+    });
+    const session = createIllegalDumpingImportSession({ fetchImpl });
+    await session.resumeFromBatchId("batch-1");
+    const inventory = session.getState();
+    for (const outcome of [true, false]) {
+      ok = outcome;
+      await session.previewXlsxWorksheet("ws-0");
+      const before = calls.length;
+      session.backToWorksheetInventory();
+      expect(calls).toHaveLength(before);
+      const restored = session.getState();
+      expect(restored.phase).toBe("worksheetInventoryReady");
+      if (restored.phase === "worksheetInventoryReady" && inventory.phase === "worksheetInventoryReady") {
+        expect(restored.batch).toBe(inventory.batch);
+        expect(restored.worksheets).toBe(inventory.worksheets);
+      }
+    }
+    expect(() => session.backToWorksheetInventory()).toThrow(/unexpected phase/);
+  });
+
+  it("D2-35. B selected while A in flight: A's late SUCCESS cannot overwrite B's pending or failed state", async () => {
+    const resolvers = new Map<string, (response: Response) => void>();
+    const { createIllegalDumpingImportSession } = await freshSessionModule();
+    const { fetchImpl } = routedFetch({
+      batch: batchDetail("xlsx"), worksheets: [worksheetDTO(0), worksheetDTO(1)],
+      preview: (url: string) => new Promise<Response>((resolve) => { resolvers.set(url, resolve); }),
+    });
+    const session = createIllegalDumpingImportSession({ fetchImpl });
+    await session.resumeFromBatchId("batch-1");
+    const a = session.previewXlsxWorksheet("ws-0");
+    const b = session.previewXlsxWorksheet("ws-1");
+    resolvers.get("/api/data-hub/worksheets/ws-0/preview")!(jsonResponse(200, xlsxPreviewBody("ws-0", "STALE-A")));
+    await a;
+    expect(session.getState()).toMatchObject({ phase: "xlsxWorksheetPreviewing", worksheet: { id: "ws-1" } });
+    resolvers.get("/api/data-hub/worksheets/ws-1/preview")!(jsonResponse(500, { ok: false, code: "PROVIDER_FAILURE", error: "failed" }));
+    await b;
+    expect(session.getState()).toMatchObject({ phase: "xlsxWorksheetPreviewFailed", worksheet: { id: "ws-1" } });
+    expect(JSON.stringify(session.getState())).not.toContain("STALE-A");
+  });
+
+  it("D2-34. a late response after resume/refresh cannot overwrite the re-verified inventory", async () => {
+    let resolvePreview!: (response: Response) => void;
+    const { createIllegalDumpingImportSession } = await freshSessionModule();
+    const { fetchImpl } = routedFetch({
+      batch: batchDetail("xlsx"), worksheets: [worksheetDTO(0)],
+      preview: () => new Promise<Response>((resolve) => { resolvePreview = resolve; }),
+    });
+    const session = createIllegalDumpingImportSession({ fetchImpl });
+    await session.resumeFromBatchId("batch-1");
+    const pending = session.previewXlsxWorksheet("ws-0");
+    await session.resumeFromBatchId("batch-1");
+    expect(session.getState().phase).toBe("worksheetInventoryReady");
+    resolvePreview(jsonResponse(200, xlsxPreviewBody("ws-0", "LATE")));
+    await pending;
+    expect(session.getState().phase).toBe("worksheetInventoryReady");
+  });
+
+  it("D2-45. a response for a different worksheet, or a CSV/mapping-shaped body, fails closed", async () => {
+    const { createIllegalDumpingImportSession } = await freshSessionModule();
+    let body: unknown = xlsxPreviewBody("ws-1");
+    const { fetchImpl } = routedFetch({ batch: batchDetail("xlsx"), worksheets: [worksheetDTO(0), worksheetDTO(1)], preview: async () => jsonResponse(200, body) });
+    const session = createIllegalDumpingImportSession({ fetchImpl });
+    await session.resumeFromBatchId("batch-1");
+    await session.previewXlsxWorksheet("ws-0");
+    expect(session.getState()).toMatchObject({ phase: "xlsxWorksheetPreviewFailed", worksheet: { id: "ws-0" } });
+    body = { ok: true, preview: { ...xlsxPreviewBody("ws-0").preview, requiredHeadersPresent: true, missingRequiredHeaders: [], mapping: null } };
+    await session.retryXlsxWorksheetPreview();
+    expect(session.getState()).toMatchObject({ phase: "xlsxWorksheetPreviewFailed", worksheet: { id: "ws-0" } });
+  });
+
+  it("D2-37. from every XLSX preview state, confirm/CSV-preview/mapping/period methods throw and send nothing; never confirmationReady/confirming", async () => {
+    const { createIllegalDumpingImportSession } = await freshSessionModule();
+    let resolvePreview: ((r: Response) => void) | null = null;
+    let mode: "ok" | "fail" | "hang" = "ok";
+    const { fetchImpl, calls } = routedFetch({
+      batch: batchDetail("xlsx"), worksheets: [worksheetDTO(0)],
+      preview: () => mode === "hang"
+        ? new Promise<Response>((resolve) => { resolvePreview = resolve; })
+        : Promise.resolve(mode === "ok" ? jsonResponse(200, xlsxPreviewBody("ws-0")) : jsonResponse(500, { ok: false, code: "PROVIDER_FAILURE", error: "x" })),
+    });
+    const session = createIllegalDumpingImportSession({ fetchImpl });
+    const phases: string[] = [];
+    session.subscribe((s) => phases.push(s.phase));
+    await session.resumeFromBatchId("batch-1");
+    for (const m of ["ok", "fail", "hang"] as const) {
+      mode = m;
+      if (session.getState().phase !== "worksheetInventoryReady") session.backToWorksheetInventory();
+      const pending = session.previewXlsxWorksheet("ws-0");
+      if (m !== "hang") await pending;
+      const before = calls.length;
+      await expect(session.confirm()).rejects.toThrow(/unexpected phase/);
+      await expect(session.retryConfirm()).rejects.toThrow(/unexpected phase/);
+      await expect(session.loadPreview()).rejects.toThrow(/unexpected phase/);
+      await expect(session.retryPreview()).rejects.toThrow(/unexpected phase/);
+      await expect(session.selectMapping("m-1")).rejects.toThrow(/unexpected phase/);
+      await expect(session.selectPeriod("2026-06-01", "2026-06-30")).rejects.toThrow(/unexpected phase/);
+      await expect(session.loadPeriodDetection()).rejects.toThrow(/unexpected phase/);
+      await expect(session.acceptDetectedPeriod()).rejects.toThrow(/unexpected phase/);
+      expect(calls).toHaveLength(before);
+    }
+    (resolvePreview as ((r: Response) => void) | null)?.(jsonResponse(200, xlsxPreviewBody("ws-0")));
+    for (const p of FORBIDDEN_FOR_INVENTORY) expect(phases).not.toContain(p);
+    expect(calls.some((c) => /\/confirm-illegal-dumping|\/mapping-selection|\/period-|PUT |PATCH |DELETE /.test(c))).toBe(false);
   });
 
   it("every confirm/preview/mapping/period method throws from worksheetInventoryReady and sends nothing", async () => {
@@ -1004,7 +1252,7 @@ describe("D1 UI — WorksheetInventoryPanel renders structural fields only and n
       batch: { id: "batch-1", status: "READY" as const, originalFilename: "workbook.xlsx", contentType: "xlsx", sizeBytes: 8, sourceSystemId: "ss-1" },
       worksheets: worksheets as never,
     };
-    return renderToStaticMarkup(createElement(WorksheetInventoryPanel, { state, onRestart: () => {} }));
+    return renderToStaticMarkup(createElement(WorksheetInventoryPanel, { state, onPreview: () => {}, onRestart: () => {} }));
   }
 
   it("shows name, index, visibility, emptiness and status for every worksheet, plus the not-enabled notice", async () => {
@@ -1014,18 +1262,26 @@ describe("D1 UI — WorksheetInventoryPanel renders structural fields only and n
       worksheetDTO(2, { worksheetName: "Deep", worksheetVisibility: "veryHidden", canonicalStatus: "INELIGIBLE" }),
       worksheetDTO(3, { worksheetName: "Blank", worksheetIsEmpty: true, canonicalStatus: "INELIGIBLE" }),
     ]);
-    for (const s of ["Overview", "Secret Tab", "Deep", "Blank", "Visible", "Hidden", "Very hidden", "Empty", "Has content", "Not importable", "Awaiting confirmation (import not enabled)", "import is not enabled yet"]) {
+    for (const s of ["Overview", "Secret Tab", "Deep", "Blank", "Visible", "Hidden", "Very hidden", "Empty", "Has content", "Not importable", "Awaiting confirmation (import not enabled)", "Excel worksheet preview is available"]) {
       expect(html).toContain(s);
     }
     expect(html).toMatch(/data-worksheet-index="3"/);
     expect(html).toMatch(/<tr data-worksheet-index="1" data-canonical-status="INELIGIBLE">/);
   });
 
-  it("renders exactly one button (Choose another file) and no Confirm/Import/preview affordance", async () => {
-    const html = await render([worksheetDTO(0), worksheetDTO(1)]);
-    expect((html.match(/<button/g) ?? []).length).toBe(1);
+  it("renders Preview only for eligible worksheets, plus Choose another file and no Confirm/Import affordance", async () => {
+    const html = await render([
+      worksheetDTO(0),
+      worksheetDTO(1, { worksheetVisibility: "hidden", canonicalStatus: "INELIGIBLE" }),
+      worksheetDTO(2, { worksheetVisibility: "veryHidden", canonicalStatus: "INELIGIBLE" }),
+      worksheetDTO(3, { worksheetIsEmpty: true, canonicalStatus: "INELIGIBLE" }),
+      worksheetDTO(4, { canonicalStatus: "SKIPPED" }),
+    ]);
+    expect((html.match(/>Preview<\/button>/g) ?? []).length).toBe(1);
+    expect((html.match(/<button/g) ?? []).length).toBe(2);
     expect(html).toContain("Choose another file");
-    expect(html).not.toMatch(/Confirm import|>\s*Confirm\s*<|Import now|Preparing preview|<input/i);
+    expect(html).toContain("Preview");
+    expect(html).not.toMatch(/Confirm import|>\s*Confirm\s*<|Import now|<input/i);
   });
 
   it("the component is never handed the session and never references confirm/preview/mapping/period APIs", () => {
@@ -1035,7 +1291,7 @@ describe("D1 UI — WorksheetInventoryPanel renders structural fields only and n
       const shellCode = stripComments(read(shell));
       const tag = shellCode.match(/<WorksheetInventoryPanel\b[\s\S]*?\/>/)?.[0] ?? "";
       expect(tag).not.toBe("");
-      expect(tag).not.toMatch(/session/);
+      expect(tag).not.toMatch(/session=/);
     }
   });
 
@@ -1046,6 +1302,63 @@ describe("D1 UI — WorksheetInventoryPanel renders structural fields only and n
     expect(deriveErrorOverlayCopy({ phase: "worksheetInventoryReady", batch: {} as never, worksheets: [] })).toBeNull();
     // confirmationReady etc. are unaffected.
     expect(deriveScreenGroup("confirmationReady")).toBe("review");
+  });
+});
+
+describe("D2 UI — inert XLSX preview panel", () => {
+  it("renders cached formula values as escaped text and exposes only back/restart", async () => {
+    const { default: Panel } = await import("@/app/data-hub/import/_components/XlsxWorksheetPreviewPanel");
+    const state = {
+      phase: "xlsxWorksheetPreviewReady" as const,
+      batch: { id: "batch-1", status: "READY" as const, originalFilename: "workbook.xlsx", contentType: "xlsx", sizeBytes: 8, sourceSystemId: "ss-1" },
+      worksheets: [worksheetDTO(0)],
+      worksheet: worksheetDTO(0),
+      preview: { worksheetId: "ws-0", worksheetName: "Sheet 0", worksheetIndex: 0, rowCount: 1, columnCount: 1, headers: ["Formula"], sampleRows: [["<img src=x onerror=alert(1)>"]], sampleRowCount: 1, truncated: false },
+    };
+    const html = renderToStaticMarkup(createElement(Panel, { state: state as never, onBack: () => {}, onRetry: () => {}, onRestart: () => {} }));
+    expect(html).toContain("&lt;img src=x onerror=alert(1)&gt;");
+    expect(html).not.toContain("<img");
+    expect(html).toContain("Back to workbook worksheets");
+    expect(html).toContain("Choose another file");
+    expect(html).not.toMatch(/>\s*Confirm(?: import)?\s*<|mapping|reporting period|<input/i);
+  });
+
+  it("receives no session/confirm/mapping/period callback and uses no unsafe HTML or browser persistence", () => {
+    const code = stripComments(read("app/data-hub/import/_components/XlsxWorksheetPreviewPanel.tsx"));
+    const props = code.match(/export default function XlsxWorksheetPreviewPanel\(\{[\s\S]*?\}: \{[\s\S]*?\n\}\)/)?.[0] ?? "";
+    expect(props).not.toBe("");
+    expect(props).not.toMatch(/session|confirm|mapping|period/i);
+    expect(code).not.toMatch(/dangerouslySetInnerHTML|localStorage|sessionStorage/);
+  });
+
+  it("both shells hand the panel state + back/retry/restart callbacks only — never the session", () => {
+    for (const shell of ["app/data-hub/import/ImportClient.tsx", "app/data-hub/import/[batchId]/RecoveryClient.tsx"]) {
+      const tag = stripComments(read(shell)).match(/<XlsxWorksheetPreviewPanel\b[\s\S]*?\/>/)?.[0] ?? "";
+      expect(tag).not.toBe("");
+      expect(tag).not.toMatch(/session=|confirm|mapping|period/i);
+      expect(tag).toMatch(/onBack=\{\(\) => session\.backToWorksheetInventory\(\)\}/);
+      expect(tag).toMatch(/onRetry=\{\(\) => void session\.retryXlsxWorksheetPreview\(\)\}/);
+    }
+  });
+
+  it("the XLSX preview phases are their own screen group — never review/confirm, never an error overlay", async () => {
+    const { deriveScreenGroup, isErrorOverlayPhase } = await import("@/app/data-hub/import/screenGroup");
+    for (const phase of ["xlsxWorksheetPreviewing", "xlsxWorksheetPreviewReady", "xlsxWorksheetPreviewFailed"] as const) {
+      expect(deriveScreenGroup(phase)).toBe("xlsxPreview");
+      expect(isErrorOverlayPhase(phase)).toBe(false);
+    }
+  });
+
+  it("renders loading and failure states with Retry but no Confirm/mapping/period", async () => {
+    const { default: Panel } = await import("@/app/data-hub/import/_components/XlsxWorksheetPreviewPanel");
+    const base = { batch: { id: "batch-1", status: "READY" as const, originalFilename: "w.xlsx", contentType: "xlsx", sizeBytes: 8, sourceSystemId: "ss-1" }, worksheets: [worksheetDTO(0)], worksheet: worksheetDTO(0) };
+    const loading = renderToStaticMarkup(createElement(Panel, { state: { ...base, phase: "xlsxWorksheetPreviewing" } as never, onBack: () => {}, onRetry: () => {}, onRestart: () => {} }));
+    expect(loading).toContain("Loading worksheet preview");
+    expect(loading).not.toContain(">Retry<");
+    const failed = renderToStaticMarkup(createElement(Panel, { state: { ...base, phase: "xlsxWorksheetPreviewFailed", code: "PROVIDER_FAILURE", message: "Storage failed." } as never, onBack: () => {}, onRetry: () => {}, onRestart: () => {} }));
+    expect(failed).toContain("Storage failed.");
+    expect(failed).toContain(">Retry<");
+    for (const html of [loading, failed]) expect(html).not.toMatch(/>\s*Confirm(?: import)?\s*<|mapping|reporting period|<input|<select/i);
   });
 });
 

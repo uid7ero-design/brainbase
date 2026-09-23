@@ -12,7 +12,7 @@ import type { DataHubImportState } from "@/lib/data-hub/client/orchestrator";
 // Data Hub 6.2D1 — "inventory" is the XLSX structural worksheet inventory
 // (worksheetInventoryReady). Deliberately NOT part of "review": that group
 // renders ReviewPanel, which auto-loads a preview and exposes Confirm.
-export type ScreenGroup = "select" | "uploading" | "processing" | "review" | "inventory" | "confirm" | "success";
+export type ScreenGroup = "select" | "uploading" | "processing" | "review" | "inventory" | "xlsxPreview" | "confirm" | "success";
 
 const UPLOADING_PHASES = new Set([
   "initiating",
@@ -52,6 +52,7 @@ export function deriveScreenGroup(phase: DataHubImportState["phase"]): ScreenGro
   if (PROCESSING_PHASES.has(phase)) return "processing";
   if (REVIEW_PHASES.has(phase)) return "review";
   if (phase === "worksheetInventoryReady") return "inventory";
+  if (phase === "xlsxWorksheetPreviewing" || phase === "xlsxWorksheetPreviewReady" || phase === "xlsxWorksheetPreviewFailed") return "xlsxPreview";
   if (CONFIRM_PHASES.has(phase)) return "confirm";
   if (SUCCESS_PHASES.has(phase)) return "success";
   // Exhaustiveness fallback — a phase this module has never seen. Never

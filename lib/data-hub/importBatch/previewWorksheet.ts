@@ -3,6 +3,7 @@ import { prisma } from "../../prisma";
 import { buildImportBatchKey, RawFileStoreError } from "../storage/rawFileStore";
 import { createImportBatchStorage } from "./compositionRoot";
 import { MAX_SOURCE_FILE_BYTES } from "../limits";
+import { PREVIEW_MAX_SAMPLE_ROWS, boundColumns } from "../previewBounds";
 import { decodeCsvOnly, CsvOnlyDecodeError } from "../csvOnlyDecoder";
 import { ILLEGAL_DUMPING_REQUIRED_HEADERS, IllegalDumpingMappingError, mapIllegalDumpingRows, validateIllegalDumpingHeaders } from "./illegalDumpingMapper";
 import { getMessageTemplate, type FailureCode } from "./failureTaxonomy";
@@ -56,12 +57,10 @@ import { compileMapping, applyCompiledMappingToRows, toIllegalDumpingMapperInput
 // COLUMNS/CELL_CHARS below), which bound only the SERIALIZED payload size,
 // never the shared decoder itself.
 
-/** Response-only bounds — local to this file, not shared with any other
- * Data Hub decode path. No existing repo constant governs "how many rows
- * to show a human" (discovery Section M); these are new. */
-const PREVIEW_MAX_SAMPLE_ROWS = 20;
-const PREVIEW_MAX_SAMPLE_COLUMNS = 50;
-const PREVIEW_MAX_CELL_CHARS = 200;
+// Response-only bounds (PREVIEW_MAX_SAMPLE_ROWS/COLUMNS/CELL_CHARS and the
+// truncateCell/boundColumns helpers) — Data Hub 6.2D2 moved them verbatim
+// into ../previewBounds.ts so the XLSX worksheet preview shares exactly the
+// same limits. Values and behavior are unchanged.
 
 // CSV always yields exactly one worksheet, always index 0, always named
 // "CSV" — matches inspectCsvWorksheet.ts's own CSV_WORKSHEET_INDEX/
@@ -157,14 +156,6 @@ export type PreviewWorksheetResult =
 
 function fail(code: PreviewWorksheetFailureCode): PreviewWorksheetResult {
   return { ok: false, code, message: getMessageTemplate(code as FailureCode) };
-}
-
-function truncateCell(cell: string): string {
-  return cell.length > PREVIEW_MAX_CELL_CHARS ? `${cell.slice(0, PREVIEW_MAX_CELL_CHARS)}…(truncated)` : cell;
-}
-
-function boundColumns(row: string[]): string[] {
-  return row.slice(0, PREVIEW_MAX_SAMPLE_COLUMNS).map(truncateCell);
 }
 
 /**

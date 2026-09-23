@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/org";
-import { previewWorksheet } from "@/lib/data-hub/importBatch/previewWorksheet";
+import { previewDataHubWorksheet } from "@/lib/data-hub/importBatch/previewDataHubWorksheet";
 
-// Data Hub 5A.3C.0 — the first live HTTP exposure of the bounded, read-only
-// CSV worksheet preview service (lib/data-hub/importBatch/previewWorksheet.ts).
+// Bounded, read-only worksheet preview. The trusted dispatcher derives CSV
+// versus XLSX from persisted batch metadata; XLSX is preview-only and cannot
+// enter confirmation, mapping, or import execution through this route.
 // This route wraps it without modifying or duplicating any of its
 // lookup/eligibility/storage/decode logic.
 //
@@ -15,15 +16,15 @@ import { previewWorksheet } from "@/lib/data-hub/importBatch/previewWorksheet";
 // LOAD-BEARING STORAGE AUTHORITY: this route reads NO request body at all
 // (no `req.json()` call anywhere in this file) and accepts NO
 // caller-supplied storage locator, format, or worksheet identity of any
-// kind. The ONLY inputs to previewWorksheet are the trusted
+// kind. The ONLY inputs to the dispatcher are the trusted
 // session.organisationId and the path `id` — the storage object that gets
 // read is derived EXCLUSIVELY, server-side, from the tenant-scoped
-// worksheet/ImportBatch rows via previewWorksheet.ts's own
+// worksheet/ImportBatch rows via the selected preview service's own
 // buildImportBatchKey(organisationId, importBatchId) call.
 //
 // READ-ONLY: this route never mutates ImportBatch, Upload/worksheet,
 // illegal_dumping, confirmation actor/timestamp, or any failure metadata —
-// previewWorksheet.ts performs zero Prisma writes.
+// Both preview services perform zero Prisma writes.
 
 const CACHE_HEADERS = { "Cache-Control": "private, no-store" } as const;
 
@@ -42,7 +43,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
   const { id } = await params;
 
   try {
-    const result = await previewWorksheet({ organisationId: session.organisationId, worksheetId: id });
+    const result = await previewDataHubWorksheet({ organisationId: session.organisationId, worksheetId: id });
 
     if (result.ok) {
       return NextResponse.json({ ok: true, preview: result.preview }, { status: 200, headers: CACHE_HEADERS });
@@ -65,8 +66,10 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
       { ok: false, error: result.message, code: result.code },
       { status: statusByCode[result.code], headers: CACHE_HEADERS }
     );
-  } catch (err) {
-    console.error("[GET /api/data-hub/worksheets/[id]/preview]", err);
+  } catch {
+    // Do not log preview data or parser/provider errors: they may contain
+    // workbook-derived details. The client receives only the fixed message.
+    console.error("[GET /api/data-hub/worksheets/[id]/preview] unexpected failure");
     return NextResponse.json({ error: "Failed to load worksheet preview." }, { status: 500, headers: CACHE_HEADERS });
   }
 }

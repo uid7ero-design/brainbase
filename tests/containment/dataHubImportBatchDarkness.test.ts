@@ -156,7 +156,12 @@ const AUTHORIZED_IMPORTERS_BY_MODULE: Record<string, Set<string>> = {
   illegalDumpingMapper: new Set([C61C_SOURCES_ADMIN_CLIENT, C61C_MAPPING_ROW_VALIDATION]),
   // 5A.3C.0 — the new bounded, read-only CSV worksheet preview service.
   // Exactly one authorized importer: its own new route.
-  previewWorksheet: new Set([C0_PREVIEW_ROUTE]),
+  // 6.2D2 — the route now reaches both format services only through the
+  // trusted previewDataHubWorksheet dispatcher (a lib/ importer, outside
+  // this app/components scan), so neither has a direct app/ importer.
+  previewWorksheet: new Set(),
+  previewXlsxWorksheet: new Set(),
+  previewDataHubWorksheet: new Set([C0_PREVIEW_ROUTE]),
   // 5B.4B — the new dedicated worksheet mapping-selection service. Exactly
   // one authorized importer: its own new route.
   selectWorksheetMapping: new Set([B4B_MAPPING_SELECTION_ROUTE]),
@@ -274,6 +279,8 @@ describe("Data Hub importBatch — no barrel/index.ts anywhere in the new tree",
         // exactly one authorized importer, the new preview route — see
         // the AUTHORIZED_IMPORTERS_BY_MODULE map above.
         "previewWorksheet.ts",
+        "previewDataHubWorksheet.ts",
+        "previewXlsxWorksheet.ts",
         // selectWorksheetMapping.ts (5B.4B) — the new dedicated worksheet
         // mapping-selection service. LIVE as of this phase — exactly one
         // authorized importer, the new mapping-selection route — see the

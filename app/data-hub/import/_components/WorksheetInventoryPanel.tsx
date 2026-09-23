@@ -13,12 +13,17 @@ import {
 // never handed the import session, so it has no way to call confirm(),
 // loadPreview(), or any mapping/period method. It renders persisted
 // structural metadata only — no headers, sample rows, or cell values exist
-// anywhere in its input. The only action is leaving (onRestart).
+// anywhere in its input. Actions: leaving (onRestart) and, 6.2D2, an
+// explicit per-row Preview (onPreview) shown only for a visible, non-empty,
+// AWAITING_CONFIRMATION worksheet — never auto-invoked, even for a
+// single-sheet workbook. The orchestrator re-validates the id.
 export default function WorksheetInventoryPanel({
   state,
+  onPreview,
   onRestart,
 }: {
   state: Extract<DataHubImportState, { phase: "worksheetInventoryReady" }>;
+  onPreview: (worksheetId: string) => void;
   onRestart: () => void;
 }) {
   return (
@@ -51,7 +56,7 @@ export default function WorksheetInventoryPanel({
         <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 12, fontVariantNumeric: "tabular-nums" }}>
           <thead>
             <tr>
-              {["#", "Worksheet", "Visibility", "Contents", "Status"].map((h) => (
+              {["#", "Worksheet", "Visibility", "Contents", "Status", "Action"].map((h) => (
                 <th
                   key={h}
                   scope="col"
@@ -90,6 +95,13 @@ export default function WorksheetInventoryPanel({
                     {cell}
                   </td>
                 ))}
+                <td style={{ padding: "8px 10px", borderBottom: "1px solid rgba(255,255,255,.05)" }}>
+                  {w.worksheetVisibility === "visible" && !w.worksheetIsEmpty && w.canonicalStatus === "AWAITING_CONFIRMATION" ? (
+                    <button type="button" onClick={() => onPreview(w.id)} style={{ fontSize: 12, padding: "5px 10px", borderRadius: 6, cursor: "pointer" }}>
+                      Preview
+                    </button>
+                  ) : null}
+                </td>
               </tr>
             ))}
           </tbody>

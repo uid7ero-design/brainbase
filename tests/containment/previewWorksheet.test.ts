@@ -57,6 +57,7 @@ describe("previewWorksheet — zero xlsx/workbookParser dependency, direct or tr
       /\.\.\/storage\/rawFileStore["']/,
       /\.\/compositionRoot["']/,
       /\.\.\/limits["']/,
+      /\.\.\/previewBounds["']/,
       /\.\.\/csvOnlyDecoder["']/,
       /\.\/illegalDumpingMapper["']/,
       /\.\/failureTaxonomy["']/,
