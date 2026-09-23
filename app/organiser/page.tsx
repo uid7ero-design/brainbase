@@ -2052,6 +2052,23 @@ function OrganiserPageContent() {
     reorderGroups(reordered);
   }
 
+  // D.4.7E (Slice E2 fix) — the trailing "Move group to end" drop target's
+  // own handler. Appends, never inserts-before — the one semantic
+  // `handleGroupDrop` above structurally cannot express. Already-last is a
+  // deliberate no-op with no network call: sending a reorder request whose
+  // resulting order is byte-identical to the current one would be a
+  // pointless round trip, and (more importantly) a redundant coalesced
+  // write that could race meaninglessly against a genuine concurrent edit.
+  function handleGroupDropAtEnd() {
+    const draggedId = draggingGroupId;
+    setDraggingGroupId(null);
+    if (!draggedId || !boardData) return;
+    const currentIds = boardData.groups.map(g => g.id);
+    if (currentIds.length === 0 || currentIds[currentIds.length - 1] === draggedId) return;
+    const without = currentIds.filter(id => id !== draggedId);
+    reorderGroups([...without, draggedId]);
+  }
+
   // D.4.7B — addItem now returns a boolean success indicator (used by
   // AddItemRow's own duplicate-submit guard below). No optimistic local
   // item is fabricated here — the server remains the sole source of the
@@ -2400,6 +2417,37 @@ function OrganiserPageContent() {
                       />
                     </div>
                   ))}
+                  {/* D.4.7E (Slice E2 fix) — every existing drop target
+                      (each group's own wrapper div, above) inserts the
+                      dragged group BEFORE it — there was previously no way
+                      to express "after the current last group," so a group
+                      could never actually become the new last one via drag.
+                      This is the one explicit terminal target that closes
+                      that gap. Always mounted (never conditionally rendered)
+                      so there is no mount-timing race against a real drag's
+                      dragover events; collapsed to zero height and
+                      non-interactive (`pointerEvents: "none"`) whenever
+                      nothing is being dragged, so it adds no visual clutter
+                      and cannot swallow an accidental drop the rest of the
+                      time. Routes through the exact same reorderGroups(...)
+                      path as every other drop — no second mutation path. */}
+                  {boardData && boardData.groups.length > 0 && (
+                    <div
+                      onDragOver={e => { if (draggingGroupId) e.preventDefault(); }}
+                      onDrop={e => { e.preventDefault(); handleGroupDropAtEnd(); }}
+                      title="Move group to end"
+                      aria-label="Move group to end"
+                      style={{
+                        height: draggingGroupId ? 14 : 0,
+                        marginBottom: draggingGroupId ? 12 : 0,
+                        borderRadius: 6,
+                        border: draggingGroupId ? "1px dashed rgba(139,92,246,.45)" : "none",
+                        background: draggingGroupId ? "rgba(139,92,246,.08)" : "transparent",
+                        transition: "height .12s, margin-bottom .12s",
+                        pointerEvents: draggingGroupId ? "auto" : "none",
+                      }}
+                    />
+                  )}
                   {boardData && boardData.items.some(i => !i.group_id) && (
                     <GroupSection
                       group={null} items={boardData.items} columns={columns}

@@ -30,6 +30,8 @@ function block(startMarker: string, endMarker: string): string {
 const groupSectionBlock = () => block('function GroupSection(', '\nfunction ')
 const reorderGroupsBlock = () => block('async function reorderGroups(', '\n  const [draggingGroupId')
 const handleGroupDropBlock = () => block('function handleGroupDrop(', '\n  }')
+const handleGroupDropAtEndBlock = () => block('function handleGroupDropAtEnd(', '\n  }')
+const trailingDropZoneBlock = () => block('{boardData && boardData.groups.length > 0 && (', '\n                  {boardData && boardData.items.some(i => !i.group_id)')
 const tableViewLoopBlock = () => block('{view === "table" && (', '{view === "board" && boardData && (')
 const itemRowBlock = () => block('function ItemRow(', '\nfunction GroupSection(')
 const inlineTextBlock = () => block('function InlineText(', '\nfunction CustomCell(')
@@ -144,6 +146,54 @@ describe('handleGroupDrop', () => {
   })
 })
 
+describe('trailing "Move group to end" drop target (E2 fix — closes the "cannot reach last position" gap)', () => {
+  it('exists, is scoped to boards with at least one real group, and carries onDragOver/onDrop/title/aria-label', () => {
+    const b = trailingDropZoneBlock()
+    expect(b).toMatch(/onDragOver=\{e => \{ if \(draggingGroupId\) e\.preventDefault\(\); \}\}/)
+    expect(b).toMatch(/onDrop=\{e => \{ e\.preventDefault\(\); handleGroupDropAtEnd\(\); \}\}/)
+    expect(b).toMatch(/title="Move group to end"/)
+    expect(b).toMatch(/aria-label="Move group to end"/)
+  })
+
+  it('is collapsed (zero height, non-interactive) when nothing is being dragged, and only expands/becomes interactive while draggingGroupId is set — never a persistent visual element', () => {
+    const b = trailingDropZoneBlock()
+    expect(b).toMatch(/height: draggingGroupId \? 14 : 0,/)
+    expect(b).toMatch(/pointerEvents: draggingGroupId \? "auto" : "none",/)
+  })
+
+  it('does not reference group={null} or the "No group" bucket in any way — "No group" stays fully excluded from the trailing target', () => {
+    const b = trailingDropZoneBlock()
+    expect(b).not.toMatch(/group=\{null\}/)
+  })
+
+  it('routes through the SAME reorderGroups(...) helper as every other drop — no second mutation path', () => {
+    const b = handleGroupDropAtEndBlock()
+    const reorderCalls = b.match(/reorderGroups\(/g) ?? []
+    expect(reorderCalls.length).toBe(1)
+  })
+
+  it('appends the dragged id to the END of the current group order (never inserts it before an existing group)', () => {
+    const b = handleGroupDropAtEndBlock()
+    expect(b).toMatch(/reorderGroups\(\[\.\.\.without, draggedId\]\);/)
+    // The insert-before-target shape from handleGroupDrop must NOT appear here.
+    expect(b).not.toMatch(/without\.slice\(0, targetIndex\)/)
+  })
+
+  it('is a no-op with NO reorderGroups call when the dragged group is already last', () => {
+    const b = handleGroupDropAtEndBlock()
+    const guardIdx = b.indexOf('if (currentIds.length === 0 || currentIds[currentIds.length - 1] === draggedId) return;')
+    expect(guardIdx).toBeGreaterThan(-1)
+    const reorderIdx = b.indexOf('reorderGroups(')
+    expect(reorderIdx).toBeGreaterThan(guardIdx) // the guard's `return` precedes the only reorderGroups call
+  })
+
+  it('handleGroupDrop (the pre-existing insert-before-target path) is completely unchanged by this fix', () => {
+    const b = handleGroupDropBlock()
+    expect(b).toMatch(/if \(!draggedId \|\| draggedId === targetGroupId \|\| !boardData\) return;/)
+    expect(b).toMatch(/const reordered = \[\.\.\.without\.slice\(0, targetIndex\), draggedId, \.\.\.without\.slice\(targetIndex\)\];/)
+  })
+})
+
 describe('regression — this phase touches nothing about item editing, drawer-open, or Notes', () => {
   it('ItemRow\'s D.4.7D renderTrigger-based inline rename is unchanged (name click still opens drawer, separate hover pencil still starts rename)', () => {
     const b = itemRowBlock()
@@ -155,6 +205,11 @@ describe('regression — this phase touches nothing about item editing, drawer-o
     const b = inlineTextBlock()
     expect(b).toMatch(/if \(seenValue !== value\) \{/)
     expect(b).toMatch(/if \(!dirty\) setDraft\(value\);/)
+  })
+
+  it('group rename (InlineText on the group name, click-to-edit) is unchanged by the trailing-drop-target fix', () => {
+    const b = groupSectionBlock()
+    expect(b).toMatch(/<InlineText value=\{group\.name\} bold onSave=\{v => onRenameGroup\(group\.id, v\)\}/)
   })
 })
 
