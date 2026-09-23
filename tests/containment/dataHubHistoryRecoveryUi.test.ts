@@ -377,6 +377,9 @@ describe("T32/M20: no new backend route", () => {
         "app/api/data-hub/worksheets/[id]/mapping-selection/route.ts",
         // 6.2B1 addition:
         "app/api/data-hub/worksheets/[id]/period-selection/route.ts",
+        // 6.2C3 additions (read-only detection + explicit acceptance):
+        "app/api/data-hub/worksheets/[id]/period-detection/route.ts",
+        "app/api/data-hub/worksheets/[id]/period-detection/accept/route.ts",
         // 5B.2 additions:
         "app/api/data-hub/source-systems/route.ts",
         "app/api/data-hub/source-systems/[id]/route.ts",

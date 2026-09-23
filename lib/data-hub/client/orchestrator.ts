@@ -38,6 +38,8 @@ import {
   listWorksheetsForBatch as callListWorksheets,
   selectWorksheetMapping as callSelectWorksheetMapping,
   selectWorksheetPeriod as callSelectWorksheetPeriod,
+  getWorksheetPeriodDetection as callGetWorksheetPeriodDetection,
+  acceptDetectedWorksheetPeriod as callAcceptDetectedWorksheetPeriod,
   listSourceSystemsAdmin as callListSourceSystemsAdmin,
   createSourceSystem as callCreateSourceSystem,
   updateSourceSystem as callUpdateSourceSystem,
@@ -69,6 +71,7 @@ import type {
   ListImportBatchesResult,
   ListSourceMappingsResult,
   ListSourceSystemsResult,
+  PeriodDetectionClient,
   PersistedFailureCodeClient,
   WorksheetPreviewDTOClient,
   WorksheetSummaryDTOClient,
@@ -868,6 +871,90 @@ export class DataHubIllegalDumpingImportSession {
     }
 
     return { ok: true, periodStart: body.periodStart, periodEnd: body.periodEnd, periodSource: body.periodSource };
+  }
+
+  // Data Hub 6.2C3 — read-only automatic reporting-period detection for the
+  // worksheet under review. Same reachable-phase precondition as
+  // selectPeriod. Never touches state: a detection result is advisory and
+  // is never merged into state.worksheet (only an ACCEPTED, server-
+  // persisted period ever is — see acceptDetectedPeriod below). A transport
+  // failure is reported as its own `networkUncertain` status, distinct from
+  // a server-reported failure, so the UI can word each truthfully.
+  async loadPeriodDetection(): Promise<
+    | { status: "loaded"; detection: PeriodDetectionClient }
+    | { status: "failed"; error: string }
+    | { status: "networkUncertain"; error: string }
+  > {
+    if (
+      this.state.phase !== "confirmationReady" &&
+      this.state.phase !== "previewing" &&
+      this.state.phase !== "previewFailed" &&
+      this.state.phase !== "previewReady"
+    ) {
+      throw new Error(`data-hub client: loadPeriodDetection() called from unexpected phase "${this.state.phase}".`);
+    }
+    const { worksheet } = this.state;
+
+    const result = await callGetWorksheetPeriodDetection(worksheet.id, this.config);
+    if (result.kind === "networkUncertain") {
+      return { status: "networkUncertain", error: result.message };
+    }
+    if (result.kind !== "response") {
+      return { status: "failed", error: "The period detection response could not be parsed." };
+    }
+    const body = result.body;
+    if (!("ok" in body) || !body.ok) {
+      return { status: "failed", error: body.error };
+    }
+    if (!body.applicable) {
+      return { status: "loaded", detection: { applicable: false } };
+    }
+    return {
+      status: "loaded",
+      detection: {
+        applicable: true,
+        outcome: body.outcome,
+        period: body.period,
+        suggestedPeriod: body.suggestedPeriod,
+        reasonCode: body.reasonCode,
+        requiresManualSelection: body.requiresManualSelection,
+      },
+    };
+  }
+
+  // Data Hub 6.2C3 — explicit acceptance of the server's CURRENT exact
+  // detected period. Sends no dates: the server recomputes detection and
+  // persists only an EXACT result (period_source "DETECTED"). Mirrors
+  // selectPeriod's "caller holds the returned period for immediate
+  // display" discipline. `uncertain` is kept distinct from `rejected`
+  // because a lost response may still have been persisted server-side.
+  async acceptDetectedPeriod(): Promise<
+    | { outcome: "accepted"; periodStart: string; periodEnd: string; periodSource: "DETECTED" }
+    | { outcome: "rejected"; error: string }
+    | { outcome: "uncertain"; error: string }
+  > {
+    if (
+      this.state.phase !== "confirmationReady" &&
+      this.state.phase !== "previewing" &&
+      this.state.phase !== "previewFailed" &&
+      this.state.phase !== "previewReady"
+    ) {
+      throw new Error(`data-hub client: acceptDetectedPeriod() called from unexpected phase "${this.state.phase}".`);
+    }
+    const { worksheet } = this.state;
+
+    const result = await callAcceptDetectedWorksheetPeriod(worksheet.id, this.config);
+    if (result.kind === "networkUncertain") {
+      return { outcome: "uncertain", error: result.message };
+    }
+    if (result.kind !== "response") {
+      return { outcome: "uncertain", error: "The detected period response could not be parsed." };
+    }
+    const body = result.body;
+    if (!("ok" in body) || !body.ok) {
+      return { outcome: "rejected", error: body.error };
+    }
+    return { outcome: "accepted", periodStart: body.periodStart, periodEnd: body.periodEnd, periodSource: body.periodSource };
   }
 
   private async runLoadPreview(batch: ImportBatchHandle, worksheet: WorksheetSummaryDTOClient): Promise<void> {

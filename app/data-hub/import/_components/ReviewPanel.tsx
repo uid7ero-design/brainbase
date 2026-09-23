@@ -135,7 +135,16 @@ export default function ReviewPanel({
 
       <MappingSelector session={session} batch={state.batch} worksheet={state.worksheet} frozenMapping={frozenMapping} />
 
-      <PeriodSelector session={session} worksheet={effectiveWorksheet} onSelected={setPeriodOverride} />
+      {/* Keyed by worksheet id: a different worksheet gets a fresh
+          PeriodSelector, so no pending input, accept/submit busy flag,
+          error, or detection result can carry over from the previous one. */}
+      <PeriodSelector
+        key={state.worksheet.id}
+        session={session}
+        worksheet={effectiveWorksheet}
+        sourceSystemId={state.batch.sourceSystemId}
+        onSelected={setPeriodOverride}
+      />
 
       {state.phase === "confirmationReady" || state.phase === "previewing" ? (
         <div aria-live="polite" aria-busy="true" style={{ fontSize: 13, color: "rgba(249,250,251,.6)", marginTop: 10 }}>

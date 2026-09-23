@@ -796,6 +796,152 @@ function decodeSpreadsheetWorksheet(
   };
 }
 
+// ---------------------------------------------------------------------------
+// Data Hub 6.2C3 — bounded exact-cell-address probe.
+//
+// WHY THIS EXISTS (instead of reusing inspectWorkbook's previewRows): the
+// inspection contract above is NOT an exact cell-address contract.
+// sheet_to_json(ws, { header: 1, blankrows: false }) starts at the sheet's
+// declared !ref origin (which need not be A1) and drops blank rows, so
+// `headers`/`previewRows[0][0]` is "the first cell of the first/second
+// NON-BLANK row of the declared range", never provably "A2". A caller that
+// needs a specific structural cell (e.g. a report heading in A2) must
+// therefore read that address directly — this function does exactly that,
+// under the same safety envelope as inspectWorkbook/decodeWorksheet:
+// size cap -> filename classification -> signature -> (xlsx) archive guard
+// -> sheet-names-only pass + worksheet-count cap -> ONE SheetJS read limited
+// to the requested sheet indices and to `sheetRows` = the deepest requested
+// row (so no operational data row below the probed address is ever
+// materialized).
+//
+// Spreadsheet formats only — a CSV has no worksheet names or cell
+// addresses, and is rejected with UNSUPPORTED_FILE_TYPE rather than
+// guessed at. Only STRING-typed cells return text; any other cell type
+// (number, boolean, date, error, formula without cached string) returns
+// null — a probe is a structural-heading reader, never a value decoder.
+// Text longer than maxCellChars returns null (fail-closed, never
+// truncated into something that might still parse). A requested sheet
+// name that is absent OR appears more than once in the workbook returns
+// null for every probe on it (SheetJS keys wb.Sheets by name — see the
+// duplicate-name note on inspectSpreadsheetWorksheets above).
+// ---------------------------------------------------------------------------
+
+export interface WorkbookCellProbe {
+  /** Exact worksheet name — compared case-sensitively, never trimmed. */
+  sheetName: string;
+  /** A1-style address of a single cell, e.g. "A2". */
+  address: string;
+}
+
+export interface WorkbookCellProbeResult {
+  /** The workbook's worksheet names, in positional order. */
+  sheetNames: string[];
+  /** One entry per requested probe, in request order. */
+  cells: (string | null)[];
+}
+
+export interface ProbeWorkbookCellsOptions {
+  limits?: Partial<Pick<WorkbookLimits, "maxOriginalBytes" | "maxWorksheetCount">>;
+  /** Max characters a probed string cell may contain. Default 200. */
+  maxCellChars?: number;
+}
+
+const DEFAULT_PROBE_MAX_CELL_CHARS = 200;
+// Probes exist to read headings near the top of a sheet — a deep address
+// is a programmer error, not a data problem.
+const MAX_PROBE_ROW = 20;
+const MAX_PROBE_COLUMN = 26;
+const PROBE_ADDRESS_RE = /^[A-Z]{1,2}[1-9][0-9]*$/;
+
+export async function probeWorkbookCells(
+  bytes: Uint8Array,
+  input: WorkbookInput,
+  probes: WorkbookCellProbe[],
+  options: ProbeWorkbookCellsOptions = {}
+): Promise<WorkbookCellProbeResult> {
+  const limits: WorkbookLimits = { ...DEFAULT_WORKBOOK_LIMITS, ...options.limits };
+  validateLimits(limits);
+  const maxCellChars = options.maxCellChars ?? DEFAULT_PROBE_MAX_CELL_CHARS;
+  assertPositiveSafeInteger(maxCellChars, "maxCellChars");
+
+  let deepestRow = 1;
+  for (const probe of probes) {
+    if (!PROBE_ADDRESS_RE.test(probe.address)) {
+      throw new RangeError(`probe address must be a single A1-style cell; received ${JSON.stringify(probe.address)}.`);
+    }
+    const cell = XLSX.utils.decode_cell(probe.address);
+    if (cell.r + 1 > MAX_PROBE_ROW || cell.c + 1 > MAX_PROBE_COLUMN) {
+      throw new RangeError(`probe address ${probe.address} is outside the bounded probe window.`);
+    }
+    deepestRow = Math.max(deepestRow, cell.r + 1);
+  }
+
+  if (bytes.byteLength > limits.maxOriginalBytes) {
+    throw new WorkbookParserError("WORKBOOK_LIMIT_EXCEEDED", "The file exceeds the maximum allowed size.", {
+      limit: "maxOriginalBytes",
+      maximum: limits.maxOriginalBytes,
+      actual: bytes.byteLength,
+    });
+  }
+
+  const format = classifyFormat(input);
+  if (format === "csv") {
+    throw new WorkbookParserError("UNSUPPORTED_FILE_TYPE", "Cell probes are only supported for spreadsheet workbooks.");
+  }
+  validateSignature(format, bytes);
+
+  if (format === "xlsx") {
+    await assertGuardedXlsxArchive(bytes);
+  }
+
+  const sheetNames = readSheetNamesOnly(bytes);
+  assertWorksheetCount(sheetNames, limits);
+
+  const uniqueIndexByName = new Map<string, number>();
+  const duplicateNames = new Set<string>();
+  sheetNames.forEach((name, index) => {
+    if (uniqueIndexByName.has(name)) duplicateNames.add(name);
+    uniqueIndexByName.set(name, index);
+  });
+  for (const name of duplicateNames) uniqueIndexByName.delete(name);
+
+  const wantedIndices = [
+    ...new Set(probes.map((p) => uniqueIndexByName.get(p.sheetName)).filter((i): i is number => i !== undefined)),
+  ];
+  if (wantedIndices.length === 0) {
+    return { sheetNames, cells: probes.map(() => null) };
+  }
+
+  let wb: XLSX.WorkBook;
+  try {
+    wb = xlsxAdapter.read(bytes, {
+      type: "buffer",
+      sheets: wantedIndices,
+      sheetRows: deepestRow,
+      cellDates: true,
+      cellHTML: false,
+    });
+  } catch (err) {
+    throw new WorkbookParserError(
+      "MALFORMED_WORKBOOK",
+      "The file could not be recognized as a valid workbook.",
+      undefined,
+      err
+    );
+  }
+
+  const cells = probes.map((probe) => {
+    if (!uniqueIndexByName.has(probe.sheetName)) return null;
+    const ws = wb.Sheets[probe.sheetName];
+    if (!ws) return null;
+    const cell = ws[probe.address] as XLSX.CellObject | undefined;
+    if (!cell || cell.t !== "s" || typeof cell.v !== "string") return null;
+    return cell.v.length > maxCellChars ? null : cell.v;
+  });
+
+  return { sheetNames, cells };
+}
+
 /**
  * Decodes exactly one worksheet, selected by its authoritative zero-based
  * index. Independent of inspectWorkbook — re-validates format/signature and
