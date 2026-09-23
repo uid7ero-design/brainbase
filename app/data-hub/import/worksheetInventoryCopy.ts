@@ -5,7 +5,7 @@
 import type { WorksheetCanonicalStatusClient, WorksheetVisibilityClient } from "@/lib/data-hub/client/types";
 
 export const INVENTORY_NOT_ENABLED_NOTICE =
-  "Excel workbook import is not enabled yet. This is a structural check of the workbook's worksheets only — no data has been imported.";
+  "Excel worksheet preview is available. Import and confirmation are not enabled.";
 
 export function deriveVisibilityLabel(visibility: WorksheetVisibilityClient): string {
   switch (visibility) {

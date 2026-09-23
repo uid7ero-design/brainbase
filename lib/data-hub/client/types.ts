@@ -689,6 +689,20 @@ export interface WorksheetPreviewDTOClient {
   mapping: WorksheetPreviewMappingSummaryClient | null;
 }
 
+/** Format-neutral, read-only content preview. XLSX responses intentionally
+ * contain no Illegal Dumping mapping, required-header, or domain semantics. */
+export interface WorksheetContentPreviewDTOClient {
+  worksheetId: string;
+  worksheetName: string;
+  worksheetIndex: number;
+  rowCount: number;
+  columnCount: number;
+  headers: string[];
+  sampleRows: string[][];
+  sampleRowCount: number;
+  truncated: boolean;
+}
+
 export type PreviewFailureCodeClient =
   | "WORKSHEET_NOT_FOUND"
   | "WORKSHEET_NOT_ELIGIBLE"
@@ -709,7 +723,7 @@ export type PreviewFailureCodeClient =
   | "MAPPING_DOCUMENT_INVALID";
 
 export type WorksheetPreviewResponseBody =
-  | { ok: true; preview: WorksheetPreviewDTOClient }
+  | { ok: true; preview: WorksheetPreviewDTOClient | WorksheetContentPreviewDTOClient }
   | { ok: false; error: string; code?: PreviewFailureCodeClient };
 
 export type WorksheetPreviewResult = TransportResult<WorksheetPreviewResponseBody>;

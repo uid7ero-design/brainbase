@@ -74,6 +74,7 @@ import type {
   PeriodDetectionClient,
   PersistedFailureCodeClient,
   WorksheetDescriptorClient,
+  WorksheetContentPreviewDTOClient,
   WorksheetPreviewDTOClient,
   WorksheetSummaryDTOClient,
 } from "./types";
@@ -235,7 +236,10 @@ export type DataHubImportState =
    * loadPeriodDetection() and acceptDetectedPeriod() all throw from here,
    * exactly like every other phase they do not recognize. No worksheet is
    * ever auto-picked from `worksheets`, including a single-sheet workbook. */
-  | { phase: "worksheetInventoryReady"; batch: ImportBatchHandle; worksheets: WorksheetSummaryDTOClient[] };
+  | { phase: "worksheetInventoryReady"; batch: ImportBatchHandle; worksheets: WorksheetSummaryDTOClient[] }
+  | { phase: "xlsxWorksheetPreviewing"; batch: ImportBatchHandle; worksheets: WorksheetSummaryDTOClient[]; worksheet: WorksheetSummaryDTOClient }
+  | { phase: "xlsxWorksheetPreviewReady"; batch: ImportBatchHandle; worksheets: WorksheetSummaryDTOClient[]; worksheet: WorksheetSummaryDTOClient; preview: WorksheetContentPreviewDTOClient }
+  | { phase: "xlsxWorksheetPreviewFailed"; batch: ImportBatchHandle; worksheets: WorksheetSummaryDTOClient[]; worksheet: WorksheetSummaryDTOClient; code: string; message: string };
 
 export interface StartImportOptions {
   expectedSha256?: string;
@@ -285,6 +289,9 @@ export class DataHubIllegalDumpingImportSession {
    * own observable behavior for a caller that never calls
    * `resumeFromBatchId()`. */
   private resumeGeneration = 0;
+  /** Monotonic fence for XLSX preview requests. Back navigation, a newer
+   * selection, start(), and dispose() invalidate every older continuation. */
+  private xlsxPreviewGeneration = 0;
 
   constructor(config: DataHubOrchestratorConfig = {}) {
     this.config = config;
@@ -303,6 +310,7 @@ export class DataHubIllegalDumpingImportSession {
 
   dispose(): void {
     this.disposed = true;
+    this.xlsxPreviewGeneration++;
     this.uploadAbortController?.abort();
     this.listeners.clear();
   }
@@ -326,6 +334,7 @@ export class DataHubIllegalDumpingImportSession {
     // resumeFromBatchId() recovery — see resumeGeneration's own comment.
     // No effect on this method's own behavior otherwise.
     this.resumeGeneration++;
+    this.xlsxPreviewGeneration++;
     this.idempotencyKey = options.idempotencyKey ?? this.genKey();
     this.currentFile = file;
     // Captured once, for the lifetime of this batch — see
@@ -815,6 +824,49 @@ export class DataHubIllegalDumpingImportSession {
     this.setState({ phase: "worksheetInventoryReady", batch, worksheets: ordered });
   }
 
+  async previewXlsxWorksheet(worksheetId: string): Promise<void> {
+    if (
+      this.state.phase !== "worksheetInventoryReady" &&
+      this.state.phase !== "xlsxWorksheetPreviewing" &&
+      this.state.phase !== "xlsxWorksheetPreviewReady" &&
+      this.state.phase !== "xlsxWorksheetPreviewFailed"
+    ) {
+      throw new Error(`data-hub client: previewXlsxWorksheet() called from unexpected phase "${this.state.phase}".`);
+    }
+    const { batch, worksheets } = this.state;
+    if (batch.contentType !== "xlsx") throw new Error("data-hub client: XLSX worksheet preview requires an xlsx batch.");
+    const worksheet = worksheets.find((candidate) => candidate.id === worksheetId);
+    if (!worksheet) throw new Error("data-hub client: selected worksheet does not belong to the current inventory.");
+    if (
+      worksheet.worksheetVisibility !== "visible" ||
+      worksheet.worksheetIsEmpty ||
+      worksheet.canonicalStatus !== "AWAITING_CONFIRMATION"
+    ) {
+      throw new Error("data-hub client: selected worksheet is not eligible for preview.");
+    }
+    await this.runXlsxWorksheetPreview(batch, worksheets, worksheet);
+  }
+
+  backToWorksheetInventory(): void {
+    if (
+      this.state.phase !== "xlsxWorksheetPreviewing" &&
+      this.state.phase !== "xlsxWorksheetPreviewReady" &&
+      this.state.phase !== "xlsxWorksheetPreviewFailed"
+    ) {
+      throw new Error(`data-hub client: backToWorksheetInventory() called from unexpected phase "${this.state.phase}".`);
+    }
+    this.xlsxPreviewGeneration++;
+    this.setState({ phase: "worksheetInventoryReady", batch: this.state.batch, worksheets: this.state.worksheets });
+  }
+
+  async retryXlsxWorksheetPreview(): Promise<void> {
+    if (this.state.phase !== "xlsxWorksheetPreviewFailed") {
+      throw new Error(`data-hub client: retryXlsxWorksheetPreview() called from unexpected phase "${this.state.phase}".`);
+    }
+    const { worksheet } = this.state;
+    await this.previewXlsxWorksheet(worksheet.id);
+  }
+
   // Data Hub 6.2D1 — defense in depth behind the phase guards: preview and
   // confirm are CSV-only server-side (previewWorksheet.ts/confirmWorksheet.ts
   // UNSUPPORTED_FORMAT gates), and a non-CSV batch can never reach a review
@@ -1071,7 +1123,52 @@ export class DataHubIllegalDumpingImportSession {
       return;
     }
 
+    if (!("requiredHeadersPresent" in body.preview)) {
+      this.setState({ phase: "previewFailed", batch, worksheet, code: "UNKNOWN", message: "The CSV preview response was invalid." });
+      return;
+    }
     this.setState({ phase: "previewReady", batch, worksheet, preview: body.preview });
+  }
+
+  private async runXlsxWorksheetPreview(
+    batch: ImportBatchHandle,
+    worksheets: WorksheetSummaryDTOClient[],
+    worksheet: WorksheetSummaryDTOClient
+  ): Promise<void> {
+    const myGeneration = ++this.xlsxPreviewGeneration;
+    this.setState({ phase: "xlsxWorksheetPreviewing", batch, worksheets, worksheet });
+    const result = await callFetchWorksheetPreview(worksheet.id, this.config);
+    if (this.disposed || myGeneration !== this.xlsxPreviewGeneration) return;
+    if (result.kind !== "response") {
+      this.setState({
+        phase: "xlsxWorksheetPreviewFailed",
+        batch,
+        worksheets,
+        worksheet,
+        code: "NETWORK",
+        message: result.kind === "networkUncertain" ? result.message : "The preview response could not be parsed.",
+      });
+      return;
+    }
+    const body = result.body;
+    if (!("ok" in body) || !body.ok) {
+      this.setState({
+        phase: "xlsxWorksheetPreviewFailed",
+        batch,
+        worksheets,
+        worksheet,
+        code: "error" in body ? (body.code ?? "UNKNOWN") : "UNKNOWN",
+        message: "error" in body ? body.error : "The preview failed for an unknown reason.",
+      });
+      return;
+    }
+    // Fail closed on a CSV-shaped (mapping/required-header) body or a body
+    // describing a different worksheet than the one this request selected.
+    if ("requiredHeadersPresent" in body.preview || body.preview.worksheetId !== worksheet.id) {
+      this.setState({ phase: "xlsxWorksheetPreviewFailed", batch, worksheets, worksheet, code: "UNKNOWN", message: "The Excel preview response was invalid." });
+      return;
+    }
+    this.setState({ phase: "xlsxWorksheetPreviewReady", batch, worksheets, worksheet, preview: body.preview });
   }
 
   // -------------------------------------------------------------------
@@ -1211,6 +1308,8 @@ export class DataHubIllegalDumpingImportSession {
   // it — see the independent review's own note on this boundary).
   async resumeFromBatchId(batchId: string): Promise<void> {
     const myGeneration = ++this.resumeGeneration;
+    // A recovery request supersedes any ephemeral XLSX preview in flight.
+    this.xlsxPreviewGeneration++;
     this.setState({ phase: "resumingBatch", batchId });
 
     const result = await callGetImportBatch(batchId, this.config);
