@@ -1,15 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/org";
-import { inspectCsvWorksheet } from "@/lib/data-hub/importBatch/inspectCsvWorksheet";
+import { inspectImportBatch } from "@/lib/data-hub/importBatch/inspectImportBatch";
 
 // Data Hub 5A.2K.2 — the first live HTTP exposure of a Data Hub worksheet
-// inspection path. Wraps the dark, xlsx-free
-// lib/data-hub/importBatch/inspectCsvWorksheet.ts service (CSV-classified
-// batches only) without modifying or duplicating any of its persistence
-// logic. The XLS/XLSX-capable inspectWorksheets.ts (5A.2H.1) remains
-// completely dark — this route never imports it, directly or
-// transitively — see inspectCsvWorksheet.ts's own header comment for why
-// that boundary cannot be achieved by a runtime format check alone.
+// inspection path.
+//
+// Data Hub 6.2D1 — now wraps lib/data-hub/importBatch/inspectImportBatch.ts,
+// which dispatches on the batch's own persisted content_type: csv -> the
+// unchanged xlsx-free inspectCsvWorksheet.ts; xlsx -> the archive-guarded
+// inspectWorksheets.ts (structural worksheet lineage only); xls/anything
+// else -> UNSUPPORTED_FORMAT. This route is therefore the ONE authorized
+// live path through which xlsx/workbookParser is loaded for inspection.
+// XLSX preview and confirm remain CSV-only in their own services — this
+// route cannot make an XLSX worksheet importable.
 //
 // TRUSTED TENANT CONTEXT: identical discipline to every other Data Hub
 // route — organisationId comes exclusively from requireRole("manager")'s
@@ -19,15 +22,15 @@ import { inspectCsvWorksheet } from "@/lib/data-hub/importBatch/inspectCsvWorksh
 // LOAD-BEARING STORAGE AUTHORITY: this route reads NO request body at all
 // (no `req.json()` call anywhere in this file) and accepts NO
 // caller-supplied storage locator, format, or worksheet identity of any
-// kind. The ONLY inputs to inspectCsvWorksheet are the trusted
-// session.organisationId and the path `id` — the storage object that gets
-// inspected is derived EXCLUSIVELY, server-side, from the tenant-scoped
-// ImportBatch row via inspectCsvWorksheet.ts's own
-// buildImportBatchKey(organisationId, importBatchId) call.
+// kind. The ONLY inputs to inspectImportBatch are the trusted
+// session.organisationId and the path `id` — the format that decides
+// dispatch, and the storage object that gets inspected, are both derived
+// EXCLUSIVELY, server-side, from the tenant-scoped ImportBatch row (each
+// delegate's own buildImportBatchKey(organisationId, importBatchId) call).
 //
-// IDEMPOTENCY: inspectCsvWorksheet's own existing-set Case A-E policy is
-// the sole correctness mechanism — this route adds no precheck of its
-// own and simply maps the returned outcome.
+// IDEMPOTENCY: each delegate's own existing-set Case A-E policy is the sole
+// correctness mechanism — this route adds no precheck of its own and
+// simply maps the returned outcome.
 
 const CACHE_HEADERS = { "Cache-Control": "private, no-store" } as const;
 
@@ -46,7 +49,7 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
   const { id } = await params;
 
   try {
-    const result = await inspectCsvWorksheet({ organisationId: session.organisationId, importBatchId: id });
+    const result = await inspectImportBatch({ organisationId: session.organisationId, importBatchId: id });
 
     if (result.ok) {
       return NextResponse.json(
@@ -65,8 +68,13 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
       PARSER_REJECTED: 422,
       PERSISTENCE_CONFLICT: 409,
     };
+    // Data Hub 6.2D1 — `code` is the controlled InspectImportBatchFailureCode
+    // literal (never a raw parser/storage message), already declared as an
+    // optional field of the client's InspectResponseBody, so the client can
+    // tell UNSUPPORTED_FORMAT/PARSER_REJECTED/STORAGE_INTEGRITY_MISMATCH/
+    // PERSISTENCE_CONFLICT apart instead of recording UNKNOWN. Additive only.
     return NextResponse.json(
-      { ok: false, error: result.message },
+      { ok: false, error: result.message, code: result.code },
       { status: statusByCode[result.code], headers: CACHE_HEADERS }
     );
   } catch (err) {

@@ -7,8 +7,16 @@ import { MAX_SOURCE_FILE_BYTES } from "../limits";
 import { inspectWorkbook, WorkbookParserError, type WorksheetVisibility } from "../workbookParser";
 import { getMessageTemplate, type FailureCode } from "./failureTaxonomy";
 
-// Data Hub 5A.2H.1 — worksheet inspection/persistence service (dark,
-// route-free, transport-independent).
+// Data Hub 5A.2H.1 — worksheet inspection/persistence service
+// (transport-independent).
+//
+// Data Hub 6.2D1 — no longer dark. Exactly ONE runtime caller:
+// ./inspectImportBatch.ts, which invokes this service ONLY for a batch whose
+// persisted content_type is "xlsx" (legacy "xls" stays dark in the live
+// flow), and is itself wrapped by the manager-authorized
+// app/api/data-hub/import-batches/[id]/inspect/route.ts. The AUTH BOUNDARY
+// requirements below are satisfied by that route. Structural inspection
+// only — XLSX preview/confirm remain CSV-gated in their own services.
 //
 // AUTH BOUNDARY: exactly the same discipline as initiate.ts/finalize.ts —
 // this function accepts an already-resolved trusted context
@@ -326,9 +334,14 @@ export async function inspectWorksheets(context: InspectWorksheetsTrustedContext
   // nonexistent batch id produce the identical BATCH_NOT_FOUND result. ----
   const batch = await prisma.importBatch.findUnique({
     where: { id_organisation_id: { id: importBatchId, organisation_id: organisationId } },
-    select: { status: true, original_filename: true, content_type: true, sha256: true },
+    select: { status: true, original_filename: true, content_type: true, sha256: true, deleted_at: true },
   });
-  if (!batch) {
+  // Data Hub 6.2D1 — a tombstoned batch is BATCH_NOT_FOUND here too, exactly
+  // as inspectCsvWorksheet.ts/previewWorksheet.ts/confirmWorksheet.ts already
+  // treat it. Re-checked by THIS service's own read (not merely trusted from
+  // inspectImportBatch.ts's earlier lookup), so a tombstone landing between
+  // the dispatcher's read and this one still never reaches storage.
+  if (!batch || batch.deleted_at !== null) {
     return fail("BATCH_NOT_FOUND");
   }
   if (batch.status !== "READY") {

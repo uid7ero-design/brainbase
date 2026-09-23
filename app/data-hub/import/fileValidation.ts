@@ -6,9 +6,16 @@
 // CSV-only gate, confirm's header validation) remains the sole authority.
 // This module exists only so the picker can show a helpful warning before a
 // pointless round-trip, never to pretend a file is "valid".
+//
+// Data Hub 6.2D1 — .xlsx is now selectable for STRUCTURAL worksheet
+// inspection only (the server classifies the format itself at initiate and
+// dispatches inspection on that persisted classification; XLSX preview and
+// import remain disabled server-side). Legacy .xls is deliberately NOT
+// offered: the live inspect route treats it as UNSUPPORTED_FORMAT. Nothing
+// here reads file content — only the name and size.
 import { MAX_SOURCE_FILE_BYTES } from "@/lib/data-hub/limits";
 
-const CSV_EXTENSION = /\.csv$/i;
+const SUPPORTED_EXTENSION = /\.(csv|xlsx)$/i;
 
 export interface FileSelectionAdvisory {
   /** True iff no warnings were produced. Never used to block start(). */
@@ -19,8 +26,8 @@ export interface FileSelectionAdvisory {
 export function validateSelectedFile(file: File): FileSelectionAdvisory {
   const warnings: string[] = [];
 
-  if (!CSV_EXTENSION.test(file.name)) {
-    warnings.push("This doesn't look like a .csv file. Only CSV files are supported.");
+  if (!SUPPORTED_EXTENSION.test(file.name)) {
+    warnings.push("This doesn't look like a .csv or .xlsx file. Only CSV and Excel (.xlsx) files are supported.");
   }
 
   if (file.size === 0) {
@@ -33,4 +40,4 @@ export function validateSelectedFile(file: File): FileSelectionAdvisory {
   return { ok: warnings.length === 0, warnings };
 }
 
-export const FILE_INPUT_ACCEPT = ".csv,text/csv";
+export const FILE_INPUT_ACCEPT = ".csv,text/csv,.xlsx";

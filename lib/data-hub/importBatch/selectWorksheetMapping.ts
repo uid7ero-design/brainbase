@@ -139,10 +139,22 @@ export async function selectWorksheetMapping(
     // sole authoritative source lineage for every worksheet under it. ----
     const batch = await tx.importBatch.findUnique({
       where: { id_organisation_id: { id: worksheet.import_batch_id, organisation_id: organisationId } },
-      select: { source_system_id: true },
+      select: { source_system_id: true, content_type: true },
     });
     if (!batch) {
       return fail("WORKSHEET_NOT_FOUND");
+    }
+
+    // ---- Step 3a — Data Hub 6.2D1 format gate. XLSX worksheets now exist
+    // live (structural inspection, AWAITING_CONFIRMATION for visible
+    // non-empty sheets), but XLSX preview/confirm are not enabled, so a
+    // frozen mapping lineage on one would be a write with no governed
+    // consumer. Rejected on the batch's own persisted content_type, BEFORE
+    // any SourceSystem/SourceMapping read and before the Upload write —
+    // zero writes. The same CSV-only rule previewWorksheet.ts and
+    // confirmWorksheet.ts already apply. ----
+    if (batch.content_type !== "csv") {
+      return fail("UNSUPPORTED_FORMAT");
     }
 
     // ---- Step 4 — NULL-source policy (5B.4 architecture decision, not an

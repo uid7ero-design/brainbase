@@ -250,7 +250,7 @@ function worksheetRow(overrides: Partial<Record<string, unknown>> = {}) {
   return { id: "worksheet-1", import_batch_id: "batch-1", canonical_status: "AWAITING_CONFIRMATION", ...overrides };
 }
 function batchRow(overrides: Partial<Record<string, unknown>> = {}) {
-  return { source_system_id: "source-1", ...overrides };
+  return { source_system_id: "source-1", content_type: "csv", ...overrides };
 }
 function sourceSystemRow(overrides: Partial<Record<string, unknown>> = {}) {
   return { active: true, ...overrides };
@@ -341,6 +341,30 @@ describe("selectWorksheetMapping — T7-T11 worksheet/batch lineage", () => {
     importBatchFindUniqueMock.mockResolvedValue(null);
     const result = await selectWorksheetMapping({ organisationId: "org-1", worksheetUploadId: "worksheet-1", sourceMappingId: "mapping-1" });
     expect(result).toMatchObject({ ok: false, code: "WORKSHEET_NOT_FOUND" });
+  });
+});
+
+// Data Hub 6.2D1 — XLSX worksheets now exist live (structural inspection
+// only); mapping lineage is CSV-only until XLSX preview/confirm exist.
+describe("selectWorksheetMapping — 6.2D1 CSV-only format gate", () => {
+  it.each(["xlsx", "xls", "pdf", ""])("parent batch content_type %j -> UNSUPPORTED_FORMAT, zero writes, no SourceSystem/SourceMapping read", async (content_type) => {
+    const { selectWorksheetMapping } = await freshService();
+    findFirstMock.mockResolvedValue(worksheetRow());
+    importBatchFindUniqueMock.mockResolvedValue(batchRow({ content_type }));
+    const result = await selectWorksheetMapping({ organisationId: "org-1", worksheetUploadId: "worksheet-1", sourceMappingId: "mapping-1" });
+    expect(result).toMatchObject({ ok: false, code: "UNSUPPORTED_FORMAT" });
+    expect(sourceSystemFindUniqueMock).not.toHaveBeenCalled();
+    expect(sourceMappingFindUniqueMock).not.toHaveBeenCalled();
+    expect(updateManyMock).not.toHaveBeenCalled();
+  });
+
+  it("the gate reads content_type from the batch row and sits before the Upload write in source", () => {
+    const code = stripComments(read(SERVICE_PATH));
+    expect(code).toMatch(/select:\s*\{\s*source_system_id:\s*true,\s*content_type:\s*true\s*\}/);
+    const gate = code.indexOf('if (batch.content_type !== "csv") {');
+    expect(gate).toBeGreaterThan(-1);
+    expect(gate).toBeLessThan(code.indexOf("tx.sourceSystem.findUnique"));
+    expect(gate).toBeLessThan(code.indexOf("tx.upload.updateMany"));
   });
 });
 

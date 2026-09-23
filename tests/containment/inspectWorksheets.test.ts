@@ -57,7 +57,12 @@ describe("lib/data-hub/importBatch/ — no barrel/index.ts (re-confirmed here, S
   });
 });
 
-describe("inspectWorksheets — repo-wide, no runtime caller exists yet (Step 20, self-contained re-check)", () => {
+// Data Hub 6.2D1 — no longer dark: its ONE runtime caller is
+// lib/data-hub/importBatch/inspectImportBatch.ts (xlsx only), proven as an
+// exact repo-wide importer set in dataHubXlsxStructuralInspection.test.ts.
+// This re-check keeps its original, still-true half: nothing under app/**
+// or components/** imports it directly.
+describe("inspectWorksheets — repo-wide, no direct app/components importer (Step 20, self-contained re-check)", () => {
   const ROOT = process.cwd();
   function walk(dir: string, exts: string[]): string[] {
     const results: string[] = [];
@@ -282,6 +287,7 @@ function readyBatchRow(overrides: Partial<Record<string, unknown>> = {}) {
     original_filename: "data.csv",
     content_type: "csv",
     sha256: null as string | null,
+    deleted_at: null as Date | null,
     ...overrides,
   };
 }

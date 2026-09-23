@@ -30,11 +30,17 @@ function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 }
 
+// Data Hub 6.2D1 — contentType is "csv": the orchestrator now routes EVERY
+// non-CSV batch to the structural worksheetInventoryReady state, so an XLSX
+// batch can no longer reach confirmationReady (the Review phase this file
+// exercises). Every detection response below is mocked, so these
+// client-side wiring tests are format-independent; the server-side XLSX
+// detection proofs live in reportingPeriodReviewWiring.test.ts, unchanged.
 const FAKE_BATCH = {
   id: "b1",
   status: "READY" as const,
-  originalFilename: "City of Onkaparinga-Month-June-2026.xlsx",
-  contentType: "xlsx",
+  originalFilename: "City of Onkaparinga-Month-June-2026.csv",
+  contentType: "csv",
   sizeBytes: 10,
   sourceSystemId: "sys-1",
 };
