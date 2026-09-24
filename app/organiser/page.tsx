@@ -654,13 +654,14 @@ function ColumnOptionsEditor({ column, onSave, onClose }: { column: OrganiserCol
 // ── ITEM ROW ─────────────────────────────────────────────────────────────────
 
 function ItemRow({
-  item, depth, columns, onUpdate, onDelete, onOpenDrawer, hasChildren, collapsed, onToggleCollapse, saveStatus,
+  item, depth, columns, onUpdate, onDelete, onOpenDrawer, hasChildren, collapsed, onToggleCollapse, saveStatus, onItemDragHandleStart,
 }: {
   item: OrganiserItem; depth: number; columns: OrganiserColumn[];
   onUpdate: (id: string, patch: Record<string, unknown>) => void;
   onDelete: (id: string) => void;
   onOpenDrawer: (item: OrganiserItem) => void;
   hasChildren: boolean; collapsed: boolean; onToggleCollapse: () => void;
+  onItemDragHandleStart?: () => void;
   // D.4.7B — keyed by `item:<id>:<field>`, same convention as ItemDrawer's
   // Field-level indicators; only this row's own item id's entries are
   // ever relevant, looked up per field below.
@@ -683,6 +684,17 @@ function ItemRow({
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+        {onItemDragHandleStart && (
+          <span
+            draggable
+            onDragStart={e => { e.dataTransfer.effectAllowed = "move"; onItemDragHandleStart(); }}
+            title="Drag to reorder item"
+            aria-label="Reorder item"
+            style={{ width: 12, height: 16, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", cursor: "grab", color: t.ink(.20) }}
+          >
+            <svg width="8" height="12" viewBox="0 0 8 12" fill="currentColor"><circle cx="2" cy="2" r="1.2" /><circle cx="6" cy="2" r="1.2" /><circle cx="2" cy="6" r="1.2" /><circle cx="6" cy="6" r="1.2" /><circle cx="2" cy="10" r="1.2" /><circle cx="6" cy="10" r="1.2" /></svg>
+          </span>
+        )}
         {hasChildren ? (
           <button
             onClick={onToggleCollapse}
@@ -785,7 +797,7 @@ function ItemRow({
 
 function GroupSection({
   group, items, columns, onUpdateItem, onDeleteItem, onAddItem, onOpenDrawer, onRenameGroup, onDeleteGroup,
-  onAddColumn, onRenameColumn, onDeleteColumn, onEditColumnOptions, saveStatus, onGroupDragHandleStart,
+  onAddColumn, onRenameColumn, onDeleteColumn, onEditColumnOptions, saveStatus, onGroupDragHandleStart, onReorderTopLevelItems,
 }: {
   group: OrganiserGroup | null; items: OrganiserItem[]; columns: OrganiserColumn[];
   onUpdateItem: (id: string, patch: Record<string, unknown>) => void;
@@ -804,6 +816,7 @@ function GroupSection({
   // its own, so it must never become a drag source or be counted as part
   // of the reorderable scope. Only present for a real group.
   onGroupDragHandleStart?: () => void;
+  onReorderTopLevelItems: (groupId: string | null, orderedItemIds: string[]) => void;
 }) {
   const t = useOpsTheme();
   const [open, setOpen] = useState(true);
@@ -813,6 +826,28 @@ function GroupSection({
     .filter(i => i.group_id === (group?.id ?? null) && !i.parent_item_id)
     .sort((a, b) => a.position - b.position);
   const childrenOf = (parentId: string) => items.filter(i => i.parent_item_id === parentId).sort((a, b) => a.position - b.position);
+  const [draggingItemId, setDraggingItemId] = useState<string | null>(null);
+
+  function handleTopLevelItemDrop(targetItemId: string) {
+    const draggedId = draggingItemId;
+    setDraggingItemId(null);
+    if (!draggedId || draggedId === targetItemId) return;
+    const currentIds = topLevel.map(i => i.id);
+    if (!currentIds.includes(draggedId)) return;
+    const without = currentIds.filter(id => id !== draggedId);
+    const targetIndex = without.indexOf(targetItemId);
+    if (targetIndex === -1) return;
+    onReorderTopLevelItems(group?.id ?? null, [...without.slice(0, targetIndex), draggedId, ...without.slice(targetIndex)]);
+  }
+
+  function handleTopLevelItemDropAtEnd() {
+    const draggedId = draggingItemId;
+    setDraggingItemId(null);
+    if (!draggedId) return;
+    const currentIds = topLevel.map(i => i.id);
+    if (!currentIds.includes(draggedId) || currentIds[currentIds.length - 1] === draggedId) return;
+    onReorderTopLevelItems(group?.id ?? null, [...currentIds.filter(id => id !== draggedId), draggedId]);
+  }
 
   const color = group?.color || "#8B5CF6";
 
@@ -868,13 +903,18 @@ function GroupSection({
             const kids = childrenOf(item.id);
             const collapsed = collapsedParents.has(item.id);
             return (
-              <React.Fragment key={item.id}>
+              <div
+                key={item.id}
+                onDragOver={e => { if (draggingItemId) e.preventDefault(); }}
+                onDrop={e => { e.preventDefault(); handleTopLevelItemDrop(item.id); }}
+              >
                 <ItemRow
                   item={item} depth={0} columns={columns}
                   onUpdate={onUpdateItem} onDelete={onDeleteItem} onOpenDrawer={onOpenDrawer}
                   hasChildren={kids.length > 0} collapsed={collapsed}
                   onToggleCollapse={() => setCollapsedParents(prev => { const n = new Set(prev); n.has(item.id) ? n.delete(item.id) : n.add(item.id); return n; })}
                   saveStatus={saveStatus}
+                  onItemDragHandleStart={() => setDraggingItemId(item.id)}
                 />
                 {!collapsed && kids.map(child => (
                   <ItemRow
@@ -887,9 +927,25 @@ function GroupSection({
                 {!collapsed && (
                   <AddItemRow indent onAdd={name => onAddItem(name, group?.id ?? null, item.id)} />
                 )}
-              </React.Fragment>
+              </div>
             );
           })}
+          {topLevel.length > 0 && (
+            <div
+              onDragOver={e => { if (draggingItemId) e.preventDefault(); }}
+              onDrop={e => { e.preventDefault(); handleTopLevelItemDropAtEnd(); }}
+              title="Move item to end"
+              aria-label="Move item to end"
+              style={{
+                height: draggingItemId ? 10 : 0,
+                borderRadius: 5,
+                border: draggingItemId ? `1px dashed ${t.ink(.18)}` : "none",
+                background: draggingItemId ? t.ink(.025) : "transparent",
+                pointerEvents: draggingItemId ? "auto" : "none",
+                transition: "height .12s",
+              }}
+            />
+          )}
           <AddItemRow onAdd={name => onAddItem(name, group?.id ?? null, null)} />
         </div>
       )}
@@ -2074,6 +2130,75 @@ function OrganiserPageContent() {
   // item is fabricated here — the server remains the sole source of the
   // new item's id/position/timestamps, exactly as before; this change is
   // purely "stop pretending every POST succeeded."
+  // D.4.7E (Slice E3) - optimistic same-group top-level item reorder.
+  async function reorderTopLevelItems(groupId: string | null, orderedItemIds: string[]) {
+    if (!activeId || !boardData) return;
+    const key = `board:${activeId}:item-order:group:${groupId ?? "none"}`;
+    const preDragScope = boardData.items
+      .filter(i => i.group_id === groupId && !i.parent_item_id)
+      .sort((a, b) => a.position - b.position);
+    let confirmedOrder: string[] | null = null;
+
+    const applyOrder = (prev: BoardData | null, order: string[]) => {
+      if (!prev) return prev;
+      const posById = new Map(order.map((id, index) => [id, index]));
+      return {
+        ...prev,
+        items: prev.items.map(item =>
+          item.group_id === groupId && !item.parent_item_id && posById.has(item.id)
+            ? { ...item, position: posById.get(item.id)! }
+            : item,
+        ),
+      };
+    };
+
+    setBoardData(prev => applyOrder(prev, orderedItemIds));
+
+    await enqueueCoalesced(reorderQueueRef.current, key, orderedItemIds, async (value, hasNewerPending) => {
+      if (confirmedOrder === null) confirmedOrder = preDragScope.map(i => i.id);
+
+      let res: Response | null = null;
+      try {
+        res = await fetch(`/api/organiser/boards/${activeId}/items/reorder`, {
+          method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include",
+          body: JSON.stringify({ group_id: groupId, ordered_item_ids: value }),
+        });
+      } catch {
+        res = null;
+      }
+
+      if (hasNewerPending()) return;
+
+      if (res && res.status === 409) {
+        showPageNotice("Item order changed elsewhere. Refreshing.");
+        loadBoardData(activeId);
+        return;
+      }
+      if (!res || !res.ok) {
+        showPageNotice("Couldn't save item order. Reverting.");
+        setBoardData(prev => applyOrder(prev, confirmedOrder ?? preDragScope.map(i => i.id)));
+        return;
+      }
+
+      const data = await res.json().catch(() => null) as { order?: { id: string; position: number }[] } | null;
+      if (data?.order) {
+        confirmedOrder = value;
+        const posById = new Map(data.order.map(o => [o.id, o.position]));
+        setBoardData(prev => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            items: prev.items.map(item =>
+              item.group_id === groupId && !item.parent_item_id && posById.has(item.id)
+                ? { ...item, position: posById.get(item.id)! }
+                : item,
+            ),
+          };
+        });
+      }
+    });
+  }
+
   async function addItem(name: string, groupId: string | null, parentItemId: string | null): Promise<boolean> {
     if (!activeId) return false;
     try {
@@ -2414,6 +2539,7 @@ function OrganiserPageContent() {
                         onAddColumn={addColumn} onRenameColumn={renameColumn} onDeleteColumn={deleteColumn} onEditColumnOptions={setEditingColumn}
                         saveStatus={saveStatus}
                         onGroupDragHandleStart={() => setDraggingGroupId(g.id)}
+                        onReorderTopLevelItems={reorderTopLevelItems}
                       />
                     </div>
                   ))}
@@ -2455,6 +2581,7 @@ function OrganiserPageContent() {
                       onOpenDrawer={openDrawerForItem} onRenameGroup={renameGroup} onDeleteGroup={deleteGroup}
                       onAddColumn={addColumn} onRenameColumn={renameColumn} onDeleteColumn={deleteColumn} onEditColumnOptions={setEditingColumn}
                       saveStatus={saveStatus}
+                      onReorderTopLevelItems={reorderTopLevelItems}
                     />
                   )}
 
