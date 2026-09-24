@@ -141,13 +141,28 @@ export async function applyResendDeliveryWebhookEvent(params: {
     INSERT INTO audit_logs (id, organisation_id, user_id, action, resource_type, resource_id, before_state, after_state)
     SELECT gen_random_uuid()::text, organisation_id, NULL, ${auditAction}, 'event_order', order_id,
       NULL,
+      -- Every value argument here needs an explicit ::text cast.
+      -- jsonb_build_object is VARIADIC "any" — a bound parameter whose
+      -- ONLY appearance in the statement is as an argument to a
+      -- polymorphic/"any"-typed function gives Postgres nothing to
+      -- infer its type from, which is a hard parse-time error under
+      -- the extended query protocol (42P18 "could not determine data
+      -- type of parameter"), not a soft runtime issue — confirmed via
+      -- a real-Postgres reproduction, since a plain EXPLAIN against
+      -- literal-substituted SQL text never exercises real parameter
+      -- binding and cannot catch this class of bug. outcome already
+      -- gets a concrete type from its OTHER, unambiguous appearances
+      -- earlier in this same statement (e.g. the SET delivery_status
+      -- assignment against a text column) — that has no bearing on
+      -- this separate occurrence, since each interpolation is its own
+      -- independent parameter placeholder.
       jsonb_build_object(
         'source', 'resend_webhook',
-        'delivery_status', ${outcome},
-        'provider_message_id', ${providerMessageId},
+        'delivery_status', ${outcome}::text,
+        'provider_message_id', ${providerMessageId}::text,
         'send_source', send_source,
-        'event_type', ${eventType},
-        'event_at', ${eventCreatedAt}
+        'event_type', ${eventType}::text,
+        'event_at', ${eventCreatedAt}::text
       )
     FROM updated
     RETURNING resource_id
