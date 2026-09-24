@@ -308,7 +308,10 @@ describe('scripts/create-import-batches.sql — ensure_* drift-safety design (5A
     // any OTHER new ImportBatch column still fails loudly unless it is
     // either covered by this file or added to this explicit exclusion
     // list with the same justification.
-    const columnsOwnedByOtherMigrations = new Set(['source_system_id'])
+    // Data Hub 6.2D3A — dataset_type_id / source_schema_version_id are
+    // likewise owned by scripts/create-datahub-source-schema-profiles.sql
+    // (covered by tests/containment/dataHubSourceSchemaProfilesSchema.test.ts).
+    const columnsOwnedByOtherMigrations = new Set(['source_system_id', 'dataset_type_id', 'source_schema_version_id'])
     const block = blockScope(SCHEMA, 'model ImportBatch {', '@@map("import_batches")')
     const columns = block
       .split('\n')
@@ -617,8 +620,10 @@ describe('scripts/create-import-batches.sql — explicit default contracts (5A.2
     // Phase 5B.1 — see the matching exclusion/comment on the sibling
     // "exhaustively covers every ImportBatch column..." test above:
     // source_system_id's default contract is owned by
-    // scripts/create-datahub-source-mappings.sql, not this file.
-    const columnsOwnedByOtherMigrations = new Set(['source_system_id'])
+    // scripts/create-datahub-source-mappings.sql, not this file. Data Hub
+    // 6.2D3A — dataset_type_id / source_schema_version_id: owned by
+    // scripts/create-datahub-source-schema-profiles.sql, same reasoning.
+    const columnsOwnedByOtherMigrations = new Set(['source_system_id', 'dataset_type_id', 'source_schema_version_id'])
     const block = blockScope(SCHEMA, 'model ImportBatch {', '@@map("import_batches")')
     const columns = block
       .split('\n')

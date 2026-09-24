@@ -68,6 +68,12 @@ model Organisation {
   mapping_versions       MappingVersion[]
   source_record_identities   SourceRecordIdentity[]
   source_record_observations SourceRecordObservation[]
+  dataset_types              DatasetType[]
+  source_schema_versions     SourceSchemaVersion[]
+  source_schema_worksheets   SourceSchemaWorksheet[]
+  source_schema_columns      SourceSchemaColumn[]
+  worksheet_mapping_profiles WorksheetMappingProfile[]
+  worksheet_mapping_profile_versions WorksheetMappingProfileVersion[]
 
   // stripe_account_id also carries a UNIQUE constraint in the live SQL
   // — a partial index (WHERE NOT NULL), same "Prisma mirrors, raw SQL
@@ -161,6 +167,10 @@ model User {
   source_systems_created  SourceSystem[]   @relation("SourceSystemCreatedBy")
   source_mappings_created SourceMapping[]  @relation("SourceMappingCreatedBy")
   mapping_versions_created MappingVersion[] @relation("MappingVersionCreatedBy")
+  dataset_types_created    DatasetType[]    @relation("DatasetTypeCreatedBy")
+  source_schema_versions_created SourceSchemaVersion[] @relation("SourceSchemaVersionCreatedBy")
+  worksheet_mapping_profiles_created WorksheetMappingProfile[] @relation("WorksheetMappingProfileCreatedBy")
+  worksheet_mapping_profile_versions_created WorksheetMappingProfileVersion[] @relation("WorksheetMappingProfileVersionCreatedBy")
   organisation      Organisation      @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
 
   @@index([organisation_id])
@@ -273,6 +283,18 @@ model ImportBatch {
   // exposure exists yet — this column is populated only by a later 5B
   // integration slice. See scripts/create-datahub-source-mappings.sql.
   source_system_id        String?
+  // Data Hub 6.2D3A — additive, nullable dataset/source-schema lineage.
+  // NULL for every existing row (zero backfill) and never written by any
+  // runtime path in D3A. Coherence is enforced by the SQL, not by Prisma
+  // (this Prisma version cannot express CHECKs): two implication CHECKs
+  // (import_batches_schema_version_requires_dataset_type_check,
+  // import_batches_dataset_type_requires_source_system_check in
+  // scripts/create-datahub-source-schema-profiles.sql) guarantee that a
+  // non-NULL lineage column always has every column of its composite FK
+  // non-NULL, so MATCH SIMPLE can never skip the FKs below. Do not weaken
+  // the SQL to compensate; this comment is documentation only.
+  dataset_type_id          String?
+  source_schema_version_id String?
 
   organisation Organisation  @relation(fields: [organisation_id], references: [id])
   uploader     User?         @relation(fields: [uploaded_by], references: [id], onDelete: SetNull)
@@ -284,6 +306,12 @@ model ImportBatch {
   // carry lineage, it is structurally impossible to reference a
   // SourceSystem belonging to a different organisation_id.
   source_system SourceSystem? @relation(fields: [source_system_id, organisation_id], references: [id, organisation_id])
+  // 6.2D3A — the dataset type must belong to this batch's OWN source
+  // system and tenant (three-column composite FK).
+  dataset_type          DatasetType?         @relation(fields: [dataset_type_id, source_system_id, organisation_id], references: [id, source_system_id, organisation_id])
+  // 6.2D3A — the schema version must belong to this batch's OWN dataset
+  // type and tenant (three-column composite FK).
+  source_schema_version SourceSchemaVersion? @relation(fields: [source_schema_version_id, dataset_type_id, organisation_id], references: [id, dataset_type_id, organisation_id])
 
   // Required by canonical Upload's composite tenant-scoped FK — makes it
   // structurally impossible for a worksheet row to reference another
@@ -489,6 +517,7 @@ model SourceSystem {
   creator         User?           @relation("SourceSystemCreatedBy", fields: [created_by], references: [id], onDelete: SetNull)
   source_mappings SourceMapping[]
   import_batches  ImportBatch[]
+  dataset_types   DatasetType[]
 
   // Required by ImportBatch's and SourceMapping's composite tenant-scoped
   // FKs — makes it structurally impossible for either to reference a
@@ -608,6 +637,237 @@ model MappingVersion {
   @@index([organisation_id])
   @@index([source_mapping_id])
   @@map("mapping_versions")
+}
+
+// Data Hub 6.2D3A — additive source-schema + worksheet mapping profile
+// FOUNDATION (schema-only; zero runtime behavior change). No service,
+// route, admin UI or validator reads or writes any model below in this
+// slice; XLSX mapping selection, confirmation and canonical import remain
+// disabled by their own unchanged CSV-only gates.
+//
+// SourceSystem -> DatasetType -> SourceSchemaVersion ->
+// SourceSchemaWorksheet -> SourceSchemaColumn describes what a source's
+// files LOOK like. WorksheetMappingProfile -> immutable
+// WorksheetMappingProfileVersion describes how ONE worksheet of one schema
+// version is TREATED. The two are versioned independently (a treatment
+// correction is not a new source schema, and a new source schema does not
+// by itself say how its sheets are treated). Deliberately NOT a reuse of
+// SourceMapping/MappingVersion above, whose mapping_document is the
+// Illegal-Dumping canonical-field MappingDocument — that model and its
+// consumers are untouched.
+//
+// Every parent/child and lineage relation is a composite tenant-scoped FK
+// with NO ACTION on delete (deactivate/retire-not-delete; no hard-delete
+// API exists); created_by actor FKs are SET NULL. See
+// scripts/create-datahub-source-schema-profiles.sql for the exact,
+// Postgres-verified constraint set, including CHECK allowlists this
+// Prisma version cannot express.
+
+// A tenant-owned, named kind of dataset delivered by one SourceSystem.
+model DatasetType {
+  id               String    @id @default(cuid())
+  organisation_id  String
+  source_system_id String
+  name             String
+  description      String?
+  active           Boolean   @default(true)
+  created_by       String?
+  created_at       DateTime  @default(now())
+  updated_at       DateTime  @updatedAt
+
+  organisation    Organisation          @relation(fields: [organisation_id], references: [id])
+  creator         User?                 @relation("DatasetTypeCreatedBy", fields: [created_by], references: [id], onDelete: SetNull)
+  // Composite tenant-scoped FK — structurally impossible to reference a
+  // SourceSystem belonging to a different organisation_id.
+  source_system   SourceSystem          @relation(fields: [source_system_id, organisation_id], references: [id, organisation_id])
+  schema_versions SourceSchemaVersion[]
+  import_batches  ImportBatch[]
+
+  // Required by SourceSchemaVersion's composite tenant-scoped FK.
+  @@unique([id, organisation_id])
+  // Required by ImportBatch.dataset_type's composite FK — proves a batch's
+  // dataset type belongs to the batch's OWN source system and tenant.
+  @@unique([id, source_system_id, organisation_id])
+  // Scoped to the source system, never global.
+  @@unique([source_system_id, name])
+  @@index([organisation_id])
+  @@index([source_system_id])
+  @@map("dataset_types")
+}
+
+// One versioned description of a dataset's file shape. status is a plain
+// String (DRAFT | ACTIVE | RETIRED via SQL CHECK
+// source_schema_versions_status_check), not an enum — mirrors
+// Upload.lineage_kind's precedent so the lifecycle vocabulary can grow
+// without an ALTER TYPE migration. A second SQL CHECK
+// (source_schema_versions_activation_check) requires DRAFT => activated_at
+// NULL and ACTIVE => activated_at NOT NULL. D3A never activates anything.
+model SourceSchemaVersion {
+  id              String    @id @default(cuid())
+  organisation_id String
+  dataset_type_id String
+  // >= 1 (SQL CHECK), unique per dataset type.
+  version_number  Int
+  label           String
+  status          String    @default("DRAFT")
+  created_by      String?
+  created_at      DateTime  @default(now())
+  activated_at    DateTime?
+
+  organisation   Organisation            @relation(fields: [organisation_id], references: [id])
+  creator        User?                   @relation("SourceSchemaVersionCreatedBy", fields: [created_by], references: [id], onDelete: SetNull)
+  dataset_type   DatasetType             @relation(fields: [dataset_type_id, organisation_id], references: [id, organisation_id])
+  worksheets     SourceSchemaWorksheet[]
+  import_batches ImportBatch[]
+
+  // Required by SourceSchemaWorksheet's composite tenant-scoped FK.
+  @@unique([id, organisation_id])
+  // Required by ImportBatch.source_schema_version's composite FK — proves
+  // a batch's schema version belongs to the batch's OWN dataset type and
+  // tenant.
+  @@unique([id, dataset_type_id, organisation_id])
+  @@unique([dataset_type_id, version_number])
+  @@index([organisation_id])
+  @@index([dataset_type_id])
+  @@map("source_schema_versions")
+}
+
+// One expected worksheet within one schema version. logical_key is the
+// stable semantic identity across versions; expected_name is the sheet
+// name in files of THIS version (unique per version — Excel sheet names
+// are unique; the SQL uniqueness is case-sensitive, so a later writer
+// must also reject case-only duplicates). ordinal_hint is nullable,
+// zero-based and non-unique: a hint only — the parser's worksheet_index
+// is the authoritative runtime position, and position is not stable when
+// OPTIONAL sheets may be absent. presence (REQUIRED | OPTIONAL) and role
+// (DATA | METADATA | SUMMARY) are SQL CHECK allowlists.
+model SourceSchemaWorksheet {
+  id                       String   @id @default(cuid())
+  organisation_id          String
+  source_schema_version_id String
+  logical_key              String
+  expected_name            String
+  ordinal_hint             Int?
+  presence                 String
+  role                     String
+  created_at               DateTime @default(now())
+
+  organisation     Organisation              @relation(fields: [organisation_id], references: [id])
+  schema_version   SourceSchemaVersion       @relation(fields: [source_schema_version_id, organisation_id], references: [id, organisation_id])
+  columns          SourceSchemaColumn[]
+  mapping_profiles WorksheetMappingProfile[]
+
+  // Required by SourceSchemaColumn's and WorksheetMappingProfile's
+  // composite tenant-scoped FKs.
+  @@unique([id, organisation_id])
+  @@unique([source_schema_version_id, logical_key])
+  @@unique([source_schema_version_id, expected_name])
+  @@index([organisation_id])
+  @@index([source_schema_version_id])
+  @@map("source_schema_worksheets")
+}
+
+// One expected column within one expected worksheet. ordinal (zero-based,
+// unique per sheet) is the structural identity. source_header is the
+// literal source header text and is DELIBERATELY not unique per sheet —
+// real exports can repeat header text, and a schema must describe such a
+// source truthfully; a later header matcher must never resolve a
+// duplicated header by name alone. logical_field_key is nullable (no
+// semantics invented where none are known) and not unique in D3A.
+// presence, declared_type (STRING | DATE_TIME | DATE | INTEGER | DECIMAL |
+// BOOLEAN | UNKNOWN) and sensitivity_class (PUBLIC | INTERNAL |
+// CONFIDENTIAL | PERSONALLY_IDENTIFIABLE | HIGHLY_SENSITIVE) are SQL CHECK
+// allowlists; sensitivity_class has no default so classification is
+// always an explicit decision.
+model SourceSchemaColumn {
+  id                         String   @id @default(cuid())
+  organisation_id            String
+  source_schema_worksheet_id String
+  ordinal                    Int
+  source_header              String
+  logical_field_key          String?
+  presence                   String
+  declared_type              String
+  sensitivity_class          String
+  created_at                 DateTime @default(now())
+
+  organisation Organisation          @relation(fields: [organisation_id], references: [id])
+  worksheet    SourceSchemaWorksheet @relation(fields: [source_schema_worksheet_id, organisation_id], references: [id, organisation_id])
+
+  @@unique([id, organisation_id])
+  @@unique([source_schema_worksheet_id, ordinal])
+  @@index([organisation_id])
+  @@index([source_schema_worksheet_id])
+  @@map("source_schema_columns")
+}
+
+// A logical per-worksheet treatment profile bound to ONE
+// SourceSchemaWorksheet, pointing at its one active immutable version.
+// Same cycle-safe active-pointer pattern as SourceMapping/MappingVersion:
+// the composite FK (active_profile_version_id, id, organisation_id) ->
+// WorksheetMappingProfileVersion(id, worksheet_mapping_profile_id,
+// organisation_id) is structurally unable to point at another profile's
+// or another tenant's version. Nullable and never populated in D3A.
+model WorksheetMappingProfile {
+  id                         String   @id @default(cuid())
+  organisation_id            String
+  source_schema_worksheet_id String
+  name                       String
+  active                     Boolean  @default(true)
+  active_profile_version_id  String?
+  created_by                 String?
+  created_at                 DateTime @default(now())
+  updated_at                 DateTime @updatedAt
+
+  organisation   Organisation                     @relation(fields: [organisation_id], references: [id])
+  creator        User?                            @relation("WorksheetMappingProfileCreatedBy", fields: [created_by], references: [id], onDelete: SetNull)
+  worksheet      SourceSchemaWorksheet            @relation(fields: [source_schema_worksheet_id, organisation_id], references: [id, organisation_id])
+  versions       WorksheetMappingProfileVersion[] @relation("WorksheetMappingProfileVersions")
+  active_version WorksheetMappingProfileVersion?  @relation("WorksheetMappingProfileActiveVersion", fields: [active_profile_version_id, id, organisation_id], references: [id, worksheet_mapping_profile_id, organisation_id])
+
+  // Required by WorksheetMappingProfileVersion's composite FK.
+  @@unique([id, organisation_id])
+  // Required by Prisma's one-to-one relation validator for active_version
+  // (trivially satisfied — id is the PK); mirrors SourceMapping exactly.
+  @@unique([active_profile_version_id, id, organisation_id])
+  @@unique([source_schema_worksheet_id, name])
+  @@index([organisation_id])
+  @@index([source_schema_worksheet_id])
+  @@map("worksheet_mapping_profiles")
+}
+
+// Immutable, versioned, DECLARATIVE per-worksheet treatment metadata.
+// Created once, never updated in place (process convention, matching
+// MappingVersion). disposition (STAGING_DATASET | METADATA |
+// RECONCILIATION_SUMMARY | IGNORE) is a SQL CHECK allowlist.
+// profile_document is declarative configuration only — never executable
+// code, raw rows, sample values, credentials, secrets, or any flag that
+// enables canonical import; the SQL only guarantees it is a JSON object.
+// D3A adds no validator and no consumer: any later phase that writes or
+// reads it MUST validate it first.
+model WorksheetMappingProfileVersion {
+  id                           String   @id @default(cuid())
+  organisation_id              String
+  worksheet_mapping_profile_id String
+  // >= 1 (SQL CHECK), unique per profile.
+  version_number               Int
+  disposition                  String
+  profile_document             Json
+  created_by                   String?
+  created_at                   DateTime @default(now())
+
+  organisation       Organisation             @relation(fields: [organisation_id], references: [id])
+  creator            User?                    @relation("WorksheetMappingProfileVersionCreatedBy", fields: [created_by], references: [id], onDelete: SetNull)
+  profile            WorksheetMappingProfile  @relation("WorksheetMappingProfileVersions", fields: [worksheet_mapping_profile_id, organisation_id], references: [id, organisation_id])
+  active_for_profile WorksheetMappingProfile? @relation("WorksheetMappingProfileActiveVersion")
+
+  @@unique([id, organisation_id])
+  // Required by WorksheetMappingProfile.active_version's composite FK.
+  @@unique([id, worksheet_mapping_profile_id, organisation_id])
+  @@unique([worksheet_mapping_profile_id, version_number])
+  @@index([organisation_id])
+  @@index([worksheet_mapping_profile_id])
+  @@map("worksheet_mapping_profile_versions")
 }
 
 model DashboardConfig {
