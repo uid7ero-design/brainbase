@@ -73,6 +73,8 @@ import type {
   ListSourceSystemsResult,
   PeriodDetectionClient,
   PersistedFailureCodeClient,
+  WorksheetDescriptorClient,
+  WorksheetContentPreviewDTOClient,
   WorksheetPreviewDTOClient,
   WorksheetSummaryDTOClient,
 } from "./types";
@@ -225,7 +227,19 @@ export type DataHubImportState =
    * worksheet-scoped) — reusing either would misrepresent this state.
    * confirm() does not accept this phase; calling it throws, exactly like
    * every other phase confirm() does not recognize. */
-  | { phase: "worksheetTerminal"; batch: ImportBatchHandle; worksheet: WorksheetSummaryDTOClient; reason: "INELIGIBLE" | "SKIPPED" };
+  | { phase: "worksheetTerminal"; batch: ImportBatchHandle; worksheet: WorksheetSummaryDTOClient; reason: "INELIGIBLE" | "SKIPPED" }
+  /** Data Hub 6.2D1 — the structural worksheet inventory of a NON-CSV
+   * (XLSX) batch, ordered by authoritative worksheetIndex. Terminal for
+   * this phase of the product: XLSX preview/confirm are not enabled, so NO
+   * session method accepts this phase except the read-only paths that
+   * produced it — confirm(), loadPreview(), selectMapping(), selectPeriod(),
+   * loadPeriodDetection() and acceptDetectedPeriod() all throw from here,
+   * exactly like every other phase they do not recognize. No worksheet is
+   * ever auto-picked from `worksheets`, including a single-sheet workbook. */
+  | { phase: "worksheetInventoryReady"; batch: ImportBatchHandle; worksheets: WorksheetSummaryDTOClient[] }
+  | { phase: "xlsxWorksheetPreviewing"; batch: ImportBatchHandle; worksheets: WorksheetSummaryDTOClient[]; worksheet: WorksheetSummaryDTOClient }
+  | { phase: "xlsxWorksheetPreviewReady"; batch: ImportBatchHandle; worksheets: WorksheetSummaryDTOClient[]; worksheet: WorksheetSummaryDTOClient; preview: WorksheetContentPreviewDTOClient }
+  | { phase: "xlsxWorksheetPreviewFailed"; batch: ImportBatchHandle; worksheets: WorksheetSummaryDTOClient[]; worksheet: WorksheetSummaryDTOClient; code: string; message: string };
 
 export interface StartImportOptions {
   expectedSha256?: string;
@@ -275,6 +289,9 @@ export class DataHubIllegalDumpingImportSession {
    * own observable behavior for a caller that never calls
    * `resumeFromBatchId()`. */
   private resumeGeneration = 0;
+  /** Monotonic fence for XLSX preview requests. Back navigation, a newer
+   * selection, start(), and dispose() invalidate every older continuation. */
+  private xlsxPreviewGeneration = 0;
 
   constructor(config: DataHubOrchestratorConfig = {}) {
     this.config = config;
@@ -293,6 +310,7 @@ export class DataHubIllegalDumpingImportSession {
 
   dispose(): void {
     this.disposed = true;
+    this.xlsxPreviewGeneration++;
     this.uploadAbortController?.abort();
     this.listeners.clear();
   }
@@ -316,6 +334,7 @@ export class DataHubIllegalDumpingImportSession {
     // resumeFromBatchId() recovery — see resumeGeneration's own comment.
     // No effect on this method's own behavior otherwise.
     this.resumeGeneration++;
+    this.xlsxPreviewGeneration++;
     this.idempotencyKey = options.idempotencyKey ?? this.genKey();
     this.currentFile = file;
     // Captured once, for the lifetime of this batch — see
@@ -692,8 +711,10 @@ export class DataHubIllegalDumpingImportSession {
     // Step 5 — "obtain worksheet". inspect's own response deliberately
     // carries no `id` (5A.3B-PRE finding #8 / types.ts's own
     // WorksheetDescriptorClient comment) — a second call is required to
-    // recover it. Never skipped, never fabricated.
-    await this.runObtainWorksheet(batch);
+    // recover it. Never skipped, never fabricated. Data Hub 6.2D1: the
+    // freshly-verified descriptors travel with it so a non-CSV inventory is
+    // cross-checked against them (see enterWorksheetInventory).
+    await this.runObtainWorksheet(batch, body.worksheets);
   }
 
   // -------------------------------------------------------------------
@@ -706,7 +727,15 @@ export class DataHubIllegalDumpingImportSession {
     await this.runObtainWorksheet(batch);
   }
 
-  private async runObtainWorksheet(batch: ImportBatchHandle): Promise<void> {
+  private async runObtainWorksheet(batch: ImportBatchHandle, verified?: WorksheetDescriptorClient[]): Promise<void> {
+    // Data Hub 6.2D1 — a non-CSV inventory is only ever shown alongside the
+    // descriptor set a successful inspect just re-derived from the verified
+    // bytes. Without one (retryObtainWorksheet), re-run inspect — its server
+    // exact-set policy is idempotent (zero writes on an exact match).
+    if (batch.contentType !== "csv" && verified === undefined) {
+      await this.runInspect(batch);
+      return;
+    }
     this.setState({ phase: "obtainingWorksheet", batch });
 
     const result = await callListWorksheets(batch.id, this.config);
@@ -724,6 +753,14 @@ export class DataHubIllegalDumpingImportSession {
     }
 
     const worksheets = result.body.worksheets;
+    // Data Hub 6.2D1 — dispatch on the batch's server-classified
+    // contentType (initiate/read responses, never the File object or its
+    // extension). Every non-CSV batch goes to the structural inventory
+    // only; the CSV path below is unchanged.
+    if (batch.contentType !== "csv") {
+      this.enterWorksheetInventory(batch, worksheets, verified ?? []);
+      return;
+    }
     // A CSV-classified batch always yields exactly one worksheet
     // (worksheetIndex 0) per inspectCsvWorksheet.ts's own CSV_WORKSHEET_INDEX
     // constant — this module treats any other count as an honest,
@@ -738,6 +775,107 @@ export class DataHubIllegalDumpingImportSession {
     }
 
     this.setState({ phase: "confirmationReady", batch, worksheet: worksheets[0] });
+  }
+
+  // Data Hub 6.2D1 — the ONLY way into worksheetInventoryReady. Reached
+  // solely from runObtainWorksheet() after a successful inspect in THIS
+  // chain — both the fresh flow and resumeFromBatchId()'s READY recovery
+  // re-run inspect first, so a persisted set is never trusted merely
+  // because it exists: the server re-derives the expected set from the
+  // hash-verified bytes and returns PERSISTENCE_CONFLICT for any partial/
+  // extra/divergent persisted set (inspectFailed, never an inventory). The
+  // listed rows (which carry the ids inspect omits) must then match those
+  // verified descriptors exactly — same count, same indices, same
+  // structural fields — or this is an honest failure. Never collapsed to
+  // worksheets[0]; zero worksheets is never an empty inventory.
+  private enterWorksheetInventory(
+    batch: ImportBatchHandle,
+    worksheets: WorksheetSummaryDTOClient[],
+    verified: WorksheetDescriptorClient[]
+  ): void {
+    if (worksheets.length === 0) {
+      this.setState({ phase: "obtainWorksheetFailed", batch, message: "No worksheets were found for this workbook." });
+      return;
+    }
+    const verifiedByIndex = new Map(verified.map((d) => [d.worksheetIndex, d]));
+    const seen = new Set<number>();
+    const matches =
+      worksheets.length === verified.length &&
+      worksheets.every((w) => {
+        const d = verifiedByIndex.get(w.worksheetIndex);
+        if (!d || seen.has(w.worksheetIndex)) return false;
+        seen.add(w.worksheetIndex);
+        return (
+          d.worksheetName === w.worksheetName &&
+          d.worksheetVisibility === w.worksheetVisibility &&
+          d.worksheetIsEmpty === w.worksheetIsEmpty &&
+          d.canonicalStatus === w.canonicalStatus
+        );
+      });
+    if (!matches) {
+      this.setState({
+        phase: "obtainWorksheetFailed",
+        batch,
+        message: "The stored worksheets for this workbook do not match the file. Start a new import.",
+      });
+      return;
+    }
+    const ordered = [...worksheets].sort((a, b) => a.worksheetIndex - b.worksheetIndex);
+    this.setState({ phase: "worksheetInventoryReady", batch, worksheets: ordered });
+  }
+
+  async previewXlsxWorksheet(worksheetId: string): Promise<void> {
+    if (
+      this.state.phase !== "worksheetInventoryReady" &&
+      this.state.phase !== "xlsxWorksheetPreviewing" &&
+      this.state.phase !== "xlsxWorksheetPreviewReady" &&
+      this.state.phase !== "xlsxWorksheetPreviewFailed"
+    ) {
+      throw new Error(`data-hub client: previewXlsxWorksheet() called from unexpected phase "${this.state.phase}".`);
+    }
+    const { batch, worksheets } = this.state;
+    if (batch.contentType !== "xlsx") throw new Error("data-hub client: XLSX worksheet preview requires an xlsx batch.");
+    const worksheet = worksheets.find((candidate) => candidate.id === worksheetId);
+    if (!worksheet) throw new Error("data-hub client: selected worksheet does not belong to the current inventory.");
+    if (
+      worksheet.worksheetVisibility !== "visible" ||
+      worksheet.worksheetIsEmpty ||
+      worksheet.canonicalStatus !== "AWAITING_CONFIRMATION"
+    ) {
+      throw new Error("data-hub client: selected worksheet is not eligible for preview.");
+    }
+    await this.runXlsxWorksheetPreview(batch, worksheets, worksheet);
+  }
+
+  backToWorksheetInventory(): void {
+    if (
+      this.state.phase !== "xlsxWorksheetPreviewing" &&
+      this.state.phase !== "xlsxWorksheetPreviewReady" &&
+      this.state.phase !== "xlsxWorksheetPreviewFailed"
+    ) {
+      throw new Error(`data-hub client: backToWorksheetInventory() called from unexpected phase "${this.state.phase}".`);
+    }
+    this.xlsxPreviewGeneration++;
+    this.setState({ phase: "worksheetInventoryReady", batch: this.state.batch, worksheets: this.state.worksheets });
+  }
+
+  async retryXlsxWorksheetPreview(): Promise<void> {
+    if (this.state.phase !== "xlsxWorksheetPreviewFailed") {
+      throw new Error(`data-hub client: retryXlsxWorksheetPreview() called from unexpected phase "${this.state.phase}".`);
+    }
+    const { worksheet } = this.state;
+    await this.previewXlsxWorksheet(worksheet.id);
+  }
+
+  // Data Hub 6.2D1 — defense in depth behind the phase guards: preview and
+  // confirm are CSV-only server-side (previewWorksheet.ts/confirmWorksheet.ts
+  // UNSUPPORTED_FORMAT gates), and a non-CSV batch can never reach a review
+  // phase through this class, but if one somehow did, neither request is
+  // ever sent.
+  private assertCsvBatch(batch: ImportBatchHandle, method: string): void {
+    if (batch.contentType !== "csv") {
+      throw new Error(`data-hub client: ${method}() is not supported for a "${batch.contentType}" batch.`);
+    }
   }
 
   // -------------------------------------------------------------------
@@ -758,6 +896,7 @@ export class DataHubIllegalDumpingImportSession {
       throw new Error(`data-hub client: loadPreview() called from unexpected phase "${this.state.phase}".`);
     }
     const { batch, worksheet } = this.state;
+    this.assertCsvBatch(batch, "loadPreview");
     await this.runLoadPreview(batch, worksheet);
   }
 
@@ -984,7 +1123,52 @@ export class DataHubIllegalDumpingImportSession {
       return;
     }
 
+    if (!("requiredHeadersPresent" in body.preview)) {
+      this.setState({ phase: "previewFailed", batch, worksheet, code: "UNKNOWN", message: "The CSV preview response was invalid." });
+      return;
+    }
     this.setState({ phase: "previewReady", batch, worksheet, preview: body.preview });
+  }
+
+  private async runXlsxWorksheetPreview(
+    batch: ImportBatchHandle,
+    worksheets: WorksheetSummaryDTOClient[],
+    worksheet: WorksheetSummaryDTOClient
+  ): Promise<void> {
+    const myGeneration = ++this.xlsxPreviewGeneration;
+    this.setState({ phase: "xlsxWorksheetPreviewing", batch, worksheets, worksheet });
+    const result = await callFetchWorksheetPreview(worksheet.id, this.config);
+    if (this.disposed || myGeneration !== this.xlsxPreviewGeneration) return;
+    if (result.kind !== "response") {
+      this.setState({
+        phase: "xlsxWorksheetPreviewFailed",
+        batch,
+        worksheets,
+        worksheet,
+        code: "NETWORK",
+        message: result.kind === "networkUncertain" ? result.message : "The preview response could not be parsed.",
+      });
+      return;
+    }
+    const body = result.body;
+    if (!("ok" in body) || !body.ok) {
+      this.setState({
+        phase: "xlsxWorksheetPreviewFailed",
+        batch,
+        worksheets,
+        worksheet,
+        code: "error" in body ? (body.code ?? "UNKNOWN") : "UNKNOWN",
+        message: "error" in body ? body.error : "The preview failed for an unknown reason.",
+      });
+      return;
+    }
+    // Fail closed on a CSV-shaped (mapping/required-header) body or a body
+    // describing a different worksheet than the one this request selected.
+    if ("requiredHeadersPresent" in body.preview || body.preview.worksheetId !== worksheet.id) {
+      this.setState({ phase: "xlsxWorksheetPreviewFailed", batch, worksheets, worksheet, code: "UNKNOWN", message: "The Excel preview response was invalid." });
+      return;
+    }
+    this.setState({ phase: "xlsxWorksheetPreviewReady", batch, worksheets, worksheet, preview: body.preview });
   }
 
   // -------------------------------------------------------------------
@@ -1002,6 +1186,7 @@ export class DataHubIllegalDumpingImportSession {
       throw new Error(`data-hub client: confirm() called from unexpected phase "${this.state.phase}".`);
     }
     const { batch, worksheet } = this.state;
+    this.assertCsvBatch(batch, "confirm");
     this.setState({ phase: "confirming", batch, worksheet });
 
     const result = await callConfirmIllegalDumping(worksheet.id, this.config);
@@ -1102,6 +1287,10 @@ export class DataHubIllegalDumpingImportSession {
   //                       the 5A.3D.0 authoritative importedRowCount, 0
   //                       preserved as 0, never fabricated; INELIGIBLE/
   //                       SKIPPED -> worksheetTerminal)
+  //                       Data Hub 6.2D1: for a non-CSV (XLSX) batch with
+  //                       persisted worksheets, re-runs the EXISTING
+  //                       inspect chain (server exact-set re-verification)
+  //                       -> worksheetInventoryReady only on an exact match; never confirmationReady.
   //
   // STALENESS SAFETY: `resumeGeneration` is bumped synchronously before
   // this method's first await, and re-checked (together with `disposed`)
@@ -1119,6 +1308,8 @@ export class DataHubIllegalDumpingImportSession {
   // it — see the independent review's own note on this boundary).
   async resumeFromBatchId(batchId: string): Promise<void> {
     const myGeneration = ++this.resumeGeneration;
+    // A recovery request supersedes any ephemeral XLSX preview in flight.
+    this.xlsxPreviewGeneration++;
     this.setState({ phase: "resumingBatch", batchId });
 
     const result = await callGetImportBatch(batchId, this.config);
@@ -1236,6 +1427,17 @@ export class DataHubIllegalDumpingImportSession {
         lastFailureMessage: detail.lastFailureMessage,
         lastFailureRetryable: detail.lastFailureRetryable,
       });
+      return;
+    }
+    // Data Hub 6.2D1 — an already-inspected non-CSV batch is NEVER restored
+    // from the persisted rows alone: a partial/divergent persisted set must
+    // not be silently shown. Re-run the EXISTING inspect chain instead —
+    // inspectWorksheets.ts re-derives the expected set from the
+    // hash-verified bytes and either matches the persisted set exactly
+    // (Case B, zero writes) or fails PERSISTENCE_CONFLICT; the inventory is
+    // then cross-checked against those verified descriptors.
+    if (batch.contentType !== "csv") {
+      await this.runInspect(batch);
       return;
     }
     if (worksheets.length !== 1) {

@@ -43,11 +43,10 @@ import { getMessageTemplate, type FailureCode } from "./failureTaxonomy";
 // deterministically rejected (UNSUPPORTED_FORMAT), gated BEFORE any
 // storage access, using only trusted persisted ImportBatch.content_type —
 // never a caller-supplied format. This service therefore never attempts
-// to inspect an XLS/XLSX batch even dark; inspectWorksheets.ts (still
-// fully dark, zero runtime caller — see
-// tests/containment/dataHubImportBatchDarkness.test.ts) remains the only
-// path capable of that, and stays that way until a future, separate,
-// explicitly-authorized phase addresses xlsx exposure.
+// to inspect an XLS/XLSX batch; inspectWorksheets.ts remains the only path
+// capable of that. (Data Hub 6.2D1: the live route now reaches both
+// services through ./inspectImportBatch.ts's content_type dispatch — this
+// file's own logic is unchanged and it stays xlsx-free.)
 //
 // PERSISTENCE-SEMANTICS DUPLICATION (deliberate, not an oversight): the
 // existing-set Case A-E idempotency/conflict policy below

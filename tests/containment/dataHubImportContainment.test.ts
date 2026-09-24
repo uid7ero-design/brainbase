@@ -51,12 +51,16 @@ describe("T24/M2/M14: no XLS/XLSX reachability anywhere under app/data-hub/impor
     }
   });
 
-  it("the file input's accept attribute never contains xlsx/xls/spreadsheet MIME types", () => {
+  // Data Hub 6.2D1 — .xlsx is now accepted (server-side structural
+  // inspection only; nothing in the browser parses it — see the test
+  // above). Legacy .xls and spreadsheet MIME types remain excluded.
+  it("the file input's accept attribute allows .xlsx but never legacy .xls or spreadsheet MIME types", () => {
     const code = fs.readFileSync(path.join(IMPORT_DIR, "fileValidation.ts"), "utf8");
     const match = code.match(/FILE_INPUT_ACCEPT\s*=\s*["'`]([^"'`]+)["'`]/);
     expect(match).not.toBeNull();
     const accept = match![1].toLowerCase();
-    expect(accept).not.toMatch(/xlsx|\bxls\b|spreadsheet/);
+    expect(accept.split(",")).toContain(".xlsx");
+    expect(accept).not.toMatch(/\bxls\b|spreadsheet|ms-excel/);
   });
 });
 

@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { useDataHubRecoverySession } from "./useDataHubRecoverySession";
 import { deriveErrorOverlayCopy, isErrorOverlayPhase } from "../screenGroup";
 import ReviewPanel from "../_components/ReviewPanel";
+import WorksheetInventoryPanel from "../_components/WorksheetInventoryPanel";
+import XlsxWorksheetPreviewPanel from "../_components/XlsxWorksheetPreviewPanel";
 import ImportSuccess from "../_components/ImportSuccess";
 import ImportError from "../_components/ImportError";
 import type { ReviewPhase } from "../confirmEligibility";
@@ -73,6 +75,16 @@ function RecoveryBody({
     // worksheet are left exactly as they are; the user can reopen this same
     // batch from history at any time.
     return <ReviewPanel state={state as ReviewPhase} session={session} onRestart={() => router.push("/data-hub/import")} />;
+  }
+
+  // Data Hub 6.2D1 — a recovered XLSX batch's structural inventory. Same
+  // pure-navigation escape as ReviewPanel above; no session handed over.
+  if (state.phase === "worksheetInventoryReady") {
+    return <WorksheetInventoryPanel state={state} onPreview={(id) => void session.previewXlsxWorksheet(id)} onRestart={() => router.push("/data-hub/import")} />;
+  }
+
+  if (state.phase === "xlsxWorksheetPreviewing" || state.phase === "xlsxWorksheetPreviewReady" || state.phase === "xlsxWorksheetPreviewFailed") {
+    return <XlsxWorksheetPreviewPanel state={state} onBack={() => session.backToWorksheetInventory()} onRetry={() => void session.retryXlsxWorksheetPreview()} onRestart={() => router.push("/data-hub/import")} />;
   }
 
   if (state.phase === "confirming") {

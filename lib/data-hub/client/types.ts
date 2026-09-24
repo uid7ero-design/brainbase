@@ -532,7 +532,10 @@ export type ListImportBatchesResult = TransportResult<ListImportBatchesResponseB
 // NO validation output, and (load-bearing for the next step) NO worksheet
 // `id` — see WorksheetDescriptorClient's own comment. Never add a field
 // here that isn't literally present in inspectCsvWorksheet.ts's own
-// PersistedCsvWorksheetDescriptor.
+// PersistedCsvWorksheetDescriptor / inspectWorksheets.ts's own
+// PersistedWorksheetDescriptor (Data Hub 6.2D1: an XLSX batch is inspected
+// via the latter, so visibility may be hidden/veryHidden — CSV is always
+// "visible").
 // ---------------------------------------------------------------------------
 
 export type CsvWorksheetCanonicalStatusClient = "AWAITING_CONFIRMATION" | "INELIGIBLE";
@@ -540,7 +543,7 @@ export type CsvWorksheetCanonicalStatusClient = "AWAITING_CONFIRMATION" | "INELI
 export interface WorksheetDescriptorClient {
   worksheetIndex: number;
   worksheetName: string;
-  worksheetVisibility: "visible";
+  worksheetVisibility: "visible" | "hidden" | "veryHidden";
   worksheetIsEmpty: boolean;
   canonicalStatus: CsvWorksheetCanonicalStatusClient;
 }
@@ -686,6 +689,20 @@ export interface WorksheetPreviewDTOClient {
   mapping: WorksheetPreviewMappingSummaryClient | null;
 }
 
+/** Format-neutral, read-only content preview. XLSX responses intentionally
+ * contain no Illegal Dumping mapping, required-header, or domain semantics. */
+export interface WorksheetContentPreviewDTOClient {
+  worksheetId: string;
+  worksheetName: string;
+  worksheetIndex: number;
+  rowCount: number;
+  columnCount: number;
+  headers: string[];
+  sampleRows: string[][];
+  sampleRowCount: number;
+  truncated: boolean;
+}
+
 export type PreviewFailureCodeClient =
   | "WORKSHEET_NOT_FOUND"
   | "WORKSHEET_NOT_ELIGIBLE"
@@ -706,7 +723,7 @@ export type PreviewFailureCodeClient =
   | "MAPPING_DOCUMENT_INVALID";
 
 export type WorksheetPreviewResponseBody =
-  | { ok: true; preview: WorksheetPreviewDTOClient }
+  | { ok: true; preview: WorksheetPreviewDTOClient | WorksheetContentPreviewDTOClient }
   | { ok: false; error: string; code?: PreviewFailureCodeClient };
 
 export type WorksheetPreviewResult = TransportResult<WorksheetPreviewResponseBody>;

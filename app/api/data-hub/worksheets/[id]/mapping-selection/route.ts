@@ -74,6 +74,9 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
         SOURCE_LINEAGE_REQUIRED: 409,
         SOURCE_MAPPING_UNAVAILABLE: 409,
         INVALID_REQUEST: 400,
+        // Data Hub 6.2D1 — reachable: a non-CSV (XLSX) worksheet is rejected
+        // before any write; 422 matches preview/confirm's own mapping.
+        UNSUPPORTED_FORMAT: 422,
         // The remaining FailureCode union members are unreachable from
         // selectWorksheetMapping's own implementation (verified by direct
         // source read) but are included so this mapping remains exhaustive
@@ -102,7 +105,6 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
         PERSISTENCE_CONFLICT: 500,
         INVALID_CURSOR: 500,
         INVALID_LIMIT: 500,
-        UNSUPPORTED_FORMAT: 500,
         SOURCE_SYSTEM_UNAVAILABLE: 500,
         // 5B.4C — Preview-only codes, unreachable from selectWorksheetMapping.
         MAPPING_LINEAGE_UNAVAILABLE: 500,

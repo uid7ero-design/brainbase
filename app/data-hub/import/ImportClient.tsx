@@ -7,6 +7,8 @@ import FileSelector from "./_components/FileSelector";
 import UploadProgress from "./_components/UploadProgress";
 import ProcessingStatus from "./_components/ProcessingStatus";
 import ReviewPanel from "./_components/ReviewPanel";
+import WorksheetInventoryPanel from "./_components/WorksheetInventoryPanel";
+import XlsxWorksheetPreviewPanel from "./_components/XlsxWorksheetPreviewPanel";
 import ImportSuccess from "./_components/ImportSuccess";
 import ImportError from "./_components/ImportError";
 import ImportHistoryPanel from "./_components/ImportHistoryPanel";
@@ -125,6 +127,17 @@ function ImportFlow({ onRestart }: { onRestart: () => void }) {
             session={session}
             onRestart={onRestart}
           />
+        )}
+
+        {/* Data Hub 6.2D1/6.2D2 — XLSX structural inventory and read-only
+            worksheet preview: never given the session, only narrow
+            preview/back/retry/restart callbacks, so no Confirm, mapping, or
+            period path exists from these screens. */}
+        {screenGroup === "inventory" && state.phase === "worksheetInventoryReady" && (
+          <WorksheetInventoryPanel state={state} onPreview={(id) => void session.previewXlsxWorksheet(id)} onRestart={onRestart} />
+        )}
+        {screenGroup === "xlsxPreview" && (state.phase === "xlsxWorksheetPreviewing" || state.phase === "xlsxWorksheetPreviewReady" || state.phase === "xlsxWorksheetPreviewFailed") && (
+          <XlsxWorksheetPreviewPanel state={state} onBack={() => session.backToWorksheetInventory()} onRetry={() => void session.retryXlsxWorksheetPreview()} onRestart={onRestart} />
         )}
 
         {screenGroup === "confirm" &&

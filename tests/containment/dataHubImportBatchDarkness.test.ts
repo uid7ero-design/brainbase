@@ -100,6 +100,14 @@ const B4B_MAPPING_SELECTION_ROUTE = path.join("app", "api", "data-hub", "workshe
 // route.
 const B621_PERIOD_SELECTION_ROUTE = path.join("app", "api", "data-hub", "worksheets", "[id]", "period-selection", "route.ts");
 
+// 6.2D1 — the K2 inspect route now imports ONLY the new content_type
+// dispatcher (inspectImportBatch.ts), which in turn is the sole runtime
+// caller of BOTH inspectCsvWorksheet.ts and inspectWorksheets.ts (lib-level
+// importers are outside this app/**/components/** scan — see
+// dataHubXlsxStructuralInspection.test.ts's repo-wide exact-importer proof).
+// Consequently inspectCsvWorksheet.ts has NO direct app/** importer any
+// more, and inspectWorksheets.ts still has none.
+
 // 6.1C — the Source configuration admin UI is the FIRST direct
 // app/**/components/** importer of illegalDumpingMapper.ts's canonical
 // field-vocabulary constants (ILLEGAL_DUMPING_KNOWN_HEADERS/
@@ -122,16 +130,19 @@ const AUTHORIZED_IMPORTERS_BY_MODULE: Record<string, Set<string>> = {
   // Explicitly still zero authorized importers each — must remain dark.
   finalizeInternal: new Set(),
   staleReclaim: new Set(),
-  // inspectWorksheets.ts (the XLS/XLSX-capable inspection service) MUST
-  // remain fully dark through 5A.2K.2 — the new live inspection path is
-  // the separate, independent, xlsx-free inspectCsvWorksheet.ts module
-  // below, not this one.
+  // inspectWorksheets.ts (the XLS/XLSX-capable inspection service) — still
+  // ZERO direct app/** importers. 6.2D1: reached at runtime ONLY via
+  // inspectImportBatch.ts, and only for content_type "xlsx".
   inspectWorksheets: new Set(),
   directUploadAuth: new Set(),
   compositionRoot: new Set(),
-  // 5A.2K.2 — the new xlsx-free, CSV-only worksheet inspection service.
-  // Exactly one authorized importer: its own new route.
-  inspectCsvWorksheet: new Set([K2_INSPECT_ROUTE]),
+  // 5A.2K.2 — the xlsx-free, CSV-only worksheet inspection service. 6.2D1:
+  // no longer imported by the route directly — reached only through
+  // inspectImportBatch.ts's csv branch.
+  inspectCsvWorksheet: new Set(),
+  // 6.2D1 — the inspect route's content_type dispatcher. Exactly one
+  // authorized importer: the existing inspect route.
+  inspectImportBatch: new Set([K2_INSPECT_ROUTE]),
   // 5A.2K.1 -> 5A.2K.2 — the dark canonical worksheet-confirmation
   // service and its illegal-dumping row mapper gain their FIRST runtime
   // caller of any kind in this phase: exactly the new confirm route.
@@ -145,7 +156,12 @@ const AUTHORIZED_IMPORTERS_BY_MODULE: Record<string, Set<string>> = {
   illegalDumpingMapper: new Set([C61C_SOURCES_ADMIN_CLIENT, C61C_MAPPING_ROW_VALIDATION]),
   // 5A.3C.0 — the new bounded, read-only CSV worksheet preview service.
   // Exactly one authorized importer: its own new route.
-  previewWorksheet: new Set([C0_PREVIEW_ROUTE]),
+  // 6.2D2 — the route now reaches both format services only through the
+  // trusted previewDataHubWorksheet dispatcher (a lib/ importer, outside
+  // this app/components scan), so neither has a direct app/ importer.
+  previewWorksheet: new Set(),
+  previewXlsxWorksheet: new Set(),
+  previewDataHubWorksheet: new Set([C0_PREVIEW_ROUTE]),
   // 5B.4B — the new dedicated worksheet mapping-selection service. Exactly
   // one authorized importer: its own new route.
   selectWorksheetMapping: new Set([B4B_MAPPING_SELECTION_ROUTE]),
@@ -227,11 +243,14 @@ describe("Data Hub importBatch — no barrel/index.ts anywhere in the new tree",
         "finalizeInternal.ts",
         "staleReclaim.ts",
         // inspectWorksheets.ts (5A.2H.1) — the worksheet inspection/
-        // persistence service. Still dark: no runtime caller exists yet
-        // (see the "no app/** or app/api/** importer" describe block
-        // above, whose regex already covers this file by path-fragment —
-        // this Set is the only edit this phase's darkness proof needs).
+        // persistence service. 6.2D1: live for content_type "xlsx" only,
+        // via inspectImportBatch.ts (its sole runtime importer).
         "inspectWorksheets.ts",
+        // inspectImportBatch.ts (6.2D1) — the inspect route's
+        // content_type dispatcher (csv -> inspectCsvWorksheet, xlsx ->
+        // inspectWorksheets, else UNSUPPORTED_FORMAT). No logic of its own
+        // beyond that dispatch.
+        "inspectImportBatch.ts",
         // read.ts (5A.2H.2) — the dark tenant-safe worksheet/ImportBatch
         // read services (getImportBatch/listImportBatches/getWorksheet/
         // listWorksheetsForBatch). Still dark: no runtime caller exists
@@ -260,6 +279,8 @@ describe("Data Hub importBatch — no barrel/index.ts anywhere in the new tree",
         // exactly one authorized importer, the new preview route — see
         // the AUTHORIZED_IMPORTERS_BY_MODULE map above.
         "previewWorksheet.ts",
+        "previewDataHubWorksheet.ts",
+        "previewXlsxWorksheet.ts",
         // selectWorksheetMapping.ts (5B.4B) — the new dedicated worksheet
         // mapping-selection service. LIVE as of this phase — exactly one
         // authorized importer, the new mapping-selection route — see the

@@ -5,10 +5,11 @@ import type { DataHubIllegalDumpingImportSession } from "@/lib/data-hub/client/o
 import { FILE_INPUT_ACCEPT, validateSelectedFile } from "../fileValidation";
 import { useSourceSystems } from "../useSourceSystems";
 
-// Data Hub 5A.3C.1 — the SELECT screen. Single file, CSV only, advisory-only
-// browser checks (server remains authoritative — see fileValidation.ts).
-// Never parses CSV content, never imports @vercel/blob/client, never
-// imports xlsx/SheetJS/workbookParser.
+// Data Hub 5A.3C.1 — the SELECT screen. Single file, advisory-only browser
+// checks (server remains authoritative — see fileValidation.ts). Never
+// parses file content, never imports @vercel/blob/client, never imports
+// xlsx/SheetJS/workbookParser. Data Hub 6.2D1: CSV or .xlsx (the latter is
+// structurally inspected only — Excel import is not enabled).
 //
 // Data Hub 5B.5A — gained an OPTIONAL SourceSystem selection control. The
 // value chosen here (or "" for none) is threaded into session.start() as
@@ -87,7 +88,8 @@ export default function FileSelector({ session }: { session: DataHubIllegalDumpi
     <div>
       <h1 style={{ fontSize: 20, fontWeight: 600, color: "#f9fafb", marginBottom: 6 }}>Import Illegal Dumping data</h1>
       <p style={{ fontSize: 13, color: "rgba(249,250,251,.55)", marginBottom: 20 }}>
-        Select a CSV file to review and import.
+        Select a CSV file to review and import. Excel (.xlsx) workbooks can be checked for their worksheets, but
+        importing them is not enabled yet.
       </p>
 
       <div style={{ marginBottom: 20 }}>
@@ -157,7 +159,7 @@ export default function FileSelector({ session }: { session: DataHubIllegalDumpi
           htmlFor="data-hub-import-file-input"
           style={{ fontSize: 13, fontWeight: 500, color: "rgba(249,250,251,.85)", cursor: "pointer" }}
         >
-          Choose a CSV file
+          Choose a CSV or Excel (.xlsx) file
         </label>
         <input
           id="data-hub-import-file-input"

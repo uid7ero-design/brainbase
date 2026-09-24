@@ -18,12 +18,17 @@ describe("validateSelectedFile — T3/T4/T5", () => {
     expect(result.warnings).toEqual([]);
   });
 
-  it("T4: a .xlsx file produces an advisory warning, not a hard error/exception", () => {
-    const result = validateSelectedFile(
+  // Data Hub 6.2D1 — .xlsx is selectable (structural inspection only), so
+  // T4's unsupported-type advisory is now exercised with a legacy .xls file,
+  // which stays hidden from the live picker.
+  it("T4 (6.2D1): a .xlsx file produces no warning; a legacy .xls file still produces an advisory warning, not a hard error/exception", () => {
+    const xlsx = validateSelectedFile(
       makeFile("worksheet.xlsx", 1024, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     );
-    expect(result.ok).toBe(false);
-    expect(result.warnings.some((w) => /csv/i.test(w))).toBe(true);
+    expect(xlsx.ok).toBe(true);
+    const xls = validateSelectedFile(makeFile("worksheet.xls", 1024, "application/vnd.ms-excel"));
+    expect(xls.ok).toBe(false);
+    expect(xls.warnings.some((w) => /csv/i.test(w) && /xlsx/i.test(w))).toBe(true);
   });
 
   it("T5: a file larger than MAX_SOURCE_FILE_BYTES produces an oversize advisory", () => {
@@ -38,8 +43,8 @@ describe("validateSelectedFile — T3/T4/T5", () => {
     expect(result.warnings.some((w) => /empty/i.test(w))).toBe(true);
   });
 
-  it("the file input's accept string is CSV-only and never mentions xlsx/xls", () => {
-    expect(FILE_INPUT_ACCEPT.toLowerCase()).toContain("csv");
-    expect(FILE_INPUT_ACCEPT.toLowerCase()).not.toMatch(/xlsx|xls\b|spreadsheet/);
+  it("the file input's accept string is exactly CSV + .xlsx (6.2D1) and never offers legacy .xls or a spreadsheet MIME type", () => {
+    expect(FILE_INPUT_ACCEPT.toLowerCase().split(",").sort()).toEqual([".csv", ".xlsx", "text/csv"]);
+    expect(FILE_INPUT_ACCEPT.toLowerCase()).not.toMatch(/\bxls\b|spreadsheet|ms-excel/);
   });
 });
