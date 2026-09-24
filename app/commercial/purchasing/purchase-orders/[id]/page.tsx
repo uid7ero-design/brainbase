@@ -52,6 +52,14 @@ type PurchaseReceiptSummary = { id: string; receipt_number: string | null; statu
 // Phase C7.4 — linked supplier bills summary (list-shaped, matches
 // GET /api/commercial/purchase-orders/[id]/bills).
 type SupplierBillSummary = { id: string; bill_number: string | null; status: string; supplier_invoice_number: string; due_date: string | null; total_cents: number; created_at: string };
+type ReconciliationLine = {
+  purchaseOrderLineId: string; description: string; orderedQuantity: number; receivedQuantity: number;
+  orderedValueCents: number; billedValueCents: number; reconciliationState: string;
+};
+type Reconciliation = {
+  lineCount: number; fullyReceivedLineCount: number; fullyBilledLineCount: number; reconciledLineCount: number;
+  orderedValueCents: number; billedValueCents: number; status: string; lines: ReconciliationLine[];
+};
 
 // Client-side role check only — UX gating, not enforcement. The real
 // floor is authorizeCommercialRequest('purchasing', COMMERCIAL_MIN_ROLE.createEdit)
@@ -124,19 +132,16 @@ export default function PurchaseOrderDetailPage() {
   const [emailResult, setEmailResult] = useState('');
   const [deliveries, setDeliveries] = useState<Delivery[]>([]);
 
-  // Phase C7.3 — linked purchase receipts + derived received-to-date,
-  // per PO line. Both DERIVED at read time server-side — never a stored
-  // column on this PO or its lines (see lib/commercial/purchaseReceipts.ts's
-  // getReceivedQuantitiesForPurchaseOrder()).
+  // Phase C7.3 — linked purchase-receipt document list. Quantitative
+  // progress now comes from C7.5B's shared reconciliation read model.
   const [receipts, setReceipts] = useState<PurchaseReceiptSummary[]>([]);
-  const [receivedQuantities, setReceivedQuantities] = useState<Record<string, number>>({});
 
-  // Phase C7.4 — linked supplier bills + derived billed-to-date (VALUE,
-  // not quantity), per PO line. Both DERIVED at read time server-side —
-  // never a stored column on this PO or its lines (see lib/commercial/
-  // supplierBills.ts's getBilledAmountsForPurchaseOrder()).
+  // Phase C7.4 — linked supplier-bill document list. Financial progress
+  // now comes from C7.5B's shared reconciliation read model.
   const [supplierBills, setSupplierBills] = useState<SupplierBillSummary[]>([]);
-  const [billedAmounts, setBilledAmounts] = useState<Record<string, number>>({});
+  // Phase C7.5B — one server-derived reconciliation read model. This is
+  // never persisted on the PO/lines and never calculated in the browser.
+  const [reconciliation, setReconciliation] = useState<Reconciliation | null>(null);
 
   // C6.9 remediation — Supporting Documents state.
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -195,20 +200,24 @@ export default function PurchaseOrderDetailPage() {
     const attachmentsRes = await fetch(`/api/commercial/purchase-orders/${id}/attachments`);
     if (attachmentsRes.ok) setAttachments((await attachmentsRes.json()).attachments ?? []);
 
-    // Phase C7.3 — linked purchase receipts + derived received-to-date.
+    // Phase C7.3 — linked purchase-receipt documents.
     const receiptsRes = await fetch(`/api/commercial/purchase-orders/${id}/receipts`);
     if (receiptsRes.ok) {
       const receiptsData = await receiptsRes.json();
       setReceipts(receiptsData.purchaseReceipts ?? []);
-      setReceivedQuantities(receiptsData.receivedQuantities ?? {});
     }
 
-    // Phase C7.4 — linked supplier bills + derived billed-to-date.
+    // Phase C7.4 — linked supplier-bill documents.
     const billsRes = await fetch(`/api/commercial/purchase-orders/${id}/bills`);
     if (billsRes.ok) {
       const billsData = await billsRes.json();
       setSupplierBills(billsData.supplierBills ?? []);
-      setBilledAmounts(billsData.billedAmounts ?? {});
+    }
+
+    const reconciliationRes = await fetch(`/api/commercial/purchase-orders/${id}/reconciliation`);
+    if (reconciliationRes.ok) {
+      const reconciliationData = await reconciliationRes.json();
+      setReconciliation(reconciliationData.reconciliation ?? null);
     }
 
     const [suppliersRes, productsRes, taxCodesRes, meRes] = await Promise.all([
@@ -834,6 +843,34 @@ export default function PurchaseOrderDetailPage() {
         </div>
       </div>
 
+      {/* Phase C7.5B — one derived reconciliation view over the PO plus
+          POSTED receipt/bill facts. This is intentionally a read model:
+          no reconciliation status or progress counters are stored on the
+          PO or PO-line tables. */}
+      {(isIssued || isCancelled) && reconciliation && (
+        <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, marginBottom: 20, padding: '16px 24px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+            <div style={miniLbl}>Reconciliation</div>
+            <div style={{ fontSize: 12, color: reconciliation.status === 'RECONCILED' ? '#34d399' : reconciliation.status === 'EXCEPTION' ? '#f87171' : '#fbbf24' }}>
+              {reconciliation.status.replaceAll('_', ' ')}
+            </div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10, marginBottom: 14 }}>
+            <div style={{ fontSize: 12, color: '#9ca3af' }}>{reconciliation.fullyReceivedLineCount} / {reconciliation.lineCount} lines fully received</div>
+            <div style={{ fontSize: 12, color: '#9ca3af' }}>{reconciliation.fullyBilledLineCount} / {reconciliation.lineCount} lines fully billed</div>
+            <div style={{ fontSize: 12, color: '#9ca3af' }}>{reconciliation.reconciledLineCount} / {reconciliation.lineCount} lines reconciled</div>
+          </div>
+          {reconciliation.lines.map(line => (
+            <div key={line.purchaseOrderLineId} style={{ display: 'grid', gridTemplateColumns: 'minmax(180px, 1.4fr) minmax(130px, 1fr) minmax(180px, 1fr) minmax(120px, .8fr)', gap: 12, alignItems: 'center', padding: '8px 0', borderTop: `1px solid ${BORDER}`, fontSize: 12 }}>
+              <span style={{ color: '#f3f4f6' }}>{line.description}</span>
+              <span style={{ color: '#9ca3af' }}>{line.receivedQuantity} / {line.orderedQuantity} received</span>
+              <span style={{ color: '#9ca3af' }}>{formatMoneyCents(line.billedValueCents, po.currency)} / {formatMoneyCents(line.orderedValueCents, po.currency)} billed</span>
+              <span style={{ color: line.reconciliationState === 'RECONCILED' ? '#34d399' : '#9ca3af', textAlign: 'right' }}>{line.reconciliationState.replaceAll('_', ' ')}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Phase C7.3 — linked Purchase Receipts + derived received-to-
           date. Only shown once the PO has actually been issued (a
           DRAFT/PENDING_APPROVAL/APPROVED PO cannot have any receipts by
@@ -859,17 +896,6 @@ export default function PurchaseOrderDetailPage() {
               <span style={{ color: '#6b7280' }}>{r.status}{r.received_date ? ` · ${r.received_date}` : ''}</span>
             </div>
           ))}
-          {lines.length > 0 && Object.keys(receivedQuantities).length > 0 && (
-            <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${BORDER}` }}>
-              <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 6 }}>Received to date (posted receipts only)</div>
-              {lines.map(l => (
-                <div key={l.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#9ca3af', padding: '3px 0' }}>
-                  <span>{l.description_snapshot}</span>
-                  <span>{receivedQuantities[l.id] ?? 0} / {l.quantity}</span>
-                </div>
-              ))}
-            </div>
-          )}
         </div>
       )}
 
@@ -897,17 +923,6 @@ export default function PurchaseOrderDetailPage() {
               <span style={{ color: '#6b7280' }}>{b.status}{b.status === 'POSTED' ? ` · ${formatMoneyCents(b.total_cents, po.currency)}` : ''}</span>
             </div>
           ))}
-          {lines.length > 0 && Object.keys(billedAmounts).length > 0 && (
-            <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${BORDER}` }}>
-              <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 6 }}>Billed to date (posted bills only)</div>
-              {lines.map(l => (
-                <div key={l.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#9ca3af', padding: '3px 0' }}>
-                  <span>{l.description_snapshot}</span>
-                  <span>{formatMoneyCents(billedAmounts[l.id] ?? 0, po.currency)} / {formatMoneyCents(l.line_total_cents, po.currency)}</span>
-                </div>
-              ))}
-            </div>
-          )}
         </div>
       )}
 
