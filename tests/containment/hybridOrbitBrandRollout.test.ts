@@ -38,6 +38,13 @@ const D2_SURFACES: Array<[string, string]> = [
   ['PublicEventClient', publicEventClientSource],
 ]
 
+// Public-site visual convergence: surfaces converted to the --bb-* light/dark
+// token system render the theme-aware BrainbaseLockup (generated from the same
+// approved brand-kit SVG as BrainBaseWordmark, glyphs in currentColor) instead
+// of the dark-only BrainBaseWordmark <img>, which is invisible on a light
+// surface. Add a surface here only when its page has been converted.
+const THEME_AWARE_LOCKUP_SURFACES: ReadonlySet<string> = new Set(['client-operations', 'client-operations/demo', 'request-demo', 'web-systems'])
+
 describe('Phase D.1 — TopNav uses the approved Hybrid Orbit brand asset', () => {
   it('Logo renders BrainBaseWordmark, not a raw brainbase-logo-dark.svg Image', () => {
     expect(topNavSource).toContain("import { BrainBaseWordmark } from '@/components/brand/BrainBaseWordmark'")
@@ -196,6 +203,7 @@ describe('Phase D.1 — scope containment', () => {
 describe('Phase D.2 — secondary public surfaces use BrainBaseWordmark, not the old lens-style logo', () => {
   it('every D.2 surface imports and renders BrainBaseWordmark', () => {
     for (const [name, src] of D2_SURFACES) {
+      if (THEME_AWARE_LOCKUP_SURFACES.has(name)) continue
       expect(src, `${name} must import BrainBaseWordmark`).toContain("from '@/components/brand/BrainBaseWordmark'")
       expect(src, `${name} must render <BrainBaseWordmark`).toContain('<BrainBaseWordmark')
     }
@@ -207,8 +215,22 @@ describe('Phase D.2 — secondary public surfaces use BrainBaseWordmark, not the
     }
   })
 
+  it('converted public surfaces render the theme-aware BrainbaseLockup from its one canonical path (not a new logo component, not the dark-only wordmark)', () => {
+    const lockup = read('components/public/BrainbaseLockup.tsx')
+    expect(lockup).toContain('public/Brand/brainbase-horizontal-color.svg')
+    for (const [name, src] of D2_SURFACES) {
+      if (!THEME_AWARE_LOCKUP_SURFACES.has(name)) continue
+      const importLine = src.match(/import \{ BrainbaseLockup \} from '([^']+)'/)
+      expect(importLine, `${name} must import BrainbaseLockup from the canonical path`).not.toBeNull()
+      expect(importLine![1]).toBe('@/components/public/BrainbaseLockup')
+      expect(src, `${name} must render <BrainbaseLockup`).toContain('<BrainbaseLockup')
+      expect(src, `${name} must not render the dark-only wordmark`).not.toContain('<BrainBaseWordmark')
+    }
+  })
+
   it('no duplicate shared logo component was introduced — every surface imports the same D.1 BrainBaseWordmark path', () => {
     for (const [name, src] of D2_SURFACES) {
+      if (THEME_AWARE_LOCKUP_SURFACES.has(name)) continue
       const importLine = src.match(/import \{ BrainBaseWordmark \} from '([^']+)'/)
       expect(importLine, `${name} must import BrainBaseWordmark from the canonical path`).not.toBeNull()
       expect(importLine![1]).toBe('@/components/brand/BrainBaseWordmark')
@@ -286,3 +308,4 @@ describe('Phase D.2 — no accidental external brand-kit path in the new surface
     }
   })
 })
+

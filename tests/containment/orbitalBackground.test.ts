@@ -11,6 +11,16 @@ import { describe, it, expect } from 'vitest'
 // HelenaOrbital (the living, stateful assistant visual). It must never
 // import/render HelenaOrbital, and HelenaOrbital must never import it back.
 
+
+// Public-site visual convergence (feat/public-site-visual-convergence):
+// the homepage no longer uses the page-level fixed OrbitalBackground /
+// HeroOrbitMark atmosphere — the orbital motif is now the calmer, static
+// SystemMap diagram (components/public/SystemMap.tsx). Homepage-structure
+// assertions for the retired treatment were removed from this file; the
+// new homepage is covered by tests/containment/publicSiteVisualSystem.test.ts
+// and the rendered tests in tests/components/public/. Assertions about other
+// surfaces (login, signup, /hlna, the shared components) are unchanged.
+
 const root = path.resolve(__dirname, '../..')
 const read = (p: string) => fs.readFileSync(path.join(root, p), 'utf8').replace(/\r\n/g, '\n')
 const stripComments = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1')
@@ -24,7 +34,6 @@ const orbitalBackgroundCode = stripComments(orbitalBackgroundSource)
 const helenaOrbitalSource = read('components/brand/HelenaOrbital.tsx')
 const loginSource = read('app/login/page.tsx')
 const signupSource = read('app/signup/page.tsx')
-const homepageSource = read('app/page.tsx')
 const connectSource = read('app/connect/page.tsx')
 const requestDemoSource = read('app/request-demo/page.tsx')
 const hlnaPageSource = read('app/hlna/page.tsx')
@@ -146,51 +155,6 @@ describe('Surface adoption — signup', () => {
   })
 })
 
-describe('Surface adoption — homepage', () => {
-  it('homepage hero uses OrbitalBackground, replacing the old plain page-wide radial-gradient wash', () => {
-    expect(homepageSource).toContain("import { OrbitalBackground } from '@/components/brand/OrbitalBackground'")
-    expect(homepageSource).toMatch(/<OrbitalBackground/)
-  })
-
-  // Updated during Phase D.3.1B: OrbitalBackground was deliberately
-  // promoted from a hero-scoped layer to a single persistent page-level
-  // fixed layer (position:'fixed' via the style override), per explicit
-  // instruction — the previous "scoped to hero, cuts to flat black below"
-  // behaviour is exactly what this phase replaced. "Not every page has a
-  // giant glowing orb" still holds: it's one shared instance (not
-  // duplicated per section), and page-local scrims (see the "Persistent
-  // atmosphere" describe block below) progressively obscure it further
-  // down the page — see homepageHeroRefinement.test.ts for that coverage.
-  it('is a single page-level fixed layer — before the hero section in source order, not nested inside it — with exactly one usage on the whole homepage', () => {
-    const orbitalIdx = homepageSource.indexOf('<OrbitalBackground')
-    const heroStart = homepageSource.indexOf('className="bb-home-hero"')
-    expect(orbitalIdx).toBeGreaterThan(-1)
-    expect(heroStart).toBeGreaterThan(-1)
-    expect(orbitalIdx).toBeLessThan(heroStart)
-    const orbitalRegion = homepageSource.slice(orbitalIdx, orbitalIdx + 300)
-    expect(orbitalRegion).toMatch(/position:\s*'fixed'/)
-    // Only one usage on the whole homepage.
-    expect((homepageSource.match(/<OrbitalBackground/g) ?? []).length).toBe(1)
-  })
-
-  // Updated during Phase D.3.1: a content-safe mask div (also
-  // aria-hidden/pointer-events:none, part of the same stacking level as
-  // OrbitalBackground) was inserted between OrbitalBackground and the
-  // content wrapper, so the wrapper is no longer within a fixed small
-  // window right after the <OrbitalBackground> tag — anchored on the
-  // bb-home-hero-inner class instead, which is the actual element that
-  // needs (and has) the explicit stacking context.
-  it('the hero content wrapper is explicitly given its own stacking context (position+zIndex) above the background — otherwise an absolutely-positioned background sibling paints above unpositioned normal-flow content', () => {
-    // className="bb-home-hero-inner" (the JSX usage), not the earlier bare
-    // ".bb-home-hero-inner" CSS-selector text inside the KEYFRAMES constant
-    // defined above the component.
-    const innerIdx = homepageSource.indexOf('className="bb-home-hero-inner"')
-    expect(innerIdx, 'expected a bb-home-hero-inner JSX element').toBeGreaterThan(-1)
-    const innerRegion = homepageSource.slice(innerIdx, innerIdx + 400)
-    expect(innerRegion).toMatch(/position:\s*'relative'/)
-    expect(innerRegion).toMatch(/zIndex:\s*1/)
-  })
-})
 
 describe('Surface adoption — connect', () => {
   it('connect uses the quiet "veil" variant (not "field") — a minimal single-purpose card page, per the "do not overdesign" instruction', () => {
