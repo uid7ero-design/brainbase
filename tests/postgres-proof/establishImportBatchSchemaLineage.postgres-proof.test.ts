@@ -46,6 +46,10 @@
 //   P5. the real pair/implication CHECK constraints reject a partial
 //       lineage pair (schema version set without dataset type) at the raw
 //       DB level, backing this service's own "defensive state" contract
+//   P6. [R2 remediation] a batch pinned while the schema was ACTIVE keeps
+//       returning idempotent success against REAL Postgres after the
+//       schema is retired, with zero additional writes — proves the R2
+//       historical-idempotency fix under a real DB, not just a mock
 
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { createHash } from "node:crypto";
@@ -364,5 +368,45 @@ describe("6.2D3D governed schema lineage pinning — real disposable Postgres pr
     const row = await prisma.importBatch.findUniqueOrThrow({ where: { id: batchId } });
     expect(row.dataset_type_id).toBeNull();
     expect(row.source_schema_version_id).toBeNull();
+  });
+
+  it("P6 [R2] — a batch pinned while the schema was ACTIVE keeps returning idempotent success against real Postgres after the schema is retired, with zero additional writes", async () => {
+    const batchId = await createBatch("p6");
+
+    const pinClient = new PrismaClient();
+    try {
+      const { establishImportBatchSchemaLineage } = await freshService();
+      const pinned = await runWithClient(pinClient, () => establishImportBatchSchemaLineage({ organisationId, importBatchId: batchId, actorUserId }));
+      expect(pinned).toMatchObject({ ok: true, alreadySelected: false });
+    } finally {
+      await pinClient.$disconnect();
+    }
+
+    const afterPin = await prisma.importBatch.findUniqueOrThrow({ where: { id: batchId } });
+
+    // Retire the real, singleton governed schema row directly (never via
+    // this service — schema retirement has no runtime/admin writer
+    // anywhere in the repo; this raw UPDATE simulates a future governance
+    // action strictly for this proof).
+    await prisma.sourceSchemaVersion.update({ where: { id: GOVERNED_SOURCE_SCHEMA_VERSION_ID }, data: { status: "RETIRED" } });
+
+    await new Promise((r) => setTimeout(r, 50));
+
+    const replayClient = new PrismaClient();
+    try {
+      const { establishImportBatchSchemaLineage } = await freshService();
+      const replayed = await runWithClient(replayClient, () => establishImportBatchSchemaLineage({ organisationId, importBatchId: batchId, actorUserId }));
+      expect(replayed).toMatchObject({ ok: true, alreadySelected: true, datasetTypeId: GOVERNED_DATASET_TYPE_ID, sourceSchemaVersionId: GOVERNED_SOURCE_SCHEMA_VERSION_ID });
+    } finally {
+      await replayClient.$disconnect();
+    }
+
+    const afterReplay = await prisma.importBatch.findUniqueOrThrow({ where: { id: batchId } });
+    expect(afterReplay.updated_at.getTime()).toBe(afterPin.updated_at.getTime());
+
+    // Restore ACTIVE so this fixture stays coherent for any later test in
+    // this file that might run after this one (defensive; this is
+    // currently the last scenario in the file).
+    await prisma.sourceSchemaVersion.update({ where: { id: GOVERNED_SOURCE_SCHEMA_VERSION_ID }, data: { status: "ACTIVE" } });
   });
 });

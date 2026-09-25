@@ -958,14 +958,21 @@ export class DataHubIllegalDumpingImportSession {
   }
 
   // Data Hub 6.2D3D — explicit, durable "Use governed schema" lineage pin.
-  // Allowed ONLY from "schemaMatchReady" while report.result ===
-  // "EXACT_MATCH" AND report.sourceSchemaStatus === "ACTIVE" — the same
-  // client-side eligibility the server independently, authoritatively
-  // re-verifies from scratch (a fresh comparison, never this report).
-  // Sends only the batch id; no schema/dataset id, match result or
-  // override is ever transmitted.
+  // Allowed from "schemaMatchReady" (first attempt) OR "schemaSelectionFailed"
+  // (Retry — both phases carry the same batch/worksheets/report, so a
+  // failed attempt can be retried without first navigating back to the
+  // report screen) while report.result === "EXACT_MATCH" AND
+  // report.sourceSchemaStatus === "ACTIVE" — the same client-side
+  // eligibility the server independently, authoritatively re-verifies from
+  // scratch on EVERY call (a fresh comparison, never this report, and
+  // never anything from a prior attempt). Never callable from
+  // "schemaSelectionSaving" (already in flight) or "schemaSelected"
+  // (already durably pinned — re-selecting is meaningless). Sends only the
+  // batch id on every attempt, including retries; no schema/dataset id,
+  // match result or override is ever transmitted, and retrying never
+  // grants the client any authority it didn't already have.
   async selectGovernedSchema(): Promise<void> {
-    if (this.state.phase !== "schemaMatchReady") {
+    if (this.state.phase !== "schemaMatchReady" && this.state.phase !== "schemaSelectionFailed") {
       throw new Error(`data-hub client: selectGovernedSchema() called from unexpected phase "${this.state.phase}".`);
     }
     const { batch, worksheets, report } = this.state;

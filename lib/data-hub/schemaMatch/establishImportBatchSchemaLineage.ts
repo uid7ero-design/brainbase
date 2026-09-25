@@ -6,7 +6,13 @@ import { buildImportBatchKey, RawFileStoreError } from "../storage/rawFileStore"
 import { readWorksheetHeaderRows, WorkbookParserError } from "../workbookParser";
 import { createImportBatchStorage } from "../importBatch/compositionRoot";
 import { getMessageTemplate, type FailureCode } from "../importBatch/failureTaxonomy";
-import { GOVERNED_DATASET_TYPE_ID, loadGovernedSchemaForSourceSystem } from "./governedSchema";
+import {
+  GOVERNED_DATASET_TYPE_ID,
+  GOVERNED_DATASET_TYPE_NAME,
+  GOVERNED_SOURCE_SCHEMA_VERSION_ID,
+  GOVERNED_SOURCE_SCHEMA_VERSION_NUMBER,
+  loadGovernedSchemaForSourceSystem,
+} from "./governedSchema";
 import { matchObservedWorkbookStructure, planHeaderRowReads, type ObservedWorksheetInput } from "./schemaMatcher";
 
 // Data Hub 6.2D3D — governed schema ELIGIBILITY and LINEAGE PINNING for one
@@ -33,13 +39,38 @@ import { matchObservedWorkbookStructure, planHeaderRowReads, type ObservedWorksh
 // it anywhere (no audit table write exists yet for this lineage event).
 //
 // CONCURRENCY: the service owns correctness entirely via ONE atomic
-// conditional `updateMany` whose WHERE clause repeats every eligibility
-// predicate, including `dataset_type_id IS NULL AND source_schema_version_id
-// IS NULL` — never a route-level read-before-write, never last-writer-wins.
-// A losing concurrent caller re-reads the now-durable lineage and converges
-// to either an idempotent 200 (identical lineage) or SCHEMA_LINEAGE_CONFLICT
-// (different lineage) — it can never silently switch an already-pinned
-// batch to a different schema.
+// conditional `updateMany` whose WHERE clause repeats every MUTABLE
+// PERSISTED IMPORTBATCH CLAIM PRECONDITION (id, organisation_id, deleted_at,
+// status, source_system_id, and the "still unpinned" dataset_type_id IS
+// NULL AND source_schema_version_id IS NULL pair) — never a route-level
+// read-before-write, never last-writer-wins. Storage/hash/structural
+// eligibility (Steps 8-9 below) is freshly verified BEFORE this claim is
+// attempted, not repeated inside the WHERE clause itself — Postgres has no
+// way to re-check "the workbook bytes still hash-match and structurally
+// match the governed schema" as part of a single UPDATE's WHERE predicate,
+// so that verification's freshness is what makes the claim trustworthy, not
+// the WHERE clause re-stating it. A losing concurrent caller re-reads the
+// now-durable lineage and converges to either an idempotent 200 (identical
+// lineage) or SCHEMA_LINEAGE_CONFLICT (different lineage) — it can never
+// silently switch an already-pinned batch to a different schema.
+//
+// RETIRED / HISTORICAL IDEMPOTENCY: D3C's own read-only governed-schema
+// loader (governedSchema.ts, untouched by this file) intentionally never
+// surfaces a RETIRED SourceSchemaVersion — READABLE_SCHEMA_STATUSES is
+// DRAFT|ACTIVE only, so a RETIRED version is indistinguishable from "no
+// governed schema at all" from that loader's own perspective. This file
+// therefore NEVER relies on the loader to answer "is this batch's EXISTING
+// lineage still the governed one" — Step 5 below resolves that purely from
+// this batch's own persisted lineage columns compared against the fixed,
+// server-owned governed identifiers, so a batch legitimately pinned while
+// the schema was ACTIVE keeps returning idempotent success after that
+// schema is later RETIRED, with zero storage/loader work. For a genuinely
+// UNPINNED batch, distinguishing "RETIRED" from "truly unavailable" (so the
+// former reports GOVERNED_SCHEMA_NOT_ACTIVE, matching DRAFT, rather than
+// GOVERNED_SCHEMA_UNAVAILABLE) uses a narrow, D3D-local lifecycle check
+// (resolveRetiredGovernedSchemaLifecycle below) that reads the SAME rows
+// the loader would, but never widens what the loader itself returns or how
+// the D3C GET route behaves.
 //
 // NOT DONE HERE (deliberately out of D3D's scope): schema activation,
 // schema editing/versioning, mapping-profile activation, drift
@@ -136,6 +167,51 @@ export interface EstablishImportBatchSchemaLineageContext {
   actorUserId: string;
 }
 
+// D3D-LOCAL LIFECYCLE CHECK — invoked ONLY after governedSchema.ts's own
+// loader has already returned `ok: false` for this tenant + source system,
+// and ONLY to decide between two already-failing outcomes
+// (GOVERNED_SCHEMA_NOT_ACTIVE vs GOVERNED_SCHEMA_UNAVAILABLE) for an
+// UNPINNED batch — never a second resolution path a client could reach any
+// governed schema through, and never reused by (or exposed to) D3C's GET
+// route. Mirrors governedSchema.ts's own tenant/coherence rigor exactly
+// (SourceSystem -> DatasetType -> SourceSchemaVersion, each step re-checking
+// organisation_id/source_system_id/dataset_type_id) but reads ONLY the
+// `status` column, and NEVER reads worksheets/columns/profile rows — this
+// function can only ever answer true/false, never supply schema content.
+// governedSchema.ts's own READABLE_SCHEMA_STATUSES set and the D3C GET
+// route are both untouched by this function's existence.
+async function resolveRetiredGovernedSchemaLifecycle(organisationId: string, sourceSystemId: string): Promise<boolean> {
+  const sourceSystem = await prisma.sourceSystem.findFirst({
+    where: { id: sourceSystemId, organisation_id: organisationId },
+    select: { id: true, organisation_id: true },
+  });
+  if (!sourceSystem || sourceSystem.organisation_id !== organisationId) return false;
+
+  const datasetType = await prisma.datasetType.findFirst({
+    where: { organisation_id: organisationId, source_system_id: sourceSystemId, name: GOVERNED_DATASET_TYPE_NAME },
+    select: { id: true, organisation_id: true, source_system_id: true, active: true },
+  });
+  if (
+    !datasetType ||
+    datasetType.organisation_id !== organisationId ||
+    datasetType.source_system_id !== sourceSystemId ||
+    datasetType.id !== GOVERNED_DATASET_TYPE_ID ||
+    datasetType.active !== true
+  ) {
+    return false;
+  }
+
+  const version = await prisma.sourceSchemaVersion.findFirst({
+    where: { organisation_id: organisationId, dataset_type_id: datasetType.id, version_number: GOVERNED_SOURCE_SCHEMA_VERSION_NUMBER },
+    select: { id: true, organisation_id: true, dataset_type_id: true, status: true },
+  });
+  if (!version || version.organisation_id !== organisationId || version.dataset_type_id !== datasetType.id || version.id !== GOVERNED_SOURCE_SCHEMA_VERSION_ID) {
+    return false;
+  }
+
+  return version.status === "RETIRED";
+}
+
 export async function establishImportBatchSchemaLineage(
   context: EstablishImportBatchSchemaLineageContext
 ): Promise<SchemaSelectionOutcome> {
@@ -174,11 +250,56 @@ export async function establishImportBatchSchemaLineage(
   const sourceSystemId = batch.source_system_id;
   if (sourceSystemId === null) return fail("SOURCE_LINEAGE_REQUIRED");
 
+  // ---- Existing pinned lineage (Section 6) — resolved BEFORE the D3C
+  // governed-schema loader is ever called, and using ONLY the fixed,
+  // server-owned governed identifiers (GOVERNED_DATASET_TYPE_ID /
+  // GOVERNED_SOURCE_SCHEMA_VERSION_ID) compared against this batch's own
+  // trusted, already-persisted lineage columns — never the loader's
+  // output. This is deliberate: the loader would return `ok: false` for a
+  // RETIRED schema (D3C's own READABLE_SCHEMA_STATUSES is DRAFT|ACTIVE
+  // only), and a batch legitimately pinned while the schema was ACTIVE
+  // must keep returning idempotent success after that schema is later
+  // RETIRED — checking idempotency here, first, makes that true without
+  // ever touching the loader, storage, or the parser for an
+  // already-pinned batch. Both null -> continue to new-selection
+  // eligibility below. Both populated and equal to the fixed governed
+  // pair -> idempotent success, zero mutation, zero storage/parser work.
+  // Both populated and different -> frozen-lineage conflict, never
+  // replaced. Exactly one populated is an anomalous state the DB's own
+  // implication CHECK constraints should make unreachable — fail closed,
+  // never repaired. ----
+  const existingDatasetTypeId = batch.dataset_type_id;
+  const existingSchemaVersionId = batch.source_schema_version_id;
+  if (existingDatasetTypeId !== null || existingSchemaVersionId !== null) {
+    if (existingDatasetTypeId === null || existingSchemaVersionId === null) {
+      return fail("INVALID_STATE");
+    }
+    if (existingDatasetTypeId === GOVERNED_DATASET_TYPE_ID && existingSchemaVersionId === GOVERNED_SOURCE_SCHEMA_VERSION_ID) {
+      return {
+        ok: true,
+        alreadySelected: true,
+        importBatchId,
+        datasetTypeId: GOVERNED_DATASET_TYPE_ID,
+        sourceSchemaVersionId: GOVERNED_SOURCE_SCHEMA_VERSION_ID,
+        sourceSchemaVersionNumber: GOVERNED_SOURCE_SCHEMA_VERSION_NUMBER,
+      };
+    }
+    return fail("SCHEMA_LINEAGE_CONFLICT");
+  }
+
   // ---- Governed schema resolution (Section 7) — server-derived only, from
   // this batch's own trusted tenant + source system. The client never
-  // selects the schema. ----
+  // selects the schema. Only reached for a genuinely UNPINNED batch. ----
   const governed = await loadGovernedSchemaForSourceSystem({ organisationId, sourceSystemId });
-  if (!governed.ok) return fail("GOVERNED_SCHEMA_UNAVAILABLE");
+  if (!governed.ok) {
+    // The loader itself cannot distinguish "no governed schema at all"
+    // from "the governed schema exists but is RETIRED" (both return
+    // `ok: false` from governedSchema.ts by design). Resolve that
+    // distinction locally, without ever widening the loader's own
+    // read boundary or touching the D3C GET route.
+    const retired = await resolveRetiredGovernedSchemaLifecycle(organisationId, sourceSystemId);
+    return fail(retired ? "GOVERNED_SCHEMA_NOT_ACTIVE" : "GOVERNED_SCHEMA_UNAVAILABLE");
+  }
 
   // governedSchema.ts's LoadGovernedSchemaResult does not itself return the
   // resolved DatasetType id (only the schema/version) — governedSchema.ts
@@ -188,33 +309,10 @@ export async function establishImportBatchSchemaLineage(
   // any caller input) is safe and avoids duplicating its resolution logic.
   const datasetTypeId = GOVERNED_DATASET_TYPE_ID;
 
-  // ---- Existing pinned lineage (Section 6). Both null -> continue to
-  // eligibility. Both populated and equal to what this operation would
-  // select -> idempotent success, zero mutation. Both populated and
-  // different -> frozen-lineage conflict, never replaced. Exactly one
-  // populated is an anomalous state the DB's own implication CHECK
-  // constraints should make unreachable — fail closed, never repaired. ----
-  const existingDatasetTypeId = batch.dataset_type_id;
-  const existingSchemaVersionId = batch.source_schema_version_id;
-  if (existingDatasetTypeId !== null || existingSchemaVersionId !== null) {
-    if (existingDatasetTypeId === null || existingSchemaVersionId === null) {
-      return fail("INVALID_STATE");
-    }
-    if (existingDatasetTypeId === datasetTypeId && existingSchemaVersionId === governed.schema.sourceSchemaVersionId) {
-      return {
-        ok: true,
-        alreadySelected: true,
-        importBatchId,
-        datasetTypeId,
-        sourceSchemaVersionId: governed.schema.sourceSchemaVersionId,
-        sourceSchemaVersionNumber: governed.schema.versionNumber,
-      };
-    }
-    return fail("SCHEMA_LINEAGE_CONFLICT");
-  }
-
-  // ---- ACTIVE-only rule (Section 8). DRAFT and RETIRED are both rejected
-  // identically — never distinguished in the response. ----
+  // ---- ACTIVE-only rule (Section 8). DRAFT is rejected here; RETIRED is
+  // never reachable at this point (the loader above never returns `ok:
+  // true` for a RETIRED version), so this branch in practice only ever
+  // fires for DRAFT. ----
   if (governed.schema.status !== "ACTIVE") return fail("GOVERNED_SCHEMA_NOT_ACTIVE");
 
   // ---- Fresh schema comparison (Section 9) — never trusts a prior GET's
@@ -290,10 +388,15 @@ export async function establishImportBatchSchemaLineage(
   if (report.result !== "EXACT_MATCH") return fail("SCHEMA_EXACT_MATCH_REQUIRED");
 
   // ---- Atomic conditional lineage pin (Section 11/12). The WHERE clause
-  // repeats every eligibility predicate this function has just verified,
-  // PLUS the "still unpinned" precondition — this single UPDATE statement
-  // is Postgres's own atomicity boundary; no wrapping transaction and no
-  // earlier read is trusted as the concurrency mechanism. ----
+  // repeats the mutable PERSISTED ImportBatch claim preconditions (id,
+  // organisation_id, deleted_at, status, source_system_id) PLUS the "still
+  // unpinned" precondition — it does NOT repeat the storage/hash/structural
+  // eligibility just verified above (Postgres cannot express "the workbook
+  // still hash-matches and structurally matches" inside an UPDATE's WHERE
+  // clause); that freshness comes from having just re-verified it, not from
+  // restating it here. This single UPDATE statement is Postgres's own
+  // atomicity boundary; no wrapping transaction and no earlier read is
+  // trusted as the concurrency mechanism. ----
   const claim = await prisma.importBatch.updateMany({
     where: {
       id: importBatchId,

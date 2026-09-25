@@ -235,8 +235,8 @@ describe("6.2D3D service — successful path, idempotency, tenant isolation", ()
   });
 });
 
-describe("6.2D3D service — schema lifecycle (ACTIVE-only)", () => {
-  it("5. DRAFT + EXACT_MATCH -> GOVERNED_SCHEMA_NOT_ACTIVE, zero mutation", async () => {
+describe("6.2D3D service — schema lifecycle (ACTIVE-only) [R2 remediation]", () => {
+  it("R2.1 — DRAFT unpinned -> GOVERNED_SCHEMA_NOT_ACTIVE, zero mutation, zero storage/parser work", async () => {
     arrange({ status: "DRAFT" });
     const result = await runService();
     expect(result).toMatchObject({ ok: false, code: "GOVERNED_SCHEMA_NOT_ACTIVE" });
@@ -244,8 +244,64 @@ describe("6.2D3D service — schema lifecycle (ACTIVE-only)", () => {
     expect(storageGet).not.toHaveBeenCalled();
   });
 
-  it("6. RETIRED — governedSchema.ts's own D3C loader (untouched by D3D; READABLE_SCHEMA_STATUSES = DRAFT|ACTIVE only) never surfaces a RETIRED version as ok:true, so it is indistinguishable from GOVERNED_SCHEMA_UNAVAILABLE here — documented, deliberate: D3D must never widen D3C's read boundary", async () => {
+  it("R2.2 — RETIRED unpinned -> GOVERNED_SCHEMA_NOT_ACTIVE (D3D-local lifecycle check), zero mutation, zero storage/parser work — D3C's own loader is never widened; it still returns ok:false for RETIRED exactly as before", async () => {
     arrange({ status: "RETIRED" });
+    const result = await runService();
+    expect(result).toMatchObject({ ok: false, code: "GOVERNED_SCHEMA_NOT_ACTIVE" });
+    expectNoWrites();
+    expect(storageGet).not.toHaveBeenCalled();
+  });
+
+  it("R2.3 — already-pinned SAME lineage + RETIRED -> idempotent success (a batch legitimately pinned while ACTIVE keeps returning success after later retirement)", async () => {
+    arrange({ status: "RETIRED", batch: { dataset_type_id: DT_ID, source_schema_version_id: SV_ID } });
+    const result = await runService();
+    expect(result).toMatchObject({ ok: true, alreadySelected: true, datasetTypeId: DT_ID, sourceSchemaVersionId: SV_ID });
+    expectNoWrites();
+  });
+
+  it("R2.4 — already-pinned SAME lineage performs NO storage/parser work and NO governed-schema-loader read at all (idempotency is resolved from persisted lineage alone, before the loader is ever called)", async () => {
+    arrange({ status: "ACTIVE", batch: { dataset_type_id: DT_ID, source_schema_version_id: SV_ID } });
+    const result = await runService();
+    expect(result).toMatchObject({ ok: true, alreadySelected: true });
+    expect(storageGet).not.toHaveBeenCalled();
+    expect(reads.sourceSystemFindFirst).not.toHaveBeenCalled();
+    expect(reads.datasetTypeFindFirst).not.toHaveBeenCalled();
+    expect(reads.sourceSchemaVersionFindFirst).not.toHaveBeenCalled();
+  });
+
+  it("R2.5 — DIFFERENT pinned lineage + RETIRED -> SCHEMA_LINEAGE_CONFLICT, never repinned, zero storage work", async () => {
+    arrange({ status: "RETIRED", batch: { dataset_type_id: "some-other-dt", source_schema_version_id: "some-other-sv" } });
+    const result = await runService();
+    expect(result).toMatchObject({ ok: false, code: "SCHEMA_LINEAGE_CONFLICT" });
+    expectNoWrites();
+    expect(storageGet).not.toHaveBeenCalled();
+  });
+
+  it("R2.6 — D3C loader semantics remain unchanged: loadGovernedSchemaForSourceSystem still returns ok:false for RETIRED (governedSchema.ts's own READABLE_SCHEMA_STATUSES is untouched)", async () => {
+    arrange({ status: "RETIRED" });
+    const { loadGovernedSchemaForSourceSystem } = await import("@/lib/data-hub/schemaMatch/governedSchema");
+    const result = await loadGovernedSchemaForSourceSystem({ organisationId: ORG, sourceSystemId: SS });
+    expect(result).toEqual({ ok: false });
+  });
+
+  it("R2.7 — D3C GET .../schema-match remains read-only and reports RETIRED exactly as before (GOVERNED_SCHEMA_UNAVAILABLE, unaffected by D3D's local lifecycle resolution)", async () => {
+    arrange({ status: "RETIRED" });
+    const { matchImportBatchSchema } = await import("@/lib/data-hub/schemaMatch/matchImportBatchSchema");
+    const result = await matchImportBatchSchema({ organisationId: ORG, importBatchId: "batch-1" });
+    expect(result).toMatchObject({ ok: false, code: "GOVERNED_SCHEMA_UNAVAILABLE" });
+    for (const [name, fn] of Object.entries(writes)) expect(fn, name).not.toHaveBeenCalled();
+    expect(importBatchUpdateMany).not.toHaveBeenCalled();
+  });
+
+  it("R2.8 — no CSV/reconciliation behavior changes: confirmWorksheet.ts's own source is byte-identical in scope to before (its own CSV UNSUPPORTED_FORMAT gate and reconciliation logic are untouched by this remediation, static proof)", () => {
+    const src = read("lib/data-hub/importBatch/confirmWorksheet.ts").replace(/\r\n/g, "\n");
+    expect(src).toMatch(/if \(batch\.content_type !== "csv"\) \{\s*\n\s*return fail\("UNSUPPORTED_FORMAT"\);/);
+    expect(src).not.toMatch(/schemaMatch|SchemaMatch|governedSchema|establishImportBatchSchemaLineage/);
+  });
+
+  it("genuinely unavailable governed schema (no matching DatasetType at all) still -> GOVERNED_SCHEMA_UNAVAILABLE, never confused with RETIRED", async () => {
+    arrange({ status: "ACTIVE" });
+    reads.datasetTypeFindFirst.mockResolvedValue(null);
     const result = await runService();
     expect(result).toMatchObject({ ok: false, code: "GOVERNED_SCHEMA_UNAVAILABLE" });
     expectNoWrites();
@@ -618,7 +674,7 @@ describe("6.2D3D client orchestrator — selectGovernedSchema phase transitions"
     const session = createIllegalDumpingImportSession({ fetchImpl: wrapped });
     await session.resumeFromBatchId("batch-1");
     await session.compareToGovernedSchema();
-    return { session, calls };
+    return { session, calls, wrapped };
   }
 
   it("ACTIVE + EXACT_MATCH: selectGovernedSchema() -> schemaSelectionSaving -> schemaSelected, POST carries no body", async () => {
@@ -636,6 +692,76 @@ describe("6.2D3D client orchestrator — selectGovernedSchema phase transitions"
     const { session } = await readySession(async () => new Response(JSON.stringify({ ok: false, error: "conflict", code: "SCHEMA_LINEAGE_CONFLICT" }), { status: 409, headers: { "Content-Type": "application/json" } }));
     await session.selectGovernedSchema();
     expect(session.getState()).toMatchObject({ phase: "schemaSelectionFailed", code: "SCHEMA_LINEAGE_CONFLICT" });
+  });
+
+  // R1 remediation — Retry from schemaSelectionFailed must actually re-POST,
+  // not immediately reject (the bug: selectGovernedSchema() previously only
+  // accepted entry from "schemaMatchReady", so SchemaMatchReportPanel's own
+  // Retry button — which calls onSelectSchema from "schemaSelectionFailed"
+  // — always threw synchronously, silently swallowed by the panel's own
+  // `.catch(() => {})`).
+  it("R1.1-3 — Retry from schemaSelectionFailed performs a SECOND real POST, and a successful second response reaches schemaSelected", async () => {
+    let callCount = 0;
+    const { session, calls } = await readySession(async () => {
+      callCount++;
+      if (callCount === 1) {
+        return new Response(JSON.stringify({ ok: false, error: "transient", code: "PROVIDER_FAILURE" }), { status: 500, headers: { "Content-Type": "application/json" } });
+      }
+      return new Response(JSON.stringify({ ok: true, alreadySelected: false, importBatchId: "batch-1", datasetTypeId: DT_ID, sourceSchemaVersionId: SV_ID, sourceSchemaVersionNumber: 1 }), { status: 200, headers: { "Content-Type": "application/json" } });
+    });
+
+    // First attempt fails.
+    await session.selectGovernedSchema();
+    expect(session.getState()).toMatchObject({ phase: "schemaSelectionFailed", code: "PROVIDER_FAILURE" });
+    expect(callCount).toBe(1);
+
+    // Retry — MUST be callable from schemaSelectionFailed without throwing,
+    // and MUST issue a genuine second POST (never reuse/replay the first
+    // attempt's outcome).
+    const retryPending = session.selectGovernedSchema();
+    expect(session.getState().phase).toBe("schemaSelectionSaving");
+    await retryPending;
+    expect(callCount).toBe(2);
+    expect(session.getState()).toMatchObject({ phase: "schemaSelected", alreadySelected: false, datasetTypeId: DT_ID, sourceSchemaVersionId: SV_ID });
+
+    const postCalls = calls.filter((c) => c.startsWith("POST") && c.includes("/schema-selection"));
+    expect(postCalls).toHaveLength(2);
+  });
+
+  it("R1.4 — Retry never alters the server authority model: both the first and retried POST send no body and never carry a schema/dataset id", async () => {
+    let callCount = 0;
+    const { session, wrapped } = await readySession(async () => {
+      callCount++;
+      if (callCount === 1) {
+        return new Response(JSON.stringify({ ok: false, error: "conflict", code: "SCHEMA_LINEAGE_CONFLICT" }), { status: 409, headers: { "Content-Type": "application/json" } });
+      }
+      return new Response(JSON.stringify({ ok: true, alreadySelected: true, importBatchId: "batch-1", datasetTypeId: DT_ID, sourceSchemaVersionId: SV_ID, sourceSchemaVersionNumber: 1 }), { status: 200, headers: { "Content-Type": "application/json" } });
+    });
+
+    await session.selectGovernedSchema();
+    expect(session.getState().phase).toBe("schemaSelectionFailed");
+    await session.selectGovernedSchema();
+    expect(session.getState().phase).toBe("schemaSelected");
+    expect(callCount).toBe(2);
+
+    const selectionCalls = wrapped.mock.calls.filter(([input, init]) => String(input).includes("/schema-selection") && (init?.method ?? "GET") === "POST");
+    expect(selectionCalls).toHaveLength(2);
+    for (const [, init] of selectionCalls) {
+      expect(init?.body).toBeUndefined();
+    }
+  });
+
+  it("R1 — selectGovernedSchema() still rejects from schemaSelectionSaving (already in flight) and schemaSelected (already pinned)", async () => {
+    let resolveFirst!: (r: Response) => void;
+    const deferred = new Promise<Response>((r) => { resolveFirst = r; });
+    const { session } = await readySession(() => deferred);
+    const pending = session.selectGovernedSchema();
+    expect(session.getState().phase).toBe("schemaSelectionSaving");
+    await expect(session.selectGovernedSchema()).rejects.toThrow(/unexpected phase/);
+    resolveFirst(new Response(JSON.stringify({ ok: true, alreadySelected: false, importBatchId: "batch-1", datasetTypeId: DT_ID, sourceSchemaVersionId: SV_ID, sourceSchemaVersionNumber: 1 }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    await pending;
+    expect(session.getState().phase).toBe("schemaSelected");
+    await expect(session.selectGovernedSchema()).rejects.toThrow(/unexpected phase/);
   });
 
   it("selectGovernedSchema() throws from any other phase (e.g. schemaMatchLoading, or a DRAFT-status report)", async () => {
