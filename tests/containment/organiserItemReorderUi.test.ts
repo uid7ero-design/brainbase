@@ -38,14 +38,15 @@ describe('E3 ItemRow drag handle', () => {
 })
 
 describe('E3 GroupSection same-scope wiring', () => {
-  it('supplies the item drag handle only to top-level rows, never subitems', () => {
+  it('keeps top-level item drag state separate from subitem drag state', () => {
     const b = groupSectionBlock()
     const top = b.indexOf('onItemDragHandleStart={() => setDraggingItemId(item.id)}')
     expect(top).toBeGreaterThan(-1)
     const kids = b.indexOf('!collapsed && kids.map(child =>')
     expect(kids).toBeGreaterThan(top)
     const childRegion = b.slice(kids, b.indexOf('!collapsed && (', kids))
-    expect(childRegion).not.toMatch(/onItemDragHandleStart/)
+    expect(childRegion).not.toMatch(/setDraggingItemId\(child\.id\)/)
+    expect(childRegion).toMatch(/setDraggingSubitem/)
   })
 
   it('dropping a top-level item onto itself is a no-op before the reorder callback', () => {

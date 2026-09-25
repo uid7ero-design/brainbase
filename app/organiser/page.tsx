@@ -797,7 +797,7 @@ function ItemRow({
 
 function GroupSection({
   group, items, columns, onUpdateItem, onDeleteItem, onAddItem, onOpenDrawer, onRenameGroup, onDeleteGroup,
-  onAddColumn, onRenameColumn, onDeleteColumn, onEditColumnOptions, saveStatus, onGroupDragHandleStart, onReorderTopLevelItems,
+  onAddColumn, onRenameColumn, onDeleteColumn, onEditColumnOptions, saveStatus, onGroupDragHandleStart, onReorderTopLevelItems, onReorderSubitems,
 }: {
   group: OrganiserGroup | null; items: OrganiserItem[]; columns: OrganiserColumn[];
   onUpdateItem: (id: string, patch: Record<string, unknown>) => void;
@@ -817,6 +817,7 @@ function GroupSection({
   // of the reorderable scope. Only present for a real group.
   onGroupDragHandleStart?: () => void;
   onReorderTopLevelItems: (groupId: string | null, orderedItemIds: string[]) => void;
+  onReorderSubitems: (parentItemId: string, orderedItemIds: string[]) => void;
 }) {
   const t = useOpsTheme();
   const [open, setOpen] = useState(true);
@@ -827,6 +828,7 @@ function GroupSection({
     .sort((a, b) => a.position - b.position);
   const childrenOf = (parentId: string) => items.filter(i => i.parent_item_id === parentId).sort((a, b) => a.position - b.position);
   const [draggingItemId, setDraggingItemId] = useState<string | null>(null);
+  const [draggingSubitem, setDraggingSubitem] = useState<{ parentId: string; itemId: string } | null>(null);
 
   function handleTopLevelItemDrop(targetItemId: string) {
     const draggedId = draggingItemId;
@@ -847,6 +849,27 @@ function GroupSection({
     const currentIds = topLevel.map(i => i.id);
     if (!currentIds.includes(draggedId) || currentIds[currentIds.length - 1] === draggedId) return;
     onReorderTopLevelItems(group?.id ?? null, [...currentIds.filter(id => id !== draggedId), draggedId]);
+  }
+
+  function handleSubitemDrop(parentItemId: string, targetItemId: string) {
+    const dragged = draggingSubitem;
+    setDraggingSubitem(null);
+    if (!dragged || dragged.parentId !== parentItemId || dragged.itemId === targetItemId) return;
+    const currentIds = childrenOf(parentItemId).map(i => i.id);
+    if (!currentIds.includes(dragged.itemId)) return;
+    const without = currentIds.filter(id => id !== dragged.itemId);
+    const targetIndex = without.indexOf(targetItemId);
+    if (targetIndex === -1) return;
+    onReorderSubitems(parentItemId, [...without.slice(0, targetIndex), dragged.itemId, ...without.slice(targetIndex)]);
+  }
+
+  function handleSubitemDropAtEnd(parentItemId: string) {
+    const dragged = draggingSubitem;
+    setDraggingSubitem(null);
+    if (!dragged || dragged.parentId !== parentItemId) return;
+    const currentIds = childrenOf(parentItemId).map(i => i.id);
+    if (!currentIds.includes(dragged.itemId) || currentIds[currentIds.length - 1] === dragged.itemId) return;
+    onReorderSubitems(parentItemId, [...currentIds.filter(id => id !== dragged.itemId), dragged.itemId]);
   }
 
   const color = group?.color || "#8B5CF6";
@@ -917,13 +940,59 @@ function GroupSection({
                   onItemDragHandleStart={() => setDraggingItemId(item.id)}
                 />
                 {!collapsed && kids.map(child => (
-                  <ItemRow
-                    key={child.id} item={child} depth={1} columns={columns}
-                    onUpdate={onUpdateItem} onDelete={onDeleteItem} onOpenDrawer={onOpenDrawer}
-                    hasChildren={false} collapsed={false} onToggleCollapse={() => {}}
-                    saveStatus={saveStatus}
-                  />
+                  <div
+                    key={child.id}
+                    onDragOver={e => {
+                      if (draggingSubitem?.parentId === item.id) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                      }
+                    }}
+                    onDrop={e => {
+                      if (draggingSubitem?.parentId === item.id) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        handleSubitemDrop(item.id, child.id);
+                      }
+                    }}
+                  >
+                    <ItemRow
+                      item={child} depth={1} columns={columns}
+                      onUpdate={onUpdateItem} onDelete={onDeleteItem} onOpenDrawer={onOpenDrawer}
+                      hasChildren={false} collapsed={false} onToggleCollapse={() => {}}
+                      saveStatus={saveStatus}
+                      onItemDragHandleStart={() => setDraggingSubitem({ parentId: item.id, itemId: child.id })}
+                    />
+                  </div>
                 ))}
+                {!collapsed && kids.length > 0 && (
+                  <div
+                    onDragOver={e => {
+                      if (draggingSubitem?.parentId === item.id) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                      }
+                    }}
+                    onDrop={e => {
+                      if (draggingSubitem?.parentId === item.id) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        handleSubitemDropAtEnd(item.id);
+                      }
+                    }}
+                    title="Move subitem to end"
+                    aria-label="Move subitem to end"
+                    style={{
+                      height: draggingSubitem?.parentId === item.id ? 8 : 0,
+                      marginLeft: 28,
+                      borderRadius: 5,
+                      border: draggingSubitem?.parentId === item.id ? `1px dashed ${t.ink(.18)}` : "none",
+                      background: draggingSubitem?.parentId === item.id ? t.ink(.025) : "transparent",
+                      pointerEvents: draggingSubitem?.parentId === item.id ? "auto" : "none",
+                      transition: "height .12s",
+                    }}
+                  />
+                )}
                 {!collapsed && (
                   <AddItemRow indent onAdd={name => onAddItem(name, group?.id ?? null, item.id)} />
                 )}
@@ -2199,6 +2268,76 @@ function OrganiserPageContent() {
     });
   }
 
+  // D.4.7E (Slice E4) - optimistic same-parent subitem reorder. Relationship
+  // fields never change here: the scope is exactly one existing parent id.
+  async function reorderSubitems(parentItemId: string, orderedItemIds: string[]) {
+    if (!activeId || !boardData) return;
+    const key = `board:${activeId}:item-order:parent:${parentItemId}`;
+    const preDragScope = boardData.items
+      .filter(i => i.parent_item_id === parentItemId)
+      .sort((a, b) => a.position - b.position);
+    let confirmedOrder: string[] | null = null;
+
+    const applyOrder = (prev: BoardData | null, order: string[]) => {
+      if (!prev) return prev;
+      const posById = new Map(order.map((id, index) => [id, index]));
+      return {
+        ...prev,
+        items: prev.items.map(item =>
+          item.parent_item_id === parentItemId && posById.has(item.id)
+            ? { ...item, position: posById.get(item.id)! }
+            : item,
+        ),
+      };
+    };
+
+    setBoardData(prev => applyOrder(prev, orderedItemIds));
+
+    await enqueueCoalesced(reorderQueueRef.current, key, orderedItemIds, async (value, hasNewerPending) => {
+      if (confirmedOrder === null) confirmedOrder = preDragScope.map(i => i.id);
+
+      let res: Response | null = null;
+      try {
+        res = await fetch(`/api/organiser/boards/${activeId}/items/${parentItemId}/reorder`, {
+          method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include",
+          body: JSON.stringify({ ordered_item_ids: value }),
+        });
+      } catch {
+        res = null;
+      }
+
+      if (hasNewerPending()) return;
+
+      if (res && res.status === 409) {
+        showPageNotice("Subitem order changed elsewhere. Refreshing.");
+        loadBoardData(activeId);
+        return;
+      }
+      if (!res || !res.ok) {
+        showPageNotice("Couldn't save subitem order. Reverting.");
+        setBoardData(prev => applyOrder(prev, confirmedOrder ?? preDragScope.map(i => i.id)));
+        return;
+      }
+
+      const data = await res.json().catch(() => null) as { order?: { id: string; position: number }[] } | null;
+      if (data?.order) {
+        confirmedOrder = value;
+        const posById = new Map(data.order.map(o => [o.id, o.position]));
+        setBoardData(prev => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            items: prev.items.map(item =>
+              item.parent_item_id === parentItemId && posById.has(item.id)
+                ? { ...item, position: posById.get(item.id)! }
+                : item,
+            ),
+          };
+        });
+      }
+    });
+  }
+
   async function addItem(name: string, groupId: string | null, parentItemId: string | null): Promise<boolean> {
     if (!activeId) return false;
     try {
@@ -2540,6 +2679,7 @@ function OrganiserPageContent() {
                         saveStatus={saveStatus}
                         onGroupDragHandleStart={() => setDraggingGroupId(g.id)}
                         onReorderTopLevelItems={reorderTopLevelItems}
+                        onReorderSubitems={reorderSubitems}
                       />
                     </div>
                   ))}
@@ -2582,6 +2722,7 @@ function OrganiserPageContent() {
                       onAddColumn={addColumn} onRenameColumn={renameColumn} onDeleteColumn={deleteColumn} onEditColumnOptions={setEditingColumn}
                       saveStatus={saveStatus}
                       onReorderTopLevelItems={reorderTopLevelItems}
+                      onReorderSubitems={reorderSubitems}
                     />
                   )}
 
