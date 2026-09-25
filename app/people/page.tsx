@@ -75,6 +75,7 @@ export default function PeoplePage() {
           </p>
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
+          <Link href="/people/restricted-cases" style={{ ...btn('transparent'), border: '1px solid #1a1d24', textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>Restricted Cases</Link>
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search…"
             style={{ padding: '8px 12px', background: CARD, border: `1px solid ${BORDER}`, borderRadius: 8, color: '#f9fafb', fontSize: 13, outline: 'none', width: 200 }} />
           {canManage && (
