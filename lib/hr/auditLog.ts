@@ -84,6 +84,43 @@ const HR_TEAM_AUDIT_POLICY: AuditFieldPolicy = {
   ]),
 };
 
+const HR_RESTRICTED_CASE_AUDIT_POLICY: AuditFieldPolicy = {
+  allowed: new Set(['status', 'closed_at']),
+  idOnly: new Set(['opened_by']),
+  redacted: new Set(['case_type', 'title', 'reference']),
+  omitted: new Set(['id', 'organisation_id', 'created_at', 'updated_at']),
+};
+
+const HR_RESTRICTED_CASE_ACCESS_AUDIT_POLICY: AuditFieldPolicy = {
+  allowed: new Set(['granted_at', 'revoked_at']),
+  idOnly: new Set(['case_id', 'user_id', 'granted_by', 'revoked_by']),
+  redacted: new Set(),
+  omitted: new Set(['id', 'organisation_id']),
+};
+
+const HR_RESTRICTED_CASE_NOTE_AUDIT_POLICY: AuditFieldPolicy = {
+  allowed: new Set(),
+  idOnly: new Set(['case_id', 'author_id']),
+  redacted: new Set(['body']),
+  omitted: new Set(['id', 'organisation_id', 'created_at']),
+};
+
+const HR_RESTRICTED_CASE_DOCUMENT_AUDIT_POLICY: AuditFieldPolicy = {
+  allowed: new Set(['content_type', 'byte_size', 'deleted_at']),
+  idOnly: new Set(['case_id', 'uploaded_by']),
+  redacted: new Set(['original_filename', 'storage_key']),
+  omitted: new Set(['id', 'organisation_id', 'created_at']),
+};
+
+function redactAllState(
+  state: Record<string, unknown> | null | undefined,
+): Record<string, unknown> | null {
+  if (!state) return null;
+  const out: Record<string, unknown> = {};
+  for (const key of Object.keys(state)) out[key] = '[redacted]';
+  return Object.keys(out).length > 0 ? out : null;
+}
+
 // Generic guard retained for HR resource types that do not yet have a
 // field-by-field projection (for example a future hr_document event).
 // People and Teams do NOT use this blacklist; their explicit policies
@@ -123,6 +160,10 @@ function legacyRedactState(
 function policyForResource(resourceType: string): AuditFieldPolicy | null {
   if (resourceType === 'hr_person') return HR_PERSON_AUDIT_POLICY;
   if (resourceType === 'hr_team') return HR_TEAM_AUDIT_POLICY;
+  if (resourceType === 'hr_restricted_case') return HR_RESTRICTED_CASE_AUDIT_POLICY;
+  if (resourceType === 'hr_restricted_case_access') return HR_RESTRICTED_CASE_ACCESS_AUDIT_POLICY;
+  if (resourceType === 'hr_restricted_case_note') return HR_RESTRICTED_CASE_NOTE_AUDIT_POLICY;
+  if (resourceType === 'hr_restricted_case_document') return HR_RESTRICTED_CASE_DOCUMENT_AUDIT_POLICY;
   return null;
 }
 
@@ -133,7 +174,10 @@ function projectHrAuditState(
   if (!state) return null;
 
   const policy = policyForResource(resourceType);
-  if (!policy) return legacyRedactState(state);
+  if (!policy) {
+    if (resourceType.startsWith('hr_restricted_')) return redactAllState(state);
+    return legacyRedactState(state);
+  }
 
   const projected: Record<string, unknown> = {};
 
