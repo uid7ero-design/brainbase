@@ -22,7 +22,7 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
       supplierBillId: id,
       lineId,
       description: description ?? undefined,
-      quantity: quantity !== undefined ? Number(quantity) : undefined,
+      quantity: quantity !== undefined ? quantity : undefined,
       unitPriceCents: unitPriceCents !== undefined ? Number(unitPriceCents) : undefined,
       taxCodeId: taxCodeId !== undefined ? taxCodeId : undefined,
     });

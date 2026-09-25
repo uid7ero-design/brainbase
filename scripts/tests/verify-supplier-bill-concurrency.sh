@@ -337,7 +337,7 @@ CREATE TABLE IF NOT EXISTS commercial_supplier_bill_lines (
   description_snapshot           TEXT NOT NULL,
   sku_snapshot                   TEXT,
   unit_snapshot                  TEXT,
-  quantity                       INTEGER NOT NULL DEFAULT 1 CHECK (quantity > 0),
+  quantity                       NUMERIC(14,4) NOT NULL DEFAULT 1 CHECK (quantity > 0),
   unit_price_cents               INTEGER NOT NULL DEFAULT 0 CHECK (unit_price_cents >= 0),
   tax_code_snapshot              TEXT,
   tax_rate_snapshot              NUMERIC(5,2) NOT NULL DEFAULT 0 CHECK (tax_rate_snapshot >= 0 AND tax_rate_snapshot <= 100),

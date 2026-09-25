@@ -1,20 +1,27 @@
 import 'server-only';
 import sql from '@/lib/db';
+import {
+  integerQuantityToQuantity4,
+  parseQuantity4NonNegative,
+  quantity4ToDisplayNumber,
+  remainingQuantity4,
+} from './quantity';
 
-// Phase C7.5B — read-only Purchasing Reconciliation.
+// Phase C7.5B/C7.5C — read-only Purchasing Reconciliation.
 //
 // Reconciliation is a derived read model over the immutable PO facts and
 // POSTED receipt/bill facts. It deliberately persists nothing: no
 // received_quantity/billed_quantity/matched_quantity/status cache is added
 // to commercial_purchase_orders or commercial_purchase_order_lines.
 //
-// Receipt progress is QUANTITY-based. Supplier-bill progress is VALUE-based.
-// Those are intentionally separate facts: C7.4 bill quantities are INTEGER
-// while C7.3 receipt quantities support NUMERIC(14,4), so this phase does not
-// pretend to provide receipt-line <-> bill-line quantity allocation.
+// C7.5C derives receipt quantity, billed quantity, and billed value as
+// independent facts. Exact reconciliation requires all three dimensions to
+// reach the ordered facts. This still does NOT claim receipt-line <-> bill-line
+// allocation; both document types only share PO-line lineage at this phase.
 
 export type ReceivingState = 'NOT_RECEIVED' | 'PARTIALLY_RECEIVED' | 'FULLY_RECEIVED';
 export type BillingState = 'NOT_BILLED' | 'PARTIALLY_BILLED' | 'FULLY_BILLED';
+export type BilledQuantityState = 'NOT_BILLED' | 'PARTIALLY_BILLED' | 'FULLY_BILLED';
 export type LineReconciliationState =
   | 'OPEN'
   | 'RECEIVED_NOT_BILLED'
@@ -30,6 +37,8 @@ export type PurchasingReconciliationExceptionCode =
   | 'RECEIVED_NOT_BILLED'
   | 'BILLED_NOT_RECEIVED'
   | 'RECEIPT_QUANTITY_MISMATCH'
+  | 'BILL_QUANTITY_MISMATCH'
+  | 'PARTIALLY_BILLED_QUANTITY'
   | 'BILL_VALUE_MISMATCH';
 
 export interface PurchasingReconciliationException {
@@ -46,10 +55,13 @@ export interface PurchaseLineReconciliation {
   orderedQuantity: number;
   receivedQuantity: number;
   remainingToReceive: number;
+  billedQuantity: number;
+  remainingToBillQuantity: number;
   orderedValueCents: number;
   billedValueCents: number;
   remainingToBillCents: number;
   receivingState: ReceivingState;
+  billedQuantityState: BilledQuantityState;
   billingState: BillingState;
   reconciliationState: LineReconciliationState;
   exceptions: PurchasingReconciliationException[];
@@ -61,6 +73,7 @@ export interface PurchaseOrderReconciliation {
   currency: string;
   lineCount: number;
   fullyReceivedLineCount: number;
+  fullyBilledQuantityLineCount: number;
   fullyBilledLineCount: number;
   reconciledLineCount: number;
   orderedValueCents: number;
@@ -82,6 +95,7 @@ export type RawReconciliationRow = {
   ordered_quantity: number | null;
   ordered_value_cents: number | null;
   received_quantity: string;
+  billed_quantity: string;
   billed_value_cents: string;
 };
 
@@ -89,17 +103,27 @@ function classifyLine(row: RawReconciliationRow): PurchaseLineReconciliation | n
   if (!row.line_id) return null;
 
   const orderedQuantity = Number(row.ordered_quantity ?? 0);
-  const receivedQuantity = Number(row.received_quantity);
+  const orderedQuantityFixed = integerQuantityToQuantity4(orderedQuantity);
+  const receivedQuantityFixed = parseQuantity4NonNegative(row.received_quantity);
+  const billedQuantityFixed = parseQuantity4NonNegative(row.billed_quantity);
+  const receivedQuantity = quantity4ToDisplayNumber(receivedQuantityFixed);
+  const billedQuantity = quantity4ToDisplayNumber(billedQuantityFixed);
   const orderedValueCents = Number(row.ordered_value_cents ?? 0);
   const billedValueCents = Number(row.billed_value_cents);
 
-  const receiptOver = receivedQuantity > orderedQuantity;
-  const billOver = billedValueCents > orderedValueCents;
+  const receiptOver = receivedQuantityFixed > orderedQuantityFixed;
+  const billQuantityOver = billedQuantityFixed > orderedQuantityFixed;
+  const billValueOver = billedValueCents > orderedValueCents;
 
   const receivingState: ReceivingState =
-    receivedQuantity <= 0 ? 'NOT_RECEIVED'
-      : receivedQuantity >= orderedQuantity ? 'FULLY_RECEIVED'
+    receivedQuantityFixed === 0 ? 'NOT_RECEIVED'
+      : receivedQuantityFixed >= orderedQuantityFixed ? 'FULLY_RECEIVED'
         : 'PARTIALLY_RECEIVED';
+
+  const billedQuantityState: BilledQuantityState =
+    billedQuantityFixed === 0 ? 'NOT_BILLED'
+      : billedQuantityFixed >= orderedQuantityFixed ? 'FULLY_BILLED'
+        : 'PARTIALLY_BILLED';
 
   const billingState: BillingState =
     billedValueCents === orderedValueCents ? 'FULLY_BILLED'
@@ -107,14 +131,19 @@ function classifyLine(row: RawReconciliationRow): PurchaseLineReconciliation | n
         : billedValueCents >= orderedValueCents ? 'FULLY_BILLED'
           : 'PARTIALLY_BILLED';
 
+  const quantitiesExact =
+    receivedQuantityFixed === orderedQuantityFixed
+    && billedQuantityFixed === orderedQuantityFixed;
+  const hasBillActivity = billedQuantityFixed > 0 || billedValueCents > 0;
+
   let reconciliationState: LineReconciliationState;
-  if (receivedQuantity === orderedQuantity && billedValueCents === orderedValueCents) {
+  if (quantitiesExact && billedValueCents === orderedValueCents) {
     reconciliationState = 'RECONCILED';
-  } else if (receivedQuantity === 0 && billedValueCents === 0) {
+  } else if (receivedQuantityFixed === 0 && !hasBillActivity) {
     reconciliationState = 'OPEN';
-  } else if (receivedQuantity === orderedQuantity && billedValueCents === 0) {
+  } else if (receivedQuantityFixed === orderedQuantityFixed && !hasBillActivity) {
     reconciliationState = 'RECEIVED_NOT_BILLED';
-  } else if (receivedQuantity === 0 && billedValueCents > 0) {
+  } else if (receivedQuantityFixed === 0 && hasBillActivity) {
     reconciliationState = 'BILLED_NOT_RECEIVED';
   } else {
     reconciliationState = 'PARTIAL';
@@ -122,17 +151,21 @@ function classifyLine(row: RawReconciliationRow): PurchaseLineReconciliation | n
 
   const exceptions: PurchasingReconciliationException[] = [];
   if (receiptOver) exceptions.push({ code: 'RECEIPT_QUANTITY_MISMATCH', severity: 'ERROR' });
-  if (billOver) exceptions.push({ code: 'BILL_VALUE_MISMATCH', severity: 'ERROR' });
-  if (!receiptOver && receivedQuantity > 0 && receivedQuantity < orderedQuantity) {
+  if (billQuantityOver) exceptions.push({ code: 'BILL_QUANTITY_MISMATCH', severity: 'ERROR' });
+  if (billValueOver) exceptions.push({ code: 'BILL_VALUE_MISMATCH', severity: 'ERROR' });
+  if (!receiptOver && receivedQuantityFixed > 0 && receivedQuantityFixed < orderedQuantityFixed) {
     exceptions.push({ code: 'PARTIALLY_RECEIVED', severity: 'INFO' });
   }
-  if (!billOver && billedValueCents > 0 && billedValueCents < orderedValueCents) {
+  if (!billQuantityOver && billedQuantityFixed > 0 && billedQuantityFixed < orderedQuantityFixed) {
+    exceptions.push({ code: 'PARTIALLY_BILLED_QUANTITY', severity: 'INFO' });
+  }
+  if (!billValueOver && billedValueCents > 0 && billedValueCents < orderedValueCents) {
     exceptions.push({ code: 'PARTIALLY_BILLED', severity: 'INFO' });
   }
-  if (receivedQuantity === orderedQuantity && orderedValueCents > 0 && billedValueCents === 0) {
+  if (receivedQuantityFixed === orderedQuantityFixed && orderedValueCents > 0 && !hasBillActivity) {
     exceptions.push({ code: 'RECEIVED_NOT_BILLED', severity: 'INFO' });
   }
-  if (receivedQuantity === 0 && billedValueCents > 0) {
+  if (receivedQuantityFixed === 0 && hasBillActivity) {
     exceptions.push({ code: 'BILLED_BEFORE_RECEIPT', severity: 'INFO' });
     exceptions.push({ code: 'BILLED_NOT_RECEIVED', severity: 'INFO' });
   }
@@ -145,11 +178,14 @@ function classifyLine(row: RawReconciliationRow): PurchaseLineReconciliation | n
     unit: row.unit_snapshot,
     orderedQuantity,
     receivedQuantity,
-    remainingToReceive: Math.max(0, orderedQuantity - receivedQuantity),
+    remainingToReceive: quantity4ToDisplayNumber(remainingQuantity4(orderedQuantityFixed, receivedQuantityFixed)),
+    billedQuantity,
+    remainingToBillQuantity: quantity4ToDisplayNumber(remainingQuantity4(orderedQuantityFixed, billedQuantityFixed)),
     orderedValueCents,
     billedValueCents,
     remainingToBillCents: Math.max(0, orderedValueCents - billedValueCents),
     receivingState,
+    billedQuantityState,
     billingState,
     reconciliationState,
     exceptions,
@@ -164,6 +200,7 @@ export function derivePurchaseOrderReconciliation(rows: RawReconciliationRow[]):
   const exceptions = lines.flatMap(line => line.exceptions);
 
   const fullyReceivedLineCount = lines.filter(line => line.receivingState === 'FULLY_RECEIVED').length;
+  const fullyBilledQuantityLineCount = lines.filter(line => line.billedQuantityState === 'FULLY_BILLED').length;
   const fullyBilledLineCount = lines.filter(line => line.billingState === 'FULLY_BILLED').length;
   const reconciledLineCount = lines.filter(line => line.reconciliationState === 'RECONCILED').length;
   const orderedValueCents = lines.reduce((sum, line) => sum + line.orderedValueCents, 0);
@@ -186,6 +223,7 @@ export function derivePurchaseOrderReconciliation(rows: RawReconciliationRow[]):
     currency: header.currency,
     lineCount: lines.length,
     fullyReceivedLineCount,
+    fullyBilledQuantityLineCount,
     fullyBilledLineCount,
     reconciledLineCount,
     orderedValueCents,
@@ -222,6 +260,7 @@ export async function getPurchaseOrderReconciliation(
     billed AS (
       SELECT
         csbl.source_purchase_order_line_id AS line_id,
+        COALESCE(SUM(csbl.quantity), 0)::numeric(14,4) AS billed_quantity,
         COALESCE(SUM(csbl.line_total_cents), 0) AS billed_value_cents
       FROM commercial_supplier_bill_lines csbl
       JOIN commercial_supplier_bills csb
@@ -244,6 +283,7 @@ export async function getPurchaseOrderReconciliation(
       cpol.quantity AS ordered_quantity,
       cpol.line_total_cents AS ordered_value_cents,
       COALESCE(r.received_quantity, 0)::text AS received_quantity,
+      COALESCE(b.billed_quantity, 0)::text AS billed_quantity,
       COALESCE(b.billed_value_cents, 0)::text AS billed_value_cents
     FROM commercial_purchase_orders cpo
     LEFT JOIN commercial_purchase_order_lines cpol
