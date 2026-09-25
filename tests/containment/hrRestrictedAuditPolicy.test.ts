@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const sqlMock = vi.fn(async () => []);
 vi.mock('@/lib/db', () => ({ default: sqlMock }));
 
-const { logHrEvent } = await import('@/lib/hr/auditLog');
+const { logHrEvent, logRestrictedHrReadEvent } = await import('@/lib/hr/auditLog');
 
 function sqlCallArgs(): unknown[] {
   return (sqlMock.mock.calls[0] as unknown as [string[], ...unknown[]]).slice(1);
@@ -137,6 +137,32 @@ describe('restricted-HR audit policy', () => {
     const serialized = JSON.stringify(state);
     expect(serialized).not.toContain('complaint-about-jane-doe.pdf');
     expect(serialized).not.toContain('secret-object-key');
+  });
+
+  it('propagates restricted-read audit storage failures so routes can fail closed', async () => {
+    sqlMock.mockRejectedValueOnce(new Error('audit database unavailable'));
+
+    await expect(logRestrictedHrReadEvent(
+      { organisationId: 'org-a', userId: 'reader-user' },
+      {
+        action: 'hr_restricted_case.read',
+        resourceType: 'hr_restricted_case',
+        resourceId: 'case-1',
+        afterState: { status: 'open', opened_by: 'admin-user' },
+      },
+    )).rejects.toThrow('audit database unavailable');
+  });
+
+  it('rejects misuse of the strict restricted-read helper before writing an audit row', async () => {
+    await expect(logRestrictedHrReadEvent(
+      { organisationId: 'org-a', userId: 'reader-user' },
+      {
+        action: 'hr_restricted_case.created',
+        resourceType: 'hr_restricted_case',
+        resourceId: 'case-1',
+      },
+    )).rejects.toThrow('only accepts restricted-case read events');
+    expect(sqlMock).not.toHaveBeenCalled();
   });
 
   it('fails closed for an unknown restricted resource type by redacting every state value', async () => {
