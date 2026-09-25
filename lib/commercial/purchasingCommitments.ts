@@ -212,3 +212,118 @@ export async function getPurchaseOrderCommitment(
 
   return derivePurchaseOrderCommitment(rows);
 }
+
+
+export interface PurchaseCommitmentCurrencySummary {
+  currency: string;
+  purchaseOrderCount: number;
+  lineCount: number;
+  orderedTotalCents: number;
+  billedTotalCents: number;
+  outstandingTotalCents: number;
+}
+
+export interface PurchaseCommitmentReport {
+  periodResolution: CommitmentPeriodResolution;
+  purchaseOrderCount: number;
+  lineCount: number;
+  currencies: PurchaseCommitmentCurrencySummary[];
+  purchaseOrders: PurchaseOrderCommitment[];
+}
+
+export function derivePurchaseCommitmentReport(
+  rows: RawPurchaseCommitmentRow[],
+): PurchaseCommitmentReport {
+  const byPurchaseOrder = new Map<string, RawPurchaseCommitmentRow[]>();
+  for (const row of rows) {
+    const group = byPurchaseOrder.get(row.purchase_order_id) ?? [];
+    group.push(row);
+    byPurchaseOrder.set(row.purchase_order_id, group);
+  }
+
+  const purchaseOrders = [...byPurchaseOrder.values()]
+    .map(group => derivePurchaseOrderCommitment(group))
+    .filter((commitment): commitment is PurchaseOrderCommitment => commitment !== null);
+
+  const currencyMap = new Map<string, PurchaseCommitmentCurrencySummary>();
+  for (const commitment of purchaseOrders) {
+    const current = currencyMap.get(commitment.currency) ?? {
+      currency: commitment.currency,
+      purchaseOrderCount: 0,
+      lineCount: 0,
+      orderedTotalCents: 0,
+      billedTotalCents: 0,
+      outstandingTotalCents: 0,
+    };
+    current.purchaseOrderCount += 1;
+    current.lineCount += commitment.lineCount;
+    current.orderedTotalCents += commitment.orderedTotalCents;
+    current.billedTotalCents += commitment.billedTotalCents;
+    current.outstandingTotalCents += commitment.outstandingTotalCents;
+    currencyMap.set(commitment.currency, current);
+  }
+
+  return {
+    periodResolution: 'UNRESOLVED',
+    purchaseOrderCount: purchaseOrders.length,
+    lineCount: purchaseOrders.reduce((sum, commitment) => sum + commitment.lineCount, 0),
+    currencies: [...currencyMap.values()].sort((a, b) => a.currency.localeCompare(b.currency)),
+    purchaseOrders,
+  };
+}
+
+
+// Phase C7.6D — cross-PO Budgeting report. Only ISSUED purchase orders carry
+// an active purchasing commitment. The report remains period-unresolved and
+// currency-separated; it never invents a cross-currency total.
+export async function getPurchaseCommitmentReport(
+  organisationId: string,
+): Promise<PurchaseCommitmentReport> {
+  const rows = (await sql`
+    WITH billed AS (
+      SELECT
+        csbl.source_purchase_order_line_id AS line_id,
+        COALESCE(SUM(csbl.line_subtotal_cents), 0) AS billed_subtotal_cents,
+        COALESCE(SUM(csbl.line_tax_cents), 0) AS billed_tax_cents,
+        COALESCE(SUM(csbl.line_total_cents), 0) AS billed_total_cents
+      FROM commercial_supplier_bill_lines csbl
+      JOIN commercial_supplier_bills csb
+        ON csb.id = csbl.supplier_bill_id
+       AND csb.organisation_id = csbl.organisation_id
+      JOIN commercial_purchase_order_lines source_line
+        ON source_line.id = csbl.source_purchase_order_line_id
+       AND source_line.organisation_id = csbl.organisation_id
+      WHERE csbl.organisation_id = ${organisationId}
+        AND csb.source_purchase_order_id = source_line.purchase_order_id
+        AND csb.status = 'POSTED'
+      GROUP BY csbl.source_purchase_order_line_id
+    )
+    SELECT
+      cpo.id AS purchase_order_id,
+      cpo.status AS purchase_order_status,
+      cpo.supplier_id,
+      cpo.currency,
+      cpo.issued_at,
+      cpo.cost_centre_id AS purchase_order_cost_centre_id,
+      cpol.id AS line_id,
+      cpol.position,
+      cpol.description_snapshot,
+      cpol.cost_centre_id AS line_cost_centre_id,
+      cpol.line_subtotal_cents AS ordered_subtotal_cents,
+      cpol.line_tax_cents AS ordered_tax_cents,
+      cpol.line_total_cents AS ordered_total_cents,
+      COALESCE(b.billed_subtotal_cents, 0)::text AS billed_subtotal_cents,
+      COALESCE(b.billed_tax_cents, 0)::text AS billed_tax_cents,
+      COALESCE(b.billed_total_cents, 0)::text AS billed_total_cents
+    FROM commercial_purchase_orders cpo
+    LEFT JOIN commercial_purchase_order_lines cpol
+      ON cpol.purchase_order_id = cpo.id
+     AND cpol.organisation_id = cpo.organisation_id
+    LEFT JOIN billed b ON b.line_id = cpol.id
+    WHERE cpo.organisation_id = ${organisationId}
+      AND cpo.status = 'ISSUED'
+    ORDER BY cpo.issued_at ASC NULLS LAST, cpo.id ASC, cpol.position ASC NULLS LAST, cpol.id ASC NULLS LAST
+  `) as RawPurchaseCommitmentRow[];
+
+  return derivePurchaseCommitmentReport(rows);
+}
