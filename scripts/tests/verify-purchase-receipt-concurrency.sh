@@ -263,6 +263,20 @@ CREATE TABLE IF NOT EXISTS commercial_purchase_order_lines (
     REFERENCES commercial_cost_centres (id, organisation_id)
 );
 
+-- Minimal current-main dependency: cancelPurchaseOrder() also guards
+-- against POSTED Supplier Bills (added in C7.4). This C7.3 harness never
+-- creates a supplier bill, but the table must exist so the receipt-cancel
+-- invariant is tested against the current production code path.
+CREATE TABLE IF NOT EXISTS commercial_supplier_bills (
+  id                       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  organisation_id          TEXT NOT NULL REFERENCES organisations(id),
+  source_purchase_order_id UUID NOT NULL,
+  status                   TEXT NOT NULL DEFAULT '"'"'DRAFT'"'"' CHECK (status IN ('"'"'DRAFT'"'"', '"'"'POSTED'"'"', '"'"'CANCELLED'"'"')),
+  UNIQUE (id, organisation_id),
+  FOREIGN KEY (source_purchase_order_id, organisation_id)
+    REFERENCES commercial_purchase_orders (id, organisation_id)
+);
+
 -- Real, verbatim: scripts/create-commercial-purchase-receipts.sql Section 1.
 CREATE TABLE IF NOT EXISTS commercial_purchase_receipts (
   id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),

@@ -55,16 +55,43 @@ process.env.SESSION_SECRET ??= 'integration-test-secret-never-real-never-product
 const prisma = new PrismaClient({ datasourceUrl: DATABASE_URL });
 
 const UUID_SHAPE_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
-async function neonCompatibleSql(strings: TemplateStringsArray, ...values: unknown[]): Promise<unknown[]> {
+
+type QueryDescriptor = { text: string; values: unknown[] };
+type TxnTag = (strings: TemplateStringsArray, ...values: unknown[]) => QueryDescriptor;
+type TxnBuilder = (txn: TxnTag) => QueryDescriptor[];
+
+function compileNeonCompatibleQuery(strings: TemplateStringsArray, values: unknown[]): QueryDescriptor {
   let text = strings[0];
   for (let i = 0; i < values.length; i++) {
     const cast = typeof values[i] === 'string' && UUID_SHAPE_RE.test(values[i] as string) ? '::uuid' : '';
     text += `$${i + 1}${cast}` + strings[i + 1];
   }
-  return prisma.$queryRawUnsafe(text, ...values);
+  return { text, values };
 }
 
-vi.doMock('@/lib/db', () => ({ default: neonCompatibleSql }));
+async function neonCompatibleSql(strings: TemplateStringsArray, ...values: unknown[]): Promise<unknown[]> {
+  const query = compileNeonCompatibleQuery(strings, values);
+  return prisma.$queryRawUnsafe(query.text, ...query.values);
+}
+
+type TransactionOptions = { isolationLevel?: 'ReadCommitted' };
+const sqlWithTransaction = neonCompatibleSql as typeof neonCompatibleSql & {
+  transaction: (builder: TxnBuilder, options?: TransactionOptions) => Promise<unknown[][]>;
+};
+sqlWithTransaction.transaction = async (builder: TxnBuilder, options?: TransactionOptions): Promise<unknown[][]> => {
+  expect(options?.isolationLevel).toBe('ReadCommitted');
+  return prisma.$transaction(async tx => {
+    const txn: TxnTag = (strings, ...values) => compileNeonCompatibleQuery(strings, values);
+    const queries = builder(txn);
+    const results: unknown[][] = [];
+    for (const query of queries) {
+      results.push(await tx.$queryRawUnsafe<unknown[]>(query.text, ...query.values));
+    }
+    return results;
+  }, { isolationLevel: 'ReadCommitted' });
+};
+
+vi.doMock('@/lib/db', () => ({ default: sqlWithTransaction }));
 
 let createPurchaseOrder: typeof import('@/lib/commercial/purchaseOrders').createPurchaseOrder;
 let addPurchaseOrderLine: typeof import('@/lib/commercial/purchaseOrders').addPurchaseOrderLine;
@@ -118,18 +145,18 @@ async function freshIssuedPoWithLine(unitPriceCents: number, quantity: number): 
   return { purchaseOrderId: po.id, lineId: line.id, orderedValueCents: line.line_total_cents };
 }
 
-async function draftBillWithLine(purchaseOrderId: string, lineId: string, billQuantity: number, billUnitPriceCents: number): Promise<string> {
+async function draftBillWithLine(purchaseOrderId: string, lineId: string, billQuantity: string | number, billUnitPriceCents: number): Promise<string> {
   const bill = await createSupplierBill({ organisationId: ORG, userId: USER, purchaseOrderId, supplierInvoiceNumber: nextInvoiceNumber() });
   await addSupplierBillLine({ organisationId: ORG, supplierBillId: bill.id, sourcePurchaseOrderLineId: lineId, quantity: billQuantity, unitPriceCents: billUnitPriceCents });
   return bill.id;
 }
 
 describe('C7.4 — real-Postgres supplier bill posting concurrency', () => {
-  it('rejects strict over-billing in a plain sequential case (VALUE-based, not quantity-based)', async () => {
+  it('rejects strict over-billing in a plain sequential VALUE-only case', async () => {
     const { purchaseOrderId, lineId, orderedValueCents } = await freshIssuedPoWithLine(1000, 10); // ordered value 10000
     expect(orderedValueCents).toBe(10000);
-    const billAId = await draftBillWithLine(purchaseOrderId, lineId, 7, 1000); // 7000
-    const billBId = await draftBillWithLine(purchaseOrderId, lineId, 7, 1000); // 7000, together 14000 > 10000
+    const billAId = await draftBillWithLine(purchaseOrderId, lineId, 4, 1500); // qty 4, value 6000
+    const billBId = await draftBillWithLine(purchaseOrderId, lineId, 4, 1500); // cumulative qty 8 <= 10, value 12000 > 10000
 
     const posted = await postSupplierBill({ organisationId: ORG, userId: USER, supplierBillId: billAId });
     expect(posted.status).toBe('POSTED');
@@ -143,15 +170,12 @@ describe('C7.4 — real-Postgres supplier bill posting concurrency', () => {
     expect(stillDraft?.status).toBe('DRAFT');
   });
 
-  it('TWO CONCURRENT posts against the same PO line cannot together over-bill it — exactly one wins', async () => {
-    // Ordered value 10000; two draft bills each requesting 6000 — only
-    // one can be POSTED, since together they total 12000 > 10000. A
-    // simple read-then-check would let both pass; only real FOR UPDATE
-    // row locking, acquired inside one atomic statement, can serialize
-    // this correctly.
+  it('TWO CONCURRENT posts cannot jointly exceed ordered VALUE while quantity stays within — exactly one wins', async () => {
+    // Ordered qty 10/value 10000. Each bill is qty 4/value 6000, so
+    // quantity would remain safe at 8 while combined value would be 12000.
     const { purchaseOrderId, lineId } = await freshIssuedPoWithLine(1000, 10);
-    const billAId = await draftBillWithLine(purchaseOrderId, lineId, 6, 1000);
-    const billBId = await draftBillWithLine(purchaseOrderId, lineId, 6, 1000);
+    const billAId = await draftBillWithLine(purchaseOrderId, lineId, 4, 1500);
+    const billBId = await draftBillWithLine(purchaseOrderId, lineId, 4, 1500);
 
     const results = await Promise.allSettled([
       postSupplierBill({ organisationId: ORG, userId: USER, supplierBillId: billAId }),
@@ -268,5 +292,101 @@ describe('C7.4 — real-Postgres supplier bill posting concurrency', () => {
        VALUES ($1, $2::uuid, $3::uuid, $4, $5)`,
       ORG, bill.supplier_id, bill.source_purchase_order_id, differentCaseAndSpacing, USER,
     )).rejects.toThrow(/23505|already exists|supplier_invoice_number_canonical/i);
+  });
+});
+
+
+async function postedBilledQuantity(lineId: string): Promise<string> {
+  const rows = await prisma.$queryRawUnsafe<{ qty: string }[]>(
+    `SELECT COALESCE(SUM(csbl.quantity), 0)::text AS qty
+     FROM commercial_supplier_bill_lines csbl
+     JOIN commercial_supplier_bills csb
+       ON csb.id = csbl.supplier_bill_id
+      AND csb.organisation_id = csbl.organisation_id
+     WHERE csbl.organisation_id = $1
+       AND csbl.source_purchase_order_line_id = $2::uuid
+       AND csb.status = 'POSTED'`,
+    ORG, lineId,
+  );
+  return rows[0].qty;
+}
+
+describe('C7.5C — real-Postgres fractional quantity posting concurrency', () => {
+  it('rejects a sequential quantity-only over-bill while value remains safely within', async () => {
+    const { purchaseOrderId, lineId } = await freshIssuedPoWithLine(10000, 10);
+    const billAId = await draftBillWithLine(purchaseOrderId, lineId, '6.5000', 1000);
+    const billBId = await draftBillWithLine(purchaseOrderId, lineId, '6.5000', 1000);
+
+    await postSupplierBill({ organisationId: ORG, userId: USER, supplierBillId: billAId });
+    await expect(postSupplierBill({ organisationId: ORG, userId: USER, supplierBillId: billBId }))
+      .rejects.toThrow(/ordered value or quantity/);
+    expect(await postedBilledQuantity(lineId)).toBe('6.5000');
+  });
+
+  it('two concurrent bills cannot jointly exceed ordered quantity when value stays safely within', async () => {
+    const { purchaseOrderId, lineId } = await freshIssuedPoWithLine(10000, 10);
+    const billAId = await draftBillWithLine(purchaseOrderId, lineId, '6.5000', 1000);
+    const billBId = await draftBillWithLine(purchaseOrderId, lineId, '6.5000', 1000);
+
+    const results = await Promise.allSettled([
+      postSupplierBill({ organisationId: ORG, userId: USER, supplierBillId: billAId }),
+      postSupplierBill({ organisationId: ORG, userId: USER, supplierBillId: billBId }),
+    ]);
+    expect(results.filter(r => r.status === 'fulfilled')).toHaveLength(1);
+    expect(results.filter(r => r.status === 'rejected')).toHaveLength(1);
+    expect(await postedBilledQuantity(lineId)).toBe('6.5000');
+  });
+
+  it('two concurrent fractional bills may both post when quantity exactly reaches the boundary', async () => {
+    const { purchaseOrderId, lineId } = await freshIssuedPoWithLine(10000, 10);
+    const billAId = await draftBillWithLine(purchaseOrderId, lineId, '6.5000', 1000);
+    const billBId = await draftBillWithLine(purchaseOrderId, lineId, '3.5000', 1000);
+
+    const results = await Promise.allSettled([
+      postSupplierBill({ organisationId: ORG, userId: USER, supplierBillId: billAId }),
+      postSupplierBill({ organisationId: ORG, userId: USER, supplierBillId: billBId }),
+    ]);
+    expect(results.every(r => r.status === 'fulfilled')).toBe(true);
+    expect(await postedBilledQuantity(lineId)).toBe('10.0000');
+  });
+
+  it('a 0.0001 cumulative quantity overrun cannot commit under concurrency', async () => {
+    const { purchaseOrderId, lineId } = await freshIssuedPoWithLine(10000, 10);
+    const billAId = await draftBillWithLine(purchaseOrderId, lineId, '5.0000', 1000);
+    const billBId = await draftBillWithLine(purchaseOrderId, lineId, '5.0001', 1000);
+
+    const results = await Promise.allSettled([
+      postSupplierBill({ organisationId: ORG, userId: USER, supplierBillId: billAId }),
+      postSupplierBill({ organisationId: ORG, userId: USER, supplierBillId: billBId }),
+    ]);
+    expect(results.filter(r => r.status === 'fulfilled')).toHaveLength(1);
+    expect(results.filter(r => r.status === 'rejected')).toHaveLength(1);
+    expect(Number(await postedBilledQuantity(lineId))).toBeLessThanOrEqual(10);
+  });
+
+  it('cancelling a fractional POSTED bill reopens quantity capacity', async () => {
+    const { purchaseOrderId, lineId } = await freshIssuedPoWithLine(10000, 10);
+    const billAId = await draftBillWithLine(purchaseOrderId, lineId, '6.5000', 1000);
+    const billBId = await draftBillWithLine(purchaseOrderId, lineId, '3.5000', 1000);
+    await postSupplierBill({ organisationId: ORG, userId: USER, supplierBillId: billAId });
+    await postSupplierBill({ organisationId: ORG, userId: USER, supplierBillId: billBId });
+    expect(await postedBilledQuantity(lineId)).toBe('10.0000');
+
+    await cancelSupplierBill({
+      organisationId: ORG,
+      userId: USER,
+      supplierBillId: billAId,
+      reason: 'Fractional correction',
+    });
+    expect(await postedBilledQuantity(lineId)).toBe('3.5000');
+
+    const billCId = await draftBillWithLine(purchaseOrderId, lineId, '6.5000', 1000);
+    const posted = await postSupplierBill({
+      organisationId: ORG,
+      userId: USER,
+      supplierBillId: billCId,
+    });
+    expect(posted.status).toBe('POSTED');
+    expect(await postedBilledQuantity(lineId)).toBe('10.0000');
   });
 });

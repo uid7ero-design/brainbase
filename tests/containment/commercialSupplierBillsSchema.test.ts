@@ -124,8 +124,9 @@ describe('Phase C7.4 — commercial_supplier_bill_lines table shape', () => {
     expect(body).toMatch(/product_id\s+UUID,/)
   })
 
-  it('quantity matches commercial_purchase_order_lines exactly: INTEGER, default 1, CHECK > 0', () => {
-    expect(body).toMatch(/quantity\s+INTEGER NOT NULL DEFAULT 1 CHECK \(quantity > 0\)/)
+  it('C7.5C stores quantity as NUMERIC(14,4), default 1, CHECK > 0', () => {
+    expect(body).toMatch(/quantity\s+NUMERIC\(14,4\) NOT NULL DEFAULT 1 CHECK \(quantity > 0\)/)
+    expect(body).not.toMatch(/quantity\s+INTEGER/)
   })
 
   it('carries its own unit_price_cents/tax_code_snapshot/tax_rate_snapshot/line_total_cents — a bill line is a MONEY fact, unlike a receipt line', () => {
@@ -189,7 +190,20 @@ describe('Phase C7.4 — every CREATE statement in this file is idempotent and n
 // by this file too. The ONE permitted addition (Section 0's UNIQUE(id,
 // supplier_id) retrofit) is a constraint, not a column, and is asserted
 // separately above.
-describe('Phase C7.4 — no billed_quantity/matched_quantity/paid_cents/payment_id/committed/encumbrance/actual column was added to the PO/PO-line tables', () => {
+describe('Phase C7.5C — forward fractional quantity migration is narrow and non-destructive', () => {
+  const migration = stripComments(readSource('scripts/widen-commercial-supplier-bill-quantity-c7-5c.sql'))
+
+  it('widens only Supplier Bill line quantity to NUMERIC(14,4) using an explicit cast', () => {
+    expect(migration).toMatch(/ALTER TABLE commercial_supplier_bill_lines\s*\n?\s*ALTER COLUMN quantity TYPE NUMERIC\(14,4\)\s*\n?\s*USING quantity::NUMERIC\(14,4\)/)
+  })
+
+  it('contains no DELETE, TRUNCATE, DROP TABLE, or unrelated table alteration', () => {
+    expect(migration).not.toMatch(/\bDELETE\s+FROM\b|\bTRUNCATE\b|\bDROP\s+TABLE\b/i)
+    expect(migration).not.toMatch(/ALTER TABLE commercial_purchase_order_lines|ALTER TABLE commercial_invoice_lines|ALTER TABLE commercial_quote/i)
+  })
+})
+
+describe('Phase C7.4/C7.5C — no billed_quantity/matched_quantity/paid_cents/payment_id/committed/encumbrance/actual column was added to the PO/PO-line tables', () => {
   it('commercial_purchase_orders still has none of the forbidden columns', () => {
     const body = tableBody(purchasingSource, 'commercial_purchase_orders')
     expect(body).not.toMatch(/billed_quantity|matched_quantity|paid_cents|payment_id|committed|encumbrance|\bactual\b/i)

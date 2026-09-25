@@ -5,7 +5,8 @@ import { getPurchaseOrder, listPurchaseOrderLines, type CommercialPurchaseOrderL
 import { getSupplier } from './suppliers';
 import { getProduct } from './products';
 import { getTaxCode } from './taxCodes';
-import { sumCents, lineTotalCents, applyRatePercentCents, isValidCents } from './money';
+import { sumCents, calculateFractionalLineTotals, isValidCents } from './money';
+import { parseQuantity4, quantity4ToDecimalString } from './quantity';
 import { assertSupplierBillTransition, assertSupplierBillEditable, type SupplierBillStatus } from './supplierBillLifecycle';
 import {
   logSupplierBillCreated, logSupplierBillUpdated, logSupplierBillDeleted,
@@ -85,7 +86,7 @@ export interface CommercialSupplierBillLine {
   description_snapshot: string;
   sku_snapshot: string | null;
   unit_snapshot: string | null;
-  quantity: number;
+  quantity: string; // NUMERIC(14,4) — string from the driver, never coerced to float for money arithmetic
   unit_price_cents: number;
   tax_code_snapshot: string | null;
   tax_rate_snapshot: string; // NUMERIC(5,2) — string from the driver, never coerced to float
@@ -107,11 +108,15 @@ function isDuplicateSupplierInvoiceNumberViolation(err: unknown): boolean {
     && err.constraint === DUPLICATE_SUPPLIER_INVOICE_CONSTRAINT;
 }
 
-function computeLineTotals(unitPriceCents: number, quantity: number, taxRatePercent: number) {
-  const line_subtotal_cents = lineTotalCents(unitPriceCents, quantity);
-  const line_tax_cents = applyRatePercentCents(line_subtotal_cents, taxRatePercent);
-  const line_total_cents = line_subtotal_cents + line_tax_cents;
-  return { line_subtotal_cents, line_tax_cents, line_total_cents };
+function computeLineTotals(unitPriceCents: number, quantity: string | number, taxRatePercent: number) {
+  const quantityScaled = parseQuantity4(quantity);
+  const totals = calculateFractionalLineTotals({ unitPriceCents, quantityScaled, taxRatePercent });
+  return {
+    quantity: quantity4ToDecimalString(quantityScaled),
+    line_subtotal_cents: totals.lineSubtotalCents,
+    line_tax_cents: totals.lineTaxCents,
+    line_total_cents: totals.lineTotalCents,
+  };
 }
 
 // ── Reads ─────────────────────────────────────────────────────────────
@@ -362,7 +367,7 @@ export async function addSupplierBillLine(params: {
   sourcePurchaseOrderLineId: string;
   productId?: string | null;
   description?: string;
-  quantity: number;
+  quantity: string | number;
   unitPriceCents?: number;
   taxCodeId?: string | null;
 }): Promise<CommercialSupplierBillLine> {
@@ -370,9 +375,8 @@ export async function addSupplierBillLine(params: {
   if (!supplierBill) throw new Error('supplier bill not found for this organisation');
   assertSupplierBillEditable(supplierBill.status);
 
-  if (!Number.isInteger(params.quantity) || params.quantity <= 0) {
-    throw new Error('quantity must be a positive integer');
-  }
+  const quantityScaled = parseQuantity4(params.quantity);
+  const quantity = quantity4ToDecimalString(quantityScaled);
 
   const poLine = await resolveAndAssertPoLine(params.organisationId, supplierBill.source_purchase_order_id, params.sourcePurchaseOrderLineId);
 
@@ -409,7 +413,7 @@ export async function addSupplierBillLine(params: {
     taxRateSnapshot = Number(poLine.tax_rate_snapshot);
   }
 
-  const { line_subtotal_cents, line_tax_cents, line_total_cents } = computeLineTotals(unitPriceCents, params.quantity, taxRateSnapshot);
+  const { line_subtotal_cents, line_tax_cents, line_total_cents } = computeLineTotals(unitPriceCents, quantity, taxRateSnapshot);
 
   const [{ next_position }] = (await sql`
     SELECT COALESCE(MAX(position), 0) + 1 AS next_position FROM commercial_supplier_bill_lines
@@ -423,7 +427,7 @@ export async function addSupplierBillLine(params: {
       tax_code_snapshot, tax_rate_snapshot, line_subtotal_cents, line_tax_cents, line_total_cents
     ) VALUES (
       ${params.organisationId}, ${params.supplierBillId}, ${params.sourcePurchaseOrderLineId}, ${productId}, ${next_position},
-      ${description}, ${sku}, ${unit}, ${params.quantity}, ${unitPriceCents},
+      ${description}, ${sku}, ${unit}, ${quantity}::numeric(14,4), ${unitPriceCents},
       ${taxCodeSnapshot}, ${taxRateSnapshot}, ${line_subtotal_cents}, ${line_tax_cents}, ${line_total_cents}
     )
     RETURNING *
@@ -441,7 +445,7 @@ export async function updateSupplierBillLine(params: {
   supplierBillId: string;
   lineId: string;
   description?: string;
-  quantity?: number;
+  quantity?: string | number;
   unitPriceCents?: number;
   taxCodeId?: string | null;
 }): Promise<CommercialSupplierBillLine | null> {
@@ -456,8 +460,8 @@ export async function updateSupplierBillLine(params: {
   const existing = existingRows[0];
   if (!existing) return null;
 
-  const quantity = params.quantity ?? existing.quantity;
-  if (!Number.isInteger(quantity) || quantity <= 0) throw new Error('quantity must be a positive integer');
+  const quantityScaled = parseQuantity4(params.quantity ?? existing.quantity);
+  const quantity = quantity4ToDecimalString(quantityScaled);
 
   const unitPriceCents = params.unitPriceCents ?? existing.unit_price_cents;
   if (!isValidCents(unitPriceCents)) throw new Error('unitPriceCents must be a non-negative integer');
@@ -481,7 +485,7 @@ export async function updateSupplierBillLine(params: {
   const rows = (await sql`
     UPDATE commercial_supplier_bill_lines SET
       description_snapshot = COALESCE(${params.description ?? null}, description_snapshot),
-      quantity = ${quantity},
+      quantity = ${quantity}::numeric(14,4),
       unit_price_cents = ${unitPriceCents},
       tax_code_snapshot = ${taxCodeSnapshot},
       tax_rate_snapshot = ${taxRateSnapshot},
@@ -515,36 +519,28 @@ export async function deleteSupplierBillLine(params: { organisationId: string; s
 
 // ── Posting (the concurrency-critical operation) ────────────────────
 //
-// Phase C7.4 — strict, non-configurable over-billing guard. A simple
-// read-then-check or aggregate CTE is NOT sufficient (two concurrent
-// posts could each read the same "not yet over" aggregate and both
-// proceed) — see scripts/tests/supplierBillConcurrency.integration.test.ts
-// for the real-Postgres proof this exact statement shape is required to
-// pass. One compound, atomic SQL statement:
-//   1. locks the bill row (must still be DRAFT) with FOR UPDATE
-//   2. locks the parent PO row (must still be ISSUED) with FOR UPDATE
-//   3. locks every PO line row this bill's own lines reference, in
-//      deterministic id order, with FOR UPDATE (the standard two-
-//      transactions-locking-overlapping-rows deadlock-avoidance idiom)
-//   4. AFTER all locks are held, recomputes already-POSTED (excluding
-//      this bill, excluding CANCELLED bills) billed VALUE per PO line
-//      (line_total_cents, not quantity — a supplier bill is a money
-//      fact) and adds this bill's own queued line amounts
-//   5. rejects (the whole statement allocates nothing and flips
-//      nothing) if any line's running total would exceed the PO line's
-//      own ordered line_total_cents
-//   6. only if every line is within its ordered value does it allocate
-//      the next SUPPLIER_BILL document number and flip the bill to
-//      POSTED, in the same statement
+// Phase C7.5C — strict, non-configurable quantity + value over-billing
+// guard. A simple read-then-check or one-statement aggregate is NOT
+// sufficient: under READ COMMITTED two statements that begin concurrently
+// can both establish a snapshot before either has committed. The real
+// Postgres race suite caught that exact failure during C7.5C.
 //
-// The document-sequence seed INSERT is a SEPARATE statement, issued
-// BEFORE this atomic WITH-chain — Postgres does not guarantee an
-// unreferenced data-modifying CTE executes, so seeding the counter row
-// cannot itself live inside the same statement as the conditional
-// UPDATE that increments it. Mirrors issuePurchaseOrderAtomically()'s
-// (lib/commercial/purchaseOrders.ts) and
-// postPurchaseReceiptAtomically()'s (lib/commercial/purchaseReceipts.ts)
-// own identical two-statement shape exactly.
+// Posting therefore uses a Neon non-interactive transaction:
+//   1. statement 1 locks the DRAFT bill row, ISSUED parent PO row, and
+//      every affected PO line in deterministic id order;
+//   2. statement 2 runs after those locks are held and therefore receives
+//      a fresh READ COMMITTED statement snapshot. If statement 1 waited
+//      behind another poster, this snapshot sees that poster's committed
+//      POSTED quantity/value;
+//   3. statement 2 recomputes already-POSTED quantity and value, adds this
+//      bill's own quantity/value, and requires BOTH totals to remain at or
+//      below the locked PO-line facts;
+//   4. only then does it allocate the SUPPLIER_BILL number and flip the
+//      bill to POSTED. Any validation failure commits no posting mutation.
+//
+// The document-sequence seed INSERT remains a separate, idempotent
+// pre-transaction statement. It only guarantees the allocator row exists
+// and never consumes a number itself.
 //
 // The supplier snapshot is frozen HERE, at POST time (not at bill
 // creation, unlike receipts which have no snapshot at all) — the caller
@@ -576,7 +572,45 @@ async function postSupplierBillAtomically(params: {
     ON CONFLICT (organisation_id, document_type) DO NOTHING
   `;
 
-  const rows = (await sql`
+  // C7.5C uses two statements inside one READ COMMITTED transaction.
+  // Statement 1 acquires the bill/PO/PO-line locks. If it waits behind a
+  // competing poster, statement 2 then receives a fresh statement snapshot
+  // while those locks remain held, so it sees the winner's newly-POSTED
+  // quantities and values before validating this bill.
+  const [, postRows] = await sql.transaction(txn => [
+    txn`
+      WITH bill_guard AS MATERIALIZED (
+        SELECT id, source_purchase_order_id FROM commercial_supplier_bills
+        WHERE id = ${params.supplierBillId} AND organisation_id = ${params.organisationId} AND status = 'DRAFT'
+        FOR UPDATE
+      ),
+      po_guard AS MATERIALIZED (
+        SELECT cpo.id FROM commercial_purchase_orders cpo
+        WHERE cpo.id = (SELECT source_purchase_order_id FROM bill_guard)
+          AND cpo.organisation_id = ${params.organisationId} AND cpo.status = 'ISSUED'
+        FOR UPDATE
+      ),
+      affected_line_ids AS MATERIALIZED (
+        SELECT DISTINCT source_purchase_order_line_id AS line_id
+        FROM commercial_supplier_bill_lines
+        WHERE supplier_bill_id = ${params.supplierBillId} AND organisation_id = ${params.organisationId}
+          AND EXISTS (SELECT 1 FROM bill_guard)
+      ),
+      locked_lines AS MATERIALIZED (
+        SELECT cpol.id
+        FROM commercial_purchase_order_lines cpol
+        WHERE cpol.organisation_id = ${params.organisationId}
+          AND cpol.id IN (SELECT line_id FROM affected_line_ids)
+          AND EXISTS (SELECT 1 FROM po_guard)
+        ORDER BY cpol.id
+        FOR UPDATE
+      )
+      SELECT
+        EXISTS (SELECT 1 FROM bill_guard) AS bill_locked,
+        EXISTS (SELECT 1 FROM po_guard) AS po_locked,
+        (SELECT COUNT(*) FROM locked_lines) AS locked_line_count
+    `,
+    txn`
     WITH bill_guard AS (
       SELECT id, source_purchase_order_id FROM commercial_supplier_bills
       WHERE id = ${params.supplierBillId} AND organisation_id = ${params.organisationId} AND status = 'DRAFT'
@@ -594,7 +628,8 @@ async function postSupplierBillAtomically(params: {
       WHERE supplier_bill_id = ${params.supplierBillId} AND organisation_id = ${params.organisationId}
     ),
     locked_lines AS (
-      SELECT cpol.id, cpol.line_total_cents AS ordered_value_cents
+      SELECT cpol.id, cpol.quantity::numeric(14,4) AS ordered_quantity,
+        cpol.line_total_cents AS ordered_value_cents
       FROM commercial_purchase_order_lines cpol
       WHERE cpol.organisation_id = ${params.organisationId}
         AND cpol.id IN (SELECT line_id FROM affected_line_ids)
@@ -602,7 +637,9 @@ async function postSupplierBillAtomically(params: {
       FOR UPDATE
     ),
     already_posted AS (
-      SELECT csbl.source_purchase_order_line_id AS line_id, COALESCE(SUM(csbl.line_total_cents), 0) AS cents
+      SELECT csbl.source_purchase_order_line_id AS line_id,
+        COALESCE(SUM(csbl.quantity), 0)::numeric(14,4) AS quantity,
+        COALESCE(SUM(csbl.line_total_cents), 0) AS cents
       FROM commercial_supplier_bill_lines csbl
       JOIN commercial_supplier_bills csb ON csb.id = csbl.supplier_bill_id AND csb.organisation_id = csbl.organisation_id
       WHERE csbl.organisation_id = ${params.organisationId} AND csb.status = 'POSTED'
@@ -611,13 +648,16 @@ async function postSupplierBillAtomically(params: {
       GROUP BY csbl.source_purchase_order_line_id
     ),
     this_bill_amount AS (
-      SELECT source_purchase_order_line_id AS line_id, SUM(line_total_cents) AS cents
+      SELECT source_purchase_order_line_id AS line_id,
+        COALESCE(SUM(quantity), 0)::numeric(14,4) AS quantity,
+        SUM(line_total_cents) AS cents
       FROM commercial_supplier_bill_lines
       WHERE supplier_bill_id = ${params.supplierBillId} AND organisation_id = ${params.organisationId}
       GROUP BY source_purchase_order_line_id
     ),
     totals AS (
-      SELECT ll.id AS line_id, ll.ordered_value_cents,
+      SELECT ll.id AS line_id, ll.ordered_quantity, ll.ordered_value_cents,
+        COALESCE(ap.quantity, 0) + COALESCE(tb.quantity, 0) AS total_after_quantity,
         COALESCE(ap.cents, 0) + COALESCE(tb.cents, 0) AS total_after_cents
       FROM locked_lines ll
       LEFT JOIN already_posted ap ON ap.line_id = ll.id
@@ -625,6 +665,7 @@ async function postSupplierBillAtomically(params: {
     ),
     validation AS (
       SELECT COUNT(*) AS line_count,
+        COALESCE(bool_and(total_after_quantity <= ordered_quantity), false) AS all_within_quantity,
         COALESCE(bool_and(total_after_cents <= ordered_value_cents), false) AS all_within_value
       FROM totals
     ),
@@ -634,7 +675,10 @@ async function postSupplierBillAtomically(params: {
       WHERE organisation_id = ${params.organisationId} AND document_type = 'SUPPLIER_BILL'
         AND EXISTS (SELECT 1 FROM bill_guard)
         AND EXISTS (SELECT 1 FROM po_guard)
-        AND EXISTS (SELECT 1 FROM validation WHERE line_count > 0 AND all_within_value = true)
+        AND EXISTS (
+          SELECT 1 FROM validation
+          WHERE line_count > 0 AND all_within_quantity = true AND all_within_value = true
+        )
       RETURNING (next_number - 1) AS allocated_number, prefix, padding
     )
     UPDATE commercial_supplier_bills SET
@@ -652,18 +696,20 @@ async function postSupplierBillAtomically(params: {
     WHERE id = ${params.supplierBillId} AND organisation_id = ${params.organisationId} AND status = 'DRAFT'
       AND EXISTS (SELECT 1 FROM alloc)
     RETURNING *
-  `) as CommercialSupplierBill[];
+    `,
+  ], { isolationLevel: 'ReadCommitted' });
 
+  const rows = postRows as CommercialSupplierBill[];
   return rows[0] ?? null;
 }
 
 // admin+ (approve floor) — posting a supplier bill is a higher-trust
 // action than creating/editing a draft, per the C7.4 capability matrix
 // (distinct from purchase receipts, where posting is manager+). The
-// precondition checks below run BEFORE the atomic statement purely to
-// produce a clear, specific error message — the atomic statement above
-// is the sole authority that actually decides whether the post is safe
-// to apply.
+// precondition checks below run BEFORE the lock+validation transaction
+// purely to produce a clear, specific error message — the transaction
+// above is the sole authority that actually decides whether the post is
+// safe to apply.
 export async function postSupplierBill(params: {
   organisationId: string; userId: string; supplierBillId: string;
 }): Promise<CommercialSupplierBill> {
@@ -681,10 +727,10 @@ export async function postSupplierBill(params: {
   });
 
   if (!posted) {
-    // The atomic statement inserted/updated nothing — determine why, for
-    // a clear error message only (this read is NOT the authorization
-    // decision; that already happened, correctly, inside the atomic
-    // statement above).
+    // The posting transaction updated nothing — determine why for a
+    // clear error message only (this read is NOT the authorization
+    // decision; that already happened inside the lock+validation
+    // transaction above).
     const current = await getSupplierBill(params.organisationId, params.supplierBillId);
     if (!current || current.status !== 'DRAFT') {
       throw new Error('supplier bill status changed concurrently; post aborted');
@@ -693,7 +739,7 @@ export async function postSupplierBill(params: {
     if (!po || po.status !== 'ISSUED') {
       throw new Error(`Purchase order is ${po?.status ?? 'not found'} — a supplier bill can only be posted while its purchase order is ISSUED.`);
     }
-    throw new Error('One or more lines on this bill would bill beyond the ordered value of the linked purchase order line (including amounts already posted on other bills for the same purchase order line). Reduce the amount and try again.');
+    throw new Error('One or more lines on this bill would bill beyond the ordered value or quantity of the linked purchase order line (including POSTED amounts/quantities on other bills for the same purchase order line). Reduce the bill and try again.');
   }
 
   await logSupplierBillPosted({
