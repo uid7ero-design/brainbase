@@ -106,6 +106,10 @@ import path from 'path';
 // C7.5C addition: scripts/tests/supplierBillFractionalQuantityMigration
 // .integration.test.ts proves the INTEGER -> NUMERIC(14,4) migration
 // against disposable Postgres before any Production rollout.
+//
+// C7.5D1 addition: scripts/tests/purchaseMatchAllocationsMigration.integration
+// .test.ts proves the additive allocation-ledger migration and structural
+// same-tenant/same-PO-line foreign-key invariants against disposable Postgres.
 export default defineConfig({
   test: {
     environment: 'node',
@@ -124,6 +128,7 @@ export default defineConfig({
       'scripts/tests/purchaseReceiptConcurrency.integration.test.ts',
       'scripts/tests/supplierBillConcurrency.integration.test.ts',
       'scripts/tests/supplierBillFractionalQuantityMigration.integration.test.ts',
+      'scripts/tests/purchaseMatchAllocationsMigration.integration.test.ts',
     ],
     testTimeout: 30_000,
     hookTimeout: 30_000,

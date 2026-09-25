@@ -775,3 +775,27 @@ export async function logSupplierBillCancelled(params: {
     beforeState: { status: 'POSTED' }, afterState: { status: 'CANCELLED', cancel_reason: params.cancelReason },
   });
 }
+
+// ── Purchase Receipt ↔ Supplier Bill allocations (Phase C7.5D1) ───────
+
+export async function logPurchaseMatchAllocationCreated(params: {
+  organisationId: string; userId: string; allocationId: string;
+  after: Record<string, unknown>;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'commercial_purchase_match.created',
+    resourceType: 'commercial_purchase_match', resourceId: params.allocationId,
+    beforeState: null, afterState: params.after,
+  });
+}
+
+export async function logPurchaseMatchAllocationReversed(params: {
+  organisationId: string; userId: string; allocationId: string;
+  before: Record<string, unknown>; reason: string;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'commercial_purchase_match.reversed',
+    resourceType: 'commercial_purchase_match', resourceId: params.allocationId,
+    beforeState: params.before, afterState: { reversed: true, reversal_reason: params.reason },
+  });
+}

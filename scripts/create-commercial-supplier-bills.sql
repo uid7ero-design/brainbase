@@ -202,6 +202,8 @@ CREATE TABLE IF NOT EXISTS commercial_supplier_bill_lines (
   created_at                     TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at                     TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (id, organisation_id),
+  CONSTRAINT commercial_supplier_bill_lines_match_identity_key
+    UNIQUE (id, organisation_id, source_purchase_order_line_id),
   CONSTRAINT commercial_supplier_bill_lines_bill_org_fkey
     FOREIGN KEY (supplier_bill_id, organisation_id)
     REFERENCES commercial_supplier_bills (id, organisation_id) ON DELETE CASCADE,
