@@ -798,6 +798,44 @@ export type SchemaMatchResponseBody =
 export type SchemaMatchFetchResult = TransportResult<SchemaMatchResponseBody>;
 
 // ---------------------------------------------------------------------------
+// POST /api/data-hub/import-batches/[id]/schema-selection (Data Hub 6.2D3D)
+// Source: app/api/data-hub/import-batches/[id]/schema-selection/route.ts and
+// lib/data-hub/schemaMatch/establishImportBatchSchemaLineage.ts. This route
+// reads no request body — there is deliberately no request-input type for
+// it; the call site always sends `{ method: "POST" }` with no body.
+// ---------------------------------------------------------------------------
+
+export type SchemaSelectionFailureCodeClient =
+  | "BATCH_NOT_FOUND"
+  | "BATCH_NOT_READY"
+  | "UNSUPPORTED_FORMAT"
+  | "SOURCE_LINEAGE_REQUIRED"
+  | "GOVERNED_SCHEMA_UNAVAILABLE"
+  | "GOVERNED_SCHEMA_NOT_ACTIVE"
+  | "SCHEMA_EXACT_MATCH_REQUIRED"
+  | "STORAGE_NOT_FOUND"
+  | "PROVIDER_FAILURE"
+  | "STORAGE_INTEGRITY_MISMATCH"
+  | "PARSER_REJECTED"
+  | "SCHEMA_LINEAGE_CONFLICT"
+  | "INVALID_STATE";
+
+export interface SchemaSelectionSuccessClient {
+  ok: true;
+  alreadySelected: boolean;
+  importBatchId: string;
+  datasetTypeId: string;
+  sourceSchemaVersionId: string;
+  sourceSchemaVersionNumber: number;
+}
+
+export type SchemaSelectionResponseBody =
+  | SchemaSelectionSuccessClient
+  | { ok: false; error: string; code?: SchemaSelectionFailureCodeClient };
+
+export type SchemaSelectionResult = TransportResult<SchemaSelectionResponseBody>;
+
+// ---------------------------------------------------------------------------
 // POST /api/data-hub/worksheets/[id]/confirm-illegal-dumping
 // Source: app/api/data-hub/worksheets/[id]/confirm-illegal-dumping/route.ts.
 //
