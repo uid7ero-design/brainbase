@@ -15,7 +15,7 @@ export type PurchaseCommitmentState =
   | 'CONSUMED'
   | 'INVALID_OVERBILLED';
 
-export type CommitmentPeriodResolution = 'UNRESOLVED' | 'RESOLVED';
+export type CommitmentPeriodResolution = 'UNRESOLVED' | 'RESOLVED' | 'AMBIGUOUS';
 
 export interface PurchaseLineCommitment {
   purchaseOrderLineId: string;
@@ -41,6 +41,11 @@ export interface PurchaseOrderCommitment {
   currency: string;
   commitmentEffectiveAt: string | null;
   periodResolution: CommitmentPeriodResolution;
+  financialPeriodId: string | null;
+  financialPeriodName: string | null;
+  financialPeriodStatus: 'OPEN' | 'CLOSED' | null;
+  financialYearId: string | null;
+  financialYearName: string | null;
   lineCount: number;
   orderedSubtotalCents: number;
   orderedTaxCents: number;
@@ -71,6 +76,12 @@ export type RawPurchaseCommitmentRow = {
   billed_subtotal_cents: string;
   billed_tax_cents: string;
   billed_total_cents: string;
+  period_match_count?: number | string | null;
+  financial_period_id?: string | null;
+  financial_period_name?: string | null;
+  financial_period_status?: 'OPEN' | 'CLOSED' | null;
+  financial_year_id?: string | null;
+  financial_year_name?: string | null;
 };
 
 function cents(value: number | string | null): number {
@@ -135,13 +146,22 @@ export function derivePurchaseOrderCommitment(
     }];
   });
 
+  const periodMatchCount = Number(header.period_match_count ?? 0);
+  const periodResolution: CommitmentPeriodResolution =
+    periodMatchCount === 1 ? 'RESOLVED' : periodMatchCount > 1 ? 'AMBIGUOUS' : 'UNRESOLVED';
+
   return {
     purchaseOrderId: header.purchase_order_id,
     purchaseOrderStatus: header.purchase_order_status,
     supplierId: header.supplier_id,
     currency: header.currency,
     commitmentEffectiveAt: isIssued ? header.issued_at : null,
-    periodResolution: 'UNRESOLVED',
+    periodResolution,
+    financialPeriodId: periodResolution === 'RESOLVED' ? header.financial_period_id ?? null : null,
+    financialPeriodName: periodResolution === 'RESOLVED' ? header.financial_period_name ?? null : null,
+    financialPeriodStatus: periodResolution === 'RESOLVED' ? header.financial_period_status ?? null : null,
+    financialYearId: periodResolution === 'RESOLVED' ? header.financial_year_id ?? null : null,
+    financialYearName: periodResolution === 'RESOLVED' ? header.financial_year_name ?? null : null,
     lineCount: lines.length,
     orderedSubtotalCents: lines.reduce((sum, line) => sum + line.orderedSubtotalCents, 0),
     orderedTaxCents: lines.reduce((sum, line) => sum + line.orderedTaxCents, 0),
@@ -226,6 +246,9 @@ export interface PurchaseCommitmentCurrencySummary {
 export interface PurchaseCommitmentReport {
   periodResolution: CommitmentPeriodResolution;
   purchaseOrderCount: number;
+  resolvedPurchaseOrderCount: number;
+  unresolvedPurchaseOrderCount: number;
+  ambiguousPurchaseOrderCount: number;
   lineCount: number;
   currencies: PurchaseCommitmentCurrencySummary[];
   purchaseOrders: PurchaseOrderCommitment[];
@@ -263,9 +286,22 @@ export function derivePurchaseCommitmentReport(
     currencyMap.set(commitment.currency, current);
   }
 
+  const resolvedPurchaseOrderCount = purchaseOrders.filter(commitment => commitment.periodResolution === 'RESOLVED').length;
+  const ambiguousPurchaseOrderCount = purchaseOrders.filter(commitment => commitment.periodResolution === 'AMBIGUOUS').length;
+  const unresolvedPurchaseOrderCount = purchaseOrders.length - resolvedPurchaseOrderCount - ambiguousPurchaseOrderCount;
+  const periodResolution: CommitmentPeriodResolution =
+    ambiguousPurchaseOrderCount > 0
+      ? 'AMBIGUOUS'
+      : purchaseOrders.length > 0 && resolvedPurchaseOrderCount === purchaseOrders.length
+        ? 'RESOLVED'
+        : 'UNRESOLVED';
+
   return {
-    periodResolution: 'UNRESOLVED',
+    periodResolution,
     purchaseOrderCount: purchaseOrders.length,
+    resolvedPurchaseOrderCount,
+    unresolvedPurchaseOrderCount,
+    ambiguousPurchaseOrderCount,
     lineCount: purchaseOrders.reduce((sum, commitment) => sum + commitment.lineCount, 0),
     currencies: [...currencyMap.values()].sort((a, b) => a.currency.localeCompare(b.currency)),
     purchaseOrders,
@@ -273,9 +309,11 @@ export function derivePurchaseCommitmentReport(
 }
 
 
-// Phase C7.6D — cross-PO Budgeting report. Only ISSUED purchase orders carry
-// an active purchasing commitment. The report remains period-unresolved and
-// currency-separated; it never invents a cross-currency total.
+// Phase C7.6D/C7.6E — cross-PO Budgeting report. Only ISSUED purchase
+// orders carry an active purchasing commitment. C7.6E resolves the governed
+// financial period from issued_at only when exactly one same-tenant period
+// contains that calendar date. Overlaps are surfaced as AMBIGUOUS. Currency
+// summaries remain separate; no cross-currency total is invented.
 export async function getPurchaseCommitmentReport(
   organisationId: string,
 ): Promise<PurchaseCommitmentReport> {
@@ -314,12 +352,34 @@ export async function getPurchaseCommitmentReport(
       cpol.line_total_cents AS ordered_total_cents,
       COALESCE(b.billed_subtotal_cents, 0)::text AS billed_subtotal_cents,
       COALESCE(b.billed_tax_cents, 0)::text AS billed_tax_cents,
-      COALESCE(b.billed_total_cents, 0)::text AS billed_total_cents
+      COALESCE(b.billed_total_cents, 0)::text AS billed_total_cents,
+      period.period_match_count,
+      period.financial_period_id,
+      period.financial_period_name,
+      period.financial_period_status,
+      period.financial_year_id,
+      period.financial_year_name
     FROM commercial_purchase_orders cpo
     LEFT JOIN commercial_purchase_order_lines cpol
       ON cpol.purchase_order_id = cpo.id
      AND cpol.organisation_id = cpo.organisation_id
     LEFT JOIN billed b ON b.line_id = cpol.id
+    LEFT JOIN LATERAL (
+      SELECT
+        COUNT(*)::int AS period_match_count,
+        CASE WHEN COUNT(*) = 1 THEN MIN(cfp.id::text) ELSE NULL END AS financial_period_id,
+        CASE WHEN COUNT(*) = 1 THEN MIN(cfp.name) ELSE NULL END AS financial_period_name,
+        CASE WHEN COUNT(*) = 1 THEN MIN(cfp.status) ELSE NULL END AS financial_period_status,
+        CASE WHEN COUNT(*) = 1 THEN MIN(cfy.id::text) ELSE NULL END AS financial_year_id,
+        CASE WHEN COUNT(*) = 1 THEN MIN(cfy.name) ELSE NULL END AS financial_year_name
+      FROM commercial_financial_periods cfp
+      JOIN commercial_financial_years cfy
+        ON cfy.id = cfp.financial_year_id
+       AND cfy.organisation_id = cfp.organisation_id
+      WHERE cfp.organisation_id = cpo.organisation_id
+        AND cpo.issued_at IS NOT NULL
+        AND cpo.issued_at::date BETWEEN cfp.starts_on AND cfp.ends_on
+    ) period ON true
     WHERE cpo.organisation_id = ${organisationId}
       AND cpo.status = 'ISSUED'
     ORDER BY cpo.issued_at ASC NULLS LAST, cpo.id ASC, cpol.position ASC NULLS LAST, cpol.id ASC NULLS LAST

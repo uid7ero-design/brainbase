@@ -107,14 +107,30 @@ However, the current repository does not define a business rule proving whether 
 
 C7.6 therefore MUST NOT infer financial_period_id from delivery_date or document names.
 
-The first safe read model should expose commitment_effective_at = issued_at plus a period_resolution state:
+The first safe read model should expose commitment_effective_at = issued_at plus a period_resolution state.
+
+C7.6E approves the following governed attribution policy for Budgeting reads:
+
+- commitment attribution date = commitment_effective_at = purchase_order.issued_at, converted to its PostgreSQL calendar date;
+- resolve only against commercial_financial_periods belonging to the same organisation;
+- a date that matches exactly one period is RESOLVED;
+- a date that matches no period is UNRESOLVED;
+- a date that matches more than one period is AMBIGUOUS and must fail loud in the read model rather than choosing one period arbitrarily;
+- period boundaries are inclusive (starts_on <= issue date <= ends_on);
+- the period's parent commercial_financial_year must belong to the same organisation;
+- OPEN and CLOSED periods are both valid historical attribution targets for reads. CLOSED remains a mutation-control boundary, not a reason to erase historical attribution.
+
+This attribution is derived at read time. C7.6E does not add financial_period_id to purchase orders or purchase-order lines and does not create a mutable assignment row.
+
+Period-resolution states are therefore:
 
 - UNRESOLVED
 - RESOLVED
+- AMBIGUOUS
 
-A later bounded migration may add a governed attribution/assignment structure once the period policy is approved. It should not add financial_period_id directly to the existing PO/PO-line tables merely for convenience.
+A later bounded migration may still add a governed attribution/assignment structure if manual overrides or accounting-date adjustments become a real requirement. It should not add financial_period_id directly to the existing PO/PO-line tables merely for convenience.
 
-Closed financial periods must be treated as finance-control boundaries. A future attribution mutation must not silently move spend into or out of a CLOSED period.
+Closed financial periods must be treated as finance-control boundaries. Any future attribution mutation must not silently move spend into or out of a CLOSED period.
 
 ## 7. Budget account / GL boundary
 

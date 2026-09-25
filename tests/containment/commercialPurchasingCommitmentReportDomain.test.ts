@@ -67,6 +67,9 @@ describe('Phase C7.6D — cross-PO commitment report derivation', () => {
 
     expect(report.periodResolution).toBe('UNRESOLVED');
     expect(report.purchaseOrderCount).toBe(3);
+    expect(report.resolvedPurchaseOrderCount).toBe(0);
+    expect(report.unresolvedPurchaseOrderCount).toBe(3);
+    expect(report.ambiguousPurchaseOrderCount).toBe(0);
     expect(report.lineCount).toBe(3);
     expect(report.currencies).toEqual([
       {
@@ -93,6 +96,9 @@ describe('Phase C7.6D — cross-PO commitment report derivation', () => {
     expect(derivePurchaseCommitmentReport([])).toEqual({
       periodResolution: 'UNRESOLVED',
       purchaseOrderCount: 0,
+      resolvedPurchaseOrderCount: 0,
+      unresolvedPurchaseOrderCount: 0,
+      ambiguousPurchaseOrderCount: 0,
       lineCount: 0,
       currencies: [],
       purchaseOrders: [],
@@ -120,7 +126,7 @@ describe('Phase C7.6D — tenant-scoped report SQL boundary', () => {
     expect(query).toMatch(/csb\.status = 'POSTED'/);
     expect(query).toMatch(/csb\.source_purchase_order_id = source_line\.purchase_order_id/);
     expect(query).not.toMatch(/commercial_purchase_receipts|purchase_match|allocations/i);
-    expect(query).not.toMatch(/financial_models|commercial_financial_periods|delivery_date/);
+    expect(query).not.toMatch(/financial_models|delivery_date/);
     expect(query).not.toMatch(/\bINSERT\b|\bUPDATE\b|\bDELETE\b/i);
   });
 

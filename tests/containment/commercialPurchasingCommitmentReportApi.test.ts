@@ -47,6 +47,9 @@ describe('Phase C7.6D — budgeting commitment report API', () => {
     getReportMock.mockResolvedValue({
       periodResolution: 'UNRESOLVED',
       purchaseOrderCount: 1,
+      resolvedPurchaseOrderCount: 0,
+      unresolvedPurchaseOrderCount: 1,
+      ambiguousPurchaseOrderCount: 0,
       lineCount: 1,
       currencies: [{
         currency: 'AUD',
@@ -76,6 +79,9 @@ describe('Phase C7.6D — budgeting commitment report API', () => {
     getReportMock.mockResolvedValue({
       periodResolution: 'UNRESOLVED',
       purchaseOrderCount: 0,
+      resolvedPurchaseOrderCount: 0,
+      unresolvedPurchaseOrderCount: 0,
+      ambiguousPurchaseOrderCount: 0,
       lineCount: 0,
       currencies: [],
       purchaseOrders: [],
@@ -88,6 +94,9 @@ describe('Phase C7.6D — budgeting commitment report API', () => {
       report: {
         periodResolution: 'UNRESOLVED',
         purchaseOrderCount: 0,
+        resolvedPurchaseOrderCount: 0,
+        unresolvedPurchaseOrderCount: 0,
+        ambiguousPurchaseOrderCount: 0,
         lineCount: 0,
         currencies: [],
         purchaseOrders: [],
