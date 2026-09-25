@@ -544,14 +544,78 @@ export async function cancelPurchaseReceipt(params: {
   if (!purchaseReceipt) throw new Error('purchase receipt not found for this organisation');
   assertPurchaseReceiptTransition(purchaseReceipt.status, 'CANCELLED');
 
-  const rows = (await sql`
-    UPDATE commercial_purchase_receipts SET
-      status = 'CANCELLED', cancelled_by = ${params.userId}, cancelled_at = now(), cancel_reason = ${trimmedReason}, updated_at = now()
-    WHERE id = ${params.purchaseReceiptId} AND organisation_id = ${params.organisationId} AND status = 'POSTED'
-    RETURNING *
-  `) as CommercialPurchaseReceipt[];
-  const cancelled = rows[0];
-  if (!cancelled) throw new Error('purchase receipt status changed concurrently; cancel aborted');
+  // C7.5D2: cancellation serializes on every PO line touched by this
+  // POSTED receipt, in deterministic id order. Allocation creation locks
+  // the same PO-line row before it validates/inserts. Statement 2 receives
+  // a fresh READ COMMITTED snapshot after any lock wait and only cancels
+  // when no active allocation references any line on this receipt.
+  const [, cancelRows] = await sql.transaction(txn => [
+    txn`
+      WITH receipt_guard AS MATERIALIZED (
+        SELECT id
+        FROM commercial_purchase_receipts
+        WHERE id = ${params.purchaseReceiptId}
+          AND organisation_id = ${params.organisationId}
+          AND status = 'POSTED'
+      ),
+      affected_line_ids AS MATERIALIZED (
+        SELECT DISTINCT source_purchase_order_line_id AS line_id
+        FROM commercial_purchase_receipt_lines
+        WHERE purchase_receipt_id = ${params.purchaseReceiptId}
+          AND organisation_id = ${params.organisationId}
+          AND EXISTS (SELECT 1 FROM receipt_guard)
+      ),
+      locked_lines AS MATERIALIZED (
+        SELECT pol.id
+        FROM commercial_purchase_order_lines pol
+        WHERE pol.organisation_id = ${params.organisationId}
+          AND pol.id IN (SELECT line_id FROM affected_line_ids)
+        ORDER BY pol.id
+        FOR UPDATE
+      )
+      SELECT COUNT(*) AS locked_line_count FROM locked_lines
+    `,
+    txn`
+      UPDATE commercial_purchase_receipts cpr SET
+        status = 'CANCELLED',
+        cancelled_by = ${params.userId},
+        cancelled_at = now(),
+        cancel_reason = ${trimmedReason},
+        updated_at = now()
+      WHERE cpr.id = ${params.purchaseReceiptId}
+        AND cpr.organisation_id = ${params.organisationId}
+        AND cpr.status = 'POSTED'
+        AND NOT EXISTS (
+          SELECT 1
+          FROM commercial_purchase_receipt_lines prl
+          JOIN commercial_purchase_receipt_bill_allocations a
+            ON a.purchase_receipt_line_id = prl.id
+           AND a.organisation_id = prl.organisation_id
+           AND a.reversed_at IS NULL
+          WHERE prl.purchase_receipt_id = cpr.id
+            AND prl.organisation_id = cpr.organisation_id
+        )
+      RETURNING cpr.*
+    `,
+  ], { isolationLevel: 'ReadCommitted' });
+
+  const cancelled = (cancelRows as CommercialPurchaseReceipt[])[0];
+  if (!cancelled) {
+    const activeRows = (await sql`
+      SELECT COUNT(*)::text AS count
+      FROM commercial_purchase_receipt_lines prl
+      JOIN commercial_purchase_receipt_bill_allocations a
+        ON a.purchase_receipt_line_id = prl.id
+       AND a.organisation_id = prl.organisation_id
+       AND a.reversed_at IS NULL
+      WHERE prl.purchase_receipt_id = ${params.purchaseReceiptId}
+        AND prl.organisation_id = ${params.organisationId}
+    `) as { count: string }[];
+    if (Number(activeRows[0]?.count ?? 0) > 0) {
+      throw new Error('purchase receipt has active purchase match allocations; reverse them before cancelling the receipt');
+    }
+    throw new Error('purchase receipt status changed concurrently; cancel aborted');
+  }
 
   await logPurchaseReceiptCancelled({
     organisationId: params.organisationId, userId: params.userId, purchaseReceiptId: params.purchaseReceiptId, cancelReason: trimmedReason,

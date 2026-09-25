@@ -771,14 +771,77 @@ export async function cancelSupplierBill(params: {
   if (!supplierBill) throw new Error('supplier bill not found for this organisation');
   assertSupplierBillTransition(supplierBill.status, 'CANCELLED');
 
-  const rows = (await sql`
-    UPDATE commercial_supplier_bills SET
-      status = 'CANCELLED', cancelled_by = ${params.userId}, cancelled_at = now(), cancel_reason = ${trimmedReason}, updated_at = now()
-    WHERE id = ${params.supplierBillId} AND organisation_id = ${params.organisationId} AND status = 'POSTED'
-    RETURNING *
-  `) as CommercialSupplierBill[];
-  const cancelled = rows[0];
-  if (!cancelled) throw new Error('supplier bill status changed concurrently; cancel aborted');
+  // C7.5D2: lock every affected PO line before deciding cancellation.
+  // Allocation creation locks the same shared PO-line row first. The
+  // second statement therefore observes a fresh snapshot after any wait
+  // and cannot cancel a bill once an active allocation has committed.
+  const [, cancelRows] = await sql.transaction(txn => [
+    txn`
+      WITH bill_guard AS MATERIALIZED (
+        SELECT id
+        FROM commercial_supplier_bills
+        WHERE id = ${params.supplierBillId}
+          AND organisation_id = ${params.organisationId}
+          AND status = 'POSTED'
+      ),
+      affected_line_ids AS MATERIALIZED (
+        SELECT DISTINCT source_purchase_order_line_id AS line_id
+        FROM commercial_supplier_bill_lines
+        WHERE supplier_bill_id = ${params.supplierBillId}
+          AND organisation_id = ${params.organisationId}
+          AND EXISTS (SELECT 1 FROM bill_guard)
+      ),
+      locked_lines AS MATERIALIZED (
+        SELECT pol.id
+        FROM commercial_purchase_order_lines pol
+        WHERE pol.organisation_id = ${params.organisationId}
+          AND pol.id IN (SELECT line_id FROM affected_line_ids)
+        ORDER BY pol.id
+        FOR UPDATE
+      )
+      SELECT COUNT(*) AS locked_line_count FROM locked_lines
+    `,
+    txn`
+      UPDATE commercial_supplier_bills sb SET
+        status = 'CANCELLED',
+        cancelled_by = ${params.userId},
+        cancelled_at = now(),
+        cancel_reason = ${trimmedReason},
+        updated_at = now()
+      WHERE sb.id = ${params.supplierBillId}
+        AND sb.organisation_id = ${params.organisationId}
+        AND sb.status = 'POSTED'
+        AND NOT EXISTS (
+          SELECT 1
+          FROM commercial_supplier_bill_lines sbl
+          JOIN commercial_purchase_receipt_bill_allocations a
+            ON a.supplier_bill_line_id = sbl.id
+           AND a.organisation_id = sbl.organisation_id
+           AND a.reversed_at IS NULL
+          WHERE sbl.supplier_bill_id = sb.id
+            AND sbl.organisation_id = sb.organisation_id
+        )
+      RETURNING sb.*
+    `,
+  ], { isolationLevel: 'ReadCommitted' });
+
+  const cancelled = (cancelRows as CommercialSupplierBill[])[0];
+  if (!cancelled) {
+    const activeRows = (await sql`
+      SELECT COUNT(*)::text AS count
+      FROM commercial_supplier_bill_lines sbl
+      JOIN commercial_purchase_receipt_bill_allocations a
+        ON a.supplier_bill_line_id = sbl.id
+       AND a.organisation_id = sbl.organisation_id
+       AND a.reversed_at IS NULL
+      WHERE sbl.supplier_bill_id = ${params.supplierBillId}
+        AND sbl.organisation_id = ${params.organisationId}
+    `) as { count: string }[];
+    if (Number(activeRows[0]?.count ?? 0) > 0) {
+      throw new Error('supplier bill has active purchase match allocations; reverse them before cancelling the bill');
+    }
+    throw new Error('supplier bill status changed concurrently; cancel aborted');
+  }
 
   await logSupplierBillCancelled({
     organisationId: params.organisationId, userId: params.userId, supplierBillId: params.supplierBillId, cancelReason: trimmedReason,

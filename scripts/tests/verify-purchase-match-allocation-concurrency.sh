@@ -1,65 +1,63 @@
 #!/usr/bin/env bash
-# Phase C7.3 — real disposable-Postgres proof that the strict over-receipt
-# guard (postPurchaseReceiptAtomically(), lib/commercial/purchaseReceipts.ts)
-# and the PO-cancel-vs-receipt-post mutual exclusion (cancelPurchaseOrder(),
-# lib/commercial/purchaseOrders.ts) are genuinely concurrency-safe.
+# Phase C7.4 — real disposable-Postgres proof that the strict, VALUE-based
+# over-billing guard (postSupplierBillAtomically(),
+# lib/commercial/supplierBills.ts), the PO-cancel-vs-bill-post mutual
+# exclusion (cancelPurchaseOrder(), lib/commercial/purchaseOrders.ts), and
+# the canonicalised duplicate-supplier-invoice-number constraint are
+# genuinely safe against a real Postgres engine.
 #
-# WHY THIS EXISTS: both guards are enforced by real Postgres row-level
-# locking (FOR UPDATE on the receipt row, the parent PO row, and every
-# affected PO line row, acquired in deterministic id order) inside one
-# atomic writable-CTE statement. A mocked sql client can simulate the
-# RESULT of a race but cannot prove the race itself is actually race-safe
-# — only real MVCC/locking semantics can. This harness follows the exact
-# same disposable-container methodology as every other real-Postgres
-# harness in this repo (scripts/tests/verify-organiser-confirmation-
-# replay.sh, scripts/tests/verify-organiser-item-activity-concurrency.sh):
-# a fresh postgres:16-alpine container, created and destroyed by this
-# script only, never touching Production/Neon or any already-running
-# database.
+# WHY THIS EXISTS: the over-billing guard is enforced by real Postgres
+# row-level locking (FOR UPDATE on the bill row, the parent PO row, and
+# every affected PO line row, acquired in deterministic id order) inside
+# one atomic writable-CTE statement. A mocked sql client can simulate the
+# RESULT of a race but cannot prove the race itself is actually
+# race-safe — only real MVCC/locking semantics can. Likewise, the STORED
+# GENERATED ALWAYS AS column backing supplier_invoice_number_canonical
+# only exists as real behaviour inside an actual Postgres engine — no
+# mock can fake generated-column evaluation. This harness follows the
+# exact same disposable-container methodology as
+# scripts/tests/verify-purchase-receipt-concurrency.sh: a fresh
+# postgres:16-alpine container, created and destroyed by this script
+# only, never touching Production/Neon or any already-running database.
 #
 # WHAT THIS DOES:
 #   1. starts the disposable container and applies a minimal but REAL
 #      schema covering organisations/users plus the Commercial Core/
-#      Purchasing/Purchase-Receipts tables actually touched by the code
-#      under test (commercial_suppliers, commercial_purchase_orders,
-#      commercial_purchase_order_lines, commercial_document_sequences,
-#      commercial_purchase_receipts, commercial_purchase_receipt_lines —
-#      extracted verbatim from scripts/create-commercial-purchasing.sql,
-#      scripts/create-commercial-core.sql, and scripts/create-commercial-
-#      purchase-receipts.sql), plus minimal stub tables (crm_companies,
-#      crm_contacts, commercial_cost_centres, commercial_products,
-#      commercial_tax_codes) satisfying the composite/plain FKs those
-#      real tables declare, even though this suite never populates them;
+#      Purchasing/Supplier-Bills tables actually touched by the code
+#      under test — extracted verbatim from scripts/create-commercial-
+#      core.sql, scripts/create-commercial-purchasing.sql, and
+#      scripts/create-commercial-supplier-bills.sql (including its own
+#      Section 0 UNIQUE(id, supplier_id) retrofit onto
+#      commercial_purchase_orders) — plus minimal stub tables
+#      (crm_companies, crm_contacts, commercial_cost_centres,
+#      commercial_products, commercial_tax_codes) satisfying the
+#      composite/plain FKs those real tables declare;
 #   2. proves migration idempotency by applying the exact same DDL a
-#      second time (CREATE TABLE IF NOT EXISTS / CREATE INDEX IF NOT
-#      EXISTS — must not error);
-#   3. runs scripts/tests/purchaseReceiptConcurrency.integration.test.ts
-#      via `vitest --config vitest.integration.config.ts`, which imports
-#      the REAL, completely unmodified createPurchaseOrder/
-#      issuePurchaseOrder/cancelPurchaseOrder/createPurchaseReceipt/
-#      addPurchaseReceiptLine/postPurchaseReceipt/cancelPurchaseReceipt
-#      and exercises sequential over-receipt rejection, genuine concurrent
-#      over-receipt prevention, concurrent non-conflicting posts,
-#      cancel-reopens-quantity, PO-cancel-blocked-by-posted-receipt, and
-#      the PO-cancel-vs-receipt-post race invariant against this real
-#      container.
+#      second time;
+#   3. runs scripts/tests/purchaseMatchAllocationConcurrency.integration.test.ts via
+#      `vitest --config vitest.integration.config.ts`, which imports the
+#      REAL, completely unmodified createPurchaseOrder/issuePurchaseOrder/
+#      cancelPurchaseOrder/createSupplierBill/addSupplierBillLine/
+#      postSupplierBill/cancelSupplierBill and exercises sequential
+#      over-billing rejection, genuine concurrent over-billing prevention,
+#      concurrent non-conflicting posts, cancel-reopens-value,
+#      PO-cancel-blocked-by-posted-bill, the PO-cancel-vs-bill-post race
+#      invariant, and the real (trim + lower) canonicalised duplicate-
+#      invoice-number constraint, against this real container.
 #
-# WHAT THIS DOES NOT DO: it is not wired into CI (Docker is not part of
-# the standard CI workflow in this repo, matching every prior harness of
-# this kind). It never touches Production or any already-running database
-# — it creates and destroys its own disposable container, and cleans up
-# on exit even on failure (trap on EXIT). audit_logs writes are best-
-# effort (see lib/commercial/auditLog.ts's own try/catch) and this
-# harness deliberately does NOT create an audit_logs table — those writes
-# fail silently and are irrelevant to the property under test here.
+# WHAT THIS DOES NOT DO: it is not wired into CI. It never touches
+# Production or any already-running database — it creates and destroys
+# its own disposable container, and cleans up on exit even on failure
+# (trap on EXIT). audit_logs writes are best-effort and this harness
+# deliberately does NOT create an audit_logs table.
 #
 # USAGE:
-#   bash scripts/tests/verify-purchase-receipt-concurrency.sh
+#   bash scripts/tests/verify-supplier-bill-concurrency.sh
 
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-CONTAINER="purchase-receipt-concurrency-harness-$$"
+CONTAINER="purchase-match-allocation-concurrency-harness-$$"
 HOST_PORT=$((20000 + RANDOM % 20000))
 PASS=0
 FAIL=0
@@ -95,22 +93,16 @@ psql_exec() {
   docker exec -i "$CONTAINER" psql -X -q -U postgres -d testdb -v ON_ERROR_STOP=1
 }
 
-# ─── Minimal but real schema — Commercial Core/Purchasing/Purchase-
-# Receipts tables extracted verbatim (column-for-column, constraint-for-
-# constraint) from scripts/create-commercial-core.sql, scripts/create-
-# commercial-purchasing.sql, and scripts/create-commercial-purchase-
-# receipts.sql. Unrelated verticals (crm_companies/crm_contacts,
-# commercial_cost_centres, commercial_products, commercial_tax_codes) are
-# minimal stubs — just enough shape to satisfy the FKs the real tables
-# declare — since this suite never populates them. ─────────────────────
+# ─── Minimal but real schema — Commercial Core/Purchasing/Supplier-Bills
+# tables extracted verbatim from scripts/create-commercial-core.sql,
+# scripts/create-commercial-purchasing.sql, and scripts/create-commercial-
+# supplier-bills.sql. Unrelated verticals are minimal stubs. ───────────
 SCHEMA_SQL='
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 CREATE TABLE IF NOT EXISTS organisations (id TEXT PRIMARY KEY, name TEXT NOT NULL, slug TEXT NOT NULL UNIQUE);
 CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, organisation_id TEXT NOT NULL REFERENCES organisations(id) ON DELETE CASCADE, username TEXT NOT NULL UNIQUE, name TEXT NOT NULL);
 
--- Minimal stubs for tables this suite never populates but the real
--- purchasing schema composite/plain-FKs onto.
 CREATE TABLE IF NOT EXISTS crm_companies (id UUID PRIMARY KEY DEFAULT gen_random_uuid());
 CREATE TABLE IF NOT EXISTS crm_contacts (id UUID PRIMARY KEY DEFAULT gen_random_uuid());
 CREATE TABLE IF NOT EXISTS commercial_cost_centres (
@@ -140,7 +132,6 @@ CREATE TABLE IF NOT EXISTS commercial_products (
   UNIQUE (id, organisation_id)
 );
 
--- Real, verbatim: scripts/create-commercial-core.sql Section 4.
 CREATE TABLE IF NOT EXISTS commercial_document_sequences (
   organisation_id  TEXT NOT NULL REFERENCES organisations(id),
   document_type    TEXT NOT NULL,
@@ -151,7 +142,6 @@ CREATE TABLE IF NOT EXISTS commercial_document_sequences (
   PRIMARY KEY (organisation_id, document_type)
 );
 
--- Real, verbatim: scripts/create-commercial-purchasing.sql Section 1.
 CREATE TABLE IF NOT EXISTS commercial_suppliers (
   id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   organisation_id       TEXT NOT NULL REFERENCES organisations(id),
@@ -174,7 +164,6 @@ CREATE TABLE IF NOT EXISTS commercial_suppliers (
   UNIQUE (id, organisation_id)
 );
 
--- Real, verbatim: scripts/create-commercial-purchasing.sql Section 2.
 CREATE TABLE IF NOT EXISTS commercial_purchase_orders (
   id                                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   organisation_id                       TEXT NOT NULL REFERENCES organisations(id),
@@ -231,7 +220,17 @@ CREATE TABLE IF NOT EXISTS commercial_purchase_orders (
     REFERENCES commercial_cost_centres (id, organisation_id)
 );
 
--- Real, verbatim: scripts/create-commercial-purchasing.sql Section 3.
+-- Real, verbatim: scripts/create-commercial-supplier-bills.sql Section 0.
+DO $do$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = '"'"'commercial_purchase_orders_id_supplier_id_key'"'"'
+  ) THEN
+    ALTER TABLE commercial_purchase_orders
+      ADD CONSTRAINT commercial_purchase_orders_id_supplier_id_key UNIQUE (id, supplier_id);
+  END IF;
+END $do$;
+
 CREATE TABLE IF NOT EXISTS commercial_purchase_order_lines (
   id                     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   organisation_id        TEXT NOT NULL REFERENCES organisations(id),
@@ -263,79 +262,95 @@ CREATE TABLE IF NOT EXISTS commercial_purchase_order_lines (
     REFERENCES commercial_cost_centres (id, organisation_id)
 );
 
--- Minimal current-main dependency: cancelPurchaseOrder() also guards
--- against POSTED Supplier Bills (added in C7.4). This C7.3 harness never
--- creates a supplier bill, but the table must exist so the receipt-cancel
--- invariant is tested against the current production code path.
+-- Minimal stub of commercial_purchase_receipts (real shape: scripts/
+-- create-commercial-purchase-receipts.sql Section 1) — cancelPurchaseOrder()
+-- queries this table directly in its own C7.3 guard clause regardless of
+-- D2 applies the real Purchase Receipt schema after this base Purchasing/
+-- Supplier-Bill schema. Do not create the older cancellation-only receipt
+-- stub used by the Supplier Bill harness, because CREATE TABLE IF NOT EXISTS
+-- would otherwise mask the real Receipt columns needed by this suite.
+
+-- Real, verbatim: scripts/create-commercial-supplier-bills.sql Section 1.
 CREATE TABLE IF NOT EXISTS commercial_supplier_bills (
-  id                       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  organisation_id          TEXT NOT NULL REFERENCES organisations(id),
-  source_purchase_order_id UUID NOT NULL,
-  status                   TEXT NOT NULL DEFAULT '"'"'DRAFT'"'"' CHECK (status IN ('"'"'DRAFT'"'"', '"'"'POSTED'"'"', '"'"'CANCELLED'"'"')),
+  id                                     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  organisation_id                        TEXT NOT NULL REFERENCES organisations(id),
+  supplier_id                            UUID NOT NULL,
+  source_purchase_order_id               UUID NOT NULL,
+  supplier_invoice_number                TEXT NOT NULL,
+  supplier_invoice_number_canonical      TEXT GENERATED ALWAYS AS (lower(btrim(supplier_invoice_number))) STORED,
+  bill_number                            TEXT,
+  status                                 TEXT NOT NULL DEFAULT '"'"'DRAFT'"'"' CHECK (status IN ('"'"'DRAFT'"'"', '"'"'POSTED'"'"', '"'"'CANCELLED'"'"')),
+  currency                               TEXT NOT NULL DEFAULT '"'"'AUD'"'"',
+  bill_date                              DATE,
+  due_date                               DATE,
+  subtotal_cents                         INTEGER NOT NULL DEFAULT 0 CHECK (subtotal_cents >= 0),
+  tax_cents                              INTEGER NOT NULL DEFAULT 0 CHECK (tax_cents >= 0),
+  total_cents                            INTEGER NOT NULL DEFAULT 0 CHECK (total_cents >= 0),
+  CHECK (total_cents = subtotal_cents + tax_cents),
+  supplier_name_snapshot                 TEXT,
+  supplier_legal_name_snapshot           TEXT,
+  supplier_contact_name_snapshot         TEXT,
+  supplier_email_snapshot                TEXT,
+  supplier_phone_snapshot                TEXT,
+  supplier_address_snapshot              TEXT,
+  supplier_tax_business_number_snapshot  TEXT,
+  supplier_reference_snapshot            TEXT,
+  cancel_reason                          TEXT,
+  created_by                             TEXT REFERENCES users(id),
+  posted_by                              TEXT REFERENCES users(id),
+  cancelled_by                           TEXT REFERENCES users(id),
+  created_at                             TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at                             TIMESTAMPTZ NOT NULL DEFAULT now(),
+  posted_at                              TIMESTAMPTZ,
+  cancelled_at                           TIMESTAMPTZ,
+  UNIQUE (organisation_id, bill_number),
   UNIQUE (id, organisation_id),
-  FOREIGN KEY (source_purchase_order_id, organisation_id)
-    REFERENCES commercial_purchase_orders (id, organisation_id)
+  CONSTRAINT commercial_supplier_bills_supplier_invoice_unique
+    UNIQUE (organisation_id, supplier_id, supplier_invoice_number_canonical),
+  CONSTRAINT commercial_supplier_bills_po_org_fkey
+    FOREIGN KEY (source_purchase_order_id, organisation_id)
+    REFERENCES commercial_purchase_orders (id, organisation_id),
+  CONSTRAINT commercial_supplier_bills_po_supplier_fkey
+    FOREIGN KEY (source_purchase_order_id, supplier_id)
+    REFERENCES commercial_purchase_orders (id, supplier_id),
+  CONSTRAINT commercial_supplier_bills_supplier_org_fkey
+    FOREIGN KEY (supplier_id, organisation_id)
+    REFERENCES commercial_suppliers (id, organisation_id)
 );
 
--- Real, verbatim: scripts/create-commercial-purchase-receipts.sql Section 1.
-CREATE TABLE IF NOT EXISTS commercial_purchase_receipts (
-  id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  organisation_id     TEXT NOT NULL REFERENCES organisations(id),
-  purchase_order_id   UUID NOT NULL,
-  receipt_number      TEXT,
-  status              TEXT NOT NULL DEFAULT '"'"'DRAFT'"'"' CHECK (status IN ('"'"'DRAFT'"'"', '"'"'POSTED'"'"', '"'"'CANCELLED'"'"')),
-  received_date       DATE,
-  delivery_reference  TEXT,
-  notes               TEXT,
-  cancel_reason       TEXT,
-  created_by          TEXT REFERENCES users(id),
-  posted_by           TEXT REFERENCES users(id),
-  cancelled_by        TEXT REFERENCES users(id),
-  created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
-  posted_at           TIMESTAMPTZ,
-  cancelled_at        TIMESTAMPTZ,
-  UNIQUE (organisation_id, receipt_number),
-  UNIQUE (id, organisation_id),
-  CONSTRAINT commercial_purchase_receipts_po_org_fkey
-    FOREIGN KEY (purchase_order_id, organisation_id)
-    REFERENCES commercial_purchase_orders (id, organisation_id)
-);
-
--- Real, verbatim: scripts/create-commercial-purchase-receipts.sql Section 2.
-CREATE TABLE IF NOT EXISTS commercial_purchase_receipt_lines (
+-- Real, verbatim: scripts/create-commercial-supplier-bills.sql Section 2.
+CREATE TABLE IF NOT EXISTS commercial_supplier_bill_lines (
   id                             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   organisation_id                TEXT NOT NULL REFERENCES organisations(id),
-  purchase_receipt_id            UUID NOT NULL,
+  supplier_bill_id               UUID NOT NULL,
   source_purchase_order_line_id  UUID NOT NULL,
+  product_id                     UUID,
   position                       INTEGER NOT NULL DEFAULT 0,
   description_snapshot           TEXT NOT NULL,
   sku_snapshot                   TEXT,
   unit_snapshot                  TEXT,
-  quantity_received              NUMERIC(14,4) NOT NULL CHECK (quantity_received > 0),
+  quantity                       NUMERIC(14,4) NOT NULL DEFAULT 1 CHECK (quantity > 0),
+  unit_price_cents               INTEGER NOT NULL DEFAULT 0 CHECK (unit_price_cents >= 0),
+  tax_code_snapshot              TEXT,
+  tax_rate_snapshot              NUMERIC(5,2) NOT NULL DEFAULT 0 CHECK (tax_rate_snapshot >= 0 AND tax_rate_snapshot <= 100),
+  line_subtotal_cents            INTEGER NOT NULL DEFAULT 0 CHECK (line_subtotal_cents >= 0),
+  line_tax_cents                 INTEGER NOT NULL DEFAULT 0 CHECK (line_tax_cents >= 0),
+  line_total_cents               INTEGER NOT NULL DEFAULT 0 CHECK (line_total_cents >= 0),
   created_at                     TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at                     TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (id, organisation_id),
-  CONSTRAINT commercial_purchase_receipt_lines_receipt_org_fkey
-    FOREIGN KEY (purchase_receipt_id, organisation_id)
-    REFERENCES commercial_purchase_receipts (id, organisation_id) ON DELETE CASCADE,
-  CONSTRAINT commercial_purchase_receipt_lines_po_line_org_fkey
+  CONSTRAINT commercial_supplier_bill_lines_bill_org_fkey
+    FOREIGN KEY (supplier_bill_id, organisation_id)
+    REFERENCES commercial_supplier_bills (id, organisation_id) ON DELETE CASCADE,
+  CONSTRAINT commercial_supplier_bill_lines_po_line_org_fkey
     FOREIGN KEY (source_purchase_order_line_id, organisation_id)
-    REFERENCES commercial_purchase_order_lines (id, organisation_id)
+    REFERENCES commercial_purchase_order_lines (id, organisation_id),
+  CONSTRAINT commercial_supplier_bill_lines_product_org_fkey
+    FOREIGN KEY (product_id, organisation_id)
+    REFERENCES commercial_products (id, organisation_id)
 );
-CREATE INDEX IF NOT EXISTS idx_commercial_purchase_receipt_lines_org_po_line ON commercial_purchase_receipt_lines(organisation_id, source_purchase_order_line_id);
-
--- C7.5D2 dependency seam for cancellation tests. This harness isolates the
--- Receipt lifecycle and does not create Supplier Bill tables, so only the
--- allocation columns read by cancelPurchaseReceipt() are required here.
-CREATE TABLE IF NOT EXISTS commercial_purchase_receipt_bill_allocations (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  organisation_id TEXT NOT NULL,
-  purchase_receipt_line_id UUID NOT NULL,
-  reversed_at TIMESTAMPTZ
-);
+CREATE INDEX IF NOT EXISTS idx_commercial_supplier_bill_lines_org_po_line ON commercial_supplier_bill_lines(organisation_id, source_purchase_order_line_id);
 '
-
 
 echo ""
 echo "=== 1. SCHEMA APPLIES FRESH ==="
@@ -361,17 +376,39 @@ else
 fi
 
 echo ""
-echo "=== 3. REAL OVER-RECEIPT CONCURRENCY + PO-CANCEL-RACE SUITE (vitest against this same container) ==="
+echo "=== 3. PURCHASE RECEIPT + MATCH-ALLOCATION SCHEMA ==="
+if cat "$REPO_ROOT/scripts/create-commercial-purchase-receipts.sql" | psql_exec >/dev/null 2>&1   && cat "$REPO_ROOT/scripts/create-commercial-purchase-match-allocations.sql" | psql_exec >/dev/null 2>&1; then
+  echo "  PASS: receipt and match-allocation schema applied cleanly"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: receipt/match-allocation schema failed to apply"
+  FAIL=$((FAIL + 1))
+  FAILURES+=("receipt/match schema apply")
+fi
+
+echo ""
+echo "=== 4. RECEIPT + MATCH SCHEMA IDEMPOTENCY ==="
+if cat "$REPO_ROOT/scripts/create-commercial-purchase-receipts.sql" | psql_exec >/dev/null 2>&1   && cat "$REPO_ROOT/scripts/create-commercial-purchase-match-allocations.sql" | psql_exec >/dev/null 2>&1; then
+  echo "  PASS: receipt and match-allocation schema re-applied cleanly"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: receipt/match-allocation schema re-apply failed"
+  FAIL=$((FAIL + 1))
+  FAILURES+=("receipt/match schema idempotency")
+fi
+
+echo ""
+echo "=== 5. REAL PURCHASE-MATCH ALLOCATION/CANCELLATION CONCURRENCY SUITE ==="
 export DATABASE_URL="postgresql://postgres:test@localhost:${HOST_PORT}/testdb"
 echo "DATABASE_URL=$DATABASE_URL (disposable container only)"
 cd "$REPO_ROOT"
-npx vitest run --config vitest.integration.config.ts scripts/tests/purchaseReceiptConcurrency.integration.test.ts
+npx vitest run --config vitest.integration.config.ts scripts/tests/purchaseMatchAllocationConcurrency.integration.test.ts
 VITEST_RESULT=$?
 if [ "$VITEST_RESULT" -eq 0 ]; then
-  echo "  PASS: purchaseReceiptConcurrency.integration.test.ts (all cases)"
+  echo "  PASS: purchaseMatchAllocationConcurrency.integration.test.ts (all cases)"
   PASS=$((PASS + 1))
 else
-  echo "  FAIL: purchaseReceiptConcurrency.integration.test.ts (exit $VITEST_RESULT)"
+  echo "  FAIL: purchaseMatchAllocationConcurrency.integration.test.ts (exit $VITEST_RESULT)"
   FAIL=$((FAIL + 1))
   FAILURES+=("vitest integration suite")
 fi

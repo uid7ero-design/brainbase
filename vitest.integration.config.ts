@@ -129,6 +129,7 @@ export default defineConfig({
       'scripts/tests/supplierBillConcurrency.integration.test.ts',
       'scripts/tests/supplierBillFractionalQuantityMigration.integration.test.ts',
       'scripts/tests/purchaseMatchAllocationsMigration.integration.test.ts',
+      'scripts/tests/purchaseMatchAllocationConcurrency.integration.test.ts',
     ],
     testTimeout: 30_000,
     hookTimeout: 30_000,
