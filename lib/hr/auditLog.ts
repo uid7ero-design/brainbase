@@ -116,6 +116,7 @@ const RESTRICTED_HR_READ_EVENTS = new Set([
   'hr_restricted_case:hr_restricted_case.read',
   'hr_restricted_case_participant:hr_restricted_case_participant.read',
   'hr_restricted_case_note:hr_restricted_case_note.read',
+  'hr_restricted_case_document:hr_restricted_case_document.read',
 ]);
 
 const HR_RESTRICTED_CASE_DOCUMENT_AUDIT_POLICY: AuditFieldPolicy = {
