@@ -1,0 +1,553 @@
+/* /pricing layout. Tokens only — see styles/brainbase-tokens.css. */
+
+/* ─── Hero ─── */
+.hero {
+  position: relative;
+  padding: clamp(56px, 9vw, 104px) 0 clamp(48px, 7vw, 72px);
+  border-bottom: 1px solid var(--bb-border);
+  text-align: center;
+}
+.hero::after {
+  content: '';
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 45%;
+  background: linear-gradient(to bottom, transparent, var(--bb-bg));
+  pointer-events: none;
+}
+.heroInner {
+  position: relative;
+  z-index: 1;
+  max-width: 46rem;
+  margin: 0 auto;
+}
+.heroEyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 22px;
+}
+.eyebrowDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--bb-accent);
+  box-shadow: 0 0 0 3px var(--bb-accent-soft);
+}
+.heroTitle {
+  margin: 0;
+  font-size: clamp(2.25rem, 5vw, 3.5rem);
+  line-height: 1.04;
+  font-weight: 600;
+  letter-spacing: -0.042em;
+  text-wrap: balance;
+}
+.heroAccent {
+  color: var(--bb-accent);
+}
+.heroLede {
+  margin: 22px auto 0;
+  max-width: 36rem;
+  font-size: clamp(1rem, 1.5vw, 1.0625rem);
+  line-height: 1.7;
+  color: var(--bb-text-muted);
+}
+
+/* ─── Principle ─── */
+.principle {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  gap: 12px 32px;
+  align-items: baseline;
+  margin-top: clamp(40px, 6vw, 56px);
+  padding: 20px 22px;
+  border: 1px solid var(--bb-border);
+  border-left: 3px solid var(--bb-accent);
+  border-radius: var(--bb-radius);
+  background: var(--bb-surface);
+}
+.principleTitle {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.principleBody {
+  margin: 0;
+  font-size: 0.9375rem;
+  line-height: 1.65;
+  color: var(--bb-text-muted);
+}
+
+/* ─── Plans: one ruled grid, 1px separators ─── */
+.plans {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  margin: clamp(32px, 5vw, 48px) 0 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--bb-border);
+  border-radius: var(--bb-radius-lg);
+  background: var(--bb-border);
+  overflow: hidden;
+}
+.plan {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  padding: 26px 22px 24px;
+  background: var(--bb-surface);
+}
+.plan::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 2px;
+  background: transparent;
+}
+.planPopular {
+  background: var(--bb-surface-raised);
+}
+.planPopular::before {
+  background: var(--bb-accent);
+}
+.planEnterprise::before {
+  background: var(--bb-signal);
+}
+.planHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 24px;
+  margin-bottom: 14px;
+}
+.planName {
+  margin: 0;
+  font-family: var(--bb-font-mono);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--bb-text);
+}
+.planTagline {
+  margin: 0 0 10px;
+  min-height: 2.6em;
+  font-size: 1.125rem;
+  line-height: 1.3;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+.planDescription {
+  margin: 0;
+  min-height: 5em;
+  font-size: 0.875rem;
+  line-height: 1.65;
+  color: var(--bb-text-muted);
+}
+.price {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-top: 22px;
+}
+.priceValue {
+  font-size: 2.25rem;
+  font-weight: 600;
+  letter-spacing: -0.04em;
+  line-height: 1;
+}
+.pricePeriod {
+  font-family: var(--bb-font-mono);
+  font-size: 0.75rem;
+  color: var(--bb-text-muted);
+}
+.priceNote {
+  margin: 8px 0 0;
+  font-family: var(--bb-font-mono);
+  font-size: 0.72rem;
+  color: var(--bb-text-muted);
+}
+.features {
+  display: grid;
+  gap: 10px;
+  margin: 20px 0 24px;
+  padding: 18px 0 0;
+  list-style: none;
+  border-top: 1px solid var(--bb-border);
+}
+.feature {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  font-size: 0.875rem;
+  line-height: 1.45;
+}
+.check {
+  flex-shrink: 0;
+  margin-top: 3px;
+  color: var(--bb-accent);
+}
+.planEnterprise .check {
+  color: var(--bb-signal);
+}
+.planCta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 42px;
+  margin-top: auto;
+  padding: 0 16px;
+  border: 1px solid var(--bb-border-strong);
+  border-radius: var(--bb-radius);
+  background: var(--bb-surface);
+  color: var(--bb-text);
+  font-size: 0.875rem;
+  font-weight: 550;
+  text-decoration: none;
+  transition: border-color 150ms ease, background-color 150ms ease;
+}
+.planCta:hover {
+  border-color: var(--bb-text-muted);
+}
+.planPopular .planCta {
+  border-color: var(--bb-accent);
+  background: var(--bb-accent);
+  color: var(--bb-accent-contrast);
+}
+.planPopular .planCta:hover {
+  border-color: var(--bb-accent-hover);
+  background: var(--bb-accent-hover);
+}
+
+/* ─── Setup notice ─── */
+.notice {
+  margin-top: 16px;
+  padding: 18px 22px;
+  border: 1px dashed var(--bb-border-strong);
+  border-radius: var(--bb-radius);
+}
+.noticeTitle {
+  margin: 0 0 8px;
+}
+.noticeBody,
+.noticeFine {
+  margin: 0;
+  max-width: 52rem;
+  font-size: 0.875rem;
+  line-height: 1.65;
+  color: var(--bb-text-muted);
+}
+.noticeFine {
+  margin-top: 6px;
+  color: var(--bb-text);
+}
+
+/* ─── Choice grid (ruled) ─── */
+.ruled4 {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--bb-border);
+  border-bottom: 1px solid var(--bb-border);
+}
+.ruledCell {
+  padding: 24px 22px 28px;
+  border-left: 1px solid var(--bb-border);
+}
+.ruledCell:first-child {
+  border-left: 0;
+  padding-left: 0;
+}
+.cellIndex {
+  display: block;
+  margin-bottom: 16px;
+  font-family: var(--bb-font-mono);
+  font-size: 0.72rem;
+  color: var(--bb-accent);
+}
+.cellTitle {
+  margin: 0 0 8px;
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.cellBody {
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.65;
+  color: var(--bb-text-muted);
+}
+
+/* ─── Comparison table ─── */
+.tableWrap {
+  /* Containing block for the table's visually-hidden cell text, so it is
+     clipped by this scroll region instead of widening the page. */
+  position: relative;
+  border: 1px solid var(--bb-border);
+  border-radius: var(--bb-radius-lg);
+  background: var(--bb-surface);
+  overflow-x: auto;
+}
+.tableWrap:focus-visible {
+  outline: 2px solid var(--bb-focus);
+  outline-offset: 3px;
+}
+.table {
+  width: 100%;
+  min-width: 600px;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+.table th,
+.table td {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--bb-border);
+  text-align: center;
+}
+.table tbody tr:last-child th,
+.table tbody tr:last-child td {
+  border-bottom: 0;
+}
+.table thead th {
+  background: var(--bb-surface-raised);
+  font-family: var(--bb-font-mono);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--bb-text);
+}
+.table thead th:first-child {
+  color: var(--bb-text-muted);
+}
+.table th[scope='row'],
+.table thead th:first-child {
+  text-align: left;
+}
+.table th[scope='row'] {
+  font-weight: 450;
+  color: var(--bb-text);
+}
+.tableCheck {
+  display: inline-block;
+  vertical-align: middle;
+  color: var(--bb-accent);
+}
+.tableDash {
+  color: var(--bb-text-muted);
+}
+.tableNote {
+  margin: 14px 0 0;
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  color: var(--bb-text-muted);
+}
+.config {
+  margin-top: clamp(32px, 5vw, 48px);
+  padding-left: 18px;
+  border-left: 1px solid var(--bb-signal-border);
+}
+.configTitle {
+  margin: 0 0 8px;
+  font-size: 1.125rem;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+.configBody {
+  margin: 0;
+  max-width: 40rem;
+  font-size: 0.9375rem;
+  line-height: 1.65;
+  color: var(--bb-text-muted);
+}
+
+/* ─── Two-column feature panels (Enterprise, Web Systems) ─── */
+.split {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+  gap: clamp(28px, 5vw, 56px);
+  align-items: center;
+  padding: clamp(28px, 5vw, 48px);
+  border: 1px solid var(--bb-border);
+  border-radius: var(--bb-radius-lg);
+  background: var(--bb-surface);
+}
+.splitSignal {
+  border-top: 2px solid var(--bb-signal);
+}
+.splitEyebrow {
+  margin: 0 0 12px;
+}
+.splitTitle {
+  margin: 0 0 14px;
+  font-size: clamp(1.625rem, 3.2vw, 2.25rem);
+  line-height: 1.14;
+  font-weight: 600;
+  letter-spacing: -0.028em;
+  text-wrap: balance;
+}
+.splitBody {
+  margin: 0;
+  font-size: 0.9375rem;
+  line-height: 1.7;
+  color: var(--bb-text-muted);
+}
+.splitFine {
+  margin: 12px 0 0;
+  font-family: var(--bb-font-mono);
+  font-size: 0.75rem;
+  line-height: 1.6;
+  color: var(--bb-text-muted);
+}
+.enterpriseList {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 18px;
+  padding: 0;
+  list-style: none;
+}
+.enterpriseItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border: 1px solid var(--bb-border);
+  border-radius: var(--bb-radius-sm);
+  background: var(--bb-bg);
+  font-size: 0.875rem;
+}
+.enterpriseItem::before {
+  content: '';
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  border: 1px solid var(--bb-signal);
+  border-radius: 50%;
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+/* ─── Implementation extras ─── */
+.extras {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--bb-border);
+  border-radius: var(--bb-radius-lg);
+  background: var(--bb-border);
+  overflow: hidden;
+}
+.extra {
+  padding: 22px;
+  background: var(--bb-bg);
+}
+.extraNote {
+  margin: 16px 0 0;
+  padding: 14px 18px;
+  border-left: 3px solid var(--bb-border-strong);
+  background: var(--bb-surface);
+  font-size: 0.875rem;
+  line-height: 1.65;
+  color: var(--bb-text-muted);
+}
+
+/* ─── Final CTA ─── */
+.cta {
+  padding: clamp(40px, 7vw, 72px) clamp(20px, 5vw, 48px);
+  border: 1px solid var(--bb-border);
+  border-radius: var(--bb-radius-lg);
+  background-color: var(--bb-surface);
+  text-align: center;
+}
+.cta > p:first-child {
+  margin: 0;
+}
+.ctaTitle {
+  margin: 14px auto 0;
+  max-width: 34rem;
+  font-size: clamp(1.75rem, 3.4vw, 2.5rem);
+  line-height: 1.12;
+  font-weight: 600;
+  letter-spacing: -0.028em;
+  text-wrap: balance;
+}
+.ctaBody {
+  margin: 16px auto 0;
+  max-width: 32rem;
+  font-size: 1rem;
+  line-height: 1.7;
+  color: var(--bb-text-muted);
+}
+.ctaActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 28px;
+}
+
+.planCta:focus-visible {
+  outline: 2px solid var(--bb-focus);
+  outline-offset: 3px;
+}
+
+/* ─── Responsive ─── */
+@media (max-width: 1080px) {
+  .plans,
+  .extras {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .ruled4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .ruledCell:nth-child(3) {
+    border-left: 0;
+    padding-left: 0;
+  }
+  .ruledCell:nth-child(n + 3) {
+    border-top: 1px solid var(--bb-border);
+  }
+  .split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 760px) {
+  .principle {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .plans,
+  .extras,
+  .ruled4 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .planTagline,
+  .planDescription {
+    min-height: 0;
+  }
+  .ruledCell {
+    border-left: 0;
+    padding-left: 0;
+  }
+  .ruledCell + .ruledCell {
+    border-top: 1px solid var(--bb-border);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .planCta {
+    transition: none;
+  }
+}

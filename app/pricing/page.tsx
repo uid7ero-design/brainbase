@@ -1,12 +1,14 @@
-'use client';
-
 import Link from 'next/link';
-import type { CSSProperties } from 'react';
 
-const FONT =
-  'var(--font-inter), "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+import { PublicFooter } from '@/components/public/PublicFooter';
+import { ArrowIcon, ButtonLink, Container, Section, SectionHeading } from '@/components/public/primitives';
+import { Badge } from '@/components/ui/semantic';
+import publicStyles from '@/components/public/public.module.css';
+import styles from '@/components/public/pricing/pricing.module.css';
 
-const BG = '#07080B';
+// Public pricing page. Server component on the --bb-* token system, so it
+// renders in light and dark. Copy, prices, plans and links are unchanged
+// from the previous version; only presentation changed.
 
 type Plan = {
   name: string;
@@ -14,7 +16,6 @@ type Plan = {
   priceLabel?: string;
   tagline: string;
   description: string;
-  color: string;
   popular: boolean;
   enterprise?: boolean;
   features: string[];
@@ -28,7 +29,6 @@ const PLANS: Plan[] = [
     tagline: 'Get the core operation organised',
     description:
       'A simple operational foundation for businesses ready to organise clients, leads and scheduling in one connected workspace.',
-    color: '#8A4DFF',
     popular: false,
     features: [
       'Client management',
@@ -46,7 +46,6 @@ const PLANS: Plan[] = [
     tagline: 'Run more of the day-to-day work',
     description:
       'For businesses that want leads, clients, workflows and operational visibility connected in one working system.',
-    color: '#22C55E',
     popular: true,
     features: [
       'Everything in Foundation',
@@ -64,7 +63,6 @@ const PLANS: Plan[] = [
     tagline: 'Connect a broader part of the business',
     description:
       'For businesses ready to connect more of their operation and introduce deeper reporting, integrations and intelligence.',
-    color: '#A78BFA',
     popular: false,
     features: [
       'Everything in Operations',
@@ -83,7 +81,6 @@ const PLANS: Plan[] = [
     tagline: 'Tailored deployment for complex organisations',
     description:
       'For larger organisations, multi-team environments and operations requiring tailored architecture, governance and implementation.',
-    color: '#38BDF8',
     popular: false,
     enterprise: true,
     features: [
@@ -98,105 +95,57 @@ const PLANS: Plan[] = [
   },
 ];
 
-const COMPARISON = [
+type Tier = 'foundation' | 'operations' | 'business' | 'enterprise';
+
+const COMPARISON: ({ feature: string } & Record<Tier, boolean>)[] = [
+  { feature: 'Client management', foundation: true, operations: true, business: true, enterprise: true },
+  { feature: 'Lead tracking', foundation: true, operations: true, business: true, enterprise: true },
+  { feature: 'Scheduling', foundation: true, operations: true, business: true, enterprise: true },
+  { feature: 'Operational workspace', foundation: true, operations: true, business: true, enterprise: true },
+  { feature: 'Follow-up workflows', foundation: false, operations: true, business: true, enterprise: true },
+  { feature: 'Revenue visibility', foundation: false, operations: true, business: true, enterprise: true },
+  { feature: 'Operational dashboards', foundation: false, operations: true, business: true, enterprise: true },
+  { feature: 'Workflow automation', foundation: false, operations: true, business: true, enterprise: true },
+  { feature: 'HLNΛ intelligence', foundation: false, operations: false, business: true, enterprise: true },
+  { feature: 'Advanced reporting', foundation: false, operations: false, business: true, enterprise: true },
+  { feature: 'Business integrations', foundation: false, operations: false, business: true, enterprise: true },
+  { feature: 'Multi-team deployment', foundation: false, operations: false, business: false, enterprise: true },
+  { feature: 'Advanced permissions', foundation: false, operations: false, business: false, enterprise: true },
+  { feature: 'Tailored implementation', foundation: false, operations: false, business: false, enterprise: true },
+];
+
+const TIERS: Tier[] = ['foundation', 'operations', 'business', 'enterprise'];
+
+const CHOICES = [
   {
-    feature: 'Client management',
-    foundation: true,
-    operations: true,
-    business: true,
-    enterprise: true,
+    number: '01',
+    title: 'Foundation',
+    body: 'You mainly need to organise leads, clients and scheduling and create one reliable operational workspace.',
   },
   {
-    feature: 'Lead tracking',
-    foundation: true,
-    operations: true,
-    business: true,
-    enterprise: true,
+    number: '02',
+    title: 'Operations',
+    body: 'You want BRΛINBΛSE actively supporting daily workflows, follow-up, visibility, dashboards and automation.',
   },
   {
-    feature: 'Scheduling',
-    foundation: true,
-    operations: true,
-    business: true,
-    enterprise: true,
+    number: '03',
+    title: 'Business System',
+    body: 'You are ready for deeper reporting, broader integrations where supported, and HLNΛ intelligence across a more connected business.',
   },
   {
-    feature: 'Operational workspace',
-    foundation: true,
-    operations: true,
-    business: true,
-    enterprise: true,
+    number: '04',
+    title: 'Enterprise',
+    body: 'You need a tailored deployment across teams, business units or a more complex organisational environment.',
   },
-  {
-    feature: 'Follow-up workflows',
-    foundation: false,
-    operations: true,
-    business: true,
-    enterprise: true,
-  },
-  {
-    feature: 'Revenue visibility',
-    foundation: false,
-    operations: true,
-    business: true,
-    enterprise: true,
-  },
-  {
-    feature: 'Operational dashboards',
-    foundation: false,
-    operations: true,
-    business: true,
-    enterprise: true,
-  },
-  {
-    feature: 'Workflow automation',
-    foundation: false,
-    operations: true,
-    business: true,
-    enterprise: true,
-  },
-  {
-    feature: 'HLNΛ intelligence',
-    foundation: false,
-    operations: false,
-    business: true,
-    enterprise: true,
-  },
-  {
-    feature: 'Advanced reporting',
-    foundation: false,
-    operations: false,
-    business: true,
-    enterprise: true,
-  },
-  {
-    feature: 'Business integrations',
-    foundation: false,
-    operations: false,
-    business: true,
-    enterprise: true,
-  },
-  {
-    feature: 'Multi-team deployment',
-    foundation: false,
-    operations: false,
-    business: false,
-    enterprise: true,
-  },
-  {
-    feature: 'Advanced permissions',
-    foundation: false,
-    operations: false,
-    business: false,
-    enterprise: true,
-  },
-  {
-    feature: 'Tailored implementation',
-    foundation: false,
-    operations: false,
-    business: false,
-    enterprise: true,
-  },
+];
+
+const ENTERPRISE_ITEMS = [
+  'Multiple teams or business units',
+  'Custom operational workflows',
+  'Advanced access and permissions',
+  'Tailored integrations',
+  'Organisation-specific reporting',
+  'Dedicated implementation planning',
 ];
 
 const EXTRAS = [
@@ -222,1600 +171,309 @@ const EXTRAS = [
   },
 ];
 
+function CheckIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      width="12"
+      height="10"
+      viewBox="0 0 10 8"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+      className={className}
+    >
+      <path d="M1 4L4 7L9 1" />
+    </svg>
+  );
+}
+
 export default function PricingPage() {
   return (
-    <main
-      style={{
-        minHeight: '100vh',
-        background: BG,
-        color: '#F5F7FA',
-        fontFamily: FONT,
-        overflow: 'hidden',
-        position: 'relative',
-      }}
-    >
-      <style>
-        {`
-          @keyframes pricingPulse {
-            0%, 100% {
-              opacity: .65;
-            }
-
-            50% {
-              opacity: 1;
-            }
-          }
-
-          .pricing-plan-grid {
-            display: grid;
-            grid-template-columns: repeat(4, minmax(0, 1fr));
-            gap: 12px;
-            align-items: stretch;
-          }
-
-          .pricing-choice-grid {
-            display: grid;
-            grid-template-columns: repeat(4, minmax(0, 1fr));
-            gap: 12px;
-          }
-
-          .pricing-extra-grid {
-            display: grid;
-            grid-template-columns: repeat(4, minmax(0, 1fr));
-            gap: 12px;
-          }
-
-          @media (max-width: 1080px) {
-            .pricing-plan-grid,
-            .pricing-choice-grid,
-            .pricing-extra-grid {
-              grid-template-columns: repeat(2, minmax(0, 1fr));
-            }
-          }
-
-          @media (max-width: 760px) {
-            .pricing-table-wrap {
-              overflow-x: auto;
-            }
-
-            .pricing-plan-grid,
-            .pricing-choice-grid,
-            .pricing-extra-grid {
-              grid-template-columns: 1fr;
-            }
-
-            .pricing-shell {
-              padding-left: 18px !important;
-              padding-right: 18px !important;
-            }
-
-            .pricing-large-card {
-              padding-left: 24px !important;
-              padding-right: 24px !important;
-            }
-          }
-        `}
-      </style>
-
-      <div
-        aria-hidden="true"
-        style={{
-          position: 'fixed',
-          inset: 0,
-          pointerEvents: 'none',
-          background: `
-            radial-gradient(
-              ellipse 70% 42% at 50% -4%,
-              rgba(138,77,255,.14),
-              rgba(86,119,255,.04) 42%,
-              transparent 72%
-            )
-          `,
-        }}
-      />
-
-      <div
-        className="pricing-shell"
-        style={{
-          maxWidth: 1220,
-          margin: '0 auto',
-          padding: '88px 32px 110px',
-          position: 'relative',
-          zIndex: 1,
-        }}
-      >
-        {/* HERO */}
-
-        <section
-          style={{
-            textAlign: 'center',
-            maxWidth: 790,
-            margin: '0 auto 64px',
-          }}
-        >
-          <div
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 8,
-              padding: '6px 12px',
-              borderRadius: 999,
-              background: 'rgba(138,77,255,.08)',
-              border: '1px solid rgba(138,77,255,.20)',
-              color: 'rgba(196,181,253,.86)',
-              fontSize: 10,
-              fontWeight: 700,
-              letterSpacing: '.13em',
-              textTransform: 'uppercase',
-              marginBottom: 22,
-            }}
-          >
-            <span
-              style={{
-                width: 5,
-                height: 5,
-                borderRadius: '50%',
-                background: '#8A4DFF',
-                boxShadow: '0 0 8px rgba(138,77,255,.85)',
-                animation: 'pricingPulse 2.4s ease-in-out infinite',
-              }}
-            />
-
-            BRΛINBΛSE Pricing
+    <main className={`bb-public ${publicStyles.page}`}>
+      {/* HERO ─────────────────────────────────────────────────────────── */}
+      <section className={`${styles.hero} bb-grid-bg`} aria-labelledby="pricing-title">
+        <Container>
+          <div className={styles.heroInner}>
+            <p className={`bb-eyebrow ${styles.heroEyebrow}`}>
+              <span className={styles.eyebrowDot} aria-hidden="true" />
+              BRΛINBΛSE Pricing
+            </p>
+            <h1 id="pricing-title" className={styles.heroTitle}>
+              Start with what you need.
+              <br />
+              <span className={styles.heroAccent}>Expand as your operation grows.</span>
+            </h1>
+            <p className={styles.heroLede}>
+              BRΛINBΛSE pricing reflects the scope of the platform your organisation needs today. Start focused, then
+              add broader capability as requirements grow.
+            </p>
           </div>
+        </Container>
+      </section>
 
-          <h1
-            style={{
-              margin: '0 0 20px',
-              fontSize: 'clamp(38px, 6vw, 62px)',
-              lineHeight: 1.02,
-              letterSpacing: '-.052em',
-              fontWeight: 650,
-              color: '#F5F7FA',
-            }}
-          >
-            Start with what you need.
-            <br />
-
-            <span
-              style={{
-                background:
-                  'linear-gradient(90deg, #A78BFA, #8A4DFF 48%, #5677FF)',
-                WebkitBackgroundClip: 'text',
-                WebkitTextFillColor: 'transparent',
-                backgroundClip: 'text',
-              }}
-            >
-              Expand as your operation grows.
-            </span>
-          </h1>
-
-          <p
-            style={{
-              maxWidth: 660,
-              margin: '0 auto',
-              fontSize: 15,
-              lineHeight: 1.75,
-              color: 'rgba(226,232,240,.60)',
-            }}
-          >
-            BRΛINBΛSE pricing reflects the scope of the platform your
-            organisation needs today. Start focused, then add broader
-            capability as requirements grow.
-          </p>
-        </section>
-
+      <Container>
         {/* SIMPLE COMMERCIAL PRINCIPLE */}
-
-        <section
-          style={{
-            maxWidth: 780,
-            margin: '0 auto 56px',
-            padding: '22px 28px',
-            borderRadius: 13,
-            textAlign: 'center',
-            background: 'rgba(255,255,255,.016)',
-            border: '1px solid rgba(255,255,255,.065)',
-          }}
-        >
-          <div
-            style={{
-              fontSize: 13,
-              fontWeight: 650,
-              color: '#F5F7FA',
-              marginBottom: 7,
-            }}
-          >
-            You don&apos;t need the whole platform on day one.
-          </div>
-
-          <p
-            style={{
-              margin: 0,
-              fontSize: 12,
-              lineHeight: 1.7,
-              color: 'rgba(226,232,240,.52)',
-            }}
-          >
-            Start with the capabilities that solve today&apos;s problems.
-            Broader operational capability — and implementation, where
-            required — can be introduced later.
+        <div className={styles.principle}>
+          <p className={styles.principleTitle}>You don&apos;t need the whole platform on day one.</p>
+          <p className={styles.principleBody}>
+            Start with the capabilities that solve today&apos;s problems. Broader operational capability — and
+            implementation, where required — can be introduced later.
           </p>
-        </section>
+        </div>
 
         {/* PRICING CARDS */}
-
-        <section
-          style={{
-            marginBottom: 30,
-          }}
-        >
-          <div className="pricing-plan-grid">
-            {PLANS.map(plan => (
-              <div
+        <ul className={styles.plans} aria-label="Plans">
+          {PLANS.map(plan => {
+            const id = `plan-${plan.name.toLowerCase().replace(/\s+/g, '-')}`;
+            return (
+              <li
                 key={plan.name}
-                style={{
-                  position: 'relative',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  minHeight: 550,
-                  padding: '30px 24px 25px',
-                  borderRadius: 18,
-                  overflow: 'hidden',
-
-                  background: plan.popular
-                    ? 'linear-gradient(160deg, rgba(34,197,94,.065), rgba(255,255,255,.022) 45%, rgba(138,77,255,.025))'
-                    : plan.enterprise
-                      ? 'linear-gradient(160deg, rgba(56,189,248,.055), rgba(255,255,255,.018) 48%, rgba(138,77,255,.022))'
-                      : 'rgba(255,255,255,.018)',
-
-                  border: plan.popular
-                    ? '1px solid rgba(34,197,94,.27)'
-                    : plan.enterprise
-                      ? '1px solid rgba(56,189,248,.20)'
-                      : '1px solid rgba(255,255,255,.075)',
-
-                  boxShadow: plan.popular
-                    ? '0 26px 70px rgba(0,0,0,.22), 0 0 38px rgba(34,197,94,.035)'
-                    : '0 20px 60px rgba(0,0,0,.14)',
-                }}
+                className={[styles.plan, plan.popular && styles.planPopular, plan.enterprise && styles.planEnterprise]
+                  .filter(Boolean)
+                  .join(' ')}
               >
-                <div
-                  aria-hidden="true"
-                  style={{
-                    position: 'absolute',
-                    left: 0,
-                    top: 0,
-                    width: 110,
-                    height: 1,
-                    background: `linear-gradient(90deg, ${plan.color}, transparent)`,
-                  }}
-                />
-
-                {plan.popular && (
-                  <div
-                    style={{
-                      position: 'absolute',
-                      right: 16,
-                      top: 17,
-                      padding: '5px 8px',
-                      borderRadius: 999,
-                      fontSize: 8,
-                      fontWeight: 750,
-                      letterSpacing: '.09em',
-                      textTransform: 'uppercase',
-                      color: '#86EFAC',
-                      background: 'rgba(34,197,94,.10)',
-                      border: '1px solid rgba(34,197,94,.22)',
-                    }}
-                  >
-                    Most Popular
-                  </div>
-                )}
-
-                {plan.enterprise && (
-                  <div
-                    style={{
-                      position: 'absolute',
-                      right: 16,
-                      top: 17,
-                      padding: '5px 8px',
-                      borderRadius: 999,
-                      fontSize: 8,
-                      fontWeight: 750,
-                      letterSpacing: '.09em',
-                      textTransform: 'uppercase',
-                      color: '#7DD3FC',
-                      background: 'rgba(56,189,248,.08)',
-                      border: '1px solid rgba(56,189,248,.18)',
-                    }}
-                  >
-                    Tailored
-                  </div>
-                )}
-
-                <div
-                  style={{
-                    fontSize: 13,
-                    fontWeight: 650,
-                    color: plan.color,
-                    marginBottom: 8,
-                  }}
-                >
-                  {plan.name}
+                <div className={styles.planHead}>
+                  <h2 id={id} className={styles.planName}>
+                    {plan.name}
+                  </h2>
+                  {plan.popular && <Badge state="active">Most Popular</Badge>}
+                  {plan.enterprise && <Badge state="info">Tailored</Badge>}
                 </div>
+                <p className={styles.planTagline}>{plan.tagline}</p>
+                <p className={styles.planDescription}>{plan.description}</p>
 
-                {/* Equal-height title zone */}
-                <h2
-                  style={{
-                    margin: '0 0 10px',
-                    paddingRight:
-                      plan.popular || plan.enterprise
-                        ? 68
-                        : 0,
-                    minHeight: 78,
-                    fontSize: 20,
-                    lineHeight: 1.22,
-                    fontWeight: 650,
-                    letterSpacing: '-.025em',
-                    color: '#F5F7FA',
-                  }}
-                >
-                  {plan.tagline}
-                </h2>
-
-                {/* Equal-height description zone */}
-                <p
-                  style={{
-                    margin: '0 0 26px',
-                    minHeight: 86,
-                    fontSize: 12,
-                    lineHeight: 1.65,
-                    color: 'rgba(226,232,240,.48)',
-                  }}
-                >
-                  {plan.description}
-                </p>
-
-                {/* Equal-height price zone */}
-                <div
-                  style={{
-                    height: 58,
-                    display: 'flex',
-                    alignItems: 'flex-start',
-                    gap: 5,
-                    marginBottom: 7,
-                  }}
-                >
+                <p className={styles.price}>
                   {plan.price !== null ? (
                     <>
-                      <span
-                        style={{
-                          fontSize: 43,
-                          fontWeight: 650,
-                          lineHeight: 1,
-                          letterSpacing: '-.045em',
-                          color: '#F5F7FA',
-                        }}
-                      >
-                        ${plan.price}
-                      </span>
-
-                      <span
-                        style={{
-                          fontSize: 12,
-                          lineHeight: 1,
-                          paddingTop: 27,
-                          color: 'rgba(226,232,240,.38)',
-                        }}
-                      >
-                        / month
-                      </span>
+                      <span className={styles.priceValue}>${plan.price}</span>
+                      <span className={styles.pricePeriod}>/ month</span>
                     </>
                   ) : (
-                    <span
-                      style={{
-                        fontSize: 43,
-                        fontWeight: 650,
-                        lineHeight: 1,
-                        letterSpacing: '-.045em',
-                        color: '#F5F7FA',
-                      }}
-                    >
-                      {plan.priceLabel}
-                    </span>
+                    <span className={styles.priceValue}>{plan.priceLabel}</span>
                   )}
-                </div>
+                </p>
+                <p className={styles.priceNote}>
+                  {plan.enterprise ? 'Scoped to your organisation' : 'Platform subscription'}
+                </p>
 
-                <div
-                  style={{
-                    fontSize: 10,
-                    color: 'rgba(226,232,240,.30)',
-                    marginBottom: 25,
-                  }}
-                >
-                  {plan.enterprise
-                    ? 'Scoped to your organisation'
-                    : 'Platform subscription'}
-                </div>
-
-                <div
-                  style={{
-                    height: 1,
-                    background: 'rgba(255,255,255,.06)',
-                    marginBottom: 23,
-                  }}
-                />
-
-                <div
-                  style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 13,
-                    marginBottom: 30,
-                    flex: 1,
-                  }}
-                >
+                <ul className={styles.features}>
                   {plan.features.map(feature => (
-                    <div
-                      key={feature}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'flex-start',
-                        gap: 9,
-                      }}
-                    >
-                      <div
-                        style={{
-                          width: 17,
-                          height: 17,
-                          borderRadius: '50%',
-                          background: `${plan.color}12`,
-                          border: `1px solid ${plan.color}30`,
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          flexShrink: 0,
-                          marginTop: 1,
-                        }}
-                      >
-                        <svg
-                          width="9"
-                          height="7"
-                          viewBox="0 0 9 7"
-                          fill="none"
-                        >
-                          <path
-                            d="M1 3.4L3.4 5.8L8 1"
-                            stroke={plan.color}
-                            strokeWidth="1.4"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          />
-                        </svg>
-                      </div>
-
-                      <span
-                        style={{
-                          fontSize: 12,
-                          lineHeight: 1.5,
-                          color: 'rgba(226,232,240,.62)',
-                        }}
-                      >
-                        {feature}
-                      </span>
-                    </div>
+                    <li key={feature} className={styles.feature}>
+                      <CheckIcon className={styles.check} />
+                      <span>{feature}</span>
+                    </li>
                   ))}
-                </div>
+                </ul>
 
-                <Link
-                  href="/request-demo"
-                  style={{
-                    width: '100%',
-                    height: 42,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    borderRadius: 9,
-                    boxSizing: 'border-box',
-                    textDecoration: 'none',
-                    fontSize: 12,
-                    fontWeight: 650,
-
-                    color: plan.popular
-                      ? '#FFFFFF'
-                      : '#F5F7FA',
-
-                    background: plan.popular
-                      ? 'linear-gradient(100deg, #16A34A, #22C55E)'
-                      : plan.enterprise
-                        ? 'rgba(56,189,248,.08)'
-                        : 'rgba(255,255,255,.035)',
-
-                    border: plan.popular
-                      ? '1px solid rgba(74,222,128,.30)'
-                      : plan.enterprise
-                        ? '1px solid rgba(56,189,248,.20)'
-                        : '1px solid rgba(255,255,255,.09)',
-
-                    boxShadow: plan.popular
-                      ? '0 8px 24px rgba(34,197,94,.11)'
-                      : 'none',
-                  }}
-                >
-                  {plan.cta} →
+                <Link href="/request-demo" className={styles.planCta}>
+                  {plan.cta}
+                  <ArrowIcon />
                 </Link>
-              </div>
-            ))}
-          </div>
-        </section>
+              </li>
+            );
+          })}
+        </ul>
 
         {/* SETUP NOTICE */}
-
-        <section
-          style={{
-            maxWidth: 900,
-            margin: '0 auto 102px',
-            padding: '22px 26px',
-            borderRadius: 13,
-            background:
-              'linear-gradient(135deg, rgba(138,77,255,.04), rgba(255,255,255,.014))',
-            border: '1px solid rgba(138,77,255,.12)',
-            textAlign: 'center',
-          }}
-        >
-          <div
-            style={{
-              fontSize: 11,
-              fontWeight: 650,
-              color: 'rgba(196,181,253,.82)',
-              marginBottom: 7,
-            }}
-          >
-            Platform subscription + implementation where required
-          </div>
-
-          <p
-            style={{
-              margin: '0 auto 8px',
-              maxWidth: 750,
-              fontSize: 12,
-              lineHeight: 1.7,
-              color: 'rgba(226,232,240,.54)',
-            }}
-          >
-            Monthly pricing covers the BRΛINBΛSE platform subscription.
-            Initial setup, configuration, data migration, website work and
-            custom integrations may involve a separate implementation cost
-            depending on your requirements.
+        <div className={styles.notice}>
+          <p className={`bb-eyebrow ${styles.noticeTitle}`}>Platform subscription + implementation where required</p>
+          <p className={styles.noticeBody}>
+            Monthly pricing covers the BRΛINBΛSE platform subscription. Initial setup, configuration, data migration,
+            website work and custom integrations may involve a separate implementation cost depending on your
+            requirements.
           </p>
+          <p className={styles.noticeFine}>Any implementation work is scoped and quoted before it begins.</p>
+        </div>
+      </Container>
 
-          <p
-            style={{
-              margin: 0,
-              fontSize: 10,
-              lineHeight: 1.6,
-              color: 'rgba(226,232,240,.28)',
-            }}
-          >
-            Any implementation work is scoped and quoted before it begins.
-          </p>
-        </section>
+      {/* CHOOSING A PLAN ─────────────────────────────────────────────── */}
+      <Section labelledBy="choosing-title">
+        <SectionHeading id="choosing-title" index="01" eyebrow="Choosing a plan" title="Start where your operation is today.">
+          You do not need to deploy everything at once. Choose the level that fits your current operation and expand
+          when it makes sense.
+        </SectionHeading>
+        <ul className={styles.ruled4}>
+          {CHOICES.map(choice => (
+            <li key={choice.number} className={styles.ruledCell}>
+              <span className={styles.cellIndex} aria-hidden="true">
+                {choice.number}
+              </span>
+              <h3 className={styles.cellTitle}>{choice.title}</h3>
+              <p className={styles.cellBody}>{choice.body}</p>
+            </li>
+          ))}
+        </ul>
+      </Section>
 
-        {/* CHOOSING A PLAN */}
+      {/* COMPARISON ──────────────────────────────────────────────────── */}
+      <Section labelledBy="compare-title">
+        <SectionHeading id="compare-title" index="02" eyebrow="Compare" title="What is included?">
+          A high-level view of how BRΛINBΛSE capability expands from a focused workspace through to a tailored
+          enterprise deployment.
+        </SectionHeading>
 
-        <section
-          style={{
-            marginBottom: 102,
-          }}
-        >
-          <SectionHeading
-            eyebrow="Choosing a plan"
-            title="Start where your operation is today."
-            description="You do not need to deploy everything at once. Choose the level that fits your current operation and expand when it makes sense."
-          />
-
-          <div className="pricing-choice-grid">
-            <ChoiceCard
-              number="01"
-              title="Foundation"
-              body="You mainly need to organise leads, clients and scheduling and create one reliable operational workspace."
-              color="#8A4DFF"
-            />
-
-            <ChoiceCard
-              number="02"
-              title="Operations"
-              body="You want BRΛINBΛSE actively supporting daily workflows, follow-up, visibility, dashboards and automation."
-              color="#22C55E"
-            />
-
-            <ChoiceCard
-              number="03"
-              title="Business System"
-              body="You are ready for deeper reporting, broader integrations where supported, and HLNΛ intelligence across a more connected business."
-              color="#A78BFA"
-            />
-
-            <ChoiceCard
-              number="04"
-              title="Enterprise"
-              body="You need a tailored deployment across teams, business units or a more complex organisational environment."
-              color="#38BDF8"
-            />
-          </div>
-        </section>
-
-        {/* COMPARISON */}
-
-        <section
-          style={{
-            marginBottom: 102,
-          }}
-        >
-          <SectionHeading
-            eyebrow="Compare"
-            title="What is included?"
-            description="A high-level view of how BRΛINBΛSE capability expands from a focused workspace through to a tailored enterprise deployment."
-          />
-
-          <div
-            className="pricing-table-wrap"
-            style={{
-              borderRadius: 16,
-              border: '1px solid rgba(255,255,255,.07)',
-              background: 'rgba(255,255,255,.014)',
-            }}
-          >
-            <div
-              style={{
-                minWidth: 850,
-              }}
-            >
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns:
-                    '1.8fr repeat(4, 1fr)',
-                  borderBottom:
-                    '1px solid rgba(255,255,255,.07)',
-                  background:
-                    'rgba(255,255,255,.018)',
-                }}
-              >
-                <div
-                  style={{
-                    padding: '17px 20px',
-                    fontSize: 10,
-                    fontWeight: 650,
-                    textTransform: 'uppercase',
-                    letterSpacing: '.10em',
-                    color:
-                      'rgba(226,232,240,.32)',
-                  }}
-                >
-                  Capability
-                </div>
-
+        {/* Scrolls inside itself on narrow screens, so it is keyboard-focusable. */}
+        <div className={styles.tableWrap} role="region" aria-label="Plan comparison table" tabIndex={0}>
+          <table className={styles.table}>
+            <caption className="bb-visually-hidden">Capability included in each plan</caption>
+            <thead>
+              <tr>
+                <th scope="col">Capability</th>
                 {PLANS.map(plan => (
-                  <div
-                    key={plan.name}
-                    style={{
-                      padding: '17px 10px',
-                      textAlign: 'center',
-                      fontSize: 11,
-                      fontWeight: 650,
-                      color: plan.color,
-                    }}
-                  >
+                  <th key={plan.name} scope="col">
                     {plan.name}
-                  </div>
+                  </th>
                 ))}
-              </div>
-
-              {COMPARISON.map(
-                (row, index) => (
-                  <div
-                    key={row.feature}
-                    style={{
-                      display: 'grid',
-                      gridTemplateColumns:
-                        '1.8fr repeat(4, 1fr)',
-
-                      borderBottom:
-                        index ===
-                        COMPARISON.length - 1
-                          ? 'none'
-                          : '1px solid rgba(255,255,255,.05)',
-                    }}
-                  >
-                    <div
-                      style={{
-                        padding: '15px 20px',
-                        fontSize: 12,
-                        color:
-                          'rgba(226,232,240,.57)',
-                      }}
-                    >
-                      {row.feature}
-                    </div>
-
-                    <ComparisonCell
-                      available={row.foundation}
-                      color="#8A4DFF"
-                    />
-
-                    <ComparisonCell
-                      available={row.operations}
-                      color="#22C55E"
-                    />
-
-                    <ComparisonCell
-                      available={row.business}
-                      color="#A78BFA"
-                    />
-
-                    <ComparisonCell
-                      available={row.enterprise}
-                      color="#38BDF8"
-                    />
-                  </div>
-                ),
-              )}
-            </div>
-          </div>
-
-          <p
-            style={{
-              margin: '14px auto 0',
-              maxWidth: 720,
-              textAlign: 'center',
-              fontSize: 11,
-              lineHeight: 1.65,
-              color: 'rgba(226,232,240,.36)',
-            }}
-          >
-            Business integrations connect to external systems where
-            supported — not every integration is available for every plan
-            or system.
-          </p>
-        </section>
+              </tr>
+            </thead>
+            <tbody>
+              {COMPARISON.map(row => (
+                <tr key={row.feature}>
+                  <th scope="row">{row.feature}</th>
+                  {TIERS.map(tier => (
+                    <td key={tier}>
+                      {row[tier] ? (
+                        <>
+                          <CheckIcon className={styles.tableCheck} />
+                          <span className="bb-visually-hidden">Included</span>
+                        </>
+                      ) : (
+                        <>
+                          <span className={styles.tableDash} aria-hidden="true">
+                            —
+                          </span>
+                          <span className="bb-visually-hidden">Not included</span>
+                        </>
+                      )}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p className={styles.tableNote}>
+          Business integrations connect to external systems where supported — not every integration is available for
+          every plan or system.
+        </p>
 
         {/* CONFIGURATION, NOT RIGID BUNDLES */}
-
-        <section
-          style={{
-            maxWidth: 780,
-            margin: '0 auto 102px',
-            padding: '26px 30px',
-            borderRadius: 14,
-            textAlign: 'center',
-            background: 'rgba(255,255,255,.014)',
-            border: '1px solid rgba(255,255,255,.06)',
-          }}
-        >
-          <h3
-            style={{
-              margin: '0 0 8px',
-              fontSize: 16,
-              fontWeight: 650,
-              letterSpacing: '-.015em',
-              color: '#F5F7FA',
-            }}
-          >
-            The scope may be similar. The configuration can still differ.
-          </h3>
-
-          <p
-            style={{
-              margin: 0,
-              fontSize: 12,
-              lineHeight: 1.7,
-              color: 'rgba(226,232,240,.50)',
-            }}
-          >
-            Two organisations on the same BRΛINBΛSE tier can still use its
-            capabilities differently, configured around how each one
-            operates.
+        <div className={styles.config}>
+          <h3 className={styles.configTitle}>The scope may be similar. The configuration can still differ.</h3>
+          <p className={styles.configBody}>
+            Two organisations on the same BRΛINBΛSE tier can still use its capabilities differently, configured around
+            how each one operates.
           </p>
-        </section>
+        </div>
+      </Section>
 
-        {/* ENTERPRISE */}
-
-        <section
-          className="pricing-large-card"
-          style={{
-            marginBottom: 102,
-            padding: '46px 48px',
-            borderRadius: 20,
-            position: 'relative',
-            overflow: 'hidden',
-            background:
-              'linear-gradient(135deg, rgba(56,189,248,.065), rgba(138,77,255,.045) 58%, rgba(255,255,255,.012))',
-            border:
-              '1px solid rgba(56,189,248,.16)',
-          }}
-        >
-          <div
-            aria-hidden="true"
-            style={{
-              position: 'absolute',
-              width: 460,
-              height: 460,
-              right: -180,
-              top: -230,
-              borderRadius: '50%',
-              background:
-                'radial-gradient(circle, rgba(56,189,248,.10), transparent 68%)',
-            }}
-          />
-
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns:
-                'repeat(auto-fit, minmax(280px, 1fr))',
-              gap: 46,
-              alignItems: 'center',
-              position: 'relative',
-            }}
-          >
-            <div>
-              <div
-                style={{
-                  fontSize: 10,
-                  fontWeight: 700,
-                  textTransform: 'uppercase',
-                  letterSpacing: '.12em',
-                  color:
-                    'rgba(125,211,252,.78)',
-                  marginBottom: 12,
-                }}
-              >
-                Enterprise
-              </div>
-
-              <h2
-                style={{
-                  margin: '0 0 15px',
-                  fontSize:
-                    'clamp(27px, 4vw, 39px)',
-                  lineHeight: 1.08,
-                  letterSpacing: '-.038em',
-                  fontWeight: 650,
-                  color: '#F5F7FA',
-                }}
-              >
-                Some operations need a system built around them.
-              </h2>
-
-              <p
-                style={{
-                  margin: 0,
-                  maxWidth: 560,
-                  fontSize: 13,
-                  lineHeight: 1.72,
-                  color:
-                    'rgba(226,232,240,.58)',
-                }}
-              >
-                Enterprise is for organisations where a standard subscription
-                is not enough. Deployment can be tailored around organisational
-                structure, permissions, workflows, reporting, integrations and
-                operational requirements.
-              </p>
-            </div>
-
-            <div
-              style={{
-                display: 'grid',
-                gap: 8,
-              }}
-            >
-              {[
-                'Multiple teams or business units',
-                'Custom operational workflows',
-                'Advanced access and permissions',
-                'Tailored integrations',
-                'Organisation-specific reporting',
-                'Dedicated implementation planning',
-              ].map(item => (
-                <div
-                  key={item}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 11,
-                    padding: '12px 14px',
-                    borderRadius: 10,
-                    background:
-                      'rgba(7,8,11,.28)',
-                    border:
-                      '1px solid rgba(255,255,255,.06)',
-                  }}
-                >
-                  <span
-                    style={{
-                      width: 5,
-                      height: 5,
-                      borderRadius: '50%',
-                      background: '#38BDF8',
-                      boxShadow:
-                        '0 0 7px rgba(56,189,248,.65)',
-                      flexShrink: 0,
-                    }}
-                  />
-
-                  <span
-                    style={{
-                      fontSize: 11,
-                      color:
-                        'rgba(226,232,240,.63)',
-                    }}
-                  >
-                    {item}
-                  </span>
-                </div>
-              ))}
-
-              <Link
-                href="/request-demo"
-                style={{
-                  height: 42,
-                  marginTop: 5,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  borderRadius: 9,
-                  background:
-                    'rgba(56,189,248,.09)',
-                  border:
-                    '1px solid rgba(56,189,248,.22)',
-                  color: '#BAE6FD',
-                  textDecoration: 'none',
-                  fontSize: 12,
-                  fontWeight: 650,
-                }}
-              >
-                Discuss Enterprise →
-              </Link>
-            </div>
-          </div>
-        </section>
-
-        {/* IMPLEMENTATION */}
-
-        <section
-          style={{
-            marginBottom: 102,
-          }}
-        >
-          <SectionHeading
-            eyebrow="Implementation"
-            title="Some businesses need more than a subscription."
-            description="Implementation depends on what you want connected, how much configuration is required and what systems or information you already have in place."
-          />
-
-          <div className="pricing-extra-grid">
-            {EXTRAS.map(
-              (item, index) => (
-                <div
-                  key={item.title}
-                  style={{
-                    padding: '24px',
-                    borderRadius: 14,
-                    background:
-                      'rgba(255,255,255,.017)',
-                    border:
-                      '1px solid rgba(255,255,255,.06)',
-                  }}
-                >
-                  <div
-                    style={{
-                      fontSize: 9,
-                      fontWeight: 700,
-                      letterSpacing: '.10em',
-                      color:
-                        'rgba(167,139,250,.55)',
-                      marginBottom: 18,
-                    }}
-                  >
-                    0{index + 1}
-                  </div>
-
-                  <h3
-                    style={{
-                      margin: '0 0 8px',
-                      fontSize: 15,
-                      fontWeight: 650,
-                      color: '#F5F7FA',
-                    }}
-                  >
-                    {item.title}
-                  </h3>
-
-                  <p
-                    style={{
-                      margin: 0,
-                      fontSize: 12,
-                      lineHeight: 1.65,
-                      color:
-                        'rgba(226,232,240,.48)',
-                    }}
-                  >
-                    {item.description}
-                  </p>
-                </div>
-              ),
-            )}
-          </div>
-
-          <div
-            style={{
-              marginTop: 18,
-              padding: '18px 22px',
-              borderRadius: 12,
-              background:
-                'rgba(255,255,255,.014)',
-              border:
-                '1px solid rgba(255,255,255,.055)',
-            }}
-          >
-            <p
-              style={{
-                margin: 0,
-                fontSize: 11,
-                lineHeight: 1.7,
-                color:
-                  'rgba(226,232,240,.42)',
-              }}
-            >
-              Simple deployments may require little or no additional setup.
-              More complex deployments involving migration, workflow
-              configuration, integrations, website work or enterprise
-              requirements will be scoped and quoted before commencement.
+      {/* ENTERPRISE ──────────────────────────────────────────────────── */}
+      <Section labelledBy="enterprise-title">
+        <div className={`${styles.split} ${styles.splitSignal}`}>
+          <div>
+            <p className={`bb-eyebrow ${styles.splitEyebrow}`}>Enterprise</p>
+            <h2 id="enterprise-title" className={styles.splitTitle}>
+              Some operations need a system built around them.
+            </h2>
+            <p className={styles.splitBody}>
+              Enterprise is for organisations where a standard subscription is not enough. Deployment can be tailored
+              around organisational structure, permissions, workflows, reporting, integrations and operational
+              requirements.
             </p>
           </div>
-        </section>
-
-        {/* WEB SYSTEMS */}
-
-        <section
-          className="pricing-large-card"
-          style={{
-            marginBottom: 102,
-            padding: '40px 42px',
-            borderRadius: 18,
-            background:
-              'linear-gradient(135deg, rgba(86,119,255,.055), rgba(138,77,255,.05))',
-            border:
-              '1px solid rgba(138,77,255,.13)',
-            display: 'grid',
-            gridTemplateColumns:
-              'repeat(auto-fit, minmax(280px, 1fr))',
-            gap: 38,
-            alignItems: 'center',
-          }}
-        >
           <div>
-            <div
-              style={{
-                fontSize: 10,
-                fontWeight: 650,
-                textTransform: 'uppercase',
-                letterSpacing: '.12em',
-                color:
-                  'rgba(167,139,250,.67)',
-                marginBottom: 12,
-              }}
-            >
-              Web Systems
-            </div>
+            <ul className={styles.enterpriseList}>
+              {ENTERPRISE_ITEMS.map(item => (
+                <li key={item} className={styles.enterpriseItem}>
+                  {item}
+                </li>
+              ))}
+            </ul>
+            <ButtonLink href="/request-demo" variant="secondary" arrow>
+              Discuss Enterprise
+            </ButtonLink>
+          </div>
+        </div>
+      </Section>
 
-            <h2
-              style={{
-                margin: '0 0 13px',
-                fontSize:
-                  'clamp(25px, 3.6vw, 35px)',
-                lineHeight: 1.1,
-                letterSpacing: '-.035em',
-                fontWeight: 650,
-              }}
-            >
+      {/* IMPLEMENTATION ──────────────────────────────────────────────── */}
+      <Section labelledBy="implementation-title">
+        <SectionHeading
+          id="implementation-title"
+          index="03"
+          eyebrow="Implementation"
+          title="Some businesses need more than a subscription."
+        >
+          Implementation depends on what you want connected, how much configuration is required and what systems or
+          information you already have in place.
+        </SectionHeading>
+        <ul className={styles.extras}>
+          {EXTRAS.map((item, index) => (
+            <li key={item.title} className={styles.extra}>
+              <span className={styles.cellIndex} aria-hidden="true">
+                0{index + 1}
+              </span>
+              <h3 className={styles.cellTitle}>{item.title}</h3>
+              <p className={styles.cellBody}>{item.description}</p>
+            </li>
+          ))}
+        </ul>
+        <p className={styles.extraNote}>
+          Simple deployments may require little or no additional setup. More complex deployments involving migration,
+          workflow configuration, integrations, website work or enterprise requirements will be scoped and quoted before
+          commencement.
+        </p>
+      </Section>
+
+      {/* WEB SYSTEMS ─────────────────────────────────────────────────── */}
+      <Section labelledBy="web-systems-title">
+        <div className={styles.split}>
+          <div>
+            <p className={`bb-eyebrow ${styles.splitEyebrow}`}>Web Systems</p>
+            <h2 id="web-systems-title" className={styles.splitTitle}>
               Your website can become part of the system.
             </h2>
-
-            <p
-              style={{
-                margin: 0,
-                maxWidth: 520,
-                fontSize: 13,
-                lineHeight: 1.7,
-                color:
-                  'rgba(226,232,240,.55)',
-              }}
-            >
-              BRΛINBΛSE Web Systems can connect your public website to
-              enquiries, CRM, bookings, workflows and the operational platform
-              behind your business.
+            <p className={styles.splitBody}>
+              BRΛINBΛSE Web Systems can connect your public website to enquiries, CRM, bookings, workflows and the
+              operational platform behind your business.
             </p>
-
-            <p
-              style={{
-                margin: '10px 0 0',
-                maxWidth: 520,
-                fontSize: 11,
-                lineHeight: 1.6,
-                color: 'rgba(226,232,240,.38)',
-              }}
-            >
-              Website projects are scoped and quoted separately from the
-              platform subscription.
-            </p>
+            <p className={styles.splitFine}>Website projects are scoped and quoted separately from the platform subscription.</p>
           </div>
-
-          <div
-            style={{
-              display: 'flex',
-              justifyContent: 'flex-end',
-              gap: 10,
-              flexWrap: 'wrap',
-            }}
-          >
-            <Link
-              href="/web-systems"
-              style={{
-                height: 42,
-                padding: '0 18px',
-                display: 'inline-flex',
-                alignItems: 'center',
-                borderRadius: 9,
-                border:
-                  '1px solid rgba(255,255,255,.09)',
-                background:
-                  'rgba(255,255,255,.025)',
-                color:
-                  'rgba(245,247,250,.72)',
-                textDecoration: 'none',
-                fontSize: 12,
-                fontWeight: 600,
-              }}
-            >
+          <div className={styles.actions}>
+            <ButtonLink href="/web-systems" variant="secondary">
               Explore Web Systems
-            </Link>
-
-            <Link
-              href="/request-demo"
-              style={{
-                height: 42,
-                padding: '0 18px',
-                display: 'inline-flex',
-                alignItems: 'center',
-                borderRadius: 9,
-                background:
-                  'linear-gradient(100deg, #6A3DFF, #8A4DFF, #5677FF)',
-                border: 'none',
-                color: '#FFFFFF',
-                textDecoration: 'none',
-                fontSize: 12,
-                fontWeight: 650,
-              }}
-            >
-              Discuss your project →
-            </Link>
-          </div>
-        </section>
-
-        {/* FINAL CTA */}
-
-        <section
-          className="pricing-large-card"
-          style={{
-            padding: '54px 40px',
-            borderRadius: 20,
-            textAlign: 'center',
-            position: 'relative',
-            overflow: 'hidden',
-            background:
-              'linear-gradient(135deg, rgba(138,77,255,.085), rgba(86,119,255,.035))',
-            border:
-              '1px solid rgba(138,77,255,.16)',
-          }}
-        >
-          <div
-            aria-hidden="true"
-            style={{
-              position: 'absolute',
-              width: 500,
-              height: 360,
-              left: '50%',
-              top: -210,
-              transform: 'translateX(-50%)',
-              borderRadius: '50%',
-              background:
-                'radial-gradient(circle, rgba(138,77,255,.14), transparent 68%)',
-            }}
-          />
-
-          <div
-            style={{
-              position: 'relative',
-              maxWidth: 650,
-              margin: '0 auto',
-            }}
-          >
-            <div
-              style={{
-                fontSize: 10,
-                fontWeight: 650,
-                textTransform: 'uppercase',
-                letterSpacing: '.13em',
-                color:
-                  'rgba(167,139,250,.67)',
-                marginBottom: 12,
-              }}
-            >
-              Not sure which plan?
-            </div>
-
-            <h2
-              style={{
-                margin: '0 0 15px',
-                fontSize:
-                  'clamp(27px, 4vw, 40px)',
-                lineHeight: 1.08,
-                letterSpacing: '-.04em',
-                fontWeight: 650,
-              }}
-            >
-              Start with the part of the operation
-              <br />
-              that matters most.
-            </h2>
-
-            <p
-              style={{
-                margin: '0 auto 27px',
-                maxWidth: 535,
-                fontSize: 14,
-                lineHeight: 1.7,
-                color:
-                  'rgba(226,232,240,.58)',
-              }}
-            >
-              Tell us what you need BRΛINBΛSE to handle now, and we can
-              scope the right starting point.
-            </p>
-
-            <div
-              style={{
-                display: 'flex',
-                justifyContent: 'center',
-                gap: 10,
-                flexWrap: 'wrap',
-              }}
-            >
-              <Link
-                href="/request-demo"
-                style={{
-                  height: 44,
-                  padding: '0 22px',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  borderRadius: 9,
-                  background:
-                    'linear-gradient(100deg, #6A3DFF 0%, #8A4DFF 55%, #5677FF 100%)',
-                  color: '#FFFFFF',
-                  textDecoration: 'none',
-                  fontSize: 12,
-                  fontWeight: 650,
-                  boxShadow:
-                    '0 8px 24px rgba(106,61,255,.18)',
-                }}
-              >
-                Discuss your operation →
-              </Link>
-
-              <Link
-                href="/demo"
-                style={{
-                  height: 42,
-                  padding: '0 20px',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  borderRadius: 9,
-                  border:
-                    '1px solid rgba(255,255,255,.09)',
-                  background:
-                    'rgba(255,255,255,.025)',
-                  color:
-                    'rgba(245,247,250,.68)',
-                  textDecoration: 'none',
-                  fontSize: 12,
-                  fontWeight: 550,
-                }}
-              >
-                Explore BRΛINBΛSE
-              </Link>
-            </div>
-          </div>
-        </section>
-      </div>
-
-      {/* FOOTER */}
-
-      <footer
-        style={{
-          borderTop:
-            '1px solid rgba(255,255,255,.05)',
-          position: 'relative',
-          zIndex: 1,
-        }}
-      >
-        <div
-          style={{
-            maxWidth: 1220,
-            margin: '0 auto',
-            padding: '26px 32px',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            gap: 20,
-            flexWrap: 'wrap',
-          }}
-        >
-          <span
-            style={{
-              fontSize: 10,
-              color:
-                'rgba(255,255,255,.25)',
-            }}
-          >
-            © 2026 BRΛINBΛSE
-          </span>
-
-          <div
-            style={{
-              display: 'flex',
-              gap: 18,
-              flexWrap: 'wrap',
-            }}
-          >
-            <Link
-              href="/client-operations"
-              style={footerLinkStyle}
-            >
-              Client Operations
-            </Link>
-
-            <Link
-              href="/web-systems"
-              style={footerLinkStyle}
-            >
-              Web Systems
-            </Link>
-
-            <Link
-              href="/demo"
-              style={footerLinkStyle}
-            >
-              Demo
-            </Link>
-
-            <Link
-              href="/terms"
-              style={footerLinkStyle}
-            >
-              Terms
-            </Link>
-
-            <Link
-              href="/privacy"
-              style={footerLinkStyle}
-            >
-              Privacy
-            </Link>
+            </ButtonLink>
+            <ButtonLink href="/request-demo">Discuss your project</ButtonLink>
           </div>
         </div>
-      </footer>
+      </Section>
+
+      {/* FINAL CTA ───────────────────────────────────────────────────── */}
+      <Section labelledBy="pricing-cta-title">
+        <div className={`${styles.cta} bb-grid-bg`}>
+          <p className="bb-eyebrow">Not sure which plan?</p>
+          <h2 id="pricing-cta-title" className={styles.ctaTitle}>
+            Start with the part of the operation
+            <br />
+            that matters most.
+          </h2>
+          <p className={styles.ctaBody}>
+            Tell us what you need BRΛINBΛSE to handle now, and we can scope the right starting point.
+          </p>
+          <div className={styles.ctaActions}>
+            <ButtonLink href="/request-demo">Discuss your operation</ButtonLink>
+            <ButtonLink href="/demo" variant="secondary">
+              Explore BRΛINBΛSE
+            </ButtonLink>
+          </div>
+        </div>
+      </Section>
+
+      <PublicFooter />
     </main>
-  );
-}
-
-const footerLinkStyle: CSSProperties = {
-  fontSize: 10,
-  color: 'rgba(255,255,255,.30)',
-  textDecoration: 'none',
-};
-
-function SectionHeading({
-  eyebrow,
-  title,
-  description,
-}: {
-  eyebrow: string;
-  title: string;
-  description: string;
-}) {
-  return (
-    <div
-      style={{
-        maxWidth: 675,
-        margin: '0 0 36px',
-      }}
-    >
-      <div
-        style={{
-          fontSize: 10,
-          fontWeight: 650,
-          letterSpacing: '.13em',
-          textTransform: 'uppercase',
-          color:
-            'rgba(167,139,250,.68)',
-          marginBottom: 10,
-        }}
-      >
-        {eyebrow}
-      </div>
-
-      <h2
-        style={{
-          margin: '0 0 12px',
-          fontSize:
-            'clamp(27px, 4vw, 38px)',
-          lineHeight: 1.1,
-          letterSpacing: '-.035em',
-          fontWeight: 650,
-          color: '#F5F7FA',
-        }}
-      >
-        {title}
-      </h2>
-
-      <p
-        style={{
-          margin: 0,
-          fontSize: 14,
-          lineHeight: 1.7,
-          color:
-            'rgba(226,232,240,.56)',
-        }}
-      >
-        {description}
-      </p>
-    </div>
-  );
-}
-
-function ChoiceCard({
-  number,
-  title,
-  body,
-  color,
-}: {
-  number: string;
-  title: string;
-  body: string;
-  color: string;
-}) {
-  return (
-    <div
-      style={{
-        minHeight: 190,
-        padding: '25px',
-        borderRadius: 14,
-        background:
-          'rgba(255,255,255,.017)',
-        border:
-          '1px solid rgba(255,255,255,.06)',
-        position: 'relative',
-        overflow: 'hidden',
-      }}
-    >
-      <div
-        style={{
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          width: 60,
-          height: 1,
-          background: `linear-gradient(90deg, ${color}, transparent)`,
-        }}
-      />
-
-      <div
-        style={{
-          fontSize: 10,
-          fontWeight: 700,
-          color,
-          letterSpacing: '.10em',
-          marginBottom: 20,
-        }}
-      >
-        {number}
-      </div>
-
-      <h3
-        style={{
-          margin: '0 0 9px',
-          fontSize: 16,
-          fontWeight: 650,
-          color: '#F5F7FA',
-        }}
-      >
-        {title}
-      </h3>
-
-      <p
-        style={{
-          margin: 0,
-          fontSize: 12,
-          lineHeight: 1.68,
-          color:
-            'rgba(226,232,240,.50)',
-        }}
-      >
-        {body}
-      </p>
-    </div>
-  );
-}
-
-function ComparisonCell({
-  available,
-  color,
-}: {
-  available: boolean;
-  color: string;
-}) {
-  return (
-    <div
-      style={{
-        padding: '15px 10px',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-      }}
-    >
-      {available ? (
-        <div
-          style={{
-            width: 20,
-            height: 20,
-            borderRadius: '50%',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            background: `${color}12`,
-            border: `1px solid ${color}30`,
-          }}
-        >
-          <svg
-            width="10"
-            height="8"
-            viewBox="0 0 10 8"
-            fill="none"
-          >
-            <path
-              d="M1 4L4 7L9 1"
-              stroke={color}
-              strokeWidth="1.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-        </div>
-      ) : (
-        <span
-          style={{
-            color:
-              'rgba(255,255,255,.16)',
-            fontSize: 14,
-          }}
-        >
-          —
-        </span>
-      )}
-    </div>
   );
 }

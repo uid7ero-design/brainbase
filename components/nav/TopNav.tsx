@@ -8,6 +8,7 @@ import { BrainBaseWordmark } from '@/components/brand/BrainBaseWordmark';
 import { CapabilityIcon } from '@/components/brand/CapabilityIcon';
 import { resolvePublicEventTheme } from '@/lib/events/publicEventTheme';
 import { TOP_NAV_HEIGHT_PX } from '@/lib/layout/headerOffset';
+import { PublicNav } from '@/components/public/PublicNav';
 
 type Session = {
   role: string;
@@ -1083,123 +1084,9 @@ function Clock() {
 }
 
 // ─── Public navigation ───────────────────────────────────────────────────────
-
-function PublicNav({
-  pathname,
-}: {
-  pathname: string;
-}) {
-  return (
-    <nav
-      style={{
-        height: TOP_NAV_HEIGHT_PX,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent:
-          'space-between',
-        padding: '0 28px',
-        borderBottom:
-          '1px solid rgba(255,255,255,.06)',
-        background:
-          'rgba(7,8,11,.92)',
-        backdropFilter:
-          'blur(16px)',
-        position: 'sticky',
-        top: 0,
-        zIndex: 100,
-        fontFamily: FONT,
-        flexShrink: 0,
-      }}
-    >
-      <Logo />
-
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 4,
-        }}
-      >
-        <NavItem
-          href="/#product"
-          label="Product"
-          active={false}
-        />
-
-        <NavItem
-          href="/client-operations"
-          label="Client Operations"
-          active={pathname.startsWith(
-            '/client-operations',
-          )}
-        />
-
-        <NavItem
-          href="/web-systems"
-          label="Web Systems"
-          active={pathname.startsWith(
-            '/web-systems',
-          )}
-        />
-
-        <NavItem
-          href="/pricing"
-          label="Pricing"
-          active={pathname.startsWith(
-            '/pricing',
-          )}
-        />
-
-        <NavItem
-          href="/demo"
-          label="Demo"
-          active={
-            pathname === '/demo'
-          }
-        />
-
-        <Divider />
-
-        <NavItem
-          href="/login"
-          label="Login"
-          active={
-            pathname === '/login'
-          }
-        />
-
-        <Link
-          href="/request-demo"
-          style={{
-            fontSize: 13,
-            fontWeight: 600,
-            textDecoration: 'none',
-            background:
-              'linear-gradient(135deg, #6D28D9, #A78BFA)',
-            color: '#fff',
-            padding:
-              '6px 14px',
-            borderRadius: 8,
-            letterSpacing: '.01em',
-            transition:
-              'opacity .15s',
-            marginLeft: 4,
-          }}
-          onMouseEnter={e => {
-            e.currentTarget.style.opacity =
-              '0.88';
-          }}
-          onMouseLeave={e => {
-            e.currentTarget.style.opacity =
-              '1';
-          }}
-        >
-          Get Started
-        </Link>
-      </div>
-    </nav>
-  );
-}
+// Extracted to components/public/PublicNav.tsx (public-site visual system).
+// Same destinations; restyled onto the --bb-* tokens with a theme toggle and
+// a mobile menu.
 
 // ─── Authenticated navigation ────────────────────────────────────────────────
 

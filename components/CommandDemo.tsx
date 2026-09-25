@@ -1306,6 +1306,7 @@ export default function CommandDemo({
           onChange={e => setQuery(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter' && !file) runQuery(); }}
           placeholder={file ? 'Optional: ask something specific about this file…' : placeholder}
+          aria-label={file ? 'Ask HLNΛ about this file' : 'Ask HLNΛ a question'}
           style={{
             flex: 1, padding: '10px 14px', borderRadius: 8,
             border: '1px solid rgba(255,255,255,.14)',

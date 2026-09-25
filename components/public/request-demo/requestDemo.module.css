@@ -1,0 +1,424 @@
+/* /request-demo. Tokens only — see styles/brainbase-tokens.css. */
+
+.stage {
+  position: relative;
+}
+
+.backdrop {
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 520px;
+  pointer-events: none;
+  -webkit-mask-image: linear-gradient(to bottom, black 0%, transparent 100%);
+  mask-image: linear-gradient(to bottom, black 0%, transparent 100%);
+}
+
+.shell {
+  position: relative;
+  max-width: var(--bb-container);
+  margin: 0 auto;
+  padding: clamp(24px, 4vw, 36px) var(--bb-gutter) 0;
+}
+
+.back {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  font-family: var(--bb-font-mono);
+  font-size: 0.75rem;
+  color: var(--bb-text-muted);
+  text-decoration: none;
+}
+.back:hover {
+  color: var(--bb-text);
+}
+
+/* ─── Two-column layout: intro left (sticky), form right ─── */
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+  gap: clamp(32px, 6vw, 72px);
+  align-items: start;
+  padding-top: clamp(28px, 5vw, 56px);
+}
+
+.intro {
+  position: sticky;
+  top: calc(var(--app-header-offset, 52px) + 32px);
+}
+
+.lockup {
+  max-width: 100%;
+  height: auto;
+  margin-bottom: 28px;
+}
+.lockupCentred {
+  max-width: 100%;
+  height: auto;
+  margin: 0 auto 32px;
+}
+
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 20px;
+}
+.eyebrowDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--bb-accent);
+  box-shadow: 0 0 0 3px var(--bb-accent-soft);
+}
+
+.title {
+  margin: 0;
+  font-size: clamp(2.125rem, 4.4vw, 3rem);
+  line-height: 1.05;
+  font-weight: 600;
+  letter-spacing: -0.04em;
+  text-wrap: balance;
+}
+
+.lede {
+  margin: 18px 0 0;
+  font-size: 1rem;
+  line-height: 1.7;
+  color: var(--bb-text-muted);
+  text-wrap: pretty;
+}
+
+.how {
+  margin-top: 28px;
+  padding: 18px 20px 20px;
+  border: 1px solid var(--bb-border);
+  border-radius: var(--bb-radius-lg);
+  background: var(--bb-surface);
+}
+.howTitle {
+  margin: 0 0 14px;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.steps {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.step {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--bb-text-muted);
+}
+.stepIndex {
+  flex-shrink: 0;
+  font-family: var(--bb-font-mono);
+  font-size: 0.72rem;
+  color: var(--bb-signal-text);
+}
+.howNote {
+  margin: 16px 0 0;
+  padding-top: 14px;
+  border-top: 1px solid var(--bb-border);
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  color: var(--bb-text-muted);
+}
+
+/* ─── Form ─── */
+.form {
+  padding: clamp(20px, 4vw, 32px);
+  border: 1px solid var(--bb-border);
+  border-radius: var(--bb-radius-lg);
+  background: var(--bb-surface);
+}
+
+.group {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.group + .group {
+  margin-top: 8px;
+  padding-top: 24px;
+  border-top: 1px solid var(--bb-border);
+}
+.legend {
+  float: left;
+  width: 100%;
+  margin: 0 0 18px;
+  padding: 0;
+  color: var(--bb-accent);
+}
+.legend + * {
+  clear: both;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 16px;
+}
+
+.field {
+  margin-bottom: 18px;
+  min-width: 0;
+}
+
+.label {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 7px;
+  font-size: 0.8125rem;
+  font-weight: 550;
+  color: var(--bb-text);
+}
+.requiredTag {
+  font-family: var(--bb-font-mono);
+  font-size: 0.6875rem;
+  font-weight: 400;
+  letter-spacing: 0.04em;
+  color: var(--bb-text-muted);
+}
+
+.input,
+.select,
+.textarea {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid var(--bb-border-strong);
+  border-radius: var(--bb-radius);
+  background: var(--bb-bg);
+  color: var(--bb-text);
+  font: inherit;
+  font-size: 0.9375rem;
+  box-sizing: border-box;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+.input::placeholder,
+.textarea::placeholder {
+  color: var(--bb-text-muted);
+  opacity: 1;
+}
+.input:hover,
+.select:hover,
+.textarea:hover {
+  border-color: var(--bb-text-muted);
+}
+.input:focus,
+.select:focus,
+.textarea:focus {
+  outline: none;
+  border-color: var(--bb-accent);
+  box-shadow: 0 0 0 3px var(--bb-accent-soft);
+}
+.input:focus-visible,
+.select:focus-visible,
+.textarea:focus-visible {
+  outline: 2px solid var(--bb-focus);
+  outline-offset: 1px;
+}
+.input[aria-invalid='true'],
+.select[aria-invalid='true'],
+.textarea[aria-invalid='true'] {
+  border-color: var(--bb-error-dot);
+}
+.textarea {
+  resize: vertical;
+  line-height: 1.6;
+}
+
+.selectShell {
+  position: relative;
+  display: block;
+}
+.select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 38px;
+  cursor: pointer;
+}
+.select option {
+  background: var(--bb-surface);
+  color: var(--bb-text);
+}
+.chevron {
+  position: absolute;
+  top: 50%;
+  right: 14px;
+  transform: translateY(-50%);
+  color: var(--bb-text-muted);
+  pointer-events: none;
+}
+
+.helper {
+  margin: 6px 0 0;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: var(--bb-text-muted);
+}
+
+.privacy {
+  margin: 6px 0 18px;
+  padding: 12px 14px;
+  border: 1px solid var(--bb-border);
+  border-radius: var(--bb-radius);
+  background: var(--bb-bg-subtle);
+  font-size: 0.78rem;
+  line-height: 1.6;
+  color: var(--bb-text-muted);
+}
+
+.inlineLink {
+  color: var(--bb-accent);
+  text-decoration: underline;
+  text-decoration-color: var(--bb-accent-border);
+  text-underline-offset: 0.2em;
+}
+.inlineLink:hover {
+  text-decoration-color: currentColor;
+}
+
+.error {
+  margin-bottom: 18px;
+}
+
+.submit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 48px;
+  padding: 0 18px;
+  border: 1px solid var(--bb-accent);
+  border-radius: var(--bb-radius);
+  background: var(--bb-accent);
+  color: var(--bb-accent-contrast);
+  font: inherit;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 150ms ease, border-color 150ms ease;
+}
+.submit:hover:not(:disabled) {
+  background: var(--bb-accent-hover);
+  border-color: var(--bb-accent-hover);
+}
+.submit:disabled {
+  background: var(--bb-surface-strong);
+  border-color: var(--bb-border-strong);
+  color: var(--bb-text-muted);
+  cursor: not-allowed;
+}
+.submitArrow {
+  transition: transform 150ms ease;
+}
+.submit:hover:not(:disabled) .submitArrow {
+  transform: translateX(2px);
+}
+
+.reassure {
+  margin: 14px 0 0;
+  font-size: 0.78rem;
+  line-height: 1.6;
+  text-align: center;
+  color: var(--bb-text-muted);
+}
+
+.back:focus-visible,
+.inlineLink:focus-visible,
+.submit:focus-visible {
+  outline: 2px solid var(--bb-focus);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* ─── Confirmation ─── */
+.done {
+  max-width: 36rem;
+  margin: 0 auto;
+  padding: clamp(48px, 9vw, 96px) 0 0;
+  text-align: center;
+}
+.done > p:first-of-type {
+  margin: 0 0 12px;
+}
+.doneMark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  margin-bottom: 24px;
+  border: 1px solid var(--bb-success-border);
+  border-radius: 50%;
+  background: var(--bb-success-soft);
+  color: var(--bb-success-fg);
+}
+.doneTitle {
+  margin: 0;
+  font-size: clamp(1.875rem, 4.6vw, 2.5rem);
+  line-height: 1.1;
+  font-weight: 600;
+  letter-spacing: -0.035em;
+  text-wrap: balance;
+}
+.doneTitle:focus {
+  outline: none;
+}
+.doneTitle:focus-visible {
+  outline: 2px solid var(--bb-focus);
+  outline-offset: 4px;
+}
+.doneBody {
+  margin: 14px auto 28px;
+  max-width: 30rem;
+  font-size: 1rem;
+  line-height: 1.7;
+  color: var(--bb-text-muted);
+}
+.doneActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+}
+
+/* ─── Responsive ─── */
+@media (max-width: 960px) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .intro {
+    position: static;
+  }
+}
+
+@media (max-width: 640px) {
+  .grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .input,
+  .select,
+  .textarea,
+  .submit,
+  .submitArrow {
+    transition: none;
+  }
+}
