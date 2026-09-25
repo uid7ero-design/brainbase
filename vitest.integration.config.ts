@@ -136,6 +136,7 @@ export default defineConfig({
       'scripts/tests/purchaseMatchAllocationsMigration.integration.test.ts',
       'scripts/tests/purchaseMatchAllocationConcurrency.integration.test.ts',
       'scripts/tests/purchasingCommitments.integration.test.ts',
+      'scripts/tests/purchasingCommitmentPeriods.integration.test.ts',
     ],
     testTimeout: 30_000,
     hookTimeout: 30_000,

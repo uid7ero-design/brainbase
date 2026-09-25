@@ -105,10 +105,40 @@ CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, organisation_id TEXT NOT 
 
 CREATE TABLE IF NOT EXISTS crm_companies (id UUID PRIMARY KEY DEFAULT gen_random_uuid());
 CREATE TABLE IF NOT EXISTS crm_contacts (id UUID PRIMARY KEY DEFAULT gen_random_uuid());
+CREATE TABLE IF NOT EXISTS commercial_financial_years (
+  id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  organisation_id  TEXT NOT NULL REFERENCES organisations(id),
+  name             TEXT NOT NULL,
+  starts_on        DATE NOT NULL,
+  ends_on          DATE NOT NULL,
+  status           TEXT NOT NULL,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CHECK (ends_on > starts_on),
+  UNIQUE (organisation_id, name),
+  UNIQUE (id, organisation_id)
+);
+CREATE TABLE IF NOT EXISTS commercial_financial_periods (
+  id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  financial_year_id   UUID NOT NULL,
+  organisation_id     TEXT NOT NULL REFERENCES organisations(id),
+  name                TEXT NOT NULL,
+  starts_on           DATE NOT NULL,
+  ends_on             DATE NOT NULL,
+  status              TEXT NOT NULL,
+  created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CHECK (ends_on > starts_on),
+  UNIQUE (organisation_id, financial_year_id, name),
+  CONSTRAINT commercial_financial_periods_year_org_fkey
+    FOREIGN KEY (financial_year_id, organisation_id)
+    REFERENCES commercial_financial_years (id, organisation_id) ON DELETE CASCADE
+);
 CREATE TABLE IF NOT EXISTS commercial_cost_centres (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   organisation_id TEXT NOT NULL REFERENCES organisations(id),
   code            TEXT NOT NULL,
+  name            TEXT NOT NULL,
   UNIQUE (organisation_id, code),
   UNIQUE (id, organisation_id)
 );
@@ -398,19 +428,19 @@ else
 fi
 
 echo ""
-echo "=== 5. REAL PURCHASING COMMITMENT LIFECYCLE/MVCC SUITE ==="
+echo "=== 5. REAL PURCHASING COMMITMENT LIFECYCLE/MVCC + PERIOD-ATTRIBUTION SUITE ==="
 export DATABASE_URL="postgresql://postgres:test@localhost:${HOST_PORT}/testdb"
 echo "DATABASE_URL=$DATABASE_URL (disposable container only)"
 cd "$REPO_ROOT"
-npx vitest run --config vitest.integration.config.ts scripts/tests/purchasingCommitments.integration.test.ts
+npx vitest run --config vitest.integration.config.ts scripts/tests/purchasingCommitments.integration.test.ts scripts/tests/purchasingCommitmentPeriods.integration.test.ts
 VITEST_RESULT=$?
 if [ "$VITEST_RESULT" -eq 0 ]; then
-  echo "  PASS: purchasingCommitments.integration.test.ts (all cases)"
+  echo "  PASS: commitment lifecycle/MVCC and period-attribution integration suites"
   PASS=$((PASS + 1))
 else
-  echo "  FAIL: purchasingCommitments.integration.test.ts (exit $VITEST_RESULT)"
+  echo "  FAIL: commitment integration suites (exit $VITEST_RESULT)"
   FAIL=$((FAIL + 1))
-  FAILURES+=("vitest integration suite")
+  FAILURES+=("vitest integration suites")
 fi
 
 echo ""
