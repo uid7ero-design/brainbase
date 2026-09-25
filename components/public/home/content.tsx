@@ -8,7 +8,7 @@ export const PROOF_POINTS = ['Start with what you need', 'Connect existing syste
 
 export const STAT_STRIP: [string, string][] = [
   ['One platform', 'Connected operations'],
-  ['HLNΛ', 'Intelligence layer'],
+  ['HLNA', 'Intelligence layer'],
   ['Configurable', 'Built around your operation'],
   ['Expandable', 'Add more when you need it'],
 ];
@@ -128,7 +128,7 @@ export const CAPABILITIES: { title: string; description: string; icon: ReactNode
     ),
   },
   {
-    title: 'HLNΛ Intelligence',
+    title: 'HLNA Intelligence',
     description: 'Ask questions and surface what matters across your connected operation.',
     icon: (
       <Icon>
@@ -175,18 +175,18 @@ export const HOW_STEPS = [
   {
     n: '04',
     title: 'Understand',
-    body: 'Use dashboards and HLNΛ to see what needs attention.',
+    body: 'Use dashboards and HLNA to see what needs attention.',
   },
 ];
 
 export const INTELLIGENCE = [
   {
     title: 'Ask your operation',
-    body: 'Use natural language to interrogate the information available inside BRΛINBΛSE.',
+    body: 'Use natural language to interrogate the information available inside BrainBase.',
   },
   {
     title: 'Surface what matters',
-    body: 'HLNΛ helps identify important activity, changes and operational signals.',
+    body: 'HLNA helps identify important activity, changes and operational signals.',
   },
   {
     title: 'Connected context',
@@ -209,7 +209,7 @@ export const STARTING_POINTS = [
   {
     eyebrow: 'Client Operations',
     title: 'Run clients, bookings and follow-up in one place.',
-    body: 'A BRΛINBΛSE configuration for client-based businesses — leads, clients, bookings and follow-up in one connected environment.',
+    body: 'A BrainBase configuration for client-based businesses — leads, clients, bookings and follow-up in one connected environment.',
     href: '/client-operations',
     action: 'Explore Client Operations',
     number: '01',
@@ -224,8 +224,8 @@ export const STARTING_POINTS = [
   },
   {
     eyebrow: 'Platform Demo',
-    title: 'See the wider BRΛINBΛSE platform in action.',
-    body: 'Explore an interactive example showing how connected information, workflows, dashboards and HLNΛ come together.',
+    title: 'See the wider BrainBase platform in action.',
+    body: 'Explore an interactive example showing how connected information, workflows, dashboards and HLNA come together.',
     href: '/demo',
     action: 'Explore the platform demo',
     number: '03',

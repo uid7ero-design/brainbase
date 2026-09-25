@@ -70,7 +70,7 @@ describe('Public pricing page', () => {
       'Business System',
       'Enterprise',
     ]);
-    const row = within(table).getByRole('rowheader', { name: 'HLNΛ intelligence' }).closest('tr')!;
+    const row = within(table).getByRole('rowheader', { name: 'HLNA intelligence' }).closest('tr')!;
     expect([...row.querySelectorAll('td')].map(td => td.textContent?.replace('—', '').trim())).toEqual([
       'Not included',
       'Not included',
@@ -83,5 +83,24 @@ describe('Public pricing page', () => {
     renderBrainbase(<PricingPage />);
     const region = screen.getByRole('region', { name: 'Plan comparison table' });
     expect(region).toHaveAttribute('tabindex', '0');
+  });
+
+  it('uses plain BrainBase / HLNA in readable text — no stylised Λ outside hidden marks', () => {
+    const { container } = renderBrainbase(<PricingPage />);
+    const clone = container.cloneNode(true) as HTMLElement;
+    clone.querySelectorAll('[aria-hidden="true"]').forEach(n => n.remove());
+    expect(clone.textContent).not.toMatch(/Λ/);
+    expect(clone.textContent).toMatch(/BrainBase pricing reflects/);
+    for (const el of container.querySelectorAll('[aria-label]')) {
+      expect(el.getAttribute('aria-label')).not.toMatch(/Λ/);
+    }
+  });
+
+  it('every section header uses the shared numbered pattern, in order', () => {
+    const { container } = renderBrainbase(<PricingPage />);
+    const indexes = [...container.querySelectorAll('h2')]
+      .map(h => h.previousElementSibling?.querySelector('span')?.textContent)
+      .filter((t): t is string => !!t && /^\d{2}$/.test(t));
+    expect(indexes).toEqual(['01', '02', '03', '04', '05']);
   });
 });

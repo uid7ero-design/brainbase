@@ -3,7 +3,7 @@
 .shell {
   max-width: var(--bb-container);
   margin: 0 auto;
-  padding: clamp(28px, 5vw, 48px) var(--bb-gutter) 0;
+  padding: var(--bb-head-gap) var(--bb-gutter) 0;
 }
 
 .back {
@@ -20,8 +20,8 @@
 }
 
 .header {
-  margin-top: clamp(20px, 4vw, 36px);
-  padding-bottom: clamp(24px, 4vw, 36px);
+  margin-top: var(--bb-head-gap);
+  padding-bottom: var(--bb-head-gap);
   border-bottom: 1px solid var(--bb-border);
 }
 
@@ -44,8 +44,8 @@
 .layout {
   display: grid;
   grid-template-columns: minmax(0, 15rem) minmax(0, 42rem);
-  gap: clamp(32px, 6vw, 80px);
-  padding-top: clamp(28px, 5vw, 48px);
+  gap: var(--bb-block-gap);
+  padding-top: var(--bb-block-gap);
 }
 
 .aside {

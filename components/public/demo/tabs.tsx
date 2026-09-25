@@ -230,7 +230,7 @@ export function OverviewTab({ askHlna }: { askHlna: (question: string) => void }
         <section className={`${styles.panel} ${styles.hlnaPanel}`}>
           <PanelHeader
             eyebrow="Intelligence Layer"
-            title="HLNΛ Operational Briefing"
+            title="HLNA Operational Briefing"
             right={<StatusDot state="success" label="Connected" />}
           />
 
@@ -452,7 +452,7 @@ export function OperationsTab() {
                 ['North', 96, 'success'],
                 ['Central', 93, 'success'],
                 ['South', 82, 'warning'],
-                ['Coastal', 89, 'info'],
+                ['Coastal', 89, 'success'],
                 ['Hills', 91, 'success'],
               ] as [string, number, Tone][]
             ).map(([label, value, t]) => (
@@ -610,7 +610,7 @@ export function ReportingTab() {
       <PageHeading
         eyebrow="Reporting & Automation"
         title="Turn operational data into decisions."
-        description="BRΛINBΛSE can surface trends, prepare reporting and automate recurring information flows around the work your team already performs."
+        description="BrainBase can surface trends, prepare reporting and automate recurring information flows around the work your team already performs."
       />
 
       <ul className={styles.reportGrid}>

@@ -86,7 +86,7 @@ export const FLOW = [
   },
   {
     number: '06',
-    title: 'HLNΛ adds context',
+    title: 'HLNA adds context',
     body: 'The intelligence layer surfaces priorities, activity and operational signals across the business.',
   },
 ];
@@ -97,7 +97,7 @@ export const MODULES = [
   { title: 'Scheduling', body: 'Manage appointments, sessions, programs, locations and capacity.' },
   { title: 'Requests', body: 'Keep incoming work and outstanding actions visible.' },
   { title: 'Dashboards', body: 'Bring the most important operational indicators into one view.' },
-  { title: 'HLNΛ', body: 'Provide intelligence and context across the connected platform.' },
+  { title: 'HLNA', body: 'Provide intelligence and context across the connected platform.' },
 ];
 
 export const DEPLOYMENT_INCLUDES = [
@@ -107,5 +107,5 @@ export const DEPLOYMENT_INCLUDES = [
   'Session scheduling',
   'Follow-up actions',
   'Operational dashboard',
-  'HLNΛ intelligence layer',
+  'HLNA intelligence layer',
 ];

@@ -89,12 +89,12 @@ export const FLOW = [
   {
     number: '06',
     title: 'You see the operation',
-    body: 'BRΛINBΛSE can bring activity, priorities and operational context into one place.',
+    body: 'BrainBase can bring activity, priorities and operational context into one place.',
   },
 ];
 
 export const START_WITH = ['Website', 'Enquiry capture'];
-export const EXPAND_INTO = ['Leads / CRM', 'Bookings', 'Workflows', 'Dashboards', 'HLNΛ'];
+export const EXPAND_INTO = ['Leads / CRM', 'Bookings', 'Workflows', 'Dashboards', 'HLNA'];
 
 export const SYSTEM_CONNECTIONS = ['CRM', 'Bookings', 'Automation', 'Dashboards'];
 
@@ -103,7 +103,7 @@ export const DEPLOYMENT_CHAIN = [
   { name: 'Lead Management', detail: 'Enquiries and follow-up' },
   { name: 'Client Operations', detail: 'Clients and activity' },
   { name: 'Session Management', detail: 'Programs and scheduling' },
-  { name: 'BRΛINBΛSE', detail: 'Operational platform' },
+  { name: 'BrainBase', detail: 'Operational platform' },
 ];
 
 export const DEPLOYMENTS = [
@@ -138,16 +138,16 @@ export const DEPLOYMENTS = [
     featured: true,
   },
   {
-    label: 'BRΛINBΛSE Deployment',
+    label: 'BrainBase Deployment',
     title: 'Build the system behind it.',
     description:
       'For businesses ready to move beyond the website into a broader connected operational platform.',
     includes: [
       'Everything in Connected Web System',
-      'BRΛINBΛSE platform deployment',
+      'BrainBase platform deployment',
       'Dashboards and reporting',
       'Custom operational workflows',
-      'HLNΛ intelligence capability',
+      'HLNA intelligence capability',
     ],
     action: 'Request deployment review',
     featured: false,
@@ -210,6 +210,6 @@ export const MANAGED = [
   },
   {
     title: 'Support',
-    body: 'One point of contact across the website and connected BRΛINBΛSE environment.',
+    body: 'One point of contact across the website and connected BrainBase environment.',
   },
 ];

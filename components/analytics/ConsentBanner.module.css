@@ -1,3 +1,5 @@
+/* Consent prompt: present and fully operable, but deliberately quiet: a
+   compact corner card on desktop, full-width strip on phones. */
 .banner {
   position: fixed;
   left: 16px;
@@ -7,45 +9,48 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
-  max-width: 480px;
-  margin: 0 auto;
-  padding: 14px 16px;
-  border: 1px solid var(--bb-border-strong);
+  gap: 10px 12px;
+  max-width: 400px;
+  padding: 12px 14px;
+  border: 1px solid var(--bb-border);
   border-radius: var(--bb-radius-lg);
   background: var(--bb-surface);
   color: var(--bb-text);
-  box-shadow: 0 16px 40px color-mix(in srgb, var(--bb-bg) 30%, transparent);
+  box-shadow: 0 6px 20px color-mix(in srgb, var(--bb-text) 8%, transparent);
   font-family: var(--bb-font-sans);
 }
 
 .text {
-  flex: 1 1 240px;
+  flex: 1 1 220px;
   margin: 0;
-  font-size: 0.8125rem;
-  line-height: 1.55;
+  font-size: 0.75rem;
+  line-height: 1.5;
   color: var(--bb-text-muted);
 }
 
 .link {
-  color: var(--bb-accent);
+  color: var(--bb-text);
   text-decoration: underline;
+  text-decoration-color: var(--bb-border-strong);
   text-underline-offset: 0.2em;
+}
+.link:hover {
+  text-decoration-color: currentColor;
 }
 
 .actions {
   display: flex;
   flex-shrink: 0;
-  gap: 8px;
+  gap: 6px;
 }
 
 .decline,
 .allow {
-  min-height: 36px;
-  padding: 0 14px;
+  min-height: 32px;
+  padding: 0 12px;
   border-radius: var(--bb-radius);
   font: inherit;
-  font-size: 0.8125rem;
+  font-size: 0.75rem;
   font-weight: 600;
   cursor: pointer;
 }
@@ -59,14 +64,14 @@
   border-color: var(--bb-text-muted);
 }
 
+/* Same visual weight as Decline: neither choice is pushed. */
 .allow {
-  border: 1px solid var(--bb-accent);
-  background: var(--bb-accent);
-  color: var(--bb-accent-contrast);
+  border: 1px solid var(--bb-border-strong);
+  background: var(--bb-surface-strong);
+  color: var(--bb-text);
 }
 .allow:hover {
-  background: var(--bb-accent-hover);
-  border-color: var(--bb-accent-hover);
+  border-color: var(--bb-text-muted);
 }
 
 .link:focus-visible,
@@ -74,4 +79,10 @@
 .allow:focus-visible {
   outline: 2px solid var(--bb-focus);
   outline-offset: 2px;
+}
+
+@media (max-width: 520px) {
+  .banner {
+    max-width: none;
+  }
 }

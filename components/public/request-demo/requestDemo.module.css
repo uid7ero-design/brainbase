@@ -17,7 +17,7 @@
   position: relative;
   max-width: var(--bb-container);
   margin: 0 auto;
-  padding: clamp(24px, 4vw, 36px) var(--bb-gutter) 0;
+  padding: var(--bb-head-gap) var(--bb-gutter) 0;
 }
 
 .back {
@@ -37,9 +37,9 @@
 .layout {
   display: grid;
   grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
-  gap: clamp(32px, 6vw, 72px);
+  gap: var(--bb-block-gap);
   align-items: start;
-  padding-top: clamp(28px, 5vw, 56px);
+  padding-top: var(--bb-block-gap);
 }
 
 .intro {
@@ -90,8 +90,8 @@
 }
 
 .how {
-  margin-top: 28px;
-  padding: 18px 20px 20px;
+  margin-top: var(--bb-head-gap);
+  padding: var(--bb-panel-pad);
   border: 1px solid var(--bb-border);
   border-radius: var(--bb-radius-lg);
   background: var(--bb-surface);
@@ -121,7 +121,8 @@
   flex-shrink: 0;
   font-family: var(--bb-font-mono);
   font-size: 0.72rem;
-  color: var(--bb-signal-text);
+  font-variant-numeric: tabular-nums;
+  color: var(--bb-accent);
 }
 .howNote {
   margin: 16px 0 0;
@@ -134,7 +135,7 @@
 
 /* ─── Form ─── */
 .form {
-  padding: clamp(20px, 4vw, 32px);
+  padding: var(--bb-cell-pad);
   border: 1px solid var(--bb-border);
   border-radius: var(--bb-radius-lg);
   background: var(--bb-surface);
@@ -147,8 +148,8 @@
   min-width: 0;
 }
 .group + .group {
-  margin-top: 8px;
-  padding-top: 24px;
+  margin-top: 0;
+  padding-top: var(--bb-head-gap);
   border-top: 1px solid var(--bb-border);
 }
 .legend {
@@ -156,7 +157,6 @@
   width: 100%;
   margin: 0 0 18px;
   padding: 0;
-  color: var(--bb-accent);
 }
 .legend + * {
   clear: both;
@@ -350,7 +350,7 @@
 .done {
   max-width: 36rem;
   margin: 0 auto;
-  padding: clamp(48px, 9vw, 96px) 0 0;
+  padding: var(--bb-hero-top) 0 0;
   text-align: center;
 }
 .done > p:first-of-type {

@@ -28,11 +28,12 @@ import {
   STAT_STRIP,
 } from '@/components/public/home/content';
 import { Badge } from '@/components/ui/semantic';
+import { HlnaMark } from '@/components/public/brand';
 import publicStyles from '@/components/public/public.module.css';
 import styles from '@/components/public/home/home.module.css';
 
 // Public homepage. Server component: all copy and structure render as HTML;
-// the only client islands are CommandDemo (the interactive HLNΛ query box),
+// the only client islands are CommandDemo (the interactive HLNA query box),
 // the nav's theme toggle/mobile menu, and the load-time scroll reset.
 // Every colour is a --bb-* token, so the page renders in light and dark.
 
@@ -59,12 +60,12 @@ export default function Home() {
             </h1>
 
             <p className={styles.heroLede}>
-              BRΛINBΛSE brings the parts of your operation that matter into one connected environment. Start with the
+              BrainBase brings the parts of your operation that matter into one connected environment. Start with the
               capabilities you need, configure them around your workflow and connect the systems you already use.
             </p>
 
             <div className={styles.heroActions}>
-              <ButtonLink href="/demo">Explore BRΛINBΛSE</ButtonLink>
+              <ButtonLink href="/demo">Explore BrainBase</ButtonLink>
               <ButtonLink href="/request-demo" variant="secondary">
                 Discuss your operation
               </ButtonLink>
@@ -78,9 +79,7 @@ export default function Home() {
 
             <p className={styles.hlnaMeta}>
               <span className="bb-eyebrow">Intelligence layer</span>
-              <span className={styles.hlnaMark}>
-                HLN<span className={styles.lambda}>Λ</span>
-              </span>
+              <HlnaMark className={styles.hlnaMark} />
             </p>
           </div>
 
@@ -94,9 +93,16 @@ export default function Home() {
               <SystemMap />
             </Panel>
 
-            <div className={`bb-scope-dark ${styles.terminal}`}>
-              <Panel title="HLNΛ · Operational intelligence" bodyClassName={styles.terminalBody}>
-                <CommandDemo placeholder="Ask BRΛINBΛSE what's happening across your operation..." />
+            <div className={styles.terminal}>
+              <Panel
+                title={
+                  <>
+                    <HlnaMark /> · Operational intelligence
+                  </>
+                }
+                bodyClassName={`bb-scope-dark ${styles.terminalBody}`}
+              >
+                <CommandDemo placeholder="Ask BrainBase what's happening across your operation..." />
               </Panel>
             </div>
           </div>
@@ -146,16 +152,16 @@ export default function Home() {
         <SectionHeading
           id="approach-title"
           index="02"
-          eyebrow="The BRΛINBΛSE approach"
+          eyebrow="The BrainBase approach"
           title="One connected place to run the parts of your business that matter."
         >
-          BRΛINBΛSE brings the information, workflows and operational context you rely on into one connected
+          BrainBase brings the information, workflows and operational context you rely on into one connected
           environment.
         </SectionHeading>
 
-        <ul className={styles.ruledGrid4}>
+        <ul className={`bb-cells ${styles.ruledGrid4}`}>
           {SOLUTION_OUTCOMES.map((item, i) => (
-            <li key={item.title} className={styles.ruledCell}>
+            <li key={item.title}>
               <span className={styles.cellIndex} aria-hidden="true">
                 {String(i + 1).padStart(2, '0')}
               </span>
@@ -194,7 +200,7 @@ export default function Home() {
             <div className={styles.chipRow}>
               <Chip tone="signal">Microsoft 365</Chip>
             </div>
-            <p className={styles.note}>An external system connected to BRΛINBΛSE — not a BRΛINBΛSE capability itself.</p>
+            <p className={styles.note}>An external system connected to BrainBase — not a BrainBase capability itself.</p>
           </li>
         </ol>
       </Section>
@@ -205,7 +211,7 @@ export default function Home() {
           Start with the capabilities you need today. Add more as your operation grows.
         </SectionHeading>
 
-        <ul className={styles.capabilityGrid}>
+        <ul className={`bb-cells ${styles.capabilityGrid}`}>
           {CAPABILITIES.map(capability => (
             <li key={capability.title} className={styles.capability}>
               <span className={styles.capabilityIcon}>{capability.icon}</span>
@@ -219,7 +225,7 @@ export default function Home() {
       {/* 6. CONFIGURABILITY ──────────────────────────────────────────── */}
       <Section labelledBy="config-title">
         <SectionHeading id="config-title" index="05" eyebrow="Configurability" title="Configured around how you work.">
-          Two businesses can use the same BRΛINBΛSE capability very differently — Bookings, for example.
+          Two businesses can use the same BrainBase capability very differently — Bookings, for example.
         </SectionHeading>
 
         <div className={styles.twoCol}>
@@ -240,12 +246,12 @@ export default function Home() {
       {/* 7. INTEGRATIONS ─────────────────────────────────────────────── */}
       <Section labelledBy="integrations-title">
         <SectionHeading id="integrations-title" index="06" eyebrow="Integrations" title="Keep the systems that already make sense.">
-          BRΛINBΛSE doesn&apos;t need to replace every specialist system your business relies on. It can connect with
+          BrainBase doesn&apos;t need to replace every specialist system your business relies on. It can connect with
           external systems where it makes sense, keeping important information closer to the operation.
         </SectionHeading>
 
         <div className={styles.integration}>
-          <Panel title="BRΛINBΛSE capabilities">
+          <Panel title="BrainBase capabilities">
             <div className={styles.chipRow}>
               {INTEGRATION_CAPABILITIES.map(item => (
                 <Chip key={item} tone="accent">
@@ -270,8 +276,8 @@ export default function Home() {
 
       {/* 8. HOW IT WORKS ─────────────────────────────────────────────── */}
       <Section labelledBy="how-title">
-        <SectionHeading id="how-title" index="07" eyebrow="How BRΛINBΛSE works" title="Capture. Organise. Operate. Understand.">
-          BRΛINBΛSE turns the information you already have into decisions your people can act on.
+        <SectionHeading id="how-title" index="07" eyebrow="How BrainBase works" title="Capture. Organise. Operate. Understand.">
+          BrainBase turns the information you already have into decisions your people can act on.
         </SectionHeading>
 
         <ol className={styles.pipeline}>
@@ -286,25 +292,25 @@ export default function Home() {
         </ol>
       </Section>
 
-      {/* 9. HLNΛ ─────────────────────────────────────────────────────── */}
+      {/* 9. HLNA ─────────────────────────────────────────────────────── */}
       <Section labelledBy="hlna-title">
         <div className={styles.hlnaGrid}>
           <div>
             <p className={`bb-eyebrow ${styles.eyebrowInline}`}>
               <span className={styles.eyebrowDot} aria-hidden="true" />
-              Inside BRΛINBΛSE
+              Inside BrainBase
             </p>
             <h2 id="hlna-title" className={styles.hlnaTitle}>
-              HLN<span className={styles.lambda}>Λ</span> — intelligence across your operation.
+              HLNA — intelligence across your operation.
             </h2>
             <p className={styles.bodyText}>
-              When your clients, workflows, scheduling, activity and operational data are connected, HLNΛ can help
+              When your clients, workflows, scheduling, activity and operational data are connected, HLNA can help
               surface what is happening, what has changed and what may need attention.
             </p>
-            <TextLink href="/demo">See HLNΛ in the platform demo</TextLink>
+            <TextLink href="/demo">See HLNA in the platform demo</TextLink>
           </div>
 
-          <ul className={styles.intelList}>
+          <ul className={`bb-cells ${styles.intelList}`}>
             {INTELLIGENCE.map(item => (
               <li key={item.title} className={styles.intelItem}>
                 <h3 className={styles.cellTitle}>{item.title}</h3>
@@ -325,7 +331,7 @@ export default function Home() {
                 LD Tennis
               </h2>
               <p className={styles.bodyText}>
-                A real BRΛINBΛSE deployment, configured around how LD Tennis operates. Leads, clients, bookings,
+                A real BrainBase deployment, configured around how LD Tennis operates. Leads, clients, bookings,
                 follow-up and reporting work together through the same connected platform.
               </p>
               <TextLink href="/client-operations/demo">Explore the deployment</TextLink>
@@ -346,12 +352,12 @@ export default function Home() {
 
       {/* 11. STARTING POINTS ─────────────────────────────────────────── */}
       <Section labelledBy="starting-title">
-        <SectionHeading id="starting-title" index="08" eyebrow="Starting points" title="More than one way to start with BRΛINBΛSE.">
+        <SectionHeading id="starting-title" index="08" eyebrow="Starting points" title="More than one way to start with BrainBase.">
           Start with whichever part of the operation needs attention first. Each is a way into the same connected
           platform, not a separate product.
         </SectionHeading>
 
-        <ul className={styles.pathGrid}>
+        <ul className={`bb-cells ${styles.pathGrid}`}>
           {STARTING_POINTS.map(path => (
             <li key={path.href}>
               <Link href={path.href} className={styles.pathCard}>
@@ -365,7 +371,7 @@ export default function Home() {
                 <span className={styles.cellBody}>{path.body}</span>
                 <span className={styles.pathAction}>
                   {path.action}
-                  <ArrowIcon className={styles.flowArrow} />
+                  <ArrowIcon className={styles.pathArrow} />
                 </span>
               </Link>
             </li>
@@ -381,12 +387,12 @@ export default function Home() {
             Tell us what you&apos;re trying to improve.
           </h2>
           <p className={styles.ctaBody}>
-            Tell us what is creating friction in your operation and we can explore where BRΛINBΛSE could fit.
+            Tell us what is creating friction in your operation and we can explore where BrainBase could fit.
           </p>
           <div className={styles.ctaActions}>
             <ButtonLink href="/request-demo">Discuss your operation</ButtonLink>
             <ButtonLink href="/demo" variant="secondary">
-              Explore BRΛINBΛSE
+              Explore BrainBase
             </ButtonLink>
           </div>
         </div>

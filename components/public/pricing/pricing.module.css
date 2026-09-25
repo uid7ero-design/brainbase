@@ -1,11 +1,13 @@
-/* /pricing layout. Tokens only — see styles/brainbase-tokens.css. */
+/* /pricing layout. Tokens only — see styles/brainbase-tokens.css.
+   Spacing uses the shared rhythm tokens; every block aligns to the shared
+   container guides. Cyan is used only where it means information
+   (the "Tailored" info badge); plan accents are purple or neutral. */
 
-/* ─── Hero ─── */
+/* ─── Hero (left-aligned to the container guide, like the homepage) ─── */
 .hero {
   position: relative;
-  padding: clamp(56px, 9vw, 104px) 0 clamp(48px, 7vw, 72px);
+  padding: var(--bb-hero-top) 0 var(--bb-hero-bottom);
   border-bottom: 1px solid var(--bb-border);
-  text-align: center;
 }
 .hero::after {
   content: '';
@@ -19,13 +21,12 @@
   position: relative;
   z-index: 1;
   max-width: 46rem;
-  margin: 0 auto;
 }
 .heroEyebrow {
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  margin: 0 0 22px;
+  margin: 0 0 20px;
 }
 .eyebrowDot {
   width: 6px;
@@ -46,7 +47,7 @@
   color: var(--bb-accent);
 }
 .heroLede {
-  margin: 22px auto 0;
+  margin: 20px 0 0;
   max-width: 36rem;
   font-size: clamp(1rem, 1.5vw, 1.0625rem);
   line-height: 1.7;
@@ -59,8 +60,8 @@
   grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
   gap: 12px 32px;
   align-items: baseline;
-  margin-top: clamp(40px, 6vw, 56px);
-  padding: 20px 22px;
+  margin-top: var(--bb-block-gap);
+  padding: var(--bb-cell-pad);
   border: 1px solid var(--bb-border);
   border-left: 3px solid var(--bb-accent);
   border-radius: var(--bb-radius);
@@ -79,25 +80,15 @@
   color: var(--bb-text-muted);
 }
 
-/* ─── Plans: one ruled grid, 1px separators ─── */
+/* ─── Plans: ruled cell grid (.bb-cells) ─── */
 .plans {
-  display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 1px;
-  margin: clamp(32px, 5vw, 48px) 0 0;
-  padding: 0;
-  list-style: none;
-  border: 1px solid var(--bb-border);
-  border-radius: var(--bb-radius-lg);
-  background: var(--bb-border);
-  overflow: hidden;
+  margin-top: var(--bb-grid-gap);
 }
 .plan {
   position: relative;
   display: flex;
   flex-direction: column;
-  padding: 26px 22px 24px;
-  background: var(--bb-surface);
 }
 .plan::before {
   content: '';
@@ -113,7 +104,7 @@
   background: var(--bb-accent);
 }
 .planEnterprise::before {
-  background: var(--bb-signal);
+  background: var(--bb-border-strong);
 }
 .planHead {
   display: flex;
@@ -121,7 +112,7 @@
   justify-content: space-between;
   gap: 8px;
   min-height: 24px;
-  margin-bottom: 14px;
+  margin-bottom: var(--bb-cell-icon-gap);
 }
 .planName {
   margin: 0;
@@ -133,7 +124,7 @@
   color: var(--bb-text);
 }
 .planTagline {
-  margin: 0 0 10px;
+  margin: 0 0 var(--bb-cell-title-gap);
   min-height: 2.6em;
   font-size: 1.125rem;
   line-height: 1.3;
@@ -151,7 +142,7 @@
   display: flex;
   align-items: baseline;
   gap: 6px;
-  margin-top: 22px;
+  margin-top: 20px;
 }
 .priceValue {
   font-size: 2.25rem;
@@ -173,7 +164,7 @@
 .features {
   display: grid;
   gap: 10px;
-  margin: 20px 0 24px;
+  margin: 20px 0 22px;
   padding: 18px 0 0;
   list-style: none;
   border-top: 1px solid var(--bb-border);
@@ -189,9 +180,6 @@
   flex-shrink: 0;
   margin-top: 3px;
   color: var(--bb-accent);
-}
-.planEnterprise .check {
-  color: var(--bb-signal);
 }
 .planCta {
   display: inline-flex;
@@ -225,13 +213,13 @@
 
 /* ─── Setup notice ─── */
 .notice {
-  margin-top: 16px;
-  padding: 18px 22px;
+  margin-top: var(--bb-grid-gap);
+  padding: var(--bb-cell-pad);
   border: 1px dashed var(--bb-border-strong);
   border-radius: var(--bb-radius);
 }
 .noticeTitle {
-  margin: 0 0 8px;
+  margin: 0 0 var(--bb-cell-title-gap);
 }
 .noticeBody,
 .noticeFine {
@@ -246,33 +234,19 @@
   color: var(--bb-text);
 }
 
-/* ─── Choice grid (ruled) ─── */
+/* ─── Choice grid (ruled cells) ─── */
 .ruled4 {
-  display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  border-top: 1px solid var(--bb-border);
-  border-bottom: 1px solid var(--bb-border);
-}
-.ruledCell {
-  padding: 24px 22px 28px;
-  border-left: 1px solid var(--bb-border);
-}
-.ruledCell:first-child {
-  border-left: 0;
-  padding-left: 0;
 }
 .cellIndex {
   display: block;
-  margin-bottom: 16px;
+  margin-bottom: var(--bb-cell-icon-gap);
   font-family: var(--bb-font-mono);
   font-size: 0.72rem;
   color: var(--bb-accent);
 }
 .cellTitle {
-  margin: 0 0 8px;
+  margin: 0 0 var(--bb-cell-title-gap);
   font-size: 1rem;
   font-weight: 600;
   letter-spacing: -0.01em;
@@ -343,18 +317,18 @@
   color: var(--bb-text-muted);
 }
 .tableNote {
-  margin: 14px 0 0;
+  margin: var(--bb-grid-gap) 0 0;
   font-size: 0.8125rem;
   line-height: 1.6;
   color: var(--bb-text-muted);
 }
 .config {
-  margin-top: clamp(32px, 5vw, 48px);
+  margin-top: var(--bb-block-gap);
   padding-left: 18px;
-  border-left: 1px solid var(--bb-signal-border);
+  border-left: 2px solid var(--bb-border-strong);
 }
 .configTitle {
-  margin: 0 0 8px;
+  margin: 0 0 var(--bb-cell-title-gap);
   font-size: 1.125rem;
   font-weight: 600;
   letter-spacing: -0.015em;
@@ -367,95 +341,64 @@
   color: var(--bb-text-muted);
 }
 
-/* ─── Two-column feature panels (Enterprise, Web Systems) ─── */
+/* ─── Two-column sections (Enterprise, Web Systems): header left on the
+   container guide, content right. ─── */
 .split {
   display: grid;
   grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
-  gap: clamp(28px, 5vw, 56px);
-  align-items: center;
-  padding: clamp(28px, 5vw, 48px);
-  border: 1px solid var(--bb-border);
-  border-radius: var(--bb-radius-lg);
-  background: var(--bb-surface);
+  gap: var(--bb-block-gap);
+  align-items: start;
 }
-.splitSignal {
-  border-top: 2px solid var(--bb-signal);
+.split > :first-child > div:first-child,
+.split > div:first-child {
+  margin-bottom: 0;
 }
-.splitEyebrow {
-  margin: 0 0 12px;
-}
-.splitTitle {
-  margin: 0 0 14px;
-  font-size: clamp(1.625rem, 3.2vw, 2.25rem);
-  line-height: 1.14;
-  font-weight: 600;
-  letter-spacing: -0.028em;
-  text-wrap: balance;
-}
-.splitBody {
-  margin: 0;
-  font-size: 0.9375rem;
-  line-height: 1.7;
-  color: var(--bb-text-muted);
+.splitAside {
+  display: grid;
+  gap: var(--bb-grid-gap);
+  justify-items: start;
 }
 .splitFine {
-  margin: 12px 0 0;
+  margin: var(--bb-grid-gap) 0 0;
   font-family: var(--bb-font-mono);
   font-size: 0.75rem;
   line-height: 1.6;
   color: var(--bb-text-muted);
 }
 .enterpriseList {
-  display: grid;
-  gap: 8px;
-  margin: 0 0 18px;
-  padding: 0;
-  list-style: none;
+  width: 100%;
 }
 .enterpriseItem {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 14px;
-  border: 1px solid var(--bb-border);
-  border-radius: var(--bb-radius-sm);
-  background: var(--bb-bg);
   font-size: 0.875rem;
+}
+.enterpriseList.enterpriseList > .enterpriseItem {
+  padding: var(--bb-cell-pad-sm);
 }
 .enterpriseItem::before {
   content: '';
   flex-shrink: 0;
   width: 6px;
   height: 6px;
-  border: 1px solid var(--bb-signal);
+  border: 1px solid var(--bb-accent);
   border-radius: 50%;
 }
 .actions {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
+  align-self: center;
 }
 
-/* ─── Implementation extras ─── */
+/* ─── Implementation extras (ruled cells) ─── */
 .extras {
-  display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 1px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  border: 1px solid var(--bb-border);
-  border-radius: var(--bb-radius-lg);
-  background: var(--bb-border);
-  overflow: hidden;
-}
-.extra {
-  padding: 22px;
-  background: var(--bb-bg);
 }
 .extraNote {
-  margin: 16px 0 0;
-  padding: 14px 18px;
+  margin: var(--bb-grid-gap) 0 0;
+  padding: var(--bb-cell-pad-sm);
   border-left: 3px solid var(--bb-border-strong);
   background: var(--bb-surface);
   font-size: 0.875rem;
@@ -463,9 +406,9 @@
   color: var(--bb-text-muted);
 }
 
-/* ─── Final CTA ─── */
+/* ─── Final CTA (centred inside a full-container-width panel) ─── */
 .cta {
-  padding: clamp(40px, 7vw, 72px) clamp(20px, 5vw, 48px);
+  padding: var(--bb-block-gap);
   border: 1px solid var(--bb-border);
   border-radius: var(--bb-radius-lg);
   background-color: var(--bb-surface);
@@ -475,19 +418,19 @@
   margin: 0;
 }
 .ctaTitle {
-  margin: 14px auto 0;
+  margin: 12px auto 0;
   max-width: 34rem;
-  font-size: clamp(1.75rem, 3.4vw, 2.5rem);
+  font-size: clamp(1.75rem, 3.2vw, 2.375rem);
   line-height: 1.12;
   font-weight: 600;
   letter-spacing: -0.028em;
   text-wrap: balance;
 }
 .ctaBody {
-  margin: 16px auto 0;
+  margin: 12px auto 0;
   max-width: 32rem;
   font-size: 1rem;
-  line-height: 1.7;
+  line-height: 1.65;
   color: var(--bb-text-muted);
 }
 .ctaActions {
@@ -495,7 +438,7 @@
   flex-wrap: wrap;
   justify-content: center;
   gap: 10px;
-  margin-top: 28px;
+  margin-top: 24px;
 }
 
 .planCta:focus-visible {
@@ -506,21 +449,15 @@
 /* ─── Responsive ─── */
 @media (max-width: 1080px) {
   .plans,
-  .extras {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
+  .extras,
   .ruled4 {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  .ruledCell:nth-child(3) {
-    border-left: 0;
-    padding-left: 0;
-  }
-  .ruledCell:nth-child(n + 3) {
-    border-top: 1px solid var(--bb-border);
-  }
   .split {
     grid-template-columns: minmax(0, 1fr);
+  }
+  .actions {
+    align-self: start;
   }
 }
 
@@ -536,13 +473,6 @@
   .planTagline,
   .planDescription {
     min-height: 0;
-  }
-  .ruledCell {
-    border-left: 0;
-    padding-left: 0;
-  }
-  .ruledCell + .ruledCell {
-    border-top: 1px solid var(--bb-border);
   }
 }
 

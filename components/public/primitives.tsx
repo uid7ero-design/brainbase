@@ -36,7 +36,6 @@ export function SectionHeading({
   eyebrow,
   title,
   children,
-  centred = false,
 }: {
   /** id for the heading, so a <Section labelledBy> can reference it. */
   id?: string;
@@ -44,10 +43,9 @@ export function SectionHeading({
   eyebrow: string;
   title: ReactNode;
   children?: ReactNode;
-  centred?: boolean;
 }) {
   return (
-    <div className={cx(styles.heading, centred && styles.headingCentred)}>
+    <div className={styles.heading}>
       <p className={cx('bb-eyebrow', styles.eyebrowRow)}>
         {index && <span className={styles.eyebrowIndex}>{index}</span>}
         {index && <span className={styles.eyebrowRule} aria-hidden="true" />}

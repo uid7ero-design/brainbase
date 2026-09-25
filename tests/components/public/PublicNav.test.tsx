@@ -32,7 +32,7 @@ describe('PublicNav', () => {
     expect(PUBLIC_NAV_LINKS).toHaveLength(5);
     expect(screen.getAllByRole('link', { name: 'Login' })[0]).toHaveAttribute('href', '/login');
     expect(screen.getByRole('link', { name: 'Get Started' })).toHaveAttribute('href', '/request-demo');
-    expect(screen.getByRole('link', { name: 'BRΛINBΛSE home' })).toHaveAttribute('href', '/');
+    expect(screen.getByRole('link', { name: 'BrainBase home' })).toHaveAttribute('href', '/');
   });
 
   it('marks the current page', () => {
@@ -91,7 +91,7 @@ describe('PublicNav', () => {
   it('has a logical tab order (desktop)', async () => {
     const { user } = renderNav('/');
     await expectNamedFocusOrder(user, [
-      'BRΛINBΛSE home',
+      'BrainBase home',
       'Product',
       'Client Operations',
       'Web Systems',

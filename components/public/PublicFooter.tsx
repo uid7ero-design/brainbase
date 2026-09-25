@@ -37,7 +37,7 @@ export function PublicFooter() {
 
       <div className={styles.metaWrap}>
         <div className={styles.meta}>
-          <span>© 2026 BRΛINBΛSE</span>
+          <span>© 2026 BrainBase</span>
           <span>A product from HLNA Labs</span>
         </div>
       </div>

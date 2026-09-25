@@ -120,7 +120,7 @@ export default function ClarityLoader() {
         >
           <p className={styles.text}>
             We use limited analytics on our public pages to understand and
-            improve BRΛINBΛSE. See our{' '}
+            improve BrainBase. See our{' '}
             <a href="/privacy" className={styles.link}>
               Privacy Policy
             </a>

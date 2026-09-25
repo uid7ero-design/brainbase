@@ -49,7 +49,7 @@ describe('/web-systems', () => {
     // Mixed inline markup: the space after the accented word was dropped by
     // the production JSX transform when the text wrapped onto a new line.
     const frontDoor = [...document.querySelectorAll('p')].find(p => p.textContent?.startsWith('The website is the front door.'));
-    expect(frontDoor?.textContent).toBe("The website is the front door. BRΛINBΛSE is what's behind it.");
+    expect(frontDoor?.textContent).toBe("The website is the front door. BrainBase is what's behind it.");
   });
 
   it('keeps every destination the previous page linked to', () => {
@@ -133,5 +133,27 @@ describe('/web-systems', () => {
     expect(toggle).toHaveAttribute('aria-pressed', 'false');
     await user.click(toggle);
     expect(toggle).toHaveAttribute('aria-pressed', 'true');
+  });
+});
+
+describe('/web-systems — brand typography', () => {
+  it('uses plain BrainBase / HLNA in readable text; the stylised Λ appears only inside hidden display marks', () => {
+    const { container } = renderBrainbase(<WebSystemsPage />);
+    const clone = container.cloneNode(true) as HTMLElement;
+    clone.querySelectorAll('[aria-hidden="true"]').forEach(n => n.remove());
+    expect(clone.textContent).not.toMatch(/Λ/);
+    expect(clone.textContent).toMatch(/BrainBase Web Systems/);
+    expect(clone.textContent).toMatch(/HLNA intelligence/);
+    expect(screen.getByRole('link', { name: /Back to BrainBase/ })).toHaveAttribute('href', '/');
+  });
+
+  it('display marks in the system diagram expose the plain names to assistive technology', () => {
+    const { container } = renderBrainbase(<WebSystemsPage />);
+    const figure = container.querySelector('figure')!;
+    expect(figure).toHaveTextContent('BrainBase');
+    expect(figure).toHaveTextContent('HLNA ready');
+    const hidden = [...figure.querySelectorAll('[aria-hidden="true"]')].map(n => n.textContent);
+    expect(hidden).toContain('BRΛINBΛSE');
+    expect(hidden).toContain('HLNΛ');
   });
 });

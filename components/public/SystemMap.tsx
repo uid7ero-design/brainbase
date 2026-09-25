@@ -2,7 +2,7 @@ import styles from './SystemMap.module.css';
 
 // The homepage hero visual: BrainBase's orbital motif redrawn as a calm,
 // architectural map — one shared core, the platform's real capabilities on
-// a single orbit, HLNΛ on the inner orbit, and one example connected
+// a single orbit, HLNA on the inner orbit, and one example connected
 // external system outside it. Static except a slow data-flow dash on two
 // links, which stops under prefers-reduced-motion.
 //
@@ -48,10 +48,10 @@ export function SystemMap({ idPrefix = 'bb-map' }: { idPrefix?: string }) {
       aria-labelledby={titleId}
       aria-describedby={descId}
     >
-      <title id={titleId}>BRΛINBΛSE platform map</title>
+      <title id={titleId}>BrainBase platform map</title>
       <desc id={descId}>
         Clients and CRM, Leads, Bookings, Workflows, Dashboards, Web Systems and Events connect to one shared
-        BRΛINBΛSE core, with HLNΛ as the intelligence layer and Microsoft 365 shown as an example connected external
+        BrainBase core, with HLNA as the intelligence layer and Microsoft 365 shown as an example connected external
         system.
       </desc>
 
@@ -97,7 +97,7 @@ export function SystemMap({ idPrefix = 'bb-map' }: { idPrefix?: string }) {
         BRΛINBΛSE
       </text>
 
-      {/* HLNΛ on the inner orbit */}
+      {/* HLNA on the inner orbit */}
       <circle cx={hlna.x} cy={hlna.y} r={4.5} className={styles.hlnaNode} />
       <text x={hlna.x - 10} y={hlna.y + 4} textAnchor="end" className={styles.hlnaLabel}>
         HLNΛ

@@ -44,7 +44,7 @@ describe('/demo', () => {
       'Different views. One connected operation.',
       'This is one example configuration.',
       'Try it: run an example scenario',
-      'HLNΛ helps interpret this connected operation — it does not replace the underlying operational system.',
+      'HLNA helps interpret this connected operation — it does not replace the underlying operational system.',
     ]) {
       expect(screen.getByText(text)).toBeInTheDocument()
     }
@@ -59,7 +59,7 @@ describe('/demo', () => {
     }
   })
 
-  it('renders both functional HLNΛ orbs', () => {
+  it('renders both functional HLNA orbs', () => {
     const { container } = setup()
     expect(container.querySelectorAll('img[src*="hlna-orb"]').length).toBeGreaterThanOrEqual(2)
   })
@@ -115,9 +115,9 @@ describe('/demo', () => {
     expect(screen.queryByText('New service request logged — REQ-1053')).toBeNull()
   })
 
-  it('asks HLNΛ from the keyboard and announces the answer politely', async () => {
+  it('asks HLNA from the keyboard and announces the answer politely', async () => {
     const { user } = setup()
-    const input = screen.getByRole('textbox', { name: 'Ask HLNΛ a question' })
+    const input = screen.getByRole('textbox', { name: 'Ask HLNA a question' })
     const answerRegion = screen.getByText(DEMO_QUESTIONS[0].answer)
     expectPoliteLiveRegion(answerRegion)
 
@@ -129,7 +129,7 @@ describe('/demo', () => {
       vi.advanceTimersByTime(700)
     })
     expect(answerRegion).toHaveTextContent(DEMO_QUESTIONS[1].answer)
-    expect(screen.getByRole('button', { name: 'Ask HLNΛ' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Ask HLNA' })).toBeEnabled()
   })
 
   it('suggestion buttons work with Space', async () => {
@@ -155,8 +155,29 @@ describe('/demo', () => {
   it('duplicate "Preview" buttons have distinct accessible names', async () => {
     const { user } = setup()
     await user.click(screen.getByRole('tab', { name: 'Reporting' }))
-    for (const title of ['Executive Summary', 'Monthly Performance', 'Exception Report', 'HLNΛ Analysis']) {
+    for (const title of ['Executive Summary', 'Monthly Performance', 'Exception Report', 'HLNA Analysis']) {
       expect(screen.getByRole('button', { name: `Preview ${title}` })).toBeInTheDocument()
     }
+  })
+})
+
+describe('/demo — brand typography', () => {
+  it('uses plain BrainBase / HLNA in readable text; the stylised Λ appears only in hidden marks or the wordmark image', () => {
+    const { container } = renderBrainbase(<DemoPage />)
+    const clone = container.cloneNode(true) as HTMLElement
+    clone.querySelectorAll('[aria-hidden="true"]').forEach(n => n.remove())
+    // The workspace top bar keeps the dark-only BrainBaseWordmark <img>: its
+    // alt is an attribute, not page text, so textContent never includes it.
+    expect(container.querySelector('img[alt="BRΛINBΛSE"]')).not.toBeNull()
+    expect(clone.textContent).not.toMatch(/Λ/)
+    expect(clone.textContent).toMatch(/example BrainBase environment/)
+    expect(clone.textContent).toMatch(/HLNA helps interpret/)
+  })
+
+  it('the workspace chrome mark exposes the plain name', () => {
+    const { container } = renderBrainbase(<DemoPage />)
+    const small = container.querySelector('#workspace small')!
+    expect(small).toHaveTextContent('BrainBase Platform')
+    expect(small.querySelector('[aria-hidden="true"]')).toHaveTextContent('BRΛINBΛSE')
   })
 })

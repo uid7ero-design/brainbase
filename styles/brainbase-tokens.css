@@ -43,9 +43,28 @@
   --bb-radius-sm: 4px;
   --bb-radius: 6px;
   --bb-radius-lg: 10px;
+  /* Layout system. One container: every public page aligns nav, hero,
+     section headers, diagrams, grids and footer to the same two vertical
+     guides (container edge + gutter). No section-specific offsets. */
   --bb-container: 1200px;
   --bb-gutter: clamp(16px, 4vw, 32px);
-  --bb-section-gap: clamp(72px, 10vw, 128px);
+
+  /* Vertical rhythm — the only spacing values public sections use. Slightly
+     denser than HLNA Labs. */
+  --bb-section-gap: clamp(56px, 7vw, 88px); /* between page sections */
+  --bb-block-gap: clamp(32px, 4vw, 48px); /* between blocks inside a section */
+  --bb-head-gap: clamp(24px, 3vw, 32px); /* section header -> its content */
+  --bb-hero-top: clamp(40px, 6vw, 72px);
+  --bb-hero-bottom: clamp(48px, 6vw, 72px);
+
+  /* Cells — cards are cells within one system, not standalone cards. */
+  --bb-cell-pad: 20px 22px 22px;
+  --bb-cell-pad-sm: 14px 16px;
+  --bb-panel-pad: 18px;
+  --bb-cell-icon: 36px;
+  --bb-cell-icon-gap: 16px;
+  --bb-cell-title-gap: 8px;
+  --bb-grid-gap: 12px; /* gap between separated panels; ruled cell grids use 1px */
 }
 
 /* Dark (default — matches the layout's data-theme="dark" default). */
@@ -205,6 +224,24 @@
     linear-gradient(90deg, var(--bb-grid) 1px, transparent 1px);
   background-size: 32px 32px;
   background-position: -1px -1px;
+}
+
+/* Ruled cell grid: cells share 1px rules instead of floating as separate
+   cards. Set grid-template-columns in the page's own module. */
+.bb-cells {
+  display: grid;
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--bb-border);
+  border-radius: var(--bb-radius-lg);
+  background: var(--bb-border);
+  overflow: hidden;
+}
+.bb-cells > * {
+  padding: var(--bb-cell-pad);
+  background: var(--bb-surface);
 }
 
 /* Compact monospace metadata label. */

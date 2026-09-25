@@ -13,6 +13,7 @@ import {
   SESSIONS,
   TODAY_SCHEDULE,
 } from '@/components/public/client-operations-demo/content';
+import { HlnaMark } from '@/components/public/brand';
 import { Badge } from '@/components/ui/semantic';
 import publicStyles from '@/components/public/public.module.css';
 import styles from '@/components/public/client-operations-demo/clientOpsDemo.module.css';
@@ -53,7 +54,7 @@ export default function ClientOperationsDemoPage() {
           </Link>
 
           <div className={styles.heroBody}>
-            <BrainbaseLockup idPrefix="bb-co-demo-lockup" width={200} className={styles.heroLockup} />
+            <BrainbaseLockup idPrefix="bb-co-demo-lockup" width={200} className={styles.heroLockup} title="BrainBase" />
 
             <p className={`bb-eyebrow ${styles.heroEyebrow}`}>
               <span className={styles.eyebrowDot} aria-hidden="true" />
@@ -67,7 +68,7 @@ export default function ClientOperationsDemoPage() {
             </h1>
 
             <p className={styles.heroLede}>
-              Explore how BRΛINBΛSE connects leads, clients, bookings, follow-up and operational visibility for
+              Explore how BrainBase connects leads, clients, bookings, follow-up and operational visibility for
               businesses built around customer relationships and service delivery.
             </p>
           </div>
@@ -91,7 +92,7 @@ export default function ClientOperationsDemoPage() {
           className={styles.examplePanel}
           title={
             <span className={styles.exampleTabs}>
-              <span className={styles.exampleHlna}>HLNΛ</span>
+              <HlnaMark className={styles.exampleHlna} />
               {DASHBOARD_TABS.map(item => (
                 <span key={item} className={styles.exampleTab}>
                   {item}
@@ -103,7 +104,9 @@ export default function ClientOperationsDemoPage() {
           bodyClassName={styles.exampleBody}
         >
           <div className={styles.exampleHead}>
-            <p className="bb-eyebrow">HLNΛ · Client Operations</p>
+            <p className="bb-eyebrow">
+              <HlnaMark /> · Client Operations
+            </p>
             <h3 className={styles.exampleTitle}>Client Operations Dashboard</h3>
             <p className={styles.itemBody}>Leads, clients, bookings and follow-up activity</p>
           </div>
@@ -209,11 +212,11 @@ export default function ClientOperationsDemoPage() {
           eyebrow="Connected Workflow"
           title="The value is what happens between the screens."
         >
-          BRΛINBΛSE keeps each stage of the client journey connected instead of treating leads, clients, bookings and
+          BrainBase keeps each stage of the client journey connected instead of treating leads, clients, bookings and
           follow-up as separate jobs.
         </SectionHeading>
 
-        <ol className={styles.flow}>
+        <ol className={`bb-cells ${styles.flow}`}>
           {FLOW.map(step => (
             <li key={step.number} className={styles.flowStep}>
               <span className={styles.flowNumber} aria-hidden="true">
@@ -230,20 +233,20 @@ export default function ClientOperationsDemoPage() {
 
       {/* MODULES ───────────────────────────────────────────────────────── */}
       <Section labelledBy="co-demo-modules">
-        <div className={styles.modulesPanel}>
+        <div>
           <SectionHeading
             id="co-demo-modules"
             index="04"
-            eyebrow="BRΛINBΛSE Platform"
+            eyebrow="BrainBase Platform"
             title="One operation. Multiple connected modules."
           >
-            Client Operations is one configuration of BRΛINBΛSE. Modules, terminology and workflows can be adapted
+            Client Operations is one configuration of BrainBase. Modules, terminology and workflows can be adapted
             around the way each business manages its clients and delivers its services.
           </SectionHeading>
 
-          <ul className={styles.modules}>
+          <ul className={`bb-cells ${styles.modules}`}>
             {MODULES.map(module => (
-              <li key={module.title} className={styles.module}>
+              <li key={module.title}>
                 <h3 className={styles.itemTitle}>
                   <span className={styles.moduleDot} aria-hidden="true" />
                   {module.title}
@@ -271,7 +274,7 @@ export default function ClientOperationsDemoPage() {
             <div>
               <h3 className={styles.deploymentTitle}>LD Tennis</h3>
               <p className={styles.bodyText}>
-                LD Tennis is the first live Client Operations deployment built on BRΛINBΛSE. The same platform is
+                LD Tennis is the first live Client Operations deployment built on BrainBase. The same platform is
                 configured around a coaching business, connecting website enquiries, leads, clients, sessions,
                 follow-up and day-to-day operational visibility.
               </p>
@@ -301,7 +304,7 @@ export default function ClientOperationsDemoPage() {
           </h2>
           <p className={styles.ctaBody}>
             Whether your business runs appointments, consultations, coaching sessions, programs or other client
-            services, BRΛINBΛSE can be configured around your terminology, workflows and day-to-day operation.
+            services, BrainBase can be configured around your terminology, workflows and day-to-day operation.
           </p>
           <div className={styles.ctaActions}>
             <ButtonLink href="/request-demo">Build this for my business</ButtonLink>

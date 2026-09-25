@@ -12,6 +12,7 @@ import {
   SectionHeading,
   TextLink,
 } from '@/components/public/primitives';
+import { HlnaMark } from '@/components/public/brand';
 import { Badge } from '@/components/ui/semantic';
 import publicStyles from '@/components/public/public.module.css';
 import styles from '@/components/public/client-operations/clientOps.module.css';
@@ -74,7 +75,7 @@ const JOURNEY = [
   {
     number: '02',
     title: 'Lead organised',
-    body: 'The enquiry appears in BRΛINBΛSE with contact information and follow-up status.',
+    body: 'The enquiry appears in BrainBase with contact information and follow-up status.',
   },
   {
     number: '03',
@@ -94,7 +95,7 @@ const JOURNEY = [
   {
     number: '06',
     title: 'Business understood',
-    body: 'Dashboards and HLNΛ turn connected activity into operational visibility.',
+    body: 'Dashboards and HLNA turn connected activity into operational visibility.',
   },
 ];
 
@@ -130,7 +131,7 @@ const CAPABILITIES = [
     description: 'Bring operational activity and business indicators into one view.',
   },
   {
-    title: 'HLNΛ Intelligence',
+    title: 'HLNA Intelligence',
     description: 'Surface context, priorities and operational signals across the connected operation.',
   },
 ];
@@ -196,7 +197,7 @@ const PRICING: ClientOperationsPlan[] = [
     name: 'Business System',
     tagline: 'Connect the broader business',
     price: 99,
-    features: ['Everything in Operations', 'HLNΛ intelligence', 'Advanced reporting', 'Business integrations'],
+    features: ['Everything in Operations', 'HLNA intelligence', 'Advanced reporting', 'Business integrations'],
     popular: false,
     cta: 'Discuss Business System',
   },
@@ -206,7 +207,7 @@ const PRICING: ClientOperationsPlan[] = [
     price: null,
     priceLabel: 'Custom',
     features: [
-      'Tailored BRΛINBΛSE deployment',
+      'Tailored BrainBase deployment',
       'Multiple teams or business units',
       'Advanced permissions & governance',
       'Custom integrations & workflows',
@@ -244,11 +245,11 @@ export default function ClientOperations() {
       <section className={`${styles.hero} bb-grid-bg`} aria-labelledby="client-ops-title">
         <Container className={styles.heroInner}>
           <Link href="/" className={styles.backLink}>
-            ← Back to BRΛINBΛSE
+            ← Back to BrainBase
           </Link>
 
           <div className={styles.heroBody}>
-            <BrainbaseLockup idPrefix="bb-client-ops-lockup" width={200} className={styles.heroLockup} />
+            <BrainbaseLockup idPrefix="bb-client-ops-lockup" width={200} className={styles.heroLockup} title="BrainBase" />
 
             <p className={`bb-eyebrow ${styles.heroEyebrow}`}>
               <span className={styles.eyebrowDot} aria-hidden="true" />
@@ -262,7 +263,7 @@ export default function ClientOperations() {
             </h1>
 
             <p className={styles.heroLede}>
-              BRΛINBΛSE Client Operations connects enquiries, clients, bookings, follow-up and operational visibility in
+              BrainBase Client Operations connects enquiries, clients, bookings, follow-up and operational visibility in
               one environment configured around how your business works.
             </p>
 
@@ -281,7 +282,7 @@ export default function ClientOperations() {
 
             <div className={styles.whoFor}>
               <p className="bb-eyebrow">Designed for client &amp; service businesses</p>
-              <ul className={styles.chipRowCentred}>
+              <ul className={styles.chipRow}>
                 {WHO_FOR.map(item => (
                   <li key={item}>
                     <Chip>{item}</Chip>
@@ -318,7 +319,7 @@ export default function ClientOperations() {
           <div className={styles.compareAfter}>
             <p className={`bb-eyebrow ${styles.compareLabel} ${styles.compareLabelAfter}`}>
               <span className={styles.shapeLinked} aria-hidden="true" />
-              With BRΛINBΛSE
+              With BrainBase
             </p>
             <p className={styles.compareBodyStrong}>
               Leads, clients, scheduling, follow-up and operational context stay connected in one environment.
@@ -355,12 +356,12 @@ export default function ClientOperations() {
       {/* OPERATIONAL IMPACT ──────────────────────────────────────────── */}
       <Section labelledBy="client-ops-impact">
         <SectionHeading id="client-ops-impact" index="03" eyebrow="Operational impact" title="Less admin. More control.">
-          BRΛINBΛSE removes operational friction around the work a client-based business already does every day.
+          BrainBase removes operational friction around the work a client-based business already does every day.
         </SectionHeading>
 
-        <ul className={styles.ruledGrid}>
+        <ul className={`bb-cells ${styles.ruledGrid}`}>
           {OUTCOMES.map(outcome => (
-            <li key={outcome.title} className={styles.ruledCell}>
+            <li key={outcome.title}>
               <span className={styles.cellMark} aria-hidden="true" />
               <h3 className={styles.itemTitle}>{outcome.title}</h3>
               <p className={styles.itemBody}>{outcome.description}</p>
@@ -390,7 +391,7 @@ export default function ClientOperations() {
                 </li>
               ))}
             </ul>
-            <p className={styles.caption}>Same BRΛINBΛSE capabilities. Configured around your operation.</p>
+            <p className={styles.caption}>Same BrainBase capabilities. Configured around your operation.</p>
           </Panel>
         </div>
       </Section>
@@ -416,7 +417,7 @@ export default function ClientOperations() {
               ))}
             </ul>
             <p className={styles.caption}>
-              Add more BRΛINBΛSE capabilities as your operation grows. This is one way into the wider BRΛINBΛSE
+              Add more BrainBase capabilities as your operation grows. This is one way into the wider BrainBase
               platform.
             </p>
           </Panel>
@@ -425,7 +426,7 @@ export default function ClientOperations() {
 
       {/* 6. CORE CAPABILITIES ────────────────────────────────────────── */}
       <Section labelledBy="client-ops-capabilities">
-        <div className={styles.capabilityPanel}>
+        <div>
           <SectionHeading
             id="client-ops-capabilities"
             index="06"
@@ -435,9 +436,9 @@ export default function ClientOperations() {
             Each capability can be configured around how your business actually operates.
           </SectionHeading>
 
-          <ul className={styles.capabilityGrid}>
+          <ul className={`bb-cells ${styles.capabilityGrid}`}>
             {CAPABILITIES.map(capability => (
-              <li key={capability.title} className={styles.capability}>
+              <li key={capability.title}>
                 <h3 className={styles.itemTitle}>
                   <span className={styles.capabilityDot} aria-hidden="true" />
                   {capability.title}
@@ -449,9 +450,7 @@ export default function ClientOperations() {
 
           <p className={styles.hlnaMeta}>
             <span className="bb-eyebrow">Intelligence layer</span>
-            <span className={styles.hlnaMark}>
-              HLN<span className={styles.lambda}>Λ</span>
-            </span>
+            <HlnaMark />
           </p>
         </div>
       </Section>
@@ -465,7 +464,7 @@ export default function ClientOperations() {
             eyebrow="External systems"
             title="Connect the systems that already make sense."
           >
-            BRΛINBΛSE doesn&apos;t need to replace every specialist system your business relies on. External systems can
+            BrainBase doesn&apos;t need to replace every specialist system your business relies on. External systems can
             connect where it helps keep the operation in one place.
           </SectionHeading>
 
@@ -496,7 +495,7 @@ export default function ClientOperations() {
           className={styles.examplePanel}
           title={
             <span className={styles.exampleTabs}>
-              <span className={styles.exampleHlna}>HLNΛ</span>
+              <HlnaMark className={styles.exampleHlna} />
               {['Leads', 'Clients', 'Scheduling', 'Requests', 'Reporting'].map(item => (
                 <span key={item} className={styles.exampleTab}>
                   {item}
@@ -508,7 +507,9 @@ export default function ClientOperations() {
           bodyClassName={styles.exampleBody}
         >
           <div className={styles.exampleHead}>
-            <p className="bb-eyebrow">HLNΛ · Client Operations</p>
+            <p className="bb-eyebrow">
+              <HlnaMark /> · Client Operations
+            </p>
             <h3 className={styles.exampleTitle}>Operational Dashboard</h3>
             <p className={styles.itemBody}>Leads, clients, sessions and follow-up activity — shown with example data.</p>
           </div>
@@ -565,20 +566,18 @@ export default function ClientOperations() {
         </Panel>
       </Section>
 
-      {/* 9. HLNΛ ─────────────────────────────────────────────────────── */}
+      {/* 9. HLNA ─────────────────────────────────────────────────────── */}
       <Section labelledBy="client-ops-hlna">
-        <div className={styles.hlnaPanel}>
-          <p className={`bb-eyebrow ${styles.inlineEyebrow}`}>
-            <span className={styles.eyebrowDot} aria-hidden="true" />
-            Inside BRΛINBΛSE
-          </p>
-          <h2 id="client-ops-hlna" className={styles.sectionTitle}>
-            HLN<span className={styles.lambda}>Λ</span> — intelligence across the client operation.
-          </h2>
-          <p className={styles.bodyText}>
-            When client, booking, workflow and activity information is connected, HLNΛ can help surface what needs
-            attention, what has changed and where there are gaps.
-          </p>
+        <SectionHeading
+          id="client-ops-hlna"
+          index="09"
+          eyebrow="Inside BrainBase"
+          title="HLNA — intelligence across the client operation."
+        >
+          When client, booking, workflow and activity information is connected, HLNA can help surface what needs
+          attention, what has changed and where there are gaps.
+        </SectionHeading>
+        <div>
           <ul className={styles.chipRow}>
             {HLNA_SIGNALS.map(signal => (
               <li key={signal}>
@@ -587,7 +586,7 @@ export default function ClientOperations() {
             ))}
           </ul>
           <div className={styles.linkRow}>
-            <TextLink href="/client-operations/demo">See HLNΛ in the Client Operations demo</TextLink>
+            <TextLink href="/client-operations/demo">See HLNA in the Client Operations demo</TextLink>
           </div>
         </div>
       </Section>
@@ -602,9 +601,9 @@ export default function ClientOperations() {
                 LD Tennis
               </h2>
               <p className={styles.bodyText}>
-                A real BRΛINBΛSE deployment, configured around how LD Tennis operates. LD Tennis connects website
+                A real BrainBase deployment, configured around how LD Tennis operates. LD Tennis connects website
                 enquiries, leads, clients, coaching sessions, follow-up and operational reporting through the same
-                BRΛINBΛSE platform.
+                BrainBase platform.
               </p>
               <TextLink href="/client-operations/demo">Explore the deployment</TextLink>
             </div>
@@ -625,11 +624,11 @@ export default function ClientOperations() {
       <Section labelledBy="client-ops-wider">
         <SectionHeading
           id="client-ops-wider"
+          index="10"
           eyebrow="The wider platform"
           title="Start here. Expand when you need to."
-          centred
         >
-          Client Operations is a starting configuration of BRΛINBΛSE — not the limit of the platform. Additional
+          Client Operations is a starting configuration of BrainBase — not the limit of the platform. Additional
           capabilities can be introduced as your operation grows.
         </SectionHeading>
       </Section>
@@ -638,15 +637,15 @@ export default function ClientOperations() {
       <Section labelledBy="client-ops-pricing">
         <SectionHeading
           id="client-ops-pricing"
-          index="09"
-          eyebrow="BRΛINBΛSE pricing"
+          index="11"
+          eyebrow="BrainBase pricing"
           title="Start small. Expand as you connect more."
         >
-          Client Operations can begin as a focused workspace and expand into a broader BRΛINBΛSE deployment as your
+          Client Operations can begin as a focused workspace and expand into a broader BrainBase deployment as your
           workflows, reporting and intelligence requirements grow.
         </SectionHeading>
 
-        <ul className={styles.plans}>
+        <ul className={`bb-cells ${styles.plans}`}>
           {PRICING.map(plan => (
             <li
               key={plan.name}
@@ -698,12 +697,12 @@ export default function ClientOperations() {
         <div className={styles.pricingNote}>
           <p className={styles.pricingNoteTitle}>Platform subscription + implementation where required.</p>
           <p className={styles.itemBody}>
-            Monthly pricing covers the BRΛINBΛSE platform subscription. Initial configuration, data migration, website
+            Monthly pricing covers the BrainBase platform subscription. Initial configuration, data migration, website
             work and custom integrations may involve separate implementation costs depending on your requirements. Any
             additional costs are scoped and quoted before work begins.
           </p>
           <div className={styles.linkRow}>
-            <TextLink href="/pricing">View full BRΛINBΛSE pricing</TextLink>
+            <TextLink href="/pricing">View full BrainBase pricing</TextLink>
           </div>
         </div>
       </Section>
@@ -717,7 +716,7 @@ export default function ClientOperations() {
           </h2>
           <p className={styles.ctaBody}>
             Whether you run coaching sessions, consultations, appointments, programs or another client-based service,
-            BRΛINBΛSE can provide the operational system behind the work.
+            BrainBase can provide the operational system behind the work.
           </p>
           <div className={styles.ctaActions}>
             <ButtonLink href="/request-demo">Discuss your operation</ButtonLink>

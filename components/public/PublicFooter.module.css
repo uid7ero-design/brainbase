@@ -1,5 +1,5 @@
 .footer {
-  margin-top: clamp(56px, 8vw, 96px);
+  margin-top: var(--bb-section-gap);
   border-top: 1px solid var(--bb-border);
   font-family: var(--bb-font-sans);
 }

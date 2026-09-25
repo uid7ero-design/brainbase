@@ -153,7 +153,7 @@ export const REPORTS = [
   },
   {
     icon: '◎',
-    title: 'HLNΛ Analysis',
+    title: 'HLNA Analysis',
     description: 'Ask questions across operational information without building another report.',
     status: 'Live',
   },
@@ -163,7 +163,7 @@ export const SCENARIO_STEPS = [
   'New service request logged — REQ-1053',
   'Added to the open requests queue — Open Requests 48 → 49',
   'Flagged for Operations — workload updated',
-  "HLNΛ: This adds to today's backlog — worth prioritising before end of day.",
+  "HLNA: This adds to today's backlog — worth prioritising before end of day.",
 ]
 
 /**

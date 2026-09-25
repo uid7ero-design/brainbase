@@ -37,18 +37,18 @@ describe('/client-operations/demo', () => {
       'Week of 24–30 August',
       '+ New Booking',
       'The value is what happens between the screens.',
-      'HLNΛ adds context',
+      'HLNA adds context',
       'One operation. Multiple connected modules.',
       'The same platform, configured around a real business.',
       'LD Tennis',
-      'HLNΛ intelligence layer',
+      'HLNA intelligence layer',
       'The same foundation can be built around your operation.',
     ]) {
       expect(screen.getAllByText(text).length, text).toBeGreaterThan(0);
     }
-    const lede = screen.getByText(/^Explore how BRΛINBΛSE connects leads/);
+    const lede = screen.getByText(/^Explore how BrainBase connects leads/);
     expect(lede).toHaveTextContent(
-      'Explore how BRΛINBΛSE connects leads, clients, bookings, follow-up and operational visibility for businesses built around customer relationships and service delivery.',
+      'Explore how BrainBase connects leads, clients, bookings, follow-up and operational visibility for businesses built around customer relationships and service delivery.',
     );
   });
 
@@ -92,5 +92,24 @@ describe('/client-operations/demo', () => {
   it('links are keyboard reachable in a logical order', async () => {
     const { user } = renderBrainbase(<ClientOperationsDemoPage />);
     await expectNamedFocusOrder(user, ['← Back to Client Operations', 'Build this for my business', 'Back to Client Operations']);
+  });
+
+  it('uses plain BrainBase / HLNA in readable text — no stylised Λ outside hidden marks', () => {
+    const { container } = renderBrainbase(<ClientOperationsDemoPage />);
+    const clone = container.cloneNode(true) as HTMLElement;
+    clone.querySelectorAll('[aria-hidden="true"]').forEach(n => n.remove());
+    expect(clone.textContent).not.toMatch(/Λ/);
+    expect(screen.getByRole('heading', { name: 'One operation. Multiple connected modules.' })).toBeInTheDocument();
+    for (const el of container.querySelectorAll('[aria-label]')) {
+      expect(el.getAttribute('aria-label')).not.toMatch(/Λ/);
+    }
+    expect(screen.getAllByRole('img', { name: 'BrainBase' }).length).toBeGreaterThan(0);
+  });
+
+  it('the mock dashboard chrome uses the HLNA mark, exposed as "HLNA"', () => {
+    renderBrainbase(<ClientOperationsDemoPage />);
+    const eyebrow = screen.getByText(/· Client Operations/);
+    expect(eyebrow.querySelector('[aria-hidden="true"]')).toHaveTextContent('HLNΛ');
+    expect(eyebrow.querySelector('.bb-visually-hidden')).toHaveTextContent('HLNA');
   });
 });

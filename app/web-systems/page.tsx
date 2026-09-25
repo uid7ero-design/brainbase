@@ -1,6 +1,7 @@
 import Link from 'next/link';
 
 import { BrainbaseLockup } from '@/components/public/BrainbaseLockup';
+import { BrainBaseMark, HlnaMark } from '@/components/public/brand';
 import { PublicFooter } from '@/components/public/PublicFooter';
 import {
   ArrowIcon,
@@ -30,7 +31,7 @@ import { Badge } from '@/components/ui/semantic';
 import publicStyles from '@/components/public/public.module.css';
 import styles from '@/components/public/web-systems/web-systems.module.css';
 
-// /web-systems — BRΛINBΛSE Web Systems. Server component on the --bb-*
+// /web-systems — BrainBase Web Systems. Server component on the --bb-*
 // public visual system; the only client island is DeploymentOptions (the
 // deployment cards + EnquiryModal). Copy is unchanged from the previous
 // page (see components/public/web-systems/content.ts).
@@ -42,7 +43,7 @@ export default function WebSystemsPage() {
       <section className={`${styles.hero} bb-grid-bg`} aria-labelledby="web-systems-title">
         <Container>
           <Link href="/" className={styles.backLink}>
-            <span aria-hidden="true">←</span> Back to BRΛINBΛSE
+            <span aria-hidden="true">←</span> Back to BrainBase
           </Link>
 
           <div className={styles.heroGrid}>
@@ -52,7 +53,7 @@ export default function WebSystemsPage() {
               <BrainbaseLockup idPrefix="bb-ws-hero-lockup" width={220} title={null} className={styles.heroLockup} />
               <p className={`bb-eyebrow ${styles.heroEyebrow}`}>
                 <span className={styles.eyebrowDot} aria-hidden="true" />
-                BRΛINBΛSE Web Systems
+                BrainBase Web Systems
               </p>
               <h1 id="web-systems-title" className={styles.heroTitle}>
                 Start with your website.
@@ -60,13 +61,13 @@ export default function WebSystemsPage() {
                 <span className={styles.heroAccent}>Build the system behind it.</span>
               </h1>
               <p className={styles.heroLede}>
-                BRΛINBΛSE Web Systems connects the customer-facing experience with the operational work behind it —
+                BrainBase Web Systems connects the customer-facing experience with the operational work behind it —
                 enquiries, client information, workflows, bookings and reporting where required.
               </p>
               <div className={styles.heroActions}>
                 <ButtonLink href="/request-demo">Discuss your website</ButtonLink>
                 <ButtonLink href="/demo" variant="secondary">
-                  Explore BRΛINBΛSE
+                  Explore BrainBase
                 </ButtonLink>
               </div>
               <ul className={styles.heroPoints}>
@@ -84,8 +85,8 @@ export default function WebSystemsPage() {
               bodyClassName={styles.stackBody}
             >
               <figcaption className="bb-visually-hidden">
-                How a BRΛINBΛSE web system is layered: the website feeds lead capture, which connects to CRM,
-                bookings, automation and dashboards, all running on the BRΛINBΛSE platform.
+                How a BrainBase web system is layered: the website feeds lead capture, which connects to CRM,
+                bookings, automation and dashboards, all running on the BrainBase platform.
               </figcaption>
               <ol className={styles.stack}>
                 <li className={styles.layer}>
@@ -107,13 +108,17 @@ export default function WebSystemsPage() {
                   </span>
                 </li>
                 <li className={`${styles.layer} ${styles.layerCore}`}>
-                  <span className={styles.layerTitle}>BRΛINBΛSE</span>
+                  <span className={styles.layerTitle}>
+                    <BrainBaseMark />
+                  </span>
                   <span className={styles.layerDetail}>Operations · Insight · Intelligence</span>
                 </li>
               </ol>
               <p className={styles.stackFoot}>
                 <span>Managed infrastructure</span>
-                <span className={styles.stackFootAccent}>HLNΛ ready</span>
+                <span className={styles.stackFootAccent}>
+                  <HlnaMark /> ready
+                </span>
               </p>
             </Panel>
           </div>
@@ -156,9 +161,9 @@ export default function WebSystemsPage() {
           vary by business.
         </SectionHeading>
 
-        <ol className={styles.journey}>
+        <ol className={`bb-cells ${styles.journey}`}>
           {FLOW.map(step => (
-            <li key={step.number} className={styles.journeyStep}>
+            <li key={step.number}>
               <span className={styles.journeyIndex}>{step.number}</span>
               <h3 className={styles.cellTitle}>{step.title}</h3>
               <p className={styles.cellBody}>{step.body}</p>
@@ -174,7 +179,7 @@ export default function WebSystemsPage() {
           clear.
         </SectionHeading>
 
-        <ul className={styles.serviceGrid}>
+        <ul className={`bb-cells ${styles.serviceGrid}`}>
           {SERVICES.map((service, i) => (
             <li key={service.title} className={styles.service}>
               <span className={styles.serviceIndex} aria-hidden="true">
@@ -206,7 +211,7 @@ export default function WebSystemsPage() {
           begin.
         </SectionHeading>
 
-        <ul className={styles.outcomes}>
+        <ul className={`bb-cells ${styles.outcomes}`}>
           {OUTCOMES.map(item => (
             <li key={item.title} className={styles.outcome}>
               <h3 className={styles.cellTitle}>{item.title}</h3>
@@ -225,12 +230,12 @@ export default function WebSystemsPage() {
             eyebrow="Built to connect"
             title="Built to connect with the operation behind it."
           >
-            A BRΛINBΛSE website isn&apos;t valuable because of the framework it&apos;s built on. It&apos;s valuable
-            because customer-facing actions — enquiries, bookings, follow-up — can feed directly into BRΛINBΛSE
+            A BrainBase website isn&apos;t valuable because of the framework it&apos;s built on. It&apos;s valuable
+            because customer-facing actions — enquiries, bookings, follow-up — can feed directly into BrainBase
             capabilities where appropriate.
           </SectionHeading>
           <p className={styles.frontDoor}>
-            The website is the front door. <span className={styles.accentText}>BRΛINBΛSE</span>{' '}
+            The website is the front door. <span className={styles.accentText}>BrainBase</span>{' '}
             is what&apos;s behind it.
           </p>
         </div>
@@ -283,7 +288,7 @@ export default function WebSystemsPage() {
             eyebrow="External systems"
             title="Connect the systems that already make sense."
           >
-            BRΛINBΛSE doesn&apos;t need to replace every specialist system your business relies on. It can connect
+            BrainBase doesn&apos;t need to replace every specialist system your business relies on. It can connect
             with external systems where it makes sense.
           </SectionHeading>
           <div className={styles.externalExample}>
@@ -303,9 +308,9 @@ export default function WebSystemsPage() {
                 LD Tennis
               </h2>
               <p className={styles.bodyText}>
-                A real BRΛINBΛSE deployment where the customer-facing website connects into the wider operation.
+                A real BrainBase deployment where the customer-facing website connects into the wider operation.
                 Website enquiries flow through to leads, clients, coaching and session operations, and reporting — all
-                through the same BRΛINBΛSE platform.
+                through the same BrainBase platform.
               </p>
               <div className={styles.linkRow}>
                 <a
@@ -342,7 +347,7 @@ export default function WebSystemsPage() {
       {/* 08 DEPLOYMENT OPTIONS ─────────────────────────────────────── */}
       <Section labelledBy="ws-options-title">
         <SectionHeading id="ws-options-title" index="08" eyebrow="Deployment options" title="Start where it makes sense.">
-          Not every business needs the full BRΛINBΛSE platform on day one. The website can be the foundation and the
+          Not every business needs the full BrainBase platform on day one. The website can be the foundation and the
           connected system can grow from there.
         </SectionHeading>
 
@@ -373,22 +378,21 @@ export default function WebSystemsPage() {
         </ol>
       </Section>
 
-      {/* MANAGED BY BRΛINBΛSE ─────────────────────────────────────────── */}
+      {/* 10 MANAGED BY BRAINBASE ──────────────────────────────────── */}
       <Section labelledBy="ws-managed-title">
         <div className={styles.managed}>
-          <div className={styles.managedIntro}>
-            <p className="bb-eyebrow">Managed by BRΛINBΛSE</p>
-            <h2 id="ws-managed-title" className={styles.panelHeading}>
-              We can stay responsible after launch.
-            </h2>
-            <p className={styles.bodyText}>
-              A website should not become another system your business has to maintain. BRΛINBΛSE can manage the
-              technical environment and continue improving the connected system over time.
-            </p>
-          </div>
-          <ul className={styles.managedGrid}>
+          <SectionHeading
+            id="ws-managed-title"
+            index="10"
+            eyebrow="Managed by BrainBase"
+            title="We can stay responsible after launch."
+          >
+            A website should not become another system your business has to maintain. BrainBase can manage the
+            technical environment and continue improving the connected system over time.
+          </SectionHeading>
+          <ul className={`bb-cells ${styles.managedGrid}`}>
             {MANAGED.map(item => (
-              <li key={item.title} className={styles.managedItem}>
+              <li key={item.title}>
                 <h3 className={styles.managedTitle}>{item.title}</h3>
                 <p className={styles.cellBody}>{item.body}</p>
               </li>
@@ -397,22 +401,21 @@ export default function WebSystemsPage() {
         </div>
       </Section>
 
-      {/* PART OF BRΛINBΛSE ────────────────────────────────────────────── */}
+      {/* 11 PART OF BRAINBASE ─────────────────────────────────────────── */}
       <Section labelledBy="ws-platform-title">
         <div className={styles.platform}>
-          <div>
-            <p className="bb-eyebrow">Part of BRΛINBΛSE</p>
-            <h2 id="ws-platform-title" className={styles.panelHeading}>
-              The website can be the starting point.
-            </h2>
-            <p className={styles.bodyText}>
-              BRΛINBΛSE Web Systems can become the customer-facing layer of a broader operational platform —
-              connecting enquiries, clients, workflows, dashboards, reporting and HLNΛ intelligence where appropriate.
-            </p>
-          </div>
+          <SectionHeading
+            id="ws-platform-title"
+            index="11"
+            eyebrow="Part of BrainBase"
+            title="The website can be the starting point."
+          >
+            BrainBase Web Systems can become the customer-facing layer of a broader operational platform — connecting
+            enquiries, clients, workflows, dashboards, reporting and HLNA intelligence where appropriate.
+          </SectionHeading>
           <div className={styles.platformActions}>
             <ButtonLink href="/demo" variant="secondary">
-              Explore BRΛINBΛSE
+              Explore BrainBase
             </ButtonLink>
             <ButtonLink href="/client-operations" variant="secondary" arrow>
               Client Operations
@@ -435,7 +438,7 @@ export default function WebSystemsPage() {
           <div className={styles.ctaActions}>
             <ButtonLink href="/request-demo">Discuss your website</ButtonLink>
             <ButtonLink href="/demo" variant="secondary">
-              Explore BRΛINBΛSE
+              Explore BrainBase
             </ButtonLink>
           </div>
         </div>

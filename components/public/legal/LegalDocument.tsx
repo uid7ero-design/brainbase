@@ -48,7 +48,7 @@ export function LegalDocument({
     <main className={`bb-public ${publicStyles.page}`}>
       <div className={styles.shell}>
         <Link href="/" className={styles.back}>
-          ← Back to BRΛINBΛSE
+          ← Back to BrainBase
         </Link>
 
         <header className={styles.header}>

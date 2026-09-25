@@ -594,7 +594,7 @@ function HeroSummary({ summary, status, confidence, topAction, executiveSummary 
       {es && !esHeadline && !esImpact && !summary && !status && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <span style={{ width: 4, height: 4, borderRadius: '50%', background: '#A78BFA', flexShrink: 0, boxShadow: '0 0 5px #A78BFA' }} />
-          <span style={{ fontSize: 11, color: 'rgba(167,139,250,.55)' }}>HLNΛ analysis complete</span>
+          <span style={{ fontSize: 11, color: 'rgba(167,139,250,.55)' }}>HLNA analysis complete</span>
         </div>
       )}
 
@@ -1306,7 +1306,7 @@ export default function CommandDemo({
           onChange={e => setQuery(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter' && !file) runQuery(); }}
           placeholder={file ? 'Optional: ask something specific about this file…' : placeholder}
-          aria-label={file ? 'Ask HLNΛ about this file' : 'Ask HLNΛ a question'}
+          aria-label={file ? 'Ask HLNA about this file' : 'Ask HLNA a question'}
           style={{
             flex: 1, padding: '10px 14px', borderRadius: 8,
             border: '1px solid rgba(255,255,255,.14)',
@@ -1354,11 +1354,13 @@ export default function CommandDemo({
           background: 'linear-gradient(135deg, rgba(139,92,246,.06) 0%, rgba(99,102,241,.04) 100%)',
           border: '1px solid rgba(139,92,246,.16)',
         }}>
-          {/* HLNΛ badge + step counter */}
+          {/* HLNA badge + step counter */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
             <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#A78BFA', boxShadow: '0 0 8px #A78BFA', flexShrink: 0 }} />
             <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.12em', textTransform: 'uppercase', color: 'rgba(167,139,250,.55)' }}>
-              HLNΛ · Intelligence Engine
+              {/* Display mark keeps the stylised Λ; assistive tech gets plain "HLNA". */}
+              <span aria-hidden="true">HLNΛ · Intelligence Engine</span>
+              <span className="bb-visually-hidden">HLNA · Intelligence Engine</span>
             </span>
             <span style={{ marginLeft: 'auto', fontSize: 10, color: 'rgba(167,139,250,.30)', fontVariantNumeric: 'tabular-nums' }}>
               {msgIdx + 1} / {THINKING_MSGS.length}

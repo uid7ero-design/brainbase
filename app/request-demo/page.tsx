@@ -56,7 +56,7 @@ const CLIENT_RANGES = [
 const STEPS = [
   "Tell us what's creating friction",
   'Tell us what systems you already rely on',
-  "We'll discuss where BRΛINBΛSE could fit",
+  "We'll discuss where BrainBase could fit",
   'Start focused, expand later if needed',
 ];
 
@@ -194,7 +194,7 @@ export default function RequestDemoPage() {
 
         <div className={styles.shell}>
           <Link href="/" className={styles.back}>
-            ← Back to BRΛINBΛSE
+            ← Back to BrainBase
           </Link>
 
           {done ? (
@@ -223,14 +223,14 @@ export default function RequestDemoPage() {
                 We&apos;ll review what
                 you&apos;re trying to
                 improve and contact you to
-                discuss where BRΛINBΛSE
+                discuss where BrainBase
                 could fit.
               </p>
 
               <div className={styles.doneActions}>
                 <ButtonLink href="/demo">Explore the platform</ButtonLink>
                 <ButtonLink href="/" variant="secondary">
-                  Back to BRΛINBΛSE
+                  Back to BrainBase
                 </ButtonLink>
               </div>
             </section>
@@ -252,7 +252,7 @@ export default function RequestDemoPage() {
 
                 <p className={styles.lede}>
                   You don&apos;t need to know
-                  exactly how BRΛINBΛSE
+                  exactly how BrainBase
                   should be configured. Tell
                   us where the friction is,
                   what you use today and
@@ -279,7 +279,7 @@ export default function RequestDemoPage() {
                   </ol>
 
                   <p className={styles.howNote}>
-                    BRΛINBΛSE can work alongside external
+                    BrainBase can work alongside external
                     systems where it makes sense.
                   </p>
                 </div>
@@ -454,7 +454,7 @@ export default function RequestDemoPage() {
                 {/* Goals */}
                 <fieldset className={styles.group}>
                   <legend className={`bb-eyebrow ${styles.legend}`}>
-                    Where would you like BRΛINBΛSE to help first?
+                    Where would you like BrainBase to help first?
                   </legend>
 
                   <FormField
@@ -473,7 +473,7 @@ export default function RequestDemoPage() {
                     )}
                   </FormField>
 
-                  <FormField label="How did you hear about BRΛINBΛSE?">
+                  <FormField label="How did you hear about BrainBase?">
                     {control => (
                       <input
                         {...control}
@@ -486,6 +486,9 @@ export default function RequestDemoPage() {
                   </FormField>
                 </fieldset>
 
+                {/* Legal collection notice: names the legal entity and its
+                    registered trading name, so it is kept verbatim (brand
+                    spelling in legal text is pending a separate decision). */}
                 <p className={styles.privacy}>
                   Brainbase (ABN 32 207 559 504),
                   trading as BRΛINBΛSE, collects
@@ -536,7 +539,7 @@ export default function RequestDemoPage() {
 
                 <p className={styles.reassure}>
                   You don&apos;t need the whole
-                  platform on day one — BRΛINBΛSE
+                  platform on day one — BrainBase
                   can begin with the part of the
                   operation that matters most and
                   expand as requirements grow.

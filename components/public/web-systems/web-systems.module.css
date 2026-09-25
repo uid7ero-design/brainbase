@@ -3,9 +3,10 @@
 /* ─── Hero ─── */
 .hero {
   position: relative;
-  padding: 24px 0 clamp(56px, 8vw, 88px);
+  padding: 20px 0 var(--bb-hero-bottom);
   border-bottom: 1px solid var(--bb-border);
 }
+
 .hero::after {
   content: '';
   position: absolute;
@@ -35,10 +36,11 @@
 .heroGrid {
   display: grid;
   grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
-  gap: clamp(40px, 6vw, 72px);
+  gap: var(--bb-block-gap);
   align-items: center;
-  margin-top: clamp(32px, 6vw, 64px);
+  margin-top: var(--bb-hero-top);
 }
+
 .heroCopy {
   max-width: 38rem;
 }
@@ -104,7 +106,7 @@
   content: '';
   width: 5px;
   height: 5px;
-  border: 1px solid var(--bb-signal);
+  border: 1px solid var(--bb-border-strong);
   border-radius: 1px;
 }
 
@@ -113,8 +115,9 @@
   margin: 0;
 }
 .stackBody {
-  padding: 18px;
+  padding: var(--bb-panel-pad);
 }
+
 .stack {
   display: grid;
   gap: 18px;
@@ -141,7 +144,7 @@
   border-radius: 2px;
   background: var(--bb-accent);
 }
-/* Dashed cyan connector between stacked layers. */
+/* Dashed cyan connector between stacked layers (data flow). */
 .layer + .layer::after {
   content: '';
   position: absolute;
@@ -202,17 +205,18 @@
   color: var(--bb-text-muted);
 }
 .stackFootAccent {
-  color: var(--bb-accent);
-  letter-spacing: 0.06em;
+  color: var(--bb-text);
 }
+
 
 /* ─── Shared typography ─── */
 .cellTitle {
-  margin: 0 0 8px;
+  margin: 0 0 var(--bb-cell-title-gap);
   font-size: 1rem;
   font-weight: 600;
   letter-spacing: -0.01em;
 }
+
 .cellBody {
   margin: 0;
   font-size: 0.875rem;
@@ -240,14 +244,6 @@
   flex-wrap: wrap;
   gap: 8px;
 }
-.panelHeading {
-  margin: 12px 0 0;
-  font-size: clamp(1.5rem, 2.8vw, 2rem);
-  line-height: 1.15;
-  font-weight: 600;
-  letter-spacing: -0.025em;
-  text-wrap: balance;
-}
 .arrow {
   flex-shrink: 0;
   transition: transform 150ms ease;
@@ -257,9 +253,10 @@
 .problem {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: clamp(32px, 6vw, 72px);
+  gap: var(--bb-block-gap);
   align-items: end;
 }
+
 .problem > :first-child {
   margin-bottom: 0;
 }
@@ -272,11 +269,12 @@
   flex-wrap: wrap;
   gap: 8px;
   margin: 0;
-  padding: 18px;
+  padding: var(--bb-panel-pad);
   list-style: none;
   border: 1px dashed var(--bb-border-strong);
   border-radius: var(--bb-radius-lg);
 }
+
 .statement {
   margin: 0;
   font-size: clamp(1.25rem, 2.2vw, 1.5rem);
@@ -285,32 +283,19 @@
   letter-spacing: -0.02em;
 }
 
-/* ─── 02 Journey: 3×2 ruled grid with cyan indices ─── */
+/* ─── 02 Journey: 3×2 ruled cells. The rule after each index links to the
+   next step (flow), hence cyan. ─── */
 .journey {
-  display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  border-top: 1px solid var(--bb-border);
-}
-.journeyStep {
-  padding: 22px 22px 26px;
-  border-bottom: 1px solid var(--bb-border);
-  border-left: 1px solid var(--bb-border);
-}
-.journeyStep:nth-child(3n + 1) {
-  border-left: 0;
-  padding-left: 0;
 }
 .journeyIndex {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 16px;
+  margin-bottom: var(--bb-cell-icon-gap);
   font-family: var(--bb-font-mono);
   font-size: 0.72rem;
-  color: var(--bb-signal-text);
+  color: var(--bb-accent);
 }
 .journeyIndex::after {
   content: '';
@@ -319,36 +304,23 @@
   background: var(--bb-signal-border);
 }
 
-/* ─── 03 What we build ─── */
+/* ─── 03 What we build: ruled cells ─── */
 .serviceGrid {
-  display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
 }
 .service {
   display: flex;
   flex-direction: column;
-  padding: 24px;
-  border: 1px solid var(--bb-border);
-  border-radius: var(--bb-radius-lg);
-  background: var(--bb-surface);
-  transition: border-color 150ms ease;
-}
-.service:hover {
-  border-color: var(--bb-accent-border);
 }
 .serviceIndex {
-  margin-bottom: 18px;
+  margin-bottom: var(--bb-cell-icon-gap);
   font-family: var(--bb-font-mono);
   font-size: 0.72rem;
   color: var(--bb-accent);
 }
 .serviceTitle {
-  margin: 0 0 10px;
-  font-size: 1.125rem;
+  margin: 0 0 var(--bb-cell-title-gap);
+  font-size: 1.0625rem;
   font-weight: 600;
   letter-spacing: -0.015em;
 }
@@ -356,35 +328,21 @@
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin: 18px 0 0;
-  padding: 0;
+  margin: auto 0 0;
+  padding: 16px 0 0;
   list-style: none;
 }
 
-/* ─── 04 Outcomes: ruled 4-up ─── */
+/* ─── 04 Outcomes: ruled 4-up cells ─── */
 .outcomes {
-  display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  border-top: 1px solid var(--bb-border);
-  border-bottom: 1px solid var(--bb-border);
-}
-.outcome {
-  padding: 24px 22px 28px;
-  border-left: 1px solid var(--bb-border);
-}
-.outcome:first-child {
-  border-left: 0;
-  padding-left: 0;
 }
 .outcome::before {
   content: '';
   display: block;
   width: 18px;
   height: 1px;
-  margin-bottom: 18px;
+  margin-bottom: var(--bb-cell-icon-gap);
   background: var(--bb-accent);
 }
 
@@ -392,9 +350,10 @@
 .connectRow {
   display: grid;
   grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
-  gap: clamp(32px, 6vw, 72px);
+  gap: var(--bb-block-gap);
   align-items: end;
 }
+
 .connectRow > :first-child {
   margin-bottom: 0;
 }
@@ -413,11 +372,12 @@
   display: grid;
   grid-template-columns: minmax(0, 0.8fr) 48px minmax(0, 1.2fr);
   align-items: center;
-  padding: 24px;
+  padding: var(--bb-panel-pad);
   border: 1px solid var(--bb-border);
   border-radius: var(--bb-radius-lg);
   background: var(--bb-surface);
 }
+
 .expandGroup {
   display: grid;
   gap: 12px;
@@ -426,26 +386,30 @@
   margin: 0;
 }
 .expandArrow {
+  /* Cyan: the website connects onward into the platform (flow). */
   display: flex;
   justify-content: center;
   color: var(--bb-signal);
 }
 
+
 /* ─── 07 External systems ─── */
 .external {
   display: grid;
   grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
-  gap: clamp(32px, 6vw, 72px);
+  gap: var(--bb-block-gap);
   align-items: end;
 }
+
 .external > :first-child {
   margin-bottom: 0;
 }
 .externalExample {
-  padding: 20px;
+  padding: var(--bb-panel-pad);
   border: 1px dashed var(--bb-signal-border);
   border-radius: var(--bb-radius-lg);
 }
+
 .externalExample > span {
   white-space: normal;
 }
@@ -454,10 +418,10 @@
 .deployment {
   display: grid;
   grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
-  gap: clamp(24px, 5vw, 56px);
+  gap: var(--bb-block-gap);
   align-items: start;
-  padding: clamp(4px, 1.5vw, 14px);
 }
+
 .deployment p:first-child {
   margin: 0;
 }
@@ -531,33 +495,16 @@
   color: var(--bb-text-muted);
 }
 
-/* ─── 08 Deployment options ─── */
+/* ─── 08 Deployment options: ruled cells ─── */
 .deployGrid {
-  display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 16px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
 }
 .deployCard {
   display: flex;
   flex-direction: column;
-  padding: 24px;
-  border: 1px solid var(--bb-border);
-  border-radius: var(--bb-radius-lg);
-  background: var(--bb-surface);
-  transition: border-color 150ms ease;
-}
-.deployCard:hover {
-  border-color: var(--bb-border-strong);
 }
 .deployFeatured {
-  border-color: var(--bb-accent-border);
   box-shadow: inset 0 2px 0 var(--bb-accent);
-}
-.deployFeatured:hover {
-  border-color: var(--bb-accent);
 }
 .deployMeta {
   display: flex;
@@ -565,28 +512,32 @@
   justify-content: space-between;
   gap: 10px;
   min-height: 24px;
-  margin-bottom: 16px;
+  margin-bottom: var(--bb-cell-icon-gap);
 }
+
 .deployMeta > p {
   margin: 0;
 }
 .deployTitle {
-  margin: 0 0 10px;
-  font-size: 1.25rem;
+  margin: 0 0 var(--bb-cell-title-gap);
+  font-size: 1.1875rem;
   line-height: 1.25;
   font-weight: 600;
   letter-spacing: -0.02em;
 }
+
 .includes {
   display: grid;
   gap: 9px;
   flex: 1;
-  margin: 20px 0 24px;
-  padding: 18px 0 0;
+  align-content: start;
+  margin: 18px 0 22px;
+  padding: 16px 0 0;
   list-style: none;
   border-top: 1px solid var(--bb-border);
   font-size: 0.875rem;
 }
+
 .includes li {
   display: flex;
   align-items: flex-start;
@@ -595,8 +546,9 @@
 .check {
   flex-shrink: 0;
   margin-top: 2px;
-  color: var(--bb-signal);
+  color: var(--bb-accent);
 }
+
 .deployButton,
 .deployButtonPrimary {
   display: inline-flex;
@@ -636,13 +588,13 @@
 }
 .scopeNote {
   max-width: 44rem;
-  margin: 20px auto 0;
+  margin: 16px 0 0;
   font-family: var(--bb-font-mono);
   font-size: 0.75rem;
   line-height: 1.6;
   color: var(--bb-text-muted);
-  text-align: center;
 }
+
 
 /* ─── 09 Process ─── */
 .process {
@@ -689,34 +641,21 @@
   color: var(--bb-signal-text);
 }
 
-/* ─── Managed ─── */
+/* ─── 10 Managed ─── */
 .managed {
   display: grid;
-  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
-  gap: clamp(32px, 6vw, 64px);
-  padding: clamp(24px, 4vw, 40px);
-  border: 1px solid var(--bb-border);
-  border-radius: var(--bb-radius-lg);
-  background: var(--bb-surface);
+  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+  gap: var(--bb-block-gap);
+  align-items: start;
 }
-.managedIntro > p:first-child {
-  margin: 0;
+.managed > :first-child {
+  margin-bottom: 0;
 }
 .managedGrid {
-  display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 1px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  background: var(--bb-border);
-  border: 1px solid var(--bb-border);
-  border-radius: var(--bb-radius);
-  overflow: hidden;
 }
-.managedItem {
-  padding: 16px 18px;
-  background: var(--bb-surface);
+.managedGrid > * {
+  padding: var(--bb-cell-pad-sm);
 }
 .managedTitle {
   display: flex;
@@ -734,19 +673,14 @@
   background: var(--bb-accent);
 }
 
-/* ─── Part of BRΛINBΛSE ─── */
+/* ─── 11 Part of BrainBase ─── */
 .platform {
   display: grid;
   grid-template-columns: minmax(0, 1.3fr) minmax(0, 0.7fr);
-  gap: clamp(24px, 5vw, 56px);
+  gap: var(--bb-block-gap);
   align-items: end;
-  padding-top: 32px;
-  border-top: 1px solid var(--bb-border);
 }
-.platform > div > p:first-child {
-  margin: 0;
-}
-.platform .bodyText {
+.platform > :first-child {
   margin-bottom: 0;
 }
 .platformActions {
@@ -758,38 +692,42 @@
 
 /* ─── Final CTA ─── */
 .cta {
-  padding: clamp(40px, 7vw, 72px) clamp(20px, 5vw, 48px);
+  padding: var(--bb-block-gap) var(--bb-panel-pad);
   border: 1px solid var(--bb-border);
   border-radius: var(--bb-radius-lg);
   background-color: var(--bb-surface);
   text-align: center;
 }
+
 .cta > p:first-child {
   margin: 0;
 }
 .ctaTitle {
-  margin: 14px auto 0;
+  margin: 12px auto 0;
   max-width: 32rem;
-  font-size: clamp(1.75rem, 3.4vw, 2.5rem);
+  font-size: clamp(1.75rem, 3.2vw, 2.375rem);
   line-height: 1.12;
   font-weight: 600;
   letter-spacing: -0.028em;
   text-wrap: balance;
 }
+
 .ctaBody {
-  margin: 16px auto 0;
+  margin: 12px auto 0;
   max-width: 32rem;
   font-size: 1rem;
-  line-height: 1.7;
+  line-height: 1.65;
   color: var(--bb-text-muted);
 }
+
 .ctaActions {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
   gap: 10px;
-  margin-top: 28px;
+  margin-top: 24px;
 }
+
 
 /* ─── Focus ─── */
 .backLink:focus-visible,
@@ -814,31 +752,13 @@
   .platformActions {
     justify-content: flex-start;
   }
-  .outcomes {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .outcome:nth-child(3) {
-    border-left: 0;
-    padding-left: 0;
-  }
-  .outcome:nth-child(n + 3) {
-    border-top: 1px solid var(--bb-border);
-  }
-  .deployGrid {
-    grid-template-columns: minmax(0, 1fr);
-    max-width: 36rem;
-  }
+  .outcomes,
   .journey,
   .process {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  .journeyStep:nth-child(3n + 1) {
-    border-left: 1px solid var(--bb-border);
-    padding-left: 22px;
-  }
-  .journeyStep:nth-child(2n + 1) {
-    border-left: 0;
-    padding-left: 0;
+  .deployGrid {
+    grid-template-columns: minmax(0, 1fr);
   }
   .processStep::before,
   .processStep:nth-child(3n)::before {
@@ -857,19 +777,6 @@
   .managedGrid {
     grid-template-columns: minmax(0, 1fr);
   }
-  .outcome,
-  .outcome:nth-child(3) {
-    border-left: 0;
-    padding-left: 0;
-  }
-  .outcome + .outcome {
-    border-top: 1px solid var(--bb-border);
-  }
-  .journeyStep,
-  .journeyStep:nth-child(3n + 1) {
-    border-left: 0;
-    padding-left: 0;
-  }
   .processStep::before,
   .processStep:nth-child(2n)::before,
   .processStep:nth-child(3n)::before {
@@ -883,10 +790,6 @@
     justify-content: flex-start;
     transform: rotate(90deg);
     width: 16px;
-  }
-  .service,
-  .deployCard {
-    padding: 20px;
   }
   .stackFoot {
     flex-direction: column;

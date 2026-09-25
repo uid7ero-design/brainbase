@@ -161,8 +161,26 @@ describe('/request-demo', () => {
     expect(status).toHaveTextContent('Request received');
 
     expect(screen.getByRole('link', { name: 'Explore the platform' })).toHaveAttribute('href', '/demo');
-    expect(screen.getByRole('link', { name: 'Back to BRΛINBΛSE' })).toHaveAttribute('href', '/');
+    expect(screen.getByRole('link', { name: 'Back to BrainBase' })).toHaveAttribute('href', '/');
     await expectNoAxeViolations(container);
+  });
+
+  it('uses plain "BrainBase" in visible text — no hand-typed Λ outside the verbatim legal notice', () => {
+    const { container } = renderBrainbase(<RequestDemoPage />);
+    const notice = [...container.querySelectorAll('p')].find(p =>
+      p.textContent?.includes('Brainbase (ABN 32 207 559 504)'),
+    );
+    expect(notice?.textContent).toContain('trading as BRΛINBΛSE, collects');
+    const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+    const offenders: string[] = [];
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const el = node.parentElement!;
+      if (el.closest('[aria-hidden="true"]') || (notice && notice.contains(el))) continue;
+      if (node.textContent?.includes('Λ')) offenders.push(node.textContent.trim());
+    }
+    expect(offenders).toEqual([]);
+    expect(screen.getByRole('link', { name: '← Back to BrainBase' })).toHaveAttribute('href', '/');
+    expect(screen.getByRole('textbox', { name: 'How did you hear about BrainBase?' })).toBeInTheDocument();
   });
 
   it('keeps every destination the page previously linked to', () => {

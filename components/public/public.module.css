@@ -30,45 +30,47 @@
   margin: 0;
 }
 
-/* ─── Section heading ─── */
+/* ─── Section heading ───
+   The one header pattern for every public section: [index][rule][eyebrow],
+   title, optional lede. Always left-aligned to the container guide. The
+   index has a fixed width so eyebrows line up across sections. */
 .heading {
   max-width: 44rem;
-  margin-bottom: clamp(32px, 5vw, 48px);
-}
-.headingCentred {
-  margin-left: auto;
-  margin-right: auto;
-  text-align: center;
+  margin-bottom: var(--bb-head-gap);
 }
 .eyebrowRow {
   display: flex;
-  align-items: center;
-  gap: 12px;
+  align-items: baseline;
+  gap: 10px;
   margin: 0;
-}
-.headingCentred .eyebrowRow {
-  justify-content: center;
+  line-height: 1;
 }
 .eyebrowIndex {
+  display: inline-block;
+  width: 2ch;
+  font-variant-numeric: tabular-nums;
   color: var(--bb-accent);
 }
 .eyebrowRule {
-  width: 24px;
+  align-self: center;
+  flex: none;
+  width: 20px;
   height: 1px;
   background: var(--bb-border-strong);
 }
 .title {
-  margin: 14px 0 0;
-  font-size: clamp(1.75rem, 3.4vw, 2.5rem);
+  margin: 12px 0 0;
+  font-size: clamp(1.75rem, 3.2vw, 2.375rem);
   line-height: 1.12;
   font-weight: 600;
   letter-spacing: -0.028em;
   text-wrap: balance;
 }
 .lede {
-  margin: 16px 0 0;
+  margin: 12px 0 0;
+  max-width: 40rem;
   font-size: clamp(1rem, 1.4vw, 1.0625rem);
-  line-height: 1.7;
+  line-height: 1.65;
   color: var(--bb-text-muted);
   text-wrap: pretty;
 }

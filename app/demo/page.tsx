@@ -6,6 +6,7 @@ import { HlnaOrb } from '@/components/brand/HlnaOrb'
 import { BrainBaseWordmark } from '@/components/brand/BrainBaseWordmark'
 import { PublicFooter } from '@/components/public/PublicFooter'
 import { ArrowIcon, ButtonLink, Container } from '@/components/public/primitives'
+import { BrainBaseMark } from '@/components/public/brand'
 import { StatusDot } from '@/components/ui/semantic'
 import { DEMO_QUESTIONS, TABS, matchDemoAnswer, type TabId } from '@/components/public/demo/data'
 import {
@@ -23,10 +24,10 @@ import styles from '@/components/public/demo/demo.module.css'
 
 // Interactive platform demo. Marketing chrome (hero, framing, CTAs) is fully
 // theme-aware on the --bb-* tokens; the workspace below is a simulated
-// BRΛINBΛSE environment and is theme-aware too, except its top bar, which is
+// BrainBase environment and is theme-aware too, except its top bar, which is
 // pinned dark (.bb-scope-dark) because it mirrors the real application
 // header — which is dark — and carries the dark-surface BrainBaseWordmark.
-// Behaviour (tabs, scenario, simulated HLNΛ answers and timings) is
+// Behaviour (tabs, scenario, simulated HLNA answers and timings) is
 // unchanged from the previous implementation.
 
 export default function DemoPage() {
@@ -75,7 +76,7 @@ export default function DemoPage() {
       <Container>
         <div className={styles.contextBar}>
           <Link href="/" className={styles.backLink}>
-            <span aria-hidden="true">←</span> Back to BRΛINBΛSE
+            <span aria-hidden="true">←</span> Back to BrainBase
           </Link>
           <Link href="/request-demo" className={styles.contextCta}>
             Request a demo
@@ -104,8 +105,8 @@ export default function DemoPage() {
           </h1>
 
           <p className={styles.heroLede}>
-            Explore an example BRΛINBΛSE environment showing how operational information, workflows, dashboards and
-            HLNΛ come together in one platform. Everything below is an example environment using simulated demo data.
+            Explore an example BrainBase environment showing how operational information, workflows, dashboards and
+            HLNA come together in one platform. Everything below is an example environment using simulated demo data.
           </p>
 
           <div className={styles.heroActions}>
@@ -128,7 +129,9 @@ export default function DemoPage() {
               <BrainBaseWordmark width={118} />
               <span className={styles.workspaceDivider} aria-hidden="true" />
               <div>
-                <small>BRΛINBΛSE Platform</small>
+                <small>
+                  <BrainBaseMark /> Platform
+                </small>
                 <h2 id="workspace-title">Interactive Platform Demo</h2>
               </div>
             </div>
@@ -136,7 +139,7 @@ export default function DemoPage() {
             <div className={styles.workspaceRight}>
               <DemoBadge />
               <span className={styles.workspaceConnected}>
-                <StatusDot state="success" label="HLNΛ connected" />
+                <StatusDot state="success" label="HLNA connected" />
               </span>
             </div>
           </div>
@@ -196,7 +199,7 @@ export default function DemoPage() {
               {activeTab === 'reporting' && <ReportingTab />}
             </div>
 
-            {/* HLNΛ DOCK */}
+            {/* HLNA DOCK */}
             <section className={styles.hlnaDock} aria-labelledby="demo-dock-title">
               <div className={styles.hlnaDockHead}>
                 <HlnaOrb
@@ -219,7 +222,7 @@ export default function DemoPage() {
               </div>
 
               <p className={styles.hlnaDockFraming}>
-                HLNΛ helps interpret this connected operation — it does not replace the underlying operational system.
+                HLNA helps interpret this connected operation — it does not replace the underlying operational system.
               </p>
 
               {/* Polite, atomic: the simulated answer is announced once it
@@ -262,11 +265,11 @@ export default function DemoPage() {
                 <input
                   value={question}
                   onChange={event => setQuestion(event.target.value)}
-                  placeholder="Ask HLNΛ about operations, costs, customers or risk…"
-                  aria-label="Ask HLNΛ a question"
+                  placeholder="Ask HLNA about operations, costs, customers or risk…"
+                  aria-label="Ask HLNA a question"
                 />
                 <button type="submit" disabled={!question.trim() || thinking}>
-                  {thinking ? 'Thinking…' : 'Ask HLNΛ'}
+                  {thinking ? 'Thinking…' : 'Ask HLNA'}
                 </button>
               </form>
             </section>
@@ -279,7 +282,7 @@ export default function DemoPage() {
         <div className={styles.configNote}>
           <strong>This is one example configuration.</strong>
           <p>
-            Same platform. Different operation. Another organisation could use a different combination of BRΛINBΛSE
+            Same platform. Different operation. Another organisation could use a different combination of BrainBase
             capabilities, configured around how it works.
           </p>
         </div>
@@ -290,12 +293,12 @@ export default function DemoPage() {
         <div className={`${styles.bottomCta} bb-grid-bg`}>
           <DemoBadge />
           <h2 className={styles.bottomCtaTitle}>
-            What would BRΛINBΛSE look like
+            What would BrainBase look like
             <br />
             around your operation?
           </h2>
           <p>
-            BRΛINBΛSE can be configured around how your organisation already works — connecting information, workflows,
+            BrainBase can be configured around how your organisation already works — connecting information, workflows,
             reporting and intelligence without forcing the business into another disconnected tool.
           </p>
           <div className={styles.heroActions}>

@@ -65,12 +65,12 @@ describe('Public /client-operations page', () => {
     for (const href of ['/', '/client-operations/demo', '/request-demo', '/pricing', '/privacy', '/terms']) {
       expect(hrefs, href).toContain(href);
     }
-    expect(screen.getByRole('link', { name: '← Back to BRΛINBΛSE' })).toHaveAttribute('href', '/');
+    expect(screen.getByRole('link', { name: '← Back to BrainBase' })).toHaveAttribute('href', '/');
   });
 
   it('renders the theme-aware lockup, not the dark-only wordmark image', () => {
     const { container } = renderBrainbase(<ClientOperations />);
-    expect(screen.getAllByRole('img', { name: 'BRΛINBΛSE' }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('img', { name: 'BrainBase' }).length).toBeGreaterThan(0);
     expect(container.querySelector('img[src*="brainbase-horizontal-color"]')).toBeNull();
   });
 
@@ -87,5 +87,34 @@ describe('Public /client-operations page', () => {
       expect(link).not.toHaveAttribute('tabindex', '-1');
       expect(link).toHaveAccessibleName();
     }
+  });
+
+  it('uses plain BrainBase / HLNA in readable text — no stylised Λ outside hidden marks', () => {
+    const { container } = renderBrainbase(<ClientOperations />);
+    const clone = container.cloneNode(true) as HTMLElement;
+    clone.querySelectorAll('[aria-hidden="true"]').forEach(n => n.remove());
+    expect(clone.textContent).not.toMatch(/Λ/);
+    expect(screen.getByRole('heading', { name: 'HLNA — intelligence across the client operation.' })).toBeInTheDocument();
+    expect(screen.getByText(/^BrainBase Client Operations connects enquiries/)).toBeInTheDocument();
+    for (const el of container.querySelectorAll('[aria-label]')) {
+      expect(el.getAttribute('aria-label')).not.toMatch(/Λ/);
+    }
+  });
+
+  it('display marks show the stylised wordmark visually and expose "HLNA" to assistive tech', () => {
+    renderBrainbase(<ClientOperations />);
+    const meta = screen.getByText('Intelligence layer').parentElement!;
+    expect(meta).toHaveTextContent('HLNA');
+    expect(meta.querySelector('[aria-hidden="true"]')).toHaveTextContent('HLNΛ');
+    const eyebrow = screen.getByText(/· Client Operations/);
+    expect(eyebrow.querySelector('.bb-visually-hidden')).toHaveTextContent('HLNA');
+  });
+
+  it('every section header uses the shared numbered pattern, in order', () => {
+    const { container } = renderBrainbase(<ClientOperations />);
+    const indexes = [...container.querySelectorAll('h2')]
+      .map(h => h.previousElementSibling?.querySelector('span')?.textContent)
+      .filter((t): t is string => !!t && /^\d{2}$/.test(t));
+    expect(indexes).toEqual(['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11']);
   });
 });

@@ -35,7 +35,7 @@ const PLANS: Plan[] = [
       'Lead tracking',
       'Scheduling',
       'Core operational view',
-      'BRΛINBΛSE workspace',
+      'BrainBase workspace',
       'Standard support',
     ],
     cta: 'Discuss Foundation',
@@ -66,7 +66,7 @@ const PLANS: Plan[] = [
     popular: false,
     features: [
       'Everything in Operations',
-      'HLNΛ intelligence',
+      'HLNA intelligence',
       'Advanced reporting',
       'Expanded workflows',
       'Business integrations',
@@ -84,7 +84,7 @@ const PLANS: Plan[] = [
     popular: false,
     enterprise: true,
     features: [
-      'Tailored BRΛINBΛSE deployment',
+      'Tailored BrainBase deployment',
       'Multiple teams or business units',
       'Advanced permissions & governance',
       'Custom integrations & workflows',
@@ -106,7 +106,7 @@ const COMPARISON: ({ feature: string } & Record<Tier, boolean>)[] = [
   { feature: 'Revenue visibility', foundation: false, operations: true, business: true, enterprise: true },
   { feature: 'Operational dashboards', foundation: false, operations: true, business: true, enterprise: true },
   { feature: 'Workflow automation', foundation: false, operations: true, business: true, enterprise: true },
-  { feature: 'HLNΛ intelligence', foundation: false, operations: false, business: true, enterprise: true },
+  { feature: 'HLNA intelligence', foundation: false, operations: false, business: true, enterprise: true },
   { feature: 'Advanced reporting', foundation: false, operations: false, business: true, enterprise: true },
   { feature: 'Business integrations', foundation: false, operations: false, business: true, enterprise: true },
   { feature: 'Multi-team deployment', foundation: false, operations: false, business: false, enterprise: true },
@@ -125,12 +125,12 @@ const CHOICES = [
   {
     number: '02',
     title: 'Operations',
-    body: 'You want BRΛINBΛSE actively supporting daily workflows, follow-up, visibility, dashboards and automation.',
+    body: 'You want BrainBase actively supporting daily workflows, follow-up, visibility, dashboards and automation.',
   },
   {
     number: '03',
     title: 'Business System',
-    body: 'You are ready for deeper reporting, broader integrations where supported, and HLNΛ intelligence across a more connected business.',
+    body: 'You are ready for deeper reporting, broader integrations where supported, and HLNA intelligence across a more connected business.',
   },
   {
     number: '04',
@@ -157,7 +157,7 @@ const EXTRAS = [
   {
     title: 'Website builds',
     description:
-      'A new BRΛINBΛSE website or redesign is separate from the monthly platform subscription and can be scoped and quoted based on the project.',
+      'A new BrainBase website or redesign is separate from the monthly platform subscription and can be scoped and quoted based on the project.',
   },
   {
     title: 'Data migration',
@@ -200,7 +200,7 @@ export default function PricingPage() {
           <div className={styles.heroInner}>
             <p className={`bb-eyebrow ${styles.heroEyebrow}`}>
               <span className={styles.eyebrowDot} aria-hidden="true" />
-              BRΛINBΛSE Pricing
+              BrainBase Pricing
             </p>
             <h1 id="pricing-title" className={styles.heroTitle}>
               Start with what you need.
@@ -208,7 +208,7 @@ export default function PricingPage() {
               <span className={styles.heroAccent}>Expand as your operation grows.</span>
             </h1>
             <p className={styles.heroLede}>
-              BRΛINBΛSE pricing reflects the scope of the platform your organisation needs today. Start focused, then
+              BrainBase pricing reflects the scope of the platform your organisation needs today. Start focused, then
               add broader capability as requirements grow.
             </p>
           </div>
@@ -226,7 +226,7 @@ export default function PricingPage() {
         </div>
 
         {/* PRICING CARDS */}
-        <ul className={styles.plans} aria-label="Plans">
+        <ul className={`bb-cells ${styles.plans}`} aria-label="Plans">
           {PLANS.map(plan => {
             const id = `plan-${plan.name.toLowerCase().replace(/\s+/g, '-')}`;
             return (
@@ -282,7 +282,7 @@ export default function PricingPage() {
         <div className={styles.notice}>
           <p className={`bb-eyebrow ${styles.noticeTitle}`}>Platform subscription + implementation where required</p>
           <p className={styles.noticeBody}>
-            Monthly pricing covers the BRΛINBΛSE platform subscription. Initial setup, configuration, data migration,
+            Monthly pricing covers the BrainBase platform subscription. Initial setup, configuration, data migration,
             website work and custom integrations may involve a separate implementation cost depending on your
             requirements.
           </p>
@@ -296,9 +296,9 @@ export default function PricingPage() {
           You do not need to deploy everything at once. Choose the level that fits your current operation and expand
           when it makes sense.
         </SectionHeading>
-        <ul className={styles.ruled4}>
+        <ul className={`bb-cells ${styles.ruled4}`}>
           {CHOICES.map(choice => (
-            <li key={choice.number} className={styles.ruledCell}>
+            <li key={choice.number}>
               <span className={styles.cellIndex} aria-hidden="true">
                 {choice.number}
               </span>
@@ -312,7 +312,7 @@ export default function PricingPage() {
       {/* COMPARISON ──────────────────────────────────────────────────── */}
       <Section labelledBy="compare-title">
         <SectionHeading id="compare-title" index="02" eyebrow="Compare" title="What is included?">
-          A high-level view of how BRΛINBΛSE capability expands from a focused workspace through to a tailored
+          A high-level view of how BrainBase capability expands from a focused workspace through to a tailored
           enterprise deployment.
         </SectionHeading>
 
@@ -365,7 +365,7 @@ export default function PricingPage() {
         <div className={styles.config}>
           <h3 className={styles.configTitle}>The scope may be similar. The configuration can still differ.</h3>
           <p className={styles.configBody}>
-            Two organisations on the same BRΛINBΛSE tier can still use its capabilities differently, configured around
+            Two organisations on the same BrainBase tier can still use its capabilities differently, configured around
             how each one operates.
           </p>
         </div>
@@ -373,20 +373,19 @@ export default function PricingPage() {
 
       {/* ENTERPRISE ──────────────────────────────────────────────────── */}
       <Section labelledBy="enterprise-title">
-        <div className={`${styles.split} ${styles.splitSignal}`}>
-          <div>
-            <p className={`bb-eyebrow ${styles.splitEyebrow}`}>Enterprise</p>
-            <h2 id="enterprise-title" className={styles.splitTitle}>
-              Some operations need a system built around them.
-            </h2>
-            <p className={styles.splitBody}>
-              Enterprise is for organisations where a standard subscription is not enough. Deployment can be tailored
-              around organisational structure, permissions, workflows, reporting, integrations and operational
-              requirements.
-            </p>
-          </div>
-          <div>
-            <ul className={styles.enterpriseList}>
+        <div className={styles.split}>
+          <SectionHeading
+            id="enterprise-title"
+            index="03"
+            eyebrow="Enterprise"
+            title="Some operations need a system built around them."
+          >
+            Enterprise is for organisations where a standard subscription is not enough. Deployment can be tailored
+            around organisational structure, permissions, workflows, reporting, integrations and operational
+            requirements.
+          </SectionHeading>
+          <div className={styles.splitAside}>
+            <ul className={`bb-cells ${styles.enterpriseList}`}>
               {ENTERPRISE_ITEMS.map(item => (
                 <li key={item} className={styles.enterpriseItem}>
                   {item}
@@ -404,16 +403,16 @@ export default function PricingPage() {
       <Section labelledBy="implementation-title">
         <SectionHeading
           id="implementation-title"
-          index="03"
+          index="04"
           eyebrow="Implementation"
           title="Some businesses need more than a subscription."
         >
           Implementation depends on what you want connected, how much configuration is required and what systems or
           information you already have in place.
         </SectionHeading>
-        <ul className={styles.extras}>
+        <ul className={`bb-cells ${styles.extras}`}>
           {EXTRAS.map((item, index) => (
-            <li key={item.title} className={styles.extra}>
+            <li key={item.title}>
               <span className={styles.cellIndex} aria-hidden="true">
                 0{index + 1}
               </span>
@@ -433,14 +432,15 @@ export default function PricingPage() {
       <Section labelledBy="web-systems-title">
         <div className={styles.split}>
           <div>
-            <p className={`bb-eyebrow ${styles.splitEyebrow}`}>Web Systems</p>
-            <h2 id="web-systems-title" className={styles.splitTitle}>
-              Your website can become part of the system.
-            </h2>
-            <p className={styles.splitBody}>
-              BRΛINBΛSE Web Systems can connect your public website to enquiries, CRM, bookings, workflows and the
+            <SectionHeading
+              id="web-systems-title"
+              index="05"
+              eyebrow="Web Systems"
+              title="Your website can become part of the system."
+            >
+              BrainBase Web Systems can connect your public website to enquiries, CRM, bookings, workflows and the
               operational platform behind your business.
-            </p>
+            </SectionHeading>
             <p className={styles.splitFine}>Website projects are scoped and quoted separately from the platform subscription.</p>
           </div>
           <div className={styles.actions}>
@@ -462,12 +462,12 @@ export default function PricingPage() {
             that matters most.
           </h2>
           <p className={styles.ctaBody}>
-            Tell us what you need BRΛINBΛSE to handle now, and we can scope the right starting point.
+            Tell us what you need BrainBase to handle now, and we can scope the right starting point.
           </p>
           <div className={styles.ctaActions}>
             <ButtonLink href="/request-demo">Discuss your operation</ButtonLink>
             <ButtonLink href="/demo" variant="secondary">
-              Explore BRΛINBΛSE
+              Explore BrainBase
             </ButtonLink>
           </div>
         </div>

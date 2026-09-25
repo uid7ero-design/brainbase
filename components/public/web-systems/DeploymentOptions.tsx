@@ -14,7 +14,7 @@ export function DeploymentOptions() {
 
   return (
     <>
-      <ul className={styles.deployGrid}>
+      <ul className={`bb-cells ${styles.deployGrid}`}>
         {DEPLOYMENTS.map(deployment => (
           <li
             key={deployment.title}

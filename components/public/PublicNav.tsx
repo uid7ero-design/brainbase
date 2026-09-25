@@ -49,7 +49,7 @@ export function PublicNav({ pathname }: { pathname: string }) {
   return (
     <header className={`bb-public ${styles.header} ${themed ? '' : 'bb-scope-dark'}`}>
       <div className={styles.bar} style={{ height: TOP_NAV_HEIGHT_PX }}>
-        <Link href="/" className={styles.home} aria-label="BRΛINBΛSE home">
+        <Link href="/" className={styles.home} aria-label="BrainBase home">
           <BrainbaseLockup idPrefix="bb-nav-lockup" width={150} title={null} />
         </Link>
 

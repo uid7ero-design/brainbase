@@ -50,9 +50,9 @@
 /* ─── Hero ─── */
 .hero {
   position: relative;
-  padding: clamp(40px, 7vw, 80px) 0 clamp(40px, 6vw, 64px);
-  text-align: center;
+  padding: var(--bb-hero-top) 0 var(--bb-hero-bottom);
 }
+
 .hero::after {
   content: '';
   position: absolute;
@@ -66,15 +66,17 @@
   z-index: 1;
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: flex-start;
 }
+
 .orbWrap {
   height: 102px;
   margin-bottom: 20px;
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
 }
+
 .heroTitle {
   max-width: 50rem;
   margin: 18px 0 0;
@@ -97,18 +99,19 @@
 .heroActions {
   display: flex;
   flex-wrap: wrap;
-  justify-content: center;
   gap: 10px;
   margin-top: 28px;
 }
 
+
 /* ─── Workspace shell ─── */
 .shell {
-  max-width: 1320px;
+  max-width: var(--bb-container);
   margin: 0 auto;
   padding: 0 var(--bb-gutter);
   scroll-margin-top: 64px;
 }
+
 .workspace {
   overflow: hidden;
   border: 1px solid var(--bb-border);
@@ -159,10 +162,11 @@
 }
 
 .connectedContext {
-  padding: 16px 18px;
+  padding: var(--bb-cell-pad-sm);
   border-bottom: 1px solid var(--bb-border);
   background: var(--bb-surface);
 }
+
 .connectedContext strong {
   display: block;
   margin-bottom: 4px;
@@ -232,7 +236,7 @@
 
 .content {
   min-height: 700px;
-  padding: 14px;
+  padding: var(--bb-panel-pad);
 }
 .tabPage {
   animation: bbDemoFade 0.25s ease both;
@@ -330,9 +334,10 @@
 .metric {
   position: relative;
   min-height: 112px;
-  padding: 16px 16px 14px;
+  padding: var(--bb-cell-pad-sm);
   background: var(--bb-surface);
 }
+
 .metric::before {
   content: '';
   position: absolute;
@@ -469,7 +474,7 @@
   color: var(--bb-text-muted);
 }
 
-/* HLNΛ briefing */
+/* HLNA briefing */
 .hlnaBody {
   padding: 16px;
 }
@@ -920,7 +925,7 @@
   display: block;
   width: 100%;
   border-radius: inherit;
-  background: linear-gradient(180deg, var(--bb-accent), var(--bb-signal));
+  background: var(--bb-accent);
 }
 .coverage strong {
   margin-bottom: 3px;
@@ -1038,7 +1043,7 @@
   cursor: pointer;
 }
 
-/* ─── HLNΛ dock ─── */
+/* ─── HLNA dock ─── */
 .hlnaDock {
   margin-top: 12px;
   padding: 16px;
@@ -1126,9 +1131,9 @@
 /* ─── After the workspace ─── */
 .configNote {
   max-width: 40rem;
-  margin: clamp(48px, 7vw, 72px) auto 0;
-  text-align: center;
+  margin: var(--bb-block-gap) 0 0;
 }
+
 .configNote strong {
   display: block;
   margin-bottom: 6px;
@@ -1142,27 +1147,33 @@
   color: var(--bb-text-muted);
 }
 .bottomCta {
-  margin-top: clamp(48px, 7vw, 72px);
-  padding: clamp(36px, 6vw, 56px) clamp(20px, 5vw, 48px);
+  margin-top: var(--bb-section-gap);
+  padding: var(--bb-block-gap) var(--bb-panel-pad);
   border: 1px solid var(--bb-border);
   border-radius: var(--bb-radius-lg);
   background-color: var(--bb-surface);
   text-align: center;
 }
+
 .bottomCtaTitle {
-  margin: 16px auto 0;
-  font-size: clamp(1.5rem, 3vw, 2.125rem);
-  line-height: 1.15;
+  margin: 12px auto 0;
+  font-size: clamp(1.75rem, 3.2vw, 2.375rem);
+  line-height: 1.12;
   font-weight: 600;
   letter-spacing: -0.028em;
   text-wrap: balance;
 }
+
 .bottomCta p {
   max-width: 36rem;
-  margin: 14px auto 0;
+  margin: 12px auto 0;
   font-size: 0.9375rem;
   line-height: 1.65;
   color: var(--bb-text-muted);
+}
+.bottomCta .heroActions {
+  justify-content: center;
+  margin-top: 24px;
 }
 .tertiaryLink {
   margin-top: 16px;
@@ -1229,9 +1240,6 @@
 }
 
 @media (max-width: 700px) {
-  .shell {
-    padding: 0 10px;
-  }
   .workspaceTop {
     flex-wrap: wrap;
   }

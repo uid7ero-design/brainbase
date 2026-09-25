@@ -1,4 +1,4 @@
-// Theme-aware BRΛINBΛSE horizontal lockup, generated from
+// Theme-aware BrainBase horizontal lockup, generated from
 // public/Brand/brainbase-horizontal-color.svg (the approved brand kit asset).
 // Identical geometry and brand gradients; the only change is that the
 // wordmark glyphs use currentColor (and the divider a border token) instead
@@ -16,7 +16,7 @@ type BrainbaseLockupProps = {
   title?: string | null;
 };
 
-export function BrainbaseLockup({ width = 150, idPrefix: p, className, title = 'BRΛINBΛSE' }: BrainbaseLockupProps) {
+export function BrainbaseLockup({ width = 150, idPrefix: p, className, title = 'BrainBase' }: BrainbaseLockupProps) {
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"

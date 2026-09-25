@@ -73,7 +73,7 @@ describe('Public homepage', () => {
       expect(svg.getAttribute('role'), svg.outerHTML.slice(0, 80)).toBe('img');
       expect(svg).toHaveAccessibleName();
     }
-    expect(screen.getByRole('img', { name: 'BRΛINBΛSE platform map' })).toHaveAccessibleDescription(
+    expect(screen.getByRole('img', { name: 'BrainBase platform map' })).toHaveAccessibleDescription(
       /Microsoft 365 shown as an example connected external system/,
     );
   });
@@ -81,17 +81,35 @@ describe('Public homepage', () => {
   it('footer content is preserved: wordmark, links, copyright, studio line', () => {
     renderBrainbase(<Home />);
     const footer = screen.getByRole('contentinfo');
-    expect(footer).toContainElement(screen.getAllByRole('img', { name: 'BRΛINBΛSE' })[0]);
+    expect(footer).toContainElement(screen.getAllByRole('img', { name: 'BrainBase' })[0]);
     expect(footer).toHaveTextContent('One connected operational platform.');
-    expect(footer).toHaveTextContent('© 2026 BRΛINBΛSE');
+    expect(footer).toHaveTextContent('© 2026 BrainBase');
     expect(footer).toHaveTextContent('A product from HLNA Labs');
     const hrefs = [...footer.querySelectorAll('a')].map(a => a.getAttribute('href'));
     expect(hrefs).toEqual(['/client-operations', '/web-systems', '/pricing', '/demo', '/terms', '/privacy']);
     expect(footer.querySelector('a[href*="hlnalabs"]')).toBeNull();
   });
 
-  it('labels the HLNΛ query input', () => {
+  it('labels the HLNA query input', () => {
     renderBrainbase(<Home />);
-    expect(screen.getByRole('textbox', { name: 'Ask HLNΛ a question' })).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'Ask HLNA a question' })).toBeInTheDocument();
+  });
+});
+
+describe('Public homepage — brand typography', () => {
+  it('uses plain BrainBase / HLNA in readable text; the stylised Λ appears only in hidden marks and map artwork', () => {
+    const { container } = renderBrainbase(<Home />);
+    const clone = container.cloneNode(true) as HTMLElement;
+    clone.querySelectorAll('[aria-hidden="true"], svg[role="img"]').forEach(n => n.remove());
+    expect(clone.textContent).not.toMatch(/Λ/);
+    expect(clone.textContent).toMatch(/BrainBase/);
+    expect(clone.textContent).toMatch(/HLNA/);
+  });
+
+  it('display marks expose the plain brand names to assistive technology', () => {
+    renderBrainbase(<Home />);
+    const meta = screen.getAllByText('Intelligence layer').find(el => el.classList.contains('bb-eyebrow'))!.parentElement!;
+    expect(meta).toHaveTextContent('HLNA');
+    expect(meta.querySelector('[aria-hidden="true"]')).toHaveTextContent('HLNΛ');
   });
 });

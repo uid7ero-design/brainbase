@@ -1,9 +1,12 @@
-/* /client-operations layout. Tokens only — see styles/brainbase-tokens.css. */
+/* /client-operations layout. Tokens only — see styles/brainbase-tokens.css.
+   Spacing uses the shared rhythm tokens and every block aligns to the
+   shared container guides. Cyan appears only where it means connection:
+   the connected-journey track and the external-system example. */
 
-/* ─── Hero (centred, as before) ─── */
+/* ─── Hero (left-aligned to the container guide, like the homepage) ─── */
 .hero {
   position: relative;
-  padding: 28px 0 clamp(56px, 8vw, 88px);
+  padding: 16px 0 var(--bb-hero-bottom);
   border-bottom: 1px solid var(--bb-border);
 }
 .hero::after {
@@ -32,20 +35,18 @@
 }
 .heroBody {
   max-width: 46rem;
-  margin: clamp(32px, 6vw, 64px) auto 0;
-  text-align: center;
+  margin-top: var(--bb-hero-top);
 }
 .heroLockup {
-  margin: 0 auto 28px;
+  margin: 0 0 24px;
   max-width: 100%;
   height: auto;
 }
-.heroEyebrow,
-.inlineEyebrow {
+.heroEyebrow {
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  margin: 0 0 18px;
+  margin: 0 0 20px;
 }
 .eyebrowDot {
   width: 6px;
@@ -66,7 +67,7 @@
   color: var(--bb-accent);
 }
 .heroLede {
-  margin: 22px auto 0;
+  margin: 20px 0 0;
   max-width: 38rem;
   font-size: clamp(1rem, 1.5vw, 1.125rem);
   line-height: 1.7;
@@ -75,16 +76,14 @@
 .heroActions {
   display: flex;
   flex-wrap: wrap;
-  justify-content: center;
   gap: 10px;
-  margin-top: 30px;
+  margin-top: 28px;
 }
 .pillList {
   display: flex;
   flex-wrap: wrap;
-  justify-content: center;
   gap: 8px 18px;
-  margin: 26px 0 0;
+  margin: 24px 0 0;
   padding: 0;
   list-style: none;
   font-family: var(--bb-font-mono);
@@ -100,19 +99,18 @@
   content: '';
   width: 5px;
   height: 5px;
-  border: 1px solid var(--bb-signal);
+  border: 1px solid var(--bb-border-strong);
   border-radius: 1px;
 }
 .whoFor {
-  margin-top: 44px;
+  margin-top: var(--bb-block-gap);
 }
 .whoFor > p {
   margin: 0 0 14px;
 }
 
 /* ─── Shared ─── */
-.chipRow,
-.chipRowCentred {
+.chipRow {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
@@ -120,14 +118,11 @@
   padding: 0;
   list-style: none;
 }
-.chipRowCentred {
-  justify-content: center;
-}
 .itemTitle {
   display: flex;
   align-items: center;
   gap: 9px;
-  margin: 0 0 6px;
+  margin: 0 0 var(--bb-cell-title-gap);
   font-size: 1rem;
   font-weight: 600;
   letter-spacing: -0.01em;
@@ -146,7 +141,7 @@
   color: var(--bb-text-muted);
 }
 .caption {
-  margin: 16px 0 0;
+  margin: var(--bb-grid-gap) 0 0;
   font-size: 0.8125rem;
   line-height: 1.6;
   color: var(--bb-text-muted);
@@ -154,26 +149,15 @@
 .linkRow {
   margin-top: 20px;
 }
-.sectionTitle {
-  margin: 0 0 16px;
-  font-size: clamp(1.75rem, 3.4vw, 2.5rem);
-  line-height: 1.12;
-  font-weight: 600;
-  letter-spacing: -0.028em;
-  text-wrap: balance;
-}
-.lambda {
-  color: var(--bb-accent);
-}
 .check {
   flex-shrink: 0;
   margin-top: 2px;
-  color: var(--bb-signal);
+  color: var(--bb-accent);
 }
 .split {
   display: grid;
   grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
-  gap: clamp(28px, 5vw, 64px);
+  gap: var(--bb-block-gap);
   align-items: center;
 }
 .split > :first-child {
@@ -190,7 +174,7 @@
 }
 .compareBefore,
 .compareAfter {
-  padding: 26px 28px 30px;
+  padding: var(--bb-cell-pad);
 }
 .compareBefore {
   background: var(--bb-bg-subtle);
@@ -265,8 +249,8 @@
 .journeyStep {
   position: relative;
   display: flex;
-  gap: 16px;
-  padding: 24px 22px 28px 0;
+  gap: var(--bb-cell-icon-gap);
+  padding: 20px 22px 22px 0;
 }
 .journeyStep:nth-child(n + 4) {
   border-top: 1px solid var(--bb-border);
@@ -290,8 +274,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 34px;
-  height: 34px;
+  width: var(--bb-cell-icon);
+  height: var(--bb-cell-icon);
   border: 1px solid var(--bb-border-strong);
   border-radius: var(--bb-radius);
   background: var(--bb-surface);
@@ -300,62 +284,21 @@
   color: var(--bb-signal-text);
 }
 
-/* ─── Outcomes (ruled grid, no cards) ─── */
+/* ─── Outcomes (ruled cells, .bb-cells) ─── */
 .ruledGrid {
-  display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 1px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  background: var(--bb-border);
-  border: 1px solid var(--bb-border);
-  border-radius: var(--bb-radius-lg);
-  overflow: hidden;
-}
-.ruledCell {
-  padding: 24px 22px 28px;
-  background: var(--bb-bg);
-  transition: background-color 150ms ease;
-}
-.ruledCell:hover {
-  background: var(--bb-surface);
 }
 .cellMark {
   display: block;
   width: 18px;
   height: 1px;
-  margin-bottom: 18px;
+  margin-bottom: var(--bb-cell-icon-gap);
   background: var(--bb-accent);
 }
-.ruledCell:nth-child(2n) .cellMark {
-  background: var(--bb-signal);
-}
 
-/* ─── Capabilities panel ─── */
-.capabilityPanel {
-  padding: clamp(24px, 4vw, 44px);
-  border: 1px solid var(--bb-border);
-  border-radius: var(--bb-radius-lg);
-  background: var(--bb-surface);
-}
+/* ─── Capabilities (ruled cells, .bb-cells) ─── */
 .capabilityGrid {
-  display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.capability {
-  padding: 18px 18px 20px;
-  border: 1px solid var(--bb-border);
-  border-radius: var(--bb-radius);
-  background: var(--bb-surface-raised);
-  transition: border-color 150ms ease;
-}
-.capability:hover {
-  border-color: var(--bb-accent-border);
 }
 .capabilityDot {
   flex-shrink: 0;
@@ -368,15 +311,8 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  margin: 24px 0 0;
-  padding-top: 18px;
-  border-top: 1px solid var(--bb-border);
-}
-.hlnaMark {
-  font-family: var(--bb-font-mono);
+  margin: var(--bb-grid-gap) 0 0;
   font-size: 0.8125rem;
-  font-weight: 600;
-  letter-spacing: 0.12em;
 }
 
 /* ─── External ─── */
@@ -409,18 +345,16 @@
   white-space: normal;
 }
 .exampleHlna {
-  color: var(--bb-accent);
-  font-weight: 600;
-  letter-spacing: 0.1em;
+  color: var(--bb-text);
 }
 .exampleTab {
   color: var(--bb-text-muted);
 }
 .exampleBody {
-  padding: clamp(18px, 3vw, 30px);
+  padding: var(--bb-panel-pad);
 }
 .exampleHead {
-  margin-bottom: 22px;
+  margin-bottom: 20px;
 }
 .exampleHead > p:first-child {
   margin: 0 0 8px;
@@ -434,11 +368,11 @@
 .kpis {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
-  margin: 0 0 14px;
+  gap: var(--bb-grid-gap);
+  margin: 0 0 var(--bb-grid-gap);
 }
 .kpi {
-  padding: 14px 16px;
+  padding: var(--bb-cell-pad-sm);
   border: 1px solid var(--bb-border);
   border-radius: var(--bb-radius);
   background: var(--bb-surface-raised);
@@ -465,7 +399,7 @@
 .exampleColumns {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  gap: var(--bb-grid-gap);
 }
 .examplePane {
   border: 1px solid var(--bb-border);
@@ -544,20 +478,12 @@
   color: var(--bb-text-muted);
 }
 
-/* ─── HLNΛ ─── */
-.hlnaPanel {
-  max-width: 44rem;
-  padding-left: clamp(16px, 3vw, 28px);
-  border-left: 2px solid var(--bb-accent);
-}
-
 /* ─── Deployment ─── */
 .deployment {
   display: grid;
   grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
-  gap: clamp(24px, 5vw, 56px);
+  gap: var(--bb-block-gap);
   align-items: center;
-  padding: clamp(4px, 1.5vw, 14px);
 }
 .deployment > div > p:first-child {
   margin: 0 0 10px;
@@ -591,30 +517,20 @@
   color: var(--bb-text);
 }
 
-/* ─── Pricing ─── */
+/* ─── Pricing (ruled cells, .bb-cells — matches /pricing) ─── */
 .plans {
-  display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
 }
 .plan {
   display: flex;
   flex-direction: column;
-  padding: 22px 20px 20px;
-  border: 1px solid var(--bb-border);
-  border-radius: var(--bb-radius-lg);
-  background: var(--bb-surface);
 }
 .planPopular {
-  border-color: var(--bb-accent-border);
+  background: var(--bb-surface-raised);
   box-shadow: inset 0 2px 0 var(--bb-accent);
 }
 .planEnterprise {
-  border-style: dashed;
-  border-color: var(--bb-signal-border);
+  box-shadow: inset 0 2px 0 var(--bb-border-strong);
 }
 .planHead {
   display: flex;
@@ -630,7 +546,7 @@
   font-weight: 600;
 }
 .planTagline {
-  margin: 6px 0 20px;
+  margin: var(--bb-cell-title-gap) 0 20px;
   font-size: 0.8125rem;
   color: var(--bb-text-muted);
 }
@@ -696,22 +612,21 @@
   flex-shrink: 0;
 }
 .pricingNote {
-  max-width: 46rem;
-  margin: 24px auto 0;
-  padding: 18px 20px;
+  margin: var(--bb-grid-gap) 0 0;
+  padding: var(--bb-cell-pad);
   border: 1px solid var(--bb-border);
   border-radius: var(--bb-radius-lg);
   background: var(--bb-bg-subtle);
 }
 .pricingNoteTitle {
-  margin: 0 0 6px;
+  margin: 0 0 var(--bb-cell-title-gap);
   font-size: 0.875rem;
   font-weight: 600;
 }
 
 /* ─── Final CTA ─── */
 .cta {
-  padding: clamp(40px, 7vw, 72px) clamp(20px, 5vw, 48px);
+  padding: var(--bb-block-gap);
   border: 1px solid var(--bb-border);
   border-radius: var(--bb-radius-lg);
   background-color: var(--bb-surface);
@@ -721,19 +636,19 @@
   margin: 0;
 }
 .ctaTitle {
-  margin: 14px auto 0;
+  margin: 12px auto 0;
   max-width: 32rem;
-  font-size: clamp(1.75rem, 3.4vw, 2.5rem);
+  font-size: clamp(1.75rem, 3.2vw, 2.375rem);
   line-height: 1.12;
   font-weight: 600;
   letter-spacing: -0.028em;
   text-wrap: balance;
 }
 .ctaBody {
-  margin: 16px auto 0;
+  margin: 12px auto 0;
   max-width: 34rem;
   font-size: 1rem;
-  line-height: 1.7;
+  line-height: 1.65;
   color: var(--bb-text-muted);
 }
 .ctaActions {
@@ -741,7 +656,7 @@
   flex-wrap: wrap;
   justify-content: center;
   gap: 10px;
-  margin-top: 28px;
+  margin-top: 24px;
 }
 
 /* ─── Focus ─── */
@@ -811,8 +726,6 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .ruledCell,
-  .capability,
   .planCta,
   .planCtaPrimary {
     transition: none;

@@ -3,7 +3,7 @@
 /* ─── Hero ─── */
 .hero {
   position: relative;
-  padding: clamp(48px, 8vw, 96px) 0 clamp(56px, 8vw, 88px);
+  padding: var(--bb-hero-top) 0 var(--bb-hero-bottom);
   border-bottom: 1px solid var(--bb-border);
 }
 .hero::after {
@@ -19,7 +19,7 @@
   z-index: 1;
   display: grid;
   grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.95fr);
-  gap: clamp(40px, 6vw, 72px);
+  gap: var(--bb-block-gap);
   align-items: center;
 }
 .heroCopy {
@@ -83,7 +83,7 @@
   content: '';
   width: 5px;
   height: 5px;
-  border: 1px solid var(--bb-signal);
+  border: 1px solid var(--bb-border-strong);
   border-radius: 1px;
 }
 .hlnaMeta {
@@ -93,18 +93,12 @@
   margin: 18px 0 0;
 }
 .hlnaMark {
-  font-family: var(--bb-font-mono);
   font-size: 0.8125rem;
-  font-weight: 600;
-  letter-spacing: 0.12em;
-}
-.lambda {
-  color: var(--bb-accent);
 }
 
 .heroVisual {
   display: grid;
-  gap: 14px;
+  gap: var(--bb-grid-gap);
   min-width: 0;
 }
 .mapPanel {
@@ -116,9 +110,18 @@
 }
 .terminal {
   min-width: 0;
+  /* The interactive HLNA query box stays a dark "terminal" in both themes
+     (CommandDemo is dark-styled internally). In light mode its body uses a
+     softer ink and the title bar follows the page theme, so it no longer
+     outweighs the platform map. */
+  --bb-terminal-ink: var(--bb-surface);
+}
+:global(:root[data-theme='light']) .terminal {
+  --bb-terminal-ink: color-mix(in srgb, var(--bb-text) 86%, var(--bb-bg));
 }
 .terminalBody {
-  padding: 14px;
+  padding: var(--bb-cell-pad-sm);
+  background: var(--bb-terminal-ink);
   color: var(--bb-text);
 }
 /* CommandDemo sets outline:none inline; restore a visible focus ring here. */
@@ -136,7 +139,7 @@
   border-bottom: 1px solid var(--bb-border);
 }
 .stat {
-  padding: 22px 20px;
+  padding: var(--bb-cell-pad);
   border-left: 1px solid var(--bb-border);
 }
 .stat:first-child {
@@ -159,13 +162,13 @@
 .cellIndex,
 .pipelineIndex {
   display: block;
-  margin-bottom: 18px;
+  margin-bottom: var(--bb-cell-icon-gap);
   font-family: var(--bb-font-mono);
   font-size: 0.72rem;
   color: var(--bb-accent);
 }
 .cellTitle {
-  margin: 0 0 8px;
+  margin: 0 0 var(--bb-cell-title-gap);
   font-size: 1rem;
   font-weight: 600;
   letter-spacing: -0.01em;
@@ -191,11 +194,10 @@
   color: var(--bb-text-muted);
 }
 .caption {
-  margin: 20px 0 0;
+  margin: 16px 0 0;
   font-family: var(--bb-font-mono);
   font-size: 0.8125rem;
   color: var(--bb-text-muted);
-  text-align: center;
 }
 .accentText {
   color: var(--bb-accent);
@@ -216,7 +218,7 @@
 .split {
   display: grid;
   grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
-  gap: clamp(32px, 6vw, 72px);
+  gap: var(--bb-block-gap);
   align-items: end;
 }
 .split > :first-child {
@@ -224,7 +226,7 @@
 }
 .problemVisual {
   display: grid;
-  gap: 28px;
+  gap: var(--bb-head-gap);
 }
 .toolScatter {
   display: flex;
@@ -248,22 +250,9 @@
 }
 
 /* ─── Ruled 4-column grid (no cards — 1px rules only) ─── */
+/* Columns only: cell rules, padding and surface come from .bb-cells. */
 .ruledGrid4 {
-  display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  border-top: 1px solid var(--bb-border);
-  border-bottom: 1px solid var(--bb-border);
-}
-.ruledCell {
-  padding: 24px 22px 28px;
-  border-left: 1px solid var(--bb-border);
-}
-.ruledCell:first-child {
-  border-left: 0;
-  padding-left: 0;
 }
 
 /* ─── Growth path ─── */
@@ -278,7 +267,7 @@
 }
 .growthStep {
   position: relative;
-  padding: 22px 22px 24px;
+  padding: var(--bb-cell-pad);
   border: 1px solid var(--bb-border);
   background: var(--bb-surface);
 }
@@ -316,32 +305,21 @@
 
 /* ─── Capabilities ─── */
 .capabilityGrid {
-  display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 1px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  background: var(--bb-border);
-  border: 1px solid var(--bb-border);
-  border-radius: var(--bb-radius-lg);
-  overflow: hidden;
 }
 .capability {
-  padding: 24px 22px 28px;
-  background: var(--bb-bg);
   transition: background-color 150ms ease;
 }
 .capability:hover {
-  background: var(--bb-surface);
+  background: var(--bb-surface-raised);
 }
 .capabilityIcon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 38px;
-  height: 38px;
-  margin-bottom: 18px;
+  width: var(--bb-cell-icon);
+  height: var(--bb-cell-icon);
+  margin-bottom: var(--bb-cell-icon-gap);
   border: 1px solid var(--bb-accent-border);
   border-radius: var(--bb-radius);
   background: var(--bb-accent-soft);
@@ -352,7 +330,7 @@
 .twoCol {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
+  gap: var(--bb-grid-gap);
 }
 
 /* ─── Integration ─── */
@@ -425,63 +403,42 @@
   background: var(--bb-signal);
 }
 .pipelineIndex {
-  margin-bottom: 8px;
-  color: var(--bb-signal-text);
+  margin-bottom: var(--bb-cell-title-gap);
 }
 
-/* ─── HLNΛ ─── */
+/* ─── HLNA ─── */
 .hlnaGrid {
   display: grid;
   grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
-  gap: clamp(32px, 6vw, 64px);
+  gap: var(--bb-block-gap);
   align-items: center;
 }
 .hlnaTitle {
-  margin: 0 0 16px;
-  font-size: clamp(1.75rem, 3.4vw, 2.5rem);
+  margin: 12px 0 16px;
+  font-size: clamp(1.75rem, 3.2vw, 2.375rem);
   line-height: 1.12;
   font-weight: 600;
   letter-spacing: -0.028em;
   text-wrap: balance;
 }
 .intelList {
-  display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  border: 1px solid var(--bb-border);
-  border-radius: var(--bb-radius-lg);
-  background: var(--bb-surface);
-}
-.intelItem {
-  padding: 22px;
-}
-.intelItem:nth-child(2n) {
-  border-left: 1px solid var(--bb-border);
-}
-.intelItem:nth-child(n + 3) {
-  border-top: 1px solid var(--bb-border);
 }
 .intelItem::before {
   content: '';
   display: block;
   width: 18px;
   height: 1px;
-  margin-bottom: 16px;
+  margin-bottom: var(--bb-cell-icon-gap);
   background: var(--bb-accent);
-}
-.intelItem:nth-child(2n)::before {
-  background: var(--bb-signal);
 }
 
 /* ─── Deployment ─── */
 .deployment {
   display: grid;
   grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
-  gap: clamp(24px, 5vw, 56px);
+  gap: var(--bb-block-gap);
   align-items: center;
-  padding: clamp(4px, 1.5vw, 14px);
 }
 .deployment .bb-eyebrow,
 .deployment > div > p:first-child {
@@ -534,40 +491,35 @@
 
 /* ─── Starting points ─── */
 .pathGrid {
-  display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 16px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
 }
+/* The link fills its cell, so the whole cell is the target. */
 .pathGrid > li {
   display: flex;
+  padding: 0;
 }
 .pathCard {
   display: flex;
   flex-direction: column;
   width: 100%;
-  padding: 22px;
-  border: 1px solid var(--bb-border);
-  border-radius: var(--bb-radius-lg);
-  background: var(--bb-surface);
+  padding: var(--bb-cell-pad);
   color: var(--bb-text);
   text-decoration: none;
-  transition: border-color 150ms ease;
+  transition: background-color 150ms ease;
 }
 .pathCard:hover {
-  border-color: var(--bb-accent-border);
+  background: var(--bb-surface-raised);
 }
+/* Inset ring: .bb-cells clips overflow, so an outside ring would be cut. */
 .pathCard:focus-visible {
   outline: 2px solid var(--bb-focus);
-  outline-offset: 3px;
+  outline-offset: -3px;
 }
 .pathMeta {
   display: flex;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 18px;
+  margin-bottom: var(--bb-cell-icon-gap);
 }
 .pathNumber {
   font-family: var(--bb-font-mono);
@@ -575,7 +527,7 @@
   color: var(--bb-text-muted);
 }
 .pathTitle {
-  margin: 0 0 10px;
+  margin: 0 0 var(--bb-cell-title-gap);
   font-size: 1.125rem;
   line-height: 1.3;
   font-weight: 600;
@@ -591,13 +543,17 @@
   font-weight: 550;
   color: var(--bb-accent);
 }
-.pathCard:hover .flowArrow {
+.pathArrow {
+  flex-shrink: 0;
+  transition: transform 150ms ease;
+}
+.pathCard:hover .pathArrow {
   transform: translateX(2px);
 }
 
 /* ─── Final CTA ─── */
 .cta {
-  padding: clamp(40px, 7vw, 72px) clamp(20px, 5vw, 48px);
+  padding: calc(var(--bb-block-gap) + 8px) var(--bb-gutter);
   border: 1px solid var(--bb-border);
   border-radius: var(--bb-radius-lg);
   background-color: var(--bb-surface);
@@ -607,9 +563,9 @@
   margin: 0;
 }
 .ctaTitle {
-  margin: 14px auto 0;
+  margin: 12px auto 0;
   max-width: 32rem;
-  font-size: clamp(1.75rem, 3.4vw, 2.5rem);
+  font-size: clamp(1.75rem, 3.2vw, 2.375rem);
   line-height: 1.12;
   font-weight: 600;
   letter-spacing: -0.028em;
@@ -643,13 +599,6 @@
   }
   .ruledGrid4 {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .ruledCell:nth-child(3) {
-    border-left: 0;
-    padding-left: 0;
-  }
-  .ruledCell:nth-child(n + 3) {
-    border-top: 1px solid var(--bb-border);
   }
   .pipeline {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -737,19 +686,6 @@
   .intelList {
     grid-template-columns: minmax(0, 1fr);
   }
-  .ruledCell {
-    border-left: 0;
-    padding-left: 0;
-  }
-  .ruledCell + .ruledCell {
-    border-top: 1px solid var(--bb-border);
-  }
-  .intelItem:nth-child(2n) {
-    border-left: 0;
-  }
-  .intelItem + .intelItem {
-    border-top: 1px solid var(--bb-border);
-  }
   .toolScatter li:nth-child(2n) {
     transform: none;
   }
@@ -757,7 +693,8 @@
 
 @media (prefers-reduced-motion: reduce) {
   .capability,
-  .pathCard {
+  .pathCard,
+  .pathArrow {
     transition: none;
   }
 }

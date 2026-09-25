@@ -103,8 +103,8 @@ describe('Homepage is theme-aware and calmer', () => {
     expect(homepage).toMatch(/<SystemMap/)
   })
 
-  it('keeps the interactive HLNΛ query box', () => {
-    expect(homepage).toMatch(/<CommandDemo placeholder="Ask BRΛINBΛSE what's happening across your operation\.\.\." \/>/)
+  it('keeps the interactive HLNA query box', () => {
+    expect(homepage).toMatch(/<CommandDemo placeholder="Ask BrainBase what's happening across your operation\.\.\." \/>/)
   })
 
   it('only themed routes get the theme toggle; other public pages pin the nav to dark', () => {
