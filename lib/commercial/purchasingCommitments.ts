@@ -22,6 +22,8 @@ export interface PurchaseLineCommitment {
   position: number;
   description: string;
   effectiveCostCentreId: string | null;
+  effectiveCostCentreCode: string | null;
+  effectiveCostCentreName: string | null;
   state: PurchaseCommitmentState;
   orderedSubtotalCents: number;
   orderedTaxCents: number;
@@ -38,6 +40,7 @@ export interface PurchaseOrderCommitment {
   purchaseOrderId: string;
   purchaseOrderStatus: string;
   supplierId: string;
+  supplierName: string | null;
   currency: string;
   commitmentEffectiveAt: string | null;
   periodResolution: CommitmentPeriodResolution;
@@ -63,6 +66,7 @@ export type RawPurchaseCommitmentRow = {
   purchase_order_id: string;
   purchase_order_status: string;
   supplier_id: string;
+  supplier_name?: string | null;
   currency: string;
   issued_at: string | null;
   purchase_order_cost_centre_id: string | null;
@@ -70,6 +74,8 @@ export type RawPurchaseCommitmentRow = {
   position: number | null;
   description_snapshot: string | null;
   line_cost_centre_id: string | null;
+  effective_cost_centre_code?: string | null;
+  effective_cost_centre_name?: string | null;
   ordered_subtotal_cents: number | null;
   ordered_tax_cents: number | null;
   ordered_total_cents: number | null;
@@ -133,6 +139,8 @@ export function derivePurchaseOrderCommitment(
       position: Number(row.position ?? 0),
       description: row.description_snapshot ?? '',
       effectiveCostCentreId: row.line_cost_centre_id ?? row.purchase_order_cost_centre_id,
+      effectiveCostCentreCode: row.effective_cost_centre_code ?? null,
+      effectiveCostCentreName: row.effective_cost_centre_name ?? null,
       state,
       orderedSubtotalCents,
       orderedTaxCents,
@@ -154,6 +162,7 @@ export function derivePurchaseOrderCommitment(
     purchaseOrderId: header.purchase_order_id,
     purchaseOrderStatus: header.purchase_order_status,
     supplierId: header.supplier_id,
+    supplierName: header.supplier_name ?? null,
     currency: header.currency,
     commitmentEffectiveAt: isIssued ? header.issued_at : null,
     periodResolution,
@@ -340,6 +349,7 @@ export async function getPurchaseCommitmentReport(
       cpo.id AS purchase_order_id,
       cpo.status AS purchase_order_status,
       cpo.supplier_id,
+      supplier.name AS supplier_name,
       cpo.currency,
       cpo.issued_at,
       cpo.cost_centre_id AS purchase_order_cost_centre_id,
@@ -347,6 +357,8 @@ export async function getPurchaseCommitmentReport(
       cpol.position,
       cpol.description_snapshot,
       cpol.cost_centre_id AS line_cost_centre_id,
+      effective_cc.code AS effective_cost_centre_code,
+      effective_cc.name AS effective_cost_centre_name,
       cpol.line_subtotal_cents AS ordered_subtotal_cents,
       cpol.line_tax_cents AS ordered_tax_cents,
       cpol.line_total_cents AS ordered_total_cents,
@@ -364,6 +376,12 @@ export async function getPurchaseCommitmentReport(
       ON cpol.purchase_order_id = cpo.id
      AND cpol.organisation_id = cpo.organisation_id
     LEFT JOIN billed b ON b.line_id = cpol.id
+    LEFT JOIN commercial_suppliers supplier
+      ON supplier.id = cpo.supplier_id
+     AND supplier.organisation_id = cpo.organisation_id
+    LEFT JOIN commercial_cost_centres effective_cc
+      ON effective_cc.id = COALESCE(cpol.cost_centre_id, cpo.cost_centre_id)
+     AND effective_cc.organisation_id = cpo.organisation_id
     LEFT JOIN LATERAL (
       SELECT
         COUNT(*)::int AS period_match_count,
