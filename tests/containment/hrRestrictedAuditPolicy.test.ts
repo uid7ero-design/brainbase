@@ -203,6 +203,25 @@ describe('restricted-HR audit policy', () => {
     expect(allArgs).toContain('[redacted]');
   });
 
+  it('accepts strict restricted-document reads while redacting filename metadata', async () => {
+    await logRestrictedHrReadEvent(
+      { organisationId: 'org-a', userId: 'reader-user' },
+      {
+        action: 'hr_restricted_case_document.read',
+        resourceType: 'hr_restricted_case_document',
+        resourceId: 'document-1',
+        afterState: {
+          case_id: 'case-1', uploaded_by: 'reader-user', original_filename: 'sensitive-name.pdf',
+          content_type: 'application/pdf', byte_size: 123, deleted_at: null, storage_key: 'private/key',
+        },
+      },
+    );
+    const args = JSON.stringify(sqlMock.mock.calls);
+    expect(args).not.toContain('sensitive-name.pdf');
+    expect(args).not.toContain('private/key');
+    expect(args).toContain('[redacted]');
+  });
+
   it('rejects misuse of the strict restricted-read helper before writing an audit row', async () => {
     await expect(logRestrictedHrReadEvent(
       { organisationId: 'org-a', userId: 'reader-user' },
