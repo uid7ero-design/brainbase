@@ -30,7 +30,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
       sourcePurchaseOrderLineId,
       productId: productId ?? null,
       description: description ?? undefined,
-      quantity: Number(quantity),
+      quantity,
       unitPriceCents: unitPriceCents !== undefined ? Number(unitPriceCents) : undefined,
       taxCodeId: taxCodeId ?? null,
     });

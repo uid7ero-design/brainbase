@@ -17,7 +17,7 @@ type SupplierBill = {
 };
 type Line = {
   id: string; source_purchase_order_line_id: string; position: number; description_snapshot: string;
-  unit_snapshot: string | null; quantity: number; unit_price_cents: number;
+  unit_snapshot: string | null; quantity: string; unit_price_cents: number;
   tax_code_snapshot: string | null; tax_rate_snapshot: string; line_total_cents: number;
 };
 type PurchaseOrder = { id: string; purchase_order_number: string | null; status: string; supplier_name_snapshot: string | null };
@@ -152,7 +152,7 @@ export default function SupplierBillDetailPage() {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         sourcePurchaseOrderLineId: newPoLineId,
-        quantity: Number(newQuantity),
+        quantity: newQuantity,
         unitPriceCents: Math.round(parseFloat(newUnitPrice || '0') * 100),
         taxCodeId: newTaxCodeId || null,
       }),
@@ -378,7 +378,7 @@ export default function SupplierBillDetailPage() {
             </div>
             <div style={{ flex: '0 1 90px' }}>
               <label style={lbl}>Quantity</label>
-              <input value={newQuantity} onChange={e => setNewQuantity(e.target.value)} style={sel} inputMode="numeric" />
+              <input type="number" min="0.0001" step="0.0001" value={newQuantity} onChange={e => setNewQuantity(e.target.value)} style={sel} inputMode="decimal" />
             </div>
             <div style={{ flex: '0 1 120px' }}>
               <label style={lbl}>Unit Price</label>

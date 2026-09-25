@@ -174,9 +174,9 @@ CREATE INDEX IF NOT EXISTS idx_commercial_supplier_bills_org_po ON commercial_su
 -- line's ordered line_total_cents, a VALUE comparison, not a
 -- quantity-only one, per the C7.4 brief's explicit instruction.
 --
--- quantity stays INTEGER, matching commercial_purchase_order_lines.quantity
--- exactly (unlike C7.3's receipt lines, no fractional-quantity billing
--- requirement was specified for this phase).
+-- C7.5C: quantity uses NUMERIC(14,4), matching receipt precision so
+-- fractional service/weight/time quantities can be billed exactly while
+-- PO ordered quantity remains INTEGER for this phase.
 --
 -- product_id is OPTIONAL (nullable), matching every other Commercial
 -- line table's identical "ad-hoc lines are supported" pattern, and is
@@ -192,7 +192,7 @@ CREATE TABLE IF NOT EXISTS commercial_supplier_bill_lines (
   description_snapshot           TEXT NOT NULL,
   sku_snapshot                   TEXT,
   unit_snapshot                  TEXT,
-  quantity                       INTEGER NOT NULL DEFAULT 1 CHECK (quantity > 0),
+  quantity                       NUMERIC(14,4) NOT NULL DEFAULT 1 CHECK (quantity > 0),
   unit_price_cents               INTEGER NOT NULL DEFAULT 0 CHECK (unit_price_cents >= 0),
   tax_code_snapshot              TEXT,
   tax_rate_snapshot              NUMERIC(5,2) NOT NULL DEFAULT 0 CHECK (tax_rate_snapshot >= 0 AND tax_rate_snapshot <= 100),

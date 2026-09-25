@@ -168,12 +168,17 @@ describe('Phase C7.4 — addSupplierBillLine: PO-line lineage and money fields',
     })).rejects.toThrow('source_purchase_order_line_id not found on this purchase order for this organisation')
   })
 
-  it('rejects a non-positive or non-integer quantity', async () => {
+  it('rejects zero and quantities with more than four decimal places', async () => {
     sqlMock.mockResolvedValueOnce([billRow()])
     const { addSupplierBillLine } = await import('@/lib/commercial/supplierBills')
     await expect(addSupplierBillLine({
       organisationId: ORG, supplierBillId: 'bill-1', sourcePurchaseOrderLineId: 'line-1', quantity: 0,
-    })).rejects.toThrow('quantity must be a positive integer')
+    })).rejects.toThrow('quantity must be greater than zero')
+
+    sqlMock.mockResolvedValueOnce([billRow()])
+    await expect(addSupplierBillLine({
+      organisationId: ORG, supplierBillId: 'bill-1', sourcePurchaseOrderLineId: 'line-1', quantity: '1.23456',
+    })).rejects.toThrow(/at most 4 decimal places/)
   })
 
   it('defaults unitPriceCents/tax snapshot from the source PO line when not explicitly provided', async () => {
@@ -189,6 +194,38 @@ describe('Phase C7.4 — addSupplierBillLine: PO-line lineage and money fields',
     const line = await addSupplierBillLine({ organisationId: ORG, supplierBillId: 'bill-1', sourcePurchaseOrderLineId: 'line-1', quantity: 10 })
     expect(line.unit_price_cents).toBe(1000)
     expect(line.tax_code_snapshot).toBe('GST')
+  })
+
+  it('accepts 6.5000 and persists canonical quantity with HALF-UP subtotal/tax totals', async () => {
+    sqlMock
+      .mockResolvedValueOnce([billRow()])
+      .mockResolvedValueOnce([{ next_position: 1 }])
+      .mockResolvedValueOnce([{
+        id: 'bl-1', quantity: '6.5000', unit_price_cents: 1001,
+        tax_code_snapshot: 'GST', tax_rate_snapshot: '10.00',
+        line_subtotal_cents: 6507, line_tax_cents: 651, line_total_cents: 7158,
+      }])
+      .mockResolvedValueOnce([{
+        line_subtotal_cents: 6507, line_tax_cents: 651, line_total_cents: 7158,
+      }])
+      .mockResolvedValueOnce([])
+    listPurchaseOrderLinesMock.mockResolvedValueOnce([poLineRow({ unit_price_cents: 1001 })])
+
+    const { addSupplierBillLine } = await import('@/lib/commercial/supplierBills')
+    const line = await addSupplierBillLine({
+      organisationId: ORG,
+      supplierBillId: 'bill-1',
+      sourcePurchaseOrderLineId: 'line-1',
+      quantity: '6.5',
+    })
+
+    expect(line.quantity).toBe('6.5000')
+    const insertCall = sqlMock.mock.calls[2]
+    expect((insertCall[0] as string[]).join('')).toMatch(/INSERT INTO commercial_supplier_bill_lines/)
+    expect(insertCall).toContain('6.5000')
+    expect(insertCall).toContain(6507)
+    expect(insertCall).toContain(651)
+    expect(insertCall).toContain(7158)
   })
 
   it('rejects adding a line to a non-DRAFT (e.g. POSTED) bill', async () => {
@@ -295,22 +332,24 @@ describe('Phase C7.4 — postSupplierBillAtomically: source-text proof of the co
     expect(body).toMatch(/po_guard AS \([\s\S]*?status = 'ISSUED'/)
   })
 
-  it('locked_lines compares against the PO LINE\'S line_total_cents (ordered VALUE), not its quantity', () => {
-    expect(body).toMatch(/SELECT cpol\.id, cpol\.line_total_cents AS ordered_value_cents/)
+  it('locked_lines captures both ordered quantity and ordered value from the locked PO line', () => {
+    expect(body).toMatch(/cpol\.quantity::numeric\(14,4\) AS ordered_quantity/)
+    expect(body).toMatch(/cpol\.line_total_cents AS ordered_value_cents/)
   })
 
-  it('recomputes already-posted VALUE after locks are held, excluding this bill itself and excluding cancelled bills', () => {
-    expect(body).toMatch(/already_posted AS \([\s\S]*?csb\.status = 'POSTED'/)
+  it('recomputes already-posted quantity and value after locks, excluding this bill and CANCELLED bills', () => {
+    expect(body).toMatch(/already_posted AS \([\s\S]*?SUM\(csbl\.quantity\)[\s\S]*?SUM\(csbl\.line_total_cents\)[\s\S]*?csb\.status = 'POSTED'/)
     expect(body).toMatch(/csbl\.supplier_bill_id <> \$\{params\.supplierBillId\}/)
   })
 
-  it('the over-billing check compares total_after_cents (already-posted + this bill) against the locked ordered_value_cents — no configurable tolerance', () => {
+  it('the over-billing check independently enforces quantity and value with zero configurable tolerance', () => {
+    expect(body).toMatch(/total_after_quantity\s*<=\s*ordered_quantity/)
     expect(body).toMatch(/total_after_cents\s*<=\s*ordered_value_cents/)
     expect(body).not.toMatch(/tolerance_percent|tolerancePercent/i)
   })
 
-  it('numbering allocation and the DRAFT -> POSTED flip both gate on the validation CTE passing, in the SAME statement as the locks', () => {
-    expect(body).toMatch(/alloc AS \(\s*UPDATE commercial_document_sequences[\s\S]*?EXISTS \(SELECT 1 FROM validation WHERE line_count > 0 AND all_within_value = true\)/)
+  it('numbering and DRAFT -> POSTED both gate on quantity + value validation in the same locked statement', () => {
+    expect(body).toMatch(/all_within_quantity = true AND all_within_value = true/)
     expect(body).toMatch(/UPDATE commercial_supplier_bills SET\s*\n\s*status = 'POSTED'/)
   })
 

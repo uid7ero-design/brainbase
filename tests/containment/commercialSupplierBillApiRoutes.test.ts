@@ -288,6 +288,26 @@ describe('Phase C7.4 — adding a line requires sourcePurchaseOrderLineId + quan
     expect(addSupplierBillLineMock).not.toHaveBeenCalled()
   })
 
+  it('passes a decimal-string quantity through unchanged to the domain', async () => {
+    addSupplierBillLineMock.mockResolvedValue({ id: 'line-1', quantity: '6.5000' })
+    const res = await addLinePOST(jsonReq({
+      sourcePurchaseOrderLineId: 'pol-1',
+      quantity: '6.5000',
+      unitPriceCents: 1001,
+    }), ctx())
+    expect(res.status).toBe(201)
+    expect(addSupplierBillLineMock).toHaveBeenCalledWith(expect.objectContaining({ quantity: '6.5000' }))
+  })
+
+  it('maps invalid fractional precision from the domain to 400', async () => {
+    addSupplierBillLineMock.mockRejectedValue(new Error('quantity must be a decimal with at most 4 decimal places'))
+    const res = await addLinePOST(jsonReq({
+      sourcePurchaseOrderLineId: 'pol-1',
+      quantity: '1.23456',
+    }), ctx())
+    expect(res.status).toBe(400)
+  })
+
   it('a source line that does not belong to this PO is rejected 404', async () => {
     addSupplierBillLineMock.mockRejectedValue(new Error('source_purchase_order_line_id not found on this purchase order for this organisation'))
     const res = await addLinePOST(jsonReq({ sourcePurchaseOrderLineId: 'pol-from-another-po', quantity: 1 }), ctx())

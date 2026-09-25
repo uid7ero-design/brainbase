@@ -53,11 +53,11 @@ type PurchaseReceiptSummary = { id: string; receipt_number: string | null; statu
 // GET /api/commercial/purchase-orders/[id]/bills).
 type SupplierBillSummary = { id: string; bill_number: string | null; status: string; supplier_invoice_number: string; due_date: string | null; total_cents: number; created_at: string };
 type ReconciliationLine = {
-  purchaseOrderLineId: string; description: string; orderedQuantity: number; receivedQuantity: number;
+  purchaseOrderLineId: string; description: string; orderedQuantity: number; receivedQuantity: number; billedQuantity: number;
   orderedValueCents: number; billedValueCents: number; reconciliationState: string;
 };
 type Reconciliation = {
-  lineCount: number; fullyReceivedLineCount: number; fullyBilledLineCount: number; reconciledLineCount: number;
+  lineCount: number; fullyReceivedLineCount: number; fullyBilledQuantityLineCount: number; fullyBilledLineCount: number; reconciledLineCount: number;
   orderedValueCents: number; billedValueCents: number; status: string; lines: ReconciliationLine[];
 };
 
@@ -843,7 +843,7 @@ export default function PurchaseOrderDetailPage() {
         </div>
       </div>
 
-      {/* Phase C7.5B — one derived reconciliation view over the PO plus
+      {/* Phase C7.5B/C7.5C — one derived reconciliation view over the PO plus
           POSTED receipt/bill facts. This is intentionally a read model:
           no reconciliation status or progress counters are stored on the
           PO or PO-line tables. */}
@@ -857,14 +857,16 @@ export default function PurchaseOrderDetailPage() {
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10, marginBottom: 14 }}>
             <div style={{ fontSize: 12, color: '#9ca3af' }}>{reconciliation.fullyReceivedLineCount} / {reconciliation.lineCount} lines fully received</div>
-            <div style={{ fontSize: 12, color: '#9ca3af' }}>{reconciliation.fullyBilledLineCount} / {reconciliation.lineCount} lines fully billed</div>
+            <div style={{ fontSize: 12, color: '#9ca3af' }}>{reconciliation.fullyBilledQuantityLineCount} / {reconciliation.lineCount} lines fully billed by quantity</div>
+            <div style={{ fontSize: 12, color: '#9ca3af' }}>{reconciliation.fullyBilledLineCount} / {reconciliation.lineCount} lines fully billed by value</div>
             <div style={{ fontSize: 12, color: '#9ca3af' }}>{reconciliation.reconciledLineCount} / {reconciliation.lineCount} lines reconciled</div>
           </div>
           {reconciliation.lines.map(line => (
-            <div key={line.purchaseOrderLineId} style={{ display: 'grid', gridTemplateColumns: 'minmax(180px, 1.4fr) minmax(130px, 1fr) minmax(180px, 1fr) minmax(120px, .8fr)', gap: 12, alignItems: 'center', padding: '8px 0', borderTop: `1px solid ${BORDER}`, fontSize: 12 }}>
+            <div key={line.purchaseOrderLineId} style={{ display: 'grid', gridTemplateColumns: 'minmax(180px, 1.4fr) minmax(130px, 1fr) minmax(130px, 1fr) minmax(180px, 1fr) minmax(120px, .8fr)', gap: 12, alignItems: 'center', padding: '8px 0', borderTop: `1px solid ${BORDER}`, fontSize: 12 }}>
               <span style={{ color: '#f3f4f6' }}>{line.description}</span>
               <span style={{ color: '#9ca3af' }}>{line.receivedQuantity} / {line.orderedQuantity} received</span>
-              <span style={{ color: '#9ca3af' }}>{formatMoneyCents(line.billedValueCents, po.currency)} / {formatMoneyCents(line.orderedValueCents, po.currency)} billed</span>
+              <span style={{ color: '#9ca3af' }}>{line.billedQuantity} / {line.orderedQuantity} billed qty</span>
+              <span style={{ color: '#9ca3af' }}>{formatMoneyCents(line.billedValueCents, po.currency)} / {formatMoneyCents(line.orderedValueCents, po.currency)} billed value</span>
               <span style={{ color: line.reconciliationState === 'RECONCILED' ? '#34d399' : '#9ca3af', textAlign: 'right' }}>{line.reconciliationState.replaceAll('_', ' ')}</span>
             </div>
           ))}

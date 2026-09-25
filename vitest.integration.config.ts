@@ -102,6 +102,10 @@ import path from 'path';
 // scripts/tests/verify-supplier-bill-concurrency.sh) is added alongside
 // the existing specs, for the same reason and with the same
 // explicit-file-argument isolation.
+//
+// C7.5C addition: scripts/tests/supplierBillFractionalQuantityMigration
+// .integration.test.ts proves the INTEGER -> NUMERIC(14,4) migration
+// against disposable Postgres before any Production rollout.
 export default defineConfig({
   test: {
     environment: 'node',
@@ -119,6 +123,7 @@ export default defineConfig({
       'scripts/tests/organiserConfirmationReplay.integration.test.ts',
       'scripts/tests/purchaseReceiptConcurrency.integration.test.ts',
       'scripts/tests/supplierBillConcurrency.integration.test.ts',
+      'scripts/tests/supplierBillFractionalQuantityMigration.integration.test.ts',
     ],
     testTimeout: 30_000,
     hookTimeout: 30_000,
