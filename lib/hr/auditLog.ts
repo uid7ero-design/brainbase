@@ -91,6 +91,13 @@ const HR_RESTRICTED_CASE_AUDIT_POLICY: AuditFieldPolicy = {
   omitted: new Set(['id', 'organisation_id', 'created_at', 'updated_at']),
 };
 
+const HR_RESTRICTED_CASE_PARTICIPANT_AUDIT_POLICY: AuditFieldPolicy = {
+  allowed: new Set(['role_in_case']),
+  idOnly: new Set(['case_id', 'person_id']),
+  redacted: new Set(),
+  omitted: new Set(['id', 'organisation_id', 'created_at']),
+};
+
 const HR_RESTRICTED_CASE_ACCESS_AUDIT_POLICY: AuditFieldPolicy = {
   allowed: new Set(['granted_at', 'revoked_at']),
   idOnly: new Set(['case_id', 'user_id', 'granted_by', 'revoked_by']),
@@ -104,6 +111,12 @@ const HR_RESTRICTED_CASE_NOTE_AUDIT_POLICY: AuditFieldPolicy = {
   redacted: new Set(['body']),
   omitted: new Set(['id', 'organisation_id', 'created_at']),
 };
+
+const RESTRICTED_HR_READ_EVENTS = new Set([
+  'hr_restricted_case:hr_restricted_case.read',
+  'hr_restricted_case_participant:hr_restricted_case_participant.read',
+  'hr_restricted_case_note:hr_restricted_case_note.read',
+]);
 
 const HR_RESTRICTED_CASE_DOCUMENT_AUDIT_POLICY: AuditFieldPolicy = {
   allowed: new Set(['content_type', 'byte_size', 'deleted_at']),
@@ -162,6 +175,7 @@ function policyForResource(resourceType: string): AuditFieldPolicy | null {
   if (resourceType === 'hr_team') return HR_TEAM_AUDIT_POLICY;
   if (resourceType === 'hr_restricted_case') return HR_RESTRICTED_CASE_AUDIT_POLICY;
   if (resourceType === 'hr_restricted_case_access') return HR_RESTRICTED_CASE_ACCESS_AUDIT_POLICY;
+  if (resourceType === 'hr_restricted_case_participant') return HR_RESTRICTED_CASE_PARTICIPANT_AUDIT_POLICY;
   if (resourceType === 'hr_restricted_case_note') return HR_RESTRICTED_CASE_NOTE_AUDIT_POLICY;
   if (resourceType === 'hr_restricted_case_document') return HR_RESTRICTED_CASE_DOCUMENT_AUDIT_POLICY;
   return null;
@@ -266,8 +280,8 @@ export async function logRestrictedHrReadEvent(
   actor: HrAuditActor,
   entry: HrAuditEntry,
 ): Promise<void> {
-  if (entry.resourceType !== 'hr_restricted_case' || entry.action !== 'hr_restricted_case.read') {
-    throw new Error('logRestrictedHrReadEvent only accepts restricted-case read events.');
+  if (!RESTRICTED_HR_READ_EVENTS.has(`${entry.resourceType}:${entry.action}`)) {
+    throw new Error('logRestrictedHrReadEvent only accepts approved restricted-HR read events.');
   }
   await writeHrAuditEvent(actor, entry);
 }
