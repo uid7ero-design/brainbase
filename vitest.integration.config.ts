@@ -110,6 +110,11 @@ import path from 'path';
 // C7.5D1 addition: scripts/tests/purchaseMatchAllocationsMigration.integration
 // .test.ts proves the additive allocation-ledger migration and structural
 // same-tenant/same-PO-line foreign-key invariants against disposable Postgres.
+//
+// C7.6B addition: scripts/tests/purchasingCommitments.integration.test.ts
+// proves the migration-free derived commitment lifecycle, READ COMMITTED
+// snapshot behavior, and receipt/match negative controls against disposable
+// Postgres using the real Purchasing domain functions.
 export default defineConfig({
   test: {
     environment: 'node',
@@ -130,6 +135,7 @@ export default defineConfig({
       'scripts/tests/supplierBillFractionalQuantityMigration.integration.test.ts',
       'scripts/tests/purchaseMatchAllocationsMigration.integration.test.ts',
       'scripts/tests/purchaseMatchAllocationConcurrency.integration.test.ts',
+      'scripts/tests/purchasingCommitments.integration.test.ts',
     ],
     testTimeout: 30_000,
     hookTimeout: 30_000,
