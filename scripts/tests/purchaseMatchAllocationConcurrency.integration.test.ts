@@ -75,7 +75,9 @@ let cancelSupplierBill: typeof import('@/lib/commercial/supplierBills').cancelSu
 let getSupplierBill: typeof import('@/lib/commercial/supplierBills').getSupplierBill;
 
 let createPurchaseMatchAllocation: typeof import('@/lib/commercial/purchaseMatchAllocations').createPurchaseMatchAllocation;
+let getPurchaseMatchWorkspace: typeof import('@/lib/commercial/purchaseMatchAllocations').getPurchaseMatchWorkspace;
 let reversePurchaseMatchAllocation: typeof import('@/lib/commercial/purchaseMatchAllocations').reversePurchaseMatchAllocation;
+let getPurchaseOrderReconciliation: typeof import('@/lib/commercial/purchasingReconciliation').getPurchaseOrderReconciliation;
 
 const ORG = 'org-a';
 const USER = 'user-1';
@@ -88,8 +90,9 @@ beforeAll(async () => {
     await import('@/lib/commercial/purchaseReceipts'));
   ({ createSupplierBill, addSupplierBillLine, postSupplierBill, cancelSupplierBill, getSupplierBill } =
     await import('@/lib/commercial/supplierBills'));
-  ({ createPurchaseMatchAllocation, reversePurchaseMatchAllocation } =
+  ({ createPurchaseMatchAllocation, getPurchaseMatchWorkspace, reversePurchaseMatchAllocation } =
     await import('@/lib/commercial/purchaseMatchAllocations'));
+  ({ getPurchaseOrderReconciliation } = await import('@/lib/commercial/purchasingReconciliation'));
 
   await prisma.$executeRawUnsafe(
     `INSERT INTO organisations (id, name, slug) VALUES ('org-a', 'Org A', 'org-a') ON CONFLICT (id) DO NOTHING`
@@ -185,11 +188,11 @@ describe('C7.5D2 — real Postgres allocation serialization', () => {
 
     const results = await Promise.allSettled([
       createPurchaseMatchAllocation({
-        organisationId: ORG, userId: USER,
+        organisationId: ORG, userId: USER, purchaseOrderId,
         purchaseReceiptLineId: receipt.lineId, supplierBillLineId: billA.lineId, quantity: '6.0000',
       }),
       createPurchaseMatchAllocation({
-        organisationId: ORG, userId: USER,
+        organisationId: ORG, userId: USER, purchaseOrderId,
         purchaseReceiptLineId: receipt.lineId, supplierBillLineId: billB.lineId, quantity: '6.0000',
       }),
     ]);
@@ -207,11 +210,11 @@ describe('C7.5D2 — real Postgres allocation serialization', () => {
 
     const results = await Promise.allSettled([
       createPurchaseMatchAllocation({
-        organisationId: ORG, userId: USER,
+        organisationId: ORG, userId: USER, purchaseOrderId,
         purchaseReceiptLineId: receipt.lineId, supplierBillLineId: billA.lineId, quantity: '6.5000',
       }),
       createPurchaseMatchAllocation({
-        organisationId: ORG, userId: USER,
+        organisationId: ORG, userId: USER, purchaseOrderId,
         purchaseReceiptLineId: receipt.lineId, supplierBillLineId: billB.lineId, quantity: '3.5000',
       }),
     ]);
@@ -231,11 +234,11 @@ describe('C7.5D2 — real Postgres allocation serialization', () => {
 
     const results = await Promise.allSettled([
       createPurchaseMatchAllocation({
-        organisationId: ORG, userId: USER,
+        organisationId: ORG, userId: USER, purchaseOrderId,
         purchaseReceiptLineId: receiptA.lineId, supplierBillLineId: bill.lineId, quantity: '6.0000',
       }),
       createPurchaseMatchAllocation({
-        organisationId: ORG, userId: USER,
+        organisationId: ORG, userId: USER, purchaseOrderId,
         purchaseReceiptLineId: receiptB.lineId, supplierBillLineId: bill.lineId, quantity: '6.0000',
       }),
     ]);
@@ -245,6 +248,40 @@ describe('C7.5D2 — real Postgres allocation serialization', () => {
     expect(await activeAllocationCount({ billLineId: bill.lineId })).toBe(1);
   });
 });
+describe('C7.5D3 — real Postgres match workspace and reconciliation', () => {
+  it('counts only active explicit allocations as matched while retaining reversed history', async () => {
+    const { purchaseOrderId, lineId } = await freshIssuedPoWithLine(10);
+    const receipt = await postedReceiptLine(purchaseOrderId, lineId, '10.0000');
+    const bill = await postedBillLine(purchaseOrderId, lineId, '10.0000');
+    const allocation = await createPurchaseMatchAllocation({
+      organisationId: ORG, userId: USER, purchaseOrderId,
+      purchaseReceiptLineId: receipt.lineId, supplierBillLineId: bill.lineId, quantity: '6.5000',
+    });
+
+    const activeWorkspace = await getPurchaseMatchWorkspace(ORG, purchaseOrderId);
+    expect(activeWorkspace?.receiptLines[0]).toMatchObject({ allocatedQuantity: '6.5000', remainingQuantity: '3.5000' });
+    expect(activeWorkspace?.billLines[0]).toMatchObject({ allocatedQuantity: '6.5000', remainingQuantity: '3.5000' });
+    expect(activeWorkspace?.allocations).toHaveLength(1);
+
+    const activeReconciliation = await getPurchaseOrderReconciliation(ORG, purchaseOrderId);
+    expect(activeReconciliation?.lines[0]).toMatchObject({ matchedQuantity: 6.5, remainingToMatchQuantity: 3.5, matchedQuantityState: 'PARTIALLY_MATCHED' });
+    expect(activeReconciliation?.status).toBe('PARTIAL');
+
+    await reversePurchaseMatchAllocation({
+      organisationId: ORG, userId: USER, purchaseOrderId, allocationId: allocation.id, reason: 'Read-model reversal proof',
+    });
+
+    const reversedWorkspace = await getPurchaseMatchWorkspace(ORG, purchaseOrderId);
+    expect(reversedWorkspace?.receiptLines[0]).toMatchObject({ allocatedQuantity: '0.0000', remainingQuantity: '10.0000' });
+    expect(reversedWorkspace?.billLines[0]).toMatchObject({ allocatedQuantity: '0.0000', remainingQuantity: '10.0000' });
+    expect(reversedWorkspace?.allocations[0]).toMatchObject({ id: allocation.id });
+    expect(reversedWorkspace?.allocations[0].reversed_at).not.toBeNull();
+
+    const reversedReconciliation = await getPurchaseOrderReconciliation(ORG, purchaseOrderId);
+    expect(reversedReconciliation?.lines[0]).toMatchObject({ matchedQuantity: 0, remainingToMatchQuantity: 10, matchedQuantityState: 'NOT_MATCHED' });
+  });
+});
+
 describe('C7.5D2 — allocation versus cancellation', () => {
   it('receipt cancellation can never commit together with a new active allocation against that receipt', async () => {
     const { purchaseOrderId, lineId } = await freshIssuedPoWithLine(10);
@@ -253,7 +290,7 @@ describe('C7.5D2 — allocation versus cancellation', () => {
 
     const [allocationResult, cancelResult] = await Promise.allSettled([
       createPurchaseMatchAllocation({
-        organisationId: ORG, userId: USER,
+        organisationId: ORG, userId: USER, purchaseOrderId,
         purchaseReceiptLineId: receipt.lineId, supplierBillLineId: bill.lineId, quantity: '5.0000',
       }),
       cancelPurchaseReceipt({
@@ -283,7 +320,7 @@ describe('C7.5D2 — allocation versus cancellation', () => {
 
     const [allocationResult, cancelResult] = await Promise.allSettled([
       createPurchaseMatchAllocation({
-        organisationId: ORG, userId: USER,
+        organisationId: ORG, userId: USER, purchaseOrderId,
         purchaseReceiptLineId: receipt.lineId, supplierBillLineId: bill.lineId, quantity: '5.0000',
       }),
       cancelSupplierBill({
@@ -311,7 +348,7 @@ describe('C7.5D2 — allocation versus cancellation', () => {
     const receipt = await postedReceiptLine(purchaseOrderId, lineId, '5.0000');
     const bill = await postedBillLine(purchaseOrderId, lineId, '5.0000');
     const allocation = await createPurchaseMatchAllocation({
-      organisationId: ORG, userId: USER,
+      organisationId: ORG, userId: USER, purchaseOrderId,
       purchaseReceiptLineId: receipt.lineId, supplierBillLineId: bill.lineId, quantity: '5.0000',
     });
 
@@ -323,7 +360,7 @@ describe('C7.5D2 — allocation versus cancellation', () => {
     })).rejects.toThrow(/active purchase match allocations/);
 
     await reversePurchaseMatchAllocation({
-      organisationId: ORG, userId: USER, allocationId: allocation.id, reason: 'Correcting match',
+      organisationId: ORG, userId: USER, purchaseOrderId, allocationId: allocation.id, reason: 'Correcting match',
     });
 
     await expect(cancelPurchaseReceipt({

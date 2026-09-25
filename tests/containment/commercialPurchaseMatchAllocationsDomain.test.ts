@@ -19,6 +19,7 @@ vi.mock('@/lib/commercial/auditLog', () => ({
 const {
   assertPurchaseMatchCapacity,
   createPurchaseMatchAllocation,
+  getPurchaseMatchWorkspace,
   listPurchaseMatchAllocationsForPurchaseOrder,
   reversePurchaseMatchAllocation,
 } = await import('@/lib/commercial/purchaseMatchAllocations');
@@ -109,7 +110,39 @@ describe('Phase C7.5D1 â€” exact sequential allocation capacity', () => {
   });
 });
 
-describe('Phase C7.5D2 — lock-first create allocation', () => {
+describe('Phase C7.5D3 â€” purchase-order match workspace', () => {
+  it('returns only POSTED candidate lines with exact active allocated and remaining quantities', async () => {
+    sqlMock
+      .mockResolvedValueOnce([{ id: 'po-1' }])
+      .mockResolvedValueOnce([{ id: 'receipt-line-1', purchase_order_line_id: 'po-line-1', document_id: 'receipt-1', document_number: 'GRN-000001', quantity: '10.0000', allocated_quantity: '6.5000' }])
+      .mockResolvedValueOnce([{ id: 'bill-line-1', purchase_order_line_id: 'po-line-1', document_id: 'bill-1', document_number: 'BILL-000001', quantity: '8.0000', allocated_quantity: '2.5000' }])
+      .mockResolvedValueOnce([allocation()]);
+
+    const result = await getPurchaseMatchWorkspace('org-a', 'po-1');
+    expect(result).toMatchObject({
+      receiptLines: [{ documentNumber: 'GRN-000001', quantity: '10.0000', allocatedQuantity: '6.5000', remainingQuantity: '3.5000' }],
+      billLines: [{ documentNumber: 'BILL-000001', quantity: '8.0000', allocatedQuantity: '2.5000', remainingQuantity: '5.5000' }],
+    });
+    expect(result?.allocations).toHaveLength(1);
+
+    const receiptSql = (sqlMock.mock.calls[1][0] as string[]).join('');
+    const billSql = (sqlMock.mock.calls[2][0] as string[]).join('');
+    expect(receiptSql).toMatch(/pr\.status = 'POSTED'/);
+    expect(billSql).toMatch(/sb\.status = 'POSTED'/);
+    expect(receiptSql).toMatch(/a\.reversed_at IS NULL/);
+    expect(billSql).toMatch(/a\.reversed_at IS NULL/);
+    expect(receiptSql).toMatch(/prl\.organisation_id =/);
+    expect(billSql).toMatch(/sbl\.organisation_id =/);
+  });
+
+  it('returns null before candidate queries when the PO is missing or cross-tenant', async () => {
+    sqlMock.mockResolvedValueOnce([]);
+    await expect(getPurchaseMatchWorkspace('org-a', 'po-owned-by-b')).resolves.toBeNull();
+    expect(sqlMock).toHaveBeenCalledOnce();
+  });
+});
+
+describe('Phase C7.5D2 ï¿½ lock-first create allocation', () => {
   function mockTransactionResults(lockRows: unknown[], insertRows: unknown[]) {
     transactionMock.mockImplementationOnce((builder: (txn: (strings: TemplateStringsArray, ...values: unknown[]) => unknown) => unknown[], options: unknown) => {
       const txn = (strings: TemplateStringsArray, ...values: unknown[]) => ({ strings, values });
@@ -131,6 +164,7 @@ describe('Phase C7.5D2 — lock-first create allocation', () => {
     const result = await createPurchaseMatchAllocation({
       organisationId: 'org-a',
       userId: 'user-1',
+      purchaseOrderId: 'po-1',
       purchaseReceiptLineId: 'receipt-line-1',
       supplierBillLineId: 'bill-line-1',
       quantity: '6.5',
@@ -163,6 +197,7 @@ describe('Phase C7.5D2 — lock-first create allocation', () => {
     sqlMock.mockResolvedValueOnce([]);
     await expect(createPurchaseMatchAllocation({
       organisationId: 'org-a', userId: 'user-1',
+      purchaseOrderId: 'po-1',
       purchaseReceiptLineId: 'receipt-line-1', supplierBillLineId: 'bill-line-other', quantity: '1',
     })).rejects.toThrow('same purchase order line');
   });
@@ -172,6 +207,7 @@ describe('Phase C7.5D2 — lock-first create allocation', () => {
     sqlMock.mockResolvedValueOnce([eligibility({ receipt_status: 'CANCELLED' })]);
     await expect(createPurchaseMatchAllocation({
       organisationId: 'org-a', userId: 'user-1',
+      purchaseOrderId: 'po-1',
       purchaseReceiptLineId: 'receipt-line-1', supplierBillLineId: 'bill-line-1', quantity: '1',
     })).rejects.toThrow('purchase receipt must be POSTED');
 
@@ -181,6 +217,7 @@ describe('Phase C7.5D2 — lock-first create allocation', () => {
     sqlMock.mockResolvedValueOnce([eligibility({ bill_status: 'CANCELLED' })]);
     await expect(createPurchaseMatchAllocation({
       organisationId: 'org-a', userId: 'user-1',
+      purchaseOrderId: 'po-1',
       purchaseReceiptLineId: 'receipt-line-1', supplierBillLineId: 'bill-line-1', quantity: '1',
     })).rejects.toThrow('supplier bill must be POSTED');
   });
@@ -190,6 +227,7 @@ describe('Phase C7.5D2 — lock-first create allocation', () => {
     sqlMock.mockResolvedValueOnce([eligibility({ bill_purchase_order_id: 'po-2' })]);
     await expect(createPurchaseMatchAllocation({
       organisationId: 'org-a', userId: 'user-1',
+      purchaseOrderId: 'po-1',
       purchaseReceiptLineId: 'receipt-line-1', supplierBillLineId: 'bill-line-1', quantity: '1',
     })).rejects.toThrow('shared purchase order line');
   });
@@ -201,6 +239,7 @@ describe('Phase C7.5D2 — lock-first create allocation', () => {
       .mockResolvedValueOnce([{ receipt_allocated: '1', bill_allocated: '1', active_pair_count: '1' }]);
     await expect(createPurchaseMatchAllocation({
       organisationId: 'org-a', userId: 'user-1',
+      purchaseOrderId: 'po-1',
       purchaseReceiptLineId: 'receipt-line-1', supplierBillLineId: 'bill-line-1', quantity: '1',
     })).rejects.toThrow('active allocation already exists');
   });
@@ -212,6 +251,7 @@ describe('Phase C7.5D2 — lock-first create allocation', () => {
       .mockResolvedValueOnce([{ receipt_allocated: '6.5000', bill_allocated: '0', active_pair_count: '0' }]);
     await expect(createPurchaseMatchAllocation({
       organisationId: 'org-a', userId: 'user-1',
+      purchaseOrderId: 'po-1',
       purchaseReceiptLineId: 'receipt-line-1', supplierBillLineId: 'bill-line-1', quantity: '3.5001',
     })).rejects.toThrow('receipt line remaining quantity');
   });
@@ -237,6 +277,7 @@ describe('Phase C7.5D1 â€” allocation reads and reversal lifecycle', () => {
     const result = await reversePurchaseMatchAllocation({
       organisationId: 'org-a',
       userId: 'user-2',
+      purchaseOrderId: 'po-1',
       allocationId: 'alloc-1',
       reason: '  Wrong receipt  ',
     });
@@ -253,7 +294,7 @@ describe('Phase C7.5D1 â€” allocation reads and reversal lifecycle', () => {
   });
   it('requires a non-blank reversal reason without touching SQL', async () => {
     await expect(reversePurchaseMatchAllocation({
-      organisationId: 'org-a', userId: 'user-1', allocationId: 'alloc-1', reason: '   ',
+      organisationId: 'org-a', userId: 'user-1', purchaseOrderId: 'po-1', allocationId: 'alloc-1', reason: '   ',
     })).rejects.toThrow('reversal reason is required');
     expect(sqlMock).not.toHaveBeenCalled();
   });
@@ -261,7 +302,7 @@ describe('Phase C7.5D1 â€” allocation reads and reversal lifecycle', () => {
   it('returns null when the allocation is missing, cross-tenant, or already reversed', async () => {
     sqlMock.mockResolvedValueOnce([]);
     await expect(reversePurchaseMatchAllocation({
-      organisationId: 'org-a', userId: 'user-1', allocationId: 'alloc-1', reason: 'Correction',
+      organisationId: 'org-a', userId: 'user-1', purchaseOrderId: 'po-1', allocationId: 'alloc-1', reason: 'Correction',
     })).resolves.toBeNull();
     expect(logReversedMock).not.toHaveBeenCalled();
   });

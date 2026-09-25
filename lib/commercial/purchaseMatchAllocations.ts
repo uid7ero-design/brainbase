@@ -4,6 +4,7 @@ import {
   parseQuantity4,
   parseQuantity4NonNegative,
   quantity4ToDecimalString,
+  remainingQuantity4,
 } from './quantity';
 import {
   logPurchaseMatchAllocationCreated,
@@ -51,6 +52,22 @@ interface AllocationCapacityRow {
   active_pair_count: string;
 }
 
+export interface PurchaseMatchCandidateLine {
+  id: string;
+  purchaseOrderLineId: string;
+  documentId: string;
+  documentNumber: string;
+  quantity: string;
+  allocatedQuantity: string;
+  remainingQuantity: string;
+}
+
+export interface PurchaseMatchWorkspace {
+  receiptLines: PurchaseMatchCandidateLine[];
+  billLines: PurchaseMatchCandidateLine[];
+  allocations: CommercialPurchaseMatchAllocation[];
+}
+
 export function assertPurchaseMatchCapacity(params: {
   allocationQuantity: string | number;
   receiptQuantity: string | number;
@@ -88,9 +105,97 @@ export async function listPurchaseMatchAllocationsForPurchaseOrder(
   `) as CommercialPurchaseMatchAllocation[];
 }
 
+export async function getPurchaseMatchWorkspace(
+  organisationId: string,
+  purchaseOrderId: string,
+): Promise<PurchaseMatchWorkspace | null> {
+  const poRows = (await sql`
+    SELECT id
+    FROM commercial_purchase_orders
+    WHERE id = ${purchaseOrderId}
+      AND organisation_id = ${organisationId}
+  `) as { id: string }[];
+  if (!poRows[0]) return null;
+
+  const receiptRows = (await sql`
+    SELECT
+      prl.id,
+      prl.source_purchase_order_line_id AS purchase_order_line_id,
+      pr.id AS document_id,
+      COALESCE(pr.receipt_number, 'Posted receipt') AS document_number,
+      prl.quantity_received::text AS quantity,
+      COALESCE(SUM(a.quantity_allocated) FILTER (WHERE a.reversed_at IS NULL), 0)::text AS allocated_quantity
+    FROM commercial_purchase_receipt_lines prl
+    JOIN commercial_purchase_receipts pr
+      ON pr.id = prl.purchase_receipt_id
+     AND pr.organisation_id = prl.organisation_id
+    LEFT JOIN commercial_purchase_receipt_bill_allocations a
+      ON a.purchase_receipt_line_id = prl.id
+     AND a.organisation_id = prl.organisation_id
+    WHERE prl.organisation_id = ${organisationId}
+      AND pr.purchase_order_id = ${purchaseOrderId}
+      AND pr.status = 'POSTED'
+    GROUP BY prl.id, prl.source_purchase_order_line_id, pr.id, pr.receipt_number, prl.quantity_received
+    ORDER BY pr.receipt_number ASC NULLS LAST, pr.id ASC, prl.position ASC, prl.id ASC
+  `) as {
+    id: string; purchase_order_line_id: string; document_id: string;
+    document_number: string; quantity: string; allocated_quantity: string;
+  }[];
+
+  const billRows = (await sql`
+    SELECT
+      sbl.id,
+      sbl.source_purchase_order_line_id AS purchase_order_line_id,
+      sb.id AS document_id,
+      COALESCE(sb.bill_number, sb.supplier_invoice_number) AS document_number,
+      sbl.quantity::text AS quantity,
+      COALESCE(SUM(a.quantity_allocated) FILTER (WHERE a.reversed_at IS NULL), 0)::text AS allocated_quantity
+    FROM commercial_supplier_bill_lines sbl
+    JOIN commercial_supplier_bills sb
+      ON sb.id = sbl.supplier_bill_id
+     AND sb.organisation_id = sbl.organisation_id
+    LEFT JOIN commercial_purchase_receipt_bill_allocations a
+      ON a.supplier_bill_line_id = sbl.id
+     AND a.organisation_id = sbl.organisation_id
+    WHERE sbl.organisation_id = ${organisationId}
+      AND sb.source_purchase_order_id = ${purchaseOrderId}
+      AND sb.status = 'POSTED'
+    GROUP BY sbl.id, sbl.source_purchase_order_line_id, sb.id, sb.bill_number, sb.supplier_invoice_number, sbl.quantity
+    ORDER BY sb.bill_number ASC NULLS LAST, sb.id ASC, sbl.position ASC, sbl.id ASC
+  `) as {
+    id: string; purchase_order_line_id: string; document_id: string;
+    document_number: string; quantity: string; allocated_quantity: string;
+  }[];
+
+  const allocations = await listPurchaseMatchAllocationsForPurchaseOrder(organisationId, purchaseOrderId);
+  const toCandidate = (row: {
+    id: string; purchase_order_line_id: string; document_id: string;
+    document_number: string; quantity: string; allocated_quantity: string;
+  }): PurchaseMatchCandidateLine => {
+    const quantity = parseQuantity4NonNegative(row.quantity);
+    const allocated = parseQuantity4NonNegative(row.allocated_quantity);
+    return {
+      id: row.id,
+      purchaseOrderLineId: row.purchase_order_line_id,
+      documentId: row.document_id,
+      documentNumber: row.document_number,
+      quantity: quantity4ToDecimalString(quantity),
+      allocatedQuantity: quantity4ToDecimalString(allocated),
+      remainingQuantity: quantity4ToDecimalString(remainingQuantity4(quantity, allocated)),
+    };
+  };
+
+  return {
+    receiptLines: receiptRows.map(toCandidate),
+    billLines: billRows.map(toCandidate),
+    allocations,
+  };
+}
+
 export async function createPurchaseMatchAllocation(params: {
   organisationId: string;
   userId: string;
+  purchaseOrderId: string;
   purchaseReceiptLineId: string;
   supplierBillLineId: string;
   quantity: string | number;
@@ -122,6 +227,7 @@ export async function createPurchaseMatchAllocation(params: {
         FROM commercial_purchase_order_lines pol
         WHERE pol.id = (SELECT purchase_order_line_id FROM candidate)
           AND pol.organisation_id = ${params.organisationId}
+          AND pol.purchase_order_id = ${params.purchaseOrderId}
         FOR UPDATE
       )
       SELECT id FROM locked_line
@@ -153,6 +259,7 @@ export async function createPurchaseMatchAllocation(params: {
          AND sb.organisation_id = sbl.organisation_id
         WHERE prl.id = ${params.purchaseReceiptLineId}
           AND prl.organisation_id = ${params.organisationId}
+          AND pol.purchase_order_id = ${params.purchaseOrderId}
       ),
       capacity AS (
         SELECT
@@ -237,6 +344,7 @@ export async function createPurchaseMatchAllocation(params: {
        AND sb.organisation_id = sbl.organisation_id
       WHERE prl.id = ${params.purchaseReceiptLineId}
         AND prl.organisation_id = ${params.organisationId}
+        AND pol.purchase_order_id = ${params.purchaseOrderId}
     `) as MatchEligibilityRow[];
 
     const match = eligibility[0];
@@ -317,6 +425,7 @@ export async function createPurchaseMatchAllocation(params: {
 export async function reversePurchaseMatchAllocation(params: {
   organisationId: string;
   userId: string;
+  purchaseOrderId: string;
   allocationId: string;
   reason: string;
 }): Promise<CommercialPurchaseMatchAllocation | null> {
@@ -331,6 +440,13 @@ export async function reversePurchaseMatchAllocation(params: {
     WHERE id = ${params.allocationId}
       AND organisation_id = ${params.organisationId}
       AND reversed_at IS NULL
+      AND EXISTS (
+        SELECT 1
+        FROM commercial_purchase_order_lines pol
+        WHERE pol.id = commercial_purchase_receipt_bill_allocations.purchase_order_line_id
+          AND pol.organisation_id = commercial_purchase_receipt_bill_allocations.organisation_id
+          AND pol.purchase_order_id = ${params.purchaseOrderId}
+      )
     RETURNING *
   `) as CommercialPurchaseMatchAllocation[];
 
