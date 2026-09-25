@@ -556,6 +556,266 @@ describe('processStripeWebhookEvent — idempotent state transitions', () => {
   })
 })
 
+// ─── Asynchronous Stripe payment success closure ───────────────────────
+//
+// checkout.session.async_payment_succeeded — the event a delayed/
+// asynchronous payment method (e.g. certain bank debits) generates when
+// payment settles AFTER checkout.session.completed already fired at a
+// non-'paid' payment_status (see that test above: "payment_status !==
+// 'paid' is a safe no-op"). Confirmed via Stripe's own docs
+// (docs.stripe.com/checkout/fulfillment,
+// docs.stripe.com/api/events/types) that this event's data.object is the
+// identical `checkout.session` object shape as .completed, and that
+// Stripe's own recommended pattern is to route both event types to the
+// SAME fulfilment function. Every test below proves this new dispatch
+// path inherits the EXISTING guards on handleCheckoutSessionCompleted —
+// no new SQL statement, no new idempotency mechanism, nothing
+// event-type-specific in the guard itself.
+function asyncSucceededEvent(overrides: Record<string, unknown> = {}, account: string | null = null) {
+  return {
+    type: 'checkout.session.async_payment_succeeded',
+    account,
+    data: {
+      object: {
+        id: 'cs_1',
+        payment_status: 'paid',
+        payment_intent: 'pi_async_1',
+        metadata: { event_order_id: 'order-1' },
+        ...overrides,
+      },
+    },
+  } as never
+}
+
+describe('processStripeWebhookEvent — checkout.session.async_payment_succeeded (asynchronous payment success closure)', () => {
+  beforeEach(() => { vi.doUnmock('@/lib/events/stripe') })
+  const STRIPE_SOURCE = stripComments(read('lib/events/stripe.ts'))
+  const CHECKOUT_ROUTE_SOURCE = stripComments(read('app/api/public/events/[organisationSlug]/[eventSlug]/checkout/route.ts'))
+
+  // B5-B13: order begins PENDING, the async event arrives, correlates to
+  // the correct order, transitions payment_status -> PAID and status ->
+  // CONFIRMED, issues tickets/booking token exactly once, and schedules
+  // ticket_email_status='pending' exactly once, inside the SAME atomic
+  // statement as the audit row — byte-for-byte the same proof already
+  // established for checkout.session.completed above, now exercised via
+  // the async event type instead.
+  it('B: flips PENDING -> PAID/CONFIRMED, issues attendee + booking tokens, and schedules ticket_email_status=\'pending\' — same guarded statement, same call count as the synchronous path', async () => {
+    vi.resetModules()
+    const { processStripeWebhookEvent } = await import('@/lib/events/stripe')
+    queue([{ id: 'order-1', organisation_id: 'org-a' }], [{ id: 'att-1' }])
+    const result = await processStripeWebhookEvent(asyncSucceededEvent())
+    expect(result).toEqual({ handled: true, type: 'checkout.session.async_payment_succeeded' })
+    // order-flip+audit CTE, attendee-lookup SELECT, ticket-token UPDATE, booking-token UPDATE
+    expect(sqlMock).toHaveBeenCalledTimes(4)
+    const firstCallText = ((sqlMock.mock.calls[0] as unknown[])[0] as string[]).join('')
+    expect(firstCallText).toMatch(/UPDATE event_orders/)
+    expect(firstCallText).toMatch(/status = 'CONFIRMED'/)
+    expect(firstCallText).toMatch(/payment_status = 'PAID'/)
+    expect(firstCallText).toMatch(/ticket_email_status = 'pending'/)
+    expect(firstCallText).toMatch(/INSERT INTO audit_logs/)
+    expect(firstCallText).toMatch(/event_order\.payment_succeeded/)
+  })
+
+  it('B7/B8: correlation requires the exact order id, exact stripe_checkout_session_id, AND exact connected-account match — same composite WHERE the synchronous path uses, not a looser lookup for the async case', async () => {
+    vi.resetModules()
+    const { processStripeWebhookEvent } = await import('@/lib/events/stripe')
+    queue([{ id: 'order-1', organisation_id: 'org-a' }], [])
+    await processStripeWebhookEvent(asyncSucceededEvent({}, 'acct_org_a'))
+    const firstCallText = ((sqlMock.mock.calls[0] as unknown[])[0] as string[]).join('')
+    expect(firstCallText).toMatch(/WHERE id = /)
+    expect(firstCallText).toMatch(/AND stripe_checkout_session_id = /)
+    expect(firstCallText).toMatch(/AND payment_status = 'PENDING'/)
+    expect(firstCallText).toMatch(/AND stripe_account_id = /)
+  })
+
+  // C14-C18: exact same event redelivered — second call is a no-op, no
+  // duplicate tickets, no duplicate email scheduling, no duplicate
+  // success audit row (the audit INSERT rides the same RETURNING-gated
+  // CTE, so zero UPDATE rows means zero audit rows too, by construction).
+  it('C: the exact same async_payment_succeeded event redelivered twice — second delivery is a safe no-op (order already PAID matches zero rows)', async () => {
+    vi.resetModules()
+    const { processStripeWebhookEvent } = await import('@/lib/events/stripe')
+    queue([{ id: 'order-1', organisation_id: 'org-a' }], [{ id: 'att-1' }])
+    await processStripeWebhookEvent(asyncSucceededEvent())
+    queue([], [])
+    await expect(processStripeWebhookEvent(asyncSucceededEvent())).resolves.toEqual({
+      handled: true,
+      type: 'checkout.session.async_payment_succeeded',
+    })
+  })
+
+  // D19-D20: two DISTINCT Stripe events (different event ids/types) both
+  // representing the same already-successful payment cannot double-
+  // finalise — proven here as async_payment_succeeded finalising first,
+  // then a late-arriving (redelivered) checkout.session.completed for the
+  // SAME session, whose payload still embeds its own original, now-stale
+  // payment_status. BrainBase's guard is state-based (payment_status =
+  // 'PENDING'), not event-id based, so this is safe regardless of event
+  // identity — Stripe's own docs note snapshot events can't be de-duped
+  // by `created` alone and recommend event-id tracking; the state guard
+  // used here is a strictly stronger property than that recommendation.
+  it('D: async_payment_succeeded finalises first; a distinct, later-delivered checkout.session.completed for the same session (still embedding its own original non-paid snapshot) cannot double-finalise or regress the order', async () => {
+    vi.resetModules()
+    const { processStripeWebhookEvent } = await import('@/lib/events/stripe')
+    queue([{ id: 'order-1', organisation_id: 'org-a' }], [{ id: 'att-1' }])
+    await processStripeWebhookEvent(asyncSucceededEvent())
+    const staleCompletedEvent = {
+      type: 'checkout.session.completed',
+      data: { object: { id: 'cs_1', payment_status: 'unpaid', metadata: { event_order_id: 'order-1' } } },
+    } as never
+    await processStripeWebhookEvent(staleCompletedEvent)
+    // The stale event's own payment_status !== 'paid' guard short-circuits
+    // before any DB call — the 4 calls from the first (successful) event
+    // remain the total.
+    expect(sqlMock).toHaveBeenCalledTimes(4)
+  })
+
+  // E21-E23: out-of-order arrival and terminal-state protection.
+  it('E21: an earlier checkout.session.completed (payment_status unpaid, safe no-op) followed by async_payment_succeeded still succeeds normally', async () => {
+    vi.resetModules()
+    const { processStripeWebhookEvent } = await import('@/lib/events/stripe')
+    const earlier = {
+      type: 'checkout.session.completed',
+      data: { object: { id: 'cs_1', payment_status: 'unpaid', metadata: { event_order_id: 'order-1' } } },
+    } as never
+    queue()
+    await processStripeWebhookEvent(earlier)
+    expect(sqlMock).not.toHaveBeenCalled()
+    queue([{ id: 'order-1', organisation_id: 'org-a' }], [{ id: 'att-1' }])
+    const result = await processStripeWebhookEvent(asyncSucceededEvent())
+    expect(result.handled).toBe(true)
+    expect(sqlMock).toHaveBeenCalledTimes(4)
+  })
+
+  it('E23: an order already in a terminal state (FAILED/EXPIRED/REFUNDED — payment_status not PENDING) receiving async_payment_succeeded is not regressed to PAID', async () => {
+    vi.resetModules()
+    const { processStripeWebhookEvent } = await import('@/lib/events/stripe')
+    queue([], []) // guarded UPDATE matches 0 rows — payment_status already non-PENDING
+    await processStripeWebhookEvent(asyncSucceededEvent())
+    // 3 no-op calls: order-flip attempt (0 rows), attendee-lookup SELECT
+    // (finds nothing — payment_status re-check in
+    // issueTicketTokensForPaidOrder also excludes non-PAID orders), and
+    // issueBookingTokenForPaidOrder's own unconditional UPDATE (also 0
+    // rows, same payment_status='PAID' re-check).
+    expect(sqlMock).toHaveBeenCalledTimes(3)
+  })
+
+  // F24-F27: the symmetric failure event remains genuinely unhandled by
+  // design — checkout.session.expired is the sole authoritative release
+  // mechanism regardless (see scripts/add-events-payments.sql's own
+  // `expires_at` rationale), so an unhandled async_payment_failed leaves
+  // the order to expire naturally, the SAME existing recoverable-state
+  // contract as an unhandled payment_intent.payment_failed already had.
+  // Not inventing a new failure-state model here, per this task's own
+  // explicit instruction.
+  it('F: checkout.session.async_payment_failed is acknowledged but not acted on — does not confirm the order, issue tickets, or schedule ticket email; the order is left to expire via the existing checkout.session.expired path', async () => {
+    vi.resetModules()
+    const { processStripeWebhookEvent } = await import('@/lib/events/stripe')
+    const event = {
+      type: 'checkout.session.async_payment_failed',
+      data: { object: { id: 'cs_1', metadata: { event_order_id: 'order-1' } } },
+    } as never
+    const result = await processStripeWebhookEvent(event)
+    expect(result).toEqual({ handled: false, type: 'checkout.session.async_payment_failed' })
+    expect(sqlMock).not.toHaveBeenCalled()
+  })
+
+  // G28-G31: correlation failure modes fail closed.
+  it('G28: missing metadata.event_order_id -> fail closed, never guesses which order, no DB call', async () => {
+    vi.resetModules()
+    const { processStripeWebhookEvent } = await import('@/lib/events/stripe')
+    queue()
+    await processStripeWebhookEvent(asyncSucceededEvent({ metadata: {} }))
+    expect(sqlMock).not.toHaveBeenCalled()
+  })
+
+  it('G29: an unknown/mismatched provider identifier resolves to zero rows via the exact-identifier WHERE clause — never mutates an unrelated order', async () => {
+    vi.resetModules()
+    const { processStripeWebhookEvent } = await import('@/lib/events/stripe')
+    queue([], [])
+    const result = await processStripeWebhookEvent(asyncSucceededEvent({ id: 'cs_never_persisted', metadata: { event_order_id: 'order-does-not-exist' } }))
+    expect(result.handled).toBe(true)
+    // 3 no-op calls — see E23's identical accounting (order-flip attempt,
+    // attendee lookup, booking-token attempt), all matching 0 rows.
+    expect(sqlMock).toHaveBeenCalledTimes(3)
+  })
+
+  it('G30: wrong/mismatched connected-account context (event.account differs from the order\'s stored stripe_account_id) fails closed via the same stripe_account_id guard — the async dispatch path passes event.account through unchanged', async () => {
+    vi.resetModules()
+    const { processStripeWebhookEvent } = await import('@/lib/events/stripe')
+    queue([], [])
+    await processStripeWebhookEvent(asyncSucceededEvent({}, 'acct_wrong_account'))
+    const firstCallText = ((sqlMock.mock.calls[0] as unknown[])[0] as string[]).join('')
+    expect(firstCallText).toMatch(/AND stripe_account_id = /)
+  })
+
+  it('G31: a malformed session object (payment_status missing entirely) fails closed exactly like the existing checkout.session.completed convention — treated as not \'paid\', no DB call', async () => {
+    vi.resetModules()
+    const { processStripeWebhookEvent } = await import('@/lib/events/stripe')
+    queue()
+    const malformed = {
+      type: 'checkout.session.async_payment_succeeded',
+      data: { object: { id: 'cs_1', metadata: { event_order_id: 'order-1' } } },
+    } as never
+    await processStripeWebhookEvent(malformed)
+    expect(sqlMock).not.toHaveBeenCalled()
+  })
+
+  // H32-H35: existing-state safety (already-paid/confirmed/free/terminal).
+  it('H32/H33: an already-PAID (and therefore already-CONFIRMED — the two are set atomically together) order receiving async success is unaffected', async () => {
+    vi.resetModules()
+    const { processStripeWebhookEvent } = await import('@/lib/events/stripe')
+    queue([], []) // already PAID -> payment_status <> 'PENDING' -> 0 rows
+    await expect(processStripeWebhookEvent(asyncSucceededEvent())).resolves.not.toThrow()
+  })
+
+  it('H34: a free order can never be reached by this or any Stripe event — stripe_checkout_session_id is NULL for every free order (the paid checkout route rejects price_cents=0 outright), and NULL never equality-matches a non-null session id', () => {
+    // Structural/source proof, not a runtime mock: the paid checkout
+    // route's own free-ticket rejection (see "Paid checkout route" tests
+    // above) means a free order's stripe_checkout_session_id column is
+    // never written by anything other than the paid path — confirmed via
+    // the checkout route's own containment coverage. No separate runtime
+    // test is meaningful here beyond that structural guarantee, which
+    // this file already asserts elsewhere ("rejects a FREE ticket type").
+    expect(CHECKOUT_ROUTE_SOURCE).toMatch(/This ticket type is free\. Use the registration flow instead\./)
+  })
+
+  // I38/I39: no secret/raw payment data in audit logs; cross-tenant
+  // impossible (I36/I37 — signature verification — are unaffected by
+  // this change and remain covered by the existing "Stripe webhook route
+  // — signature verification" describe block above, which runs entirely
+  // before processStripeWebhookEvent is ever reached).
+  it('I38: the audit row\'s after_state carries only the same non-sensitive shape as the synchronous path — no Stripe secret, no raw card/payment-method data', async () => {
+    vi.resetModules()
+    const { processStripeWebhookEvent } = await import('@/lib/events/stripe')
+    queue([{ id: 'order-1', organisation_id: 'org-a' }], [])
+    await processStripeWebhookEvent(asyncSucceededEvent())
+    const firstCallText = ((sqlMock.mock.calls[0] as unknown[])[0] as string[]).join('')
+    expect(firstCallText).toMatch(/"source":\s*"stripe_webhook"/)
+    expect(firstCallText).not.toMatch(/sk_|whsec_|pk_live|pk_test/)
+  })
+
+  // J40-J42: email-tracking boundary — the async dispatch path reuses the
+  // exact same function as .completed, so the existing file-wide
+  // containment tests ("lib/events/stripe.ts never imports or calls
+  // attemptAutomaticTicketEmail...", "the Stripe webhook route itself
+  // also never imports...") already cover this without modification; no
+  // real email is ever sent anywhere in this file (every dependency is
+  // mocked). Restated here as an explicit assertion tied to this event
+  // type for completeness.
+  it('J40/J41: scheduling ticket_email_status=\'pending\' is the only email-related side effect — no call to any ticket-email send/delivery function, and no interaction with the separate event_ticket_email_deliveries (Resend delivery-status) table', async () => {
+    vi.resetModules()
+    const { processStripeWebhookEvent } = await import('@/lib/events/stripe')
+    queue([{ id: 'order-1', organisation_id: 'org-a' }], [])
+    await processStripeWebhookEvent(asyncSucceededEvent())
+    for (const call of sqlMock.mock.calls) {
+      const text = ((call as unknown[])[0] as string[]).join('')
+      expect(text).not.toMatch(/event_ticket_email_deliveries/)
+    }
+    expect(STRIPE_SOURCE).not.toMatch(/attemptAutomaticTicketEmail|sendTicketEmail|sendEmail/)
+  })
+})
+
 // ─── Phase 3E.3 — paid order ticket-email scheduling ──────────────────
 //
 // Reuses this file's own read()/stripComments() helpers (defined at the
@@ -635,9 +895,19 @@ describe('Phase 3E.3 — paid order ticket-email scheduling: containment', () =>
     expect(WEBHOOK_ROUTE_SOURCE).not.toMatch(/attemptAutomaticTicketEmail|sendTicketEmail|sendEmail|ticketEmail/)
   })
 
-  it('the async-payment-method gap is unchanged by this phase — checkout.session.async_payment_succeeded and payment_intent.succeeded remain unhandled event types, exactly as before (a separate, pre-existing payments-domain follow-up, not a 3E.3 defect)', () => {
-    expect(STRIPE_SOURCE).not.toMatch(/async_payment_succeeded/)
+  it('the async-payment-method gap is now closed: checkout.session.async_payment_succeeded is handled via the SAME finalisation path as checkout.session.completed, never a duplicated/second implementation; payment_intent.succeeded deliberately remains unhandled (Stripe\'s own fulfilment guidance keys off the Checkout Session, not a second PaymentIntent-level listener)', () => {
+    expect(STRIPE_SOURCE).toMatch(/case 'checkout\.session\.completed':\s*\n\s*case 'checkout\.session\.async_payment_succeeded':/)
     expect(STRIPE_SOURCE).not.toMatch(/'payment_intent\.succeeded'/)
+    // Exactly one call site for handleCheckoutSessionCompleted's own
+    // definition (the function), and it is reached from both case labels
+    // falling into the same block — not a second, parallel
+    // implementation of the same finalisation logic.
+    const defs = STRIPE_SOURCE.match(/async function handleCheckoutSessionCompleted/g) ?? []
+    expect(defs).toHaveLength(1)
+  })
+
+  it('checkout.session.async_payment_failed remains deliberately unhandled — checkout.session.expired stays the sole authoritative release path, exactly matching handlePaymentIntentFailed\'s own existing "best-effort only" philosophy for the symmetric failure case', () => {
+    expect(STRIPE_SOURCE).not.toMatch(/async_payment_failed/)
   })
 
   it('the recovery executor and its cron route remain byte-for-byte unmodified by this phase — reused generically, no paid-specific branch', () => {
