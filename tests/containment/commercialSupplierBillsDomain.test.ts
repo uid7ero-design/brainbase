@@ -297,6 +297,28 @@ describe('Phase C7.4 — postSupplierBillAtomically: source-text proof of the co
   const fnEnd = source.indexOf('\nexport async function postSupplierBill(', fnStart)
   const body = source.slice(fnStart, fnEnd)
 
+  it('serializes posting with a two-statement READ COMMITTED transaction so validation gets a fresh snapshot after locking', () => {
+    expect(body).toMatch(/sql\.transaction\(txn => \[/)
+    expect(body).toMatch(/WITH bill_guard AS MATERIALIZED/)
+    expect(body).toMatch(/\], \{ isolationLevel: 'ReadCommitted' \}\)/)
+
+    const lockStatement = body.indexOf('WITH bill_guard AS MATERIALIZED')
+    const validationStatement = body.indexOf('WITH bill_guard AS (', lockStatement + 1)
+    expect(lockStatement).toBeGreaterThanOrEqual(0)
+    expect(validationStatement).toBeGreaterThan(lockStatement)
+    expect(body.slice(lockStatement, validationStatement)).toMatch(/FOR UPDATE/)
+    expect(body.slice(validationStatement)).toMatch(/already_posted AS/)
+  })
+
+  it('makes the lock statement dependency chain bill -> PO -> affected PO lines explicit', () => {
+    const lockStatement = body.slice(
+      body.indexOf('WITH bill_guard AS MATERIALIZED'),
+      body.indexOf('WITH bill_guard AS (', body.indexOf('WITH bill_guard AS MATERIALIZED') + 1),
+    )
+    expect(lockStatement).toMatch(/affected_line_ids AS MATERIALIZED[\s\S]*?EXISTS \(SELECT 1 FROM bill_guard\)/)
+    expect(lockStatement).toMatch(/locked_lines AS MATERIALIZED[\s\S]*?EXISTS \(SELECT 1 FROM po_guard\)[\s\S]*?ORDER BY cpol\.id[\s\S]*?FOR UPDATE/)
+  })
+
   it('the bill-number sequence seed is a SEPARATE statement, not an unreferenced CTE inside the atomic WITH-chain', () => {
     const seedIndex = body.indexOf('INSERT INTO commercial_document_sequences')
     const withIndex = body.indexOf('WITH bill_guard AS')

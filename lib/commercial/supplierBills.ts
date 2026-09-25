@@ -519,36 +519,28 @@ export async function deleteSupplierBillLine(params: { organisationId: string; s
 
 // ── Posting (the concurrency-critical operation) ────────────────────
 //
-// Phase C7.5C — strict, non-configurable quantity + value over-billing guard. A simple
-// read-then-check or aggregate CTE is NOT sufficient (two concurrent
-// posts could each read the same "not yet over" aggregate and both
-// proceed) — see scripts/tests/supplierBillConcurrency.integration.test.ts
-// for the real-Postgres proof this exact statement shape is required to
-// pass. One compound, atomic SQL statement:
-//   1. locks the bill row (must still be DRAFT) with FOR UPDATE
-//   2. locks the parent PO row (must still be ISSUED) with FOR UPDATE
-//   3. locks every PO line row this bill's own lines reference, in
-//      deterministic id order, with FOR UPDATE (the standard two-
-//      transactions-locking-overlapping-rows deadlock-avoidance idiom)
-//   4. AFTER all locks are held, recomputes already-POSTED (excluding
-//      this bill, excluding CANCELLED bills) billed VALUE per PO line
-//      (line_total_cents, not quantity — a supplier bill is a money
-//      fact) and adds this bill's own queued line amounts
-//   5. rejects (the whole statement allocates nothing and flips
-//      nothing) if any line's running total would exceed the PO line's
-//      own ordered line_total_cents
-//   6. only if every line is within its ordered value does it allocate
-//      the next SUPPLIER_BILL document number and flip the bill to
-//      POSTED, in the same statement
+// Phase C7.5C — strict, non-configurable quantity + value over-billing
+// guard. A simple read-then-check or one-statement aggregate is NOT
+// sufficient: under READ COMMITTED two statements that begin concurrently
+// can both establish a snapshot before either has committed. The real
+// Postgres race suite caught that exact failure during C7.5C.
 //
-// The document-sequence seed INSERT is a SEPARATE statement, issued
-// BEFORE this atomic WITH-chain — Postgres does not guarantee an
-// unreferenced data-modifying CTE executes, so seeding the counter row
-// cannot itself live inside the same statement as the conditional
-// UPDATE that increments it. Mirrors issuePurchaseOrderAtomically()'s
-// (lib/commercial/purchaseOrders.ts) and
-// postPurchaseReceiptAtomically()'s (lib/commercial/purchaseReceipts.ts)
-// own identical two-statement shape exactly.
+// Posting therefore uses a Neon non-interactive transaction:
+//   1. statement 1 locks the DRAFT bill row, ISSUED parent PO row, and
+//      every affected PO line in deterministic id order;
+//   2. statement 2 runs after those locks are held and therefore receives
+//      a fresh READ COMMITTED statement snapshot. If statement 1 waited
+//      behind another poster, this snapshot sees that poster's committed
+//      POSTED quantity/value;
+//   3. statement 2 recomputes already-POSTED quantity and value, adds this
+//      bill's own quantity/value, and requires BOTH totals to remain at or
+//      below the locked PO-line facts;
+//   4. only then does it allocate the SUPPLIER_BILL number and flip the
+//      bill to POSTED. Any validation failure commits no posting mutation.
+//
+// The document-sequence seed INSERT remains a separate, idempotent
+// pre-transaction statement. It only guarantees the allocator row exists
+// and never consumes a number itself.
 //
 // The supplier snapshot is frozen HERE, at POST time (not at bill
 // creation, unlike receipts which have no snapshot at all) — the caller
@@ -580,7 +572,45 @@ async function postSupplierBillAtomically(params: {
     ON CONFLICT (organisation_id, document_type) DO NOTHING
   `;
 
-  const rows = (await sql`
+  // C7.5C uses two statements inside one READ COMMITTED transaction.
+  // Statement 1 acquires the bill/PO/PO-line locks. If it waits behind a
+  // competing poster, statement 2 then receives a fresh statement snapshot
+  // while those locks remain held, so it sees the winner's newly-POSTED
+  // quantities and values before validating this bill.
+  const [, postRows] = await sql.transaction(txn => [
+    txn`
+      WITH bill_guard AS MATERIALIZED (
+        SELECT id, source_purchase_order_id FROM commercial_supplier_bills
+        WHERE id = ${params.supplierBillId} AND organisation_id = ${params.organisationId} AND status = 'DRAFT'
+        FOR UPDATE
+      ),
+      po_guard AS MATERIALIZED (
+        SELECT cpo.id FROM commercial_purchase_orders cpo
+        WHERE cpo.id = (SELECT source_purchase_order_id FROM bill_guard)
+          AND cpo.organisation_id = ${params.organisationId} AND cpo.status = 'ISSUED'
+        FOR UPDATE
+      ),
+      affected_line_ids AS MATERIALIZED (
+        SELECT DISTINCT source_purchase_order_line_id AS line_id
+        FROM commercial_supplier_bill_lines
+        WHERE supplier_bill_id = ${params.supplierBillId} AND organisation_id = ${params.organisationId}
+          AND EXISTS (SELECT 1 FROM bill_guard)
+      ),
+      locked_lines AS MATERIALIZED (
+        SELECT cpol.id
+        FROM commercial_purchase_order_lines cpol
+        WHERE cpol.organisation_id = ${params.organisationId}
+          AND cpol.id IN (SELECT line_id FROM affected_line_ids)
+          AND EXISTS (SELECT 1 FROM po_guard)
+        ORDER BY cpol.id
+        FOR UPDATE
+      )
+      SELECT
+        EXISTS (SELECT 1 FROM bill_guard) AS bill_locked,
+        EXISTS (SELECT 1 FROM po_guard) AS po_locked,
+        (SELECT COUNT(*) FROM locked_lines) AS locked_line_count
+    `,
+    txn`
     WITH bill_guard AS (
       SELECT id, source_purchase_order_id FROM commercial_supplier_bills
       WHERE id = ${params.supplierBillId} AND organisation_id = ${params.organisationId} AND status = 'DRAFT'
@@ -666,18 +696,20 @@ async function postSupplierBillAtomically(params: {
     WHERE id = ${params.supplierBillId} AND organisation_id = ${params.organisationId} AND status = 'DRAFT'
       AND EXISTS (SELECT 1 FROM alloc)
     RETURNING *
-  `) as CommercialSupplierBill[];
+    `,
+  ], { isolationLevel: 'ReadCommitted' });
 
+  const rows = postRows as CommercialSupplierBill[];
   return rows[0] ?? null;
 }
 
 // admin+ (approve floor) — posting a supplier bill is a higher-trust
 // action than creating/editing a draft, per the C7.4 capability matrix
 // (distinct from purchase receipts, where posting is manager+). The
-// precondition checks below run BEFORE the atomic statement purely to
-// produce a clear, specific error message — the atomic statement above
-// is the sole authority that actually decides whether the post is safe
-// to apply.
+// precondition checks below run BEFORE the lock+validation transaction
+// purely to produce a clear, specific error message — the transaction
+// above is the sole authority that actually decides whether the post is
+// safe to apply.
 export async function postSupplierBill(params: {
   organisationId: string; userId: string; supplierBillId: string;
 }): Promise<CommercialSupplierBill> {
@@ -695,10 +727,10 @@ export async function postSupplierBill(params: {
   });
 
   if (!posted) {
-    // The atomic statement inserted/updated nothing — determine why, for
-    // a clear error message only (this read is NOT the authorization
-    // decision; that already happened, correctly, inside the atomic
-    // statement above).
+    // The posting transaction updated nothing — determine why for a
+    // clear error message only (this read is NOT the authorization
+    // decision; that already happened inside the lock+validation
+    // transaction above).
     const current = await getSupplierBill(params.organisationId, params.supplierBillId);
     if (!current || current.status !== 'DRAFT') {
       throw new Error('supplier bill status changed concurrently; post aborted');
