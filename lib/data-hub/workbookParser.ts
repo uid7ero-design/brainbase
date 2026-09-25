@@ -942,6 +942,185 @@ export async function probeWorkbookCells(
   return { sheetNames, cells };
 }
 
+// ---------------------------------------------------------------------------
+// Data Hub 6.2D3C — bounded, structural-only exact header-row reader.
+//
+// WHY THIS EXISTS (instead of decodeWorksheet or the D2 preview DTO):
+// decodeWorksheet's `headers` is "the first NON-BLANK row of the declared
+// range" (sheet_to_json, blankrows:false), never a specific row — a governed
+// workbook whose header sits below title rows (e.g. row 3) would compare its
+// title against the governed headers. It also materializes every data row.
+// The D2 preview DTO is additionally capped at 50 columns, which would
+// truncate a 49+/wider structural comparison. This reader instead returns
+// exactly ONE row (the requested header row) per requested worksheet, with
+// every column up to its last parsed cell, and never returns or
+// retains any row below it.
+//
+// Same safety envelope as probeWorkbookCells/decodeWorksheet: size cap ->
+// filename classification (spreadsheet only) -> signature -> (xlsx) archive
+// guard -> sheet-names-only pass + worksheet-count cap -> ONE SheetJS read
+// limited to the requested indices and to `sheetRows` = the deepest
+// requested header row. Formulas are never executed (cached values only).
+//
+// Cell policy: only non-empty STRING-typed cells of at most maxHeaderChars
+// characters return text (exact — never trimmed or case-folded); a blank or
+// empty-string, non-text
+// (number/date/boolean/error) or over-long cell returns null. Trailing null
+// cells are dropped; a row with no text cell at all is "rowAbsent". A sheet
+// whose parsed header-row width exceeds maxSelectedWorksheetColumns is
+// "limitExceeded" (per sheet — never a whole-workbook failure). A requested
+// index whose name is shared by another sheet in the workbook is
+// "ambiguous" (SheetJS keys wb.Sheets by name — see the duplicate-name note
+// on inspectSpreadsheetWorksheets above) and is never read.
+// ---------------------------------------------------------------------------
+
+export interface WorksheetHeaderRowRequest {
+  /** Zero-based, authoritative worksheet index. */
+  index: number;
+  /** One-based header row number, 1..MAX_HEADER_ROW_ONE_BASED. */
+  headerRowOneBased: number;
+}
+
+export type WorksheetHeaderRowOutcome =
+  | { status: "ok"; cells: (string | null)[] }
+  | { status: "rowAbsent" }
+  | { status: "limitExceeded" }
+  | { status: "ambiguous" };
+
+export interface WorksheetHeaderRowResult {
+  index: number;
+  name: string;
+  visibility: WorksheetVisibility;
+  outcome: WorksheetHeaderRowOutcome;
+}
+
+export interface WorkbookHeaderRowsResult {
+  /** The workbook's worksheet names, in positional order. */
+  sheetNames: string[];
+  /** The workbook's worksheet visibilities, in positional order. */
+  visibilities: WorksheetVisibility[];
+  /** One entry per request, in request order. */
+  worksheets: WorksheetHeaderRowResult[];
+}
+
+export interface ReadWorksheetHeaderRowsOptions {
+  limits?: Partial<Pick<WorkbookLimits, "maxOriginalBytes" | "maxWorksheetCount" | "maxSelectedWorksheetColumns">>;
+  /** Max characters a header cell may contain. Default 200. */
+  maxHeaderChars?: number;
+}
+
+export const MAX_HEADER_ROW_ONE_BASED = 20;
+const DEFAULT_MAX_HEADER_CHARS = 200;
+
+export async function readWorksheetHeaderRows(
+  bytes: Uint8Array,
+  input: WorkbookInput,
+  requests: WorksheetHeaderRowRequest[],
+  options: ReadWorksheetHeaderRowsOptions = {}
+): Promise<WorkbookHeaderRowsResult> {
+  const limits: WorkbookLimits = { ...DEFAULT_WORKBOOK_LIMITS, ...options.limits };
+  validateLimits(limits);
+  const maxHeaderChars = options.maxHeaderChars ?? DEFAULT_MAX_HEADER_CHARS;
+  assertPositiveSafeInteger(maxHeaderChars, "maxHeaderChars");
+  const seen = new Set<number>();
+  let deepestRow = 1;
+  for (const request of requests) {
+    assertNonNegativeSafeInteger(request.index, "header request index");
+    assertPositiveSafeInteger(request.headerRowOneBased, "headerRowOneBased");
+    if (request.headerRowOneBased > MAX_HEADER_ROW_ONE_BASED) {
+      throw new RangeError(`headerRowOneBased ${request.headerRowOneBased} is outside the bounded header window.`);
+    }
+    if (seen.has(request.index)) throw new RangeError(`duplicate header request for worksheet index ${request.index}.`);
+    seen.add(request.index);
+    deepestRow = Math.max(deepestRow, request.headerRowOneBased);
+  }
+
+  if (bytes.byteLength > limits.maxOriginalBytes) {
+    throw new WorkbookParserError("WORKBOOK_LIMIT_EXCEEDED", "The file exceeds the maximum allowed size.", {
+      limit: "maxOriginalBytes",
+      maximum: limits.maxOriginalBytes,
+      actual: bytes.byteLength,
+    });
+  }
+
+  const format = classifyFormat(input);
+  if (format === "csv") {
+    throw new WorkbookParserError("UNSUPPORTED_FILE_TYPE", "Header rows are only supported for spreadsheet workbooks.");
+  }
+  validateSignature(format, bytes);
+
+  if (format === "xlsx") {
+    await assertGuardedXlsxArchive(bytes);
+  }
+
+  const sheetNames = readSheetNamesOnly(bytes);
+  assertWorksheetCount(sheetNames, limits);
+  for (const request of requests) {
+    if (request.index >= sheetNames.length) {
+      throw new WorkbookParserError("WORKSHEET_NOT_FOUND", "No worksheet exists at the given index.", {
+        worksheetIndex: request.index,
+      });
+    }
+  }
+
+  const nameOccurrences = new Map<string, number>();
+  for (const name of sheetNames) nameOccurrences.set(name, (nameOccurrences.get(name) ?? 0) + 1);
+  const readable = requests.filter((r) => nameOccurrences.get(sheetNames[r.index]) === 1).map((r) => r.index);
+
+  let wb: XLSX.WorkBook;
+  try {
+    // With no readable request this still reads zero sheet bodies
+    // (`sheets: []` materializes nothing) but yields workbook visibility.
+    wb = xlsxAdapter.read(bytes, {
+      type: "buffer",
+      sheets: readable,
+      sheetRows: deepestRow,
+      cellDates: true,
+      cellHTML: false,
+    });
+  } catch (err) {
+    throw new WorkbookParserError(
+      "MALFORMED_WORKBOOK",
+      "The file could not be recognized as a valid workbook.",
+      undefined,
+      err
+    );
+  }
+  const visibilities = readVisibilities(wb, sheetNames.length);
+
+  const worksheets = requests.map((request): WorksheetHeaderRowResult => {
+    const name = sheetNames[request.index];
+    const base = { index: request.index, name, visibility: visibilities[request.index] };
+    if (nameOccurrences.get(name) !== 1) return { ...base, outcome: { status: "ambiguous" } };
+    const ws = wb.Sheets[name];
+    if (!ws) return { ...base, outcome: { status: "rowAbsent" } };
+    const r = request.headerRowOneBased - 1;
+    // Width comes from the cells ACTUALLY parsed in the header row, never
+    // the <dimension> tag (!ref/!fullref), which exporters can understate
+    // or overstate. sheetRows already bounds parsing to rows <= r.
+    let lastColumn = -1;
+    for (const address of Object.keys(ws)) {
+      if (address.startsWith("!")) continue;
+      const decoded = XLSX.utils.decode_cell(address);
+      if (decoded.r === r && decoded.c > lastColumn) lastColumn = decoded.c;
+    }
+    if (lastColumn + 1 > limits.maxSelectedWorksheetColumns) return { ...base, outcome: { status: "limitExceeded" } };
+    const cells: (string | null)[] = [];
+    // Column ordinal N is the absolute column N (A = 0), independent of
+    // where the used range starts.
+    for (let c = 0; c <= lastColumn; c++) {
+      const cell = ws[XLSX.utils.encode_cell({ r, c })] as XLSX.CellObject | undefined;
+      const text = cell && cell.t === "s" && typeof cell.v === "string" ? cell.v : "";
+      cells.push(text.length > 0 && text.length <= maxHeaderChars ? text : null);
+    }
+    while (cells.length > 0 && cells[cells.length - 1] === null) cells.pop();
+    if (cells.length === 0) return { ...base, outcome: { status: "rowAbsent" } };
+    return { ...base, outcome: { status: "ok", cells } };
+  });
+
+  return { sheetNames, visibilities, worksheets };
+}
+
 /**
  * Decodes exactly one worksheet, selected by its authoritative zero-based
  * index. Independent of inspectWorkbook — re-validates format/signature and

@@ -466,8 +466,18 @@ describe('6.2D3A — no runtime consumer; XLSX mapping/confirm/import remain dis
   it('no app/lib/modules/components source references the new Prisma delegates, tables or lineage columns (no API/service/admin UI in D3A)', () => {
     expect(runtimeFiles.length).toBeGreaterThan(50)
     const forbidden = /\.(datasetType|sourceSchemaVersion|sourceSchemaWorksheet|sourceSchemaColumn|worksheetMappingProfile|worksheetMappingProfileVersion)\b|\b(dataset_types|source_schema_versions|source_schema_worksheets|source_schema_columns|worksheet_mapping_profiles|worksheet_mapping_profile_versions|dataset_type_id|source_schema_version_id|active_profile_version_id|profile_document)\b|\b(DatasetType|SourceSchemaVersion|SourceSchemaWorksheet|SourceSchemaColumn|WorksheetMappingProfile|WorksheetMappingProfileVersion)\b/
+    // 6.2D3C — exactly ONE authorized, READ-ONLY consumer: the governed
+    // schema loader (findFirst/findMany only; proven below and in
+    // dataHubSchemaMatchService.test.ts). Any other file still fails.
+    const D3C_READ_ONLY_LOADER = path.join('lib', 'data-hub', 'schemaMatch', 'governedSchema.ts')
     const offenders = runtimeFiles.filter(f => forbidden.test(fs.readFileSync(f, 'utf-8'))).map(f => path.relative(REPO_ROOT, f))
-    expect(offenders).toEqual([])
+    expect(offenders).toEqual([D3C_READ_ONLY_LOADER])
+    const loader = readSource(D3C_READ_ONLY_LOADER)
+    expect(loader).not.toMatch(/\.(create|createMany|update|updateMany|upsert|delete|deleteMany)\(|\$transaction|\$executeRaw|\$queryRaw/)
+    expect([...loader.matchAll(/prisma\.(\w+)\.(\w+)\(/g)].map(m => `${m[1]}.${m[2]}`)).toEqual([
+      'sourceSystem.findFirst', 'datasetType.findFirst', 'sourceSchemaVersion.findFirst',
+      'sourceSchemaWorksheet.findMany', 'sourceSchemaColumn.findMany', 'worksheetMappingProfileVersion.findMany',
+    ])
   })
 
   it('confirmWorksheet / selectWorksheetMapping / previewXlsxWorksheet import nothing new', () => {

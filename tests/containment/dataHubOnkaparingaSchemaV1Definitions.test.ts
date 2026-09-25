@@ -274,8 +274,18 @@ describe('6.2D3B — no runtime consumer; XLSX mapping/confirm/import remain dis
   it('no app/lib/modules/components file imports or mentions the D3B manifest, config dir, seed or policy helper', () => {
     expect(runtimeFiles.length).toBeGreaterThan(50)
     const forbidden = /onkaparinga-monthly-operations-v1|config\/data-hub|seed-datahub-onkaparinga-schema-v1|dataHubOnkaparingaSchemaV1Policy|dhcfg-onk-mwco|June-v1 treatment|Monthly waste and collection operations/
+    // 6.2D3C — exactly ONE authorized, READ-ONLY runtime consumer resolves
+    // the governed dataset by exact name and pins the deterministic ids. It
+    // never reads the manifest/config/seed/policy helper.
+    const D3C_READ_ONLY_LOADER = path.join('lib', 'data-hub', 'schemaMatch', 'governedSchema.ts')
     const offenders = runtimeFiles.filter(f => forbidden.test(fs.readFileSync(f, 'utf-8'))).map(f => path.relative(REPO_ROOT, f))
-    expect(offenders).toEqual([])
+    expect(offenders).toEqual([D3C_READ_ONLY_LOADER])
+    const loader = readSource(D3C_READ_ONLY_LOADER)
+    expect(loader).not.toMatch(/onkaparinga-monthly-operations-v1|config\/data-hub|seed-datahub-onkaparinga-schema-v1|dataHubOnkaparingaSchemaV1Policy|June-v1 treatment/)
+    expect(loader).toContain('export const GOVERNED_DATASET_TYPE_NAME = "Monthly waste and collection operations";')
+    expect(loader).toContain('export const GOVERNED_DATASET_TYPE_ID = "dhcfg-onk-mwco-dt";')
+    expect(loader).toContain('export const GOVERNED_SOURCE_SCHEMA_VERSION_ID = "dhcfg-onk-mwco-sv1";')
+    expect(loader).not.toMatch(/\.(create|createMany|update|updateMany|upsert|delete|deleteMany)\(|\$transaction|\$executeRaw|\$queryRaw/)
   })
 
   it('the policy helper has no imports (pure, test-side only)', () => {

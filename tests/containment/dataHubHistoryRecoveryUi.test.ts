@@ -369,6 +369,8 @@ describe("T32/M20: no new backend route", () => {
         "app/api/data-hub/import-batches/[id]/inspect/route.ts",
         "app/api/data-hub/import-batches/[id]/route.ts",
         "app/api/data-hub/import-batches/[id]/worksheets/route.ts",
+        // 6.2D3C addition (read-only governed schema comparison):
+        "app/api/data-hub/import-batches/[id]/schema-match/route.ts",
         "app/api/data-hub/import-batches/route.ts",
         "app/api/data-hub/worksheets/[id]/confirm-illegal-dumping/route.ts",
         "app/api/data-hub/worksheets/[id]/preview/route.ts",
