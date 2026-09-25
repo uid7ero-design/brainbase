@@ -60,6 +60,15 @@ type Reconciliation = {
   lineCount: number; fullyReceivedLineCount: number; fullyBilledQuantityLineCount: number; fullyMatchedLineCount: number; fullyBilledLineCount: number; reconciledLineCount: number;
   orderedValueCents: number; billedValueCents: number; status: string; lines: ReconciliationLine[];
 };
+type CommitmentLine = {
+  purchaseOrderLineId: string; description: string; effectiveCostCentreId: string | null; state: string;
+  orderedTotalCents: number; billedTotalCents: number; outstandingTotalCents: number;
+};
+type Commitment = {
+  purchaseOrderId: string; purchaseOrderStatus: string; currency: string; commitmentEffectiveAt: string | null;
+  periodResolution: string; lineCount: number; orderedTotalCents: number; billedTotalCents: number; outstandingTotalCents: number;
+  lines: CommitmentLine[];
+};
 type MatchCandidateLine = {
   id: string; purchaseOrderLineId: string; documentId: string; documentNumber: string;
   quantity: string; allocatedQuantity: string; remainingQuantity: string;
@@ -151,6 +160,9 @@ export default function PurchaseOrderDetailPage() {
   // Phase C7.5B — one server-derived reconciliation read model. This is
   // never persisted on the PO/lines and never calculated in the browser.
   const [reconciliation, setReconciliation] = useState<Reconciliation | null>(null);
+  // Phase C7.6C — PO-local, migration-free commitment read model. The
+  // browser only renders server-derived values; it never recalculates them.
+  const [commitment, setCommitment] = useState<Commitment | null>(null);
   // Phase C7.5D3 — explicit receipt-line <-> supplier-bill-line matching.
   const [matchWorkspace, setMatchWorkspace] = useState<MatchWorkspace | null>(null);
   const [matchReceiptLineId, setMatchReceiptLineId] = useState('');
@@ -236,6 +248,12 @@ export default function PurchaseOrderDetailPage() {
     if (reconciliationRes.ok) {
       const reconciliationData = await reconciliationRes.json();
       setReconciliation(reconciliationData.reconciliation ?? null);
+    }
+
+    const commitmentRes = await fetch(`/api/commercial/purchase-orders/${id}/commitment`);
+    if (commitmentRes.ok) {
+      const commitmentData = await commitmentRes.json();
+      setCommitment(commitmentData.commitment ?? null);
     }
 
     const matchesRes = await fetch(`/api/commercial/purchase-orders/${id}/matches`);
@@ -903,6 +921,38 @@ export default function PurchaseOrderDetailPage() {
           <TotalRow label="Total" value={formatMoneyCents(po.total_cents, po.currency)} bold />
         </div>
       </div>
+
+      {/* Phase C7.6C — governed PO-local commitment surface. Values come
+          exclusively from the server-derived C7.6A read model. Receipts and
+          explicit match allocations never participate in these monetary
+          commitment values. */}
+      {commitment && (
+        <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, marginBottom: 20, padding: '16px 24px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+            <div style={miniLbl}>Commitment</div>
+            <div style={{ fontSize: 12, color: commitment.purchaseOrderStatus === 'ISSUED' ? '#34d399' : '#6b7280' }}>
+              {commitment.purchaseOrderStatus === 'ISSUED' ? 'ACTIVE PURCHASE COMMITMENT' : 'NOT COMMITTED'}
+            </div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10, marginBottom: 14 }}>
+            <div><div style={miniLbl}>Ordered</div><div style={{ fontSize: 14 }}>{formatMoneyCents(commitment.orderedTotalCents, commitment.currency)}</div></div>
+            <div><div style={miniLbl}>Billed</div><div style={{ fontSize: 14 }}>{formatMoneyCents(commitment.billedTotalCents, commitment.currency)}</div></div>
+            <div><div style={miniLbl}>Outstanding</div><div style={{ fontSize: 14, fontWeight: 700 }}>{formatMoneyCents(commitment.outstandingTotalCents, commitment.currency)}</div></div>
+            <div><div style={miniLbl}>Effective</div><div style={{ fontSize: 14 }}>{commitment.commitmentEffectiveAt ? formatCommercialDate(commitment.commitmentEffectiveAt.slice(0, 10)) : '—'}</div></div>
+            <div><div style={miniLbl}>Financial Period</div><div style={{ fontSize: 14, color: '#9ca3af' }}>{commitment.periodResolution.replaceAll('_', ' ')}</div></div>
+          </div>
+          {commitment.lines.map(line => (
+            <div key={line.purchaseOrderLineId} style={{ display: 'grid', gridTemplateColumns: 'minmax(180px, 1.5fr) repeat(3, minmax(110px, .8fr)) minmax(160px, 1fr) minmax(125px, .8fr)', gap: 10, alignItems: 'center', padding: '8px 0', borderTop: `1px solid ${BORDER}`, fontSize: 12 }}>
+              <span style={{ color: '#f3f4f6' }}>{line.description}</span>
+              <span style={{ color: '#9ca3af' }}>{formatMoneyCents(line.orderedTotalCents, commitment.currency)} ordered</span>
+              <span style={{ color: '#9ca3af' }}>{formatMoneyCents(line.billedTotalCents, commitment.currency)} billed</span>
+              <span style={{ color: '#f3f4f6' }}>{formatMoneyCents(line.outstandingTotalCents, commitment.currency)} outstanding</span>
+              <span style={{ color: '#6b7280' }}>Cost centre: {line.effectiveCostCentreId ?? 'Unassigned'}</span>
+              <span style={{ color: line.state === 'INVALID_OVERBILLED' ? '#f87171' : line.state === 'CONSUMED' ? '#34d399' : '#9ca3af', textAlign: 'right' }}>{line.state.replaceAll('_', ' ')}</span>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Phase C7.5B/C7.5C — one derived reconciliation view over the PO plus
           POSTED receipt/bill facts. This is intentionally a read model:
