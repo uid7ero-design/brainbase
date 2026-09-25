@@ -226,24 +226,28 @@ function projectHrAuditState(
  * resource-specific allowlists. Unknown future fields fail closed to
  * "[redacted]" rather than passing through raw.
  */
+async function writeHrAuditEvent(actor: HrAuditActor, entry: HrAuditEntry): Promise<void> {
+  const before = projectHrAuditState(entry.resourceType, entry.beforeState);
+  const after = projectHrAuditState(entry.resourceType, entry.afterState);
+
+  await sql`
+    INSERT INTO audit_logs (
+      id, organisation_id, user_id, action, resource_type, resource_id,
+      before_state, after_state, ip_address, user_agent
+    )
+    VALUES (
+      ${crypto.randomUUID()}, ${actor.organisationId}, ${actor.userId},
+      ${entry.action}, ${entry.resourceType}, ${entry.resourceId},
+      ${before ? JSON.stringify(before) : null}::jsonb,
+      ${after ? JSON.stringify(after) : null}::jsonb,
+      ${actor.ipAddress ?? null}, ${actor.userAgent ?? null}
+    )
+  `;
+}
+
 export async function logHrEvent(actor: HrAuditActor, entry: HrAuditEntry): Promise<void> {
   try {
-    const before = projectHrAuditState(entry.resourceType, entry.beforeState);
-    const after = projectHrAuditState(entry.resourceType, entry.afterState);
-
-    await sql`
-      INSERT INTO audit_logs (
-        id, organisation_id, user_id, action, resource_type, resource_id,
-        before_state, after_state, ip_address, user_agent
-      )
-      VALUES (
-        ${crypto.randomUUID()}, ${actor.organisationId}, ${actor.userId},
-        ${entry.action}, ${entry.resourceType}, ${entry.resourceId},
-        ${before ? JSON.stringify(before) : null}::jsonb,
-        ${after ? JSON.stringify(after) : null}::jsonb,
-        ${actor.ipAddress ?? null}, ${actor.userAgent ?? null}
-      )
-    `;
+    await writeHrAuditEvent(actor, entry);
   } catch (err) {
     console.error(
       '[hr audit] audit_logs write failed (ignored, per ADR-0003 §11 — the underlying mutation remains valid)',
@@ -251,4 +255,19 @@ export async function logHrEvent(actor: HrAuditActor, entry: HrAuditEntry): Prom
       { action: entry.action, resourceType: entry.resourceType, resourceId: entry.resourceId },
     );
   }
+}
+
+/**
+ * Restricted-HR reads fail closed: sensitive case data must not be returned
+ * unless its audit row is durably written. Unlike logHrEvent(), this helper
+ * deliberately propagates audit storage failures to the route.
+ */
+export async function logRestrictedHrReadEvent(
+  actor: HrAuditActor,
+  entry: HrAuditEntry,
+): Promise<void> {
+  if (entry.resourceType !== 'hr_restricted_case' || entry.action !== 'hr_restricted_case.read') {
+    throw new Error('logRestrictedHrReadEvent only accepts restricted-case read events.');
+  }
+  await writeHrAuditEvent(actor, entry);
 }
