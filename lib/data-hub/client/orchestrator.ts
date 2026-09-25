@@ -27,6 +27,7 @@
 import {
   confirmIllegalDumping as callConfirmIllegalDumping,
   fetchWorksheetPreview as callFetchWorksheetPreview,
+  fetchSchemaMatchReport as callFetchSchemaMatchReport,
   finalizeImportBatch as callFinalize,
   getImportBatch as callGetImportBatch,
   getSourceMapping as callGetSourceMapping,
@@ -73,6 +74,7 @@ import type {
   ListSourceSystemsResult,
   PeriodDetectionClient,
   PersistedFailureCodeClient,
+  SchemaMatchReportClient,
   WorksheetDescriptorClient,
   WorksheetContentPreviewDTOClient,
   WorksheetPreviewDTOClient,
@@ -239,7 +241,16 @@ export type DataHubImportState =
   | { phase: "worksheetInventoryReady"; batch: ImportBatchHandle; worksheets: WorksheetSummaryDTOClient[] }
   | { phase: "xlsxWorksheetPreviewing"; batch: ImportBatchHandle; worksheets: WorksheetSummaryDTOClient[]; worksheet: WorksheetSummaryDTOClient }
   | { phase: "xlsxWorksheetPreviewReady"; batch: ImportBatchHandle; worksheets: WorksheetSummaryDTOClient[]; worksheet: WorksheetSummaryDTOClient; preview: WorksheetContentPreviewDTOClient }
-  | { phase: "xlsxWorksheetPreviewFailed"; batch: ImportBatchHandle; worksheets: WorksheetSummaryDTOClient[]; worksheet: WorksheetSummaryDTOClient; code: string; message: string };
+  | { phase: "xlsxWorksheetPreviewFailed"; batch: ImportBatchHandle; worksheets: WorksheetSummaryDTOClient[]; worksheet: WorksheetSummaryDTOClient; code: string; message: string }
+  /** Data Hub 6.2D3C — read-only structural comparison of an XLSX batch
+   * against its governed source schema, entered ONLY by an explicit
+   * compareToGovernedSchema() from the inventory (never automatically).
+   * Carries the inventory so Back returns to it unchanged. A report —
+   * including EXACT_MATCH — is never acceptance/activation and unlocks no
+   * confirm/mapping/period/import method: they all still throw here. */
+  | { phase: "schemaMatchLoading"; batch: ImportBatchHandle; worksheets: WorksheetSummaryDTOClient[] }
+  | { phase: "schemaMatchReady"; batch: ImportBatchHandle; worksheets: WorksheetSummaryDTOClient[]; report: SchemaMatchReportClient }
+  | { phase: "schemaMatchFailed"; batch: ImportBatchHandle; worksheets: WorksheetSummaryDTOClient[]; code: string; message: string };
 
 export interface StartImportOptions {
   expectedSha256?: string;
@@ -289,8 +300,10 @@ export class DataHubIllegalDumpingImportSession {
    * own observable behavior for a caller that never calls
    * `resumeFromBatchId()`. */
   private resumeGeneration = 0;
-  /** Monotonic fence for XLSX preview requests. Back navigation, a newer
-   * selection, start(), and dispose() invalidate every older continuation. */
+  /** Monotonic fence for XLSX read-only side requests (worksheet preview
+   * and, 6.2D3C, governed schema comparison). Back navigation, a newer
+   * request, start(), resume and dispose() invalidate every older
+   * continuation. */
   private xlsxPreviewGeneration = 0;
 
   constructor(config: DataHubOrchestratorConfig = {}) {
@@ -851,7 +864,10 @@ export class DataHubIllegalDumpingImportSession {
     if (
       this.state.phase !== "xlsxWorksheetPreviewing" &&
       this.state.phase !== "xlsxWorksheetPreviewReady" &&
-      this.state.phase !== "xlsxWorksheetPreviewFailed"
+      this.state.phase !== "xlsxWorksheetPreviewFailed" &&
+      this.state.phase !== "schemaMatchLoading" &&
+      this.state.phase !== "schemaMatchReady" &&
+      this.state.phase !== "schemaMatchFailed"
     ) {
       throw new Error(`data-hub client: backToWorksheetInventory() called from unexpected phase "${this.state.phase}".`);
     }
@@ -865,6 +881,48 @@ export class DataHubIllegalDumpingImportSession {
     }
     const { worksheet } = this.state;
     await this.previewXlsxWorksheet(worksheet.id);
+  }
+
+  // Data Hub 6.2D3C — explicit, read-only "Compare to governed schema".
+  // Allowed only from the XLSX inventory (or as a retry of a failed
+  // comparison). Sends only the batch id; the report is displayed, never
+  // acted on: no schema/lineage selection, mapping, confirm or import.
+  async compareToGovernedSchema(): Promise<void> {
+    if (this.state.phase !== "worksheetInventoryReady" && this.state.phase !== "schemaMatchFailed") {
+      throw new Error(`data-hub client: compareToGovernedSchema() called from unexpected phase "${this.state.phase}".`);
+    }
+    const { batch, worksheets } = this.state;
+    if (batch.contentType !== "xlsx") throw new Error("data-hub client: governed schema comparison requires an xlsx batch.");
+    const myGeneration = ++this.xlsxPreviewGeneration;
+    this.setState({ phase: "schemaMatchLoading", batch, worksheets });
+    const result = await callFetchSchemaMatchReport(batch.id, this.config);
+    if (this.disposed || myGeneration !== this.xlsxPreviewGeneration) return;
+    const failed = (code: string, message: string) => this.setState({ phase: "schemaMatchFailed", batch, worksheets, code, message });
+    if (result.kind !== "response") {
+      failed("NETWORK", result.kind === "networkUncertain" ? result.message : "The schema comparison response could not be parsed.");
+      return;
+    }
+    const body = result.body;
+    if (typeof body !== "object" || body === null) {
+      failed("UNKNOWN", "The schema comparison response was invalid.");
+      return;
+    }
+    if (!("ok" in body) || !body.ok) {
+      failed("error" in body ? (body.code ?? "UNKNOWN") : "UNKNOWN", "error" in body ? body.error : "The schema comparison failed for an unknown reason.");
+      return;
+    }
+    const report = body.report;
+    if (
+      !report ||
+      report.reportVersion !== 1 ||
+      !Array.isArray(report.differences) ||
+      !report.differences.every((d) => typeof d === "object" && d !== null && typeof d.code === "string" && typeof d.deterministicKey === "string") ||
+      !["EXACT_MATCH", "MATCH_WITH_NON_BLOCKING_DRIFT", "BLOCKING_DRIFT", "UNMATCHABLE"].includes(report.result)
+    ) {
+      failed("UNKNOWN", "The schema comparison response was invalid.");
+      return;
+    }
+    this.setState({ phase: "schemaMatchReady", batch, worksheets, report });
   }
 
   // Data Hub 6.2D1 — defense in depth behind the phase guards: preview and

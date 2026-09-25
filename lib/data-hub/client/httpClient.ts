@@ -49,6 +49,8 @@ import type {
   PeriodSelectionRequestInput,
   PeriodSelectionResponseBody,
   PeriodSelectionResult,
+  SchemaMatchFetchResult,
+  SchemaMatchResponseBody,
   TransportResult,
   WorksheetPreviewResponseBody,
   WorksheetPreviewResult,
@@ -442,6 +444,25 @@ export async function fetchWorksheetPreview(
   return executeCall<WorksheetPreviewResponseBody>(
     config,
     resolveUrl(config, `/api/data-hub/worksheets/${encodeURIComponent(worksheetId)}/preview`),
+    { method: "GET" },
+    callOptions
+  );
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/data-hub/import-batches/[id]/schema-match (Data Hub 6.2D3C) —
+// read-only structural comparison against the governed schema. Sends only
+// the batch id in the path; the server resolves tenant and schema itself.
+// ---------------------------------------------------------------------------
+
+export async function fetchSchemaMatchReport(
+  importBatchId: string,
+  config?: HttpClientConfig,
+  callOptions?: CallOptions
+): Promise<SchemaMatchFetchResult> {
+  return executeCall<SchemaMatchResponseBody>(
+    config,
+    resolveUrl(config, `/api/data-hub/import-batches/${encodeURIComponent(importBatchId)}/schema-match`),
     { method: "GET" },
     callOptions
   );

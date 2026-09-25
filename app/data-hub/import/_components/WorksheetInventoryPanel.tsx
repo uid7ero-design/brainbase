@@ -16,14 +16,18 @@ import {
 // anywhere in its input. Actions: leaving (onRestart) and, 6.2D2, an
 // explicit per-row Preview (onPreview) shown only for a visible, non-empty,
 // AWAITING_CONFIRMATION worksheet — never auto-invoked, even for a
-// single-sheet workbook. The orchestrator re-validates the id.
+// single-sheet workbook. The orchestrator re-validates the id. 6.2D3C: an
+// explicit, read-only "Compare to governed schema" (onCompareSchema) —
+// never auto-invoked; it shows a structural difference report only.
 export default function WorksheetInventoryPanel({
   state,
   onPreview,
+  onCompareSchema,
   onRestart,
 }: {
   state: Extract<DataHubImportState, { phase: "worksheetInventoryReady" }>;
   onPreview: (worksheetId: string) => void;
+  onCompareSchema: () => void;
   onRestart: () => void;
 }) {
   return (
@@ -108,11 +112,27 @@ export default function WorksheetInventoryPanel({
         </table>
       </div>
 
+      <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
+      <button
+        type="button"
+        onClick={onCompareSchema}
+        style={{
+          fontSize: 13,
+          fontWeight: 600,
+          padding: "9px 18px",
+          borderRadius: 8,
+          border: "1px solid rgba(255,255,255,.18)",
+          background: "transparent",
+          color: "rgba(249,250,251,.85)",
+          cursor: "pointer",
+        }}
+      >
+        Compare to governed schema
+      </button>
       <button
         type="button"
         onClick={onRestart}
         style={{
-          marginTop: 20,
           fontSize: 13,
           fontWeight: 600,
           padding: "9px 18px",
@@ -125,6 +145,7 @@ export default function WorksheetInventoryPanel({
       >
         Choose another file
       </button>
+      </div>
     </div>
   );
 }

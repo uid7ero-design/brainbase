@@ -7,6 +7,7 @@ import { deriveErrorOverlayCopy, isErrorOverlayPhase } from "../screenGroup";
 import ReviewPanel from "../_components/ReviewPanel";
 import WorksheetInventoryPanel from "../_components/WorksheetInventoryPanel";
 import XlsxWorksheetPreviewPanel from "../_components/XlsxWorksheetPreviewPanel";
+import SchemaMatchReportPanel from "../_components/SchemaMatchReportPanel";
 import ImportSuccess from "../_components/ImportSuccess";
 import ImportError from "../_components/ImportError";
 import type { ReviewPhase } from "../confirmEligibility";
@@ -80,11 +81,24 @@ function RecoveryBody({
   // Data Hub 6.2D1 — a recovered XLSX batch's structural inventory. Same
   // pure-navigation escape as ReviewPanel above; no session handed over.
   if (state.phase === "worksheetInventoryReady") {
-    return <WorksheetInventoryPanel state={state} onPreview={(id) => void session.previewXlsxWorksheet(id)} onRestart={() => router.push("/data-hub/import")} />;
+    return (
+      <WorksheetInventoryPanel
+        state={state}
+        onPreview={(id) => void session.previewXlsxWorksheet(id)}
+        onCompareSchema={() => session.compareToGovernedSchema().catch(() => {})}
+        onRestart={() => router.push("/data-hub/import")}
+      />
+    );
   }
 
   if (state.phase === "xlsxWorksheetPreviewing" || state.phase === "xlsxWorksheetPreviewReady" || state.phase === "xlsxWorksheetPreviewFailed") {
     return <XlsxWorksheetPreviewPanel state={state} onBack={() => session.backToWorksheetInventory()} onRetry={() => void session.retryXlsxWorksheetPreview()} onRestart={() => router.push("/data-hub/import")} />;
+  }
+
+  // Data Hub 6.2D3C — read-only governed schema comparison of a recovered
+  // XLSX batch. Same narrow callbacks; no session handed over.
+  if (state.phase === "schemaMatchLoading" || state.phase === "schemaMatchReady" || state.phase === "schemaMatchFailed") {
+    return <SchemaMatchReportPanel state={state} onBack={() => session.backToWorksheetInventory()} onRetry={() => session.compareToGovernedSchema().catch(() => {})} onRestart={() => router.push("/data-hub/import")} />;
   }
 
   if (state.phase === "confirming") {
