@@ -147,9 +147,21 @@ function ImportFlow({ onRestart }: { onRestart: () => void }) {
         {screenGroup === "xlsxPreview" && (state.phase === "xlsxWorksheetPreviewing" || state.phase === "xlsxWorksheetPreviewReady" || state.phase === "xlsxWorksheetPreviewFailed") && (
           <XlsxWorksheetPreviewPanel state={state} onBack={() => session.backToWorksheetInventory()} onRetry={() => void session.retryXlsxWorksheetPreview()} onRestart={onRestart} />
         )}
-        {screenGroup === "schemaMatch" && (state.phase === "schemaMatchLoading" || state.phase === "schemaMatchReady" || state.phase === "schemaMatchFailed") && (
-          <SchemaMatchReportPanel state={state} onBack={() => session.backToWorksheetInventory()} onRetry={() => session.compareToGovernedSchema().catch(() => {})} onRestart={onRestart} />
-        )}
+        {screenGroup === "schemaMatch" &&
+          (state.phase === "schemaMatchLoading" ||
+            state.phase === "schemaMatchReady" ||
+            state.phase === "schemaMatchFailed" ||
+            state.phase === "schemaSelectionSaving" ||
+            state.phase === "schemaSelected" ||
+            state.phase === "schemaSelectionFailed") && (
+            <SchemaMatchReportPanel
+              state={state}
+              onBack={() => session.backToWorksheetInventory()}
+              onRetry={() => session.compareToGovernedSchema().catch(() => {})}
+              onSelectSchema={() => session.selectGovernedSchema().catch(() => {})}
+              onRestart={onRestart}
+            />
+          )}
 
         {screenGroup === "confirm" &&
           (state.phase === "confirming" ? (

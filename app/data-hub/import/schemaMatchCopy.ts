@@ -73,3 +73,21 @@ export function describeSchemaDifference(d: SchemaDifferenceClient): string {
 export function deriveDifferenceWorksheetLabel(d: SchemaDifferenceClient): string {
   return d.governedWorksheetName ?? d.observedWorksheetName ?? "Workbook";
 }
+
+// Data Hub 6.2D3D — governed schema LINEAGE PINNING copy. The "Use governed
+// schema" action is shown only for ACTIVE + EXACT_MATCH (spec Section 18);
+// every other combination (DRAFT + EXACT_MATCH, any non-EXACT_MATCH result)
+// never shows it. This helper decides ONLY what NOTICE to render in its
+// place — it never decides button visibility itself (the panel component
+// derives that directly from report.result/report.sourceSchemaStatus, so
+// there is exactly one source of truth for eligibility, matching this
+// module's own established "wording only, never eligibility logic" split).
+export function canSelectGovernedSchema(report: SchemaMatchReportClient): boolean {
+  return report.result === "EXACT_MATCH" && report.sourceSchemaStatus === "ACTIVE";
+}
+
+export function deriveSchemaSelectionNotice(report: SchemaMatchReportClient): string | null {
+  if (report.result !== "EXACT_MATCH") return null;
+  if (report.sourceSchemaStatus === "ACTIVE") return null;
+  return "This workbook's structure matches the governed schema, but that schema is not currently active for imports.";
+}

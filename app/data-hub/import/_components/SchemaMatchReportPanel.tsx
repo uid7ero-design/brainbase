@@ -3,18 +3,26 @@
 import type { DataHubImportState } from "@/lib/data-hub/client/orchestrator";
 import {
   SCHEMA_MATCH_NOTICE,
+  canSelectGovernedSchema,
   deriveDifferenceWorksheetLabel,
   deriveSchemaMatchHeadline,
+  deriveSchemaSelectionNotice,
   describeSchemaDifference,
 } from "../schemaMatchCopy";
 
-// Data Hub 6.2D3C — read-only governed schema difference report. Receives
-// state plus back/retry/restart callbacks only — never the session — so it
-// cannot confirm, select a mapping or schema, set a period, or import.
+// Data Hub 6.2D3C/6.2D3D — read-only governed schema difference report,
+// plus (6.2D3D) the durable "Use governed schema" lineage-pin action, shown
+// ONLY for ACTIVE + EXACT_MATCH. Receives state plus
+// back/retry/selectSchema/restart callbacks only — never the session — so
+// it can never confirm, select a mapping, set a period, or import; the only
+// mutation this panel can ever trigger is the one explicit lineage pin.
 // Renders structural fields only (worksheet names, column positions,
-// header text); the report never contains sample rows or cell values.
-// All text is rendered as escaped React text.
-type SchemaMatchState = Extract<DataHubImportState, { phase: "schemaMatchLoading" | "schemaMatchReady" | "schemaMatchFailed" }>;
+// header text); the report never contains sample rows or cell values. All
+// text is rendered as escaped React text.
+type SchemaMatchState = Extract<
+  DataHubImportState,
+  { phase: "schemaMatchLoading" | "schemaMatchReady" | "schemaMatchFailed" | "schemaSelectionSaving" | "schemaSelected" | "schemaSelectionFailed" }
+>;
 
 const SEVERITY_COLOR: Record<string, string> = {
   BLOCKING: "#f87171",
@@ -22,13 +30,14 @@ const SEVERITY_COLOR: Record<string, string> = {
   INFO: "rgba(249,250,251,.7)",
 };
 
-export default function SchemaMatchReportPanel({ state, onBack, onRetry, onRestart }: {
+export default function SchemaMatchReportPanel({ state, onBack, onRetry, onSelectSchema, onRestart }: {
   state: SchemaMatchState;
   onBack: () => void;
   onRetry: () => void;
+  onSelectSchema: () => void;
   onRestart: () => void;
 }) {
-  const report = state.phase === "schemaMatchReady" ? state.report : null;
+  const report = "report" in state ? state.report : null;
   return <div>
     <h2 style={{ fontSize: 16, fontWeight: 600, color: "#f9fafb" }}>Governed schema comparison</h2>
     <p style={{ fontSize: 12, color: "rgba(249,250,251,.6)" }}>{state.batch.originalFilename ?? "This workbook"}</p>
@@ -54,6 +63,32 @@ export default function SchemaMatchReportPanel({ state, onBack, onRetry, onResta
               <td style={{ padding: 8, borderBottom: "1px solid rgba(255,255,255,.05)" }}>{describeSchemaDifference(d)}</td>
             </tr>)}</tbody>
           </table>
+        </div>
+      )}
+      {/* Data Hub 6.2D3D — governed schema lineage-pin action. Visible ONLY
+          for ACTIVE + EXACT_MATCH (canSelectGovernedSchema derives this
+          from the SAME report the headline above uses — one source of
+          truth). No override/warning-acknowledgement control exists here. */}
+      {state.phase === "schemaMatchReady" && canSelectGovernedSchema(report) && (
+        <div style={{ marginTop: 16 }}>
+          <button type="button" onClick={onSelectSchema}>Use governed schema</button>
+        </div>
+      )}
+      {state.phase === "schemaMatchReady" && !canSelectGovernedSchema(report) && deriveSchemaSelectionNotice(report) && (
+        <p role="note" style={{ fontSize: 12, color: "rgba(249,250,251,.7)", marginTop: 16 }}>{deriveSchemaSelectionNotice(report)}</p>
+      )}
+      {state.phase === "schemaSelectionSaving" && <p aria-live="polite" style={{ marginTop: 16 }}>Selecting governed schema…</p>}
+      {state.phase === "schemaSelected" && (
+        <div role="status" style={{ marginTop: 16, padding: "10px 14px", border: "1px solid rgba(74,222,128,.3)", borderRadius: 8, color: "#f9fafb", fontSize: 12 }}>
+          {state.alreadySelected
+            ? "This import batch is already bound to this governed dataset and schema version."
+            : `This import batch is now bound to governed schema v${state.sourceSchemaVersionNumber}.`}
+        </div>
+      )}
+      {state.phase === "schemaSelectionFailed" && (
+        <div role="alert" style={{ marginTop: 16 }}>
+          <p>{state.message}</p>
+          <button type="button" onClick={onSelectSchema}>Retry</button>
         </div>
       )}
     </>}
