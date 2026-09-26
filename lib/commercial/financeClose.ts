@@ -29,6 +29,7 @@ export class FinanceCloseError extends Error {
       | 'PERIOD_NOT_CLOSED'
       | 'FINANCIAL_YEAR_CLOSED'
       | 'PERIOD_OVERLAP'
+      | 'DRAFT_ADJUSTMENTS_EXIST'
       | 'NO_ACTIVE_CLOSE'
       | 'REOPEN_REASON_REQUIRED'
       | 'CONCURRENT_STATE_CHANGE',
@@ -46,8 +47,13 @@ type PeriodLockRow = {
   financial_year_id: string;
 };
 type OverlapRow = { overlap_count: number };
+type DraftAdjustmentRow = { draft_adjustment_count: number };
 
-function assertClosePreconditions(period: PeriodLockRow | undefined, overlap: OverlapRow | undefined) {
+function assertClosePreconditions(
+  period: PeriodLockRow | undefined,
+  overlap: OverlapRow | undefined,
+  draftAdjustment: DraftAdjustmentRow | undefined,
+) {
   if (!period) throw new FinanceCloseError('NOT_FOUND', 'Financial period not found for this organisation.');
   if (period.status !== 'OPEN') throw new FinanceCloseError('PERIOD_NOT_OPEN', 'Only an OPEN financial period can be closed.');
   if (period.financial_year_status !== 'OPEN') {
@@ -55,6 +61,9 @@ function assertClosePreconditions(period: PeriodLockRow | undefined, overlap: Ov
   }
   if (Number(overlap?.overlap_count ?? 0) > 0) {
     throw new FinanceCloseError('PERIOD_OVERLAP', 'Financial period overlaps another period in the same financial year.');
+  }
+  if (Number(draftAdjustment?.draft_adjustment_count ?? 0) > 0) {
+    throw new FinanceCloseError('DRAFT_ADJUSTMENTS_EXIST', 'Draft finance adjustments must be posted or resolved before closing the period.');
   }
 }
 
@@ -72,7 +81,7 @@ export async function closeFinancialPeriod(params: {
   financialPeriodId: string;
   reason?: string | null;
 }): Promise<CommercialFinancialPeriodClose> {
-  const [lockRows, overlapRows, closeRows] = await sql.transaction(txn => [
+  const [lockRows, overlapRows, draftAdjustmentRows, closeRows] = await sql.transaction(txn => [
     txn`
       SELECT cfp.id, cfp.status, cfp.financial_year_id,
              cfy.status AS financial_year_status
@@ -95,6 +104,13 @@ export async function closeFinancialPeriod(params: {
        AND other.ends_on >= target.starts_on
       WHERE target.id = ${params.financialPeriodId}
         AND target.organisation_id = ${params.organisationId}
+    `,
+    txn`
+      SELECT COUNT(*)::int AS draft_adjustment_count
+      FROM commercial_finance_adjustments
+      WHERE organisation_id = ${params.organisationId}
+        AND effective_financial_period_id = ${params.financialPeriodId}
+        AND status = 'DRAFT'
     `,
     txn`
       WITH target AS MATERIALIZED (
@@ -120,6 +136,12 @@ export async function closeFinancialPeriod(params: {
             WHERE current_close.financial_period_id = cfp.id
               AND current_close.organisation_id = cfp.organisation_id
               AND current_close.status = 'CLOSED'
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM commercial_finance_adjustments draft_adjustment
+            WHERE draft_adjustment.organisation_id = cfp.organisation_id
+              AND draft_adjustment.effective_financial_period_id = cfp.id
+              AND draft_adjustment.status = 'DRAFT'
           )
       ),
 
@@ -193,10 +215,11 @@ export async function closeFinancialPeriod(params: {
 
   const period = (lockRows as PeriodLockRow[])[0];
   const overlap = (overlapRows as OverlapRow[])[0];
+  const draftAdjustment = (draftAdjustmentRows as DraftAdjustmentRow[])[0];
   const closed = (closeRows as CommercialFinancialPeriodClose[])[0];
 
   if (!closed) {
-    assertClosePreconditions(period, overlap);
+    assertClosePreconditions(period, overlap, draftAdjustment);
     throw new FinanceCloseError('CONCURRENT_STATE_CHANGE', 'Financial period close did not complete.');
   }
 

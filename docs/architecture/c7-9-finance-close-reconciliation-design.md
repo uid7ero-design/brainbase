@@ -192,8 +192,9 @@ Each line carries explicit governed dimensions:
 - external_gl_account_mapping_id nullable;
 - narrative.
 
-The implementation must choose one sign convention and enforce it consistently in schema/domain tests.
-C7.9 design preference is signed BIGINT minor units at the line level because adjustments must support equal-and-opposite corrections while preserving exact cents.
+C7.9B fixes the sign convention as signed BIGINT minor units at the line level: positive amounts increase effective Budget Actual and negative amounts reduce it. There is no separate debit/credit flag that could disagree with the stored sign.
+
+Each line must satisfy amount_inclusive_cents = amount_exclusive_cents + tax_cents. PRIOR_PERIOD_RECLASSIFICATION and BUDGET_CLASSIFICATION_CORRECTION journals must net to exactly zero across exclusive, tax, and inclusive amounts before POST. EXTERNAL_GL_TRUE_UP and MANUAL_FINANCE_ADJUSTMENT may carry a non-zero net Budget effect.
 
 No floating-point finance arithmetic is permitted.
 
