@@ -154,7 +154,11 @@ describe('lifecycle template transactional mutations', () => {
       audit_written: true,
     }]);
 
-    const { templateKey: _key, lifecycleType: _type, ...versionInput } = INPUT;
+    const versionInput = {
+      name: INPUT.name,
+      description: INPUT.description,
+      tasks: INPUT.tasks,
+    };
     const result = await createLifecycleTemplateVersion({
       actor: ACTOR,
       sourceTemplateId: TEMPLATE_ID,
@@ -181,7 +185,11 @@ describe('lifecycle template transactional mutations', () => {
       audit_written: false,
     }]);
 
-    const { templateKey: _key, lifecycleType: _type, ...versionInput } = INPUT;
+    const versionInput = {
+      name: INPUT.name,
+      description: INPUT.description,
+      tasks: INPUT.tasks,
+    };
     await expect(createLifecycleTemplateVersion({
       actor: ACTOR,
       sourceTemplateId: TEMPLATE_ID,
