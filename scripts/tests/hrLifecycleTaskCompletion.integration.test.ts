@@ -293,6 +293,56 @@ describe('HR-7C real Postgres double-completion race', () => {
     expect(workflowAudits).toHaveLength(0);
   });
 
+
+
+  it('serializes different final tasks on the workflow lock so exactly one derives workflow completion', async () => {
+    const [a, b] = await Promise.all([
+      completeLifecycleTask({ actor: ACTOR, taskId: TARGET_TASK_ID }),
+      completeLifecycleTask({ actor: ACTOR, taskId: BLOCKER_TASK_ID }),
+    ]);
+
+    expect(a.outcome).toBe('completed');
+    expect(b.outcome).toBe('completed');
+
+    const completedResults = [a, b].filter(result => result.outcome === 'completed');
+    expect(completedResults).toHaveLength(2);
+    const workflowStatuses = completedResults
+      .map(result => result.workflow.status)
+      .sort();
+    expect(workflowStatuses).toEqual(['ACTIVE', 'COMPLETED']);
+
+    const [workflow] = await q<{ status: string; completed_at: Date | null }>(
+      `SELECT status, completed_at
+       FROM hr_lifecycle_workflows
+       WHERE organisation_id = $1 AND id = $2`,
+      [ORG_ID, WORKFLOW_ID],
+    );
+    expect(workflow.status).toBe('COMPLETED');
+    expect(workflow.completed_at).not.toBeNull();
+
+    const [taskAuditCount] = await q<{ count: string }>(
+      `SELECT count(*)::text AS count
+       FROM audit_logs
+       WHERE organisation_id = $1
+         AND resource_type = 'hr_lifecycle_task'
+         AND resource_id IN ($2, $3)
+         AND action = 'hr_lifecycle_task.completed'`,
+      [ORG_ID, TARGET_TASK_ID, BLOCKER_TASK_ID],
+    );
+    expect(taskAuditCount.count).toBe('2');
+
+    const [workflowAuditCount] = await q<{ count: string }>(
+      `SELECT count(*)::text AS count
+       FROM audit_logs
+       WHERE organisation_id = $1
+         AND resource_type = 'hr_lifecycle_workflow'
+         AND resource_id = $2
+         AND action = 'hr_lifecycle_workflow.completed'`,
+      [ORG_ID, WORKFLOW_ID],
+    );
+    expect(workflowAuditCount.count).toBe('1');
+  });
+
   it('completes the workflow exactly once when both callers race on the final outstanding task', async () => {
     await q(
       `UPDATE hr_lifecycle_tasks

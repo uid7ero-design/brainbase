@@ -93,15 +93,15 @@ beforeEach(() => {
 });
 
 describe('completeLifecycleTask', () => {
-  it('takes the task advisory lock before the mutation statement and revalidates live authority inside that statement', async () => {
+  it('takes the workflow advisory lock before the mutation statement and revalidates live authority inside that statement', async () => {
     queue([completedRow()]);
 
     await completeLifecycleTask({ actor: ACTOR, taskId: TASK_ID });
 
     expect(calls).toHaveLength(2);
     expect(calls[0].text).toContain('pg_advisory_xact_lock');
-    expect(calls[0].text).toContain('hashtextextended');
-    expect(calls[0].values).toEqual([`hr-lifecycle-task:${TASK_ID}`]);
+    expect(calls[0].text).toContain("'hr-lifecycle-workflow:' || t.workflow_id::text");
+    expect(calls[0].values).toEqual([TASK_ID, 'org-a']);
 
     const query = calls[1].text;
     expect(query).toContain('WITH task_scope AS MATERIALIZED');
@@ -283,7 +283,7 @@ describe('double-completion serialization', () => {
       const [lockQuery, mutationQuery] = queries;
 
       expect(lockQuery.text).toContain('pg_advisory_xact_lock');
-      expect(lockQuery.values).toEqual([`hr-lifecycle-task:${TASK_ID}`]);
+      expect(lockQuery.values).toEqual([TASK_ID, 'org-a']);
 
       const run = tail.then(async () => {
         calls.push(lockQuery, mutationQuery);
@@ -370,5 +370,295 @@ describe('double-completion serialization', () => {
 
     expect(state.taskAuditCount()).toBe(1);
     expect(state.workflowAuditCount()).toBe(1);
+  });
+});
+
+
+describe('startLifecycleTask', () => {
+  it('starts only an authorized NOT_STARTED task and audits atomically', async () => {
+    queue([{
+      task_exists: true,
+      authorized: true,
+      workflow_status: 'ACTIVE',
+      previous_status: 'NOT_STARTED',
+      task_id: TASK_ID,
+      task_status: 'IN_PROGRESS',
+      audit_written: true,
+    }]);
+
+    const { startLifecycleTask } = await import('@/lib/hr/lifecycleMutations');
+    const result = await startLifecycleTask({ actor: ACTOR, taskId: TASK_ID });
+
+    expect(result).toEqual({
+      outcome: 'started',
+      task: { id: TASK_ID, status: 'IN_PROGRESS' },
+    });
+    expect(calls[1].text).toContain('UPDATE hr_lifecycle_tasks');
+    expect(calls[1].text).toContain("'hr_lifecycle_task.started'");
+    expect(calls[1].text).toContain('INSERT INTO audit_logs');
+  });
+});
+
+describe('waiveLifecycleTask', () => {
+  it('waives under HR-admin authority and writes task/workflow audits transactionally', async () => {
+    queue([{
+      task_exists: true,
+      authorized: true,
+      workflow_status: 'ACTIVE',
+      previous_status: 'IN_PROGRESS',
+      task_id: TASK_ID,
+      waived_by: 'admin-user',
+      waived_at: '2026-09-26T12:00:00.000Z',
+      waiver_reason: 'Requirement removed',
+      workflow_id: WORKFLOW_ID,
+      resulting_workflow_status: 'ACTIVE',
+      workflow_completed_at: null,
+      task_audit_written: true,
+      workflow_audit_written: false,
+    }]);
+
+    const { waiveLifecycleTask } = await import('@/lib/hr/lifecycleMutations');
+    const result = await waiveLifecycleTask({
+      actor: ACTOR,
+      taskId: TASK_ID,
+      reason: 'Requirement removed',
+    });
+
+    expect(result).toEqual({
+      outcome: 'waived',
+      task: {
+        id: TASK_ID,
+        status: 'WAIVED',
+        waivedBy: 'admin-user',
+        waivedAt: '2026-09-26T12:00:00.000Z',
+        waiverReason: 'Requirement removed',
+      },
+      workflow: {
+        id: WORKFLOW_ID,
+        status: 'ACTIVE',
+        completedAt: null,
+      },
+    });
+    expect(calls[1].text).toContain("'hr_lifecycle_task.waived'");
+    expect(calls[1].text).toContain("task_scope.previous_status IN ('NOT_STARTED', 'IN_PROGRESS', 'AWAITING_APPROVAL')");
+  });
+});
+
+describe('recordLifecycleTaskApproval', () => {
+  it('records approval append-only, revalidates current manager, updates the task, and audits in one statement', async () => {
+    queue([{
+      task_exists: true,
+      authorized: true,
+      requires_approval: true,
+      previous_status: 'AWAITING_APPROVAL',
+      workflow_status: 'ACTIVE',
+      approval_id: '66666666-6666-4666-8666-666666666666',
+      task_id: TASK_ID,
+      workflow_id: WORKFLOW_ID,
+      person_id: '11111111-1111-4111-8111-111111111111',
+      approver_user_id: 'employee-user',
+      decision: 'APPROVED',
+      comment: 'Ready',
+      decided_at: '2026-09-26T12:30:00.000Z',
+      task_status: 'COMPLETED',
+      task_completed_at: '2026-09-26T12:30:00.000Z',
+      resulting_workflow_status: 'ACTIVE',
+      workflow_completed_at: null,
+      approval_audit_written: true,
+      task_audit_written: true,
+      workflow_audit_written: false,
+    }]);
+
+    const { recordLifecycleTaskApproval } = await import('@/lib/hr/lifecycleMutations');
+    const result = await recordLifecycleTaskApproval({
+      actor: ACTOR,
+      taskId: TASK_ID,
+      decision: 'APPROVED',
+      comment: 'Ready',
+    });
+
+    expect(result.outcome).toBe('recorded');
+    expect(calls[1].text).toContain('INSERT INTO hr_lifecycle_task_approvals');
+    expect(calls[1].text).toContain('manager.id = p.manager_person_id');
+    expect(calls[1].text).toContain("task_scope.approval_type = 'MANAGER'");
+    expect(calls[1].text).toContain("task_scope.approval_type = 'HR_ADMIN'");
+    expect(calls[1].text).toContain("'hr_lifecycle_task_approval.recorded'");
+    expect(calls[1].text).toContain('INSERT INTO audit_logs');
+  });
+
+  it('rejects stale approval state without appending another approval row', async () => {
+    queue([{
+      task_exists: true,
+      authorized: true,
+      requires_approval: true,
+      previous_status: 'COMPLETED',
+      workflow_status: 'ACTIVE',
+      approval_id: null,
+      task_id: null,
+      workflow_id: null,
+      person_id: null,
+      approver_user_id: null,
+      decision: null,
+      comment: null,
+      decided_at: null,
+      task_status: null,
+      task_completed_at: null,
+      resulting_workflow_status: null,
+      workflow_completed_at: null,
+      approval_audit_written: false,
+      task_audit_written: false,
+      workflow_audit_written: false,
+    }]);
+
+    const { recordLifecycleTaskApproval } = await import('@/lib/hr/lifecycleMutations');
+    await expect(recordLifecycleTaskApproval({
+      actor: ACTOR,
+      taskId: TASK_ID,
+      decision: 'APPROVED',
+      comment: null,
+    })).resolves.toEqual({ outcome: 'approval_no_longer_applicable' });
+  });
+});
+
+
+describe('approval serialization and live manager revalidation', () => {
+  it('allows exactly one concurrent approval to append and makes the loser no_longer_applicable', async () => {
+    const { recordLifecycleTaskApproval } = await import('@/lib/hr/lifecycleMutations');
+    let status: 'AWAITING_APPROVAL' | 'COMPLETED' = 'AWAITING_APPROVAL';
+    let approvalRows = 0;
+    let approvalAudits = 0;
+    let taskAudits = 0;
+    let tail = Promise.resolve();
+
+    transactionMock.mockImplementation((build: (txn: typeof sqlMock) => QuerySpec[]) => {
+      const queries = build(sqlMock);
+      const [lockQuery, mutationQuery] = queries;
+      expect(lockQuery.text).toContain('pg_advisory_xact_lock');
+      expect(lockQuery.values).toEqual([TASK_ID, 'org-a']);
+
+      const run = tail.then(async () => {
+        calls.push(lockQuery, mutationQuery);
+
+        if (status !== 'AWAITING_APPROVAL') {
+          return [
+            [{ locked: null }],
+            [{
+              task_exists: true,
+              authorized: true,
+              requires_approval: true,
+              previous_status: status,
+              workflow_status: 'ACTIVE',
+              approval_id: null,
+              task_id: null,
+              workflow_id: null,
+              person_id: null,
+              approver_user_id: null,
+              decision: null,
+              comment: null,
+              decided_at: null,
+              task_status: null,
+              task_completed_at: null,
+              resulting_workflow_status: null,
+              workflow_completed_at: null,
+              approval_audit_written: false,
+              task_audit_written: false,
+              workflow_audit_written: false,
+            }],
+          ];
+        }
+
+        status = 'COMPLETED';
+        approvalRows += 1;
+        approvalAudits += 1;
+        taskAudits += 1;
+        return [
+          [{ locked: null }],
+          [{
+            task_exists: true,
+            authorized: true,
+            requires_approval: true,
+            previous_status: 'AWAITING_APPROVAL',
+            workflow_status: 'ACTIVE',
+            approval_id: '66666666-6666-4666-8666-666666666666',
+            task_id: TASK_ID,
+            workflow_id: WORKFLOW_ID,
+            person_id: '11111111-1111-4111-8111-111111111111',
+            approver_user_id: ACTOR.userId,
+            decision: 'APPROVED',
+            comment: null,
+            decided_at: '2026-09-26T12:45:00.000Z',
+            task_status: 'COMPLETED',
+            task_completed_at: '2026-09-26T12:45:00.000Z',
+            resulting_workflow_status: 'ACTIVE',
+            workflow_completed_at: null,
+            approval_audit_written: true,
+            task_audit_written: true,
+            workflow_audit_written: false,
+          }],
+        ];
+      });
+
+      tail = run.then(() => undefined, () => undefined);
+      return run;
+    });
+
+    const [a, b] = await Promise.all([
+      recordLifecycleTaskApproval({
+        actor: ACTOR,
+        taskId: TASK_ID,
+        decision: 'APPROVED',
+        comment: null,
+      }),
+      recordLifecycleTaskApproval({
+        actor: ACTOR,
+        taskId: TASK_ID,
+        decision: 'APPROVED',
+        comment: null,
+      }),
+    ]);
+
+    expect([a.outcome, b.outcome].sort()).toEqual([
+      'approval_no_longer_applicable',
+      'recorded',
+    ]);
+    expect(approvalRows).toBe(1);
+    expect(approvalAudits).toBe(1);
+    expect(taskAudits).toBe(1);
+  });
+
+  it('denies a former manager when current-manager authority changed before the mutation lock is acquired', async () => {
+    const { recordLifecycleTaskApproval } = await import('@/lib/hr/lifecycleMutations');
+    queue([{
+      task_exists: true,
+      authorized: false,
+      requires_approval: true,
+      previous_status: 'AWAITING_APPROVAL',
+      workflow_status: 'ACTIVE',
+      approval_id: null,
+      task_id: null,
+      workflow_id: null,
+      person_id: null,
+      approver_user_id: null,
+      decision: null,
+      comment: null,
+      decided_at: null,
+      task_status: null,
+      task_completed_at: null,
+      resulting_workflow_status: null,
+      workflow_completed_at: null,
+      approval_audit_written: false,
+      task_audit_written: false,
+      workflow_audit_written: false,
+    }]);
+
+    await expect(recordLifecycleTaskApproval({
+      actor: ACTOR,
+      taskId: TASK_ID,
+      decision: 'APPROVED',
+      comment: null,
+    })).resolves.toEqual({ outcome: 'forbidden' });
+
+    expect(calls[1].text).toContain('manager.id = p.manager_person_id');
+    expect(calls[1].text).toContain('current_manager_linked_user_id');
   });
 });
