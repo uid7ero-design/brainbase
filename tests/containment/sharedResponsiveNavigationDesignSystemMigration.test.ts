@@ -5,27 +5,27 @@ import path from 'path'
 const topNav = fs.readFileSync(
   path.resolve(__dirname, '../../components/nav/TopNav.tsx'),
   'utf-8',
-)
+).replace(/\r\n/g, '\n')
 
 const publicNav = fs.readFileSync(
   path.resolve(__dirname, '../../components/public/PublicNav.tsx'),
   'utf-8',
-)
+).replace(/\r\n/g, '\n')
 
 const routes = fs.readFileSync(
   path.resolve(__dirname, '../../components/public/routes.ts'),
   'utf-8',
-)
+).replace(/\r\n/g, '\n')
 
 const sidebar = fs.readFileSync(
   path.resolve(__dirname, '../../components/ops/Sidebar.tsx'),
   'utf-8',
-)
+).replace(/\r\n/g, '\n')
 
 const shell = fs.readFileSync(
   path.resolve(__dirname, '../../components/ops/WorkspaceShell.tsx'),
   'utf-8',
-)
+).replace(/\r\n/g, '\n')
 
 describe('B.4 shared responsive navigation design-system migration', () => {
   it('keeps the existing narrow-width TopNav strategy: natural-width items inside a horizontally scrollable centre row', () => {
