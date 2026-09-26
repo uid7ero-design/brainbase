@@ -72,13 +72,17 @@ export type ResolvedBudgetCommitment = {
   supplierId: string;
   currency: string;
   financialYearId: string;
+  financialYearName: string;
   financialPeriodId: string;
+  financialPeriodName: string;
   budgetId: string;
   budgetVersionId: string;
   budgetAccountId: string;
   budgetAccountCode: string;
   budgetAccountName: string;
   costCentreId: string;
+  costCentreCode: string | null;
+  costCentreName: string | null;
   budgetLineId: string;
   taxBasis: BudgetTaxBasis;
   periodisationMode: BudgetPeriodisationMode;
@@ -112,8 +116,12 @@ export type BudgetCommitmentConsumptionRow = {
   budgetAccountCode: string;
   budgetAccountName: string;
   costCentreId: string;
+  costCentreCode: string | null;
+  costCentreName: string | null;
   financialYearId: string;
+  financialYearName: string;
   financialPeriodId: string | null;
+  financialPeriodName: string | null;
   currency: string;
   taxBasis: BudgetTaxBasis;
   periodisationMode: BudgetPeriodisationMode;
@@ -267,13 +275,17 @@ export function deriveBudgetCommitmentConsumption(
         supplierId: po.supplierId,
         currency: po.currency,
         financialYearId: po.financialYearId,
+        financialYearName: po.financialYearName ?? budget.financialYearName,
         financialPeriodId: po.financialPeriodId,
+        financialPeriodName: po.financialPeriodName ?? po.financialPeriodId,
         budgetId: budget.budgetId,
         budgetVersionId: budget.activeVersionId,
         budgetAccountId: mapping.budgetAccountId,
         budgetAccountCode: mapping.budgetAccountCode,
         budgetAccountName: mapping.budgetAccountName,
         costCentreId: line.effectiveCostCentreId,
+        costCentreCode: line.effectiveCostCentreCode,
+        costCentreName: line.effectiveCostCentreName,
         budgetLineId: budgetLine.budgetLineId,
         taxBasis: budget.taxBasis,
         periodisationMode: budget.periodisationMode,
@@ -294,8 +306,12 @@ export function deriveBudgetCommitmentConsumption(
       budgetAccountCode: item.budgetAccountCode,
       budgetAccountName: item.budgetAccountName,
       costCentreId: item.costCentreId,
+      costCentreCode: item.costCentreCode,
+      costCentreName: item.costCentreName,
       financialYearId: item.financialYearId,
+      financialYearName: item.financialYearName,
       financialPeriodId: item.periodisationMode === 'PERIODISED' ? item.financialPeriodId : null,
+      financialPeriodName: item.periodisationMode === 'PERIODISED' ? item.financialPeriodName : null,
       currency: item.currency,
       taxBasis: item.taxBasis,
       periodisationMode: item.periodisationMode,
