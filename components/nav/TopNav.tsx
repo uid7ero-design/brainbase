@@ -279,20 +279,20 @@ function OpsDropdown({
           borderRadius: 7,
 
           color: isActive
-            ? '#C4B5FD'
+            ? 'var(--brand-brainbase-accent)'
             : open
-              ? 'rgba(255,255,255,.85)'
-              : 'rgba(255,255,255,.45)',
+              ? 'var(--text-primary)'
+              : 'var(--text-secondary)',
 
           background: isActive
-            ? 'rgba(139,92,246,.10)'
+            ? 'color-mix(in srgb, var(--brand-brainbase-accent) 10%, transparent)'
             : open
               ? 'var(--bg-raised)'
               : 'transparent',
 
           border: `1px solid ${
             isActive
-              ? 'rgba(139,92,246,.22)'
+              ? 'color-mix(in srgb, var(--brand-brainbase-accent) 24%, transparent)'
               : 'transparent'
           }`,
 
@@ -342,14 +342,14 @@ function OpsDropdown({
             top: coords.top,
             left: coords.left,
             background:
-              'rgba(7,5,16,.98)',
+              'var(--bg-overlay)',
             border:
-              '1px solid rgba(255,255,255,.09)',
+              '1px solid var(--border)',
             borderRadius: 11,
             padding: 5,
             minWidth: 220,
             boxShadow:
-              '0 12px 40px rgba(0,0,0,.55), 0 0 0 1px rgba(255,255,255,.04)',
+              '0 12px 40px rgba(0,0,0,.28), 0 0 0 1px var(--border-light)',
             zIndex: 200,
           }}
         >
@@ -361,9 +361,9 @@ function OpsDropdown({
               width: 8,
               height: 8,
               background:
-                'rgba(7,5,16,.98)',
+                'var(--bg-overlay)',
               border:
-                '1px solid rgba(255,255,255,.09)',
+                '1px solid var(--border)',
               borderRight: 'none',
               borderBottom: 'none',
               transform:
@@ -393,7 +393,7 @@ function OpsDropdown({
                     'none',
                   background:
                     itemActive
-                      ? 'rgba(139,92,246,.10)'
+                      ? 'color-mix(in srgb, var(--brand-brainbase-accent) 10%, transparent)'
                       : 'transparent',
                   transition:
                     'background .12s',
@@ -401,7 +401,7 @@ function OpsDropdown({
                 onMouseEnter={e => {
                   if (!itemActive) {
                     e.currentTarget.style.background =
-                      'rgba(255,255,255,.05)';
+                      'var(--bg-raised)';
                   }
                 }}
                 onMouseLeave={e => {
@@ -419,8 +419,8 @@ function OpsDropdown({
                       '-0.01em',
                     color:
                       itemActive
-                        ? '#C4B5FD'
-                        : 'rgba(255,255,255,.80)',
+                        ? 'var(--brand-brainbase-accent)'
+                        : 'var(--text-primary)',
                   }}
                 >
                   {item.label}
@@ -430,7 +430,7 @@ function OpsDropdown({
                   style={{
                     fontSize: 11,
                     color:
-                      'rgba(255,255,255,.30)',
+                      'var(--text-muted)',
                     lineHeight: 1.4,
                   }}
                 >
@@ -444,7 +444,7 @@ function OpsDropdown({
             style={{
               height: 1,
               background:
-                'rgba(255,255,255,.07)',
+                'var(--border)',
               margin:
                 '4px 4px 3px',
             }}
@@ -466,7 +466,7 @@ function OpsDropdown({
             }}
             onMouseEnter={e => {
               e.currentTarget.style.background =
-                'rgba(255,255,255,.05)';
+                'var(--bg-raised)';
             }}
             onMouseLeave={e => {
               e.currentTarget.style.background =
@@ -478,7 +478,7 @@ function OpsDropdown({
                 fontSize: 12,
                 fontWeight: 500,
                 color:
-                  'rgba(255,255,255,.38)',
+                  'var(--text-secondary)',
                 letterSpacing:
                   '-0.01em',
               }}
@@ -618,20 +618,20 @@ function AdminDropdown({
           borderRadius: 7,
 
           color: isActive
-            ? '#C4B5FD'
+            ? 'var(--brand-brainbase-accent)'
             : open
-              ? 'rgba(255,255,255,.85)'
-              : 'rgba(255,255,255,.45)',
+              ? 'var(--text-primary)'
+              : 'var(--text-secondary)',
 
           background: isActive
-            ? 'rgba(139,92,246,.10)'
+            ? 'color-mix(in srgb, var(--brand-brainbase-accent) 10%, transparent)'
             : open
-              ? 'rgba(255,255,255,.05)'
+              ? 'var(--bg-raised)'
               : 'transparent',
 
           border: `1px solid ${
             isActive
-              ? 'rgba(139,92,246,.22)'
+              ? 'color-mix(in srgb, var(--brand-brainbase-accent) 24%, transparent)'
               : 'transparent'
           }`,
 
@@ -681,14 +681,14 @@ function AdminDropdown({
             top: coords.top,
             left: coords.left,
             background:
-              'rgba(7,5,16,.98)',
+              'var(--bg-overlay)',
             border:
-              '1px solid rgba(255,255,255,.09)',
+              '1px solid var(--border)',
             borderRadius: 11,
             padding: 5,
             minWidth: 220,
             boxShadow:
-              '0 12px 40px rgba(0,0,0,.55), 0 0 0 1px rgba(255,255,255,.04)',
+              '0 12px 40px rgba(0,0,0,.28), 0 0 0 1px var(--border-light)',
             zIndex: 200,
           }}
         >
@@ -700,9 +700,9 @@ function AdminDropdown({
               width: 8,
               height: 8,
               background:
-                'rgba(7,5,16,.98)',
+                'var(--bg-overlay)',
               border:
-                '1px solid rgba(255,255,255,.09)',
+                '1px solid var(--border)',
               borderRight: 'none',
               borderBottom: 'none',
               transform:
@@ -732,7 +732,7 @@ function AdminDropdown({
                     'none',
                   background:
                     itemActive
-                      ? 'rgba(139,92,246,.10)'
+                      ? 'color-mix(in srgb, var(--brand-brainbase-accent) 10%, transparent)'
                       : 'transparent',
                   transition:
                     'background .12s',
@@ -740,7 +740,7 @@ function AdminDropdown({
                 onMouseEnter={e => {
                   if (!itemActive) {
                     e.currentTarget.style.background =
-                      'rgba(255,255,255,.05)';
+                      'var(--bg-raised)';
                   }
                 }}
                 onMouseLeave={e => {
@@ -758,8 +758,8 @@ function AdminDropdown({
                       '-0.01em',
                     color:
                       itemActive
-                        ? '#C4B5FD'
-                        : 'rgba(255,255,255,.80)',
+                        ? 'var(--brand-brainbase-accent)'
+                        : 'var(--text-primary)',
                   }}
                 >
                   {item.label}
@@ -769,7 +769,7 @@ function AdminDropdown({
                   style={{
                     fontSize: 11,
                     color:
-                      'rgba(255,255,255,.30)',
+                      'var(--text-muted)',
                     lineHeight: 1.4,
                   }}
                 >
@@ -1617,7 +1617,7 @@ function AppNav({
             }
 
             e.currentTarget.style.background =
-              'rgba(255,255,255,.05)';
+              'var(--bg-raised)';
 
             e.currentTarget.style.borderColor =
               'var(--border)';

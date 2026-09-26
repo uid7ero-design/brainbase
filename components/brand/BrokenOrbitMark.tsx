@@ -3,6 +3,7 @@ import type { CSSProperties } from "react";
 type BrokenOrbitMarkProps = {
   size?: number;
   context?: "brainbase" | "hlna" | "mono";
+  variant?: "auto" | "full" | "micro";
   className?: string;
   style?: CSSProperties;
   title?: string | null;
@@ -12,6 +13,7 @@ type BrokenOrbitMarkProps = {
 export function BrokenOrbitMark({
   size = 24,
   context = "brainbase",
+  variant = "auto",
   className,
   style,
   title = null,
@@ -22,6 +24,7 @@ export function BrokenOrbitMark({
       : context === "brainbase"
         ? "var(--brand-brainbase-accent)"
         : "var(--brand-line)";
+  const useMicro = variant === "micro" || (variant === "auto" && size <= 32);
 
   return (
     <svg
@@ -37,15 +40,15 @@ export function BrokenOrbitMark({
     >
       <g transform="rotate(-30 50 50)">
         <path
-          d="M88.64 43.79 A40 24 0 1 1 60.35 26.82"
+          d={useMicro ? "M90 50 A40 24 0 1 1 50 26" : "M88.64 43.79 A40 24 0 1 1 60.35 26.82"}
           fill="none"
           stroke="var(--brand-line)"
-          strokeWidth="4.5"
+          strokeWidth={useMicro ? 9 : 4.5}
           strokeLinecap="round"
         />
-        <circle cx="78.28" cy="33.03" r="6" fill="var(--brand-line)" />
+        {!useMicro && <circle cx="78.28" cy="33.03" r="6" fill="var(--brand-line)" />}
       </g>
-      <circle cx="50" cy="50" r="12" fill={accent} />
+      <circle cx="50" cy="50" r={useMicro ? 16 : 12} fill={accent} />
     </svg>
   );
 }

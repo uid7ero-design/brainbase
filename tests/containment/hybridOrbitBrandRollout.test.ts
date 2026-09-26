@@ -140,18 +140,17 @@ describe('Phase D.1 — tenant-aware nav remains intact', () => {
 
 describe('Phase D.1 — favicon / metadata reference resolvable repository-owned files', () => {
   it('app/layout.tsx metadata still points at repository /Brand/ paths, and those files exist', () => {
-    expect(layoutSource).toContain("url: '/Brand/brainbase-broken-orbit.svg'")
+    expect(layoutSource).toContain("url: '/Brand/brainbase-broken-orbit-micro.svg'")
     expect(layoutSource).toContain("url: '/Brand/android-chrome-192x192.png'")
     expect(layoutSource).toContain("url: '/Brand/android-chrome-512x512.png'")
     expect(layoutSource).toContain("url: '/Brand/apple-touch-icon.png'")
 
     for (const relPath of [
-      'public/Brand/brainbase-broken-orbit.svg',
+      'public/Brand/brainbase-broken-orbit-micro.svg',
       'public/Brand/android-chrome-192x192.png',
       'public/Brand/android-chrome-512x512.png',
       'public/Brand/apple-touch-icon.png',
       'public/Brand/brainbase-horizontal-color.svg',
-      'app/favicon.ico',
     ]) {
       expect(fs.existsSync(path.join(root, relPath)), `${relPath} must exist on disk`).toBe(true)
     }

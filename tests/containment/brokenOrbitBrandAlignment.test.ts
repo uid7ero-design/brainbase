@@ -10,14 +10,19 @@ describe('HLNA Labs broken-orbit alignment', () => {
   const lockup = read('components/public/BrainbaseLockup.tsx');
   const globals = read('app/globals.css');
   const publicTokens = read('styles/brainbase-tokens.css');
+  const microAsset = read('public/Brand/brainbase-broken-orbit-micro.svg');
+  const topNav = read('components/nav/TopNav.tsx');
+  const dataHubSources = read('app/data-hub/sources/SourcesAdminClient.tsx');
 
   it('locks the approved geometry exactly', () => {
     expect(mark).toContain('viewBox="0 0 100 100"');
     expect(mark).toContain('M88.64 43.79 A40 24 0 1 1 60.35 26.82');
     expect(mark).toContain('rotate(-30 50 50)');
-    expect(mark).toContain('strokeWidth="4.5"');
-    expect(mark).toContain('cx="78.28" cy="33.03" r="6"');
-    expect(mark).toContain('cx="50" cy="50" r="12"');
+    expect(mark).toContain('M90 50 A40 24 0 1 1 50 26');
+    expect(mark).toContain('strokeWidth={useMicro ? 9 : 4.5}');
+    expect(mark).toContain('!useMicro && <circle cx="78.28" cy="33.03" r="6"');
+    expect(mark).toContain('r={useMicro ? 16 : 12}');
+    expect(mark).toContain('size <= 32');
   });
 
   it('uses only the approved BrainBase core accents and neutral orbit line', () => {
@@ -33,6 +38,27 @@ describe('HLNA Labs broken-orbit alignment', () => {
     expect(lockup).toContain('context="brainbase"');
     expect(lockup).toContain('BRΛINBΛSE');
     expect(lockup).not.toContain('context="hlna"');
+  });
+
+  it('locks the approved micro asset for favicon-scale use', () => {
+    expect(microAsset).toContain('M90 50 A40 24 0 1 1 50 26');
+    expect(microAsset).toContain('stroke-width="9"');
+    expect(microAsset).toContain('cx="50" cy="50" r="16"');
+    expect(microAsset).not.toContain('78.28');
+  });
+
+  it('keeps authenticated dropdown chrome on shared theme tokens', () => {
+    expect(topNav).not.toContain('#C4B5FD');
+    expect(topNav).not.toContain('rgba(7,5,16,.98)');
+    expect(topNav).not.toContain('rgba(255,255,255,.85)');
+    expect(topNav).not.toContain('rgba(255,255,255,.45)');
+    expect(topNav).toContain('var(--brand-brainbase-accent)');
+    expect(topNav).toContain('var(--bg-overlay)');
+  });
+
+  it('keeps the corrected Data Hub admin notice theme-aware', () => {
+    expect(dataHubSources).not.toContain('rgba(249,250,251,.05)');
+    expect(dataHubSources).toContain('background: "var(--bg-raised)"');
   });
 
   it('contains no glow, gradient, or shadow in the approved mark component', () => {

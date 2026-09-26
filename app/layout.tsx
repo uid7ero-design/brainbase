@@ -70,7 +70,7 @@ export const metadata: Metadata = {
   icons: {
     icon: [
       {
-        url: '/Brand/brainbase-broken-orbit.svg',
+        url: '/Brand/brainbase-broken-orbit-micro.svg',
       },
       {
         url: '/Brand/android-chrome-192x192.png',
@@ -84,7 +84,7 @@ export const metadata: Metadata = {
       },
     ],
 
-    shortcut: '/Brand/brainbase-broken-orbit.svg',
+    shortcut: '/Brand/brainbase-broken-orbit-micro.svg',
 
     apple: [
       {
