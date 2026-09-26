@@ -32,6 +32,7 @@ describe('B.4 shared responsive navigation design-system migration', () => {
     const globals = fs.readFileSync(path.resolve(__dirname, '../../app/globals.css'), 'utf-8').replace(/\r\n/g, '\n')
     expect(globals).toContain('html {\n  scroll-behavior: smooth;\n  max-width: 100%;\n  overflow-x: hidden;')
     expect(globals).toContain('body {\n  max-width: 100%;\n  overflow-x: hidden;')
+    expect(topNav).toContain("justifyContent: 'flex-start'")
     expect(topNav).toContain("overflowX: 'auto'")
   })
   it('keeps the existing narrow-width TopNav strategy: natural-width items inside a horizontally scrollable centre row', () => {
