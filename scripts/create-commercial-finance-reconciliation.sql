@@ -1,4 +1,4 @@
--- Phase C7.9E1/E2 — prepared Commercial finance reconciliation snapshots and review lifecycle.
+-- Phase C7.9E1/E2/E3 — reconciliation snapshots, review, sign-off, and stale lifecycle.
 -- Additive/idempotent. Prepared monetary evidence is immutable.
 -- Reconciliation uses signed BIGINT minor units with zero-cent tolerance.
 
@@ -45,6 +45,10 @@ CREATE INDEX IF NOT EXISTS idx_commercial_finance_reconciliations_lookup
   ON commercial_finance_reconciliations(
     organisation_id, financial_period_id, source_system_id, currency, prepared_at DESC
   );
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_commercial_finance_reconciliations_one_per_close
+  ON commercial_finance_reconciliations(close_id)
+  WHERE close_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS commercial_finance_reconciliation_items (
   id                              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -103,7 +107,7 @@ CREATE TABLE IF NOT EXISTS commercial_finance_reconciliation_events (
   id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   organisation_id   TEXT NOT NULL REFERENCES organisations(id),
   reconciliation_id UUID NOT NULL,
-  event_type         TEXT NOT NULL CHECK (event_type IN ('PREPARED','REVIEWED')),
+  event_type         TEXT NOT NULL CHECK (event_type IN ('PREPARED','REVIEWED','SIGNED_OFF','STALE')),
   actor_user_id      TEXT NOT NULL REFERENCES users(id),
   event_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
   details            JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -118,6 +122,27 @@ CREATE INDEX IF NOT EXISTS idx_commercial_finance_reconciliation_events_parent
     organisation_id, reconciliation_id, event_at
   );
 
+DO $$
+DECLARE
+  constraint_name text;
+BEGIN
+  SELECT conname INTO constraint_name
+  FROM pg_constraint
+  WHERE conrelid = 'commercial_finance_reconciliation_events'::regclass
+    AND contype = 'c'
+    AND pg_get_constraintdef(oid) LIKE '%event_type%';
+
+  IF constraint_name IS NOT NULL THEN
+    EXECUTE format('ALTER TABLE commercial_finance_reconciliation_events DROP CONSTRAINT %I', constraint_name);
+  END IF;
+
+  ALTER TABLE commercial_finance_reconciliation_events
+    ADD CONSTRAINT commercial_finance_reconciliation_events_event_type_check
+    CHECK (event_type IN ('PREPARED','REVIEWED','SIGNED_OFF','STALE'));
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
+
 CREATE OR REPLACE FUNCTION commercial_finance_reconciliation_guard()
 RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
@@ -127,7 +152,6 @@ BEGIN
 
   IF OLD.organisation_id IS DISTINCT FROM NEW.organisation_id
      OR OLD.financial_period_id IS DISTINCT FROM NEW.financial_period_id
-     OR OLD.close_id IS DISTINCT FROM NEW.close_id
      OR OLD.source_system_id IS DISTINCT FROM NEW.source_system_id
      OR OLD.currency IS DISTINCT FROM NEW.currency
      OR OLD.source_actual_cents IS DISTINCT FROM NEW.source_actual_cents
@@ -145,6 +169,10 @@ BEGIN
   END IF;
 
   IF OLD.status = 'PREPARED' THEN
+    IF OLD.close_id IS DISTINCT FROM NEW.close_id OR NEW.close_id IS NOT NULL THEN
+      RAISE EXCEPTION 'PREPARED finance reconciliation cannot be attached to a close';
+    END IF;
+
     IF NEW.status = 'PREPARED' THEN
       IF NEW.reviewed_by IS NOT NULL OR NEW.reviewed_at IS NOT NULL THEN
         RAISE EXCEPTION 'PREPARED finance reconciliation cannot carry review evidence';
@@ -157,14 +185,35 @@ BEGIN
       RAISE EXCEPTION 'invalid finance reconciliation lifecycle transition';
     END IF;
   ELSIF OLD.status = 'REVIEWED' THEN
-    IF NEW.status <> 'REVIEWED'
+    IF OLD.reviewed_by IS DISTINCT FROM NEW.reviewed_by
+       OR OLD.reviewed_at IS DISTINCT FROM NEW.reviewed_at
+    THEN
+      RAISE EXCEPTION 'finance reconciliation review evidence is immutable';
+    END IF;
+
+    IF NEW.status = 'REVIEWED' THEN
+      IF OLD.close_id IS DISTINCT FROM NEW.close_id THEN
+        RAISE EXCEPTION 'close attachment is only allowed during sign-off';
+      END IF;
+    ELSIF NEW.status = 'SIGNED_OFF' THEN
+      IF OLD.close_id IS NOT NULL OR NEW.close_id IS NULL THEN
+        RAISE EXCEPTION 'sign-off requires exactly one close attachment';
+      END IF;
+    ELSE
+      RAISE EXCEPTION 'invalid finance reconciliation lifecycle transition';
+    END IF;
+  ELSIF OLD.status = 'SIGNED_OFF' THEN
+    IF NEW.status <> 'STALE'
+       OR OLD.close_id IS DISTINCT FROM NEW.close_id
        OR OLD.reviewed_by IS DISTINCT FROM NEW.reviewed_by
        OR OLD.reviewed_at IS DISTINCT FROM NEW.reviewed_at
     THEN
-      RAISE EXCEPTION 'REVIEWED finance reconciliation is immutable in C7.9E2';
+      RAISE EXCEPTION 'signed-off reconciliation may only become STALE';
     END IF;
+  ELSIF OLD.status = 'STALE' THEN
+    RAISE EXCEPTION 'STALE finance reconciliation is immutable';
   ELSE
-    RAISE EXCEPTION 'finance reconciliation lifecycle state is not mutable in C7.9E2';
+    RAISE EXCEPTION 'invalid finance reconciliation lifecycle state';
   END IF;
 
   RETURN NEW;
@@ -183,9 +232,29 @@ BEGIN
   END IF;
 END $$;
 
+CREATE OR REPLACE FUNCTION commercial_finance_reconciliation_event_guard()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  RAISE EXCEPTION 'finance reconciliation events are immutable';
+END $$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger
+    WHERE tgname = 'trg_commercial_finance_reconciliation_event_guard'
+      AND tgrelid = 'commercial_finance_reconciliation_events'::regclass
+  ) THEN
+    CREATE TRIGGER trg_commercial_finance_reconciliation_event_guard
+      BEFORE UPDATE OR DELETE ON commercial_finance_reconciliation_events
+      FOR EACH ROW EXECUTE FUNCTION commercial_finance_reconciliation_event_guard();
+  END IF;
+END $$;
+
 CREATE OR REPLACE FUNCTION commercial_finance_reconciliation_item_guard()
 RETURNS trigger LANGUAGE plpgsql AS $$
-BEGIN  RAISE EXCEPTION 'finance reconciliation items are immutable';
+BEGIN
+  RAISE EXCEPTION 'finance reconciliation items are immutable';
 END $$;
 
 DO $$

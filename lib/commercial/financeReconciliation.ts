@@ -104,6 +104,18 @@ export type ReviewedFinanceReconciliation = {
   reviewedAt: string;
 };
 
+export type SignedOffFinanceReconciliation = {
+  id: string;
+  organisationId: string;
+  financialPeriodId: string;
+  sourceSystemId: string;
+  currency: string;
+  status: 'SIGNED_OFF';
+  closeId: string;
+  reviewedBy: string;
+  reviewedAt: string;
+};
+
 type ReconciliationLifecycleRow = {
   id: string;
   organisation_id: string;
@@ -111,6 +123,7 @@ type ReconciliationLifecycleRow = {
   source_system_id: string;
   currency: string;
   status: 'PREPARED' | 'REVIEWED' | 'SIGNED_OFF' | 'STALE';
+  close_id: string | null;
   reviewed_by: string | null;
   reviewed_at: string | Date | null;
 };
@@ -664,5 +677,137 @@ export async function reviewFinanceReconciliation(params: {
     status: 'REVIEWED',
     reviewedBy: reviewed.reviewed_by,
     reviewedAt: timestamp(reviewed.reviewed_at),
+  };
+}
+
+
+export async function signOffFinanceReconciliation(params: {
+  organisationId: string;
+  userId: string;
+  reconciliationId: string;
+  closeId: string;
+}): Promise<SignedOffFinanceReconciliation> {
+  const organisationId = required(params.organisationId, 'Organisation');
+  const userId = required(params.userId, 'User');
+  const reconciliationId = required(params.reconciliationId, 'Reconciliation');
+  const closeId = required(params.closeId, 'Close');
+
+  const [reconciliationRows, closeRows, signedRows] = await sql.transaction(txn => [
+    txn`
+      SELECT id, organisation_id, financial_period_id, source_system_id, currency,
+             status, close_id, reviewed_by, reviewed_at
+      FROM commercial_finance_reconciliations
+      WHERE id = ${reconciliationId}
+        AND organisation_id = ${organisationId}
+      FOR UPDATE
+    `,
+    txn`
+      SELECT id, financial_period_id, status, reconciliation_status
+      FROM commercial_financial_period_closes
+      WHERE id = ${closeId}
+        AND organisation_id = ${organisationId}
+      FOR UPDATE
+    `,
+    txn`
+      WITH signed AS (
+        UPDATE commercial_finance_reconciliations reconciliation
+        SET status = 'SIGNED_OFF',
+            close_id = ${closeId}
+        WHERE reconciliation.id = ${reconciliationId}
+          AND reconciliation.organisation_id = ${organisationId}
+          AND reconciliation.status = 'REVIEWED'
+          AND reconciliation.close_id IS NULL
+          AND EXISTS (
+            SELECT 1
+            FROM commercial_financial_period_closes close_record
+            WHERE close_record.id = ${closeId}
+              AND close_record.organisation_id = reconciliation.organisation_id
+              AND close_record.financial_period_id = reconciliation.financial_period_id
+              AND close_record.status = 'CLOSED'
+          )
+          AND NOT EXISTS (
+            SELECT 1
+            FROM commercial_finance_reconciliations existing
+            WHERE existing.organisation_id = reconciliation.organisation_id
+              AND existing.close_id = ${closeId}
+          )
+        RETURNING reconciliation.id, reconciliation.organisation_id,
+                  reconciliation.financial_period_id, reconciliation.source_system_id,
+                  reconciliation.currency, reconciliation.status, reconciliation.close_id,
+                  reconciliation.reviewed_by, reconciliation.reviewed_at
+      ),
+      close_updated AS (
+        UPDATE commercial_financial_period_closes close_record
+        SET reconciliation_status = 'SIGNED_OFF'
+        WHERE close_record.id = ${closeId}
+          AND close_record.organisation_id = ${organisationId}
+          AND close_record.status = 'CLOSED'
+          AND EXISTS (SELECT 1 FROM signed)
+        RETURNING close_record.id
+      ),
+      event_inserted AS (
+        INSERT INTO commercial_finance_reconciliation_events (
+          organisation_id, reconciliation_id, event_type, actor_user_id, details
+        )
+        SELECT signed.organisation_id, signed.id, 'SIGNED_OFF', ${userId},
+               jsonb_build_object(
+                 'closeId', signed.close_id,
+                 'previousStatus', 'REVIEWED',
+                 'newStatus', 'SIGNED_OFF'
+               )
+        FROM signed
+        JOIN close_updated ON close_updated.id = signed.close_id
+        RETURNING reconciliation_id
+      )
+      SELECT signed.*
+      FROM signed
+      JOIN close_updated ON close_updated.id = signed.close_id
+      JOIN event_inserted ON event_inserted.reconciliation_id = signed.id
+    `,
+  ], { isolationLevel: 'ReadCommitted' });
+
+  const reconciliation = (reconciliationRows as ReconciliationLifecycleRow[])[0];
+  if (!reconciliation) {
+    throw new FinanceReconciliationError(
+      'NOT_FOUND',
+      'Finance reconciliation not found for this organisation.',
+    );
+  }
+
+  const close = (closeRows as { id: string; financial_period_id: string; status: string }[])[0];
+  if (!close) {
+    throw new FinanceReconciliationError('NOT_FOUND', 'Financial period close not found for this organisation.');
+  }
+  if (reconciliation.status !== 'REVIEWED') {
+    throw new FinanceReconciliationError(
+      'INVALID_STATE',
+      'Only a REVIEWED finance reconciliation can be signed off.',
+    );
+  }
+  if (close.status !== 'CLOSED' || close.financial_period_id !== reconciliation.financial_period_id) {
+    throw new FinanceReconciliationError(
+      'INVALID_STATE',
+      'Sign-off requires the current CLOSED record for the same financial period.',
+    );
+  }
+
+  const signed = (signedRows as ReconciliationLifecycleRow[])[0];
+  if (!signed?.close_id || !signed.reviewed_by || !signed.reviewed_at || signed.status !== 'SIGNED_OFF') {
+    throw new FinanceReconciliationError(
+      'INVALID_STATE',
+      'Finance reconciliation sign-off did not complete.',
+    );
+  }
+
+  return {
+    id: signed.id,
+    organisationId: signed.organisation_id,
+    financialPeriodId: signed.financial_period_id,
+    sourceSystemId: signed.source_system_id,
+    currency: signed.currency,
+    status: 'SIGNED_OFF',
+    closeId: signed.close_id,
+    reviewedBy: signed.reviewed_by,
+    reviewedAt: timestamp(signed.reviewed_at),
   };
 }

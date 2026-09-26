@@ -8,17 +8,20 @@ vi.mock('@/lib/commercial/authorize', async (importOriginal) => {
 
 const prepareMock = vi.fn();
 const reviewMock = vi.fn();
+const signOffMock = vi.fn();
 class MockFinanceReconciliationError extends Error {
   constructor(public code: string, message: string) { super(message); }
 }
 vi.mock('@/lib/commercial/financeReconciliation', () => ({
   prepareFinanceReconciliation: (...args: unknown[]) => prepareMock(...args),
   reviewFinanceReconciliation: (...args: unknown[]) => reviewMock(...args),
+  signOffFinanceReconciliation: (...args: unknown[]) => signOffMock(...args),
   FinanceReconciliationError: MockFinanceReconciliationError,
 }));
 
 const prepareRoute = await import('@/app/api/commercial/budgeting/reconciliations/prepare/route');
 const reviewRoute = await import('@/app/api/commercial/budgeting/reconciliations/[id]/review/route');
+const signOffRoute = await import('@/app/api/commercial/budgeting/reconciliations/[id]/sign-off/route');
 
 const MANAGER = { userId: 'manager-a', organisationId: 'org-a', role: 'manager' };
 const ADMIN = { userId: 'admin-a', organisationId: 'org-a', role: 'admin' };
@@ -28,9 +31,10 @@ beforeEach(() => {
   authorizeMock.mockReset();
   prepareMock.mockReset();
   reviewMock.mockReset();
+  signOffMock.mockReset();
 });
 
-describe('C7.9E2 — reconciliation prepare/review APIs', () => {
+describe('C7.9E2/E3 — reconciliation prepare/review/sign-off APIs', () => {
   it.each([401, 403, 503])('preserves prepare authorization denial %s', async status => {
     authorizeMock.mockResolvedValue({ ok: false, response: new Response(null, { status }) });
     const response = await prepareRoute.POST(new Request('http://localhost', { method: 'POST' }));
@@ -110,6 +114,64 @@ describe('C7.9E2 — reconciliation prepare/review APIs', () => {
       method: 'POST',
       body: '{}',
     }));
+    expect(notFound.status).toBe(404);
+    expect(await notFound.json()).toEqual({ error: 'Not found.' });
+  });
+
+  it.each([401, 403, 503])('preserves sign-off authorization denial %s', async status => {
+    authorizeMock.mockResolvedValue({ ok: false, response: new Response(null, { status }) });
+    const response = await signOffRoute.POST(
+      new Request('http://localhost', { method: 'POST', body: '{}' }),
+      ctx,
+    );
+    expect(response.status).toBe(status);
+    expect(authorizeMock).toHaveBeenCalledWith('budgeting', 'admin');
+    expect(signOffMock).not.toHaveBeenCalled();
+  });
+
+  it('signs off with admin authorization and session tenant/user only', async () => {
+    authorizeMock.mockResolvedValue({ ok: true, session: ADMIN });
+    signOffMock.mockResolvedValue({ id: 'recon-1', status: 'SIGNED_OFF', closeId: 'close-1' });
+
+    const response = await signOffRoute.POST(
+      new Request('http://localhost?organisationId=org-b', {
+        method: 'POST',
+        body: JSON.stringify({ closeId: 'close-1', organisationId: 'org-b' }),
+      }),
+      ctx,
+    );
+
+    expect(response.status).toBe(200);
+    expect(signOffMock).toHaveBeenCalledWith({
+      organisationId: 'org-a',
+      userId: 'admin-a',
+      reconciliationId: 'recon-1',
+      closeId: 'close-1',
+    });
+  });
+
+  it('maps sign-off invalid input to 400, state conflict to 409, and missing/cross-tenant state to 404', async () => {
+    authorizeMock.mockResolvedValue({ ok: true, session: ADMIN });
+
+    signOffMock.mockRejectedValueOnce(new MockFinanceReconciliationError('INVALID_INPUT', 'Close is required.'));
+    const invalid = await signOffRoute.POST(
+      new Request('http://localhost', { method: 'POST', body: '{}' }),
+      ctx,
+    );
+    expect(invalid.status).toBe(400);
+
+    signOffMock.mockRejectedValueOnce(new MockFinanceReconciliationError('INVALID_STATE', 'bad state'));
+    const conflict = await signOffRoute.POST(
+      new Request('http://localhost', { method: 'POST', body: JSON.stringify({ closeId: 'close-1' }) }),
+      ctx,
+    );
+    expect(conflict.status).toBe(409);
+
+    signOffMock.mockRejectedValueOnce(new MockFinanceReconciliationError('NOT_FOUND', 'tenant detail'));
+    const notFound = await signOffRoute.POST(
+      new Request('http://localhost', { method: 'POST', body: JSON.stringify({ closeId: 'close-1' }) }),
+      ctx,
+    );
     expect(notFound.status).toBe(404);
     expect(await notFound.json()).toEqual({ error: 'Not found.' });
   });

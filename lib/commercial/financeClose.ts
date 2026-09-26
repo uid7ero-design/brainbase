@@ -270,7 +270,17 @@ export async function reopenFinancialPeriod(params: {
         SET status = 'INVALIDATED',
             invalidated_by = ${params.userId},
             invalidated_at = now(),
-            invalidation_reason = ${reason}
+            invalidation_reason = ${reason},
+            reconciliation_status = CASE
+              WHEN EXISTS (
+                SELECT 1
+                FROM commercial_finance_reconciliations reconciliation
+                WHERE reconciliation.organisation_id = close_record.organisation_id
+                  AND reconciliation.close_id = close_record.id
+                  AND reconciliation.status = 'SIGNED_OFF'
+              ) THEN 'STALE'
+              ELSE close_record.reconciliation_status
+            END
         WHERE close_record.financial_period_id = ${params.financialPeriodId}
           AND close_record.organisation_id = ${params.organisationId}
           AND close_record.status = 'CLOSED'
@@ -281,6 +291,29 @@ export async function reopenFinancialPeriod(params: {
               AND cfp.status = 'CLOSED'
           )
         RETURNING close_record.*
+      ),
+      stale_reconciliations AS (
+        UPDATE commercial_finance_reconciliations reconciliation
+        SET status = 'STALE'
+        WHERE reconciliation.organisation_id = ${params.organisationId}
+          AND reconciliation.status = 'SIGNED_OFF'
+          AND reconciliation.close_id IN (SELECT id FROM invalidated)
+        RETURNING reconciliation.id, reconciliation.organisation_id,
+                  reconciliation.close_id, reconciliation.financial_period_id
+      ),
+      stale_events AS (
+        INSERT INTO commercial_finance_reconciliation_events (
+          organisation_id, reconciliation_id, event_type, actor_user_id, details
+        )
+        SELECT stale.organisation_id, stale.id, 'STALE', ${params.userId},
+               jsonb_build_object(
+                 'closeId', stale.close_id,
+                 'financialPeriodId', stale.financial_period_id,
+                 'reason', ${reason},
+                 'cause', 'PERIOD_REOPENED'
+               )
+        FROM stale_reconciliations stale
+        RETURNING reconciliation_id
       ),
       period_updated AS (
         UPDATE commercial_financial_periods cfp

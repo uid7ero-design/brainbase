@@ -40,11 +40,21 @@ const sqlMock = Object.assign(
   },
 );
 vi.doMock('@/lib/db', () => ({ default: sqlMock }));
+vi.doMock('@/lib/commercial/auditLog', () => ({
+  logBudgetVersionActivated: vi.fn(),
+  logBudgetVersionSuperseded: vi.fn(),
+  logFinancialPeriodStatusChanged: vi.fn(),
+}));
 
-const { prepareFinanceReconciliation, reviewFinanceReconciliation } = await import('@/lib/commercial/financeReconciliation');
+const {
+  prepareFinanceReconciliation,
+  reviewFinanceReconciliation,
+  signOffFinanceReconciliation,
+} = await import('@/lib/commercial/financeReconciliation');
 const { createFinanceAdjustment, postFinanceAdjustment, reverseFinanceAdjustment } =
   await import('@/lib/commercial/financeAdjustments');
 const { activateBudgetVersion } = await import('@/lib/commercial/budgetActivation');
+const { closeFinancialPeriod, reopenFinancialPeriod } = await import('@/lib/commercial/financeClose');
 
 type Fixture = {
   org: string; user: string; fy: string; period: string; period2: string; cc: string;
@@ -469,5 +479,215 @@ describe('C7.9E1 — prepared finance reconciliation snapshots', () => {
        WHERE id=$1::uuid AND organisation_id=$2`,
       prepared.id, f.org,
     )).rejects.toThrow(/invalid finance reconciliation lifecycle transition/);
+  });
+
+  it('signs off only a REVIEWED reconciliation against the current CLOSED record for the same period', async () => {
+    const f = await seedFixture();
+    await addMapping(f);
+    await addEntry(f, 1000);
+    const prepared = await prepare(f);
+
+    await reviewFinanceReconciliation({
+      organisationId: f.org,
+      userId: f.user,
+      reconciliationId: prepared.id,
+    });
+    const close = await closeFinancialPeriod({
+      organisationId: f.org,
+      userId: f.user,
+      financialPeriodId: f.period,
+      reason: 'Month end',
+    });
+
+    const signed = await signOffFinanceReconciliation({
+      organisationId: f.org,
+      userId: f.user,
+      reconciliationId: prepared.id,
+      closeId: close.id,
+    });
+
+    expect(signed).toMatchObject({
+      id: prepared.id,
+      organisationId: f.org,
+      financialPeriodId: f.period,
+      status: 'SIGNED_OFF',
+      closeId: close.id,
+    });
+
+    const closeState = await prisma.$queryRawUnsafe<{ reconciliation_status: string }[]>(
+      `SELECT reconciliation_status
+       FROM commercial_financial_period_closes
+       WHERE id=$1::uuid AND organisation_id=$2`,
+      close.id, f.org,
+    );
+    expect(closeState[0].reconciliation_status).toBe('SIGNED_OFF');
+
+    const events = await prisma.$queryRawUnsafe<{ event_type: string }[]>(
+      `SELECT event_type
+       FROM commercial_finance_reconciliation_events
+       WHERE reconciliation_id=$1::uuid AND organisation_id=$2
+       ORDER BY event_at,id`,
+      prepared.id, f.org,
+    );
+    expect(events.map(event => event.event_type)).toEqual(['PREPARED', 'REVIEWED', 'SIGNED_OFF']);
+  });
+
+  it('rejects sign-off before review and rejects a close from a different financial period', async () => {
+    const f = await seedFixture();
+    await addMapping(f);
+    await addEntry(f, 1000);
+    const prepared = await prepare(f);
+    const currentClose = await closeFinancialPeriod({
+      organisationId: f.org,
+      userId: f.user,
+      financialPeriodId: f.period,
+    });
+
+    await expect(signOffFinanceReconciliation({
+      organisationId: f.org,
+      userId: f.user,
+      reconciliationId: prepared.id,
+      closeId: currentClose.id,
+    })).rejects.toMatchObject({ code: 'INVALID_STATE' });
+
+    await reopenFinancialPeriod({
+      organisationId: f.org,
+      userId: f.user,
+      financialPeriodId: f.period,
+      reason: 'Continue test',
+    });
+    await reviewFinanceReconciliation({
+      organisationId: f.org,
+      userId: f.user,
+      reconciliationId: prepared.id,
+    });
+
+    const otherClose = await closeFinancialPeriod({
+      organisationId: f.org,
+      userId: f.user,
+      financialPeriodId: f.period2,
+    });
+    await expect(signOffFinanceReconciliation({
+      organisationId: f.org,
+      userId: f.user,
+      reconciliationId: prepared.id,
+      closeId: otherClose.id,
+    })).rejects.toMatchObject({ code: 'INVALID_STATE' });
+  });
+
+  it('reopen makes the attached sign-off STALE without deleting snapshot, items, or lifecycle evidence', async () => {
+    const f = await seedFixture();
+    await addMapping(f);
+    await addEntry(f, 1000);
+    const prepared = await prepare(f);
+    await reviewFinanceReconciliation({
+      organisationId: f.org,
+      userId: f.user,
+      reconciliationId: prepared.id,
+    });
+    const close = await closeFinancialPeriod({
+      organisationId: f.org,
+      userId: f.user,
+      financialPeriodId: f.period,
+    });
+    await signOffFinanceReconciliation({
+      organisationId: f.org,
+      userId: f.user,
+      reconciliationId: prepared.id,
+      closeId: close.id,
+    });
+
+    const beforeCounts = await prisma.$queryRawUnsafe<{ items: bigint; events: bigint }[]>(
+      `SELECT
+         (SELECT COUNT(*) FROM commercial_finance_reconciliation_items
+          WHERE reconciliation_id=$1::uuid AND organisation_id=$2) AS items,
+         (SELECT COUNT(*) FROM commercial_finance_reconciliation_events
+          WHERE reconciliation_id=$1::uuid AND organisation_id=$2) AS events`,
+      prepared.id, f.org,
+    );
+
+    const invalidated = await reopenFinancialPeriod({
+      organisationId: f.org,
+      userId: f.user,
+      financialPeriodId: f.period,
+      reason: 'Correction required',
+    });
+    expect(invalidated).toMatchObject({
+      id: close.id,
+      status: 'INVALIDATED',
+      reconciliation_status: 'STALE',
+    });
+
+    const reconciliation = await prisma.$queryRawUnsafe<{
+      status: string; close_id: string | null;
+    }[]>(
+      `SELECT status,close_id
+       FROM commercial_finance_reconciliations
+       WHERE id=$1::uuid AND organisation_id=$2`,
+      prepared.id, f.org,
+    );
+    expect(reconciliation[0]).toEqual({ status: 'STALE', close_id: close.id });
+
+    const afterCounts = await prisma.$queryRawUnsafe<{ items: bigint; events: bigint }[]>(
+      `SELECT
+         (SELECT COUNT(*) FROM commercial_finance_reconciliation_items
+          WHERE reconciliation_id=$1::uuid AND organisation_id=$2) AS items,
+         (SELECT COUNT(*) FROM commercial_finance_reconciliation_events
+          WHERE reconciliation_id=$1::uuid AND organisation_id=$2) AS events`,
+      prepared.id, f.org,
+    );
+    expect(afterCounts[0].items.toString()).toBe(beforeCounts[0].items.toString());
+    expect(Number(afterCounts[0].events)).toBe(Number(beforeCounts[0].events) + 1);
+
+    const events = await prisma.$queryRawUnsafe<{ event_type: string; details: { cause?: string } }[]>(
+      `SELECT event_type,details
+       FROM commercial_finance_reconciliation_events
+       WHERE reconciliation_id=$1::uuid AND organisation_id=$2
+       ORDER BY event_at,id`,
+      prepared.id, f.org,
+    );
+    expect(events.map(event => event.event_type)).toEqual([
+      'PREPARED', 'REVIEWED', 'SIGNED_OFF', 'STALE',
+    ]);
+    expect(events.at(-1)?.details).toMatchObject({ cause: 'PERIOD_REOPENED' });
+
+    await expect(prisma.$executeRawUnsafe(
+      `DELETE FROM commercial_finance_reconciliation_events
+       WHERE reconciliation_id=$1::uuid AND event_type='SIGNED_OFF'`,
+      prepared.id,
+    )).rejects.toThrow(/events are immutable/);
+  });
+
+  it('does not disclose or attach a close belonging to another tenant', async () => {
+    const f = await seedFixture();
+    const other = await seedFixture({ withSource: false });
+    await addMapping(f);
+    await addEntry(f, 1000);
+    const prepared = await prepare(f);
+    await reviewFinanceReconciliation({
+      organisationId: f.org,
+      userId: f.user,
+      reconciliationId: prepared.id,
+    });
+    const otherClose = await closeFinancialPeriod({
+      organisationId: other.org,
+      userId: other.user,
+      financialPeriodId: other.period,
+    });
+
+    await expect(signOffFinanceReconciliation({
+      organisationId: f.org,
+      userId: f.user,
+      reconciliationId: prepared.id,
+      closeId: otherClose.id,
+    })).rejects.toMatchObject({ code: 'NOT_FOUND' });
+
+    const state = await prisma.$queryRawUnsafe<{ status: string; close_id: string | null }[]>(
+      `SELECT status,close_id
+       FROM commercial_finance_reconciliations
+       WHERE id=$1::uuid AND organisation_id=$2`,
+      prepared.id, f.org,
+    );
+    expect(state[0]).toEqual({ status: 'REVIEWED', close_id: null });
   });
 });
