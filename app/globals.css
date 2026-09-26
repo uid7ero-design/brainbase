@@ -7,23 +7,23 @@
   --app-header-offset: 52px;
 
   /* Semantic surfaces */
-  --bb-canvas: #07080B;
-  --bb-surface-1: #0B0C10;
-  --bb-surface-2: #101218;
-  --bb-surface-3: #14161B;
+  --bb-canvas: #0B0B0C;
+  --bb-surface-1: #111113;
+  --bb-surface-2: #151517;
+  --bb-surface-3: #1B1B1E;
   --bb-surface-soft: rgba(255, 255, 255, 0.018);
   --bb-surface-hover: rgba(255, 255, 255, 0.045);
-  --bb-surface-selected: rgba(138, 77, 255, 0.12);
+  --bb-surface-selected: rgba(155, 123, 255, 0.10);
   --bb-scrim: rgba(0, 0, 0, 0.48);
-  --bb-shell-sidebar: rgba(6, 7, 10, 0.97);
-  --bb-shell-header: rgba(6, 7, 10, 0.95);
+  --bb-shell-sidebar: #101012;
+  --bb-shell-header: #0B0B0C;
 
   /* Semantic text */
-  --bb-text-primary: #F5F7FA;
-  --bb-text-secondary: rgba(226, 232, 240, 0.70);
-  --bb-text-tertiary: rgba(226, 232, 240, 0.48);
-  --bb-text-muted: rgba(226, 232, 240, 0.32);
-  --bb-text-disabled: rgba(226, 232, 240, 0.22);
+  --bb-text-primary: #F3EEE6;
+  --bb-text-secondary: #A1A1AA;
+  --bb-text-tertiary: #77736E;
+  --bb-text-muted: #52525B;
+  --bb-text-disabled: #3F3F46;
   --bb-text-on-accent: #FFFFFF;
 
   /* Semantic borders */
@@ -35,18 +35,18 @@
   --bb-border-accent: rgba(138, 77, 255, 0.30);
 
   /* Brand / accent */
-  --bb-accent-700: #5630D6;
-  --bb-accent-600: #6A3DFF;
-  --bb-accent-500: #8A4DFF;
-  --bb-accent-400: #A78BFA;
-  --bb-accent-300: #C4B5FD;
+  --bb-accent-700: #5E3FC4;
+  --bb-accent-600: #6D4CD6;
+  --bb-accent-500: #7A59E6;
+  --bb-accent-400: #9B7BFF;
+  --bb-accent-300: #B09AFF;
   --bb-accent-blue: #5677FF;
   --bb-accent-cyan: #00D4FF;
-  --bb-accent-soft: rgba(138, 77, 255, 0.11);
-  --bb-accent-softer: rgba(138, 77, 255, 0.055);
-  --bb-accent-glow: rgba(138, 77, 255, 0.22);
-  --bb-gradient-accent: linear-gradient(100deg, #6A3DFF 0%, #8A4DFF 55%, #5677FF 100%);
-  --bb-gradient-display: linear-gradient(100deg, #8A4DFF 0%, #A78BFA 46%, #5C7CFF 100%);
+  --bb-accent-soft: rgba(155, 123, 255, 0.09);
+  --bb-accent-softer: rgba(155, 123, 255, 0.05);
+  --bb-accent-glow: rgba(155, 123, 255, 0.16);
+  --bb-gradient-accent: linear-gradient(100deg, #6D4CD6 0%, #9B7BFF 55%, #5677FF 100%);
+  --bb-gradient-display: linear-gradient(100deg, #7A59E6 0%, #9B7BFF 46%, #5677FF 100%);
 
   /* Status */
   --bb-success: #22C55E;
@@ -168,34 +168,34 @@
   --bb-z-tooltip: 500;
 
   /* Data visualisation — separate from semantic status colours. */
-  --bb-chart-1: #8A4DFF;
+  --bb-chart-1: #7A59E6;
   --bb-chart-2: #5677FF;
   --bb-chart-3: #00B8D9;
-  --bb-chart-4: #A78BFA;
+  --bb-chart-4: #9B7BFF;
   --bb-chart-5: #38BDF8;
-  --bb-chart-6: #C4B5FD;
+  --bb-chart-6: #B09AFF;
 
   /*
    * Legacy aliases — compatibility only.
    * New components must consume --bb-* semantic tokens directly.
    * Remove only after full migration audit.
    */
-  --bg-base: var(--bb-canvas);
-  --bg-surface: var(--bb-surface-1);
-  --bg-raised: var(--bb-surface-2);
-  --bg-overlay: var(--bb-surface-3);
+  --bg-base:    #0B0B0C;
+  --bg-surface: #111113;
+  --bg-raised:  #151517;
+  --bg-overlay: #1B1B1E;
   --border: var(--bb-border-default);
   --border-light: var(--bb-border-subtle);
   --border-focus: var(--bb-border-focus);
-  --purple-600: var(--bb-accent-600);
-  --purple-500: var(--bb-accent-500);
-  --purple-400: var(--bb-accent-400);
-  --purple-300: var(--bb-accent-300);
+  --purple-600:  #6D4CD6;
+  --purple-500:  #7A59E6;
+  --purple-400:  #9B7BFF;
+  --purple-300:  #B09AFF;
   --purple-200: var(--bb-accent-300);
   --purple-glow: var(--bb-accent-glow);
-  --text-primary: var(--bb-text-primary);
-  --text-secondary: var(--bb-text-secondary);
-  --text-muted: var(--bb-text-muted);
+  --text-primary:   #F3EEE6;
+  --text-secondary: #A1A1AA;
+  --text-muted:     #52525B;
   --green: var(--bb-success);
   --yellow: var(--bb-warning);
   --red: var(--bb-danger);
@@ -205,9 +205,9 @@
 }
 
 :root[data-theme='light'] {
-  --bb-canvas: #F5F6F8;
+  --bb-canvas: #F5F3EE;
   --bb-surface-1: #FFFFFF;
-  --bb-surface-2: #FAFAFC;
+  --bb-surface-2: #FAF8F3;
   --bb-surface-3: #FFFFFF;
   --bb-surface-soft: rgba(15, 17, 23, 0.025);
   --bb-surface-hover: rgba(15, 17, 23, 0.045);
@@ -216,11 +216,11 @@
   --bb-shell-sidebar: rgba(255, 255, 255, 0.98);
   --bb-shell-header: rgba(255, 255, 255, 0.96);
 
-  --bb-text-primary: #15161A;
+  --bb-text-primary: #15171B;
   --bb-text-secondary: #52525B;
   --bb-text-tertiary: #71717A;
-  --bb-text-muted: #92949E;
-  --bb-text-disabled: #B5B7BF;
+  --bb-text-muted: #8B8D98;
+  --bb-text-disabled: #B8B4AC;
   --bb-text-on-accent: #FFFFFF;
 
   --bb-border-subtle: rgba(15, 17, 23, 0.055);
@@ -230,11 +230,11 @@
   --bb-border-focus: rgba(106, 61, 255, 0.52);
   --bb-border-accent: rgba(106, 61, 255, 0.25);
 
-  --bb-accent-700: #5630D6;
-  --bb-accent-600: #6A3DFF;
-  --bb-accent-500: #7C3AED;
-  --bb-accent-400: #8B5CF6;
-  --bb-accent-300: #A78BFA;
+  --bb-accent-700: #5E3FC4;
+  --bb-accent-600: #6D4CD6;
+  --bb-accent-500: #6D4CD6;
+  --bb-accent-400: #9B7BFF;
+  --bb-accent-300: #9B7BFF;
   --bb-accent-blue: #5677FF;
   --bb-accent-cyan: #00D4FF;
   --bb-accent-soft: rgba(106, 61, 255, 0.10);
@@ -250,7 +250,26 @@
   --bb-danger-soft: rgba(220, 38, 38, 0.10);
   --bb-info-soft: rgba(2, 132, 199, 0.10);
 
-  /* Compatibility aliases inherit the light semantic values above. */
+  /* Compatibility aliases mirror the latest-main light application palette. */
+  --bg-base:    #F5F3EE;
+  --bg-surface: #FFFFFF;
+  --bg-raised:  #FFFFFF;
+  --bg-overlay: #EFEBE4;
+  --text-primary:   #15171B;
+  --text-secondary: #52525B;
+  --text-muted:     #8B8D98;
+  --purple-600:  #6D4CD6;
+  --purple-500:  #7A59E6;
+  --purple-400:  #9B7BFF;
+  --purple-300:  #6D4CD6;
+  --purple-200:  #6D4CD6;
+  --purple-glow: rgba(109, 76, 214, 0.08);
+  --green:  #16A34A;
+  --yellow: #D97706;
+  --red:    #DC2626;
+  --cyan:   #0891B2;
+  --background: var(--bg-base);
+  --foreground: var(--text-primary);
 }
 
 /* ─── End BrainBase Design Tokens ────────────────────── */

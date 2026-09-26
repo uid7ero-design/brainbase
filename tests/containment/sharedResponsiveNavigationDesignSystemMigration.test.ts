@@ -42,7 +42,7 @@ describe('B.4 shared responsive navigation design-system migration', () => {
     expect(topNav).toContain("msOverflowStyle: 'none'")
     expect(topNav).toContain('flex: 1')
     expect(topNav).toContain('minWidth: 0')
-    expect(topNav).toContain("gap: 'var(--bb-space-1)'")
+    expect(topNav).toContain('gap: 2')
   })
 
   it('preserves the extracted public navigation destinations and mobile-menu behavior from current main', () => {
@@ -93,7 +93,7 @@ describe('B.4 shared responsive navigation design-system migration', () => {
 
   it('preserves profile, logout, and responsive system-cluster interactions', () => {
     expect(topNav).toContain('href="/account/profile"')
-    expect(topNav).toContain("borderRadius: 'var(--bb-radius-pill)'")
+    expect(topNav).toContain('borderRadius: 20')
     expect(topNav).toContain("await import(\n                '@/app/actions/auth'")
     expect(topNav).toContain('await logout()')
     expect(topNav).toContain("justifyContent:\n            'flex-end'")
@@ -124,21 +124,8 @@ describe('B.4 shared responsive navigation design-system migration', () => {
     expect(sidebar).not.toContain('role ===')
   })
 
-  it('keeps responsive surfaces on canonical BrainBase design tokens', () => {
-    for (const token of [
-      '--bb-shell-header',
-      '--bb-border-subtle',
-      '--bb-blur-nav',
-      '--bb-z-header',
-      '--bb-space-1',
-      '--bb-space-2',
-      '--bb-radius-pill',
-      '--bb-surface-selected',
-      '--bb-surface-hover',
-      '--bb-border-accent',
-      '--bb-text-secondary',
-      '--bb-text-muted',
-    ]) {
+  it('keeps responsive surfaces on the latest main application/brand tokens', () => {
+    for (const token of ['--bg-base','--bg-raised','--bg-overlay','--border','--border-light','--brand-brainbase-accent','--purple-300','--purple-400','--text-primary','--text-secondary','--text-muted']) {
       expect(topNav).toContain(token)
     }
   })

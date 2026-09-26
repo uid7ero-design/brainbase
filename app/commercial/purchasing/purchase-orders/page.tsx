@@ -7,7 +7,7 @@ import { PURCHASE_ORDER_STATUSES, PURCHASE_ORDER_STATUS_LABELS, type PurchaseOrd
 import { formatMoneyCents } from '@/lib/commercial/money';
 import { formatCommercialDate } from '@/lib/commercial/dates';
 
-const CARD = '#0e1014'; const BORDER = '#1a1d24';
+const CARD = 'var(--bg-surface)'; const BORDER = 'var(--border)';
 
 type PurchaseOrder = {
   id: string; purchase_order_number: string | null; status: PurchaseOrderStatus;
@@ -40,15 +40,15 @@ export default function PurchaseOrdersPage() {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em', margin: 0 }}>Purchase Orders</h1>
-          <p style={{ color: '#6b7280', fontSize: 13, margin: '4px 0 0' }}>{purchaseOrders.length} total</p>
+          <p style={{ color: 'var(--text-secondary)', fontSize: 13, margin: '4px 0 0' }}>{purchaseOrders.length} total</p>
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
           <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
-            style={{ padding: '8px 12px', background: CARD, border: `1px solid ${BORDER}`, borderRadius: 8, color: '#f9fafb', fontSize: 13 }}>
+            style={{ padding: '8px 12px', background: CARD, border: `1px solid ${BORDER}`, borderRadius: 8, color: 'var(--text-primary)', fontSize: 13 }}>
             <option value="ALL">All statuses</option>
             {PURCHASE_ORDER_STATUSES.map(s => <option key={s} value={s}>{PURCHASE_ORDER_STATUS_LABELS[s]}</option>)}
           </select>
-          <Link href="/commercial/purchasing/purchase-orders/new" style={btn('#1a6aff')}>+ New Purchase Order</Link>
+          <Link href="/commercial/purchasing/purchase-orders/new" style={btn('var(--purple-600)')}>+ New Purchase Order</Link>
         </div>
       </div>
 
@@ -67,7 +67,7 @@ export default function PurchaseOrdersPage() {
             {filtered.map((po, i) => (
               <tr key={po.id} style={{ borderBottom: i < filtered.length - 1 ? `1px solid ${BORDER}` : 'none' }}>
                 <td style={{ padding: '13px 16px' }}>
-                  <Link href={`/commercial/purchasing/purchase-orders/${po.id}`} style={{ color: '#f9fafb', textDecoration: 'none', fontWeight: 500, fontSize: 14 }}>
+                  <Link href={`/commercial/purchasing/purchase-orders/${po.id}`} style={{ color: 'var(--text-primary)', textDecoration: 'none', fontWeight: 500, fontSize: 14 }}>
                     {po.purchase_order_number ?? <Dim>Draft</Dim>}
                   </Link>
                 </td>
@@ -77,7 +77,7 @@ export default function PurchaseOrdersPage() {
                 <td style={td}>{po.delivery_date ? formatCommercialDate(po.delivery_date) : <Dim>—</Dim>}</td>
                 <td style={td}>{formatMoneyCents(po.total_cents, po.currency)}</td>
                 <td style={{ padding: '13px 16px' }}>
-                  <Link href={`/commercial/purchasing/purchase-orders/${po.id}`} style={{ fontSize: 12, color: '#6b7280', textDecoration: 'none' }}>
+                  <Link href={`/commercial/purchasing/purchase-orders/${po.id}`} style={{ fontSize: 12, color: 'var(--text-secondary)', textDecoration: 'none' }}>
                     {po.status === 'DRAFT' ? 'Edit →' : 'View →'}
                   </Link>
                 </td>
@@ -91,10 +91,10 @@ export default function PurchaseOrdersPage() {
 }
 
 function Dim({ children }: { children: React.ReactNode }) {
-  return <span style={{ color: '#4b5563' }}>{children}</span>;
+  return <span style={{ color: 'var(--text-muted)' }}>{children}</span>;
 }
 
-const th: React.CSSProperties = { padding: '11px 16px', textAlign: 'left', color: '#6b7280', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' };
-const td: React.CSSProperties = { padding: '13px 16px', fontSize: 13, color: '#9ca3af' };
-const empty: React.CSSProperties = { padding: '36px 16px', textAlign: 'center', color: '#4b5563', fontSize: 14 };
+const th: React.CSSProperties = { padding: '11px 16px', textAlign: 'left', color: 'var(--text-secondary)', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' };
+const td: React.CSSProperties = { padding: '13px 16px', fontSize: 13, color: 'var(--text-secondary)' };
+const empty: React.CSSProperties = { padding: '36px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 14 };
 function btn(bg: string): React.CSSProperties { return { padding: '8px 16px', background: bg, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, textDecoration: 'none', display: 'inline-block' }; }

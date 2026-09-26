@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 
-const CARD = '#0e1014'; const BORDER = '#1a1d24';
+const CARD = 'var(--bg-surface)'; const BORDER = 'var(--border)';
 
 type PurchaseOrder = { id: string; purchase_order_number: string | null; status: string; supplier_name_snapshot: string | null };
 
@@ -62,7 +62,7 @@ export default function NewPurchaseReceiptPage() {
 
   return (
     <div style={{ maxWidth: 560 }}>
-      <Link href="/commercial/purchasing/purchase-receipts" style={{ fontSize: 13, color: '#6b7280', textDecoration: 'none' }}>← Purchase Receipts</Link>
+      <Link href="/commercial/purchasing/purchase-receipts" style={{ fontSize: 13, color: 'var(--text-secondary)', textDecoration: 'none' }}>← Purchase Receipts</Link>
       <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em', margin: '8px 0 20px' }}>New Purchase Receipt</h1>
 
       <form onSubmit={submit} style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: 24, display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -77,7 +77,7 @@ export default function NewPurchaseReceiptPage() {
             ))}
           </select>
           {!loadingPOs && purchaseOrders.length === 0 && (
-            <p style={{ fontSize: 12, color: '#6b7280', margin: '6px 0 0' }}>No issued purchase orders are available to receive against yet.</p>
+            <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: '6px 0 0' }}>No issued purchase orders are available to receive against yet.</p>
           )}
         </div>
 
@@ -98,7 +98,7 @@ export default function NewPurchaseReceiptPage() {
 
         {error && <div style={{ color: '#f87171', fontSize: 13 }}>{error}</div>}
 
-        <button type="submit" disabled={saving} style={{ padding: '10px 16px', background: '#1a6aff', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', opacity: saving ? 0.6 : 1 }}>
+        <button type="submit" disabled={saving} style={{ padding: '10px 16px', background: 'var(--purple-600)', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', opacity: saving ? 0.6 : 1 }}>
           {saving ? 'Creating…' : 'Create Draft — add lines next'}
         </button>
       </form>
@@ -106,5 +106,5 @@ export default function NewPurchaseReceiptPage() {
   );
 }
 
-const lbl: React.CSSProperties = { display: 'block', fontSize: 12, fontWeight: 600, color: '#9ca3af', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.04em' };
-const sel: React.CSSProperties = { width: '100%', padding: '9px 12px', background: '#07080B', border: `1px solid ${BORDER}`, borderRadius: 8, color: '#f9fafb', fontSize: 14, boxSizing: 'border-box' };
+const lbl: React.CSSProperties = { display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.04em' };
+const sel: React.CSSProperties = { width: '100%', padding: '9px 12px', background: 'var(--bg-base)', border: `1px solid ${BORDER}`, borderRadius: 8, color: 'var(--text-primary)', fontSize: 14, boxSizing: 'border-box' };

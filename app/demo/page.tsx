@@ -3,6 +3,7 @@
 import { useRef, useState, type KeyboardEvent } from 'react'
 import Link from 'next/link'
 import { HlnaOrb } from '@/components/brand/HlnaOrb'
+import { BrokenOrbitMark } from '@/components/brand/BrokenOrbitMark'
 import { BrainBaseWordmark } from '@/components/brand/BrainBaseWordmark'
 import { PublicFooter } from '@/components/public/PublicFooter'
 import { ArrowIcon, ButtonLink, Container } from '@/components/public/primitives'
@@ -88,9 +89,7 @@ export default function DemoPage() {
       <section className={`${styles.hero} bb-grid-bg`} aria-labelledby="demo-title">
         <Container className={styles.heroInner}>
           <div className={styles.heroSignal} aria-hidden="true">
-            <span className={styles.heroSignalCore} />
-            <span className={styles.heroSignalRing} />
-            <span className={styles.heroSignalNode} />
+            <BrokenOrbitMark size={64} context="brainbase" />
           </div>
 
           <DemoBadge />

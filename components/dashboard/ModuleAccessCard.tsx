@@ -73,9 +73,9 @@ function ModuleCard({ entry }: { entry: ModuleEntry }) {
         borderRadius: 11,
         textDecoration: 'none',
         fontFamily: FONT,
-        background: hover ? 'rgba(124,58,237,.10)' : 'rgba(255,255,255,.025)',
-        border: `1px solid ${hover ? 'rgba(124,58,237,.38)' : 'rgba(255,255,255,.07)'}`,
-        boxShadow: hover ? '0 0 20px rgba(124,58,237,.12)' : 'none',
+        background: hover ? 'color-mix(in srgb, var(--purple-400) 10%, var(--bg-surface))' : 'var(--bg-surface)',
+        border: `1px solid ${hover ? 'color-mix(in srgb, var(--purple-400) 38%, var(--border))' : 'var(--border)'}`,
+        boxShadow: 'none',
         transition: 'all .18s',
       }}
     >
@@ -87,15 +87,15 @@ function ModuleCard({ entry }: { entry: ModuleEntry }) {
           container's own 8px gap unchanged. */}
       <CapabilityIcon capability={entry.key} size="md" state={hover ? 'hover' : 'default'} style={{ marginBottom: -2 }} />
 
-      <span style={{ fontSize: 13, fontWeight: 700, color: hover ? '#E2D9F3' : '#D4D4D8', lineHeight: 1.35 }}>
+      <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.35 }}>
         {entry.title}
       </span>
-      <p style={{ margin: 0, fontSize: 11, color: 'rgba(161,161,170,.75)', lineHeight: 1.5 }}>
+      <p style={{ margin: 0, fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
         {entry.description}
       </p>
       <span style={{
         fontSize: 10, fontWeight: 700, letterSpacing: '.04em',
-        color: hover ? '#C4B5FD' : 'rgba(167,139,250,.55)',
+        color: hover ? 'var(--purple-400)' : 'var(--text-secondary)',
         transition: 'color .18s',
       }}>
         {entry.cta} →
@@ -111,11 +111,11 @@ export function ModuleAccessCard({ enabledCapabilities }: { enabledCapabilities:
   return (
     <div style={{ fontFamily: FONT }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-        <div style={{ height: 1, flex: 1, background: 'rgba(255,255,255,.06)' }} />
-        <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: '.14em', color: 'rgba(255,255,255,.30)', textTransform: 'uppercase' }}>
+        <div style={{ height: 1, flex: 1, background: 'var(--border)' }} />
+        <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: '.14em', color: 'var(--text-muted)', textTransform: 'uppercase' }}>
           Your Tools
         </span>
-        <div style={{ height: 1, flex: 1, background: 'rgba(255,255,255,.06)' }} />
+        <div style={{ height: 1, flex: 1, background: 'var(--border)' }} />
       </div>
 
       <div style={{

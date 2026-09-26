@@ -61,9 +61,10 @@ describe('Phase D.1 — TopNav uses the approved Hybrid Orbit brand asset', () =
     expect(topNavSource).not.toMatch(/import Image from 'next\/image'/)
   })
 
-  it('BrainBaseWordmark itself references the approved kit-copied asset, with an accessible alt', () => {
-    expect(wordmarkSource).toContain("src=\"/Brand/brainbase-horizontal-color.svg\"")
-    expect(wordmarkSource).toMatch(/alt="BR.INB.SE"/)
+  it('BrainBaseWordmark delegates to the canonical broken-orbit product lockup with an accessible name', () => {
+    expect(wordmarkSource).toMatch(/from ["']@\/components\/public\/BrainbaseLockup["']/)
+    expect(wordmarkSource).toContain('<BrainbaseLockup')
+    expect(wordmarkSource).toContain('title="BrainBase"')
   })
 })
 
@@ -77,8 +78,8 @@ describe('Phase D.1 — no accidental external brand-kit path at runtime', () =>
     }
   })
 
-  it('BrainBaseWordmark only ever references a repository-owned /Brand/ runtime path', () => {
-    expect(wordmarkSource).toMatch(/src="\/Brand\//)
+  it('BrainBaseWordmark uses the canonical in-repo lockup component and no external runtime path', () => {
+    expect(wordmarkSource).toMatch(/from ["']@\/components\/public\/BrainbaseLockup["']/)
     expect(wordmarkSource).not.toMatch(/[A-Za-z]:[\\/]/)
   })
 })
@@ -139,18 +140,17 @@ describe('Phase D.1 — tenant-aware nav remains intact', () => {
 
 describe('Phase D.1 — favicon / metadata reference resolvable repository-owned files', () => {
   it('app/layout.tsx metadata still points at repository /Brand/ paths, and those files exist', () => {
-    expect(layoutSource).toContain("url: '/Brand/favicon.ico'")
+    expect(layoutSource).toContain("url: '/Brand/brainbase-broken-orbit-micro.svg'")
     expect(layoutSource).toContain("url: '/Brand/android-chrome-192x192.png'")
     expect(layoutSource).toContain("url: '/Brand/android-chrome-512x512.png'")
     expect(layoutSource).toContain("url: '/Brand/apple-touch-icon.png'")
 
     for (const relPath of [
-      'public/Brand/favicon.ico',
+      'public/Brand/brainbase-broken-orbit-micro.svg',
       'public/Brand/android-chrome-192x192.png',
       'public/Brand/android-chrome-512x512.png',
       'public/Brand/apple-touch-icon.png',
       'public/Brand/brainbase-horizontal-color.svg',
-      'app/favicon.ico',
     ]) {
       expect(fs.existsSync(path.join(root, relPath)), `${relPath} must exist on disk`).toBe(true)
     }
@@ -215,7 +215,8 @@ describe('Phase D.2 — secondary public surfaces use BrainBaseWordmark, not the
 
   it('converted public surfaces render the theme-aware BrainbaseLockup from its one canonical path (not a new logo component, not the dark-only wordmark)', () => {
     const lockup = read('components/public/BrainbaseLockup.tsx')
-    expect(lockup).toContain('public/Brand/brainbase-horizontal-color.svg')
+    expect(lockup).toMatch(/from ["']@\/components\/brand\/BrokenOrbitMark["']/)
+    expect(lockup).toContain('<BrokenOrbitMark')
     for (const [name, src] of D2_SURFACES) {
       if (!THEME_AWARE_LOCKUP_SURFACES.has(name)) continue
       const importLine = src.match(/import \{ BrainbaseLockup \} from '([^']+)'/)

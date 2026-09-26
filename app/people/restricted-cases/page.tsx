@@ -4,9 +4,9 @@ import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import SlidePanel from '../_components/SlidePanel';
 
-const CARD = '#0e1014';
-const BORDER = '#1a1d24';
-const MUTED = '#6b7280';
+const CARD = 'var(--bg-surface)';
+const BORDER = 'var(--border)';
+const MUTED = 'var(--text-secondary)';
 
 type RestrictedCase = {
   id: string;
@@ -115,12 +115,12 @@ export default function RestrictedCasesPage() {
             {!loading && !error && filtered.map((item, index) => (
               <tr key={item.id} style={{ borderBottom: index < filtered.length - 1 ? `1px solid ${BORDER}` : 'none' }}>
                 <td style={{ padding: '14px 16px' }}>
-                  <Link href={`/people/restricted-cases/${item.id}`} style={{ color: '#f9fafb', fontSize: 14, fontWeight: 600, textDecoration: 'none' }}>
+                  <Link href={`/people/restricted-cases/${item.id}`} style={{ color: 'var(--text-primary)', fontSize: 14, fontWeight: 600, textDecoration: 'none' }}>
                     {item.title}
                   </Link>
                 </td>
                 <td style={td}>{labelCaseType(item.case_type)}</td>
-                <td style={td}>{item.reference || <span style={{ color: '#4b5563' }}>—</span>}</td>
+                <td style={td}>{item.reference || <span style={{ color: 'var(--text-muted)' }}>—</span>}</td>
                 <td style={td}><Status status={item.status} /></td>
                 <td style={td}>{formatDate(item.created_at)}</td>
                 <td style={{ ...td, textAlign: 'right' }}>
@@ -260,7 +260,7 @@ function CreateCaseForm({ currentUserId, users, onCreated }: { currentUserId: st
 
 function Status({ status }: { status: string }) {
   const open = status === 'open';
-  return <span style={{ display: 'inline-block', padding: '3px 9px', borderRadius: 999, fontSize: 11, fontWeight: 600, color: open ? '#6ee7b7' : '#9ca3af', background: open ? 'rgba(16,185,129,.12)' : 'rgba(107,114,128,.12)', textTransform: 'capitalize' }}>{status}</span>;
+  return <span style={{ display: 'inline-block', padding: '3px 9px', borderRadius: 999, fontSize: 11, fontWeight: 600, color: open ? '#6ee7b7' : 'var(--text-secondary)', background: open ? 'rgba(16,185,129,.12)' : 'rgba(107,114,128,.12)', textTransform: 'capitalize' }}>{status}</span>;
 }
 
 function labelCaseType(value: string) {
@@ -274,13 +274,13 @@ function formatDate(value: string) {
 
 const cardStyle: React.CSSProperties = { background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, overflow: 'hidden' };
 const th: React.CSSProperties = { padding: '11px 16px', textAlign: 'left', color: MUTED, fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' };
-const td: React.CSSProperties = { padding: '14px 16px', fontSize: 13, color: '#9ca3af' };
-const empty: React.CSSProperties = { padding: '40px 16px', textAlign: 'center', color: '#4b5563', fontSize: 14 };
-const inputStyle: React.CSSProperties = { width: 210, padding: '8px 12px', background: CARD, border: `1px solid ${BORDER}`, borderRadius: 8, color: '#f9fafb', fontSize: 13, outline: 'none' };
-const primaryButton: React.CSSProperties = { padding: '8px 16px', background: '#1a6aff', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' };
+const td: React.CSSProperties = { padding: '14px 16px', fontSize: 13, color: 'var(--text-secondary)' };
+const empty: React.CSSProperties = { padding: '40px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 14 };
+const inputStyle: React.CSSProperties = { width: 210, padding: '8px 12px', background: CARD, border: `1px solid ${BORDER}`, borderRadius: 8, color: 'var(--text-primary)', fontSize: 13, outline: 'none' };
+const primaryButton: React.CSSProperties = { padding: '8px 16px', background: 'var(--purple-600)', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' };
 const backLink: React.CSSProperties = { color: MUTED, fontSize: 12, textDecoration: 'none' };
 const actionLink: React.CSSProperties = { color: '#8fb3ff', fontSize: 12, textDecoration: 'none' };
-const labelStyle: React.CSSProperties = { display: 'block', color: '#9ca3af', fontSize: 11, fontWeight: 600, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' };
-const formInput: React.CSSProperties = { width: '100%', padding: '9px 12px', background: '#111318', border: `1px solid ${BORDER}`, borderRadius: 8, color: '#f9fafb', fontSize: 14, outline: 'none', boxSizing: 'border-box' };
+const labelStyle: React.CSSProperties = { display: 'block', color: 'var(--text-secondary)', fontSize: 11, fontWeight: 600, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' };
+const formInput: React.CSSProperties = { width: '100%', padding: '9px 12px', background: 'var(--bg-raised)', border: `1px solid ${BORDER}`, borderRadius: 8, color: 'var(--text-primary)', fontSize: 14, outline: 'none', boxSizing: 'border-box' };
 const selectStyle: React.CSSProperties = { ...formInput };
 const errorText: React.CSSProperties = { color: '#f87171', fontSize: 13, margin: 0 };

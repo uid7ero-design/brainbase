@@ -7,7 +7,7 @@
 // below) — never a replacement for it, so an overdue invoice's true
 // status (ISSUED) always stays visible.
 export const STATUS_STYLE: Record<string, { color: string; bg: string }> = {
-  DRAFT: { color: '#9ca3af', bg: 'rgba(156,163,175,0.12)' },
+  DRAFT: { color: 'var(--text-secondary)', bg: 'rgba(156,163,175,0.12)' },
   ISSUED: { color: '#60a5fa', bg: 'rgba(96,165,250,0.12)' },
   VOID: { color: '#f87171', bg: 'rgba(248,113,113,0.12)' },
 };

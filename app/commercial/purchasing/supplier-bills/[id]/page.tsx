@@ -7,7 +7,7 @@ import { formatCommercialDate } from '@/lib/commercial/dates';
 import { formatMoneyCents } from '@/lib/commercial/money';
 import type { SupplierBillStatus } from '@/lib/commercial/supplierBillLifecycle';
 
-const CARD = '#0e1014'; const BORDER = '#1a1d24';
+const CARD = 'var(--bg-surface)'; const BORDER = 'var(--border)';
 
 type SupplierBill = {
   id: string; source_purchase_order_id: string; supplier_invoice_number: string; bill_number: string | null;
@@ -231,12 +231,12 @@ export default function SupplierBillDetailPage() {
     return `${(n / (1024 * 1024)).toFixed(1)} MB`;
   }
 
-  if (loading) return <div style={{ color: '#6b7280', fontSize: 14 }}>Loading…</div>;
-  if (!supplierBill) return <div style={{ color: '#6b7280', fontSize: 14 }}>Supplier bill not found.</div>;
+  if (loading) return <div style={{ color: 'var(--text-secondary)', fontSize: 14 }}>Loading…</div>;
+  if (!supplierBill) return <div style={{ color: 'var(--text-secondary)', fontSize: 14 }}>Supplier bill not found.</div>;
 
   return (
     <div style={{ maxWidth: 960 }}>
-      <Link href="/commercial/purchasing/supplier-bills" style={{ fontSize: 13, color: '#6b7280', textDecoration: 'none' }}>← Supplier Bills</Link>
+      <Link href="/commercial/purchasing/supplier-bills" style={{ fontSize: 13, color: 'var(--text-secondary)', textDecoration: 'none' }}>← Supplier Bills</Link>
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '8px 0 4px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -247,7 +247,7 @@ export default function SupplierBillDetailPage() {
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           {isDraft && isAdmin && lines.length > 0 && (
-            <button onClick={() => setConfirmingPost(true)} disabled={busy} style={actionBtn('#1a6aff')}>Post Bill</button>
+            <button onClick={() => setConfirmingPost(true)} disabled={busy} style={actionBtn('var(--purple-600)')}>Post Bill</button>
           )}
           {isDraft && canEdit && supplierBill.bill_number == null && (
             <button onClick={() => setConfirmingDelete(true)} disabled={busy} style={actionBtn('#7f1d1d')}>Delete Draft</button>
@@ -259,7 +259,7 @@ export default function SupplierBillDetailPage() {
       </div>
 
       {purchaseOrder && (
-        <p style={{ fontSize: 13, color: '#6b7280', margin: '0 0 20px' }}>
+        <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '0 0 20px' }}>
           Against Purchase Order{' '}
           <Link href={`/commercial/purchasing/purchase-orders/${purchaseOrder.id}`} style={{ color: '#60a5fa', textDecoration: 'none' }}>
             {purchaseOrder.purchase_order_number ?? purchaseOrder.id}
@@ -271,13 +271,13 @@ export default function SupplierBillDetailPage() {
       {actionError && <div style={{ ...panel, borderColor: '#7f1d1d', color: '#f87171', marginBottom: 16 }}>{actionError}</div>}
 
       {confirmingPost && (
-        <div style={{ ...panel, borderColor: '#1a6aff', marginBottom: 20 }}>
+        <div style={{ ...panel, borderColor: 'var(--purple-600)', marginBottom: 20 }}>
           <p style={{ margin: '0 0 12px', fontSize: 13 }}>
             Posting allocates a permanent bill number, freezes the supplier snapshot, and freezes this document — lines can no longer be edited afterward. The server will re-check that no line bills beyond its purchase order line&rsquo;s ordered value. Continue?
           </p>
           <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={postAction} disabled={busy} style={actionBtn('#1a6aff')}>Yes, Post Bill</button>
-            <button onClick={() => setConfirmingPost(false)} style={actionBtn('#1a1d24')}>Cancel</button>
+            <button onClick={postAction} disabled={busy} style={actionBtn('var(--purple-600)')}>Yes, Post Bill</button>
+            <button onClick={() => setConfirmingPost(false)} style={actionBtn('var(--border)')}>Cancel</button>
           </div>
         </div>
       )}
@@ -287,7 +287,7 @@ export default function SupplierBillDetailPage() {
           <p style={{ margin: '0 0 12px', fontSize: 13 }}>Delete this draft supplier bill permanently? This cannot be undone. It has never been posted — nothing else is affected.</p>
           <div style={{ display: 'flex', gap: 8 }}>
             <button onClick={deleteAction} disabled={busy} style={actionBtn('#dc2626')}>Yes, Delete Draft</button>
-            <button onClick={() => setConfirmingDelete(false)} style={actionBtn('#1a1d24')}>Keep Draft</button>
+            <button onClick={() => setConfirmingDelete(false)} style={actionBtn('var(--border)')}>Keep Draft</button>
           </div>
         </div>
       )}
@@ -299,7 +299,7 @@ export default function SupplierBillDetailPage() {
           <textarea value={cancelReason} onChange={e => setCancelReason(e.target.value)} rows={2} placeholder="Why is this supplier bill being cancelled?" style={{ ...sel, marginBottom: 12 }} />
           <div style={{ display: 'flex', gap: 8 }}>
             <button onClick={cancelAction} disabled={busy} style={actionBtn('#dc2626')}>Confirm Cancel</button>
-            <button onClick={() => setConfirmingCancel(false)} style={actionBtn('#1a1d24')}>Keep Bill</button>
+            <button onClick={() => setConfirmingCancel(false)} style={actionBtn('var(--border)')}>Keep Bill</button>
           </div>
         </div>
       )}
@@ -328,7 +328,7 @@ export default function SupplierBillDetailPage() {
                   <td style={td}>{line.description_snapshot}</td>
                   <td style={td}>{poLine ? formatMoneyCents(poLine.line_total_cents, supplierBill.currency) : '—'}</td>
                   <td style={td}>{formatMoneyCents(billedAmounts[line.source_purchase_order_line_id] ?? 0, supplierBill.currency)}</td>
-                  <td style={{ ...td, color: remaining < 0 ? '#f87171' : '#9ca3af' }}>{formatMoneyCents(remaining, supplierBill.currency)}</td>
+                  <td style={{ ...td, color: remaining < 0 ? '#f87171' : 'var(--text-secondary)' }}>{formatMoneyCents(remaining, supplierBill.currency)}</td>
                   <td style={td}>{line.quantity}</td>
                   <td style={td}>{formatMoneyCents(line.unit_price_cents, supplierBill.currency)}</td>
                   <td style={td}>{line.tax_code_snapshot ?? '—'}</td>
@@ -353,8 +353,8 @@ export default function SupplierBillDetailPage() {
                 <td style={{ ...td, fontWeight: 600 }} colSpan={2}>{formatMoneyCents(supplierBill.tax_cents, supplierBill.currency)}</td>
               </tr>
               <tr>
-                <td colSpan={7} style={{ ...td, textAlign: 'right', fontWeight: 700, color: '#f9fafb' }}>Total</td>
-                <td style={{ ...td, fontWeight: 700, color: '#f9fafb' }} colSpan={2}>{formatMoneyCents(supplierBill.total_cents, supplierBill.currency)}</td>
+                <td colSpan={7} style={{ ...td, textAlign: 'right', fontWeight: 700, color: 'var(--text-primary)' }}>Total</td>
+                <td style={{ ...td, fontWeight: 700, color: 'var(--text-primary)' }} colSpan={2}>{formatMoneyCents(supplierBill.total_cents, supplierBill.currency)}</td>
               </tr>
             </tfoot>
           )}
@@ -391,19 +391,19 @@ export default function SupplierBillDetailPage() {
                 {taxCodes.map(t => <option key={t.id} value={t.id}>{t.code} ({t.rate}%)</option>)}
               </select>
             </div>
-            <button type="submit" disabled={busy} style={actionBtn('#1a6aff')}>Add Line</button>
+            <button type="submit" disabled={busy} style={actionBtn('var(--purple-600)')}>Add Line</button>
           </form>
         )}
       </div>
 
       <div style={panel}>
-        <h2 style={{ fontSize: 13, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#6b7280', margin: '0 0 12px' }}>Supporting Documents</h2>
-        {attachments.length === 0 && <p style={{ fontSize: 13, color: '#4b5563', margin: '0 0 12px' }}>No supporting documents yet.</p>}
+        <h2 style={{ fontSize: 13, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-secondary)', margin: '0 0 12px' }}>Supporting Documents</h2>
+        {attachments.length === 0 && <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '0 0 12px' }}>No supporting documents yet.</p>}
         {attachments.map(a => (
           <div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: `1px solid ${BORDER}` }}>
             <div>
-              <a href={`/api/commercial/supplier-bills/${id}/attachments/${a.id}`} style={{ color: '#f9fafb', textDecoration: 'none', fontSize: 13, fontWeight: 500 }}>{a.original_filename}</a>
-              <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>
+              <a href={`/api/commercial/supplier-bills/${id}/attachments/${a.id}`} style={{ color: 'var(--text-primary)', textDecoration: 'none', fontSize: 13, fontWeight: 500 }}>{a.original_filename}</a>
+              <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>
                 {ATTACHMENT_CATEGORY_LABELS[a.category]} · {formatBytes(a.size_bytes)} · {a.uploaded_by_name ?? 'Unknown'} · {formatCommercialDate(a.created_at)}
               </div>
             </div>
@@ -423,9 +423,9 @@ export default function SupplierBillDetailPage() {
             </div>
             <div>
               <label style={lbl}>File</label>
-              <input type="file" onChange={e => setUploadFile(e.target.files?.[0] ?? null)} style={{ fontSize: 13, color: '#9ca3af' }} />
+              <input type="file" onChange={e => setUploadFile(e.target.files?.[0] ?? null)} style={{ fontSize: 13, color: 'var(--text-secondary)' }} />
             </div>
-            <button type="submit" disabled={uploadBusy} style={actionBtn('#1a6aff')}>{uploadBusy ? 'Uploading…' : '+ Attach Document'}</button>
+            <button type="submit" disabled={uploadBusy} style={actionBtn('var(--purple-600)')}>{uploadBusy ? 'Uploading…' : '+ Attach Document'}</button>
           </form>
         )}
         {uploadError && <div style={{ color: '#f87171', fontSize: 12, marginTop: 8 }}>{uploadError}</div>}
@@ -437,16 +437,16 @@ export default function SupplierBillDetailPage() {
 function Row({ label, value }: { label: string; value: string }) {
   return (
     <div style={{ marginBottom: 12 }}>
-      <div style={{ fontSize: 11, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 3 }}>{label}</div>
-      <div style={{ fontSize: 14, color: '#f9fafb' }}>{value}</div>
+      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 3 }}>{label}</div>
+      <div style={{ fontSize: 14, color: 'var(--text-primary)' }}>{value}</div>
     </div>
   );
 }
 
 const panel: React.CSSProperties = { background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: 20 };
-const th: React.CSSProperties = { padding: '8px 8px', textAlign: 'left', color: '#6b7280', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' };
-const td: React.CSSProperties = { padding: '10px 8px', fontSize: 13, color: '#9ca3af' };
-const empty: React.CSSProperties = { padding: '20px 8px', textAlign: 'center', color: '#4b5563', fontSize: 13 };
-const lbl: React.CSSProperties = { display: 'block', fontSize: 11, fontWeight: 600, color: '#9ca3af', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.04em' };
-const sel: React.CSSProperties = { width: '100%', padding: '8px 10px', background: '#07080B', border: `1px solid ${BORDER}`, borderRadius: 7, color: '#f9fafb', fontSize: 13, boxSizing: 'border-box' };
+const th: React.CSSProperties = { padding: '8px 8px', textAlign: 'left', color: 'var(--text-secondary)', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' };
+const td: React.CSSProperties = { padding: '10px 8px', fontSize: 13, color: 'var(--text-secondary)' };
+const empty: React.CSSProperties = { padding: '20px 8px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 };
+const lbl: React.CSSProperties = { display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.04em' };
+const sel: React.CSSProperties = { width: '100%', padding: '8px 10px', background: 'var(--bg-base)', border: `1px solid ${BORDER}`, borderRadius: 7, color: 'var(--text-primary)', fontSize: 13, boxSizing: 'border-box' };
 function actionBtn(bg: string): React.CSSProperties { return { padding: '8px 14px', background: bg, color: '#fff', border: 'none', borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: 'pointer' }; }

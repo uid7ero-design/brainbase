@@ -40,16 +40,7 @@ describe('B.2 shared Ops sidebar shell design-system migration', () => {
       expect(sidebar).toContain(token)
     }
 
-    for (const token of [
-      '--bb-canvas',
-      '--bb-font-sans',
-      '--bb-accent-600',
-      '--bb-accent-500',
-      '--bb-duration-panel',
-      '--bb-ease-standard',
-      '--bb-z-header',
-      '--bb-z-raised',
-    ]) {
+    for (const token of ['var(--bg-base)', 'var(--font-inter)', 't.pageBg']) {
       expect(shell).toContain(token)
     }
   })
@@ -150,7 +141,8 @@ describe('B.2 shared Ops sidebar shell design-system migration', () => {
     }
 
     expect(shell).toContain('ws-breathe')
-    expect(shell).toContain('radial-gradient')
-    expect(shell).toContain("backgroundSize: '48px 48px'")
+    expect(shell).toContain('Calm engineering grid')
+    expect(shell).not.toContain('radial-gradient')
+    expect(shell).toContain("backgroundSize: '32px 32px'")
   })
 })

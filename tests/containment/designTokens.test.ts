@@ -92,16 +92,16 @@ describe('BrainBase canonical design tokens', () => {
   })
 
   it('keeps brand gradients and hierarchy explicit rather than page-local', () => {
-    expect(rootBlock).toContain('--bb-gradient-accent: linear-gradient(100deg, #6A3DFF 0%, #8A4DFF 55%, #5677FF 100%)')
-    expect(rootBlock).toContain('--bb-gradient-display: linear-gradient(100deg, #8A4DFF 0%, #A78BFA 46%, #5C7CFF 100%)')
-    expect(rootBlock).toContain('--bb-text-primary: #F5F7FA')
-    expect(lightBlock).toContain('--bb-text-primary: #15161A')
+    expect(rootBlock).toContain('--bb-gradient-accent: linear-gradient(100deg, #6D4CD6 0%, #9B7BFF 55%, #5677FF 100%)')
+    expect(rootBlock).toContain('--bb-gradient-display: linear-gradient(100deg, #7A59E6 0%, #9B7BFF 46%, #5677FF 100%)')
+    expect(rootBlock).toContain('--bb-text-primary: #F3EEE6')
+    expect(lightBlock).toContain('--bb-text-primary: #15171B')
   })
 
   it('keeps interaction motion short and separates data-visualisation colours from status colours', () => {
     expect(rootBlock).toContain('--bb-duration-fast: 140ms')
     expect(rootBlock).toContain('--bb-duration-base: 180ms')
-    expect(rootBlock).toContain('--bb-chart-1: #8A4DFF')
+    expect(rootBlock).toContain('--bb-chart-1: #7A59E6')
     expect(rootBlock).toContain('--bb-success: #22C55E')
   })
 })

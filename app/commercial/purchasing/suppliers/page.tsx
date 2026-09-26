@@ -4,7 +4,7 @@ import Link from 'next/link';
 import SlidePanel from '../../_components/SlidePanel';
 import SupplierForm from '../../_components/SupplierForm';
 
-const CARD = '#0e1014'; const BORDER = '#1a1d24';
+const CARD = 'var(--bg-surface)'; const BORDER = 'var(--border)';
 
 type Supplier = {
   id: string; name: string; contact_name: string | null; email: string | null; phone: string | null;
@@ -50,16 +50,16 @@ export default function SuppliersPage() {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em', margin: 0 }}>Suppliers</h1>
-          <p style={{ color: '#6b7280', fontSize: 13, margin: '4px 0 0' }}>{suppliers.length} total</p>
+          <p style={{ color: 'var(--text-secondary)', fontSize: 13, margin: '4px 0 0' }}>{suppliers.length} total</p>
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
           <input
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="Search…"
-            style={{ padding: '8px 12px', background: CARD, border: `1px solid ${BORDER}`, borderRadius: 8, color: '#f9fafb', fontSize: 13, outline: 'none', width: 200 }}
+            style={{ padding: '8px 12px', background: CARD, border: `1px solid ${BORDER}`, borderRadius: 8, color: 'var(--text-primary)', fontSize: 13, outline: 'none', width: 200 }}
           />
-          <button onClick={() => setShowAdd(true)} style={btn('#1a6aff')}>+ Add Supplier</button>
+          <button onClick={() => setShowAdd(true)} style={btn('var(--purple-600)')}>+ Add Supplier</button>
         </div>
       </div>
 
@@ -78,20 +78,20 @@ export default function SuppliersPage() {
             {filtered.map((s, i) => (
               <tr key={s.id} style={{ borderBottom: i < filtered.length - 1 ? `1px solid ${BORDER}` : 'none', opacity: s.active ? 1 : 0.5 }}>
                 <td style={{ padding: '13px 16px' }}>
-                  <Link href={`/commercial/purchasing/suppliers/${s.id}`} style={{ color: '#f9fafb', textDecoration: 'none', fontWeight: 500, fontSize: 14 }}>{s.name}</Link>
+                  <Link href={`/commercial/purchasing/suppliers/${s.id}`} style={{ color: 'var(--text-primary)', textDecoration: 'none', fontWeight: 500, fontSize: 14 }}>{s.name}</Link>
                 </td>
                 <td style={td}>{s.contact_name ?? <Dim>—</Dim>}</td>
                 <td style={td}>{s.email ?? <Dim>—</Dim>}</td>
                 <td style={td}>{s.phone ?? <Dim>—</Dim>}</td>
                 <td style={td}>{s.supplier_reference ?? <Dim>—</Dim>}</td>
                 <td style={td}>
-                  <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 4, textTransform: 'uppercase', letterSpacing: '0.04em', color: s.active ? '#4ade80' : '#9ca3af', background: s.active ? 'rgba(74,222,128,0.1)' : 'rgba(156,163,175,0.1)' }}>
+                  <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 4, textTransform: 'uppercase', letterSpacing: '0.04em', color: s.active ? '#4ade80' : 'var(--text-secondary)', background: s.active ? 'rgba(74,222,128,0.1)' : 'rgba(156,163,175,0.1)' }}>
                     {s.active ? 'Active' : 'Inactive'}
                   </span>
                 </td>
                 <td style={{ padding: '13px 16px', display: 'flex', gap: 12 }}>
-                  <Link href={`/commercial/purchasing/suppliers/${s.id}`} style={{ fontSize: 12, color: '#6b7280', textDecoration: 'none' }}>View →</Link>
-                  <button onClick={() => toggleActive(s)} style={{ background: 'none', border: 'none', color: '#6b7280', fontSize: 12, cursor: 'pointer', padding: 0 }}>
+                  <Link href={`/commercial/purchasing/suppliers/${s.id}`} style={{ fontSize: 12, color: 'var(--text-secondary)', textDecoration: 'none' }}>View →</Link>
+                  <button onClick={() => toggleActive(s)} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 12, cursor: 'pointer', padding: 0 }}>
                     {s.active ? 'Deactivate' : 'Reactivate'}
                   </button>
                 </td>
@@ -109,10 +109,10 @@ export default function SuppliersPage() {
 }
 
 function Dim({ children }: { children: React.ReactNode }) {
-  return <span style={{ color: '#4b5563' }}>{children}</span>;
+  return <span style={{ color: 'var(--text-muted)' }}>{children}</span>;
 }
 
-const th: React.CSSProperties = { padding: '11px 16px', textAlign: 'left', color: '#6b7280', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' };
-const td: React.CSSProperties = { padding: '13px 16px', fontSize: 13, color: '#9ca3af' };
-const empty: React.CSSProperties = { padding: '36px 16px', textAlign: 'center', color: '#4b5563', fontSize: 14 };
+const th: React.CSSProperties = { padding: '11px 16px', textAlign: 'left', color: 'var(--text-secondary)', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' };
+const td: React.CSSProperties = { padding: '13px 16px', fontSize: 13, color: 'var(--text-secondary)' };
+const empty: React.CSSProperties = { padding: '36px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 14 };
 function btn(bg: string): React.CSSProperties { return { padding: '8px 16px', background: bg, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }; }

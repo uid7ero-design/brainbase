@@ -3,9 +3,9 @@
 import Link from 'next/link';
 import { use, useEffect, useMemo, useState } from 'react';
 
-const CARD = '#0e1014';
-const BORDER = '#1a1d24';
-const MUTED = '#6b7280';
+const CARD = 'var(--bg-surface)';
+const BORDER = 'var(--border)';
+const MUTED = 'var(--text-secondary)';
 
 type RestrictedCase = {
   id: string;
@@ -91,7 +91,7 @@ export default function RestrictedCaseDetailPage({ params }: { params: Promise<{
         <div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 7 }}>
             <span style={pill}>{caseRecord.case_type}</span>
-            <span style={{ ...pill, color: caseRecord.status === 'open' ? '#6ee7b7' : '#9ca3af' }}>{caseRecord.status}</span>
+            <span style={{ ...pill, color: caseRecord.status === 'open' ? '#6ee7b7' : 'var(--text-secondary)' }}>{caseRecord.status}</span>
           </div>
           <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0, letterSpacing: '-0.02em' }}>{caseRecord.title}</h1>
           <p style={{ color: MUTED, fontSize: 13, margin: '6px 0 0' }}>
@@ -171,7 +171,7 @@ function ParticipantSection({ caseId, participants, people, personNames, canMana
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {participants.map(item => (
           <div key={item.id} style={rowBox}>
-            <div><div style={{ color: '#f9fafb', fontSize: 13, fontWeight: 600 }}>{personNames.get(item.person_id) ?? item.person_id}</div><div style={{ ...mutedText, marginTop: 2, textTransform: 'capitalize' }}>{item.role_in_case}</div></div>
+            <div><div style={{ color: 'var(--text-primary)', fontSize: 13, fontWeight: 600 }}>{personNames.get(item.person_id) ?? item.person_id}</div><div style={{ ...mutedText, marginTop: 2, textTransform: 'capitalize' }}>{item.role_in_case}</div></div>
             {canManage && <button onClick={() => remove(item.person_id)} style={dangerLink}>Remove</button>}
           </div>
         ))}
@@ -282,7 +282,7 @@ function DocumentSection({ caseId, documents, onChanged, onError }: { caseId: st
       </div>
     )}
     <div style={{ ...formRow, marginTop: 14 }}>
-      <input type="file" onChange={event => setFile(event.target.files?.[0] ?? null)} style={{ color: '#9ca3af', fontSize: 12, flex: 1 }} />
+      <input type="file" onChange={event => setFile(event.target.files?.[0] ?? null)} style={{ color: 'var(--text-secondary)', fontSize: 12, flex: 1 }} />
       <button disabled={!file || uploading} onClick={upload} style={smallButton}>{uploading ? 'Uploading…' : 'Upload'}</button>
     </div>
   </>;
@@ -294,16 +294,16 @@ function formatBytes(value: number) { if (value < 1024) return `${value} B`; if 
 
 const grid: React.CSSProperties = { display: 'grid', gridTemplateColumns: 'minmax(0,1.2fr) minmax(300px,.8fr)', gap: 18, marginTop: 22 };
 const panel: React.CSSProperties = { background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: 18 };
-const sectionTitle: React.CSSProperties = { fontSize: 14, fontWeight: 700, color: '#f9fafb', margin: '0 0 12px' };
+const sectionTitle: React.CSSProperties = { fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 12px' };
 const mutedText: React.CSSProperties = { color: MUTED, fontSize: 12, margin: 0, lineHeight: 1.45 };
-const rowBox: React.CSSProperties = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, padding: '10px 12px', border: `1px solid ${BORDER}`, borderRadius: 8, background: '#0b0d11' };
-const noteBox: React.CSSProperties = { padding: '12px 14px', border: `1px solid ${BORDER}`, borderRadius: 8, background: '#0b0d11' };
+const rowBox: React.CSSProperties = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, padding: '10px 12px', border: `1px solid ${BORDER}`, borderRadius: 8, background: 'var(--bg-raised)' };
+const noteBox: React.CSSProperties = { padding: '12px 14px', border: `1px solid ${BORDER}`, borderRadius: 8, background: 'var(--bg-raised)' };
 const formRow: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 8 };
-const selectStyle: React.CSSProperties = { flex: 1, minWidth: 0, padding: '8px 10px', background: '#111318', border: `1px solid ${BORDER}`, borderRadius: 8, color: '#f9fafb', fontSize: 12, outline: 'none' };
-const smallButton: React.CSSProperties = { padding: '8px 12px', background: '#1a6aff', color: '#fff', border: 'none', borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: 'pointer' };
+const selectStyle: React.CSSProperties = { flex: 1, minWidth: 0, padding: '8px 10px', background: 'var(--bg-raised)', border: `1px solid ${BORDER}`, borderRadius: 8, color: 'var(--text-primary)', fontSize: 12, outline: 'none' };
+const smallButton: React.CSSProperties = { padding: '8px 12px', background: 'var(--purple-600)', color: '#fff', border: 'none', borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: 'pointer' };
 const secondaryButton: React.CSSProperties = { ...smallButton, background: 'transparent', border: `1px solid ${BORDER}`, color: '#d1d5db' };
 const dangerLink: React.CSSProperties = { background: 'none', border: 'none', color: '#f87171', fontSize: 12, cursor: 'pointer', padding: 4 };
-const pill: React.CSSProperties = { display: 'inline-block', padding: '3px 8px', borderRadius: 999, background: 'rgba(255,255,255,.06)', color: '#9ca3af', fontSize: 11, textTransform: 'capitalize' };
+const pill: React.CSSProperties = { display: 'inline-block', padding: '3px 8px', borderRadius: 999, background: 'rgba(255,255,255,.06)', color: 'var(--text-secondary)', fontSize: 11, textTransform: 'capitalize' };
 const backLink: React.CSSProperties = { color: MUTED, fontSize: 12, textDecoration: 'none' };
 const empty: React.CSSProperties = { color: MUTED, fontSize: 14, padding: '28px 0' };
 const errorText: React.CSSProperties = { color: '#f87171', fontSize: 13, margin: '14px 0 0' };

@@ -308,7 +308,8 @@ describe('Pre-push correction — checkout success no longer humanizes the routi
 
   it('when identity has not resolved, checkout success falls back to the same plain BrainBase header the default variant already uses — never a blank or slug-derived header', () => {
     const fallbackHeaderRegion = successSource.slice(successSource.indexOf(') : ('), successSource.indexOf('</header>'))
-    expect(fallbackHeaderRegion).toContain('brainbase-logo-dark.svg')
+    expect(fallbackHeaderRegion).toContain('<BrainbaseLockup')
+    expect(fallbackHeaderRegion).toContain('title="BrainBase"')
   })
 })
 

@@ -19,7 +19,8 @@ type Session = {
   dashboardVariant?: 'ld-tennis' | 'brainbase-hq' | null;
 } | null;
 
-const FONT = 'var(--bb-font-sans)';
+const FONT =
+  'var(--font-inter), "Inter", -apple-system, sans-serif';
 
 // ─── Shared pill nav item ────────────────────────────────────────────────────
 
@@ -47,26 +48,26 @@ function NavItem({
       style={{
         display: 'flex',
         alignItems: 'center',
-        gap: 'var(--bb-space-3)',
-        fontSize: 'var(--bb-type-body-size)',
+        gap: 6,
+        fontSize: 13,
         fontWeight: 500,
         letterSpacing: '-0.01em',
         padding: '5px 10px',
-        borderRadius: 'var(--bb-radius-md)',
+        borderRadius: 7,
         textDecoration: 'none',
         color: active
-          ? 'var(--bb-accent-300)'
-          : 'var(--bb-text-tertiary)',
+          ? 'var(--purple-300)'
+          : 'var(--text-secondary)',
         background: active
-          ? 'var(--bb-surface-selected)'
+          ? 'rgba(155,123,255,.10)'
           : 'transparent',
         border: `1px solid ${
           active
-            ? 'var(--bb-border-accent)'
+            ? 'rgba(155,123,255,.24)'
             : 'transparent'
         }`,
         transition:
-          'color var(--bb-duration-fast), background var(--bb-duration-fast), border-color var(--bb-duration-fast)',
+          'color .14s, background .14s, border-color .14s',
         whiteSpace: 'nowrap',
         flexShrink: 0,
       }}
@@ -74,16 +75,16 @@ function NavItem({
         if (active) return;
 
         e.currentTarget.style.color =
-          'var(--bb-text-primary)';
+          'var(--text-primary)';
 
         e.currentTarget.style.background =
-          'var(--bb-surface-hover)';
+          'var(--bg-raised)';
       }}
       onMouseLeave={e => {
         if (active) return;
 
         e.currentTarget.style.color =
-          'var(--bb-text-tertiary)';
+          'var(--text-secondary)';
 
         e.currentTarget.style.background =
           'transparent';
@@ -117,95 +118,31 @@ function HlnaItem({
       style={{
         display: 'flex',
         alignItems: 'center',
-        padding: '5px 11px',
-        borderRadius: 'var(--bb-radius-md)',
+        padding: '5px 10px',
+        borderRadius: 6,
         textDecoration: 'none',
+        color: active
+          ? 'var(--purple-300)'
+          : 'var(--text-secondary)',
         background: active
-          ? 'var(--bb-surface-selected)'
+          ? 'rgba(155,123,255,.10)'
           : 'transparent',
         border: `1px solid ${
           active
-            ? 'var(--bb-border-accent)'
+            ? 'rgba(155,123,255,.24)'
             : 'transparent'
         }`,
-        boxShadow: active
-          ? 'var(--bb-glow-accent-sm)'
-          : 'none',
-        transition: 'all var(--bb-duration-base) var(--bb-ease-standard)',
+        transition:
+          'color .14s, background .14s, border-color .14s',
         flexShrink: 0,
-      }}
-      onMouseEnter={e => {
-        if (active) return;
-
-        e.currentTarget.style.background =
-          'var(--bb-accent-softer)';
-
-        e.currentTarget.style.borderColor =
-          'var(--bb-border-accent)';
-      }}
-      onMouseLeave={e => {
-        if (active) return;
-
-        e.currentTarget.style.background =
-          'transparent';
-
-        e.currentTarget.style.borderColor =
-          'transparent';
+        fontFamily:
+          'var(--font-geist-mono), ui-monospace, monospace',
+        fontSize: 11,
+        fontWeight: 600,
+        letterSpacing: '.12em',
       }}
     >
-      <svg
-        width="46"
-        height="14"
-        viewBox="0 0 211 62"
-        style={{
-          display: 'block',
-          filter: active
-            ? 'drop-shadow(0 0 7px rgba(167,139,250,.60))'
-            : 'none',
-          opacity: active ? 1 : 0.6,
-          transition:
-            'filter var(--bb-duration-base), opacity var(--bb-duration-base)',
-        }}
-        aria-label="HLNA"
-      >
-        <g fill="rgba(245,247,250,0.95)">
-          <path d="M28.59 48L21.81 48L21.81 10.17L28.59 10.17L28.59 25.81L46.18 25.81L46.18 10.17L52.96 10.17L52.96 48L46.18 48L46.18 31.52L28.59 31.52L28.59 48Z" />
-
-          <path d="M93.07 48L69.58 48L69.58 10.17L76.36 10.17L76.36 42.29L93.07 42.29L93.07 48Z" />
-
-          <path d="M114.89 48L107.98 48L107.98 10.17L115.65 10.17L128.73 31.01Q129.54 32.31 130.45 33.95Q131.37 35.58 132.36 37.59L132.36 37.59Q132.87 38.66 133.37 39.80L133.37 39.80Q133.30 38.76 133.25 37.69L133.25 37.69Q133.09 35.46 133.03 33.44Q132.97 31.42 132.97 30.02L132.97 30.02L132.97 10.17L139.85 10.17L139.85 48L132.15 48L120.35 29.24Q119.23 27.43 118.24 25.68Q117.25 23.93 116.11 21.72L116.11 21.72Q115.37 20.27 114.41 18.47L114.41 18.47Q114.51 20.10 114.58 21.62L114.58 21.62Q114.71 24.11 114.80 26.06Q114.89 28.02 114.89 29.21L114.89 29.21L114.89 48Z" />
-        </g>
-
-        <path
-          d="M 153,48 L 172,7 L 191,48"
-          fill="none"
-          stroke="url(#tnav-lg)"
-          strokeWidth="8"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-
-        <defs>
-          <linearGradient
-            id="tnav-lg"
-            gradientUnits="userSpaceOnUse"
-            x1="172"
-            y1="48"
-            x2="172"
-            y2="7"
-          >
-            <stop
-              offset="0%"
-              stopColor="#6D28D9"
-            />
-
-            <stop
-              offset="100%"
-              stopColor="#C084FC"
-            />
-          </linearGradient>
-        </defs>
-      </svg>
+      HLNA
     </Link>
   );
 }
@@ -334,35 +271,35 @@ function OpsDropdown({
         style={{
           display: 'flex',
           alignItems: 'center',
-          gap: 'var(--bb-space-2)',
-          fontSize: 'var(--bb-type-body-size)',
+          gap: 5,
+          fontSize: 13,
           fontWeight: 500,
           letterSpacing: '-0.01em',
           padding: '5px 10px',
-          borderRadius: 'var(--bb-radius-md)',
+          borderRadius: 7,
 
           color: isActive
-            ? 'var(--bb-accent-300)'
+            ? 'var(--brand-brainbase-accent)'
             : open
-              ? 'var(--bb-text-primary)'
-              : 'var(--bb-text-tertiary)',
+              ? 'var(--text-primary)'
+              : 'var(--text-secondary)',
 
           background: isActive
-            ? 'var(--bb-surface-selected)'
+            ? 'color-mix(in srgb, var(--brand-brainbase-accent) 10%, transparent)'
             : open
-              ? 'var(--bb-surface-hover)'
+              ? 'var(--bg-raised)'
               : 'transparent',
 
           border: `1px solid ${
             isActive
-              ? 'var(--bb-border-accent)'
+              ? 'color-mix(in srgb, var(--brand-brainbase-accent) 24%, transparent)'
               : 'transparent'
           }`,
 
           cursor: 'pointer',
           fontFamily: FONT,
           transition:
-            'color var(--bb-duration-fast), background var(--bb-duration-fast)',
+            'color .14s, background .14s',
           whiteSpace: 'nowrap',
         }}
       >
@@ -379,7 +316,7 @@ function OpsDropdown({
               ? 'rotate(180deg)'
               : 'rotate(0deg)',
             transition:
-              'transform var(--bb-duration-base)',
+              'transform .18s',
           }}
         >
           <path
@@ -405,14 +342,15 @@ function OpsDropdown({
             top: coords.top,
             left: coords.left,
             background:
-              'var(--bb-surface-3)',
+              'var(--bg-overlay)',
             border:
-              '1px solid var(--bb-border-default)',
-            borderRadius: 'var(--bb-radius-lg)',
+              '1px solid var(--border)',
+            borderRadius: 11,
             padding: 5,
             minWidth: 220,
-            boxShadow: 'var(--bb-shadow-float)',
-            zIndex: 'var(--bb-z-drawer)',
+            boxShadow:
+              '0 12px 40px rgba(0,0,0,.28), 0 0 0 1px var(--border-light)',
+            zIndex: 200,
           }}
         >
           <div
@@ -423,9 +361,9 @@ function OpsDropdown({
               width: 8,
               height: 8,
               background:
-                'var(--bb-surface-3)',
+                'var(--bg-overlay)',
               border:
-                '1px solid var(--bb-border-default)',
+                '1px solid var(--border)',
               borderRight: 'none',
               borderBottom: 'none',
               transform:
@@ -450,20 +388,20 @@ function OpsDropdown({
                   gap: 2,
                   padding:
                     '9px 13px',
-                  borderRadius: 'var(--bb-radius-md)',
+                  borderRadius: 8,
                   textDecoration:
                     'none',
                   background:
                     itemActive
-                      ? 'var(--bb-surface-selected)'
+                      ? 'color-mix(in srgb, var(--brand-brainbase-accent) 10%, transparent)'
                       : 'transparent',
                   transition:
-                    'background var(--bb-duration-fast)',
+                    'background .12s',
                 }}
                 onMouseEnter={e => {
                   if (!itemActive) {
                     e.currentTarget.style.background =
-                      'var(--bb-surface-hover)';
+                      'var(--bg-raised)';
                   }
                 }}
                 onMouseLeave={e => {
@@ -475,14 +413,14 @@ function OpsDropdown({
               >
                 <span
                   style={{
-                    fontSize: 'var(--bb-type-body-size)',
+                    fontSize: 13,
                     fontWeight: 500,
                     letterSpacing:
                       '-0.01em',
                     color:
                       itemActive
-                        ? 'var(--bb-accent-300)'
-                        : 'var(--bb-text-primary)',
+                        ? 'var(--brand-brainbase-accent)'
+                        : 'var(--text-primary)',
                   }}
                 >
                   {item.label}
@@ -492,7 +430,7 @@ function OpsDropdown({
                   style={{
                     fontSize: 11,
                     color:
-                      'var(--bb-text-muted)',
+                      'var(--text-muted)',
                     lineHeight: 1.4,
                   }}
                 >
@@ -506,7 +444,7 @@ function OpsDropdown({
             style={{
               height: 1,
               background:
-                'var(--bb-border-subtle)',
+                'var(--border)',
               margin:
                 '4px 4px 3px',
             }}
@@ -521,14 +459,14 @@ function OpsDropdown({
                 'space-between',
               padding:
                 '8px 13px',
-              borderRadius: 'var(--bb-radius-md)',
+              borderRadius: 8,
               textDecoration: 'none',
               transition:
-                'background var(--bb-duration-fast)',
+                'background .12s',
             }}
             onMouseEnter={e => {
               e.currentTarget.style.background =
-                'var(--bb-surface-hover)';
+                'var(--bg-raised)';
             }}
             onMouseLeave={e => {
               e.currentTarget.style.background =
@@ -540,7 +478,7 @@ function OpsDropdown({
                 fontSize: 12,
                 fontWeight: 500,
                 color:
-                  'var(--bb-text-tertiary)',
+                  'var(--text-secondary)',
                 letterSpacing:
                   '-0.01em',
               }}
@@ -552,7 +490,7 @@ function OpsDropdown({
               style={{
                 fontSize: 11,
                 color:
-                  'var(--bb-text-disabled)',
+                  'var(--text-muted)',
               }}
             >
               →
@@ -672,35 +610,35 @@ function AdminDropdown({
         style={{
           display: 'flex',
           alignItems: 'center',
-          gap: 'var(--bb-space-2)',
-          fontSize: 'var(--bb-type-body-size)',
+          gap: 5,
+          fontSize: 13,
           fontWeight: 500,
           letterSpacing: '-0.01em',
           padding: '5px 10px',
-          borderRadius: 'var(--bb-radius-md)',
+          borderRadius: 7,
 
           color: isActive
-            ? 'var(--bb-accent-300)'
+            ? 'var(--brand-brainbase-accent)'
             : open
-              ? 'var(--bb-text-primary)'
-              : 'var(--bb-text-tertiary)',
+              ? 'var(--text-primary)'
+              : 'var(--text-secondary)',
 
           background: isActive
-            ? 'var(--bb-surface-selected)'
+            ? 'color-mix(in srgb, var(--brand-brainbase-accent) 10%, transparent)'
             : open
-              ? 'var(--bb-surface-hover)'
+              ? 'var(--bg-raised)'
               : 'transparent',
 
           border: `1px solid ${
             isActive
-              ? 'var(--bb-border-accent)'
+              ? 'color-mix(in srgb, var(--brand-brainbase-accent) 24%, transparent)'
               : 'transparent'
           }`,
 
           cursor: 'pointer',
           fontFamily: FONT,
           transition:
-            'color var(--bb-duration-fast), background var(--bb-duration-fast)',
+            'color .14s, background .14s',
           whiteSpace: 'nowrap',
         }}
       >
@@ -717,7 +655,7 @@ function AdminDropdown({
               ? 'rotate(180deg)'
               : 'rotate(0deg)',
             transition:
-              'transform var(--bb-duration-base)',
+              'transform .18s',
           }}
         >
           <path
@@ -743,14 +681,15 @@ function AdminDropdown({
             top: coords.top,
             left: coords.left,
             background:
-              'var(--bb-surface-3)',
+              'var(--bg-overlay)',
             border:
-              '1px solid var(--bb-border-default)',
-            borderRadius: 'var(--bb-radius-lg)',
+              '1px solid var(--border)',
+            borderRadius: 11,
             padding: 5,
             minWidth: 220,
-            boxShadow: 'var(--bb-shadow-float)',
-            zIndex: 'var(--bb-z-drawer)',
+            boxShadow:
+              '0 12px 40px rgba(0,0,0,.28), 0 0 0 1px var(--border-light)',
+            zIndex: 200,
           }}
         >
           <div
@@ -761,9 +700,9 @@ function AdminDropdown({
               width: 8,
               height: 8,
               background:
-                'var(--bb-surface-3)',
+                'var(--bg-overlay)',
               border:
-                '1px solid var(--bb-border-default)',
+                '1px solid var(--border)',
               borderRight: 'none',
               borderBottom: 'none',
               transform:
@@ -788,20 +727,20 @@ function AdminDropdown({
                   gap: 2,
                   padding:
                     '9px 13px',
-                  borderRadius: 'var(--bb-radius-md)',
+                  borderRadius: 8,
                   textDecoration:
                     'none',
                   background:
                     itemActive
-                      ? 'var(--bb-surface-selected)'
+                      ? 'color-mix(in srgb, var(--brand-brainbase-accent) 10%, transparent)'
                       : 'transparent',
                   transition:
-                    'background var(--bb-duration-fast)',
+                    'background .12s',
                 }}
                 onMouseEnter={e => {
                   if (!itemActive) {
                     e.currentTarget.style.background =
-                      'var(--bb-surface-hover)';
+                      'var(--bg-raised)';
                   }
                 }}
                 onMouseLeave={e => {
@@ -813,14 +752,14 @@ function AdminDropdown({
               >
                 <span
                   style={{
-                    fontSize: 'var(--bb-type-body-size)',
+                    fontSize: 13,
                     fontWeight: 500,
                     letterSpacing:
                       '-0.01em',
                     color:
                       itemActive
-                        ? 'var(--bb-accent-300)'
-                        : 'var(--bb-text-primary)',
+                        ? 'var(--brand-brainbase-accent)'
+                        : 'var(--text-primary)',
                   }}
                 >
                   {item.label}
@@ -830,7 +769,7 @@ function AdminDropdown({
                   style={{
                     fontSize: 11,
                     color:
-                      'var(--bb-text-muted)',
+                      'var(--text-muted)',
                     lineHeight: 1.4,
                   }}
                 >
@@ -889,92 +828,30 @@ function SquadItem({
       style={{
         display: 'flex',
         alignItems: 'center',
-        fontSize: 'var(--bb-type-body-size)',
+        fontSize: 13,
         fontWeight: 500,
         letterSpacing: '-0.01em',
         padding: '5px 10px',
-        borderRadius: 'var(--bb-radius-md)',
+        borderRadius: 6,
         textDecoration: 'none',
         color: active
-          ? 'var(--bb-accent-300)'
-          : 'var(--bb-text-tertiary)',
+          ? 'var(--purple-300)'
+          : 'var(--text-secondary)',
         background: active
-          ? 'var(--bb-surface-selected)'
+          ? 'rgba(155,123,255,.10)'
           : 'transparent',
         border: `1px solid ${
           active
-            ? 'var(--bb-border-accent)'
+            ? 'rgba(155,123,255,.24)'
             : 'transparent'
         }`,
         transition:
-          'color var(--bb-duration-fast), background var(--bb-duration-fast), border-color var(--bb-duration-fast)',
+          'color .14s, background .14s, border-color .14s',
         whiteSpace: 'nowrap',
         flexShrink: 0,
       }}
-      onMouseEnter={e => {
-        if (active) return;
-
-        e.currentTarget.style.color =
-          'var(--bb-text-primary)';
-
-        e.currentTarget.style.background =
-          'var(--bb-surface-hover)';
-      }}
-      onMouseLeave={e => {
-        if (active) return;
-
-        e.currentTarget.style.color =
-          'var(--bb-text-tertiary)';
-
-        e.currentTarget.style.background =
-          'transparent';
-      }}
     >
-      {'Squ'}
-
-      <svg
-        width="9"
-        height="11"
-        viewBox="153 7 38 41"
-        style={{
-          display: 'inline',
-          verticalAlign: 'middle',
-          margin: '0 1px',
-          flexShrink: 0,
-        }}
-      >
-        <defs>
-          <linearGradient
-            id="squad-lg"
-            gradientUnits="userSpaceOnUse"
-            x1="172"
-            y1="48"
-            x2="172"
-            y2="7"
-          >
-            <stop
-              offset="0%"
-              stopColor="#6D28D9"
-            />
-
-            <stop
-              offset="100%"
-              stopColor="#C084FC"
-            />
-          </linearGradient>
-        </defs>
-
-        <path
-          d="M 153,48 L 172,7 L 191,48"
-          fill="none"
-          stroke="url(#squad-lg)"
-          strokeWidth="8"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </svg>
-
-      {'d'}
+      Squad
     </Link>
   );
 }
@@ -988,7 +865,7 @@ function Divider() {
         width: 1,
         height: 16,
         background:
-          'var(--bb-border-default)',
+          'var(--border)',
         flexShrink: 0,
       }}
     />
@@ -1050,7 +927,7 @@ function Clock() {
         alignItems: 'center',
         gap: 7,
         fontFamily:
-          'var(--bb-font-mono)',
+          'var(--font-geist-mono,"Geist Mono",monospace)',
         flexShrink: 0,
       }}
     >
@@ -1059,7 +936,7 @@ function Clock() {
           fontSize: 12,
           fontWeight: 600,
           color:
-            'var(--bb-text-secondary)',
+            'var(--text-secondary)',
           letterSpacing: '.04em',
         }}
       >
@@ -1070,7 +947,7 @@ function Clock() {
         style={{
           fontSize: 10,
           color:
-            'var(--bb-text-disabled)',
+            'rgba(255,255,255,.22)',
           letterSpacing: '.04em',
         }}
       >
@@ -1230,17 +1107,15 @@ function AppNav({
         alignItems: 'center',
         padding: '0 20px',
         borderBottom:
-          '1px solid var(--bb-border-subtle)',
+          '1px solid var(--border)',
         background:
-          'var(--bb-shell-header)',
-        backdropFilter:
-          'blur(var(--bb-blur-nav))',
+          'var(--bg-base)',
         position: 'sticky',
         top: 0,
-        zIndex: 'var(--bb-z-header)',
+        zIndex: 100,
         fontFamily: FONT,
         flexShrink: 0,
-        gap: 'var(--bb-space-6)',
+        gap: 16,
       }}
     >
       {/* Left balance spacer */}
@@ -1265,7 +1140,7 @@ function AppNav({
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'flex-start',
-          gap: 'var(--bb-space-1)',
+          gap: 2,
           flex: 1,
           minWidth: 0,
           overflowX: 'auto',
@@ -1683,7 +1558,7 @@ function AppNav({
           alignItems: 'center',
           justifyContent:
             'flex-end',
-          gap: 'var(--bb-space-5)',
+          gap: 10,
           flexShrink: 0,
         }}
       >
@@ -1715,20 +1590,20 @@ function AppNav({
             textDecoration: 'none',
             padding:
               '4px 8px 4px 5px',
-            borderRadius: 'var(--bb-radius-pill)',
-            transition: 'all var(--bb-duration-fast) var(--bb-ease-standard)',
+            borderRadius: 20,
+            transition: 'all .15s',
             background:
               pathname.startsWith(
                 '/account/profile',
               )
-                ? 'var(--bb-surface-selected)'
+                ? 'rgba(167,139,250,.10)'
                 : 'transparent',
 
             border: `1px solid ${
               pathname.startsWith(
                 '/account/profile',
               )
-                ? 'var(--bb-border-accent)'
+                ? 'rgba(167,139,250,.22)'
                 : 'transparent'
             }`,
           }}
@@ -1742,10 +1617,10 @@ function AppNav({
             }
 
             e.currentTarget.style.background =
-              'var(--bb-surface-hover)';
+              'var(--bg-raised)';
 
             e.currentTarget.style.borderColor =
-              'var(--bb-border-default)';
+              'var(--border)';
           }}
           onMouseLeave={e => {
             if (
@@ -1773,7 +1648,7 @@ function AppNav({
               background:
                 avatarUrl
                   ? 'transparent'
-                  : 'var(--bb-gradient-accent)',
+                  : 'var(--purple-600)',
 
               display: 'flex',
               alignItems: 'center',
@@ -1782,7 +1657,7 @@ function AppNav({
 
               fontSize: 10,
               fontWeight: 700,
-              color: 'var(--bb-text-on-accent)',
+              color: '#fff',
               overflow: 'hidden',
               letterSpacing: '.02em',
             }}
@@ -1805,10 +1680,10 @@ function AppNav({
 
           <span
             style={{
-              fontSize: 'var(--bb-type-body-size)',
+              fontSize: 13,
               fontWeight: 500,
               color:
-                'var(--bb-text-secondary)',
+                'var(--text-secondary)',
               whiteSpace: 'nowrap',
             }}
           >
@@ -1830,12 +1705,12 @@ function AppNav({
             <Link
               href="/settings/branding"
               style={{
-                fontSize: 'var(--bb-type-body-size)',
+                fontSize: 13,
                 fontWeight: 500,
                 textDecoration: 'none',
                 padding: '5px 8px',
-                borderRadius: 'var(--bb-radius-md)',
-                color: pathname.startsWith('/settings/branding') ? 'var(--bb-accent-400)' : 'var(--bb-text-tertiary)',
+                borderRadius: 7,
+                color: pathname.startsWith('/settings/branding') ? 'var(--purple-400)' : 'var(--text-secondary)',
               }}
             >
               Branding
@@ -1857,24 +1732,24 @@ function AppNav({
           style={{
             background: 'none',
             border: 'none',
-            fontSize: 'var(--bb-type-body-size)',
+            fontSize: 13,
             fontWeight: 500,
             color:
-              'var(--bb-text-muted)',
+              'var(--text-secondary)',
             cursor: 'pointer',
             fontFamily: FONT,
             padding: '5px 8px',
-            borderRadius: 'var(--bb-radius-md)',
+            borderRadius: 7,
             transition:
-              'color var(--bb-duration-fast)',
+              'color .14s',
           }}
           onMouseEnter={e => {
             e.currentTarget.style.color =
-              'var(--bb-text-secondary)';
+              'var(--text-primary)';
           }}
           onMouseLeave={e => {
             e.currentTarget.style.color =
-              'var(--bb-text-muted)';
+              'var(--text-secondary)';
           }}
         >
           Sign out

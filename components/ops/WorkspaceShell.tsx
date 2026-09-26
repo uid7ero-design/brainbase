@@ -62,7 +62,7 @@ export default function WorkspaceShell({
     // (set synchronously by the blocking theme script in <head>) since the
     // theme context itself isn't meaningful until this component mounts.
     return (
-      <div style={{ position: 'fixed', inset: 0, background: 'var(--bb-canvas)' }} />
+      <div style={{ position: 'fixed', inset: 0, background: 'var(--bg-base)' }} />
     );
   }
 
@@ -75,63 +75,36 @@ export default function WorkspaceShell({
         * { box-sizing: border-box; }
         ::-webkit-scrollbar       { width: 3px; height: 3px; }
         ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--bb-text-primary) 9%, transparent); border-radius: 3px; }
-        ::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--bb-text-primary) 18%, transparent); }
+        ::-webkit-scrollbar-thumb { background: ${t.ink(.09)}; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: ${t.ink(.18)}; }
       `}} />
 
       <div style={{
         // Phase D.4.5C-W2 — shared --app-header-offset custom property
         // (lib/layout/headerOffset.ts) instead of a hardcoded `top: 52`.
         position: 'fixed', top: APP_HEADER_OFFSET_VAR, left: 0, right: 0, bottom: 0, display: 'flex',
-        background: 'var(--bb-canvas)',
-        fontFamily: 'var(--bb-font-sans)',
-        animation: 'ws-fadein var(--bb-duration-panel) var(--bb-ease-standard)',
-        zIndex: 'var(--bb-z-header)',
+        background: t.pageBg,
+        fontFamily: 'var(--font-inter),"Inter",-apple-system,sans-serif',
+        animation: 'ws-fadein .3s ease',
+        zIndex: 50,
         overflow: 'hidden',
       }}>
 
-        {/* ── Layer 1: deep ambient gradient — subtler in light, since a big purple */}
-        {/* glow against white reads as gaudy rather than moody like it does on black */}
+        {/* Calm engineering grid — no ambient glow or vignette layers. */}
         <div style={{
           position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 0,
-          background: `radial-gradient(ellipse 100% 60% at 50% -10%, color-mix(in srgb, var(--bb-accent-600) ${t.isDark ? 18 : 7}%, transparent) 0%, transparent 58%)`,
-          animation: 'ws-breathe 8s ease-in-out infinite',
-        }} />
-        {/* ── Layer 2: bottom counter-vignette — dark-mode only (would just muddy a light page) ── */}
-        {t.isDark && (
-          <div style={{
-            position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 0,
-            background: 'radial-gradient(ellipse 80% 40% at 50% 110%, rgba(6,5,20,.70) 0%, transparent 65%)',
-          }} />
-        )}
-        {/* ── Layer 3: corner vignettes — dark-mode only ── */}
-        {t.isDark && (
-          <div style={{
-            position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 0,
-            background: 'radial-gradient(ellipse 50% 80% at 0% 50%, rgba(4,4,12,.55) 0%, transparent 55%), radial-gradient(ellipse 30% 60% at 100% 0%, rgba(80,30,180,.07) 0%, transparent 50%)',
-          }} />
-        )}
-        {/* ── Layer 4: grid ── */}
-        <div style={{
-          position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 0,
-          backgroundImage: `linear-gradient(color-mix(in srgb, var(--bb-text-primary) ${t.isDark ? 0.9 : 3.5}%, transparent) 1px,transparent 1px),linear-gradient(90deg,color-mix(in srgb, var(--bb-text-primary) ${t.isDark ? 0.9 : 3.5}%, transparent) 1px,transparent 1px)`,
-          backgroundSize: '48px 48px',
+          backgroundImage: `linear-gradient(${t.ink(t.isDark ? .035 : .05)} 1px,transparent 1px),linear-gradient(90deg,${t.ink(t.isDark ? .035 : .05)} 1px,transparent 1px)`,
+          backgroundSize: '32px 32px',
         }} />
 
         {/* ── Sidebar ── */}
-        <div style={{ position: 'relative', zIndex: 'var(--bb-z-raised)', flexShrink: 0 }}>
+        <div style={{ position: 'relative', zIndex: 10, flexShrink: 0 }}>
           <Sidebar
             collapsed={collapsed}
             onToggle={toggle}
             pathname={pathname ?? '/'}
             alertCount={alertCount}
           />
-          {/* edge light between sidebar and canvas */}
-          <div style={{
-            position: 'absolute', top: 0, right: -1, width: 1, height: '100%',
-            background: `linear-gradient(180deg, transparent 0%, color-mix(in srgb, var(--bb-accent-500) ${t.isDark ? 18 : 14}%, transparent) 30%, color-mix(in srgb, var(--bb-accent-500) ${t.isDark ? 8 : 6}%, transparent) 70%, transparent 100%)`,
-            pointerEvents: 'none', zIndex: 11,
-          }} />
         </div>
 
         {/* ── Main area ── */}

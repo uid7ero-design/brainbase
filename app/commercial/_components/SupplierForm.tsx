@@ -63,15 +63,15 @@ export default function SupplierForm({ initial, onSaved }: { initial?: Supplier;
         <label style={lbl}>Payment Terms (days)</label>
         <input value={form.paymentTermsDays ?? ''} onChange={e => setForm(f => ({ ...f, paymentTermsDays: e.target.value === '' ? null : Number(e.target.value) }))}
           inputMode="numeric" placeholder="e.g. 30"
-          style={{ width: '100%', padding: '9px 12px', background: '#111318', border: '1px solid #1a1d24', borderRadius: 8, color: '#f9fafb', fontSize: 14, outline: 'none', boxSizing: 'border-box' }} />
+          style={{ width: '100%', padding: '9px 12px', background: 'var(--bg-raised)', border: '1px solid #1a1d24', borderRadius: 8, color: 'var(--text-primary)', fontSize: 14, outline: 'none', boxSizing: 'border-box' }} />
       </div>
       <div>
         <label style={lbl}>Notes</label>
         <textarea value={form.notes ?? ''} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} rows={3}
-          style={{ width: '100%', padding: '9px 12px', background: '#111318', border: '1px solid #1a1d24', borderRadius: 8, color: '#f9fafb', fontSize: 14, resize: 'vertical', lineHeight: 1.5, boxSizing: 'border-box' }} />
+          style={{ width: '100%', padding: '9px 12px', background: 'var(--bg-raised)', border: '1px solid #1a1d24', borderRadius: 8, color: 'var(--text-primary)', fontSize: 14, resize: 'vertical', lineHeight: 1.5, boxSizing: 'border-box' }} />
       </div>
       {error && <p style={{ color: '#f87171', fontSize: 13, margin: 0 }}>{error}</p>}
-      <button type="submit" disabled={saving} style={{ padding: '10px 0', background: '#1a6aff', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: saving ? 'default' : 'pointer' }}>
+      <button type="submit" disabled={saving} style={{ padding: '10px 0', background: 'var(--purple-600)', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: saving ? 'default' : 'pointer' }}>
         {saving ? 'Saving…' : initial?.id ? 'Save changes' : 'Create Supplier'}
       </button>
     </form>

@@ -63,25 +63,25 @@ export default function UploadProgress({
     const pct = state.progress?.percentage ?? progressPct;
     return (
       <div>
-        <div style={{ fontSize: 13, color: "rgba(249,250,251,.8)", marginBottom: 8 }}>Uploading…</div>
+        <div style={{ fontSize: 13, color: "var(--text-primary)", marginBottom: 8 }}>Uploading…</div>
         <div
           role="progressbar"
           aria-valuenow={pct ?? undefined}
           aria-valuemin={0}
           aria-valuemax={100}
-          style={{ height: 8, borderRadius: 4, background: "rgba(255,255,255,.08)", overflow: "hidden" }}
+          style={{ height: 8, borderRadius: 4, background: "var(--border)", overflow: "hidden" }}
         >
           <div
             style={{
               height: "100%",
               width: `${pct ?? 0}%`,
-              background: "linear-gradient(135deg, #6D28D9, #A78BFA)",
+              background: "var(--purple-600)",
               transition: "width .2s",
             }}
           />
         </div>
         {typeof pct === "number" ? (
-          <div style={{ fontSize: 12, color: "rgba(249,250,251,.5)", marginTop: 6 }}>{Math.round(pct)}%</div>
+          <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 6 }}>{Math.round(pct)}%</div>
         ) : null}
         <button
           type="button"
@@ -92,9 +92,9 @@ export default function UploadProgress({
             fontWeight: 500,
             padding: "6px 12px",
             borderRadius: 7,
-            border: "1px solid rgba(255,255,255,.12)",
+            border: "1px solid var(--border)",
             background: "transparent",
-            color: "rgba(249,250,251,.7)",
+            color: "var(--text-secondary)",
             cursor: "pointer",
           }}
         >
@@ -118,7 +118,7 @@ export default function UploadProgress({
 
 function StatusLine({ text, busy }: { text: string; busy?: boolean }) {
   return (
-    <div aria-live="polite" aria-busy={!!busy} style={{ fontSize: 13, color: "rgba(249,250,251,.7)" }}>
+    <div aria-live="polite" aria-busy={!!busy} style={{ fontSize: 13, color: "var(--text-secondary)" }}>
       {text}
     </div>
   );

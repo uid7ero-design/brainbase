@@ -55,14 +55,6 @@ export function SystemMap({ idPrefix = 'bb-map' }: { idPrefix?: string }) {
         system.
       </desc>
 
-      <defs>
-        <radialGradient id={`${idPrefix}-core`} cx="35%" cy="30%" r="75%">
-          <stop offset="0" style={{ stopColor: 'var(--bb-purple-300)' }} />
-          <stop offset="0.55" style={{ stopColor: 'var(--bb-purple-500)' }} />
-          <stop offset="1" style={{ stopColor: 'var(--bb-cyan-400)' }} />
-        </radialGradient>
-      </defs>
-
       {/* Orbits */}
       <circle cx={CX} cy={CY} r={ORBIT} className={styles.orbit} />
       <circle cx={CX} cy={CY} r={INNER} className={styles.orbitDashed} />
@@ -92,7 +84,7 @@ export function SystemMap({ idPrefix = 'bb-map' }: { idPrefix?: string }) {
 
       {/* Core */}
       <circle cx={CX} cy={CY} r={30} className={styles.coreRing} />
-      <circle cx={CX} cy={CY} r={9} fill={`url(#${idPrefix}-core)`} />
+      <circle cx={CX} cy={CY} r={9} fill="var(--bb-accent)" />
       <text x={CX} y={CY + 52} textAnchor="middle" className={styles.coreLabel}>
         BRΛINBΛSE
       </text>

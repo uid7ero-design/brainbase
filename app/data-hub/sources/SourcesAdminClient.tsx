@@ -59,11 +59,11 @@ import { validateMappingRows, buildMappingDocumentFields, type MappingFieldRow }
 // own _components) rather than introducing a new component library.
 // ---------------------------------------------------------------------------
 
-const CARD = "#0e1014";
-const BORDER = "#1a1d24";
-const TEXT_PRIMARY = "#f9fafb";
-const TEXT_MUTED = "#6b7280";
-const TEXT_SECONDARY = "#9ca3af";
+const CARD = "var(--bg-surface)";
+const BORDER = "var(--border)";
+const TEXT_PRIMARY = "var(--text-primary)";
+const TEXT_MUTED = "var(--text-secondary)";
+const TEXT_SECONDARY = "var(--text-secondary)";
 const ACCENT = "#8a4dff";
 const RED = "#f87171";
 const GREEN = "#4ade80";
@@ -79,7 +79,7 @@ const panelStyle: React.CSSProperties = {
 const inputStyle: React.CSSProperties = {
   width: "100%",
   padding: "9px 11px",
-  background: "#111318",
+  background: "var(--bg-raised)",
   border: `1px solid ${BORDER}`,
   borderRadius: 8,
   color: TEXT_PRIMARY,
@@ -265,7 +265,7 @@ export default function SourcesAdminClient({ isAdmin }: { isAdmin: boolean }) {
         <code>source_external_id</code> identity field. This does not import any data itself.
       </p>
       {!isAdmin && (
-        <div style={{ background: "rgba(249,250,251,.05)", border: `1px solid ${BORDER}`, borderRadius: 8, padding: "10px 12px", fontSize: 12.5, color: TEXT_SECONDARY, marginBottom: 20 }}>
+        <div style={{ background: "var(--bg-raised)", border: `1px solid ${BORDER}`, borderRadius: 8, padding: "10px 12px", fontSize: 12.5, color: TEXT_SECONDARY, marginBottom: 20 }}>
           You can view existing source configuration, but creating, editing, or activating anything here requires the
           <strong> admin</strong> role.
         </div>

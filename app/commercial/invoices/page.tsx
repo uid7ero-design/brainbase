@@ -6,7 +6,7 @@ import { StatusBadge, OverdueBadge } from './_status';
 import { formatMoneyCents } from '@/lib/commercial/money';
 import { formatCommercialDate } from '@/lib/commercial/dates';
 
-const CARD = '#0e1014'; const BORDER = '#1a1d24';
+const CARD = 'var(--bg-surface)'; const BORDER = 'var(--border)';
 
 type Invoice = {
   id: string; invoice_number: string | null; status: string; customer_id: string;
@@ -62,17 +62,17 @@ export default function InvoicesPage() {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em', margin: 0 }}>Invoices</h1>
-          <p style={{ color: '#6b7280', fontSize: 13, margin: '4px 0 0' }}>{invoices.length} total</p>
+          <p style={{ color: 'var(--text-secondary)', fontSize: 13, margin: '4px 0 0' }}>{invoices.length} total</p>
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
           <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
-            style={{ padding: '8px 12px', background: CARD, border: `1px solid ${BORDER}`, borderRadius: 8, color: '#f9fafb', fontSize: 13 }}>
+            style={{ padding: '8px 12px', background: CARD, border: `1px solid ${BORDER}`, borderRadius: 8, color: 'var(--text-primary)', fontSize: 13 }}>
             <option value="ALL">All statuses</option>
             <option value="DRAFT">Draft</option>
             <option value="ISSUED">Issued</option>
             <option value="VOID">Void</option>
           </select>
-          <Link href="/commercial/invoices/new" style={btn('#1a6aff')}>+ New Invoice</Link>
+          <Link href="/commercial/invoices/new" style={btn('var(--purple-600)')}>+ New Invoice</Link>
         </div>
       </div>
 
@@ -91,7 +91,7 @@ export default function InvoicesPage() {
             {filtered.map((inv, i) => (
               <tr key={inv.id} style={{ borderBottom: i < filtered.length - 1 ? `1px solid ${BORDER}` : 'none' }}>
                 <td style={{ padding: '13px 16px' }}>
-                  <Link href={`/commercial/invoices/${inv.id}`} style={{ color: '#f9fafb', textDecoration: 'none', fontWeight: 500, fontSize: 14 }}>
+                  <Link href={`/commercial/invoices/${inv.id}`} style={{ color: 'var(--text-primary)', textDecoration: 'none', fontWeight: 500, fontSize: 14 }}>
                     {inv.invoice_number ?? <Dim>Draft</Dim>}
                   </Link>
                 </td>
@@ -107,11 +107,11 @@ export default function InvoicesPage() {
                 <td style={td}>{formatMoneyCents(inv.total_cents, inv.currency)}</td>
                 <td style={td}>
                   {inv.source_quote_id ? (
-                    <Link href={`/commercial/quotes/${inv.source_quote_id}`} style={{ color: '#6b7280', textDecoration: 'none', fontSize: 12 }}>Quote →</Link>
+                    <Link href={`/commercial/quotes/${inv.source_quote_id}`} style={{ color: 'var(--text-secondary)', textDecoration: 'none', fontSize: 12 }}>Quote →</Link>
                   ) : <Dim>—</Dim>}
                 </td>
                 <td style={{ padding: '13px 16px' }}>
-                  <Link href={`/commercial/invoices/${inv.id}`} style={{ fontSize: 12, color: '#6b7280', textDecoration: 'none' }}>View →</Link>
+                  <Link href={`/commercial/invoices/${inv.id}`} style={{ fontSize: 12, color: 'var(--text-secondary)', textDecoration: 'none' }}>View →</Link>
                 </td>
               </tr>
             ))}
@@ -123,10 +123,10 @@ export default function InvoicesPage() {
 }
 
 function Dim({ children }: { children: React.ReactNode }) {
-  return <span style={{ color: '#4b5563' }}>{children}</span>;
+  return <span style={{ color: 'var(--text-muted)' }}>{children}</span>;
 }
 
-const th: React.CSSProperties = { padding: '11px 16px', textAlign: 'left', color: '#6b7280', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' };
-const td: React.CSSProperties = { padding: '13px 16px', fontSize: 13, color: '#9ca3af' };
-const empty: React.CSSProperties = { padding: '36px 16px', textAlign: 'center', color: '#4b5563', fontSize: 14 };
+const th: React.CSSProperties = { padding: '11px 16px', textAlign: 'left', color: 'var(--text-secondary)', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' };
+const td: React.CSSProperties = { padding: '13px 16px', fontSize: 13, color: 'var(--text-secondary)' };
+const empty: React.CSSProperties = { padding: '36px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 14 };
 function btn(bg: string): React.CSSProperties { return { padding: '8px 16px', background: bg, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, textDecoration: 'none', display: 'inline-block' }; }

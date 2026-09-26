@@ -70,7 +70,7 @@ export const metadata: Metadata = {
   icons: {
     icon: [
       {
-        url: '/Brand/favicon.ico',
+        url: '/Brand/brainbase-broken-orbit-micro.svg',
       },
       {
         url: '/Brand/android-chrome-192x192.png',
@@ -84,7 +84,7 @@ export const metadata: Metadata = {
       },
     ],
 
-    shortcut: '/Brand/favicon.ico',
+    shortcut: '/Brand/brainbase-broken-orbit-micro.svg',
 
     apple: [
       {
@@ -233,7 +233,7 @@ export default async function RootLayout({
 
         <meta
           name="theme-color"
-          content="#0A0D1A"
+          content="#0B0B0C"
         />
 
         <script
