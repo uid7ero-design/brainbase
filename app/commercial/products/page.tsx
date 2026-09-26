@@ -4,7 +4,7 @@ import SlidePanel from '../_components/SlidePanel';
 import ProductForm from '../_components/ProductForm';
 import { formatMoneyCents } from '@/lib/commercial/money';
 
-const CARD = '#0e1014'; const BORDER = '#1a1d24';
+const CARD = 'var(--bg-surface)'; const BORDER = 'var(--border)';
 
 type Product = {
   id: string; type: 'PRODUCT' | 'SERVICE'; name: string; sku: string | null;
@@ -43,11 +43,11 @@ export default function ProductsPage() {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em', margin: 0 }}>Products &amp; Services</h1>
-          <p style={{ color: '#6b7280', fontSize: 13, margin: '4px 0 0' }}>{products.length} total</p>
+          <p style={{ color: 'var(--text-secondary)', fontSize: 13, margin: '4px 0 0' }}>{products.length} total</p>
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
           <select value={filter} onChange={e => setFilter(e.target.value as typeof filter)}
-            style={{ padding: '8px 12px', background: CARD, border: `1px solid ${BORDER}`, borderRadius: 8, color: '#f9fafb', fontSize: 13 }}>
+            style={{ padding: '8px 12px', background: CARD, border: `1px solid ${BORDER}`, borderRadius: 8, color: 'var(--text-primary)', fontSize: 13 }}>
             <option value="ALL">All types</option>
             <option value="PRODUCT">Products</option>
             <option value="SERVICE">Services</option>
@@ -56,9 +56,9 @@ export default function ProductsPage() {
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="Search…"
-            style={{ padding: '8px 12px', background: CARD, border: `1px solid ${BORDER}`, borderRadius: 8, color: '#f9fafb', fontSize: 13, outline: 'none', width: 180 }}
+            style={{ padding: '8px 12px', background: CARD, border: `1px solid ${BORDER}`, borderRadius: 8, color: 'var(--text-primary)', fontSize: 13, outline: 'none', width: 180 }}
           />
-          <button onClick={() => setShowAdd(true)} style={btn('#1a6aff')}>+ Add</button>
+          <button onClick={() => setShowAdd(true)} style={btn('var(--purple-600)')}>+ Add</button>
         </div>
       </div>
 
@@ -76,19 +76,19 @@ export default function ProductsPage() {
             {!loading && filtered.length === 0 && <tr><td colSpan={7} style={empty}>No products or services yet.</td></tr>}
             {filtered.map((p, i) => (
               <tr key={p.id} style={{ borderBottom: i < filtered.length - 1 ? `1px solid ${BORDER}` : 'none', opacity: p.active ? 1 : 0.5 }}>
-                <td style={{ padding: '13px 16px', color: '#f9fafb', fontWeight: 500, fontSize: 14 }}>{p.name}</td>
+                <td style={{ padding: '13px 16px', color: 'var(--text-primary)', fontWeight: 500, fontSize: 14 }}>{p.name}</td>
                 <td style={td}>{p.type === 'PRODUCT' ? 'Product' : 'Service'}</td>
                 <td style={td}>{p.sku ?? <Dim>—</Dim>}</td>
                 <td style={td}>{p.unit_label ?? <Dim>—</Dim>}</td>
                 <td style={td}>{formatMoneyCents(p.default_unit_price_cents, p.currency)}</td>
                 <td style={td}>
-                  <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 4, textTransform: 'uppercase', letterSpacing: '0.04em', color: p.active ? '#4ade80' : '#9ca3af', background: p.active ? 'rgba(74,222,128,0.1)' : 'rgba(156,163,175,0.1)' }}>
+                  <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 4, textTransform: 'uppercase', letterSpacing: '0.04em', color: p.active ? '#4ade80' : 'var(--text-secondary)', background: p.active ? 'rgba(74,222,128,0.1)' : 'rgba(156,163,175,0.1)' }}>
                     {p.active ? 'Active' : 'Inactive'}
                   </span>
                 </td>
                 <td style={{ padding: '13px 16px', display: 'flex', gap: 12 }}>
-                  <button onClick={() => setEditing(p)} style={{ background: 'none', border: 'none', color: '#6b7280', fontSize: 12, cursor: 'pointer', padding: 0 }}>Edit</button>
-                  <button onClick={() => toggleActive(p)} style={{ background: 'none', border: 'none', color: '#6b7280', fontSize: 12, cursor: 'pointer', padding: 0 }}>
+                  <button onClick={() => setEditing(p)} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 12, cursor: 'pointer', padding: 0 }}>Edit</button>
+                  <button onClick={() => toggleActive(p)} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 12, cursor: 'pointer', padding: 0 }}>
                     {p.active ? 'Deactivate' : 'Reactivate'}
                   </button>
                 </td>
@@ -118,10 +118,10 @@ export default function ProductsPage() {
 }
 
 function Dim({ children }: { children: React.ReactNode }) {
-  return <span style={{ color: '#4b5563' }}>{children}</span>;
+  return <span style={{ color: 'var(--text-muted)' }}>{children}</span>;
 }
 
-const th: React.CSSProperties = { padding: '11px 16px', textAlign: 'left', color: '#6b7280', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' };
-const td: React.CSSProperties = { padding: '13px 16px', fontSize: 13, color: '#9ca3af' };
-const empty: React.CSSProperties = { padding: '36px 16px', textAlign: 'center', color: '#4b5563', fontSize: 14 };
+const th: React.CSSProperties = { padding: '11px 16px', textAlign: 'left', color: 'var(--text-secondary)', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' };
+const td: React.CSSProperties = { padding: '13px 16px', fontSize: 13, color: 'var(--text-secondary)' };
+const empty: React.CSSProperties = { padding: '36px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 14 };
 function btn(bg: string): React.CSSProperties { return { padding: '8px 16px', background: bg, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }; }

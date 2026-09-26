@@ -1,14 +1,18 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useId, useRef } from 'react';
+import styles from '@/components/public/web-systems/enquiry.module.css';
 
-const FONT = 'var(--font-inter), "Inter", -apple-system, sans-serif';
+// Presentation moved onto the public-site --bb-* tokens (light + dark) in the
+// public visual convergence pass, with dialog semantics and focus handling.
+// Form state, validation, submission and the /api/web-services/lead request
+// are unchanged.
 
 const SERVICES = [
-  { key: 'website_design', label: 'Website Design & Development', color: '#6366F1' },
-  { key: 'ai_website',     label: 'AI-Powered Website',           color: '#38BDF8' },
-  { key: 'maintenance',    label: 'Management & Maintenance',      color: '#10B981' },
-  { key: 'integrations',   label: 'Business System Integrations',  color: '#A78BFA' },
+  { key: 'website_design', label: 'Website Design & Development' },
+  { key: 'ai_website',     label: 'AI-Powered Website'           },
+  { key: 'maintenance',    label: 'Management & Maintenance'      },
+  { key: 'integrations',   label: 'Business System Integrations'  },
 ];
 
 const BUDGETS = [
@@ -49,10 +53,17 @@ interface Props {
   onClose: () => void;
 }
 
+const FOCUSABLE = 'a[href], button:not([disabled]), input, select, textarea, [tabindex]:not([tabindex="-1"])';
+
 export default function EnquiryModal({ open, onClose }: Props) {
   const [step,   setStep]   = useState<Step>('form');
   const [form,   setForm]   = useState<FormData>(EMPTY_FORM);
   const [errors, setErrors] = useState<Partial<Record<keyof FormData | '_form', string>>>({});
+
+  const uid = useId();
+  const titleId = `${uid}-title`;
+  const descId = `${uid}-desc`;
+  const dialogRef = useRef<HTMLDivElement>(null);
 
   // ── Keyboard & scroll lock ────────────────────────────────────────────────
   useEffect(() => {
@@ -66,6 +77,25 @@ export default function EnquiryModal({ open, onClose }: Props) {
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+
+  // ── Focus: move into the dialog on open, restore to the opener on close ──
+  useEffect(() => {
+    if (!open) return;
+    const opener = document.activeElement as HTMLElement | null;
+    dialogRef.current?.querySelector<HTMLElement>('input, button')?.focus();
+    return () => { opener?.focus?.(); };
+  }, [open]);
+
+  // Keep Tab / Shift+Tab inside the dialog while it is open.
+  const onDialogKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== 'Tab' || !dialogRef.current) return;
+    const items = [...dialogRef.current.querySelectorAll<HTMLElement>(FOCUSABLE)];
+    if (items.length === 0) return;
+    const first = items[0];
+    const last = items[items.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  };
 
   const handleClose = useCallback(() => {
     onClose();
@@ -129,121 +159,87 @@ export default function EnquiryModal({ open, onClose }: Props) {
 
   if (!open) return null;
 
+  const fid = (name: string) => `${uid}-${name}`;
+
   // ── Overlay ───────────────────────────────────────────────────────────────
   return (
-    <div
-      onClick={handleClose}
-      style={{
-        position: 'fixed', inset: 0, zIndex: 1000,
-        background: 'rgba(0,0,0,.72)',
-        backdropFilter: 'blur(6px)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        padding: '20px',
-        fontFamily: FONT,
-      }}
-    >
-      {/* Modal card */}
+    <div className={styles.overlay} onClick={handleClose}>
       <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        aria-describedby={descId}
+        className={styles.dialog}
         onClick={e => e.stopPropagation()}
-        style={{
-          width: '100%', maxWidth: 620, maxHeight: '90vh',
-          overflowY: 'auto',
-          background: 'rgba(9,10,16,.97)',
-          border: '1px solid rgba(255,255,255,.10)',
-          borderRadius: 18,
-          boxShadow: '0 32px 80px rgba(0,0,0,.70), 0 0 0 1px rgba(139,92,246,.10)',
-          position: 'relative',
-        }}
+        onKeyDown={onDialogKeyDown}
       >
-        {/* Purple top glow */}
-        <div style={{
-          position: 'absolute', top: 0, left: 0, right: 0, height: 2,
-          background: 'linear-gradient(90deg, #6366F1, #A78BFA, #38BDF8)',
-          borderRadius: '18px 18px 0 0',
-        }} />
-
         {step === 'success' ? (
-          <SuccessState onClose={handleClose} />
+          <SuccessState onClose={handleClose} titleId={titleId} descId={descId} />
         ) : (
-          <div style={{ padding: '32px 36px 36px' }}>
+          <div className={styles.body}>
 
             {/* Header */}
-            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 28 }}>
+            <div className={styles.header}>
               <div>
-                <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '.10em', color: 'rgba(129,140,248,.65)', textTransform: 'uppercase', marginBottom: 6 }}>
-                  Website Systems
-                </div>
-                <h2 style={{ fontSize: 22, fontWeight: 700, color: '#F5F7FA', margin: 0, letterSpacing: '-.02em' }}>
-                  Book a Strategy Call
-                </h2>
-                <p style={{ fontSize: 13, color: 'rgba(226,232,240,.45)', margin: '6px 0 0', lineHeight: 1.5 }}>
+                <p className={styles.eyebrow}>Website Systems</p>
+                <h2 id={titleId} className={styles.title}>Book a Strategy Call</h2>
+                <p id={descId} className={styles.lede}>
                   Tell us about your business and we&apos;ll get back to you within 1–2 business days.
                 </p>
               </div>
-              <button
-                onClick={handleClose}
-                style={{
-                  background: 'none', border: 'none', cursor: 'pointer',
-                  color: 'rgba(255,255,255,.35)', padding: '4px 6px',
-                  fontSize: 20, lineHeight: 1, flexShrink: 0, marginTop: -2,
-                  transition: 'color .14s',
-                }}
-                onMouseEnter={e => (e.currentTarget.style.color = 'rgba(255,255,255,.70)')}
-                onMouseLeave={e => (e.currentTarget.style.color = 'rgba(255,255,255,.35)')}
-              >
-                ×
+              <button type="button" onClick={handleClose} className={styles.close} aria-label="Close enquiry form">
+                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true" focusable="false">
+                  <path d="m4 4 8 8M12 4l-8 8" />
+                </svg>
               </button>
             </div>
 
             {/* Global error */}
             {errors._form && (
-              <div style={{
-                padding: '10px 14px', borderRadius: 8, marginBottom: 20,
-                background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.22)',
-                fontSize: 13, color: 'rgba(252,165,165,.90)',
-              }}>
+              <div role="alert" className={styles.formError}>
                 {errors._form}
               </div>
             )}
 
             {/* Row 1: Name + Business */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+            <div className={styles.row}>
               <Field
-                label="Full Name" required
+                id={fid('full_name')} label="Full Name" required
                 error={errors.full_name}
-                input={<input value={form.full_name} onChange={set('full_name')} placeholder="James Palmer" style={inputStyle(!!errors.full_name)} />}
+                input={<input id={fid('full_name')} value={form.full_name} onChange={set('full_name')} placeholder="James Palmer" className={styles.input} aria-required="true" {...errorProps(!!errors.full_name, fid('full_name'))} />}
               />
               <Field
-                label="Business Name"
-                input={<input value={form.business_name} onChange={set('business_name')} placeholder="Acme Pty Ltd" style={inputStyle(false)} />}
+                id={fid('business_name')} label="Business Name"
+                input={<input id={fid('business_name')} value={form.business_name} onChange={set('business_name')} placeholder="Acme Pty Ltd" className={styles.input} />}
               />
             </div>
 
             {/* Row 2: Email + Phone */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+            <div className={styles.row}>
               <Field
-                label="Email Address" required
+                id={fid('email')} label="Email Address" required
                 error={errors.email}
-                input={<input type="email" value={form.email} onChange={set('email')} placeholder="you@business.com" style={inputStyle(!!errors.email)} />}
+                input={<input id={fid('email')} type="email" value={form.email} onChange={set('email')} placeholder="you@business.com" className={styles.input} aria-required="true" {...errorProps(!!errors.email, fid('email'))} />}
               />
               <Field
-                label="Phone"
-                input={<input type="tel" value={form.phone} onChange={set('phone')} placeholder="+61 4xx xxx xxx" style={inputStyle(false)} />}
+                id={fid('phone')} label="Phone"
+                input={<input id={fid('phone')} type="tel" value={form.phone} onChange={set('phone')} placeholder="+61 4xx xxx xxx" className={styles.input} />}
               />
             </div>
 
             {/* Website URL */}
-            <div style={{ marginBottom: 20 }}>
+            <div className={styles.block}>
               <Field
-                label="Current Website"
-                input={<input value={form.website_url} onChange={set('website_url')} placeholder="https://yourwebsite.com" style={inputStyle(false)} />}
+                id={fid('website_url')} label="Current Website"
+                input={<input id={fid('website_url')} value={form.website_url} onChange={set('website_url')} placeholder="https://yourwebsite.com" className={styles.input} />}
               />
             </div>
 
             {/* Services */}
-            <div style={{ marginBottom: 20 }}>
-              <label style={labelStyle}>Services Interested In</label>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 8 }}>
+            <div className={styles.block} role="group" aria-labelledby={fid('services')}>
+              <p id={fid('services')} className={styles.label}>Services Interested In</p>
+              <div className={styles.serviceGrid}>
                 {SERVICES.map(svc => {
                   const selected = form.service_interest.includes(svc.key);
                   return (
@@ -251,26 +247,13 @@ export default function EnquiryModal({ open, onClose }: Props) {
                       key={svc.key}
                       type="button"
                       onClick={() => toggleService(svc.key)}
-                      style={{
-                        display: 'flex', alignItems: 'center', gap: 10,
-                        padding: '10px 14px', borderRadius: 9, cursor: 'pointer',
-                        background: selected ? `${svc.color}14` : 'rgba(255,255,255,.03)',
-                        border: selected ? `1px solid ${svc.color}40` : '1px solid rgba(255,255,255,.08)',
-                        color: selected ? svc.color : 'rgba(226,232,240,.55)',
-                        textAlign: 'left', fontFamily: FONT,
-                        fontSize: 13, fontWeight: selected ? 600 : 400,
-                        transition: 'all .14s',
-                      }}
+                      aria-pressed={selected}
+                      className={styles.service}
                     >
-                      <span style={{
-                        width: 14, height: 14, borderRadius: 4, flexShrink: 0,
-                        background: selected ? svc.color : 'rgba(255,255,255,.08)',
-                        border: selected ? 'none' : '1px solid rgba(255,255,255,.15)',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      }}>
+                      <span className={styles.checkbox} aria-hidden="true">
                         {selected && (
-                          <svg width="8" height="6" viewBox="0 0 8 6" fill="none">
-                            <path d="M1 3L3 5L7 1" stroke="#fff" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+                          <svg width="8" height="6" viewBox="0 0 8 6" fill="none" focusable="false">
+                            <path d="M1 3L3 5L7 1" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
                           </svg>
                         )}
                       </span>
@@ -282,11 +265,11 @@ export default function EnquiryModal({ open, onClose }: Props) {
             </div>
 
             {/* Budget */}
-            <div style={{ marginBottom: 20 }}>
+            <div className={styles.block}>
               <Field
-                label="Estimated Budget"
+                id={fid('budget_range')} label="Estimated Budget"
                 input={
-                  <select value={form.budget_range} onChange={set('budget_range')} style={{ ...inputStyle(false), appearance: 'none' as const }}>
+                  <select id={fid('budget_range')} value={form.budget_range} onChange={set('budget_range')} className={`${styles.input} ${styles.select}`}>
                     <option value="">Select a budget range...</option>
                     {BUDGETS.map(b => <option key={b.key} value={b.key}>{b.label}</option>)}
                   </select>
@@ -295,16 +278,17 @@ export default function EnquiryModal({ open, onClose }: Props) {
             </div>
 
             {/* Project Goals */}
-            <div style={{ marginBottom: 28 }}>
+            <div className={styles.blockLast}>
               <Field
-                label="Project Goals"
+                id={fid('project_description')} label="Project Goals"
                 input={
                   <textarea
+                    id={fid('project_description')}
                     value={form.project_description}
                     onChange={set('project_description')}
                     placeholder="Tell us what you're trying to achieve — what problem needs solving, what outcome you're looking for..."
                     rows={4}
-                    style={{ ...inputStyle(false), resize: 'vertical' as const, minHeight: 88 }}
+                    className={`${styles.input} ${styles.textarea}`}
                   />
                 }
               />
@@ -312,22 +296,10 @@ export default function EnquiryModal({ open, onClose }: Props) {
 
             {/* Submit */}
             <button
+              type="button"
               onClick={handleSubmit}
               disabled={step === 'submitting'}
-              style={{
-                width: '100%', padding: '13px 24px', borderRadius: 10,
-                fontFamily: FONT, fontWeight: 700, fontSize: 15, letterSpacing: '.01em',
-                background: step === 'submitting'
-                  ? 'rgba(99,102,241,.20)'
-                  : 'linear-gradient(135deg, #4F46E5, #7C3AED)',
-                border: '1px solid rgba(99,102,241,.40)',
-                color: step === 'submitting' ? 'rgba(255,255,255,.45)' : '#F5F7FA',
-                cursor: step === 'submitting' ? 'not-allowed' : 'pointer',
-                transition: 'all .15s',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
-              }}
-              onMouseEnter={e => { if (step !== 'submitting') e.currentTarget.style.opacity = '.88'; }}
-              onMouseLeave={e => { e.currentTarget.style.opacity = '1'; }}
+              className={styles.submit}
             >
               {step === 'submitting' ? (
                 <>
@@ -339,10 +311,10 @@ export default function EnquiryModal({ open, onClose }: Props) {
               )}
             </button>
 
-            <p style={{ textAlign: 'center', fontSize: 11, color: 'rgba(255,255,255,.22)', margin: '14px 0 0', lineHeight: 1.5 }}>
+            <p className={styles.small}>
               No commitment required · We respond within 1–2 business days
             </p>
-            <p style={{ textAlign: 'center', fontSize: 11, color: 'rgba(255,255,255,.16)', margin: '5px 0 0', letterSpacing: '.02em' }}>
+            <p className={styles.smaller}>
               Based in Adelaide, Australia — working with businesses locally and remotely.
             </p>
           </div>
@@ -354,83 +326,52 @@ export default function EnquiryModal({ open, onClose }: Props) {
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
-function SuccessState({ onClose }: { onClose: () => void }) {
+function SuccessState({ onClose, titleId, descId }: { onClose: () => void; titleId: string; descId: string }) {
   return (
-    <div style={{ padding: '56px 40px', textAlign: 'center', fontFamily: FONT }}>
-      <div style={{
-        width: 64, height: 64, borderRadius: '50%', margin: '0 auto 24px',
-        background: 'rgba(16,185,129,.12)', border: '1px solid rgba(16,185,129,.30)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-      }}>
-        <svg width="28" height="22" viewBox="0 0 28 22" fill="none">
-          <path d="M2 11L10 19L26 3" stroke="#34D399" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/>
+    <div className={styles.success} role="status">
+      <div className={styles.successIcon} aria-hidden="true">
+        <svg width="28" height="22" viewBox="0 0 28 22" fill="none" focusable="false">
+          <path d="M2 11L10 19L26 3" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/>
         </svg>
       </div>
-      <h2 style={{ fontSize: 24, fontWeight: 700, color: '#F5F7FA', margin: '0 0 10px', letterSpacing: '-.02em' }}>
+      <h2 id={titleId} className={styles.title}>
         Enquiry Received
       </h2>
-      <p style={{ fontSize: 15, color: 'rgba(226,232,240,.55)', margin: '0 0 32px', lineHeight: 1.65, maxWidth: 360, marginInline: 'auto' }}>
+      <p id={descId} className={styles.successBody}>
         We&apos;ll review your details and be in touch within 1–2 business days with a tailored strategy.
       </p>
-      <button
-        onClick={onClose}
-        style={{
-          padding: '11px 28px', borderRadius: 9, fontFamily: FONT, fontSize: 14, fontWeight: 600,
-          background: 'rgba(16,185,129,.15)', border: '1px solid rgba(16,185,129,.30)',
-          color: '#34D399', cursor: 'pointer', transition: 'all .15s',
-        }}
-        onMouseEnter={e => { e.currentTarget.style.background = 'rgba(16,185,129,.22)'; }}
-        onMouseLeave={e => { e.currentTarget.style.background = 'rgba(16,185,129,.15)'; }}
-      >
+      <button type="button" onClick={onClose} className={styles.successClose}>
         Close
       </button>
     </div>
   );
 }
 
+function errorProps(hasError: boolean, id: string) {
+  return hasError ? { 'aria-invalid': true as const, 'aria-describedby': `${id}-error` } : {};
+}
+
 function Field({
-  label, required = false, error, input,
+  id, label, required = false, error, input,
 }: {
-  label: string; required?: boolean; error?: string; input: React.ReactNode;
+  id: string; label: string; required?: boolean; error?: string; input: React.ReactNode;
 }) {
   return (
     <div>
-      <label style={labelStyle}>
-        {label}{required && <span style={{ color: 'rgba(239,68,68,.70)', marginLeft: 3 }}>*</span>}
+      <label htmlFor={id} className={styles.label}>
+        {label}{required && <span className={styles.required} aria-hidden="true">*</span>}
       </label>
-      <div style={{ marginTop: 6 }}>{input}</div>
-      {error && <p style={{ margin: '5px 0 0', fontSize: 11, color: 'rgba(252,165,165,.85)' }}>{error}</p>}
+      <div className={styles.control}>{input}</div>
+      {error && <p id={`${id}-error`} className={styles.fieldError}>{error}</p>}
     </div>
   );
 }
 
 function Spinner() {
   return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{ animation: 'spin 0.8s linear infinite' }}>
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-      <circle cx="8" cy="8" r="6" stroke="rgba(255,255,255,.25)" strokeWidth="2"/>
-      <path d="M8 2a6 6 0 0 1 6 6" stroke="rgba(255,255,255,.75)" strokeWidth="2" strokeLinecap="round"/>
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className={styles.spinner} aria-hidden="true" focusable="false">
+      <circle cx="8" cy="8" r="6" stroke="currentColor" strokeOpacity=".3" strokeWidth="2"/>
+      <path d="M8 2a6 6 0 0 1 6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
     </svg>
   );
-}
-
-// ── Style helpers ─────────────────────────────────────────────────────────────
-
-const labelStyle: React.CSSProperties = {
-  display: 'block',
-  fontSize: 11, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase',
-  color: 'rgba(255,255,255,.38)',
-};
-
-function inputStyle(hasError: boolean): React.CSSProperties {
-  return {
-    width: '100%', boxSizing: 'border-box',
-    padding: '10px 14px', borderRadius: 8,
-    background: 'rgba(255,255,255,.04)',
-    border: `1px solid ${hasError ? 'rgba(239,68,68,.45)' : 'rgba(255,255,255,.10)'}`,
-    color: '#F5F7FA',
-    fontSize: 14, fontFamily: FONT,
-    outline: 'none',
-    transition: 'border-color .14s',
-  };
 }

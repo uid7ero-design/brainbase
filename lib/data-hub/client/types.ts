@@ -729,6 +729,113 @@ export type WorksheetPreviewResponseBody =
 export type WorksheetPreviewResult = TransportResult<WorksheetPreviewResponseBody>;
 
 // ---------------------------------------------------------------------------
+// GET /api/data-hub/import-batches/[id]/schema-match (Data Hub 6.2D3C)
+// Source: app/api/data-hub/import-batches/[id]/schema-match/route.ts and
+// lib/data-hub/schemaMatch/schemaMatcher.ts. Mirrored here as plain types —
+// never imported from the server module — so the browser bundle can never
+// pull server code in. A structural difference report only: no sample rows,
+// cell values, filename, user or timestamp. EXACT_MATCH means structure
+// only — never accepted, approved, activated or import-ready.
+// ---------------------------------------------------------------------------
+
+export type SchemaMatchResultClient = "EXACT_MATCH" | "MATCH_WITH_NON_BLOCKING_DRIFT" | "BLOCKING_DRIFT" | "UNMATCHABLE";
+
+export type SchemaDifferenceSeverityClient = "INFO" | "WARNING" | "BLOCKING";
+
+export interface SchemaDifferenceClient {
+  code: string;
+  severity: SchemaDifferenceSeverityClient;
+  worksheetLogicalKey: string | null;
+  governedWorksheetName: string | null;
+  observedWorksheetName: string | null;
+  governedWorksheetOrdinalHint: number | null;
+  observedWorksheetIndex: number | null;
+  governedColumnOrdinal: number | null;
+  observedColumnOrdinal: number | null;
+  governedHeader: string | null;
+  observedHeader: string | null;
+  governedPresence: "REQUIRED" | "OPTIONAL" | null;
+  messageKey: string;
+  deterministicKey: string;
+}
+
+export interface SchemaMatchReportClient {
+  reportVersion: 1;
+  sourceSchemaVersionId: string;
+  sourceSchemaVersionNumber: number;
+  sourceSchemaStatus: string;
+  result: SchemaMatchResultClient;
+  exactMatch: boolean;
+  blocking: boolean;
+  observedWorksheetCount: number;
+  governedWorksheetCount: number;
+  matchedWorksheetCount: number;
+  missingRequiredWorksheetCount: number;
+  missingOptionalWorksheetCount: number;
+  unexpectedWorksheetCount: number;
+  totalDifferenceCount: number;
+  blockingDifferenceCount: number;
+  warningDifferenceCount: number;
+  differences: SchemaDifferenceClient[];
+}
+
+export type SchemaMatchFailureCodeClient =
+  | "BATCH_NOT_FOUND"
+  | "BATCH_NOT_READY"
+  | "UNSUPPORTED_FORMAT"
+  | "SOURCE_LINEAGE_REQUIRED"
+  | "INVALID_STATE"
+  | "GOVERNED_SCHEMA_UNAVAILABLE"
+  | "STORAGE_NOT_FOUND"
+  | "PROVIDER_FAILURE"
+  | "STORAGE_INTEGRITY_MISMATCH"
+  | "PARSER_REJECTED";
+
+export type SchemaMatchResponseBody =
+  | { ok: true; report: SchemaMatchReportClient }
+  | { ok: false; error: string; code?: SchemaMatchFailureCodeClient };
+
+export type SchemaMatchFetchResult = TransportResult<SchemaMatchResponseBody>;
+
+// ---------------------------------------------------------------------------
+// POST /api/data-hub/import-batches/[id]/schema-selection (Data Hub 6.2D3D)
+// Source: app/api/data-hub/import-batches/[id]/schema-selection/route.ts and
+// lib/data-hub/schemaMatch/establishImportBatchSchemaLineage.ts. This route
+// reads no request body — there is deliberately no request-input type for
+// it; the call site always sends `{ method: "POST" }` with no body.
+// ---------------------------------------------------------------------------
+
+export type SchemaSelectionFailureCodeClient =
+  | "BATCH_NOT_FOUND"
+  | "BATCH_NOT_READY"
+  | "UNSUPPORTED_FORMAT"
+  | "SOURCE_LINEAGE_REQUIRED"
+  | "GOVERNED_SCHEMA_UNAVAILABLE"
+  | "GOVERNED_SCHEMA_NOT_ACTIVE"
+  | "SCHEMA_EXACT_MATCH_REQUIRED"
+  | "STORAGE_NOT_FOUND"
+  | "PROVIDER_FAILURE"
+  | "STORAGE_INTEGRITY_MISMATCH"
+  | "PARSER_REJECTED"
+  | "SCHEMA_LINEAGE_CONFLICT"
+  | "INVALID_STATE";
+
+export interface SchemaSelectionSuccessClient {
+  ok: true;
+  alreadySelected: boolean;
+  importBatchId: string;
+  datasetTypeId: string;
+  sourceSchemaVersionId: string;
+  sourceSchemaVersionNumber: number;
+}
+
+export type SchemaSelectionResponseBody =
+  | SchemaSelectionSuccessClient
+  | { ok: false; error: string; code?: SchemaSelectionFailureCodeClient };
+
+export type SchemaSelectionResult = TransportResult<SchemaSelectionResponseBody>;
+
+// ---------------------------------------------------------------------------
 // POST /api/data-hub/worksheets/[id]/confirm-illegal-dumping
 // Source: app/api/data-hub/worksheets/[id]/confirm-illegal-dumping/route.ts.
 //

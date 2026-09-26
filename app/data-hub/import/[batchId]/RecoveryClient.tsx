@@ -7,6 +7,7 @@ import { deriveErrorOverlayCopy, isErrorOverlayPhase } from "../screenGroup";
 import ReviewPanel from "../_components/ReviewPanel";
 import WorksheetInventoryPanel from "../_components/WorksheetInventoryPanel";
 import XlsxWorksheetPreviewPanel from "../_components/XlsxWorksheetPreviewPanel";
+import SchemaMatchReportPanel from "../_components/SchemaMatchReportPanel";
 import ImportSuccess from "../_components/ImportSuccess";
 import ImportError from "../_components/ImportError";
 import type { ReviewPhase } from "../confirmEligibility";
@@ -80,11 +81,40 @@ function RecoveryBody({
   // Data Hub 6.2D1 — a recovered XLSX batch's structural inventory. Same
   // pure-navigation escape as ReviewPanel above; no session handed over.
   if (state.phase === "worksheetInventoryReady") {
-    return <WorksheetInventoryPanel state={state} onPreview={(id) => void session.previewXlsxWorksheet(id)} onRestart={() => router.push("/data-hub/import")} />;
+    return (
+      <WorksheetInventoryPanel
+        state={state}
+        onPreview={(id) => void session.previewXlsxWorksheet(id)}
+        onCompareSchema={() => session.compareToGovernedSchema().catch(() => {})}
+        onRestart={() => router.push("/data-hub/import")}
+      />
+    );
   }
 
   if (state.phase === "xlsxWorksheetPreviewing" || state.phase === "xlsxWorksheetPreviewReady" || state.phase === "xlsxWorksheetPreviewFailed") {
     return <XlsxWorksheetPreviewPanel state={state} onBack={() => session.backToWorksheetInventory()} onRetry={() => void session.retryXlsxWorksheetPreview()} onRestart={() => router.push("/data-hub/import")} />;
+  }
+
+  // Data Hub 6.2D3C/6.2D3D — read-only governed schema comparison, plus the
+  // durable lineage-pin action, for a recovered XLSX batch. Same narrow
+  // callbacks; no session handed over.
+  if (
+    state.phase === "schemaMatchLoading" ||
+    state.phase === "schemaMatchReady" ||
+    state.phase === "schemaMatchFailed" ||
+    state.phase === "schemaSelectionSaving" ||
+    state.phase === "schemaSelected" ||
+    state.phase === "schemaSelectionFailed"
+  ) {
+    return (
+      <SchemaMatchReportPanel
+        state={state}
+        onBack={() => session.backToWorksheetInventory()}
+        onRetry={() => session.compareToGovernedSchema().catch(() => {})}
+        onSelectSchema={() => session.selectGovernedSchema().catch(() => {})}
+        onRestart={() => router.push("/data-hub/import")}
+      />
+    );
   }
 
   if (state.phase === "confirming") {
@@ -141,7 +171,7 @@ function RecoveryBody({
 
 function RecoveryStatusText({ text }: { text: string }) {
   return (
-    <div aria-live="polite" aria-busy="true" style={{ fontSize: 13, color: "rgba(249,250,251,.7)" }}>
+    <div aria-live="polite" aria-busy="true" style={{ fontSize: 13, color: "var(--text-secondary)" }}>
       {text}
     </div>
   );

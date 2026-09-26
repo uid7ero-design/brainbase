@@ -1,85 +1,288 @@
 @import "tailwindcss";
+@import "../styles/brainbase-tokens.css";
 
-/* ─── Design Tokens ──────────────────────────────────── */
+/* ─── BrainBase Design Tokens ────────────────────────── */
 :root {
-  /* Phase D.4.5C-W2 — shared app header offset. Defaults to TopNav's
-     own exact height (52px — see lib/layout/headerOffset.ts's
-     TOP_NAV_HEIGHT_PX, the single source of truth for that number),
-     correct for every non-super_admin session and for the very first
-     paint before any client JS runs. Corrected upward at runtime, only
-     for a resolved super_admin session, by OrgSwitcher's own effect
-     once its real rendered height above TopNav is known. Every fixed/
-     sticky consumer that needs to sit immediately below the app's
-     header stack should read var(--app-header-offset) — never a bare
-     `top: 52` literal. */
+  color-scheme: dark;
+  /* Shared app header offset — existing layout contract. */
   --app-header-offset: 52px;
 
-  /* Backgrounds */
-  --bg-base:    #08090C;
-  --bg-surface: #0D0D15;
-  --bg-raised:  #12121C;
-  --bg-overlay: #17172A;
+  /* Semantic surfaces */
+  --bb-canvas: #0B0B0C;
+  --bb-surface-1: #111113;
+  --bb-surface-2: #151517;
+  --bb-surface-3: #1B1B1E;
+  --bb-surface-soft: rgba(255, 255, 255, 0.018);
+  --bb-surface-hover: rgba(255, 255, 255, 0.045);
+  --bb-surface-selected: rgba(155, 123, 255, 0.10);
+  --bb-scrim: rgba(0, 0, 0, 0.48);
+  --bb-shell-sidebar: #101012;
+  --bb-shell-header: #0B0B0C;
 
-  /* Borders */
-  --border:       rgba(255, 255, 255, 0.07);
-  --border-light: rgba(255, 255, 255, 0.04);
-  --border-focus: rgba(124, 58, 237, 0.45);
+  /* Semantic text */
+  --bb-text-primary: #F3EEE6;
+  --bb-text-secondary: #A1A1AA;
+  --bb-text-tertiary: #77736E;
+  --bb-text-muted: #52525B;
+  --bb-text-disabled: #3F3F46;
+  --bb-text-on-accent: #FFFFFF;
 
-  /* Purple palette */
-  --purple-600:  #6D28D9;
-  --purple-500:  #7C3AED;
-  --purple-400:  #8B5CF6;
-  --purple-300:  #A78BFA;
-  --purple-200:  #C4B5FD;
-  --purple-glow: rgba(124, 58, 237, 0.18);
+  /* Semantic borders */
+  --bb-border-subtle: rgba(255, 255, 255, 0.050);
+  --bb-border-default: rgba(255, 255, 255, 0.075);
+  --bb-border-strong: rgba(255, 255, 255, 0.12);
+  --bb-border-hover: rgba(255, 255, 255, 0.16);
+  --bb-border-focus: rgba(138, 77, 255, 0.58);
+  --bb-border-accent: rgba(138, 77, 255, 0.30);
 
-  /* Text */
-  --text-primary:   #F4F4F5;
-  --text-secondary: #A1A1AA;
-  --text-muted:     #52525B;
+  /* Brand / accent */
+  --bb-accent-700: #5E3FC4;
+  --bb-accent-600: #6D4CD6;
+  --bb-accent-500: #7A59E6;
+  --bb-accent-400: #9B7BFF;
+  --bb-accent-300: #B09AFF;
+  --bb-accent-blue: #5677FF;
+  --bb-accent-cyan: #00D4FF;
+  --bb-accent-soft: rgba(155, 123, 255, 0.09);
+  --bb-accent-softer: rgba(155, 123, 255, 0.05);
+  --bb-accent-glow: rgba(155, 123, 255, 0.16);
+  --bb-gradient-accent: linear-gradient(100deg, #6D4CD6 0%, #9B7BFF 55%, #5677FF 100%);
+  --bb-gradient-display: linear-gradient(100deg, #7A59E6 0%, #9B7BFF 46%, #5677FF 100%);
 
   /* Status */
-  --green:  #22C55E;
-  --yellow: #F59E0B;
-  --red:    #EF4444;
-  --cyan:   #06B6D4;
+  --bb-success: #22C55E;
+  --bb-warning: #F59E0B;
+  --bb-danger: #EF4444;
+  --bb-info: #38BDF8;
+  --bb-success-soft: rgba(34, 197, 94, 0.12);
+  --bb-warning-soft: rgba(245, 158, 11, 0.12);
+  --bb-danger-soft: rgba(239, 68, 68, 0.12);
+  --bb-info-soft: rgba(56, 189, 248, 0.12);
 
-  /* Legacy compat */
-  --background: var(--bg-base);
-  --foreground: var(--text-primary);
+  /* Typography */
+  --bb-font-sans: var(--font-inter), Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --bb-font-mono: var(--font-geist-mono), "SFMono-Regular", Consolas, monospace;
+  --bb-type-display-size: 40px;
+  --bb-type-display-line: 1.08;
+  --bb-type-display-weight: 650;
+  --bb-type-display-tracking: -0.035em;
+  --bb-type-page-title-size: 28px;
+  --bb-type-page-title-line: 1.15;
+  --bb-type-page-title-weight: 650;
+  --bb-type-page-title-tracking: -0.025em;
+  --bb-type-section-title-size: 20px;
+  --bb-type-section-title-line: 1.25;
+  --bb-type-section-title-weight: 650;
+  --bb-type-section-title-tracking: -0.018em;
+  --bb-type-card-title-size: 15px;
+  --bb-type-card-title-line: 1.35;
+  --bb-type-card-title-weight: 650;
+  --bb-type-card-title-tracking: -0.01em;
+  --bb-type-body-lg-size: 15px;
+  --bb-type-body-lg-line: 1.65;
+  --bb-type-body-size: 13px;
+  --bb-type-body-line: 1.55;
+  --bb-type-body-sm-size: 12px;
+  --bb-type-body-sm-line: 1.5;
+  --bb-type-label-size: 11px;
+  --bb-type-label-line: 1.35;
+  --bb-type-label-weight: 600;
+  --bb-type-label-tracking: 0.01em;
+  --bb-type-micro-size: 9px;
+  --bb-type-micro-line: 1.3;
+  --bb-type-micro-weight: 650;
+  --bb-type-micro-tracking: 0.10em;
+  --bb-type-numeric-lg-size: 24px;
+  --bb-type-numeric-lg-line: 1.1;
+  --bb-type-numeric-lg-weight: 650;
+  --bb-type-numeric-lg-tracking: -0.025em;
+  --bb-type-numeric-size: 14px;
+  --bb-type-numeric-line: 1.3;
+  --bb-type-numeric-weight: 600;
+  --bb-type-numeric-tracking: -0.01em;
+
+  /* Spacing */
+  --bb-space-0: 0px;
+  --bb-space-1: 2px;
+  --bb-space-2: 4px;
+  --bb-space-3: 6px;
+  --bb-space-4: 8px;
+  --bb-space-5: 12px;
+  --bb-space-6: 16px;
+  --bb-space-7: 20px;
+  --bb-space-8: 24px;
+  --bb-space-9: 32px;
+  --bb-space-10: 40px;
+  --bb-space-11: 48px;
+  --bb-space-12: 64px;
+
+  /* Radii */
+  --bb-radius-xs: 4px;
+  --bb-radius-sm: 6px;
+  --bb-radius-md: 8px;
+  --bb-radius-lg: 12px;
+  --bb-radius-xl: 16px;
+  --bb-radius-2xl: 22px;
+  --bb-radius-pill: 999px;
+
+  /* Shadows / glow */
+  --bb-shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.16);
+  --bb-shadow-panel: 0 12px 32px rgba(0, 0, 0, 0.20);
+  --bb-shadow-float: 0 18px 50px rgba(0, 0, 0, 0.28);
+  --bb-shadow-modal: 0 30px 90px rgba(0, 0, 0, 0.34);
+  --bb-glow-accent-sm: 0 0 12px rgba(138, 77, 255, 0.14);
+  --bb-glow-accent: 0 0 24px rgba(138, 77, 255, 0.20);
+  --bb-glow-success: 0 0 8px rgba(34, 197, 94, 0.55);
+
+  /* Blur */
+  --bb-blur-nav: 16px;
+  --bb-blur-panel: 12px;
+  --bb-blur-soft: 6px;
+
+  /* Motion */
+  --bb-duration-instant: 80ms;
+  --bb-duration-fast: 140ms;
+  --bb-duration-base: 180ms;
+  --bb-duration-slow: 240ms;
+  --bb-duration-panel: 320ms;
+  --bb-ease-standard: cubic-bezier(.4, 0, .2, 1);
+  --bb-ease-enter: cubic-bezier(.16, 1, .3, 1);
+  --bb-ease-exit: cubic-bezier(.4, 0, 1, 1);
+
+  /* Density */
+  --bb-control-height-sm: 28px;
+  --bb-control-height-md: 34px;
+  --bb-control-height-lg: 42px;
+  --bb-row-height-compact: 32px;
+  --bb-row-height-default: 40px;
+  --bb-row-height-comfortable: 48px;
+
+  /* Z-index */
+  --bb-z-base: 0;
+  --bb-z-raised: 10;
+  --bb-z-sticky: 30;
+  --bb-z-header: 50;
+  --bb-z-menu: 100;
+  --bb-z-drawer: 200;
+  --bb-z-modal: 300;
+  --bb-z-toast: 400;
+  --bb-z-tooltip: 500;
+
+  /* Data visualisation — separate from semantic status colours. */
+  --bb-chart-1: #7A59E6;
+  --bb-chart-2: #5677FF;
+  --bb-chart-3: #00B8D9;
+  --bb-chart-4: #9B7BFF;
+  --bb-chart-5: #38BDF8;
+  --bb-chart-6: #B09AFF;
+
+  /*
+   * Legacy aliases — compatibility only.
+   * New components must consume --bb-* semantic tokens directly.
+   * Remove only after full migration audit.
+   */
+  --bg-base:    #0B0B0C;
+  --bg-surface: #111113;
+  --bg-raised:  #151517;
+  --bg-overlay: #1B1B1E;
+  --border: var(--bb-border-default);
+  --border-light: var(--bb-border-subtle);
+  --border-focus: var(--bb-border-focus);
+  --purple-600:  #6D4CD6;
+  --purple-500:  #7A59E6;
+  --purple-400:  #9B7BFF;
+  --purple-300:  #B09AFF;
+  --purple-200: var(--bb-accent-300);
+  --purple-glow: var(--bb-accent-glow);
+  --text-primary:   #F3EEE6;
+  --text-secondary: #A1A1AA;
+  --text-muted:     #52525B;
+  --green: var(--bb-success);
+  --yellow: var(--bb-warning);
+  --red: var(--bb-danger);
+  --cyan: var(--bb-info);
+
+  --brand-line: #F3EEE6;
+  --brand-brainbase-accent: #9B7BFF;
+  --brand-hlna-accent: #E06C23;
+  --background: var(--bb-canvas);
+  --foreground: var(--bb-text-primary);
 }
 
 :root[data-theme='light'] {
-  /* Backgrounds */
-  --bg-base:    #F5F6F8;
+  color-scheme: light;
+  --bb-canvas: #F5F3EE;
+  --bb-surface-1: #FFFFFF;
+  --bb-surface-2: #FAF8F3;
+  --bb-surface-3: #FFFFFF;
+  --bb-surface-soft: rgba(15, 17, 23, 0.025);
+  --bb-surface-hover: rgba(15, 17, 23, 0.045);
+  --bb-surface-selected: rgba(106, 61, 255, 0.075);
+  --bb-scrim: rgba(15, 17, 23, 0.36);
+  --bb-shell-sidebar: rgba(255, 255, 255, 0.98);
+  --bb-shell-header: rgba(255, 255, 255, 0.96);
+
+  --bb-text-primary: #15171B;
+  --bb-text-secondary: #52525B;
+  --bb-text-tertiary: #71717A;
+  --bb-text-muted: #8B8D98;
+  --bb-text-disabled: #B8B4AC;
+  --bb-text-on-accent: #FFFFFF;
+
+  --bb-border-subtle: rgba(15, 17, 23, 0.055);
+  --bb-border-default: rgba(15, 17, 23, 0.095);
+  --bb-border-strong: rgba(15, 17, 23, 0.15);
+  --bb-border-hover: rgba(15, 17, 23, 0.20);
+  --bb-border-focus: rgba(106, 61, 255, 0.52);
+  --bb-border-accent: rgba(106, 61, 255, 0.25);
+
+  --bb-accent-700: #5E3FC4;
+  --bb-accent-600: #6D4CD6;
+  --bb-accent-500: #6D4CD6;
+  --bb-accent-400: #9B7BFF;
+  --bb-accent-300: #9B7BFF;
+  --bb-accent-blue: #5677FF;
+  --bb-accent-cyan: #00D4FF;
+  --bb-accent-soft: rgba(106, 61, 255, 0.10);
+  --bb-accent-softer: rgba(106, 61, 255, 0.05);
+  --bb-accent-glow: rgba(106, 61, 255, 0.14);
+
+  --bb-success: #16A34A;
+  --bb-warning: #D97706;
+  --bb-danger: #DC2626;
+  --bb-info: #0284C7;
+  --bb-success-soft: rgba(22, 163, 74, 0.10);
+  --bb-warning-soft: rgba(217, 119, 6, 0.10);
+  --bb-danger-soft: rgba(220, 38, 38, 0.10);
+  --bb-info-soft: rgba(2, 132, 199, 0.10);
+
+  /* Compatibility aliases mirror the latest-main light application palette. */
+  --bg-base:    #F5F3EE;
   --bg-surface: #FFFFFF;
   --bg-raised:  #FFFFFF;
-  --bg-overlay: #F0F1F5;
-
-  /* Borders */
-  --border:       rgba(15, 17, 23, 0.10);
-  --border-light: rgba(15, 17, 23, 0.06);
-  --border-focus: rgba(124, 58, 237, 0.45);
-
-  /* Purple palette — brand colour, unchanged across themes */
-  --purple-600:  #6D28D9;
-  --purple-500:  #7C3AED;
-  --purple-400:  #8B5CF6;
-  --purple-300:  #7C3AED;
-  --purple-200:  #6D28D9;
-  --purple-glow: rgba(124, 58, 237, 0.12);
-
-  /* Text */
-  --text-primary:   #15161A;
+  --bg-overlay: #EFEBE4;
+  --text-primary:   #15171B;
   --text-secondary: #52525B;
   --text-muted:     #8B8D98;
-
-  /* Status — kept vivid in both themes */
+  --purple-600:  #6D4CD6;
+  --purple-500:  #7A59E6;
+  --purple-400:  #9B7BFF;
+  --purple-300:  #6D4CD6;
+  --purple-200:  #6D4CD6;
+  --purple-glow: rgba(109, 76, 214, 0.08);
   --green:  #16A34A;
   --yellow: #D97706;
   --red:    #DC2626;
   --cyan:   #0891B2;
+
+  --brand-line: #15171B;
+  --brand-brainbase-accent: #6D4CD6;
+  --brand-hlna-accent: #C85B18;
+  --background: var(--bg-base);
+  --foreground: var(--text-primary);
 }
+
+/* ─── End BrainBase Design Tokens ────────────────────── */
 
 @theme inline {
   --color-background: var(--background);
@@ -89,9 +292,15 @@
 }
 
 /* ─── Base ───────────────────────────────────────────── */
-html { scroll-behavior: smooth; }
+html {
+  scroll-behavior: smooth;
+  max-width: 100%;
+  overflow-x: hidden;
+}
 
 body {
+  max-width: 100%;
+  overflow-x: hidden;
   background: var(--bg-base);
   color: var(--text-primary);
   font-family: var(--font-inter), -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;

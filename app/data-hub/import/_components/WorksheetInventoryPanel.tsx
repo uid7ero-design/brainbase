@@ -16,20 +16,24 @@ import {
 // anywhere in its input. Actions: leaving (onRestart) and, 6.2D2, an
 // explicit per-row Preview (onPreview) shown only for a visible, non-empty,
 // AWAITING_CONFIRMATION worksheet — never auto-invoked, even for a
-// single-sheet workbook. The orchestrator re-validates the id.
+// single-sheet workbook. The orchestrator re-validates the id. 6.2D3C: an
+// explicit, read-only "Compare to governed schema" (onCompareSchema) —
+// never auto-invoked; it shows a structural difference report only.
 export default function WorksheetInventoryPanel({
   state,
   onPreview,
+  onCompareSchema,
   onRestart,
 }: {
   state: Extract<DataHubImportState, { phase: "worksheetInventoryReady" }>;
   onPreview: (worksheetId: string) => void;
+  onCompareSchema: () => void;
   onRestart: () => void;
 }) {
   return (
     <div>
-      <h2 style={{ fontSize: 16, fontWeight: 600, color: "#f9fafb", marginBottom: 4 }}>Workbook worksheets</h2>
-      <p style={{ fontSize: 13, color: "rgba(249,250,251,.55)", marginBottom: 14 }}>
+      <h2 style={{ fontSize: 16, fontWeight: 600, color: "var(--text-primary)", marginBottom: 4 }}>Workbook worksheets</h2>
+      <p style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: 14 }}>
         {state.worksheets.length} worksheet(s) found in {state.batch.originalFilename ?? "this workbook"}.
       </p>
 
@@ -41,7 +45,7 @@ export default function WorksheetInventoryPanel({
           borderRadius: 8,
           padding: "10px 14px",
           fontSize: 12,
-          color: "#f9fafb",
+          color: "var(--text-primary)",
           marginBottom: 14,
         }}
       >
@@ -51,7 +55,7 @@ export default function WorksheetInventoryPanel({
       <div
         tabIndex={0}
         aria-label={`Worksheet inventory, ${state.worksheets.length} worksheets`}
-        style={{ overflowX: "auto", border: "1px solid rgba(255,255,255,.08)", borderRadius: 8 }}
+        style={{ overflowX: "auto", border: "1px solid var(--border)", borderRadius: 8 }}
       >
         <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 12, fontVariantNumeric: "tabular-nums" }}>
           <thead>
@@ -63,8 +67,8 @@ export default function WorksheetInventoryPanel({
                   style={{
                     textAlign: "left",
                     padding: "8px 10px",
-                    borderBottom: "1px solid rgba(255,255,255,.1)",
-                    color: "rgba(249,250,251,.75)",
+                    borderBottom: "1px solid var(--border)",
+                    color: "var(--text-secondary)",
                     whiteSpace: "nowrap",
                   }}
                 >
@@ -87,15 +91,15 @@ export default function WorksheetInventoryPanel({
                     key={c}
                     style={{
                       padding: "8px 10px",
-                      borderBottom: "1px solid rgba(255,255,255,.05)",
-                      color: "rgba(249,250,251,.6)",
+                      borderBottom: "1px solid var(--border-light)",
+                      color: "var(--text-secondary)",
                       whiteSpace: "nowrap",
                     }}
                   >
                     {cell}
                   </td>
                 ))}
-                <td style={{ padding: "8px 10px", borderBottom: "1px solid rgba(255,255,255,.05)" }}>
+                <td style={{ padding: "8px 10px", borderBottom: "1px solid var(--border-light)" }}>
                   {w.worksheetVisibility === "visible" && !w.worksheetIsEmpty && w.canonicalStatus === "AWAITING_CONFIRMATION" ? (
                     <button type="button" onClick={() => onPreview(w.id)} style={{ fontSize: 12, padding: "5px 10px", borderRadius: 6, cursor: "pointer" }}>
                       Preview
@@ -108,23 +112,40 @@ export default function WorksheetInventoryPanel({
         </table>
       </div>
 
+      <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
       <button
         type="button"
-        onClick={onRestart}
+        onClick={onCompareSchema}
         style={{
-          marginTop: 20,
           fontSize: 13,
           fontWeight: 600,
           padding: "9px 18px",
           borderRadius: 8,
-          border: "1px solid rgba(255,255,255,.18)",
+          border: "1px solid var(--border)",
           background: "transparent",
-          color: "rgba(249,250,251,.85)",
+          color: "var(--text-primary)",
+          cursor: "pointer",
+        }}
+      >
+        Compare to governed schema
+      </button>
+      <button
+        type="button"
+        onClick={onRestart}
+        style={{
+          fontSize: 13,
+          fontWeight: 600,
+          padding: "9px 18px",
+          borderRadius: 8,
+          border: "1px solid var(--border)",
+          background: "transparent",
+          color: "var(--text-primary)",
           cursor: "pointer",
         }}
       >
         Choose another file
       </button>
+      </div>
     </div>
   );
 }

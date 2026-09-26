@@ -35,7 +35,7 @@ export default function CustomerForm({ initial, onSaved }: { initial?: Customer;
       <Field label="Billing Address" value={form.billingAddress ?? ''} onChange={set('billingAddress')} />
       <Field label="Tax / Business Number" value={form.taxBusinessNumber ?? ''} onChange={set('taxBusinessNumber')} placeholder="ABN, GST number, ..." />
       {error && <p style={{ color: '#f87171', fontSize: 13, margin: 0 }}>{error}</p>}
-      <button type="submit" disabled={saving} style={{ padding: '10px 0', background: '#1a6aff', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: saving ? 'default' : 'pointer' }}>
+      <button type="submit" disabled={saving} style={{ padding: '10px 0', background: 'var(--purple-600)', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: saving ? 'default' : 'pointer' }}>
         {saving ? 'Saving…' : initial?.id ? 'Save changes' : 'Create Customer'}
       </button>
     </form>
@@ -50,10 +50,10 @@ export function Field({ label, value, onChange, required, placeholder, type }: {
     <div>
       <label style={lbl}>{label}</label>
       <input type={type} value={value} onChange={onChange} required={required} placeholder={placeholder}
-        style={{ width: '100%', padding: '9px 12px', background: '#111318', border: '1px solid #1a1d24', borderRadius: 8, color: '#f9fafb', fontSize: 14, outline: 'none', boxSizing: 'border-box' }} />
+        style={{ width: '100%', padding: '9px 12px', background: 'var(--bg-raised)', border: '1px solid #1a1d24', borderRadius: 8, color: 'var(--text-primary)', fontSize: 14, outline: 'none', boxSizing: 'border-box' }} />
     </div>
   );
 }
 
-export const lbl: React.CSSProperties = { display: 'block', color: '#9ca3af', fontSize: 11, fontWeight: 600, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' };
-export const sel: React.CSSProperties = { width: '100%', padding: '9px 12px', background: '#111318', border: '1px solid #1a1d24', borderRadius: 8, color: '#f9fafb', fontSize: 14, boxSizing: 'border-box' };
+export const lbl: React.CSSProperties = { display: 'block', color: 'var(--text-secondary)', fontSize: 11, fontWeight: 600, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' };
+export const sel: React.CSSProperties = { width: '100%', padding: '9px 12px', background: 'var(--bg-raised)', border: '1px solid #1a1d24', borderRadius: 8, color: 'var(--text-primary)', fontSize: 14, boxSizing: 'border-box' };

@@ -325,10 +325,12 @@ describe('LD Tennis public site — mobile fallback for the desktop-only link ro
 })
 
 describe('BrainBase marketing site — Events & Ticketing as a first-class capability', () => {
-  const code = stripComments(read('app/page.tsx'))
+  // Homepage copy moved to components/public/home/content.tsx in the
+  // public-site visual redesign; app/page.tsx renders it.
+  const code = stripComments(read('app/page.tsx') + '\n' + read('components/public/home/content.tsx'))
 
   it('CAPABILITIES includes an Events & Ticketing entry describing the actual product, not LD Tennis', () => {
-    const start = code.indexOf('const CAPABILITIES')
+    const start = code.indexOf('export const CAPABILITIES')
     const body = code.slice(start, code.indexOf('\n];', start))
     expect(body).toMatch(/title:\s*'Events & Ticketing'/)
     expect(body).not.toMatch(/ld-tennis|LD Tennis/i)

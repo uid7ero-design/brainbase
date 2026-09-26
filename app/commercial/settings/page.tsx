@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import { Field, lbl, sel } from '../_components/CustomerForm';
 
-const CARD = '#0e1014'; const BORDER = '#1a1d24';
+const CARD = 'var(--bg-surface)'; const BORDER = 'var(--border)';
 
 type Profile = { tradingName: string | null; address: string | null; email: string | null; phone: string | null; abn: string | null };
 type TaxCode = { id: string; code: string; name: string; rate: string; is_default: boolean; active: boolean };
@@ -88,7 +88,7 @@ export default function CommercialSettingsPage() {
 
       <section style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: '20px 24px', marginBottom: 24 }}>
         <h2 style={{ fontSize: 15, fontWeight: 600, margin: '0 0 4px' }}>Business Profile</h2>
-        <p style={{ fontSize: 12, color: '#6b7280', margin: '0 0 16px' }}>
+        <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: '0 0 16px' }}>
           Shown as the &ldquo;From&rdquo; details on Quote and Invoice PDFs and emails. Any field left blank falls back to your organisation name ({orgName || '—'}) or is omitted.
         </p>
         <form onSubmit={saveProfile} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -98,7 +98,7 @@ export default function CommercialSettingsPage() {
           <Field label="Business Phone" value={profile.phone ?? ''} onChange={e => setProfile(p => ({ ...p, phone: e.target.value }))} />
           <Field label="ABN" value={profile.abn ?? ''} onChange={e => setProfile(p => ({ ...p, abn: e.target.value }))} />
           <div>
-            <button type="submit" disabled={savingProfile} style={{ padding: '9px 16px', background: '#1a6aff', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+            <button type="submit" disabled={savingProfile} style={{ padding: '9px 16px', background: 'var(--purple-600)', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
               {savingProfile ? 'Saving…' : 'Save Business Profile'}
             </button>
             {profileSaved && <span style={{ marginLeft: 12, color: '#4ade80', fontSize: 13 }}>Saved.</span>}
@@ -110,10 +110,10 @@ export default function CommercialSettingsPage() {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
           <div>
             <h2 style={{ fontSize: 15, fontWeight: 600, margin: '0 0 4px' }}>Tax Codes</h2>
-            <p style={{ fontSize: 12, color: '#6b7280', margin: 0 }}>Used on Products and Quote/Invoice lines. Deactivating a code never affects quotes or invoices already issued with it (their tax rate is snapshotted).</p>
+            <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: 0 }}>Used on Products and Quote/Invoice lines. Deactivating a code never affects quotes or invoices already issued with it (their tax rate is snapshotted).</p>
           </div>
           {taxCodes.length === 0 && (
-            <button onClick={seedDefaults} disabled={seeding} style={{ padding: '8px 14px', background: '#1a6aff', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+            <button onClick={seedDefaults} disabled={seeding} style={{ padding: '8px 14px', background: 'var(--purple-600)', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
               {seeding ? 'Seeding…' : 'Seed Standard Australian Tax Codes'}
             </button>
           )}
@@ -124,9 +124,9 @@ export default function CommercialSettingsPage() {
             <tbody>
               {taxCodes.map((t, i) => (
                 <tr key={t.id} style={{ borderTop: i > 0 ? `1px solid ${BORDER}` : 'none' }}>
-                  <td style={{ padding: '10px 0', fontSize: 13, color: '#f9fafb', fontWeight: 500 }}>{t.code}{t.is_default && <span style={{ color: '#6b7280', fontWeight: 400 }}> · default</span>}</td>
-                  <td style={{ padding: '10px 0', fontSize: 13, color: '#9ca3af' }}>{t.name}</td>
-                  <td style={{ padding: '10px 0', fontSize: 13, color: '#9ca3af', textAlign: 'right' }}>{t.rate}%</td>
+                  <td style={{ padding: '10px 0', fontSize: 13, color: 'var(--text-primary)', fontWeight: 500 }}>{t.code}{t.is_default && <span style={{ color: 'var(--text-secondary)', fontWeight: 400 }}> · default</span>}</td>
+                  <td style={{ padding: '10px 0', fontSize: 13, color: 'var(--text-secondary)' }}>{t.name}</td>
+                  <td style={{ padding: '10px 0', fontSize: 13, color: 'var(--text-secondary)', textAlign: 'right' }}>{t.rate}%</td>
                   <td style={{ padding: '10px 0', textAlign: 'right' }}>
                     <button onClick={() => deactivateTaxCode(t.id)} disabled={busy} style={{ background: 'none', border: 'none', color: '#f87171', fontSize: 12, cursor: 'pointer' }}>Deactivate</button>
                   </td>

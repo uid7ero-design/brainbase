@@ -1,0 +1,7 @@
+<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+  <style>.orbit{fill:none;stroke:#15171B}.core{fill:#6D4CD6}@media(prefers-color-scheme:dark){.orbit{stroke:#F3EEE6}.core{fill:#9B7BFF}}</style>
+  <g transform="rotate(-30 50 50)">
+    <path class="orbit" d="M90 50 A40 24 0 1 1 50 26" stroke-width="9" stroke-linecap="round"/>
+  </g>
+  <circle class="core" cx="50" cy="50" r="16"/>
+</svg>

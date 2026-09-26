@@ -466,8 +466,27 @@ describe('6.2D3A — no runtime consumer; XLSX mapping/confirm/import remain dis
   it('no app/lib/modules/components source references the new Prisma delegates, tables or lineage columns (no API/service/admin UI in D3A)', () => {
     expect(runtimeFiles.length).toBeGreaterThan(50)
     const forbidden = /\.(datasetType|sourceSchemaVersion|sourceSchemaWorksheet|sourceSchemaColumn|worksheetMappingProfile|worksheetMappingProfileVersion)\b|\b(dataset_types|source_schema_versions|source_schema_worksheets|source_schema_columns|worksheet_mapping_profiles|worksheet_mapping_profile_versions|dataset_type_id|source_schema_version_id|active_profile_version_id|profile_document)\b|\b(DatasetType|SourceSchemaVersion|SourceSchemaWorksheet|SourceSchemaColumn|WorksheetMappingProfile|WorksheetMappingProfileVersion)\b/
+    // 6.2D3C — the governed schema loader, READ-ONLY (findFirst/findMany
+    // only; proven below and in dataHubSchemaMatchService.test.ts).
+    // 6.2D3D — exactly ONE additional authorized consumer: the governed
+    // schema LINEAGE-PINNING service, whose only Prisma write is the one
+    // conditional ImportBatch.updateMany that freezes dataset_type_id /
+    // source_schema_version_id (proven, alongside its full read-only
+    // reuse of the D3C loader, in dataHubSchemaSelectionService.test.ts).
+    // Any other file still fails.
+    const D3C_READ_ONLY_LOADER = path.join('lib', 'data-hub', 'schemaMatch', 'governedSchema.ts')
+    const D3D_LINEAGE_PIN_SERVICE = path.join('lib', 'data-hub', 'schemaMatch', 'establishImportBatchSchemaLineage.ts')
     const offenders = runtimeFiles.filter(f => forbidden.test(fs.readFileSync(f, 'utf-8'))).map(f => path.relative(REPO_ROOT, f))
-    expect(offenders).toEqual([])
+    expect(offenders).toEqual([D3D_LINEAGE_PIN_SERVICE, D3C_READ_ONLY_LOADER])
+    const loader = readSource(D3C_READ_ONLY_LOADER)
+    expect(loader).not.toMatch(/\.(create|createMany|update|updateMany|upsert|delete|deleteMany)\(|\$transaction|\$executeRaw|\$queryRaw/)
+    expect([...loader.matchAll(/prisma\.(\w+)\.(\w+)\(/g)].map(m => `${m[1]}.${m[2]}`)).toEqual([
+      'sourceSystem.findFirst', 'datasetType.findFirst', 'sourceSchemaVersion.findFirst',
+      'sourceSchemaWorksheet.findMany', 'sourceSchemaColumn.findMany', 'worksheetMappingProfileVersion.findMany',
+    ])
+    const pinService = readSource(D3D_LINEAGE_PIN_SERVICE)
+    expect(pinService).not.toMatch(/\b(prisma|tx)\.\w+\.(create|createMany|update|upsert|delete|deleteMany)\(|\$transaction|\$executeRaw|\$queryRaw/)
+    expect(pinService.match(/\b(prisma|tx)\.\w+\.updateMany\(/g)).toEqual(['prisma.importBatch.updateMany('])
   })
 
   it('confirmWorksheet / selectWorksheetMapping / previewXlsxWorksheet import nothing new', () => {

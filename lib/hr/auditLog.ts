@@ -91,6 +91,13 @@ const HR_RESTRICTED_CASE_AUDIT_POLICY: AuditFieldPolicy = {
   omitted: new Set(['id', 'organisation_id', 'created_at', 'updated_at']),
 };
 
+const HR_RESTRICTED_CASE_PARTICIPANT_AUDIT_POLICY: AuditFieldPolicy = {
+  allowed: new Set(['role_in_case']),
+  idOnly: new Set(['case_id', 'person_id']),
+  redacted: new Set(),
+  omitted: new Set(['id', 'organisation_id', 'created_at']),
+};
+
 const HR_RESTRICTED_CASE_ACCESS_AUDIT_POLICY: AuditFieldPolicy = {
   allowed: new Set(['granted_at', 'revoked_at']),
   idOnly: new Set(['case_id', 'user_id', 'granted_by', 'revoked_by']),
@@ -104,6 +111,99 @@ const HR_RESTRICTED_CASE_NOTE_AUDIT_POLICY: AuditFieldPolicy = {
   redacted: new Set(['body']),
   omitted: new Set(['id', 'organisation_id', 'created_at']),
 };
+
+const HR_LIFECYCLE_TEMPLATE_AUDIT_POLICY: AuditFieldPolicy = {
+  allowed: new Set([
+    'template_key',
+    'version_number',
+    'lifecycle_type',
+    'status',
+    'activated_at',
+    'retired_at',
+  ]),
+  idOnly: new Set(['created_by']),
+  redacted: new Set(['name', 'description']),
+  omitted: new Set(['id', 'organisation_id', 'created_at', 'updated_at']),
+};
+
+const HR_LIFECYCLE_WORKFLOW_AUDIT_POLICY: AuditFieldPolicy = {
+  allowed: new Set([
+    'lifecycle_type',
+    'status',
+    'anchor_date',
+    'started_at',
+    'completed_at',
+    'cancelled_at',
+  ]),
+  idOnly: new Set(['person_id', 'template_id', 'started_by']),
+  redacted: new Set(),
+  omitted: new Set(['id', 'organisation_id', 'created_at', 'updated_at']),
+};
+
+const HR_LIFECYCLE_TASK_AUDIT_POLICY: AuditFieldPolicy = {
+  allowed: new Set([
+    'sequence',
+    'responsibility_type',
+    'due_at',
+    'requires_approval',
+    'approval_type',
+    'employee_visible',
+    'manager_visible',
+    'internal_only',
+    'status',
+    'completed_at',
+    'waived_at',
+  ]),
+  idOnly: new Set([
+    'workflow_id',
+    'person_id',
+    'template_id',
+    'template_task_id',
+    'assigned_user_id',
+    'completed_by',
+    'waived_by',
+  ]),
+  redacted: new Set(['title', 'description', 'waiver_reason']),
+  omitted: new Set(['id', 'organisation_id', 'created_at', 'updated_at']),
+};
+
+const HR_LIFECYCLE_TASK_APPROVAL_AUDIT_POLICY: AuditFieldPolicy = {
+  allowed: new Set(['decision', 'decided_at']),
+  idOnly: new Set(['task_id', 'workflow_id', 'person_id', 'approver_user_id']),
+  redacted: new Set(['comment']),
+  omitted: new Set(['id', 'organisation_id', 'created_at']),
+};
+
+const HR_EMPLOYEE_DOCUMENT_AUDIT_POLICY: AuditFieldPolicy = {
+  allowed: new Set(['document_type', 'deleted_at']),
+  idOnly: new Set(['person_id', 'lifecycle_task_id']),
+  redacted: new Set(['title']),
+  omitted: new Set(['id', 'organisation_id', 'created_at']),
+};
+
+const HR_EMPLOYEE_DOCUMENT_VERSION_AUDIT_POLICY: AuditFieldPolicy = {
+  allowed: new Set([
+    'version_number',
+    'content_type',
+    'byte_size',
+    'expires_at',
+    'is_current',
+  ]),
+  idOnly: new Set(['document_id', 'uploaded_by']),
+  redacted: new Set(['original_filename']),
+  omitted: new Set(['id', 'organisation_id', 'storage_key', 'created_at']),
+};
+
+const RESTRICTED_HR_READ_EVENTS = new Set([
+  'hr_restricted_case:hr_restricted_case.read',
+  'hr_restricted_case_participant:hr_restricted_case_participant.read',
+  'hr_restricted_case_note:hr_restricted_case_note.read',
+  'hr_restricted_case_document:hr_restricted_case_document.read',
+]);
+
+const EMPLOYEE_DOCUMENT_READ_EVENTS = new Set([
+  'hr_employee_document_version:hr_employee_document_version.read',
+]);
 
 const HR_RESTRICTED_CASE_DOCUMENT_AUDIT_POLICY: AuditFieldPolicy = {
   allowed: new Set(['content_type', 'byte_size', 'deleted_at']),
@@ -162,8 +262,15 @@ function policyForResource(resourceType: string): AuditFieldPolicy | null {
   if (resourceType === 'hr_team') return HR_TEAM_AUDIT_POLICY;
   if (resourceType === 'hr_restricted_case') return HR_RESTRICTED_CASE_AUDIT_POLICY;
   if (resourceType === 'hr_restricted_case_access') return HR_RESTRICTED_CASE_ACCESS_AUDIT_POLICY;
+  if (resourceType === 'hr_restricted_case_participant') return HR_RESTRICTED_CASE_PARTICIPANT_AUDIT_POLICY;
   if (resourceType === 'hr_restricted_case_note') return HR_RESTRICTED_CASE_NOTE_AUDIT_POLICY;
   if (resourceType === 'hr_restricted_case_document') return HR_RESTRICTED_CASE_DOCUMENT_AUDIT_POLICY;
+  if (resourceType === 'hr_lifecycle_template') return HR_LIFECYCLE_TEMPLATE_AUDIT_POLICY;
+  if (resourceType === 'hr_lifecycle_workflow') return HR_LIFECYCLE_WORKFLOW_AUDIT_POLICY;
+  if (resourceType === 'hr_lifecycle_task') return HR_LIFECYCLE_TASK_AUDIT_POLICY;
+  if (resourceType === 'hr_lifecycle_task_approval') return HR_LIFECYCLE_TASK_APPROVAL_AUDIT_POLICY;
+  if (resourceType === 'hr_employee_document') return HR_EMPLOYEE_DOCUMENT_AUDIT_POLICY;
+  if (resourceType === 'hr_employee_document_version') return HR_EMPLOYEE_DOCUMENT_VERSION_AUDIT_POLICY;
   return null;
 }
 
@@ -175,7 +282,13 @@ function projectHrAuditState(
 
   const policy = policyForResource(resourceType);
   if (!policy) {
-    if (resourceType.startsWith('hr_restricted_')) return redactAllState(state);
+    if (
+      resourceType.startsWith('hr_restricted_')
+      || resourceType.startsWith('hr_lifecycle_')
+      || resourceType.startsWith('hr_employee_document')
+    ) {
+      return redactAllState(state);
+    }
     return legacyRedactState(state);
   }
 
@@ -226,24 +339,28 @@ function projectHrAuditState(
  * resource-specific allowlists. Unknown future fields fail closed to
  * "[redacted]" rather than passing through raw.
  */
+async function writeHrAuditEvent(actor: HrAuditActor, entry: HrAuditEntry): Promise<void> {
+  const before = projectHrAuditState(entry.resourceType, entry.beforeState);
+  const after = projectHrAuditState(entry.resourceType, entry.afterState);
+
+  await sql`
+    INSERT INTO audit_logs (
+      id, organisation_id, user_id, action, resource_type, resource_id,
+      before_state, after_state, ip_address, user_agent
+    )
+    VALUES (
+      ${crypto.randomUUID()}, ${actor.organisationId}, ${actor.userId},
+      ${entry.action}, ${entry.resourceType}, ${entry.resourceId},
+      ${before ? JSON.stringify(before) : null}::jsonb,
+      ${after ? JSON.stringify(after) : null}::jsonb,
+      ${actor.ipAddress ?? null}, ${actor.userAgent ?? null}
+    )
+  `;
+}
+
 export async function logHrEvent(actor: HrAuditActor, entry: HrAuditEntry): Promise<void> {
   try {
-    const before = projectHrAuditState(entry.resourceType, entry.beforeState);
-    const after = projectHrAuditState(entry.resourceType, entry.afterState);
-
-    await sql`
-      INSERT INTO audit_logs (
-        id, organisation_id, user_id, action, resource_type, resource_id,
-        before_state, after_state, ip_address, user_agent
-      )
-      VALUES (
-        ${crypto.randomUUID()}, ${actor.organisationId}, ${actor.userId},
-        ${entry.action}, ${entry.resourceType}, ${entry.resourceId},
-        ${before ? JSON.stringify(before) : null}::jsonb,
-        ${after ? JSON.stringify(after) : null}::jsonb,
-        ${actor.ipAddress ?? null}, ${actor.userAgent ?? null}
-      )
-    `;
+    await writeHrAuditEvent(actor, entry);
   } catch (err) {
     console.error(
       '[hr audit] audit_logs write failed (ignored, per ADR-0003 §11 — the underlying mutation remains valid)',
@@ -251,4 +368,30 @@ export async function logHrEvent(actor: HrAuditActor, entry: HrAuditEntry): Prom
       { action: entry.action, resourceType: entry.resourceType, resourceId: entry.resourceId },
     );
   }
+}
+
+/**
+ * Restricted-HR reads fail closed: sensitive case data must not be returned
+ * unless its audit row is durably written. Unlike logHrEvent(), this helper
+ * deliberately propagates audit storage failures to the route.
+ */
+export async function logRestrictedHrReadEvent(
+  actor: HrAuditActor,
+  entry: HrAuditEntry,
+): Promise<void> {
+  if (!RESTRICTED_HR_READ_EVENTS.has(`${entry.resourceType}:${entry.action}`)) {
+    throw new Error('logRestrictedHrReadEvent only accepts approved restricted-HR read events.');
+  }
+  await writeHrAuditEvent(actor, entry);
+}
+
+/** Employee document byte reads fail closed just like restricted-HR reads. */
+export async function logEmployeeDocumentReadEvent(
+  actor: HrAuditActor,
+  entry: HrAuditEntry,
+): Promise<void> {
+  if (!EMPLOYEE_DOCUMENT_READ_EVENTS.has(`${entry.resourceType}:${entry.action}`)) {
+    throw new Error('logEmployeeDocumentReadEvent only accepts approved employee-document read events.');
+  }
+  await writeHrAuditEvent(actor, entry);
 }

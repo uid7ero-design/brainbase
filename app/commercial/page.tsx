@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { resolveResourceCount, type ResourceCountState } from '@/lib/commercial/overviewCounts';
 
-const CARD = '#0e1014'; const BORDER = '#1a1d24';
+const CARD = 'var(--bg-surface)'; const BORDER = 'var(--border)';
 
 type Counts = {
   customers: ResourceCountState;
@@ -120,7 +120,7 @@ export default function CommercialOverviewPage() {
         <h2 style={{ fontSize: 15, fontWeight: 600, margin: '0 0 10px' }}>Get started</h2>
         {hasQuotes && (
           <>
-            <p style={{ fontSize: 13, color: '#9ca3af', margin: '0 0 14px', lineHeight: 1.6 }}>
+            <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '0 0 14px', lineHeight: 1.6 }}>
               Add a customer and a product or service, then create your first quote.
             </p>
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
@@ -131,7 +131,7 @@ export default function CommercialOverviewPage() {
         )}
         {!hasQuotes && hasInvoicing && (
           <>
-            <p style={{ fontSize: 13, color: '#9ca3af', margin: '0 0 14px', lineHeight: 1.6 }}>
+            <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '0 0 14px', lineHeight: 1.6 }}>
               Add a customer and a product or service, then create your first invoice.
             </p>
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
@@ -154,11 +154,11 @@ function StatCard({ label, value, href }: { label: string; value: ResourceCountS
   return (
     <Link href={href} style={{ textDecoration: 'none' }}>
       <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: '18px 20px' }}>
-        <div style={{ fontSize: 26, fontWeight: 700, color: value === 'error' ? '#f87171' : '#f9fafb' }}>{display}</div>
-        <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>{label}</div>
+        <div style={{ fontSize: 26, fontWeight: 700, color: value === 'error' ? '#f87171' : 'var(--text-primary)' }}>{display}</div>
+        <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>{label}</div>
       </div>
     </Link>
   );
 }
 
-const linkBtn: React.CSSProperties = { padding: '8px 14px', background: '#1a6aff', color: '#fff', borderRadius: 8, fontSize: 13, fontWeight: 600, textDecoration: 'none' };
+const linkBtn: React.CSSProperties = { padding: '8px 14px', background: 'var(--purple-600)', color: '#fff', borderRadius: 8, fontSize: 13, fontWeight: 600, textDecoration: 'none' };

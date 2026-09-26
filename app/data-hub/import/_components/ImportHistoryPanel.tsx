@@ -21,23 +21,23 @@ export default function ImportHistoryPanel() {
 
   return (
     <div style={{ marginTop: 40 }}>
-      <h2 style={{ fontSize: 14, fontWeight: 600, color: "rgba(249,250,251,.85)", marginBottom: 12 }}>Recent imports</h2>
+      <h2 style={{ fontSize: 14, fontWeight: 600, color: "var(--text-primary)", marginBottom: 12 }}>Recent imports</h2>
 
       {state.status === "loading" ? (
-        <div aria-live="polite" style={{ fontSize: 12, color: "rgba(249,250,251,.5)" }}>
+        <div aria-live="polite" style={{ fontSize: 12, color: "var(--text-muted)" }}>
           Loading recent imports…
         </div>
       ) : null}
 
       {state.status === "error" ? (
-        <div role="alert" style={{ fontSize: 12, color: "rgba(249,250,251,.5)" }}>
+        <div role="alert" style={{ fontSize: 12, color: "var(--text-muted)" }}>
           Couldn&apos;t load recent imports. New imports are unaffected.
         </div>
       ) : null}
 
       {state.status !== "loading" && state.status !== "error" ? (
         state.rows.length === 0 ? (
-          <div style={{ fontSize: 12, color: "rgba(249,250,251,.4)" }}>No imports yet.</div>
+          <div style={{ fontSize: 12, color: "var(--text-muted)" }}>No imports yet.</div>
         ) : (
           <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 8 }}>
             {state.rows.map((row) => (
@@ -57,9 +57,9 @@ export default function ImportHistoryPanel() {
             fontWeight: 500,
             padding: "6px 12px",
             borderRadius: 7,
-            border: "1px solid rgba(255,255,255,.12)",
-            background: "rgba(255,255,255,.04)",
-            color: "rgba(249,250,251,.8)",
+            border: "1px solid var(--border)",
+            background: "var(--bg-raised)",
+            color: "var(--text-primary)",
             cursor: "pointer",
           }}
         >
@@ -68,14 +68,14 @@ export default function ImportHistoryPanel() {
       ) : null}
 
       {state.status === "loadingMore" ? (
-        <div aria-live="polite" style={{ marginTop: 12, fontSize: 12, color: "rgba(249,250,251,.5)" }}>
+        <div aria-live="polite" style={{ marginTop: 12, fontSize: 12, color: "var(--text-muted)" }}>
           Loading more…
         </div>
       ) : null}
 
       {state.status === "loadMoreFailed" ? (
         <div style={{ marginTop: 12 }}>
-          <div role="alert" style={{ fontSize: 12, color: "rgba(249,250,251,.5)", marginBottom: 6 }}>
+          <div role="alert" style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 6 }}>
             Couldn&apos;t load more imports.
           </div>
           <button
@@ -86,9 +86,9 @@ export default function ImportHistoryPanel() {
               fontWeight: 500,
               padding: "6px 12px",
               borderRadius: 7,
-              border: "1px solid rgba(255,255,255,.12)",
-              background: "rgba(255,255,255,.04)",
-              color: "rgba(249,250,251,.8)",
+              border: "1px solid var(--border)",
+              background: "var(--bg-raised)",
+              color: "var(--text-primary)",
               cursor: "pointer",
             }}
           >
@@ -124,7 +124,7 @@ function HistoryRow({
         gap: 12,
         padding: "10px 12px",
         borderRadius: 8,
-        border: "1px solid rgba(255,255,255,.08)",
+        border: "1px solid var(--border)",
         minWidth: 0,
       }}
     >
@@ -133,7 +133,7 @@ function HistoryRow({
           style={{
             fontSize: 12,
             fontWeight: 500,
-            color: "rgba(249,250,251,.85)",
+            color: "var(--text-primary)",
             overflow: "hidden",
             textOverflow: "ellipsis",
             whiteSpace: "nowrap",
@@ -142,7 +142,7 @@ function HistoryRow({
         >
           {row.originalFilename}
         </div>
-        <div style={{ fontSize: 11, color: "rgba(249,250,251,.45)", marginTop: 2 }}>
+        <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
           {created}
           {presentation.caption ? ` · ${presentation.caption}` : ""}
           {` · ${periodCaption}`}
@@ -175,7 +175,7 @@ function StatusBadge({ label, status }: { label: string; status: string }) {
   // success-green this repo reserves for genuine success (e.g.
   // ImportSuccess.tsx's "#4ADE80" heading) — a READY batch has not
   // necessarily been reviewed or confirmed as a valid import.
-  const color = status === "FAILED" ? "#F87171" : "rgba(249,250,251,.55)";
+  const color = status === "FAILED" ? "#F87171" : "var(--text-secondary)";
   return (
     <span
       style={{

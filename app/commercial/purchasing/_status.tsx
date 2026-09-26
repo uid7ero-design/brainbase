@@ -9,7 +9,7 @@
 import { PURCHASE_ORDER_STATUS_LABELS, type PurchaseOrderStatus } from '@/lib/commercial/purchaseOrderLifecycle';
 
 const STATUS_STYLE: Record<PurchaseOrderStatus, { color: string; bg: string }> = {
-  DRAFT: { color: '#9ca3af', bg: 'rgba(156,163,175,0.12)' },
+  DRAFT: { color: 'var(--text-secondary)', bg: 'rgba(156,163,175,0.12)' },
   PENDING_APPROVAL: { color: '#fbbf24', bg: 'rgba(251,191,36,0.12)' },
   APPROVED: { color: '#34d399', bg: 'rgba(52,211,153,0.12)' },
   ISSUED: { color: '#60a5fa', bg: 'rgba(96,165,250,0.12)' },

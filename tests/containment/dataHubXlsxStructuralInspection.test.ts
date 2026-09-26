@@ -1252,7 +1252,7 @@ describe("D1 UI — WorksheetInventoryPanel renders structural fields only and n
       batch: { id: "batch-1", status: "READY" as const, originalFilename: "workbook.xlsx", contentType: "xlsx", sizeBytes: 8, sourceSystemId: "ss-1" },
       worksheets: worksheets as never,
     };
-    return renderToStaticMarkup(createElement(WorksheetInventoryPanel, { state, onPreview: () => {}, onRestart: () => {} }));
+    return renderToStaticMarkup(createElement(WorksheetInventoryPanel, { state, onPreview: () => {}, onCompareSchema: () => {}, onRestart: () => {} }));
   }
 
   it("shows name, index, visibility, emptiness and status for every worksheet, plus the not-enabled notice", async () => {
@@ -1278,7 +1278,9 @@ describe("D1 UI — WorksheetInventoryPanel renders structural fields only and n
       worksheetDTO(4, { canonicalStatus: "SKIPPED" }),
     ]);
     expect((html.match(/>Preview<\/button>/g) ?? []).length).toBe(1);
-    expect((html.match(/<button/g) ?? []).length).toBe(2);
+    // 6.2D3C — plus the explicit read-only "Compare to governed schema".
+    expect((html.match(/<button/g) ?? []).length).toBe(3);
+    expect(html).toContain("Compare to governed schema");
     expect(html).toContain("Choose another file");
     expect(html).toContain("Preview");
     expect(html).not.toMatch(/Confirm import|>\s*Confirm\s*<|Import now|<input/i);

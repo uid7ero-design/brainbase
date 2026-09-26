@@ -20,6 +20,7 @@ const helenaOrbitalSource = read('components/brand/HelenaOrbital.tsx')
 // Phase D.2 — secondary public surfaces.
 const webSystemsSource = read('app/web-systems/page.tsx')
 const signupSource = read('app/signup/page.tsx')
+const authShellSource = read('components/public/auth/AuthShell.tsx')
 const requestDemoSource = read('app/request-demo/page.tsx')
 const clientOperationsSource = read('app/client-operations/page.tsx')
 const clientOperationsDemoSource = read('app/client-operations/demo/page.tsx')
@@ -38,6 +39,14 @@ const D2_SURFACES: Array<[string, string]> = [
   ['PublicEventClient', publicEventClientSource],
 ]
 
+// Public-site visual convergence: surfaces converted to the --bb-* light/dark
+// token system render the theme-aware BrainbaseLockup (generated from the same
+// approved brand-kit SVG as BrainBaseWordmark, glyphs in currentColor) instead
+// of the dark-only BrainBaseWordmark <img>, which is invisible on a light
+// surface. Add a surface here only when its page has been converted.
+const THEME_AWARE_LOCKUP_SURFACES: ReadonlySet<string> = new Set(['client-operations', 'client-operations/demo', 'request-demo', 'web-systems'])
+const AUTH_SHELL_SURFACES: ReadonlySet<string> = new Set(['signup'])
+
 describe('Phase D.1 — TopNav uses the approved Hybrid Orbit brand asset', () => {
   it('Logo renders BrainBaseWordmark, not a raw brainbase-logo-dark.svg Image', () => {
     expect(topNavSource).toContain("import { BrainBaseWordmark } from '@/components/brand/BrainBaseWordmark'")
@@ -52,9 +61,10 @@ describe('Phase D.1 — TopNav uses the approved Hybrid Orbit brand asset', () =
     expect(topNavSource).not.toMatch(/import Image from 'next\/image'/)
   })
 
-  it('BrainBaseWordmark itself references the approved kit-copied asset, with an accessible alt', () => {
-    expect(wordmarkSource).toContain("src=\"/Brand/brainbase-horizontal-color.svg\"")
-    expect(wordmarkSource).toMatch(/alt="BR.INB.SE"/)
+  it('BrainBaseWordmark delegates to the canonical broken-orbit product lockup with an accessible name', () => {
+    expect(wordmarkSource).toMatch(/from ["']@\/components\/public\/BrainbaseLockup["']/)
+    expect(wordmarkSource).toContain('<BrainbaseLockup')
+    expect(wordmarkSource).toContain('title="BrainBase"')
   })
 })
 
@@ -68,8 +78,8 @@ describe('Phase D.1 — no accidental external brand-kit path at runtime', () =>
     }
   })
 
-  it('BrainBaseWordmark only ever references a repository-owned /Brand/ runtime path', () => {
-    expect(wordmarkSource).toMatch(/src="\/Brand\//)
+  it('BrainBaseWordmark uses the canonical in-repo lockup component and no external runtime path', () => {
+    expect(wordmarkSource).toMatch(/from ["']@\/components\/public\/BrainbaseLockup["']/)
     expect(wordmarkSource).not.toMatch(/[A-Za-z]:[\\/]/)
   })
 })
@@ -130,18 +140,17 @@ describe('Phase D.1 — tenant-aware nav remains intact', () => {
 
 describe('Phase D.1 — favicon / metadata reference resolvable repository-owned files', () => {
   it('app/layout.tsx metadata still points at repository /Brand/ paths, and those files exist', () => {
-    expect(layoutSource).toContain("url: '/Brand/favicon.ico'")
+    expect(layoutSource).toContain("url: '/Brand/brainbase-broken-orbit-micro.svg'")
     expect(layoutSource).toContain("url: '/Brand/android-chrome-192x192.png'")
     expect(layoutSource).toContain("url: '/Brand/android-chrome-512x512.png'")
     expect(layoutSource).toContain("url: '/Brand/apple-touch-icon.png'")
 
     for (const relPath of [
-      'public/Brand/favicon.ico',
+      'public/Brand/brainbase-broken-orbit-micro.svg',
       'public/Brand/android-chrome-192x192.png',
       'public/Brand/android-chrome-512x512.png',
       'public/Brand/apple-touch-icon.png',
       'public/Brand/brainbase-horizontal-color.svg',
-      'app/favicon.ico',
     ]) {
       expect(fs.existsSync(path.join(root, relPath)), `${relPath} must exist on disk`).toBe(true)
     }
@@ -160,16 +169,12 @@ describe('Phase D.1 — replaced surfaces no longer reference the old lens-style
     }
   })
 
-  // Updated during Phase D.3 (Orbital Background + Atmospheric Branding):
-  // the "out of scope this phase" atmospheric background work this test
-  // originally deferred has now landed — see orbitalBackground.test.ts for
-  // the dedicated suite. login's decorative idle HlnaOrb (purely ambient,
-  // no functional wiring) was replaced with the shared OrbitalBackground
-  // component.
-  it('login page now uses OrbitalBackground for its atmospheric background (Phase D.3), no longer the decorative idle HlnaOrb', () => {
-    expect(loginSource).toContain("import { OrbitalBackground } from '@/components/brand/OrbitalBackground'")
-    expect(loginSource).toMatch(/<OrbitalBackground/)
+  it('login now uses the shared public AuthShell and no longer the legacy orbital/HlnaOrb treatment', () => {
+    expect(loginSource).toContain("from '@/components/public/auth/AuthShell'")
+    expect(loginSource).toContain('<AuthShell>')
+    expect(loginSource).not.toContain('OrbitalBackground')
     expect(loginSource).not.toContain('<HlnaOrb')
+    expect(authShellSource).toContain('BrainbaseLockup')
   })
 })
 
@@ -196,6 +201,7 @@ describe('Phase D.1 — scope containment', () => {
 describe('Phase D.2 — secondary public surfaces use BrainBaseWordmark, not the old lens-style logo', () => {
   it('every D.2 surface imports and renders BrainBaseWordmark', () => {
     for (const [name, src] of D2_SURFACES) {
+      if (THEME_AWARE_LOCKUP_SURFACES.has(name) || AUTH_SHELL_SURFACES.has(name)) continue
       expect(src, `${name} must import BrainBaseWordmark`).toContain("from '@/components/brand/BrainBaseWordmark'")
       expect(src, `${name} must render <BrainBaseWordmark`).toContain('<BrainBaseWordmark')
     }
@@ -207,8 +213,23 @@ describe('Phase D.2 — secondary public surfaces use BrainBaseWordmark, not the
     }
   })
 
+  it('converted public surfaces render the theme-aware BrainbaseLockup from its one canonical path (not a new logo component, not the dark-only wordmark)', () => {
+    const lockup = read('components/public/BrainbaseLockup.tsx')
+    expect(lockup).toMatch(/from ["']@\/components\/brand\/BrokenOrbitMark["']/)
+    expect(lockup).toContain('<BrokenOrbitMark')
+    for (const [name, src] of D2_SURFACES) {
+      if (!THEME_AWARE_LOCKUP_SURFACES.has(name)) continue
+      const importLine = src.match(/import \{ BrainbaseLockup \} from '([^']+)'/)
+      expect(importLine, `${name} must import BrainbaseLockup from the canonical path`).not.toBeNull()
+      expect(importLine![1]).toBe('@/components/public/BrainbaseLockup')
+      expect(src, `${name} must render <BrainbaseLockup`).toContain('<BrainbaseLockup')
+      expect(src, `${name} must not render the dark-only wordmark`).not.toContain('<BrainBaseWordmark')
+    }
+  })
+
   it('no duplicate shared logo component was introduced — every surface imports the same D.1 BrainBaseWordmark path', () => {
     for (const [name, src] of D2_SURFACES) {
+      if (THEME_AWARE_LOCKUP_SURFACES.has(name) || AUTH_SHELL_SURFACES.has(name)) continue
       const importLine = src.match(/import \{ BrainBaseWordmark \} from '([^']+)'/)
       expect(importLine, `${name} must import BrainBaseWordmark from the canonical path`).not.toBeNull()
       expect(importLine![1]).toBe('@/components/brand/BrainBaseWordmark')
@@ -217,20 +238,20 @@ describe('Phase D.2 — secondary public surfaces use BrainBaseWordmark, not the
 })
 
 describe('Phase D.2 — ambient/assistant HlnaOrb usage is preserved where it existed', () => {
-  // Updated during Phase D.3: signup mirrors login's treatment (see
-  // orbitalBackground.test.ts) — its decorative idle HlnaOrb was replaced
-  // with the shared OrbitalBackground component, same as login.
-  it('signup now uses OrbitalBackground for its atmospheric background (Phase D.3), no longer the decorative idle HlnaOrb', () => {
-    expect(signupSource).toContain("import { OrbitalBackground } from '@/components/brand/OrbitalBackground'")
-    expect(signupSource).toMatch(/<OrbitalBackground/)
+  it('signup now reuses the shared public AuthShell and no longer the legacy orbital/HlnaOrb treatment', () => {
+    expect(signupSource).toContain("from '@/components/public/auth/AuthShell'")
+    expect(signupSource).toContain('<AuthShell>')
+    expect(signupSource).not.toContain('OrbitalBackground')
     expect(signupSource).not.toContain('<HlnaOrb')
+    expect(authShellSource).toContain('BrainbaseLockup')
   })
 
-  it('demo keeps its two functional assistant-state HlnaOrb instances untouched (state driven by `thinking`)', () => {
+  it('demo keeps the functional assistant-state dock orb while the decorative hero lens is replaced', () => {
     expect(demoSource).toContain("import { HlnaOrb } from '@/components/brand/HlnaOrb'")
     const hlnaOrbCount = (demoSource.match(/<HlnaOrb/g) ?? []).length
-    expect(hlnaOrbCount).toBe(2)
+    expect(hlnaOrbCount).toBe(1)
     expect(demoSource).toMatch(/state=\{\s*\n?\s*thinking/)
+    expect(demoSource).toContain('className={styles.heroSignal}')
   })
 
   it('web-systems, request-demo, client-operations, client-operations/demo, connect, and PublicEventClient had no HlnaOrb to preserve — confirms nothing was accidentally added', () => {

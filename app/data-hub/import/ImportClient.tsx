@@ -9,6 +9,7 @@ import ProcessingStatus from "./_components/ProcessingStatus";
 import ReviewPanel from "./_components/ReviewPanel";
 import WorksheetInventoryPanel from "./_components/WorksheetInventoryPanel";
 import XlsxWorksheetPreviewPanel from "./_components/XlsxWorksheetPreviewPanel";
+import SchemaMatchReportPanel from "./_components/SchemaMatchReportPanel";
 import ImportSuccess from "./_components/ImportSuccess";
 import ImportError from "./_components/ImportError";
 import ImportHistoryPanel from "./_components/ImportHistoryPanel";
@@ -129,20 +130,42 @@ function ImportFlow({ onRestart }: { onRestart: () => void }) {
           />
         )}
 
-        {/* Data Hub 6.2D1/6.2D2 — XLSX structural inventory and read-only
-            worksheet preview: never given the session, only narrow
-            preview/back/retry/restart callbacks, so no Confirm, mapping, or
-            period path exists from these screens. */}
+        {/* Data Hub 6.2D1/6.2D2/6.2D3C — XLSX structural inventory,
+            read-only worksheet preview and read-only governed schema
+            comparison: never given the session, only narrow
+            preview/compare/back/retry/restart callbacks, so no Confirm,
+            mapping, schema-selection or period path exists from these
+            screens. */}
         {screenGroup === "inventory" && state.phase === "worksheetInventoryReady" && (
-          <WorksheetInventoryPanel state={state} onPreview={(id) => void session.previewXlsxWorksheet(id)} onRestart={onRestart} />
+          <WorksheetInventoryPanel
+            state={state}
+            onPreview={(id) => void session.previewXlsxWorksheet(id)}
+            onCompareSchema={() => session.compareToGovernedSchema().catch(() => {})}
+            onRestart={onRestart}
+          />
         )}
         {screenGroup === "xlsxPreview" && (state.phase === "xlsxWorksheetPreviewing" || state.phase === "xlsxWorksheetPreviewReady" || state.phase === "xlsxWorksheetPreviewFailed") && (
           <XlsxWorksheetPreviewPanel state={state} onBack={() => session.backToWorksheetInventory()} onRetry={() => void session.retryXlsxWorksheetPreview()} onRestart={onRestart} />
         )}
+        {screenGroup === "schemaMatch" &&
+          (state.phase === "schemaMatchLoading" ||
+            state.phase === "schemaMatchReady" ||
+            state.phase === "schemaMatchFailed" ||
+            state.phase === "schemaSelectionSaving" ||
+            state.phase === "schemaSelected" ||
+            state.phase === "schemaSelectionFailed") && (
+            <SchemaMatchReportPanel
+              state={state}
+              onBack={() => session.backToWorksheetInventory()}
+              onRetry={() => session.compareToGovernedSchema().catch(() => {})}
+              onSelectSchema={() => session.selectGovernedSchema().catch(() => {})}
+              onRestart={onRestart}
+            />
+          )}
 
         {screenGroup === "confirm" &&
           (state.phase === "confirming" ? (
-            <div aria-live="polite" aria-busy="true" style={{ fontSize: 13, color: "rgba(249,250,251,.7)" }}>
+            <div aria-live="polite" aria-busy="true" style={{ fontSize: 13, color: "var(--text-secondary)" }}>
               Confirming import…
             </div>
           ) : isErrorOverlayPhase(state.phase) ? (

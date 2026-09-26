@@ -74,6 +74,8 @@ model Organisation {
   source_schema_columns      SourceSchemaColumn[]
   worksheet_mapping_profiles WorksheetMappingProfile[]
   worksheet_mapping_profile_versions WorksheetMappingProfileVersion[]
+  data_hub_raw_rows        DataHubRawRow[]
+  data_hub_raw_cells       DataHubRawCell[]
 
   // stripe_account_id also carries a UNIQUE constraint in the live SQL
   // — a partial index (WHERE NOT NULL), same "Prisma mirrors, raw SQL
@@ -171,6 +173,8 @@ model User {
   source_schema_versions_created SourceSchemaVersion[] @relation("SourceSchemaVersionCreatedBy")
   worksheet_mapping_profiles_created WorksheetMappingProfile[] @relation("WorksheetMappingProfileCreatedBy")
   worksheet_mapping_profile_versions_created WorksheetMappingProfileVersion[] @relation("WorksheetMappingProfileVersionCreatedBy")
+  data_hub_raw_rows_created DataHubRawRow[] @relation("DataHubRawRowCreatedBy")
+  raw_staged_uploads        Upload[] @relation("UploadRawStagedBy")
   organisation      Organisation      @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
 
   @@index([organisation_id])
@@ -300,6 +304,7 @@ model ImportBatch {
   uploader     User?         @relation(fields: [uploaded_by], references: [id], onDelete: SetNull)
   uploads      Upload[]
   source_record_observations SourceRecordObservation[]
+  data_hub_raw_rows DataHubRawRow[]
   // Composite tenant-scoped FK (MATCH SIMPLE) — a MATCH SIMPLE
   // constraint means a NULL source_system_id (every existing/legacy
   // row) is entirely exempt from this check. For a batch that DOES
@@ -317,6 +322,8 @@ model ImportBatch {
   // structurally impossible for a worksheet row to reference another
   // tenant's batch.
   @@unique([id, organisation_id])
+  // D4A: proves a raw row's schema lineage is the exact schema pinned to this batch.
+  @@unique([id, source_schema_version_id, organisation_id], map: "import_batches_id_schema_version_organisation_key")
   @@unique([organisation_id, idempotency_key])
   @@index([organisation_id, created_at])
   @@index([status])
@@ -423,6 +430,17 @@ model Upload {
   // an ALTER TYPE migration. "MANUAL" is the only value any 6.2B1 runtime
   // path can produce; always server-set, never accepted from a caller.
   period_source String?
+
+  // Data Hub 6.2D4A — raw evidence capture completion metadata.
+  // Separate from canonical_status: raw staging is not canonical/domain import.
+  // SQL CHECKs enforce all-null before staging, and complete timestamp/profile/count
+  // metadata once staged. raw_staged_by may later become NULL via ON DELETE SET NULL.
+  raw_staged_at          DateTime?
+  raw_staged_by          String?
+  raw_profile_version_id String?
+  raw_row_count          Int?
+  raw_cell_count         Int?
+
   debtor_accounts    DebtorAccount[]
   evidence_records   EvidenceRecord[]
   hlna_insights      HlnaInsight[]
@@ -437,6 +455,7 @@ model Upload {
   // `user` relation above. Mirrors ImportBatch.uploader's own onDelete:
   // SetNull precedent, not user_id's plain default.
   confirmer          User?              @relation("UploadConfirmedBy", fields: [confirmed_by], references: [id], onDelete: SetNull)
+  raw_stager         User?              @relation("UploadRawStagedBy", fields: [raw_staged_by], references: [id], onDelete: SetNull)
   // Composite tenant-scoped FK — a MATCH SIMPLE constraint, so any row
   // with import_batch_id = NULL (every legacy row) is entirely exempt
   // from this check by Postgres's own FK semantics. For a canonical row
@@ -448,7 +467,9 @@ model Upload {
   // that DOES carry lineage, it is structurally impossible to reference
   // a MappingVersion belonging to a different organisation_id.
   mapping_version    MappingVersion?    @relation(fields: [mapping_version_id, organisation_id], references: [id, organisation_id])
+  raw_profile_version WorksheetMappingProfileVersion? @relation("UploadRawProfileVersion", fields: [raw_profile_version_id, organisation_id], references: [id, organisation_id])
   source_record_observations SourceRecordObservation[]
+  data_hub_raw_rows DataHubRawRow[]
 
   @@index([organisation_id])
   @@index([schema_type])
@@ -471,6 +492,11 @@ model Upload {
   // (a second unique index alongside the existing PK), zero behavior
   // change, zero data risk.
   @@unique([id, organisation_id])
+  // D4A: proves a raw row's worksheet belongs to the same batch and tenant.
+  @@unique([id, import_batch_id, organisation_id], map: "uploads_id_import_batch_organisation_key")
+  // D4A SQL-only coherence FK target: raw rows must use the exact profile
+  // version frozen on this Upload at raw-stage completion.
+  @@unique([id, raw_profile_version_id, organisation_id], map: "uploads_id_raw_profile_version_organisation_key")
   @@map("uploads")
 }
 
@@ -756,10 +782,13 @@ model SourceSchemaWorksheet {
   schema_version   SourceSchemaVersion       @relation(fields: [source_schema_version_id, organisation_id], references: [id, organisation_id])
   columns          SourceSchemaColumn[]
   mapping_profiles WorksheetMappingProfile[]
+  data_hub_raw_rows DataHubRawRow[]
 
   // Required by SourceSchemaColumn's and WorksheetMappingProfile's
   // composite tenant-scoped FKs.
   @@unique([id, organisation_id])
+  // D4A strict lineage key.
+  @@unique([id, source_schema_version_id, organisation_id], map: "source_schema_worksheets_id_version_organisation_key")
   @@unique([source_schema_version_id, logical_key])
   @@unique([source_schema_version_id, expected_name])
   @@index([organisation_id])
@@ -793,8 +822,14 @@ model SourceSchemaColumn {
 
   organisation Organisation          @relation(fields: [organisation_id], references: [id])
   worksheet    SourceSchemaWorksheet @relation(fields: [source_schema_worksheet_id, organisation_id], references: [id, organisation_id])
+  data_hub_raw_cells DataHubRawCell[]
 
   @@unique([id, organisation_id])
+  // D4A strict cell lineage key: identity + worksheet + position + tenant.
+  @@unique([id, source_schema_worksheet_id, ordinal, organisation_id], map: "source_schema_columns_id_worksheet_ordinal_organisation_key")
+  // D4A raw-cell evidence key: also proves the persisted header and sensitivity
+  // snapshot exactly match this governed column.
+  @@unique([id, source_schema_worksheet_id, ordinal, source_header, sensitivity_class, organisation_id], map: "source_schema_columns_raw_evidence_key")
   @@unique([source_schema_worksheet_id, ordinal])
   @@index([organisation_id])
   @@index([source_schema_worksheet_id])
@@ -824,9 +859,12 @@ model WorksheetMappingProfile {
   worksheet      SourceSchemaWorksheet            @relation(fields: [source_schema_worksheet_id, organisation_id], references: [id, organisation_id])
   versions       WorksheetMappingProfileVersion[] @relation("WorksheetMappingProfileVersions")
   active_version WorksheetMappingProfileVersion?  @relation("WorksheetMappingProfileActiveVersion", fields: [active_profile_version_id, id, organisation_id], references: [id, worksheet_mapping_profile_id, organisation_id])
+  data_hub_raw_rows DataHubRawRow[]
 
   // Required by WorksheetMappingProfileVersion's composite FK.
   @@unique([id, organisation_id])
+  // D4A strict lineage key.
+  @@unique([id, source_schema_worksheet_id, organisation_id], map: "worksheet_mapping_profiles_id_worksheet_organisation_key")
   // Required by Prisma's one-to-one relation validator for active_version
   // (trivially satisfied — id is the PK); mirrors SourceMapping exactly.
   @@unique([active_profile_version_id, id, organisation_id])
@@ -860,6 +898,8 @@ model WorksheetMappingProfileVersion {
   creator            User?                    @relation("WorksheetMappingProfileVersionCreatedBy", fields: [created_by], references: [id], onDelete: SetNull)
   profile            WorksheetMappingProfile  @relation("WorksheetMappingProfileVersions", fields: [worksheet_mapping_profile_id, organisation_id], references: [id, organisation_id])
   active_for_profile WorksheetMappingProfile? @relation("WorksheetMappingProfileActiveVersion")
+  raw_staged_uploads Upload[] @relation("UploadRawProfileVersion")
+  data_hub_raw_rows  DataHubRawRow[]
 
   @@unique([id, organisation_id])
   // Required by WorksheetMappingProfile.active_version's composite FK.
@@ -869,6 +909,68 @@ model WorksheetMappingProfileVersion {
   @@index([worksheet_mapping_profile_id])
   @@map("worksheet_mapping_profile_versions")
 }
+
+// Data Hub 6.2D4A — immutable raw worksheet evidence.
+// One row is one original workbook data row after the governed header row.
+// source_row_number is the original 1-based workbook row number.
+model DataHubRawRow {
+  id                                   String   @id @default(cuid())
+  organisation_id                      String
+  import_batch_id                      String
+  upload_id                            String
+  source_schema_version_id             String
+  source_schema_worksheet_id           String
+  worksheet_mapping_profile_id         String
+  worksheet_mapping_profile_version_id String
+  source_row_number                    Int
+  created_by                           String?
+  created_at                           DateTime @default(now()) @db.Timestamptz(6)
+
+  organisation Organisation @relation(fields: [organisation_id], references: [id])
+  import_batch ImportBatch @relation(fields: [import_batch_id, source_schema_version_id, organisation_id], references: [id, source_schema_version_id, organisation_id])
+  upload Upload @relation(fields: [upload_id, import_batch_id, organisation_id], references: [id, import_batch_id, organisation_id])
+  schema_worksheet SourceSchemaWorksheet @relation(fields: [source_schema_worksheet_id, source_schema_version_id, organisation_id], references: [id, source_schema_version_id, organisation_id])
+  mapping_profile WorksheetMappingProfile @relation(fields: [worksheet_mapping_profile_id, source_schema_worksheet_id, organisation_id], references: [id, source_schema_worksheet_id, organisation_id])
+  mapping_profile_version WorksheetMappingProfileVersion @relation(fields: [worksheet_mapping_profile_version_id, worksheet_mapping_profile_id, organisation_id], references: [id, worksheet_mapping_profile_id, organisation_id])
+  creator User? @relation("DataHubRawRowCreatedBy", fields: [created_by], references: [id], onDelete: SetNull)
+
+  cells DataHubRawCell[]
+
+  @@unique([id, source_schema_worksheet_id, organisation_id], map: "data_hub_raw_rows_id_worksheet_organisation_key")
+  @@unique([upload_id, source_row_number], map: "data_hub_raw_rows_upload_source_row_key")
+  @@index([organisation_id, import_batch_id])
+  @@index([upload_id])
+  @@index([source_schema_version_id])
+  @@map("data_hub_raw_rows")
+}
+
+// Data Hub 6.2D4A — immutable raw cell evidence.
+// raw_value is restricted by SQL to a JSON scalar whose shape matches
+// raw_value_type: STRING | NUMBER | BOOLEAN | NULL.
+model DataHubRawCell {
+  id                         String   @id @default(cuid())
+  organisation_id            String
+  raw_row_id                 String
+  source_schema_worksheet_id String
+  source_schema_column_id    String
+  column_ordinal             Int
+  source_header              String
+  raw_value                  Json
+  raw_value_type             String
+  sensitivity_class          String
+  original_unit              String?
+  created_at                 DateTime @default(now()) @db.Timestamptz(6)
+
+  organisation Organisation @relation(fields: [organisation_id], references: [id])
+  raw_row DataHubRawRow @relation(fields: [raw_row_id, source_schema_worksheet_id, organisation_id], references: [id, source_schema_worksheet_id, organisation_id])
+  source_schema_column SourceSchemaColumn @relation(fields: [source_schema_column_id, source_schema_worksheet_id, column_ordinal, source_header, sensitivity_class, organisation_id], references: [id, source_schema_worksheet_id, ordinal, source_header, sensitivity_class, organisation_id])
+
+  @@unique([raw_row_id, column_ordinal], map: "data_hub_raw_cells_row_ordinal_key")
+  @@index([organisation_id, raw_row_id])
+  @@index([source_schema_column_id])
+  @@map("data_hub_raw_cells")
+}
+
 
 model DashboardConfig {
   id              String       @id @default(cuid())

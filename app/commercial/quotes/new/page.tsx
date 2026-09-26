@@ -6,7 +6,7 @@ import SlidePanel from '../../_components/SlidePanel';
 import CustomerForm from '../../_components/CustomerForm';
 import { Field, lbl, sel } from '../../_components/CustomerForm';
 
-const CARD = '#0e1014'; const BORDER = '#1a1d24';
+const CARD = 'var(--bg-surface)'; const BORDER = 'var(--border)';
 
 type Customer = { id: string; name: string; active: boolean };
 
@@ -56,7 +56,7 @@ export default function NewQuotePage() {
 
   return (
     <div style={{ maxWidth: 600 }}>
-      <Link href="/commercial/quotes" style={{ color: '#6b7280', fontSize: 13, textDecoration: 'none' }}>← Quotes</Link>
+      <Link href="/commercial/quotes" style={{ color: 'var(--text-secondary)', fontSize: 13, textDecoration: 'none' }}>← Quotes</Link>
       <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em', margin: '16px 0 24px' }}>New Quote</h1>
 
       <form onSubmit={submit} style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: '24px 28px', display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -67,7 +67,7 @@ export default function NewQuotePage() {
               <option value="">— Select a customer —</option>
               {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
-            <button type="button" onClick={() => setShowNewCustomer(true)} style={{ padding: '9px 14px', background: '#1f2937', color: '#f9fafb', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+            <button type="button" onClick={() => setShowNewCustomer(true)} style={{ padding: '9px 14px', background: '#1f2937', color: 'var(--text-primary)', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
               + New
             </button>
           </div>
@@ -82,7 +82,7 @@ export default function NewQuotePage() {
           <textarea value={terms} onChange={e => setTerms(e.target.value)} rows={3} style={{ ...sel, resize: 'vertical', lineHeight: 1.5 }} placeholder="Payment terms, validity, ..." />
         </div>
         {error && <p style={{ color: '#f87171', fontSize: 13, margin: 0 }}>{error}</p>}
-        <button type="submit" disabled={saving} style={{ padding: '10px 0', background: '#1a6aff', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: saving ? 'default' : 'pointer' }}>
+        <button type="submit" disabled={saving} style={{ padding: '10px 0', background: 'var(--purple-600)', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: saving ? 'default' : 'pointer' }}>
           {saving ? 'Creating…' : 'Create Draft — add products next'}
         </button>
       </form>

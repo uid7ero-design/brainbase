@@ -27,6 +27,7 @@
 import {
   confirmIllegalDumping as callConfirmIllegalDumping,
   fetchWorksheetPreview as callFetchWorksheetPreview,
+  fetchSchemaMatchReport as callFetchSchemaMatchReport,
   finalizeImportBatch as callFinalize,
   getImportBatch as callGetImportBatch,
   getSourceMapping as callGetSourceMapping,
@@ -38,6 +39,7 @@ import {
   listWorksheetsForBatch as callListWorksheets,
   selectWorksheetMapping as callSelectWorksheetMapping,
   selectWorksheetPeriod as callSelectWorksheetPeriod,
+  selectImportBatchSchemaLineage as callSelectImportBatchSchemaLineage,
   getWorksheetPeriodDetection as callGetWorksheetPeriodDetection,
   acceptDetectedWorksheetPeriod as callAcceptDetectedWorksheetPeriod,
   listSourceSystemsAdmin as callListSourceSystemsAdmin,
@@ -73,6 +75,7 @@ import type {
   ListSourceSystemsResult,
   PeriodDetectionClient,
   PersistedFailureCodeClient,
+  SchemaMatchReportClient,
   WorksheetDescriptorClient,
   WorksheetContentPreviewDTOClient,
   WorksheetPreviewDTOClient,
@@ -239,7 +242,45 @@ export type DataHubImportState =
   | { phase: "worksheetInventoryReady"; batch: ImportBatchHandle; worksheets: WorksheetSummaryDTOClient[] }
   | { phase: "xlsxWorksheetPreviewing"; batch: ImportBatchHandle; worksheets: WorksheetSummaryDTOClient[]; worksheet: WorksheetSummaryDTOClient }
   | { phase: "xlsxWorksheetPreviewReady"; batch: ImportBatchHandle; worksheets: WorksheetSummaryDTOClient[]; worksheet: WorksheetSummaryDTOClient; preview: WorksheetContentPreviewDTOClient }
-  | { phase: "xlsxWorksheetPreviewFailed"; batch: ImportBatchHandle; worksheets: WorksheetSummaryDTOClient[]; worksheet: WorksheetSummaryDTOClient; code: string; message: string };
+  | { phase: "xlsxWorksheetPreviewFailed"; batch: ImportBatchHandle; worksheets: WorksheetSummaryDTOClient[]; worksheet: WorksheetSummaryDTOClient; code: string; message: string }
+  /** Data Hub 6.2D3C — read-only structural comparison of an XLSX batch
+   * against its governed source schema, entered ONLY by an explicit
+   * compareToGovernedSchema() from the inventory (never automatically).
+   * Carries the inventory so Back returns to it unchanged. A report —
+   * including EXACT_MATCH — is never acceptance/activation and unlocks no
+   * confirm/mapping/period/import method: they all still throw here. */
+  | { phase: "schemaMatchLoading"; batch: ImportBatchHandle; worksheets: WorksheetSummaryDTOClient[] }
+  | { phase: "schemaMatchReady"; batch: ImportBatchHandle; worksheets: WorksheetSummaryDTOClient[]; report: SchemaMatchReportClient }
+  | { phase: "schemaMatchFailed"; batch: ImportBatchHandle; worksheets: WorksheetSummaryDTOClient[]; code: string; message: string }
+  /** Data Hub 6.2D3D — governed schema LINEAGE PINNING. Entered ONLY by an
+   * explicit selectGovernedSchema() from "schemaMatchReady" while
+   * report.result === "EXACT_MATCH" AND report.sourceSchemaStatus ===
+   * "ACTIVE" (the same eligibility the server independently re-verifies).
+   * "schemaSelected" means ONLY that this ImportBatch's dataset-type and
+   * source-schema-version lineage are now durably pinned to a
+   * server-resolved ACTIVE governed schema after a fresh server-side exact
+   * structural match — it does NOT mean mapping is complete, a period is selected,
+   * canonical import is ready, reconciliation happened, or the import is
+   * complete. No further Data Hub method is unlocked by this phase alone. */
+  | { phase: "schemaSelectionSaving"; batch: ImportBatchHandle; worksheets: WorksheetSummaryDTOClient[]; report: SchemaMatchReportClient }
+  | {
+      phase: "schemaSelected";
+      batch: ImportBatchHandle;
+      worksheets: WorksheetSummaryDTOClient[];
+      report: SchemaMatchReportClient;
+      alreadySelected: boolean;
+      datasetTypeId: string;
+      sourceSchemaVersionId: string;
+      sourceSchemaVersionNumber: number;
+    }
+  | {
+      phase: "schemaSelectionFailed";
+      batch: ImportBatchHandle;
+      worksheets: WorksheetSummaryDTOClient[];
+      report: SchemaMatchReportClient;
+      code: string;
+      message: string;
+    };
 
 export interface StartImportOptions {
   expectedSha256?: string;
@@ -289,8 +330,10 @@ export class DataHubIllegalDumpingImportSession {
    * own observable behavior for a caller that never calls
    * `resumeFromBatchId()`. */
   private resumeGeneration = 0;
-  /** Monotonic fence for XLSX preview requests. Back navigation, a newer
-   * selection, start(), and dispose() invalidate every older continuation. */
+  /** Monotonic fence for XLSX read-only side requests (worksheet preview
+   * and, 6.2D3C, governed schema comparison). Back navigation, a newer
+   * request, start(), resume and dispose() invalidate every older
+   * continuation. */
   private xlsxPreviewGeneration = 0;
 
   constructor(config: DataHubOrchestratorConfig = {}) {
@@ -851,7 +894,12 @@ export class DataHubIllegalDumpingImportSession {
     if (
       this.state.phase !== "xlsxWorksheetPreviewing" &&
       this.state.phase !== "xlsxWorksheetPreviewReady" &&
-      this.state.phase !== "xlsxWorksheetPreviewFailed"
+      this.state.phase !== "xlsxWorksheetPreviewFailed" &&
+      this.state.phase !== "schemaMatchLoading" &&
+      this.state.phase !== "schemaMatchReady" &&
+      this.state.phase !== "schemaMatchFailed" &&
+      this.state.phase !== "schemaSelectionFailed" &&
+      this.state.phase !== "schemaSelected"
     ) {
       throw new Error(`data-hub client: backToWorksheetInventory() called from unexpected phase "${this.state.phase}".`);
     }
@@ -865,6 +913,109 @@ export class DataHubIllegalDumpingImportSession {
     }
     const { worksheet } = this.state;
     await this.previewXlsxWorksheet(worksheet.id);
+  }
+
+  // Data Hub 6.2D3C — explicit, read-only "Compare to governed schema".
+  // Allowed only from the XLSX inventory (or as a retry of a failed
+  // comparison). Sends only the batch id; the report is displayed, never
+  // acted on: no schema/lineage selection, mapping, confirm or import.
+  async compareToGovernedSchema(): Promise<void> {
+    if (this.state.phase !== "worksheetInventoryReady" && this.state.phase !== "schemaMatchFailed") {
+      throw new Error(`data-hub client: compareToGovernedSchema() called from unexpected phase "${this.state.phase}".`);
+    }
+    const { batch, worksheets } = this.state;
+    if (batch.contentType !== "xlsx") throw new Error("data-hub client: governed schema comparison requires an xlsx batch.");
+    const myGeneration = ++this.xlsxPreviewGeneration;
+    this.setState({ phase: "schemaMatchLoading", batch, worksheets });
+    const result = await callFetchSchemaMatchReport(batch.id, this.config);
+    if (this.disposed || myGeneration !== this.xlsxPreviewGeneration) return;
+    const failed = (code: string, message: string) => this.setState({ phase: "schemaMatchFailed", batch, worksheets, code, message });
+    if (result.kind !== "response") {
+      failed("NETWORK", result.kind === "networkUncertain" ? result.message : "The schema comparison response could not be parsed.");
+      return;
+    }
+    const body = result.body;
+    if (typeof body !== "object" || body === null) {
+      failed("UNKNOWN", "The schema comparison response was invalid.");
+      return;
+    }
+    if (!("ok" in body) || !body.ok) {
+      failed("error" in body ? (body.code ?? "UNKNOWN") : "UNKNOWN", "error" in body ? body.error : "The schema comparison failed for an unknown reason.");
+      return;
+    }
+    const report = body.report;
+    if (
+      !report ||
+      report.reportVersion !== 1 ||
+      !Array.isArray(report.differences) ||
+      !report.differences.every((d) => typeof d === "object" && d !== null && typeof d.code === "string" && typeof d.deterministicKey === "string") ||
+      !["EXACT_MATCH", "MATCH_WITH_NON_BLOCKING_DRIFT", "BLOCKING_DRIFT", "UNMATCHABLE"].includes(report.result)
+    ) {
+      failed("UNKNOWN", "The schema comparison response was invalid.");
+      return;
+    }
+    this.setState({ phase: "schemaMatchReady", batch, worksheets, report });
+  }
+
+  // Data Hub 6.2D3D — explicit, durable "Use governed schema" lineage pin.
+  // Allowed from "schemaMatchReady" (first attempt) OR "schemaSelectionFailed"
+  // (Retry — both phases carry the same batch/worksheets/report, so a
+  // failed attempt can be retried without first navigating back to the
+  // report screen) while report.result === "EXACT_MATCH" AND
+  // report.sourceSchemaStatus === "ACTIVE" — the same client-side
+  // eligibility the server independently, authoritatively re-verifies from
+  // scratch on EVERY call (a fresh comparison, never this report, and
+  // never anything from a prior attempt). Never callable from
+  // "schemaSelectionSaving" (already in flight) or "schemaSelected"
+  // (already durably pinned — re-selecting is meaningless). Sends only the
+  // batch id on every attempt, including retries; no schema/dataset id,
+  // match result or override is ever transmitted, and retrying never
+  // grants the client any authority it didn't already have.
+  async selectGovernedSchema(): Promise<void> {
+    if (this.state.phase !== "schemaMatchReady" && this.state.phase !== "schemaSelectionFailed") {
+      throw new Error(`data-hub client: selectGovernedSchema() called from unexpected phase "${this.state.phase}".`);
+    }
+    const { batch, worksheets, report } = this.state;
+    if (report.result !== "EXACT_MATCH" || report.sourceSchemaStatus !== "ACTIVE") {
+      throw new Error("data-hub client: selectGovernedSchema() requires an ACTIVE + EXACT_MATCH report.");
+    }
+    const myGeneration = ++this.xlsxPreviewGeneration;
+    this.setState({ phase: "schemaSelectionSaving", batch, worksheets, report });
+    const result = await callSelectImportBatchSchemaLineage(batch.id, this.config);
+    if (this.disposed || myGeneration !== this.xlsxPreviewGeneration) return;
+    const failed = (code: string, message: string) => this.setState({ phase: "schemaSelectionFailed", batch, worksheets, report, code, message });
+    if (result.kind !== "response") {
+      failed("NETWORK", result.kind === "networkUncertain" ? result.message : "The schema selection response could not be parsed.");
+      return;
+    }
+    const body = result.body;
+    if (typeof body !== "object" || body === null) {
+      failed("UNKNOWN", "The schema selection response was invalid.");
+      return;
+    }
+    if (!("ok" in body) || !body.ok) {
+      failed("error" in body ? (body.code ?? "UNKNOWN") : "UNKNOWN", "error" in body ? body.error : "The schema selection failed for an unknown reason.");
+      return;
+    }
+    if (
+      typeof body.alreadySelected !== "boolean" ||
+      typeof body.datasetTypeId !== "string" ||
+      typeof body.sourceSchemaVersionId !== "string" ||
+      typeof body.sourceSchemaVersionNumber !== "number"
+    ) {
+      failed("UNKNOWN", "The schema selection response was invalid.");
+      return;
+    }
+    this.setState({
+      phase: "schemaSelected",
+      batch,
+      worksheets,
+      report,
+      alreadySelected: body.alreadySelected,
+      datasetTypeId: body.datasetTypeId,
+      sourceSchemaVersionId: body.sourceSchemaVersionId,
+      sourceSchemaVersionNumber: body.sourceSchemaVersionNumber,
+    });
   }
 
   // Data Hub 6.2D1 — defense in depth behind the phase guards: preview and

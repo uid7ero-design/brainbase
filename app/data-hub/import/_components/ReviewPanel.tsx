@@ -129,7 +129,7 @@ export default function ReviewPanel({
 
   return (
     <div>
-      <h2 style={{ fontSize: 16, fontWeight: 600, color: "#f9fafb", marginBottom: 4 }}>
+      <h2 style={{ fontSize: 16, fontWeight: 600, color: "var(--text-primary)", marginBottom: 4 }}>
         {state.worksheet.worksheetName}
       </h2>
 
@@ -147,7 +147,7 @@ export default function ReviewPanel({
       />
 
       {state.phase === "confirmationReady" || state.phase === "previewing" ? (
-        <div aria-live="polite" aria-busy="true" style={{ fontSize: 13, color: "rgba(249,250,251,.6)", marginTop: 10 }}>
+        <div aria-live="polite" aria-busy="true" style={{ fontSize: 13, color: "var(--text-secondary)", marginTop: 10 }}>
           Preparing preview…
         </div>
       ) : null}
@@ -160,7 +160,7 @@ export default function ReviewPanel({
             retryLabel="Try loading preview again"
             onRetry={() => void session.retryPreview()}
           />
-          <label style={{ display: "flex", gap: 8, alignItems: "flex-start", marginTop: 14, fontSize: 13, color: "rgba(249,250,251,.75)" }}>
+          <label style={{ display: "flex", gap: 8, alignItems: "flex-start", marginTop: 14, fontSize: 13, color: "var(--text-secondary)" }}>
             <input
               type="checkbox"
               checked={acknowledged}
@@ -249,7 +249,7 @@ function MappingSelector({
     // concept applies to it at all; Confirm proceeds via the unchanged
     // legacy path.
     return (
-      <div style={{ marginBottom: 16, fontSize: 12, color: "rgba(249,250,251,.5)" }}>
+      <div style={{ marginBottom: 16, fontSize: 12, color: "var(--text-muted)" }}>
         Legacy import — no source system was selected for this file.
       </div>
     );
@@ -287,17 +287,17 @@ function MappingSelector({
   }
 
   return (
-    <div style={{ marginBottom: 16, padding: "10px 14px", border: "1px solid rgba(255,255,255,.08)", borderRadius: 8 }}>
-      <div style={{ fontSize: 13, color: "rgba(249,250,251,.85)", marginBottom: locked ? 0 : 8 }}>{frozenLabel()}</div>
+    <div style={{ marginBottom: 16, padding: "10px 14px", border: "1px solid var(--border)", borderRadius: 8 }}>
+      <div style={{ fontSize: 13, color: "var(--text-primary)", marginBottom: locked ? 0 : 8 }}>{frozenLabel()}</div>
 
       {!locked ? (
         <div>
           <label
             htmlFor="data-hub-mapping-select"
-            style={{ display: "block", fontSize: 12, fontWeight: 500, color: "rgba(249,250,251,.6)", marginBottom: 4 }}
+            style={{ display: "block", fontSize: 12, fontWeight: 500, color: "var(--text-secondary)", marginBottom: 4 }}
           >
             {frozenMapping === null || frozenMapping === "unknown" ? "Select a mapping" : "Change mapping"}{" "}
-            <span style={{ fontWeight: 400, color: "rgba(249,250,251,.4)" }}>(optional)</span>
+            <span style={{ fontWeight: 400, color: "var(--text-muted)" }}>(optional)</span>
           </label>
           <select
             id="data-hub-mapping-select"
@@ -311,9 +311,9 @@ function MappingSelector({
               fontSize: 13,
               padding: "8px 10px",
               borderRadius: 8,
-              border: "1px solid rgba(255,255,255,.18)",
-              background: "rgba(255,255,255,.04)",
-              color: "#f9fafb",
+              border: "1px solid var(--border)",
+              background: "var(--bg-raised)",
+              color: "var(--text-primary)",
             }}
           >
             <option value="">{sourceMappingsState.status === "loading" ? "Loading mappings…" : "Choose a mapping…"}</option>
@@ -333,7 +333,7 @@ function MappingSelector({
           ) : null}
 
           {sourceMappingsState.status === "success" && sourceMappingsState.sourceMappings.length === 0 ? (
-            <div style={{ marginTop: 6, fontSize: 12, color: "rgba(249,250,251,.45)" }}>
+            <div style={{ marginTop: 6, fontSize: 12, color: "var(--text-muted)" }}>
               No mappings configured for this source system yet.
             </div>
           ) : null}
@@ -368,7 +368,7 @@ function PreviewTable({
 
   return (
     <div style={{ marginTop: 12 }}>
-      <div style={{ fontSize: 12, color: "rgba(249,250,251,.55)", marginBottom: 10 }}>
+      <div style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 10 }}>
         {preview.rowCount} row(s), {preview.columnCount} column(s)
       </div>
 
@@ -382,7 +382,7 @@ function PreviewTable({
                 : "One or more previewed rows failed value validation — review the sample below before confirming."}
             </div>
           ) : (
-            <div role="alert" style={{ color: "#f9fafb" }}>
+            <div role="alert" style={{ color: "var(--text-primary)" }}>
               This mapping does not structurally match this file&apos;s columns:{" "}
               {preview.mapping.mappingErrors
                 .map((e) => (e.code === "MAPPING_REQUIRED_TARGET_MISSING" ? e.canonicalTarget : `${e.canonicalTarget} (${e.sourceHeader})`))
@@ -402,7 +402,7 @@ function PreviewTable({
             borderRadius: 8,
             padding: "10px 14px",
             fontSize: 12,
-            color: "#f9fafb",
+            color: "var(--text-primary)",
             marginBottom: 12,
           }}
         >
@@ -414,7 +414,7 @@ function PreviewTable({
       <div
         tabIndex={0}
         aria-label={`Scrollable preview of ${preview.headers.length} columns`}
-        style={{ overflowX: "auto", border: "1px solid rgba(255,255,255,.08)", borderRadius: 8 }}
+        style={{ overflowX: "auto", border: "1px solid var(--border)", borderRadius: 8 }}
       >
         <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 12, fontVariantNumeric: "tabular-nums" }}>
           <thead>
@@ -427,8 +427,8 @@ function PreviewTable({
                   style={{
                     textAlign: "left",
                     padding: "8px 10px",
-                    borderBottom: "1px solid rgba(255,255,255,.1)",
-                    color: "rgba(249,250,251,.75)",
+                    borderBottom: "1px solid var(--border)",
+                    color: "var(--text-secondary)",
                     whiteSpace: "nowrap",
                   }}
                 >
@@ -446,8 +446,8 @@ function PreviewTable({
                     title={cell}
                     style={{
                       padding: "8px 10px",
-                      borderBottom: "1px solid rgba(255,255,255,.05)",
-                      color: "rgba(249,250,251,.6)",
+                      borderBottom: "1px solid var(--border-light)",
+                      color: "var(--text-secondary)",
                       whiteSpace: "nowrap",
                     }}
                   >
@@ -461,12 +461,12 @@ function PreviewTable({
       </div>
 
       {preview.truncated ? (
-        <div style={{ fontSize: 11, color: "rgba(249,250,251,.4)", marginTop: 8 }}>
+        <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 8 }}>
           Showing first {preview.sampleRowCount} of {preview.rowCount} rows
           {columnTruncated ? `, first ${preview.headers.length} of ${preview.columnCount} columns` : ""}.
         </div>
       ) : columnTruncated ? (
-        <div style={{ fontSize: 11, color: "rgba(249,250,251,.4)", marginTop: 8 }}>
+        <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 8 }}>
           Showing first {preview.headers.length} of {preview.columnCount} columns.
         </div>
       ) : null}

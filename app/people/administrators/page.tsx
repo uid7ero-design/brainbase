@@ -27,7 +27,7 @@ import { useEffect, useState } from 'react';
 // auto-matched by name/email. Revoke uses the existing inline confirm/
 // cancel row state app/people/teams/page.tsx's own Archive action
 // already established, never a blocking native window.confirm().
-const CARD = '#0e1014'; const BORDER = '#1a1d24';
+const CARD = 'var(--bg-surface)'; const BORDER = 'var(--border)';
 
 type AdminUser = { id: string; name: string; email: string | null; is_hr_administrator: boolean; grant_eligible: boolean };
 
@@ -91,7 +91,7 @@ export default function AdministratorsPage() {
     <div style={{ maxWidth: 900 }}>
       <div style={{ marginBottom: 8 }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em', margin: 0 }}>HR Administrators</h1>
-        <p style={{ color: '#6b7280', fontSize: 13, margin: '4px 0 0' }}>
+        <p style={{ color: 'var(--text-secondary)', fontSize: 13, margin: '4px 0 0' }}>
           Grant or revoke HR administrator access for your organisation.
         </p>
       </div>
@@ -104,7 +104,7 @@ export default function AdministratorsPage() {
               <option key={u.id} value={u.id}>{u.name}{u.email ? ` (${u.email})` : ''}</option>
             ))}
           </select>
-          <button onClick={grant} disabled={!selectedUserId || granting} style={btn('#1a6aff')}>
+          <button onClick={grant} disabled={!selectedUserId || granting} style={btn('var(--purple-600)')}>
             {granting ? 'Granting…' : 'Grant'}
           </button>
         </div>
@@ -127,12 +127,12 @@ export default function AdministratorsPage() {
             )}
             {!loading && !error && administrators.map((u, i) => (
               <tr key={u.id} style={{ borderBottom: i < administrators.length - 1 ? `1px solid ${BORDER}` : 'none' }}>
-                <td style={{ padding: '13px 16px', color: '#f9fafb', fontWeight: 500, fontSize: 14 }}>{u.name}</td>
-                <td style={td}>{u.email ?? <span style={{ color: '#4b5563' }}>—</span>}</td>
+                <td style={{ padding: '13px 16px', color: 'var(--text-primary)', fontWeight: 500, fontSize: 14 }}>{u.name}</td>
+                <td style={td}>{u.email ?? <span style={{ color: 'var(--text-muted)' }}>—</span>}</td>
                 <td style={{ padding: '13px 16px', textAlign: 'right', whiteSpace: 'nowrap' }}>
                   {confirmRevokeId === u.id ? (
                     <>
-                      <span style={{ color: '#9ca3af', fontSize: 12, marginRight: 6 }}>Revoke access?</span>
+                      <span style={{ color: 'var(--text-secondary)', fontSize: 12, marginRight: 6 }}>Revoke access?</span>
                       <button onClick={() => revoke(u.id)} style={{ ...linkBtn, color: '#f87171' }}>Confirm</button>
                       <button onClick={() => setConfirmRevokeId(null)} style={linkBtn}>Cancel</button>
                     </>
@@ -149,9 +149,9 @@ export default function AdministratorsPage() {
   );
 }
 
-const th: React.CSSProperties = { padding: '11px 16px', textAlign: 'left', color: '#6b7280', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' };
-const td: React.CSSProperties = { padding: '13px 16px', fontSize: 13, color: '#9ca3af' };
-const empty: React.CSSProperties = { padding: '36px 16px', textAlign: 'center', color: '#4b5563', fontSize: 14 };
-const linkBtn: React.CSSProperties = { background: 'none', border: 'none', padding: '0 6px', fontSize: 12, color: '#6b7280', cursor: 'pointer' };
-const sel: React.CSSProperties = { width: '100%', padding: '9px 12px', background: '#111318', border: '1px solid #1a1d24', borderRadius: 8, color: '#f9fafb', fontSize: 14 };
+const th: React.CSSProperties = { padding: '11px 16px', textAlign: 'left', color: 'var(--text-secondary)', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' };
+const td: React.CSSProperties = { padding: '13px 16px', fontSize: 13, color: 'var(--text-secondary)' };
+const empty: React.CSSProperties = { padding: '36px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 14 };
+const linkBtn: React.CSSProperties = { background: 'none', border: 'none', padding: '0 6px', fontSize: 12, color: 'var(--text-secondary)', cursor: 'pointer' };
+const sel: React.CSSProperties = { width: '100%', padding: '9px 12px', background: 'var(--bg-raised)', border: '1px solid #1a1d24', borderRadius: 8, color: 'var(--text-primary)', fontSize: 14 };
 function btn(bg: string): React.CSSProperties { return { padding: '8px 16px', background: bg, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }; }

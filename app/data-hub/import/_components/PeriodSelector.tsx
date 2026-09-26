@@ -116,8 +116,8 @@ export default function PeriodSelector({
   }
 
   return (
-    <div style={{ marginBottom: 16, padding: "10px 14px", border: "1px solid rgba(255,255,255,.08)", borderRadius: 8 }}>
-      <div style={{ fontSize: 13, color: "rgba(249,250,251,.85)", marginBottom: locked ? 0 : 8 }}>
+    <div style={{ marginBottom: 16, padding: "10px 14px", border: "1px solid var(--border)", borderRadius: 8 }}>
+      <div style={{ fontSize: 13, color: "var(--text-primary)", marginBottom: locked ? 0 : 8 }}>
         {frozen
           ? `Reporting period: ${worksheet.periodStart} to ${worksheet.periodEnd}${worksheet.periodSource === "DETECTED" ? " (detected from file)" : ""}`
           : worksheet.reportingPeriodRequired
@@ -138,7 +138,7 @@ export default function PeriodSelector({
             <div>
               <label
                 htmlFor="data-hub-period-start"
-                style={{ display: "block", fontSize: 12, fontWeight: 500, color: "rgba(249,250,251,.6)", marginBottom: 4 }}
+                style={{ display: "block", fontSize: 12, fontWeight: 500, color: "var(--text-secondary)", marginBottom: 4 }}
               >
                 Period start
               </label>
@@ -152,16 +152,16 @@ export default function PeriodSelector({
                   fontSize: 13,
                   padding: "8px 10px",
                   borderRadius: 8,
-                  border: "1px solid rgba(255,255,255,.18)",
-                  background: "rgba(255,255,255,.04)",
-                  color: "#f9fafb",
+                  border: "1px solid var(--border)",
+                  background: "var(--bg-raised)",
+                  color: "var(--text-primary)",
                 }}
               />
             </div>
             <div>
               <label
                 htmlFor="data-hub-period-end"
-                style={{ display: "block", fontSize: 12, fontWeight: 500, color: "rgba(249,250,251,.6)", marginBottom: 4 }}
+                style={{ display: "block", fontSize: 12, fontWeight: 500, color: "var(--text-secondary)", marginBottom: 4 }}
               >
                 Period end
               </label>
@@ -175,9 +175,9 @@ export default function PeriodSelector({
                   fontSize: 13,
                   padding: "8px 10px",
                   borderRadius: 8,
-                  border: "1px solid rgba(255,255,255,.18)",
-                  background: "rgba(255,255,255,.04)",
-                  color: "#f9fafb",
+                  border: "1px solid var(--border)",
+                  background: "var(--bg-raised)",
+                  color: "var(--text-primary)",
                 }}
               />
             </div>
@@ -189,9 +189,9 @@ export default function PeriodSelector({
                 fontWeight: 600,
                 padding: "8px 14px",
                 borderRadius: 8,
-                border: "1px solid rgba(255,255,255,.18)",
-                background: "rgba(255,255,255,.04)",
-                color: "#f9fafb",
+                border: "1px solid var(--border)",
+                background: "var(--bg-raised)",
+                color: "var(--text-primary)",
                 cursor: submitting ? "default" : "pointer",
               }}
             >

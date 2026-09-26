@@ -1,0 +1,699 @@
+/* Homepage layout. Tokens only — see styles/brainbase-tokens.css. */
+
+/* ─── Hero ─── */
+.hero {
+  position: relative;
+  padding: var(--bb-hero-top) 0 var(--bb-hero-bottom);
+  border-bottom: 1px solid var(--bb-border);
+}
+.hero::after {
+  content: '';
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 40%;
+  background: linear-gradient(to bottom, transparent, var(--bb-bg));
+  pointer-events: none;
+}
+.heroGrid {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.95fr);
+  gap: var(--bb-block-gap);
+  align-items: center;
+}
+.heroCopy {
+  max-width: 38rem;
+}
+.heroEyebrow,
+.eyebrowInline {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 22px;
+}
+.eyebrowDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--bb-accent);
+}
+.heroTitle {
+  margin: 0;
+  font-size: clamp(2.5rem, 4.8vw, 3.5rem);
+  line-height: 1.02;
+  font-weight: 600;
+  letter-spacing: -0.045em;
+  text-wrap: balance;
+}
+.heroAccent {
+  color: var(--bb-accent);
+}
+.heroLede {
+  margin: 24px 0 0;
+  max-width: 34rem;
+  font-size: clamp(1rem, 1.5vw, 1.125rem);
+  line-height: 1.7;
+  color: var(--bb-text-muted);
+}
+.heroActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 30px;
+}
+.proofPoints {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  margin: 26px 0 0;
+  padding: 0;
+  list-style: none;
+  font-family: var(--bb-font-mono);
+  font-size: 0.75rem;
+  color: var(--bb-text-muted);
+}
+.proofPoints li {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.proofPoints li::before {
+  content: '';
+  width: 5px;
+  height: 5px;
+  border: 1px solid var(--bb-border-strong);
+  border-radius: 1px;
+}
+.hlnaMeta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 18px 0 0;
+}
+.hlnaMark {
+  font-size: 0.8125rem;
+}
+
+.heroVisual {
+  display: grid;
+  gap: var(--bb-grid-gap);
+  min-width: 0;
+}
+.mapPanel {
+  margin: 0;
+}
+.mapBody {
+  padding: 10px 6px 6px;
+  background-color: var(--bb-surface);
+}
+.terminal {
+  min-width: 0;
+  /* The interactive HLNA query box stays a dark "terminal" in both themes
+     (CommandDemo is dark-styled internally). In light mode its body uses a
+     softer ink and the title bar follows the page theme, so it no longer
+     outweighs the platform map. */
+  --bb-terminal-ink: var(--bb-surface);
+}
+:global(:root[data-theme='light']) .terminal {
+  --bb-terminal-ink: color-mix(in srgb, var(--bb-text) 86%, var(--bb-bg));
+}
+.terminalBody {
+  padding: var(--bb-cell-pad-sm);
+  background: var(--bb-terminal-ink);
+  color: var(--bb-text);
+}
+/* CommandDemo sets outline:none inline; restore a visible focus ring here. */
+.terminalBody input:focus-visible,
+.terminalBody button:focus-visible {
+  outline: 2px solid var(--bb-focus) !important;
+  outline-offset: 2px;
+}
+
+/* ─── Stat strip ─── */
+.statStrip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 0;
+  border-bottom: 1px solid var(--bb-border);
+}
+.stat {
+  padding: var(--bb-cell-pad);
+  border-left: 1px solid var(--bb-border);
+}
+.stat:first-child {
+  border-left: 0;
+  padding-left: 0;
+}
+.statValue {
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.statLabel {
+  margin: 4px 0 0;
+  font-family: var(--bb-font-mono);
+  font-size: 0.72rem;
+  color: var(--bb-text-muted);
+}
+
+/* ─── Shared cell typography ─── */
+.cellIndex,
+.pipelineIndex {
+  display: block;
+  margin-bottom: var(--bb-cell-icon-gap);
+  font-family: var(--bb-font-mono);
+  font-size: 0.72rem;
+  color: var(--bb-accent);
+}
+.cellTitle {
+  margin: 0 0 var(--bb-cell-title-gap);
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.cellBody {
+  display: block;
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.65;
+  color: var(--bb-text-muted);
+}
+.bodyText {
+  margin: 0 0 22px;
+  max-width: 34rem;
+  font-size: 1rem;
+  line-height: 1.7;
+  color: var(--bb-text-muted);
+}
+.note {
+  margin: 12px 0 0;
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  color: var(--bb-text-muted);
+}
+.caption {
+  margin: 16px 0 0;
+  font-family: var(--bb-font-mono);
+  font-size: 0.8125rem;
+  color: var(--bb-text-muted);
+}
+.accentText {
+  color: var(--bb-accent);
+}
+.chipRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.panelHeading {
+  margin: 0 0 16px;
+  font-size: 1.125rem;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+
+/* ─── Problem ─── */
+.split {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+  gap: var(--bb-block-gap);
+  align-items: end;
+}
+.split > :first-child {
+  margin-bottom: 0;
+}
+.problemVisual {
+  display: grid;
+  gap: var(--bb-head-gap);
+}
+.toolScatter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 0;
+  padding: 20px;
+  list-style: none;
+  border: 1px dashed var(--bb-border-strong);
+  border-radius: var(--bb-radius-lg);
+}
+.toolScatter li:nth-child(2n) {
+  transform: translateY(6px);
+}
+.pullQuote {
+  margin: 0;
+  font-size: clamp(1.25rem, 2.2vw, 1.5rem);
+  line-height: 1.35;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+}
+
+/* ─── Ruled 4-column grid (no cards — 1px rules only) ─── */
+/* Columns only: cell rules, padding and surface come from .bb-cells. */
+.ruledGrid4 {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+/* ─── Growth path ─── */
+.growthPath {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: none;
+}
+.growthStep {
+  position: relative;
+  padding: var(--bb-cell-pad);
+  border: 1px solid var(--bb-border);
+  background: var(--bb-surface);
+}
+.growthStep + .growthStep {
+  border-left: 0;
+}
+.growthStep:first-child {
+  border-radius: var(--bb-radius-lg) 0 0 var(--bb-radius-lg);
+}
+.growthStep:last-child {
+  border-radius: 0 var(--bb-radius-lg) var(--bb-radius-lg) 0;
+  border-style: dashed;
+  border-left: 1px dashed var(--bb-signal-border);
+  background: transparent;
+}
+.growthStep:nth-child(2) {
+  background: var(--bb-surface-raised);
+}
+.growthStep .bb-eyebrow,
+.growthStep > p:first-child {
+  margin: 0 0 14px;
+}
+.growthStep + .growthStep::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: -5px;
+  width: 9px;
+  height: 9px;
+  border-top: 1px solid var(--bb-border-strong);
+  border-right: 1px solid var(--bb-border-strong);
+  background: var(--bb-bg);
+  transform: translateY(-50%) rotate(45deg);
+}
+
+/* ─── Capabilities ─── */
+.capabilityGrid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.capability {
+  transition: background-color 150ms ease;
+}
+.capability:hover {
+  background: var(--bb-surface-raised);
+}
+.capabilityIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--bb-cell-icon);
+  height: var(--bb-cell-icon);
+  margin-bottom: var(--bb-cell-icon-gap);
+  border: 1px solid var(--bb-accent-border);
+  border-radius: var(--bb-radius);
+  background: var(--bb-accent-soft);
+  color: var(--bb-accent);
+}
+
+/* ─── Two-column panels ─── */
+.twoCol {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--bb-grid-gap);
+}
+
+/* ─── Integration ─── */
+.integration {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 64px minmax(0, 1fr);
+  align-items: stretch;
+}
+.connector {
+  display: flex;
+  align-items: center;
+  height: 100%;
+}
+.connector span {
+  display: block;
+  width: 100%;
+  border-top: 1px dashed var(--bb-signal);
+  position: relative;
+}
+.connector span::before,
+.connector span::after {
+  content: '';
+  position: absolute;
+  top: -4px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--bb-signal);
+}
+.connector span::before {
+  left: -3px;
+}
+.connector span::after {
+  right: -3px;
+}
+
+/* ─── Pipeline ─── */
+.pipeline {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 24px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.pipeline::before {
+  content: '';
+  position: absolute;
+  top: 5px;
+  left: 6px;
+  right: 6px;
+  border-top: 1px solid var(--bb-signal-border);
+}
+.pipelineStep {
+  position: relative;
+  padding-top: 32px;
+}
+.pipelineNode {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 11px;
+  height: 11px;
+  border: 1px solid var(--bb-signal);
+  border-radius: 50%;
+  background: var(--bb-bg);
+}
+.pipelineStep:last-child .pipelineNode {
+  background: var(--bb-signal);
+}
+.pipelineIndex {
+  margin-bottom: var(--bb-cell-title-gap);
+}
+
+/* ─── HLNA ─── */
+.hlnaGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  gap: var(--bb-block-gap);
+  align-items: center;
+}
+.hlnaTitle {
+  margin: 12px 0 16px;
+  font-size: clamp(1.75rem, 3.2vw, 2.375rem);
+  line-height: 1.12;
+  font-weight: 600;
+  letter-spacing: -0.028em;
+  text-wrap: balance;
+}
+.intelList {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.intelItem::before {
+  content: '';
+  display: block;
+  width: 18px;
+  height: 1px;
+  margin-bottom: var(--bb-cell-icon-gap);
+  background: var(--bb-accent);
+}
+
+/* ─── Deployment ─── */
+.deployment {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
+  gap: var(--bb-block-gap);
+  align-items: center;
+}
+.deployment .bb-eyebrow,
+.deployment > div > p:first-child {
+  margin: 0 0 10px;
+}
+.deploymentTitle {
+  margin: 0 0 12px;
+  font-size: clamp(1.5rem, 2.8vw, 2rem);
+  font-weight: 600;
+  letter-spacing: -0.025em;
+}
+.flowPath {
+  position: relative;
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0 0 0 18px;
+  list-style: none;
+  border-left: 1px solid var(--bb-signal-border);
+}
+.flowItem {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--bb-font-mono);
+  font-size: 0.8125rem;
+  color: var(--bb-text-muted);
+}
+.flowItem::before {
+  content: '';
+  position: absolute;
+  left: -22px;
+  top: 50%;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  border: 1px solid var(--bb-signal);
+  background: var(--bb-surface);
+  transform: translateY(-50%);
+}
+.flowTo {
+  color: var(--bb-text);
+}
+.flowArrow {
+  flex-shrink: 0;
+  color: var(--bb-signal);
+}
+
+/* ─── Starting points ─── */
+.pathGrid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+/* The link fills its cell, so the whole cell is the target. */
+.pathGrid > li {
+  display: flex;
+  padding: 0;
+}
+.pathCard {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  padding: var(--bb-cell-pad);
+  color: var(--bb-text);
+  text-decoration: none;
+  transition: background-color 150ms ease;
+}
+.pathCard:hover {
+  background: var(--bb-surface-raised);
+}
+/* Inset ring: .bb-cells clips overflow, so an outside ring would be cut. */
+.pathCard:focus-visible {
+  outline: 2px solid var(--bb-focus);
+  outline-offset: -3px;
+}
+.pathMeta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: var(--bb-cell-icon-gap);
+}
+.pathNumber {
+  font-family: var(--bb-font-mono);
+  font-size: 0.72rem;
+  color: var(--bb-text-muted);
+}
+.pathTitle {
+  margin: 0 0 var(--bb-cell-title-gap);
+  font-size: 1.125rem;
+  line-height: 1.3;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+.pathAction {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: auto;
+  padding-top: 22px;
+  font-size: 0.875rem;
+  font-weight: 550;
+  color: var(--bb-accent);
+}
+.pathArrow {
+  flex-shrink: 0;
+  transition: transform 150ms ease;
+}
+.pathCard:hover .pathArrow {
+  transform: translateX(2px);
+}
+
+/* ─── Final CTA ─── */
+.cta {
+  padding: calc(var(--bb-block-gap) + 8px) var(--bb-gutter);
+  border: 1px solid var(--bb-border);
+  border-radius: var(--bb-radius-lg);
+  background-color: var(--bb-surface);
+  text-align: center;
+}
+.cta > p:first-child {
+  margin: 0;
+}
+.ctaTitle {
+  margin: 12px auto 0;
+  max-width: 32rem;
+  font-size: clamp(1.75rem, 3.2vw, 2.375rem);
+  line-height: 1.12;
+  font-weight: 600;
+  letter-spacing: -0.028em;
+  text-wrap: balance;
+}
+.ctaBody {
+  margin: 16px auto 0;
+  max-width: 32rem;
+  font-size: 1rem;
+  line-height: 1.7;
+  color: var(--bb-text-muted);
+}
+.ctaActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 28px;
+}
+
+/* ─── Responsive ─── */
+@media (max-width: 1024px) {
+  .heroGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .heroCopy {
+    max-width: 40rem;
+  }
+  .capabilityGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .ruledGrid4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .pipeline {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    row-gap: 36px;
+  }
+  .pipeline::before {
+    display: none;
+  }
+  .split,
+  .hlnaGrid,
+  .deployment {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 760px) {
+  .statStrip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .stat:nth-child(3) {
+    border-left: 0;
+    padding-left: 0;
+  }
+  .stat:nth-child(n + 3) {
+    border-top: 1px solid var(--bb-border);
+  }
+  .growthPath {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .growthStep + .growthStep {
+    border-left: 1px solid var(--bb-border);
+    border-top: 0;
+  }
+  .growthStep:first-child {
+    border-radius: var(--bb-radius-lg) var(--bb-radius-lg) 0 0;
+  }
+  .growthStep:last-child {
+    border-radius: 0 0 var(--bb-radius-lg) var(--bb-radius-lg);
+    border-left: 1px dashed var(--bb-signal-border);
+    border-top: 0;
+  }
+  .growthStep + .growthStep::before {
+    top: -5px;
+    left: 28px;
+    transform: rotate(135deg);
+  }
+  .twoCol,
+  .pathGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .integration {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .connector {
+    height: 40px;
+    justify-content: center;
+  }
+  .connector span {
+    width: 0;
+    height: 100%;
+    border-top: 0;
+    border-left: 1px dashed var(--bb-signal);
+  }
+  .connector span::before,
+  .connector span::after {
+    left: -4px;
+  }
+  .connector span::before {
+    top: -3px;
+  }
+  .connector span::after {
+    top: auto;
+    bottom: -3px;
+    right: auto;
+  }
+}
+
+@media (max-width: 560px) {
+  .mapPanel {
+    display: none;
+  }
+  .capabilityGrid,
+  .ruledGrid4,
+  .pipeline,
+  .intelList {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .toolScatter li:nth-child(2n) {
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .capability,
+  .pathCard,
+  .pathArrow {
+    transition: none;
+  }
+}

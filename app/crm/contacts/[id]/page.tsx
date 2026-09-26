@@ -8,8 +8,8 @@ import ActivityForm from '../../_components/ActivityForm';
 import ClassificationBadge from '../../_components/ClassificationBadge';
 import type { CrmContactClassification } from '@/lib/crm/classification';
 
-const CARD = '#0e1014'; const BORDER = '#1a1d24';
-const STAGE_COLORS: Record<string, string> = { lead:'#6b7280', qualified:'#60a5fa', proposal:'#a78bfa', negotiation:'#fbbf24', closed_won:'#34d399', closed_lost:'#f87171' };
+const CARD = 'var(--bg-surface)'; const BORDER = 'var(--border)';
+const STAGE_COLORS: Record<string, string> = { lead:'var(--text-secondary)', qualified:'#60a5fa', proposal:'#a78bfa', negotiation:'#fbbf24', closed_won:'#34d399', closed_lost:'#f87171' };
 const TYPE_ICONS: Record<string, string>   = { call:'📞', email:'✉️', note:'📝', meeting:'🤝' };
 
 type Contact  = { id: string; first_name: string; last_name: string; email: string|null; phone: string|null; job_title: string|null; company_id: string|null; company_name: string|null; notes: string|null; classification: CrmContactClassification | null };
@@ -75,17 +75,17 @@ export default function ContactDetailPage() {
     router.push('/crm/contacts');
   }
 
-  if (loading) return <div style={{ color: '#4b5563', padding: 32 }}>Loading…</div>;
+  if (loading) return <div style={{ color: 'var(--text-muted)', padding: 32 }}>Loading…</div>;
   if (!contact) return null;
 
   return (
     <div style={{ maxWidth: 900 }}>
       {/* Breadcrumb + actions */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, color: '#6b7280' }}>
-          <Link href="/crm/contacts" style={{ color: '#6b7280', textDecoration: 'none' }}>Contacts</Link>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, color: 'var(--text-secondary)' }}>
+          <Link href="/crm/contacts" style={{ color: 'var(--text-secondary)', textDecoration: 'none' }}>Contacts</Link>
           <span>/</span>
-          <span style={{ color: '#f9fafb' }}>{contact.first_name} {contact.last_name}</span>
+          <span style={{ color: 'var(--text-primary)' }}>{contact.first_name} {contact.last_name}</span>
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
           <button onClick={() => setShowEdit(true)} style={outlineBtn}>Edit</button>
@@ -104,12 +104,12 @@ export default function ContactDetailPage() {
               : deals.map((d, i) => (
                 <div key={d.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: i < deals.length-1 ? `1px solid ${BORDER}` : 'none' }}>
                   <div>
-                    <div style={{ fontSize: 13, color: '#f9fafb', fontWeight: 500 }}>{d.title}</div>
-                    {d.expected_close && <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>Close {new Date(d.expected_close).toLocaleDateString('en-AU', { day:'numeric', month:'short' })}</div>}
+                    <div style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 500 }}>{d.title}</div>
+                    {d.expected_close && <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>Close {new Date(d.expected_close).toLocaleDateString('en-AU', { day:'numeric', month:'short' })}</div>}
                   </div>
                   <div style={{ textAlign: 'right' }}>
                     {d.value != null && <div style={{ fontSize: 13, fontWeight: 600, color: STAGE_COLORS[d.stage] }}>${Number(d.value).toLocaleString()}</div>}
-                    <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2, textTransform: 'capitalize' }}>{d.stage.replace('_',' ')}</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2, textTransform: 'capitalize' }}>{d.stage.replace('_',' ')}</div>
                   </div>
                 </div>
               ))}
@@ -124,26 +124,26 @@ export default function ContactDetailPage() {
           {contact.email && (
             <Section title="Gmail Threads">
               {!gmailConnected ? (
-                <div style={{ fontSize: 13, color: '#4b5563' }}>
-                  Gmail not connected. <Link href="/api/integrations/gmail/login" style={{ color: '#1a6aff', textDecoration: 'none' }}>Connect Gmail →</Link>
+                <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+                  Gmail not connected. <Link href="/api/integrations/gmail/login" style={{ color: 'var(--purple-600)', textDecoration: 'none' }}>Connect Gmail →</Link>
                 </div>
               ) : gmailMsgs.length === 0 ? (
                 <button onClick={() => loadGmailThreads(contact.email!)} disabled={loadingGmail}
-                  style={{ padding: '8px 14px', background: '#111318', color: '#9ca3af', border: `1px solid ${BORDER}`, borderRadius: 8, fontSize: 13, cursor: loadingGmail ? 'default' : 'pointer' }}>
+                  style={{ padding: '8px 14px', background: 'var(--bg-raised)', color: 'var(--text-secondary)', border: `1px solid ${BORDER}`, borderRadius: 8, fontSize: 13, cursor: loadingGmail ? 'default' : 'pointer' }}>
                   {loadingGmail ? 'Searching Gmail…' : `Search Gmail for ${contact.email}`}
                 </button>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                   {gmailMsgs.map(msg => (
-                    <div key={msg.id} style={{ padding: '12px 14px', background: '#111318', borderRadius: 8, border: `1px solid ${BORDER}` }}>
+                    <div key={msg.id} style={{ padding: '12px 14px', background: 'var(--bg-raised)', borderRadius: 8, border: `1px solid ${BORDER}` }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
                         <div style={{ minWidth: 0 }}>
-                          <div style={{ fontSize: 13, color: '#f9fafb', fontWeight: 500 }}>{msg.subject}</div>
-                          <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>{msg.from} · {msg.time}</div>
-                          <div style={{ fontSize: 12, color: '#4b5563', marginTop: 4, lineHeight: 1.4 }}>{msg.snippet.slice(0, 100)}{msg.snippet.length > 100 ? '…' : ''}</div>
+                          <div style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 500 }}>{msg.subject}</div>
+                          <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>{msg.from} · {msg.time}</div>
+                          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4, lineHeight: 1.4 }}>{msg.snippet.slice(0, 100)}{msg.snippet.length > 100 ? '…' : ''}</div>
                         </div>
                         <button onClick={() => importEmail(msg)} disabled={!!msg.imported || importingId === msg.id}
-                          style={{ flexShrink: 0, padding: '5px 10px', background: msg.imported ? 'rgba(52,211,153,0.1)' : '#1a1d24', color: msg.imported ? '#34d399' : '#9ca3af', border: `1px solid ${BORDER}`, borderRadius: 6, fontSize: 11, cursor: msg.imported ? 'default' : 'pointer', whiteSpace: 'nowrap' }}>
+                          style={{ flexShrink: 0, padding: '5px 10px', background: msg.imported ? 'rgba(52,211,153,0.1)' : 'var(--border)', color: msg.imported ? '#34d399' : 'var(--text-secondary)', border: `1px solid ${BORDER}`, borderRadius: 6, fontSize: 11, cursor: msg.imported ? 'default' : 'pointer', whiteSpace: 'nowrap' }}>
                           {msg.imported ? '✓ Imported' : importingId === msg.id ? '…' : 'Import'}
                         </button>
                       </div>
@@ -160,10 +160,10 @@ export default function ContactDetailPage() {
           <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: 20 }}>
             <h2 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 6px' }}>{contact.first_name} {contact.last_name}</h2>
             <div style={{ marginBottom: contact.job_title ? 8 : 16 }}><ClassificationBadge classification={contact.classification} /></div>
-            {contact.job_title && <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 16 }}>{contact.job_title}</div>}
+            {contact.job_title && <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16 }}>{contact.job_title}</div>}
             {contact.company_name && (
               <div style={{ marginBottom: 10 }}>
-                <div style={{ fontSize: 10, color: '#4b5563', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 2 }}>Company</div>
+                <div style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 2 }}>Company</div>
                 <Link href={`/crm/companies/${contact.company_id}`} style={{ fontSize: 13, color: '#60a5fa', textDecoration: 'none' }}>{contact.company_name}</Link>
               </div>
             )}
@@ -172,14 +172,14 @@ export default function ContactDetailPage() {
               { label: 'Phone', value: contact.phone },
             ].map(({ label, value }) => value ? (
               <div key={label} style={{ marginBottom: 10 }}>
-                <div style={{ fontSize: 10, color: '#4b5563', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 2 }}>{label}</div>
+                <div style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 2 }}>{label}</div>
                 <div style={{ fontSize: 13, color: '#d1d5db' }}>{value}</div>
               </div>
             ) : null)}
             {contact.notes && (
               <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${BORDER}` }}>
-                <div style={{ fontSize: 10, color: '#4b5563', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Notes</div>
-                <p style={{ fontSize: 13, color: '#9ca3af', margin: 0, lineHeight: 1.6 }}>{contact.notes}</p>
+                <div style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Notes</div>
+                <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: 0, lineHeight: 1.6 }}>{contact.notes}</p>
               </div>
             )}
           </div>
@@ -192,9 +192,9 @@ export default function ContactDetailPage() {
                   <div style={{ display: 'flex', gap: 8 }}>
                     <span style={{ fontSize: 14 }}>{TYPE_ICONS[a.type]}</span>
                     <div>
-                      <div style={{ fontSize: 13, color: '#f9fafb', fontWeight: 500 }}>{a.subject}</div>
-                      {a.body && <div style={{ fontSize: 12, color: '#6b7280', marginTop: 3, lineHeight: 1.4 }}>{a.body.slice(0, 100)}{a.body.length > 100 ? '…' : ''}</div>}
-                      <div style={{ fontSize: 11, color: '#4b5563', marginTop: 4 }}>
+                      <div style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 500 }}>{a.subject}</div>
+                      {a.body && <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 3, lineHeight: 1.4 }}>{a.body.slice(0, 100)}{a.body.length > 100 ? '…' : ''}</div>}
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
                         {new Date(a.activity_date).toLocaleDateString('en-AU', { day:'numeric', month:'short' })} · {a.created_by_name}
                       </div>
                     </div>
@@ -216,16 +216,16 @@ function Section({ title, count, children }: { title: string; count?: number; ch
   return (
     <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: 20 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
-        <span style={{ fontSize: 14, fontWeight: 600, color: '#f9fafb' }}>{title}</span>
-        {count !== undefined && <span style={{ fontSize: 11, color: '#4b5563', background: '#1a1d24', padding: '1px 6px', borderRadius: 10 }}>{count}</span>}
+        <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>{title}</span>
+        {count !== undefined && <span style={{ fontSize: 11, color: 'var(--text-muted)', background: 'var(--border)', padding: '1px 6px', borderRadius: 10 }}>{count}</span>}
       </div>
       {children}
     </div>
   );
 }
 function Empty({ children }: { children: React.ReactNode }) {
-  return <p style={{ fontSize: 13, color: '#4b5563', margin: 0 }}>{children}</p>;
+  return <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: 0 }}>{children}</p>;
 }
 
-const outlineBtn: React.CSSProperties = { padding: '7px 14px', background: 'transparent', color: '#9ca3af', border: '1px solid #1a1d24', borderRadius: 8, fontSize: 13, cursor: 'pointer' };
+const outlineBtn: React.CSSProperties = { padding: '7px 14px', background: 'transparent', color: 'var(--text-secondary)', border: '1px solid #1a1d24', borderRadius: 8, fontSize: 13, cursor: 'pointer' };
 const dangerBtn:  React.CSSProperties = { padding: '7px 14px', background: 'rgba(239,68,68,0.1)', color: '#f87171', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 8, fontSize: 13, cursor: 'pointer' };

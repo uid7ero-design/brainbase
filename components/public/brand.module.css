@@ -1,0 +1,10 @@
+.mark {
+  font-family: var(--bb-font-mono);
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  white-space: nowrap;
+}
+
+.lambda {
+  color: var(--bb-accent);
+}
