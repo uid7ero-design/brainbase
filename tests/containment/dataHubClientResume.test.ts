@@ -734,6 +734,8 @@ describe("T30 — no new backend route was introduced", () => {
         "source-mappings/[id]/versions/route.ts",
         "source-mappings/[id]/activate-version/route.ts",
         "mapping-versions/[id]/route.ts",
+        // 6.2D4B addition (governed raw-staging execution):
+        "worksheets/[id]/stage/route.ts",
       ].sort()
     );
   });

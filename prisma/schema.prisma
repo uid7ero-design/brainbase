@@ -76,6 +76,7 @@ model Organisation {
   worksheet_mapping_profile_versions WorksheetMappingProfileVersion[]
   data_hub_raw_rows        DataHubRawRow[]
   data_hub_raw_cells       DataHubRawCell[]
+  data_hub_raw_staging_runs DataHubRawStagingRun[]
 
   // stripe_account_id also carries a UNIQUE constraint in the live SQL
   // — a partial index (WHERE NOT NULL), same "Prisma mirrors, raw SQL
@@ -174,6 +175,7 @@ model User {
   worksheet_mapping_profiles_created WorksheetMappingProfile[] @relation("WorksheetMappingProfileCreatedBy")
   worksheet_mapping_profile_versions_created WorksheetMappingProfileVersion[] @relation("WorksheetMappingProfileVersionCreatedBy")
   data_hub_raw_rows_created DataHubRawRow[] @relation("DataHubRawRowCreatedBy")
+  data_hub_raw_staging_runs_created DataHubRawStagingRun[] @relation("DataHubRawStagingRunCreatedBy")
   raw_staged_uploads        Upload[] @relation("UploadRawStagedBy")
   organisation      Organisation      @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
 
@@ -305,6 +307,7 @@ model ImportBatch {
   uploads      Upload[]
   source_record_observations SourceRecordObservation[]
   data_hub_raw_rows DataHubRawRow[]
+  data_hub_raw_staging_runs DataHubRawStagingRun[]
   // Composite tenant-scoped FK (MATCH SIMPLE) — a MATCH SIMPLE
   // constraint means a NULL source_system_id (every existing/legacy
   // row) is entirely exempt from this check. For a batch that DOES
@@ -440,6 +443,13 @@ model Upload {
   raw_profile_version_id String?
   raw_row_count          Int?
   raw_cell_count         Int?
+  // Data Hub 6.2D4B — authoritative pointer to the one SUCCEEDED staging
+  // run that completed this Upload's raw staging. Populated atomically
+  // alongside the five fields above; frozen forever once set (no
+  // exception at all, unlike raw_staged_by — the run row it points to can
+  // never be deleted, see DataHubRawStagingRun's own DELETE-rejecting
+  // lifecycle trigger).
+  raw_staging_run_id     String?
 
   debtor_accounts    DebtorAccount[]
   evidence_records   EvidenceRecord[]
@@ -468,6 +478,13 @@ model Upload {
   // a MappingVersion belonging to a different organisation_id.
   mapping_version    MappingVersion?    @relation(fields: [mapping_version_id, organisation_id], references: [id, organisation_id])
   raw_profile_version WorksheetMappingProfileVersion? @relation("UploadRawProfileVersion", fields: [raw_profile_version_id, organisation_id], references: [id, organisation_id])
+  // D4B: authoritative completed-run pointer. The migration also adds a
+  // second, wider composite FK (uploads_raw_staging_run_upload_fkey,
+  // proving the pointed-to run really belongs to THIS upload's own id) that
+  // is deliberately not modeled as a second Prisma relation — DB-level-only
+  // invariant, same precedent as DataHubRawRow.staging_run's own comment.
+  raw_staging_run DataHubRawStagingRun?  @relation("UploadRawStagingRun", fields: [raw_staging_run_id, organisation_id], references: [id, organisation_id])
+  staging_runs    DataHubRawStagingRun[] @relation("UploadStagingRuns")
   source_record_observations SourceRecordObservation[]
   data_hub_raw_rows DataHubRawRow[]
 
@@ -783,6 +800,7 @@ model SourceSchemaWorksheet {
   columns          SourceSchemaColumn[]
   mapping_profiles WorksheetMappingProfile[]
   data_hub_raw_rows DataHubRawRow[]
+  data_hub_raw_staging_runs DataHubRawStagingRun[]
 
   // Required by SourceSchemaColumn's and WorksheetMappingProfile's
   // composite tenant-scoped FKs.
@@ -860,6 +878,7 @@ model WorksheetMappingProfile {
   versions       WorksheetMappingProfileVersion[] @relation("WorksheetMappingProfileVersions")
   active_version WorksheetMappingProfileVersion?  @relation("WorksheetMappingProfileActiveVersion", fields: [active_profile_version_id, id, organisation_id], references: [id, worksheet_mapping_profile_id, organisation_id])
   data_hub_raw_rows DataHubRawRow[]
+  data_hub_raw_staging_runs DataHubRawStagingRun[]
 
   // Required by WorksheetMappingProfileVersion's composite FK.
   @@unique([id, organisation_id])
@@ -900,6 +919,7 @@ model WorksheetMappingProfileVersion {
   active_for_profile WorksheetMappingProfile? @relation("WorksheetMappingProfileActiveVersion")
   raw_staged_uploads Upload[] @relation("UploadRawProfileVersion")
   data_hub_raw_rows  DataHubRawRow[]
+  data_hub_raw_staging_runs DataHubRawStagingRun[]
 
   @@unique([id, organisation_id])
   // Required by WorksheetMappingProfile.active_version's composite FK.
@@ -926,6 +946,12 @@ model DataHubRawRow {
   created_by                           String?
   created_at                           DateTime @default(now()) @db.Timestamptz(6)
 
+  // Data Hub 6.2D4B — the staging attempt this row belongs to. Uniqueness
+  // is scoped to the run (not upload_id alone) so a new attempt after a
+  // failed/partial one can reuse the same physical row numbers. upload_id
+  // remains as a denormalized, non-unique lineage column.
+  staging_run_id                       String
+
   organisation Organisation @relation(fields: [organisation_id], references: [id])
   import_batch ImportBatch @relation(fields: [import_batch_id, source_schema_version_id, organisation_id], references: [id, source_schema_version_id, organisation_id])
   upload Upload @relation(fields: [upload_id, import_batch_id, organisation_id], references: [id, import_batch_id, organisation_id])
@@ -933,15 +959,90 @@ model DataHubRawRow {
   mapping_profile WorksheetMappingProfile @relation(fields: [worksheet_mapping_profile_id, source_schema_worksheet_id, organisation_id], references: [id, source_schema_worksheet_id, organisation_id])
   mapping_profile_version WorksheetMappingProfileVersion @relation(fields: [worksheet_mapping_profile_version_id, worksheet_mapping_profile_id, organisation_id], references: [id, worksheet_mapping_profile_id, organisation_id])
   creator User? @relation("DataHubRawRowCreatedBy", fields: [created_by], references: [id], onDelete: SetNull)
+  // D4B: replaces D4A's circular data_hub_raw_rows_upload_profile_version_org_fkey
+  // (see create-datahub-raw-staging-runs.sql for why it was circular) with a
+  // plain, simple relation to the pinned staging run instead of Upload's own
+  // completion state. The migration ALSO adds a second, wider composite FK
+  // (data_hub_raw_rows_staging_run_upload_fkey, proving this row's upload_id
+  // agrees with the run's own upload_id) that is deliberately NOT modeled as
+  // a second Prisma relation here — a DB-level-only invariant, following the
+  // exact precedent already set by D4A's own data_hub_raw_rows_upload_batch_org_fkey
+  // vs. the (never-Prisma-modeled) upload_profile_version FK it replaces.
+  staging_run DataHubRawStagingRun @relation(fields: [staging_run_id, organisation_id], references: [id, organisation_id])
 
   cells DataHubRawCell[]
 
   @@unique([id, source_schema_worksheet_id, organisation_id], map: "data_hub_raw_rows_id_worksheet_organisation_key")
-  @@unique([upload_id, source_row_number], map: "data_hub_raw_rows_upload_source_row_key")
+  @@unique([staging_run_id, source_row_number], map: "data_hub_raw_rows_staging_run_source_row_key")
   @@index([organisation_id, import_batch_id])
   @@index([upload_id])
+  @@index([staging_run_id])
   @@index([source_schema_version_id])
   @@map("data_hub_raw_rows")
+}
+
+// Data Hub 6.2D4B — durable staging-attempt/lease record. One row per
+// staging attempt for one Upload worksheet; DataHubRawRow references it
+// (never Upload directly), so raw evidence can be inserted long before
+// Upload's own one-way completion metadata is ever touched. See
+// scripts/create-datahub-raw-staging-runs.sql for the full rationale
+// (the D4A circular-FK bug this replaces) and the lifecycle/lease
+// invariants enforced by datahub_guard_raw_staging_run_lifecycle().
+model DataHubRawStagingRun {
+  id                                   String    @id @default(cuid())
+  organisation_id                      String
+  import_batch_id                      String
+  upload_id                            String
+  source_schema_version_id             String
+  source_schema_worksheet_id           String
+  worksheet_mapping_profile_id         String
+  worksheet_mapping_profile_version_id String
+  // Monotonic per upload_id, starting at 1. Distinct from and unrelated to
+  // Upload.attempt_count (the physical finalize-lifecycle retry counter).
+  attempt_number                       Int
+  source_sha256                        String
+  parser_version                       String
+  // RUNNING | SUCCEEDED | FAILED | ABANDONED (SQL CHECK). No PENDING state:
+  // a run is created already holding its lease.
+  status                               String
+  execution_token                      String
+  lease_expires_at                     DateTime
+  last_progress_at                     DateTime
+  expected_row_count                   Int?
+  expected_cell_count                  Int?
+  persisted_row_count                  Int       @default(0)
+  persisted_cell_count                 Int       @default(0)
+  // The actor who INITIATED this run — never used as Upload.raw_staged_by
+  // at completion (that is the authenticated actor who completes it; see
+  // completeStagingRun). May become NULL via ON DELETE SET NULL regardless
+  // of run status — the lifecycle trigger permits exactly that one
+  // transition unconditionally (see the SQL migration).
+  created_by                           String?
+  started_at                           DateTime  @default(now()) @db.Timestamptz(6)
+  completed_at                         DateTime?
+  failed_at                            DateTime?
+  failure_code                         String?
+  failure_detail                       String?
+  created_at                           DateTime  @default(now()) @db.Timestamptz(6)
+
+  organisation     Organisation                   @relation(fields: [organisation_id], references: [id])
+  import_batch     ImportBatch                    @relation(fields: [import_batch_id, source_schema_version_id, organisation_id], references: [id, source_schema_version_id, organisation_id])
+  upload           Upload                         @relation("UploadStagingRuns", fields: [upload_id, import_batch_id, organisation_id], references: [id, import_batch_id, organisation_id])
+  schema_worksheet SourceSchemaWorksheet          @relation(fields: [source_schema_worksheet_id, source_schema_version_id, organisation_id], references: [id, source_schema_version_id, organisation_id])
+  mapping_profile  WorksheetMappingProfile        @relation(fields: [worksheet_mapping_profile_id, source_schema_worksheet_id, organisation_id], references: [id, source_schema_worksheet_id, organisation_id])
+  profile_version  WorksheetMappingProfileVersion @relation(fields: [worksheet_mapping_profile_version_id, worksheet_mapping_profile_id, organisation_id], references: [id, worksheet_mapping_profile_id, organisation_id])
+  creator          User?                          @relation("DataHubRawStagingRunCreatedBy", fields: [created_by], references: [id], onDelete: SetNull)
+
+  raw_rows           DataHubRawRow[]
+  raw_staged_uploads Upload[] @relation("UploadRawStagingRun")
+
+  @@unique([id, organisation_id], map: "data_hub_raw_staging_runs_id_organisation_key")
+  @@unique([id, upload_id, organisation_id], map: "data_hub_raw_staging_runs_id_upload_organisation_key")
+  @@unique([id, worksheet_mapping_profile_version_id, organisation_id], map: "data_hub_raw_staging_runs_id_profile_version_organisation_key")
+  @@unique([upload_id, attempt_number], map: "data_hub_raw_staging_runs_upload_attempt_key")
+  @@index([organisation_id, import_batch_id])
+  @@index([upload_id])
+  @@map("data_hub_raw_staging_runs")
 }
 
 // Data Hub 6.2D4A — immutable raw cell evidence.

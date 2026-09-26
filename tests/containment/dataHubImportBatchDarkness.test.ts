@@ -62,6 +62,10 @@ const H3_READ_ROUTE = {
   worksheetDetail: path.join("app", "api", "data-hub", "worksheets", "[id]", "route.ts"),
 };
 const H3_FINALIZE_ROUTE = path.join("app", "api", "data-hub", "import-batches", "[id]", "finalize", "route.ts");
+// 6.2D4B — the new governed raw-staging execution route. Reuses the shared
+// failureTaxonomy for its own outcome codes/messages, same as every other
+// Data Hub route.
+const D4B_STAGE_ROUTE = path.join("app", "api", "data-hub", "worksheets", "[id]", "stage", "route.ts");
 
 // 5A.2K.2 — the THIRD dark-to-live transition, for exactly two more
 // modules: inspectCsvWorksheet.ts (POST
@@ -126,7 +130,7 @@ const AUTHORIZED_IMPORTERS_BY_MODULE: Record<string, Set<string>> = {
   read: new Set([H3_READ_ROUTE.collection, H3_READ_ROUTE.batchDetail, H3_READ_ROUTE.worksheets, H3_READ_ROUTE.worksheetDetail]),
   initiate: new Set([H3_READ_ROUTE.collection]),
   finalize: new Set([H3_FINALIZE_ROUTE]),
-  failureTaxonomy: new Set([H3_READ_ROUTE.collection, H3_FINALIZE_ROUTE]),
+  failureTaxonomy: new Set([H3_READ_ROUTE.collection, H3_FINALIZE_ROUTE, D4B_STAGE_ROUTE]),
   // Explicitly still zero authorized importers each — must remain dark.
   finalizeInternal: new Set(),
   staleReclaim: new Set(),

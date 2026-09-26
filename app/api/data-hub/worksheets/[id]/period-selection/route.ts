@@ -114,6 +114,12 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
         DUPLICATE_SOURCE_EXTERNAL_ID_IN_WORKSHEET: 500,
         RECONCILIATION_HISTORY_INCONSISTENT: 500,
         REPORTING_PERIOD_REQUIRED: 500,
+        // Data Hub 6.2D4B — stageWorksheetRows/completeStagingRun-only,
+        // unreachable from selectWorksheetPeriod.
+        RUN_ALREADY_IN_PROGRESS: 500,
+        STAGING_INELIGIBLE: 500,
+        LEASE_LOST: 500,
+        WORKBOOK_INTEGRITY_CHANGED: 500,
       };
       return NextResponse.json({ ok: false, error: result.message }, { status: statusByCode[result.code], headers: CACHE_HEADERS });
     }
