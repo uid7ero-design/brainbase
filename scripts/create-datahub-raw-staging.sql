@@ -677,6 +677,26 @@ BEGIN
   IF TG_OP = 'DELETE' THEN
     RAISE EXCEPTION 'data_hub_raw_rows: raw source evidence is immutable; DELETE is not permitted (id=%)', OLD.id;
   END IF;
+
+  -- Actor attribution is best-effort. The created_by FK uses ON DELETE
+  -- SET NULL, so permit exactly that one FK-driven transition while
+  -- requiring every evidence/lineage field and created_at to remain
+  -- byte-for-byte/logically unchanged.
+  IF OLD.created_by IS NOT NULL
+     AND NEW.created_by IS NULL
+     AND NEW.id IS NOT DISTINCT FROM OLD.id
+     AND NEW.organisation_id IS NOT DISTINCT FROM OLD.organisation_id
+     AND NEW.import_batch_id IS NOT DISTINCT FROM OLD.import_batch_id
+     AND NEW.upload_id IS NOT DISTINCT FROM OLD.upload_id
+     AND NEW.source_schema_version_id IS NOT DISTINCT FROM OLD.source_schema_version_id
+     AND NEW.source_schema_worksheet_id IS NOT DISTINCT FROM OLD.source_schema_worksheet_id
+     AND NEW.worksheet_mapping_profile_id IS NOT DISTINCT FROM OLD.worksheet_mapping_profile_id
+     AND NEW.worksheet_mapping_profile_version_id IS NOT DISTINCT FROM OLD.worksheet_mapping_profile_version_id
+     AND NEW.source_row_number IS NOT DISTINCT FROM OLD.source_row_number
+     AND NEW.created_at IS NOT DISTINCT FROM OLD.created_at THEN
+    RETURN NEW;
+  END IF;
+
   RAISE EXCEPTION 'data_hub_raw_rows: raw source evidence is immutable; UPDATE is not permitted (id=%)', OLD.id;
 END;
 $fn$;
