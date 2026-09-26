@@ -36,6 +36,22 @@ describe('C7.9D — external GL admin APIs', () => {
     expect(createMappingMock).not.toHaveBeenCalled();
   });
 
+  it.each([401, 403, 503])('preserves mapping-retire authorization denial %s', async status => {
+    authorizeMock.mockResolvedValue({ ok: false, response: new Response(null, { status }) });
+    const response = await retireRoute.POST(new Request('http://localhost', { method: 'POST', body: '{}' }), ctx);
+    expect(response.status).toBe(status);
+    expect(authorizeMock).toHaveBeenCalledWith('budgeting', 'admin');
+    expect(retireMappingMock).not.toHaveBeenCalled();
+  });
+
+  it.each([401, 403, 503])('preserves entry-import authorization denial %s', async status => {
+    authorizeMock.mockResolvedValue({ ok: false, response: new Response(null, { status }) });
+    const response = await entriesRoute.POST(new Request('http://localhost', { method: 'POST', body: '{}' }));
+    expect(response.status).toBe(status);
+    expect(authorizeMock).toHaveBeenCalledWith('budgeting', 'admin');
+    expect(importEntryMock).not.toHaveBeenCalled();
+  });
+
   it('requires budgeting/administer and trusts only session tenant/user for mapping', async () => {
     authorizeMock.mockResolvedValue({ ok: true, session: ADMIN });
     createMappingMock.mockResolvedValue({ id: 'mapping-1' });
@@ -71,8 +87,10 @@ describe('C7.9D — external GL admin APIs', () => {
     authorizeMock.mockResolvedValue({ ok: true, session: ADMIN });
     createMappingMock.mockRejectedValueOnce(new MockExternalGlError('INVALID_INPUT','bad'));
     expect((await mappingsRoute.POST(new Request('http://localhost',{method:'POST',body:'{}'}))).status).toBe(400);
-    createMappingMock.mockRejectedValueOnce(new MockExternalGlError('NOT_FOUND','missing'));
-    expect((await mappingsRoute.POST(new Request('http://localhost',{method:'POST',body:'{}'}))).status).toBe(404);
+    createMappingMock.mockRejectedValueOnce(new MockExternalGlError('NOT_FOUND','cross-tenant detail'));
+    const notFound = await mappingsRoute.POST(new Request('http://localhost',{method:'POST',body:'{}'}));
+    expect(notFound.status).toBe(404);
+    expect(await notFound.json()).toEqual({ error: 'Not found.' });
     importEntryMock.mockRejectedValueOnce(new MockExternalGlError('EXTERNAL_IDENTITY_CONFLICT','conflict'));
     expect((await entriesRoute.POST(new Request('http://localhost',{method:'POST',body:'{}'}))).status).toBe(409);
   });

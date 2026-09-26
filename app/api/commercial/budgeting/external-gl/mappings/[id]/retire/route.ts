@@ -19,7 +19,10 @@ export async function POST(req: Request, { params }: Ctx) {
     return NextResponse.json({ mapping });
   } catch (error) {
     if (error instanceof ExternalGlError) {
-      const status = error.code === 'INVALID_INPUT' ? 400 : error.code === 'NOT_FOUND' ? 404 : 409;
+      if (error.code === 'NOT_FOUND') {
+        return NextResponse.json({ error: 'Not found.' }, { status: 404 });
+      }
+      const status = error.code === 'INVALID_INPUT' ? 400 : 409;
       return NextResponse.json({ error: error.message, code: error.code }, { status });
     }
     throw error;
