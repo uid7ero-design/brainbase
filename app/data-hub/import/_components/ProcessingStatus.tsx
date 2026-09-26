@@ -37,7 +37,7 @@ export default function ProcessingStatus({
 }) {
   if (!isErrorOverlayPhase(state.phase)) {
     return (
-      <div aria-live="polite" aria-busy="true" style={{ fontSize: 13, color: "rgba(249,250,251,.7)" }}>
+      <div aria-live="polite" aria-busy="true" style={{ fontSize: 13, color: "var(--text-secondary)" }}>
         {deriveProcessingStatusText(state.phase)}
       </div>
     );

@@ -32,7 +32,7 @@ export default function ImportSuccess({
       <h2 style={{ fontSize: 16, fontWeight: 600, color: "#4ADE80", marginBottom: 4 }}>
         {isFresh ? "Import complete" : "Already imported"}
       </h2>
-      <p style={{ fontSize: 13, color: "rgba(249,250,251,.72)" }}>
+      <p style={{ fontSize: 13, color: "var(--text-secondary)" }}>
         {isFresh
           ? `${state.importedRows} row(s) were processed.`
           : "This worksheet had already been imported. No new rows were created."}
@@ -48,7 +48,7 @@ export default function ImportSuccess({
           padding: "9px 18px",
           borderRadius: 8,
           border: "none",
-          background: "linear-gradient(135deg, #6D28D9, #A78BFA)",
+          background: "var(--purple-600)",
           color: "#fff",
           cursor: "pointer",
         }}

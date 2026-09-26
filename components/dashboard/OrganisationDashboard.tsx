@@ -43,13 +43,13 @@ function fmt(n: number) {
   return `$${n.toFixed(0)}`;
 }
 
-function MetricCard({ label, value, sub, accent = '#A78BFA', icon }: {
+function MetricCard({ label, value, sub, accent = 'var(--purple-400)', icon }: {
   label: string; value: string; sub?: string; accent?: string; icon?: string;
 }) {
   return (
     <div style={{
-      background: 'rgba(255,255,255,0.03)',
-      border: '1px solid rgba(255,255,255,0.07)',
+      background: 'var(--bg-surface)',
+      border: '1px solid var(--border)',
       borderTop: `2px solid ${accent}`,
       borderRadius: 10,
       padding: '14px 16px',
@@ -57,14 +57,14 @@ function MetricCard({ label, value, sub, accent = '#A78BFA', icon }: {
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
         {icon && <span style={{ fontSize: 13 }}>{icon}</span>}
-        <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.40)' }}>
+        <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-secondary)' }}>
           {label}
         </span>
       </div>
-      <div style={{ fontSize: 22, fontWeight: 700, color: '#F4F4F5', letterSpacing: '-0.02em', lineHeight: 1.1 }}>
+      <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-0.02em', lineHeight: 1.1 }}>
         {value}
       </div>
-      {sub && <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.40)', lineHeight: 1.3 }}>{sub}</div>}
+      {sub && <div style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.3 }}>{sub}</div>}
     </div>
   );
 }
@@ -72,7 +72,7 @@ function MetricCard({ label, value, sub, accent = '#A78BFA', icon }: {
 function Card({ children }: { children: React.ReactNode }) {
   return (
     <div style={{
-      background: 'rgba(255,255,255,0.025)', border: '1px solid rgba(255,255,255,0.07)',
+      background: 'rgba(255,255,255,0.025)', border: '1px solid var(--border)',
       borderRadius: 12, padding: '18px 20px',
     }}>
       {children}
@@ -108,11 +108,11 @@ export default function OrganisationDashboard({ orgName, enabledCapabilities, wa
       {/* ── Header ── */}
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 24, flexWrap: 'wrap', gap: 12 }}>
         <div>
-          <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, letterSpacing: '-0.02em', color: '#F4F4F5' }}>
+          <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, letterSpacing: '-0.02em', color: 'var(--text-primary)' }}>
             Dashboard
           </h1>
           {orgName && (
-            <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.40)', marginTop: 2 }}>
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>
               {orgName}
             </div>
           )}
@@ -125,16 +125,15 @@ export default function OrganisationDashboard({ orgName, enabledCapabilities, wa
           style={{
             display: 'flex', alignItems: 'center', gap: 8,
             padding: '9px 16px', borderRadius: 9, textDecoration: 'none',
-            background: hlnaHover ? 'rgba(124,58,237,0.20)' : 'rgba(124,58,237,0.12)',
-            border: `1px solid ${hlnaHover ? 'rgba(124,58,237,0.45)' : 'rgba(124,58,237,0.28)'}`,
-            color: '#C4B5FD', fontSize: 12, fontWeight: 600, fontFamily: FONT,
+            background: hlnaHover ? 'rgba(155,123,255,0.16)' : 'rgba(155,123,255,0.09)',
+            border: `1px solid ${hlnaHover ? 'rgba(155,123,255,0.42)' : 'rgba(155,123,255,0.24)'}`,
+            color: 'var(--purple-300)', fontSize: 12, fontWeight: 600, fontFamily: FONT,
             transition: 'all .18s',
           }}
         >
           <span style={{
             width: 8, height: 8, borderRadius: '50%',
-            background: 'linear-gradient(135deg,#A78BFA,#38BDF8)',
-            boxShadow: '0 0 8px rgba(167,139,250,.6)', flexShrink: 0,
+            background: 'var(--purple-400)', flexShrink: 0,
           }} />
           Open HLNA
         </a>
@@ -152,19 +151,19 @@ export default function OrganisationDashboard({ orgName, enabledCapabilities, wa
           rows for this organisation; nothing here is a default/demo value. ── */}
       {hasOperationalData ? (
         <Card>
-          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.45)', marginBottom: 14 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 14 }}>
             Operational Overview
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10 }}>
             {hasWasteData && (
               <>
-                <MetricCard label="Waste Cost" value={fmt(wasteCost)} sub={totalTonnes > 0 ? `${totalTonnes.toLocaleString('en-AU', { maximumFractionDigits: 0 })} tonnes` : undefined} accent="#8B5CF6" icon="♻" />
+                <MetricCard label="Waste Cost" value={fmt(wasteCost)} sub={totalTonnes > 0 ? `${totalTonnes.toLocaleString('en-AU', { maximumFractionDigits: 0 })} tonnes` : undefined} accent="var(--purple-400)" icon="♻" />
                 <MetricCard label="Contamination" value={avgContam > 0 ? `${avgContam.toFixed(1)}%` : '—'} sub="Avg across suburbs" accent={avgContam > 10 ? '#EF4444' : '#22C55E'} icon="⚠" />
               </>
             )}
             {hasFleetData && (
               <>
-                <MetricCard label="Fleet Cost" value={fmt(fleetCost)} sub={vehicleCount > 0 ? `${vehicleCount} vehicles active` : undefined} accent="#38BDF8" icon="🚛" />
+                <MetricCard label="Fleet Cost" value={fmt(fleetCost)} sub={vehicleCount > 0 ? `${vehicleCount} vehicles active` : undefined} accent="var(--bb-signal, #08a9cb)" icon="🚛" />
                 <MetricCard label="Fleet Defects" value={totalDefects > 0 ? String(totalDefects) : '—'} sub={vehicleCount > 0 ? `across ${vehicleCount} vehicles` : undefined} accent={totalDefects > 5 ? '#EF4444' : '#22C55E'} icon="🔧" />
               </>
             )}
@@ -180,8 +179,8 @@ export default function OrganisationDashboard({ orgName, enabledCapabilities, wa
         <Card>
           <div style={{ textAlign: 'center', padding: '20px 0' }}>
             <div style={{ fontSize: 22, marginBottom: 8, opacity: 0.35 }}>◈</div>
-            <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.40)' }}>No operational metrics available yet</div>
-            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.25)', marginTop: 4 }}>
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>No operational metrics available yet</div>
+            <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 4 }}>
               Metrics will appear here once operational data is available for your organisation.
             </div>
           </div>

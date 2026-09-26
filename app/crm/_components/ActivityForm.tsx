@@ -37,18 +37,18 @@ export default function ActivityForm({ contactId, companyId, dealId, onSaved }: 
       <div style={{ display: 'flex', gap: 8 }}>
         {TYPES.map(t => (
           <button key={t.value} type="button" onClick={() => setType(t.value)}
-            style={{ flex: 1, padding: '8px 4px', background: type === t.value ? '#1a6aff' : '#111318', color: type === t.value ? '#fff' : '#9ca3af', border: '1px solid #1a1d24', borderRadius: 8, fontSize: 12, cursor: 'pointer', fontWeight: 500 }}>
+            style={{ flex: 1, padding: '8px 4px', background: type === t.value ? 'var(--purple-600)' : 'var(--bg-raised)', color: type === t.value ? '#fff' : 'var(--text-secondary)', border: '1px solid #1a1d24', borderRadius: 8, fontSize: 12, cursor: 'pointer', fontWeight: 500 }}>
             {t.icon} {t.label}
           </button>
         ))}
       </div>
       <input value={subject} onChange={e => setSubject(e.target.value)} required placeholder="Subject"
-        style={{ padding: '9px 12px', background: '#111318', border: '1px solid #1a1d24', borderRadius: 8, color: '#f9fafb', fontSize: 14, outline: 'none' }} />
+        style={{ padding: '9px 12px', background: 'var(--bg-raised)', border: '1px solid #1a1d24', borderRadius: 8, color: 'var(--text-primary)', fontSize: 14, outline: 'none' }} />
       <textarea value={body} onChange={e => setBody(e.target.value)} rows={3} placeholder="Notes (optional)"
-        style={{ padding: '9px 12px', background: '#111318', border: '1px solid #1a1d24', borderRadius: 8, color: '#f9fafb', fontSize: 14, outline: 'none', resize: 'vertical', lineHeight: 1.5 }} />
+        style={{ padding: '9px 12px', background: 'var(--bg-raised)', border: '1px solid #1a1d24', borderRadius: 8, color: 'var(--text-primary)', fontSize: 14, outline: 'none', resize: 'vertical', lineHeight: 1.5 }} />
       {error && <p style={{ color: '#f87171', fontSize: 13, margin: 0 }}>{error}</p>}
       <button type="submit" disabled={saving}
-        style={{ padding: '9px 0', background: '#1a6aff', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: saving ? 'default' : 'pointer' }}>
+        style={{ padding: '9px 0', background: 'var(--purple-600)', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: saving ? 'default' : 'pointer' }}>
         {saving ? 'Saving…' : 'Log Activity'}
       </button>
     </form>

@@ -22,7 +22,7 @@ export default function PeriodDetectionPanel({
 
   if (model.kind === "loading") {
     return (
-      <div aria-live="polite" aria-busy="true" style={{ fontSize: 12, color: "rgba(249,250,251,.5)", marginBottom: 8 }}>
+      <div aria-live="polite" aria-busy="true" style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 8 }}>
         {model.headline}
       </div>
     );
@@ -42,22 +42,22 @@ export default function PeriodDetectionPanel({
       style={{
         marginBottom: 10,
         padding: "8px 12px",
-        border: "1px solid rgba(255,255,255,.08)",
+        border: "1px solid var(--border)",
         borderRadius: 8,
-        background: "rgba(255,255,255,.02)",
+        background: "var(--bg-surface)",
       }}
     >
-      <div style={{ fontSize: 13, fontWeight: 500, color: "rgba(249,250,251,.85)" }}>{model.headline}</div>
-      <div style={{ fontSize: 12, color: "rgba(249,250,251,.6)", marginTop: 4 }}>{model.detail}</div>
+      <div style={{ fontSize: 13, fontWeight: 500, color: "var(--text-primary)" }}>{model.headline}</div>
+      <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 4 }}>{model.detail}</div>
 
       {model.range !== null && model.rangeLabel !== null ? (
-        <div style={{ fontSize: 12, color: "rgba(249,250,251,.85)", marginTop: 6 }}>
+        <div style={{ fontSize: 12, color: "var(--text-primary)", marginTop: 6 }}>
           {model.rangeLabel}: {model.range.start} to {model.range.end}
         </div>
       ) : null}
 
       {model.note !== null ? (
-        <div style={{ fontSize: 12, color: "rgba(249,250,251,.5)", marginTop: 4 }}>{model.note}</div>
+        <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>{model.note}</div>
       ) : null}
 
       {model.offerAccept ? (
@@ -72,9 +72,9 @@ export default function PeriodDetectionPanel({
             fontWeight: 600,
             padding: "8px 14px",
             borderRadius: 8,
-            border: "1px solid rgba(255,255,255,.18)",
-            background: "rgba(255,255,255,.04)",
-            color: "#f9fafb",
+            border: "1px solid var(--border)",
+            background: "var(--bg-raised)",
+            color: "var(--text-primary)",
             cursor: accepting ? "default" : "pointer",
           }}
         >

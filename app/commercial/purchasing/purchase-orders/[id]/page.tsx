@@ -7,7 +7,7 @@ import { formatMoneyCents } from '@/lib/commercial/money';
 import { formatCommercialDate } from '@/lib/commercial/dates';
 import type { PurchaseOrderStatus } from '@/lib/commercial/purchaseOrderLifecycle';
 
-const CARD = '#0e1014'; const BORDER = '#1a1d24';
+const CARD = 'var(--bg-surface)'; const BORDER = 'var(--border)';
 
 type PurchaseOrder = {
   id: string; organisation_id: string; supplier_id: string; purchase_order_number: string | null;
@@ -493,12 +493,12 @@ export default function PurchaseOrderDetailPage() {
     load(); // refreshes delivery history to include this attempt
   }
 
-  if (loading) return <div style={{ color: '#6b7280', fontSize: 14 }}>Loading…</div>;
-  if (!po) return <div style={{ color: '#6b7280', fontSize: 14 }}>Purchase order not found.</div>;
+  if (loading) return <div style={{ color: 'var(--text-secondary)', fontSize: 14 }}>Loading…</div>;
+  if (!po) return <div style={{ color: 'var(--text-secondary)', fontSize: 14 }}>Purchase order not found.</div>;
 
   return (
     <div style={{ maxWidth: 820 }}>
-      <Link href="/commercial/purchasing/purchase-orders" style={{ color: '#6b7280', fontSize: 13, textDecoration: 'none' }}>← Purchase Orders</Link>
+      <Link href="/commercial/purchasing/purchase-orders" style={{ color: 'var(--text-secondary)', fontSize: 13, textDecoration: 'none' }}>← Purchase Orders</Link>
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '16px 0 8px', flexWrap: 'wrap', gap: 12 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -510,7 +510,7 @@ export default function PurchaseOrderDetailPage() {
             <button onClick={openHeaderEdit} disabled={busy} style={btn('#1f2937')}>Edit Details</button>
           )}
           {isDraft && canEdit && !confirmingSubmit && (
-            <button onClick={() => setConfirmingSubmit(true)} disabled={busy || lines.length === 0} title={lines.length === 0 ? 'Add at least one line before submitting.' : undefined} style={btn('#1a6aff')}>
+            <button onClick={() => setConfirmingSubmit(true)} disabled={busy || lines.length === 0} title={lines.length === 0 ? 'Add at least one line before submitting.' : undefined} style={btn('var(--purple-600)')}>
               Submit for Approval
             </button>
           )}
@@ -523,13 +523,13 @@ export default function PurchaseOrderDetailPage() {
             <button onClick={() => setConfirmingDelete(true)} disabled={busy} style={btn('rgba(239,68,68,0.15)', '#f87171')}>Delete Draft</button>
           )}
           {isPendingApproval && isAdmin && !confirmingApprove && !confirmingReturn && (
-            <button onClick={() => setConfirmingApprove(true)} disabled={busy} style={btn('#1a6aff')}>Approve</button>
+            <button onClick={() => setConfirmingApprove(true)} disabled={busy} style={btn('var(--purple-600)')}>Approve</button>
           )}
           {isPendingApproval && isAdmin && !confirmingApprove && !confirmingReturn && (
             <button onClick={() => setConfirmingReturn(true)} disabled={busy} style={btn('#1f2937')}>Return for Changes</button>
           )}
           {isApproved && isAdmin && !confirmingIssue && (
-            <button onClick={() => setConfirmingIssue(true)} disabled={busy} style={btn('#1a6aff')}>Issue Purchase Order</button>
+            <button onClick={() => setConfirmingIssue(true)} disabled={busy} style={btn('var(--purple-600)')}>Issue Purchase Order</button>
           )}
           {(isIssued || isCancelled) && (
             <a href={`/api/commercial/purchase-orders/${id}/pdf`} style={{ ...btn('#1f2937'), textDecoration: 'none', display: 'inline-block' }}>
@@ -547,7 +547,7 @@ export default function PurchaseOrderDetailPage() {
       {actionError && <p style={{ color: '#f87171', fontSize: 13, margin: '0 0 16px' }}>{actionError}</p>}
       {emailResult && <p style={{ color: '#4ade80', fontSize: 13, margin: '0 0 16px' }}>{emailResult}</p>}
       {!isDraft && !isCancelled && (
-        <p style={{ color: '#6b7280', fontSize: 13, margin: '0 0 16px' }}>
+        <p style={{ color: 'var(--text-secondary)', fontSize: 13, margin: '0 0 16px' }}>
           This purchase order is {po.status.replace('_', ' ').toLowerCase()} — the supplier, header details, and lines are read-only.
         </p>
       )}
@@ -559,12 +559,12 @@ export default function PurchaseOrderDetailPage() {
 
       {confirmingSubmit && (
         <div style={{ background: 'rgba(26,106,255,0.08)', border: '1px solid rgba(26,106,255,0.3)', borderRadius: 12, padding: '16px 20px', marginBottom: 20 }}>
-          <p style={{ fontSize: 13, color: '#f9fafb', margin: '0 0 12px' }}>
+          <p style={{ fontSize: 13, color: 'var(--text-primary)', margin: '0 0 12px' }}>
             Submitting sends this purchase order for approval — the supplier, header details, and lines can no longer be
             edited afterward. Continue?
           </p>
           <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={submitAction} disabled={busy} style={btn('#1a6aff')}>Yes, Submit for Approval</button>
+            <button onClick={submitAction} disabled={busy} style={btn('var(--purple-600)')}>Yes, Submit for Approval</button>
             <button onClick={() => setConfirmingSubmit(false)} disabled={busy} style={btn('#1f2937')}>Cancel</button>
           </div>
         </div>
@@ -572,12 +572,12 @@ export default function PurchaseOrderDetailPage() {
 
       {confirmingApprove && (
         <div style={{ background: 'rgba(26,106,255,0.08)', border: '1px solid rgba(26,106,255,0.3)', borderRadius: 12, padding: '16px 20px', marginBottom: 20 }}>
-          <p style={{ fontSize: 13, color: '#f9fafb', margin: '0 0 12px' }}>
+          <p style={{ fontSize: 13, color: 'var(--text-primary)', margin: '0 0 12px' }}>
             Approving this purchase order allows it to be issued. It does not allocate a PO number or send anything to the
             supplier. Continue?
           </p>
           <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={approveAction} disabled={busy} style={btn('#1a6aff')}>Yes, Approve</button>
+            <button onClick={approveAction} disabled={busy} style={btn('var(--purple-600)')}>Yes, Approve</button>
             <button onClick={() => setConfirmingApprove(false)} disabled={busy} style={btn('#1f2937')}>Cancel</button>
           </div>
         </div>
@@ -585,12 +585,12 @@ export default function PurchaseOrderDetailPage() {
 
       {confirmingReturn && (
         <div style={{ background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.3)', borderRadius: 12, padding: '16px 20px', marginBottom: 20 }}>
-          <p style={{ fontSize: 13, color: '#f9fafb', margin: '0 0 4px' }}>Returning this purchase order sends it back to Draft so it can be edited again.</p>
-          <p style={{ fontSize: 12, color: '#9ca3af', margin: '0 0 12px' }}>No PO number has been allocated yet, so nothing is lost.</p>
-          <div style={{ fontSize: 11, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Reason (required)</div>
+          <p style={{ fontSize: 13, color: 'var(--text-primary)', margin: '0 0 4px' }}>Returning this purchase order sends it back to Draft so it can be edited again.</p>
+          <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: '0 0 12px' }}>No PO number has been allocated yet, so nothing is lost.</p>
+          <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Reason (required)</div>
           <textarea value={returnReason} onChange={e => setReturnReason(e.target.value)} rows={2} style={{ ...sel, resize: 'vertical', marginBottom: 12 }} placeholder="Why is this being returned for changes?" />
           <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={returnAction} disabled={busy || !returnReason.trim()} style={btn('#1a6aff')}>Confirm Return</button>
+            <button onClick={returnAction} disabled={busy || !returnReason.trim()} style={btn('var(--purple-600)')}>Confirm Return</button>
             <button onClick={() => { setConfirmingReturn(false); setReturnReason(''); }} disabled={busy} style={btn('#1f2937')}>Cancel</button>
           </div>
         </div>
@@ -598,12 +598,12 @@ export default function PurchaseOrderDetailPage() {
 
       {confirmingIssue && (
         <div style={{ background: 'rgba(26,106,255,0.08)', border: '1px solid rgba(26,106,255,0.3)', borderRadius: 12, padding: '16px 20px', marginBottom: 20 }}>
-          <p style={{ fontSize: 13, color: '#f9fafb', margin: '0 0 12px' }}>
+          <p style={{ fontSize: 13, color: 'var(--text-primary)', margin: '0 0 12px' }}>
             Issuing allocates a permanent purchase order number and freezes this document — the supplier, header details,
             and lines can no longer be edited afterward, and this cannot be undone. Continue?
           </p>
           <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={issueAction} disabled={busy} style={btn('#1a6aff')}>Yes, Issue Purchase Order</button>
+            <button onClick={issueAction} disabled={busy} style={btn('var(--purple-600)')}>Yes, Issue Purchase Order</button>
             <button onClick={() => setConfirmingIssue(false)} disabled={busy} style={btn('#1f2937')}>Cancel</button>
           </div>
         </div>
@@ -611,12 +611,12 @@ export default function PurchaseOrderDetailPage() {
 
       {confirmingEmail && (
         <div style={{ background: 'rgba(26,106,255,0.08)', border: '1px solid rgba(26,106,255,0.3)', borderRadius: 12, padding: '16px 20px', marginBottom: 20 }}>
-          <p style={{ fontSize: 13, color: '#f9fafb', margin: '0 0 4px' }}>
+          <p style={{ fontSize: 13, color: 'var(--text-primary)', margin: '0 0 4px' }}>
             Send this purchase order to <strong>{po.supplier_email_snapshot}</strong>?
           </p>
-          <p style={{ fontSize: 12, color: '#9ca3af', margin: '0 0 12px' }}>The generated PDF will be attached. This does not change the purchase order itself.</p>
+          <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: '0 0 12px' }}>The generated PDF will be attached. This does not change the purchase order itself.</p>
           <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={sendEmailAction} disabled={busy} style={btn('#1a6aff')}>{busy ? 'Sending…' : 'Yes, Send Email'}</button>
+            <button onClick={sendEmailAction} disabled={busy} style={btn('var(--purple-600)')}>{busy ? 'Sending…' : 'Yes, Send Email'}</button>
             <button onClick={() => setConfirmingEmail(false)} disabled={busy} style={btn('#1f2937')}>Cancel</button>
           </div>
         </div>
@@ -624,9 +624,9 @@ export default function PurchaseOrderDetailPage() {
 
       {confirmingCancel && (
         <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 12, padding: '16px 20px', marginBottom: 20 }}>
-          <p style={{ fontSize: 13, color: '#f9fafb', margin: '0 0 4px' }}>Cancelling this purchase order marks it inactive. This does not delete the record.</p>
-          <p style={{ fontSize: 12, color: '#9ca3af', margin: '0 0 12px' }}>The PO number, supplier details, lines, and totals are all retained for the record.</p>
-          <div style={{ fontSize: 11, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Reason (required)</div>
+          <p style={{ fontSize: 13, color: 'var(--text-primary)', margin: '0 0 4px' }}>Cancelling this purchase order marks it inactive. This does not delete the record.</p>
+          <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: '0 0 12px' }}>The PO number, supplier details, lines, and totals are all retained for the record.</p>
+          <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Reason (required)</div>
           <textarea value={cancelReason} onChange={e => setCancelReason(e.target.value)} rows={2} style={{ ...sel, resize: 'vertical', marginBottom: 12 }} placeholder="Why is this purchase order being cancelled?" />
           <div style={{ display: 'flex', gap: 8 }}>
             <button onClick={cancelAction} disabled={busy || !cancelReason.trim()} style={btn('#f87171', '#1a0505')}>Confirm Cancel</button>
@@ -637,8 +637,8 @@ export default function PurchaseOrderDetailPage() {
 
       {confirmingDelete && (
         <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 12, padding: '16px 20px', marginBottom: 20 }}>
-          <p style={{ fontSize: 13, color: '#f9fafb', margin: '0 0 4px' }}>Delete this draft purchase order permanently? This cannot be undone.</p>
-          <p style={{ fontSize: 12, color: '#9ca3af', margin: '0 0 12px' }}>It has never been submitted and has no purchase order number — nothing else is affected.</p>
+          <p style={{ fontSize: 13, color: 'var(--text-primary)', margin: '0 0 4px' }}>Delete this draft purchase order permanently? This cannot be undone.</p>
+          <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: '0 0 12px' }}>It has never been submitted and has no purchase order number — nothing else is affected.</p>
           <div style={{ display: 'flex', gap: 8 }}>
             <button onClick={deleteAction} disabled={busy} style={btn('#f87171', '#1a0505')}>Yes, Delete Draft</button>
             <button onClick={() => setConfirmingDelete(false)} disabled={busy} style={btn('#1f2937')}>Keep Draft</button>
@@ -695,7 +695,7 @@ export default function PurchaseOrderDetailPage() {
             <textarea value={hInternalNotes} onChange={e => setHInternalNotes(e.target.value)} rows={2} style={{ ...sel, resize: 'vertical', lineHeight: 1.5 }} />
           </div>
           <div style={{ display: 'flex', gap: 10 }}>
-            <button type="submit" disabled={busy} style={btn('#1a6aff')}>Save</button>
+            <button type="submit" disabled={busy} style={btn('var(--purple-600)')}>Save</button>
             <button type="button" onClick={() => setEditingHeader(false)} disabled={busy} style={btn('#1f2937')}>Cancel</button>
           </div>
         </form>
@@ -715,21 +715,21 @@ export default function PurchaseOrderDetailPage() {
             {(po.status === 'ISSUED' || po.status === 'CANCELLED') ? (
               <>
                 <div style={{ fontSize: 14 }}>
-                  <Link href={`/commercial/purchasing/suppliers/${po.supplier_id}`} style={{ color: '#f9fafb', textDecoration: 'none' }}>{po.supplier_name_snapshot ?? '—'}</Link>
+                  <Link href={`/commercial/purchasing/suppliers/${po.supplier_id}`} style={{ color: 'var(--text-primary)', textDecoration: 'none' }}>{po.supplier_name_snapshot ?? '—'}</Link>
                 </div>
-                {po.supplier_contact_name_snapshot && <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>{po.supplier_contact_name_snapshot}</div>}
+                {po.supplier_contact_name_snapshot && <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>{po.supplier_contact_name_snapshot}</div>}
                 {(po.supplier_email_snapshot || po.supplier_phone_snapshot) && (
-                  <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>{[po.supplier_email_snapshot, po.supplier_phone_snapshot].filter(Boolean).join(' · ')}</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>{[po.supplier_email_snapshot, po.supplier_phone_snapshot].filter(Boolean).join(' · ')}</div>
                 )}
               </>
             ) : (
               <>
                 <div style={{ fontSize: 14 }}>
-                  <Link href={`/commercial/purchasing/suppliers/${po.supplier_id}`} style={{ color: '#f9fafb', textDecoration: 'none' }}>{linkedSupplier?.name ?? '—'}</Link>
+                  <Link href={`/commercial/purchasing/suppliers/${po.supplier_id}`} style={{ color: 'var(--text-primary)', textDecoration: 'none' }}>{linkedSupplier?.name ?? '—'}</Link>
                 </div>
-                {linkedSupplier?.contact_name && <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>{linkedSupplier.contact_name}</div>}
+                {linkedSupplier?.contact_name && <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>{linkedSupplier.contact_name}</div>}
                 {(linkedSupplier?.email || linkedSupplier?.phone) && (
-                  <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>{[linkedSupplier?.email, linkedSupplier?.phone].filter(Boolean).join(' · ')}</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>{[linkedSupplier?.email, linkedSupplier?.phone].filter(Boolean).join(' · ')}</div>
                 )}
               </>
             )}
@@ -738,7 +738,7 @@ export default function PurchaseOrderDetailPage() {
             <div style={miniLbl}>Delivery</div>
             <div style={{ fontSize: 14 }}>{formatCommercialDate(po.delivery_date)}</div>
             {(po.delivery_address_line1 || po.delivery_suburb) && (
-              <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>
+              <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>
                 {[po.delivery_address_line1, po.delivery_address_line2, po.delivery_suburb, po.delivery_state, po.delivery_postcode].filter(Boolean).join(', ')}
               </div>
             )}
@@ -754,13 +754,13 @@ export default function PurchaseOrderDetailPage() {
           {po.supplier_notes && (
             <div style={{ gridColumn: '1 / -1' }}>
               <div style={miniLbl}>Notes to Supplier</div>
-              <div style={{ fontSize: 13, color: '#9ca3af', whiteSpace: 'pre-wrap' }}>{po.supplier_notes}</div>
+              <div style={{ fontSize: 13, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap' }}>{po.supplier_notes}</div>
             </div>
           )}
           {po.internal_notes && (
             <div style={{ gridColumn: '1 / -1' }}>
               <div style={miniLbl}>Internal Notes</div>
-              <div style={{ fontSize: 13, color: '#9ca3af', whiteSpace: 'pre-wrap' }}>{po.internal_notes}</div>
+              <div style={{ fontSize: 13, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap' }}>{po.internal_notes}</div>
             </div>
           )}
         </div>
@@ -777,9 +777,9 @@ export default function PurchaseOrderDetailPage() {
             {lines.length === 0 && <tr><td colSpan={6} style={empty}>No line items yet.</td></tr>}
             {lines.map((l, i) => (
               <tr key={l.id} style={{ borderBottom: i < lines.length - 1 ? `1px solid ${BORDER}` : 'none' }}>
-                <td style={{ padding: '12px 16px', fontSize: 13, color: '#f9fafb' }}>
+                <td style={{ padding: '12px 16px', fontSize: 13, color: 'var(--text-primary)' }}>
                   {l.description_snapshot}
-                  {l.sku_snapshot && <span style={{ color: '#4b5563', marginLeft: 6 }}>({l.sku_snapshot})</span>}
+                  {l.sku_snapshot && <span style={{ color: 'var(--text-muted)', marginLeft: 6 }}>({l.sku_snapshot})</span>}
                 </td>
                 <td style={td}>{l.quantity}{l.unit_snapshot ? ` ${l.unit_snapshot}` : ''}</td>
                 <td style={td}>{formatMoneyCents(l.unit_price_cents, po.currency)}</td>
@@ -828,7 +828,7 @@ export default function PurchaseOrderDetailPage() {
                 {taxCodes.map(t => <option key={t.id} value={t.id}>{t.code} ({t.rate}%)</option>)}
               </select>
             </div>
-            <button type="submit" disabled={busy} style={{ padding: '9px 16px', background: '#1a6aff', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+            <button type="submit" disabled={busy} style={{ padding: '9px 16px', background: 'var(--purple-600)', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
               Add Line
             </button>
           </form>
@@ -856,18 +856,18 @@ export default function PurchaseOrderDetailPage() {
             </div>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10, marginBottom: 14 }}>
-            <div style={{ fontSize: 12, color: '#9ca3af' }}>{reconciliation.fullyReceivedLineCount} / {reconciliation.lineCount} lines fully received</div>
-            <div style={{ fontSize: 12, color: '#9ca3af' }}>{reconciliation.fullyBilledQuantityLineCount} / {reconciliation.lineCount} lines fully billed by quantity</div>
-            <div style={{ fontSize: 12, color: '#9ca3af' }}>{reconciliation.fullyBilledLineCount} / {reconciliation.lineCount} lines fully billed by value</div>
-            <div style={{ fontSize: 12, color: '#9ca3af' }}>{reconciliation.reconciledLineCount} / {reconciliation.lineCount} lines reconciled</div>
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{reconciliation.fullyReceivedLineCount} / {reconciliation.lineCount} lines fully received</div>
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{reconciliation.fullyBilledQuantityLineCount} / {reconciliation.lineCount} lines fully billed by quantity</div>
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{reconciliation.fullyBilledLineCount} / {reconciliation.lineCount} lines fully billed by value</div>
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{reconciliation.reconciledLineCount} / {reconciliation.lineCount} lines reconciled</div>
           </div>
           {reconciliation.lines.map(line => (
             <div key={line.purchaseOrderLineId} style={{ display: 'grid', gridTemplateColumns: 'minmax(180px, 1.4fr) minmax(130px, 1fr) minmax(130px, 1fr) minmax(180px, 1fr) minmax(120px, .8fr)', gap: 12, alignItems: 'center', padding: '8px 0', borderTop: `1px solid ${BORDER}`, fontSize: 12 }}>
               <span style={{ color: '#f3f4f6' }}>{line.description}</span>
-              <span style={{ color: '#9ca3af' }}>{line.receivedQuantity} / {line.orderedQuantity} received</span>
-              <span style={{ color: '#9ca3af' }}>{line.billedQuantity} / {line.orderedQuantity} billed qty</span>
-              <span style={{ color: '#9ca3af' }}>{formatMoneyCents(line.billedValueCents, po.currency)} / {formatMoneyCents(line.orderedValueCents, po.currency)} billed value</span>
-              <span style={{ color: line.reconciliationState === 'RECONCILED' ? '#34d399' : '#9ca3af', textAlign: 'right' }}>{line.reconciliationState.replaceAll('_', ' ')}</span>
+              <span style={{ color: 'var(--text-secondary)' }}>{line.receivedQuantity} / {line.orderedQuantity} received</span>
+              <span style={{ color: 'var(--text-secondary)' }}>{line.billedQuantity} / {line.orderedQuantity} billed qty</span>
+              <span style={{ color: 'var(--text-secondary)' }}>{formatMoneyCents(line.billedValueCents, po.currency)} / {formatMoneyCents(line.orderedValueCents, po.currency)} billed value</span>
+              <span style={{ color: line.reconciliationState === 'RECONCILED' ? '#34d399' : 'var(--text-secondary)', textAlign: 'right' }}>{line.reconciliationState.replaceAll('_', ' ')}</span>
             </div>
           ))}
         </div>
@@ -889,13 +889,13 @@ export default function PurchaseOrderDetailPage() {
               <a href={`/commercial/purchasing/purchase-receipts/new?purchaseOrderId=${po.id}`} style={{ fontSize: 12, color: '#60a5fa', textDecoration: 'none' }}>+ New Receipt</a>
             )}
           </div>
-          {receipts.length === 0 && <p style={{ fontSize: 13, color: '#4b5563', margin: 0 }}>No purchase receipts yet.</p>}
+          {receipts.length === 0 && <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: 0 }}>No purchase receipts yet.</p>}
           {receipts.map(r => (
             <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', fontSize: 13 }}>
-              <a href={`/commercial/purchasing/purchase-receipts/${r.id}`} style={{ color: '#f9fafb', textDecoration: 'none' }}>
+              <a href={`/commercial/purchasing/purchase-receipts/${r.id}`} style={{ color: 'var(--text-primary)', textDecoration: 'none' }}>
                 {r.receipt_number ?? 'Draft'}
               </a>
-              <span style={{ color: '#6b7280' }}>{r.status}{r.received_date ? ` · ${r.received_date}` : ''}</span>
+              <span style={{ color: 'var(--text-secondary)' }}>{r.status}{r.received_date ? ` · ${r.received_date}` : ''}</span>
             </div>
           ))}
         </div>
@@ -916,13 +916,13 @@ export default function PurchaseOrderDetailPage() {
               <a href={`/commercial/purchasing/supplier-bills/new?purchaseOrderId=${po.id}`} style={{ fontSize: 12, color: '#60a5fa', textDecoration: 'none' }}>+ New Bill</a>
             )}
           </div>
-          {supplierBills.length === 0 && <p style={{ fontSize: 13, color: '#4b5563', margin: 0 }}>No supplier bills yet.</p>}
+          {supplierBills.length === 0 && <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: 0 }}>No supplier bills yet.</p>}
           {supplierBills.map(b => (
             <div key={b.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', fontSize: 13 }}>
-              <a href={`/commercial/purchasing/supplier-bills/${b.id}`} style={{ color: '#f9fafb', textDecoration: 'none' }}>
+              <a href={`/commercial/purchasing/supplier-bills/${b.id}`} style={{ color: 'var(--text-primary)', textDecoration: 'none' }}>
                 {b.bill_number ?? 'Draft'} — {b.supplier_invoice_number}
               </a>
-              <span style={{ color: '#6b7280' }}>{b.status}{b.status === 'POSTED' ? ` · ${formatMoneyCents(b.total_cents, po.currency)}` : ''}</span>
+              <span style={{ color: 'var(--text-secondary)' }}>{b.status}{b.status === 'POSTED' ? ` · ${formatMoneyCents(b.total_cents, po.currency)}` : ''}</span>
             </div>
           ))}
         </div>
@@ -939,15 +939,15 @@ export default function PurchaseOrderDetailPage() {
         </div>
         {uploadError && <p style={{ color: '#f87171', fontSize: 13, margin: '8px 24px 0' }}>{uploadError}</p>}
         {attachments.length === 0 && (
-          <div style={{ padding: '12px 24px 16px', fontSize: 13, color: '#6b7280' }}>No supporting documents yet.</div>
+          <div style={{ padding: '12px 24px 16px', fontSize: 13, color: 'var(--text-secondary)' }}>No supporting documents yet.</div>
         )}
         {attachments.length > 0 && (
           <div style={{ padding: '8px 24px 16px' }}>
             {attachments.map(a => (
               <div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', fontSize: 13, borderTop: `1px solid ${BORDER}` }}>
                 <div>
-                  <a href={`/api/commercial/purchase-orders/${id}/attachments/${a.id}`} style={{ color: '#f9fafb', textDecoration: 'none' }}>{a.original_filename}</a>
-                  <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>
+                  <a href={`/api/commercial/purchase-orders/${id}/attachments/${a.id}`} style={{ color: 'var(--text-primary)', textDecoration: 'none' }}>{a.original_filename}</a>
+                  <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>
                     {ATTACHMENT_CATEGORY_LABELS[a.category]} · {formatBytes(a.size_bytes)} · {a.uploaded_by_name ?? 'Unknown'} · {formatCommercialDate(a.created_at)}
                   </div>
                 </div>
@@ -970,7 +970,7 @@ export default function PurchaseOrderDetailPage() {
               <div style={miniLbl}>File</div>
               <input type="file" onChange={e => setUploadFile(e.target.files?.[0] ?? null)} style={sel} />
             </div>
-            <button type="submit" disabled={uploadBusy || !uploadFile} style={{ padding: '9px 16px', background: '#1a6aff', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+            <button type="submit" disabled={uploadBusy || !uploadFile} style={{ padding: '9px 16px', background: 'var(--purple-600)', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
               + Attach Document
             </button>
           </form>
@@ -982,8 +982,8 @@ export default function PurchaseOrderDetailPage() {
           <div style={miniLbl}>Delivery History</div>
           {deliveries.map(d => (
             <div key={d.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', fontSize: 13, borderTop: `1px solid ${BORDER}` }}>
-              <span style={{ color: '#9ca3af' }}>{d.channel} → {d.recipient}</span>
-              <span style={{ color: '#6b7280', fontSize: 12 }}>{new Date(d.attempted_at).toLocaleString('en-AU', { timeZone: 'Australia/Adelaide', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
+              <span style={{ color: 'var(--text-secondary)' }}>{d.channel} → {d.recipient}</span>
+              <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>{new Date(d.attempted_at).toLocaleString('en-AU', { timeZone: 'Australia/Adelaide', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
               <DeliveryStatusBadge status={d.status} />
             </div>
           ))}
@@ -1007,7 +1007,7 @@ export default function PurchaseOrderDetailPage() {
 // Phase C6.5 — mirrors app/commercial/quotes/[id]/page.tsx's own
 // identical DeliveryStatusBadge exactly.
 const DELIVERY_STATUS_STYLE: Record<string, { color: string; bg: string }> = {
-  PENDING: { color: '#9ca3af', bg: 'rgba(156,163,175,0.12)' },
+  PENDING: { color: 'var(--text-secondary)', bg: 'rgba(156,163,175,0.12)' },
   SENT: { color: '#4ade80', bg: 'rgba(74,222,128,0.12)' },
   DELIVERED: { color: '#4ade80', bg: 'rgba(74,222,128,0.12)' },
   FAILED: { color: '#f87171', bg: 'rgba(248,113,113,0.12)' },
@@ -1023,7 +1023,7 @@ function DeliveryStatusBadge({ status }: { status: string }) {
 
 function TimelineRow({ label, value }: { label: string; value: string }) {
   return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 13, color: '#9ca3af' }}>
+    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 13, color: 'var(--text-secondary)' }}>
       <span>{label}</span><span>{new Date(value).toLocaleString('en-AU', { timeZone: 'Australia/Adelaide', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
     </div>
   );
@@ -1031,17 +1031,17 @@ function TimelineRow({ label, value }: { label: string; value: string }) {
 
 function TotalRow({ label, value, bold }: { label: string; value: string; bold?: boolean }) {
   return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: bold ? 15 : 13, fontWeight: bold ? 700 : 400, color: bold ? '#f9fafb' : '#9ca3af' }}>
+    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: bold ? 15 : 13, fontWeight: bold ? 700 : 400, color: bold ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
       <span>{label}</span><span>{value}</span>
     </div>
   );
 }
 
-const miniLbl: React.CSSProperties = { fontSize: 11, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 };
-const th: React.CSSProperties = { padding: '11px 16px', textAlign: 'left', color: '#6b7280', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' };
-const td: React.CSSProperties = { padding: '12px 16px', fontSize: 13, color: '#9ca3af' };
-const empty: React.CSSProperties = { padding: '28px 16px', textAlign: 'center', color: '#4b5563', fontSize: 14 };
-const sel: React.CSSProperties = { width: '100%', padding: '8px 10px', background: '#111318', border: '1px solid #1a1d24', borderRadius: 8, color: '#f9fafb', fontSize: 13, boxSizing: 'border-box' };
+const miniLbl: React.CSSProperties = { fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 };
+const th: React.CSSProperties = { padding: '11px 16px', textAlign: 'left', color: 'var(--text-secondary)', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' };
+const td: React.CSSProperties = { padding: '12px 16px', fontSize: 13, color: 'var(--text-secondary)' };
+const empty: React.CSSProperties = { padding: '28px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 14 };
+const sel: React.CSSProperties = { width: '100%', padding: '8px 10px', background: 'var(--bg-raised)', border: '1px solid #1a1d24', borderRadius: 8, color: 'var(--text-primary)', fontSize: 13, boxSizing: 'border-box' };
 function btn(bg: string, color = '#fff'): React.CSSProperties {
   return { padding: '8px 16px', background: bg, color, border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' };
 }

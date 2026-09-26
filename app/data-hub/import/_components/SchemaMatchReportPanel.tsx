@@ -27,7 +27,7 @@ type SchemaMatchState = Extract<
 const SEVERITY_COLOR: Record<string, string> = {
   BLOCKING: "#f87171",
   WARNING: "#fbbf24",
-  INFO: "rgba(249,250,251,.7)",
+  INFO: "var(--text-secondary)",
 };
 
 export default function SchemaMatchReportPanel({ state, onBack, onRetry, onSelectSchema, onRestart }: {
@@ -39,28 +39,28 @@ export default function SchemaMatchReportPanel({ state, onBack, onRetry, onSelec
 }) {
   const report = "report" in state ? state.report : null;
   return <div>
-    <h2 style={{ fontSize: 16, fontWeight: 600, color: "#f9fafb" }}>Governed schema comparison</h2>
-    <p style={{ fontSize: 12, color: "rgba(249,250,251,.6)" }}>{state.batch.originalFilename ?? "This workbook"}</p>
-    <div role="note" style={{ margin: "14px 0", padding: "10px 14px", border: "1px solid rgba(251,191,36,.3)", borderRadius: 8, color: "#f9fafb", fontSize: 12 }}>
+    <h2 style={{ fontSize: 16, fontWeight: 600, color: "var(--text-primary)" }}>Governed schema comparison</h2>
+    <p style={{ fontSize: 12, color: "var(--text-secondary)" }}>{state.batch.originalFilename ?? "This workbook"}</p>
+    <div role="note" style={{ margin: "14px 0", padding: "10px 14px", border: "1px solid rgba(251,191,36,.3)", borderRadius: 8, color: "var(--text-primary)", fontSize: 12 }}>
       {SCHEMA_MATCH_NOTICE}
     </div>
     {state.phase === "schemaMatchLoading" && <p aria-live="polite">Comparing workbook structure…</p>}
     {state.phase === "schemaMatchFailed" && <div role="alert"><p>{state.message}</p><button type="button" onClick={onRetry}>Retry</button></div>}
     {report && <>
-      <p style={{ fontSize: 14, fontWeight: 600, color: "#f9fafb" }}>{deriveSchemaMatchHeadline(report)}</p>
-      <p style={{ fontSize: 12, color: "rgba(249,250,251,.7)", fontVariantNumeric: "tabular-nums" }}>
+      <p style={{ fontSize: 14, fontWeight: 600, color: "var(--text-primary)" }}>{deriveSchemaMatchHeadline(report)}</p>
+      <p style={{ fontSize: 12, color: "var(--text-secondary)", fontVariantNumeric: "tabular-nums" }}>
         {report.matchedWorksheetCount} of {report.governedWorksheetCount} governed worksheets matched · {report.observedWorksheetCount} worksheets in file ·{" "}
         {report.missingRequiredWorksheetCount + report.missingOptionalWorksheetCount} missing · {report.unexpectedWorksheetCount} unexpected ·{" "}
         {report.blockingDifferenceCount} blocking · {report.warningDifferenceCount} warnings
       </p>
       {report.differences.length > 0 && (
-        <div tabIndex={0} aria-label={`${report.totalDifferenceCount} structural differences`} style={{ overflowX: "auto", border: "1px solid rgba(255,255,255,.08)", borderRadius: 8 }}>
+        <div tabIndex={0} aria-label={`${report.totalDifferenceCount} structural differences`} style={{ overflowX: "auto", border: "1px solid var(--border)", borderRadius: 8 }}>
           <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 12 }}>
-            <thead><tr>{["Severity", "Worksheet", "Difference"].map((h) => <th key={h} scope="col" style={{ textAlign: "left", padding: 8, borderBottom: "1px solid rgba(255,255,255,.1)" }}>{h}</th>)}</tr></thead>
+            <thead><tr>{["Severity", "Worksheet", "Difference"].map((h) => <th key={h} scope="col" style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--border)" }}>{h}</th>)}</tr></thead>
             <tbody>{report.differences.map((d, i) => <tr key={`${i}:${d.deterministicKey}`}>
-              <td style={{ padding: 8, borderBottom: "1px solid rgba(255,255,255,.05)", color: SEVERITY_COLOR[d.severity] ?? "#f9fafb" }}>{d.severity}</td>
-              <td style={{ padding: 8, borderBottom: "1px solid rgba(255,255,255,.05)" }}>{deriveDifferenceWorksheetLabel(d)}</td>
-              <td style={{ padding: 8, borderBottom: "1px solid rgba(255,255,255,.05)" }}>{describeSchemaDifference(d)}</td>
+              <td style={{ padding: 8, borderBottom: "1px solid var(--border-light)", color: SEVERITY_COLOR[d.severity] ?? "var(--text-primary)" }}>{d.severity}</td>
+              <td style={{ padding: 8, borderBottom: "1px solid var(--border-light)" }}>{deriveDifferenceWorksheetLabel(d)}</td>
+              <td style={{ padding: 8, borderBottom: "1px solid var(--border-light)" }}>{describeSchemaDifference(d)}</td>
             </tr>)}</tbody>
           </table>
         </div>
@@ -75,11 +75,11 @@ export default function SchemaMatchReportPanel({ state, onBack, onRetry, onSelec
         </div>
       )}
       {state.phase === "schemaMatchReady" && !canSelectGovernedSchema(report) && deriveSchemaSelectionNotice(report) && (
-        <p role="note" style={{ fontSize: 12, color: "rgba(249,250,251,.7)", marginTop: 16 }}>{deriveSchemaSelectionNotice(report)}</p>
+        <p role="note" style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 16 }}>{deriveSchemaSelectionNotice(report)}</p>
       )}
       {state.phase === "schemaSelectionSaving" && <p aria-live="polite" style={{ marginTop: 16 }}>Selecting governed schema…</p>}
       {state.phase === "schemaSelected" && (
-        <div role="status" style={{ marginTop: 16, padding: "10px 14px", border: "1px solid rgba(74,222,128,.3)", borderRadius: 8, color: "#f9fafb", fontSize: 12 }}>
+        <div role="status" style={{ marginTop: 16, padding: "10px 14px", border: "1px solid rgba(74,222,128,.3)", borderRadius: 8, color: "var(--text-primary)", fontSize: 12 }}>
           {state.alreadySelected
             ? "This import batch is already bound to this governed dataset and schema version."
             : `This import batch is now bound to governed schema v${state.sourceSchemaVersionNumber}.`}

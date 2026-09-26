@@ -48,13 +48,13 @@ export default async function CommercialLayout({ children }: { children: React.R
           gap: 10,
           textAlign: 'center',
           padding: 32,
-          background: '#07080B',
-          color: '#f9fafb',
+          background: 'var(--bg-base)',
+          color: 'var(--text-primary)',
           fontFamily: 'var(--font-inter), Inter, sans-serif',
         }}
       >
         <div style={{ fontSize: 16, fontWeight: 700 }}>Commercial isn&apos;t enabled for your organisation</div>
-        <div style={{ fontSize: 13, color: '#6b7280', maxWidth: 360 }}>
+        <div style={{ fontSize: 13, color: 'var(--text-secondary)', maxWidth: 360 }}>
           Ask a BrainBase admin to enable Quotes, Invoicing, or Purchasing for your organisation to access the Commercial suite.
         </div>
       </div>
@@ -66,9 +66,9 @@ export default async function CommercialLayout({ children }: { children: React.R
       style={{
         display: 'flex',
         minHeight: APP_HEADER_OFFSET_VH_CALC,
-        background: '#07080B',
+        background: 'var(--bg-base)',
         fontFamily: 'var(--font-inter), Inter, sans-serif',
-        color: '#f9fafb',
+        color: 'var(--text-primary)',
       }}
     >
       <CommercialSidebar quotesEnabled={quotesCapability.allowed} invoicingEnabled={invoicingCapability.allowed} purchasingEnabled={purchasingCapability.allowed} />

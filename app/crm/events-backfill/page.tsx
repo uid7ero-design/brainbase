@@ -1,8 +1,8 @@
 'use client';
 import { useState } from 'react';
 
-const CARD = '#0e1014';
-const BORDER = '#1a1d24';
+const CARD = 'var(--bg-surface)';
+const BORDER = 'var(--border)';
 
 type ClassificationPreviewRow = {
   contactId: string;
@@ -69,7 +69,7 @@ type ExecutionResult = {
 function btn(bg: string, disabled?: boolean): React.CSSProperties {
   return { padding: '9px 18px', background: bg, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13.5, fontWeight: 600, cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.5 : 1 };
 }
-const th: React.CSSProperties = { padding: '10px 14px', textAlign: 'left', color: '#6b7280', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' };
+const th: React.CSSProperties = { padding: '10px 14px', textAlign: 'left', color: 'var(--text-secondary)', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' };
 const td: React.CSSProperties = { padding: '10px 14px', fontSize: 13, color: '#e5e7eb' };
 
 // Phase 6.2 — "Backfill Event Contacts". Strictly preview-first (§5,
@@ -164,7 +164,7 @@ export default function EventsBackfillPage() {
     <div style={{ maxWidth: 900 }}>
       <div style={{ marginBottom: 24 }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em', margin: 0 }}>Backfill Event Contacts</h1>
-        <p style={{ color: '#6b7280', fontSize: 13, margin: '4px 0 0', maxWidth: 620 }}>
+        <p style={{ color: 'var(--text-secondary)', fontSize: 13, margin: '4px 0 0', maxWidth: 620 }}>
           Links historical event registrations that predate CRM sync (or were created while CRM was disabled) to a
           CRM contact — reusing an existing contact by email or phone where a safe, unambiguous match exists, or
           creating a new one. Only purchaser name/email/phone are ever read or written; registration answers and
@@ -173,7 +173,7 @@ export default function EventsBackfillPage() {
       </div>
 
       {forbidden && (
-        <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: 24, color: '#9ca3af', fontSize: 14 }}>
+        <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: 24, color: 'var(--text-secondary)', fontSize: 14 }}>
           This action requires an admin role and both the Events and CRM capabilities enabled for your organisation.
         </div>
       )}
@@ -182,7 +182,7 @@ export default function EventsBackfillPage() {
 
       {!forbidden && (
         <div style={{ display: 'flex', gap: 10, marginBottom: 20 }}>
-          <button onClick={runPreview} disabled={loading} style={btn('#1a6aff', loading)}>
+          <button onClick={runPreview} disabled={loading} style={btn('var(--purple-600)', loading)}>
             {loading ? 'Loading preview…' : preview ? 'Refresh preview' : 'Preview'}
           </button>
           {preview && preview.crmEnabled && (preview.wouldLinkExisting + preview.wouldCreateNew > 0) && (
@@ -194,7 +194,7 @@ export default function EventsBackfillPage() {
       )}
 
       {preview && !preview.crmEnabled && (
-        <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: 24, color: '#9ca3af', fontSize: 14 }}>
+        <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: 24, color: 'var(--text-secondary)', fontSize: 14 }}>
           CRM isn&apos;t enabled for your organisation.
         </div>
       )}
@@ -273,15 +273,15 @@ export default function EventsBackfillPage() {
 
       <div style={{ marginTop: 40, paddingTop: 32, borderTop: `1px solid ${BORDER}` }}>
         <h2 style={{ fontSize: 18, fontWeight: 700, letterSpacing: '-0.01em', margin: 0 }}>Classify existing Events contacts</h2>
-        <p style={{ color: '#6b7280', fontSize: 13, margin: '4px 0 14px', maxWidth: 620 }}>
+        <p style={{ color: 'var(--text-secondary)', fontSize: 13, margin: '4px 0 14px', maxWidth: 620 }}>
           Finds existing CRM contacts with Events evidence (an intact &quot;Events / …&quot; note and a live linked
           order) that are still unclassified, so they can be reviewed before being marked as Event Contacts.
-          <strong style={{ color: '#9ca3af' }}> This preview makes no changes</strong> — nothing is classified until
+          <strong style={{ color: 'var(--text-secondary)' }}> This preview makes no changes</strong> — nothing is classified until
           you explicitly confirm the action below.
         </p>
 
         {classificationForbidden && (
-          <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: 24, color: '#9ca3af', fontSize: 14 }}>
+          <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: 24, color: 'var(--text-secondary)', fontSize: 14 }}>
             This action requires an admin role and both the Events and CRM capabilities enabled for your organisation.
           </div>
         )}
@@ -293,7 +293,7 @@ export default function EventsBackfillPage() {
             <button
               onClick={() => { setClassificationExecution(null); runClassificationPreview(); }}
               disabled={classificationLoading}
-              style={btn('#1a6aff', classificationLoading)}
+              style={btn('var(--purple-600)', classificationLoading)}
             >
               {classificationLoading ? 'Loading preview…' : classificationPreview ? 'Refresh preview' : 'Preview'}
             </button>
@@ -338,7 +338,7 @@ export default function EventsBackfillPage() {
         )}
 
         {classificationPreview && !classificationPreview.crmEnabled && (
-          <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: 24, color: '#9ca3af', fontSize: 14 }}>
+          <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: 24, color: 'var(--text-secondary)', fontSize: 14 }}>
             CRM isn&apos;t enabled for your organisation.
           </div>
         )}
@@ -391,8 +391,8 @@ function SummaryGrid({ items }: { items: Array<[string, number]> }) {
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
       {items.map(([label, value]) => (
         <div key={label} style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 10, padding: '14px 16px' }}>
-          <div style={{ fontSize: 22, fontWeight: 700, color: '#f9fafb' }}>{value}</div>
-          <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>{label}</div>
+          <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--text-primary)' }}>{value}</div>
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>{label}</div>
         </div>
       ))}
     </div>
@@ -403,14 +403,14 @@ function ClassificationBadge({ classification, matchCount }: { classification: s
   const map: Record<string, { label: string; color: string }> = {
     would_link_existing: { label: 'Link to existing', color: '#4ade80' },
     would_create_new: { label: 'Create new', color: '#60a5fa' },
-    skipped_insufficient_identity: { label: 'No email/phone', color: '#6b7280' },
+    skipped_insufficient_identity: { label: 'No email/phone', color: 'var(--text-secondary)' },
     ambiguous: { label: `Ambiguous (${matchCount} matches)`, color: '#fbbf24' },
   };
-  const m = map[classification] ?? { label: classification, color: '#9ca3af' };
+  const m = map[classification] ?? { label: classification, color: 'var(--text-secondary)' };
   return <span style={{ color: m.color, fontSize: 12.5, fontWeight: 600 }}>{m.label}</span>;
 }
 
 function ClassificationStatusBadge({ eligible, skipReason }: { eligible: boolean; skipReason: string | null }) {
   if (eligible) return <span style={{ color: '#4ade80', fontSize: 12.5, fontWeight: 600 }}>Eligible</span>;
-  return <span style={{ color: '#6b7280', fontSize: 12.5 }}>{skipReason ?? 'Not eligible'}</span>;
+  return <span style={{ color: 'var(--text-secondary)', fontSize: 12.5 }}>{skipReason ?? 'Not eligible'}</span>;
 }

@@ -3,6 +3,7 @@
 
 /* ─── Design Tokens ──────────────────────────────────── */
 :root {
+  color-scheme: dark;
   /* Phase D.4.5C-W2 — shared app header offset. Defaults to TopNav's
      own exact height (52px — see lib/layout/headerOffset.ts's
      TOP_NAV_HEIGHT_PX, the single source of truth for that number),
@@ -16,10 +17,10 @@
   --app-header-offset: 52px;
 
   /* Backgrounds */
-  --bg-base:    #08090C;
-  --bg-surface: #0D0D15;
-  --bg-raised:  #12121C;
-  --bg-overlay: #17172A;
+  --bg-base:    #0B0B0C;
+  --bg-surface: #111113;
+  --bg-raised:  #151517;
+  --bg-overlay: #1B1B1E;
 
   /* Borders */
   --border:       rgba(255, 255, 255, 0.07);
@@ -27,15 +28,15 @@
   --border-focus: rgba(124, 58, 237, 0.45);
 
   /* Purple palette */
-  --purple-600:  #6D28D9;
-  --purple-500:  #7C3AED;
-  --purple-400:  #8B5CF6;
-  --purple-300:  #A78BFA;
-  --purple-200:  #C4B5FD;
-  --purple-glow: rgba(124, 58, 237, 0.18);
+  --purple-600:  #6D4CD6;
+  --purple-500:  #7A59E6;
+  --purple-400:  #9B7BFF;
+  --purple-300:  #B09AFF;
+  --purple-200:  #C6B8FF;
+  --purple-glow: rgba(155, 123, 255, 0.10);
 
   /* Text */
-  --text-primary:   #F4F4F5;
+  --text-primary:   #F3EEE6;
   --text-secondary: #A1A1AA;
   --text-muted:     #52525B;
 
@@ -45,17 +46,22 @@
   --red:    #EF4444;
   --cyan:   #06B6D4;
 
+  --brand-line: #F3EEE6;
+  --brand-brainbase-accent: #9B7BFF;
+  --brand-hlna-accent: #E06C23;
+
   /* Legacy compat */
   --background: var(--bg-base);
   --foreground: var(--text-primary);
 }
 
 :root[data-theme='light'] {
+  color-scheme: light;
   /* Backgrounds */
-  --bg-base:    #F5F6F8;
+  --bg-base:    #F5F3EE;
   --bg-surface: #FFFFFF;
   --bg-raised:  #FFFFFF;
-  --bg-overlay: #F0F1F5;
+  --bg-overlay: #EFEBE4;
 
   /* Borders */
   --border:       rgba(15, 17, 23, 0.10);
@@ -63,15 +69,15 @@
   --border-focus: rgba(124, 58, 237, 0.45);
 
   /* Purple palette — brand colour, unchanged across themes */
-  --purple-600:  #6D28D9;
-  --purple-500:  #7C3AED;
-  --purple-400:  #8B5CF6;
-  --purple-300:  #7C3AED;
-  --purple-200:  #6D28D9;
-  --purple-glow: rgba(124, 58, 237, 0.12);
+  --purple-600:  #6D4CD6;
+  --purple-500:  #7A59E6;
+  --purple-400:  #9B7BFF;
+  --purple-300:  #6D4CD6;
+  --purple-200:  #6D4CD6;
+  --purple-glow: rgba(109, 76, 214, 0.08);
 
   /* Text */
-  --text-primary:   #15161A;
+  --text-primary:   #15171B;
   --text-secondary: #52525B;
   --text-muted:     #8B8D98;
 
@@ -80,6 +86,10 @@
   --yellow: #D97706;
   --red:    #DC2626;
   --cyan:   #0891B2;
+
+  --brand-line: #15171B;
+  --brand-brainbase-accent: #6D4CD6;
+  --brand-hlna-accent: #C85B18;
 }
 
 @theme inline {

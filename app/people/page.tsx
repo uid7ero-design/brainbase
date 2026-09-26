@@ -5,7 +5,7 @@ import SlidePanel from './_components/SlidePanel';
 import PersonForm from './_components/PersonForm';
 import PersonDrawer, { type PersonDetail } from './_components/PersonDrawer';
 
-const CARD = '#0e1014'; const BORDER = '#1a1d24';
+const CARD = 'var(--bg-surface)'; const BORDER = 'var(--border)';
 
 type Person = {
   id: string;
@@ -70,29 +70,29 @@ export default function PeoplePage() {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em', margin: 0 }}>People</h1>
-          <p style={{ color: '#6b7280', fontSize: 13, margin: '4px 0 0' }}>
+          <p style={{ color: 'var(--text-secondary)', fontSize: 13, margin: '4px 0 0' }}>
             Your organisation&apos;s workers, teams, and basic employment information.
           </p>
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
-          <Link href="/people/restricted-cases" style={{ ...btn('transparent'), border: '1px solid #1a1d24', textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>Restricted Cases</Link>
+          <Link href="/people/restricted-cases" style={{ ...btn('transparent'), border: '1px solid var(--border)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>Restricted Cases</Link>
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search…"
-            style={{ padding: '8px 12px', background: CARD, border: `1px solid ${BORDER}`, borderRadius: 8, color: '#f9fafb', fontSize: 13, outline: 'none', width: 200 }} />
+            style={{ padding: '8px 12px', background: CARD, border: `1px solid ${BORDER}`, borderRadius: 8, color: 'var(--text-primary)', fontSize: 13, outline: 'none', width: 200 }} />
           {canManage && (
             <>
               {/* HR-2 Step 1B — Teams management, gated identically to
                   "+ Add Person" on the same server-returned canManage
                   flag; app/people/teams itself independently re-derives
                   the same flag before showing any management action. */}
-              <Link href="/people/teams" style={{ ...btn('transparent'), border: '1px solid #1a1d24', textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>Manage Teams</Link>
+              <Link href="/people/teams" style={{ ...btn('transparent'), border: '1px solid var(--border)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>Manage Teams</Link>
               {/* HR Administrator Management UI — gated identically to
                   "Manage Teams" above, on the same server-returned
                   canManage flag; app/people/administrators itself
                   independently re-derives authorization via its own
                   GET /api/hr/administrators call (canManageHrAccess),
                   not this flag. */}
-              <Link href="/people/administrators" style={{ ...btn('transparent'), border: '1px solid #1a1d24', textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>Manage Administrators</Link>
-              <button onClick={() => setShowAdd(true)} style={btn('#1a6aff')}>+ Add Person</button>
+              <Link href="/people/administrators" style={{ ...btn('transparent'), border: '1px solid var(--border)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>Manage Administrators</Link>
+              <button onClick={() => setShowAdd(true)} style={btn('var(--purple-600)')}>+ Add Person</button>
             </>
           )}
         </div>
@@ -120,17 +120,17 @@ export default function PeoplePage() {
             {filtered.map((p, i) => (
               <tr key={p.id} style={{ borderBottom: i < filtered.length - 1 ? `1px solid ${BORDER}` : 'none' }}>
                 <td style={{ padding: '13px 16px' }}>
-                  <button onClick={() => setOpenPersonId(p.id)} style={{ background: 'none', border: 'none', padding: 0, color: '#f9fafb', fontWeight: 500, fontSize: 14, cursor: 'pointer', textAlign: 'left' }}>
+                  <button onClick={() => setOpenPersonId(p.id)} style={{ background: 'none', border: 'none', padding: 0, color: 'var(--text-primary)', fontWeight: 500, fontSize: 14, cursor: 'pointer', textAlign: 'left' }}>
                     {p.first_name} {p.last_name}
                   </button>
                 </td>
                 <td style={td}><StatusBadge status={p.employment_status} /></td>
-                <td style={td}>{p.job_title ?? <span style={{ color: '#4b5563' }}>—</span>}</td>
-                <td style={td}>{p.team_name ?? <span style={{ color: '#4b5563' }}>—</span>}</td>
-                <td style={td}>{p.manager_first_name ? `${p.manager_first_name} ${p.manager_last_name}` : <span style={{ color: '#4b5563' }}>—</span>}</td>
+                <td style={td}>{p.job_title ?? <span style={{ color: 'var(--text-muted)' }}>—</span>}</td>
+                <td style={td}>{p.team_name ?? <span style={{ color: 'var(--text-muted)' }}>—</span>}</td>
+                <td style={td}>{p.manager_first_name ? `${p.manager_first_name} ${p.manager_last_name}` : <span style={{ color: 'var(--text-muted)' }}>—</span>}</td>
                 <td style={{ ...td, textTransform: 'capitalize' }}>{p.worker_type}</td>
                 <td style={{ padding: '13px 16px' }}>
-                  <button onClick={() => setOpenPersonId(p.id)} style={{ background: 'none', border: 'none', padding: 0, fontSize: 12, color: '#6b7280', cursor: 'pointer' }}>View →</button>
+                  <button onClick={() => setOpenPersonId(p.id)} style={{ background: 'none', border: 'none', padding: 0, fontSize: 12, color: 'var(--text-secondary)', cursor: 'pointer' }}>View →</button>
                 </td>
               </tr>
             ))}
@@ -163,7 +163,7 @@ function StatusBadge({ status }: { status: string }) {
     active: { fg: '#6ee7b7', bg: 'rgba(16,185,129,.12)' },
     onboarding: { fg: '#93c5fd', bg: 'rgba(59,130,246,.12)' },
     inactive: { fg: '#fbbf24', bg: 'rgba(245,158,11,.12)' },
-    ended: { fg: '#9ca3af', bg: 'rgba(107,114,128,.12)' },
+    ended: { fg: 'var(--text-secondary)', bg: 'rgba(107,114,128,.12)' },
   };
   const c = colors[status] ?? colors.ended;
   return (
@@ -173,7 +173,7 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-const th: React.CSSProperties = { padding: '11px 16px', textAlign: 'left', color: '#6b7280', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' };
-const td: React.CSSProperties = { padding: '13px 16px', fontSize: 13, color: '#9ca3af' };
-const empty: React.CSSProperties = { padding: '36px 16px', textAlign: 'center', color: '#4b5563', fontSize: 14 };
-function btn(bg: string): React.CSSProperties { return { padding: '8px 16px', background: bg, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }; }
+const th: React.CSSProperties = { padding: '11px 16px', textAlign: 'left', color: 'var(--text-secondary)', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' };
+const td: React.CSSProperties = { padding: '13px 16px', fontSize: 13, color: 'var(--text-secondary)' };
+const empty: React.CSSProperties = { padding: '36px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 14 };
+function btn(bg: string): React.CSSProperties { return { padding: '8px 16px', background: bg, color: bg === 'transparent' ? 'var(--text-primary)' : '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }; }

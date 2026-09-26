@@ -5,7 +5,7 @@ import Link from 'next/link';
 import SlidePanel from '../../../_components/SlidePanel';
 import SupplierForm from '../../../_components/SupplierForm';
 
-const CARD = '#0e1014'; const BORDER = '#1a1d24';
+const CARD = 'var(--bg-surface)'; const BORDER = 'var(--border)';
 
 type Supplier = {
   id: string; name: string; legal_name: string | null; contact_name: string | null;
@@ -58,12 +58,12 @@ export default function SupplierDetailPage() {
     load();
   }
 
-  if (loading) return <div style={{ color: '#6b7280', fontSize: 14 }}>Loading…</div>;
-  if (!supplier) return <div style={{ color: '#6b7280', fontSize: 14 }}>Supplier not found.</div>;
+  if (loading) return <div style={{ color: 'var(--text-secondary)', fontSize: 14 }}>Loading…</div>;
+  if (!supplier) return <div style={{ color: 'var(--text-secondary)', fontSize: 14 }}>Supplier not found.</div>;
 
   return (
     <div style={{ maxWidth: 700 }}>
-      <Link href="/commercial/purchasing/suppliers" style={{ color: '#6b7280', fontSize: 13, textDecoration: 'none' }}>← Suppliers</Link>
+      <Link href="/commercial/purchasing/suppliers" style={{ color: 'var(--text-secondary)', fontSize: 13, textDecoration: 'none' }}>← Suppliers</Link>
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '16px 0 24px' }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em', margin: 0 }}>{supplier.name}</h1>
@@ -73,7 +73,7 @@ export default function SupplierDetailPage() {
             <button onClick={toggleActive} style={btn(supplier.active ? 'rgba(239,68,68,0.15)' : 'rgba(74,222,128,0.15)', supplier.active ? '#f87171' : '#4ade80')}>
               {supplier.active ? 'Deactivate' : 'Reactivate'}
             </button>
-            {hasPurchasing && <Link href={`/commercial/purchasing/purchase-orders/new?supplierId=${supplier.id}`} style={{ ...btn('#1a6aff'), textDecoration: 'none', display: 'inline-block' }}>New Purchase Order</Link>}
+            {hasPurchasing && <Link href={`/commercial/purchasing/purchase-orders/new?supplierId=${supplier.id}`} style={{ ...btn('var(--purple-600)'), textDecoration: 'none', display: 'inline-block' }}>New Purchase Order</Link>}
           </div>
         )}
       </div>
@@ -109,8 +109,8 @@ export default function SupplierDetailPage() {
 function Row({ label, value }: { label: string; value: string | null }) {
   return (
     <div>
-      <div style={{ fontSize: 11, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>{label}</div>
-      <div style={{ fontSize: 14, color: value ? '#f9fafb' : '#4b5563' }}>{value ?? '—'}</div>
+      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>{label}</div>
+      <div style={{ fontSize: 14, color: value ? 'var(--text-primary)' : 'var(--text-muted)' }}>{value ?? '—'}</div>
     </div>
   );
 }

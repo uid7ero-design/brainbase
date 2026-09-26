@@ -140,11 +140,10 @@ describe('Auth surfaces after public-site convergence', () => {
     }
   })
 
-  it('AuthShell keeps a restrained decorative orbital motif using public design tokens, not the animated legacy field', () => {
-    expect(authShellSource).toContain('className={styles.orbit}')
-    expect(authShellSource).toContain('aria-hidden="true"')
-    expect(authShellStyles).toContain('var(--bb-accent)')
-    expect(authShellStyles).toContain('var(--bb-signal)')
+  it('AuthShell no longer carries an oversized decorative orbit field; the shared grid and lockup provide the brand treatment', () => {
+    expect(authShellSource).not.toContain('className={styles.orbit}')
+    expect(authShellSource).toContain('BrainbaseLockup')
+    expect(authShellStyles).toContain('var(--bb-grid)')
     expect(authShellStyles).not.toContain('bbOrbitalRingSpin')
     expect(authShellSource).not.toContain('OrbitalBackground')
   })

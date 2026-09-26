@@ -6,8 +6,8 @@ import SlidePanel from '../../_components/SlidePanel';
 import CompanyForm from '../../_components/CompanyForm';
 import ActivityForm from '../../_components/ActivityForm';
 
-const CARD = '#0e1014'; const BORDER = '#1a1d24';
-const STAGE_COLORS: Record<string, string> = { lead:'#6b7280', qualified:'#60a5fa', proposal:'#a78bfa', negotiation:'#fbbf24', closed_won:'#34d399', closed_lost:'#f87171' };
+const CARD = 'var(--bg-surface)'; const BORDER = 'var(--border)';
+const STAGE_COLORS: Record<string, string> = { lead:'var(--text-secondary)', qualified:'#60a5fa', proposal:'#a78bfa', negotiation:'#fbbf24', closed_won:'#34d399', closed_lost:'#f87171' };
 const TYPE_ICONS: Record<string, string>   = { call:'📞', email:'✉️', note:'📝', meeting:'🤝' };
 
 type Company  = { id: string; name: string; website: string|null; industry: string|null; company_size: string|null; phone: string|null; address: string|null; notes: string|null };
@@ -45,17 +45,17 @@ export default function CompanyDetailPage() {
     router.push('/crm/companies');
   }
 
-  if (loading) return <div style={{ color: '#4b5563', padding: 32 }}>Loading…</div>;
+  if (loading) return <div style={{ color: 'var(--text-muted)', padding: 32 }}>Loading…</div>;
   if (!company) return null;
 
   return (
     <div style={{ maxWidth: 900 }}>
       {/* Breadcrumb + actions */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, color: '#6b7280' }}>
-          <Link href="/crm/companies" style={{ color: '#6b7280', textDecoration: 'none' }}>Companies</Link>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, color: 'var(--text-secondary)' }}>
+          <Link href="/crm/companies" style={{ color: 'var(--text-secondary)', textDecoration: 'none' }}>Companies</Link>
           <span>/</span>
-          <span style={{ color: '#f9fafb' }}>{company.name}</span>
+          <span style={{ color: 'var(--text-primary)' }}>{company.name}</span>
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
           <button onClick={() => setShowEdit(true)} style={outlineBtn}>Edit</button>
@@ -75,10 +75,10 @@ export default function CompanyDetailPage() {
                 <Link key={c.id} href={`/crm/contacts/${c.id}`}
                   style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: i < contacts.length-1 ? `1px solid ${BORDER}` : 'none', textDecoration: 'none' }}>
                   <div>
-                    <div style={{ fontSize: 13, color: '#f9fafb', fontWeight: 500 }}>{c.first_name} {c.last_name}</div>
-                    {c.job_title && <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>{c.job_title}</div>}
+                    <div style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 500 }}>{c.first_name} {c.last_name}</div>
+                    {c.job_title && <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>{c.job_title}</div>}
                   </div>
-                  {c.email && <div style={{ fontSize: 12, color: '#4b5563' }}>{c.email}</div>}
+                  {c.email && <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{c.email}</div>}
                 </Link>
               ))}
           </Section>
@@ -90,12 +90,12 @@ export default function CompanyDetailPage() {
               : deals.map((d, i) => (
                 <div key={d.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: i < deals.length-1 ? `1px solid ${BORDER}` : 'none' }}>
                   <div>
-                    <div style={{ fontSize: 13, color: '#f9fafb', fontWeight: 500 }}>{d.title}</div>
-                    {d.expected_close && <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>Close {new Date(d.expected_close).toLocaleDateString('en-AU', { day:'numeric', month:'short' })}</div>}
+                    <div style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 500 }}>{d.title}</div>
+                    {d.expected_close && <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>Close {new Date(d.expected_close).toLocaleDateString('en-AU', { day:'numeric', month:'short' })}</div>}
                   </div>
                   <div style={{ textAlign: 'right' }}>
                     {d.value != null && <div style={{ fontSize: 13, fontWeight: 600, color: STAGE_COLORS[d.stage] }}>${Number(d.value).toLocaleString()}</div>}
-                    <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2, textTransform: 'capitalize' }}>{d.stage.replace('_',' ')}</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2, textTransform: 'capitalize' }}>{d.stage.replace('_',' ')}</div>
                   </div>
                 </div>
               ))}
@@ -119,14 +119,14 @@ export default function CompanyDetailPage() {
               { label: 'Address',     value: company.address },
             ].map(({ label, value }) => value ? (
               <div key={label} style={{ marginBottom: 10 }}>
-                <div style={{ fontSize: 10, color: '#4b5563', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 2 }}>{label}</div>
+                <div style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 2 }}>{label}</div>
                 <div style={{ fontSize: 13, color: '#d1d5db' }}>{value}</div>
               </div>
             ) : null)}
             {company.notes && (
               <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${BORDER}` }}>
-                <div style={{ fontSize: 10, color: '#4b5563', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Notes</div>
-                <p style={{ fontSize: 13, color: '#9ca3af', margin: 0, lineHeight: 1.6 }}>{company.notes}</p>
+                <div style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Notes</div>
+                <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: 0, lineHeight: 1.6 }}>{company.notes}</p>
               </div>
             )}
           </div>
@@ -140,9 +140,9 @@ export default function CompanyDetailPage() {
                   <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
                     <span style={{ fontSize: 14 }}>{TYPE_ICONS[a.type]}</span>
                     <div>
-                      <div style={{ fontSize: 13, color: '#f9fafb', fontWeight: 500 }}>{a.subject}</div>
-                      {a.body && <div style={{ fontSize: 12, color: '#6b7280', marginTop: 3, lineHeight: 1.4 }}>{a.body.slice(0, 120)}{a.body.length > 120 ? '…' : ''}</div>}
-                      <div style={{ fontSize: 11, color: '#4b5563', marginTop: 4 }}>
+                      <div style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 500 }}>{a.subject}</div>
+                      {a.body && <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 3, lineHeight: 1.4 }}>{a.body.slice(0, 120)}{a.body.length > 120 ? '…' : ''}</div>}
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
                         {new Date(a.activity_date).toLocaleDateString('en-AU', { day:'numeric', month:'short' })} · {a.created_by_name}
                       </div>
                     </div>
@@ -165,8 +165,8 @@ function Section({ title, count, action, children }: { title: string; count?: nu
     <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: 20 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 14, fontWeight: 600, color: '#f9fafb' }}>{title}</span>
-          {count !== undefined && <span style={{ fontSize: 11, color: '#4b5563', background: '#1a1d24', padding: '1px 6px', borderRadius: 10 }}>{count}</span>}
+          <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>{title}</span>
+          {count !== undefined && <span style={{ fontSize: 11, color: 'var(--text-muted)', background: 'var(--border)', padding: '1px 6px', borderRadius: 10 }}>{count}</span>}
         </div>
         {action}
       </div>
@@ -175,9 +175,9 @@ function Section({ title, count, action, children }: { title: string; count?: nu
   );
 }
 function Empty({ children }: { children: React.ReactNode }) {
-  return <p style={{ fontSize: 13, color: '#4b5563', margin: 0 }}>{children}</p>;
+  return <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: 0 }}>{children}</p>;
 }
 
-const outlineBtn: React.CSSProperties = { padding: '7px 14px', background: 'transparent', color: '#9ca3af', border: '1px solid #1a1d24', borderRadius: 8, fontSize: 13, cursor: 'pointer' };
+const outlineBtn: React.CSSProperties = { padding: '7px 14px', background: 'transparent', color: 'var(--text-secondary)', border: '1px solid #1a1d24', borderRadius: 8, fontSize: 13, cursor: 'pointer' };
 const dangerBtn:  React.CSSProperties = { padding: '7px 14px', background: 'rgba(239,68,68,0.1)', color: '#f87171', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 8, fontSize: 13, cursor: 'pointer' };
-const linkStyle:  React.CSSProperties = { fontSize: 12, color: '#1a6aff', textDecoration: 'none' };
+const linkStyle:  React.CSSProperties = { fontSize: 12, color: 'var(--purple-600)', textDecoration: 'none' };

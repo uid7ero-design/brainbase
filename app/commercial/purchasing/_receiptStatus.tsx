@@ -7,7 +7,7 @@
 import { PURCHASE_RECEIPT_STATUS_LABELS, type PurchaseReceiptStatus } from '@/lib/commercial/purchaseReceiptLifecycle';
 
 const STATUS_STYLE: Record<PurchaseReceiptStatus, { color: string; bg: string }> = {
-  DRAFT: { color: '#9ca3af', bg: 'rgba(156,163,175,0.12)' },
+  DRAFT: { color: 'var(--text-secondary)', bg: 'rgba(156,163,175,0.12)' },
   POSTED: { color: '#60a5fa', bg: 'rgba(96,165,250,0.12)' },
   CANCELLED: { color: '#f87171', bg: 'rgba(248,113,113,0.12)' },
 };

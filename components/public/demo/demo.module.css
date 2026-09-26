@@ -70,37 +70,9 @@
 }
 
 .heroSignal {
-  position: relative;
   width: 64px;
   height: 64px;
   margin-bottom: 20px;
-  border: 1px solid var(--bb-accent-border);
-  border-radius: 50%;
-  background: var(--bb-accent-soft);
-}
-.heroSignalCore {
-  position: absolute;
-  inset: 50% auto auto 50%;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: var(--bb-accent);
-  transform: translate(-50%, -50%);
-}
-.heroSignalRing {
-  position: absolute;
-  inset: 12px;
-  border: 1px solid var(--bb-signal-border);
-  border-radius: 50%;
-}
-.heroSignalNode {
-  position: absolute;
-  top: 7px;
-  right: 10px;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--bb-signal);
 }
 
 .heroTitle {

@@ -17,7 +17,7 @@ import SlidePanel from '../_components/SlidePanel';
 // authorization boundary is the API route itself (PATCH/archive/restore
 // each independently require ctx.isHrAdministrator, and
 // ?include_archived=1 independently 403s for a non-admin caller).
-const CARD = '#0e1014'; const BORDER = '#1a1d24';
+const CARD = 'var(--bg-surface)'; const BORDER = 'var(--border)';
 
 type Team = {
   id: string;
@@ -93,17 +93,17 @@ export default function TeamsPage() {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em', margin: 0 }}>Teams</h1>
-          <p style={{ color: '#6b7280', fontSize: 13, margin: '4px 0 0' }}>
+          <p style={{ color: 'var(--text-secondary)', fontSize: 13, margin: '4px 0 0' }}>
             Manage your organisation&apos;s teams.
           </p>
         </div>
         {canManage && (
           <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#9ca3af', fontSize: 13, cursor: 'pointer' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--text-secondary)', fontSize: 13, cursor: 'pointer' }}>
               <input type="checkbox" checked={showArchived} onChange={e => setShowArchived(e.target.checked)} />
               Show archived
             </label>
-            <button onClick={() => setShowCreate(true)} style={btn('#1a6aff')}>+ Create Team</button>
+            <button onClick={() => setShowCreate(true)} style={btn('var(--purple-600)')}>+ Create Team</button>
           </div>
         )}
       </div>
@@ -129,19 +129,19 @@ export default function TeamsPage() {
               const archived = t.archived_at !== null;
               return (
                 <tr key={t.id} style={{ borderBottom: i < teams.length - 1 ? `1px solid ${BORDER}` : 'none', opacity: archived ? 0.55 : 1 }}>
-                  <td style={{ padding: '13px 16px', color: '#f9fafb', fontWeight: 500, fontSize: 14 }}>{t.name}</td>
-                  <td style={td}>{t.description ?? <span style={{ color: '#4b5563' }}>—</span>}</td>
-                  <td style={td}>{managerName(t.manager_person_id) ?? <span style={{ color: '#4b5563' }}>—</span>}</td>
+                  <td style={{ padding: '13px 16px', color: 'var(--text-primary)', fontWeight: 500, fontSize: 14 }}>{t.name}</td>
+                  <td style={td}>{t.description ?? <span style={{ color: 'var(--text-muted)' }}>—</span>}</td>
+                  <td style={td}>{managerName(t.manager_person_id) ?? <span style={{ color: 'var(--text-muted)' }}>—</span>}</td>
                   <td style={td}>
                     {archived
-                      ? <span style={{ color: '#9ca3af' }}>Archived</span>
+                      ? <span style={{ color: 'var(--text-secondary)' }}>Archived</span>
                       : <span style={{ color: '#6ee7b7' }}>Active</span>}
                   </td>
                   <td style={{ padding: '13px 16px', textAlign: 'right', whiteSpace: 'nowrap' }}>
                     {canManage && !archived && (
                       confirmArchiveId === t.id ? (
                         <>
-                          <span style={{ color: '#9ca3af', fontSize: 12, marginRight: 6 }}>Archive this team?</span>
+                          <span style={{ color: 'var(--text-secondary)', fontSize: 12, marginRight: 6 }}>Archive this team?</span>
                           <button onClick={() => archive(t.id)} style={{ ...linkBtn, color: '#f87171' }}>Confirm</button>
                           <button onClick={() => setConfirmArchiveId(null)} style={linkBtn}>Cancel</button>
                         </>
@@ -217,18 +217,18 @@ function TeamForm({ initial, managers, onSaved }: {
         </select>
       </div>
       {error && <p style={{ color: '#f87171', fontSize: 13, margin: 0 }}>{error}</p>}
-      <button type="submit" disabled={saving} style={{ padding: '10px 0', background: '#1a6aff', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: saving ? 'default' : 'pointer' }}>
+      <button type="submit" disabled={saving} style={{ padding: '10px 0', background: 'var(--purple-600)', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: saving ? 'default' : 'pointer' }}>
         {saving ? 'Saving…' : initial?.id ? 'Save changes' : 'Create Team'}
       </button>
     </form>
   );
 }
 
-const th: React.CSSProperties = { padding: '11px 16px', textAlign: 'left', color: '#6b7280', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' };
-const td: React.CSSProperties = { padding: '13px 16px', fontSize: 13, color: '#9ca3af' };
-const empty: React.CSSProperties = { padding: '36px 16px', textAlign: 'center', color: '#4b5563', fontSize: 14 };
-const linkBtn: React.CSSProperties = { background: 'none', border: 'none', padding: '0 6px', fontSize: 12, color: '#6b7280', cursor: 'pointer' };
-const lbl: React.CSSProperties = { display: 'block', color: '#9ca3af', fontSize: 11, fontWeight: 600, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' };
-const inputStyle: React.CSSProperties = { width: '100%', padding: '9px 12px', background: '#111318', border: '1px solid #1a1d24', borderRadius: 8, color: '#f9fafb', fontSize: 14, outline: 'none', boxSizing: 'border-box' };
-const sel: React.CSSProperties = { width: '100%', padding: '9px 12px', background: '#111318', border: '1px solid #1a1d24', borderRadius: 8, color: '#f9fafb', fontSize: 14 };
+const th: React.CSSProperties = { padding: '11px 16px', textAlign: 'left', color: 'var(--text-secondary)', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' };
+const td: React.CSSProperties = { padding: '13px 16px', fontSize: 13, color: 'var(--text-secondary)' };
+const empty: React.CSSProperties = { padding: '36px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 14 };
+const linkBtn: React.CSSProperties = { background: 'none', border: 'none', padding: '0 6px', fontSize: 12, color: 'var(--text-secondary)', cursor: 'pointer' };
+const lbl: React.CSSProperties = { display: 'block', color: 'var(--text-secondary)', fontSize: 11, fontWeight: 600, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' };
+const inputStyle: React.CSSProperties = { width: '100%', padding: '9px 12px', background: 'var(--bg-raised)', border: '1px solid #1a1d24', borderRadius: 8, color: 'var(--text-primary)', fontSize: 14, outline: 'none', boxSizing: 'border-box' };
+const sel: React.CSSProperties = { width: '100%', padding: '9px 12px', background: 'var(--bg-raised)', border: '1px solid #1a1d24', borderRadius: 8, color: 'var(--text-primary)', fontSize: 14 };
 function btn(bg: string): React.CSSProperties { return { padding: '8px 16px', background: bg, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }; }

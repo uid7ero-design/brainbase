@@ -56,14 +56,14 @@ function NavItem({
         borderRadius: 7,
         textDecoration: 'none',
         color: active
-          ? '#C4B5FD'
-          : 'rgba(255,255,255,.45)',
+          ? 'var(--purple-300)'
+          : 'var(--text-secondary)',
         background: active
-          ? 'rgba(139,92,246,.10)'
+          ? 'rgba(155,123,255,.10)'
           : 'transparent',
         border: `1px solid ${
           active
-            ? 'rgba(139,92,246,.22)'
+            ? 'rgba(155,123,255,.24)'
             : 'transparent'
         }`,
         transition:
@@ -75,16 +75,16 @@ function NavItem({
         if (active) return;
 
         e.currentTarget.style.color =
-          'rgba(255,255,255,.85)';
+          'var(--text-primary)';
 
         e.currentTarget.style.background =
-          'rgba(255,255,255,.05)';
+          'var(--bg-raised)';
       }}
       onMouseLeave={e => {
         if (active) return;
 
         e.currentTarget.style.color =
-          'rgba(255,255,255,.45)';
+          'var(--text-secondary)';
 
         e.currentTarget.style.background =
           'transparent';
@@ -118,95 +118,31 @@ function HlnaItem({
       style={{
         display: 'flex',
         alignItems: 'center',
-        padding: '5px 11px',
-        borderRadius: 7,
+        padding: '5px 10px',
+        borderRadius: 6,
         textDecoration: 'none',
+        color: active
+          ? 'var(--purple-300)'
+          : 'var(--text-secondary)',
         background: active
-          ? 'rgba(139,92,246,.13)'
+          ? 'rgba(155,123,255,.10)'
           : 'transparent',
         border: `1px solid ${
           active
-            ? 'rgba(167,139,250,.28)'
+            ? 'rgba(155,123,255,.24)'
             : 'transparent'
         }`,
-        boxShadow: active
-          ? '0 0 14px rgba(139,92,246,.18)'
-          : 'none',
-        transition: 'all .18s',
+        transition:
+          'color .14s, background .14s, border-color .14s',
         flexShrink: 0,
-      }}
-      onMouseEnter={e => {
-        if (active) return;
-
-        e.currentTarget.style.background =
-          'rgba(139,92,246,.07)';
-
-        e.currentTarget.style.borderColor =
-          'rgba(167,139,250,.14)';
-      }}
-      onMouseLeave={e => {
-        if (active) return;
-
-        e.currentTarget.style.background =
-          'transparent';
-
-        e.currentTarget.style.borderColor =
-          'transparent';
+        fontFamily:
+          'var(--font-geist-mono), ui-monospace, monospace',
+        fontSize: 11,
+        fontWeight: 600,
+        letterSpacing: '.12em',
       }}
     >
-      <svg
-        width="46"
-        height="14"
-        viewBox="0 0 211 62"
-        style={{
-          display: 'block',
-          filter: active
-            ? 'drop-shadow(0 0 7px rgba(167,139,250,.60))'
-            : 'none',
-          opacity: active ? 1 : 0.6,
-          transition:
-            'filter .18s, opacity .18s',
-        }}
-        aria-label="HLNA"
-      >
-        <g fill="rgba(245,247,250,0.95)">
-          <path d="M28.59 48L21.81 48L21.81 10.17L28.59 10.17L28.59 25.81L46.18 25.81L46.18 10.17L52.96 10.17L52.96 48L46.18 48L46.18 31.52L28.59 31.52L28.59 48Z" />
-
-          <path d="M93.07 48L69.58 48L69.58 10.17L76.36 10.17L76.36 42.29L93.07 42.29L93.07 48Z" />
-
-          <path d="M114.89 48L107.98 48L107.98 10.17L115.65 10.17L128.73 31.01Q129.54 32.31 130.45 33.95Q131.37 35.58 132.36 37.59L132.36 37.59Q132.87 38.66 133.37 39.80L133.37 39.80Q133.30 38.76 133.25 37.69L133.25 37.69Q133.09 35.46 133.03 33.44Q132.97 31.42 132.97 30.02L132.97 30.02L132.97 10.17L139.85 10.17L139.85 48L132.15 48L120.35 29.24Q119.23 27.43 118.24 25.68Q117.25 23.93 116.11 21.72L116.11 21.72Q115.37 20.27 114.41 18.47L114.41 18.47Q114.51 20.10 114.58 21.62L114.58 21.62Q114.71 24.11 114.80 26.06Q114.89 28.02 114.89 29.21L114.89 29.21L114.89 48Z" />
-        </g>
-
-        <path
-          d="M 153,48 L 172,7 L 191,48"
-          fill="none"
-          stroke="url(#tnav-lg)"
-          strokeWidth="8"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-
-        <defs>
-          <linearGradient
-            id="tnav-lg"
-            gradientUnits="userSpaceOnUse"
-            x1="172"
-            y1="48"
-            x2="172"
-            y2="7"
-          >
-            <stop
-              offset="0%"
-              stopColor="#6D28D9"
-            />
-
-            <stop
-              offset="100%"
-              stopColor="#C084FC"
-            />
-          </linearGradient>
-        </defs>
-      </svg>
+      HLNA
     </Link>
   );
 }
@@ -343,20 +279,20 @@ function OpsDropdown({
           borderRadius: 7,
 
           color: isActive
-            ? '#C4B5FD'
+            ? 'var(--brand-brainbase-accent)'
             : open
-              ? 'rgba(255,255,255,.85)'
-              : 'rgba(255,255,255,.45)',
+              ? 'var(--text-primary)'
+              : 'var(--text-secondary)',
 
           background: isActive
-            ? 'rgba(139,92,246,.10)'
+            ? 'color-mix(in srgb, var(--brand-brainbase-accent) 10%, transparent)'
             : open
-              ? 'rgba(255,255,255,.05)'
+              ? 'var(--bg-raised)'
               : 'transparent',
 
           border: `1px solid ${
             isActive
-              ? 'rgba(139,92,246,.22)'
+              ? 'color-mix(in srgb, var(--brand-brainbase-accent) 24%, transparent)'
               : 'transparent'
           }`,
 
@@ -406,14 +342,14 @@ function OpsDropdown({
             top: coords.top,
             left: coords.left,
             background:
-              'rgba(7,5,16,.98)',
+              'var(--bg-overlay)',
             border:
-              '1px solid rgba(255,255,255,.09)',
+              '1px solid var(--border)',
             borderRadius: 11,
             padding: 5,
             minWidth: 220,
             boxShadow:
-              '0 12px 40px rgba(0,0,0,.55), 0 0 0 1px rgba(255,255,255,.04)',
+              '0 12px 40px rgba(0,0,0,.28), 0 0 0 1px var(--border-light)',
             zIndex: 200,
           }}
         >
@@ -425,9 +361,9 @@ function OpsDropdown({
               width: 8,
               height: 8,
               background:
-                'rgba(7,5,16,.98)',
+                'var(--bg-overlay)',
               border:
-                '1px solid rgba(255,255,255,.09)',
+                '1px solid var(--border)',
               borderRight: 'none',
               borderBottom: 'none',
               transform:
@@ -457,7 +393,7 @@ function OpsDropdown({
                     'none',
                   background:
                     itemActive
-                      ? 'rgba(139,92,246,.10)'
+                      ? 'color-mix(in srgb, var(--brand-brainbase-accent) 10%, transparent)'
                       : 'transparent',
                   transition:
                     'background .12s',
@@ -465,7 +401,7 @@ function OpsDropdown({
                 onMouseEnter={e => {
                   if (!itemActive) {
                     e.currentTarget.style.background =
-                      'rgba(255,255,255,.05)';
+                      'var(--bg-raised)';
                   }
                 }}
                 onMouseLeave={e => {
@@ -483,8 +419,8 @@ function OpsDropdown({
                       '-0.01em',
                     color:
                       itemActive
-                        ? '#C4B5FD'
-                        : 'rgba(255,255,255,.80)',
+                        ? 'var(--brand-brainbase-accent)'
+                        : 'var(--text-primary)',
                   }}
                 >
                   {item.label}
@@ -494,7 +430,7 @@ function OpsDropdown({
                   style={{
                     fontSize: 11,
                     color:
-                      'rgba(255,255,255,.30)',
+                      'var(--text-muted)',
                     lineHeight: 1.4,
                   }}
                 >
@@ -508,7 +444,7 @@ function OpsDropdown({
             style={{
               height: 1,
               background:
-                'rgba(255,255,255,.07)',
+                'var(--border)',
               margin:
                 '4px 4px 3px',
             }}
@@ -530,7 +466,7 @@ function OpsDropdown({
             }}
             onMouseEnter={e => {
               e.currentTarget.style.background =
-                'rgba(255,255,255,.05)';
+                'var(--bg-raised)';
             }}
             onMouseLeave={e => {
               e.currentTarget.style.background =
@@ -542,7 +478,7 @@ function OpsDropdown({
                 fontSize: 12,
                 fontWeight: 500,
                 color:
-                  'rgba(255,255,255,.38)',
+                  'var(--text-secondary)',
                 letterSpacing:
                   '-0.01em',
               }}
@@ -554,7 +490,7 @@ function OpsDropdown({
               style={{
                 fontSize: 11,
                 color:
-                  'rgba(255,255,255,.22)',
+                  'var(--text-muted)',
               }}
             >
               →
@@ -682,20 +618,20 @@ function AdminDropdown({
           borderRadius: 7,
 
           color: isActive
-            ? '#C4B5FD'
+            ? 'var(--brand-brainbase-accent)'
             : open
-              ? 'rgba(255,255,255,.85)'
-              : 'rgba(255,255,255,.45)',
+              ? 'var(--text-primary)'
+              : 'var(--text-secondary)',
 
           background: isActive
-            ? 'rgba(139,92,246,.10)'
+            ? 'color-mix(in srgb, var(--brand-brainbase-accent) 10%, transparent)'
             : open
-              ? 'rgba(255,255,255,.05)'
+              ? 'var(--bg-raised)'
               : 'transparent',
 
           border: `1px solid ${
             isActive
-              ? 'rgba(139,92,246,.22)'
+              ? 'color-mix(in srgb, var(--brand-brainbase-accent) 24%, transparent)'
               : 'transparent'
           }`,
 
@@ -745,14 +681,14 @@ function AdminDropdown({
             top: coords.top,
             left: coords.left,
             background:
-              'rgba(7,5,16,.98)',
+              'var(--bg-overlay)',
             border:
-              '1px solid rgba(255,255,255,.09)',
+              '1px solid var(--border)',
             borderRadius: 11,
             padding: 5,
             minWidth: 220,
             boxShadow:
-              '0 12px 40px rgba(0,0,0,.55), 0 0 0 1px rgba(255,255,255,.04)',
+              '0 12px 40px rgba(0,0,0,.28), 0 0 0 1px var(--border-light)',
             zIndex: 200,
           }}
         >
@@ -764,9 +700,9 @@ function AdminDropdown({
               width: 8,
               height: 8,
               background:
-                'rgba(7,5,16,.98)',
+                'var(--bg-overlay)',
               border:
-                '1px solid rgba(255,255,255,.09)',
+                '1px solid var(--border)',
               borderRight: 'none',
               borderBottom: 'none',
               transform:
@@ -796,7 +732,7 @@ function AdminDropdown({
                     'none',
                   background:
                     itemActive
-                      ? 'rgba(139,92,246,.10)'
+                      ? 'color-mix(in srgb, var(--brand-brainbase-accent) 10%, transparent)'
                       : 'transparent',
                   transition:
                     'background .12s',
@@ -804,7 +740,7 @@ function AdminDropdown({
                 onMouseEnter={e => {
                   if (!itemActive) {
                     e.currentTarget.style.background =
-                      'rgba(255,255,255,.05)';
+                      'var(--bg-raised)';
                   }
                 }}
                 onMouseLeave={e => {
@@ -822,8 +758,8 @@ function AdminDropdown({
                       '-0.01em',
                     color:
                       itemActive
-                        ? '#C4B5FD'
-                        : 'rgba(255,255,255,.80)',
+                        ? 'var(--brand-brainbase-accent)'
+                        : 'var(--text-primary)',
                   }}
                 >
                   {item.label}
@@ -833,7 +769,7 @@ function AdminDropdown({
                   style={{
                     fontSize: 11,
                     color:
-                      'rgba(255,255,255,.30)',
+                      'var(--text-muted)',
                     lineHeight: 1.4,
                   }}
                 >
@@ -896,17 +832,17 @@ function SquadItem({
         fontWeight: 500,
         letterSpacing: '-0.01em',
         padding: '5px 10px',
-        borderRadius: 7,
+        borderRadius: 6,
         textDecoration: 'none',
         color: active
-          ? '#C4B5FD'
-          : 'rgba(255,255,255,.45)',
+          ? 'var(--purple-300)'
+          : 'var(--text-secondary)',
         background: active
-          ? 'rgba(139,92,246,.10)'
+          ? 'rgba(155,123,255,.10)'
           : 'transparent',
         border: `1px solid ${
           active
-            ? 'rgba(139,92,246,.22)'
+            ? 'rgba(155,123,255,.24)'
             : 'transparent'
         }`,
         transition:
@@ -914,70 +850,8 @@ function SquadItem({
         whiteSpace: 'nowrap',
         flexShrink: 0,
       }}
-      onMouseEnter={e => {
-        if (active) return;
-
-        e.currentTarget.style.color =
-          'rgba(255,255,255,.85)';
-
-        e.currentTarget.style.background =
-          'rgba(255,255,255,.05)';
-      }}
-      onMouseLeave={e => {
-        if (active) return;
-
-        e.currentTarget.style.color =
-          'rgba(255,255,255,.45)';
-
-        e.currentTarget.style.background =
-          'transparent';
-      }}
     >
-      {'Squ'}
-
-      <svg
-        width="9"
-        height="11"
-        viewBox="153 7 38 41"
-        style={{
-          display: 'inline',
-          verticalAlign: 'middle',
-          margin: '0 1px',
-          flexShrink: 0,
-        }}
-      >
-        <defs>
-          <linearGradient
-            id="squad-lg"
-            gradientUnits="userSpaceOnUse"
-            x1="172"
-            y1="48"
-            x2="172"
-            y2="7"
-          >
-            <stop
-              offset="0%"
-              stopColor="#6D28D9"
-            />
-
-            <stop
-              offset="100%"
-              stopColor="#C084FC"
-            />
-          </linearGradient>
-        </defs>
-
-        <path
-          d="M 153,48 L 172,7 L 191,48"
-          fill="none"
-          stroke="url(#squad-lg)"
-          strokeWidth="8"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </svg>
-
-      {'d'}
+      Squad
     </Link>
   );
 }
@@ -991,7 +865,7 @@ function Divider() {
         width: 1,
         height: 16,
         background:
-          'rgba(255,255,255,.08)',
+          'var(--border)',
         flexShrink: 0,
       }}
     />
@@ -1062,7 +936,7 @@ function Clock() {
           fontSize: 12,
           fontWeight: 600,
           color:
-            'rgba(255,255,255,.55)',
+            'var(--text-secondary)',
           letterSpacing: '.04em',
         }}
       >
@@ -1233,11 +1107,9 @@ function AppNav({
         alignItems: 'center',
         padding: '0 20px',
         borderBottom:
-          '1px solid rgba(255,255,255,.06)',
+          '1px solid var(--border)',
         background:
-          'rgba(7,8,11,.92)',
-        backdropFilter:
-          'blur(16px)',
+          'var(--bg-base)',
         position: 'sticky',
         top: 0,
         zIndex: 100,
@@ -1745,10 +1617,10 @@ function AppNav({
             }
 
             e.currentTarget.style.background =
-              'rgba(255,255,255,.05)';
+              'var(--bg-raised)';
 
             e.currentTarget.style.borderColor =
-              'rgba(255,255,255,.08)';
+              'var(--border)';
           }}
           onMouseLeave={e => {
             if (
@@ -1776,7 +1648,7 @@ function AppNav({
               background:
                 avatarUrl
                   ? 'transparent'
-                  : 'linear-gradient(135deg, #6D28D9, #A78BFA)',
+                  : 'var(--purple-600)',
 
               display: 'flex',
               alignItems: 'center',
@@ -1811,7 +1683,7 @@ function AppNav({
               fontSize: 13,
               fontWeight: 500,
               color:
-                'rgba(245,247,250,.65)',
+                'var(--text-secondary)',
               whiteSpace: 'nowrap',
             }}
           >
@@ -1838,7 +1710,7 @@ function AppNav({
                 textDecoration: 'none',
                 padding: '5px 8px',
                 borderRadius: 7,
-                color: pathname.startsWith('/settings/branding') ? '#A78BFA' : 'rgba(255,255,255,.5)',
+                color: pathname.startsWith('/settings/branding') ? 'var(--purple-400)' : 'var(--text-secondary)',
               }}
             >
               Branding
@@ -1863,7 +1735,7 @@ function AppNav({
             fontSize: 13,
             fontWeight: 500,
             color:
-              'rgba(255,255,255,.28)',
+              'var(--text-secondary)',
             cursor: 'pointer',
             fontFamily: FONT,
             padding: '5px 8px',
@@ -1873,11 +1745,11 @@ function AppNav({
           }}
           onMouseEnter={e => {
             e.currentTarget.style.color =
-              'rgba(255,255,255,.65)';
+              'var(--text-primary)';
           }}
           onMouseLeave={e => {
             e.currentTarget.style.color =
-              'rgba(255,255,255,.28)';
+              'var(--text-secondary)';
           }}
         >
           Sign out
