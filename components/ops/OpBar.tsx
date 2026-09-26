@@ -69,7 +69,7 @@ export default function OpBar({ title = 'Command Centre', session, alertCount = 
           {/* Live indicator */}
           <div style={{
             display: 'flex', alignItems: 'center', gap: 5,
-            padding: '2px 8px', borderRadius: 20,
+            padding: '2px 8px', borderRadius: 'var(--bb-radius-pill)',
             background: 'var(--bb-success-soft)', border: '1px solid color-mix(in srgb, var(--bb-success) 22%, transparent)',
           }}>
             <div style={{ width: 4.5, height: 4.5, borderRadius: '50%', background: 'var(--bb-success)', boxShadow: 'var(--bb-glow-success)', animation: 'ob-blink 2.4s ease-in-out infinite' }} />
@@ -107,7 +107,7 @@ export default function OpBar({ title = 'Command Centre', session, alertCount = 
             </svg>
             {alertCount > 0 && (
               <span style={{
-                minWidth: 16, height: 16, borderRadius: 8, padding: '0 4px',
+                minWidth: 16, height: 16, borderRadius: 'var(--bb-radius-md)', padding: '0 4px',
                 background: 'var(--bb-danger)', fontSize: 9, fontWeight: 700, color: 'var(--bb-text-on-accent)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 letterSpacing: '.02em',

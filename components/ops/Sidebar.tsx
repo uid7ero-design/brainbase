@@ -178,7 +178,7 @@ export default function Sidebar({ collapsed, onToggle, pathname, alertCount = 0 
           flexShrink: 0,
         }}>
           {!collapsed && (
-            <Link href="/dashboard" style={{ display: 'flex', alignItems: 'center', gap: 8, animation: 'sb-fade .2s ease', textDecoration: 'none' }}>
+            <Link href="/dashboard" style={{ display: 'flex', alignItems: 'center', gap: 8, animation: 'sb-fade var(--bb-duration-base) var(--bb-ease-standard)', textDecoration: 'none' }}>
               {/* Tactical logo mark */}
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
                 <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"
@@ -224,7 +224,7 @@ export default function Sidebar({ collapsed, onToggle, pathname, alertCount = 0 
                   fontSize: 9, fontWeight: 700, letterSpacing: '.16em',
                   color: 'var(--bb-text-muted)', textTransform: 'uppercase',
                   padding: '0 12px', marginBottom: 4,
-                  animation: 'sb-fade .2s ease',
+                  animation: 'sb-fade var(--bb-duration-base) var(--bb-ease-standard)',
                 }}>
                   {section.label}
                 </div>

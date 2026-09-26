@@ -1049,7 +1049,7 @@ function Clock() {
         alignItems: 'center',
         gap: 7,
         fontFamily:
-          'var(--font-geist-mono,"Geist Mono",monospace)',
+          'var(--bb-font-mono)',
         flexShrink: 0,
       }}
     >
