@@ -486,6 +486,39 @@ describe('recordLifecycleTaskApproval', () => {
     expect(calls[1].text).toContain('INSERT INTO audit_logs');
   });
 
+  it('keeps approval mutation deny-by-default before approval-not-required classification', async () => {
+    queue([{
+      task_exists: true,
+      authorized: false,
+      requires_approval: false,
+      previous_status: 'IN_PROGRESS',
+      workflow_status: 'ACTIVE',
+      approval_id: null,
+      task_id: null,
+      workflow_id: null,
+      person_id: null,
+      approver_user_id: null,
+      decision: null,
+      comment: null,
+      decided_at: null,
+      task_status: null,
+      task_completed_at: null,
+      resulting_workflow_status: null,
+      workflow_completed_at: null,
+      approval_audit_written: false,
+      task_audit_written: false,
+      workflow_audit_written: false,
+    }]);
+
+    const { recordLifecycleTaskApproval } = await import('@/lib/hr/lifecycleMutations');
+    await expect(recordLifecycleTaskApproval({
+      actor: ACTOR,
+      taskId: TASK_ID,
+      decision: 'APPROVED',
+      comment: null,
+    })).resolves.toEqual({ outcome: 'forbidden' });
+  });
+
   it('rejects stale approval state without appending another approval row', async () => {
     queue([{
       task_exists: true,
