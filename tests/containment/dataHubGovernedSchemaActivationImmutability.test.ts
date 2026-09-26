@@ -36,17 +36,44 @@ function extractManifest(sqlSource: string): string {
 describe("6.2D3E — governed schema immutability migration (static)", () => {
   const src = read(IMMUTABILITY_SQL);
 
-  it("creates exactly the five expected trigger functions and triggers, one per governed table", () => {
-    for (const [table, fn] of [
-      ["source_schema_versions", "datahub_guard_source_schema_version_write"],
-      ["source_schema_worksheets", "datahub_guard_source_schema_worksheet_write"],
-      ["source_schema_columns", "datahub_guard_source_schema_column_write"],
-      ["worksheet_mapping_profile_versions", "datahub_guard_worksheet_mapping_profile_version_write"],
-      ["worksheet_mapping_profiles", "datahub_guard_worksheet_mapping_profile_write"],
-    ]) {
+  it("creates exactly the five expected trigger functions and triggers, one per governed table, with the R1/R2-correct event set", () => {
+    for (const [table, fn, events] of [
+      // source_schema_versions has no INSERT concern (a new version is
+      // always created DRAFT — see the D3B seed — so R1/R2's "block
+      // structural INSERT into ACTIVE/RETIRED" gap never applied here).
+      ["source_schema_versions", "datahub_guard_source_schema_version_write", "BEFORE UPDATE OR DELETE"],
+      // R1: worksheets/columns now also guard INSERT.
+      ["source_schema_worksheets", "datahub_guard_source_schema_worksheet_write", "BEFORE INSERT OR UPDATE OR DELETE"],
+      ["source_schema_columns", "datahub_guard_source_schema_column_write", "BEFORE INSERT OR UPDATE OR DELETE"],
+      // Untouched by R1/R2 — already unconditionally immutable post-INSERT.
+      ["worksheet_mapping_profile_versions", "datahub_guard_worksheet_mapping_profile_version_write", "BEFORE UPDATE OR DELETE"],
+      // R2: profiles now also guard INSERT.
+      ["worksheet_mapping_profiles", "datahub_guard_worksheet_mapping_profile_write", "BEFORE INSERT OR UPDATE OR DELETE"],
+    ] as const) {
       expect(src, `${table} function`).toContain(`CREATE OR REPLACE FUNCTION public.${fn}()`);
-      expect(src, `${table} trigger`).toMatch(new RegExp(`CREATE TRIGGER ${fn}\\s+BEFORE UPDATE OR DELETE ON public\\.${table}`));
+      expect(src, `${table} trigger`).toMatch(new RegExp(`CREATE TRIGGER ${fn}\\s+${events} ON public\\.${table}`));
     }
+  });
+
+  it("R1/R2 — the worksheet/column/profile trigger functions each branch on TG_OP = 'INSERT' and resolve lifecycle from NEW, never OLD, for that branch", () => {
+    for (const fn of ["datahub_guard_source_schema_worksheet_write", "datahub_guard_source_schema_column_write", "datahub_guard_worksheet_mapping_profile_write"]) {
+      const start = src.indexOf(`CREATE OR REPLACE FUNCTION public.${fn}()`);
+      const end = src.indexOf("$fn$;", src.indexOf("$fn$", start) + 4);
+      const body = src.slice(start, end).replace(/\r\n/g, "\n");
+      expect(body, fn).toMatch(/IF TG_OP = 'INSERT' THEN/);
+      const insertStart = body.indexOf("IF TG_OP = 'INSERT' THEN");
+      const insertBranch = body.slice(insertStart, body.indexOf("RETURN NEW;\n  END IF;", insertStart) + "RETURN NEW;\n  END IF;".length);
+      expect(insertBranch, fn).not.toMatch(/\bOLD\./);
+    }
+  });
+
+  it("worksheet_mapping_profile_versions' own INSERT-allowed / UPDATE-DELETE-forbidden policy is untouched by R1/R2 (no TG_OP = 'INSERT' branch exists there — INSERT is simply never gated)", () => {
+    const start = src.indexOf("CREATE OR REPLACE FUNCTION public.datahub_guard_worksheet_mapping_profile_version_write()");
+    const end = src.indexOf("$fn$;", src.indexOf("$fn$", start) + 4);
+    const body = src.slice(start, end);
+    expect(body).not.toMatch(/TG_OP = 'INSERT'/);
+    expect(body).toMatch(/RAISE EXCEPTION 'worksheet_mapping_profile_versions:.*DELETE is never permitted/);
+    expect(body).toMatch(/RAISE EXCEPTION 'worksheet_mapping_profile_versions:.*UPDATE is never permitted/);
   });
 
   it("is wrapped in exactly one BEGIN/COMMIT (transaction-safe apply)", () => {

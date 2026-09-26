@@ -36,6 +36,11 @@
 //     event.
 //   Section 22 — idempotent rerun: success/no-op, zero new mutation,
 //     zero second audit event, same activated_at.
+//   R1/R2 remediation — after a real successful activation, a 15th
+//     worksheet, a new column on an existing worksheet, and a new
+//     mapping profile are all DB-rejected by the updated INSERT-guarding
+//     triggers, and the pre-existing idempotent-rerun guarantee still
+//     holds afterward.
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { spawnSync } from "node:child_process";
@@ -267,5 +272,41 @@ describe("6.2D3E activation script — real Onkaparinga v1 manifest, real dispos
     const second = await prisma.sourceSchemaVersion.findUniqueOrThrow({ where: { id: SV_ID } });
     expect(second.activated_at?.getTime()).toBe(first.activated_at?.getTime());
     expect(await prisma.auditLog.count()).toBe(firstAuditCount);
+  });
+
+  it("R1/R2 remediation — after a successful real activation, a 15th worksheet, a new column, and a new mapping profile are all DB-rejected; the activation script's own idempotent no-op still succeeds afterward", async () => {
+    runActivation(actorUserId);
+    const afterActivation = await prisma.sourceSchemaVersion.findUniqueOrThrow({ where: { id: SV_ID } });
+    expect(afterActivation.status).toBe("ACTIVE");
+
+    // Attempt a 15th worksheet on the now-ACTIVE schema.
+    await expect(
+      prisma.sourceSchemaWorksheet.create({
+        data: { organisation_id: organisationId, source_schema_version_id: SV_ID, logical_key: "unauthorized_extra_sheet", expected_name: "Unauthorized Extra Sheet", ordinal_hint: 14, presence: "OPTIONAL", role: "DATA" },
+      })
+    ).rejects.toThrow();
+    expect(await prisma.sourceSchemaWorksheet.count({ where: { source_schema_version_id: SV_ID } })).toBe(14);
+
+    // Attempt a new column on one of the 14 existing (now-frozen) worksheets.
+    await expect(
+      prisma.sourceSchemaColumn.create({
+        data: { organisation_id: organisationId, source_schema_worksheet_id: "dhcfg-onk-mwco-sv1-ws-overview", ordinal: 99, source_header: "Unauthorized Extra Column", presence: "OPTIONAL", declared_type: "UNKNOWN", sensitivity_class: "PUBLIC" },
+      })
+    ).rejects.toThrow();
+
+    // Attempt a new mapping profile on one of the 14 existing worksheets.
+    await expect(
+      prisma.worksheetMappingProfile.create({
+        data: { organisation_id: organisationId, source_schema_worksheet_id: "dhcfg-onk-mwco-sv1-ws-overview", name: "Unauthorized extra profile", active: false },
+      })
+    ).rejects.toThrow();
+    expect(await prisma.worksheetMappingProfile.count({ where: { source_schema_worksheet_id: "dhcfg-onk-mwco-sv1-ws-overview" } })).toBe(1);
+
+    // The R1/R2 trigger changes must not have broken the pre-existing
+    // idempotent-rerun guarantee.
+    const output = runActivation(actorUserId);
+    expect(output).toMatch(/already ACTIVE.*no-op, zero mutation, zero new audit event/);
+    const stillActive = await prisma.sourceSchemaVersion.findUniqueOrThrow({ where: { id: SV_ID } });
+    expect(stillActive.activated_at?.getTime()).toBe(afterActivation.activated_at?.getTime());
   });
 });
