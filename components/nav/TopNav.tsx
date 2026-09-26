@@ -1114,7 +1114,7 @@ function PublicNav({
         style={{
           display: 'flex',
           alignItems: 'center',
-          gap: 4,
+          gap: 'var(--bb-space-2)',
         }}
       >
         <NavItem
@@ -1179,7 +1179,7 @@ function PublicNav({
             letterSpacing: '.01em',
             transition:
               'opacity var(--bb-duration-fast)',
-            marginLeft: 4,
+            marginLeft: 'var(--bb-space-2)',
           }}
           onMouseEnter={e => {
             e.currentTarget.style.opacity =
@@ -1377,7 +1377,7 @@ function AppNav({
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          gap: 2,
+          gap: 'var(--bb-space-1)',
           flex: 1,
           minWidth: 0,
           overflowX: 'auto',
@@ -1827,7 +1827,7 @@ function AppNav({
             textDecoration: 'none',
             padding:
               '4px 8px 4px 5px',
-            borderRadius: 20,
+            borderRadius: 'var(--bb-radius-pill)',
             transition: 'all var(--bb-duration-fast) var(--bb-ease-standard)',
             background:
               pathname.startsWith(
