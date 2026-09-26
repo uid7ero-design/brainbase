@@ -66,8 +66,8 @@ describe('ItemDrawer — portaled to document.body (PR #214 drawer-occlusion fix
   it('still renders the exact same drawer markup (overlay + panel) into the portaled content — this is a mounting-mechanism change only, not a redesign', () => {
     const block = itemDrawerBlock()
     expect(block).toMatch(/const drawerContent = \(/)
-    expect(block).toMatch(/position: "fixed", inset: 0, zIndex: 200, display: "flex", justifyContent: "flex-end"/)
-    expect(block).toMatch(/animation: "drawer-in \.18s ease"/)
+    expect(block).toMatch(/position: "fixed", inset: 0, zIndex: "var\(--bb-z-drawer\)", display: "flex", justifyContent: "flex-end"/)
+    expect(block).toMatch(/animation: "drawer-in var\(--bb-duration-base\) var\(--bb-ease-standard\)"/)
   })
 })
 

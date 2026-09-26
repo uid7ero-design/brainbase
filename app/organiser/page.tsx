@@ -1492,24 +1492,24 @@ function ItemDrawer({
   // already uses for its own dropdown menus (see its own comment there).
   // No layout/offset math needed — once escaped, 200 already beats both.
   const drawerContent = (
-    <div style={{ position: "fixed", inset: 0, zIndex: 200, display: "flex", justifyContent: "flex-end" }}>
-      <div onClick={onClose} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,.45)" }} />
+    <div style={{ position: "fixed", inset: 0, zIndex: "var(--bb-z-drawer)", display: "flex", justifyContent: "flex-end" }}>
+      <div onClick={onClose} style={{ position: "absolute", inset: 0, background: "var(--bb-scrim)" }} />
       <div style={{
         position: "relative", width: 400, maxWidth: "92vw", height: "100%",
-        background: t.panelBgSolid, borderLeft: `1px solid ${t.ink(.08)}`,
-        display: "flex", flexDirection: "column", boxShadow: "-16px 0 40px rgba(0,0,0,.5)",
-        animation: "drawer-in .18s ease",
+        background: "var(--bb-surface-1)", borderLeft: "1px solid var(--bb-border-default)",
+        display: "flex", flexDirection: "column", boxShadow: "var(--bb-shadow-modal)",
+        animation: "drawer-in var(--bb-duration-base) var(--bb-ease-standard)",
       }}>
-        <div style={{ padding: "16px 18px", borderBottom: `1px solid ${t.ink(.06)}`, display: "flex", alignItems: "flex-start", gap: 10 }}>
+        <div style={{ padding: "var(--bb-space-6) var(--bb-space-7)", borderBottom: "1px solid var(--bb-border-subtle)", display: "flex", alignItems: "flex-start", gap: "var(--bb-space-5)" }}>
           <div style={{ flex: 1 }}>
             <InlineText value={item.name} bold onSave={v => onUpdate(item.id, { name: v })} status={saveStatus[`item:${item.id}:name`]} />
           </div>
-          <button onClick={onClose} style={{ width: 26, height: 26, borderRadius: 7, background: t.ink(.05), border: `1px solid ${t.ink(.08)}`, color: t.ink(.5), cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+          <button onClick={onClose} style={{ width: 26, height: 26, borderRadius: "var(--bb-radius-md)", background: "var(--bb-surface-soft)", border: "1px solid var(--bb-border-default)", color: "var(--bb-text-secondary)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
           </button>
         </div>
 
-        <div style={{ flex: 1, overflowY: "auto", padding: "16px 18px", display: "flex", flexDirection: "column", gap: 16 }}>
+        <div style={{ flex: 1, overflowY: "auto", padding: "var(--bb-space-6) var(--bb-space-7)", display: "flex", flexDirection: "column", gap: "var(--bb-space-6)" }}>
           <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
             <Field label="Status" status={saveStatus[`item:${item.id}:status`]}><PillSelect value={item.status} options={STATUS_OPTIONS} colorFor={statusColor} onChange={v => onUpdate(item.id, { status: v })} /></Field>
             <Field label="Priority" status={saveStatus[`item:${item.id}:priority`]}><PillSelect value={item.priority ?? ""} options={PRIORITY_OPTIONS} colorFor={priorityColor} onChange={v => onUpdate(item.id, { priority: v })} placeholder="None" /></Field>
@@ -1517,12 +1517,12 @@ function ItemDrawer({
           <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
             <Field label="Due date" status={saveStatus[`item:${item.id}:due_date`]}>
               <input type="date" value={item.due_date ?? ""} onChange={e => onUpdate(item.id, { due_date: e.target.value || null })}
-                style={{ background: t.ink(.04), border: `1px solid ${t.ink(.08)}`, borderRadius: 6, padding: "5px 8px", fontSize: 12, color: t.ink(.90), fontFamily: FONT, colorScheme: "dark" }} />
+                style={{ background: "var(--bb-surface-soft)", border: "1px solid var(--bb-border-default)", borderRadius: "var(--bb-radius-sm)", padding: "5px 8px", fontSize: 12, color: "var(--bb-text-primary)", fontFamily: FONT, colorScheme: "dark" }} />
             </Field>
             <Field label="Owner">
               <input value={item.owner ?? ""} onChange={e => onUpdate(item.id, { owner: e.target.value })}
                 placeholder="Unassigned"
-                style={{ background: t.ink(.04), border: `1px solid ${t.ink(.08)}`, borderRadius: 6, padding: "5px 8px", fontSize: 12, color: t.ink(.90), fontFamily: FONT, width: 140 }} />
+                style={{ background: "var(--bb-surface-soft)", border: "1px solid var(--bb-border-default)", borderRadius: "var(--bb-radius-sm)", padding: "5px 8px", fontSize: 12, color: "var(--bb-text-primary)", fontFamily: FONT, width: 140 }} />
             </Field>
           </div>
 
@@ -1551,28 +1551,28 @@ function ItemDrawer({
               onBlur={flushNotesNow}
               rows={4}
               placeholder="Add notes…"
-              style={{ background: t.ink(.04), border: `1px solid ${t.ink(.08)}`, borderRadius: 8, padding: "8px 10px", fontSize: 12.5, color: t.ink(.90), fontFamily: FONT, resize: "vertical", width: "100%" }}
+              style={{ background: "var(--bb-surface-soft)", border: "1px solid var(--bb-border-default)", borderRadius: "var(--bb-radius-md)", padding: "8px 10px", fontSize: 12.5, color: "var(--bb-text-primary)", fontFamily: FONT, resize: "vertical", width: "100%" }}
             />
           </Field>
 
           <div>
-            <div style={{ ...SECTION_LABEL, color: t.ink(.30) }}>Files</div>
+            <div style={{ ...SECTION_LABEL, color: "var(--bb-text-muted)" }}>Files</div>
             <input ref={fileRef} type="file" style={{ display: "none" }} onChange={e => { const f = e.target.files?.[0]; if (f) uploadFile(f); e.target.value = ""; }} />
             <button onClick={() => fileRef.current?.click()} disabled={uploadingFile} style={{ ...btnStyle(false, t), marginBottom: 8 }}>
               {uploadingFile ? "Uploading…" : "+ Attach file"}
             </button>
             {fileError && (
-              <div style={{ fontSize: 11, color: "#EF4444", marginBottom: 6 }}>{fileError}</div>
+              <div style={{ fontSize: 11, color: "var(--bb-danger)", marginBottom: 6 }}>{fileError}</div>
             )}
             {files.length === 0 ? (
-              <div style={{ fontSize: 11, color: t.ink(.25) }}>No files attached.</div>
+              <div style={{ fontSize: 11, color: "var(--bb-text-muted)" }}>No files attached.</div>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 {files.map(f => (
-                  <div key={f.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 9px", borderRadius: 7, background: t.ink(.03), border: `1px solid ${t.ink(.06)}` }}>
-                    <a href={f.file_url} target="_blank" rel="noreferrer" style={{ flex: 1, fontSize: 11.5, color: "#a5b4fc", textDecoration: "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.file_name}</a>
-                    <span style={{ fontSize: 9.5, color: t.ink(.25) }}>{f.file_size ? `${Math.round(f.file_size / 1024)} KB` : ""}</span>
-                    <button onClick={() => deleteFile(f.id)} style={{ background: "transparent", border: "none", color: "rgba(239,68,68,.6)", cursor: "pointer", fontSize: 14, flexShrink: 0 }}>×</button>
+                  <div key={f.id} style={{ display: "flex", alignItems: "center", gap: "var(--bb-space-4)", padding: "7px 9px", borderRadius: "var(--bb-radius-md)", background: "var(--bb-surface-soft)", border: "1px solid var(--bb-border-subtle)" }}>
+                    <a href={f.file_url} target="_blank" rel="noreferrer" style={{ flex: 1, fontSize: 11.5, color: "var(--bb-accent-400)", textDecoration: "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.file_name}</a>
+                    <span style={{ fontSize: 9.5, color: "var(--bb-text-muted)" }}>{f.file_size ? `${Math.round(f.file_size / 1024)} KB` : ""}</span>
+                    <button onClick={() => deleteFile(f.id)} style={{ background: "transparent", border: "none", color: "var(--bb-danger)", cursor: "pointer", fontSize: 14, flexShrink: 0 }}>×</button>
                   </div>
                 ))}
               </div>
@@ -1580,24 +1580,24 @@ function ItemDrawer({
           </div>
 
           <div>
-            <div style={{ ...SECTION_LABEL, color: t.ink(.30) }}>Updates</div>
+            <div style={{ ...SECTION_LABEL, color: "var(--bb-text-muted)" }}>Updates</div>
             <textarea
               value={newUpdate} onChange={e => setNewUpdate(e.target.value)} rows={2}
               placeholder="Post an update…"
-              style={{ width: "100%", background: t.ink(.04), border: `1px solid ${t.ink(.08)}`, borderRadius: 8, padding: "6px 9px", fontSize: 11.5, color: t.ink(.90), fontFamily: FONT, resize: "vertical", marginBottom: 6 }}
+              style={{ width: "100%", background: "var(--bb-surface-soft)", border: "1px solid var(--bb-border-default)", borderRadius: "var(--bb-radius-md)", padding: "6px 9px", fontSize: 11.5, color: "var(--bb-text-primary)", fontFamily: FONT, resize: "vertical", marginBottom: 6 }}
             />
             <button onClick={addUpdate} disabled={!newUpdate.trim()} style={{ ...btnStyle(true, t), marginBottom: 10 }}>Post update</button>
             {updateError && (
-              <div style={{ fontSize: 11, color: "#EF4444", marginBottom: 8 }}>{updateError}</div>
+              <div style={{ fontSize: 11, color: "var(--bb-danger)", marginBottom: 8 }}>{updateError}</div>
             )}
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {updates.map(u => (
-                <div key={u.id} style={{ padding: "8px 10px", borderRadius: 8, background: t.ink(.025), border: `1px solid ${t.ink(.05)}` }}>
+                <div key={u.id} style={{ padding: "8px 10px", borderRadius: "var(--bb-radius-md)", background: "var(--bb-surface-soft)", border: "1px solid var(--bb-border-subtle)" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3, gap: 8 }}>
-                    <span style={{ fontSize: 10.5, fontWeight: 600, color: t.ink(.6) }}>{u.author_name || "Someone"}</span>
-                    <span style={{ fontSize: 9.5, color: t.ink(.25), flexShrink: 0 }}>{new Date(u.created_at).toLocaleString()}</span>
+                    <span style={{ fontSize: 10.5, fontWeight: 600, color: "var(--bb-text-secondary)" }}>{u.author_name || "Someone"}</span>
+                    <span style={{ fontSize: 9.5, color: "var(--bb-text-muted)", flexShrink: 0 }}>{new Date(u.created_at).toLocaleString()}</span>
                   </div>
-                  <div style={{ fontSize: 11.5, color: t.ink(.8), lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{u.body}</div>
+                  <div style={{ fontSize: 11.5, color: "var(--bb-text-primary)", lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{u.body}</div>
                 </div>
               ))}
             </div>
@@ -1607,12 +1607,12 @@ function ItemDrawer({
 
           {fieldEntries.length > 0 && (
             <div>
-              <div style={{ ...SECTION_LABEL, color: t.ink(.30) }}>Imported fields</div>
+              <div style={{ ...SECTION_LABEL, color: "var(--bb-text-muted)" }}>Imported fields</div>
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 {fieldEntries.map(([k, v]) => (
-                  <div key={k} style={{ fontSize: 11.5, lineHeight: 1.5, padding: "6px 9px", borderRadius: 7, background: t.ink(.03), border: `1px solid ${t.ink(.05)}` }}>
-                    <div style={{ color: t.ink(.35), fontWeight: 600, marginBottom: 1, textTransform: "capitalize" }}>{k}</div>
-                    <div style={{ color: t.ink(.75) }}>{v}</div>
+                  <div key={k} style={{ fontSize: 11.5, lineHeight: 1.5, padding: "6px 9px", borderRadius: "var(--bb-radius-md)", background: "var(--bb-surface-soft)", border: "1px solid var(--bb-border-subtle)" }}>
+                    <div style={{ color: "var(--bb-text-tertiary)", fontWeight: 600, marginBottom: 1, textTransform: "capitalize" }}>{k}</div>
+                    <div style={{ color: "var(--bb-text-secondary)" }}>{v}</div>
                   </div>
                 ))}
               </div>
@@ -1627,10 +1627,9 @@ function ItemDrawer({
 }
 
 function Field({ label, children, status }: { label: string; children: React.ReactNode; status?: SaveStatus }) {
-  const t = useOpsTheme();
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-      <span style={{ display: "flex", alignItems: "center", fontSize: 9.5, fontWeight: 700, letterSpacing: ".08em", color: t.ink(.30), textTransform: "uppercase" }}>
+      <span style={{ display: "flex", alignItems: "center", fontSize: "var(--bb-type-micro-size)", fontWeight: 700, letterSpacing: "var(--bb-type-micro-tracking)", color: "var(--bb-text-muted)", textTransform: "uppercase" }}>
         {label}
         <SaveStatusText status={status} />
       </span>
