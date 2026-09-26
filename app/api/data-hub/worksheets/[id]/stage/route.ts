@@ -3,7 +3,6 @@ import { requireRole } from "@/lib/org";
 import { createOrResumeStagingRun, markRunFailed, type ActiveStagingRun } from "@/lib/data-hub/staging/dataHubRawStagingRun";
 import { stageBatches, type StageBatchesFailureCode } from "@/lib/data-hub/staging/stageWorksheetRows";
 import { completeStagingRun, type CompleteStagingRunFailureCode } from "@/lib/data-hub/staging/completionGate";
-import { resolveStagingEligibility } from "@/lib/data-hub/staging/eligibility";
 import { resolveMaxDurationMs } from "@/lib/data-hub/staging/stagingConfig";
 import { getMessageTemplate, type FailureCode } from "@/lib/data-hub/importBatch/failureTaxonomy";
 
@@ -145,12 +144,12 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
       return NextResponse.json({ ok: true, status: "SUCCEEDED", alreadyStaged: true }, { status: 200, headers: CACHE_HEADERS });
     }
 
-    const eligibility = await resolveStagingEligibility({ organisationId: session.organisationId, uploadId });
-    if (!eligibility.ok) {
-      return NextResponse.json({ ok: false, error: getMessageTemplate(eligibility.code as FailureCode), code: eligibility.code }, { status: 409, headers: CACHE_HEADERS });
-    }
-
-    const batchResult = await stageBatches(created.run, eligibility.governedColumns, resolveMaxDurationMs());
+    // REMEDIATION: governedColumns/headerRowOneBased/etc. come exclusively
+    // from created.run (the run's own pinned context on resume, or the
+    // fresh eligibility check on creation) — never a second, independent
+    // eligibility lookup here, which would re-resolve against today's
+    // active profile pointer regardless of what this specific run pinned.
+    const batchResult = await stageBatches(created.run, resolveMaxDurationMs());
     if (!batchResult.ok) {
       return respondToFailure(session.organisationId, created.run, batchResult.code!);
     }

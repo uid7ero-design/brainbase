@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import sql from "../../db";
-import { resolveStagingEligibility } from "./eligibility";
 import { readWorksheetDataRows, type WorksheetDataRow } from "../workbookParser";
 import { buildImportBatchKey, RawFileStoreError } from "../storage/rawFileStore";
 import { createImportBatchStorage } from "../importBatch/compositionRoot";
@@ -73,14 +72,19 @@ function buildBatchPayload(rows: WorksheetDataRow[]): unknown[] {
  * report's resume-cursor decision). Returns without completing the run —
  * completion is a separate, explicit step (completionGate.ts) once
  * `exhausted` is true.
+ *
+ * REMEDIATION: never calls resolveStagingEligibility (which would
+ * re-resolve header/column/hash semantics from today's ACTIVE profile
+ * pointer). Every value this function needs — governedColumns,
+ * headerRowOneBased, worksheetIndex, originalFilename, sourceSha256 — comes
+ * from the CALLER-SUPPLIED `run` (an ActiveStagingRun), which was itself
+ * resolved either from a brand-new run's eligibility check or from an
+ * existing run's own pinned context (see dataHubRawStagingRun.ts). This is
+ * what makes an already-pinned run's execution semantics immune to the
+ * active profile pointer moving between requests.
  */
-export async function stageBatches(
-  run: ActiveStagingRun,
-  governedColumns: import("../workbookParser").GovernedColumnAddress[],
-  maxDurationMs: number
-): Promise<StageBatchesResult> {
-  const eligibility = await resolveStagingEligibility({ organisationId: run.organisationId, uploadId: run.uploadId });
-  if (!eligibility.ok) return { ok: false, code: "PARSER_REJECTED", exhausted: false, persistedRowCount: run.persistedRowCount, persistedCellCount: run.persistedCellCount };
+export async function stageBatches(run: ActiveStagingRun, maxDurationMs: number): Promise<StageBatchesResult> {
+  const governedColumns = run.governedColumns;
 
   const storage = createImportBatchStorage();
   let stored;
@@ -93,7 +97,7 @@ export async function stageBatches(
     return { ok: false, code: "PROVIDER_FAILURE", exhausted: false, persistedRowCount: run.persistedRowCount, persistedCellCount: run.persistedCellCount };
   }
   const { createHash } = await import("node:crypto");
-  if (createHash("sha256").update(stored.body).digest("hex") !== eligibility.sha256) {
+  if (createHash("sha256").update(stored.body).digest("hex") !== run.sourceSha256) {
     return { ok: false, code: "STORAGE_INTEGRITY_MISMATCH", exhausted: false, persistedRowCount: run.persistedRowCount, persistedCellCount: run.persistedCellCount };
   }
 
@@ -128,7 +132,7 @@ export async function stageBatches(
     try {
       page = await readWorksheetDataRows(
         stored.body,
-        { filename: eligibility.originalFilename },
+        { filename: run.originalFilename },
         {
           index: run.worksheetIndex,
           headerRowOneBased: run.headerRowOneBased,

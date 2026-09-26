@@ -331,4 +331,149 @@ describe("6.2D4B remediation — route-level multi-request continuation integrat
     expect(rows).toHaveLength(6);
     expect(new Set(rows.map((r) => r.source_row_number)).size).toBe(6);
   });
+
+  // ─────────────────────────────────────────────────────────────────────
+  // Remediation — pinned-profile resume correction (item 4).
+  // ─────────────────────────────────────────────────────────────────────
+
+  it("pointer-flip: a run pinned to profile v1 keeps using v1's header semantics even after v2 becomes active mid-run, and only a FUTURE new run would ever see v2", async () => {
+    const importBatchId = "int-batch-flip";
+    const uploadId = "int-upload-flip";
+    await seedGovernedWorkbook({ importBatchId, uploadId, dataRowCount: 10 });
+
+    const profileId = `${importBatchId}-wp`;
+    const v1Id = `${importBatchId}-wpv`; // created by seedGovernedWorkbook, headerRowOneBased: 1
+
+    // POST #1: pins v1, stages a partial batch, gracefully yields.
+    process.env.DATAHUB_STAGE_TARGET_CELLS_PER_BATCH_TEST_OVERRIDE = "2";
+    process.env.DATAHUB_STAGE_MAX_DURATION_MS_TEST_OVERRIDE = "1";
+    asSession({ organisationId: ORG, userId: MANAGER_A, role: "manager" });
+    const first = stageRequest(uploadId);
+    const res1 = await POST_stage(first.req, { params: first.params });
+    expect(res1.status).toBe(202);
+
+    const runAfterFirst = await prisma.dataHubRawStagingRun.findFirstOrThrow({ where: { organisation_id: ORG, upload_id: uploadId, status: "RUNNING" } });
+    expect(runAfterFirst.worksheet_mapping_profile_version_id).toBe(v1Id);
+    const persistedAfterFirst = runAfterFirst.persisted_row_count;
+    expect(persistedAfterFirst).toBeGreaterThan(0);
+    expect(persistedAfterFirst).toBeLessThan(10);
+
+    // Between requests: create and activate profile v2 for the SAME
+    // worksheet, with a DELIBERATELY DIFFERENT headerRowOneBased (2, not
+    // 1) — a purely test-fixture-level DB write simulating a real
+    // governance activation, not touching any real activation script.
+    // If v2 were (incorrectly) used to resume, physical row 2 would be
+    // reinterpreted as the header, and only 9 (not 10) data rows would
+    // ever be reachable — an observable, unambiguous difference.
+    const v2Id = `${importBatchId}-wpv2`;
+    await prisma.worksheetMappingProfileVersion.create({
+      // headerRowOneBased is deliberately set WELL AHEAD of wherever
+      // POST #1 leaves the resume cursor (never just +1) — if this were
+      // (incorrectly) used to resume, it would skip several already-
+      // reachable rows entirely (Math.max(pinnedHeaderRow, cursor) in
+      // readWorksheetDataRows), which the completion gate's own count
+      // reconciliation would then reject. A too-small difference (e.g.
+      // +1) can coincide with the resume cursor already being past it,
+      // masking the bug — this value is chosen specifically to avoid that.
+      data: { id: v2Id, organisation_id: ORG, worksheet_mapping_profile_id: profileId, version_number: 2, disposition: "STAGING_DATASET", profile_document: { documentVersion: 1, headerRowOneBased: 6, schemaStatus: "ACTIVE" } },
+    });
+    await prisma.worksheetMappingProfile.update({ where: { id: profileId }, data: { active_profile_version_id: v2Id } });
+
+    // POST #2, immediately, resuming.
+    delete process.env.DATAHUB_STAGE_MAX_DURATION_MS_TEST_OVERRIDE;
+    delete process.env.DATAHUB_STAGE_TARGET_CELLS_PER_BATCH_TEST_OVERRIDE;
+    asSession({ organisationId: ORG, userId: MANAGER_B, role: "manager" });
+    const second = stageRequest(uploadId);
+    const res2 = await POST_stage(second.req, { params: second.params });
+    expect(res2.status).toBe(200);
+    const body2 = await res2.json();
+    expect(body2.status).toBe("SUCCEEDED");
+
+    // Same staging run resumed — never a second run.
+    const allRuns = await prisma.dataHubRawStagingRun.findMany({ where: { organisation_id: ORG, upload_id: uploadId } });
+    expect(allRuns).toHaveLength(1);
+    expect(allRuns[0].id).toBe(runAfterFirst.id);
+    // Still pinned to v1 — completely unaffected by v2 becoming active.
+    expect(allRuns[0].worksheet_mapping_profile_version_id).toBe(v1Id);
+    expect(allRuns[0].status).toBe("SUCCEEDED");
+
+    // Final raw rows/cells are correct FOR v1 (all 10 physical rows,
+    // 2..11) — proving v1's headerRowOneBased=1 was used throughout, not
+    // v2's headerRowOneBased=6 (which, if used to resume, would have
+    // skipped ahead and produced fewer than 10 rows, failing the
+    // completion gate's own count reconciliation).
+    const allRows = await prisma.dataHubRawRow.findMany({ where: { staging_run_id: allRuns[0].id } });
+    expect(allRows).toHaveLength(10);
+    expect([...new Set(allRows.map((r) => r.source_row_number))].sort((a, b) => a - b)).toEqual(
+      Array.from({ length: 10 }, (_, i) => i + 2)
+    );
+    const allCells = await prisma.dataHubRawCell.findMany({ where: { raw_row_id: { in: allRows.map((r) => r.id) } } });
+    expect(allCells).toHaveLength(20);
+
+    // Upload.raw_profile_version_id = v1, never v2.
+    const upload = await prisma.upload.findUniqueOrThrow({ where: { id: uploadId } });
+    expect(upload.raw_profile_version_id).toBe(v1Id);
+    expect(upload.raw_staging_run_id).toBe(allRuns[0].id);
+
+    // v2 is real, active, and available — but ONLY for a FUTURE new run,
+    // never retroactively applied to this one. (Not exercised further
+    // here — a future new run for a DIFFERENT upload against the same
+    // worksheet is exactly resolveStagingEligibility's own, unchanged,
+    // job; this test's scope is proving THIS run never saw it.)
+    const profileNow = await prisma.worksheetMappingProfile.findUniqueOrThrow({ where: { id: profileId } });
+    expect(profileNow.active_profile_version_id).toBe(v2Id);
+  });
+
+  it("pointer-flip (negative form): an existing pinned run can still resume even after the CURRENT active pointer becomes unavailable/ineligible", async () => {
+    const importBatchId = "int-batch-neg";
+    const uploadId = "int-upload-neg";
+    await seedGovernedWorkbook({ importBatchId, uploadId, dataRowCount: 5 });
+
+    const profileId = `${importBatchId}-wp`;
+    const v1Id = `${importBatchId}-wpv`;
+
+    process.env.DATAHUB_STAGE_TARGET_CELLS_PER_BATCH_TEST_OVERRIDE = "2";
+    process.env.DATAHUB_STAGE_MAX_DURATION_MS_TEST_OVERRIDE = "1";
+    asSession({ organisationId: ORG, userId: MANAGER_A, role: "manager" });
+    const first = stageRequest(uploadId);
+    const res1 = await POST_stage(first.req, { params: first.params });
+    expect(res1.status).toBe(202);
+
+    const runAfterFirst = await prisma.dataHubRawStagingRun.findFirstOrThrow({ where: { organisation_id: ORG, upload_id: uploadId, status: "RUNNING" } });
+    expect(runAfterFirst.worksheet_mapping_profile_version_id).toBe(v1Id);
+
+    // The CURRENT active pointer becomes unavailable: no active version at
+    // all for this worksheet's profile (simulating e.g. a profile
+    // deactivation or a pointer cleared pending re-activation). A NEW run
+    // attempted right now would fail STAGING_INELIGIBLE — but this run is
+    // not new.
+    await prisma.worksheetMappingProfile.update({ where: { id: profileId }, data: { active_profile_version_id: null } });
+
+    delete process.env.DATAHUB_STAGE_MAX_DURATION_MS_TEST_OVERRIDE;
+    delete process.env.DATAHUB_STAGE_TARGET_CELLS_PER_BATCH_TEST_OVERRIDE;
+    asSession({ organisationId: ORG, userId: MANAGER_B, role: "manager" });
+    const second = stageRequest(uploadId);
+    const res2 = await POST_stage(second.req, { params: second.params });
+
+    // The existing pinned run resumes and completes successfully — its
+    // own pinned v1 remains structurally valid regardless of the active
+    // pointer's own current state.
+    expect(res2.status).toBe(200);
+    const body2 = await res2.json();
+    expect(body2.status).toBe("SUCCEEDED");
+
+    const runAfter = await prisma.dataHubRawStagingRun.findUniqueOrThrow({ where: { id: runAfterFirst.id } });
+    expect(runAfter.status).toBe("SUCCEEDED");
+    expect(runAfter.worksheet_mapping_profile_version_id).toBe(v1Id);
+
+    // Confirm a genuinely NEW run's own eligibility gate WOULD reject this
+    // worksheet right now — proving the negative form's premise is real,
+    // not vacuous (resolveStagingEligibility is the exact function a new
+    // run would be gated by; this run's own successful resume above never
+    // called it).
+    const { resolveStagingEligibility } = await import("@/lib/data-hub/staging/eligibility");
+    const freshEligibility = await resolveStagingEligibility({ organisationId: ORG, uploadId });
+    expect(freshEligibility.ok).toBe(false);
+    if (!freshEligibility.ok) expect(freshEligibility.code).toBe("STAGING_INELIGIBLE");
+  });
 });

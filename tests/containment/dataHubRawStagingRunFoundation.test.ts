@@ -9,6 +9,17 @@ const SQL = read("scripts/create-datahub-raw-staging-runs.sql");
 const ROLLBACK_SQL = read("scripts/rollback-datahub-raw-staging-runs.sql");
 const D4A_SQL = read("scripts/create-datahub-raw-staging.sql");
 const PRISMA = read("prisma/schema.prisma");
+const ELIGIBILITY_TS = read("lib/data-hub/staging/eligibility.ts");
+const RUN_LIFECYCLE_TS = read("lib/data-hub/staging/dataHubRawStagingRun.ts");
+const STAGE_BATCHES_TS = read("lib/data-hub/staging/stageWorksheetRows.ts");
+// Strips `//` line comments so structural/naming assertions below can never
+// be satisfied (or spuriously failed) by explanatory PROSE that happens to
+// mention a field/function name — only real code counts. Mirrors the SQL
+// containment tests' own `.replace(/--.*$/gm, "")` idiom.
+const stripComments = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+const ELIGIBILITY_CODE = stripComments(ELIGIBILITY_TS);
+const RUN_LIFECYCLE_CODE = stripComments(RUN_LIFECYCLE_TS);
+const STAGE_BATCHES_CODE = stripComments(STAGE_BATCHES_TS);
 
 describe("6.2D4B raw-staging-run foundation — static containment", () => {
   it("D4A's own migration file is completely untouched (correction 7 / plan item 1)", () => {
@@ -196,5 +207,56 @@ describe("6.2D4B raw-staging-run foundation — static containment", () => {
   it("remediation: rollback script drops the CURRENT (not the original) function signatures", () => {
     expect(ROLLBACK_SQL).toContain("DROP FUNCTION IF EXISTS public.datahub_complete_raw_staging_run(text, text, text, text);");
     expect(ROLLBACK_SQL).toContain("DROP FUNCTION IF EXISTS public.datahub_stage_raw_batch(text, text, text, jsonb, integer);");
+  });
+
+  // ─────────────────────────────────────────────────────────────────────
+  // Remediation: pinned-profile resume correction.
+  // ─────────────────────────────────────────────────────────────────────
+
+  it("remediation: resolvePinnedStagingRunContext's own CODE (comments stripped) never reads active_profile_version_id", () => {
+    const fnStart = ELIGIBILITY_CODE.indexOf("export async function resolvePinnedStagingRunContext(");
+    expect(fnStart).toBeGreaterThan(-1);
+    // Slices to end of file — this is the LAST export in the module, so
+    // this also structurally guards against a future addition being
+    // silently appended inside/after it without this test being revisited.
+    const fnBody = ELIGIBILITY_CODE.slice(fnStart);
+    expect(fnBody).not.toContain("active_profile_version_id");
+    // And, for completeness, it must never touch WorksheetMappingProfile's
+    // own delegate at all (the active-pointer table) — only
+    // WorksheetMappingProfileVersion, by exact pinned id.
+    expect(fnBody).not.toMatch(/prisma\.worksheetMappingProfile\.(findFirst|findUnique|findMany)/);
+    expect(fnBody).toContain("prisma.worksheetMappingProfileVersion.findFirst");
+  });
+
+  it("remediation: resolveStagingEligibility (the new-run-only gate) is the ONLY CODE (comments stripped) in eligibility.ts that reads active_profile_version_id", () => {
+    const occurrences = (ELIGIBILITY_CODE.match(/active_profile_version_id/g) ?? []).length;
+    const eligibilityFnStart = ELIGIBILITY_CODE.indexOf("export async function resolveStagingEligibility(");
+    const pinnedFnStart = ELIGIBILITY_CODE.indexOf("export async function resolvePinnedStagingRunContext(");
+    expect(eligibilityFnStart).toBeGreaterThan(-1);
+    expect(pinnedFnStart).toBeGreaterThan(eligibilityFnStart);
+    const eligibilityBody = ELIGIBILITY_CODE.slice(eligibilityFnStart, pinnedFnStart);
+    const occurrencesInEligibility = (eligibilityBody.match(/active_profile_version_id/g) ?? []).length;
+    expect(occurrencesInEligibility).toBeGreaterThan(0);
+    // Every occurrence in the whole file's real CODE lives inside
+    // resolveStagingEligibility — none anywhere else, including inside
+    // resolvePinnedStagingRunContext.
+    expect(occurrencesInEligibility).toBe(occurrences);
+  });
+
+  it("remediation: an existing (resumed) run never calls resolveStagingEligibility — only resolvePinnedStagingRunContext", () => {
+    const fnStart = RUN_LIFECYCLE_CODE.indexOf("export async function createOrResumeStagingRun(");
+    const existingBranchStart = RUN_LIFECYCLE_CODE.indexOf("if (existing) {", fnStart);
+    // The branch ends where the new-run path's own eligibility call begins.
+    const newRunEligibilityIdx = RUN_LIFECYCLE_CODE.indexOf("resolveStagingEligibility({ organisationId, uploadId })", existingBranchStart);
+    expect(existingBranchStart).toBeGreaterThan(-1);
+    expect(newRunEligibilityIdx).toBeGreaterThan(existingBranchStart);
+    const existingBranchBody = RUN_LIFECYCLE_CODE.slice(existingBranchStart, newRunEligibilityIdx);
+    expect(existingBranchBody).not.toContain("resolveStagingEligibility(");
+    expect(existingBranchBody).toContain("resolvePinnedStagingRunContext(");
+  });
+
+  it("remediation: stageBatches never calls resolveStagingEligibility (it derives everything from the caller-supplied pinned run context)", () => {
+    expect(STAGE_BATCHES_CODE).not.toContain("resolveStagingEligibility");
+    expect(STAGE_BATCHES_CODE).not.toMatch(/import\s*{\s*resolveStagingEligibility/);
   });
 });

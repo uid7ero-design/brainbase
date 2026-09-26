@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { prisma } from "../../prisma";
 import sql from "../../db";
-import { resolveStagingEligibility } from "./eligibility";
-import { readWorksheetDataRows } from "../workbookParser";
+import { resolveStagingEligibility, resolvePinnedStagingRunContext } from "./eligibility";
+import { readWorksheetDataRows, type GovernedColumnAddress } from "../workbookParser";
 import { buildImportBatchKey, RawFileStoreError } from "../storage/rawFileStore";
 import { createImportBatchStorage } from "../importBatch/compositionRoot";
 import { MAX_SOURCE_FILE_BYTES } from "../limits";
@@ -41,6 +41,10 @@ export interface ActiveStagingRun {
   headerRowOneBased: number;
   worksheetIndex: number;
   originalFilename: string;
+  // REMEDIATION: pinned at resolution time (new-run eligibility, or the
+  // existing run's own pinned context — never re-derived mid-batch-loop).
+  sourceSha256: string;
+  governedColumns: GovernedColumnAddress[];
   expectedRowCount: number;
   expectedCellCount: number;
   persistedRowCount: number;
@@ -93,19 +97,28 @@ export async function createOrResumeStagingRun(context: {
 
   const newToken = randomUUID();
 
-  // Re-derived on BOTH the resume and fresh-attempt paths — cheap, read-only,
-  // and needed either way to know how to read the workbook (worksheet
-  // index/header row/governed columns aren't stored redundantly on the run
-  // row itself beyond the pinned worksheet_mapping_profile_version_id).
-  const eligibility = await resolveStagingEligibility({ organisationId, uploadId });
-  if (!eligibility.ok) return { ok: false, code: eligibility.code };
-
+  // REMEDIATION: an EXISTING run is NEVER resolved via
+  // resolveStagingEligibility (which follows today's
+  // active_profile_version_id) — it is resolved EXCLUSIVELY via
+  // resolvePinnedStagingRunContext, from the run's own immutably-pinned
+  // IDs. resolveStagingEligibility is called ONLY further below, on the
+  // genuinely-new-run path.
   if (existing) {
     const took = await tryTakeoverExisting(existing.id, organisationId, newToken, leaseSeconds);
     if (!took) return { ok: false, code: "RUN_ALREADY_IN_PROGRESS" };
     const run = await prisma.dataHubRawStagingRun.findFirstOrThrow({
       where: { id: existing.id, organisation_id: organisationId },
     });
+    const pinned = await resolvePinnedStagingRunContext({
+      organisationId,
+      uploadId: run.upload_id,
+      importBatchId: run.import_batch_id,
+      sourceSchemaVersionId: run.source_schema_version_id,
+      sourceSchemaWorksheetId: run.source_schema_worksheet_id,
+      worksheetMappingProfileId: run.worksheet_mapping_profile_id,
+      worksheetMappingProfileVersionId: run.worksheet_mapping_profile_version_id,
+    });
+    if (!pinned.ok) return { ok: false, code: pinned.code };
     return {
       ok: true,
       alreadyStaged: false,
@@ -117,11 +130,16 @@ export async function createOrResumeStagingRun(context: {
         sourceSchemaVersionId: run.source_schema_version_id,
         sourceSchemaWorksheetId: run.source_schema_worksheet_id,
         worksheetMappingProfileId: run.worksheet_mapping_profile_id,
+        // Reported verbatim from the run row itself — NEVER from `pinned`
+        // (which, being derived from the same immutable IDs, will always
+        // agree, but the run row is the one authoritative source).
         worksheetMappingProfileVersionId: run.worksheet_mapping_profile_version_id,
         executionToken: newToken,
-        headerRowOneBased: eligibility.headerRowOneBased,
-        worksheetIndex: eligibility.worksheetIndex,
-        originalFilename: eligibility.originalFilename,
+        headerRowOneBased: pinned.headerRowOneBased,
+        worksheetIndex: pinned.worksheetIndex,
+        originalFilename: pinned.originalFilename,
+        sourceSha256: pinned.sha256,
+        governedColumns: pinned.governedColumns,
         expectedRowCount: run.expected_row_count ?? 0,
         expectedCellCount: run.expected_cell_count ?? 0,
         persistedRowCount: run.persisted_row_count,
@@ -129,6 +147,12 @@ export async function createOrResumeStagingRun(context: {
       },
     };
   }
+
+  // Genuinely new run — resolveStagingEligibility is the correct, and
+  // only, gate here: it resolves TODAY's active profile version and pins
+  // it onto the run being created.
+  const eligibility = await resolveStagingEligibility({ organisationId, uploadId });
+  if (!eligibility.ok) return { ok: false, code: eligibility.code };
 
   const storage = createImportBatchStorage();
   let stored;
@@ -219,6 +243,8 @@ export async function createOrResumeStagingRun(context: {
       headerRowOneBased: eligibility.headerRowOneBased,
       worksheetIndex: eligibility.worksheetIndex,
       originalFilename: eligibility.originalFilename,
+      sourceSha256: eligibility.sha256,
+      governedColumns: eligibility.governedColumns,
       expectedRowCount,
       expectedCellCount,
       persistedRowCount: 0,
