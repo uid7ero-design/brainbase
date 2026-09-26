@@ -245,11 +245,12 @@ describe('Phase D.2 — ambient/assistant HlnaOrb usage is preserved where it ex
     expect(authShellSource).toContain('BrainbaseLockup')
   })
 
-  it('demo keeps its two functional assistant-state HlnaOrb instances untouched (state driven by `thinking`)', () => {
+  it('demo keeps the functional assistant-state dock orb while the decorative hero lens is replaced', () => {
     expect(demoSource).toContain("import { HlnaOrb } from '@/components/brand/HlnaOrb'")
     const hlnaOrbCount = (demoSource.match(/<HlnaOrb/g) ?? []).length
-    expect(hlnaOrbCount).toBe(2)
+    expect(hlnaOrbCount).toBe(1)
     expect(demoSource).toMatch(/state=\{\s*\n?\s*thinking/)
+    expect(demoSource).toContain('className={styles.heroSignal}')
   })
 
   it('web-systems, request-demo, client-operations, client-operations/demo, connect, and PublicEventClient had no HlnaOrb to preserve — confirms nothing was accidentally added', () => {

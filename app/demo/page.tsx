@@ -87,15 +87,10 @@ export default function DemoPage() {
       {/* HERO */}
       <section className={`${styles.hero} bb-grid-bg`} aria-labelledby="demo-title">
         <Container className={styles.heroInner}>
-          <div className={styles.orbWrap}>
-            <HlnaOrb
-              size={100}
-              state={
-                thinking
-                  ? 'thinking'
-                  : 'idle'
-              }
-            />
+          <div className={styles.heroSignal} aria-hidden="true">
+            <span className={styles.heroSignalCore} />
+            <span className={styles.heroSignalRing} />
+            <span className={styles.heroSignalNode} />
           </div>
 
           <DemoBadge />

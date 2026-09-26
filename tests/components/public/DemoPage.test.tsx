@@ -59,9 +59,9 @@ describe('/demo', () => {
     }
   })
 
-  it('renders both functional HLNA orbs', () => {
+  it('keeps the functional HLNA dock orb while the decorative hero lens is removed', () => {
     const { container } = setup()
-    expect(container.querySelectorAll('img[src*="hlna-orb"]').length).toBeGreaterThanOrEqual(2)
+    expect(container.querySelectorAll('img[src*="hlna-orb"]').length).toBe(1)
   })
 
   it('tabs follow the WAI-ARIA pattern and switch views from the keyboard', async () => {
