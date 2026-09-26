@@ -1,13 +1,11 @@
 import Link from 'next/link';
+import { SectionHeader, Surface } from '@/components/ui';
 
 export const metadata = {
   title: 'Terms of Use',
   description:
     'The website terms of use for Brainbase (trading as BRΛINBΛSE), covering use of thebrainbase.com.au.',
 };
-
-const FONT =
-  'var(--font-inter), "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
 
 function Section({
   title,
@@ -17,14 +15,15 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <section style={{ marginBottom: 34 }}>
+    <section style={{ marginBottom: 'var(--bb-space-9)' }}>
       <h2
         style={{
-          fontSize: 16,
-          fontWeight: 700,
-          color: '#F5F7FA',
-          margin: '0 0 10px',
-          letterSpacing: '-.01em',
+          fontSize: 'var(--bb-type-card-title-size)',
+          lineHeight: 'var(--bb-type-card-title-line)',
+          fontWeight: 'var(--bb-type-card-title-weight)',
+          color: 'var(--bb-text-primary)',
+          margin: '0 0 var(--bb-space-4)',
+          letterSpacing: 'var(--bb-type-card-title-tracking)',
         }}
       >
         {title}
@@ -32,8 +31,8 @@ function Section({
 
       <div
         style={{
-          fontSize: 13.5,
-          color: 'rgba(226,232,240,.62)',
+          fontSize: 'var(--bb-type-body-size)',
+          color: 'var(--bb-text-secondary)',
           lineHeight: 1.75,
         }}
       >
@@ -51,7 +50,7 @@ function List({ items }: { items: React.ReactNode[] }) {
         paddingLeft: 20,
         display: 'flex',
         flexDirection: 'column',
-        gap: 6,
+        gap: 'var(--bb-space-3)',
       }}
     >
       {items.map((item, index) => (
@@ -61,16 +60,16 @@ function List({ items }: { items: React.ReactNode[] }) {
   );
 }
 
-const linkStyle = { color: '#A78BFA' };
+const linkStyle = { color: 'var(--bb-accent-400)' };
 
 export default function TermsPage() {
   return (
     <div
       style={{
         minHeight: '100vh',
-        background: '#07080B',
-        color: '#F5F7FA',
-        fontFamily: FONT,
+        background: 'var(--bb-canvas)',
+        color: 'var(--bb-text-primary)',
+        fontFamily: 'var(--bb-font-sans)',
         padding: '48px 24px 90px',
       }}
     >
@@ -78,31 +77,25 @@ export default function TermsPage() {
         <Link
           href="/"
           style={{
-            fontSize: 11,
-            color: 'rgba(255,255,255,.34)',
+            fontSize: 'var(--bb-type-label-size)',
+            color: 'var(--bb-text-muted)',
             textDecoration: 'none',
           }}
         >
           ← Back to BRΛINBΛSE
         </Link>
 
-        <div style={{ marginTop: 30, marginBottom: 40 }}>
-          <h1
-            style={{
-              fontSize: 30,
-              fontWeight: 700,
-              margin: '0 0 8px',
-              letterSpacing: '-.03em',
-            }}
-          >
-            Terms of Use
-          </h1>
+        <SectionHeader
+          title="Terms of Use"
+          description="Last updated: 24 August 2026"
+          style={{ marginTop: 'var(--bb-space-9)', marginBottom: 'var(--bb-space-10)' }}
+        />
 
-          <p style={{ margin: 0, fontSize: 12.5, color: 'rgba(255,255,255,.35)' }}>
-            Last updated: 24 August 2026
-          </p>
-        </div>
-
+        <Surface
+          variant="soft"
+          radius="xl"
+          style={{ padding: 'var(--bb-space-8)' }}
+        >
         <Section title="1. Acceptance of terms">
           <p style={{ margin: 0 }}>
             By accessing or using thebrainbase.com.au (the
@@ -254,6 +247,7 @@ export default function TermsPage() {
             .
           </p>
         </Section>
+        </Surface>
       </div>
     </div>
   );
