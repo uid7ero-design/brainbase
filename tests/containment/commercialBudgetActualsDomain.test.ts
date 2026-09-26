@@ -21,6 +21,7 @@ const raw = (overrides: Partial<RawBudgetActualRow> = {}): RawBudgetActualRow =>
   bill_currency: 'AUD',
   purchase_order_currency: 'AUD',
   posted_at: '2026-09-15T12:00:00.000Z',
+  bill_date: '2026-09-10',
   line_subtotal_cents: '10000',
   line_tax_cents: '1000',
   line_total_cents: '11000',
@@ -33,6 +34,10 @@ const raw = (overrides: Partial<RawBudgetActualRow> = {}): RawBudgetActualRow =>
   financial_period_status: 'OPEN',
   financial_year_id: 'fy-1',
   financial_year_name: 'FY2026-27',
+  bill_period_match_count: 1,
+  bill_financial_period_id: 'fp-1',
+  bill_financial_period_name: 'September 2026',
+  bill_financial_period_status: 'OPEN',
   ...overrides,
 });
 
@@ -84,6 +89,49 @@ describe('C7.8A — derived Budget Actual domain', () => {
     const actual = deriveBudgetActualLine(raw({ bill_currency: 'USD' }));
     expect(actual.exceptionCodes).toContain('SOURCE_CURRENCY_MISMATCH');
     expect(actual.currency).toBe('USD');
+  });
+
+  it('flags a late bill from a prior OPEN period without changing posted_at recognition', () => {
+    const actual = deriveBudgetActualLine(raw({
+      bill_date: '2026-08-20',
+      bill_period_match_count: 1,
+      bill_financial_period_id: 'fp-aug',
+      bill_financial_period_name: 'August 2026',
+      bill_financial_period_status: 'OPEN',
+    }));
+    expect(actual.exceptionCodes).toContain('LATE_BILL_PRIOR_PERIOD');
+    expect(actual.exceptionCodes).not.toContain('LATE_BILL_CLOSED_PERIOD');
+    expect(actual.financialPeriodId).toBe('fp-1');
+    expect(actual.recognisedAt).toBe('2026-09-15T12:00:00.000Z');
+  });
+
+  it('adds LATE_BILL_CLOSED_PERIOD when the bill-date period is CLOSED', () => {
+    const actual = deriveBudgetActualLine(raw({
+      bill_date: '2026-08-20',
+      bill_period_match_count: 1,
+      bill_financial_period_id: 'fp-aug',
+      bill_financial_period_name: 'August 2026',
+      bill_financial_period_status: 'CLOSED',
+    }));
+    expect(actual.exceptionCodes).toEqual(expect.arrayContaining([
+      'LATE_BILL_PRIOR_PERIOD',
+      'LATE_BILL_CLOSED_PERIOD',
+    ]));
+  });
+
+  it.each([
+    [0, 'BILL_DATE_UNRESOLVED'],
+    [2, 'BILL_DATE_AMBIGUOUS'],
+  ] as const)('preserves bill-date period resolution failure %s as %s', (count, code) => {
+    const actual = deriveBudgetActualLine(raw({
+      bill_period_match_count: count,
+      bill_financial_period_id: null,
+      bill_financial_period_name: null,
+      bill_financial_period_status: null,
+    }));
+    expect(actual.exceptionCodes).toContain(code);
+    expect(actual.periodResolution).toBe('RESOLVED');
+    expect(actual.financialPeriodId).toBe('fp-1');
   });
 
   it('rejects money outside the JavaScript safe-integer range', () => {

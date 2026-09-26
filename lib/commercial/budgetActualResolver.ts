@@ -65,6 +65,7 @@ export type BudgetActualClassificationException = {
   recognisedAt: string | null;
   financialYearId: string | null;
   financialPeriodId: string | null;
+  financialPeriodName: string | null;
   effectiveCostCentreId: string | null;
   sourceSubtotalCents: number;
   sourceTaxCents: number;
@@ -72,6 +73,10 @@ export type BudgetActualClassificationException = {
   actualCents: number | null;
   budgetId: string | null;
   budgetVersionId: string | null;
+  billDate: string | null;
+  billDateFinancialPeriodId: string | null;
+  billDateFinancialPeriodName: string | null;
+  billDateFinancialPeriodStatus: 'OPEN' | 'CLOSED' | null;
 };
 
 export type BudgetActualConsumptionRow = {
@@ -125,6 +130,7 @@ function actualException(
     recognisedAt: actual.recognisedAt,
     financialYearId: actual.financialYearId,
     financialPeriodId: actual.financialPeriodId,
+    financialPeriodName: actual.financialPeriodName,
     effectiveCostCentreId: actual.effectiveCostCentreId,
     sourceSubtotalCents: actual.subtotalCents,
     sourceTaxCents: actual.taxCents,
@@ -132,8 +138,19 @@ function actualException(
     actualCents: budget ? actualOnBasis(actual, budget.taxBasis) : null,
     budgetId: budget?.budgetId ?? null,
     budgetVersionId: budget?.activeVersionId ?? null,
+    billDate: actual.billDate,
+    billDateFinancialPeriodId: actual.billDateFinancialPeriodId,
+    billDateFinancialPeriodName: actual.billDateFinancialPeriodName,
+    billDateFinancialPeriodStatus: actual.billDateFinancialPeriodStatus,
   };
 }
+const RECONCILIATION_ONLY_CODES: BudgetActualExceptionCode[] = [
+  'LATE_BILL_PRIOR_PERIOD',
+  'LATE_BILL_CLOSED_PERIOD',
+  'BILL_DATE_UNRESOLVED',
+  'BILL_DATE_AMBIGUOUS',
+];
+
 export function deriveBudgetActualConsumption(
   actuals: BudgetActualReport,
   context: ActiveBudgetContext,
@@ -142,11 +159,14 @@ export function deriveBudgetActualConsumption(
   const exceptions: BudgetActualClassificationException[] = [];
 
   for (const actual of actuals.lines) {
+    const reconciliationCodes = actual.exceptionCodes.filter(code =>
+      RECONCILIATION_ONLY_CODES.includes(code),
+    );
     const upstreamBlockingCodes = actual.exceptionCodes.filter(
-      code => code !== 'UNATTRIBUTED_COST_CENTRE',
+      code => code !== 'UNATTRIBUTED_COST_CENTRE' && !RECONCILIATION_ONLY_CODES.includes(code),
     );
     if (upstreamBlockingCodes.length > 0) {
-      exceptions.push(actualException(actual.exceptionCodes, actual));
+      exceptions.push(actualException([...upstreamBlockingCodes, ...reconciliationCodes], actual));
       continue;
     }
 
@@ -176,10 +196,10 @@ export function deriveBudgetActualConsumption(
     if (matchingBudgets.length === 0) {
       exceptions.push(actualException(
         exactIdentity
-          ? ['NO_ACTIVE_BUDGET']
+          ? [...reconciliationCodes, 'NO_ACTIVE_BUDGET']
           : sameYearIdentities.length > 0
-            ? ['CURRENCY_MISMATCH']
-            : ['NO_ACTIVE_BUDGET'],
+            ? [...reconciliationCodes, 'CURRENCY_MISMATCH']
+            : [...reconciliationCodes, 'NO_ACTIVE_BUDGET'],
         actual,
       ));
       continue;
@@ -191,7 +211,7 @@ export function deriveBudgetActualConsumption(
     const budget = matchingBudgets[0];
 
     if (!actual.effectiveCostCentreId) {
-      exceptions.push(actualException(['UNATTRIBUTED_COST_CENTRE'], actual, budget));
+      exceptions.push(actualException([...reconciliationCodes, 'UNATTRIBUTED_COST_CENTRE'], actual, budget));
       continue;
     }
 
@@ -200,11 +220,11 @@ export function deriveBudgetActualConsumption(
       && mapping.costCentreId === actual.effectiveCostCentreId,
     );
     if (mappings.length === 0) {
-      exceptions.push(actualException(['UNMAPPED_ACCOUNT'], actual, budget));
+      exceptions.push(actualException([...reconciliationCodes, 'UNMAPPED_ACCOUNT'], actual, budget));
       continue;
     }
     if (mappings.length > 1) {
-      exceptions.push(actualException(['AMBIGUOUS_ACCOUNT'], actual, budget));
+      exceptions.push(actualException([...reconciliationCodes, 'AMBIGUOUS_ACCOUNT'], actual, budget));
       continue;
     }
 
@@ -215,7 +235,7 @@ export function deriveBudgetActualConsumption(
       && line.costCentreId === actual.effectiveCostCentreId,
     );
     if (budgetLines.length === 0) {
-      exceptions.push(actualException(['NO_BUDGET_LINE'], actual, budget));
+      exceptions.push(actualException([...reconciliationCodes, 'NO_BUDGET_LINE'], actual, budget));
       continue;
     }
     if (budgetLines.length > 1) {
@@ -264,6 +284,9 @@ export function deriveBudgetActualConsumption(
       sourceTotalCents: actual.totalCents,
       actualCents: actualOnBasis(actual, budget.taxBasis),
     });
+    if (reconciliationCodes.length > 0) {
+      exceptions.push(actualException(reconciliationCodes, actual, budget));
+    }
   }
 
   const rowMap = new Map<string, BudgetActualConsumptionRow>();

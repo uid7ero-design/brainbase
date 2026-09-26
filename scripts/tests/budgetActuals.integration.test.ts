@@ -30,6 +30,7 @@ const ORG = 'org-c78a';
 const OTHER = 'org-c78a-other';
 const FY = '78888888-0000-0000-0000-000000000001';
 const PERIOD = '78888888-0000-0000-0000-000000000002';
+const AUGUST_PERIOD = '78888888-0000-0000-0000-000000000008';
 const CC_HEADER = '78888888-0000-0000-0000-000000000003';
 const CC_LINE = '78888888-0000-0000-0000-000000000004';
 const SUP = '78888888-0000-0000-0000-000000000005';
@@ -58,7 +59,9 @@ beforeEach(async () => {
   );
   await prisma.$executeRawUnsafe(
     `INSERT INTO commercial_financial_periods(id,financial_year_id,organisation_id,name,starts_on,ends_on,status)
-     VALUES ($1::uuid,$2::uuid,$3,'September','2026-09-01','2026-09-30','OPEN')`, PERIOD, FY, ORG,
+     VALUES ($1::uuid,$3::uuid,$4,'September','2026-09-01','2026-09-30','OPEN'),
+            ($2::uuid,$3::uuid,$4,'August','2026-08-01','2026-08-31','OPEN')`,
+    PERIOD, AUGUST_PERIOD, FY, ORG,
   );
   await prisma.$executeRawUnsafe(
     `INSERT INTO commercial_cost_centres(id,organisation_id,code,name,active)
@@ -124,6 +127,70 @@ describe('C7.8A — real PostgreSQL derived Actuals', () => {
       totalCents: 2750,
     });
   });
+  it('flags a prior-period late bill but keeps recognition in the posted_at period', async () => {
+    const posted = await addBill({
+      status: 'POSTED',
+      postedAt: '2026-09-20T12:00:00Z',
+      billDate: '2026-08-20',
+    });
+
+    const report = await getBudgetActualReport(ORG);
+    expect(report.lines[0]).toMatchObject({
+      supplierBillLineId: posted.lineId,
+      financialPeriodId: PERIOD,
+      billDateFinancialPeriodId: AUGUST_PERIOD,
+      billDateFinancialPeriodStatus: 'OPEN',
+    });
+    expect(report.lines[0].exceptionCodes).toContain('LATE_BILL_PRIOR_PERIOD');
+    expect(report.lines[0].exceptionCodes).not.toContain('LATE_BILL_CLOSED_PERIOD');
+  });
+
+  it('flags a prior CLOSED bill-date period without reopening or moving recognition', async () => {
+    await prisma.$executeRawUnsafe(
+      `UPDATE commercial_financial_periods SET status='CLOSED' WHERE id=$1::uuid`,
+      AUGUST_PERIOD,
+    );
+    await addBill({
+      status: 'POSTED',
+      postedAt: '2026-09-20T12:00:00Z',
+      billDate: '2026-08-20',
+    });
+
+    const report = await getBudgetActualReport(ORG);
+    expect(report.lines[0]).toMatchObject({
+      financialPeriodId: PERIOD,
+      billDateFinancialPeriodId: AUGUST_PERIOD,
+      billDateFinancialPeriodStatus: 'CLOSED',
+    });
+    expect(report.lines[0].exceptionCodes).toEqual(expect.arrayContaining([
+      'LATE_BILL_PRIOR_PERIOD',
+      'LATE_BILL_CLOSED_PERIOD',
+    ]));
+
+    const august = await prisma.$queryRawUnsafe<{ status: string }[]>(
+      `SELECT status FROM commercial_financial_periods WHERE id=$1::uuid`,
+      AUGUST_PERIOD,
+    );
+    expect(august[0].status).toBe('CLOSED');
+  });
+
+  it('keeps an unresolved bill-date period as reconciliation-only when posted_at resolves', async () => {
+    await addBill({
+      status: 'POSTED',
+      postedAt: '2026-09-20T12:00:00Z',
+      billDate: '2026-06-20',
+    });
+
+    const report = await getBudgetActualReport(ORG);
+    expect(report.lines[0]).toMatchObject({
+      periodResolution: 'RESOLVED',
+      financialPeriodId: PERIOD,
+      billDatePeriodResolution: 'UNRESOLVED',
+      billDateFinancialPeriodId: null,
+    });
+    expect(report.lines[0].exceptionCodes).toContain('BILL_DATE_UNRESOLVED');
+  });
+
   it('uses PO-line cost centre override and falls back to the PO header when the line is null', async () => {
     await addBill({ status: 'POSTED', postedAt: '2026-09-15T00:00:00Z' });
     let report = await getBudgetActualReport(ORG);

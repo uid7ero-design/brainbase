@@ -392,7 +392,7 @@ END $$;
     }
   }
 
-  Mark 'C7.8A Budget Actuals integration suite' {
+  Mark 'C7.8A/C7.9C Budget Actuals and late-bill integration suite' {
     $env:DATABASE_URL = "postgresql://postgres:test@127.0.0.1:$port/testdb"
     Push-Location $repo
     try {
@@ -448,7 +448,7 @@ END $$;
   }
 
   Write-Host ''
-  Write-Host "=== C7.7B/C7.7D/C7.7E/C7.8A/C7.8B/C7.8C/C7.9A/C7.9B RESULT: PASS=$pass FAIL=$fail ==="
+  Write-Host "=== C7.7B/C7.7D/C7.7E/C7.8A/C7.8B/C7.8C/C7.9A/C7.9B/C7.9C RESULT: PASS=$pass FAIL=$fail ==="
   if ($fail -ne 0) {
     foreach ($failure in $failures) { Write-Host "  - $failure" }
     exit 1

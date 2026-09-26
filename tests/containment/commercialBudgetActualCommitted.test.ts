@@ -83,8 +83,9 @@ describe('C7.8C — combined Budget vs Actual vs Committed arithmetic', () => {
       exceptions: [{
         codes: ['UNMAPPED_ACCOUNT'], supplierBillLineId: 'sbl-1', supplierBillId: 'sb-1', supplierBillNumber: 'B-1', supplierId: 'sup-1',
         sourcePurchaseOrderId: 'po-1', sourcePurchaseOrderLineId: 'pol-1', currency: 'AUD', recognisedAt: '2026-09-15T00:00:00.000Z',
-        financialYearId: 'fy-1', financialPeriodId: 'fp-1', effectiveCostCentreId: 'cc-1', sourceSubtotalCents: 1000,
+        financialYearId: 'fy-1', financialPeriodId: 'fp-1', financialPeriodName: 'September', effectiveCostCentreId: 'cc-1', sourceSubtotalCents: 1000,
         sourceTaxCents: 100, sourceTotalCents: 1100, actualCents: 1100, budgetId: 'b-1', budgetVersionId: 'v-1',
+        billDate: '2026-09-10', billDateFinancialPeriodId: 'fp-1', billDateFinancialPeriodName: 'September', billDateFinancialPeriodStatus: 'OPEN',
       }],
       unresolvedExceptionCount: 1,
     });

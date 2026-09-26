@@ -59,10 +59,15 @@ type ActualException = {
   currency: string;
   financialYearId: string | null;
   financialPeriodId: string | null;
+  financialPeriodName: string | null;
   effectiveCostCentreId: string | null;
   sourceSubtotalCents: number;
   sourceTotalCents: number;
   actualCents: number | null;
+  billDate: string | null;
+  billDateFinancialPeriodId: string | null;
+  billDateFinancialPeriodName: string | null;
+  billDateFinancialPeriodStatus: 'OPEN' | 'CLOSED' | null;
 };
 
 type ReconciliationException =
@@ -334,7 +339,9 @@ function exceptionView(item: ReconciliationException) {
       codes: x.codes,
       purchaseOrderId: x.sourcePurchaseOrderId,
       lineId: x.supplierBillLineId,
-      period: x.financialPeriodId ?? x.financialYearId ?? 'Unresolved',
+      period: x.billDateFinancialPeriodId
+        ? `${x.billDateFinancialPeriodName ?? x.billDateFinancialPeriodId}${x.billDateFinancialPeriodStatus ? ` (${x.billDateFinancialPeriodStatus})` : ''} → ${x.financialPeriodName ?? x.financialPeriodId ?? 'Unresolved recognition'}`
+        : x.financialPeriodId ?? x.financialYearId ?? 'Unresolved',
       costCentre: x.effectiveCostCentreId ?? 'Unattributed',
       currency: x.currency,
       exTaxCents: x.sourceSubtotalCents,

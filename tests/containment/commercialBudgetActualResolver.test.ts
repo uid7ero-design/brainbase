@@ -25,6 +25,11 @@ const actual = (overrides: Partial<BudgetActualLine> = {}): BudgetActualLine => 
   sourcePurchaseOrderLineId: 'pol-1',
   currency: 'AUD',
   recognisedAt: '2026-09-15T12:00:00.000Z',
+  billDate: '2026-09-10',
+  billDatePeriodResolution: 'RESOLVED',
+  billDateFinancialPeriodId: 'fp-1',
+  billDateFinancialPeriodName: 'September',
+  billDateFinancialPeriodStatus: 'OPEN',
   periodResolution: 'RESOLVED',
   financialPeriodId: 'fp-1',
   financialPeriodName: 'September',
@@ -113,6 +118,50 @@ describe('C7.8B — Actual to ACTIVE Budget classification', () => {
     expect(result.exceptions[0]).toMatchObject({
       codes: ['UNATTRIBUTED_COST_CENTRE'], budgetId: 'b-1', budgetVersionId: 'v-1', actualCents: 11000,
     });
+  });
+
+  it('keeps late-bill reconciliation signals non-blocking while preserving the Actual in Budget consumption', () => {
+    const source = actual({
+      billDate: '2026-08-20',
+      billDateFinancialPeriodId: 'fp-aug',
+      billDateFinancialPeriodName: 'August',
+      billDateFinancialPeriodStatus: 'CLOSED',
+      exceptionCodes: ['LATE_BILL_PRIOR_PERIOD', 'LATE_BILL_CLOSED_PERIOD'],
+    });
+    const result = deriveBudgetActualConsumption(report([source]), context());
+    expect(result.resolved).toHaveLength(1);
+    expect(result.rows[0].actualCents).toBe(11000);
+    expect(result.exceptions).toEqual([
+      expect.objectContaining({
+        codes: ['LATE_BILL_PRIOR_PERIOD', 'LATE_BILL_CLOSED_PERIOD'],
+        actualCents: 11000,
+        billDate: '2026-08-20',
+        billDateFinancialPeriodId: 'fp-aug',
+        billDateFinancialPeriodStatus: 'CLOSED',
+      }),
+    ]);
+  });
+
+  it('keeps bill-date unresolved/ambiguous signals non-blocking when posted_at attribution is valid', () => {
+    const unresolved = deriveBudgetActualConsumption(report([actual({
+      billDatePeriodResolution: 'UNRESOLVED',
+      billDateFinancialPeriodId: null,
+      billDateFinancialPeriodName: null,
+      billDateFinancialPeriodStatus: null,
+      exceptionCodes: ['BILL_DATE_UNRESOLVED'],
+    })]), context());
+    expect(unresolved.resolved).toHaveLength(1);
+    expect(unresolved.exceptions[0].codes).toEqual(['BILL_DATE_UNRESOLVED']);
+
+    const ambiguous = deriveBudgetActualConsumption(report([actual({
+      billDatePeriodResolution: 'AMBIGUOUS',
+      billDateFinancialPeriodId: null,
+      billDateFinancialPeriodName: null,
+      billDateFinancialPeriodStatus: null,
+      exceptionCodes: ['BILL_DATE_AMBIGUOUS'],
+    })]), context());
+    expect(ambiguous.resolved).toHaveLength(1);
+    expect(ambiguous.exceptions[0].codes).toEqual(['BILL_DATE_AMBIGUOUS']);
   });
   it('distinguishes NO_ACTIVE_BUDGET from CURRENCY_MISMATCH', () => {
     const inactive = context({

@@ -306,6 +306,7 @@ export async function getBudgetActualCommittedReport(
         sb.currency AS bill_currency,
         po.currency AS purchase_order_currency,
         sb.posted_at,
+        sb.bill_date,
         sbl.line_subtotal_cents::text AS line_subtotal_cents,
         sbl.line_tax_cents::text AS line_tax_cents,
         sbl.line_total_cents::text AS line_total_cents,
@@ -317,7 +318,11 @@ export async function getBudgetActualCommittedReport(
         period.financial_period_name,
         period.financial_period_status,
         period.financial_year_id,
-        period.financial_year_name
+        period.financial_year_name,
+        bill_period.bill_period_match_count,
+        bill_period.bill_financial_period_id,
+        bill_period.bill_financial_period_name,
+        bill_period.bill_financial_period_status
       FROM commercial_supplier_bill_lines sbl
       JOIN commercial_supplier_bills sb
         ON sb.id = sbl.supplier_bill_id
@@ -348,6 +353,16 @@ export async function getBudgetActualCommittedReport(
           AND sb.posted_at IS NOT NULL
           AND sb.posted_at::date BETWEEN fp.starts_on AND fp.ends_on
       ) period ON true
+      LEFT JOIN LATERAL (
+        SELECT
+          COUNT(*)::int AS bill_period_match_count,
+          CASE WHEN COUNT(*) = 1 THEN MIN(fp.id::text) ELSE NULL END AS bill_financial_period_id,
+          CASE WHEN COUNT(*) = 1 THEN MIN(fp.name) ELSE NULL END AS bill_financial_period_name,
+          CASE WHEN COUNT(*) = 1 THEN MIN(fp.status) ELSE NULL END AS bill_financial_period_status
+        FROM commercial_financial_periods fp
+        WHERE fp.organisation_id = sbl.organisation_id
+          AND sb.bill_date BETWEEN fp.starts_on AND fp.ends_on
+      ) bill_period ON true
       WHERE sbl.organisation_id = ${organisationId}
         AND sb.organisation_id = ${organisationId}
         AND pol.organisation_id = ${organisationId}

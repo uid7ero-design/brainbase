@@ -114,7 +114,7 @@ beforeEach(async () => {
   await prisma.$executeRawUnsafe(
     `INSERT INTO commercial_supplier_bills
       (id,organisation_id,supplier_id,source_purchase_order_id,bill_number,status,currency,bill_date,supplier_name_snapshot,posted_at)
-     VALUES ($1::uuid,$2,$3::uuid,$4::uuid,'BILL-1','POSTED','AUD','2026-08-15','Supplier','2026-09-15T12:00:00Z')`,
+     VALUES ($1::uuid,$2,$3::uuid,$4::uuid,'BILL-1','POSTED','AUD','2026-09-15','Supplier','2026-09-15T12:00:00Z')`,
     BILL, ORG, SUP, PO,
   );
   await prisma.$executeRawUnsafe(

@@ -8,7 +8,11 @@ export type BudgetActualExceptionCode =
   | 'AMBIGUOUS_PERIOD'
   | 'UNATTRIBUTED_COST_CENTRE'
   | 'MISSING_POSTED_AT'
-  | 'SOURCE_CURRENCY_MISMATCH';
+  | 'SOURCE_CURRENCY_MISMATCH'
+  | 'LATE_BILL_PRIOR_PERIOD'
+  | 'LATE_BILL_CLOSED_PERIOD'
+  | 'BILL_DATE_UNRESOLVED'
+  | 'BILL_DATE_AMBIGUOUS';
 
 export interface BudgetActualLine {
   supplierBillLineId: string;
@@ -20,6 +24,11 @@ export interface BudgetActualLine {
   sourcePurchaseOrderLineId: string;
   currency: string;
   recognisedAt: string | null;
+  billDate: string | null;
+  billDatePeriodResolution: BudgetActualPeriodResolution;
+  billDateFinancialPeriodId: string | null;
+  billDateFinancialPeriodName: string | null;
+  billDateFinancialPeriodStatus: 'OPEN' | 'CLOSED' | null;
   periodResolution: BudgetActualPeriodResolution;
   financialPeriodId: string | null;
   financialPeriodName: string | null;
@@ -64,6 +73,7 @@ export type RawBudgetActualRow = {
   bill_currency: string;
   purchase_order_currency: string;
   posted_at: string | Date | null;
+  bill_date: string | Date | null;
   line_subtotal_cents: number | string;
   line_tax_cents: number | string;
   line_total_cents: number | string;
@@ -76,12 +86,22 @@ export type RawBudgetActualRow = {
   financial_period_status: 'OPEN' | 'CLOSED' | null;
   financial_year_id: string | null;
   financial_year_name: string | null;
+  bill_period_match_count: number | string | null;
+  bill_financial_period_id: string | null;
+  bill_financial_period_name: string | null;
+  bill_financial_period_status: 'OPEN' | 'CLOSED' | null;
 };
 
 function cents(value: number | string): number {
   const parsed = Number(value);
   if (!Number.isSafeInteger(parsed)) throw new Error('Budget Actual money value is not a safe integer number of cents');
   return parsed;
+}
+
+function dateValue(value: string | Date | null): string | null {
+  if (value === null) return null;
+  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  return value.slice(0, 10);
 }
 
 function timestamp(value: string | Date | null): string | null {
@@ -95,6 +115,9 @@ export function deriveBudgetActualLine(row: RawBudgetActualRow): BudgetActualLin
   const matchCount = Number(row.period_match_count ?? 0);
   const periodResolution: BudgetActualPeriodResolution =
     matchCount === 1 ? 'RESOLVED' : matchCount > 1 ? 'AMBIGUOUS' : 'UNRESOLVED';
+  const billMatchCount = Number(row.bill_period_match_count ?? 0);
+  const billDatePeriodResolution: BudgetActualPeriodResolution =
+    billMatchCount === 1 ? 'RESOLVED' : billMatchCount > 1 ? 'AMBIGUOUS' : 'UNRESOLVED';
   const exceptionCodes: BudgetActualExceptionCode[] = [];
 
   if (!row.posted_at) exceptionCodes.push('MISSING_POSTED_AT');
@@ -102,6 +125,18 @@ export function deriveBudgetActualLine(row: RawBudgetActualRow): BudgetActualLin
   if (periodResolution === 'AMBIGUOUS') exceptionCodes.push('AMBIGUOUS_PERIOD');
   if (!row.effective_cost_centre_id) exceptionCodes.push('UNATTRIBUTED_COST_CENTRE');
   if (row.bill_currency !== row.purchase_order_currency) exceptionCodes.push('SOURCE_CURRENCY_MISMATCH');
+  if (row.bill_date && billDatePeriodResolution === 'UNRESOLVED') exceptionCodes.push('BILL_DATE_UNRESOLVED');
+  if (row.bill_date && billDatePeriodResolution === 'AMBIGUOUS') exceptionCodes.push('BILL_DATE_AMBIGUOUS');
+  if (
+    row.bill_date
+    && billDatePeriodResolution === 'RESOLVED'
+    && periodResolution === 'RESOLVED'
+    && row.bill_financial_period_id !== row.financial_period_id
+    && new Date(row.bill_date).getTime() < new Date(row.posted_at ?? row.bill_date).getTime()
+  ) {
+    exceptionCodes.push('LATE_BILL_PRIOR_PERIOD');
+    if (row.bill_financial_period_status === 'CLOSED') exceptionCodes.push('LATE_BILL_CLOSED_PERIOD');
+  }
 
   return {
     supplierBillLineId: row.supplier_bill_line_id,
@@ -113,6 +148,11 @@ export function deriveBudgetActualLine(row: RawBudgetActualRow): BudgetActualLin
     sourcePurchaseOrderLineId: row.source_purchase_order_line_id,
     currency: row.bill_currency,
     recognisedAt: timestamp(row.posted_at),
+    billDate: dateValue(row.bill_date),
+    billDatePeriodResolution,
+    billDateFinancialPeriodId: billDatePeriodResolution === 'RESOLVED' ? row.bill_financial_period_id : null,
+    billDateFinancialPeriodName: billDatePeriodResolution === 'RESOLVED' ? row.bill_financial_period_name : null,
+    billDateFinancialPeriodStatus: billDatePeriodResolution === 'RESOLVED' ? row.bill_financial_period_status : null,
     periodResolution,
     financialPeriodId: periodResolution === 'RESOLVED' ? row.financial_period_id : null,
     financialPeriodName: periodResolution === 'RESOLVED' ? row.financial_period_name : null,
@@ -171,6 +211,7 @@ export async function getBudgetActualReport(
       sb.currency AS bill_currency,
       po.currency AS purchase_order_currency,
       sb.posted_at,
+      sb.bill_date,
       sbl.line_subtotal_cents::text AS line_subtotal_cents,
       sbl.line_tax_cents::text AS line_tax_cents,
       sbl.line_total_cents::text AS line_total_cents,
@@ -182,7 +223,11 @@ export async function getBudgetActualReport(
       period.financial_period_name,
       period.financial_period_status,
       period.financial_year_id,
-      period.financial_year_name
+      period.financial_year_name,
+      bill_period.bill_period_match_count,
+      bill_period.bill_financial_period_id,
+      bill_period.bill_financial_period_name,
+      bill_period.bill_financial_period_status
     FROM commercial_supplier_bill_lines sbl
     JOIN commercial_supplier_bills sb
       ON sb.id = sbl.supplier_bill_id
@@ -213,6 +258,16 @@ export async function getBudgetActualReport(
         AND sb.posted_at IS NOT NULL
         AND sb.posted_at::date BETWEEN fp.starts_on AND fp.ends_on
     ) period ON true
+    LEFT JOIN LATERAL (
+      SELECT
+        COUNT(*)::int AS bill_period_match_count,
+        CASE WHEN COUNT(*) = 1 THEN MIN(fp.id::text) ELSE NULL END AS bill_financial_period_id,
+        CASE WHEN COUNT(*) = 1 THEN MIN(fp.name) ELSE NULL END AS bill_financial_period_name,
+        CASE WHEN COUNT(*) = 1 THEN MIN(fp.status) ELSE NULL END AS bill_financial_period_status
+      FROM commercial_financial_periods fp
+      WHERE fp.organisation_id = sbl.organisation_id
+        AND sb.bill_date BETWEEN fp.starts_on AND fp.ends_on
+    ) bill_period ON true
     WHERE sbl.organisation_id = ${organisationId}
       AND sb.organisation_id = ${organisationId}
       AND pol.organisation_id = ${organisationId}
