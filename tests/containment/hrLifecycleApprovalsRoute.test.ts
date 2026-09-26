@@ -172,6 +172,37 @@ describe('POST /api/hr/lifecycle/tasks/[id]/approvals', () => {
     expect(recordApprovalMock).not.toHaveBeenCalled();
   });
 
+  it('returns approval_not_required for a visible NONE-approval task', async () => {
+    const resolved = resolvedManagerApprovalTask();
+    requireLifecycleTaskMock.mockResolvedValue({
+      ...resolved,
+      task: {
+        ...resolved.task,
+        requiresApproval: false,
+        approvalType: 'NONE' as const,
+      },
+      auth: {
+        ...resolved.auth,
+        target: {
+          ...resolved.auth.target,
+          approvalType: 'NONE' as const,
+        },
+      },
+    });
+
+    const res = await POST(
+      postRequest({ decision: 'APPROVED' }),
+      { params: Promise.resolve({ id: TASK_ID }) },
+    );
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({
+      error: 'This task does not require approval.',
+      code: 'approval_not_required',
+    });
+    expect(recordApprovalMock).not.toHaveBeenCalled();
+  });
+
   it('rejects invalid approval decisions', async () => {
     const res = await POST(
       postRequest({ decision: 'MAYBE' }),
