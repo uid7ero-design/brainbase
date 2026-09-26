@@ -140,6 +140,7 @@ export default defineConfig({
       'scripts/tests/budgetActivationConcurrency.integration.test.ts',
       'scripts/tests/budgetCommitmentResolver.integration.test.ts',
       'scripts/tests/budgetActuals.integration.test.ts',
+      'scripts/tests/budgetActualResolver.integration.test.ts',
     ],
     testTimeout: 30_000,
     hookTimeout: 30_000,
