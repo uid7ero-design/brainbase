@@ -10,7 +10,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { PrismaClient } from "@prisma/client";
+import { Prisma, PrismaClient } from "@prisma/client";
 
 if (!process.env.DATABASE_URL?.includes("55565")) {
   throw new Error(
@@ -228,7 +228,7 @@ describe("6.2D4A raw staging foundation — real disposable Postgres proof", () 
         { id: "d4a-rc-a0", organisation_id: "d4a-org-a", raw_row_id: "d4a-rr-a", source_schema_worksheet_id: "d4a-ws-a", source_schema_column_id: "d4a-col-a0", column_ordinal: 0, source_header: "Code", raw_value: "00123", raw_value_type: "STRING", sensitivity_class: "PUBLIC" },
         { id: "d4a-rc-a1", organisation_id: "d4a-org-a", raw_row_id: "d4a-rr-a", source_schema_worksheet_id: "d4a-ws-a", source_schema_column_id: "d4a-col-a1", column_ordinal: 1, source_header: "Amount", raw_value: 42.5, raw_value_type: "NUMBER", sensitivity_class: "INTERNAL" },
         { id: "d4a-rc-a2", organisation_id: "d4a-org-a", raw_row_id: "d4a-rr-a", source_schema_worksheet_id: "d4a-ws-a", source_schema_column_id: "d4a-col-a2", column_ordinal: 2, source_header: "Flag", raw_value: true, raw_value_type: "BOOLEAN", sensitivity_class: "INTERNAL" },
-        { id: "d4a-rc-a3", organisation_id: "d4a-org-a", raw_row_id: "d4a-rr-a", source_schema_worksheet_id: "d4a-ws-a", source_schema_column_id: "d4a-col-a3", column_ordinal: 3, source_header: "Optional", raw_value: null, raw_value_type: "NULL", sensitivity_class: "CONFIDENTIAL" },
+        { id: "d4a-rc-a3", organisation_id: "d4a-org-a", raw_row_id: "d4a-rr-a", source_schema_worksheet_id: "d4a-ws-a", source_schema_column_id: "d4a-col-a3", column_ordinal: 3, source_header: "Optional", raw_value: Prisma.JsonNull, raw_value_type: "NULL", sensitivity_class: "CONFIDENTIAL" },
       ],
     });
 
