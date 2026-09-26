@@ -20,9 +20,10 @@ const actualDesign = fs.readFileSync(
 );
 
 describe('C7.9 — finance reconciliation and close-control architecture contract', () => {
-  it('recognises that the current OPEN/CLOSED flag is not yet a sealed finance close', () => {
+  it('hardens the old OPEN/CLOSED primitive behind durable close controls', () => {
     expect(periods).toContain("export type FinancialStatus = 'OPEN' | 'CLOSED'");
-    expect(periods).toContain('UPDATE commercial_financial_periods SET status');
+    expect(periods).toContain('Direct financial-period status changes are disabled');
+    expect(periods).not.toContain('UPDATE commercial_financial_periods SET status');
     expect(design).toContain("today's CLOSED flag as the starting primitive, not a complete accounting close");
     expect(design).toContain('durable close record');
   });

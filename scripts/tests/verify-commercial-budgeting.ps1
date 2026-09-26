@@ -2,6 +2,7 @@ $ErrorActionPreference = 'Stop'
 
 $repo = (git rev-parse --show-toplevel).Trim()
 $migration = Join-Path $repo 'scripts\create-commercial-budgeting.sql'
+$financeCloseMigration = Join-Path $repo 'scripts\create-commercial-finance-close.sql'
 $container = "brainbase-c77b-budgeting-$PID"
 $port = 55439
 $pass = 0
@@ -59,6 +60,7 @@ CREATE TABLE commercial_financial_periods (
   starts_on DATE NOT NULL,
   ends_on DATE NOT NULL,
   status TEXT NOT NULL DEFAULT 'OPEN',
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (id, organisation_id),
   FOREIGN KEY (financial_year_id, organisation_id)
     REFERENCES commercial_financial_years(id, organisation_id)
@@ -135,6 +137,16 @@ INSERT INTO users(id,organisation_id) VALUES ('user-a','org-a'),('user-b','org-b
   Mark 'idempotent second apply' {
     Get-Content $migration -Raw | docker exec -i $container psql -v ON_ERROR_STOP=1 -U postgres -d testdb
     if ($LASTEXITCODE -ne 0) { throw "second migration exit $LASTEXITCODE" }
+  }
+
+  Mark 'C7.9A finance-close fresh migration apply' {
+    Get-Content $financeCloseMigration -Raw | docker exec -i $container psql -v ON_ERROR_STOP=1 -U postgres -d testdb
+    if ($LASTEXITCODE -ne 0) { throw "finance-close fresh migration exit $LASTEXITCODE" }
+  }
+
+  Mark 'C7.9A finance-close idempotent second apply' {
+    Get-Content $financeCloseMigration -Raw | docker exec -i $container psql -v ON_ERROR_STOP=1 -U postgres -d testdb
+    if ($LASTEXITCODE -ne 0) { throw "finance-close second migration exit $LASTEXITCODE" }
   }
 
   Mark 'fixtures' {
@@ -272,6 +284,25 @@ END $$;
 '@
   }
 
+  Mark 'cross-tenant finance close rejected by composite period FK' {
+    Invoke-PsqlText @'
+DO $$
+DECLARE
+  v_period_b uuid;
+BEGIN
+  SELECT id INTO v_period_b FROM commercial_financial_periods WHERE organisation_id='org-b' LIMIT 1;
+  BEGIN
+    INSERT INTO commercial_financial_period_closes(
+      organisation_id,financial_period_id,close_sequence,status,closed_by
+    ) VALUES ('org-a',v_period_b,1,'CLOSED','user-a');
+    RAISE EXCEPTION 'cross-tenant finance close unexpectedly succeeded';
+  EXCEPTION WHEN foreign_key_violation THEN
+    NULL;
+  END;
+END $$;
+'@
+  }
+
   Mark 'cross-tenant period allocation rejected' {
     Invoke-PsqlText @'
 DO $$
@@ -360,8 +391,19 @@ END $$;
     }
   }
 
+  Mark 'C7.9A finance close/reopen concurrency integration suite' {
+    $env:DATABASE_URL = "postgresql://postgres:test@127.0.0.1:$port/testdb"
+    Push-Location $repo
+    try {
+      npx vitest run --config vitest.integration.config.ts scripts/tests/financeCloseConcurrency.integration.test.ts
+      if ($LASTEXITCODE -ne 0) { throw "finance close integration exit $LASTEXITCODE" }
+    } finally {
+      Pop-Location
+    }
+  }
+
   Write-Host ''
-  Write-Host "=== C7.7B/C7.7D/C7.7E/C7.8A/C7.8B/C7.8C RESULT: PASS=$pass FAIL=$fail ==="
+  Write-Host "=== C7.7B/C7.7D/C7.7E/C7.8A/C7.8B/C7.8C/C7.9A RESULT: PASS=$pass FAIL=$fail ==="
   if ($fail -ne 0) {
     foreach ($failure in $failures) { Write-Host "  - $failure" }
     exit 1

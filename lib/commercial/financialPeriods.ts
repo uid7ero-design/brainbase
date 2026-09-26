@@ -1,5 +1,5 @@
 import sql from '@/lib/db';
-import { logFinancialYearStatusChanged, logFinancialPeriodStatusChanged } from './auditLog';
+import { logFinancialYearStatusChanged } from './auditLog';
 
 // Phase C2 — tenant-scoped data access for commercial_financial_years /
 // commercial_financial_periods. Deliberately independent of Debtors'
@@ -119,17 +119,7 @@ export async function setFinancialPeriodStatus(params: {
   if (!before) return null;
   if (before.status === params.status) return before;
 
-  const rows = (await sql`
-    UPDATE commercial_financial_periods SET status = ${params.status}, updated_at = now()
-    WHERE id = ${params.financialPeriodId} AND organisation_id = ${params.organisationId}
-    RETURNING *
-  `) as CommercialFinancialPeriod[];
-  const after = rows[0];
-
-  await logFinancialPeriodStatusChanged({
-    organisationId: params.organisationId, userId: params.userId, financialPeriodId: params.financialPeriodId,
-    before: before.status, after: after.status,
-  });
-
-  return after;
+  throw new Error(
+    'Direct financial-period status changes are disabled. Use the governed close/reopen finance controls.',
+  );
 }
