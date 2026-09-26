@@ -1,0 +1,483 @@
+/* /pricing layout. Tokens only — see styles/brainbase-tokens.css.
+   Spacing uses the shared rhythm tokens; every block aligns to the shared
+   container guides. Cyan is used only where it means information
+   (the "Tailored" info badge); plan accents are purple or neutral. */
+
+/* ─── Hero (left-aligned to the container guide, like the homepage) ─── */
+.hero {
+  position: relative;
+  padding: var(--bb-hero-top) 0 var(--bb-hero-bottom);
+  border-bottom: 1px solid var(--bb-border);
+}
+.hero::after {
+  content: '';
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 45%;
+  background: linear-gradient(to bottom, transparent, var(--bb-bg));
+  pointer-events: none;
+}
+.heroInner {
+  position: relative;
+  z-index: 1;
+  max-width: 46rem;
+}
+.heroEyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 20px;
+}
+.eyebrowDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--bb-accent);
+  box-shadow: 0 0 0 3px var(--bb-accent-soft);
+}
+.heroTitle {
+  margin: 0;
+  font-size: clamp(2.25rem, 5vw, 3.5rem);
+  line-height: 1.04;
+  font-weight: 600;
+  letter-spacing: -0.042em;
+  text-wrap: balance;
+}
+.heroAccent {
+  color: var(--bb-accent);
+}
+.heroLede {
+  margin: 20px 0 0;
+  max-width: 36rem;
+  font-size: clamp(1rem, 1.5vw, 1.0625rem);
+  line-height: 1.7;
+  color: var(--bb-text-muted);
+}
+
+/* ─── Principle ─── */
+.principle {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  gap: 12px 32px;
+  align-items: baseline;
+  margin-top: var(--bb-block-gap);
+  padding: var(--bb-cell-pad);
+  border: 1px solid var(--bb-border);
+  border-left: 3px solid var(--bb-accent);
+  border-radius: var(--bb-radius);
+  background: var(--bb-surface);
+}
+.principleTitle {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.principleBody {
+  margin: 0;
+  font-size: 0.9375rem;
+  line-height: 1.65;
+  color: var(--bb-text-muted);
+}
+
+/* ─── Plans: ruled cell grid (.bb-cells) ─── */
+.plans {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-top: var(--bb-grid-gap);
+}
+.plan {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+.plan::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 2px;
+  background: transparent;
+}
+.planPopular {
+  background: var(--bb-surface-raised);
+}
+.planPopular::before {
+  background: var(--bb-accent);
+}
+.planEnterprise::before {
+  background: var(--bb-border-strong);
+}
+.planHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 24px;
+  margin-bottom: var(--bb-cell-icon-gap);
+}
+.planName {
+  margin: 0;
+  font-family: var(--bb-font-mono);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--bb-text);
+}
+.planTagline {
+  margin: 0 0 var(--bb-cell-title-gap);
+  min-height: 2.6em;
+  font-size: 1.125rem;
+  line-height: 1.3;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+.planDescription {
+  margin: 0;
+  min-height: 5em;
+  font-size: 0.875rem;
+  line-height: 1.65;
+  color: var(--bb-text-muted);
+}
+.price {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-top: 20px;
+}
+.priceValue {
+  font-size: 2.25rem;
+  font-weight: 600;
+  letter-spacing: -0.04em;
+  line-height: 1;
+}
+.pricePeriod {
+  font-family: var(--bb-font-mono);
+  font-size: 0.75rem;
+  color: var(--bb-text-muted);
+}
+.priceNote {
+  margin: 8px 0 0;
+  font-family: var(--bb-font-mono);
+  font-size: 0.72rem;
+  color: var(--bb-text-muted);
+}
+.features {
+  display: grid;
+  gap: 10px;
+  margin: 20px 0 22px;
+  padding: 18px 0 0;
+  list-style: none;
+  border-top: 1px solid var(--bb-border);
+}
+.feature {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  font-size: 0.875rem;
+  line-height: 1.45;
+}
+.check {
+  flex-shrink: 0;
+  margin-top: 3px;
+  color: var(--bb-accent);
+}
+.planCta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 42px;
+  margin-top: auto;
+  padding: 0 16px;
+  border: 1px solid var(--bb-border-strong);
+  border-radius: var(--bb-radius);
+  background: var(--bb-surface);
+  color: var(--bb-text);
+  font-size: 0.875rem;
+  font-weight: 550;
+  text-decoration: none;
+  transition: border-color 150ms ease, background-color 150ms ease;
+}
+.planCta:hover {
+  border-color: var(--bb-text-muted);
+}
+.planPopular .planCta {
+  border-color: var(--bb-accent);
+  background: var(--bb-accent);
+  color: var(--bb-accent-contrast);
+}
+.planPopular .planCta:hover {
+  border-color: var(--bb-accent-hover);
+  background: var(--bb-accent-hover);
+}
+
+/* ─── Setup notice ─── */
+.notice {
+  margin-top: var(--bb-grid-gap);
+  padding: var(--bb-cell-pad);
+  border: 1px dashed var(--bb-border-strong);
+  border-radius: var(--bb-radius);
+}
+.noticeTitle {
+  margin: 0 0 var(--bb-cell-title-gap);
+}
+.noticeBody,
+.noticeFine {
+  margin: 0;
+  max-width: 52rem;
+  font-size: 0.875rem;
+  line-height: 1.65;
+  color: var(--bb-text-muted);
+}
+.noticeFine {
+  margin-top: 6px;
+  color: var(--bb-text);
+}
+
+/* ─── Choice grid (ruled cells) ─── */
+.ruled4 {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.cellIndex {
+  display: block;
+  margin-bottom: var(--bb-cell-icon-gap);
+  font-family: var(--bb-font-mono);
+  font-size: 0.72rem;
+  color: var(--bb-accent);
+}
+.cellTitle {
+  margin: 0 0 var(--bb-cell-title-gap);
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.cellBody {
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.65;
+  color: var(--bb-text-muted);
+}
+
+/* ─── Comparison table ─── */
+.tableWrap {
+  /* Containing block for the table's visually-hidden cell text, so it is
+     clipped by this scroll region instead of widening the page. */
+  position: relative;
+  border: 1px solid var(--bb-border);
+  border-radius: var(--bb-radius-lg);
+  background: var(--bb-surface);
+  overflow-x: auto;
+}
+.tableWrap:focus-visible {
+  outline: 2px solid var(--bb-focus);
+  outline-offset: 3px;
+}
+.table {
+  width: 100%;
+  min-width: 600px;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+.table th,
+.table td {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--bb-border);
+  text-align: center;
+}
+.table tbody tr:last-child th,
+.table tbody tr:last-child td {
+  border-bottom: 0;
+}
+.table thead th {
+  background: var(--bb-surface-raised);
+  font-family: var(--bb-font-mono);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--bb-text);
+}
+.table thead th:first-child {
+  color: var(--bb-text-muted);
+}
+.table th[scope='row'],
+.table thead th:first-child {
+  text-align: left;
+}
+.table th[scope='row'] {
+  font-weight: 450;
+  color: var(--bb-text);
+}
+.tableCheck {
+  display: inline-block;
+  vertical-align: middle;
+  color: var(--bb-accent);
+}
+.tableDash {
+  color: var(--bb-text-muted);
+}
+.tableNote {
+  margin: var(--bb-grid-gap) 0 0;
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  color: var(--bb-text-muted);
+}
+.config {
+  margin-top: var(--bb-block-gap);
+  padding-left: 18px;
+  border-left: 2px solid var(--bb-border-strong);
+}
+.configTitle {
+  margin: 0 0 var(--bb-cell-title-gap);
+  font-size: 1.125rem;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+.configBody {
+  margin: 0;
+  max-width: 40rem;
+  font-size: 0.9375rem;
+  line-height: 1.65;
+  color: var(--bb-text-muted);
+}
+
+/* ─── Two-column sections (Enterprise, Web Systems): header left on the
+   container guide, content right. ─── */
+.split {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+  gap: var(--bb-block-gap);
+  align-items: start;
+}
+.split > :first-child > div:first-child,
+.split > div:first-child {
+  margin-bottom: 0;
+}
+.splitAside {
+  display: grid;
+  gap: var(--bb-grid-gap);
+  justify-items: start;
+}
+.splitFine {
+  margin: var(--bb-grid-gap) 0 0;
+  font-family: var(--bb-font-mono);
+  font-size: 0.75rem;
+  line-height: 1.6;
+  color: var(--bb-text-muted);
+}
+.enterpriseList {
+  width: 100%;
+}
+.enterpriseItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.875rem;
+}
+.enterpriseList.enterpriseList > .enterpriseItem {
+  padding: var(--bb-cell-pad-sm);
+}
+.enterpriseItem::before {
+  content: '';
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  border: 1px solid var(--bb-accent);
+  border-radius: 50%;
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-self: center;
+}
+
+/* ─── Implementation extras (ruled cells) ─── */
+.extras {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.extraNote {
+  margin: var(--bb-grid-gap) 0 0;
+  padding: var(--bb-cell-pad-sm);
+  border-left: 3px solid var(--bb-border-strong);
+  background: var(--bb-surface);
+  font-size: 0.875rem;
+  line-height: 1.65;
+  color: var(--bb-text-muted);
+}
+
+/* ─── Final CTA (centred inside a full-container-width panel) ─── */
+.cta {
+  padding: var(--bb-block-gap);
+  border: 1px solid var(--bb-border);
+  border-radius: var(--bb-radius-lg);
+  background-color: var(--bb-surface);
+  text-align: center;
+}
+.cta > p:first-child {
+  margin: 0;
+}
+.ctaTitle {
+  margin: 12px auto 0;
+  max-width: 34rem;
+  font-size: clamp(1.75rem, 3.2vw, 2.375rem);
+  line-height: 1.12;
+  font-weight: 600;
+  letter-spacing: -0.028em;
+  text-wrap: balance;
+}
+.ctaBody {
+  margin: 12px auto 0;
+  max-width: 32rem;
+  font-size: 1rem;
+  line-height: 1.65;
+  color: var(--bb-text-muted);
+}
+.ctaActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 24px;
+}
+
+.planCta:focus-visible {
+  outline: 2px solid var(--bb-focus);
+  outline-offset: 3px;
+}
+
+/* ─── Responsive ─── */
+@media (max-width: 1080px) {
+  .plans,
+  .extras,
+  .ruled4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .actions {
+    align-self: start;
+  }
+}
+
+@media (max-width: 760px) {
+  .principle {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .plans,
+  .extras,
+  .ruled4 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .planTagline,
+  .planDescription {
+    min-height: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .planCta {
+    transition: none;
+  }
+}
