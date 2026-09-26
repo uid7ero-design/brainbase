@@ -125,6 +125,7 @@ export default defineConfig({
       'scripts/tests/supplierBillConcurrency.integration.test.ts',
       'scripts/tests/supplierBillFractionalQuantityMigration.integration.test.ts',
       'scripts/tests/hrLifecycleTaskCompletion.integration.test.ts',
+      'scripts/tests/hrLifecycleTaskActionsApprovals.integration.test.ts',
     ],
     testTimeout: 30_000,
     hookTimeout: 30_000,

@@ -94,7 +94,17 @@ psql_exec < "$REPO_ROOT/scripts/create-hr-lifecycle-workflows.sql"
 echo "Running real Postgres lifecycle task completion race proof..."
 (
   cd "$REPO_ROOT"
-  DATABASE_URL="postgresql://postgres:test@127.0.0.1:${HOST_PORT}/testdb"     npx vitest run scripts/tests/hrLifecycleTaskCompletion.integration.test.ts       --config vitest.integration.config.ts
+  DATABASE_URL="postgresql://postgres:test@127.0.0.1:${HOST_PORT}/testdb" \
+    npx vitest run scripts/tests/hrLifecycleTaskCompletion.integration.test.ts \
+      --config vitest.integration.config.ts
 )
 
-echo "HR-7C lifecycle task completion concurrency proof passed."
+echo "Running real Postgres lifecycle task actions/approvals proof..."
+(
+  cd "$REPO_ROOT"
+  DATABASE_URL="postgresql://postgres:test@127.0.0.1:${HOST_PORT}/testdb" \
+    npx vitest run scripts/tests/hrLifecycleTaskActionsApprovals.integration.test.ts \
+      --config vitest.integration.config.ts
+)
+
+echo "HR-7C lifecycle task mutation proofs passed."

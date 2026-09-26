@@ -39,8 +39,12 @@ vi.mock('@/lib/hr/lifecycleRoute', async (importOriginal) => {
 });
 
 const completeLifecycleTaskMock = vi.fn();
+const startLifecycleTaskMock = vi.fn();
+const waiveLifecycleTaskMock = vi.fn();
 vi.mock('@/lib/hr/lifecycleMutations', () => ({
   completeLifecycleTask: (...args: unknown[]) => completeLifecycleTaskMock(...args),
+  startLifecycleTask: (...args: unknown[]) => startLifecycleTaskMock(...args),
+  waiveLifecycleTask: (...args: unknown[]) => waiveLifecycleTaskMock(...args),
 }));
 
 const { PATCH } = await import('@/app/api/hr/lifecycle/tasks/[id]/route');
@@ -153,6 +157,8 @@ beforeEach(() => {
   requireHrCapabilityMock.mockReset();
   requireLifecycleTaskMock.mockReset();
   completeLifecycleTaskMock.mockReset();
+  startLifecycleTaskMock.mockReset();
+  waiveLifecycleTaskMock.mockReset();
 
   requireSessionMock.mockResolvedValue(EMPLOYEE_SESSION);
   requireHrCapabilityMock.mockResolvedValue({ key: 'people', config: {} });
@@ -344,5 +350,147 @@ describe('PATCH /api/hr/lifecycle/tasks/[id] — completion', () => {
     expect(await res.json()).toEqual({
       error: 'Could not complete lifecycle task.',
     });
+  });
+});
+
+
+describe('PATCH /api/hr/lifecycle/tasks/[id] — start and waive', () => {
+  it('starts a NOT_STARTED executable task', async () => {
+    startLifecycleTaskMock.mockResolvedValue({
+      outcome: 'started',
+      task: { id: TASK_ID, status: 'IN_PROGRESS' },
+    });
+
+    const res = await PATCH(
+      patchRequest({ action: 'start' }),
+      { params: Promise.resolve({ id: TASK_ID }) },
+    );
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      task: { id: TASK_ID, status: 'IN_PROGRESS' },
+    });
+    expect(startLifecycleTaskMock).toHaveBeenCalledWith(expect.objectContaining({
+      actor: expect.objectContaining({
+        organisationId: 'org-a',
+        userId: 'employee-user',
+      }),
+      taskId: TASK_ID,
+    }));
+  });
+
+  it('maps a repeated start to exact task_already_started', async () => {
+    startLifecycleTaskMock.mockResolvedValue({ outcome: 'already_started' });
+
+    const res = await PATCH(
+      patchRequest({ action: 'start' }),
+      { params: Promise.resolve({ id: TASK_ID }) },
+    );
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({
+      error: 'This task has already been started.',
+      code: 'task_already_started',
+    });
+  });
+
+  it('denies waive to employee execution authority even when they can execute the task', async () => {
+    const res = await PATCH(
+      patchRequest({ action: 'waive', reason: 'No longer needed' }),
+      { params: Promise.resolve({ id: TASK_ID }) },
+    );
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({
+      error: 'You are not permitted to perform this lifecycle task action.',
+      code: 'task_action_forbidden',
+    });
+    expect(waiveLifecycleTaskMock).not.toHaveBeenCalled();
+  });
+
+  it('requires a nonblank waiver reason for HR administration', async () => {
+    requireLifecycleTaskMock.mockResolvedValue({
+      ...resolvedEmployeeTask(),
+      auth: {
+        ...resolvedEmployeeTask().auth,
+        actor: {
+          organisationId: 'org-a',
+          userId: 'hr-user',
+          isHrAdministrator: true,
+        },
+      },
+    });
+    requireSessionMock.mockResolvedValue({
+      ...EMPLOYEE_SESSION,
+      userId: 'hr-user',
+      role: 'admin',
+    });
+
+    const res = await PATCH(
+      patchRequest({ action: 'waive', reason: '   ' }),
+      { params: Promise.resolve({ id: TASK_ID }) },
+    );
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: 'reason is required for waive.' });
+    expect(waiveLifecycleTaskMock).not.toHaveBeenCalled();
+  });
+
+  it('allows HR administration to waive and returns derived workflow state', async () => {
+    requireLifecycleTaskMock.mockResolvedValue({
+      ...resolvedEmployeeTask(),
+      auth: {
+        ...resolvedEmployeeTask().auth,
+        actor: {
+          organisationId: 'org-a',
+          userId: 'hr-user',
+          isHrAdministrator: true,
+        },
+      },
+    });
+    requireSessionMock.mockResolvedValue({
+      ...EMPLOYEE_SESSION,
+      userId: 'hr-user',
+      role: 'admin',
+    });
+    waiveLifecycleTaskMock.mockResolvedValue({
+      outcome: 'waived',
+      task: {
+        id: TASK_ID,
+        status: 'WAIVED',
+        waivedBy: 'hr-user',
+        waivedAt: '2026-09-26T11:00:00.000Z',
+        waiverReason: 'Requirement removed',
+      },
+      workflow: {
+        id: WORKFLOW_ID,
+        status: 'ACTIVE',
+        completedAt: null,
+      },
+    });
+
+    const res = await PATCH(
+      patchRequest({ action: 'waive', reason: ' Requirement removed ' }),
+      { params: Promise.resolve({ id: TASK_ID }) },
+    );
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      task: {
+        id: TASK_ID,
+        status: 'WAIVED',
+        waived_by: 'hr-user',
+        waived_at: '2026-09-26T11:00:00.000Z',
+        waiver_reason: 'Requirement removed',
+      },
+      workflow: {
+        id: WORKFLOW_ID,
+        status: 'ACTIVE',
+        completed_at: null,
+      },
+    });
+    expect(waiveLifecycleTaskMock).toHaveBeenCalledWith(expect.objectContaining({
+      reason: 'Requirement removed',
+    }));
   });
 });
