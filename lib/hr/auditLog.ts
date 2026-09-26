@@ -112,6 +112,68 @@ const HR_RESTRICTED_CASE_NOTE_AUDIT_POLICY: AuditFieldPolicy = {
   omitted: new Set(['id', 'organisation_id', 'created_at']),
 };
 
+const HR_LIFECYCLE_TEMPLATE_AUDIT_POLICY: AuditFieldPolicy = {
+  allowed: new Set([
+    'template_key',
+    'version_number',
+    'lifecycle_type',
+    'status',
+    'activated_at',
+    'retired_at',
+  ]),
+  idOnly: new Set(['created_by']),
+  redacted: new Set(['name', 'description']),
+  omitted: new Set(['id', 'organisation_id', 'created_at', 'updated_at']),
+};
+
+const HR_LIFECYCLE_WORKFLOW_AUDIT_POLICY: AuditFieldPolicy = {
+  allowed: new Set([
+    'lifecycle_type',
+    'status',
+    'anchor_date',
+    'started_at',
+    'completed_at',
+    'cancelled_at',
+  ]),
+  idOnly: new Set(['person_id', 'template_id', 'started_by']),
+  redacted: new Set(),
+  omitted: new Set(['id', 'organisation_id', 'created_at', 'updated_at']),
+};
+
+const HR_LIFECYCLE_TASK_AUDIT_POLICY: AuditFieldPolicy = {
+  allowed: new Set([
+    'sequence',
+    'responsibility_type',
+    'due_at',
+    'requires_approval',
+    'approval_type',
+    'employee_visible',
+    'manager_visible',
+    'internal_only',
+    'status',
+    'completed_at',
+    'waived_at',
+  ]),
+  idOnly: new Set([
+    'workflow_id',
+    'person_id',
+    'template_id',
+    'template_task_id',
+    'assigned_user_id',
+    'completed_by',
+    'waived_by',
+  ]),
+  redacted: new Set(['title', 'description', 'waiver_reason']),
+  omitted: new Set(['id', 'organisation_id', 'created_at', 'updated_at']),
+};
+
+const HR_LIFECYCLE_TASK_APPROVAL_AUDIT_POLICY: AuditFieldPolicy = {
+  allowed: new Set(['decision', 'decided_at']),
+  idOnly: new Set(['task_id', 'workflow_id', 'person_id', 'approver_user_id']),
+  redacted: new Set(['comment']),
+  omitted: new Set(['id', 'organisation_id', 'created_at']),
+};
+
 const RESTRICTED_HR_READ_EVENTS = new Set([
   'hr_restricted_case:hr_restricted_case.read',
   'hr_restricted_case_participant:hr_restricted_case_participant.read',
@@ -179,6 +241,10 @@ function policyForResource(resourceType: string): AuditFieldPolicy | null {
   if (resourceType === 'hr_restricted_case_participant') return HR_RESTRICTED_CASE_PARTICIPANT_AUDIT_POLICY;
   if (resourceType === 'hr_restricted_case_note') return HR_RESTRICTED_CASE_NOTE_AUDIT_POLICY;
   if (resourceType === 'hr_restricted_case_document') return HR_RESTRICTED_CASE_DOCUMENT_AUDIT_POLICY;
+  if (resourceType === 'hr_lifecycle_template') return HR_LIFECYCLE_TEMPLATE_AUDIT_POLICY;
+  if (resourceType === 'hr_lifecycle_workflow') return HR_LIFECYCLE_WORKFLOW_AUDIT_POLICY;
+  if (resourceType === 'hr_lifecycle_task') return HR_LIFECYCLE_TASK_AUDIT_POLICY;
+  if (resourceType === 'hr_lifecycle_task_approval') return HR_LIFECYCLE_TASK_APPROVAL_AUDIT_POLICY;
   return null;
 }
 
@@ -190,7 +256,12 @@ function projectHrAuditState(
 
   const policy = policyForResource(resourceType);
   if (!policy) {
-    if (resourceType.startsWith('hr_restricted_')) return redactAllState(state);
+    if (
+      resourceType.startsWith('hr_restricted_')
+      || resourceType.startsWith('hr_lifecycle_')
+    ) {
+      return redactAllState(state);
+    }
     return legacyRedactState(state);
   }
 
