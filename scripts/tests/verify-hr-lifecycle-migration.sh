@@ -35,6 +35,9 @@ TABLES="$(code_only "$MIGRATION" | grep -o -i -E 'CREATE TABLE IF NOT EXISTS [a-
 check "creates exactly five lifecycle tables" "$TABLES" "hr_lifecycle_task_approvals,hr_lifecycle_tasks,hr_lifecycle_template_tasks,hr_lifecycle_templates,hr_lifecycle_workflows"
 BARE_CREATE="$(code_only "$MIGRATION" | grep -i -E 'CREATE[[:space:]]+(UNIQUE[[:space:]]+)?(TABLE|INDEX)' | grep -i -v 'IF NOT EXISTS' || true)"
 check "every table/index CREATE is idempotent" "$BARE_CREATE" ""
+TX_BEGIN="$(code_only "$MIGRATION" | grep -c -E '^[[:space:]]*BEGIN;[[:space:]]*$')"
+TX_COMMIT="$(code_only "$MIGRATION" | grep -c -E '^[[:space:]]*COMMIT;[[:space:]]*$')"
+check "migration has one explicit transaction wrapper" "$TX_BEGIN/$TX_COMMIT" "1/1"
 
 if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
   echo "ERROR: Docker daemon is required." >&2; exit 2
@@ -104,12 +107,14 @@ INSERT INTO hr_lifecycle_templates
   (id, organisation_id, template_key, version_number, lifecycle_type, name, created_by)
 VALUES
   ('10000000-0000-4000-8000-000000000001', 'org-a', 'standard-onboarding', 1, 'onboarding', 'Standard onboarding', 'user-a'),
+  ('10000000-0000-4000-8000-000000000002', 'org-a', 'alternate-onboarding', 1, 'onboarding', 'Alternate onboarding', 'user-a'),
   ('20000000-0000-4000-8000-000000000001', 'org-b', 'standard-onboarding', 1, 'onboarding', 'Org B onboarding', 'user-b');
 
 INSERT INTO hr_lifecycle_template_tasks
   (id, organisation_id, template_id, sequence, title, responsibility_type, due_offset_days, employee_visible)
 VALUES
   ('10000000-0000-4000-8000-000000000011', 'org-a', '10000000-0000-4000-8000-000000000001', 1, 'Complete details', 'EMPLOYEE', -7, true),
+  ('10000000-0000-4000-8000-000000000012', 'org-a', '10000000-0000-4000-8000-000000000002', 1, 'Alternate details', 'EMPLOYEE', 0, true),
   ('20000000-0000-4000-8000-000000000011', 'org-b', '20000000-0000-4000-8000-000000000001', 1, 'Complete details', 'EMPLOYEE', 0, true);
 
 INSERT INTO hr_lifecycle_workflows
@@ -119,9 +124,9 @@ VALUES
   ('20000000-0000-4000-8000-000000000021', 'org-b', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', '20000000-0000-4000-8000-000000000001', 'onboarding', DATE '2026-10-01', 'user-b');
 
 INSERT INTO hr_lifecycle_tasks
-  (id, organisation_id, workflow_id, person_id, template_task_id, sequence, title, responsibility_type, due_at, employee_visible)
+  (id, organisation_id, workflow_id, person_id, template_id, template_task_id, sequence, title, responsibility_type, due_at, employee_visible)
 VALUES
-  ('10000000-0000-4000-8000-000000000031', 'org-a', '10000000-0000-4000-8000-000000000021', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', '10000000-0000-4000-8000-000000000011', 1, 'Complete details', 'EMPLOYEE', TIMESTAMPTZ '2026-09-24 00:00:00+00', true);
+  ('10000000-0000-4000-8000-000000000031', 'org-a', '10000000-0000-4000-8000-000000000021', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', '10000000-0000-4000-8000-000000000001', '10000000-0000-4000-8000-000000000011', 1, 'Complete details', 'EMPLOYEE', TIMESTAMPTZ '2026-09-24 00:00:00+00', true);
 
 INSERT INTO hr_lifecycle_task_approvals
   (organisation_id, task_id, workflow_id, person_id, approver_user_id, decision)
@@ -144,10 +149,12 @@ expect_error "workflow cannot reference another org template" "23503" "hr_lifecy
   "INSERT INTO hr_lifecycle_workflows(organisation_id,person_id,template_id,lifecycle_type,anchor_date,started_by) VALUES ('org-a','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','20000000-0000-4000-8000-000000000001','offboarding',CURRENT_DATE,'user-a');"
 expect_error "workflow lifecycle type must match pinned template" "23503" "hr_lifecycle_workflows_org_template_fkey" \
   "INSERT INTO hr_lifecycle_workflows(organisation_id,person_id,template_id,lifecycle_type,anchor_date,started_by) VALUES ('org-a','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','10000000-0000-4000-8000-000000000001','offboarding',CURRENT_DATE,'user-a');"
-expect_error "task cannot reference another org workflow" "23503" "hr_lifecycle_tasks_org_workflow_person_fkey" \
-  "INSERT INTO hr_lifecycle_tasks(organisation_id,workflow_id,person_id,sequence,title,responsibility_type) VALUES ('org-a','20000000-0000-4000-8000-000000000021','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',9,'x','EMPLOYEE');"
-expect_error "task cannot reference another org template task" "23503" "hr_lifecycle_tasks_org_template_task_fkey" \
-  "INSERT INTO hr_lifecycle_tasks(organisation_id,workflow_id,person_id,template_task_id,sequence,title,responsibility_type) VALUES ('org-a','10000000-0000-4000-8000-000000000021','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','20000000-0000-4000-8000-000000000011',9,'x','EMPLOYEE');"
+expect_error "task cannot reference another org workflow" "23503" "hr_lifecycle_tasks_org_workflow_person_template_fkey" \
+  "INSERT INTO hr_lifecycle_tasks(organisation_id,workflow_id,person_id,template_id,template_task_id,sequence,title,responsibility_type) VALUES ('org-a','20000000-0000-4000-8000-000000000021','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','10000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000011',9,'x','EMPLOYEE');"
+expect_error "task cannot reference another org template task" "23503" "hr_lifecycle_tasks_org_template_task_template_fkey" \
+  "INSERT INTO hr_lifecycle_tasks(organisation_id,workflow_id,person_id,template_id,template_task_id,sequence,title,responsibility_type) VALUES ('org-a','10000000-0000-4000-8000-000000000021','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','10000000-0000-4000-8000-000000000001','20000000-0000-4000-8000-000000000011',9,'x','EMPLOYEE');"
+expect_error "task cannot reference same-org template task from wrong template version/family" "23503" "hr_lifecycle_tasks_org_template_task_template_fkey" \
+  "INSERT INTO hr_lifecycle_tasks(organisation_id,workflow_id,person_id,template_id,template_task_id,sequence,title,responsibility_type) VALUES ('org-a','10000000-0000-4000-8000-000000000021','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','10000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000012',9,'x','EMPLOYEE');"
 expect_error "approval cannot reference another org task" "23503" "hr_lifecycle_task_approvals_org_task_workflow_person_fkey" \
   "INSERT INTO hr_lifecycle_task_approvals(organisation_id,task_id,workflow_id,person_id,approver_user_id,decision) VALUES ('org-b','10000000-0000-4000-8000-000000000031','10000000-0000-4000-8000-000000000021','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','user-b','APPROVED');"
 
@@ -165,12 +172,46 @@ expect_error "template task approval fields coherent" "23514" "hr_lifecycle_temp
   "INSERT INTO hr_lifecycle_template_tasks(organisation_id,template_id,sequence,title,responsibility_type,requires_approval,approval_type) VALUES ('org-a','10000000-0000-4000-8000-000000000001',8,'Bad','EMPLOYEE',false,'MANAGER');"
 expect_error "internal-only template task cannot be employee-visible" "23514" "hr_lifecycle_template_tasks_visibility_check" \
   "INSERT INTO hr_lifecycle_template_tasks(organisation_id,template_id,sequence,title,responsibility_type,internal_only,employee_visible) VALUES ('org-a','10000000-0000-4000-8000-000000000001',8,'Bad','HR_ADMIN',true,true);"
+expect_error "internal-only template task cannot be manager-visible" "23514" "hr_lifecycle_template_tasks_visibility_check" \
+  "INSERT INTO hr_lifecycle_template_tasks(organisation_id,template_id,sequence,title,responsibility_type,internal_only,manager_visible) VALUES ('org-a','10000000-0000-4000-8000-000000000001',8,'Bad','HR_ADMIN',true,true);"
+expect_error "NAMED_USER template responsibility is not supported" "23514" "hr_lifecycle_template_tasks_responsibility_type_check" \
+  "INSERT INTO hr_lifecycle_template_tasks(organisation_id,template_id,sequence,title,responsibility_type) VALUES ('org-a','10000000-0000-4000-8000-000000000001',8,'Bad','NAMED_USER');"
+expect_error "blank template key rejected" "23514" "hr_lifecycle_templates_template_key_not_blank_check" \
+  "INSERT INTO hr_lifecycle_templates(organisation_id,template_key,version_number,lifecycle_type,name,created_by) VALUES ('org-a','   ',1,'onboarding','Bad','user-a');"
+expect_error "blank template name rejected" "23514" "hr_lifecycle_templates_name_not_blank_check" \
+  "INSERT INTO hr_lifecycle_templates(organisation_id,template_key,version_number,lifecycle_type,name,created_by) VALUES ('org-a','blank-name',1,'onboarding','   ','user-a');"
+expect_error "invalid template lifecycle type rejected" "23514" "hr_lifecycle_templates_lifecycle_type_check" \
+  "INSERT INTO hr_lifecycle_templates(organisation_id,template_key,version_number,lifecycle_type,name,created_by) VALUES ('org-a','bad-lifecycle',1,'transfer','Bad','user-a');"
+expect_error "invalid template status rejected" "23514" "hr_lifecycle_templates_status_check" \
+  "INSERT INTO hr_lifecycle_templates(organisation_id,template_key,version_number,lifecycle_type,name,status,created_by) VALUES ('org-a','bad-status',1,'onboarding','Bad','PAUSED','user-a');"
+expect_error "duplicate template family/version rejected" "23505" "hr_lifecycle_templates_org_key_version_key" \
+  "INSERT INTO hr_lifecycle_templates(organisation_id,template_key,version_number,lifecycle_type,name,created_by) VALUES ('org-a','standard-onboarding',1,'onboarding','Duplicate','user-a');"
+expect_error "blank template task title rejected" "23514" "hr_lifecycle_template_tasks_title_not_blank_check" \
+  "INSERT INTO hr_lifecycle_template_tasks(organisation_id,template_id,sequence,title,responsibility_type) VALUES ('org-a','10000000-0000-4000-8000-000000000001',8,'   ','EMPLOYEE');"
+expect_error "duplicate template task sequence rejected" "23505" "hr_lifecycle_template_tasks_org_template_sequence_key" \
+  "INSERT INTO hr_lifecycle_template_tasks(organisation_id,template_id,sequence,title,responsibility_type) VALUES ('org-a','10000000-0000-4000-8000-000000000001',1,'Duplicate sequence','EMPLOYEE');"
 expect_error "workflow completed state requires completed_at" "23514" "hr_lifecycle_workflows_status_timestamps_check" \
-  "INSERT INTO hr_lifecycle_workflows(organisation_id,person_id,template_id,lifecycle_type,status,anchor_date,started_by) VALUES ('org-a','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','10000000-0000-4000-8000-000000000001','offboarding','COMPLETED',CURRENT_DATE,'user-a');"
+  "INSERT INTO hr_lifecycle_workflows(organisation_id,person_id,template_id,lifecycle_type,status,anchor_date,started_by) VALUES ('org-a','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','10000000-0000-4000-8000-000000000001','onboarding','COMPLETED',CURRENT_DATE,'user-a');"
 expect_error "task completed state requires completion actor/time" "23514" "hr_lifecycle_tasks_terminal_fields_check" \
-  "INSERT INTO hr_lifecycle_tasks(organisation_id,workflow_id,person_id,sequence,title,responsibility_type,status) VALUES ('org-a','10000000-0000-4000-8000-000000000021','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',8,'Bad','EMPLOYEE','COMPLETED');"
+  "INSERT INTO hr_lifecycle_tasks(organisation_id,workflow_id,person_id,template_id,template_task_id,sequence,title,responsibility_type,status) VALUES ('org-a','10000000-0000-4000-8000-000000000021','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','10000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000011',8,'Bad','EMPLOYEE','COMPLETED');"
 expect_error "waived task requires nonblank reason/actor/time" "23514" "hr_lifecycle_tasks_terminal_fields_check" \
-  "INSERT INTO hr_lifecycle_tasks(organisation_id,workflow_id,person_id,sequence,title,responsibility_type,status,waived_by,waived_at,waiver_reason) VALUES ('org-a','10000000-0000-4000-8000-000000000021','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',8,'Bad','EMPLOYEE','WAIVED','user-a',now(),'   ');"
+  "INSERT INTO hr_lifecycle_tasks(organisation_id,workflow_id,person_id,template_id,template_task_id,sequence,title,responsibility_type,status,waived_by,waived_at,waiver_reason) VALUES ('org-a','10000000-0000-4000-8000-000000000021','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','10000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000011',8,'Bad','EMPLOYEE','WAIVED','user-a',now(),'   ');"
+expect_error "template_task_id is required on instantiated tasks" "23502" "template_task_id" \
+  "INSERT INTO hr_lifecycle_tasks(organisation_id,workflow_id,person_id,template_id,sequence,title,responsibility_type) VALUES ('org-a','10000000-0000-4000-8000-000000000021','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','10000000-0000-4000-8000-000000000001',8,'Bad','EMPLOYEE');"
+expect_error "NAMED_USER instantiated responsibility is not supported" "23514" "hr_lifecycle_tasks_responsibility_type_check" \
+  "INSERT INTO hr_lifecycle_tasks(organisation_id,workflow_id,person_id,template_id,template_task_id,sequence,title,responsibility_type) VALUES ('org-a','10000000-0000-4000-8000-000000000021','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','10000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000011',8,'Bad','NAMED_USER');"
+expect_error "blank instantiated task title rejected" "23514" "hr_lifecycle_tasks_title_not_blank_check" \
+  "INSERT INTO hr_lifecycle_tasks(organisation_id,workflow_id,person_id,template_id,template_task_id,sequence,title,responsibility_type) VALUES ('org-a','10000000-0000-4000-8000-000000000021','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','10000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000011',8,'   ','EMPLOYEE');"
+expect_error "internal-only instantiated task cannot be manager-visible" "23514" "hr_lifecycle_tasks_visibility_check" \
+  "INSERT INTO hr_lifecycle_tasks(organisation_id,workflow_id,person_id,template_id,template_task_id,sequence,title,responsibility_type,internal_only,manager_visible) VALUES ('org-a','10000000-0000-4000-8000-000000000021','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','10000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000011',8,'Bad','HR_ADMIN',true,true);"
+expect_error "instantiated task approval fields coherent" "23514" "hr_lifecycle_tasks_approval_coherence_check" \
+  "INSERT INTO hr_lifecycle_tasks(organisation_id,workflow_id,person_id,template_id,template_task_id,sequence,title,responsibility_type,requires_approval,approval_type) VALUES ('org-a','10000000-0000-4000-8000-000000000021','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','10000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000011',8,'Bad','EMPLOYEE',false,'MANAGER');"
+expect_error "duplicate instantiated task sequence rejected" "23505" "hr_lifecycle_tasks_org_workflow_sequence_key" \
+  "INSERT INTO hr_lifecycle_tasks(organisation_id,workflow_id,person_id,template_id,template_task_id,sequence,title,responsibility_type) VALUES ('org-a','10000000-0000-4000-8000-000000000021','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','10000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000011',1,'Duplicate sequence','EMPLOYEE');"
+expect_error "invalid instantiated task status rejected" "23514" "hr_lifecycle_tasks_status_check" \
+  "INSERT INTO hr_lifecycle_tasks(organisation_id,workflow_id,person_id,template_id,template_task_id,sequence,title,responsibility_type,status) VALUES ('org-a','10000000-0000-4000-8000-000000000021','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','10000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000011',8,'Bad','EMPLOYEE','PAUSED');"
+expect_error "workflow cancelled state requires cancelled_at" "23514" "hr_lifecycle_workflows_status_timestamps_check" \
+  "INSERT INTO hr_lifecycle_workflows(organisation_id,person_id,template_id,lifecycle_type,status,anchor_date,started_by) VALUES ('org-a','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','10000000-0000-4000-8000-000000000001','onboarding','CANCELLED',CURRENT_DATE,'user-a');"
 expect_error "approval decision vocabulary enforced" "23514" "hr_lifecycle_task_approvals_decision_check" \
   "INSERT INTO hr_lifecycle_task_approvals(organisation_id,task_id,workflow_id,person_id,approver_user_id,decision) VALUES ('org-a','10000000-0000-4000-8000-000000000031','10000000-0000-4000-8000-000000000021','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','manager-a','MAYBE');"
 
@@ -211,6 +252,34 @@ else
 fi
 PARTIAL="$(echo "SELECT count(*) FROM pg_tables WHERE schemaname='public' AND tablename LIKE 'hr_lifecycle_%';" | psql_db noanchor -t -A | tr -d '\r')"
 check "pre-flight failure creates no lifecycle table" "$PARTIAL" "0"
+
+echo ""
+echo "=== TRANSACTION ROLLBACK ON LATE FAILURE ==="
+echo "CREATE DATABASE latefail;" | psql_db testdb
+cat <<'SQL' | psql_db latefail
+CREATE TABLE organisations (id TEXT PRIMARY KEY);
+CREATE TABLE users (id TEXT PRIMARY KEY, organisation_id TEXT NOT NULL REFERENCES organisations(id));
+CREATE TABLE hr_people (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  organisation_id TEXT NOT NULL REFERENCES organisations(id)
+);
+ALTER TABLE hr_people
+  ADD CONSTRAINT hr_people_organisation_id_id_key UNIQUE (organisation_id, id);
+
+-- Intentional late conflict: migration will create earlier lifecycle tables,
+-- then encounter this incompatible pre-existing table and fail while creating
+-- the first task index. The explicit transaction must roll all new DDL back.
+CREATE TABLE hr_lifecycle_tasks (id UUID PRIMARY KEY);
+SQL
+LATE_OUT="$(cat "$MIGRATION" | docker exec -i "$CONTAINER" psql -X -q -U postgres -d latefail -v ON_ERROR_STOP=1 2>&1)"
+LATE_RC=$?
+if [ "$LATE_RC" -ne 0 ]; then
+  record_pass "late migration conflict fails"
+else
+  record_fail "late migration conflict unexpectedly succeeded"
+fi
+LATE_TABLES="$(echo "SELECT string_agg(tablename, ',' ORDER BY tablename) FROM pg_tables WHERE schemaname='public' AND tablename LIKE 'hr_lifecycle_%';" | psql_db latefail -t -A | tr -d '\r')"
+check "transaction rolls back every lifecycle table created before late failure" "$LATE_TABLES" "hr_lifecycle_tasks"
 
 echo ""
 echo "=== RESULT ==="

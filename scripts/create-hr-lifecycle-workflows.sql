@@ -19,6 +19,8 @@
 -- rules. This migration enforces structural consistency, vocabularies, tenant
 -- relations, state/timestamp coherence, and concurrency-critical uniqueness.
 
+BEGIN;
+
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -100,6 +102,8 @@ CREATE TABLE IF NOT EXISTS hr_lifecycle_template_tasks (
 
   CONSTRAINT hr_lifecycle_template_tasks_organisation_id_id_key
     UNIQUE (organisation_id, id),
+  CONSTRAINT hr_lifecycle_template_tasks_org_id_template_key
+    UNIQUE (organisation_id, id, template_id),
   CONSTRAINT hr_lifecycle_template_tasks_org_template_fkey
     FOREIGN KEY (organisation_id, template_id)
     REFERENCES hr_lifecycle_templates(organisation_id, id),
@@ -110,7 +114,7 @@ CREATE TABLE IF NOT EXISTS hr_lifecycle_template_tasks (
   CONSTRAINT hr_lifecycle_template_tasks_title_not_blank_check
     CHECK (btrim(title) <> ''),
   CONSTRAINT hr_lifecycle_template_tasks_responsibility_type_check
-    CHECK (responsibility_type IN ('EMPLOYEE', 'MANAGER', 'HR_ADMIN', 'NAMED_USER')),
+    CHECK (responsibility_type IN ('EMPLOYEE', 'MANAGER', 'HR_ADMIN')),
   CONSTRAINT hr_lifecycle_template_tasks_approval_type_check
     CHECK (approval_type IN ('NONE', 'MANAGER', 'HR_ADMIN')),
   CONSTRAINT hr_lifecycle_template_tasks_approval_coherence_check
@@ -145,8 +149,8 @@ CREATE TABLE IF NOT EXISTS hr_lifecycle_workflows (
 
   CONSTRAINT hr_lifecycle_workflows_organisation_id_id_key
     UNIQUE (organisation_id, id),
-  CONSTRAINT hr_lifecycle_workflows_org_id_person_key
-    UNIQUE (organisation_id, id, person_id),
+  CONSTRAINT hr_lifecycle_workflows_org_id_person_template_key
+    UNIQUE (organisation_id, id, person_id, template_id),
   CONSTRAINT hr_lifecycle_workflows_org_person_fkey
     FOREIGN KEY (organisation_id, person_id)
     REFERENCES hr_people(organisation_id, id),
@@ -182,7 +186,8 @@ CREATE TABLE IF NOT EXISTS hr_lifecycle_tasks (
   organisation_id      TEXT        NOT NULL REFERENCES organisations(id),
   workflow_id          UUID        NOT NULL,
   person_id            UUID        NOT NULL,
-  template_task_id     UUID,
+  template_id          UUID        NOT NULL,
+  template_task_id     UUID        NOT NULL,
   sequence             INTEGER     NOT NULL,
   title                TEXT        NOT NULL,
   description          TEXT,
@@ -207,12 +212,12 @@ CREATE TABLE IF NOT EXISTS hr_lifecycle_tasks (
     UNIQUE (organisation_id, id),
   CONSTRAINT hr_lifecycle_tasks_org_id_workflow_person_key
     UNIQUE (organisation_id, id, workflow_id, person_id),
-  CONSTRAINT hr_lifecycle_tasks_org_workflow_person_fkey
-    FOREIGN KEY (organisation_id, workflow_id, person_id)
-    REFERENCES hr_lifecycle_workflows(organisation_id, id, person_id),
-  CONSTRAINT hr_lifecycle_tasks_org_template_task_fkey
-    FOREIGN KEY (organisation_id, template_task_id)
-    REFERENCES hr_lifecycle_template_tasks(organisation_id, id),
+  CONSTRAINT hr_lifecycle_tasks_org_workflow_person_template_fkey
+    FOREIGN KEY (organisation_id, workflow_id, person_id, template_id)
+    REFERENCES hr_lifecycle_workflows(organisation_id, id, person_id, template_id),
+  CONSTRAINT hr_lifecycle_tasks_org_template_task_template_fkey
+    FOREIGN KEY (organisation_id, template_task_id, template_id)
+    REFERENCES hr_lifecycle_template_tasks(organisation_id, id, template_id),
   CONSTRAINT hr_lifecycle_tasks_org_workflow_sequence_key
     UNIQUE (organisation_id, workflow_id, sequence),
   CONSTRAINT hr_lifecycle_tasks_sequence_check
@@ -220,7 +225,7 @@ CREATE TABLE IF NOT EXISTS hr_lifecycle_tasks (
   CONSTRAINT hr_lifecycle_tasks_title_not_blank_check
     CHECK (btrim(title) <> ''),
   CONSTRAINT hr_lifecycle_tasks_responsibility_type_check
-    CHECK (responsibility_type IN ('EMPLOYEE', 'MANAGER', 'HR_ADMIN', 'NAMED_USER')),
+    CHECK (responsibility_type IN ('EMPLOYEE', 'MANAGER', 'HR_ADMIN')),
   CONSTRAINT hr_lifecycle_tasks_approval_type_check
     CHECK (approval_type IN ('NONE', 'MANAGER', 'HR_ADMIN')),
   CONSTRAINT hr_lifecycle_tasks_approval_coherence_check
@@ -303,6 +308,8 @@ CREATE INDEX IF NOT EXISTS idx_hr_lifecycle_task_approvals_task_id
   ON hr_lifecycle_task_approvals(task_id);
 CREATE INDEX IF NOT EXISTS idx_hr_lifecycle_task_approvals_workflow_id
   ON hr_lifecycle_task_approvals(workflow_id);
+
+COMMIT;
 
 -- Rollback is intentionally not scripted. Dropping these tables after they hold
 -- lifecycle history would be destructive and requires separate authorization.
