@@ -6,6 +6,7 @@ import { readWorksheetDataRows } from "../workbookParser";
 import { buildImportBatchKey, RawFileStoreError } from "../storage/rawFileStore";
 import { createImportBatchStorage } from "../importBatch/compositionRoot";
 import { MAX_SOURCE_FILE_BYTES } from "../limits";
+import { resolveLeaseSeconds } from "./stagingConfig";
 
 // Data Hub 6.2D4B — staging-run lifecycle (create/resume/lease) service.
 //
@@ -23,7 +24,6 @@ import { MAX_SOURCE_FILE_BYTES } from "../limits";
 // conditional UPDATE below). A live lease held by someone else yields
 // RUN_ALREADY_IN_PROGRESS; the caller must not proceed.
 
-export const DEFAULT_LEASE_SECONDS = 120;
 export const PARSER_VERSION = "6.2D4B-1";
 
 export type CreateOrResumeFailureCode = "BATCH_NOT_READY" | "STAGING_INELIGIBLE" | "INVALID_STATE" | "RUN_ALREADY_IN_PROGRESS" | "ALREADY_STAGED" | "STORAGE_NOT_FOUND" | "PROVIDER_FAILURE" | "STORAGE_INTEGRITY_MISMATCH" | "PARSER_REJECTED";
@@ -77,7 +77,7 @@ export async function createOrResumeStagingRun(context: {
   leaseSeconds?: number;
 }): Promise<CreateOrResumeResult> {
   const { organisationId, uploadId, actorUserId } = context;
-  const leaseSeconds = context.leaseSeconds ?? DEFAULT_LEASE_SECONDS;
+  const leaseSeconds = context.leaseSeconds ?? resolveLeaseSeconds();
 
   const upload = await prisma.upload.findFirst({
     where: { id: uploadId, organisation_id: organisationId, lineage_kind: "DATA_HUB" },
@@ -227,17 +227,51 @@ export async function createOrResumeStagingRun(context: {
   };
 }
 
+// Remediation (point 5): conditioned on the CURRENT lease (token + still
+// RUNNING + not expired) — a worker that has already lost its lease has no
+// authority to declare this run FAILED (someone else may already be
+// entitled to resume it). Returns whether the transition actually applied,
+// so callers can tell "durably failed" apart from "lease already lost"
+// and avoid claiming an API outcome the durable state doesn't back up.
 export async function markRunFailed(context: {
   organisationId: string;
   runId: string;
   executionToken: string;
   failureCode: string;
   failureDetail?: string;
-}): Promise<void> {
-  await sql`
+}): Promise<boolean> {
+  const rows = (await sql`
     UPDATE data_hub_raw_staging_runs
     SET status = 'FAILED', failed_at = now(), failure_code = ${context.failureCode}, failure_detail = ${context.failureDetail ?? null}
     WHERE id = ${context.runId} AND organisation_id = ${context.organisationId}
       AND status = 'RUNNING' AND execution_token = ${context.executionToken}
-  `;
+      AND lease_expires_at > now()
+    RETURNING id
+  `) as unknown as { id: string }[];
+  return rows.length === 1;
+}
+
+// Remediation (point 1 — graceful yield/continuation): called by
+// stageWorksheetRows.ts when it stops early because its request time
+// budget is reached with more work remaining. Sets lease_expires_at to
+// now() (unambiguously already-expired/immediately-reacquirable) so the
+// VERY NEXT request for this upload can atomically take the lease over
+// via createOrResumeStagingRun's own tryTakeoverExisting — no waiting out
+// the full lease duration. Conditioned on the CURRENT token still holding
+// a live, RUNNING lease; if that has already changed (lost to someone
+// else, or already yielded), returns false rather than silently
+// no-op-succeeding, so the caller can report LEASE_LOST instead of RUNNING.
+export async function releaseLeaseForYield(context: {
+  organisationId: string;
+  runId: string;
+  executionToken: string;
+}): Promise<boolean> {
+  const rows = (await sql`
+    UPDATE data_hub_raw_staging_runs
+    SET lease_expires_at = now()
+    WHERE id = ${context.runId} AND organisation_id = ${context.organisationId}
+      AND execution_token = ${context.executionToken} AND status = 'RUNNING'
+    RETURNING id
+  `) as unknown as { id: string }[];
+  return rows.length === 1;
 }

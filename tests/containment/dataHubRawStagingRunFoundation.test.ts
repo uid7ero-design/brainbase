@@ -136,4 +136,65 @@ describe("6.2D4B raw-staging-run foundation — static containment", () => {
     expect(withoutComments).not.toMatch(/UPDATE\s+public\.uploads\s+SET\s+canonical_status/i);
     expect(withoutComments).not.toMatch(/INSERT\s+INTO\s+public\.(illegal_dumping|service_requests|missed_collections|debtor_accounts|metrics)/i);
   });
+
+  // ─────────────────────────────────────────────────────────────────────
+  // Remediation: runtime lease/continuation fix.
+  // ─────────────────────────────────────────────────────────────────────
+
+  it("remediation: datahub_stage_raw_batch's initial lease check requires a NOT-YET-EXPIRED lease and renews it (point 2)", () => {
+    const fnStart = SQL.indexOf("FUNCTION public.datahub_stage_raw_batch(");
+    const fnEnd = SQL.indexOf("$fn$;", SQL.indexOf("$fn$;", fnStart) + 5);
+    const fnBody = SQL.slice(fnStart, fnEnd);
+    expect(fnBody).toContain("p_lease_seconds");
+    // The first (pre-insert) lease UPDATE both requires liveness and renews
+    // — scoped strictly to THIS statement (up to its own RETURNING clause)
+    // so this assertion cannot be spuriously satisfied by the unrelated,
+    // later final-check occurrence of the same literal text.
+    const firstUpdateIdx = fnBody.indexOf("SET lease_expires_at = now() + make_interval");
+    const firstReturningIdx = fnBody.indexOf("RETURNING import_batch_id", firstUpdateIdx);
+    expect(firstUpdateIdx).toBeGreaterThan(-1);
+    expect(firstReturningIdx).toBeGreaterThan(firstUpdateIdx);
+    const firstStatement = fnBody.slice(firstUpdateIdx, firstReturningIdx);
+    expect(firstStatement).toContain("AND lease_expires_at > now()");
+  });
+
+  it("remediation: datahub_stage_raw_batch's FINAL progress check also requires a still-live lease (point 2)", () => {
+    const fnStart = SQL.indexOf("FUNCTION public.datahub_stage_raw_batch(");
+    const fnEnd = SQL.indexOf("$fn$;", SQL.indexOf("$fn$;", fnStart) + 5);
+    const fnBody = SQL.slice(fnStart, fnEnd);
+    const progressUpdateIdx = fnBody.indexOf("SET persisted_row_count");
+    const finalLeaseCheckIdx = fnBody.indexOf("AND lease_expires_at > now()", progressUpdateIdx);
+    expect(progressUpdateIdx).toBeGreaterThan(-1);
+    expect(finalLeaseCheckIdx).toBeGreaterThan(-1);
+  });
+
+  it("remediation: datahub_stage_raw_batch's OLD 4-arg signature is dropped before the new 5-arg one is (re)created (idempotent signature change)", () => {
+    const dropIdx = SQL.indexOf("DROP FUNCTION IF EXISTS public.datahub_stage_raw_batch(text, text, text, jsonb);");
+    const createIdx = SQL.indexOf("CREATE OR REPLACE FUNCTION public.datahub_stage_raw_batch(");
+    expect(dropIdx).toBeGreaterThan(-1);
+    expect(createIdx).toBeGreaterThan(-1);
+    expect(dropIdx).toBeLessThan(createIdx);
+  });
+
+  it("remediation: datahub_complete_raw_staging_run requires the current execution_token and a live lease (point 4)", () => {
+    const fnStart = SQL.indexOf("FUNCTION public.datahub_complete_raw_staging_run(");
+    const fnEnd = SQL.indexOf("$fn$;", SQL.indexOf("$fn$;", fnStart) + 5);
+    const fnBody = SQL.slice(fnStart, fnEnd);
+    expect(fnBody).toContain("p_execution_token");
+    expect(fnBody).toMatch(/execution_token\s+IS\s+DISTINCT\s+FROM\s+p_execution_token/);
+    expect(fnBody).toMatch(/lease_expires_at\s*<=\s*now\(\)/);
+  });
+
+  it("remediation: datahub_complete_raw_staging_run's OLD 3-arg signature is dropped before the new 4-arg one is (re)created", () => {
+    const dropIdx = SQL.indexOf("DROP FUNCTION IF EXISTS public.datahub_complete_raw_staging_run(text, text, text);");
+    const createIdx = SQL.indexOf("CREATE OR REPLACE FUNCTION public.datahub_complete_raw_staging_run(");
+    expect(dropIdx).toBeGreaterThan(-1);
+    expect(createIdx).toBeGreaterThan(-1);
+    expect(dropIdx).toBeLessThan(createIdx);
+  });
+
+  it("remediation: rollback script drops the CURRENT (not the original) function signatures", () => {
+    expect(ROLLBACK_SQL).toContain("DROP FUNCTION IF EXISTS public.datahub_complete_raw_staging_run(text, text, text, text);");
+    expect(ROLLBACK_SQL).toContain("DROP FUNCTION IF EXISTS public.datahub_stage_raw_batch(text, text, text, jsonb, integer);");
+  });
 });

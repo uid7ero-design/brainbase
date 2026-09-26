@@ -47,8 +47,11 @@ BEGIN
 END $$;
 
 -- ─── Remove D4B-only functions ───────────────────────────────────────────
-DROP FUNCTION IF EXISTS public.datahub_complete_raw_staging_run(text, text, text);
-DROP FUNCTION IF EXISTS public.datahub_stage_raw_batch(text, text, text, jsonb);
+-- Remediation: both functions' signatures grew a parameter (p_execution_token
+-- on completion; p_lease_seconds on batch staging) — drop the CURRENT
+-- signatures, not the original D4B ones.
+DROP FUNCTION IF EXISTS public.datahub_complete_raw_staging_run(text, text, text, text);
+DROP FUNCTION IF EXISTS public.datahub_stage_raw_batch(text, text, text, jsonb, integer);
 
 -- ─── Restore uploads to D4A's original shape ─────────────────────────────
 ALTER TABLE public.uploads DROP CONSTRAINT IF EXISTS uploads_raw_staging_run_upload_fkey;

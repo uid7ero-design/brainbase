@@ -6,6 +6,8 @@ import { buildImportBatchKey, RawFileStoreError } from "../storage/rawFileStore"
 import { createImportBatchStorage } from "../importBatch/compositionRoot";
 import { MAX_SOURCE_FILE_BYTES } from "../limits";
 import type { ActiveStagingRun } from "./dataHubRawStagingRun";
+import { releaseLeaseForYield } from "./dataHubRawStagingRun";
+import { resolveLeaseSeconds, resolveTargetCellsPerBatch } from "./stagingConfig";
 
 // Data Hub 6.2D4B — the batched materialize-and-insert loop.
 //
@@ -21,12 +23,20 @@ import type { ActiveStagingRun } from "./dataHubRawStagingRun";
 // module can never observe or report LEASE_LOST after evidence has
 // actually committed.
 //
+// REMEDIATION (graceful yield/continuation): stopping because the request
+// time budget was reached, with more work remaining, is NOT a silent
+// "return RUNNING and leave the 120s lease intact" — that would block the
+// very next request's takeover for up to the full lease duration (the bug
+// an independent review found). Instead this function explicitly releases
+// the lease (releaseLeaseForYield) before returning, so the next request
+// can atomically take over immediately. If that release itself fails
+// (lease already lost to someone else between the last successful batch
+// and now), this reports LEASE_LOST rather than a now-untrue RUNNING.
+//
 // Target batch size is 5,000-10,000 CELLS per commit (point 7 — an initial
-// benchmark range, not a permanent constant; see
-// tests/postgres-proof/datahubStagingBenchmark.postgres-proof.test.ts for
-// the disposable-DB timing this range was chosen against).
+// benchmark range, not a permanent constant, resolved from
+// stagingConfig.ts and overridable in tests only).
 
-export const TARGET_CELLS_PER_BATCH = 8000;
 const MAX_ROWS_PER_PARSER_CALL = 2000;
 
 export type StageBatchesFailureCode = "LEASE_LOST" | "PARSER_REJECTED" | "STORAGE_NOT_FOUND" | "PROVIDER_FAILURE" | "STORAGE_INTEGRITY_MISMATCH" | "WORKBOOK_INTEGRITY_CHANGED";
@@ -100,12 +110,20 @@ export async function stageBatches(
   let persistedRowCount = run.persistedRowCount;
   let persistedCellCount = run.persistedCellCount;
   const startedAt = Date.now();
+  const leaseSeconds = resolveLeaseSeconds();
+  const targetCellsPerBatch = resolveTargetCellsPerBatch();
   let exhausted = false;
 
+  // Remediation: this is a "process a batch, THEN check the time budget"
+  // loop, not "check the budget, then maybe process a batch" — every call
+  // to stageBatches always attempts at least ONE batch when work remains,
+  // regardless of how small maxDurationMs is. This guarantees a call never
+  // reports RUNNING having made zero progress when rows were actually
+  // available, and makes the yield point deterministic for tests (a tiny
+  // maxDurationMs forces exactly one batch, then a yield — not a race
+  // against wall-clock timing on whichever machine runs the test).
   for (;;) {
-    if (Date.now() - startedAt > maxDurationMs) break;
-
-    const rowsPerCall = Math.max(1, Math.min(MAX_ROWS_PER_PARSER_CALL, Math.floor(TARGET_CELLS_PER_BATCH / governedColumns.length) || 1));
+    const rowsPerCall = Math.max(1, Math.min(MAX_ROWS_PER_PARSER_CALL, Math.floor(targetCellsPerBatch / governedColumns.length) || 1));
     let page;
     try {
       page = await readWorksheetDataRows(
@@ -132,7 +150,7 @@ export async function stageBatches(
     let result;
     try {
       result = (await sql`
-        SELECT * FROM datahub_stage_raw_batch(${run.id}, ${run.organisationId}, ${run.executionToken}, ${JSON.stringify(payload)}::jsonb)
+        SELECT * FROM datahub_stage_raw_batch(${run.id}, ${run.organisationId}, ${run.executionToken}, ${JSON.stringify(payload)}::jsonb, ${leaseSeconds}::int)
       `) as unknown as { inserted_row_count: number; inserted_cell_count: number }[];
     } catch {
       // The function's own RAISE guarantees no partial evidence was
@@ -148,6 +166,22 @@ export async function stageBatches(
     if (page.exhausted) {
       exhausted = true;
       break;
+    }
+
+    if (Date.now() - startedAt > maxDurationMs) {
+      // Graceful yield (remediation point 1): more work remains but this
+      // request's time budget is spent. Release the lease immediately
+      // rather than leaving the full ~120s window intact, so the very next
+      // request can take over without waiting.
+      const released = await releaseLeaseForYield({
+        organisationId: run.organisationId,
+        runId: run.id,
+        executionToken: run.executionToken,
+      });
+      if (!released) {
+        return { ok: false, code: "LEASE_LOST", exhausted: false, persistedRowCount, persistedCellCount };
+      }
+      return { ok: true, exhausted: false, persistedRowCount, persistedCellCount };
     }
   }
 

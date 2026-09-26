@@ -195,9 +195,14 @@ describe("6.2D4B raw-staging-run foundation — real disposable Postgres proof",
       { id: "cell-row-a", sourceRowNumber: 2, cells: [{ id: "cell-a0", sourceSchemaColumnId: "d4b-col-0", columnOrdinal: 0, sourceHeader: "Code", sensitivityClass: "PUBLIC", rawValue: "A1", rawValueType: "STRING", originalUnit: null }] },
     ]);
     const ok = await prisma.$queryRawUnsafe<Array<{ inserted_row_count: number }>>(
-      `SELECT * FROM datahub_stage_raw_batch($1, $2, $3, $4::jsonb)`, "d4b-run-batch-ok", ORG, "tok-batch-ok", payload
+      `SELECT * FROM datahub_stage_raw_batch($1, $2, $3, $4::jsonb, $5::int)`, "d4b-run-batch-ok", ORG, "tok-batch-ok", payload, 60
     );
     expect(ok[0].inserted_row_count).toBe(1);
+
+    // Remediation (point 2): the successful call must have RENEWED the
+    // lease, not merely touched last_progress_at.
+    const runAfterGood = await prisma.dataHubRawStagingRun.findUniqueOrThrow({ where: { id: "d4b-run-batch-ok" } });
+    expect(runAfterGood.lease_expires_at.getTime()).toBeGreaterThan(Date.now() + 30_000);
 
     const rowCountAfterGood = await prisma.$queryRawUnsafe<Array<{ n: number }>>(`SELECT count(*)::int AS n FROM data_hub_raw_rows WHERE staging_run_id = 'd4b-run-batch-ok'`);
     expect(rowCountAfterGood[0].n).toBe(1);
@@ -208,7 +213,7 @@ describe("6.2D4B raw-staging-run foundation — real disposable Postgres proof",
       { id: "cell-row-b", sourceRowNumber: 3, cells: [{ id: "cell-b0", sourceSchemaColumnId: "d4b-col-0", columnOrdinal: 0, sourceHeader: "Code", sensitivityClass: "PUBLIC", rawValue: "SHOULD-NOT-PERSIST", rawValueType: "STRING", originalUnit: null }] },
     ]);
     await expect(
-      prisma.$queryRawUnsafe(`SELECT * FROM datahub_stage_raw_batch($1, $2, $3, $4::jsonb)`, "d4b-run-batch-ok", ORG, "tok-WRONG", badPayload)
+      prisma.$queryRawUnsafe(`SELECT * FROM datahub_stage_raw_batch($1, $2, $3, $4::jsonb, $5::int)`, "d4b-run-batch-ok", ORG, "tok-WRONG", badPayload, 60)
     ).rejects.toThrow();
 
     const rowCountAfterBad = await prisma.$queryRawUnsafe<Array<{ n: number }>>(`SELECT count(*)::int AS n FROM data_hub_raw_rows WHERE staging_run_id = 'd4b-run-batch-ok'`);
@@ -294,9 +299,11 @@ describe("6.2D4B raw-staging-run foundation — real disposable Postgres proof",
     const runAfterDelete = await prisma.dataHubRawStagingRun.findUniqueOrThrow({ where: { id: "d4b-run-c3" } });
     expect(runAfterDelete.created_by).toBeNull();
 
-    // Complete as a DIFFERENT, still-existing manager (d4b-user-b).
+    // Complete as a DIFFERENT, still-existing manager (d4b-user-b), passing
+    // the CURRENT lease token the run itself was created with (remediation
+    // point 4 — completion now requires proof of lease ownership).
     const completion = await prisma.$queryRawUnsafe<Array<{ row_count: number }>>(
-      `SELECT * FROM datahub_complete_raw_staging_run($1, $2, $3)`, "d4b-run-c3", ORG, "d4b-user-b"
+      `SELECT * FROM datahub_complete_raw_staging_run($1, $2, $3, $4)`, "d4b-run-c3", ORG, "d4b-user-b", "tok-c3"
     );
     expect(completion[0].row_count).toBe(1);
 
@@ -332,5 +339,146 @@ describe("6.2D4B raw-staging-run foundation — real disposable Postgres proof",
         data: { raw_staged_at: new Date(), raw_staged_by: "d4b-user-b", raw_profile_version_id: "d4b-wp-a-v1", raw_row_count: 1, raw_cell_count: 1 },
       })
     ).rejects.toThrow();
+  });
+
+  // ─────────────────────────────────────────────────────────────────────
+  // Remediation — runtime lease/continuation fix. Proof cases A-G.
+  // ─────────────────────────────────────────────────────────────────────
+
+  it("remediation A: an EXPIRED token cannot call datahub_stage_raw_batch, even though the token string itself matches", async () => {
+    await prisma.dataHubRawStagingRun.create({
+      data: runInsert({ id: "d4b-run-expired-batch", attempt_number: 100, execution_token: "tok-expired", lease_expires_at: new Date(Date.now() - 5_000) }),
+    });
+    const payload = JSON.stringify([
+      { id: "cell-exp-a", sourceRowNumber: 2, cells: [{ id: "cell-exp-a0", sourceSchemaColumnId: "d4b-col-0", columnOrdinal: 0, sourceHeader: "Code", sensitivityClass: "PUBLIC", rawValue: "SHOULD-NOT-PERSIST-EXPIRED", rawValueType: "STRING", originalUnit: null }] },
+    ]);
+    await expect(
+      prisma.$queryRawUnsafe(`SELECT * FROM datahub_stage_raw_batch($1, $2, $3, $4::jsonb, $5::int)`, "d4b-run-expired-batch", ORG, "tok-expired", payload, 60)
+    ).rejects.toThrow();
+    const rowCount = await prisma.$queryRawUnsafe<Array<{ n: number }>>(`SELECT count(*)::int AS n FROM data_hub_raw_rows WHERE staging_run_id = 'd4b-run-expired-batch'`);
+    expect(rowCount[0].n).toBe(0);
+    const leaked = await prisma.$queryRawUnsafe<Array<{ n: number }>>(`SELECT count(*)::int AS n FROM data_hub_raw_cells WHERE raw_value::text LIKE '%SHOULD-NOT-PERSIST-EXPIRED%'`);
+    expect(leaked[0].n).toBe(0);
+    await prisma.dataHubRawStagingRun.update({ where: { id: "d4b-run-expired-batch" }, data: { status: "FAILED", failed_at: new Date(), failure_code: "TEST" } });
+  });
+
+  it("remediation B: a LIVE token both succeeds AND renews lease_expires_at forward by the supplied lease duration", async () => {
+    const startingLease = new Date(Date.now() + 5_000);
+    await prisma.dataHubRawStagingRun.create({
+      data: runInsert({ id: "d4b-run-renew", attempt_number: 101, execution_token: "tok-renew", lease_expires_at: startingLease }),
+    });
+    const payload = JSON.stringify([
+      { id: "cell-renew-a", sourceRowNumber: 2, cells: [{ id: "cell-renew-a0", sourceSchemaColumnId: "d4b-col-0", columnOrdinal: 0, sourceHeader: "Code", sensitivityClass: "PUBLIC", rawValue: "ok", rawValueType: "STRING", originalUnit: null }] },
+    ]);
+    await prisma.$queryRawUnsafe(`SELECT * FROM datahub_stage_raw_batch($1, $2, $3, $4::jsonb, $5::int)`, "d4b-run-renew", ORG, "tok-renew", payload, 90);
+    const runAfter = await prisma.dataHubRawStagingRun.findUniqueOrThrow({ where: { id: "d4b-run-renew" } });
+    // Renewed to ~90s from now, far past the original ~5s lease.
+    expect(runAfter.lease_expires_at.getTime()).toBeGreaterThan(startingLease.getTime() + 60_000);
+    await prisma.dataHubRawStagingRun.update({ where: { id: "d4b-run-renew" }, data: { status: "FAILED", failed_at: new Date(), failure_code: "TEST" } });
+  });
+
+  it("remediation C: the final progress-commit lease check is present and does not spuriously reject a legitimate, still-live single-statement call", async () => {
+    // NOTE: within one statement/transaction, the row lock acquired by the
+    // FIRST lease-verify UPDATE is held until commit, so no concurrent
+    // session can invalidate the lease between the first and final checks
+    // of the SAME call — this proof demonstrates the final check's
+    // presence does not break the normal, legitimate path (the SQL-text
+    // containment test proves the check's literal presence in the WHERE
+    // clause; a genuinely interleaved failure of ONLY the final check is
+    // not constructible from a separate session for exactly this reason).
+    await prisma.dataHubRawStagingRun.create({
+      data: runInsert({ id: "d4b-run-final-check", attempt_number: 102, execution_token: "tok-final-check" }),
+    });
+    const payload = JSON.stringify([
+      { id: "cell-final-a", sourceRowNumber: 2, cells: [{ id: "cell-final-a0", sourceSchemaColumnId: "d4b-col-0", columnOrdinal: 0, sourceHeader: "Code", sensitivityClass: "PUBLIC", rawValue: "ok", rawValueType: "STRING", originalUnit: null }] },
+    ]);
+    const result = await prisma.$queryRawUnsafe<Array<{ inserted_row_count: number }>>(
+      `SELECT * FROM datahub_stage_raw_batch($1, $2, $3, $4::jsonb, $5::int)`, "d4b-run-final-check", ORG, "tok-final-check", payload, 60
+    );
+    expect(result[0].inserted_row_count).toBe(1);
+    await prisma.dataHubRawStagingRun.update({ where: { id: "d4b-run-final-check" }, data: { status: "FAILED", failed_at: new Date(), failure_code: "TEST" } });
+  });
+
+  it("remediation D: completion with the WRONG token fails and does not complete the Upload", async () => {
+    await prisma.importBatch.create({
+      data: { id: "d4b-batch-d", organisation_id: ORG, original_filename: "d.xlsx", content_type: "xlsx", size_bytes: 1, sha256: "e".repeat(64), storage_provider: "proof", storage_key: "proof/d4b-d", status: "READY", source_system_id: "d4b-ss-a", dataset_type_id: "d4b-dt-a", source_schema_version_id: "d4b-sv-a" },
+    });
+    await prisma.upload.create({
+      data: { id: "d4b-upload-d", organisation_id: ORG, original_name: "d.xlsx", stored_path: "n/a", mimetype: "application/x", size_bytes: 1, lineage_kind: "DATA_HUB", import_batch_id: "d4b-batch-d", worksheet_index: 0, worksheet_name: "Data", worksheet_visibility: "visible", worksheet_is_empty: false, canonical_status: "AWAITING_CONFIRMATION" },
+    });
+    await prisma.dataHubRawStagingRun.create({
+      data: runInsert({ id: "d4b-run-d", upload_id: "d4b-upload-d", import_batch_id: "d4b-batch-d", attempt_number: 1, execution_token: "tok-d-real", expected_row_count: 0, expected_cell_count: 0, persisted_row_count: 0, persisted_cell_count: 0 }),
+    });
+    await expect(
+      prisma.$queryRawUnsafe(`SELECT * FROM datahub_complete_raw_staging_run($1, $2, $3, $4)`, "d4b-run-d", ORG, "d4b-user-b", "tok-d-WRONG")
+    ).rejects.toThrow();
+    const upload = await prisma.upload.findUniqueOrThrow({ where: { id: "d4b-upload-d" } });
+    expect(upload.raw_staged_at).toBeNull();
+    const runAfter = await prisma.dataHubRawStagingRun.findUniqueOrThrow({ where: { id: "d4b-run-d" } });
+    expect(runAfter.status).toBe("RUNNING");
+    await prisma.dataHubRawStagingRun.update({ where: { id: "d4b-run-d" }, data: { status: "FAILED", failed_at: new Date(), failure_code: "TEST" } });
+  });
+
+  it("remediation E: completion with an EXPIRED token fails and does not complete the Upload", async () => {
+    await prisma.importBatch.create({
+      data: { id: "d4b-batch-e", organisation_id: ORG, original_filename: "e.xlsx", content_type: "xlsx", size_bytes: 1, sha256: "f".repeat(64), storage_provider: "proof", storage_key: "proof/d4b-e", status: "READY", source_system_id: "d4b-ss-a", dataset_type_id: "d4b-dt-a", source_schema_version_id: "d4b-sv-a" },
+    });
+    await prisma.upload.create({
+      data: { id: "d4b-upload-e", organisation_id: ORG, original_name: "e.xlsx", stored_path: "n/a", mimetype: "application/x", size_bytes: 1, lineage_kind: "DATA_HUB", import_batch_id: "d4b-batch-e", worksheet_index: 0, worksheet_name: "Data", worksheet_visibility: "visible", worksheet_is_empty: false, canonical_status: "AWAITING_CONFIRMATION" },
+    });
+    await prisma.dataHubRawStagingRun.create({
+      data: runInsert({ id: "d4b-run-e", upload_id: "d4b-upload-e", import_batch_id: "d4b-batch-e", attempt_number: 1, execution_token: "tok-e", lease_expires_at: new Date(Date.now() - 5_000), expected_row_count: 0, expected_cell_count: 0, persisted_row_count: 0, persisted_cell_count: 0 }),
+    });
+    await expect(
+      prisma.$queryRawUnsafe(`SELECT * FROM datahub_complete_raw_staging_run($1, $2, $3, $4)`, "d4b-run-e", ORG, "d4b-user-b", "tok-e")
+    ).rejects.toThrow();
+    const upload = await prisma.upload.findUniqueOrThrow({ where: { id: "d4b-upload-e" } });
+    expect(upload.raw_staged_at).toBeNull();
+    await prisma.dataHubRawStagingRun.update({ where: { id: "d4b-run-e" }, data: { status: "FAILED", failed_at: new Date(), failure_code: "TEST" } });
+  });
+
+  it("remediation F: completion with the current LIVE token succeeds", async () => {
+    await prisma.importBatch.create({
+      data: { id: "d4b-batch-f", organisation_id: ORG, original_filename: "f.xlsx", content_type: "xlsx", size_bytes: 1, sha256: "1".repeat(64), storage_provider: "proof", storage_key: "proof/d4b-f", status: "READY", source_system_id: "d4b-ss-a", dataset_type_id: "d4b-dt-a", source_schema_version_id: "d4b-sv-a" },
+    });
+    await prisma.upload.create({
+      data: { id: "d4b-upload-f", organisation_id: ORG, original_name: "f.xlsx", stored_path: "n/a", mimetype: "application/x", size_bytes: 1, lineage_kind: "DATA_HUB", import_batch_id: "d4b-batch-f", worksheet_index: 0, worksheet_name: "Data", worksheet_visibility: "visible", worksheet_is_empty: false, canonical_status: "AWAITING_CONFIRMATION" },
+    });
+    await prisma.dataHubRawStagingRun.create({
+      data: runInsert({ id: "d4b-run-f", upload_id: "d4b-upload-f", import_batch_id: "d4b-batch-f", attempt_number: 1, execution_token: "tok-f", expected_row_count: 0, expected_cell_count: 0, persisted_row_count: 0, persisted_cell_count: 0 }),
+    });
+    const completion = await prisma.$queryRawUnsafe<Array<{ row_count: number }>>(
+      `SELECT * FROM datahub_complete_raw_staging_run($1, $2, $3, $4)`, "d4b-run-f", ORG, "d4b-user-b", "tok-f"
+    );
+    expect(completion[0].row_count).toBe(0);
+    const upload = await prisma.upload.findUniqueOrThrow({ where: { id: "d4b-upload-f" } });
+    expect(upload.raw_staged_at).not.toBeNull();
+    expect(upload.raw_staged_by).toBe("d4b-user-b");
+  });
+
+  it("remediation G: the graceful-yield conditional release fails once the token has already been replaced (taken over by someone else)", async () => {
+    await prisma.dataHubRawStagingRun.create({
+      data: runInsert({ id: "d4b-run-yield", attempt_number: 103, execution_token: "tok-yield-original" }),
+    });
+    // Simulate another worker already taking over (as tryTakeoverExisting
+    // would, after an expired lease) — the token on the row changes.
+    await prisma.$executeRawUnsafe(
+      `UPDATE data_hub_raw_staging_runs SET execution_token = $1 WHERE id = $2`,
+      "tok-yield-stolen", "d4b-run-yield"
+    );
+    // The ORIGINAL worker's graceful-release attempt (releaseLeaseForYield's
+    // own conditional UPDATE shape) must affect 0 rows — it no longer holds
+    // the token it thinks it does.
+    const released = await prisma.$executeRawUnsafe(
+      `UPDATE data_hub_raw_staging_runs SET lease_expires_at = now()
+       WHERE id = $1 AND organisation_id = $2 AND execution_token = $3 AND status = 'RUNNING'`,
+      "d4b-run-yield", ORG, "tok-yield-original"
+    );
+    expect(released).toBe(0);
+    // The new (stolen) token's lease is untouched by the failed release.
+    const runAfter = await prisma.dataHubRawStagingRun.findUniqueOrThrow({ where: { id: "d4b-run-yield" } });
+    expect(runAfter.execution_token).toBe("tok-yield-stolen");
+    expect(runAfter.lease_expires_at.getTime()).toBeGreaterThan(Date.now() + 30_000);
+    await prisma.dataHubRawStagingRun.update({ where: { id: "d4b-run-yield" }, data: { status: "FAILED", failed_at: new Date(), failure_code: "TEST" } });
   });
 });

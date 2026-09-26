@@ -783,19 +783,26 @@ $fn$;
 -- ═══════════════════════════════════════════════════════════════════
 -- STEP 5 — datahub_stage_raw_batch(...): the atomic batch-commit primitive.
 --
--- Correction 1: within one statement's implicit transaction —
---   1. atomically verify/renew lease ownership (staging_run_id,
---      organisation_id, status='RUNNING', execution_token=p_execution_token).
---      If this does not affect exactly 1 row: RAISE (rolls back everything
---      this function has done so far — nothing has been inserted yet).
+-- Correction 1 (remediation): within one statement's implicit transaction —
+--   1. atomically verify AND RENEW lease ownership (staging_run_id,
+--      organisation_id, status='RUNNING', execution_token=p_execution_token,
+--      AND lease_expires_at > now() — an EXPIRED token is not ownership,
+--      even if the token string still matches: someone else may already
+--      be entitled to take this run over). On success, extends
+--      lease_expires_at by p_lease_seconds (the single authoritative lease
+--      duration, passed in by the caller rather than hard-coded here — see
+--      lib/data-hub/staging/stagingConfig.ts for the one real source of
+--      truth). If this does not affect exactly 1 row: RAISE (rolls back
+--      everything this function has done so far — nothing has been
+--      inserted yet).
 --   2. bulk-insert DataHubRawRow rows.
 --   3. bulk-insert DataHubRawCell rows.
---   4. re-verify the SAME lease (same predicate) while recording progress.
---      If this does not affect exactly 1 row: RAISE — rolls back the
---      entire statement, INCLUDING the row/cell inserts from steps 2-3.
---      Returning a partial/LEASE_LOST result after committing partial
---      evidence is impossible by construction: a RAISE here undoes
---      everything in this same statement.
+--   4. re-verify the SAME lease (status/token/lease_expires_at > now())
+--      while recording progress. If this does not affect exactly 1 row:
+--      RAISE — rolls back the entire statement, INCLUDING the row/cell
+--      inserts from steps 2-3. Returning a partial/LEASE_LOST result after
+--      committing partial evidence is impossible by construction: a RAISE
+--      here undoes everything in this same statement.
 --   Only if both lease checks pass does this function return normally,
 --   and the caller's single query commits.
 --
@@ -813,11 +820,14 @@ $fn$;
 --                  "rawValueType": "STRING", "originalUnit": null }] }]
 -- ═══════════════════════════════════════════════════════════════════
 
+DROP FUNCTION IF EXISTS public.datahub_stage_raw_batch(text, text, text, jsonb);
+
 CREATE OR REPLACE FUNCTION public.datahub_stage_raw_batch(
   p_staging_run_id text,
   p_organisation_id text,
   p_execution_token text,
-  p_rows jsonb
+  p_rows jsonb,
+  p_lease_seconds integer
 ) RETURNS TABLE(inserted_row_count integer, inserted_cell_count integer)
 LANGUAGE plpgsql AS $fn$
 DECLARE
@@ -833,11 +843,21 @@ DECLARE
   v_worksheet_mapping_profile_version_id text;
   v_created_by text;
 BEGIN
-  -- Step 1 (correction 1): verify/renew lease BEFORE any evidence insert.
+  IF p_lease_seconds IS NULL OR p_lease_seconds <= 0 THEN
+    RAISE EXCEPTION 'datahub_stage_raw_batch: p_lease_seconds must be a positive integer (got %)', p_lease_seconds;
+  END IF;
+
+  -- Step 1 (remediation): verify AND RENEW the lease BEFORE any evidence
+  -- insert. An expired lease (lease_expires_at <= now()) is treated exactly
+  -- like a wrong token — it is not ownership, regardless of whether the
+  -- token string still matches (a stale worker resuming after its own
+  -- lease lapsed must not be able to keep writing).
   UPDATE public.data_hub_raw_staging_runs
-  SET last_progress_at = now()
+  SET lease_expires_at = now() + make_interval(secs => p_lease_seconds),
+      last_progress_at = now()
   WHERE id = p_staging_run_id AND organisation_id = p_organisation_id
     AND status = 'RUNNING' AND execution_token = p_execution_token
+    AND lease_expires_at > now()
   RETURNING import_batch_id, upload_id, source_schema_version_id, source_schema_worksheet_id,
             worksheet_mapping_profile_id, worksheet_mapping_profile_version_id, created_by
     INTO v_import_batch_id, v_upload_id, v_source_schema_version_id, v_source_schema_worksheet_id,
@@ -886,7 +906,8 @@ BEGIN
       persisted_cell_count = persisted_cell_count + v_cell_count,
       last_progress_at = now()
   WHERE id = p_staging_run_id AND organisation_id = p_organisation_id
-    AND status = 'RUNNING' AND execution_token = p_execution_token;
+    AND status = 'RUNNING' AND execution_token = p_execution_token
+    AND lease_expires_at > now();
   GET DIAGNOSTICS v_progress_rows = ROW_COUNT;
   IF v_progress_rows <> 1 THEN
     RAISE EXCEPTION 'datahub_stage_raw_batch: lease lost before progress commit (staging_run_id=%, expected exactly 1 row, got %)',
@@ -909,12 +930,24 @@ $fn$;
 -- requires a network fetch this SQL function cannot perform and must be
 -- done by the caller (lib/data-hub/staging/completionGate.ts) immediately
 -- before calling this function, inside the same logical request.
+--
+-- Remediation (point 4): completion now REQUIRES lease ownership —
+-- p_execution_token must match the run's current token, status must still
+-- be RUNNING, and lease_expires_at must not have passed. A caller whose
+-- lease has already lapsed (even if nobody else has taken it over yet)
+-- cannot complete the run — completeStagingRun's own TS-level pre-check
+-- (lib/data-hub/staging/completionGate.ts) already screens for this
+-- before ever calling here; this is the authoritative, non-bypassable
+-- enforcement of the same rule at the database layer.
 -- ═══════════════════════════════════════════════════════════════════
+
+DROP FUNCTION IF EXISTS public.datahub_complete_raw_staging_run(text, text, text);
 
 CREATE OR REPLACE FUNCTION public.datahub_complete_raw_staging_run(
   p_staging_run_id text,
   p_organisation_id text,
-  p_completed_by text
+  p_completed_by text,
+  p_execution_token text
 ) RETURNS TABLE(row_count integer, cell_count integer)
 LANGUAGE plpgsql AS $fn$
 DECLARE
@@ -932,6 +965,12 @@ BEGIN
   END IF;
   IF v_run.status <> 'RUNNING' THEN
     RAISE EXCEPTION 'datahub_complete_raw_staging_run: run is not RUNNING (staging_run_id=%, status=%)', p_staging_run_id, v_run.status;
+  END IF;
+  IF v_run.execution_token IS DISTINCT FROM p_execution_token THEN
+    RAISE EXCEPTION 'datahub_complete_raw_staging_run: caller does not hold the current lease token (staging_run_id=%)', p_staging_run_id;
+  END IF;
+  IF v_run.lease_expires_at <= now() THEN
+    RAISE EXCEPTION 'datahub_complete_raw_staging_run: lease has expired (staging_run_id=%)', p_staging_run_id;
   END IF;
   IF v_run.expected_row_count IS NULL OR v_run.expected_cell_count IS NULL THEN
     RAISE EXCEPTION 'datahub_complete_raw_staging_run: run has no expected counts (staging_run_id=%)', p_staging_run_id;
