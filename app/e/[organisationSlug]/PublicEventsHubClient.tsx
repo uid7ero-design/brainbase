@@ -1,10 +1,10 @@
 'use client';
 
-import Image from 'next/image';
 import Link from 'next/link';
 import { Calendar, MapPin, Ticket } from 'lucide-react';
 import { resolvePublicEventTheme, applyAccentOverride, cssVarsFor } from '@/lib/events/publicEventTheme';
 import { InstitutionalHeader, InstitutionalFooter } from '@/components/publicEvents/InstitutionalChrome';
+import { BrainbaseLockup } from '@/components/public/BrainbaseLockup';
 import { OrganisationLogo } from '@/components/organisations/OrganisationLogo';
 import type { PublicHubEvent } from '@/lib/events/publicEventsHub';
 import type { PublicOrganisationBranding } from '@/lib/organisations/branding';
@@ -68,7 +68,7 @@ export default function PublicEventsHubClient({
       ) : (
         <header style={{ position: 'sticky', top: 0, zIndex: 50, background: 'rgba(7,8,11,.86)', backdropFilter: 'blur(16px)', borderBottom: `1px solid ${BORDER_SOFT}` }}>
           <div style={{ maxWidth: 1080, margin: '0 auto', padding: '13px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <Image src="/Brand/brainbase-logo-dark.svg" alt="BRΛINBΛSE" width={132} height={30} priority style={{ display: 'block', width: 120, height: 'auto' }} />
+            <BrainbaseLockup idPrefix="public-events-brainbase" width={120} title="BrainBase" />
             <span style={{ fontSize: 11, color: TEXT_MUTED, letterSpacing: '.03em', fontWeight: 500 }}>Powered by BrainBase</span>
           </div>
         </header>

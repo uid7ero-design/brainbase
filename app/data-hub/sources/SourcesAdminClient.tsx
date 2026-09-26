@@ -59,11 +59,11 @@ import { validateMappingRows, buildMappingDocumentFields, type MappingFieldRow }
 // own _components) rather than introducing a new component library.
 // ---------------------------------------------------------------------------
 
-const CARD = "#0e1014";
-const BORDER = "#1a1d24";
-const TEXT_PRIMARY = "#f9fafb";
-const TEXT_MUTED = "#6b7280";
-const TEXT_SECONDARY = "#9ca3af";
+const CARD = "var(--bg-surface)";
+const BORDER = "var(--border)";
+const TEXT_PRIMARY = "var(--text-primary)";
+const TEXT_MUTED = "var(--text-secondary)";
+const TEXT_SECONDARY = "var(--text-secondary)";
 const ACCENT = "#8a4dff";
 const RED = "#f87171";
 const GREEN = "#4ade80";
@@ -79,7 +79,7 @@ const panelStyle: React.CSSProperties = {
 const inputStyle: React.CSSProperties = {
   width: "100%",
   padding: "9px 11px",
-  background: "#111318",
+  background: "var(--bg-raised)",
   border: `1px solid ${BORDER}`,
   borderRadius: 8,
   color: TEXT_PRIMARY,

@@ -2,7 +2,7 @@
 // and quote detail pages so the two never silently drift apart on what
 // colour a given status renders as.
 export const STATUS_STYLE: Record<string, { color: string; bg: string }> = {
-  DRAFT: { color: '#9ca3af', bg: 'rgba(156,163,175,0.12)' },
+  DRAFT: { color: 'var(--text-secondary)', bg: 'rgba(156,163,175,0.12)' },
   SENT: { color: '#60a5fa', bg: 'rgba(96,165,250,0.12)' },
   ACCEPTED: { color: '#4ade80', bg: 'rgba(74,222,128,0.12)' },
   REJECTED: { color: '#f87171', bg: 'rgba(248,113,113,0.12)' },

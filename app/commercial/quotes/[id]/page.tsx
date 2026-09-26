@@ -7,7 +7,7 @@ import { formatMoneyCents } from '@/lib/commercial/money';
 import { formatCommercialDate } from '@/lib/commercial/dates';
 import { buildQuotePdf, type QuotePdfSupplier } from '@/lib/commercial/quotePdf';
 
-const CARD = '#0e1014'; const BORDER = '#1a1d24';
+const CARD = 'var(--bg-surface)'; const BORDER = 'var(--border)';
 
 type Quote = {
   id: string; organisation_id: string; customer_id: string; quote_number: string | null; status: string;
@@ -237,12 +237,12 @@ export default function QuoteDetailPage() {
     URL.revokeObjectURL(url);
   }
 
-  if (loading) return <div style={{ color: '#6b7280', fontSize: 14 }}>Loading…</div>;
-  if (!quote) return <div style={{ color: '#6b7280', fontSize: 14 }}>Quote not found.</div>;
+  if (loading) return <div style={{ color: 'var(--text-secondary)', fontSize: 14 }}>Loading…</div>;
+  if (!quote) return <div style={{ color: 'var(--text-secondary)', fontSize: 14 }}>Quote not found.</div>;
 
   return (
     <div style={{ maxWidth: 820 }}>
-      <Link href="/commercial/quotes" style={{ color: '#6b7280', fontSize: 13, textDecoration: 'none' }}>← Quotes</Link>
+      <Link href="/commercial/quotes" style={{ color: 'var(--text-secondary)', fontSize: 13, textDecoration: 'none' }}>← Quotes</Link>
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '16px 0 8px', flexWrap: 'wrap', gap: 12 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -257,12 +257,12 @@ export default function QuoteDetailPage() {
             </button>
           )}
           {isDraft && <button onClick={deleteDraft} disabled={busy} style={btn('rgba(239,68,68,0.15)', '#f87171')}>Delete Draft</button>}
-          {isDraft && <button onClick={() => runAction('issue')} disabled={busy} style={btn('#1a6aff')}>Issue Quote</button>}
+          {isDraft && <button onClick={() => runAction('issue')} disabled={busy} style={btn('var(--purple-600)')}>Issue Quote</button>}
           {isSent && <button onClick={() => runAction('reject')} disabled={busy} style={btn('rgba(239,68,68,0.15)', '#f87171')}>Reject</button>}
           {isSent && <button onClick={() => runAction('expire')} disabled={busy} style={btn('rgba(251,191,36,0.15)', '#fbbf24')}>Mark Expired</button>}
           {isSent && <button onClick={() => runAction('accept')} disabled={busy} style={btn('rgba(74,222,128,0.15)', '#4ade80')}>Accept</button>}
           {quote.status === 'ACCEPTED' && canCreateInvoice && (
-            <button onClick={createInvoiceFromThisQuote} disabled={busy} style={btn('#1a6aff')}>Create Invoice</button>
+            <button onClick={createInvoiceFromThisQuote} disabled={busy} style={btn('var(--purple-600)')}>Create Invoice</button>
           )}
         </div>
       </div>
@@ -277,10 +277,10 @@ export default function QuoteDetailPage() {
           <div style={miniLbl}>Customer</div>
           <div style={{ fontSize: 14 }}>
             {isDraft ? (
-              <Link href={`/commercial/customers/${quote.customer_id}`} style={{ color: '#f9fafb', textDecoration: 'none' }}>{customer?.name ?? '—'}</Link>
+              <Link href={`/commercial/customers/${quote.customer_id}`} style={{ color: 'var(--text-primary)', textDecoration: 'none' }}>{customer?.name ?? '—'}</Link>
             ) : (quote.customer_name_snapshot ?? customer?.name ?? '—')}
           </div>
-          {!isDraft && quote.billing_address_snapshot && <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>{quote.billing_address_snapshot}</div>}
+          {!isDraft && quote.billing_address_snapshot && <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>{quote.billing_address_snapshot}</div>}
         </div>
         <div>
           <div style={miniLbl}>Issue / Expiry</div>
@@ -293,8 +293,8 @@ export default function QuoteDetailPage() {
           <div style={miniLbl}>Delivery History</div>
           {deliveries.map(d => (
             <div key={d.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', fontSize: 13, borderTop: `1px solid ${BORDER}` }}>
-              <span style={{ color: '#9ca3af' }}>{d.channel} → {d.recipient}</span>
-              <span style={{ color: '#6b7280', fontSize: 12 }}>{new Date(d.attempted_at).toLocaleString('en-AU', { timeZone: 'Australia/Adelaide', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
+              <span style={{ color: 'var(--text-secondary)' }}>{d.channel} → {d.recipient}</span>
+              <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>{new Date(d.attempted_at).toLocaleString('en-AU', { timeZone: 'Australia/Adelaide', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
               <DeliveryStatusBadge status={d.status} />
             </div>
           ))}
@@ -312,9 +312,9 @@ export default function QuoteDetailPage() {
             {lines.length === 0 && <tr><td colSpan={6} style={empty}>No line items yet.</td></tr>}
             {lines.map((l, i) => (
               <tr key={l.id} style={{ borderBottom: i < lines.length - 1 ? `1px solid ${BORDER}` : 'none' }}>
-                <td style={{ padding: '12px 16px', fontSize: 13, color: '#f9fafb' }}>
+                <td style={{ padding: '12px 16px', fontSize: 13, color: 'var(--text-primary)' }}>
                   {l.description_snapshot}
-                  {l.sku_snapshot && <span style={{ color: '#4b5563', marginLeft: 6 }}>({l.sku_snapshot})</span>}
+                  {l.sku_snapshot && <span style={{ color: 'var(--text-muted)', marginLeft: 6 }}>({l.sku_snapshot})</span>}
                 </td>
                 <td style={td}>{l.quantity}{l.unit_snapshot ? ` ${l.unit_snapshot}` : ''}</td>
                 <td style={td}>{formatMoneyCents(l.unit_price_cents, quote.currency)}</td>
@@ -356,7 +356,7 @@ export default function QuoteDetailPage() {
                 {taxCodes.map(t => <option key={t.id} value={t.id}>{t.code} ({t.rate}%)</option>)}
               </select>
             </div>
-            <button type="submit" disabled={busy} style={{ padding: '9px 16px', background: '#1a6aff', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+            <button type="submit" disabled={busy} style={{ padding: '9px 16px', background: 'var(--purple-600)', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
               Add Line
             </button>
           </form>
@@ -373,8 +373,8 @@ export default function QuoteDetailPage() {
 
       {(quote.notes || quote.terms) && (
         <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: '20px 24px' }}>
-          {quote.notes && <><div style={miniLbl}>Notes</div><p style={{ fontSize: 13, color: '#9ca3af', margin: '4px 0 16px', whiteSpace: 'pre-wrap' }}>{quote.notes}</p></>}
-          {quote.terms && <><div style={miniLbl}>Terms</div><p style={{ fontSize: 13, color: '#9ca3af', margin: '4px 0 0', whiteSpace: 'pre-wrap' }}>{quote.terms}</p></>}
+          {quote.notes && <><div style={miniLbl}>Notes</div><p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '4px 0 16px', whiteSpace: 'pre-wrap' }}>{quote.notes}</p></>}
+          {quote.terms && <><div style={miniLbl}>Terms</div><p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '4px 0 0', whiteSpace: 'pre-wrap' }}>{quote.terms}</p></>}
         </div>
       )}
     </div>
@@ -382,7 +382,7 @@ export default function QuoteDetailPage() {
 }
 
 const DELIVERY_STATUS_STYLE: Record<string, { color: string; bg: string }> = {
-  PENDING: { color: '#9ca3af', bg: 'rgba(156,163,175,0.12)' },
+  PENDING: { color: 'var(--text-secondary)', bg: 'rgba(156,163,175,0.12)' },
   SENT: { color: '#4ade80', bg: 'rgba(74,222,128,0.12)' },
   DELIVERED: { color: '#4ade80', bg: 'rgba(74,222,128,0.12)' },
   FAILED: { color: '#f87171', bg: 'rgba(248,113,113,0.12)' },
@@ -398,17 +398,17 @@ function DeliveryStatusBadge({ status }: { status: string }) {
 
 function TotalRow({ label, value, bold }: { label: string; value: string; bold?: boolean }) {
   return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: bold ? 15 : 13, fontWeight: bold ? 700 : 400, color: bold ? '#f9fafb' : '#9ca3af' }}>
+    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: bold ? 15 : 13, fontWeight: bold ? 700 : 400, color: bold ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
       <span>{label}</span><span>{value}</span>
     </div>
   );
 }
 
-const miniLbl: React.CSSProperties = { fontSize: 11, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 };
-const th: React.CSSProperties = { padding: '11px 16px', textAlign: 'left', color: '#6b7280', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' };
-const td: React.CSSProperties = { padding: '12px 16px', fontSize: 13, color: '#9ca3af' };
-const empty: React.CSSProperties = { padding: '28px 16px', textAlign: 'center', color: '#4b5563', fontSize: 14 };
-const sel: React.CSSProperties = { width: '100%', padding: '8px 10px', background: '#111318', border: '1px solid #1a1d24', borderRadius: 8, color: '#f9fafb', fontSize: 13, boxSizing: 'border-box' };
+const miniLbl: React.CSSProperties = { fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 };
+const th: React.CSSProperties = { padding: '11px 16px', textAlign: 'left', color: 'var(--text-secondary)', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' };
+const td: React.CSSProperties = { padding: '12px 16px', fontSize: 13, color: 'var(--text-secondary)' };
+const empty: React.CSSProperties = { padding: '28px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 14 };
+const sel: React.CSSProperties = { width: '100%', padding: '8px 10px', background: 'var(--bg-raised)', border: '1px solid #1a1d24', borderRadius: 8, color: 'var(--text-primary)', fontSize: 13, boxSizing: 'border-box' };
 function btn(bg: string, color = '#fff'): React.CSSProperties {
   return { padding: '8px 16px', background: bg, color, border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' };
 }

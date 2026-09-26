@@ -27,7 +27,7 @@ const TONE: Record<CrmContactClassification, { fg: string; bg: string; bd: strin
 // tone of its own.
 export default function ClassificationBadge({ classification }: { classification: CrmContactClassification | null | undefined }) {
   if (!classification) {
-    return <span style={{ fontSize: 12, color: '#6b7280' }}>—</span>;
+    return <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>—</span>;
   }
   const tone = TONE[classification];
   return (

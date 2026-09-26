@@ -196,9 +196,9 @@ export default function OrgSwitcher({ initialRole }: { initialRole: Role | null 
         padding: '5px 20px',
         fontSize: 12,
         fontFamily: 'var(--font-inter), -apple-system, sans-serif',
-        background: isOverriding ? '#7C3AED' : 'rgba(255,255,255,.03)',
-        borderBottom: '1px solid rgba(255,255,255,.06)',
-        color: isOverriding ? '#fff' : 'rgba(226,232,240,.7)',
+        background: isOverriding ? 'var(--purple-600)' : 'var(--bg-surface)',
+        borderBottom: '1px solid var(--border)',
+        color: isOverriding ? '#fff' : 'var(--text-secondary)',
         position: 'relative',
         // Dropdown layering fix: this bar sits BEFORE TopNav in normal
         // document flow (that's what fixed the original invisibility
@@ -228,10 +228,10 @@ export default function OrgSwitcher({ initialRole }: { initialRole: Role | null 
         disabled={busy}
         style={{
           display: 'flex', alignItems: 'center', gap: 5,
-          background: isOverriding ? 'rgba(255,255,255,.15)' : 'rgba(255,255,255,.06)',
-          border: `1px solid ${isOverriding ? 'rgba(255,255,255,.25)' : 'rgba(255,255,255,.1)'}`,
+          background: isOverriding ? 'rgba(255,255,255,.15)' : 'var(--bg-raised)',
+          border: `1px solid ${isOverriding ? 'rgba(255,255,255,.25)' : 'var(--border)'}`,
           borderRadius: 7, padding: '4px 10px', fontSize: 12, fontWeight: 600,
-          color: isOverriding ? '#fff' : '#F5F7FA', cursor: busy ? 'not-allowed' : 'pointer',
+          color: isOverriding ? '#fff' : 'var(--text-primary)', cursor: busy ? 'not-allowed' : 'pointer',
           opacity: busy ? 0.5 : 1,
         }}
       >
@@ -259,11 +259,11 @@ export default function OrgSwitcher({ initialRole }: { initialRole: Role | null 
         <div
           style={{
             position: 'absolute', top: '100%', right: 20, marginTop: 4, width: 240,
-            background: '#0e1014', border: '1px solid rgba(255,255,255,.1)', borderRadius: 10,
+            background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 10,
             boxShadow: '0 12px 40px rgba(0,0,0,.5)', overflow: 'hidden', zIndex: 50, textAlign: 'left',
           }}
         >
-          <div style={{ padding: '8px 12px', color: 'rgba(226,232,240,.4)', textTransform: 'uppercase', fontSize: 10, letterSpacing: '.08em', fontWeight: 600 }}>
+          <div style={{ padding: '8px 12px', color: 'var(--text-muted)', textTransform: 'uppercase', fontSize: 10, letterSpacing: '.08em', fontWeight: 600 }}>
             Switch organisation
           </div>
           {state.orgs.map(org => (
@@ -274,19 +274,19 @@ export default function OrgSwitcher({ initialRole }: { initialRole: Role | null 
               style={{
                 display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left',
                 padding: '8px 12px', background: 'none', border: 'none', cursor: busy ? 'not-allowed' : 'pointer',
-                color: state.activeOrgId === org.id ? '#C4B5FD' : '#E2E8F0', fontSize: 12.5,
+                color: state.activeOrgId === org.id ? 'var(--purple-400)' : 'var(--text-primary)', fontSize: 12.5,
                 fontWeight: state.activeOrgId === org.id ? 600 : 400,
               }}
-              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,.05)'; }}
+              onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-raised)'; }}
               onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}
             >
-              <span style={{ width: 6, height: 6, borderRadius: '50%', background: state.activeOrgId === org.id ? '#C4B5FD' : 'transparent', flexShrink: 0 }} />
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: state.activeOrgId === org.id ? 'var(--purple-400)' : 'transparent', flexShrink: 0 }} />
               {org.name}
             </button>
           ))}
           {isOverriding && (
             <>
-              <div style={{ height: 1, background: 'rgba(255,255,255,.08)', margin: '4px 12px' }} />
+              <div style={{ height: 1, background: 'var(--border)', margin: '4px 12px' }} />
               <button
                 onClick={() => switchOrg(null)}
                 disabled={busy}

@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { APP_HEADER_OFFSET_VAR, APP_HEADER_OFFSET_VH_CALC } from '@/lib/layout/headerOffset';
 
-const BORDER = '#1a1d24';
+const BORDER = 'var(--border)';
 
 // Purchasing/Expenses/Budgeting/Finance Intelligence remain deliberately
 // omitted entirely (not shown-disabled) per the C3 brief's original
@@ -80,7 +80,7 @@ export default function CommercialSidebar({ quotesEnabled = false, invoicingEnab
           padding: '0 20px 14px',
           fontSize: 11,
           fontWeight: 700,
-          color: '#4b5563',
+          color: 'var(--text-muted)',
           textTransform: 'uppercase',
           letterSpacing: '0.08em',
         }}
@@ -100,8 +100,8 @@ export default function CommercialSidebar({ quotesEnabled = false, invoicingEnab
                 fontSize: 14,
                 textDecoration: 'none',
                 borderRadius: 7,
-                color: active ? '#C4B5FD' : '#9ca3af',
-                background: active ? 'rgba(139,92,246,.10)' : 'transparent',
+                color: active ? 'var(--brand-brainbase-accent)' : 'var(--text-secondary)',
+                background: active ? 'color-mix(in srgb, var(--brand-brainbase-accent) 10%, transparent)' : 'transparent',
                 transition: 'background .12s, color .12s',
               }}
             >

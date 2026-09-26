@@ -11,11 +11,6 @@ type AuthShellProps = {
 export function AuthShell({ children }: AuthShellProps) {
   return (
     <main className={`bb-public ${styles.page}`}>
-      <div className={styles.orbit} aria-hidden="true">
-        <span className={styles.orbitNode} />
-        <span className={styles.orbitNodeSignal} />
-      </div>
-
       <section className={styles.shell} aria-label="BrainBase account access">
         <header className={styles.brand}>
           <BrainbaseLockup idPrefix="bb-auth-lockup" width={210} className={styles.lockup} title="BrainBase" />

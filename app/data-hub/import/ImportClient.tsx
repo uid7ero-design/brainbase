@@ -165,7 +165,7 @@ function ImportFlow({ onRestart }: { onRestart: () => void }) {
 
         {screenGroup === "confirm" &&
           (state.phase === "confirming" ? (
-            <div aria-live="polite" aria-busy="true" style={{ fontSize: 13, color: "rgba(249,250,251,.7)" }}>
+            <div aria-live="polite" aria-busy="true" style={{ fontSize: 13, color: "var(--text-secondary)" }}>
               Confirming import…
             </div>
           ) : isErrorOverlayPhase(state.phase) ? (

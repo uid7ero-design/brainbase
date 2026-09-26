@@ -4,9 +4,7 @@
   z-index: 100;
   flex-shrink: 0;
   border-bottom: 1px solid var(--bb-border);
-  background: color-mix(in srgb, var(--bb-bg) 88%, transparent);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background: var(--bb-bg);
   color: var(--bb-text);
   font-family: var(--bb-font-sans);
 }

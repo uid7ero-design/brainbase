@@ -5,7 +5,7 @@ import Link from 'next/link';
 import SlidePanel from '../../_components/SlidePanel';
 import CustomerForm from '../../_components/CustomerForm';
 
-const CARD = '#0e1014'; const BORDER = '#1a1d24';
+const CARD = 'var(--bg-surface)'; const BORDER = 'var(--border)';
 
 type Customer = {
   id: string; name: string; billing_email: string | null; billing_phone: string | null;
@@ -59,12 +59,12 @@ export default function CustomerDetailPage() {
     load();
   }
 
-  if (loading) return <div style={{ color: '#6b7280', fontSize: 14 }}>Loading…</div>;
-  if (!customer) return <div style={{ color: '#6b7280', fontSize: 14 }}>Customer not found.</div>;
+  if (loading) return <div style={{ color: 'var(--text-secondary)', fontSize: 14 }}>Loading…</div>;
+  if (!customer) return <div style={{ color: 'var(--text-secondary)', fontSize: 14 }}>Customer not found.</div>;
 
   return (
     <div style={{ maxWidth: 700 }}>
-      <Link href="/commercial/customers" style={{ color: '#6b7280', fontSize: 13, textDecoration: 'none' }}>← Customers</Link>
+      <Link href="/commercial/customers" style={{ color: 'var(--text-secondary)', fontSize: 13, textDecoration: 'none' }}>← Customers</Link>
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '16px 0 24px' }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em', margin: 0 }}>{customer.name}</h1>
@@ -73,8 +73,8 @@ export default function CustomerDetailPage() {
           <button onClick={toggleActive} style={btn(customer.active ? 'rgba(239,68,68,0.15)' : 'rgba(74,222,128,0.15)', customer.active ? '#f87171' : '#4ade80')}>
             {customer.active ? 'Deactivate' : 'Reactivate'}
           </button>
-          {hasQuotes && <Link href={`/commercial/quotes/new?customerId=${customer.id}`} style={{ ...btn('#1a6aff'), textDecoration: 'none', display: 'inline-block' }}>New Quote</Link>}
-          {hasInvoicing && <Link href={`/commercial/invoices/new?customerId=${customer.id}`} style={{ ...btn('#1a6aff'), textDecoration: 'none', display: 'inline-block' }}>New Invoice</Link>}
+          {hasQuotes && <Link href={`/commercial/quotes/new?customerId=${customer.id}`} style={{ ...btn('var(--purple-600)'), textDecoration: 'none', display: 'inline-block' }}>New Quote</Link>}
+          {hasInvoicing && <Link href={`/commercial/invoices/new?customerId=${customer.id}`} style={{ ...btn('var(--purple-600)'), textDecoration: 'none', display: 'inline-block' }}>New Invoice</Link>}
         </div>
       </div>
 
@@ -104,8 +104,8 @@ export default function CustomerDetailPage() {
 function Row({ label, value }: { label: string; value: string | null }) {
   return (
     <div>
-      <div style={{ fontSize: 11, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>{label}</div>
-      <div style={{ fontSize: 14, color: value ? '#f9fafb' : '#4b5563' }}>{value ?? '—'}</div>
+      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>{label}</div>
+      <div style={{ fontSize: 14, color: value ? 'var(--text-primary)' : 'var(--text-muted)' }}>{value ?? '—'}</div>
     </div>
   );
 }

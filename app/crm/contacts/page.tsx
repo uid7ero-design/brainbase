@@ -7,7 +7,7 @@ import ContactForm from '../_components/ContactForm';
 import ClassificationBadge from '../_components/ClassificationBadge';
 import { CRM_CONTACT_CLASSIFICATIONS, CRM_CONTACT_CLASSIFICATION_LABELS, type CrmContactClassification } from '@/lib/crm/classification';
 
-const CARD = '#0e1014'; const BORDER = '#1a1d24';
+const CARD = 'var(--bg-surface)'; const BORDER = 'var(--border)';
 
 type Contact = {
   id: string; first_name: string; last_name: string; email: string | null; phone: string | null;
@@ -60,13 +60,13 @@ export default function ContactsPage() {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em', margin: 0 }}>Contacts</h1>
-          <p style={{ color: '#6b7280', fontSize: 13, margin: '4px 0 0' }}>{contacts.length} total</p>
+          <p style={{ color: 'var(--text-secondary)', fontSize: 13, margin: '4px 0 0' }}>{contacts.length} total</p>
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
           <select
             value={classificationFilter}
             onChange={e => setClassificationFilter(e.target.value as FilterValue)}
-            style={{ padding: '8px 12px', background: CARD, border: `1px solid ${BORDER}`, borderRadius: 8, color: '#f9fafb', fontSize: 13, outline: 'none' }}
+            style={{ padding: '8px 12px', background: CARD, border: `1px solid ${BORDER}`, borderRadius: 8, color: 'var(--text-primary)', fontSize: 13, outline: 'none' }}
           >
             <option value="ALL">All</option>
             <option value="UNCLASSIFIED">Unclassified</option>
@@ -75,8 +75,8 @@ export default function ContactsPage() {
             ))}
           </select>
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search…"
-            style={{ padding: '8px 12px', background: CARD, border: `1px solid ${BORDER}`, borderRadius: 8, color: '#f9fafb', fontSize: 13, outline: 'none', width: 200 }} />
-          <button onClick={() => setShowAdd(true)} style={btn('#1a6aff')}>+ Add Contact</button>
+            style={{ padding: '8px 12px', background: CARD, border: `1px solid ${BORDER}`, borderRadius: 8, color: 'var(--text-primary)', fontSize: 13, outline: 'none', width: 200 }} />
+          <button onClick={() => setShowAdd(true)} style={btn('var(--purple-600)')}>+ Add Contact</button>
         </div>
       </div>
 
@@ -95,21 +95,21 @@ export default function ContactsPage() {
             {filtered.map((c, i) => (
               <tr key={c.id} style={{ borderBottom: i < filtered.length - 1 ? `1px solid ${BORDER}` : 'none' }}>
                 <td style={{ padding: '13px 16px' }}>
-                  <Link href={`/crm/contacts/${c.id}`} style={{ color: '#f9fafb', textDecoration: 'none', fontWeight: 500, fontSize: 14 }}>
+                  <Link href={`/crm/contacts/${c.id}`} style={{ color: 'var(--text-primary)', textDecoration: 'none', fontWeight: 500, fontSize: 14 }}>
                     {c.first_name} {c.last_name}
                   </Link>
                 </td>
                 <td style={td}><ClassificationBadge classification={c.classification} /></td>
                 <td style={td}>
                   {c.company_name
-                    ? <span style={{ color: '#9ca3af' }}>{c.company_name}</span>
-                    : <span style={{ color: '#4b5563' }}>—</span>}
+                    ? <span style={{ color: 'var(--text-secondary)' }}>{c.company_name}</span>
+                    : <span style={{ color: 'var(--text-muted)' }}>—</span>}
                 </td>
-                <td style={td}>{c.job_title ?? <span style={{ color: '#4b5563' }}>—</span>}</td>
-                <td style={{ ...td, fontSize: 12 }}>{c.email ?? <span style={{ color: '#4b5563' }}>—</span>}</td>
+                <td style={td}>{c.job_title ?? <span style={{ color: 'var(--text-muted)' }}>—</span>}</td>
+                <td style={{ ...td, fontSize: 12 }}>{c.email ?? <span style={{ color: 'var(--text-muted)' }}>—</span>}</td>
                 <td style={td}>{c.activity_count}</td>
                 <td style={{ padding: '13px 16px' }}>
-                  <Link href={`/crm/contacts/${c.id}`} style={{ fontSize: 12, color: '#6b7280', textDecoration: 'none' }}>View →</Link>
+                  <Link href={`/crm/contacts/${c.id}`} style={{ fontSize: 12, color: 'var(--text-secondary)', textDecoration: 'none' }}>View →</Link>
                 </td>
               </tr>
             ))}
@@ -124,7 +124,7 @@ export default function ContactsPage() {
   );
 }
 
-const th: React.CSSProperties = { padding: '11px 16px', textAlign: 'left', color: '#6b7280', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' };
-const td: React.CSSProperties = { padding: '13px 16px', fontSize: 13, color: '#9ca3af' };
-const empty: React.CSSProperties = { padding: '36px 16px', textAlign: 'center', color: '#4b5563', fontSize: 14 };
+const th: React.CSSProperties = { padding: '11px 16px', textAlign: 'left', color: 'var(--text-secondary)', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' };
+const td: React.CSSProperties = { padding: '13px 16px', fontSize: 13, color: 'var(--text-secondary)' };
+const empty: React.CSSProperties = { padding: '36px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 14 };
 function btn(bg: string): React.CSSProperties { return { padding: '8px 16px', background: bg, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }; }

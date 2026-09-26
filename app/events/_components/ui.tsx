@@ -12,16 +12,16 @@ import { useEffect, useRef, useState } from 'react';
 
 export const FONT = 'var(--font-inter),-apple-system,sans-serif';
 
-export const BORDER = 'rgba(255,255,255,.08)';
-export const BORDER_SOFT = 'rgba(255,255,255,.06)';
-export const PANEL_BG = 'rgba(255,255,255,.025)';
-export const ROW_BG = 'rgba(255,255,255,.02)';
-export const VIOLET = '#8A4DFF';
-export const VIOLET_SOFT = '#A78BFA';
-export const VIOLET_GRADIENT = 'linear-gradient(100deg,#6A3DFF 0%,#8A4DFF 55%,#5677FF 100%)';
-export const TEXT_PRIMARY = '#F5F7FA';
-export const TEXT_SECONDARY = 'rgba(226,232,240,.66)';
-export const TEXT_MUTED = 'rgba(226,232,240,.42)';
+export const BORDER = 'var(--border)';
+export const BORDER_SOFT = 'var(--border-light)';
+export const PANEL_BG = 'var(--bg-surface)';
+export const ROW_BG = 'var(--bg-raised)';
+export const VIOLET = 'var(--purple-400)';
+export const VIOLET_SOFT = 'var(--purple-300)';
+export const VIOLET_GRADIENT = 'var(--purple-600)';
+export const TEXT_PRIMARY = 'var(--text-primary)';
+export const TEXT_SECONDARY = 'var(--text-secondary)';
+export const TEXT_MUTED = 'var(--text-muted)';
 export const GREEN = '#4ADE80';
 export const RED = '#F87171';
 export const YELLOW = '#FBBF24';
@@ -30,7 +30,7 @@ export const YELLOW = '#FBBF24';
 
 export function Panel({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
   return (
-    <div style={{ background: PANEL_BG, border: `1px solid ${BORDER}`, borderRadius: 14, padding: 22, ...style }}>
+    <div style={{ background: PANEL_BG, border: `1px solid ${BORDER}`, borderRadius: 8, padding: 22, ...style }}>
       {children}
     </div>
   );
@@ -75,7 +75,7 @@ const TONE_STYLES: Record<Tone, { fg: string; bg: string; bd: string }> = {
   success: { fg: GREEN, bg: 'rgba(74,222,128,.10)', bd: 'rgba(74,222,128,.30)' },
   danger: { fg: RED, bg: 'rgba(248,113,113,.10)', bd: 'rgba(248,113,113,.30)' },
   warning: { fg: YELLOW, bg: 'rgba(251,191,36,.10)', bd: 'rgba(251,191,36,.30)' },
-  neutral: { fg: TEXT_SECONDARY, bg: 'rgba(255,255,255,.05)', bd: BORDER },
+  neutral: { fg: TEXT_SECONDARY, bg: 'var(--bg-raised)', bd: BORDER },
 };
 
 export function StatusBadge({ label, tone }: { label: string; tone: Tone }) {
@@ -121,14 +121,14 @@ export function paymentStatusTone(paymentStatus: string): Tone {
 // ─── Buttons ─────────────────────────────────────────────────────────
 
 export const primaryBtnStyle: React.CSSProperties = {
-  background: VIOLET_GRADIENT, color: '#fff', border: 'none', borderRadius: 9,
+  background: VIOLET_GRADIENT, color: '#fff', border: '1px solid var(--purple-600)', borderRadius: 6,
   padding: '8px 16px', fontSize: 12.5, fontWeight: 650, cursor: 'pointer',
-  boxShadow: '0 4px 14px rgba(106,61,255,.24)', fontFamily: FONT,
+  fontFamily: FONT,
 };
 
 export const secondaryBtnStyle: React.CSSProperties = {
-  background: 'rgba(255,255,255,.04)', color: TEXT_SECONDARY, border: `1px solid ${BORDER}`,
-  borderRadius: 9, padding: '7px 14px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', fontFamily: FONT,
+  background: 'var(--bg-raised)', color: TEXT_SECONDARY, border: `1px solid ${BORDER}`,
+  borderRadius: 6, padding: '7px 14px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', fontFamily: FONT,
 };
 
 // Delete stays visually restrained until hover/focus — never draws the
@@ -175,8 +175,8 @@ export const fieldStyle: React.CSSProperties = { display: 'flex', flexDirection:
 // already applied elsewhere in this codebase, e.g.
 // components/ops/maintenance/CreateJobModal.tsx's selects).
 export const inputStyle: React.CSSProperties = {
-  background: 'rgba(255,255,255,.03)', border: `1px solid ${BORDER}`, borderRadius: 8,
-  padding: '8px 11px', color: TEXT_PRIMARY, fontSize: 13, fontFamily: FONT, colorScheme: 'dark',
+  background: 'var(--bg-raised)', border: `1px solid ${BORDER}`, borderRadius: 6,
+  padding: '8px 11px', color: TEXT_PRIMARY, fontSize: 13, fontFamily: FONT,
 };
 
 export function Field({ label, children }: { label: string; children: React.ReactNode }) {

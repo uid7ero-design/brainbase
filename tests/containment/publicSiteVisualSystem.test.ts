@@ -34,8 +34,8 @@ describe('Design tokens', () => {
     expect(globals).toMatch(/@import "tailwindcss";\n@import "\.\.\/styles\/brainbase-tokens\.css";/)
   })
 
-  it('are additive — the application tokens in globals.css are untouched', () => {
-    expect(globals).toContain('--bg-base:    #08090C;')
+  it('keep public and application theme tokens aligned to the same HLNA-family neutral system', () => {
+    expect(globals).toContain('--bg-base:    #0B0B0C;')
     expect(globals).toContain(":root[data-theme='light'] {")
     expect(tokens).not.toMatch(/--(bg-base|bg-surface|text-primary|purple-\d+):/)
   })
@@ -68,8 +68,8 @@ describe('Design tokens', () => {
   it('carry the specified purple/cyan scales and light/dark base values', () => {
     expect(tokens).toContain('--bb-purple-600: #7440e8;')
     expect(tokens).toContain('--bb-cyan-400: #22c7e8;')
-    expect(tokens).toContain('--bb-bg: #f7f6f2;')
-    expect(tokens).toContain('--bb-bg: #0d0d12;')
+    expect(tokens).toContain('--bb-bg: #f5f3ee;')
+    expect(tokens).toContain('--bb-bg: #0b0b0c;')
   })
 })
 
@@ -142,7 +142,7 @@ describe('Motion and focus', () => {
   })
 })
 
-describe('Scope boundary — the logged-in application is untouched', () => {
+describe('Shared family alignment — public and logged-in surfaces remain architecturally separate', () => {
   it('TopNav only swapped its inline PublicNav for the extracted component; AppNav remains', () => {
     const topNav = stripComments(read('components/nav/TopNav.tsx'))
     expect(topNav).toContain("import { PublicNav } from '@/components/public/PublicNav';")
@@ -151,8 +151,10 @@ describe('Scope boundary — the logged-in application is untouched', () => {
     expect(topNav).toMatch(/<AppNav\s/)
   })
 
-  it('the dark-only BrainBaseWordmark used by the app is unchanged', () => {
-    expect(read('components/brand/BrainBaseWordmark.tsx')).toContain('src="/Brand/brainbase-horizontal-color.svg"')
+  it('the application wordmark now reuses the canonical theme-aware broken-orbit product lockup', () => {
+    const wordmark = read('components/brand/BrainBaseWordmark.tsx')
+    expect(wordmark).toMatch(/from ["']@\/components\/public\/BrainbaseLockup["']/)
+    expect(wordmark).toContain('<BrainbaseLockup')
   })
 })
 

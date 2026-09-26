@@ -9,7 +9,7 @@ import { buildInvoicePdf, type InvoicePdfSupplier } from '@/lib/commercial/invoi
 import { PAYMENT_METHODS, type PaymentMethod } from '@/lib/commercial/paymentMethods';
 import SlidePanel from '../../_components/SlidePanel';
 
-const CARD = '#0e1014'; const BORDER = '#1a1d24';
+const CARD = 'var(--bg-surface)'; const BORDER = 'var(--border)';
 
 type Invoice = {
   id: string; organisation_id: string; customer_id: string; source_quote_id: string | null;
@@ -349,12 +349,12 @@ export default function InvoiceDetailPage() {
     load();
   }
 
-  if (loading) return <div style={{ color: '#6b7280', fontSize: 14 }}>Loading…</div>;
-  if (!invoice) return <div style={{ color: '#6b7280', fontSize: 14 }}>Invoice not found.</div>;
+  if (loading) return <div style={{ color: 'var(--text-secondary)', fontSize: 14 }}>Loading…</div>;
+  if (!invoice) return <div style={{ color: 'var(--text-secondary)', fontSize: 14 }}>Invoice not found.</div>;
 
   return (
     <div style={{ maxWidth: 820 }}>
-      <Link href="/commercial/invoices" style={{ color: '#6b7280', fontSize: 13, textDecoration: 'none' }}>← Invoices</Link>
+      <Link href="/commercial/invoices" style={{ color: 'var(--text-secondary)', fontSize: 13, textDecoration: 'none' }}>← Invoices</Link>
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '16px 0 8px', flexWrap: 'wrap', gap: 12 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -373,10 +373,10 @@ export default function InvoiceDetailPage() {
           )}
           {isDraft && <button onClick={deleteDraft} disabled={busy} style={btn('rgba(239,68,68,0.15)', '#f87171')}>Delete Draft</button>}
           {isDraft && !confirmingIssue && (
-            <button onClick={() => setConfirmingIssue(true)} disabled={busy || !dueDate} style={btn('#1a6aff')}>Issue Invoice</button>
+            <button onClick={() => setConfirmingIssue(true)} disabled={busy || !dueDate} style={btn('var(--purple-600)')}>Issue Invoice</button>
           )}
           {isIssued && outstandingBalanceCents > 0 && (
-            <button onClick={() => setShowRecordPayment(true)} disabled={busy} style={btn('#1a6aff')}>Record Payment</button>
+            <button onClick={() => setShowRecordPayment(true)} disabled={busy} style={btn('var(--purple-600)')}>Record Payment</button>
           )}
           {isIssued && isAdmin && !confirmingVoid && (
             <button
@@ -403,12 +403,12 @@ export default function InvoiceDetailPage() {
 
       {confirmingIssue && (
         <div style={{ background: 'rgba(26,106,255,0.08)', border: '1px solid rgba(26,106,255,0.3)', borderRadius: 12, padding: '16px 20px', marginBottom: 20 }}>
-          <p style={{ fontSize: 13, color: '#f9fafb', margin: '0 0 12px' }}>
+          <p style={{ fontSize: 13, color: 'var(--text-primary)', margin: '0 0 12px' }}>
             Issuing allocates a permanent invoice number and locks this document — the customer, lines, and totals
             can no longer be edited afterward. Continue?
           </p>
           <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={issueInvoice} disabled={busy} style={btn('#1a6aff')}>Yes, Issue Invoice</button>
+            <button onClick={issueInvoice} disabled={busy} style={btn('var(--purple-600)')}>Yes, Issue Invoice</button>
             <button onClick={() => setConfirmingIssue(false)} disabled={busy} style={btn('#1f2937')}>Cancel</button>
           </div>
         </div>
@@ -416,10 +416,10 @@ export default function InvoiceDetailPage() {
 
       {confirmingVoid && (
         <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 12, padding: '16px 20px', marginBottom: 20 }}>
-          <p style={{ fontSize: 13, color: '#f9fafb', margin: '0 0 4px' }}>
+          <p style={{ fontSize: 13, color: 'var(--text-primary)', margin: '0 0 4px' }}>
             Voiding this invoice changes its BrainBase document state only. Payment/refund handling is not part of this phase.
           </p>
-          <p style={{ fontSize: 12, color: '#9ca3af', margin: '0 0 12px' }}>The invoice number and totals are retained for the record.</p>
+          <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: '0 0 12px' }}>The invoice number and totals are retained for the record.</p>
           <label style={lbl}>Reason (required)</label>
           <textarea value={voidReason} onChange={e => setVoidReason(e.target.value)} rows={2} style={{ ...sel, resize: 'vertical', marginBottom: 12 }} placeholder="Why is this invoice being voided?" />
           <div style={{ display: 'flex', gap: 8 }}>
@@ -432,8 +432,8 @@ export default function InvoiceDetailPage() {
       {isVoid && invoice.void_reason && (
         <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: '16px 24px', marginBottom: 20 }}>
           <div style={miniLbl}>Void Reason</div>
-          <p style={{ fontSize: 13, color: '#9ca3af', margin: '4px 0 8px', whiteSpace: 'pre-wrap' }}>{invoice.void_reason}</p>
-          {invoice.voided_at && <div style={{ fontSize: 12, color: '#6b7280' }}>Voided {formatCommercialDate(invoice.voided_at)}</div>}
+          <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '4px 0 8px', whiteSpace: 'pre-wrap' }}>{invoice.void_reason}</p>
+          {invoice.voided_at && <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Voided {formatCommercialDate(invoice.voided_at)}</div>}
         </div>
       )}
 
@@ -442,22 +442,22 @@ export default function InvoiceDetailPage() {
           <div style={miniLbl}>Customer</div>
           <div style={{ fontSize: 14 }}>
             {isDraft ? (
-              <Link href={`/commercial/customers/${invoice.customer_id}`} style={{ color: '#f9fafb', textDecoration: 'none' }}>{customer?.name ?? '—'}</Link>
+              <Link href={`/commercial/customers/${invoice.customer_id}`} style={{ color: 'var(--text-primary)', textDecoration: 'none' }}>{customer?.name ?? '—'}</Link>
             ) : (invoice.customer_name_snapshot ?? customer?.name ?? '—')}
           </div>
-          {!isDraft && invoice.billing_address_snapshot && <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>{invoice.billing_address_snapshot}</div>}
+          {!isDraft && invoice.billing_address_snapshot && <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>{invoice.billing_address_snapshot}</div>}
         </div>
         <div>
           <div style={miniLbl}>Source Quote</div>
           <div style={{ fontSize: 14 }}>
             {invoice.source_quote_id ? (
-              <Link href={`/commercial/quotes/${invoice.source_quote_id}`} style={{ color: '#f9fafb', textDecoration: 'none' }}>{sourceQuoteNumber ?? 'View quote →'}</Link>
-            ) : <span style={{ color: '#4b5563' }}>Standalone (no source quote)</span>}
+              <Link href={`/commercial/quotes/${invoice.source_quote_id}`} style={{ color: 'var(--text-primary)', textDecoration: 'none' }}>{sourceQuoteNumber ?? 'View quote →'}</Link>
+            ) : <span style={{ color: 'var(--text-muted)' }}>Standalone (no source quote)</span>}
           </div>
         </div>
         <div>
           <div style={miniLbl}>Issue Date</div>
-          <div style={{ fontSize: 14 }}>{invoice.issue_date ? formatCommercialDate(invoice.issue_date) : <span style={{ color: '#4b5563' }}>Not yet issued</span>}</div>
+          <div style={{ fontSize: 14 }}>{invoice.issue_date ? formatCommercialDate(invoice.issue_date) : <span style={{ color: 'var(--text-muted)' }}>Not yet issued</span>}</div>
         </div>
         <div>
           <div style={miniLbl}>Due Date</div>
@@ -480,9 +480,9 @@ export default function InvoiceDetailPage() {
             {lines.length === 0 && <tr><td colSpan={6} style={empty}>No line items yet.</td></tr>}
             {lines.map((l, i) => (
               <tr key={l.id} style={{ borderBottom: i < lines.length - 1 ? `1px solid ${BORDER}` : 'none' }}>
-                <td style={{ padding: '12px 16px', fontSize: 13, color: '#f9fafb' }}>
+                <td style={{ padding: '12px 16px', fontSize: 13, color: 'var(--text-primary)' }}>
                   {l.description_snapshot}
-                  {l.sku_snapshot && <span style={{ color: '#4b5563', marginLeft: 6 }}>({l.sku_snapshot})</span>}
+                  {l.sku_snapshot && <span style={{ color: 'var(--text-muted)', marginLeft: 6 }}>({l.sku_snapshot})</span>}
                 </td>
                 <td style={td}>{l.quantity}{l.unit_snapshot ? ` ${l.unit_snapshot}` : ''}</td>
                 <td style={td}>{formatMoneyCents(l.unit_price_cents, invoice.currency)}</td>
@@ -524,7 +524,7 @@ export default function InvoiceDetailPage() {
                 {taxCodes.map(t => <option key={t.id} value={t.id}>{t.code} ({t.rate}%)</option>)}
               </select>
             </div>
-            <button type="submit" disabled={busy} style={{ padding: '9px 16px', background: '#1a6aff', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+            <button type="submit" disabled={busy} style={{ padding: '9px 16px', background: 'var(--purple-600)', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
               Add Line
             </button>
           </form>
@@ -551,7 +551,7 @@ export default function InvoiceDetailPage() {
 
       {!isDraft && (
         <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, overflow: 'hidden', marginBottom: 20 }}>
-          <div style={{ padding: '14px 16px', borderBottom: `1px solid ${BORDER}`, fontSize: 13, fontWeight: 600, color: '#f9fafb' }}>Payment History</div>
+          <div style={{ padding: '14px 16px', borderBottom: `1px solid ${BORDER}`, fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>Payment History</div>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ borderBottom: `1px solid ${BORDER}` }}>
@@ -624,7 +624,7 @@ export default function InvoiceDetailPage() {
             <label style={lbl}>Received Date</label>
             <input type="date" value={paymentReceivedDate} onChange={e => setPaymentReceivedDate(e.target.value)} style={sel} />
           </div>
-          <button type="submit" disabled={busy} style={{ padding: '10px 16px', background: '#1a6aff', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+          <button type="submit" disabled={busy} style={{ padding: '10px 16px', background: 'var(--purple-600)', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
             Record Payment
           </button>
         </form>
@@ -649,8 +649,8 @@ export default function InvoiceDetailPage() {
         </div>
       ) : (invoice.notes || invoice.terms) && (
         <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: '20px 24px' }}>
-          {invoice.notes && <><div style={miniLbl}>Notes</div><p style={{ fontSize: 13, color: '#9ca3af', margin: '4px 0 16px', whiteSpace: 'pre-wrap' }}>{invoice.notes}</p></>}
-          {invoice.terms && <><div style={miniLbl}>Terms</div><p style={{ fontSize: 13, color: '#9ca3af', margin: '4px 0 0', whiteSpace: 'pre-wrap' }}>{invoice.terms}</p></>}
+          {invoice.notes && <><div style={miniLbl}>Notes</div><p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '4px 0 16px', whiteSpace: 'pre-wrap' }}>{invoice.notes}</p></>}
+          {invoice.terms && <><div style={miniLbl}>Terms</div><p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '4px 0 0', whiteSpace: 'pre-wrap' }}>{invoice.terms}</p></>}
         </div>
       )}
     </div>
@@ -659,7 +659,7 @@ export default function InvoiceDetailPage() {
 
 function TotalRow({ label, value, bold }: { label: string; value: string; bold?: boolean }) {
   return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: bold ? 15 : 13, fontWeight: bold ? 700 : 400, color: bold ? '#f9fafb' : '#9ca3af' }}>
+    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: bold ? 15 : 13, fontWeight: bold ? 700 : 400, color: bold ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
       <span>{label}</span><span>{value}</span>
     </div>
   );
@@ -669,7 +669,7 @@ function TotalRow({ label, value, bold }: { label: string; value: string; bold?:
 // value the API returns. Never persisted, never part of InvoiceStatus.
 function PaymentStateBadge({ state }: { state: 'UNPAID' | 'PARTIALLY_PAID' | 'PAID' }) {
   const styles: Record<string, { bg: string; color: string; label: string }> = {
-    UNPAID: { bg: 'rgba(107,114,128,0.15)', color: '#9ca3af', label: 'Unpaid' },
+    UNPAID: { bg: 'rgba(107,114,128,0.15)', color: 'var(--text-secondary)', label: 'Unpaid' },
     PARTIALLY_PAID: { bg: 'rgba(251,191,36,0.15)', color: '#fbbf24', label: 'Partially Paid' },
     PAID: { bg: 'rgba(74,222,128,0.15)', color: '#4ade80', label: 'Paid' },
   };
@@ -681,12 +681,12 @@ function PaymentStateBadge({ state }: { state: 'UNPAID' | 'PARTIALLY_PAID' | 'PA
   );
 }
 
-const lbl: React.CSSProperties = { display: 'block', color: '#9ca3af', fontSize: 11, fontWeight: 600, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' };
-const miniLbl: React.CSSProperties = { fontSize: 11, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 };
-const th: React.CSSProperties = { padding: '11px 16px', textAlign: 'left', color: '#6b7280', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' };
-const td: React.CSSProperties = { padding: '12px 16px', fontSize: 13, color: '#9ca3af' };
-const empty: React.CSSProperties = { padding: '28px 16px', textAlign: 'center', color: '#4b5563', fontSize: 14 };
-const sel: React.CSSProperties = { width: '100%', padding: '8px 10px', background: '#111318', border: '1px solid #1a1d24', borderRadius: 8, color: '#f9fafb', fontSize: 13, boxSizing: 'border-box' };
+const lbl: React.CSSProperties = { display: 'block', color: 'var(--text-secondary)', fontSize: 11, fontWeight: 600, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' };
+const miniLbl: React.CSSProperties = { fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 };
+const th: React.CSSProperties = { padding: '11px 16px', textAlign: 'left', color: 'var(--text-secondary)', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' };
+const td: React.CSSProperties = { padding: '12px 16px', fontSize: 13, color: 'var(--text-secondary)' };
+const empty: React.CSSProperties = { padding: '28px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 14 };
+const sel: React.CSSProperties = { width: '100%', padding: '8px 10px', background: 'var(--bg-raised)', border: '1px solid #1a1d24', borderRadius: 8, color: 'var(--text-primary)', fontSize: 13, boxSizing: 'border-box' };
 function btn(bg: string, color = '#fff'): React.CSSProperties {
   return { padding: '8px 16px', background: bg, color, border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' };
 }

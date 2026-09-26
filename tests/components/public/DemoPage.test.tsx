@@ -166,9 +166,7 @@ describe('/demo — brand typography', () => {
     const { container } = renderBrainbase(<DemoPage />)
     const clone = container.cloneNode(true) as HTMLElement
     clone.querySelectorAll('[aria-hidden="true"]').forEach(n => n.remove())
-    // The workspace top bar keeps the dark-only BrainBaseWordmark <img>: its
-    // alt is an attribute, not page text, so textContent never includes it.
-    expect(container.querySelector('img[alt="BRΛINBΛSE"]')).not.toBeNull()
+    expect(container.querySelector('[role="img"][aria-label="BrainBase"]')).not.toBeNull()
     expect(clone.textContent).not.toMatch(/Λ/)
     expect(clone.textContent).toMatch(/example BrainBase environment/)
     expect(clone.textContent).toMatch(/HLNA helps interpret/)

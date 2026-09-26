@@ -86,7 +86,7 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
 
   return (
     <SlidePanel open={personId !== null} onClose={onClose} title="Person">
-      {loading && <p style={{ color: '#6b7280', fontSize: 13 }}>Loading…</p>}
+      {loading && <p style={{ color: 'var(--text-secondary)', fontSize: 13 }}>Loading…</p>}
       {error && <p style={{ color: '#f87171', fontSize: 13 }}>{error}</p>}
       {person && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -94,12 +94,12 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
             <div>
               <div style={{ fontSize: 18, fontWeight: 700 }}>
                 {person.first_name} {person.last_name}
-                {person.preferred_name ? <span style={{ color: '#6b7280', fontWeight: 400 }}> ({person.preferred_name})</span> : null}
+                {person.preferred_name ? <span style={{ color: 'var(--text-secondary)', fontWeight: 400 }}> ({person.preferred_name})</span> : null}
               </div>
-              {person.job_title && <div style={{ color: '#9ca3af', fontSize: 13, marginTop: 2 }}>{person.job_title}</div>}
+              {person.job_title && <div style={{ color: 'var(--text-secondary)', fontSize: 13, marginTop: 2 }}>{person.job_title}</div>}
             </div>
             {canManage && (
-              <button onClick={() => onEdit(person)} style={{ padding: '6px 12px', background: 'rgba(255,255,255,.06)', border: '1px solid #1a1d24', borderRadius: 8, color: '#f9fafb', fontSize: 12, fontWeight: 600, cursor: 'pointer', flexShrink: 0 }}>
+              <button onClick={() => onEdit(person)} style={{ padding: '6px 12px', background: 'rgba(255,255,255,.06)', border: '1px solid #1a1d24', borderRadius: 8, color: 'var(--text-primary)', fontSize: 12, fontWeight: 600, cursor: 'pointer', flexShrink: 0 }}>
                 Edit
               </button>
             )}
@@ -137,8 +137,8 @@ export default function PersonDrawer({ personId, canManage, onClose, onEdit }: {
 function Row({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <div style={{ color: '#6b7280', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{label}</div>
-      <div style={{ color: '#f9fafb', fontSize: 14, marginTop: 2 }}>{value}</div>
+      <div style={{ color: 'var(--text-secondary)', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{label}</div>
+      <div style={{ color: 'var(--text-primary)', fontSize: 14, marginTop: 2 }}>{value}</div>
     </div>
   );
 }

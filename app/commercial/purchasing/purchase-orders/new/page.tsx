@@ -6,7 +6,7 @@ import SlidePanel from '../../../_components/SlidePanel';
 import SupplierForm from '../../../_components/SupplierForm';
 import { Field, lbl, sel } from '../../../_components/CustomerForm';
 
-const CARD = '#0e1014'; const BORDER = '#1a1d24';
+const CARD = 'var(--bg-surface)'; const BORDER = 'var(--border)';
 
 type Supplier = { id: string; name: string; active: boolean };
 
@@ -68,7 +68,7 @@ export default function NewPurchaseOrderPage() {
 
   return (
     <div style={{ maxWidth: 600 }}>
-      <Link href="/commercial/purchasing/purchase-orders" style={{ color: '#6b7280', fontSize: 13, textDecoration: 'none' }}>← Purchase Orders</Link>
+      <Link href="/commercial/purchasing/purchase-orders" style={{ color: 'var(--text-secondary)', fontSize: 13, textDecoration: 'none' }}>← Purchase Orders</Link>
       <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em', margin: '16px 0 24px' }}>New Purchase Order</h1>
 
       <form onSubmit={submit} style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: '24px 28px', display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -79,7 +79,7 @@ export default function NewPurchaseOrderPage() {
               <option value="">— Select a supplier —</option>
               {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
-            <button type="button" onClick={() => setShowNewSupplier(true)} style={{ padding: '9px 14px', background: '#1f2937', color: '#f9fafb', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+            <button type="button" onClick={() => setShowNewSupplier(true)} style={{ padding: '9px 14px', background: '#1f2937', color: 'var(--text-primary)', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
               + New
             </button>
           </div>
@@ -115,7 +115,7 @@ export default function NewPurchaseOrderPage() {
           <textarea value={internalNotes} onChange={e => setInternalNotes(e.target.value)} rows={2} style={{ ...sel, resize: 'vertical', lineHeight: 1.5 }} />
         </div>
         {error && <p style={{ color: '#f87171', fontSize: 13, margin: 0 }}>{error}</p>}
-        <button type="submit" disabled={saving} style={{ padding: '10px 0', background: '#1a6aff', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: saving ? 'default' : 'pointer' }}>
+        <button type="submit" disabled={saving} style={{ padding: '10px 0', background: 'var(--purple-600)', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: saving ? 'default' : 'pointer' }}>
           {saving ? 'Creating…' : 'Create Draft — add line items next'}
         </button>
       </form>
