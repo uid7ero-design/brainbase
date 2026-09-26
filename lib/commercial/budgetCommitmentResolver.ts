@@ -349,7 +349,7 @@ export function deriveBudgetCommitmentConsumption(
   };
 }
 
-type BudgetHeaderRow = {
+export type ActiveBudgetHeaderRow = {
   budget_id: string;
   financial_year_id: string;
   financial_year_name: string;
@@ -359,21 +359,21 @@ type BudgetHeaderRow = {
   active_version_id: string | null;
   version_number: number | null;
 };
-type MappingRow = {
+export type ActiveBudgetMappingRow = {
   budget_version_id: string;
   cost_centre_id: string;
   budget_account_id: string;
   budget_account_code: string;
   budget_account_name: string;
 };
-type LineRow = {
+export type ActiveBudgetLineRow = {
   budget_line_id: string;
   budget_version_id: string;
   budget_account_id: string;
   cost_centre_id: string;
   annual_budget_cents: string | number | bigint;
 };
-type AllocationRow = {
+export type ActiveBudgetAllocationRow = {
   budget_line_id: string;
   financial_period_id: string;
   amount_cents: string | number | bigint;
@@ -466,7 +466,21 @@ export async function getActiveBudgetContext(organisationId: string): Promise<Ac
     `,
   ], { isolationLevel: 'RepeatableRead' });
 
-  const headers = budgetRows as BudgetHeaderRow[];
+  return deriveActiveBudgetContextFromRows(
+    budgetRows as ActiveBudgetHeaderRow[],
+    mappingRows as ActiveBudgetMappingRow[],
+    lineRows as ActiveBudgetLineRow[],
+    allocationRows as ActiveBudgetAllocationRow[],
+  );
+}
+
+export function deriveActiveBudgetContextFromRows(
+  budgetRows: ActiveBudgetHeaderRow[],
+  mappingRows: ActiveBudgetMappingRow[],
+  lineRows: ActiveBudgetLineRow[],
+  allocationRows: ActiveBudgetAllocationRow[],
+): ActiveBudgetContext {
+  const headers = budgetRows;
   return {
     budgetIdentities: headers.map(row => ({
       financialYearId: row.financial_year_id,
@@ -474,7 +488,7 @@ export async function getActiveBudgetContext(organisationId: string): Promise<Ac
       hasActiveVersion: row.active_version_id !== null && row.version_number !== null,
     })),
     budgets: headers.filter(
-      (row): row is BudgetHeaderRow & { active_version_id: string; version_number: number } =>
+      (row): row is ActiveBudgetHeaderRow & { active_version_id: string; version_number: number } =>
         row.active_version_id !== null && row.version_number !== null,
     ).map(row => ({
       budgetId: row.budget_id,
@@ -486,21 +500,21 @@ export async function getActiveBudgetContext(organisationId: string): Promise<Ac
       activeVersionId: row.active_version_id,
       versionNumber: Number(row.version_number),
     })),
-    mappings: (mappingRows as MappingRow[]).map(row => ({
+    mappings: mappingRows.map(row => ({
       budgetVersionId: row.budget_version_id,
       costCentreId: row.cost_centre_id,
       budgetAccountId: row.budget_account_id,
       budgetAccountCode: row.budget_account_code,
       budgetAccountName: row.budget_account_name,
     })),
-    lines: (lineRows as LineRow[]).map(row => ({
+    lines: lineRows.map(row => ({
       budgetLineId: row.budget_line_id,
       budgetVersionId: row.budget_version_id,
       budgetAccountId: row.budget_account_id,
       costCentreId: row.cost_centre_id,
       annualBudgetCents: safeBudgetCents(row.annual_budget_cents),
     })),
-    periodAllocations: (allocationRows as AllocationRow[]).map(row => ({
+    periodAllocations: allocationRows.map(row => ({
       budgetLineId: row.budget_line_id,
       financialPeriodId: row.financial_period_id,
       amountCents: safeBudgetCents(row.amount_cents),
