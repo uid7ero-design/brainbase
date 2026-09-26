@@ -46,27 +46,38 @@
 --     even to the same non-NULL value via a no-op-looking UPDATE that
 --     also fails to change status — the whole row is frozen except the
 --     one permitted status transition's own required field changes).
---   source_schema_worksheets — UPDATE/DELETE rejected whenever the
---     worksheet's (old OR new, for UPDATE) parent SourceSchemaVersion is
---     ACTIVE or RETIRED. Rows under a DRAFT version remain fully
---     editable by a future governance writer (none exists yet — D3E
---     does not create one).
---   source_schema_columns    — same rule, via the owning worksheet's
---     parent SourceSchemaVersion.
+--   source_schema_worksheets — INSERT/UPDATE/DELETE all rejected
+--     whenever the worksheet's (old AND, for INSERT/UPDATE, new) parent
+--     SourceSchemaVersion is ACTIVE or RETIRED — an activated schema can
+--     never be structurally EXTENDED by adding a new worksheet, any more
+--     than an existing one can be edited or removed. Rows under a DRAFT
+--     version remain fully editable/insertable by a future governance
+--     writer (none exists yet — D3E does not create one).
+--   source_schema_columns    — same rule (INSERT/UPDATE/DELETE), via the
+--     owning worksheet's parent SourceSchemaVersion.
 --   worksheet_mapping_profile_versions — UNCONDITIONALLY immutable after
 --     INSERT (UPDATE and DELETE both rejected always, regardless of
 --     parent schema status — these rows are "explicitly versioned";
---     a configuration change creates a new version, never edits one).
---   worksheet_mapping_profiles — once the OWNING WORKSHEET's schema
---     version is ACTIVE or RETIRED: only `active`, `active_profile_
---     version_id` and `updated_at` may change (the lifecycle pointer);
---     organisation_id, source_schema_worksheet_id, name, created_by,
---     created_at are frozen. DELETE is rejected under the same
---     condition (symmetric with worksheets/columns — not explicitly
---     enumerated in the 6.2D3E spec's own test list, but consistent
---     with its own stated philosophy in Section 3: historical meaning
---     must not depend on convention). Rows under a DRAFT version remain
---     fully editable (including DELETE).
+--     a configuration change creates a NEW version via INSERT, which
+--     remains fully permitted — never edits an existing one). INSERT
+--     itself is deliberately NOT gated by this migration: that is the
+--     intended versioned-evolution mechanism and stays untouched.
+--   worksheet_mapping_profiles — INSERT rejected whenever the target
+--     worksheet's SourceSchemaVersion is ACTIVE or RETIRED (an activated
+--     schema's profile set is frozen, not just its existing rows). Once
+--     an EXISTING row's OWNING WORKSHEET's schema version is ACTIVE or
+--     RETIRED: only `active`, `active_profile_version_id` and
+--     `updated_at` may change (the lifecycle pointer); organisation_id,
+--     source_schema_worksheet_id, name, created_by, created_at are
+--     frozen. Re-parenting a DRAFT-owned profile ONTO an ACTIVE/RETIRED
+--     worksheet is rejected exactly like a fresh INSERT there would be.
+--     DELETE is rejected once the owning worksheet's schema is ACTIVE/
+--     RETIRED (symmetric with worksheets/columns — not explicitly
+--     enumerated in the 6.2D3E spec's own original test list, but
+--     consistent with its own stated philosophy in Section 3: historical
+--     meaning must not depend on convention). Rows under a DRAFT version
+--     remain fully insertable/editable/re-parentable-to-another-DRAFT-
+--     worksheet/deletable (subject to existing FKs/constraints).
 --   The pre-existing composite FK
 --   worksheet_mapping_profiles_active_version_fkey (D3A) remains the
 --   sole authority for "does this pointer target a version of THIS
@@ -161,9 +172,10 @@ CREATE TRIGGER datahub_guard_source_schema_version_write
 
 -- ═══════════════════════════════════════════════════════════════════
 -- source_schema_worksheets — immutable once the PARENT schema version
--- is ACTIVE or RETIRED. Checks both OLD's and (for UPDATE) NEW's
--- parent, so a worksheet cannot be re-parented INTO an ACTIVE/RETIRED
--- version to smuggle a change past the OLD-side check either.
+-- is ACTIVE or RETIRED. Checks both OLD's and (for INSERT/UPDATE) NEW's
+-- parent, so a worksheet can neither be re-parented INTO an ACTIVE/
+-- RETIRED version to smuggle a change past the OLD-side check, nor
+-- freshly INSERTed under one to structurally extend an activated schema.
 -- ═══════════════════════════════════════════════════════════════════
 
 CREATE OR REPLACE FUNCTION public.datahub_guard_source_schema_worksheet_write()
@@ -172,6 +184,14 @@ DECLARE
   v_old_status text;
   v_new_status text;
 BEGIN
+  IF TG_OP = 'INSERT' THEN
+    SELECT status INTO v_new_status FROM public.source_schema_versions WHERE id = NEW.source_schema_version_id;
+    IF v_new_status IN ('ACTIVE', 'RETIRED') THEN
+      RAISE EXCEPTION 'source_schema_worksheets: cannot INSERT a new worksheet under a % SourceSchemaVersion (%) — an activated schema is structurally frozen', v_new_status, NEW.source_schema_version_id;
+    END IF;
+    RETURN NEW;
+  END IF;
+
   SELECT status INTO v_old_status FROM public.source_schema_versions WHERE id = OLD.source_schema_version_id;
   IF v_old_status IN ('ACTIVE', 'RETIRED') THEN
     RAISE EXCEPTION 'source_schema_worksheets: row % belongs to a % SourceSchemaVersion (%) — worksheets under an activated schema are immutable', OLD.id, v_old_status, OLD.source_schema_version_id;
@@ -191,12 +211,12 @@ $fn$;
 
 DROP TRIGGER IF EXISTS datahub_guard_source_schema_worksheet_write ON public.source_schema_worksheets;
 CREATE TRIGGER datahub_guard_source_schema_worksheet_write
-  BEFORE UPDATE OR DELETE ON public.source_schema_worksheets
+  BEFORE INSERT OR UPDATE OR DELETE ON public.source_schema_worksheets
   FOR EACH ROW EXECUTE FUNCTION public.datahub_guard_source_schema_worksheet_write();
 
 -- ═══════════════════════════════════════════════════════════════════
--- source_schema_columns — same rule, via the owning worksheet's parent
--- SourceSchemaVersion.
+-- source_schema_columns — same rule (INSERT/UPDATE/DELETE), via the
+-- owning worksheet's parent SourceSchemaVersion.
 -- ═══════════════════════════════════════════════════════════════════
 
 CREATE OR REPLACE FUNCTION public.datahub_guard_source_schema_column_write()
@@ -205,6 +225,17 @@ DECLARE
   v_old_status text;
   v_new_status text;
 BEGIN
+  IF TG_OP = 'INSERT' THEN
+    SELECT ssv.status INTO v_new_status
+      FROM public.source_schema_worksheets ssw
+      JOIN public.source_schema_versions ssv ON ssv.id = ssw.source_schema_version_id
+      WHERE ssw.id = NEW.source_schema_worksheet_id;
+    IF v_new_status IN ('ACTIVE', 'RETIRED') THEN
+      RAISE EXCEPTION 'source_schema_columns: cannot INSERT a new column under worksheet % whose SourceSchemaVersion is % — an activated schema is structurally frozen', NEW.source_schema_worksheet_id, v_new_status;
+    END IF;
+    RETURN NEW;
+  END IF;
+
   SELECT ssv.status INTO v_old_status
     FROM public.source_schema_worksheets ssw
     JOIN public.source_schema_versions ssv ON ssv.id = ssw.source_schema_version_id
@@ -230,7 +261,7 @@ $fn$;
 
 DROP TRIGGER IF EXISTS datahub_guard_source_schema_column_write ON public.source_schema_columns;
 CREATE TRIGGER datahub_guard_source_schema_column_write
-  BEFORE UPDATE OR DELETE ON public.source_schema_columns
+  BEFORE INSERT OR UPDATE OR DELETE ON public.source_schema_columns
   FOR EACH ROW EXECUTE FUNCTION public.datahub_guard_source_schema_column_write();
 
 -- ═══════════════════════════════════════════════════════════════════
@@ -269,28 +300,60 @@ CREATE TRIGGER datahub_guard_worksheet_mapping_profile_version_write
 CREATE OR REPLACE FUNCTION public.datahub_guard_worksheet_mapping_profile_write()
 RETURNS trigger LANGUAGE plpgsql AS $fn$
 DECLARE
-  v_status text;
+  v_old_status text;
+  v_new_status text;
 BEGIN
-  SELECT ssv.status INTO v_status
+  IF TG_OP = 'INSERT' THEN
+    SELECT ssv.status INTO v_new_status
+      FROM public.source_schema_worksheets ssw
+      JOIN public.source_schema_versions ssv ON ssv.id = ssw.source_schema_version_id
+      WHERE ssw.id = NEW.source_schema_worksheet_id;
+    IF v_new_status IN ('ACTIVE', 'RETIRED') THEN
+      RAISE EXCEPTION 'worksheet_mapping_profiles: cannot INSERT a new profile under worksheet % whose SourceSchemaVersion is % — an activated schema''s profile set is structurally frozen', NEW.source_schema_worksheet_id, v_new_status;
+    END IF;
+    RETURN NEW;
+  END IF;
+
+  SELECT ssv.status INTO v_old_status
     FROM public.source_schema_worksheets ssw
     JOIN public.source_schema_versions ssv ON ssv.id = ssw.source_schema_version_id
     WHERE ssw.id = OLD.source_schema_worksheet_id;
 
-  IF v_status NOT IN ('ACTIVE', 'RETIRED') THEN
-    -- Owning worksheet's schema is still DRAFT: fully editable.
-    RETURN CASE TG_OP WHEN 'DELETE' THEN OLD ELSE NEW END;
-  END IF;
-
   IF TG_OP = 'DELETE' THEN
-    RAISE EXCEPTION 'worksheet_mapping_profiles: row % belongs to a worksheet under a % SourceSchemaVersion — DELETE is not permitted once activated', OLD.id, v_status;
+    IF v_old_status IN ('ACTIVE', 'RETIRED') THEN
+      RAISE EXCEPTION 'worksheet_mapping_profiles: row % belongs to a worksheet under a % SourceSchemaVersion — DELETE is not permitted once activated', OLD.id, v_old_status;
+    END IF;
+    RETURN OLD;
   END IF;
 
-  IF NEW.organisation_id IS DISTINCT FROM OLD.organisation_id
-     OR NEW.source_schema_worksheet_id IS DISTINCT FROM OLD.source_schema_worksheet_id
-     OR NEW.name IS DISTINCT FROM OLD.name
-     OR NEW.created_by IS DISTINCT FROM OLD.created_by
-     OR NEW.created_at IS DISTINCT FROM OLD.created_at THEN
-    RAISE EXCEPTION 'worksheet_mapping_profiles: row % belongs to a worksheet under a % SourceSchemaVersion — only active/active_profile_version_id/updated_at may change once activated', OLD.id, v_status;
+  -- TG_OP = 'UPDATE' from here.
+  IF v_old_status IN ('ACTIVE', 'RETIRED') THEN
+    -- Existing lifecycle-pointer-only mutation rule: identity frozen,
+    -- only active/active_profile_version_id/updated_at may change. This
+    -- also structurally forbids re-parenting OUT of this worksheet
+    -- (source_schema_worksheet_id is one of the frozen identity fields),
+    -- so an already-activated profile can never be moved elsewhere.
+    IF NEW.organisation_id IS DISTINCT FROM OLD.organisation_id
+       OR NEW.source_schema_worksheet_id IS DISTINCT FROM OLD.source_schema_worksheet_id
+       OR NEW.name IS DISTINCT FROM OLD.name
+       OR NEW.created_by IS DISTINCT FROM OLD.created_by
+       OR NEW.created_at IS DISTINCT FROM OLD.created_at THEN
+      RAISE EXCEPTION 'worksheet_mapping_profiles: row % belongs to a worksheet under a % SourceSchemaVersion — only active/active_profile_version_id/updated_at may change once activated', OLD.id, v_old_status;
+    END IF;
+    RETURN NEW;
+  END IF;
+
+  -- OLD parent is DRAFT: reject re-parenting ONTO an ACTIVE/RETIRED
+  -- worksheet (that would structurally extend an activated schema's
+  -- profile set exactly like a fresh INSERT there would) — otherwise
+  -- fully editable/re-parentable-to-another-DRAFT-worksheet, subject to
+  -- the existing FKs/constraints.
+  SELECT ssv.status INTO v_new_status
+    FROM public.source_schema_worksheets ssw
+    JOIN public.source_schema_versions ssv ON ssv.id = ssw.source_schema_version_id
+    WHERE ssw.id = NEW.source_schema_worksheet_id;
+  IF v_new_status IN ('ACTIVE', 'RETIRED') THEN
+    RAISE EXCEPTION 'worksheet_mapping_profiles: row % cannot be re-parented from a DRAFT worksheet onto worksheet % whose SourceSchemaVersion is % — an activated schema''s profile set is structurally frozen', OLD.id, NEW.source_schema_worksheet_id, v_new_status;
   END IF;
 
   RETURN NEW;
@@ -299,7 +362,7 @@ $fn$;
 
 DROP TRIGGER IF EXISTS datahub_guard_worksheet_mapping_profile_write ON public.worksheet_mapping_profiles;
 CREATE TRIGGER datahub_guard_worksheet_mapping_profile_write
-  BEFORE UPDATE OR DELETE ON public.worksheet_mapping_profiles
+  BEFORE INSERT OR UPDATE OR DELETE ON public.worksheet_mapping_profiles
   FOR EACH ROW EXECUTE FUNCTION public.datahub_guard_worksheet_mapping_profile_write();
 
 COMMIT;

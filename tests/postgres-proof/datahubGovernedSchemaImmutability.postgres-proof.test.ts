@@ -37,6 +37,13 @@
 //   16 active pointer change remains structurally valid where permitted
 //   17 cross-tenant pointer remains rejected by the existing FK
 //   18 DRAFT content remains available to future governance work
+//
+// Plus the R1/R2 remediation (structural INSERT into an ACTIVE/RETIRED
+// schema was previously unguarded for source_schema_worksheets,
+// source_schema_columns, and worksheet_mapping_profiles): all INSERT/
+// re-parenting cases required by that remediation, and a final
+// reconfirmation that worksheet_mapping_profile_versions' own INSERT-
+// allowed/UPDATE-DELETE-forbidden policy is untouched.
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { PrismaClient } from "@prisma/client";
@@ -238,5 +245,169 @@ describe("6.2D3E governed schema immutability — real disposable Postgres proof
     });
     await prisma.$executeRaw`DELETE FROM source_schema_worksheets WHERE id = ${freeWs.id}`;
     expect(await prisma.sourceSchemaWorksheet.findUnique({ where: { id: freeWs.id } })).toBeNull();
+  });
+
+  // ── R1 remediation — structural INSERT was previously unguarded for
+  // source_schema_worksheets/source_schema_columns, leaving ACTIVE/
+  // RETIRED schemas structurally extensible. Triggers now fire on
+  // BEFORE INSERT OR UPDATE OR DELETE. ──
+  describe("R1 — INSERT is now guarded for source_schema_worksheets and source_schema_columns", () => {
+    it("R1.1 INSERT worksheet with NEW parent DRAFT -> allowed", async () => {
+      const { sv } = await createDraftVersion("r1-1");
+      const ws = await prisma.sourceSchemaWorksheet.create({
+        data: { organisation_id: organisationId, source_schema_version_id: sv.id, logical_key: "r1_1_extra", expected_name: "Extra", ordinal_hint: 5, presence: "OPTIONAL", role: "DATA" },
+      });
+      expect(ws.id).toBeTruthy();
+    });
+
+    it("R1.2 INSERT worksheet with NEW parent ACTIVE -> rejected", async () => {
+      const { sv } = await createDraftVersion("r1-2");
+      await prisma.$executeRaw`UPDATE source_schema_versions SET status = 'ACTIVE', activated_at = now() WHERE id = ${sv.id}`;
+      await expect(
+        prisma.sourceSchemaWorksheet.create({
+          data: { organisation_id: organisationId, source_schema_version_id: sv.id, logical_key: "r1_2_extra", expected_name: "Extra", ordinal_hint: 5, presence: "OPTIONAL", role: "DATA" },
+        })
+      ).rejects.toThrow();
+      expect(await prisma.sourceSchemaWorksheet.count({ where: { source_schema_version_id: sv.id } })).toBe(1);
+    });
+
+    it("R1.3 INSERT worksheet with NEW parent RETIRED -> rejected", async () => {
+      const { sv } = await createDraftVersion("r1-3");
+      await prisma.$executeRaw`UPDATE source_schema_versions SET status = 'ACTIVE', activated_at = now() WHERE id = ${sv.id}`;
+      await prisma.$executeRaw`UPDATE source_schema_versions SET status = 'RETIRED' WHERE id = ${sv.id}`;
+      await expect(
+        prisma.sourceSchemaWorksheet.create({
+          data: { organisation_id: organisationId, source_schema_version_id: sv.id, logical_key: "r1_3_extra", expected_name: "Extra", ordinal_hint: 5, presence: "OPTIONAL", role: "DATA" },
+        })
+      ).rejects.toThrow();
+    });
+
+    it("R1.4 UPDATE existing worksheet under ACTIVE/RETIRED -> rejected (already proven at 9/10, reconfirmed alongside the new INSERT cases)", async () => {
+      const { sv, ws } = await createDraftVersion("r1-4");
+      await prisma.$executeRaw`UPDATE source_schema_versions SET status = 'ACTIVE', activated_at = now() WHERE id = ${sv.id}`;
+      await expect(prisma.$executeRaw`UPDATE source_schema_worksheets SET ordinal_hint = 99 WHERE id = ${ws.id}`).rejects.toThrow();
+    });
+
+    it("R1.5 UPDATE a DRAFT worksheet so NEW parent is ACTIVE/RETIRED (re-parenting into an activated schema) -> rejected", async () => {
+      const { sv: svActive } = await createDraftVersion("r1-5-active");
+      await prisma.$executeRaw`UPDATE source_schema_versions SET status = 'ACTIVE', activated_at = now() WHERE id = ${svActive.id}`;
+      const { ws: draftWs } = await createDraftVersion("r1-5-draft");
+      await expect(prisma.$executeRaw`UPDATE source_schema_worksheets SET source_schema_version_id = ${svActive.id} WHERE id = ${draftWs.id}`).rejects.toThrow();
+    });
+
+    it("R1.6 DELETE under ACTIVE/RETIRED -> rejected; normal DRAFT INSERT/mutation/deletion remains permitted", async () => {
+      const { sv, ws } = await createDraftVersion("r1-6");
+      await prisma.$executeRaw`UPDATE source_schema_versions SET status = 'ACTIVE', activated_at = now() WHERE id = ${sv.id}`;
+      await expect(prisma.$executeRaw`DELETE FROM source_schema_worksheets WHERE id = ${ws.id}`).rejects.toThrow();
+
+      const { sv: draftSv } = await createDraftVersion("r1-6-draft");
+      const freeWs = await prisma.sourceSchemaWorksheet.create({
+        data: { organisation_id: organisationId, source_schema_version_id: draftSv.id, logical_key: "r1_6_free", expected_name: "Free", ordinal_hint: 9, presence: "OPTIONAL", role: "DATA" },
+      });
+      await prisma.$executeRaw`DELETE FROM source_schema_worksheets WHERE id = ${freeWs.id}`;
+      expect(await prisma.sourceSchemaWorksheet.findUnique({ where: { id: freeWs.id } })).toBeNull();
+    });
+
+    it("R1.7 INSERT column into a worksheet under DRAFT -> allowed; under ACTIVE -> rejected; under RETIRED -> rejected; existing UPDATE/DELETE protections remain; DRAFT column construction remains permitted", async () => {
+      const { ws: draftWs } = await createDraftVersion("r1-7-draft");
+      const col = await prisma.sourceSchemaColumn.create({
+        data: { organisation_id: organisationId, source_schema_worksheet_id: draftWs.id, ordinal: 5, source_header: "Extra", presence: "OPTIONAL", declared_type: "UNKNOWN", sensitivity_class: "PUBLIC" },
+      });
+      expect(col.id).toBeTruthy();
+
+      const { sv: activeSv, ws: activeWs } = await createDraftVersion("r1-7-active");
+      await prisma.$executeRaw`UPDATE source_schema_versions SET status = 'ACTIVE', activated_at = now() WHERE id = ${activeSv.id}`;
+      await expect(
+        prisma.sourceSchemaColumn.create({
+          data: { organisation_id: organisationId, source_schema_worksheet_id: activeWs.id, ordinal: 5, source_header: "Extra", presence: "OPTIONAL", declared_type: "UNKNOWN", sensitivity_class: "PUBLIC" },
+        })
+      ).rejects.toThrow();
+
+      const { sv: retiredSv, ws: retiredWs } = await createDraftVersion("r1-7-retired");
+      await prisma.$executeRaw`UPDATE source_schema_versions SET status = 'ACTIVE', activated_at = now() WHERE id = ${retiredSv.id}`;
+      await prisma.$executeRaw`UPDATE source_schema_versions SET status = 'RETIRED' WHERE id = ${retiredSv.id}`;
+      await expect(
+        prisma.sourceSchemaColumn.create({
+          data: { organisation_id: organisationId, source_schema_worksheet_id: retiredWs.id, ordinal: 5, source_header: "Extra", presence: "OPTIONAL", declared_type: "UNKNOWN", sensitivity_class: "PUBLIC" },
+        })
+      ).rejects.toThrow();
+    });
+  });
+
+  // ── R2 remediation — worksheet_mapping_profiles previously checked
+  // only the OLD parent's status, leaving both fresh INSERT under an
+  // ACTIVE/RETIRED schema and re-parenting a DRAFT-owned profile ONTO
+  // one unguarded. ──
+  describe("R2 — worksheet_mapping_profiles INSERT/re-parenting is now guarded", () => {
+    it("R2.1 profile INSERT under DRAFT -> allowed", async () => {
+      const { ws } = await createDraftVersion("r2-1");
+      const profile = await prisma.worksheetMappingProfile.create({
+        data: { organisation_id: organisationId, source_schema_worksheet_id: ws.id, name: "r2-1-second-profile", active: false },
+      });
+      expect(profile.id).toBeTruthy();
+    });
+
+    it("R2.2 profile INSERT under ACTIVE -> rejected", async () => {
+      const { sv, ws } = await createDraftVersion("r2-2");
+      await prisma.$executeRaw`UPDATE source_schema_versions SET status = 'ACTIVE', activated_at = now() WHERE id = ${sv.id}`;
+      await expect(
+        prisma.worksheetMappingProfile.create({ data: { organisation_id: organisationId, source_schema_worksheet_id: ws.id, name: "r2-2-second-profile", active: false } })
+      ).rejects.toThrow();
+      expect(await prisma.worksheetMappingProfile.count({ where: { source_schema_worksheet_id: ws.id } })).toBe(1);
+    });
+
+    it("R2.3 profile INSERT under RETIRED -> rejected", async () => {
+      const { sv, ws } = await createDraftVersion("r2-3");
+      await prisma.$executeRaw`UPDATE source_schema_versions SET status = 'ACTIVE', activated_at = now() WHERE id = ${sv.id}`;
+      await prisma.$executeRaw`UPDATE source_schema_versions SET status = 'RETIRED' WHERE id = ${sv.id}`;
+      await expect(
+        prisma.worksheetMappingProfile.create({ data: { organisation_id: organisationId, source_schema_worksheet_id: ws.id, name: "r2-3-second-profile", active: false } })
+      ).rejects.toThrow();
+    });
+
+    it("R2.4 profile re-parent DRAFT -> ACTIVE -> rejected", async () => {
+      const { sv: activeSv, ws: activeWs } = await createDraftVersion("r2-4-active");
+      await prisma.$executeRaw`UPDATE source_schema_versions SET status = 'ACTIVE', activated_at = now() WHERE id = ${activeSv.id}`;
+      const { profile: draftProfile } = await createDraftVersion("r2-4-draft");
+      await expect(prisma.$executeRaw`UPDATE worksheet_mapping_profiles SET source_schema_worksheet_id = ${activeWs.id} WHERE id = ${draftProfile.id}`).rejects.toThrow();
+    });
+
+    it("R2.5 profile re-parent DRAFT -> RETIRED -> rejected", async () => {
+      const { sv: retiredSv, ws: retiredWs } = await createDraftVersion("r2-5-retired");
+      await prisma.$executeRaw`UPDATE source_schema_versions SET status = 'ACTIVE', activated_at = now() WHERE id = ${retiredSv.id}`;
+      await prisma.$executeRaw`UPDATE source_schema_versions SET status = 'RETIRED' WHERE id = ${retiredSv.id}`;
+      const { profile: draftProfile } = await createDraftVersion("r2-5-draft");
+      await expect(prisma.$executeRaw`UPDATE worksheet_mapping_profiles SET source_schema_worksheet_id = ${retiredWs.id} WHERE id = ${draftProfile.id}`).rejects.toThrow();
+    });
+
+    it("R2.6 profile DRAFT -> DRAFT re-parent remains available if structurally valid", async () => {
+      const { ws: sourceWs } = await createDraftVersion("r2-6-source");
+      const { ws: targetWs } = await createDraftVersion("r2-6-target");
+      const profile = await prisma.worksheetMappingProfile.create({
+        data: { organisation_id: organisationId, source_schema_worksheet_id: sourceWs.id, name: "r2-6-movable", active: false },
+      });
+      await prisma.$executeRaw`UPDATE worksheet_mapping_profiles SET source_schema_worksheet_id = ${targetWs.id} WHERE id = ${profile.id}`;
+      const moved = await prisma.worksheetMappingProfile.findUniqueOrThrow({ where: { id: profile.id } });
+      expect(moved.source_schema_worksheet_id).toBe(targetWs.id);
+    });
+
+    it("R2.7 lifecycle pointer update for a profile already under ACTIVE remains allowed when the existing composite FK is satisfied (reconfirmed alongside the new guards)", async () => {
+      const { sv, profile, version } = await createDraftVersion("r2-7");
+      await prisma.$executeRaw`UPDATE source_schema_versions SET status = 'ACTIVE', activated_at = now() WHERE id = ${sv.id}`;
+      await prisma.$executeRaw`UPDATE worksheet_mapping_profiles SET active = true, active_profile_version_id = ${version.id} WHERE id = ${profile.id}`;
+      const row = await prisma.worksheetMappingProfile.findUniqueOrThrow({ where: { id: profile.id } });
+      expect(row.active).toBe(true);
+      expect(row.active_profile_version_id).toBe(version.id);
+    });
+  });
+
+  it("R1/R2 do not touch the existing worksheet_mapping_profile_versions policy: INSERT of a new version remains allowed; UPDATE/DELETE remain forbidden", async () => {
+    const { profile } = await createDraftVersion("r-versioning-untouched");
+    const v2 = await prisma.worksheetMappingProfileVersion.create({
+      data: { organisation_id: organisationId, worksheet_mapping_profile_id: profile.id, version_number: 2, disposition: "STAGING_DATASET", profile_document: { documentVersion: 1, schemaStatus: "DRAFT", headerRowOneBased: 2 } },
+    });
+    expect(v2.id).toBeTruthy();
+    await expect(prisma.$executeRaw`UPDATE worksheet_mapping_profile_versions SET disposition = 'IGNORE' WHERE id = ${v2.id}`).rejects.toThrow();
+    await expect(prisma.$executeRaw`DELETE FROM worksheet_mapping_profile_versions WHERE id = ${v2.id}`).rejects.toThrow();
   });
 });
