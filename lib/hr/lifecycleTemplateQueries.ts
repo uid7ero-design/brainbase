@@ -114,3 +114,38 @@ export async function getLifecycleTemplate(
     }),
   };
 }
+
+
+export function lifecycleTemplateToJson(template: LifecycleTemplateView) {
+  return {
+    id: template.id,
+    template_key: template.templateKey,
+    version_number: template.versionNumber,
+    lifecycle_type: template.lifecycleType,
+    name: template.name,
+    description: template.description,
+    status: template.status,
+    activated_at: template.activatedAt,
+    retired_at: template.retiredAt,
+    created_by: template.createdBy,
+    created_at: template.createdAt,
+    updated_at: template.updatedAt,
+    ...(template.tasks
+      ? {
+          tasks: template.tasks.map(task => ({
+            id: task.id,
+            sequence: task.sequence,
+            title: task.title,
+            description: task.description,
+            responsibility_type: task.responsibilityType,
+            due_offset_days: task.dueOffsetDays,
+            requires_approval: task.requiresApproval,
+            approval_type: task.approvalType,
+            employee_visible: task.employeeVisible,
+            manager_visible: task.managerVisible,
+            internal_only: task.internalOnly,
+          })),
+        }
+      : {}),
+  };
+}
