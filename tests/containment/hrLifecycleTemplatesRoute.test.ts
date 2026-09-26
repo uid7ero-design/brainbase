@@ -218,7 +218,11 @@ describe('HR-7C lifecycle template routes', () => {
       versionNumber: 2,
     }));
 
-    const { template_key: _key, lifecycle_type: _type, ...versionBody } = validCreateBody;
+    const versionBody = {
+      name: validCreateBody.name,
+      description: validCreateBody.description,
+      tasks: validCreateBody.tasks,
+    };
     const res = await versionRoute.POST(
       jsonRequest('http://localhost/api/hr/lifecycle/templates/x/versions', versionBody),
       { params: Promise.resolve({ id: TEMPLATE_ID }) },
