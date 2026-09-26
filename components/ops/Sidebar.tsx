@@ -2,7 +2,7 @@
 import Link from 'next/link';
 import { useOpsTheme } from '@/components/ops/theme';
 
-const FONT = 'var(--font-inter),"Inter",-apple-system,sans-serif';
+const FONT = 'var(--bb-font-sans)';
 
 // ── Icons ─────────────────────────────────────────────────────────────────────
 
@@ -68,7 +68,7 @@ const SECTIONS = [
 // ── Alert badge colours ───────────────────────────────────────────────────────
 
 const ALERT_COLORS: Record<string, string> = {
-  '/command/alerts': '#EF4444',
+  '/command/alerts': 'var(--bb-danger)',
 };
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -87,7 +87,6 @@ function NavItem({
   exact: boolean; pathname: string; collapsed: boolean;
   alertColor?: string;
 }) {
-  const t = useOpsTheme();
   const active = exact ? pathname === href : pathname.startsWith(href);
 
   return (
@@ -99,13 +98,13 @@ function NavItem({
         gap: collapsed ? 0 : 10,
         padding: collapsed ? '10px 0' : '8px 12px',
         justifyContent: collapsed ? 'center' : 'flex-start',
-        borderRadius: 8,
+        borderRadius: 'var(--bb-radius-md)',
         textDecoration: 'none',
-        color: active ? t.accentText : t.ink(.40),
-        background: active ? (t.isDark ? 'rgba(139,92,246,.12)' : 'rgba(124,58,237,.10)') : 'transparent',
-        borderLeft: `2px solid ${active ? t.accent : 'transparent'}`,
+        color: active ? 'var(--bb-accent-300)' : 'var(--bb-text-tertiary)',
+        background: active ? 'var(--bb-surface-selected)' : 'transparent',
+        borderLeft: `2px solid ${active ? 'var(--bb-accent-500)' : 'transparent'}`,
         marginLeft: collapsed ? 0 : -2,
-        transition: 'all .15s ease',
+        transition: 'all var(--bb-duration-fast) var(--bb-ease-standard)',
         position: 'relative',
         whiteSpace: 'nowrap',
         overflow: 'hidden',
@@ -113,12 +112,12 @@ function NavItem({
       }}
       onMouseEnter={e => {
         if (active) return;
-        e.currentTarget.style.color = t.ink(.72);
-        e.currentTarget.style.background = t.ink(.04);
+        e.currentTarget.style.color = 'var(--bb-text-secondary)';
+        e.currentTarget.style.background = 'var(--bb-surface-hover)';
       }}
       onMouseLeave={e => {
         if (active) return;
-        e.currentTarget.style.color = t.ink(.40);
+        e.currentTarget.style.color = 'var(--bb-text-tertiary)';
         e.currentTarget.style.background = 'transparent';
       }}
     >
@@ -128,7 +127,7 @@ function NavItem({
       {!collapsed && (
         <span style={{
           fontSize: 12.5, fontWeight: active ? 600 : 500, letterSpacing: '-.01em',
-          opacity: collapsed ? 0 : 1, transition: 'opacity .15s',
+          opacity: collapsed ? 0 : 1, transition: 'opacity var(--bb-duration-fast)',
         }}>
           {label}
         </span>
@@ -160,13 +159,13 @@ export default function Sidebar({ collapsed, onToggle, pathname, alertCount = 0 
         minWidth: collapsed ? 56 : 220,
         height: '100%',
         display: 'flex', flexDirection: 'column',
-        background: t.sidebarBg,
-        borderRight: `1px solid ${t.ink(.08)}`,
-        transition: 'width .22s cubic-bezier(.4,0,.2,1), min-width .22s cubic-bezier(.4,0,.2,1), background .2s ease',
+        background: 'var(--bb-shell-sidebar)',
+        borderRight: '1px solid var(--bb-border-default)',
+        transition: 'width var(--bb-duration-slow) var(--bb-ease-standard), min-width var(--bb-duration-slow) var(--bb-ease-standard), background var(--bb-duration-base) var(--bb-ease-standard)',
         overflow: 'hidden',
         flexShrink: 0,
         position: 'relative',
-        zIndex: 10,
+        zIndex: 'var(--bb-z-raised)',
         fontFamily: FONT,
       }}>
 
@@ -174,18 +173,18 @@ export default function Sidebar({ collapsed, onToggle, pathname, alertCount = 0 
         <div style={{
           height: 52, display: 'flex', alignItems: 'center',
           padding: collapsed ? '0 12px' : '0 14px',
-          borderBottom: `1px solid ${t.ink(.07)}`,
+          borderBottom: '1px solid var(--bb-border-subtle)',
           justifyContent: collapsed ? 'center' : 'space-between',
           flexShrink: 0,
         }}>
           {!collapsed && (
-            <Link href="/dashboard" style={{ display: 'flex', alignItems: 'center', gap: 8, animation: 'sb-fade .2s ease', textDecoration: 'none' }}>
+            <Link href="/dashboard" style={{ display: 'flex', alignItems: 'center', gap: 8, animation: 'sb-fade var(--bb-duration-base) var(--bb-ease-standard)', textDecoration: 'none' }}>
               {/* Tactical logo mark */}
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
                 <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"
-                  fill="rgba(139,92,246,.18)" stroke={t.accent} strokeWidth="1.5" strokeLinejoin="round"/>
+                  fill="var(--bb-accent-soft)" stroke="var(--bb-accent-500)" strokeWidth="1.5" strokeLinejoin="round"/>
               </svg>
-              <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.18em', color: t.ink(.82), textTransform: 'uppercase' }}>
+              <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.18em', color: 'var(--bb-text-primary)', textTransform: 'uppercase' }}>
                 Brainbase
               </span>
             </Link>
@@ -194,22 +193,22 @@ export default function Sidebar({ collapsed, onToggle, pathname, alertCount = 0 
             <Link href="/dashboard" title="Back to dashboard" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none' }}>
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
                 <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"
-                  fill="rgba(139,92,246,.22)" stroke={t.accent} strokeWidth="1.5" strokeLinejoin="round"/>
+                  fill="var(--bb-accent-soft)" stroke="var(--bb-accent-500)" strokeWidth="1.5" strokeLinejoin="round"/>
               </svg>
             </Link>
           )}
 
           {/* Toggle */}
           <button onClick={onToggle} style={{
-            width: 26, height: 26, borderRadius: 7,
+            width: 26, height: 26, borderRadius: 'var(--bb-radius-md)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            background: t.ink(.04), border: `1px solid ${t.ink(.09)}`,
-            cursor: 'pointer', color: t.ink(.40),
-            transition: 'all .15s', flexShrink: 0,
+            background: 'var(--bb-surface-soft)', border: '1px solid var(--bb-border-default)',
+            cursor: 'pointer', color: 'var(--bb-text-tertiary)',
+            transition: 'all var(--bb-duration-fast) var(--bb-ease-standard)', flexShrink: 0,
             transform: collapsed ? 'rotate(180deg)' : 'none',
           }}
-            onMouseEnter={e => { e.currentTarget.style.background = t.ink(.08); e.currentTarget.style.color = t.ink(.75); }}
-            onMouseLeave={e => { e.currentTarget.style.background = t.ink(.04); e.currentTarget.style.color = t.ink(.40); }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'var(--bb-surface-hover)'; e.currentTarget.style.color = 'var(--bb-text-secondary)'; }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'var(--bb-surface-soft)'; e.currentTarget.style.color = 'var(--bb-text-tertiary)'; }}
           >
             {I.collapse}
           </button>
@@ -223,15 +222,15 @@ export default function Sidebar({ collapsed, onToggle, pathname, alertCount = 0 
               {!collapsed && (
                 <div style={{
                   fontSize: 9, fontWeight: 700, letterSpacing: '.16em',
-                  color: t.ink(.24), textTransform: 'uppercase',
+                  color: 'var(--bb-text-muted)', textTransform: 'uppercase',
                   padding: '0 12px', marginBottom: 4,
-                  animation: 'sb-fade .2s ease',
+                  animation: 'sb-fade var(--bb-duration-base) var(--bb-ease-standard)',
                 }}>
                   {section.label}
                 </div>
               )}
               {collapsed && si > 0 && (
-                <div style={{ height: 1, background: t.ink(.08), margin: '6px 0' }} />
+                <div style={{ height: 1, background: 'var(--bb-border-default)', margin: '6px 0' }} />
               )}
 
               {section.items.map(item => (
@@ -253,24 +252,24 @@ export default function Sidebar({ collapsed, onToggle, pathname, alertCount = 0 
         {/* ── Footer status + theme toggle ── */}
         <div style={{
           padding: collapsed ? '10px 6px' : '10px 12px',
-          borderTop: `1px solid ${t.ink(.07)}`,
+          borderTop: '1px solid var(--bb-border-subtle)',
           flexShrink: 0,
           display: 'flex', flexDirection: collapsed ? 'column' : 'row', alignItems: 'center', gap: 6,
         }}>
           <div style={{
             display: 'flex', alignItems: 'center', flex: collapsed ? undefined : 1, minWidth: 0,
             gap: 8, padding: collapsed ? '6px 0' : '8px 10px',
-            borderRadius: 8, background: t.isDark ? 'rgba(34,197,94,.06)' : 'rgba(22,163,74,.08)',
-            border: `1px solid ${t.isDark ? 'rgba(34,197,94,.12)' : 'rgba(22,163,74,.20)'}`,
+            borderRadius: 'var(--bb-radius-md)', background: 'var(--bb-success-soft)',
+            border: '1px solid color-mix(in srgb, var(--bb-success) 22%, transparent)',
             justifyContent: collapsed ? 'center' : 'flex-start',
           }}>
             <div style={{
               width: 6, height: 6, borderRadius: '50%',
-              background: '#22C55E', boxShadow: '0 0 6px #22C55E',
+              background: 'var(--bb-success)', boxShadow: 'var(--bb-glow-success)',
               flexShrink: 0, animation: 'sb-blink 2.8s ease-in-out infinite',
             }} />
             {!collapsed && (
-              <span style={{ fontSize: 10, fontWeight: 600, color: t.isDark ? 'rgba(34,197,94,.75)' : '#16A34A', letterSpacing: '.06em', animation: 'sb-fade .2s ease', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--bb-success)', letterSpacing: '.06em', animation: 'sb-fade var(--bb-duration-base) var(--bb-ease-standard)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 Systems Live
               </span>
             )}
@@ -280,13 +279,13 @@ export default function Sidebar({ collapsed, onToggle, pathname, alertCount = 0 
             onClick={t.toggleTheme}
             title={t.isDark ? 'Switch to light theme' : 'Switch to dark theme'}
             style={{
-              width: 26, height: 26, borderRadius: 7, flexShrink: 0,
+              width: 26, height: 26, borderRadius: 'var(--bb-radius-md)', flexShrink: 0,
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              background: t.ink(.04), border: `1px solid ${t.ink(.09)}`,
-              cursor: 'pointer', color: t.ink(.45), transition: 'all .15s',
+              background: 'var(--bb-surface-soft)', border: '1px solid var(--bb-border-default)',
+              cursor: 'pointer', color: 'var(--bb-text-tertiary)', transition: 'all var(--bb-duration-fast) var(--bb-ease-standard)',
             }}
-            onMouseEnter={e => { e.currentTarget.style.background = t.ink(.08); e.currentTarget.style.color = t.ink(.80); }}
-            onMouseLeave={e => { e.currentTarget.style.background = t.ink(.04); e.currentTarget.style.color = t.ink(.45); }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'var(--bb-surface-hover)'; e.currentTarget.style.color = 'var(--bb-text-primary)'; }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'var(--bb-surface-soft)'; e.currentTarget.style.color = 'var(--bb-text-tertiary)'; }}
           >
             {t.isDark ? I.sun : I.moon}
           </button>

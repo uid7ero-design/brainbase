@@ -5,13 +5,14 @@ import { createPortal } from "react-dom";
 import { useSearchParams } from "next/navigation";
 import OrganiserShell from "@/components/organiser/OrganiserShell";
 import OrganiserRail from "@/components/organiser/OrganiserRail";
+import { Surface } from "@/components/ui";
 import { useOpsTheme } from "@/components/ops/theme";
 import { useAppStore } from "@/lib/state/useAppStore";
 import { describeActivityEvent, describeBoardActivityEvent, type ActivityEventLike } from "@/lib/organiser/activityFormat";
 import { enqueueCoalesced, type CoalescingQueueMap } from "@/lib/organiser/coalescingMutationQueue";
 import { createNotesAutosaveTimer, type NotesAutosaveTimer } from "@/lib/organiser/notesAutosave";
 
-const FONT = 'var(--font-inter), "Inter", -apple-system, sans-serif';
+const FONT = 'var(--bb-font-sans)';
 
 // ── TYPES ────────────────────────────────────────────────────────────────────
 
@@ -62,7 +63,7 @@ type SaveStatus = { state: SaveState; message?: string };
 // the existing dense grid layout.
 function SaveDot({ status }: { status?: SaveStatus }) {
   if (!status || status.state === "idle") return null;
-  const color = status.state === "saving" ? "#8B5CF6" : status.state === "saved" ? "#22C55E" : "#EF4444";
+  const color = status.state === "saving" ? "var(--bb-accent-500)" : status.state === "saved" ? "var(--bb-success)" : "var(--bb-danger)";
   return (
     <span
       title={status.state === "error" ? (status.message ?? "Couldn't save") : status.state === "saving" ? "Saving…" : "Saved"}
@@ -78,9 +79,9 @@ function SaveDot({ status }: { status?: SaveStatus }) {
 // room for the actual word instead of just a dot.
 function SaveStatusText({ status }: { status?: SaveStatus }) {
   if (!status || status.state === "idle") return null;
-  if (status.state === "saving") return <span style={{ fontSize: 9.5, fontWeight: 600, color: "rgba(139,92,246,.85)", marginLeft: 6, textTransform: "none", letterSpacing: 0 }}>Saving…</span>;
-  if (status.state === "saved") return <span style={{ fontSize: 9.5, fontWeight: 600, color: "#22C55E", marginLeft: 6, textTransform: "none", letterSpacing: 0 }}>Saved</span>;
-  return <span style={{ fontSize: 9.5, fontWeight: 600, color: "#EF4444", marginLeft: 6, textTransform: "none", letterSpacing: 0 }}>{status.message ?? "Couldn't save"}</span>;
+  if (status.state === "saving") return <span style={{ fontSize: 9.5, fontWeight: 600, color: "var(--bb-accent-400)", marginLeft: 6, textTransform: "none", letterSpacing: 0 }}>Saving…</span>;
+  if (status.state === "saved") return <span style={{ fontSize: 9.5, fontWeight: 600, color: "var(--bb-success)", marginLeft: 6, textTransform: "none", letterSpacing: 0 }}>Saved</span>;
+  return <span style={{ fontSize: 9.5, fontWeight: 600, color: "var(--bb-danger)", marginLeft: 6, textTransform: "none", letterSpacing: 0 }}>{status.message ?? "Couldn't save"}</span>;
 }
 
 type OrganiserFile = { id: string; file_name: string; file_url: string; file_size: number | null; created_at: string };
@@ -286,7 +287,7 @@ function AssigneeDropdown({
         }}
       >
         <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{selectedLabel}</span>
-        <svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor" style={{ flexShrink: 0, opacity: .6, transform: open ? "rotate(180deg)" : undefined, transition: "transform .12s" }} aria-hidden="true">
+        <svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor" style={{ flexShrink: 0, opacity: .6, transform: open ? "rotate(180deg)" : undefined, transition: "transform var(--bb-duration-fast) var(--bb-ease-standard)" }} aria-hidden="true">
           <path d="M1 2l3 3 3-3" />
         </svg>
       </button>
@@ -499,7 +500,6 @@ function CustomCell({ column, value, onChange }: { column: OrganiserColumn; valu
 // success. `onAdd` returning a boolean is the only contract change; the
 // underlying create request itself is unchanged.
 function AddItemRow({ onAdd, indent }: { onAdd: (name: string) => Promise<boolean>; indent?: boolean }) {
-  const t = useOpsTheme();
   const [value, setValue] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -520,7 +520,7 @@ function AddItemRow({ onAdd, indent }: { onAdd: (name: string) => Promise<boolea
 
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 12px", paddingLeft: indent ? 44 : 12 }}>
-      <span style={{ color: "rgba(139,92,246,.6)", fontSize: 14, lineHeight: 1 }}>+</span>
+      <span style={{ color: "var(--bb-accent-400)", fontSize: 14, lineHeight: 1 }}>+</span>
       <input
         value={value}
         disabled={submitting}
@@ -529,11 +529,11 @@ function AddItemRow({ onAdd, indent }: { onAdd: (name: string) => Promise<boolea
         placeholder={indent ? "Add subitem…" : "Add item…"}
         style={{
           flex: 1, background: "transparent", border: "none", outline: "none",
-          fontSize: 12, color: submitting ? t.ink(.45) : t.ink(.90), fontFamily: FONT,
+          fontSize: 12, color: submitting ? "var(--bb-text-tertiary)" : "var(--bb-text-primary)", fontFamily: FONT,
         }}
       />
-      {submitting && <span style={{ fontSize: 10.5, color: "rgba(139,92,246,.8)", flexShrink: 0 }}>Adding…</span>}
-      {error && <span style={{ fontSize: 10.5, color: "#EF4444", flexShrink: 0 }}>{error}</span>}
+      {submitting && <span style={{ fontSize: 10.5, color: "var(--bb-accent-400)", flexShrink: 0 }}>Adding…</span>}
+      {error && <span style={{ fontSize: 10.5, color: "var(--bb-danger)", flexShrink: 0 }}>{error}</span>}
     </div>
   );
 }
@@ -548,20 +548,20 @@ function AddColumnButton({ onAdd }: { onAdd: (name: string, type: ColumnType) =>
 
   if (!open) {
     return (
-      <button onClick={() => setOpen(true)} title="Add column" style={{ background: "transparent", border: `1px dashed ${t.ink(.18)}`, borderRadius: 6, color: t.ink(.35), cursor: "pointer", width: 22, height: 18, fontSize: 12, lineHeight: 1, fontFamily: FONT }}>
+      <button onClick={() => setOpen(true)} title="Add column" style={{ background: "transparent", border: "1px dashed var(--bb-border-strong)", borderRadius: "var(--bb-radius-sm)", color: "var(--bb-text-muted)", cursor: "pointer", width: 22, height: 18, fontSize: 12, lineHeight: 1, fontFamily: FONT }}>
         +
       </button>
     );
   }
   return (
     <div style={{ position: "relative" }}>
-      <div style={{ position: "absolute", top: 0, right: 0, zIndex: 15, background: t.menuBg, border: "1px solid rgba(139,92,246,.3)", borderRadius: 8, padding: 8, width: 170, display: "flex", flexDirection: "column", gap: 6, boxShadow: "0 8px 24px rgba(0,0,0,.4)" }}>
+      <div style={{ position: "absolute", top: 0, right: 0, zIndex: "var(--bb-z-menu)", background: "var(--bb-surface-3)", border: "1px solid var(--bb-border-accent)", borderRadius: "var(--bb-radius-md)", padding: "var(--bb-space-4)", width: 170, display: "flex", flexDirection: "column", gap: "var(--bb-space-3)", boxShadow: "var(--bb-shadow-float)" }}>
         <input
           autoFocus value={name} onChange={e => setName(e.target.value)} placeholder="Column name"
           onKeyDown={e => { if (e.key === "Enter" && name.trim()) { onAdd(name.trim(), type); setName(""); setType("text"); setOpen(false); } }}
-          style={{ fontSize: 11.5, fontFamily: FONT, background: t.ink(.05), border: `1px solid ${t.ink(.1)}`, borderRadius: 6, padding: "5px 7px", color: t.ink(.90), outline: "none" }}
+          style={{ fontSize: 11.5, fontFamily: FONT, background: "var(--bb-surface-soft)", border: "1px solid var(--bb-border-default)", borderRadius: "var(--bb-radius-sm)", padding: "5px 7px", color: "var(--bb-text-primary)", outline: "none" }}
         />
-        <select value={type} onChange={e => setType(e.target.value as ColumnType)} style={{ fontSize: 11.5, fontFamily: FONT, background: t.ink(.05), border: `1px solid ${t.ink(.1)}`, borderRadius: 6, padding: "5px 7px", color: t.ink(.90) }}>
+        <select value={type} onChange={e => setType(e.target.value as ColumnType)} style={{ fontSize: 11.5, fontFamily: FONT, background: "var(--bb-surface-soft)", border: "1px solid var(--bb-border-default)", borderRadius: "var(--bb-radius-sm)", padding: "5px 7px", color: "var(--bb-text-primary)" }}>
           <option value="text">Text</option>
           <option value="number">Number</option>
           <option value="date">Date</option>
@@ -584,21 +584,20 @@ function ColumnHeaderCell({
 }: {
   column: OrganiserColumn; onRename: (name: string) => void; onDelete: () => void; onEditOptions: () => void;
 }) {
-  const t = useOpsTheme();
   const [menuOpen, setMenuOpen] = useState(false);
   return (
     <div style={{ position: "relative", display: "flex", alignItems: "center", gap: 4, minWidth: 0 }}>
       <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{column.name}</span>
-      <button onClick={() => setMenuOpen(o => !o)} style={{ background: "transparent", border: "none", color: t.ink(.25), cursor: "pointer", fontSize: 11, padding: 0, flexShrink: 0 }}>
+      <button onClick={() => setMenuOpen(o => !o)} style={{ background: "transparent", border: "none", color: "var(--bb-text-muted)", cursor: "pointer", fontSize: 11, padding: 0, flexShrink: 0 }}>
         ⋯
       </button>
       {menuOpen && (
-        <div onMouseLeave={() => setMenuOpen(false)} style={{ position: "absolute", top: "100%", right: 0, zIndex: 15, background: t.menuBg, border: `1px solid ${t.ink(.1)}`, borderRadius: 8, padding: 4, minWidth: 130, boxShadow: "0 8px 24px rgba(0,0,0,.4)", textTransform: "none" }}>
-          <button onClick={() => { const n = prompt("Rename column", column.name); if (n?.trim()) onRename(n.trim()); setMenuOpen(false); }} style={{ ...menuBtnStyle, color: t.ink(.8) }}>Rename</button>
+        <div onMouseLeave={() => setMenuOpen(false)} style={{ position: "absolute", top: "100%", right: 0, zIndex: "var(--bb-z-menu)", background: "var(--bb-surface-3)", border: "1px solid var(--bb-border-default)", borderRadius: "var(--bb-radius-md)", padding: "var(--bb-space-2)", minWidth: 130, boxShadow: "var(--bb-shadow-float)", textTransform: "none" }}>
+          <button onClick={() => { const n = prompt("Rename column", column.name); if (n?.trim()) onRename(n.trim()); setMenuOpen(false); }} style={{ ...menuBtnStyle, color: "var(--bb-text-primary)" }}>Rename</button>
           {column.type === "status" && (
-            <button onClick={() => { onEditOptions(); setMenuOpen(false); }} style={{ ...menuBtnStyle, color: t.ink(.8) }}>Edit options</button>
+            <button onClick={() => { onEditOptions(); setMenuOpen(false); }} style={{ ...menuBtnStyle, color: "var(--bb-text-primary)" }}>Edit options</button>
           )}
-          <button onClick={() => { onDelete(); setMenuOpen(false); }} style={{ ...menuBtnStyle, color: "#EF4444" }}>Delete column</button>
+          <button onClick={() => { onDelete(); setMenuOpen(false); }} style={{ ...menuBtnStyle, color: "var(--bb-danger)" }}>Delete column</button>
         </div>
       )}
     </div>
@@ -607,7 +606,7 @@ function ColumnHeaderCell({
 
 // Static part only — colour is theme-dependent and merged in at each use site,
 // since this constant is evaluated once at module load, not per-render.
-const menuBtnStyle: React.CSSProperties = { display: "block", width: "100%", textAlign: "left", padding: "6px 8px", fontSize: 11.5, fontWeight: 500, background: "transparent", border: "none", cursor: "pointer", borderRadius: 5, fontFamily: FONT };
+const menuBtnStyle: React.CSSProperties = { display: "block", width: "100%", textAlign: "left", padding: "6px 8px", fontSize: 11.5, fontWeight: 500, background: "transparent", border: "none", cursor: "pointer", borderRadius: "var(--bb-radius-sm)", fontFamily: FONT };
 
 // ── COLUMN OPTIONS EDITOR ────────────────────────────────────────────────────
 
@@ -643,7 +642,7 @@ function ColumnOptionsEditor({ column, onSave, onClose }: { column: OrganiserCol
           + Add option
         </button>
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-          <button onClick={onClose} style={btnStyle(false, t)}>Cancel</button>
+          <button onClick={onClose} style={viewButtonStyle()}>Cancel</button>
           <button onClick={() => { onSave(opts); onClose(); }} style={btnStyle(true, t)}>Save</button>
         </div>
       </div>
@@ -666,7 +665,6 @@ function ItemRow({
   // ever relevant, looked up per field below.
   saveStatus: Record<string, SaveStatus>;
 }) {
-  const t = useOpsTheme();
   const [hover, setHover] = useState(false);
   return (
     <div
@@ -677,9 +675,9 @@ function ItemRow({
         gridTemplateColumns: gridTemplate(columns),
         alignItems: "center", gap: 10,
         padding: "7px 12px", paddingLeft: 12 + depth * 28,
-        borderTop: `1px solid ${t.ink(.045)}`,
-        background: hover ? t.ink(.02) : "transparent",
-        transition: "background .1s",
+        borderTop: "1px solid var(--bb-border-subtle)",
+        background: hover ? "var(--bb-surface-hover)" : "transparent",
+        transition: "background var(--bb-duration-fast) var(--bb-ease-standard)",
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
@@ -688,8 +686,8 @@ function ItemRow({
             onClick={onToggleCollapse}
             style={{
               width: 16, height: 16, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
-              background: "transparent", border: "none", cursor: "pointer", color: t.ink(.35),
-              transform: collapsed ? "rotate(-90deg)" : "none", transition: "transform .12s",
+              background: "transparent", border: "none", cursor: "pointer", color: "var(--bb-text-muted)",
+              transform: collapsed ? "rotate(-90deg)" : "none", transition: "transform var(--bb-duration-fast) var(--bb-ease-standard)",
             }}
           >
             <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"><polyline points="6 9 12 15 18 9" /></svg>
@@ -712,7 +710,7 @@ function ItemRow({
               <span
                 onClick={() => onOpenDrawer(item)}
                 title="Open details"
-                style={{ cursor: "pointer", fontSize: depth === 0 ? 12.5 : 12, fontWeight: depth === 0 ? 600 : 400, color: t.ink(.90), overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                style={{ cursor: "pointer", fontSize: depth === 0 ? 12.5 : 12, fontWeight: depth === 0 ? 600 : 400, color: "var(--bb-text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
               >
                 {display}
               </span>
@@ -720,7 +718,7 @@ function ItemRow({
                 <button
                   onClick={startEdit}
                   title="Rename"
-                  style={{ width: 16, height: 16, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", cursor: "pointer", color: t.ink(.30) }}
+                  style={{ width: 16, height: 16, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", cursor: "pointer", color: "var(--bb-text-muted)" }}
                 >
                   <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
                 </button>
@@ -745,14 +743,14 @@ function ItemRow({
           value={item.due_date ?? ""}
           onChange={e => onUpdate(item.id, { due_date: e.target.value || null })}
           style={{
-            background: t.ink(.04), border: `1px solid ${t.ink(.08)}`, borderRadius: 6,
-            padding: "3px 6px", fontSize: 11, color: item.due_date ? t.ink(.90) : t.ink(.30), fontFamily: FONT, colorScheme: "dark",
+            background: "var(--bb-surface-soft)", border: "1px solid var(--bb-border-default)", borderRadius: "var(--bb-radius-sm)",
+            padding: "3px 6px", fontSize: 11, color: item.due_date ? "var(--bb-text-primary)" : "var(--bb-text-muted)", fontFamily: FONT, colorScheme: "dark",
           }}
         />
         <SaveDot status={saveStatus[`item:${item.id}:due_date`]} />
       </span>
 
-      <span style={{ fontSize: 11.5, color: t.ink(.55), overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+      <span style={{ fontSize: 11.5, color: "var(--bb-text-secondary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
         {item.owner || "—"}
       </span>
 
@@ -772,7 +770,7 @@ function ItemRow({
         <button
           onClick={() => onDelete(item.id)}
           title="Delete"
-          style={{ width: 22, height: 22, borderRadius: 6, background: "rgba(239,68,68,.10)", border: "1px solid rgba(239,68,68,.24)", color: "#EF4444", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
+          style={{ width: 22, height: 22, borderRadius: "var(--bb-radius-sm)", background: "var(--bb-danger-soft)", border: "1px solid color-mix(in srgb, var(--bb-danger) 24%, transparent)", color: "var(--bb-danger)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
         >
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
         </button>
@@ -800,7 +798,6 @@ function GroupSection({
   onEditColumnOptions: (column: OrganiserColumn) => void;
   saveStatus: Record<string, SaveStatus>;
 }) {
-  const t = useOpsTheme();
   const [open, setOpen] = useState(true);
   const [collapsedParents, setCollapsedParents] = useState<Set<string>>(new Set());
 
@@ -812,9 +809,9 @@ function GroupSection({
   const color = group?.color || "#8B5CF6";
 
   return (
-    <div style={{ marginBottom: 18, borderRadius: 12, overflow: "hidden", background: t.paper(.6), border: `1px solid ${t.ink(.06)}` }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 12px", background: `${color}10`, borderBottom: open ? `1px solid ${t.ink(.06)}` : "none" }}>
-        <button onClick={() => setOpen(o => !o)} style={{ width: 18, height: 18, display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", cursor: "pointer", color, transform: open ? "none" : "rotate(-90deg)", transition: "transform .12s" }}>
+    <Surface variant="base" radius="xl" style={{ marginBottom: 18, overflow: "hidden" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "var(--bb-space-4)", padding: "9px 12px", background: `${color}10`, borderBottom: open ? "1px solid var(--bb-border-subtle)" : "none" }}>
+        <button onClick={() => setOpen(o => !o)} style={{ width: 18, height: 18, display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", cursor: "pointer", color, transform: open ? "none" : "rotate(-90deg)", transition: "transform var(--bb-duration-fast) var(--bb-ease-standard)" }}>
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"><polyline points="6 9 12 15 18 9" /></svg>
         </button>
         <span style={{ width: 8, height: 8, borderRadius: "50%", background: color, flexShrink: 0 }} />
@@ -822,12 +819,12 @@ function GroupSection({
           {group ? (
             <InlineText value={group.name} bold onSave={v => onRenameGroup(group.id, v)} status={saveStatus[`group:${group.id}:name`]} />
           ) : (
-            <span style={{ fontSize: 13, fontWeight: 600, color: t.ink(.45) }}>No group</span>
+            <span style={{ fontSize: 13, fontWeight: 600, color: "var(--bb-text-tertiary)" }}>No group</span>
           )}
         </div>
-        <span style={{ fontSize: 10.5, color: t.ink(.28) }}>{topLevel.length} item{topLevel.length !== 1 ? "s" : ""}</span>
+        <span style={{ fontSize: 10.5, color: "var(--bb-text-muted)" }}>{topLevel.length} item{topLevel.length !== 1 ? "s" : ""}</span>
         {group && (
-          <button onClick={() => onDeleteGroup(group.id)} title="Delete group" style={{ width: 20, height: 20, borderRadius: 6, background: "transparent", border: "none", color: t.ink(.22), cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <button onClick={() => onDeleteGroup(group.id)} title="Delete group" style={{ width: 20, height: 20, borderRadius: "var(--bb-radius-sm)", background: "transparent", border: "none", color: "var(--bb-text-muted)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14H6L5 6" /></svg>
           </button>
         )}
@@ -835,7 +832,7 @@ function GroupSection({
 
       {open && (
         <div>
-          <div style={{ display: "grid", gridTemplateColumns: gridTemplate(columns), gap: 10, padding: "6px 12px", fontSize: 9.5, fontWeight: 700, letterSpacing: ".08em", color: t.ink(.24), textTransform: "uppercase" }}>
+          <div style={{ display: "grid", gridTemplateColumns: gridTemplate(columns), gap: 10, padding: "6px 12px", fontSize: "var(--bb-type-micro-size)", fontWeight: 700, letterSpacing: "var(--bb-type-micro-tracking)", color: "var(--bb-text-muted)", textTransform: "uppercase", background: "var(--bb-surface-soft)" }}>
             <span>Name</span><span>Status</span><span>Priority</span><span>Due date</span><span>Owner</span>
             {columns.map(col => (
               <ColumnHeaderCell
@@ -877,7 +874,7 @@ function GroupSection({
           <AddItemRow onAdd={name => onAddItem(name, group?.id ?? null, null)} />
         </div>
       )}
-    </div>
+    </Surface>
   );
 }
 
@@ -888,44 +885,43 @@ function KanbanView({
 }: {
   items: OrganiserItem[]; onOpenDrawer: (item: OrganiserItem) => void; onUpdateItem: (id: string, patch: Record<string, unknown>) => void;
 }) {
-  const t = useOpsTheme();
   const topLevel = items.filter(i => !i.parent_item_id);
   const statuses = Array.from(new Set([...STATUS_OPTIONS, ...topLevel.map(i => i.status)]));
 
   return (
-    <div style={{ display: "flex", gap: 14, padding: "4px 20px 20px", overflowX: "auto", height: "100%" }}>
+    <div style={{ display: "flex", gap: "var(--bb-space-5)", padding: "var(--bb-space-2) var(--bb-space-7) var(--bb-space-7)", overflowX: "auto", height: "100%", background: "var(--bb-canvas)" }}>
       {statuses.map(status => {
         const cards = topLevel.filter(i => i.status === status);
         const color = statusColor(status);
         return (
           <div key={status} style={{ width: 260, flexShrink: 0, display: "flex", flexDirection: "column" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 4px", marginBottom: 8 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "var(--bb-space-3)", padding: "var(--bb-space-3) var(--bb-space-2)", marginBottom: "var(--bb-space-4)" }}>
               <span style={{ width: 7, height: 7, borderRadius: "50%", background: color, flexShrink: 0 }} />
-              <span style={{ fontSize: 11.5, fontWeight: 700, color: t.ink(.65) }}>{status}</span>
-              <span style={{ fontSize: 10, color: t.ink(.28) }}>{cards.length}</span>
+              <span style={{ fontSize: 11.5, fontWeight: 700, color: "var(--bb-text-secondary)" }}>{status}</span>
+              <span style={{ fontSize: 10, color: "var(--bb-text-muted)" }}>{cards.length}</span>
             </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 8, overflowY: "auto", flex: 1 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: "var(--bb-space-4)", overflowY: "auto", flex: 1 }}>
               {cards.map(item => (
                 <div
                   key={item.id} onClick={() => onOpenDrawer(item)}
-                  style={{ padding: "10px 12px", borderRadius: 10, background: t.ink(.03), border: `1px solid ${t.ink(.07)}`, cursor: "pointer" }}
+                  style={{ padding: "10px 12px", borderRadius: "var(--bb-radius-lg)", background: "var(--bb-surface-1)", border: "1px solid var(--bb-border-subtle)", cursor: "pointer", boxShadow: "var(--bb-shadow-sm)" }}
                 >
-                  <div style={{ fontSize: 12, fontWeight: 600, color: t.ink(.90), marginBottom: 6, lineHeight: 1.4 }}>{item.name}</div>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: "var(--bb-text-primary)", marginBottom: "var(--bb-space-3)", lineHeight: 1.4 }}>{item.name}</div>
                   <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", marginBottom: 8 }}>
                     {item.priority && <Pill label={item.priority} color={priorityColor(item.priority)} />}
-                    {item.due_date && <span style={{ fontSize: 10, color: t.ink(.35) }}>{item.due_date}</span>}
+                    {item.due_date && <span style={{ fontSize: 10, color: "var(--bb-text-tertiary)" }}>{item.due_date}</span>}
                   </div>
                   <select
                     value={item.status}
                     onClick={e => e.stopPropagation()}
                     onChange={e => onUpdateItem(item.id, { status: e.target.value })}
-                    style={{ fontSize: 10, background: t.ink(.05), border: `1px solid ${t.ink(.1)}`, borderRadius: 6, color: t.ink(.6), padding: "2px 4px", fontFamily: FONT }}
+                    style={{ fontSize: 10, background: "var(--bb-surface-soft)", border: "1px solid var(--bb-border-default)", borderRadius: "var(--bb-radius-sm)", color: "var(--bb-text-secondary)", padding: "2px 4px", fontFamily: FONT }}
                   >
                     {Array.from(new Set([...STATUS_OPTIONS, item.status])).map(s => <option key={s} value={s}>{s}</option>)}
                   </select>
                 </div>
               ))}
-              {cards.length === 0 && <div style={{ fontSize: 10.5, color: t.ink(.20), padding: "8px 4px" }}>No items</div>}
+              {cards.length === 0 && <div style={{ fontSize: 10.5, color: "var(--bb-text-muted)", padding: "var(--bb-space-4) var(--bb-space-2)" }}>No items</div>}
             </div>
           </div>
         );
@@ -936,12 +932,20 @@ function KanbanView({
 
 // ── CALENDAR VIEW ────────────────────────────────────────────────────────────
 
-function navBtnStyle(t: ReturnType<typeof useOpsTheme>): React.CSSProperties {
-  return { width: 26, height: 26, borderRadius: 7, background: t.ink(.05), border: `1px solid ${t.ink(.1)}`, color: t.ink(.55), cursor: "pointer", fontSize: 14, fontFamily: FONT, display: "flex", alignItems: "center", justifyContent: "center" };
+function navBtnStyle(): React.CSSProperties {
+  return { width: 26, height: 26, borderRadius: "var(--bb-radius-md)", background: "var(--bb-surface-soft)", border: "1px solid var(--bb-border-default)", color: "var(--bb-text-secondary)", cursor: "pointer", fontSize: 14, fontFamily: FONT, display: "flex", alignItems: "center", justifyContent: "center" };
+}
+
+
+function viewButtonStyle(): React.CSSProperties {
+  return {
+    padding: "6px 12px", borderRadius: "var(--bb-radius-md)", fontSize: 11.5, fontWeight: 600, fontFamily: FONT,
+    background: "var(--bb-surface-soft)", border: "1px solid var(--bb-border-default)",
+    color: "var(--bb-text-secondary)", cursor: "pointer", whiteSpace: "nowrap",
+  };
 }
 
 function CalendarView({ items, onOpenDrawer }: { items: OrganiserItem[]; onOpenDrawer: (item: OrganiserItem) => void }) {
-  const t = useOpsTheme();
   const [monthDate, setMonthDate] = useState(() => new Date());
   const year = monthDate.getFullYear();
   const month = monthDate.getMonth();
@@ -964,35 +968,35 @@ function CalendarView({ items, onOpenDrawer }: { items: OrganiserItem[]; onOpenD
   const todayStr = fmt(new Date());
 
   return (
-    <div style={{ padding: "4px 20px 20px", height: "100%", display: "flex", flexDirection: "column" }}>
+    <div style={{ padding: "var(--bb-space-2) var(--bb-space-7) var(--bb-space-7)", height: "100%", display: "flex", flexDirection: "column", background: "var(--bb-canvas)" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-        <button onClick={() => setMonthDate(new Date(year, month - 1, 1))} style={navBtnStyle(t)}>‹</button>
-        <span style={{ fontSize: 13, fontWeight: 700, color: t.ink(.90), minWidth: 150, textAlign: "center" }}>
+        <button onClick={() => setMonthDate(new Date(year, month - 1, 1))} style={navBtnStyle()}>‹</button>
+        <span style={{ fontSize: 13, fontWeight: 700, color: "var(--bb-text-primary)", minWidth: 150, textAlign: "center" }}>
           {monthDate.toLocaleDateString(undefined, { month: "long", year: "numeric" })}
         </span>
-        <button onClick={() => setMonthDate(new Date(year, month + 1, 1))} style={navBtnStyle(t)}>›</button>
-        <button onClick={() => setMonthDate(new Date())} style={{ ...btnStyle(false, t), marginLeft: 4 }}>Today</button>
+        <button onClick={() => setMonthDate(new Date(year, month + 1, 1))} style={navBtnStyle()}>›</button>
+        <button onClick={() => setMonthDate(new Date())} style={{ ...viewButtonStyle(), marginLeft: 4 }}>Today</button>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 6, flex: 1, overflowY: "auto" }}>
         {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map(d => (
-          <div key={d} style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: ".08em", color: t.ink(.28), textTransform: "uppercase", padding: "0 4px 4px" }}>{d}</div>
+          <div key={d} style={{ fontSize: "var(--bb-type-micro-size)", fontWeight: 700, letterSpacing: "var(--bb-type-micro-tracking)", color: "var(--bb-text-muted)", textTransform: "uppercase", padding: "0 4px 4px" }}>{d}</div>
         ))}
         {cells.map((d, i) => {
           const key = d ? fmt(d) : `blank-${i}`;
           const dayItems = d ? (itemsByDate.get(fmt(d)) ?? []) : [];
           const isToday = !!d && fmt(d) === todayStr;
           return (
-            <div key={key} style={{ minHeight: 86, borderRadius: 8, padding: 6, background: d ? t.ink(.02) : "transparent", border: d ? `1px solid ${isToday ? "rgba(139,92,246,.4)" : t.ink(.05)}` : "none" }}>
-              {d && <div style={{ fontSize: 10.5, fontWeight: isToday ? 700 : 500, color: isToday ? "#C4B5FD" : t.ink(.35), marginBottom: 4 }}>{d.getDate()}</div>}
+            <div key={key} style={{ minHeight: 86, borderRadius: "var(--bb-radius-md)", padding: 6, background: d ? "var(--bb-surface-soft)" : "transparent", border: d ? `1px solid ${isToday ? "var(--bb-border-focus)" : "var(--bb-border-subtle)"}` : "none" }}>
+              {d && <div style={{ fontSize: 10.5, fontWeight: isToday ? 700 : 500, color: isToday ? "var(--bb-accent-300)" : "var(--bb-text-tertiary)", marginBottom: 4 }}>{d.getDate()}</div>}
               {dayItems.slice(0, 3).map(it => (
                 <div
                   key={it.id} onClick={() => onOpenDrawer(it)} title={it.name}
-                  style={{ fontSize: 9.5, fontWeight: 600, color: t.ink(.90), background: `${statusColor(it.status)}22`, border: `1px solid ${statusColor(it.status)}40`, borderRadius: 5, padding: "2px 5px", marginBottom: 3, cursor: "pointer", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                  style={{ fontSize: 9.5, fontWeight: 600, color: "var(--bb-text-primary)", background: `${statusColor(it.status)}22`, border: `1px solid ${statusColor(it.status)}40`, borderRadius: "var(--bb-radius-sm)", padding: "2px 5px", marginBottom: 3, cursor: "pointer", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
                 >
                   {it.name}
                 </div>
               ))}
-              {dayItems.length > 3 && <div style={{ fontSize: 9, color: t.ink(.25) }}>+{dayItems.length - 3} more</div>}
+              {dayItems.length > 3 && <div style={{ fontSize: 9, color: "var(--bb-text-muted)" }}>+{dayItems.length - 3} more</div>}
             </div>
           );
         })}
@@ -1030,7 +1034,6 @@ function BoardActivity({
   userNamesById: Record<string, string>;
   onOpenItem: (item: OrganiserItem) => void; refreshKey: string;
 }) {
-  const t = useOpsTheme();
   const [events, setEvents] = useState<OrganiserActivityEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -1092,13 +1095,13 @@ function BoardActivity({
   }
 
   return (
-    <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px 60px" }}>
+    <div style={{ flex: 1, overflowY: "auto", padding: "var(--bb-space-6) var(--bb-space-7) 60px", background: "var(--bb-canvas)" }}>
       {loading ? (
-        <div style={{ color: t.ink(.35), fontSize: 13 }}>Loading activity…</div>
+        <div style={{ color: "var(--bb-text-tertiary)", fontSize: 13 }}>Loading activity…</div>
       ) : error ? (
-        <div style={{ color: "#EF4444", fontSize: 13 }}>{error}</div>
+        <div style={{ color: "var(--bb-danger)", fontSize: 13 }}>{error}</div>
       ) : events.length === 0 ? (
-        <div style={{ color: t.ink(.30), fontSize: 12.5 }}>No activity yet.</div>
+        <div style={{ color: "var(--bb-text-muted)", fontSize: 12.5 }}>No activity yet.</div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 8, maxWidth: 640 }}>
           {events.map(ev => {
@@ -1108,29 +1111,29 @@ function BoardActivity({
             // click-through for those, per section 19.
             const liveItem = ev.entity_type === "item" ? liveItemsById[ev.entity_id] : undefined;
             return (
-              <div key={ev.id} style={{ padding: "10px 12px", borderRadius: 8, background: t.ink(.025), border: `1px solid ${t.ink(.05)}` }}>
+              <div key={ev.id} style={{ padding: "10px 12px", borderRadius: "var(--bb-radius-md)", background: "var(--bb-surface-1)", border: "1px solid var(--bb-border-subtle)" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3, gap: 8 }}>
                   <span
                     onClick={liveItem ? () => onOpenItem(liveItem) : undefined}
                     style={{
-                      fontSize: 12, fontWeight: 600, color: t.ink(.80),
+                      fontSize: 12, fontWeight: 600, color: "var(--bb-text-primary)",
                       cursor: liveItem ? "pointer" : "default",
                     }}
                   >
                     {desc.summary}
                   </span>
-                  <span style={{ fontSize: 9.5, color: t.ink(.25), flexShrink: 0 }}>{new Date(ev.created_at).toLocaleString()}</span>
+                  <span style={{ fontSize: 9.5, color: "var(--bb-text-muted)", flexShrink: 0 }}>{new Date(ev.created_at).toLocaleString()}</span>
                 </div>
                 {desc.detail && (
-                  <div style={{ fontSize: 11.5, color: t.ink(.55), fontStyle: "italic", marginTop: 2 }}>{`"${desc.detail}"`}</div>
+                  <div style={{ fontSize: 11.5, color: "var(--bb-text-secondary)", fontStyle: "italic", marginTop: 2 }}>{`"${desc.detail}"`}</div>
                 )}
                 {desc.diffs.length > 0 && (
                   <div style={{ display: "flex", flexDirection: "column", gap: 2, marginTop: 4 }}>
                     {desc.diffs.map((d, i) => (
-                      <div key={i} style={{ fontSize: 11, color: t.ink(.6) }}>
-                        <span style={{ color: t.ink(.4) }}>{d.label}: </span>
+                      <div key={i} style={{ fontSize: 11, color: "var(--bb-text-secondary)" }}>
+                        <span style={{ color: "var(--bb-text-tertiary)" }}>{d.label}: </span>
                         {d.before !== null ? (
-                          <>{d.before} <span style={{ color: t.ink(.3) }}>→</span> {d.after}</>
+                          <>{d.before} <span style={{ color: "var(--bb-text-muted)" }}>→</span> {d.after}</>
                         ) : d.after}
                       </div>
                     ))}
@@ -1140,7 +1143,7 @@ function BoardActivity({
             );
           })}
           {nextCursor && (
-            <button onClick={loadMore} disabled={loadingMore} style={btnStyle(false, t)}>
+            <button onClick={loadMore} disabled={loadingMore} style={viewButtonStyle()}>
               {loadingMore ? "Loading…" : "Load more"}
             </button>
           )}
@@ -1177,7 +1180,6 @@ function BoardActivity({
 function ItemActivity({
   itemId, updatedAt, groupNamesById, userNamesById,
 }: { itemId: string; updatedAt: string; groupNamesById: Record<string, string>; userNamesById: Record<string, string> }) {
-  const t = useOpsTheme();
   const [events, setEvents] = useState<OrganiserActivityEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -1225,33 +1227,33 @@ function ItemActivity({
 
   return (
     <div>
-      <div style={{ ...SECTION_LABEL, color: t.ink(.30) }}>Activity</div>
+      <div style={{ ...SECTION_LABEL, color: "var(--bb-text-muted)" }}>Activity</div>
       {loading ? (
-        <div style={{ fontSize: 11, color: t.ink(.25) }}>Loading…</div>
+        <div style={{ fontSize: 11, color: "var(--bb-text-muted)" }}>Loading…</div>
       ) : error ? (
-        <div style={{ fontSize: 11, color: "#EF4444" }}>{error}</div>
+        <div style={{ fontSize: 11, color: "var(--bb-danger)" }}>{error}</div>
       ) : events.length === 0 ? (
-        <div style={{ fontSize: 11, color: t.ink(.25) }}>No activity yet.</div>
+        <div style={{ fontSize: 11, color: "var(--bb-text-muted)" }}>No activity yet.</div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {events.map(ev => {
             const desc = describeActivityEvent(ev, groupNamesById, userNamesById);
             return (
-              <div key={ev.id} style={{ padding: "8px 10px", borderRadius: 8, background: t.ink(.025), border: `1px solid ${t.ink(.05)}` }}>
+              <div key={ev.id} style={{ padding: "8px 10px", borderRadius: "var(--bb-radius-md)", background: "var(--bb-surface-soft)", border: "1px solid var(--bb-border-subtle)" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3, gap: 8 }}>
-                  <span style={{ fontSize: 11, fontWeight: 600, color: t.ink(.75) }}>{desc.summary}</span>
-                  <span style={{ fontSize: 9.5, color: t.ink(.25), flexShrink: 0 }}>{new Date(ev.created_at).toLocaleString()}</span>
+                  <span style={{ fontSize: 11, fontWeight: 600, color: "var(--bb-text-primary)" }}>{desc.summary}</span>
+                  <span style={{ fontSize: 9.5, color: "var(--bb-text-muted)", flexShrink: 0 }}>{new Date(ev.created_at).toLocaleString()}</span>
                 </div>
                 {desc.detail && (
-                  <div style={{ fontSize: 11.5, color: t.ink(.55), fontStyle: "italic", marginTop: 2 }}>{`"${desc.detail}"`}</div>
+                  <div style={{ fontSize: 11.5, color: "var(--bb-text-secondary)", fontStyle: "italic", marginTop: 2 }}>{`"${desc.detail}"`}</div>
                 )}
                 {desc.diffs.length > 0 && (
                   <div style={{ display: "flex", flexDirection: "column", gap: 2, marginTop: 4 }}>
                     {desc.diffs.map((d, i) => (
-                      <div key={i} style={{ fontSize: 11, color: t.ink(.6) }}>
-                        <span style={{ color: t.ink(.4) }}>{d.label}: </span>
+                      <div key={i} style={{ fontSize: 11, color: "var(--bb-text-secondary)" }}>
+                        <span style={{ color: "var(--bb-text-tertiary)" }}>{d.label}: </span>
                         {d.before !== null ? (
-                          <>{d.before} <span style={{ color: t.ink(.3) }}>→</span> {d.after}</>
+                          <>{d.before} <span style={{ color: "var(--bb-text-muted)" }}>→</span> {d.after}</>
                         ) : d.after}
                       </div>
                     ))}
@@ -1261,7 +1263,7 @@ function ItemActivity({
             );
           })}
           {nextCursor && (
-            <button onClick={loadMore} disabled={loadingMore} style={btnStyle(false, t)}>
+            <button onClick={loadMore} disabled={loadingMore} style={viewButtonStyle()}>
               {loadingMore ? "Loading…" : "Load more"}
             </button>
           )}
@@ -1495,24 +1497,24 @@ function ItemDrawer({
   // already uses for its own dropdown menus (see its own comment there).
   // No layout/offset math needed — once escaped, 200 already beats both.
   const drawerContent = (
-    <div style={{ position: "fixed", inset: 0, zIndex: 200, display: "flex", justifyContent: "flex-end" }}>
-      <div onClick={onClose} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,.45)" }} />
+    <div style={{ position: "fixed", inset: 0, zIndex: "var(--bb-z-drawer)", display: "flex", justifyContent: "flex-end" }}>
+      <div onClick={onClose} style={{ position: "absolute", inset: 0, background: "var(--bb-scrim)" }} />
       <div style={{
         position: "relative", width: 400, maxWidth: "92vw", height: "100%",
-        background: t.panelBgSolid, borderLeft: `1px solid ${t.ink(.08)}`,
-        display: "flex", flexDirection: "column", boxShadow: "-16px 0 40px rgba(0,0,0,.5)",
-        animation: "drawer-in .18s ease",
+        background: "var(--bb-surface-1)", borderLeft: "1px solid var(--bb-border-default)",
+        display: "flex", flexDirection: "column", boxShadow: "var(--bb-shadow-modal)",
+        animation: "drawer-in var(--bb-duration-base) var(--bb-ease-standard)",
       }}>
-        <div style={{ padding: "16px 18px", borderBottom: `1px solid ${t.ink(.06)}`, display: "flex", alignItems: "flex-start", gap: 10 }}>
+        <div style={{ padding: "var(--bb-space-6) var(--bb-space-7)", borderBottom: "1px solid var(--bb-border-subtle)", display: "flex", alignItems: "flex-start", gap: "var(--bb-space-5)" }}>
           <div style={{ flex: 1 }}>
             <InlineText value={item.name} bold onSave={v => onUpdate(item.id, { name: v })} status={saveStatus[`item:${item.id}:name`]} />
           </div>
-          <button onClick={onClose} style={{ width: 26, height: 26, borderRadius: 7, background: t.ink(.05), border: `1px solid ${t.ink(.08)}`, color: t.ink(.5), cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+          <button onClick={onClose} style={{ width: 26, height: 26, borderRadius: "var(--bb-radius-md)", background: "var(--bb-surface-soft)", border: "1px solid var(--bb-border-default)", color: "var(--bb-text-secondary)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
           </button>
         </div>
 
-        <div style={{ flex: 1, overflowY: "auto", padding: "16px 18px", display: "flex", flexDirection: "column", gap: 16 }}>
+        <div style={{ flex: 1, overflowY: "auto", padding: "var(--bb-space-6) var(--bb-space-7)", display: "flex", flexDirection: "column", gap: "var(--bb-space-6)" }}>
           <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
             <Field label="Status" status={saveStatus[`item:${item.id}:status`]}><PillSelect value={item.status} options={STATUS_OPTIONS} colorFor={statusColor} onChange={v => onUpdate(item.id, { status: v })} /></Field>
             <Field label="Priority" status={saveStatus[`item:${item.id}:priority`]}><PillSelect value={item.priority ?? ""} options={PRIORITY_OPTIONS} colorFor={priorityColor} onChange={v => onUpdate(item.id, { priority: v })} placeholder="None" /></Field>
@@ -1520,12 +1522,12 @@ function ItemDrawer({
           <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
             <Field label="Due date" status={saveStatus[`item:${item.id}:due_date`]}>
               <input type="date" value={item.due_date ?? ""} onChange={e => onUpdate(item.id, { due_date: e.target.value || null })}
-                style={{ background: t.ink(.04), border: `1px solid ${t.ink(.08)}`, borderRadius: 6, padding: "5px 8px", fontSize: 12, color: t.ink(.90), fontFamily: FONT, colorScheme: "dark" }} />
+                style={{ background: "var(--bb-surface-soft)", border: "1px solid var(--bb-border-default)", borderRadius: "var(--bb-radius-sm)", padding: "5px 8px", fontSize: 12, color: "var(--bb-text-primary)", fontFamily: FONT, colorScheme: "dark" }} />
             </Field>
             <Field label="Owner">
               <input value={item.owner ?? ""} onChange={e => onUpdate(item.id, { owner: e.target.value })}
                 placeholder="Unassigned"
-                style={{ background: t.ink(.04), border: `1px solid ${t.ink(.08)}`, borderRadius: 6, padding: "5px 8px", fontSize: 12, color: t.ink(.90), fontFamily: FONT, width: 140 }} />
+                style={{ background: "var(--bb-surface-soft)", border: "1px solid var(--bb-border-default)", borderRadius: "var(--bb-radius-sm)", padding: "5px 8px", fontSize: 12, color: "var(--bb-text-primary)", fontFamily: FONT, width: 140 }} />
             </Field>
           </div>
 
@@ -1554,28 +1556,28 @@ function ItemDrawer({
               onBlur={flushNotesNow}
               rows={4}
               placeholder="Add notes…"
-              style={{ background: t.ink(.04), border: `1px solid ${t.ink(.08)}`, borderRadius: 8, padding: "8px 10px", fontSize: 12.5, color: t.ink(.90), fontFamily: FONT, resize: "vertical", width: "100%" }}
+              style={{ background: "var(--bb-surface-soft)", border: "1px solid var(--bb-border-default)", borderRadius: "var(--bb-radius-md)", padding: "8px 10px", fontSize: 12.5, color: "var(--bb-text-primary)", fontFamily: FONT, resize: "vertical", width: "100%" }}
             />
           </Field>
 
           <div>
-            <div style={{ ...SECTION_LABEL, color: t.ink(.30) }}>Files</div>
+            <div style={{ ...SECTION_LABEL, color: "var(--bb-text-muted)" }}>Files</div>
             <input ref={fileRef} type="file" style={{ display: "none" }} onChange={e => { const f = e.target.files?.[0]; if (f) uploadFile(f); e.target.value = ""; }} />
             <button onClick={() => fileRef.current?.click()} disabled={uploadingFile} style={{ ...btnStyle(false, t), marginBottom: 8 }}>
               {uploadingFile ? "Uploading…" : "+ Attach file"}
             </button>
             {fileError && (
-              <div style={{ fontSize: 11, color: "#EF4444", marginBottom: 6 }}>{fileError}</div>
+              <div style={{ fontSize: 11, color: "var(--bb-danger)", marginBottom: 6 }}>{fileError}</div>
             )}
             {files.length === 0 ? (
-              <div style={{ fontSize: 11, color: t.ink(.25) }}>No files attached.</div>
+              <div style={{ fontSize: 11, color: "var(--bb-text-muted)" }}>No files attached.</div>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 {files.map(f => (
-                  <div key={f.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 9px", borderRadius: 7, background: t.ink(.03), border: `1px solid ${t.ink(.06)}` }}>
-                    <a href={f.file_url} target="_blank" rel="noreferrer" style={{ flex: 1, fontSize: 11.5, color: "#a5b4fc", textDecoration: "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.file_name}</a>
-                    <span style={{ fontSize: 9.5, color: t.ink(.25) }}>{f.file_size ? `${Math.round(f.file_size / 1024)} KB` : ""}</span>
-                    <button onClick={() => deleteFile(f.id)} style={{ background: "transparent", border: "none", color: "rgba(239,68,68,.6)", cursor: "pointer", fontSize: 14, flexShrink: 0 }}>×</button>
+                  <div key={f.id} style={{ display: "flex", alignItems: "center", gap: "var(--bb-space-4)", padding: "7px 9px", borderRadius: "var(--bb-radius-md)", background: "var(--bb-surface-soft)", border: "1px solid var(--bb-border-subtle)" }}>
+                    <a href={f.file_url} target="_blank" rel="noreferrer" style={{ flex: 1, fontSize: 11.5, color: "var(--bb-accent-400)", textDecoration: "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.file_name}</a>
+                    <span style={{ fontSize: 9.5, color: "var(--bb-text-muted)" }}>{f.file_size ? `${Math.round(f.file_size / 1024)} KB` : ""}</span>
+                    <button onClick={() => deleteFile(f.id)} style={{ background: "transparent", border: "none", color: "var(--bb-danger)", cursor: "pointer", fontSize: 14, flexShrink: 0 }}>×</button>
                   </div>
                 ))}
               </div>
@@ -1583,24 +1585,24 @@ function ItemDrawer({
           </div>
 
           <div>
-            <div style={{ ...SECTION_LABEL, color: t.ink(.30) }}>Updates</div>
+            <div style={{ ...SECTION_LABEL, color: "var(--bb-text-muted)" }}>Updates</div>
             <textarea
               value={newUpdate} onChange={e => setNewUpdate(e.target.value)} rows={2}
               placeholder="Post an update…"
-              style={{ width: "100%", background: t.ink(.04), border: `1px solid ${t.ink(.08)}`, borderRadius: 8, padding: "6px 9px", fontSize: 11.5, color: t.ink(.90), fontFamily: FONT, resize: "vertical", marginBottom: 6 }}
+              style={{ width: "100%", background: "var(--bb-surface-soft)", border: "1px solid var(--bb-border-default)", borderRadius: "var(--bb-radius-md)", padding: "6px 9px", fontSize: 11.5, color: "var(--bb-text-primary)", fontFamily: FONT, resize: "vertical", marginBottom: 6 }}
             />
             <button onClick={addUpdate} disabled={!newUpdate.trim()} style={{ ...btnStyle(true, t), marginBottom: 10 }}>Post update</button>
             {updateError && (
-              <div style={{ fontSize: 11, color: "#EF4444", marginBottom: 8 }}>{updateError}</div>
+              <div style={{ fontSize: 11, color: "var(--bb-danger)", marginBottom: 8 }}>{updateError}</div>
             )}
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {updates.map(u => (
-                <div key={u.id} style={{ padding: "8px 10px", borderRadius: 8, background: t.ink(.025), border: `1px solid ${t.ink(.05)}` }}>
+                <div key={u.id} style={{ padding: "8px 10px", borderRadius: "var(--bb-radius-md)", background: "var(--bb-surface-soft)", border: "1px solid var(--bb-border-subtle)" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3, gap: 8 }}>
-                    <span style={{ fontSize: 10.5, fontWeight: 600, color: t.ink(.6) }}>{u.author_name || "Someone"}</span>
-                    <span style={{ fontSize: 9.5, color: t.ink(.25), flexShrink: 0 }}>{new Date(u.created_at).toLocaleString()}</span>
+                    <span style={{ fontSize: 10.5, fontWeight: 600, color: "var(--bb-text-secondary)" }}>{u.author_name || "Someone"}</span>
+                    <span style={{ fontSize: 9.5, color: "var(--bb-text-muted)", flexShrink: 0 }}>{new Date(u.created_at).toLocaleString()}</span>
                   </div>
-                  <div style={{ fontSize: 11.5, color: t.ink(.8), lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{u.body}</div>
+                  <div style={{ fontSize: 11.5, color: "var(--bb-text-primary)", lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{u.body}</div>
                 </div>
               ))}
             </div>
@@ -1610,12 +1612,12 @@ function ItemDrawer({
 
           {fieldEntries.length > 0 && (
             <div>
-              <div style={{ ...SECTION_LABEL, color: t.ink(.30) }}>Imported fields</div>
+              <div style={{ ...SECTION_LABEL, color: "var(--bb-text-muted)" }}>Imported fields</div>
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 {fieldEntries.map(([k, v]) => (
-                  <div key={k} style={{ fontSize: 11.5, lineHeight: 1.5, padding: "6px 9px", borderRadius: 7, background: t.ink(.03), border: `1px solid ${t.ink(.05)}` }}>
-                    <div style={{ color: t.ink(.35), fontWeight: 600, marginBottom: 1, textTransform: "capitalize" }}>{k}</div>
-                    <div style={{ color: t.ink(.75) }}>{v}</div>
+                  <div key={k} style={{ fontSize: 11.5, lineHeight: 1.5, padding: "6px 9px", borderRadius: "var(--bb-radius-md)", background: "var(--bb-surface-soft)", border: "1px solid var(--bb-border-subtle)" }}>
+                    <div style={{ color: "var(--bb-text-tertiary)", fontWeight: 600, marginBottom: 1, textTransform: "capitalize" }}>{k}</div>
+                    <div style={{ color: "var(--bb-text-secondary)" }}>{v}</div>
                   </div>
                 ))}
               </div>
@@ -1630,10 +1632,9 @@ function ItemDrawer({
 }
 
 function Field({ label, children, status }: { label: string; children: React.ReactNode; status?: SaveStatus }) {
-  const t = useOpsTheme();
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-      <span style={{ display: "flex", alignItems: "center", fontSize: 9.5, fontWeight: 700, letterSpacing: ".08em", color: t.ink(.30), textTransform: "uppercase" }}>
+      <span style={{ display: "flex", alignItems: "center", fontSize: "var(--bb-type-micro-size)", fontWeight: 700, letterSpacing: "var(--bb-type-micro-tracking)", color: "var(--bb-text-muted)", textTransform: "uppercase" }}>
         {label}
         <SaveStatusText status={status} />
       </span>
@@ -2199,32 +2200,32 @@ function OrganiserPageContent() {
       ` }} />
 
       {loading ? (
-            <div style={{ padding: 24, color: t.ink(.35), fontSize: 13 }}>Loading…</div>
+            <div style={{ padding: "var(--bb-space-8)", color: "var(--bb-text-muted)", fontSize: "var(--bb-type-body-size)" }}>Loading…</div>
           ) : !activeBoard ? (
             <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <div style={{ textAlign: "center", maxWidth: 340 }}>
-                <div style={{ fontSize: 15, fontWeight: 600, color: t.ink(.90), marginBottom: 6 }}>Create your first board</div>
-                <div style={{ fontSize: 12.5, color: t.ink(.42), marginBottom: 16, lineHeight: 1.6 }}>
+              <Surface variant="soft" radius="xl" style={{ textAlign: "center", maxWidth: 340, padding: "var(--bb-space-8)" }}>
+                <div style={{ fontSize: "var(--bb-type-card-title-size)", fontWeight: "var(--bb-type-card-title-weight)", color: "var(--bb-text-primary)", marginBottom: "var(--bb-space-3)" }}>Create your first board</div>
+                <div style={{ fontSize: "var(--bb-type-body-size)", color: "var(--bb-text-secondary)", marginBottom: "var(--bb-space-6)", lineHeight: 1.6 }}>
                   Boards keep separate lists — TAFE, Work, Home — each with its own groups and items. Add one to get started.
                 </div>
                 <NewBoardInline onCreate={createBoard} />
-              </div>
+              </Surface>
             </div>
           ) : (
             <>
-              <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 20px", borderBottom: `1px solid ${t.ink(.05)}`, flexShrink: 0 }}>
-                <div style={{ fontSize: 16, fontWeight: 700 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "var(--bb-space-5)", padding: "14px var(--bb-space-7)", borderBottom: "1px solid var(--bb-border-subtle)", background: "var(--bb-surface-1)", flexShrink: 0 }}>
+                <div style={{ fontSize: "var(--bb-type-section-size)", fontWeight: "var(--bb-type-section-weight)", color: "var(--bb-text-primary)" }}>
                   <InlineText value={activeBoard.name} bold onSave={v => renameBoard(activeBoard.id, v)} />
                 </div>
 
-                <div style={{ display: "flex", gap: 2, background: t.ink(.04), border: `1px solid ${t.ink(.08)}`, borderRadius: 8, padding: 2, marginLeft: 8 }}>
+                <div style={{ display: "flex", gap: "var(--bb-space-1)", background: "var(--bb-surface-soft)", border: "1px solid var(--bb-border-default)", borderRadius: "var(--bb-radius-md)", padding: 2, marginLeft: "var(--bb-space-3)" }}>
                   {(["table", "board", "calendar", "activity"] as ViewMode[]).map(v => (
                     <button
                       key={v} onClick={() => setView(v)}
                       style={{
-                        padding: "4px 11px", borderRadius: 6, fontSize: 11, fontWeight: 600, fontFamily: FONT,
-                        background: view === v ? "rgba(139,92,246,.24)" : "transparent",
-                        border: "none", color: view === v ? "#C4B5FD" : t.ink(.42),
+                        padding: "4px 11px", borderRadius: "var(--bb-radius-sm)", fontSize: "var(--bb-type-label-size)", fontWeight: 600, fontFamily: FONT,
+                        background: view === v ? "var(--bb-surface-selected)" : "transparent",
+                        border: "none", color: view === v ? "var(--bb-accent-300)" : "var(--bb-text-tertiary)",
                         cursor: "pointer", textTransform: "capitalize",
                       }}
                     >
@@ -2245,10 +2246,10 @@ function OrganiserPageContent() {
               </div>
 
               {importMsg && (
-                <div style={{ margin: "10px 20px 0", padding: "8px 12px", borderRadius: 8, background: "rgba(99,102,241,.10)", border: "1px solid rgba(99,102,241,.24)", color: "#a5b4fc", fontSize: 11.5, display: "flex", alignItems: "center", gap: 8 }}>
+                <Surface variant="selected" radius="md" style={{ margin: "10px var(--bb-space-7) 0", padding: "var(--bb-space-4) var(--bb-space-5)", color: "var(--bb-accent-300)", fontSize: "var(--bb-type-body-sm-size)", display: "flex", alignItems: "center", gap: "var(--bb-space-4)" }}>
                   <span style={{ flex: 1 }}>{importMsg}</span>
                   <button onClick={() => setImportMsg(null)} style={{ background: "transparent", border: "none", color: "inherit", cursor: "pointer", fontSize: 13 }}>×</button>
-                </div>
+                </Surface>
               )}
 
               {/* D.4.7B — single-slot transient error notice for mutations
@@ -2256,10 +2257,10 @@ function OrganiserPageContent() {
                   showPageNotice's own comment. Same visual convention as
                   the import-message banner above, error-toned. */}
               {pageNotice && (
-                <div style={{ margin: "10px 20px 0", padding: "8px 12px", borderRadius: 8, background: "rgba(239,68,68,.10)", border: "1px solid rgba(239,68,68,.28)", color: "#f87171", fontSize: 11.5, display: "flex", alignItems: "center", gap: 8 }}>
+                <Surface variant="base" radius="md" style={{ margin: "10px var(--bb-space-7) 0", padding: "var(--bb-space-4) var(--bb-space-5)", background: "var(--bb-danger-soft)", borderColor: "color-mix(in srgb, var(--bb-danger) 28%, transparent)", color: "var(--bb-danger)", fontSize: "var(--bb-type-body-sm-size)", display: "flex", alignItems: "center", gap: "var(--bb-space-4)" }}>
                   <span style={{ flex: 1 }}>{pageNotice}</span>
                   <button onClick={() => setPageNotice(null)} style={{ background: "transparent", border: "none", color: "inherit", cursor: "pointer", fontSize: 13 }}>×</button>
-                </div>
+                </Surface>
               )}
 
               {sheetChoices && pendingImportFile && (
@@ -2273,7 +2274,7 @@ function OrganiserPageContent() {
               )}
 
               {view === "table" && (
-                <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px 60px" }}>
+                <div style={{ flex: 1, overflowY: "auto", padding: "var(--bb-space-6) var(--bb-space-7) 60px", background: "var(--bb-canvas)" }}>
                   {boardData?.groups.map(g => (
                     <GroupSection
                       key={g.id} group={g} items={boardData.items} columns={columns}
@@ -2301,16 +2302,16 @@ function OrganiserPageContent() {
                         onChange={e => { setGroupName(e.target.value); if (groupError) setGroupError(null); }}
                         placeholder="Group name…"
                         onKeyDown={e => { if (e.key === "Enter") submitNewGroup(); if (e.key === "Escape") { setGroupName(""); setGroupError(null); setAddingGroup(false); } }}
-                        style={{ fontSize: 12.5, fontFamily: FONT, background: t.ink(.05), border: "1px solid rgba(139,92,246,.4)", borderRadius: 8, padding: "7px 10px", color: t.ink(.94), outline: "none", flex: 1, maxWidth: 260 }}
+                        style={{ fontSize: "var(--bb-type-body-size)", fontFamily: FONT, background: "var(--bb-surface-soft)", border: "1px solid var(--bb-border-focus)", borderRadius: "var(--bb-radius-md)", padding: "7px 10px", color: "var(--bb-text-primary)", outline: "none", flex: 1, maxWidth: 260 }}
                       />
                       <button onClick={submitNewGroup} disabled={groupSubmitting} style={btnStyle(true, t)}>{groupSubmitting ? "Adding…" : "Add"}</button>
                       <button onClick={() => { setGroupName(""); setGroupError(null); setAddingGroup(false); }} style={btnStyle(false, t)}>Cancel</button>
-                      {groupError && <span style={{ fontSize: 10.5, color: "#EF4444" }}>{groupError}</span>}
+                      {groupError && <span style={{ fontSize: 10.5, color: "var(--bb-danger)" }}>{groupError}</span>}
                     </div>
                   )}
 
                   {boardData && boardData.groups.length === 0 && !boardData.items.length && !addingGroup && (
-                    <div style={{ color: t.ink(.30), fontSize: 12.5, padding: "20px 4px" }}>
+                    <div style={{ color: "var(--bb-text-muted)", fontSize: "var(--bb-type-body-size)", padding: "var(--bb-space-7) var(--bb-space-2)" }}>
                       No groups yet. Add a group, or import a CSV to populate this board.
                     </div>
                   )}

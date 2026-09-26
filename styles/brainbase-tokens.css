@@ -280,3 +280,37 @@
   outline-offset: 3px;
   border-radius: 3px;
 }
+
+/* ─── Public/app token collision bridge ───────────────────────────────
+   The authenticated app now owns several --bb-* names in globals.css.
+   Public pages are explicitly scoped with .bb-public / .bb-scope-*; pin
+   the overlapping public values here at higher specificity so both visual
+   systems can coexist without either root token set silently winning by
+   import order. */
+:root .bb-public,
+:root .bb-scope-dark {
+  --bb-font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --bb-font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --bb-radius-sm: 4px;
+  --bb-radius-lg: 10px;
+  --bb-text-muted: #aaa6b4;
+  --bb-border-strong: #3a3847;
+  --bb-accent-soft: rgba(168, 121, 255, 0.1);
+  --bb-success-soft: rgba(63, 191, 127, 0.1);
+  --bb-warning-soft: rgba(234, 165, 58, 0.1);
+  --bb-info-soft: rgba(34, 199, 232, 0.08);
+}
+
+:root[data-theme='light'] .bb-public,
+:root .bb-scope-light {
+  --bb-font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --bb-font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --bb-radius-sm: 4px;
+  --bb-radius-lg: 10px;
+  --bb-text-muted: #66636d;
+  --bb-border-strong: #c9c5bc;
+  --bb-accent-soft: var(--bb-purple-50);
+  --bb-success-soft: #edf8f1;
+  --bb-warning-soft: #fdf6e7;
+  --bb-info-soft: var(--bb-cyan-50);
+}

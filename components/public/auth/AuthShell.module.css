@@ -97,4 +97,3 @@
   .cardHead, .form { padding-left: 16px; padding-right: 16px; }
 }
 @media (prefers-reduced-motion: reduce) { .input, .submit { transition: none; } }
-

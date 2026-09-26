@@ -46,4 +46,3 @@ export function AuthFooter({ prompt, href, linkText }: { prompt: string; href: s
 }
 
 export { styles as authStyles };
-

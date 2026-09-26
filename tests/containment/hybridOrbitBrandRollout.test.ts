@@ -307,4 +307,3 @@ describe('Phase D.2 — no accidental external brand-kit path in the new surface
     }
   })
 })
-

@@ -1,9 +1,8 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { useOpsTheme } from '@/components/ops/theme';
 import { CapabilityIcon } from '@/components/brand/CapabilityIcon';
 
-const FONT = 'var(--font-inter),"Inter",-apple-system,sans-serif';
+const FONT = 'var(--bb-font-sans)';
 const COLLAPSE_KEY = 'organiser-rail-collapsed';
 
 // Phase D.4.4E — promoted from app/organiser/page.tsx's inline BoardRail
@@ -31,7 +30,6 @@ interface OrganiserRailProps {
 export default function OrganiserRail({
   boards, activeId, onSelect, onCreate, onRename, onDelete,
 }: OrganiserRailProps) {
-  const t = useOpsTheme();
   const [collapsed, setCollapsed] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [adding, setAdding] = useState(false);
@@ -65,9 +63,9 @@ export default function OrganiserRail({
       flexShrink: 0,
       height: '100%',
       display: 'flex', flexDirection: 'column',
-      borderRight: `1px solid ${t.ink(.055)}`,
-      background: t.sidebarBg,
-      transition: 'width .2s cubic-bezier(.4,0,.2,1), min-width .2s cubic-bezier(.4,0,.2,1)',
+      borderRight: '1px solid var(--bb-border-subtle)',
+      background: 'var(--bb-shell-sidebar)',
+      transition: 'width var(--bb-duration-base) var(--bb-ease-standard), min-width var(--bb-duration-base) var(--bb-ease-standard)',
       overflow: 'hidden',
       fontFamily: FONT,
       // Avoid a flash of the wrong (default-expanded) width before the
@@ -80,10 +78,10 @@ export default function OrganiserRail({
       <div style={{
         height: 52, flexShrink: 0,
         display: 'flex', alignItems: 'center',
-        gap: 10,
+        gap: 'var(--bb-space-5)',
         padding: collapsed ? '0 12px' : '0 14px',
         justifyContent: collapsed ? 'center' : 'flex-start',
-        borderBottom: `1px solid ${t.ink(.07)}`,
+        borderBottom: '1px solid var(--bb-border-subtle)',
       }}>
         <CapabilityIcon
           capability="organiser"
@@ -91,7 +89,7 @@ export default function OrganiserRail({
           label={collapsed ? 'Organiser' : undefined}
         />
         {!collapsed && (
-          <span style={{ fontSize: 13, fontWeight: 700, color: t.ink(.90), letterSpacing: '-.01em' }}>
+          <span style={{ fontSize: 'var(--bb-type-body-size)', fontWeight: 700, color: 'var(--bb-text-primary)', letterSpacing: '-.01em' }}>
             Organiser
           </span>
         )}
@@ -100,7 +98,7 @@ export default function OrganiserRail({
       {/* ── Boards ── */}
       <div style={{ flex: 1, overflowY: 'auto', padding: collapsed ? '10px 6px' : '14px 10px' }}>
         {!collapsed && (
-          <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '.12em', color: t.ink(.24), textTransform: 'uppercase', padding: '0 6px', marginBottom: 8 }}>
+          <div style={{ fontSize: 'var(--bb-type-micro-size)', fontWeight: 700, letterSpacing: 'var(--bb-type-micro-tracking)', color: 'var(--bb-text-muted)', textTransform: 'uppercase', padding: '0 6px', marginBottom: 8 }}>
             Boards
           </div>
         )}
@@ -113,35 +111,35 @@ export default function OrganiserRail({
               display: 'flex', alignItems: 'center', gap: 8,
               padding: collapsed ? '8px 0' : '8px 8px',
               justifyContent: collapsed ? 'center' : 'flex-start',
-              borderRadius: 8,
+              borderRadius: 'var(--bb-radius-md)',
               cursor: 'pointer', marginBottom: 2,
-              background: activeId === b.id ? 'rgba(139,92,246,.14)' : 'transparent',
-              color: activeId === b.id ? t.accentText : t.ink(.65),
+              background: activeId === b.id ? 'var(--bb-surface-selected)' : 'transparent',
+              color: activeId === b.id ? 'var(--bb-accent-300)' : 'var(--bb-text-secondary)',
               position: 'relative',
             }}
           >
-            <span style={{ width: 7, height: 7, borderRadius: '50%', background: b.color || '#8B5CF6', flexShrink: 0 }} />
+            <span style={{ width: 7, height: 7, borderRadius: '50%', background: b.color || 'var(--bb-accent-500)', flexShrink: 0 }} />
             {!collapsed && (
               <>
                 <span style={{ flex: 1, fontSize: 12.5, fontWeight: activeId === b.id ? 600 : 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{b.name}</span>
-                <span style={{ fontSize: 10, color: t.ink(.22) }}>{b.item_count ?? 0}</span>
+                <span style={{ fontSize: 'var(--bb-type-micro-size)', color: 'var(--bb-text-muted)' }}>{b.item_count ?? 0}</span>
                 <button
                   onClick={e => { e.stopPropagation(); setMenuFor(menuFor === b.id ? null : b.id); }}
                   aria-label={`Board options for ${b.name}`}
-                  style={{ width: 16, height: 16, background: 'transparent', border: 'none', color: t.ink(.28), cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
+                  style={{ width: 16, height: 16, background: 'transparent', border: 'none', color: 'var(--bb-text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
                 >
                   <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="12" cy="19" r="1.6" /></svg>
                 </button>
               </>
             )}
             {!collapsed && menuFor === b.id && (
-              <div onClick={e => e.stopPropagation()} style={{ position: 'absolute', top: '100%', right: 4, zIndex: 20, background: t.menuBg, border: `1px solid ${t.ink(.1)}`, borderRadius: 8, padding: 4, minWidth: 120, boxShadow: '0 8px 24px rgba(0,0,0,.4)' }}>
+              <div onClick={e => e.stopPropagation()} style={{ position: 'absolute', top: '100%', right: 4, zIndex: 'var(--bb-z-menu)', background: 'var(--bb-surface-3)', border: '1px solid var(--bb-border-default)', borderRadius: 'var(--bb-radius-md)', padding: 'var(--bb-space-2)', minWidth: 120, boxShadow: 'var(--bb-shadow-float)' }}>
                 <button onClick={() => { const n = prompt('Rename board', b.name); if (n?.trim()) onRename(b.id, n.trim()); setMenuFor(null); }}
-                  style={{ display: 'block', width: '100%', textAlign: 'left', padding: '6px 8px', fontSize: 11.5, background: 'transparent', border: 'none', color: t.ink(.8), cursor: 'pointer', borderRadius: 5 }}>
+                  style={{ display: 'block', width: '100%', textAlign: 'left', padding: '6px 8px', fontSize: 11.5, background: 'transparent', border: 'none', color: 'var(--bb-text-primary)', cursor: 'pointer', borderRadius: 'var(--bb-radius-sm)' }}>
                   Rename
                 </button>
                 <button onClick={() => { if (confirm(`Delete board "${b.name}"? This deletes all its groups and items.`)) onDelete(b.id); setMenuFor(null); }}
-                  style={{ display: 'block', width: '100%', textAlign: 'left', padding: '6px 8px', fontSize: 11.5, background: 'transparent', border: 'none', color: '#EF4444', cursor: 'pointer', borderRadius: 5 }}>
+                  style={{ display: 'block', width: '100%', textAlign: 'left', padding: '6px 8px', fontSize: 11.5, background: 'transparent', border: 'none', color: 'var(--bb-danger)', cursor: 'pointer', borderRadius: 'var(--bb-radius-sm)' }}>
                   Delete
                 </button>
               </div>
@@ -160,10 +158,10 @@ export default function OrganiserRail({
               if (e.key === 'Escape') { setName(''); setAdding(false); }
             }}
             placeholder="Board name…"
-            style={{ marginTop: 4, fontSize: 12.5, fontFamily: FONT, background: t.ink(.05), border: '1px solid rgba(139,92,246,.4)', borderRadius: 8, padding: '7px 9px', color: t.ink(.94), outline: 'none' }}
+            style={{ marginTop: 4, fontSize: 12.5, fontFamily: FONT, background: 'var(--bb-surface-soft)', border: '1px solid var(--bb-border-focus)', borderRadius: 'var(--bb-radius-md)', padding: '7px 9px', color: 'var(--bb-text-primary)', outline: 'none' }}
           />
         ) : (
-          <button onClick={() => setAdding(true)} style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, padding: '7px 8px', borderRadius: 8, background: 'transparent', border: `1px dashed ${t.ink(.14)}`, color: t.ink(.40), cursor: 'pointer', fontSize: 12, fontFamily: FONT, width: '100%' }}>
+          <button onClick={() => setAdding(true)} style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, padding: '7px 8px', borderRadius: 'var(--bb-radius-md)', background: 'transparent', border: '1px dashed var(--bb-border-strong)', color: 'var(--bb-text-tertiary)', cursor: 'pointer', fontSize: 12, fontFamily: FONT, width: '100%' }}>
             <span>+</span> New board
           </button>
         ))}
@@ -173,7 +171,7 @@ export default function OrganiserRail({
             onClick={() => { const n = prompt('Board name'); if (n?.trim()) onCreate(n.trim()); }}
             title="New board"
             aria-label="New board"
-            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: 6, width: '100%', height: 28, borderRadius: 8, background: 'transparent', border: `1px dashed ${t.ink(.14)}`, color: t.ink(.40), cursor: 'pointer', fontSize: 15, fontFamily: FONT }}
+            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: 6, width: '100%', height: 28, borderRadius: 'var(--bb-radius-md)', background: 'transparent', border: '1px dashed var(--bb-border-strong)', color: 'var(--bb-text-tertiary)', cursor: 'pointer', fontSize: 15, fontFamily: FONT }}
           >
             +
           </button>
@@ -181,21 +179,21 @@ export default function OrganiserRail({
       </div>
 
       {/* ── Collapse control ── */}
-      <div style={{ padding: collapsed ? '8px 6px' : '8px 10px', borderTop: `1px solid ${t.ink(.07)}`, flexShrink: 0, display: 'flex', justifyContent: collapsed ? 'center' : 'flex-end' }}>
+      <div style={{ padding: collapsed ? '8px 6px' : '8px 10px', borderTop: '1px solid var(--bb-border-subtle)', flexShrink: 0, display: 'flex', justifyContent: collapsed ? 'center' : 'flex-end' }}>
         <button
           onClick={toggle}
           aria-label={collapsed ? 'Expand Organiser rail' : 'Collapse Organiser rail'}
           title={collapsed ? 'Expand' : 'Collapse'}
           style={{
-            width: 26, height: 26, borderRadius: 7,
+            width: 26, height: 26, borderRadius: 'var(--bb-radius-md)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            background: t.ink(.04), border: `1px solid ${t.ink(.09)}`,
-            cursor: 'pointer', color: t.ink(.40),
-            transition: 'all .15s',
+            background: 'var(--bb-surface-soft)', border: '1px solid var(--bb-border-default)',
+            cursor: 'pointer', color: 'var(--bb-text-tertiary)',
+            transition: 'all var(--bb-duration-fast) var(--bb-ease-standard)',
             transform: collapsed ? 'rotate(180deg)' : 'none',
           }}
-          onMouseEnter={e => { e.currentTarget.style.background = t.ink(.08); e.currentTarget.style.color = t.ink(.75); }}
-          onMouseLeave={e => { e.currentTarget.style.background = t.ink(.04); e.currentTarget.style.color = t.ink(.40); }}
+          onMouseEnter={e => { e.currentTarget.style.background = 'var(--bb-surface-hover)'; e.currentTarget.style.color = 'var(--bb-text-secondary)'; }}
+          onMouseLeave={e => { e.currentTarget.style.background = 'var(--bb-surface-soft)'; e.currentTarget.style.color = 'var(--bb-text-tertiary)'; }}
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="15 18 9 12 15 6" /></svg>
         </button>

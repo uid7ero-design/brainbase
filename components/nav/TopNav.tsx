@@ -1139,7 +1139,7 @@ function AppNav({
         style={{
           display: 'flex',
           alignItems: 'center',
-          justifyContent: 'center',
+          justifyContent: 'flex-start',
           gap: 2,
           flex: 1,
           minWidth: 0,

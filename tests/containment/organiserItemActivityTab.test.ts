@@ -42,9 +42,9 @@ describe('ItemActivity — the new section itself', () => {
     const start = pageCode.indexOf('function ItemActivity(')
     const end = pageCode.indexOf('\nfunction ItemDrawer(', start)
     const block = pageCode.slice(start, end)
-    expect(block).toMatch(/loading \?[\s\S]{0,60}Loading/)
-    expect(block).toMatch(/error \?[\s\S]{0,60}\{error\}/)
-    expect(block).toMatch(/events\.length === 0 \?[\s\S]{0,60}No activity yet/)
+    expect(block).toMatch(/loading \?[\s\S]{0,140}Loading/)
+    expect(block).toMatch(/error \?[\s\S]{0,140}\{error\}/)
+    expect(block).toMatch(/events\.length === 0 \?[\s\S]{0,140}No activity yet/)
   })
 
   it('re-fetches (from page 1, not appended) when itemId OR the item\'s own updatedAt changes — so an edit made while the drawer is open is reflected without closing/reopening it', () => {
