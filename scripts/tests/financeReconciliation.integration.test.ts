@@ -41,7 +41,7 @@ const sqlMock = Object.assign(
 );
 vi.doMock('@/lib/db', () => ({ default: sqlMock }));
 
-const { prepareFinanceReconciliation } = await import('@/lib/commercial/financeReconciliation');
+const { prepareFinanceReconciliation, reviewFinanceReconciliation } = await import('@/lib/commercial/financeReconciliation');
 const { createFinanceAdjustment, postFinanceAdjustment, reverseFinanceAdjustment } =
   await import('@/lib/commercial/financeAdjustments');
 const { activateBudgetVersion } = await import('@/lib/commercial/budgetActivation');
@@ -386,5 +386,88 @@ describe('C7.9E1 — prepared finance reconciliation snapshots', () => {
     expect(persisted).toHaveLength(1);
     expect(persisted[0].budget_account_id).toBe(f.account);
     expect(persisted[0].source_actual_cents.toString()).toBe('1000');
+  });
+
+  it('writes durable PREPARED and REVIEWED events and permits PREPARED -> REVIEWED exactly once', async () => {
+    const f = await seedFixture();
+    await addMapping(f);
+    await addEntry(f, 1000);
+    const prepared = await prepare(f);
+
+    const preparedEvents = await prisma.$queryRawUnsafe<{
+      event_type: string; actor_user_id: string;
+    }[]>(
+      `SELECT event_type,actor_user_id
+       FROM commercial_finance_reconciliation_events
+       WHERE reconciliation_id=$1::uuid AND organisation_id=$2
+       ORDER BY event_at,id`,
+      prepared.id, f.org,
+    );
+    expect(preparedEvents).toEqual([{ event_type: 'PREPARED', actor_user_id: f.user }]);
+
+    const reviewed = await reviewFinanceReconciliation({
+      organisationId: f.org,
+      userId: f.user,
+      reconciliationId: prepared.id,
+    });
+    expect(reviewed).toMatchObject({
+      id: prepared.id,
+      organisationId: f.org,
+      status: 'REVIEWED',
+      reviewedBy: f.user,
+    });
+
+    const events = await prisma.$queryRawUnsafe<{
+      event_type: string; actor_user_id: string;
+    }[]>(
+      `SELECT event_type,actor_user_id
+       FROM commercial_finance_reconciliation_events
+       WHERE reconciliation_id=$1::uuid AND organisation_id=$2
+       ORDER BY event_at,id`,
+      prepared.id, f.org,
+    );
+    expect(events.map(event => event.event_type)).toEqual(['PREPARED', 'REVIEWED']);
+
+    await expect(reviewFinanceReconciliation({
+      organisationId: f.org,
+      userId: f.user,
+      reconciliationId: prepared.id,
+    })).rejects.toMatchObject({ code: 'INVALID_STATE' });
+  });
+
+  it('collapses cross-tenant review to NOT_FOUND and preserves PREPARED state', async () => {
+    const f = await seedFixture();
+    const other = await seedFixture({ withSource: false });
+    await addMapping(f);
+    await addEntry(f, 1000);
+    const prepared = await prepare(f);
+
+    await expect(reviewFinanceReconciliation({
+      organisationId: other.org,
+      userId: other.user,
+      reconciliationId: prepared.id,
+    })).rejects.toMatchObject({ code: 'NOT_FOUND' });
+
+    const state = await prisma.$queryRawUnsafe<{ status: string; reviewed_by: string | null }[]>(
+      `SELECT status,reviewed_by
+       FROM commercial_finance_reconciliations
+       WHERE id=$1::uuid AND organisation_id=$2`,
+      prepared.id, f.org,
+    );
+    expect(state[0]).toEqual({ status: 'PREPARED', reviewed_by: null });
+  });
+
+  it('rejects lifecycle jumps that bypass REVIEWED', async () => {
+    const f = await seedFixture();
+    await addMapping(f);
+    await addEntry(f, 1000);
+    const prepared = await prepare(f);
+
+    await expect(prisma.$executeRawUnsafe(
+      `UPDATE commercial_finance_reconciliations
+       SET status='SIGNED_OFF'
+       WHERE id=$1::uuid AND organisation_id=$2`,
+      prepared.id, f.org,
+    )).rejects.toThrow(/invalid finance reconciliation lifecycle transition/);
   });
 });

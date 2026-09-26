@@ -1,4 +1,4 @@
--- Phase C7.9E1 — prepared Commercial finance reconciliation snapshots.
+-- Phase C7.9E1/E2 — prepared Commercial finance reconciliation snapshots and review lifecycle.
 -- Additive/idempotent. Prepared monetary evidence is immutable.
 -- Reconciliation uses signed BIGINT minor units with zero-cent tolerance.
 
@@ -99,6 +99,25 @@ CREATE INDEX IF NOT EXISTS idx_commercial_finance_reconciliation_items_parent
 CREATE INDEX IF NOT EXISTS idx_commercial_finance_reconciliation_items_outcome
   ON commercial_finance_reconciliation_items(organisation_id, outcome);
 
+CREATE TABLE IF NOT EXISTS commercial_finance_reconciliation_events (
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  organisation_id   TEXT NOT NULL REFERENCES organisations(id),
+  reconciliation_id UUID NOT NULL,
+  event_type         TEXT NOT NULL CHECK (event_type IN ('PREPARED','REVIEWED')),
+  actor_user_id      TEXT NOT NULL REFERENCES users(id),
+  event_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+  details            JSONB NOT NULL DEFAULT '{}'::jsonb,
+
+  CONSTRAINT commercial_finance_reconciliation_events_parent_org_fkey
+    FOREIGN KEY (reconciliation_id, organisation_id)
+    REFERENCES commercial_finance_reconciliations(id, organisation_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_commercial_finance_reconciliation_events_parent
+  ON commercial_finance_reconciliation_events(
+    organisation_id, reconciliation_id, event_at
+  );
+
 CREATE OR REPLACE FUNCTION commercial_finance_reconciliation_guard()
 RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
@@ -108,9 +127,11 @@ BEGIN
 
   IF OLD.organisation_id IS DISTINCT FROM NEW.organisation_id
      OR OLD.financial_period_id IS DISTINCT FROM NEW.financial_period_id
+     OR OLD.close_id IS DISTINCT FROM NEW.close_id
      OR OLD.source_system_id IS DISTINCT FROM NEW.source_system_id
      OR OLD.currency IS DISTINCT FROM NEW.currency
-     OR OLD.source_actual_cents IS DISTINCT FROM NEW.source_actual_cents     OR OLD.finance_adjustment_cents IS DISTINCT FROM NEW.finance_adjustment_cents
+     OR OLD.source_actual_cents IS DISTINCT FROM NEW.source_actual_cents
+     OR OLD.finance_adjustment_cents IS DISTINCT FROM NEW.finance_adjustment_cents
      OR OLD.brainbase_effective_actual_cents IS DISTINCT FROM NEW.brainbase_effective_actual_cents
      OR OLD.external_gl_total_cents IS DISTINCT FROM NEW.external_gl_total_cents
      OR OLD.variance_cents IS DISTINCT FROM NEW.variance_cents
@@ -118,8 +139,32 @@ BEGIN
      OR OLD.snapshot_at IS DISTINCT FROM NEW.snapshot_at
      OR OLD.prepared_by IS DISTINCT FROM NEW.prepared_by
      OR OLD.prepared_at IS DISTINCT FROM NEW.prepared_at
+     OR OLD.notes IS DISTINCT FROM NEW.notes
   THEN
     RAISE EXCEPTION 'prepared finance reconciliation evidence is immutable';
+  END IF;
+
+  IF OLD.status = 'PREPARED' THEN
+    IF NEW.status = 'PREPARED' THEN
+      IF NEW.reviewed_by IS NOT NULL OR NEW.reviewed_at IS NOT NULL THEN
+        RAISE EXCEPTION 'PREPARED finance reconciliation cannot carry review evidence';
+      END IF;
+    ELSIF NEW.status = 'REVIEWED' THEN
+      IF NEW.reviewed_by IS NULL OR NEW.reviewed_at IS NULL THEN
+        RAISE EXCEPTION 'REVIEWED finance reconciliation requires review evidence';
+      END IF;
+    ELSE
+      RAISE EXCEPTION 'invalid finance reconciliation lifecycle transition';
+    END IF;
+  ELSIF OLD.status = 'REVIEWED' THEN
+    IF NEW.status <> 'REVIEWED'
+       OR OLD.reviewed_by IS DISTINCT FROM NEW.reviewed_by
+       OR OLD.reviewed_at IS DISTINCT FROM NEW.reviewed_at
+    THEN
+      RAISE EXCEPTION 'REVIEWED finance reconciliation is immutable in C7.9E2';
+    END IF;
+  ELSE
+    RAISE EXCEPTION 'finance reconciliation lifecycle state is not mutable in C7.9E2';
   END IF;
 
   RETURN NEW;

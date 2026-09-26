@@ -16,7 +16,8 @@ export class FinanceReconciliationError extends Error {
     public readonly code:
       | 'INVALID_INPUT'
       | 'NOT_FOUND'
-      | 'AMBIGUOUS_MAPPING',
+      | 'AMBIGUOUS_MAPPING'
+      | 'INVALID_STATE',
     message: string,
   ) {
     super(message);
@@ -90,6 +91,28 @@ export type PreparedFinanceReconciliationItem = {
   preparedBy: string;
   notes: string | null;
   items: PreparedFinanceReconciliationItem[];
+};
+
+export type ReviewedFinanceReconciliation = {
+  id: string;
+  organisationId: string;
+  financialPeriodId: string;
+  sourceSystemId: string;
+  currency: string;
+  status: 'REVIEWED';
+  reviewedBy: string;
+  reviewedAt: string;
+};
+
+type ReconciliationLifecycleRow = {
+  id: string;
+  organisation_id: string;
+  financial_period_id: string;
+  source_system_id: string;
+  currency: string;
+  status: 'PREPARED' | 'REVIEWED' | 'SIGNED_OFF' | 'STALE';
+  reviewed_by: string | null;
+  reviewed_at: string | Date | null;
 };
 
 function required(value: string, label: string) {
@@ -531,6 +554,20 @@ export async function prepareFinanceReconciliation(params: {
         ${item.sourceActualCount}, ${item.externalEntryCount}, ${item.outcome}
       )
     `),
+    txn`
+      INSERT INTO commercial_finance_reconciliation_events (
+        organisation_id, reconciliation_id, event_type, actor_user_id, details
+      ) VALUES (
+        ${organisationId}, ${reconciliationId}, 'PREPARED', ${userId},
+        jsonb_build_object(
+          'financialPeriodId', ${financialPeriodId},
+          'sourceSystemId', ${sourceSystemId},
+          'currency', ${currency},
+          'varianceCents', ${varianceCents.toString()},
+          'unresolvedItemCount', ${unresolvedItemCount}
+        )
+      )
+    `,
   ], { isolationLevel: 'ReadCommitted' });
 
   return {
@@ -550,5 +587,82 @@ export async function prepareFinanceReconciliation(params: {
     preparedBy: userId,
     notes,
     items,
+  };
+}
+
+
+export async function reviewFinanceReconciliation(params: {
+  organisationId: string;
+  userId: string;
+  reconciliationId: string;
+}): Promise<ReviewedFinanceReconciliation> {
+  const organisationId = required(params.organisationId, 'Organisation');
+  const userId = required(params.userId, 'User');
+  const reconciliationId = required(params.reconciliationId, 'Reconciliation');
+
+  const [lockedRows, reviewedRows] = await sql.transaction(txn => [
+    txn`
+      SELECT id, organisation_id, financial_period_id, source_system_id, currency,
+             status, reviewed_by, reviewed_at
+      FROM commercial_finance_reconciliations
+      WHERE id = ${reconciliationId}
+        AND organisation_id = ${organisationId}
+      FOR UPDATE
+    `,
+    txn`
+      WITH reviewed AS (
+        UPDATE commercial_finance_reconciliations
+        SET status = 'REVIEWED',
+            reviewed_by = ${userId},
+            reviewed_at = now()
+        WHERE id = ${reconciliationId}
+          AND organisation_id = ${organisationId}
+          AND status = 'PREPARED'
+        RETURNING id, organisation_id, financial_period_id, source_system_id, currency,
+                  status, reviewed_by, reviewed_at
+      ),
+      event_inserted AS (
+        INSERT INTO commercial_finance_reconciliation_events (
+          organisation_id, reconciliation_id, event_type, actor_user_id, details
+        )
+        SELECT organisation_id, id, 'REVIEWED', ${userId},
+               jsonb_build_object('previousStatus', 'PREPARED', 'newStatus', 'REVIEWED')
+        FROM reviewed
+        RETURNING reconciliation_id
+      )
+      SELECT reviewed.*
+      FROM reviewed
+      JOIN event_inserted ON event_inserted.reconciliation_id = reviewed.id
+    `,
+  ], { isolationLevel: 'ReadCommitted' });
+
+  const locked = (lockedRows as ReconciliationLifecycleRow[])[0];
+  if (!locked) {
+    throw new FinanceReconciliationError('NOT_FOUND', 'Finance reconciliation not found for this organisation.');
+  }
+  if (locked.status !== 'PREPARED') {
+    throw new FinanceReconciliationError(
+      'INVALID_STATE',
+      'Only a PREPARED finance reconciliation can be reviewed.',
+    );
+  }
+
+  const reviewed = (reviewedRows as ReconciliationLifecycleRow[])[0];
+  if (!reviewed?.reviewed_by || !reviewed.reviewed_at || reviewed.status !== 'REVIEWED') {
+    throw new FinanceReconciliationError(
+      'INVALID_STATE',
+      'Finance reconciliation review did not complete.',
+    );
+  }
+
+  return {
+    id: reviewed.id,
+    organisationId: reviewed.organisation_id,
+    financialPeriodId: reviewed.financial_period_id,
+    sourceSystemId: reviewed.source_system_id,
+    currency: reviewed.currency,
+    status: 'REVIEWED',
+    reviewedBy: reviewed.reviewed_by,
+    reviewedAt: timestamp(reviewed.reviewed_at),
   };
 }
