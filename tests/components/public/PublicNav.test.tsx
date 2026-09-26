@@ -48,8 +48,8 @@ describe('PublicNav', () => {
     expect(container.querySelector('header')).not.toHaveClass('bb-scope-dark');
     unmount();
 
-    // /login still uses the previous dark design and shows the public nav.
-    const other = renderNav('/login');
+    // /forgot-password still uses the previous dark design and shows the public nav.
+    const other = renderNav('/forgot-password');
     expect(screen.queryByRole('button', { name: /Switch to (light|dark) theme/ })).toBeNull();
     expect(other.container.querySelector('header')).toHaveClass('bb-scope-dark');
   });

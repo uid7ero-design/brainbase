@@ -14,6 +14,8 @@ export const THEMED_PUBLIC_ROUTES: readonly string[] = [
   '/request-demo',
   '/privacy',
   '/terms',
+  '/login',
+  '/signup',
 ];
 
 export function isThemedPublicRoute(pathname: string | null | undefined): boolean {
