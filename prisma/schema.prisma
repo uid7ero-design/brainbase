@@ -924,26 +924,11 @@ model DataHubRawRow {
   created_at                           DateTime @default(now()) @db.Timestamptz(6)
 
   organisation Organisation @relation(fields: [organisation_id], references: [id])
-  import_batch ImportBatch @relation(
-    fields: [import_batch_id, source_schema_version_id, organisation_id],
-    references: [id, source_schema_version_id, organisation_id]
-  )
-  upload Upload @relation(
-    fields: [upload_id, import_batch_id, organisation_id],
-    references: [id, import_batch_id, organisation_id]
-  )
-  schema_worksheet SourceSchemaWorksheet @relation(
-    fields: [source_schema_worksheet_id, source_schema_version_id, organisation_id],
-    references: [id, source_schema_version_id, organisation_id]
-  )
-  mapping_profile WorksheetMappingProfile @relation(
-    fields: [worksheet_mapping_profile_id, source_schema_worksheet_id, organisation_id],
-    references: [id, source_schema_worksheet_id, organisation_id]
-  )
-  mapping_profile_version WorksheetMappingProfileVersion @relation(
-    fields: [worksheet_mapping_profile_version_id, worksheet_mapping_profile_id, organisation_id],
-    references: [id, worksheet_mapping_profile_id, organisation_id]
-  )
+  import_batch ImportBatch @relation(fields: [import_batch_id, source_schema_version_id, organisation_id], references: [id, source_schema_version_id, organisation_id])
+  upload Upload @relation(fields: [upload_id, import_batch_id, organisation_id], references: [id, import_batch_id, organisation_id])
+  schema_worksheet SourceSchemaWorksheet @relation(fields: [source_schema_worksheet_id, source_schema_version_id, organisation_id], references: [id, source_schema_version_id, organisation_id])
+  mapping_profile WorksheetMappingProfile @relation(fields: [worksheet_mapping_profile_id, source_schema_worksheet_id, organisation_id], references: [id, source_schema_worksheet_id, organisation_id])
+  mapping_profile_version WorksheetMappingProfileVersion @relation(fields: [worksheet_mapping_profile_version_id, worksheet_mapping_profile_id, organisation_id], references: [id, worksheet_mapping_profile_id, organisation_id])
   creator User? @relation("DataHubRawRowCreatedBy", fields: [created_by], references: [id], onDelete: SetNull)
 
   cells DataHubRawCell[]
@@ -974,28 +959,8 @@ model DataHubRawCell {
   created_at                 DateTime @default(now()) @db.Timestamptz(6)
 
   organisation Organisation @relation(fields: [organisation_id], references: [id])
-  raw_row DataHubRawRow @relation(
-    fields: [raw_row_id, source_schema_worksheet_id, organisation_id],
-    references: [id, source_schema_worksheet_id, organisation_id]
-  )
-  source_schema_column SourceSchemaColumn @relation(
-    fields: [
-      source_schema_column_id,
-      source_schema_worksheet_id,
-      column_ordinal,
-      source_header,
-      sensitivity_class,
-      organisation_id
-    ],
-    references: [
-      id,
-      source_schema_worksheet_id,
-      ordinal,
-      source_header,
-      sensitivity_class,
-      organisation_id
-    ]
-  )
+  raw_row DataHubRawRow @relation(fields: [raw_row_id, source_schema_worksheet_id, organisation_id], references: [id, source_schema_worksheet_id, organisation_id])
+  source_schema_column SourceSchemaColumn @relation(fields: [source_schema_column_id, source_schema_worksheet_id, column_ordinal, source_header, sensitivity_class, organisation_id], references: [id, source_schema_worksheet_id, ordinal, source_header, sensitivity_class, organisation_id])
 
   @@unique([raw_row_id, column_ordinal])
   @@index([organisation_id, raw_row_id])
