@@ -68,7 +68,6 @@ model Organisation {
   mapping_versions       MappingVersion[]
   source_record_identities   SourceRecordIdentity[]
   source_record_observations SourceRecordObservation[]
-  data_hub_raw_rows DataHubRawRow[]
   dataset_types              DatasetType[]
   source_schema_versions     SourceSchemaVersion[]
   source_schema_worksheets   SourceSchemaWorksheet[]
