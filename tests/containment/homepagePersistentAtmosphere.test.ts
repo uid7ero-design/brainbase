@@ -80,10 +80,12 @@ describe('Intensity by page depth — one continuous veil (not independent zone 
 
 })
 
-describe('Login / signup containment — D.3 treatment unchanged', () => {
-  it('login and signup keep their own hero-scoped, absolutely-positioned OrbitalBackground — not converted to a page-level fixed layer by this homepage-only phase', () => {
+describe('Login / signup containment — public auth shell', () => {
+  it('login and signup stay self-contained in AuthShell and do not gain a page-level fixed atmosphere', () => {
     for (const src of [loginSource, signupSource]) {
-      expect(src).toMatch(/<OrbitalBackground variant="field" intensity="low" placement="center" \/>/)
+      expect(src).toContain("from '@/components/public/auth/AuthShell'")
+      expect(src).toContain('<AuthShell>')
+      expect(src).not.toContain('OrbitalBackground')
       expect(src).not.toMatch(/style=\{\{\s*position:\s*'fixed'/)
     }
   })

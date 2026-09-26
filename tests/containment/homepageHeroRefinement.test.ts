@@ -118,15 +118,16 @@ describe('HLNA input card position', () => {
 
 
 
-describe('Login / signup containment — D.3 adoption unchanged', () => {
-  it('login and signup still use OrbitalBackground exactly as D.3 left them (field/low/center) — untouched by this homepage-only phase', () => {
+describe('Login / signup containment — public auth shell', () => {
+  it('login and signup use the shared AuthShell and no longer render the retired full-field OrbitalBackground directly', () => {
     for (const src of [loginSource, signupSource]) {
-      expect(src).toContain("import { OrbitalBackground } from '@/components/brand/OrbitalBackground'")
-      expect(src).toMatch(/<OrbitalBackground variant="field" intensity="low" placement="center" \/>/)
+      expect(src).toContain("from '@/components/public/auth/AuthShell'")
+      expect(src).toContain('<AuthShell>')
+      expect(src).not.toContain('OrbitalBackground')
     }
   })
 
-  it('login and signup do not import HeroOrbitMark — that is a homepage-only visual', () => {
+  it('login and signup do not import HeroOrbitMark — that remains a homepage-only visual', () => {
     expect(loginSource).not.toContain('HeroOrbitMark')
     expect(signupSource).not.toContain('HeroOrbitMark')
   })
