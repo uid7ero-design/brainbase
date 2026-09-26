@@ -264,8 +264,19 @@ END $$;
     }
   }
 
+  Mark 'C7.7E Budget commitment resolver integration suite' {
+    $env:DATABASE_URL = "postgresql://postgres:test@127.0.0.1:$port/testdb"
+    Push-Location $repo
+    try {
+      npx vitest run --config vitest.integration.config.ts scripts/tests/budgetCommitmentResolver.integration.test.ts
+      if ($LASTEXITCODE -ne 0) { throw "resolver integration exit $LASTEXITCODE" }
+    } finally {
+      Pop-Location
+    }
+  }
+
   Write-Host ''
-  Write-Host "=== C7.7B/C7.7D RESULT: PASS=$pass FAIL=$fail ==="
+  Write-Host "=== C7.7B/C7.7D/C7.7E RESULT: PASS=$pass FAIL=$fail ==="
   if ($fail -ne 0) {
     foreach ($failure in $failures) { Write-Host "  - $failure" }
     exit 1
