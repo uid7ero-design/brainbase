@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const sqlMock = vi.fn(async () => []);
 vi.mock('@/lib/db', () => ({ default: sqlMock }));
 
-const { logHrEvent } = await import('@/lib/hr/auditLog');
+const { logEmployeeDocumentReadEvent, logHrEvent } = await import('@/lib/hr/auditLog');
 
 function jsonStates(): Record<string, unknown>[] {
   const args = (sqlMock.mock.calls[0] as unknown as [string[], ...unknown[]]).slice(1);
@@ -84,6 +84,47 @@ describe('HR-7D employee document audit policies', () => {
       is_current: true,
     });
     expect(state).not.toHaveProperty('storage_key');
+  });
+
+  it('fail-closed read audit accepts only the employee document version read event', async () => {
+    await logEmployeeDocumentReadEvent(
+      { organisationId: 'org-a', userId: 'employee-user' },
+      {
+        action: 'hr_employee_document_version.read',
+        resourceType: 'hr_employee_document_version',
+        resourceId: 'version-1',
+        afterState: {
+          document_id: 'document-1',
+          original_filename: 'private.pdf',
+          storage_key: 'must-not-appear',
+          content_type: 'application/pdf',
+          byte_size: 42,
+          is_current: true,
+        },
+      },
+    );
+
+    expect(sqlMock).toHaveBeenCalledTimes(1);
+    const [state] = jsonStates();
+    expect(state).toEqual({
+      document_id: 'document-1',
+      original_filename: '[redacted]',
+      content_type: 'application/pdf',
+      byte_size: 42,
+      is_current: true,
+    });
+  });
+
+  it('fail-closed read audit rejects unapproved employee document events', async () => {
+    await expect(logEmployeeDocumentReadEvent(
+      { organisationId: 'org-a', userId: 'employee-user' },
+      {
+        action: 'hr_employee_document_version.created',
+        resourceType: 'hr_employee_document_version',
+        resourceId: 'version-1',
+      },
+    )).rejects.toThrow(/only accepts approved employee-document read events/);
+    expect(sqlMock).not.toHaveBeenCalled();
   });
 
   it('unknown future employee-document resource types fail closed', async () => {

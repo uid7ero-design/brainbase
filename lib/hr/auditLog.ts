@@ -201,6 +201,10 @@ const RESTRICTED_HR_READ_EVENTS = new Set([
   'hr_restricted_case_document:hr_restricted_case_document.read',
 ]);
 
+const EMPLOYEE_DOCUMENT_READ_EVENTS = new Set([
+  'hr_employee_document_version:hr_employee_document_version.read',
+]);
+
 const HR_RESTRICTED_CASE_DOCUMENT_AUDIT_POLICY: AuditFieldPolicy = {
   allowed: new Set(['content_type', 'byte_size', 'deleted_at']),
   idOnly: new Set(['case_id', 'uploaded_by']),
@@ -377,6 +381,17 @@ export async function logRestrictedHrReadEvent(
 ): Promise<void> {
   if (!RESTRICTED_HR_READ_EVENTS.has(`${entry.resourceType}:${entry.action}`)) {
     throw new Error('logRestrictedHrReadEvent only accepts approved restricted-HR read events.');
+  }
+  await writeHrAuditEvent(actor, entry);
+}
+
+/** Employee document byte reads fail closed just like restricted-HR reads. */
+export async function logEmployeeDocumentReadEvent(
+  actor: HrAuditActor,
+  entry: HrAuditEntry,
+): Promise<void> {
+  if (!EMPLOYEE_DOCUMENT_READ_EVENTS.has(`${entry.resourceType}:${entry.action}`)) {
+    throw new Error('logEmployeeDocumentReadEvent only accepts approved employee-document read events.');
   }
   await writeHrAuditEvent(actor, entry);
 }

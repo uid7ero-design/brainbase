@@ -19,6 +19,19 @@ export function employeeDocumentNotFoundResponse(): NextResponse {
   return NextResponse.json({ error: 'Employee document not found.' }, { status: 404 });
 }
 
+export async function isEmployeeDocumentAdministrator(session: OrgSession): Promise<boolean> {
+  if (session.role === 'super_admin') return true;
+  const rows = await sql`
+    SELECT EXISTS (
+      SELECT 1
+      FROM hr_administrators a
+      WHERE a.organisation_id = ${session.organisationId}
+        AND a.user_id = ${session.userId}
+    ) AS allowed
+  `;
+  return (rows[0] as { allowed?: boolean } | undefined)?.allowed === true;
+}
+
 export type EmployeeDocumentRow = {
   id: string;
   organisationId: string;
