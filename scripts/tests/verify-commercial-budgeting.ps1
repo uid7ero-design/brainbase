@@ -70,6 +70,58 @@ CREATE TABLE commercial_cost_centres (
   name TEXT NOT NULL,
   active BOOLEAN NOT NULL DEFAULT true
 );
+CREATE TABLE commercial_suppliers (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  organisation_id TEXT NOT NULL REFERENCES organisations(id),
+  name TEXT NOT NULL,
+  UNIQUE (id, organisation_id)
+);
+CREATE TABLE commercial_purchase_orders (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  organisation_id TEXT NOT NULL REFERENCES organisations(id),
+  supplier_id UUID NOT NULL,
+  status TEXT NOT NULL,
+  currency TEXT NOT NULL,
+  cost_centre_id UUID,
+  issued_at TIMESTAMPTZ,
+  UNIQUE (id, organisation_id)
+);
+CREATE TABLE commercial_purchase_order_lines (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  organisation_id TEXT NOT NULL REFERENCES organisations(id),
+  purchase_order_id UUID NOT NULL,
+  position INTEGER NOT NULL DEFAULT 0,
+  description_snapshot TEXT NOT NULL,
+  cost_centre_id UUID,
+  line_subtotal_cents INTEGER NOT NULL,
+  line_tax_cents INTEGER NOT NULL,
+  line_total_cents INTEGER NOT NULL,
+  UNIQUE (id, organisation_id)
+);
+CREATE TABLE commercial_supplier_bills (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  organisation_id TEXT NOT NULL REFERENCES organisations(id),
+  supplier_id UUID NOT NULL,
+  source_purchase_order_id UUID NOT NULL,
+  bill_number TEXT,
+  status TEXT NOT NULL,
+  currency TEXT NOT NULL,
+  bill_date DATE,
+  supplier_name_snapshot TEXT,
+  posted_at TIMESTAMPTZ,
+  UNIQUE (id, organisation_id)
+);
+CREATE TABLE commercial_supplier_bill_lines (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  organisation_id TEXT NOT NULL REFERENCES organisations(id),
+  supplier_bill_id UUID NOT NULL,
+  source_purchase_order_line_id UUID NOT NULL,
+  position INTEGER NOT NULL DEFAULT 0,
+  line_subtotal_cents INTEGER NOT NULL,
+  line_tax_cents INTEGER NOT NULL,
+  line_total_cents INTEGER NOT NULL,
+  UNIQUE (id, organisation_id)
+);
 INSERT INTO organisations(id,name) VALUES ('org-a','Org A'),('org-b','Org B');
 INSERT INTO users(id,organisation_id) VALUES ('user-a','org-a'),('user-b','org-b');
 '@
@@ -275,8 +327,19 @@ END $$;
     }
   }
 
+  Mark 'C7.8A Budget Actuals integration suite' {
+    $env:DATABASE_URL = "postgresql://postgres:test@127.0.0.1:$port/testdb"
+    Push-Location $repo
+    try {
+      npx vitest run --config vitest.integration.config.ts scripts/tests/budgetActuals.integration.test.ts
+      if ($LASTEXITCODE -ne 0) { throw "actuals integration exit $LASTEXITCODE" }
+    } finally {
+      Pop-Location
+    }
+  }
+
   Write-Host ''
-  Write-Host "=== C7.7B/C7.7D/C7.7E RESULT: PASS=$pass FAIL=$fail ==="
+  Write-Host "=== C7.7B/C7.7D/C7.7E/C7.8A RESULT: PASS=$pass FAIL=$fail ==="
   if ($fail -ne 0) {
     foreach ($failure in $failures) { Write-Host "  - $failure" }
     exit 1
