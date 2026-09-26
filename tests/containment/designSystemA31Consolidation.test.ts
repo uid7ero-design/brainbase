@@ -57,44 +57,20 @@ describe('A.3.1 shared prose, page layout, and link consolidation', () => {
     expect(textLink).not.toMatch(/use(State|Effect)|fetch\(/)
   })
 
-  it('refactors Terms onto the shared primitives without local Section/List/link-style duplicates', () => {
-    for (const component of [
-      'PageCanvas',
-      'PageContainer',
-      'ProseSection',
-      'ProseList',
-      'SectionHeader',
-      'Surface',
-      'TextLink',
-    ]) {
-      expect(terms).toContain(component)
+  it('keeps the A.3.1 primitives available while Terms and Privacy follow the newer public legal system', () => {
+    for (const component of ['PageCanvas', 'PageContainer', 'ProseSection', 'ProseList', 'TextLink']) {
+      expect(barrel).toContain(`export { ${component} }`)
     }
-    expect(terms).not.toContain('function Section(')
-    expect(terms).not.toContain('function List(')
-    expect(terms).not.toContain('const linkStyle')
-    expect(terms).toContain("style={{ padding: '48px 24px 90px' }}")
-    expect(terms).toContain('maxWidth={720}')
+    for (const legalSource of [terms, privacy]) {
+      expect(legalSource).toContain("from '@/components/public/legal/LegalDocument'")
+      expect(legalSource).toContain('<LegalDocument')
+      expect(legalSource).toContain('<LegalSection')
+      expect(legalSource).not.toContain('function Section(')
+      expect(legalSource).not.toContain('function List(')
+      expect(legalSource).not.toContain('const linkStyle')
+    }
     expect(terms).toContain('href="/privacy"')
     expect(terms).toContain('href="mailto:hello@thebrainbase.com.au"')
-  })
-
-  it('refactors Privacy onto the same shared primitives without local Section/List/link-style duplicates', () => {
-    for (const component of [
-      'PageCanvas',
-      'PageContainer',
-      'ProseSection',
-      'ProseList',
-      'SectionHeader',
-      'Surface',
-      'TextLink',
-    ]) {
-      expect(privacy).toContain(component)
-    }
-    expect(privacy).not.toContain('function Section(')
-    expect(privacy).not.toContain('function List(')
-    expect(privacy).not.toContain('const linkStyle')
-    expect(privacy).toContain("style={{ padding: '48px 24px 90px' }}")
-    expect(privacy).toContain('maxWidth={720}')
     expect(privacy).toContain('href="mailto:hello@thebrainbase.com.au"')
   })
 

@@ -1,0 +1,308 @@
+/* ─── BrainBase public design tokens (--bb-*) ─────────────────────────
+   The HLNA-family visual system for the public BrainBase site. Additive
+   only: the application's own tokens in app/globals.css (--bg-*,
+   --purple-*, --text-*) are untouched, so the logged-in interface does
+   not change.
+
+   Theme follows the existing mechanism: app/layout.tsx's init script
+   always sets data-theme on <html> (dark unless bb-theme = "light"), so
+   dark values are the :root default and light values override them.
+
+   .bb-scope-dark / .bb-scope-light pin a subtree to one theme — used by
+   the terminal panel (always dark) and by the public nav on routes whose
+   page body has not yet been converted to these tokens. */
+
+:root {
+  --bb-purple-50: #f7f3ff;
+  --bb-purple-100: #eee6ff;
+  --bb-purple-200: #ddccff;
+  --bb-purple-300: #c3a6ff;
+  --bb-purple-400: #a879ff;
+  --bb-purple-500: #8b5cf6;
+  --bb-purple-600: #7440e8;
+  --bb-purple-700: #5f31c7;
+  --bb-purple-800: #4c299f;
+  --bb-purple-900: #3d237d;
+  --bb-purple-950: #25144d;
+
+  --bb-cyan-50: #ecfdff;
+  --bb-cyan-100: #cff9fe;
+  --bb-cyan-200: #a6f0fb;
+  --bb-cyan-300: #67e1f5;
+  --bb-cyan-400: #22c7e8;
+  --bb-cyan-500: #08a9cb;
+  --bb-cyan-600: #0987a7;
+  --bb-cyan-700: #0d6b87;
+  --bb-cyan-800: #12586d;
+  --bb-cyan-900: #13495c;
+  --bb-cyan-950: #062f3e;
+
+  --bb-font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --bb-font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  --bb-radius-sm: 4px;
+  --bb-radius: 6px;
+  --bb-radius-lg: 10px;
+  /* Layout system. One container: every public page aligns nav, hero,
+     section headers, diagrams, grids and footer to the same two vertical
+     guides (container edge + gutter). No section-specific offsets. */
+  --bb-container: 1200px;
+  --bb-gutter: clamp(16px, 4vw, 32px);
+
+  /* Vertical rhythm — the only spacing values public sections use. Slightly
+     denser than HLNA Labs. */
+  --bb-section-gap: clamp(56px, 7vw, 88px); /* between page sections */
+  --bb-block-gap: clamp(32px, 4vw, 48px); /* between blocks inside a section */
+  --bb-head-gap: clamp(24px, 3vw, 32px); /* section header -> its content */
+  --bb-hero-top: clamp(40px, 6vw, 72px);
+  --bb-hero-bottom: clamp(48px, 6vw, 72px);
+
+  /* Cells — cards are cells within one system, not standalone cards. */
+  --bb-cell-pad: 20px 22px 22px;
+  --bb-cell-pad-sm: 14px 16px;
+  --bb-panel-pad: 18px;
+  --bb-cell-icon: 36px;
+  --bb-cell-icon-gap: 16px;
+  --bb-cell-title-gap: 8px;
+  --bb-grid-gap: 12px; /* gap between separated panels; ruled cell grids use 1px */
+}
+
+/* Dark (default — matches the layout's data-theme="dark" default). */
+:root,
+.bb-scope-dark {
+  --bb-bg: #0d0d12;
+  --bb-bg-subtle: #12121a;
+  --bb-surface: #15151d;
+  --bb-surface-raised: #1a1a24;
+  --bb-surface-strong: #20202b;
+
+  --bb-text: #f2f0f7;
+  --bb-text-muted: #aaa6b4;
+  --bb-text-subtle: #777382;
+
+  --bb-border: #292833;
+  --bb-border-strong: #3a3847;
+  --bb-grid: rgba(255, 255, 255, 0.045);
+
+  --bb-accent: var(--bb-purple-400);
+  --bb-accent-hover: var(--bb-purple-300);
+  --bb-accent-soft: rgba(168, 121, 255, 0.1);
+  --bb-accent-border: rgba(168, 121, 255, 0.28);
+  --bb-accent-contrast: #14101f;
+
+  --bb-signal: var(--bb-cyan-400);
+  --bb-signal-hover: var(--bb-cyan-300);
+  --bb-signal-soft: rgba(34, 199, 232, 0.1);
+  --bb-signal-border: rgba(34, 199, 232, 0.26);
+  /* Cyan for small text — --bb-signal is for strokes, dots and diagrams. */
+  --bb-signal-text: var(--bb-cyan-300);
+
+  --bb-focus: var(--bb-purple-300);
+
+  /* Semantic states: -fg text/icon, -dot indicator, -soft fill, -border. */
+  --bb-success-fg: #5fd49a;
+  --bb-success-dot: #3fbf7f;
+  --bb-success-soft: rgba(63, 191, 127, 0.1);
+  --bb-success-border: rgba(63, 191, 127, 0.3);
+
+  --bb-warning-fg: #f3bc5b;
+  --bb-warning-dot: #eaa53a;
+  --bb-warning-soft: rgba(234, 165, 58, 0.1);
+  --bb-warning-border: rgba(234, 165, 58, 0.3);
+
+  --bb-error-fg: #fb8a80;
+  --bb-error-dot: #f06a5e;
+  --bb-error-soft: rgba(240, 106, 94, 0.1);
+  --bb-error-border: rgba(240, 106, 94, 0.32);
+
+  --bb-info-fg: var(--bb-cyan-300);
+  --bb-info-dot: var(--bb-cyan-400);
+  --bb-info-soft: rgba(34, 199, 232, 0.08);
+  --bb-info-border: rgba(34, 199, 232, 0.26);
+
+  --bb-active-fg: var(--bb-purple-300);
+  --bb-active-dot: var(--bb-purple-400);
+  --bb-active-soft: rgba(168, 121, 255, 0.1);
+  --bb-active-border: rgba(168, 121, 255, 0.3);
+
+  --bb-inactive-fg: #aaa6b4;
+  --bb-inactive-dot: #6f6b7a;
+  --bb-inactive-soft: rgba(255, 255, 255, 0.04);
+  --bb-inactive-border: #3a3847;
+
+  --bb-syncing-fg: var(--bb-cyan-200);
+  --bb-syncing-dot: var(--bb-cyan-300);
+  --bb-syncing-soft: rgba(34, 199, 232, 0.1);
+  --bb-syncing-border: rgba(34, 199, 232, 0.32);
+
+}
+
+:root[data-theme='light'],
+.bb-scope-light {
+  --bb-bg: #f7f6f2;
+  --bb-bg-subtle: #f1f0eb;
+  --bb-surface: #ffffff;
+  --bb-surface-raised: #fbfaf7;
+  --bb-surface-strong: #f3f1ec;
+
+  --bb-text: #151417;
+  --bb-text-muted: #66636d;
+  --bb-text-subtle: #8a8791;
+
+  --bb-border: #dedbd4;
+  --bb-border-strong: #c9c5bc;
+  --bb-grid: rgba(21, 20, 23, 0.055);
+
+  --bb-accent: var(--bb-purple-600);
+  --bb-accent-hover: var(--bb-purple-700);
+  --bb-accent-soft: var(--bb-purple-50);
+  --bb-accent-border: var(--bb-purple-200);
+  --bb-accent-contrast: #ffffff;
+
+  --bb-signal: var(--bb-cyan-600);
+  --bb-signal-hover: var(--bb-cyan-700);
+  --bb-signal-soft: var(--bb-cyan-50);
+  --bb-signal-border: var(--bb-cyan-200);
+  --bb-signal-text: var(--bb-cyan-700);
+
+  --bb-focus: var(--bb-purple-600);
+
+  --bb-success-fg: #17693f;
+  --bb-success-dot: #1f9d5c;
+  --bb-success-soft: #edf8f1;
+  --bb-success-border: #b9e2c9;
+
+  --bb-warning-fg: #87500a;
+  --bb-warning-dot: #d98a0b;
+  --bb-warning-soft: #fdf6e7;
+  --bb-warning-border: #f0d39c;
+
+  --bb-error-fg: #a8231a;
+  --bb-error-dot: #d92d20;
+  --bb-error-soft: #fdf1ef;
+  --bb-error-border: #f2c3bc;
+
+  --bb-info-fg: var(--bb-cyan-800);
+  --bb-info-dot: var(--bb-cyan-600);
+  --bb-info-soft: var(--bb-cyan-50);
+  --bb-info-border: var(--bb-cyan-200);
+
+  --bb-active-fg: var(--bb-purple-700);
+  --bb-active-dot: var(--bb-purple-600);
+  --bb-active-soft: var(--bb-purple-50);
+  --bb-active-border: var(--bb-purple-200);
+
+  --bb-inactive-fg: #5b5862;
+  --bb-inactive-dot: #a3a0a9;
+  --bb-inactive-soft: #f1f0eb;
+  --bb-inactive-border: #dedbd4;
+
+  --bb-syncing-fg: var(--bb-cyan-700);
+  --bb-syncing-dot: var(--bb-cyan-500);
+  --bb-syncing-soft: var(--bb-cyan-50);
+  --bb-syncing-border: var(--bb-cyan-200);
+
+}
+
+/* color-scheme (native controls, scrollbars) is scoped to public-site
+   elements only, so the application's form controls are unaffected. */
+.bb-public,
+.bb-scope-dark {
+  color-scheme: dark;
+}
+:root[data-theme='light'] .bb-public:not(.bb-scope-dark),
+.bb-scope-light {
+  color-scheme: light;
+}
+
+/* ─── Shared public-site utilities ─────────────────────────────────── */
+
+/* Faint square technical grid. */
+.bb-grid-bg {
+  background-image:
+    linear-gradient(var(--bb-grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--bb-grid) 1px, transparent 1px);
+  background-size: 32px 32px;
+  background-position: -1px -1px;
+}
+
+/* Ruled cell grid: cells share 1px rules instead of floating as separate
+   cards. Set grid-template-columns in the page's own module. */
+.bb-cells {
+  display: grid;
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--bb-border);
+  border-radius: var(--bb-radius-lg);
+  background: var(--bb-border);
+  overflow: hidden;
+}
+.bb-cells > * {
+  padding: var(--bb-cell-pad);
+  background: var(--bb-surface);
+}
+
+/* Compact monospace metadata label. */
+.bb-eyebrow {
+  font-family: var(--bb-font-mono);
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--bb-text-muted);
+}
+
+.bb-visually-hidden {
+  position: absolute !important;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.bb-public :focus-visible,
+.bb-semantic :focus-visible {
+  outline: 2px solid var(--bb-focus);
+  outline-offset: 3px;
+  border-radius: 3px;
+}
+
+/* ─── Public/app token collision bridge ───────────────────────────────
+   The authenticated app now owns several --bb-* names in globals.css.
+   Public pages are explicitly scoped with .bb-public / .bb-scope-*; pin
+   the overlapping public values here at higher specificity so both visual
+   systems can coexist without either root token set silently winning by
+   import order. */
+:root .bb-public,
+:root .bb-scope-dark {
+  --bb-font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --bb-font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --bb-radius-sm: 4px;
+  --bb-radius-lg: 10px;
+  --bb-text-muted: #aaa6b4;
+  --bb-border-strong: #3a3847;
+  --bb-accent-soft: rgba(168, 121, 255, 0.1);
+  --bb-success-soft: rgba(63, 191, 127, 0.1);
+  --bb-warning-soft: rgba(234, 165, 58, 0.1);
+  --bb-info-soft: rgba(34, 199, 232, 0.08);
+}
+
+:root[data-theme='light'] .bb-public,
+:root .bb-scope-light {
+  --bb-font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --bb-font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --bb-radius-sm: 4px;
+  --bb-radius-lg: 10px;
+  --bb-text-muted: #66636d;
+  --bb-border-strong: #c9c5bc;
+  --bb-accent-soft: var(--bb-purple-50);
+  --bb-success-soft: #edf8f1;
+  --bb-warning-soft: #fdf6e7;
+  --bb-info-soft: var(--bb-cyan-50);
+}

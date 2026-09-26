@@ -62,10 +62,19 @@ describe('components/nav/TopNav.tsx — uses the shared constant, not a duplicat
     expect(topNavSource).toMatch(/import \{ TOP_NAV_HEIGHT_PX \} from '@\/lib\/layout\/headerOffset';/)
   })
 
+  // PublicNav moved to components/public/PublicNav.tsx (public-site visual
+  // system); it still takes its height from the same shared constant.
   it('both PublicNav and AppNav use TOP_NAV_HEIGHT_PX for height, not a bare 52 literal', () => {
     const occurrences = [...topNavSource.matchAll(/height: TOP_NAV_HEIGHT_PX,/g)]
-    expect(occurrences.length).toBe(2)
+    expect(occurrences.length).toBe(1)
     expect(topNavSource).not.toMatch(/height: 52,/)
+    expect(topNavSource).toMatch(/<PublicNav/)
+
+    const publicNavSource = stripComments(read('components/public/PublicNav.tsx'))
+    const publicNavCss = read('components/public/PublicNav.module.css')
+    expect(publicNavSource).toMatch(/import \{ TOP_NAV_HEIGHT_PX \} from '@\/lib\/layout\/headerOffset'/)
+    expect(publicNavSource).toMatch(/style=\{\{ height: TOP_NAV_HEIGHT_PX \}\}/)
+    expect(publicNavCss).not.toMatch(/height:\s*52px/)
   })
 })
 

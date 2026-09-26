@@ -1,13 +1,36 @@
 import { defineConfig } from 'vitest/config';
 import path from 'path';
 
-// Minimal Phase 0.5 containment test setup — scoped to server-side lib/route
-// logic only, not the wider React/Next.js app. Mirrors tsconfig's "@/*" alias.
+// Two projects:
+//  - containment: the Phase 0.5 static source-text suite — server-side lib/
+//    route logic in plain Node (unchanged).
+//  - components: rendered React component tests (jsdom + React Testing
+//    Library + jest-axe) for the public-site design system. Helpers live
+//    in tests/a11y/.
+// Both mirror tsconfig's "@/*" alias via the shared root `resolve`.
 export default defineConfig({
   test: {
-    environment: 'node',
-    include: ['tests/containment/**/*.test.ts'],
-    setupFiles: ['./tests/setupEnv.ts'],
+    projects: [
+      {
+        extends: true,
+        test: {
+          name: 'containment',
+          environment: 'node',
+          include: ['tests/containment/**/*.test.ts'],
+          setupFiles: ['./tests/setupEnv.ts'],
+        },
+      },
+      {
+        extends: true,
+        test: {
+          name: 'components',
+          environment: 'jsdom',
+          include: ['tests/components/**/*.test.tsx'],
+          setupFiles: ['./tests/setupEnv.ts', './tests/a11y/setup.ts'],
+          css: { include: [/\.module\.css$/], modules: { classNameStrategy: 'non-scoped' } },
+        },
+      },
+    ],
   },
   resolve: {
     alias: {

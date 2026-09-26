@@ -7,6 +7,16 @@ const topNav = fs.readFileSync(
   'utf-8',
 )
 
+const publicNav = fs.readFileSync(
+  path.resolve(__dirname, '../../components/public/PublicNav.tsx'),
+  'utf-8',
+)
+
+const routes = fs.readFileSync(
+  path.resolve(__dirname, '../../components/public/routes.ts'),
+  'utf-8',
+)
+
 const sidebar = fs.readFileSync(
   path.resolve(__dirname, '../../components/ops/Sidebar.tsx'),
   'utf-8',
@@ -28,16 +38,18 @@ describe('B.4 shared responsive navigation design-system migration', () => {
     expect(topNav).toContain("gap: 'var(--bb-space-1)'")
   })
 
-  it('keeps the public-nav spacing and call-to-action on canonical spacing tokens without changing destinations', () => {
-    expect(topNav).toContain("gap: 'var(--bb-space-2)'")
-    expect(topNav).toContain("marginLeft: 'var(--bb-space-2)'")
-    expect(topNav).toContain('href="/#product"')
-    expect(topNav).toContain('href="/client-operations"')
-    expect(topNav).toContain('href="/web-systems"')
-    expect(topNav).toContain('href="/pricing"')
-    expect(topNav).toContain('href="/demo"')
-    expect(topNav).toContain('href="/login"')
-    expect(topNav).toContain('href="/request-demo"')
+  it('preserves the extracted public navigation destinations and mobile-menu behavior from current main', () => {
+    expect(topNav).toContain("import { PublicNav } from '@/components/public/PublicNav'")
+    expect(topNav).toContain('<PublicNav')
+    for (const href of ['/#product', '/client-operations', '/web-systems', '/pricing', '/demo']) {
+      expect(routes).toContain(`href: '${href}'`)
+    }
+    expect(publicNav).toContain('href="/login"')
+    expect(publicNav).toContain('href="/request-demo"')
+    expect(publicNav).toContain('const [openOn, setOpenOn] = useState<string | null>(null)')
+    expect(publicNav).toContain("if (e.key === 'Escape')")
+    expect(publicNav).toContain('aria-expanded={open}')
+    expect(publicNav).toContain('hidden={!open}')
   })
 
   it('preserves capability-driven authenticated navigation exactly', () => {
@@ -97,12 +109,10 @@ describe('B.4 shared responsive navigation design-system migration', () => {
     expect(shell).toContain("localStorage.setItem('ops-sidebar-collapsed', String(next))")
   })
 
-  it('does not invent a second mobile navigation state or bypass capability/role boundaries', () => {
+  it('keeps authenticated TopNav free of duplicate mobile state while the extracted public nav owns its mobile menu', () => {
     expect(topNav).not.toContain('mobileOpen')
     expect(topNav).not.toContain('mobileMenuOpen')
-    expect(topNav).not.toContain('hamburger')
-    expect(topNav).not.toContain('window.innerWidth')
-    expect(topNav).not.toContain('matchMedia')
+    expect(publicNav).toContain('const [openOn, setOpenOn]')
     expect(sidebar).not.toContain('enabledCapabilities')
     expect(sidebar).not.toContain('role ===')
   })

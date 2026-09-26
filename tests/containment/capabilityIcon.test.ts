@@ -57,12 +57,12 @@ describe('CapabilityIcon — sizing and container recipe', () => {
     expect(code).toMatch(/md:\s*{\s*icon:\s*20,\s*container:\s*38,\s*radius:\s*9\s*}/)
   })
 
-  it('accent colours for crm/events are byte-identical to the homepage CAPABILITIES card colours', () => {
-    const homepage = read('app/page.tsx')
+  // The public homepage's capability cards moved to the --bb-* token system
+  // (single accent, no per-capability colours), so the icon's accents are
+  // no longer mirrored there; they remain the in-app capability colours.
+  it('accent colours for crm/events keep the established capability colours', () => {
     expect(code).toContain("color: '#8A4DFF'")
-    expect(homepage).toContain("color: '#8A4DFF'")
     expect(code).toContain("color: '#FBBF24'")
-    expect(homepage).toContain("color: '#FBBF24'")
   })
 })
 
