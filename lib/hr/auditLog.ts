@@ -174,6 +174,26 @@ const HR_LIFECYCLE_TASK_APPROVAL_AUDIT_POLICY: AuditFieldPolicy = {
   omitted: new Set(['id', 'organisation_id', 'created_at']),
 };
 
+const HR_EMPLOYEE_DOCUMENT_AUDIT_POLICY: AuditFieldPolicy = {
+  allowed: new Set(['document_type', 'deleted_at']),
+  idOnly: new Set(['person_id', 'lifecycle_task_id']),
+  redacted: new Set(['title']),
+  omitted: new Set(['id', 'organisation_id', 'created_at']),
+};
+
+const HR_EMPLOYEE_DOCUMENT_VERSION_AUDIT_POLICY: AuditFieldPolicy = {
+  allowed: new Set([
+    'version_number',
+    'content_type',
+    'byte_size',
+    'expires_at',
+    'is_current',
+  ]),
+  idOnly: new Set(['document_id', 'uploaded_by']),
+  redacted: new Set(['original_filename']),
+  omitted: new Set(['id', 'organisation_id', 'storage_key', 'created_at']),
+};
+
 const RESTRICTED_HR_READ_EVENTS = new Set([
   'hr_restricted_case:hr_restricted_case.read',
   'hr_restricted_case_participant:hr_restricted_case_participant.read',
@@ -245,6 +265,8 @@ function policyForResource(resourceType: string): AuditFieldPolicy | null {
   if (resourceType === 'hr_lifecycle_workflow') return HR_LIFECYCLE_WORKFLOW_AUDIT_POLICY;
   if (resourceType === 'hr_lifecycle_task') return HR_LIFECYCLE_TASK_AUDIT_POLICY;
   if (resourceType === 'hr_lifecycle_task_approval') return HR_LIFECYCLE_TASK_APPROVAL_AUDIT_POLICY;
+  if (resourceType === 'hr_employee_document') return HR_EMPLOYEE_DOCUMENT_AUDIT_POLICY;
+  if (resourceType === 'hr_employee_document_version') return HR_EMPLOYEE_DOCUMENT_VERSION_AUDIT_POLICY;
   return null;
 }
 
@@ -259,6 +281,7 @@ function projectHrAuditState(
     if (
       resourceType.startsWith('hr_restricted_')
       || resourceType.startsWith('hr_lifecycle_')
+      || resourceType.startsWith('hr_employee_document')
     ) {
       return redactAllState(state);
     }
