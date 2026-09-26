@@ -5,6 +5,7 @@ $migration = Join-Path $repo 'scripts\create-commercial-budgeting.sql'
 $financeCloseMigration = Join-Path $repo 'scripts\create-commercial-finance-close.sql'
 $financeAdjustmentMigration = Join-Path $repo 'scripts\create-commercial-finance-adjustments.sql'
 $externalGlMigration = Join-Path $repo 'scripts\create-commercial-external-gl.sql'
+$financeReconciliationMigration = Join-Path $repo 'scripts\create-commercial-finance-reconciliation.sql'
 $container = "brainbase-c77b-budgeting-$PID"
 $port = 55439
 $pass = 0
@@ -169,6 +170,16 @@ INSERT INTO users(id,organisation_id) VALUES ('user-a','org-a'),('user-b','org-b
   Mark 'C7.9D external-GL idempotent second apply' {
     Get-Content $externalGlMigration -Raw | docker exec -i $container psql -v ON_ERROR_STOP=1 -U postgres -d testdb
     if ($LASTEXITCODE -ne 0) { throw "external-GL second migration exit $LASTEXITCODE" }
+  }
+
+  Mark 'C7.9E1 finance-reconciliation fresh migration apply' {
+    Get-Content $financeReconciliationMigration -Raw | docker exec -i $container psql -v ON_ERROR_STOP=1 -U postgres -d testdb
+    if ($LASTEXITCODE -ne 0) { throw "finance-reconciliation fresh migration exit $LASTEXITCODE" }
+  }
+
+  Mark 'C7.9E1 finance-reconciliation idempotent second apply' {
+    Get-Content $financeReconciliationMigration -Raw | docker exec -i $container psql -v ON_ERROR_STOP=1 -U postgres -d testdb
+    if ($LASTEXITCODE -ne 0) { throw "finance-reconciliation second migration exit $LASTEXITCODE" }
   }
 
   Mark 'fixtures' {
@@ -469,8 +480,19 @@ END $$;
     }
   }
 
+  Mark 'C7.9E1 finance reconciliation integration suite' {
+    $env:DATABASE_URL = "postgresql://postgres:test@127.0.0.1:$port/testdb"
+    Push-Location $repo
+    try {
+      npx vitest run --config vitest.integration.config.ts scripts/tests/financeReconciliation.integration.test.ts
+      if ($LASTEXITCODE -ne 0) { throw "finance reconciliation integration exit $LASTEXITCODE" }
+    } finally {
+      Pop-Location
+    }
+  }
+
   Write-Host ''
-  Write-Host "=== C7.7B/C7.7D/C7.7E/C7.8A/C7.8B/C7.8C/C7.9A/C7.9B/C7.9C/C7.9D RESULT: PASS=$pass FAIL=$fail ==="
+  Write-Host "=== C7.7B/C7.7D/C7.7E/C7.8A/C7.8B/C7.8C/C7.9A/C7.9B/C7.9C/C7.9D/C7.9E1 RESULT: PASS=$pass FAIL=$fail ==="
   if ($fail -ne 0) {
     foreach ($failure in $failures) { Write-Host "  - $failure" }
     exit 1

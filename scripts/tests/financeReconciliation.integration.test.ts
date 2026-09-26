@@ -1,0 +1,390 @@
+import { randomUUID } from 'crypto';
+import { afterAll, describe, expect, it, vi } from 'vitest';
+import { PrismaClient } from '@prisma/client';
+
+const DATABASE_URL = process.env.DATABASE_URL;
+if (!DATABASE_URL) throw new Error('financeReconciliation.integration.test.ts requires DATABASE_URL.');
+if (/neon\.tech|amazonaws\.com|\.rds\.|azure\.com/i.test(DATABASE_URL)) throw new Error('Refusing hosted database.');
+const host = new URL(DATABASE_URL.replace(/^postgres(ql)?:\/\//, 'http://')).hostname;
+if (!['localhost', '127.0.0.1'].includes(host)) throw new Error('Refusing non-localhost database.');
+
+const prisma = new PrismaClient({ datasourceUrl: DATABASE_URL });
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+type Q = { strings: readonly string[]; values: unknown[] };
+function compile(q: Q) {
+  let text = q.strings[0];
+  for (let i = 0; i < q.values.length; i++) {
+    const cast = typeof q.values[i] === 'string' && UUID_RE.test(q.values[i] as string) ? '::uuid' : '';
+    text += `$${i + 1}${cast}` + q.strings[i + 1];
+  }
+  return { text, values: q.values };
+}
+const sqlMock = Object.assign(
+  async (strings: TemplateStringsArray, ...values: unknown[]) => {
+    const q = compile({ strings, values });
+    return prisma.$queryRawUnsafe(q.text, ...q.values);
+  },
+  {
+    transaction: async (
+      builder: (txn: (strings: TemplateStringsArray, ...values: unknown[]) => Q) => Q[],
+      options?: { isolationLevel?: string },
+    ) => prisma.$transaction(async tx => {
+      const descriptors = builder((strings, ...values) => ({ strings, values }));
+      const out: unknown[] = [];
+      for (const descriptor of descriptors) {
+        const q = compile(descriptor);
+        out.push(await tx.$queryRawUnsafe(q.text, ...q.values));
+      }
+      return out;
+    }, { isolationLevel: options?.isolationLevel as 'ReadCommitted' | 'RepeatableRead' | undefined }),
+  },
+);
+vi.doMock('@/lib/db', () => ({ default: sqlMock }));
+
+const { prepareFinanceReconciliation } = await import('@/lib/commercial/financeReconciliation');
+const { createFinanceAdjustment, postFinanceAdjustment, reverseFinanceAdjustment } =
+  await import('@/lib/commercial/financeAdjustments');
+const { activateBudgetVersion } = await import('@/lib/commercial/budgetActivation');
+
+type Fixture = {
+  org: string; user: string; fy: string; period: string; period2: string; cc: string;
+  supplier: string; po: string; pol: string; bill: string; billLine: string;
+  account: string; budget: string; version: string; budgetLine: string;
+};
+const id = () => randomUUID();
+
+async function seedFixture(options: { sourceCents?: number; currency?: string; withSource?: boolean } = {}): Promise<Fixture> {
+  const sourceCents = options.sourceCents ?? 1000;
+  const currency = options.currency ?? 'AUD';
+  const withSource = options.withSource ?? true;
+  const f: Fixture = {
+    org: `org-c79e1-${id().slice(0, 8)}`, user: `user-c79e1-${id().slice(0, 8)}`,
+    fy: id(), period: id(), period2: id(), cc: id(), supplier: id(), po: id(), pol: id(),
+    bill: id(), billLine: id(), account: id(), budget: id(), version: id(), budgetLine: id(),
+  };
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO organisations(id,name) VALUES ($1,'C7.9E1')`, f.org,
+  );
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO users(id,organisation_id) VALUES ($1,$2)`, f.user, f.org,
+  );
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO commercial_financial_years(id,organisation_id,name,starts_on,ends_on,status)
+     VALUES ($1::uuid,$2,'FY27','2026-07-01','2027-06-30','OPEN')`,
+    f.fy, f.org,
+  );
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO commercial_financial_periods
+      (id,financial_year_id,organisation_id,name,starts_on,ends_on,status)
+     VALUES ($1::uuid,$2::uuid,$3,'Sep','2026-09-01','2026-09-30','OPEN'),
+            ($4::uuid,$2::uuid,$3,'Oct','2026-10-01','2026-10-31','OPEN')`,
+    f.period, f.fy, f.org, f.period2,
+  );
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO commercial_cost_centres(id,organisation_id,code,name,active)
+     VALUES ($1::uuid,$2,'OPS','Operations',true)`,
+    f.cc, f.org,
+  );
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO commercial_budget_accounts(id,organisation_id,code,name,active,created_by)
+     VALUES ($1::uuid,$2,'OPEX','Operating',true,$3)`,
+    f.account, f.org, f.user,
+  );
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO commercial_budgets
+      (id,organisation_id,financial_year_id,name,currency,tax_basis,periodisation_mode,created_by)
+     VALUES ($1::uuid,$2,$3::uuid,'Budget',$4,'INCLUSIVE','ANNUAL_ONLY',$5)`,
+    f.budget, f.org, f.fy, currency, f.user,
+  );
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO commercial_budget_versions
+      (id,organisation_id,budget_id,version_number,status,created_by,activated_by,activated_at)
+     VALUES ($1::uuid,$2,$3::uuid,1,'ACTIVE',$4,$4,now())`,
+    f.version, f.org, f.budget, f.user,
+  );
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO commercial_budget_lines
+      (id,organisation_id,budget_version_id,budget_account_id,cost_centre_id,annual_budget_cents)
+     VALUES ($1::uuid,$2,$3::uuid,$4::uuid,$5::uuid,1000000)`,
+    f.budgetLine, f.org, f.version, f.account, f.cc,
+  );
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO commercial_budget_commitment_mappings
+      (organisation_id,budget_version_id,cost_centre_id,budget_account_id,created_by)
+     VALUES ($1,$2::uuid,$3::uuid,$4::uuid,$5)`,
+    f.org, f.version, f.cc, f.account, f.user,
+  );
+  await prisma.$executeRawUnsafe(
+    `UPDATE commercial_budgets
+     SET active_version_id=$1::uuid
+     WHERE id=$2::uuid AND organisation_id=$3`,
+    f.version, f.budget, f.org,
+  );
+  if (withSource) {
+    const subtotal = sourceCents - 100;
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO commercial_suppliers(id,organisation_id,name)
+       VALUES ($1::uuid,$2,'Supplier')`,
+      f.supplier, f.org,
+    );
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO commercial_purchase_orders
+        (id,organisation_id,supplier_id,status,currency,cost_centre_id,issued_at)
+       VALUES ($1::uuid,$2,$3::uuid,'ISSUED',$4,$5::uuid,'2026-09-01T00:00:00Z')`,
+      f.po, f.org, f.supplier, currency, f.cc,
+    );
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO commercial_purchase_order_lines
+        (id,organisation_id,purchase_order_id,position,description_snapshot,cost_centre_id,
+         line_subtotal_cents,line_tax_cents,line_total_cents)
+       VALUES ($1::uuid,$2,$3::uuid,1,'Line',$4::uuid,$5,100,$6)`,
+      f.pol, f.org, f.po, f.cc, subtotal, sourceCents,
+    );
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO commercial_supplier_bills
+        (id,organisation_id,supplier_id,source_purchase_order_id,bill_number,status,currency,
+         bill_date,supplier_name_snapshot,posted_at)
+       VALUES ($1::uuid,$2,$3::uuid,$4::uuid,'B-1','POSTED',$5,
+               '2026-09-15','Supplier','2026-09-15T10:00:00Z')`,
+      f.bill, f.org, f.supplier, f.po, currency,
+    );
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO commercial_supplier_bill_lines
+        (id,organisation_id,supplier_bill_id,source_purchase_order_line_id,position,
+         line_subtotal_cents,line_tax_cents,line_total_cents)
+       VALUES ($1::uuid,$2,$3::uuid,$4::uuid,1,$5,100,$6)`,
+      f.billLine, f.org, f.bill, f.pol, subtotal, sourceCents,
+    );
+  }
+  return f;
+}
+
+async function addAccount(f: Fixture, code: string) {
+  const account = id();
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO commercial_budget_accounts(id,organisation_id,code,name,active,created_by)
+     VALUES ($1::uuid,$2,$3,$3,true,$4)`, account, f.org, code, f.user,
+  );
+  return account;
+}
+async function addMapping(f: Fixture, account = f.account, code = '600', from = '2026-07-01', to: string | null = null) {
+  const mapping = id();
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO commercial_external_gl_account_mappings
+      (id,organisation_id,source_system_id,external_gl_account_code,external_gl_account_name,budget_account_id,effective_from,effective_to,status,created_by)
+     VALUES ($1::uuid,$2,'xero',$3,'GL',$4::uuid,$5::date,$6::date,'ACTIVE',$7)`,
+    mapping, f.org, code, account, from, to, f.user,
+  );
+  return mapping;
+}
+async function addEntry(f: Fixture, amount: number, code = '600', date = '2026-09-20', currency = 'AUD', costCentre: string | null = null) {
+  const entry = id();
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO commercial_external_gl_entries
+      (id,organisation_id,source_system_id,external_entry_id,external_account_code,external_cost_centre_code,transaction_date,currency,amount_minor_units,source_payload_hash,source_lineage_id,imported_by)
+     VALUES ($1::uuid,$2,'xero',$3,$4,$5,$6::date,$7,$8,'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',$9,$10)`,
+    entry, f.org, `entry-${entry}`, code, costCentre, date, currency, amount, `batch-${entry}`, f.user,
+  );
+  return entry;
+}
+async function prepare(f: Fixture, period = f.period, currency = 'AUD') {
+  return prepareFinanceReconciliation({
+    organisationId: f.org, userId: f.user, financialPeriodId: period, sourceSystemId: 'xero', currency,
+  });
+}
+async function postAdjustment(f: Fixture, cents: number, period = f.period) {
+  const draft = await createFinanceAdjustment({
+    organisationId: f.org, userId: f.user, adjustmentType: 'MANUAL_FINANCE_ADJUSTMENT',
+    effectiveFinancialPeriodId: period, currency: 'AUD', description: 'Recon adjustment', reasonCode: 'RECON',
+    lines: [{ budgetAccountId: f.account, costCentreId: f.cc, amountExclusiveCents: cents, taxCents: 0, amountInclusiveCents: cents }],
+  });
+  await postFinanceAdjustment({ organisationId: f.org, userId: f.user, financeAdjustmentId: draft.id });
+  return draft;
+}
+
+afterAll(async () => prisma.$disconnect());
+
+describe('C7.9E1 — prepared finance reconciliation snapshots', () => {
+  it('reconciles exact mapped totals at zero-cent tolerance', async () => {
+    const f = await seedFixture();
+    await addMapping(f);
+    await addEntry(f, 1000);
+    const result = await prepare(f);
+    expect(result.varianceCents).toBe('0');
+    expect(result.unresolvedItemCount).toBe(0);
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0].outcome).toBe('RECONCILED');
+  });
+
+  it('surfaces a mapped variance without tolerance', async () => {
+    const f = await seedFixture();
+    await addMapping(f);
+    await addEntry(f, 900);
+    const result = await prepare(f);
+    expect(result.varianceCents).toBe('100');
+    expect(result.items[0].outcome).toBe('VARIANCE');
+  });
+
+  it('adds POSTED finance adjustments to source Actual', async () => {
+    const f = await seedFixture();
+    await addMapping(f);
+    await postAdjustment(f, 200);
+    await addEntry(f, 1200);
+    const result = await prepare(f);
+    expect(result.sourceActualCents).toBe('1000');
+    expect(result.financeAdjustmentCents).toBe('200');
+    expect(result.brainbaseEffectiveActualCents).toBe('1200');
+    expect(result.items[0].outcome).toBe('RECONCILED');
+  });
+
+  it('preserves reversed original value in its period and applies the opposite reversal in the later period', async () => {
+    const f = await seedFixture();
+    await addMapping(f);
+    const original = await postAdjustment(f, 200, f.period);
+    await reverseFinanceAdjustment({
+      organisationId: f.org, userId: f.user, financeAdjustmentId: original.id,
+      reversalFinancialPeriodId: f.period2, reason: 'Move correction forward',
+    });
+    await addEntry(f, 1200, '600', '2026-09-20');
+    await addEntry(f, -200, '600', '2026-10-20');
+    const september = await prepare(f, f.period);
+    const october = await prepare(f, f.period2);
+    expect(september.financeAdjustmentCents).toBe('200');
+    expect(september.varianceCents).toBe('0');
+    expect(october.financeAdjustmentCents).toBe('-200');
+    expect(october.varianceCents).toBe('0');
+  });
+
+  it('selects external account mapping by the external entry transaction date', async () => {
+    const f = await seedFixture({ withSource: false });
+    const account2 = await addAccount(f, 'ALT');
+    await addMapping(f, f.account, '600', '2026-09-01', '2026-09-15');
+    const second = await addMapping(f, account2, '600', '2026-09-16', '2026-09-30');
+    await addEntry(f, 777, '600', '2026-09-20');
+    const result = await prepare(f);
+    const item = result.items.find(x => x.externalEntryCount === 1);
+    expect(item).toMatchObject({
+      externalGlAccountMappingId: second,
+      budgetAccountId: account2,
+      externalGlCents: '777',
+      outcome: 'EXTERNAL_ONLY_ENTRY',
+    });
+  });
+
+  it('surfaces unmapped external accounts explicitly', async () => {
+    const f = await seedFixture({ withSource: false });
+    await addEntry(f, 500, '999');
+    const result = await prepare(f);
+    expect(result.items[0]).toMatchObject({
+      budgetAccountId: null,
+      externalGlAccountCode: '999',
+      outcome: 'UNMAPPED_EXTERNAL_GL_ACCOUNT',
+    });
+  });
+
+  it('surfaces BrainBase accounts that have no external mapping', async () => {
+    const f = await seedFixture();
+    const result = await prepare(f);
+    expect(result.items[0]).toMatchObject({
+      budgetAccountId: f.account,
+      externalGlAccountMappingId: null,
+      sourceActualCents: '1000',
+      outcome: 'UNMAPPED_BRAINBASE_ACCOUNT',
+    });
+  });
+
+  it('does not guess external cost-centre mappings', async () => {
+    const f = await seedFixture({ withSource: false });
+    await addMapping(f);
+    await addEntry(f, 400, '600', '2026-09-20', 'AUD', 'OPS-EXT');
+    const result = await prepare(f);
+    expect(result.items[0]).toMatchObject({
+      externalCostCentreCode: 'OPS-EXT',
+      costCentreId: null,
+      outcome: 'UNMAPPED_COST_CENTRE',
+    });
+  });
+
+  it('keeps identical external identities and mappings isolated by tenant', async () => {
+    const a = await seedFixture();
+    const b = await seedFixture();
+    await addMapping(a); await addMapping(b);
+    await addEntry(a, 1000); await addEntry(b, 2500);
+    const result = await prepare(a);
+    expect(result.externalGlTotalCents).toBe('1000');
+    expect(result.varianceCents).toBe('0');
+  });
+
+  it('never combines currencies in one reconciliation snapshot', async () => {
+    const f = await seedFixture();
+    await addMapping(f);
+    await addEntry(f, 1000, '600', '2026-09-20', 'AUD');
+    await addEntry(f, 9999, '600', '2026-09-20', 'USD');
+    const result = await prepare(f, f.period, 'AUD');
+    expect(result.currency).toBe('AUD');
+    expect(result.externalGlTotalCents).toBe('1000');
+  });
+
+  it('persists parent totals that exactly equal its item evidence', async () => {
+    const f = await seedFixture();
+    await addMapping(f);
+    await addEntry(f, 900);
+    const result = await prepare(f);
+    const sums = await prisma.$queryRawUnsafe<{
+      source: bigint; adjustments: bigint; effective: bigint; external: bigint; variance: bigint;
+    }[]>(
+      `SELECT COALESCE(SUM(source_actual_cents),0) source,
+              COALESCE(SUM(finance_adjustment_cents),0) adjustments,
+              COALESCE(SUM(brainbase_effective_actual_cents),0) effective,
+              COALESCE(SUM(external_gl_cents),0) external,
+              COALESCE(SUM(variance_cents),0) variance
+       FROM commercial_finance_reconciliation_items
+       WHERE reconciliation_id=$1::uuid AND organisation_id=$2`,
+      result.id, f.org,
+    );
+    expect(sums[0].source.toString()).toBe(result.sourceActualCents);
+    expect(sums[0].adjustments.toString()).toBe(result.financeAdjustmentCents);
+    expect(sums[0].effective.toString()).toBe(result.brainbaseEffectiveActualCents);
+    expect(sums[0].external.toString()).toBe(result.externalGlTotalCents);
+    expect(sums[0].variance.toString()).toBe(result.varianceCents);
+  });
+
+  it('keeps a prepared snapshot unchanged after a later ACTIVE Budget version replaces classification', async () => {
+    const f = await seedFixture();
+    await addMapping(f);
+    await addEntry(f, 1000);
+    const prepared = await prepare(f);
+    const account2 = await addAccount(f, 'NEW');
+    const version2 = id();
+    const line2 = id();
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO commercial_budget_versions
+        (id,organisation_id,budget_id,version_number,status,created_by)
+       VALUES ($1::uuid,$2,$3::uuid,2,'DRAFT',$4)`,
+      version2, f.org, f.budget, f.user,
+    );
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO commercial_budget_lines
+        (id,organisation_id,budget_version_id,budget_account_id,cost_centre_id,annual_budget_cents)
+       VALUES ($1::uuid,$2,$3::uuid,$4::uuid,$5::uuid,1000000)`,
+      line2, f.org, version2, account2, f.cc,
+    );
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO commercial_budget_commitment_mappings
+        (organisation_id,budget_version_id,cost_centre_id,budget_account_id,created_by)
+       VALUES ($1,$2::uuid,$3::uuid,$4::uuid,$5)`,
+      f.org, version2, f.cc, account2, f.user,
+    );
+    await activateBudgetVersion({
+      organisationId: f.org, userId: f.user, budgetId: f.budget, budgetVersionId: version2,
+    });
+    const persisted = await prisma.$queryRawUnsafe<{ budget_account_id: string | null; source_actual_cents: bigint }[]>(
+      `SELECT budget_account_id,source_actual_cents
+       FROM commercial_finance_reconciliation_items
+       WHERE reconciliation_id=$1::uuid AND organisation_id=$2`, prepared.id, f.org,
+    );
+    expect(persisted).toHaveLength(1);
+    expect(persisted[0].budget_account_id).toBe(f.account);
+    expect(persisted[0].source_actual_cents.toString()).toBe('1000');
+  });
+});
