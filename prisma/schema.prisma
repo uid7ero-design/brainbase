@@ -824,6 +824,9 @@ model SourceSchemaColumn {
   @@unique([id, organisation_id])
   // D4A strict cell lineage key: identity + worksheet + position + tenant.
   @@unique([id, source_schema_worksheet_id, ordinal, organisation_id])
+  // D4A raw-cell evidence key: also proves the persisted header and sensitivity
+  // snapshot exactly match this governed column.
+  @@unique([id, source_schema_worksheet_id, ordinal, source_header, sensitivity_class, organisation_id])
   @@unique([source_schema_worksheet_id, ordinal])
   @@index([organisation_id])
   @@index([source_schema_worksheet_id])
@@ -976,8 +979,22 @@ model DataHubRawCell {
     references: [id, source_schema_worksheet_id, organisation_id]
   )
   source_schema_column SourceSchemaColumn @relation(
-    fields: [source_schema_column_id, source_schema_worksheet_id, column_ordinal, organisation_id],
-    references: [id, source_schema_worksheet_id, ordinal, organisation_id]
+    fields: [
+      source_schema_column_id,
+      source_schema_worksheet_id,
+      column_ordinal,
+      source_header,
+      sensitivity_class,
+      organisation_id
+    ],
+    references: [
+      id,
+      source_schema_worksheet_id,
+      ordinal,
+      source_header,
+      sensitivity_class,
+      organisation_id
+    ]
   )
 
   @@unique([raw_row_id, column_ordinal])
