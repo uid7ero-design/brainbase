@@ -322,6 +322,13 @@ SELECT pg_temp.ensure_unique_constraint(
 );
 
 SELECT pg_temp.ensure_unique_constraint(
+  'uploads',
+  'uploads_id_raw_profile_version_organisation_key',
+  'UNIQUE (id, raw_profile_version_id, organisation_id)',
+  'ALTER TABLE public.uploads ADD CONSTRAINT uploads_id_raw_profile_version_organisation_key UNIQUE (id, raw_profile_version_id, organisation_id)'
+);
+
+SELECT pg_temp.ensure_unique_constraint(
   'source_schema_worksheets',
   'source_schema_worksheets_id_version_organisation_key',
   'UNIQUE (id, source_schema_version_id, organisation_id)',
@@ -420,6 +427,18 @@ SELECT pg_temp.ensure_fk(
   ARRAY['upload_id', 'import_batch_id', 'organisation_id'],
   'uploads', ARRAY['id', 'import_batch_id', 'organisation_id'], 'a', 'a',
   'ALTER TABLE public.data_hub_raw_rows ADD CONSTRAINT data_hub_raw_rows_upload_batch_org_fkey FOREIGN KEY (upload_id, import_batch_id, organisation_id) REFERENCES public.uploads(id, import_batch_id, organisation_id)'
+);
+
+-- Proves the raw row uses the exact profile version frozen onto this
+-- Upload's completed raw-staging metadata. Because uploads_raw_staging_
+-- coherence_check requires raw_staged_at/profile/counts together, a raw
+-- row cannot exist for an unstaged Upload and cannot silently reinterpret
+-- that Upload under another governed profile version.
+SELECT pg_temp.ensure_fk(
+  'data_hub_raw_rows', 'data_hub_raw_rows_upload_profile_version_org_fkey',
+  ARRAY['upload_id', 'worksheet_mapping_profile_version_id', 'organisation_id'],
+  'uploads', ARRAY['id', 'raw_profile_version_id', 'organisation_id'], 'a', 'a',
+  'ALTER TABLE public.data_hub_raw_rows ADD CONSTRAINT data_hub_raw_rows_upload_profile_version_org_fkey FOREIGN KEY (upload_id, worksheet_mapping_profile_version_id, organisation_id) REFERENCES public.uploads(id, raw_profile_version_id, organisation_id)'
 );
 
 SELECT pg_temp.ensure_fk(
