@@ -2,8 +2,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { CapabilityIcon } from '@/components/brand/CapabilityIcon';
-
-const CARD = '#0e1014'; const BORDER = '#1a1d24';
+import { SectionHeader, Surface, TextLink } from '@/components/ui';
 const STAGE_COLORS: Record<string, string> = { lead: '#6b7280', qualified: '#60a5fa', proposal: '#a78bfa', negotiation: '#fbbf24', closed_won: '#34d399', closed_lost: '#f87171' };
 const TYPE_ICONS: Record<string, string> = { call: '📞', email: '✉️', note: '📝', meeting: '🤝' };
 
@@ -36,7 +35,7 @@ export default function CrmOverviewPage() {
 
   return (
     <div style={{ maxWidth: 1000 }}>
-      <div style={{ marginBottom: 28 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--bb-space-4)', marginBottom: 'var(--bb-space-8)' }}>
         {/* Module identity moment (Phase D.4.3) — the same Users/violet
             CapabilityIcon already shown in ModuleAccessCard and TopNav for
             this capability, decorative since the heading right beside it
@@ -44,14 +43,11 @@ export default function CrmOverviewPage() {
             `crm` capability, distinct from BrainBase HQ's app/clients/**
             and Founder OS's own internal "CRM clients" pipeline tracking —
             neither of those gets this icon. */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <CapabilityIcon capability="crm" size="md" />
-          <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em', margin: 0 }}>CRM</h1>
-        </div>
-        <p style={{ color: '#6b7280', fontSize: 13, margin: '4px 0 0' }}>Companies, contacts, deals & activities</p>
+        <CapabilityIcon capability="crm" size="md" />
+        <SectionHeader title="CRM" description="Companies, contacts, deals & activities" />
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12, marginBottom: 28 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 'var(--bb-space-5)', marginBottom: 'var(--bb-space-8)' }}>
         {[
           { label: 'Companies', value: counts.companies, href: '/crm/companies', color: '#60a5fa' },
           { label: 'Contacts', value: counts.contacts, href: '/crm/contacts', color: '#a78bfa' },
@@ -62,67 +58,69 @@ export default function CrmOverviewPage() {
           <Link
             key={s.label}
             href={s.href}
-            style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 10, padding: '16px 18px', textDecoration: 'none', display: 'block' }}
+            style={{ textDecoration: 'none', display: 'block' }}
           >
-            <div style={{ fontSize: 20, fontWeight: 700, color: s.color }}>{loading ? '—' : s.value}</div>
-            <div style={{ fontSize: 11, color: '#6b7280', marginTop: 4, fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-              {s.label}
-            </div>
+            <Surface variant="base" radius="lg" style={{ padding: 'var(--bb-space-6)' }}>
+              <div style={{ fontSize: 20, fontWeight: 700, color: s.color }}>{loading ? '—' : s.value}</div>
+              <div style={{ fontSize: 'var(--bb-type-label-size)', color: 'var(--bb-text-tertiary)', marginTop: 'var(--bb-space-2)', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                {s.label}
+              </div>
+            </Surface>
           </Link>
         ))}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
-        <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, overflow: 'hidden' }}>
-          <div style={{ padding: '16px 20px', borderBottom: `1px solid ${BORDER}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--bb-space-6)' }}>
+        <Surface variant="base" radius="xl" style={{ overflow: 'hidden' }}>
+          <div style={{ padding: 'var(--bb-space-6) var(--bb-space-7)', borderBottom: '1px solid var(--bb-border-default)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={{ fontSize: 14, fontWeight: 600 }}>Open Deals</span>
-            <Link href="/crm/deals" style={{ fontSize: 12, color: '#6b7280', textDecoration: 'none' }}>View all →</Link>
+            <TextLink href="/crm/deals" tone="muted" style={{ fontSize: 'var(--bb-type-body-sm-size)' }}>View all →</TextLink>
           </div>
           {loading ? (
-            <p style={{ padding: 20, color: '#4b5563', fontSize: 13 }}>Loading…</p>
+            <p style={{ padding: 'var(--bb-space-7)', color: 'var(--bb-text-muted)', fontSize: 'var(--bb-type-body-size)' }}>Loading…</p>
           ) : pipeline.length === 0 ? (
-            <p style={{ padding: 20, color: '#4b5563', fontSize: 13 }}>
-              No open deals. <Link href="/crm/deals" style={{ color: '#1a6aff', textDecoration: 'none' }}>Add one →</Link>
+            <p style={{ padding: 'var(--bb-space-7)', color: 'var(--bb-text-muted)', fontSize: 'var(--bb-type-body-size)' }}>
+              No open deals. <TextLink href="/crm/deals">Add one →</TextLink>
             </p>
           ) : (
             pipeline.slice(0, 6).map((d, i) => (
               <Link
                 key={d.id}
                 href="/crm/deals"
-                style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 20px', borderBottom: i < Math.min(pipeline.length, 6) - 1 ? `1px solid ${BORDER}` : 'none', textDecoration: 'none' }}
+                style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 20px', borderBottom: i < Math.min(pipeline.length, 6) - 1 ? '1px solid var(--bb-border-default)' : 'none', textDecoration: 'none' }}
               >
                 <div>
-                  <div style={{ fontSize: 13, color: '#f9fafb', fontWeight: 500 }}>{d.title}</div>
-                  {d.company_name && <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>{d.company_name}</div>}
+                  <div style={{ fontSize: 13, color: 'var(--bb-text-primary)', fontWeight: 500 }}>{d.title}</div>
+                  {d.company_name && <div style={{ fontSize: 11, color: 'var(--bb-text-tertiary)', marginTop: 2 }}>{d.company_name}</div>}
                 </div>
                 <div style={{ textAlign: 'right' }}>
                   {d.value != null && <div style={{ fontSize: 13, fontWeight: 600, color: STAGE_COLORS[d.stage] }}>${Number(d.value).toLocaleString()}</div>}
-                  <div style={{ fontSize: 11, color: '#4b5563', marginTop: 2, textTransform: 'capitalize' }}>{d.stage.replace('_', ' ')}</div>
+                  <div style={{ fontSize: 11, color: 'var(--bb-text-muted)', marginTop: 2, textTransform: 'capitalize' }}>{d.stage.replace('_', ' ')}</div>
                 </div>
               </Link>
             ))
           )}
-        </div>
+        </Surface>
 
-        <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, overflow: 'hidden' }}>
-          <div style={{ padding: '16px 20px', borderBottom: `1px solid ${BORDER}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Surface variant="base" radius="xl" style={{ overflow: 'hidden' }}>
+          <div style={{ padding: 'var(--bb-space-6) var(--bb-space-7)', borderBottom: '1px solid var(--bb-border-default)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={{ fontSize: 14, fontWeight: 600 }}>Recent Activity</span>
-            <Link href="/crm/activities" style={{ fontSize: 12, color: '#6b7280', textDecoration: 'none' }}>View all →</Link>
+            <TextLink href="/crm/activities" tone="muted" style={{ fontSize: 'var(--bb-type-body-sm-size)' }}>View all →</TextLink>
           </div>
           {loading ? (
-            <p style={{ padding: 20, color: '#4b5563', fontSize: 13 }}>Loading…</p>
+            <p style={{ padding: 'var(--bb-space-7)', color: 'var(--bb-text-muted)', fontSize: 'var(--bb-type-body-size)' }}>Loading…</p>
           ) : activities.length === 0 ? (
-            <p style={{ padding: 20, color: '#4b5563', fontSize: 13 }}>No activity yet.</p>
+            <p style={{ padding: 'var(--bb-space-7)', color: 'var(--bb-text-muted)', fontSize: 'var(--bb-type-body-size)' }}>No activity yet.</p>
           ) : (
             activities.slice(0, 8).map((a, i) => (
-              <div key={a.id} style={{ padding: '11px 20px', borderBottom: i < Math.min(activities.length, 8) - 1 ? `1px solid ${BORDER}` : 'none' }}>
+              <div key={a.id} style={{ padding: '11px 20px', borderBottom: i < Math.min(activities.length, 8) - 1 ? '1px solid var(--bb-border-default)' : 'none' }}>
                 <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
                   <span style={{ fontSize: 14, flexShrink: 0 }}>{TYPE_ICONS[a.type] ?? '•'}</span>
                   <div style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: 13, color: '#f9fafb', fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    <div style={{ fontSize: 13, color: 'var(--bb-text-primary)', fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                       {a.subject}
                     </div>
-                    <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>
+                    <div style={{ fontSize: 11, color: 'var(--bb-text-tertiary)', marginTop: 2 }}>
                       {a.contact_name ?? a.company_name ?? a.deal_title ?? ''} ·{' '}
                       {new Date(a.activity_date).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })}
                     </div>
@@ -131,7 +129,7 @@ export default function CrmOverviewPage() {
               </div>
             ))
           )}
-        </div>
+        </Surface>
       </div>
     </div>
   );
