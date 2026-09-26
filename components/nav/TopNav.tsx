@@ -18,8 +18,7 @@ type Session = {
   dashboardVariant?: 'ld-tennis' | 'brainbase-hq' | null;
 } | null;
 
-const FONT =
-  'var(--font-inter), "Inter", -apple-system, sans-serif';
+const FONT = 'var(--bb-font-sans)';
 
 // ─── Shared pill nav item ────────────────────────────────────────────────────
 
@@ -47,26 +46,26 @@ function NavItem({
       style={{
         display: 'flex',
         alignItems: 'center',
-        gap: 6,
-        fontSize: 13,
+        gap: 'var(--bb-space-3)',
+        fontSize: 'var(--bb-type-body-size)',
         fontWeight: 500,
         letterSpacing: '-0.01em',
         padding: '5px 10px',
-        borderRadius: 7,
+        borderRadius: 'var(--bb-radius-md)',
         textDecoration: 'none',
         color: active
-          ? '#C4B5FD'
-          : 'rgba(255,255,255,.45)',
+          ? 'var(--bb-accent-300)'
+          : 'var(--bb-text-tertiary)',
         background: active
-          ? 'rgba(139,92,246,.10)'
+          ? 'var(--bb-surface-selected)'
           : 'transparent',
         border: `1px solid ${
           active
-            ? 'rgba(139,92,246,.22)'
+            ? 'var(--bb-border-accent)'
             : 'transparent'
         }`,
         transition:
-          'color .14s, background .14s, border-color .14s',
+          'color var(--bb-duration-fast), background var(--bb-duration-fast), border-color var(--bb-duration-fast)',
         whiteSpace: 'nowrap',
         flexShrink: 0,
       }}
@@ -74,16 +73,16 @@ function NavItem({
         if (active) return;
 
         e.currentTarget.style.color =
-          'rgba(255,255,255,.85)';
+          'var(--bb-text-primary)';
 
         e.currentTarget.style.background =
-          'rgba(255,255,255,.05)';
+          'var(--bb-surface-hover)';
       }}
       onMouseLeave={e => {
         if (active) return;
 
         e.currentTarget.style.color =
-          'rgba(255,255,255,.45)';
+          'var(--bb-text-tertiary)';
 
         e.currentTarget.style.background =
           'transparent';
@@ -118,30 +117,30 @@ function HlnaItem({
         display: 'flex',
         alignItems: 'center',
         padding: '5px 11px',
-        borderRadius: 7,
+        borderRadius: 'var(--bb-radius-md)',
         textDecoration: 'none',
         background: active
-          ? 'rgba(139,92,246,.13)'
+          ? 'var(--bb-surface-selected)'
           : 'transparent',
         border: `1px solid ${
           active
-            ? 'rgba(167,139,250,.28)'
+            ? 'var(--bb-border-accent)'
             : 'transparent'
         }`,
         boxShadow: active
-          ? '0 0 14px rgba(139,92,246,.18)'
+          ? 'var(--bb-glow-accent-sm)'
           : 'none',
-        transition: 'all .18s',
+        transition: 'all var(--bb-duration-base) var(--bb-ease-standard)',
         flexShrink: 0,
       }}
       onMouseEnter={e => {
         if (active) return;
 
         e.currentTarget.style.background =
-          'rgba(139,92,246,.07)';
+          'var(--bb-accent-softer)';
 
         e.currentTarget.style.borderColor =
-          'rgba(167,139,250,.14)';
+          'var(--bb-border-accent)';
       }}
       onMouseLeave={e => {
         if (active) return;
@@ -164,7 +163,7 @@ function HlnaItem({
             : 'none',
           opacity: active ? 1 : 0.6,
           transition:
-            'filter .18s, opacity .18s',
+            'filter var(--bb-duration-base), opacity var(--bb-duration-base)',
         }}
         aria-label="HLNA"
       >
@@ -334,35 +333,35 @@ function OpsDropdown({
         style={{
           display: 'flex',
           alignItems: 'center',
-          gap: 5,
-          fontSize: 13,
+          gap: 'var(--bb-space-2)',
+          fontSize: 'var(--bb-type-body-size)',
           fontWeight: 500,
           letterSpacing: '-0.01em',
           padding: '5px 10px',
-          borderRadius: 7,
+          borderRadius: 'var(--bb-radius-md)',
 
           color: isActive
-            ? '#C4B5FD'
+            ? 'var(--bb-accent-300)'
             : open
-              ? 'rgba(255,255,255,.85)'
-              : 'rgba(255,255,255,.45)',
+              ? 'var(--bb-text-primary)'
+              : 'var(--bb-text-tertiary)',
 
           background: isActive
-            ? 'rgba(139,92,246,.10)'
+            ? 'var(--bb-surface-selected)'
             : open
-              ? 'rgba(255,255,255,.05)'
+              ? 'var(--bb-surface-hover)'
               : 'transparent',
 
           border: `1px solid ${
             isActive
-              ? 'rgba(139,92,246,.22)'
+              ? 'var(--bb-border-accent)'
               : 'transparent'
           }`,
 
           cursor: 'pointer',
           fontFamily: FONT,
           transition:
-            'color .14s, background .14s',
+            'color var(--bb-duration-fast), background var(--bb-duration-fast)',
           whiteSpace: 'nowrap',
         }}
       >
@@ -379,7 +378,7 @@ function OpsDropdown({
               ? 'rotate(180deg)'
               : 'rotate(0deg)',
             transition:
-              'transform .18s',
+              'transform var(--bb-duration-base)',
           }}
         >
           <path
@@ -405,15 +404,14 @@ function OpsDropdown({
             top: coords.top,
             left: coords.left,
             background:
-              'rgba(7,5,16,.98)',
+              'var(--bb-surface-3)',
             border:
-              '1px solid rgba(255,255,255,.09)',
-            borderRadius: 11,
+              '1px solid var(--bb-border-default)',
+            borderRadius: 'var(--bb-radius-lg)',
             padding: 5,
             minWidth: 220,
-            boxShadow:
-              '0 12px 40px rgba(0,0,0,.55), 0 0 0 1px rgba(255,255,255,.04)',
-            zIndex: 200,
+            boxShadow: 'var(--bb-shadow-float)',
+            zIndex: 'var(--bb-z-drawer)',
           }}
         >
           <div
@@ -424,9 +422,9 @@ function OpsDropdown({
               width: 8,
               height: 8,
               background:
-                'rgba(7,5,16,.98)',
+                'var(--bb-surface-3)',
               border:
-                '1px solid rgba(255,255,255,.09)',
+                '1px solid var(--bb-border-default)',
               borderRight: 'none',
               borderBottom: 'none',
               transform:
@@ -451,20 +449,20 @@ function OpsDropdown({
                   gap: 2,
                   padding:
                     '9px 13px',
-                  borderRadius: 8,
+                  borderRadius: 'var(--bb-radius-md)',
                   textDecoration:
                     'none',
                   background:
                     itemActive
-                      ? 'rgba(139,92,246,.10)'
+                      ? 'var(--bb-surface-selected)'
                       : 'transparent',
                   transition:
-                    'background .12s',
+                    'background var(--bb-duration-fast)',
                 }}
                 onMouseEnter={e => {
                   if (!itemActive) {
                     e.currentTarget.style.background =
-                      'rgba(255,255,255,.05)';
+                      'var(--bb-surface-hover)';
                   }
                 }}
                 onMouseLeave={e => {
@@ -476,14 +474,14 @@ function OpsDropdown({
               >
                 <span
                   style={{
-                    fontSize: 13,
+                    fontSize: 'var(--bb-type-body-size)',
                     fontWeight: 500,
                     letterSpacing:
                       '-0.01em',
                     color:
                       itemActive
-                        ? '#C4B5FD'
-                        : 'rgba(255,255,255,.80)',
+                        ? 'var(--bb-accent-300)'
+                        : 'var(--bb-text-primary)',
                   }}
                 >
                   {item.label}
@@ -493,7 +491,7 @@ function OpsDropdown({
                   style={{
                     fontSize: 11,
                     color:
-                      'rgba(255,255,255,.30)',
+                      'var(--bb-text-muted)',
                     lineHeight: 1.4,
                   }}
                 >
@@ -507,7 +505,7 @@ function OpsDropdown({
             style={{
               height: 1,
               background:
-                'rgba(255,255,255,.07)',
+                'var(--bb-border-subtle)',
               margin:
                 '4px 4px 3px',
             }}
@@ -522,14 +520,14 @@ function OpsDropdown({
                 'space-between',
               padding:
                 '8px 13px',
-              borderRadius: 8,
+              borderRadius: 'var(--bb-radius-md)',
               textDecoration: 'none',
               transition:
-                'background .12s',
+                'background var(--bb-duration-fast)',
             }}
             onMouseEnter={e => {
               e.currentTarget.style.background =
-                'rgba(255,255,255,.05)';
+                'var(--bb-surface-hover)';
             }}
             onMouseLeave={e => {
               e.currentTarget.style.background =
@@ -541,7 +539,7 @@ function OpsDropdown({
                 fontSize: 12,
                 fontWeight: 500,
                 color:
-                  'rgba(255,255,255,.38)',
+                  'var(--bb-text-tertiary)',
                 letterSpacing:
                   '-0.01em',
               }}
@@ -553,7 +551,7 @@ function OpsDropdown({
               style={{
                 fontSize: 11,
                 color:
-                  'rgba(255,255,255,.22)',
+                  'var(--bb-text-disabled)',
               }}
             >
               →
@@ -673,35 +671,35 @@ function AdminDropdown({
         style={{
           display: 'flex',
           alignItems: 'center',
-          gap: 5,
-          fontSize: 13,
+          gap: 'var(--bb-space-2)',
+          fontSize: 'var(--bb-type-body-size)',
           fontWeight: 500,
           letterSpacing: '-0.01em',
           padding: '5px 10px',
-          borderRadius: 7,
+          borderRadius: 'var(--bb-radius-md)',
 
           color: isActive
-            ? '#C4B5FD'
+            ? 'var(--bb-accent-300)'
             : open
-              ? 'rgba(255,255,255,.85)'
-              : 'rgba(255,255,255,.45)',
+              ? 'var(--bb-text-primary)'
+              : 'var(--bb-text-tertiary)',
 
           background: isActive
-            ? 'rgba(139,92,246,.10)'
+            ? 'var(--bb-surface-selected)'
             : open
-              ? 'rgba(255,255,255,.05)'
+              ? 'var(--bb-surface-hover)'
               : 'transparent',
 
           border: `1px solid ${
             isActive
-              ? 'rgba(139,92,246,.22)'
+              ? 'var(--bb-border-accent)'
               : 'transparent'
           }`,
 
           cursor: 'pointer',
           fontFamily: FONT,
           transition:
-            'color .14s, background .14s',
+            'color var(--bb-duration-fast), background var(--bb-duration-fast)',
           whiteSpace: 'nowrap',
         }}
       >
@@ -718,7 +716,7 @@ function AdminDropdown({
               ? 'rotate(180deg)'
               : 'rotate(0deg)',
             transition:
-              'transform .18s',
+              'transform var(--bb-duration-base)',
           }}
         >
           <path
@@ -744,15 +742,14 @@ function AdminDropdown({
             top: coords.top,
             left: coords.left,
             background:
-              'rgba(7,5,16,.98)',
+              'var(--bb-surface-3)',
             border:
-              '1px solid rgba(255,255,255,.09)',
-            borderRadius: 11,
+              '1px solid var(--bb-border-default)',
+            borderRadius: 'var(--bb-radius-lg)',
             padding: 5,
             minWidth: 220,
-            boxShadow:
-              '0 12px 40px rgba(0,0,0,.55), 0 0 0 1px rgba(255,255,255,.04)',
-            zIndex: 200,
+            boxShadow: 'var(--bb-shadow-float)',
+            zIndex: 'var(--bb-z-drawer)',
           }}
         >
           <div
@@ -763,9 +760,9 @@ function AdminDropdown({
               width: 8,
               height: 8,
               background:
-                'rgba(7,5,16,.98)',
+                'var(--bb-surface-3)',
               border:
-                '1px solid rgba(255,255,255,.09)',
+                '1px solid var(--bb-border-default)',
               borderRight: 'none',
               borderBottom: 'none',
               transform:
@@ -790,20 +787,20 @@ function AdminDropdown({
                   gap: 2,
                   padding:
                     '9px 13px',
-                  borderRadius: 8,
+                  borderRadius: 'var(--bb-radius-md)',
                   textDecoration:
                     'none',
                   background:
                     itemActive
-                      ? 'rgba(139,92,246,.10)'
+                      ? 'var(--bb-surface-selected)'
                       : 'transparent',
                   transition:
-                    'background .12s',
+                    'background var(--bb-duration-fast)',
                 }}
                 onMouseEnter={e => {
                   if (!itemActive) {
                     e.currentTarget.style.background =
-                      'rgba(255,255,255,.05)';
+                      'var(--bb-surface-hover)';
                   }
                 }}
                 onMouseLeave={e => {
@@ -815,14 +812,14 @@ function AdminDropdown({
               >
                 <span
                   style={{
-                    fontSize: 13,
+                    fontSize: 'var(--bb-type-body-size)',
                     fontWeight: 500,
                     letterSpacing:
                       '-0.01em',
                     color:
                       itemActive
-                        ? '#C4B5FD'
-                        : 'rgba(255,255,255,.80)',
+                        ? 'var(--bb-accent-300)'
+                        : 'var(--bb-text-primary)',
                   }}
                 >
                   {item.label}
@@ -832,7 +829,7 @@ function AdminDropdown({
                   style={{
                     fontSize: 11,
                     color:
-                      'rgba(255,255,255,.30)',
+                      'var(--bb-text-muted)',
                     lineHeight: 1.4,
                   }}
                 >
@@ -891,25 +888,25 @@ function SquadItem({
       style={{
         display: 'flex',
         alignItems: 'center',
-        fontSize: 13,
+        fontSize: 'var(--bb-type-body-size)',
         fontWeight: 500,
         letterSpacing: '-0.01em',
         padding: '5px 10px',
-        borderRadius: 7,
+        borderRadius: 'var(--bb-radius-md)',
         textDecoration: 'none',
         color: active
-          ? '#C4B5FD'
-          : 'rgba(255,255,255,.45)',
+          ? 'var(--bb-accent-300)'
+          : 'var(--bb-text-tertiary)',
         background: active
-          ? 'rgba(139,92,246,.10)'
+          ? 'var(--bb-surface-selected)'
           : 'transparent',
         border: `1px solid ${
           active
-            ? 'rgba(139,92,246,.22)'
+            ? 'var(--bb-border-accent)'
             : 'transparent'
         }`,
         transition:
-          'color .14s, background .14s, border-color .14s',
+          'color var(--bb-duration-fast), background var(--bb-duration-fast), border-color var(--bb-duration-fast)',
         whiteSpace: 'nowrap',
         flexShrink: 0,
       }}
@@ -917,16 +914,16 @@ function SquadItem({
         if (active) return;
 
         e.currentTarget.style.color =
-          'rgba(255,255,255,.85)';
+          'var(--bb-text-primary)';
 
         e.currentTarget.style.background =
-          'rgba(255,255,255,.05)';
+          'var(--bb-surface-hover)';
       }}
       onMouseLeave={e => {
         if (active) return;
 
         e.currentTarget.style.color =
-          'rgba(255,255,255,.45)';
+          'var(--bb-text-tertiary)';
 
         e.currentTarget.style.background =
           'transparent';
@@ -990,7 +987,7 @@ function Divider() {
         width: 1,
         height: 16,
         background:
-          'rgba(255,255,255,.08)',
+          'var(--bb-border-default)',
         flexShrink: 0,
       }}
     />
@@ -1061,7 +1058,7 @@ function Clock() {
           fontSize: 12,
           fontWeight: 600,
           color:
-            'rgba(255,255,255,.55)',
+            'var(--bb-text-secondary)',
           letterSpacing: '.04em',
         }}
       >
@@ -1072,7 +1069,7 @@ function Clock() {
         style={{
           fontSize: 10,
           color:
-            'rgba(255,255,255,.22)',
+            'var(--bb-text-disabled)',
           letterSpacing: '.04em',
         }}
       >
@@ -1099,14 +1096,14 @@ function PublicNav({
           'space-between',
         padding: '0 28px',
         borderBottom:
-          '1px solid rgba(255,255,255,.06)',
+          '1px solid var(--bb-border-subtle)',
         background:
-          'rgba(7,8,11,.92)',
+          'var(--bb-shell-header)',
         backdropFilter:
-          'blur(16px)',
+          'blur(var(--bb-blur-nav))',
         position: 'sticky',
         top: 0,
-        zIndex: 100,
+        zIndex: 'var(--bb-z-header)',
         fontFamily: FONT,
         flexShrink: 0,
       }}
@@ -1171,18 +1168,17 @@ function PublicNav({
         <Link
           href="/request-demo"
           style={{
-            fontSize: 13,
+            fontSize: 'var(--bb-type-body-size)',
             fontWeight: 600,
             textDecoration: 'none',
-            background:
-              'linear-gradient(135deg, #6D28D9, #A78BFA)',
-            color: '#fff',
+            background: 'var(--bb-gradient-accent)',
+            color: 'var(--bb-text-on-accent)',
             padding:
               '6px 14px',
-            borderRadius: 8,
+            borderRadius: 'var(--bb-radius-md)',
             letterSpacing: '.01em',
             transition:
-              'opacity .15s',
+              'opacity var(--bb-duration-fast)',
             marginLeft: 4,
           }}
           onMouseEnter={e => {
@@ -1346,17 +1342,17 @@ function AppNav({
         alignItems: 'center',
         padding: '0 20px',
         borderBottom:
-          '1px solid rgba(255,255,255,.06)',
+          '1px solid var(--bb-border-subtle)',
         background:
-          'rgba(7,8,11,.92)',
+          'var(--bb-shell-header)',
         backdropFilter:
-          'blur(16px)',
+          'blur(var(--bb-blur-nav))',
         position: 'sticky',
         top: 0,
-        zIndex: 100,
+        zIndex: 'var(--bb-z-header)',
         fontFamily: FONT,
         flexShrink: 0,
-        gap: 16,
+        gap: 'var(--bb-space-6)',
       }}
     >
       {/* Left balance spacer */}
@@ -1799,7 +1795,7 @@ function AppNav({
           alignItems: 'center',
           justifyContent:
             'flex-end',
-          gap: 10,
+          gap: 'var(--bb-space-5)',
           flexShrink: 0,
         }}
       >
@@ -1832,19 +1828,19 @@ function AppNav({
             padding:
               '4px 8px 4px 5px',
             borderRadius: 20,
-            transition: 'all .15s',
+            transition: 'all var(--bb-duration-fast) var(--bb-ease-standard)',
             background:
               pathname.startsWith(
                 '/account/profile',
               )
-                ? 'rgba(167,139,250,.10)'
+                ? 'var(--bb-surface-selected)'
                 : 'transparent',
 
             border: `1px solid ${
               pathname.startsWith(
                 '/account/profile',
               )
-                ? 'rgba(167,139,250,.22)'
+                ? 'var(--bb-border-accent)'
                 : 'transparent'
             }`,
           }}
@@ -1858,10 +1854,10 @@ function AppNav({
             }
 
             e.currentTarget.style.background =
-              'rgba(255,255,255,.05)';
+              'var(--bb-surface-hover)';
 
             e.currentTarget.style.borderColor =
-              'rgba(255,255,255,.08)';
+              'var(--bb-border-default)';
           }}
           onMouseLeave={e => {
             if (
@@ -1889,7 +1885,7 @@ function AppNav({
               background:
                 avatarUrl
                   ? 'transparent'
-                  : 'linear-gradient(135deg, #6D28D9, #A78BFA)',
+                  : 'var(--bb-gradient-accent)',
 
               display: 'flex',
               alignItems: 'center',
@@ -1898,7 +1894,7 @@ function AppNav({
 
               fontSize: 10,
               fontWeight: 700,
-              color: '#fff',
+              color: 'var(--bb-text-on-accent)',
               overflow: 'hidden',
               letterSpacing: '.02em',
             }}
@@ -1921,10 +1917,10 @@ function AppNav({
 
           <span
             style={{
-              fontSize: 13,
+              fontSize: 'var(--bb-type-body-size)',
               fontWeight: 500,
               color:
-                'rgba(245,247,250,.65)',
+                'var(--bb-text-secondary)',
               whiteSpace: 'nowrap',
             }}
           >
@@ -1946,12 +1942,12 @@ function AppNav({
             <Link
               href="/settings/branding"
               style={{
-                fontSize: 13,
+                fontSize: 'var(--bb-type-body-size)',
                 fontWeight: 500,
                 textDecoration: 'none',
                 padding: '5px 8px',
-                borderRadius: 7,
-                color: pathname.startsWith('/settings/branding') ? '#A78BFA' : 'rgba(255,255,255,.5)',
+                borderRadius: 'var(--bb-radius-md)',
+                color: pathname.startsWith('/settings/branding') ? 'var(--bb-accent-400)' : 'var(--bb-text-tertiary)',
               }}
             >
               Branding
@@ -1973,24 +1969,24 @@ function AppNav({
           style={{
             background: 'none',
             border: 'none',
-            fontSize: 13,
+            fontSize: 'var(--bb-type-body-size)',
             fontWeight: 500,
             color:
-              'rgba(255,255,255,.28)',
+              'var(--bb-text-muted)',
             cursor: 'pointer',
             fontFamily: FONT,
             padding: '5px 8px',
-            borderRadius: 7,
+            borderRadius: 'var(--bb-radius-md)',
             transition:
-              'color .14s',
+              'color var(--bb-duration-fast)',
           }}
           onMouseEnter={e => {
             e.currentTarget.style.color =
-              'rgba(255,255,255,.65)';
+              'var(--bb-text-secondary)';
           }}
           onMouseLeave={e => {
             e.currentTarget.style.color =
-              'rgba(255,255,255,.28)';
+              'var(--bb-text-muted)';
           }}
         >
           Sign out
