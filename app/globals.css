@@ -3,6 +3,7 @@
 
 /* ─── BrainBase Design Tokens ────────────────────────── */
 :root {
+  color-scheme: dark;
   /* Shared app header offset — existing layout contract. */
   --app-header-offset: 52px;
 
@@ -200,11 +201,16 @@
   --yellow: var(--bb-warning);
   --red: var(--bb-danger);
   --cyan: var(--bb-info);
+
+  --brand-line: #F3EEE6;
+  --brand-brainbase-accent: #9B7BFF;
+  --brand-hlna-accent: #E06C23;
   --background: var(--bb-canvas);
   --foreground: var(--bb-text-primary);
 }
 
 :root[data-theme='light'] {
+  color-scheme: light;
   --bb-canvas: #F5F3EE;
   --bb-surface-1: #FFFFFF;
   --bb-surface-2: #FAF8F3;
@@ -268,6 +274,10 @@
   --yellow: #D97706;
   --red:    #DC2626;
   --cyan:   #0891B2;
+
+  --brand-line: #15171B;
+  --brand-brainbase-accent: #6D4CD6;
+  --brand-hlna-accent: #C85B18;
   --background: var(--bg-base);
   --foreground: var(--text-primary);
 }

@@ -10,9 +10,9 @@ const opBar = read('components/ops/OpBar.tsx')
 const sidebar = read('components/ops/Sidebar.tsx')
 
 describe('B.4.1 shared chrome token polish', () => {
-  it('uses the canonical mono font token in TopNav clock treatment', () => {
-    expect(topNav).toContain("'var(--bb-font-mono)'")
-    expect(topNav).not.toContain('var(--font-geist-mono,"Geist Mono",monospace)')
+  it('uses the current-main Geist mono contract in TopNav clock treatment', () => {
+    expect(topNav).toContain('var(--font-geist-mono,"Geist Mono",monospace)')
+    expect(topNav).not.toContain("'var(--bb-font-mono)'")
   })
 
   it('uses canonical radii for the OpBar live and alert badges', () => {
