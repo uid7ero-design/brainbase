@@ -48,7 +48,6 @@ export async function POST(
 
   const resolved = await requireLifecycleTask(session, taskId);
   if (!resolved.ok) return resolved.response;
-  if (!canApproveLifecycleTask(resolved.auth.actor, resolved.auth.target)) return forbiddenResponse();
 
   const body = await req.json().catch(() => ({})) as Record<string, unknown>;
   const unknownField = Object.keys(body).find(key => !FIELDS.has(key));
@@ -62,6 +61,12 @@ export async function POST(
   if (body.comment !== undefined && body.comment !== null && typeof body.comment !== 'string') {
     return NextResponse.json({ error: 'comment must be a string or null.' }, { status: 400 });
   }
+
+  if (resolved.auth.target.approvalType === 'NONE') {
+    return conflictResponse('approval_not_required', 'This task does not require approval.');
+  }
+
+  if (!canApproveLifecycleTask(resolved.auth.actor, resolved.auth.target)) return forbiddenResponse();
 
   const { ipAddress, userAgent } = extractRequestMeta(req);
   try {
