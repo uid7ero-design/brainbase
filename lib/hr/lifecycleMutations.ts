@@ -1102,8 +1102,8 @@ export async function recordLifecycleTaskApproval(
   const row = (mutationRows as ApprovalMutationRow[])[0];
   if (!row) throw new Error('Lifecycle approval returned no state row.');
   if (!row.task_exists) return { outcome: 'task_not_found' };
-  if (!row.requires_approval) return { outcome: 'approval_not_required' };
   if (!row.authorized) return { outcome: 'forbidden' };
+  if (!row.requires_approval) return { outcome: 'approval_not_required' };
 
   // The post-lock task state takes precedence over the parent workflow state.
   // A race loser after final-task approval therefore remains a task conflict.
