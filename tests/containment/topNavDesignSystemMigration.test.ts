@@ -5,7 +5,7 @@ import path from 'path'
 const source = fs.readFileSync(
   path.resolve(__dirname, '../../components/nav/TopNav.tsx'),
   'utf-8',
-)
+).replace(/\r\n/g, '\n')
 
 describe('B.1 TopNav design-system migration', () => {
   it('uses canonical BrainBase shell, text, border, motion, and accent tokens', () => {
