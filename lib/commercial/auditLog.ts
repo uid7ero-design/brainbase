@@ -879,3 +879,37 @@ export async function logBudgetCommitmentMappingChanged(params: {
     afterState: { budget_version_id: params.budgetVersionId, ...params.after },
   });
 }
+
+
+export async function logBudgetVersionActivated(params: {
+  organisationId: string; userId: string; budgetVersionId: string; budgetId: string;
+  previousActiveVersionId: string | null; versionNumber: number;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId,
+    userId: params.userId,
+    action: 'commercial_budget_version.activated',
+    resourceType: 'commercial_budget_version',
+    resourceId: params.budgetVersionId,
+    beforeState: { status: 'DRAFT', previous_active_version_id: params.previousActiveVersionId },
+    afterState: {
+      status: 'ACTIVE',
+      budget_id: params.budgetId,
+      version_number: params.versionNumber,
+    },
+  });
+}
+
+export async function logBudgetVersionSuperseded(params: {
+  organisationId: string; userId: string; budgetVersionId: string; replacementVersionId: string;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId,
+    userId: params.userId,
+    action: 'commercial_budget_version.superseded',
+    resourceType: 'commercial_budget_version',
+    resourceId: params.budgetVersionId,
+    beforeState: { status: 'ACTIVE' },
+    afterState: { status: 'SUPERSEDED', replacement_version_id: params.replacementVersionId },
+  });
+}

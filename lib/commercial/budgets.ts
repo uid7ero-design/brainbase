@@ -123,16 +123,32 @@ export async function upsertBudgetLine(params: {
   await requireDraftVersion(params.organisationId, params.budgetVersionId);
   if (params.annualBudgetCents < BigInt(0)) throw new Error('annual_budget_cents must be non-negative');
   await requireBudgetLineReferences(params.organisationId, params.budgetAccountId, params.costCentreId);
-  const rows = await sql`
-    INSERT INTO commercial_budget_lines
-      (organisation_id, budget_version_id, budget_account_id, cost_centre_id, annual_budget_cents)
-    VALUES
-      (${params.organisationId}, ${params.budgetVersionId}, ${params.budgetAccountId}, ${params.costCentreId}, ${params.annualBudgetCents.toString()})
-    ON CONFLICT (budget_version_id, budget_account_id, cost_centre_id)
-    DO UPDATE SET annual_budget_cents = EXCLUDED.annual_budget_cents
-    RETURNING *
-  ` as CommercialBudgetLine[];
-  const line = rows[0];
+  const [, rows] = await sql.transaction(txn => [
+    txn`
+      SELECT id FROM commercial_budget_versions
+      WHERE id = ${params.budgetVersionId}
+        AND organisation_id = ${params.organisationId}
+        AND status = 'DRAFT'
+      FOR UPDATE
+    `,
+    txn`
+      INSERT INTO commercial_budget_lines
+        (organisation_id, budget_version_id, budget_account_id, cost_centre_id, annual_budget_cents)
+      SELECT
+        ${params.organisationId}, ${params.budgetVersionId}, ${params.budgetAccountId}, ${params.costCentreId}, ${params.annualBudgetCents.toString()}
+      WHERE EXISTS (
+        SELECT 1 FROM commercial_budget_versions
+        WHERE id = ${params.budgetVersionId}
+          AND organisation_id = ${params.organisationId}
+          AND status = 'DRAFT'
+      )
+      ON CONFLICT (budget_version_id, budget_account_id, cost_centre_id)
+      DO UPDATE SET annual_budget_cents = EXCLUDED.annual_budget_cents
+      RETURNING *
+    `,
+  ], { isolationLevel: 'ReadCommitted' });
+  const line = (rows as CommercialBudgetLine[])[0];
+  if (!line) throw new Error('Only DRAFT budget versions are editable');
   await logBudgetLineChanged({ organisationId: params.organisationId, userId: params.userId, budgetLineId: line.id, budgetVersionId: params.budgetVersionId, after: { budget_account_id: line.budget_account_id, cost_centre_id: line.cost_centre_id, annual_budget_cents: String(line.annual_budget_cents) } });
   return line;
 }
@@ -143,20 +159,35 @@ export async function setBudgetPeriodAllocation(params: {
 }): Promise<CommercialBudgetPeriodAllocation> {
   await requireDraftVersion(params.organisationId, params.budgetVersionId);
   if (params.amountCents < BigInt(0)) throw new Error('amount_cents must be non-negative');
-  const rows = await sql`
-    INSERT INTO commercial_budget_period_allocations
-      (organisation_id, budget_line_id, financial_period_id, amount_cents)
-    SELECT ${params.organisationId}, bl.id, ${params.financialPeriodId}, ${params.amountCents.toString()}
-    FROM commercial_budget_lines bl
-    WHERE bl.id = ${params.budgetLineId}
-      AND bl.organisation_id = ${params.organisationId}
-      AND bl.budget_version_id = ${params.budgetVersionId}
-    ON CONFLICT (budget_line_id, financial_period_id)
-    DO UPDATE SET amount_cents = EXCLUDED.amount_cents
-    RETURNING *
-  ` as CommercialBudgetPeriodAllocation[];
-  if (!rows[0]) throw new Error('budget_line_id not found for this draft version');
-  const allocation = rows[0];
+  const [, rows] = await sql.transaction(txn => [
+    txn`
+      SELECT id FROM commercial_budget_versions
+      WHERE id = ${params.budgetVersionId}
+        AND organisation_id = ${params.organisationId}
+        AND status = 'DRAFT'
+      FOR UPDATE
+    `,
+    txn`
+      INSERT INTO commercial_budget_period_allocations
+        (organisation_id, budget_line_id, financial_period_id, amount_cents)
+      SELECT ${params.organisationId}, bl.id, ${params.financialPeriodId}, ${params.amountCents.toString()}
+      FROM commercial_budget_lines bl
+      WHERE bl.id = ${params.budgetLineId}
+        AND bl.organisation_id = ${params.organisationId}
+        AND bl.budget_version_id = ${params.budgetVersionId}
+        AND EXISTS (
+          SELECT 1 FROM commercial_budget_versions bv
+          WHERE bv.id = ${params.budgetVersionId}
+            AND bv.organisation_id = ${params.organisationId}
+            AND bv.status = 'DRAFT'
+        )
+      ON CONFLICT (budget_line_id, financial_period_id)
+      DO UPDATE SET amount_cents = EXCLUDED.amount_cents
+      RETURNING *
+    `,
+  ], { isolationLevel: 'ReadCommitted' });
+  const allocation = (rows as CommercialBudgetPeriodAllocation[])[0];
+  if (!allocation) throw new Error('budget_line_id not found for this DRAFT version');
   await logBudgetPeriodAllocationChanged({ organisationId: params.organisationId, userId: params.userId, budgetPeriodAllocationId: allocation.id, budgetVersionId: params.budgetVersionId, after: { financial_period_id: allocation.financial_period_id, amount_cents: String(allocation.amount_cents) } });
   return allocation;
 }
@@ -166,16 +197,32 @@ export async function setBudgetCommitmentMapping(params: {
 }): Promise<CommercialBudgetCommitmentMapping> {
   await requireDraftVersion(params.organisationId, params.budgetVersionId);
   await requireBudgetLineReferences(params.organisationId, params.budgetAccountId, params.costCentreId);
-  const rows = await sql`
-    INSERT INTO commercial_budget_commitment_mappings
-      (organisation_id, budget_version_id, cost_centre_id, budget_account_id, created_by)
-    VALUES
-      (${params.organisationId}, ${params.budgetVersionId}, ${params.costCentreId}, ${params.budgetAccountId}, ${params.userId})
-    ON CONFLICT (budget_version_id, cost_centre_id)
-    DO UPDATE SET budget_account_id = EXCLUDED.budget_account_id
-    RETURNING *
-  ` as CommercialBudgetCommitmentMapping[];
-  const mapping = rows[0];
+  const [, rows] = await sql.transaction(txn => [
+    txn`
+      SELECT id FROM commercial_budget_versions
+      WHERE id = ${params.budgetVersionId}
+        AND organisation_id = ${params.organisationId}
+        AND status = 'DRAFT'
+      FOR UPDATE
+    `,
+    txn`
+      INSERT INTO commercial_budget_commitment_mappings
+        (organisation_id, budget_version_id, cost_centre_id, budget_account_id, created_by)
+      SELECT
+        ${params.organisationId}, ${params.budgetVersionId}, ${params.costCentreId}, ${params.budgetAccountId}, ${params.userId}
+      WHERE EXISTS (
+        SELECT 1 FROM commercial_budget_versions
+        WHERE id = ${params.budgetVersionId}
+          AND organisation_id = ${params.organisationId}
+          AND status = 'DRAFT'
+      )
+      ON CONFLICT (budget_version_id, cost_centre_id)
+      DO UPDATE SET budget_account_id = EXCLUDED.budget_account_id
+      RETURNING *
+    `,
+  ], { isolationLevel: 'ReadCommitted' });
+  const mapping = (rows as CommercialBudgetCommitmentMapping[])[0];
+  if (!mapping) throw new Error('Only DRAFT budget versions are editable');
   await logBudgetCommitmentMappingChanged({ organisationId: params.organisationId, userId: params.userId, budgetCommitmentMappingId: mapping.id, budgetVersionId: params.budgetVersionId, after: { cost_centre_id: mapping.cost_centre_id, budget_account_id: mapping.budget_account_id } });
   return mapping;
 }

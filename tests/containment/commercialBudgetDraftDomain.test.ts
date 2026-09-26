@@ -2,7 +2,16 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const sqlMock = vi.fn();
 const transactionMock = vi.fn();
+let transactionQueries: Array<{ strings: readonly string[]; values: unknown[] }> = [];
 Object.assign(sqlMock, { transaction: transactionMock });
+
+function mockDraftMutationResult(row: unknown) {
+  transactionMock.mockImplementationOnce(async (builder: (tx: (strings: TemplateStringsArray, ...values: unknown[]) => unknown) => unknown[]) => {
+    const tx = (strings: TemplateStringsArray, ...values: unknown[]) => ({ strings, values });
+    transactionQueries = builder(tx) as Array<{ strings: readonly string[]; values: unknown[] }>;
+    return [[{ id: 'v1' }], [row]];
+  });
+}
 vi.mock('@/lib/db', () => ({ default: sqlMock }));
 
 const audit = {
@@ -28,6 +37,7 @@ const draftVersion = {
 beforeEach(() => {
   sqlMock.mockReset();
   transactionMock.mockReset();
+  transactionQueries = [];
   for (const mock of Object.values(audit)) mock.mockReset();
 });
 
@@ -70,8 +80,8 @@ describe('C7.7C — DRAFT-only Budget editing', () => {
   it('upserts a line only after a same-tenant DRAFT version check', async () => {
     sqlMock
       .mockResolvedValueOnce([draftVersion])
-      .mockResolvedValueOnce([{ account_exists: true, cost_centre_exists: true }])
-      .mockResolvedValueOnce([{ id: 'line-1', organisation_id: 'org-a', budget_version_id: 'v1', budget_account_id: 'acc-1', cost_centre_id: 'cc-1', annual_budget_cents: '100' }]);
+      .mockResolvedValueOnce([{ account_exists: true, cost_centre_exists: true }]);
+    mockDraftMutationResult({ id: 'line-1', organisation_id: 'org-a', budget_version_id: 'v1', budget_account_id: 'acc-1', cost_centre_id: 'cc-1', annual_budget_cents: '100' });
     const line = await budgets.upsertBudgetLine({
       organisationId: 'org-a', userId: 'u1', budgetVersionId: 'v1',
       budgetAccountId: 'acc-1', costCentreId: 'cc-1', annualBudgetCents: BigInt(100),
@@ -79,7 +89,8 @@ describe('C7.7C — DRAFT-only Budget editing', () => {
     expect(line.id).toBe('line-1');
     expect(audit.logBudgetLineChanged).toHaveBeenCalledOnce();
     expect((sqlMock.mock.calls[1][0] as string[]).join('')).toContain('commercial_budget_accounts');
-    expect((sqlMock.mock.calls[2][0] as string[]).join('')).toContain('ON CONFLICT (budget_version_id, budget_account_id, cost_centre_id)');
+    expect(transactionQueries[0].strings.join('')).toMatch(/status = 'DRAFT'[\s\S]*FOR UPDATE/);
+    expect(transactionQueries[1].strings.join('')).toContain('ON CONFLICT (budget_version_id, budget_account_id, cost_centre_id)');
   });
 
   it('rejects negative annual and period amounts before their writes', async () => {
@@ -97,14 +108,14 @@ describe('C7.7C — DRAFT-only Budget editing', () => {
   });
 
   it('scopes period allocation to a line inside the checked DRAFT version', async () => {
-    sqlMock
-      .mockResolvedValueOnce([draftVersion])
-      .mockResolvedValueOnce([{ id: 'pa-1', organisation_id: 'org-a', budget_line_id: 'line-1', financial_period_id: 'p1', amount_cents: '50' }]);
+    sqlMock.mockResolvedValueOnce([draftVersion]);
+    mockDraftMutationResult({ id: 'pa-1', organisation_id: 'org-a', budget_line_id: 'line-1', financial_period_id: 'p1', amount_cents: '50' });
     await budgets.setBudgetPeriodAllocation({
       organisationId: 'org-a', userId: 'u1', budgetVersionId: 'v1',
       budgetLineId: 'line-1', financialPeriodId: 'p1', amountCents: BigInt(50),
     });
-    const q = (sqlMock.mock.calls[1][0] as string[]).join('');
+    const q = transactionQueries[1].strings.join('');
+    expect(transactionQueries[0].strings.join('')).toMatch(/status = 'DRAFT'[\s\S]*FOR UPDATE/);
     expect(q).toContain('bl.organisation_id = ');
     expect(q).toContain('bl.budget_version_id = ');
     expect(audit.logBudgetPeriodAllocationChanged).toHaveBeenCalledOnce();
@@ -113,12 +124,13 @@ describe('C7.7C — DRAFT-only Budget editing', () => {
   it('version-scopes commitment mappings and audits changes', async () => {
     sqlMock
       .mockResolvedValueOnce([draftVersion])
-      .mockResolvedValueOnce([{ account_exists: true, cost_centre_exists: true }])
-      .mockResolvedValueOnce([{ id: 'm1', organisation_id: 'org-a', budget_version_id: 'v1', cost_centre_id: 'cc-1', budget_account_id: 'acc-1' }]);
+      .mockResolvedValueOnce([{ account_exists: true, cost_centre_exists: true }]);
+    mockDraftMutationResult({ id: 'm1', organisation_id: 'org-a', budget_version_id: 'v1', cost_centre_id: 'cc-1', budget_account_id: 'acc-1' });
     await budgets.setBudgetCommitmentMapping({
       organisationId: 'org-a', userId: 'u1', budgetVersionId: 'v1', costCentreId: 'cc-1', budgetAccountId: 'acc-1',
     });
-    expect((sqlMock.mock.calls[2][0] as string[]).join('')).toContain('ON CONFLICT (budget_version_id, cost_centre_id)');
+    expect(transactionQueries[0].strings.join('')).toMatch(/status = 'DRAFT'[\s\S]*FOR UPDATE/);
+    expect(transactionQueries[1].strings.join('')).toContain('ON CONFLICT (budget_version_id, cost_centre_id)');
     expect(audit.logBudgetCommitmentMappingChanged).toHaveBeenCalledOnce();
   });
 

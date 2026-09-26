@@ -67,7 +67,8 @@ CREATE TABLE commercial_cost_centres (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   organisation_id TEXT NOT NULL REFERENCES organisations(id),
   code TEXT NOT NULL,
-  name TEXT NOT NULL
+  name TEXT NOT NULL,
+  active BOOLEAN NOT NULL DEFAULT true
 );
 INSERT INTO organisations(id,name) VALUES ('org-a','Org A'),('org-b','Org B');
 INSERT INTO users(id,organisation_id) VALUES ('user-a','org-a'),('user-b','org-b');
@@ -252,8 +253,19 @@ END $$;
 '@
   }
 
+  Mark 'C7.7D activation concurrency integration suite' {
+    $env:DATABASE_URL = "postgresql://postgres:test@127.0.0.1:$port/testdb"
+    Push-Location $repo
+    try {
+      npx vitest run --config vitest.integration.config.ts scripts/tests/budgetActivationConcurrency.integration.test.ts
+      if ($LASTEXITCODE -ne 0) { throw "activation integration exit $LASTEXITCODE" }
+    } finally {
+      Pop-Location
+    }
+  }
+
   Write-Host ''
-  Write-Host "=== C7.7B RESULT: PASS=$pass FAIL=$fail ==="
+  Write-Host "=== C7.7B/C7.7D RESULT: PASS=$pass FAIL=$fail ==="
   if ($fail -ne 0) {
     foreach ($failure in $failures) { Write-Host "  - $failure" }
     exit 1
