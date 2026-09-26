@@ -15,3 +15,18 @@ export type { SectionHeaderProps } from './SectionHeader'
 
 export { Input } from './Input'
 export type { InputProps } from './Input'
+
+export { ProseSection } from './ProseSection'
+export type { ProseSectionProps } from './ProseSection'
+
+export { ProseList } from './ProseList'
+export type { ProseListProps } from './ProseList'
+
+export { PageCanvas } from './PageCanvas'
+export type { PageCanvasProps } from './PageCanvas'
+
+export { PageContainer } from './PageContainer'
+export type { PageContainerProps } from './PageContainer'
+
+export { TextLink } from './TextLink'
+export type { TextLinkProps, TextLinkTone } from './TextLink'

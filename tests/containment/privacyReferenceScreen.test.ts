@@ -9,13 +9,15 @@ const source = fs.readFileSync(
 
 describe('A.3 Privacy reference-screen migration', () => {
   it('uses shared primitives and canonical BrainBase tokens', () => {
-    expect(source).toContain("import { SectionHeader, Surface } from '@/components/ui'")
+    expect(source).toContain("from '@/components/ui'")
+    expect(source).toContain('<PageCanvas')
+    expect(source).toContain('<PageContainer')
+    expect(source).toContain('<ProseSection')
     expect(source).toContain('<SectionHeader')
     expect(source).toContain('<Surface')
-    expect(source).toContain("background: 'var(--bb-canvas)'")
-    expect(source).toContain("color: 'var(--bb-text-primary)'")
-    expect(source).toContain("fontFamily: 'var(--bb-font-sans)'")
-    expect(source).toContain("const linkStyle = { color: 'var(--bb-accent-400)' }")
+    expect(source).toContain('<TextLink')
+    expect(source).toContain("style={{ padding: '48px 24px 90px' }}")
+    expect(source).toContain('maxWidth={720}')
   })
 
   it('preserves page metadata', () => {
@@ -45,7 +47,7 @@ describe('A.3 Privacy reference-screen migration', () => {
       '16. Changes to this policy',
       '17. Contact',
     ]) {
-      expect(source).toContain(`<Section title="${title}">`)
+      expect(source).toContain(`<ProseSection title="${title}">`)
     }
   })
 

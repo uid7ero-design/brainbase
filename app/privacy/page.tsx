@@ -1,5 +1,4 @@
-import Link from 'next/link';
-import { SectionHeader, Surface } from '@/components/ui';
+import { PageCanvas, PageContainer, ProseList, ProseSection, SectionHeader, Surface, TextLink } from '@/components/ui';
 
 export const metadata = {
   title: 'Privacy Policy',
@@ -7,83 +6,17 @@ export const metadata = {
     'How Brainbase (trading as BRΛINBΛSE) collects, uses and protects information across our website and platform.',
 };
 
-function Section({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <section style={{ marginBottom: 'var(--bb-space-9)' }}>
-      <h2
-        style={{
-          fontSize: 'var(--bb-type-card-title-size)',
-          lineHeight: 'var(--bb-type-card-title-line)',
-          fontWeight: 'var(--bb-type-card-title-weight)',
-          color: 'var(--bb-text-primary)',
-          margin: '0 0 var(--bb-space-4)',
-          letterSpacing: 'var(--bb-type-card-title-tracking)',
-        }}
-      >
-        {title}
-      </h2>
-
-      <div
-        style={{
-          fontSize: 'var(--bb-type-body-size)',
-          color: 'var(--bb-text-secondary)',
-          lineHeight: 1.75,
-        }}
-      >
-        {children}
-      </div>
-    </section>
-  );
-}
-
-function List({ items }: { items: React.ReactNode[] }) {
-  return (
-    <ul
-      style={{
-        margin: '10px 0 0',
-        paddingLeft: 20,
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 'var(--bb-space-3)',
-      }}
-    >
-      {items.map((item, index) => (
-        <li key={index}>{item}</li>
-      ))}
-    </ul>
-  );
-}
-
-const linkStyle = { color: 'var(--bb-accent-400)' };
-
 export default function PrivacyPage() {
   return (
-    <div
-      style={{
-        minHeight: '100vh',
-        background: 'var(--bb-canvas)',
-        color: 'var(--bb-text-primary)',
-        fontFamily: 'var(--bb-font-sans)',
-        padding: '48px 24px 90px',
-      }}
-    >
-      <div style={{ maxWidth: 720, margin: '0 auto' }}>
-        <Link
+    <PageCanvas style={{ padding: '48px 24px 90px' }}>
+      <PageContainer maxWidth={720}>
+        <TextLink
           href="/"
-          style={{
-            fontSize: 'var(--bb-type-label-size)',
-            color: 'var(--bb-text-muted)',
-            textDecoration: 'none',
-          }}
+          tone="muted"
+          style={{ fontSize: 'var(--bb-type-label-size)' }}
         >
           ← Back to BRΛINBΛSE
-        </Link>
+        </TextLink>
 
         <SectionHeader
           title="Privacy Policy"
@@ -96,7 +29,7 @@ export default function PrivacyPage() {
           radius="xl"
           style={{ padding: 'var(--bb-space-8)' }}
         >
-        <Section title="1. About this policy">
+        <ProseSection title="1. About this policy">
           <p style={{ margin: 0 }}>
             This Privacy Policy explains how Brainbase (ABN 32 207 559 504),
             trading as BRΛINBΛSE (&quot;we&quot;, &quot;us&quot;, &quot;our&quot;),
@@ -108,15 +41,15 @@ export default function PrivacyPage() {
             practices designed around the Australian Privacy Principles and
             applicable privacy law.
           </p>
-        </Section>
+        </ProseSection>
 
-        <Section title="2. What information we may collect">
+        <ProseSection title="2. What information we may collect">
           <p style={{ margin: 0 }}>
             Depending on the services or configuration used, we may
             collect information including:
           </p>
 
-          <List
+          <ProseList
             items={[
               'Name, email address and phone number',
               'Organisation or business details and role/job information',
@@ -144,10 +77,10 @@ export default function PrivacyPage() {
             you interact with our website, and which BRΛINBΛSE
             capabilities and configuration your organisation uses.
           </p>
-        </Section>
+        </ProseSection>
 
-        <Section title="3. How we collect information">
-          <List
+        <ProseSection title="3. How we collect information">
+          <ProseList
             items={[
               'Directly from you — for example through website forms, account setup, or when you contact us',
               'Automatically through your use of our website or platform, such as technical and log information',
@@ -155,10 +88,10 @@ export default function PrivacyPage() {
               'From third-party systems your organisation chooses to connect to BRΛINBΛSE',
             ]}
           />
-        </Section>
+        </ProseSection>
 
-        <Section title="4. Why we use information">
-          <List
+        <ProseSection title="4. Why we use information">
+          <ProseList
             items={[
               'To provide, operate, support and improve BRΛINBΛSE',
               'To respond to enquiries and provide customer support',
@@ -168,9 +101,9 @@ export default function PrivacyPage() {
               'To detect, investigate and help prevent misuse, fraud or security incidents',
             ]}
           />
-        </Section>
+        </ProseSection>
 
-        <Section title="5. Customer Data">
+        <ProseSection title="5. Customer Data">
           <p style={{ margin: 0 }}>
             Where an organisation uses BRΛINBΛSE, the information that
             organisation or its authorised users submit, upload or generate
@@ -180,10 +113,10 @@ export default function PrivacyPage() {
             provide the service. We do not claim ownership of Customer
             Data.
           </p>
-        </Section>
+        </ProseSection>
 
-        <Section title="6. AI-assisted features">
-          <List
+        <ProseSection title="6. AI-assisted features">
+          <ProseList
             items={[
               'Approved AI service providers may process information where required to provide AI-assisted features',
               'Customer Data is not used by BRΛINBΛSE to train general-purpose AI models unless the customer explicitly agrees',
@@ -192,16 +125,16 @@ export default function PrivacyPage() {
               'AI-assisted features are intended to support and inform decisions, not replace human judgement',
             ]}
           />
-        </Section>
+        </ProseSection>
 
-        <Section title="7. Third-party service providers">
+        <ProseSection title="7. Third-party service providers">
           <p style={{ margin: 0 }}>
             We use a limited set of service providers to help us operate
             our website and the BRΛINBΛSE platform, which may process
             information on our behalf, including:
           </p>
 
-          <List
+          <ProseList
             items={[
               'Vercel — website and application hosting',
               'Neon — database hosting',
@@ -220,9 +153,9 @@ export default function PrivacyPage() {
             provider, and we do not represent that this list is exhaustive
             or that it will not change over time.
           </p>
-        </Section>
+        </ProseSection>
 
-        <Section title="8. Overseas processing">
+        <ProseSection title="8. Overseas processing">
           <p style={{ margin: 0 }}>
             Some of our service providers, including cloud hosting, email
             and AI service providers, may store or process information
@@ -233,9 +166,9 @@ export default function PrivacyPage() {
             they may receive information reasonably necessary to deliver
             the AI-assisted feature being used.
           </p>
-        </Section>
+        </ProseSection>
 
-        <Section title="9. Website enquiries and marketing">
+        <ProseSection title="9. Website enquiries and marketing">
           <p style={{ margin: 0 }}>
             Information submitted through our Request Demo form or other
             enquiry channels is used to review and respond to your
@@ -252,9 +185,9 @@ export default function PrivacyPage() {
             communications in future, they will have their own consent and
             unsubscribe process.
           </p>
-        </Section>
+        </ProseSection>
 
-        <Section title="10. Children and minors">
+        <ProseSection title="10. Children and minors">
           <p style={{ margin: 0 }}>
             In some customer configurations, BRΛINBΛSE may hold limited
             information relating to minors — for example, a child or
@@ -271,15 +204,15 @@ export default function PrivacyPage() {
             or claim any specialised child-safety or healthcare compliance
             certification.
           </p>
-        </Section>
+        </ProseSection>
 
-        <Section title="11. Security">
+        <ProseSection title="11. Security">
           <p style={{ margin: 0 }}>
             We apply a number of security measures designed to protect
             information, including:
           </p>
 
-          <List
+          <ProseList
             items={[
               'HTTPS/TLS encryption for data in transit',
               'Password hashing using bcrypt',
@@ -296,9 +229,9 @@ export default function PrivacyPage() {
             logging. No method of transmission or storage is completely
             secure, and we cannot guarantee absolute security.
           </p>
-        </Section>
+        </ProseSection>
 
-        <Section title="12. Data retention">
+        <ProseSection title="12. Data retention">
           <p style={{ margin: 0 }}>
             Where a customer&apos;s account or service is terminated, the
             customer may request an export of Customer Data before
@@ -314,16 +247,16 @@ export default function PrivacyPage() {
             Website enquiry and demo request information is retained as
             described in &quot;Website enquiries and marketing&quot; above.
           </p>
-        </Section>
+        </ProseSection>
 
-        <Section title="13. Access, correction and deletion requests">
+        <ProseSection title="13. Access, correction and deletion requests">
           <p style={{ margin: 0 }}>
             Regardless of the specific legal thresholds that may apply to
             our business at a given time, we aim to support reasonable
             requests to:
           </p>
 
-          <List
+          <ProseList
             items={[
               'Access the personal information we hold about you',
               'Request correction of inaccurate information',
@@ -334,25 +267,25 @@ export default function PrivacyPage() {
 
           <p style={{ margin: '10px 0 0' }}>
             To make a request, contact us at{' '}
-            <a href="mailto:hello@thebrainbase.com.au" style={linkStyle}>
+            <TextLink href="mailto:hello@thebrainbase.com.au">
               hello@thebrainbase.com.au
-            </a>
+            </TextLink>
             . If you are not satisfied with our response, you may lodge a
             complaint with the Office of the Australian Information
             Commissioner (OAIC).
           </p>
-        </Section>
+        </ProseSection>
 
-        <Section title="14. Data breaches and security incidents">
+        <ProseSection title="14. Data breaches and security incidents">
           <p style={{ margin: 0 }}>
             We have processes in place to help us identify, assess and
             respond to suspected data breaches or security incidents,
             including containment and, where required by law, notifying
             affected individuals and/or the OAIC.
           </p>
-        </Section>
+        </ProseSection>
 
-        <Section title="15. Cookies and analytics">
+        <ProseSection title="15. Cookies and analytics">
           <p style={{ margin: 0 }}>
             Our website may use essential technical and session cookies
             necessary for core functionality, such as keeping you signed
@@ -366,9 +299,9 @@ export default function PrivacyPage() {
             platform, though this may change in future, in which case
             this policy will be updated.
           </p>
-        </Section>
+        </ProseSection>
 
-        <Section title="16. Changes to this policy">
+        <ProseSection title="16. Changes to this policy">
           <p style={{ margin: 0 }}>
             We may update this Privacy Policy from time to time. Material
             changes will be reflected by an updated &quot;Last
@@ -376,20 +309,20 @@ export default function PrivacyPage() {
             BRΛINBΛSE platform after changes take effect constitutes
             acceptance of the updated policy.
           </p>
-        </Section>
+        </ProseSection>
 
-        <Section title="17. Contact">
+        <ProseSection title="17. Contact">
           <p style={{ margin: 0 }}>
             For privacy enquiries, contact Brainbase (trading as
             BRΛINBΛSE) at{' '}
-            <a href="mailto:hello@thebrainbase.com.au" style={linkStyle}>
+            <TextLink href="mailto:hello@thebrainbase.com.au">
               hello@thebrainbase.com.au
-            </a>
+            </TextLink>
             . Brainbase is based in South Australia, Australia.
           </p>
-        </Section>
+        </ProseSection>
         </Surface>
-      </div>
-    </div>
+      </PageContainer>
+    </PageCanvas>
   );
 }

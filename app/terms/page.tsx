@@ -1,5 +1,4 @@
-import Link from 'next/link';
-import { SectionHeader, Surface } from '@/components/ui';
+import { PageCanvas, PageContainer, ProseList, ProseSection, SectionHeader, Surface, TextLink } from '@/components/ui';
 
 export const metadata = {
   title: 'Terms of Use',
@@ -7,83 +6,17 @@ export const metadata = {
     'The website terms of use for Brainbase (trading as BRΛINBΛSE), covering use of thebrainbase.com.au.',
 };
 
-function Section({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <section style={{ marginBottom: 'var(--bb-space-9)' }}>
-      <h2
-        style={{
-          fontSize: 'var(--bb-type-card-title-size)',
-          lineHeight: 'var(--bb-type-card-title-line)',
-          fontWeight: 'var(--bb-type-card-title-weight)',
-          color: 'var(--bb-text-primary)',
-          margin: '0 0 var(--bb-space-4)',
-          letterSpacing: 'var(--bb-type-card-title-tracking)',
-        }}
-      >
-        {title}
-      </h2>
-
-      <div
-        style={{
-          fontSize: 'var(--bb-type-body-size)',
-          color: 'var(--bb-text-secondary)',
-          lineHeight: 1.75,
-        }}
-      >
-        {children}
-      </div>
-    </section>
-  );
-}
-
-function List({ items }: { items: React.ReactNode[] }) {
-  return (
-    <ul
-      style={{
-        margin: '10px 0 0',
-        paddingLeft: 20,
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 'var(--bb-space-3)',
-      }}
-    >
-      {items.map((item, index) => (
-        <li key={index}>{item}</li>
-      ))}
-    </ul>
-  );
-}
-
-const linkStyle = { color: 'var(--bb-accent-400)' };
-
 export default function TermsPage() {
   return (
-    <div
-      style={{
-        minHeight: '100vh',
-        background: 'var(--bb-canvas)',
-        color: 'var(--bb-text-primary)',
-        fontFamily: 'var(--bb-font-sans)',
-        padding: '48px 24px 90px',
-      }}
-    >
-      <div style={{ maxWidth: 720, margin: '0 auto' }}>
-        <Link
+    <PageCanvas style={{ padding: '48px 24px 90px' }}>
+      <PageContainer maxWidth={720}>
+        <TextLink
           href="/"
-          style={{
-            fontSize: 'var(--bb-type-label-size)',
-            color: 'var(--bb-text-muted)',
-            textDecoration: 'none',
-          }}
+          tone="muted"
+          style={{ fontSize: 'var(--bb-type-label-size)' }}
         >
           ← Back to BRΛINBΛSE
-        </Link>
+        </TextLink>
 
         <SectionHeader
           title="Terms of Use"
@@ -96,15 +29,15 @@ export default function TermsPage() {
           radius="xl"
           style={{ padding: 'var(--bb-space-8)' }}
         >
-        <Section title="1. Acceptance of terms">
+        <ProseSection title="1. Acceptance of terms">
           <p style={{ margin: 0 }}>
             By accessing or using thebrainbase.com.au (the
             &quot;Website&quot;), you agree to these website Terms of Use.
             If you do not agree, please do not use the Website.
           </p>
-        </Section>
+        </ProseSection>
 
-        <Section title="2. About the website">
+        <ProseSection title="2. About the website">
           <p style={{ margin: 0 }}>
             This Website is operated by Brainbase (ABN 32 207 559 504),
             trading as BRΛINBΛSE (&quot;we&quot;, &quot;us&quot;,
@@ -122,9 +55,9 @@ export default function TermsPage() {
             order form, BRΛINBΛSE Service Agreement, or other commercial
             terms agreed directly with the customer.
           </p>
-        </Section>
+        </ProseSection>
 
-        <Section title="3. Information only / no guaranteed availability">
+        <ProseSection title="3. Information only / no guaranteed availability">
           <p style={{ margin: 0 }}>
             Content on this Website — including feature descriptions,
             example configurations, and pricing — is provided for general
@@ -133,9 +66,9 @@ export default function TermsPage() {
             deployment, configuration, or over time. We may update or
             change Website content at any time.
           </p>
-        </Section>
+        </ProseSection>
 
-        <Section title="4. Intellectual property">
+        <ProseSection title="4. Intellectual property">
           <p style={{ margin: 0 }}>
             The Website, including its design, text, graphics, the
             BRΛINBΛSE and HLNΛ names and marks, and underlying software,
@@ -144,12 +77,12 @@ export default function TermsPage() {
             reproduce or reuse Website content beyond your own personal,
             non-commercial reference, without our permission.
           </p>
-        </Section>
+        </ProseSection>
 
-        <Section title="5. Acceptable use">
+        <ProseSection title="5. Acceptable use">
           <p style={{ margin: 0 }}>You agree not to:</p>
 
-          <List
+          <ProseList
             items={[
               'Misuse the Website or attempt to gain unauthorised access to it',
               'Interfere with the security, integrity or normal functioning of the Website',
@@ -158,17 +91,17 @@ export default function TermsPage() {
               'Misrepresent your identity or authority when submitting an enquiry',
             ]}
           />
-        </Section>
+        </ProseSection>
 
-        <Section title="6. Third-party links and services">
+        <ProseSection title="6. Third-party links and services">
           <p style={{ margin: 0 }}>
             The Website may link to or reference third-party websites and
             services. We do not control, and are not responsible for, the
             content, policies or practices of third-party sites.
           </p>
-        </Section>
+        </ProseSection>
 
-        <Section title="7. Demo and example data">
+        <ProseSection title="7. Demo and example data">
           <p style={{ margin: 0 }}>
             Any platform demonstration, dashboard or example environment
             shown on the Website uses simulated or example data unless
@@ -177,9 +110,9 @@ export default function TermsPage() {
             data, real customers, or a guarantee of identical functionality
             in every deployment.
           </p>
-        </Section>
+        </ProseSection>
 
-        <Section title="8. AI-generated and demo content">
+        <ProseSection title="8. AI-generated and demo content">
           <p style={{ margin: 0 }}>
             Some content or responses shown on the Website, including
             demonstration HLNΛ interactions, may be generated or assisted
@@ -187,18 +120,18 @@ export default function TermsPage() {
             purposes. They should not be relied upon as professional,
             financial, legal or operational advice.
           </p>
-        </Section>
+        </ProseSection>
 
-        <Section title="9. Website availability">
+        <ProseSection title="9. Website availability">
           <p style={{ margin: 0 }}>
             We aim to keep the Website available and functioning correctly
             but do not guarantee uninterrupted or error-free access. The
             Website may be unavailable at times for maintenance, updates,
             or reasons outside our control.
           </p>
-        </Section>
+        </ProseSection>
 
-        <Section title="10. Liability">
+        <ProseSection title="10. Liability">
           <p style={{ margin: 0 }}>
             To the maximum extent permitted by law, we exclude all
             liability for loss or damage arising from your use of, or
@@ -207,48 +140,48 @@ export default function TermsPage() {
             under the Australian Consumer Law, or any other right that
             cannot lawfully be excluded, restricted or modified.
           </p>
-        </Section>
+        </ProseSection>
 
-        <Section title="11. Privacy">
+        <ProseSection title="11. Privacy">
           <p style={{ margin: 0 }}>
             Our collection and handling of personal information through
             the Website is described in our{' '}
-            <Link href="/privacy" style={linkStyle}>
+            <TextLink href="/privacy">
               Privacy Policy
-            </Link>
+            </TextLink>
             .
           </p>
-        </Section>
+        </ProseSection>
 
-        <Section title="12. Changes to the website and these terms">
+        <ProseSection title="12. Changes to the website and these terms">
           <p style={{ margin: 0 }}>
             We may update the Website or these Terms of Use from time to
             time. Changes take effect once published. Continued use of the
             Website after changes are published constitutes acceptance of
             the updated terms.
           </p>
-        </Section>
+        </ProseSection>
 
-        <Section title="13. Governing law">
+        <ProseSection title="13. Governing law">
           <p style={{ margin: 0 }}>
             These terms are governed by the laws of South Australia,
             Australia, and you submit to the non-exclusive jurisdiction of
             the courts of South Australia.
           </p>
-        </Section>
+        </ProseSection>
 
-        <Section title="14. Contact">
+        <ProseSection title="14. Contact">
           <p style={{ margin: 0 }}>
             For questions about these terms, contact Brainbase (trading as
             BRΛINBΛSE) at{' '}
-            <a href="mailto:hello@thebrainbase.com.au" style={linkStyle}>
+            <TextLink href="mailto:hello@thebrainbase.com.au">
               hello@thebrainbase.com.au
-            </a>
+            </TextLink>
             .
           </p>
-        </Section>
+        </ProseSection>
         </Surface>
-      </div>
-    </div>
+      </PageContainer>
+    </PageCanvas>
   );
 }
