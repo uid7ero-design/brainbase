@@ -34,6 +34,8 @@ const orbitalBackgroundCode = stripComments(orbitalBackgroundSource)
 const helenaOrbitalSource = read('components/brand/HelenaOrbital.tsx')
 const loginSource = read('app/login/page.tsx')
 const signupSource = read('app/signup/page.tsx')
+const authShellSource = read('components/public/auth/AuthShell.tsx')
+const authShellStyles = read('components/public/auth/AuthShell.module.css')
 const connectSource = read('app/connect/page.tsx')
 const requestDemoSource = read('app/request-demo/page.tsx')
 const hlnaPageSource = read('app/hlna/page.tsx')
@@ -128,30 +130,28 @@ describe('Product distinction — OrbitalBackground never merges with the living
   })
 })
 
-describe('Surface adoption — login', () => {
-  it('login uses OrbitalBackground and no longer imports the old decorative idle HlnaOrb', () => {
-    expect(loginSource).toContain("import { OrbitalBackground } from '@/components/brand/OrbitalBackground'")
-    expect(loginSource).toMatch(/<OrbitalBackground/)
-    expect(loginSource).not.toMatch(/import \{ HlnaOrb \} from '@\/components\/brand\/HlnaOrb'/)
-    expect(loginSource).not.toContain('<HlnaOrb')
+describe('Auth surfaces after public-site convergence', () => {
+  it('login and signup share the new token-based AuthShell rather than the retired full-field OrbitalBackground', () => {
+    for (const source of [loginSource, signupSource]) {
+      expect(source).toContain("from '@/components/public/auth/AuthShell'")
+      expect(source).toMatch(/<AuthShell>/)
+      expect(source).not.toContain('OrbitalBackground')
+      expect(source).not.toContain('<HlnaOrb')
+    }
+  })
+
+  it('AuthShell keeps a restrained decorative orbital motif using public design tokens, not the animated legacy field', () => {
+    expect(authShellSource).toContain('className={styles.orbit}')
+    expect(authShellSource).toContain('aria-hidden="true"')
+    expect(authShellStyles).toContain('var(--bb-accent)')
+    expect(authShellStyles).toContain('var(--bb-signal)')
+    expect(authShellStyles).not.toContain('bbOrbitalRingSpin')
+    expect(authShellSource).not.toContain('OrbitalBackground')
   })
 
   it('the sign-in form remains present and unaffected (still renders username/password/submit)', () => {
     expect(loginSource).toMatch(/name="username"|id="username"/)
     expect(loginSource).toMatch(/type="password"/)
-  })
-})
-
-describe('Surface adoption — signup', () => {
-  it('signup reuses the shared OrbitalBackground (mirrors login, not a duplicated bespoke implementation) and drops the old decorative HlnaOrb', () => {
-    expect(signupSource).toContain("import { OrbitalBackground } from '@/components/brand/OrbitalBackground'")
-    expect(signupSource).toMatch(/<OrbitalBackground/)
-    expect(signupSource).not.toMatch(/import \{ HlnaOrb \} from '@\/components\/brand\/HlnaOrb'/)
-    expect(signupSource).not.toContain('<HlnaOrb')
-  })
-
-  it('does not duplicate OrbitalBackground\'s own CSS/keyframes locally — reuses the shared component instead', () => {
-    expect(signupSource).not.toMatch(/bbOrbitalRingSpin/)
   })
 })
 
