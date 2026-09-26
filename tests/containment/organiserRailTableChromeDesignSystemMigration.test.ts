@@ -96,12 +96,14 @@ describe('C.3 Organiser rail and table chrome design-system migration', () => {
     expect(page).toContain('onDelete()')
   })
 
-  it('does not introduce or rewrite drag/drop hooks in this design branch', () => {
-    for (const source of [page, rail]) {
-      expect(source).not.toContain('draggable=')
-      expect(source).not.toContain('onDragStart=')
-      expect(source).not.toContain('onDragOver=')
-      expect(source).not.toContain('onDrop=')
+  it('preserves the integrated drag/drop hooks in table chrome without moving them into the rail', () => {
+    for (const hook of ['draggable', 'onDragStart=', 'onDragOver=', 'onDrop=']) {
+      expect(page).toContain(hook)
+    }
+    expect(page).toContain('onGroupDragHandleStart')
+    expect(page).toContain('onItemDragHandleStart')
+    for (const hook of ['draggable=', 'onDragStart=', 'onDragOver=', 'onDrop=']) {
+      expect(rail).not.toContain(hook)
     }
   })
 

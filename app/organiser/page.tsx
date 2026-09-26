@@ -653,13 +653,14 @@ function ColumnOptionsEditor({ column, onSave, onClose }: { column: OrganiserCol
 // ── ITEM ROW ─────────────────────────────────────────────────────────────────
 
 function ItemRow({
-  item, depth, columns, onUpdate, onDelete, onOpenDrawer, hasChildren, collapsed, onToggleCollapse, saveStatus,
+  item, depth, columns, onUpdate, onDelete, onOpenDrawer, hasChildren, collapsed, onToggleCollapse, saveStatus, onItemDragHandleStart,
 }: {
   item: OrganiserItem; depth: number; columns: OrganiserColumn[];
   onUpdate: (id: string, patch: Record<string, unknown>) => void;
   onDelete: (id: string) => void;
   onOpenDrawer: (item: OrganiserItem) => void;
   hasChildren: boolean; collapsed: boolean; onToggleCollapse: () => void;
+  onItemDragHandleStart?: () => void;
   // D.4.7B — keyed by `item:<id>:<field>`, same convention as ItemDrawer's
   // Field-level indicators; only this row's own item id's entries are
   // ever relevant, looked up per field below.
@@ -681,6 +682,17 @@ function ItemRow({
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+        {onItemDragHandleStart && (
+          <span
+            draggable
+            onDragStart={e => { e.dataTransfer.effectAllowed = "move"; onItemDragHandleStart(); }}
+            title="Drag to reorder item"
+            aria-label="Reorder item"
+            style={{ width: 12, height: 16, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", cursor: "grab", color: "var(--bb-text-muted)" }}
+          >
+            <svg width="8" height="12" viewBox="0 0 8 12" fill="currentColor"><circle cx="2" cy="2" r="1.2" /><circle cx="6" cy="2" r="1.2" /><circle cx="2" cy="6" r="1.2" /><circle cx="6" cy="6" r="1.2" /><circle cx="2" cy="10" r="1.2" /><circle cx="6" cy="10" r="1.2" /></svg>
+          </span>
+        )}
         {hasChildren ? (
           <button
             onClick={onToggleCollapse}
@@ -783,7 +795,7 @@ function ItemRow({
 
 function GroupSection({
   group, items, columns, onUpdateItem, onDeleteItem, onAddItem, onOpenDrawer, onRenameGroup, onDeleteGroup,
-  onAddColumn, onRenameColumn, onDeleteColumn, onEditColumnOptions, saveStatus,
+  onAddColumn, onRenameColumn, onDeleteColumn, onEditColumnOptions, saveStatus, onGroupDragHandleStart, onReorderTopLevelItems, onReorderSubitems,
 }: {
   group: OrganiserGroup | null; items: OrganiserItem[]; columns: OrganiserColumn[];
   onUpdateItem: (id: string, patch: Record<string, unknown>) => void;
@@ -797,6 +809,13 @@ function GroupSection({
   onDeleteColumn: (id: string) => void;
   onEditColumnOptions: (column: OrganiserColumn) => void;
   saveStatus: Record<string, SaveStatus>;
+  // D.4.7E (Slice E2) — omitted entirely for the synthetic "No group"
+  // bucket (group === null): that section has no persisted row/position of
+  // its own, so it must never become a drag source or be counted as part
+  // of the reorderable scope. Only present for a real group.
+  onGroupDragHandleStart?: () => void;
+  onReorderTopLevelItems: (groupId: string | null, orderedItemIds: string[]) => void;
+  onReorderSubitems: (parentItemId: string, orderedItemIds: string[]) => void;
 }) {
   const [open, setOpen] = useState(true);
   const [collapsedParents, setCollapsedParents] = useState<Set<string>>(new Set());
@@ -805,12 +824,67 @@ function GroupSection({
     .filter(i => i.group_id === (group?.id ?? null) && !i.parent_item_id)
     .sort((a, b) => a.position - b.position);
   const childrenOf = (parentId: string) => items.filter(i => i.parent_item_id === parentId).sort((a, b) => a.position - b.position);
+  const [draggingItemId, setDraggingItemId] = useState<string | null>(null);
+  const [draggingSubitem, setDraggingSubitem] = useState<{ parentId: string; itemId: string } | null>(null);
+
+  function handleTopLevelItemDrop(targetItemId: string) {
+    const draggedId = draggingItemId;
+    setDraggingItemId(null);
+    if (!draggedId || draggedId === targetItemId) return;
+    const currentIds = topLevel.map(i => i.id);
+    if (!currentIds.includes(draggedId)) return;
+    const without = currentIds.filter(id => id !== draggedId);
+    const targetIndex = without.indexOf(targetItemId);
+    if (targetIndex === -1) return;
+    onReorderTopLevelItems(group?.id ?? null, [...without.slice(0, targetIndex), draggedId, ...without.slice(targetIndex)]);
+  }
+
+  function handleTopLevelItemDropAtEnd() {
+    const draggedId = draggingItemId;
+    setDraggingItemId(null);
+    if (!draggedId) return;
+    const currentIds = topLevel.map(i => i.id);
+    if (!currentIds.includes(draggedId) || currentIds[currentIds.length - 1] === draggedId) return;
+    onReorderTopLevelItems(group?.id ?? null, [...currentIds.filter(id => id !== draggedId), draggedId]);
+  }
+
+  function handleSubitemDrop(parentItemId: string, targetItemId: string) {
+    const dragged = draggingSubitem;
+    setDraggingSubitem(null);
+    if (!dragged || dragged.parentId !== parentItemId || dragged.itemId === targetItemId) return;
+    const currentIds = childrenOf(parentItemId).map(i => i.id);
+    if (!currentIds.includes(dragged.itemId)) return;
+    const without = currentIds.filter(id => id !== dragged.itemId);
+    const targetIndex = without.indexOf(targetItemId);
+    if (targetIndex === -1) return;
+    onReorderSubitems(parentItemId, [...without.slice(0, targetIndex), dragged.itemId, ...without.slice(targetIndex)]);
+  }
+
+  function handleSubitemDropAtEnd(parentItemId: string) {
+    const dragged = draggingSubitem;
+    setDraggingSubitem(null);
+    if (!dragged || dragged.parentId !== parentItemId) return;
+    const currentIds = childrenOf(parentItemId).map(i => i.id);
+    if (!currentIds.includes(dragged.itemId) || currentIds[currentIds.length - 1] === dragged.itemId) return;
+    onReorderSubitems(parentItemId, [...currentIds.filter(id => id !== dragged.itemId), dragged.itemId]);
+  }
 
   const color = group?.color || "#8B5CF6";
 
   return (
     <Surface variant="base" radius="xl" style={{ marginBottom: 18, overflow: "hidden" }}>
       <div style={{ display: "flex", alignItems: "center", gap: "var(--bb-space-4)", padding: "9px 12px", background: `${color}10`, borderBottom: open ? "1px solid var(--bb-border-subtle)" : "none" }}>
+        {onGroupDragHandleStart && (
+          <span
+            draggable
+            onDragStart={e => { e.dataTransfer.effectAllowed = "move"; onGroupDragHandleStart(); }}
+            title="Drag to reorder"
+            aria-label="Reorder group"
+            style={{ width: 14, height: 18, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", cursor: "grab", color: "var(--bb-text-muted)" }}
+          >
+            <svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor"><circle cx="2.5" cy="2.5" r="1.4" /><circle cx="7.5" cy="2.5" r="1.4" /><circle cx="2.5" cy="7" r="1.4" /><circle cx="7.5" cy="7" r="1.4" /><circle cx="2.5" cy="11.5" r="1.4" /><circle cx="7.5" cy="11.5" r="1.4" /></svg>
+          </span>
+        )}
         <button onClick={() => setOpen(o => !o)} style={{ width: 18, height: 18, display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", cursor: "pointer", color, transform: open ? "none" : "rotate(-90deg)", transition: "transform var(--bb-duration-fast) var(--bb-ease-standard)" }}>
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"><polyline points="6 9 12 15 18 9" /></svg>
         </button>
@@ -849,28 +923,95 @@ function GroupSection({
             const kids = childrenOf(item.id);
             const collapsed = collapsedParents.has(item.id);
             return (
-              <React.Fragment key={item.id}>
+              <div
+                key={item.id}
+                onDragOver={e => { if (draggingItemId) e.preventDefault(); }}
+                onDrop={e => { e.preventDefault(); handleTopLevelItemDrop(item.id); }}
+              >
                 <ItemRow
                   item={item} depth={0} columns={columns}
                   onUpdate={onUpdateItem} onDelete={onDeleteItem} onOpenDrawer={onOpenDrawer}
                   hasChildren={kids.length > 0} collapsed={collapsed}
                   onToggleCollapse={() => setCollapsedParents(prev => { const n = new Set(prev); n.has(item.id) ? n.delete(item.id) : n.add(item.id); return n; })}
                   saveStatus={saveStatus}
+                  onItemDragHandleStart={() => setDraggingItemId(item.id)}
                 />
                 {!collapsed && kids.map(child => (
-                  <ItemRow
-                    key={child.id} item={child} depth={1} columns={columns}
-                    onUpdate={onUpdateItem} onDelete={onDeleteItem} onOpenDrawer={onOpenDrawer}
-                    hasChildren={false} collapsed={false} onToggleCollapse={() => {}}
-                    saveStatus={saveStatus}
-                  />
+                  <div
+                    key={child.id}
+                    onDragOver={e => {
+                      if (draggingSubitem?.parentId === item.id) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                      }
+                    }}
+                    onDrop={e => {
+                      if (draggingSubitem?.parentId === item.id) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        handleSubitemDrop(item.id, child.id);
+                      }
+                    }}
+                  >
+                    <ItemRow
+                      item={child} depth={1} columns={columns}
+                      onUpdate={onUpdateItem} onDelete={onDeleteItem} onOpenDrawer={onOpenDrawer}
+                      hasChildren={false} collapsed={false} onToggleCollapse={() => {}}
+                      saveStatus={saveStatus}
+                      onItemDragHandleStart={() => setDraggingSubitem({ parentId: item.id, itemId: child.id })}
+                    />
+                  </div>
                 ))}
+                {!collapsed && kids.length > 0 && (
+                  <div
+                    onDragOver={e => {
+                      if (draggingSubitem?.parentId === item.id) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                      }
+                    }}
+                    onDrop={e => {
+                      if (draggingSubitem?.parentId === item.id) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        handleSubitemDropAtEnd(item.id);
+                      }
+                    }}
+                    title="Move subitem to end"
+                    aria-label="Move subitem to end"
+                    style={{
+                      height: draggingSubitem?.parentId === item.id ? 8 : 0,
+                      marginLeft: 28,
+                      borderRadius: 5,
+                      border: draggingSubitem?.parentId === item.id ? "1px dashed var(--bb-border-strong)" : "none",
+                      background: draggingSubitem?.parentId === item.id ? "var(--bb-surface-soft)" : "transparent",
+                      pointerEvents: draggingSubitem?.parentId === item.id ? "auto" : "none",
+                      transition: "height var(--bb-duration-fast) var(--bb-ease-standard)",
+                    }}
+                  />
+                )}
                 {!collapsed && (
                   <AddItemRow indent onAdd={name => onAddItem(name, group?.id ?? null, item.id)} />
                 )}
-              </React.Fragment>
+              </div>
             );
           })}
+          {topLevel.length > 0 && (
+            <div
+              onDragOver={e => { if (draggingItemId) e.preventDefault(); }}
+              onDrop={e => { e.preventDefault(); handleTopLevelItemDropAtEnd(); }}
+              title="Move item to end"
+              aria-label="Move item to end"
+              style={{
+                height: draggingItemId ? 10 : 0,
+                borderRadius: 5,
+                border: draggingItemId ? "1px dashed var(--bb-border-strong)" : "none",
+                background: draggingItemId ? "var(--bb-surface-soft)" : "transparent",
+                pointerEvents: draggingItemId ? "auto" : "none",
+                transition: "height var(--bb-duration-fast) var(--bb-ease-standard)",
+              }}
+            />
+          )}
           <AddItemRow onAdd={name => onAddItem(name, group?.id ?? null, null)} />
         </div>
       )}
@@ -1769,6 +1910,12 @@ function OrganiserPageContent() {
   // full reasoning — which is what actually makes server commit order
   // deterministic, not just client display order.
   const itemFieldQueueRef = useRef<CoalescingQueueMap<Record<string, unknown>>>({});
+  // D.4.7E (Slice E2) — separate from itemFieldQueueRef (different value
+  // shape: a full ordered-id array, not a field patch). Keyed
+  // `board:<boardId>:group-order` today; E3/E4's own item/subitem reorder
+  // will use their own distinct key shapes on this same ref, matching the
+  // discovery report's own recommendation.
+  const reorderQueueRef = useRef<CoalescingQueueMap<string[]>>({});
 
   // Lightweight, single-slot transient notice for mutations with no
   // natural inline anchor to show Saving/Saved/error next to (group/item
@@ -1943,11 +2090,255 @@ function OrganiserPageContent() {
     if (activeId) loadBoardData(activeId);
   }
 
+  // D.4.7E (Slice E2) — group reorder within one board. Mirrors updateItem's
+  // own optimistic/coalesced/rollback shape (see that function's own header
+  // comment), adapted for a full-order payload instead of a single-field
+  // patch: `confirmedOrder` is captured ONCE per coalesced chain (lazily, on
+  // the first attempt), from the board state as it stood immediately BEFORE
+  // this drag's own optimistic reorder — so a LATER failure in the same
+  // chain rolls back to the last genuinely server-confirmed order, never to
+  // an intermediate optimistic state a newer drag has already superseded.
+  // A 409 (the board's real group order changed elsewhere since this
+  // client's own copy was loaded) is handled differently from every other
+  // failure: since the client's whole mental model of the order is stale,
+  // not just this one write, a full board reload is the only honest
+  // recovery — reverting to `confirmedOrder` would just reapply a second
+  // stale order.
+  async function reorderGroups(orderedGroupIds: string[]) {
+    if (!activeId || !boardData) return;
+    const key = `board:${activeId}:group-order`;
+    const preDragGroups = boardData.groups;
+
+    setBoardData(prev => {
+      if (!prev) return prev;
+      const byId = new Map(prev.groups.map(g => [g.id, g]));
+      const reordered = orderedGroupIds.map(id => byId.get(id)).filter((g): g is OrganiserGroup => !!g);
+      const reorderedIds = new Set(reordered.map(g => g.id));
+      const missing = prev.groups.filter(g => !reorderedIds.has(g.id));
+      return { ...prev, groups: [...reordered, ...missing] };
+    });
+
+    let confirmedOrder: string[] | null = null;
+
+    await enqueueCoalesced(reorderQueueRef.current, key, orderedGroupIds, async (value, hasNewerPending) => {
+      if (confirmedOrder === null) confirmedOrder = preDragGroups.map(g => g.id);
+
+      let res: Response | null = null;
+      try {
+        res = await fetch(`/api/organiser/boards/${activeId}/groups/reorder`, {
+          method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include",
+          body: JSON.stringify({ ordered_group_ids: value }),
+        });
+      } catch {
+        res = null;
+      }
+
+      if (hasNewerPending()) return;
+
+      if (res && res.status === 409) {
+        if (activeId) loadBoardData(activeId);
+        return;
+      }
+      if (!res || !res.ok) {
+        showPageNotice("Couldn't save group order. Reverting.");
+        const restoreTo = confirmedOrder;
+        setBoardData(prev => {
+          if (!prev) return prev;
+          const byId = new Map(prev.groups.map(g => [g.id, g]));
+          const restored = restoreTo.map(id => byId.get(id)).filter((g): g is OrganiserGroup => !!g);
+          const restoredIds = new Set(restored.map(g => g.id));
+          const missing = prev.groups.filter(g => !restoredIds.has(g.id));
+          return { ...prev, groups: [...restored, ...missing] };
+        });
+        return;
+      }
+
+      const data = await res.json().catch(() => null) as { order?: { id: string; position: number }[] } | null;
+      if (data?.order) {
+        confirmedOrder = value;
+        const posById = new Map(data.order.map(o => [o.id, o.position]));
+        setBoardData(prev => {
+          if (!prev) return prev;
+          return { ...prev, groups: prev.groups.map(g => (posById.has(g.id) ? { ...g, position: posById.get(g.id)! } : g)) };
+        });
+      }
+    });
+  }
+
+  const [draggingGroupId, setDraggingGroupId] = useState<string | null>(null);
+  function handleGroupDrop(targetGroupId: string) {
+    const draggedId = draggingGroupId;
+    setDraggingGroupId(null);
+    if (!draggedId || draggedId === targetGroupId || !boardData) return;
+    const currentIds = boardData.groups.map(g => g.id);
+    const without = currentIds.filter(id => id !== draggedId);
+    const targetIndex = without.indexOf(targetGroupId);
+    if (targetIndex === -1) return;
+    const reordered = [...without.slice(0, targetIndex), draggedId, ...without.slice(targetIndex)];
+    reorderGroups(reordered);
+  }
+
+  // D.4.7E (Slice E2 fix) — the trailing "Move group to end" drop target's
+  // own handler. Appends, never inserts-before — the one semantic
+  // `handleGroupDrop` above structurally cannot express. Already-last is a
+  // deliberate no-op with no network call: sending a reorder request whose
+  // resulting order is byte-identical to the current one would be a
+  // pointless round trip, and (more importantly) a redundant coalesced
+  // write that could race meaninglessly against a genuine concurrent edit.
+  function handleGroupDropAtEnd() {
+    const draggedId = draggingGroupId;
+    setDraggingGroupId(null);
+    if (!draggedId || !boardData) return;
+    const currentIds = boardData.groups.map(g => g.id);
+    if (currentIds.length === 0 || currentIds[currentIds.length - 1] === draggedId) return;
+    const without = currentIds.filter(id => id !== draggedId);
+    reorderGroups([...without, draggedId]);
+  }
+
   // D.4.7B — addItem now returns a boolean success indicator (used by
   // AddItemRow's own duplicate-submit guard below). No optimistic local
   // item is fabricated here — the server remains the sole source of the
   // new item's id/position/timestamps, exactly as before; this change is
   // purely "stop pretending every POST succeeded."
+  // D.4.7E (Slice E3) - optimistic same-group top-level item reorder.
+  async function reorderTopLevelItems(groupId: string | null, orderedItemIds: string[]) {
+    if (!activeId || !boardData) return;
+    const key = `board:${activeId}:item-order:group:${groupId ?? "none"}`;
+    const preDragScope = boardData.items
+      .filter(i => i.group_id === groupId && !i.parent_item_id)
+      .sort((a, b) => a.position - b.position);
+    let confirmedOrder: string[] | null = null;
+
+    const applyOrder = (prev: BoardData | null, order: string[]) => {
+      if (!prev) return prev;
+      const posById = new Map(order.map((id, index) => [id, index]));
+      return {
+        ...prev,
+        items: prev.items.map(item =>
+          item.group_id === groupId && !item.parent_item_id && posById.has(item.id)
+            ? { ...item, position: posById.get(item.id)! }
+            : item,
+        ),
+      };
+    };
+
+    setBoardData(prev => applyOrder(prev, orderedItemIds));
+
+    await enqueueCoalesced(reorderQueueRef.current, key, orderedItemIds, async (value, hasNewerPending) => {
+      if (confirmedOrder === null) confirmedOrder = preDragScope.map(i => i.id);
+
+      let res: Response | null = null;
+      try {
+        res = await fetch(`/api/organiser/boards/${activeId}/items/reorder`, {
+          method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include",
+          body: JSON.stringify({ group_id: groupId, ordered_item_ids: value }),
+        });
+      } catch {
+        res = null;
+      }
+
+      if (hasNewerPending()) return;
+
+      if (res && res.status === 409) {
+        showPageNotice("Item order changed elsewhere. Refreshing.");
+        loadBoardData(activeId);
+        return;
+      }
+      if (!res || !res.ok) {
+        showPageNotice("Couldn't save item order. Reverting.");
+        setBoardData(prev => applyOrder(prev, confirmedOrder ?? preDragScope.map(i => i.id)));
+        return;
+      }
+
+      const data = await res.json().catch(() => null) as { order?: { id: string; position: number }[] } | null;
+      if (data?.order) {
+        confirmedOrder = value;
+        const posById = new Map(data.order.map(o => [o.id, o.position]));
+        setBoardData(prev => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            items: prev.items.map(item =>
+              item.group_id === groupId && !item.parent_item_id && posById.has(item.id)
+                ? { ...item, position: posById.get(item.id)! }
+                : item,
+            ),
+          };
+        });
+      }
+    });
+  }
+
+  // D.4.7E (Slice E4) - optimistic same-parent subitem reorder. Relationship
+  // fields never change here: the scope is exactly one existing parent id.
+  async function reorderSubitems(parentItemId: string, orderedItemIds: string[]) {
+    if (!activeId || !boardData) return;
+    const key = `board:${activeId}:item-order:parent:${parentItemId}`;
+    const preDragScope = boardData.items
+      .filter(i => i.parent_item_id === parentItemId)
+      .sort((a, b) => a.position - b.position);
+    let confirmedOrder: string[] | null = null;
+
+    const applyOrder = (prev: BoardData | null, order: string[]) => {
+      if (!prev) return prev;
+      const posById = new Map(order.map((id, index) => [id, index]));
+      return {
+        ...prev,
+        items: prev.items.map(item =>
+          item.parent_item_id === parentItemId && posById.has(item.id)
+            ? { ...item, position: posById.get(item.id)! }
+            : item,
+        ),
+      };
+    };
+
+    setBoardData(prev => applyOrder(prev, orderedItemIds));
+
+    await enqueueCoalesced(reorderQueueRef.current, key, orderedItemIds, async (value, hasNewerPending) => {
+      if (confirmedOrder === null) confirmedOrder = preDragScope.map(i => i.id);
+
+      let res: Response | null = null;
+      try {
+        res = await fetch(`/api/organiser/boards/${activeId}/items/${parentItemId}/reorder`, {
+          method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include",
+          body: JSON.stringify({ ordered_item_ids: value }),
+        });
+      } catch {
+        res = null;
+      }
+
+      if (hasNewerPending()) return;
+
+      if (res && res.status === 409) {
+        showPageNotice("Subitem order changed elsewhere. Refreshing.");
+        loadBoardData(activeId);
+        return;
+      }
+      if (!res || !res.ok) {
+        showPageNotice("Couldn't save subitem order. Reverting.");
+        setBoardData(prev => applyOrder(prev, confirmedOrder ?? preDragScope.map(i => i.id)));
+        return;
+      }
+
+      const data = await res.json().catch(() => null) as { order?: { id: string; position: number }[] } | null;
+      if (data?.order) {
+        confirmedOrder = value;
+        const posById = new Map(data.order.map(o => [o.id, o.position]));
+        setBoardData(prev => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            items: prev.items.map(item =>
+              item.parent_item_id === parentItemId && posById.has(item.id)
+                ? { ...item, position: posById.get(item.id)! }
+                : item,
+            ),
+          };
+        });
+      }
+    });
+  }
+
   async function addItem(name: string, groupId: string | null, parentItemId: string | null): Promise<boolean> {
     if (!activeId) return false;
     try {
@@ -2276,14 +2667,54 @@ function OrganiserPageContent() {
               {view === "table" && (
                 <div style={{ flex: 1, overflowY: "auto", padding: "var(--bb-space-6) var(--bb-space-7) 60px", background: "var(--bb-canvas)" }}>
                   {boardData?.groups.map(g => (
-                    <GroupSection
-                      key={g.id} group={g} items={boardData.items} columns={columns}
-                      onUpdateItem={updateItem} onDeleteItem={deleteItem} onAddItem={addItem}
-                      onOpenDrawer={openDrawerForItem} onRenameGroup={renameGroup} onDeleteGroup={deleteGroup}
-                      onAddColumn={addColumn} onRenameColumn={renameColumn} onDeleteColumn={deleteColumn} onEditColumnOptions={setEditingColumn}
-                      saveStatus={saveStatus}
-                    />
+                    <div
+                      key={g.id}
+                      onDragOver={e => { if (draggingGroupId) e.preventDefault(); }}
+                      onDrop={e => { e.preventDefault(); handleGroupDrop(g.id); }}
+                    >
+                      <GroupSection
+                        group={g} items={boardData.items} columns={columns}
+                        onUpdateItem={updateItem} onDeleteItem={deleteItem} onAddItem={addItem}
+                        onOpenDrawer={openDrawerForItem} onRenameGroup={renameGroup} onDeleteGroup={deleteGroup}
+                        onAddColumn={addColumn} onRenameColumn={renameColumn} onDeleteColumn={deleteColumn} onEditColumnOptions={setEditingColumn}
+                        saveStatus={saveStatus}
+                        onGroupDragHandleStart={() => setDraggingGroupId(g.id)}
+                        onReorderTopLevelItems={reorderTopLevelItems}
+                        onReorderSubitems={reorderSubitems}
+                      />
+                    </div>
                   ))}
+                  {/* D.4.7E (Slice E2 fix) — every existing drop target
+                      (each group's own wrapper div, above) inserts the
+                      dragged group BEFORE it — there was previously no way
+                      to express "after the current last group," so a group
+                      could never actually become the new last one via drag.
+                      This is the one explicit terminal target that closes
+                      that gap. Always mounted (never conditionally rendered)
+                      so there is no mount-timing race against a real drag's
+                      dragover events; collapsed to zero height and
+                      non-interactive (`pointerEvents: "none"`) whenever
+                      nothing is being dragged, so it adds no visual clutter
+                      and cannot swallow an accidental drop the rest of the
+                      time. Routes through the exact same reorderGroups(...)
+                      path as every other drop — no second mutation path. */}
+                  {boardData && boardData.groups.length > 0 && (
+                    <div
+                      onDragOver={e => { if (draggingGroupId) e.preventDefault(); }}
+                      onDrop={e => { e.preventDefault(); handleGroupDropAtEnd(); }}
+                      title="Move group to end"
+                      aria-label="Move group to end"
+                      style={{
+                        height: draggingGroupId ? 14 : 0,
+                        marginBottom: draggingGroupId ? 12 : 0,
+                        borderRadius: 6,
+                        border: draggingGroupId ? "1px dashed rgba(139,92,246,.45)" : "none",
+                        background: draggingGroupId ? "rgba(139,92,246,.08)" : "transparent",
+                        transition: "height .12s, margin-bottom .12s",
+                        pointerEvents: draggingGroupId ? "auto" : "none",
+                      }}
+                    />
+                  )}
                   {boardData && boardData.items.some(i => !i.group_id) && (
                     <GroupSection
                       group={null} items={boardData.items} columns={columns}
@@ -2291,6 +2722,8 @@ function OrganiserPageContent() {
                       onOpenDrawer={openDrawerForItem} onRenameGroup={renameGroup} onDeleteGroup={deleteGroup}
                       onAddColumn={addColumn} onRenameColumn={renameColumn} onDeleteColumn={deleteColumn} onEditColumnOptions={setEditingColumn}
                       saveStatus={saveStatus}
+                      onReorderTopLevelItems={reorderTopLevelItems}
+                      onReorderSubitems={reorderSubitems}
                     />
                   )}
 
