@@ -799,3 +799,83 @@ export async function logPurchaseMatchAllocationReversed(params: {
     beforeState: params.before, afterState: { reversed: true, reversal_reason: params.reason },
   });
 }
+
+
+// Phase C7.7C — governed Budgeting draft-edit audit events.
+export async function logBudgetAccountCreated(params: {
+  organisationId: string; userId: string; budgetAccountId: string; after: Record<string, unknown>;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'commercial_budget_account.created',
+    resourceType: 'commercial_budget_account', resourceId: params.budgetAccountId, beforeState: null, afterState: params.after,
+  });
+}
+
+export async function logBudgetAccountUpdated(params: {
+  organisationId: string; userId: string; budgetAccountId: string;
+  before: Record<string, unknown>; after: Record<string, unknown>;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'commercial_budget_account.updated',
+    resourceType: 'commercial_budget_account', resourceId: params.budgetAccountId, beforeState: params.before, afterState: params.after,
+  });
+}
+
+export async function logBudgetAccountDeactivated(params: {
+  organisationId: string; userId: string; budgetAccountId: string;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'commercial_budget_account.deactivated',
+    resourceType: 'commercial_budget_account', resourceId: params.budgetAccountId,
+    beforeState: { active: true }, afterState: { active: false },
+  });
+}
+
+export async function logBudgetCreated(params: {
+  organisationId: string; userId: string; budgetId: string; after: Record<string, unknown>;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'commercial_budget.created',
+    resourceType: 'commercial_budget', resourceId: params.budgetId, beforeState: null, afterState: params.after,
+  });
+}
+
+export async function logBudgetVersionCreated(params: {
+  organisationId: string; userId: string; budgetVersionId: string; budgetId: string; versionNumber: number;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'commercial_budget_version.created',
+    resourceType: 'commercial_budget_version', resourceId: params.budgetVersionId, beforeState: null,
+    afterState: { budget_id: params.budgetId, version_number: params.versionNumber, status: 'DRAFT' },
+  });
+}
+
+export async function logBudgetLineChanged(params: {
+  organisationId: string; userId: string; budgetLineId: string; budgetVersionId: string; after: Record<string, unknown>;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'commercial_budget_line.changed',
+    resourceType: 'commercial_budget_line', resourceId: params.budgetLineId, beforeState: null,
+    afterState: { budget_version_id: params.budgetVersionId, ...params.after },
+  });
+}
+
+export async function logBudgetPeriodAllocationChanged(params: {
+  organisationId: string; userId: string; budgetPeriodAllocationId: string; budgetVersionId: string; after: Record<string, unknown>;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'commercial_budget_period_allocation.changed',
+    resourceType: 'commercial_budget_period_allocation', resourceId: params.budgetPeriodAllocationId, beforeState: null,
+    afterState: { budget_version_id: params.budgetVersionId, ...params.after },
+  });
+}
+
+export async function logBudgetCommitmentMappingChanged(params: {
+  organisationId: string; userId: string; budgetCommitmentMappingId: string; budgetVersionId: string; after: Record<string, unknown>;
+}): Promise<void> {
+  await insertAuditLog({
+    organisationId: params.organisationId, userId: params.userId, action: 'commercial_budget_commitment_mapping.changed',
+    resourceType: 'commercial_budget_commitment_mapping', resourceId: params.budgetCommitmentMappingId, beforeState: null,
+    afterState: { budget_version_id: params.budgetVersionId, ...params.after },
+  });
+}
