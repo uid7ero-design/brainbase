@@ -304,6 +304,7 @@ model ImportBatch {
   uploader     User?         @relation(fields: [uploaded_by], references: [id], onDelete: SetNull)
   uploads      Upload[]
   source_record_observations SourceRecordObservation[]
+  data_hub_raw_rows DataHubRawRow[]
   // Composite tenant-scoped FK (MATCH SIMPLE) — a MATCH SIMPLE
   // constraint means a NULL source_system_id (every existing/legacy
   // row) is entirely exempt from this check. For a batch that DOES
@@ -322,7 +323,7 @@ model ImportBatch {
   // tenant's batch.
   @@unique([id, organisation_id])
   // D4A: proves a raw row's schema lineage is the exact schema pinned to this batch.
-  @@unique([id, source_schema_version_id, organisation_id])
+  @@unique([id, source_schema_version_id, organisation_id], map: "import_batches_id_schema_version_organisation_key")
   @@unique([organisation_id, idempotency_key])
   @@index([organisation_id, created_at])
   @@index([status])
@@ -492,7 +493,7 @@ model Upload {
   // change, zero data risk.
   @@unique([id, organisation_id])
   // D4A: proves a raw row's worksheet belongs to the same batch and tenant.
-  @@unique([id, import_batch_id, organisation_id])
+  @@unique([id, import_batch_id, organisation_id], map: "uploads_id_import_batch_organisation_key")
   @@map("uploads")
 }
 
@@ -784,7 +785,7 @@ model SourceSchemaWorksheet {
   // composite tenant-scoped FKs.
   @@unique([id, organisation_id])
   // D4A strict lineage key.
-  @@unique([id, source_schema_version_id, organisation_id])
+  @@unique([id, source_schema_version_id, organisation_id], map: "source_schema_worksheets_id_version_organisation_key")
   @@unique([source_schema_version_id, logical_key])
   @@unique([source_schema_version_id, expected_name])
   @@index([organisation_id])
@@ -822,10 +823,10 @@ model SourceSchemaColumn {
 
   @@unique([id, organisation_id])
   // D4A strict cell lineage key: identity + worksheet + position + tenant.
-  @@unique([id, source_schema_worksheet_id, ordinal, organisation_id])
+  @@unique([id, source_schema_worksheet_id, ordinal, organisation_id], map: "source_schema_columns_id_worksheet_ordinal_organisation_key")
   // D4A raw-cell evidence key: also proves the persisted header and sensitivity
   // snapshot exactly match this governed column.
-  @@unique([id, source_schema_worksheet_id, ordinal, source_header, sensitivity_class, organisation_id])
+  @@unique([id, source_schema_worksheet_id, ordinal, source_header, sensitivity_class, organisation_id], map: "source_schema_columns_raw_evidence_key")
   @@unique([source_schema_worksheet_id, ordinal])
   @@index([organisation_id])
   @@index([source_schema_worksheet_id])
@@ -860,7 +861,7 @@ model WorksheetMappingProfile {
   // Required by WorksheetMappingProfileVersion's composite FK.
   @@unique([id, organisation_id])
   // D4A strict lineage key.
-  @@unique([id, source_schema_worksheet_id, organisation_id])
+  @@unique([id, source_schema_worksheet_id, organisation_id], map: "worksheet_mapping_profiles_id_worksheet_organisation_key")
   // Required by Prisma's one-to-one relation validator for active_version
   // (trivially satisfied — id is the PK); mirrors SourceMapping exactly.
   @@unique([active_profile_version_id, id, organisation_id])
@@ -932,8 +933,8 @@ model DataHubRawRow {
 
   cells DataHubRawCell[]
 
-  @@unique([id, source_schema_worksheet_id, organisation_id])
-  @@unique([upload_id, source_row_number])
+  @@unique([id, source_schema_worksheet_id, organisation_id], map: "data_hub_raw_rows_id_worksheet_organisation_key")
+  @@unique([upload_id, source_row_number], map: "data_hub_raw_rows_upload_source_row_key")
   @@index([organisation_id, import_batch_id])
   @@index([upload_id])
   @@index([source_schema_version_id])
@@ -961,7 +962,7 @@ model DataHubRawCell {
   raw_row DataHubRawRow @relation(fields: [raw_row_id, source_schema_worksheet_id, organisation_id], references: [id, source_schema_worksheet_id, organisation_id])
   source_schema_column SourceSchemaColumn @relation(fields: [source_schema_column_id, source_schema_worksheet_id, column_ordinal, source_header, sensitivity_class, organisation_id], references: [id, source_schema_worksheet_id, ordinal, source_header, sensitivity_class, organisation_id])
 
-  @@unique([raw_row_id, column_ordinal])
+  @@unique([raw_row_id, column_ordinal], map: "data_hub_raw_cells_row_ordinal_key")
   @@index([organisation_id, raw_row_id])
   @@index([source_schema_column_id])
   @@map("data_hub_raw_cells")
