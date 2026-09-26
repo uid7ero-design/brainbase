@@ -26,28 +26,20 @@ type ConsumptionRow = {
   periodisationMode: 'ANNUAL_ONLY' | 'PERIODISED';
   annualBudgetCents: number;
   periodBudgetCents: number | null;
+  budgetCents: number;
+  actualCents: number;
   committedCents: number;
-  billedCents: number;
-  budgetLessCommitmentsCents: number;
+  exposureCents: number;
+  budgetLessActualCents: number;
+  budgetLessActualAndCommittedCents: number;
+  actualLineCount: number;
   commitmentCount: number;
 };
 
-type ExceptionCode =
-  | 'UNATTRIBUTED_COST_CENTRE'
-  | 'UNMAPPED_ACCOUNT'
-  | 'AMBIGUOUS_ACCOUNT'
-  | 'UNRESOLVED_PERIOD'
-  | 'AMBIGUOUS_PERIOD'
-  | 'NO_ACTIVE_BUDGET'
-  | 'NO_BUDGET_LINE'
-  | 'CURRENCY_MISMATCH'
-  | 'INVALID_OVERBILLED';
-
-type ConsumptionException = {
-  code: ExceptionCode;
+type CommitmentException = {
+  code: string;
   purchaseOrderId: string;
   purchaseOrderLineId: string;
-  supplierId: string;
   currency: string;
   financialYearId: string | null;
   financialPeriodId: string | null;
@@ -55,13 +47,32 @@ type ConsumptionException = {
   outstandingSubtotalCents: number;
   outstandingTotalCents: number;
   committedCents: number | null;
-  budgetId: string | null;
-  budgetVersionId: string | null;
 };
+
+type ActualException = {
+  codes: string[];
+  supplierBillLineId: string;
+  supplierBillId: string;
+  supplierBillNumber: string | null;
+  sourcePurchaseOrderId: string;
+  sourcePurchaseOrderLineId: string;
+  currency: string;
+  financialYearId: string | null;
+  financialPeriodId: string | null;
+  effectiveCostCentreId: string | null;
+  sourceSubtotalCents: number;
+  sourceTotalCents: number;
+  actualCents: number | null;
+};
+
+type ReconciliationException =
+  | { source: 'COMMITMENT'; exception: CommitmentException }
+  | { source: 'ACTUAL'; exception: ActualException };
 
 type Report = {
   rows: ConsumptionRow[];
-  exceptions: ConsumptionException[];
+  exceptions: ReconciliationException[];
+  resolvedActualCount: number;
   resolvedCommitmentCount: number;
   unresolvedExceptionCount: number;
 };
@@ -73,7 +84,6 @@ type Filters = {
   costCentreId: string;
   currency: string;
 };
-
 const DEFAULT_FILTERS: Filters = {
   financialYearId: 'ALL',
   financialPeriodId: 'ALL',
@@ -94,7 +104,7 @@ export default function BudgetCommitmentsPage() {
       if (!res.ok) {
         setError(res.status === 403
           ? 'Budgeting access is required to view Budget consumption.'
-          : 'Unable to load Budget commitment reporting.');
+          : 'Unable to load Budget vs Actual reporting.');
         setLoading(false);
         return;
       }
@@ -103,7 +113,6 @@ export default function BudgetCommitmentsPage() {
       setLoading(false);
     })();
   }, []);
-
   const rows = useMemo(() => report?.rows ?? [], [report]);
   const filteredRows = useMemo(() => rows.filter(row => {
     if (filters.financialYearId !== 'ALL' && row.financialYearId !== filters.financialYearId) return false;
@@ -115,12 +124,22 @@ export default function BudgetCommitmentsPage() {
   }), [rows, filters]);
 
   const summaries = useMemo(() => {
-    const byCurrency = new Map<string, { committedCents: number; billedCents: number; commitmentCount: number }>();
+    const byCurrency = new Map<string, {
+      budgetCents: number;
+      actualCents: number;
+      committedCents: number;
+      exposureCents: number;
+      remainingCents: number;
+    }>();
     for (const row of filteredRows) {
-      const current = byCurrency.get(row.currency) ?? { committedCents: 0, billedCents: 0, commitmentCount: 0 };
+      const current = byCurrency.get(row.currency) ?? {
+        budgetCents: 0, actualCents: 0, committedCents: 0, exposureCents: 0, remainingCents: 0,
+      };
+      current.budgetCents += row.budgetCents;
+      current.actualCents += row.actualCents;
       current.committedCents += row.committedCents;
-      current.billedCents += row.billedCents;
-      current.commitmentCount += row.commitmentCount;
+      current.exposureCents += row.exposureCents;
+      current.remainingCents += row.budgetLessActualAndCommittedCents;
       byCurrency.set(row.currency, current);
     }
     return [...byCurrency.entries()]
@@ -128,11 +147,13 @@ export default function BudgetCommitmentsPage() {
       .sort((a, b) => a.currency.localeCompare(b.currency));
   }, [filteredRows]);
 
-  const financialYears = useMemo(() => uniqueOptions(rows.map(row => [row.financialYearId, row.financialYearName])), [rows]);
+  const financialYears = useMemo(() =>
+    uniqueOptions(rows.map(row => [row.financialYearId, row.financialYearName])), [rows]);
   const financialPeriods = useMemo(() => uniqueOptions(rows
     .filter(row => filters.financialYearId === 'ALL' || row.financialYearId === filters.financialYearId)
     .map(row => [row.financialPeriodId, row.financialPeriodName])), [rows, filters.financialYearId]);
-  const accounts = useMemo(() => uniqueOptions(rows.map(row => [row.budgetAccountId, `${row.budgetAccountCode} — ${row.budgetAccountName}`])), [rows]);
+  const accounts = useMemo(() =>
+    uniqueOptions(rows.map(row => [row.budgetAccountId, `${row.budgetAccountCode} — ${row.budgetAccountName}`])), [rows]);
   const costCentres = useMemo(() => uniqueOptions(rows.map(row => [
     row.costCentreId,
     row.costCentreCode && row.costCentreName
@@ -140,7 +161,6 @@ export default function BudgetCommitmentsPage() {
       : row.costCentreName ?? row.costCentreCode ?? row.costCentreId,
   ])), [rows]);
   const currencies = useMemo(() => [...new Set(rows.map(row => row.currency))].sort(), [rows]);
-
   function setFilter<K extends keyof Filters>(key: K, value: Filters[K]) {
     setFilters(current => {
       const next = { ...current, [key]: value };
@@ -149,36 +169,46 @@ export default function BudgetCommitmentsPage() {
     });
   }
 
-  if (loading) return <div style={{ color: MUTED }}>Loading Budget consumption…</div>;
+  if (loading) return <div style={{ color: MUTED }}>Loading Budget vs Actual…</div>;
   if (error) return <div style={{ color: '#f87171' }}>{error}</div>;
   if (!report) return <div style={{ color: MUTED }}>No Budget consumption report is available.</div>;
 
   return (
-    <div style={{ maxWidth: 1400 }}>
+    <div style={{ maxWidth: 1450 }}>
       <div style={{ marginBottom: 20 }}>
         <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 6 }}>
           <Link href="/commercial" style={{ color: '#9ca3af' }}>Commercial</Link> / Budgeting
         </div>
-        <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0 }}>Budget vs Commitments</h1>
+        <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0 }}>Budget vs Actual vs Committed</h1>
         <p style={{ fontSize: 13, color: MUTED, margin: '7px 0 0' }}>
-          ACTIVE Budget versions compared with governed outstanding Purchasing commitments. Actuals are not included.
+          Actuals use BrainBase&apos;s operational payable basis: POSTED supplier-bill lines recognised on posted_at.
+          This is a Budget-management view, not statutory ledger or cash accounting.
         </p>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(180px, 1fr))', gap: 10, marginBottom: 18 }}>
-        <StateCard label="Resolved commitments" value={report.resolvedCommitmentCount} tone="#34d399" />
-        <StateCard label="Exceptions requiring review" value={report.unresolvedExceptionCount} tone={report.unresolvedExceptionCount ? '#fbbf24' : '#34d399'} />
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(180px, 1fr))', gap: 10, marginBottom: 18 }}>
+        <StateCard label="Resolved Actual lines" value={report.resolvedActualCount} tone="#60a5fa" />
+        <StateCard label="Resolved commitment lines" value={report.resolvedCommitmentCount} tone="#34d399" />
+        <StateCard label="Exceptions requiring review" value={report.unresolvedExceptionCount}
+          tone={report.unresolvedExceptionCount ? '#fbbf24' : '#34d399'} />
       </div>
-
       <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: 16, marginBottom: 18 }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 10 }}>
-          <Filter label="Financial year" value={filters.financialYearId} onChange={v => setFilter('financialYearId', v)} options={financialYears} />
-          <Filter label="Financial period" value={filters.financialPeriodId} onChange={v => setFilter('financialPeriodId', v)} options={financialPeriods} />
-          <Filter label="Budget account" value={filters.budgetAccountId} onChange={v => setFilter('budgetAccountId', v)} options={accounts} />
-          <Filter label="Cost centre" value={filters.costCentreId} onChange={v => setFilter('costCentreId', v)} options={costCentres} />
-          <Filter label="Currency" value={filters.currency} onChange={v => setFilter('currency', v)} options={currencies.map(v => [v, v])} />
+          <Filter label="Financial year" value={filters.financialYearId}
+            onChange={v => setFilter('financialYearId', v)} options={financialYears} />
+          <Filter label="Financial period" value={filters.financialPeriodId}
+            onChange={v => setFilter('financialPeriodId', v)} options={financialPeriods} />
+          <Filter label="Budget account" value={filters.budgetAccountId}
+            onChange={v => setFilter('budgetAccountId', v)} options={accounts} />
+          <Filter label="Cost centre" value={filters.costCentreId}
+            onChange={v => setFilter('costCentreId', v)} options={costCentres} />
+          <Filter label="Currency" value={filters.currency}
+            onChange={v => setFilter('currency', v)} options={currencies.map(v => [v, v])} />
         </div>
-        <button onClick={() => setFilters(DEFAULT_FILTERS)} style={{ marginTop: 12, border: `1px solid ${BORDER}`, background: 'transparent', color: MUTED, borderRadius: 7, padding: '6px 10px', cursor: 'pointer' }}>
+        <button onClick={() => setFilters(DEFAULT_FILTERS)} style={{
+          marginTop: 12, border: `1px solid ${BORDER}`, background: 'transparent',
+          color: MUTED, borderRadius: 7, padding: '6px 10px', cursor: 'pointer',
+        }}>
           Clear filters
         </button>
       </div>
@@ -191,62 +221,65 @@ export default function BudgetCommitmentsPage() {
           </div>
         ) : (
           <>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: 12, marginBottom: 14 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(270px, 1fr))', gap: 12, marginBottom: 14 }}>
               {summaries.map(summary => (
-                <div key={summary.currency} style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: 16 }}>
+                <div key={summary.currency} style={{
+                  background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: 16,
+                }}>
                   <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 10 }}>{summary.currency}</div>
-                  <MoneyRow label="Committed" cents={summary.committedCents} currency={summary.currency} emphasis />
-                  <MoneyRow label="Billed (informational)" cents={summary.billedCents} currency={summary.currency} />
-                  <div style={{ color: MUTED, fontSize: 11, marginTop: 8 }}>{summary.commitmentCount} resolved commitment line{summary.commitmentCount === 1 ? '' : 's'}</div>
+                  <MoneyRow label="Budget" cents={summary.budgetCents} currency={summary.currency} />
+                  <MoneyRow label="Actual" cents={summary.actualCents} currency={summary.currency} />
+                  <MoneyRow label="Committed" cents={summary.committedCents} currency={summary.currency} />
+                  <MoneyRow label="Actual + Committed" cents={summary.exposureCents}
+                    currency={summary.currency} emphasis />
+                  <MoneyRow label="Budget less Actual + Committed" cents={summary.remainingCents}
+                    currency={summary.currency} emphasis />
                 </div>
               ))}
             </div>
 
             <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1120 }}>
-                <thead>
-                  <tr>
-                    {['Budget account', 'Cost centre', 'Period', 'Basis', 'Budget', 'Committed', 'Budget less commitments', 'Billed', 'Lines'].map(label => (
-                      <th key={label} style={th}>{label}</th>
-                    ))}
-                  </tr>
-                </thead>
+              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1360 }}>
+                <thead><tr>
+                  {[
+                    'Budget account', 'Cost centre', 'Period', 'Basis', 'Budget', 'Actual', 'Committed',
+                    'Actual + Committed', 'Budget less Actual', 'Budget less Actual + Committed', 'Source lines',
+                  ].map(label => <th key={label} style={th}>{label}</th>)}
+                </tr></thead>
                 <tbody>
                   {filteredRows.map(row => (
                     <tr key={rowKey(row)}>
-                      <td style={td}>
-                        <div style={{ fontWeight: 650 }}>{row.budgetAccountCode}</div>
-                        <div style={sub}>{row.budgetAccountName}</div>
+                      <td style={td}><div style={{ fontWeight: 650 }}>{row.budgetAccountCode}</div>
+                        <div style={sub}>{row.budgetAccountName}</div></td>
+                      <td style={td}><div>{row.costCentreCode ?? row.costCentreId}</div>
+                        <div style={sub}>{row.costCentreName ?? row.costCentreId}</div></td>
+                      <td style={td}><div>{row.financialYearName}</div>
+                        <div style={sub}>{row.periodisationMode === 'PERIODISED'
+                          ? row.financialPeriodName ?? row.financialPeriodId : 'Annual only'}</div></td>
+                      <td style={td}><div>{row.currency}</div><div style={sub}>{row.taxBasis}</div></td>
+                      <td style={moneyTd}>{formatMoneyCents(row.budgetCents, row.currency)}</td>
+                      <td style={moneyTd}>{formatMoneyCents(row.actualCents, row.currency)}</td>
+                      <td style={moneyTd}>{formatMoneyCents(row.committedCents, row.currency)}</td>
+                      <td style={{ ...moneyTd, fontWeight: 700 }}>{formatMoneyCents(row.exposureCents, row.currency)}</td>
+                      <td style={moneyTd}>{formatMoneyCents(row.budgetLessActualCents, row.currency)}</td>
+                      <td style={{ ...moneyTd, fontWeight: 700 }}>
+                        {formatMoneyCents(row.budgetLessActualAndCommittedCents, row.currency)}
                       </td>
-                      <td style={td}>
-                        <div>{row.costCentreCode ?? row.costCentreId}</div>
-                        <div style={sub}>{row.costCentreName ?? row.costCentreId}</div>
+                      <td style={{ ...td, textAlign: 'right' }}>
+                        {row.actualLineCount} actual / {row.commitmentCount} committed
                       </td>
-                      <td style={td}>
-                        <div>{row.financialYearName}</div>
-                        <div style={sub}>{row.periodisationMode === 'PERIODISED' ? row.financialPeriodName ?? row.financialPeriodId : 'Annual only'}</div>
-                      </td>
-                      <td style={td}>
-                        <div>{row.currency}</div>
-                        <div style={sub}>{row.taxBasis}</div>
-                      </td>
-                      <td style={moneyTd}>{formatMoneyCents(row.periodisationMode === 'PERIODISED' ? row.periodBudgetCents ?? 0 : row.annualBudgetCents, row.currency)}</td>
-                      <td style={{ ...moneyTd, fontWeight: 700 }}>{formatMoneyCents(row.committedCents, row.currency)}</td>
-                      <td style={moneyTd}>{formatMoneyCents(row.budgetLessCommitmentsCents, row.currency)}</td>
-                      <td style={moneyTd}>{formatMoneyCents(row.billedCents, row.currency)}</td>
-                      <td style={{ ...td, textAlign: 'right' }}>{row.commitmentCount}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
             <p style={{ color: '#6b7280', fontSize: 11, marginTop: 8 }}>
-              “Budget less commitments” is a planning measure only. It is not remaining Budget because governed Actuals are not yet included.
+              Budget less Actual + Committed is a planning measure on the Budget&apos;s tax basis.
+              It is not cash remaining or a statutory ledger balance.
             </p>
           </>
         )}
       </section>
-
       <section>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'baseline', marginBottom: 10 }}>
           <h2 style={{ fontSize: 16, margin: 0 }}>Exception & reconciliation queue</h2>
@@ -254,36 +287,37 @@ export default function BudgetCommitmentsPage() {
         </div>
         {report.exceptions.length === 0 ? (
           <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: 20, color: '#34d399' }}>
-            No unresolved commitment exceptions.
+            No unresolved Actual or Commitment exceptions.
           </div>
         ) : (
           <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1050 }}>
-              <thead>
-                <tr>
-                  {['Exception', 'Purchase order', 'Line', 'Period', 'Cost centre', 'Currency', 'Outstanding ex tax', 'Outstanding incl tax', 'Budget-basis amount'].map(label => (
-                    <th key={label} style={th}>{label}</th>
-                  ))}
-                </tr>
-              </thead>
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1180 }}>
+              <thead><tr>
+                {['Source', 'Exception', 'Purchase order', 'Source line', 'Period', 'Cost centre', 'Currency',
+                  'Ex-tax source', 'Incl-tax source', 'Budget-basis amount'].map(label =>
+                  <th key={label} style={th}>{label}</th>)}
+              </tr></thead>
               <tbody>
-                {report.exceptions.map(item => (
-                  <tr key={`${item.purchaseOrderLineId}:${item.code}`}>
-                    <td style={td}><ExceptionBadge code={item.code} /></td>
-                    <td style={td}>
-                      <Link href={`/commercial/purchasing/purchase-orders/${item.purchaseOrderId}`} style={{ color: '#e5e7eb' }}>
-                        {item.purchaseOrderId}
-                      </Link>
-                    </td>
-                    <td style={td}>{item.purchaseOrderLineId}</td>
-                    <td style={td}>{item.financialPeriodId ?? item.financialYearId ?? 'Unresolved'}</td>
-                    <td style={td}>{item.effectiveCostCentreId ?? 'Unattributed'}</td>
-                    <td style={td}>{item.currency}</td>
-                    <td style={moneyTd}>{formatMoneyCents(item.outstandingSubtotalCents, item.currency)}</td>
-                    <td style={moneyTd}>{formatMoneyCents(item.outstandingTotalCents, item.currency)}</td>
-                    <td style={moneyTd}>{item.committedCents === null ? 'Unknown until Budget resolves' : formatMoneyCents(item.committedCents, item.currency)}</td>
-                  </tr>
-                ))}
+                {report.exceptions.map((item, index) => {
+                  const view = exceptionView(item);
+                  return (
+                    <tr key={`${item.source}:${view.lineId}:${index}`}>
+                      <td style={td}><SourceBadge source={item.source} /></td>
+                      <td style={td}>{view.codes.map(code => <ExceptionBadge key={code} code={code} />)}</td>
+                      <td style={td}><Link href={`/commercial/purchasing/purchase-orders/${view.purchaseOrderId}`}
+                        style={{ color: '#e5e7eb' }}>{view.purchaseOrderId}</Link></td>
+                      <td style={td}>{view.lineId}</td>
+                      <td style={td}>{view.period}</td>
+                      <td style={td}>{view.costCentre}</td>
+                      <td style={td}>{view.currency}</td>
+                      <td style={moneyTd}>{formatMoneyCents(view.exTaxCents, view.currency)}</td>
+                      <td style={moneyTd}>{formatMoneyCents(view.inclTaxCents, view.currency)}</td>
+                      <td style={moneyTd}>{view.budgetBasisCents === null
+                        ? 'Unknown until Budget resolves'
+                        : formatMoneyCents(view.budgetBasisCents, view.currency)}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -293,8 +327,38 @@ export default function BudgetCommitmentsPage() {
   );
 }
 
+function exceptionView(item: ReconciliationException) {
+  if (item.source === 'ACTUAL') {
+    const x = item.exception;
+    return {
+      codes: x.codes,
+      purchaseOrderId: x.sourcePurchaseOrderId,
+      lineId: x.supplierBillLineId,
+      period: x.financialPeriodId ?? x.financialYearId ?? 'Unresolved',
+      costCentre: x.effectiveCostCentreId ?? 'Unattributed',
+      currency: x.currency,
+      exTaxCents: x.sourceSubtotalCents,
+      inclTaxCents: x.sourceTotalCents,
+      budgetBasisCents: x.actualCents,
+    };
+  }
+  const x = item.exception;
+  return {
+    codes: [x.code],
+    purchaseOrderId: x.purchaseOrderId,
+    lineId: x.purchaseOrderLineId,
+    period: x.financialPeriodId ?? x.financialYearId ?? 'Unresolved',
+    costCentre: x.effectiveCostCentreId ?? 'Unattributed',
+    currency: x.currency,
+    exTaxCents: x.outstandingSubtotalCents,
+    inclTaxCents: x.outstandingTotalCents,
+    budgetBasisCents: x.committedCents,
+  };
+}
+
 function rowKey(row: ConsumptionRow) {
-  return [row.budgetVersionId, row.budgetAccountId, row.costCentreId, row.financialPeriodId ?? 'ANNUAL', row.currency].join(':');
+  return [row.budgetVersionId, row.budgetAccountId, row.costCentreId,
+    row.financialPeriodId ?? 'ANNUAL', row.currency].join(':');
 }
 
 function uniqueOptions(values: Array<[string | null, string | null]>): Array<[string, string]> {
@@ -303,36 +367,55 @@ function uniqueOptions(values: Array<[string | null, string | null]>): Array<[st
   return [...map.entries()].sort((a, b) => a[1].localeCompare(b[1]));
 }
 
-function Filter({ label, value, onChange, options }: { label: string; value: string; onChange: (value: string) => void; options: Array<[string, string]> }) {
-  return (
-    <label style={{ display: 'grid', gap: 5, fontSize: 11, color: '#6b7280' }}>
-      {label}
-      <select value={value} onChange={e => onChange(e.target.value)} style={{ background: '#0a0c10', color: '#f3f4f6', border: `1px solid ${BORDER}`, borderRadius: 7, padding: '8px 9px' }}>
-        <option value="ALL">All</option>
-        {options.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
-      </select>
-    </label>
-  );
+function Filter({ label, value, onChange, options }: {
+  label: string; value: string; onChange: (value: string) => void; options: Array<[string, string]>;
+}) {
+  return <label style={{ display: 'grid', gap: 5, fontSize: 11, color: '#6b7280' }}>
+    {label}
+    <select value={value} onChange={e => onChange(e.target.value)} style={{
+      background: '#0a0c10', color: '#f3f4f6', border: `1px solid ${BORDER}`,
+      borderRadius: 7, padding: '8px 9px',
+    }}>
+      <option value="ALL">All</option>
+      {options.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+    </select>
+  </label>;
 }
-
 function StateCard({ label, value, tone }: { label: string; value: number; tone: string }) {
-  return (
-    <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: 14 }}>
-      <div style={{ fontSize: 11, color: '#6b7280' }}>{label}</div>
-      <div style={{ fontSize: 26, fontWeight: 700, color: tone, marginTop: 4 }}>{value}</div>
-    </div>
-  );
+  return <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: 14 }}>
+    <div style={{ fontSize: 11, color: '#6b7280' }}>{label}</div>
+    <div style={{ fontSize: 26, fontWeight: 700, color: tone, marginTop: 4 }}>{value}</div>
+  </div>;
 }
 
-function ExceptionBadge({ code }: { code: ExceptionCode }) {
-  return <span style={{ display: 'inline-block', fontSize: 10, color: '#fbbf24', border: '1px solid #fbbf2455', borderRadius: 999, padding: '3px 7px', whiteSpace: 'nowrap' }}>{code.replaceAll('_', ' ')}</span>;
+function SourceBadge({ source }: { source: 'ACTUAL' | 'COMMITMENT' }) {
+  return <span style={{
+    display: 'inline-block', fontSize: 10, border: `1px solid ${source === 'ACTUAL' ? '#60a5fa55' : '#34d39955'}`,
+    color: source === 'ACTUAL' ? '#60a5fa' : '#34d399', borderRadius: 999, padding: '3px 7px',
+  }}>{source}</span>;
 }
 
-function MoneyRow({ label, cents, currency, emphasis = false }: { label: string; cents: number; currency: string; emphasis?: boolean }) {
-  return <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginTop: 7, fontSize: 13 }}><span style={{ color: MUTED }}>{label}</span><span style={{ fontWeight: emphasis ? 700 : 500 }}>{formatMoneyCents(cents, currency)}</span></div>;
+function ExceptionBadge({ code }: { code: string }) {
+  return <span style={{
+    display: 'inline-block', fontSize: 10, color: '#fbbf24', border: '1px solid #fbbf2455',
+    borderRadius: 999, padding: '3px 7px', whiteSpace: 'nowrap', margin: '1px 3px 1px 0',
+  }}>{code.replaceAll('_', ' ')}</span>;
 }
 
-const th = { textAlign: 'left' as const, fontSize: 10, color: '#6b7280', fontWeight: 600, padding: '10px 12px', borderBottom: `1px solid ${BORDER}`, whiteSpace: 'nowrap' as const };
-const td = { fontSize: 12, padding: '12px', borderBottom: `1px solid ${BORDER}`, verticalAlign: 'top' as const };
+function MoneyRow({ label, cents, currency, emphasis = false }: {
+  label: string; cents: number; currency: string; emphasis?: boolean;
+}) {
+  return <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginTop: 7, fontSize: 13 }}>
+    <span style={{ color: MUTED }}>{label}</span>
+    <span style={{ fontWeight: emphasis ? 700 : 500 }}>{formatMoneyCents(cents, currency)}</span>
+  </div>;
+}
+const th = {
+  textAlign: 'left' as const, fontSize: 10, color: '#6b7280', fontWeight: 600,
+  padding: '10px 12px', borderBottom: `1px solid ${BORDER}`, whiteSpace: 'nowrap' as const,
+};
+const td = {
+  fontSize: 12, padding: '12px', borderBottom: `1px solid ${BORDER}`, verticalAlign: 'top' as const,
+};
 const moneyTd = { ...td, textAlign: 'right' as const, whiteSpace: 'nowrap' as const };
 const sub = { color: MUTED, fontSize: 10, marginTop: 3 };

@@ -117,7 +117,7 @@ export default function CommercialOverviewPage() {
         {hasQuotes && <StatCard label="Draft Quotes" value={loading ? undefined : counts.draftQuotes} href="/commercial/quotes?status=DRAFT" />}
         {hasInvoicing && <StatCard label="Invoices" value={loading ? undefined : counts.invoices} href="/commercial/invoices" />}
         {hasInvoicing && <StatCard label="Draft Invoices" value={loading ? undefined : counts.draftInvoices} href="/commercial/invoices?status=DRAFT" />}
-        {hasBudgeting && <StatCard label="Purchase Commitments" value={undefined} href="/commercial/budgeting/commitments" />}
+        {hasBudgeting && <StatCard label="Budget vs Actual" value={undefined} href="/commercial/budgeting/commitments" />}
       </div>
 
       <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: '20px 24px' }}>
