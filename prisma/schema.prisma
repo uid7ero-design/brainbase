@@ -494,6 +494,9 @@ model Upload {
   @@unique([id, organisation_id])
   // D4A: proves a raw row's worksheet belongs to the same batch and tenant.
   @@unique([id, import_batch_id, organisation_id], map: "uploads_id_import_batch_organisation_key")
+  // D4A SQL-only coherence FK target: raw rows must use the exact profile
+  // version frozen on this Upload at raw-stage completion.
+  @@unique([id, raw_profile_version_id, organisation_id], map: "uploads_id_raw_profile_version_organisation_key")
   @@map("uploads")
 }
 
