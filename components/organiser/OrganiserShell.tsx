@@ -1,5 +1,4 @@
 'use client';
-import { useOpsTheme } from '@/components/ops/theme';
 import { APP_HEADER_OFFSET_VAR } from '@/lib/layout/headerOffset';
 
 // Phase D.4.4E — replaces WorkspaceShell as app/organiser/page.tsx's outer
@@ -19,8 +18,6 @@ interface OrganiserShellProps {
 }
 
 export default function OrganiserShell({ rail, children }: OrganiserShellProps) {
-  const t = useOpsTheme();
-
   return (
     <>
       {/* Same "body owns no scroll, the shell's own inner regions do"
@@ -37,10 +34,10 @@ export default function OrganiserShell({ rail, children }: OrganiserShellProps) 
         // before, now via the one shared primitive both shells use.
         position: 'fixed', top: APP_HEADER_OFFSET_VAR, left: 0, right: 0, bottom: 0,
         display: 'flex',
-        background: t.pageBg,
-        fontFamily: 'var(--font-inter),"Inter",-apple-system,sans-serif',
+        background: 'var(--bb-canvas)',
+        fontFamily: 'var(--bb-font-sans)',
         overflow: 'hidden',
-        zIndex: 50,
+        zIndex: 'var(--bb-z-header)',
       }}>
         {rail}
         <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>

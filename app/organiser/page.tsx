@@ -5,13 +5,14 @@ import { createPortal } from "react-dom";
 import { useSearchParams } from "next/navigation";
 import OrganiserShell from "@/components/organiser/OrganiserShell";
 import OrganiserRail from "@/components/organiser/OrganiserRail";
+import { Surface } from "@/components/ui";
 import { useOpsTheme } from "@/components/ops/theme";
 import { useAppStore } from "@/lib/state/useAppStore";
 import { describeActivityEvent, describeBoardActivityEvent, type ActivityEventLike } from "@/lib/organiser/activityFormat";
 import { enqueueCoalesced, type CoalescingQueueMap } from "@/lib/organiser/coalescingMutationQueue";
 import { createNotesAutosaveTimer, type NotesAutosaveTimer } from "@/lib/organiser/notesAutosave";
 
-const FONT = 'var(--font-inter), "Inter", -apple-system, sans-serif';
+const FONT = 'var(--bb-font-sans)';
 
 // ── TYPES ────────────────────────────────────────────────────────────────────
 
@@ -62,7 +63,7 @@ type SaveStatus = { state: SaveState; message?: string };
 // the existing dense grid layout.
 function SaveDot({ status }: { status?: SaveStatus }) {
   if (!status || status.state === "idle") return null;
-  const color = status.state === "saving" ? "#8B5CF6" : status.state === "saved" ? "#22C55E" : "#EF4444";
+  const color = status.state === "saving" ? "var(--bb-accent-500)" : status.state === "saved" ? "var(--bb-success)" : "var(--bb-danger)";
   return (
     <span
       title={status.state === "error" ? (status.message ?? "Couldn't save") : status.state === "saving" ? "Saving…" : "Saved"}
@@ -78,9 +79,9 @@ function SaveDot({ status }: { status?: SaveStatus }) {
 // room for the actual word instead of just a dot.
 function SaveStatusText({ status }: { status?: SaveStatus }) {
   if (!status || status.state === "idle") return null;
-  if (status.state === "saving") return <span style={{ fontSize: 9.5, fontWeight: 600, color: "rgba(139,92,246,.85)", marginLeft: 6, textTransform: "none", letterSpacing: 0 }}>Saving…</span>;
-  if (status.state === "saved") return <span style={{ fontSize: 9.5, fontWeight: 600, color: "#22C55E", marginLeft: 6, textTransform: "none", letterSpacing: 0 }}>Saved</span>;
-  return <span style={{ fontSize: 9.5, fontWeight: 600, color: "#EF4444", marginLeft: 6, textTransform: "none", letterSpacing: 0 }}>{status.message ?? "Couldn't save"}</span>;
+  if (status.state === "saving") return <span style={{ fontSize: 9.5, fontWeight: 600, color: "var(--bb-accent-400)", marginLeft: 6, textTransform: "none", letterSpacing: 0 }}>Saving…</span>;
+  if (status.state === "saved") return <span style={{ fontSize: 9.5, fontWeight: 600, color: "var(--bb-success)", marginLeft: 6, textTransform: "none", letterSpacing: 0 }}>Saved</span>;
+  return <span style={{ fontSize: 9.5, fontWeight: 600, color: "var(--bb-danger)", marginLeft: 6, textTransform: "none", letterSpacing: 0 }}>{status.message ?? "Couldn't save"}</span>;
 }
 
 type OrganiserFile = { id: string; file_name: string; file_url: string; file_size: number | null; created_at: string };
@@ -1092,7 +1093,7 @@ function BoardActivity({
   }
 
   return (
-    <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px 60px" }}>
+    <div style={{ flex: 1, overflowY: "auto", padding: "var(--bb-space-6) var(--bb-space-7) 60px", background: "var(--bb-canvas)" }}>
       {loading ? (
         <div style={{ color: t.ink(.35), fontSize: 13 }}>Loading activity…</div>
       ) : error ? (
@@ -2199,32 +2200,32 @@ function OrganiserPageContent() {
       ` }} />
 
       {loading ? (
-            <div style={{ padding: 24, color: t.ink(.35), fontSize: 13 }}>Loading…</div>
+            <div style={{ padding: "var(--bb-space-8)", color: "var(--bb-text-muted)", fontSize: "var(--bb-type-body-size)" }}>Loading…</div>
           ) : !activeBoard ? (
             <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <div style={{ textAlign: "center", maxWidth: 340 }}>
-                <div style={{ fontSize: 15, fontWeight: 600, color: t.ink(.90), marginBottom: 6 }}>Create your first board</div>
-                <div style={{ fontSize: 12.5, color: t.ink(.42), marginBottom: 16, lineHeight: 1.6 }}>
+              <Surface variant="soft" radius="xl" style={{ textAlign: "center", maxWidth: 340, padding: "var(--bb-space-8)" }}>
+                <div style={{ fontSize: "var(--bb-type-card-title-size)", fontWeight: "var(--bb-type-card-title-weight)", color: "var(--bb-text-primary)", marginBottom: "var(--bb-space-3)" }}>Create your first board</div>
+                <div style={{ fontSize: "var(--bb-type-body-size)", color: "var(--bb-text-secondary)", marginBottom: "var(--bb-space-6)", lineHeight: 1.6 }}>
                   Boards keep separate lists — TAFE, Work, Home — each with its own groups and items. Add one to get started.
                 </div>
                 <NewBoardInline onCreate={createBoard} />
-              </div>
+              </Surface>
             </div>
           ) : (
             <>
-              <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 20px", borderBottom: `1px solid ${t.ink(.05)}`, flexShrink: 0 }}>
-                <div style={{ fontSize: 16, fontWeight: 700 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "var(--bb-space-5)", padding: "14px var(--bb-space-7)", borderBottom: "1px solid var(--bb-border-subtle)", background: "var(--bb-surface-1)", flexShrink: 0 }}>
+                <div style={{ fontSize: "var(--bb-type-section-size)", fontWeight: "var(--bb-type-section-weight)", color: "var(--bb-text-primary)" }}>
                   <InlineText value={activeBoard.name} bold onSave={v => renameBoard(activeBoard.id, v)} />
                 </div>
 
-                <div style={{ display: "flex", gap: 2, background: t.ink(.04), border: `1px solid ${t.ink(.08)}`, borderRadius: 8, padding: 2, marginLeft: 8 }}>
+                <div style={{ display: "flex", gap: "var(--bb-space-1)", background: "var(--bb-surface-soft)", border: "1px solid var(--bb-border-default)", borderRadius: "var(--bb-radius-md)", padding: 2, marginLeft: "var(--bb-space-3)" }}>
                   {(["table", "board", "calendar", "activity"] as ViewMode[]).map(v => (
                     <button
                       key={v} onClick={() => setView(v)}
                       style={{
-                        padding: "4px 11px", borderRadius: 6, fontSize: 11, fontWeight: 600, fontFamily: FONT,
-                        background: view === v ? "rgba(139,92,246,.24)" : "transparent",
-                        border: "none", color: view === v ? "#C4B5FD" : t.ink(.42),
+                        padding: "4px 11px", borderRadius: "var(--bb-radius-sm)", fontSize: "var(--bb-type-label-size)", fontWeight: 600, fontFamily: FONT,
+                        background: view === v ? "var(--bb-surface-selected)" : "transparent",
+                        border: "none", color: view === v ? "var(--bb-accent-300)" : "var(--bb-text-tertiary)",
                         cursor: "pointer", textTransform: "capitalize",
                       }}
                     >
@@ -2245,10 +2246,10 @@ function OrganiserPageContent() {
               </div>
 
               {importMsg && (
-                <div style={{ margin: "10px 20px 0", padding: "8px 12px", borderRadius: 8, background: "rgba(99,102,241,.10)", border: "1px solid rgba(99,102,241,.24)", color: "#a5b4fc", fontSize: 11.5, display: "flex", alignItems: "center", gap: 8 }}>
+                <Surface variant="selected" radius="md" style={{ margin: "10px var(--bb-space-7) 0", padding: "var(--bb-space-4) var(--bb-space-5)", color: "var(--bb-accent-300)", fontSize: "var(--bb-type-body-sm-size)", display: "flex", alignItems: "center", gap: "var(--bb-space-4)" }}>
                   <span style={{ flex: 1 }}>{importMsg}</span>
                   <button onClick={() => setImportMsg(null)} style={{ background: "transparent", border: "none", color: "inherit", cursor: "pointer", fontSize: 13 }}>×</button>
-                </div>
+                </Surface>
               )}
 
               {/* D.4.7B — single-slot transient error notice for mutations
@@ -2256,10 +2257,10 @@ function OrganiserPageContent() {
                   showPageNotice's own comment. Same visual convention as
                   the import-message banner above, error-toned. */}
               {pageNotice && (
-                <div style={{ margin: "10px 20px 0", padding: "8px 12px", borderRadius: 8, background: "rgba(239,68,68,.10)", border: "1px solid rgba(239,68,68,.28)", color: "#f87171", fontSize: 11.5, display: "flex", alignItems: "center", gap: 8 }}>
+                <Surface variant="base" radius="md" style={{ margin: "10px var(--bb-space-7) 0", padding: "var(--bb-space-4) var(--bb-space-5)", background: "var(--bb-danger-soft)", borderColor: "color-mix(in srgb, var(--bb-danger) 28%, transparent)", color: "var(--bb-danger)", fontSize: "var(--bb-type-body-sm-size)", display: "flex", alignItems: "center", gap: "var(--bb-space-4)" }}>
                   <span style={{ flex: 1 }}>{pageNotice}</span>
                   <button onClick={() => setPageNotice(null)} style={{ background: "transparent", border: "none", color: "inherit", cursor: "pointer", fontSize: 13 }}>×</button>
-                </div>
+                </Surface>
               )}
 
               {sheetChoices && pendingImportFile && (
@@ -2273,7 +2274,7 @@ function OrganiserPageContent() {
               )}
 
               {view === "table" && (
-                <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px 60px" }}>
+                <div style={{ flex: 1, overflowY: "auto", padding: "var(--bb-space-6) var(--bb-space-7) 60px", background: "var(--bb-canvas)" }}>
                   {boardData?.groups.map(g => (
                     <GroupSection
                       key={g.id} group={g} items={boardData.items} columns={columns}
@@ -2301,16 +2302,16 @@ function OrganiserPageContent() {
                         onChange={e => { setGroupName(e.target.value); if (groupError) setGroupError(null); }}
                         placeholder="Group name…"
                         onKeyDown={e => { if (e.key === "Enter") submitNewGroup(); if (e.key === "Escape") { setGroupName(""); setGroupError(null); setAddingGroup(false); } }}
-                        style={{ fontSize: 12.5, fontFamily: FONT, background: t.ink(.05), border: "1px solid rgba(139,92,246,.4)", borderRadius: 8, padding: "7px 10px", color: t.ink(.94), outline: "none", flex: 1, maxWidth: 260 }}
+                        style={{ fontSize: "var(--bb-type-body-size)", fontFamily: FONT, background: "var(--bb-surface-soft)", border: "1px solid var(--bb-border-focus)", borderRadius: "var(--bb-radius-md)", padding: "7px 10px", color: "var(--bb-text-primary)", outline: "none", flex: 1, maxWidth: 260 }}
                       />
                       <button onClick={submitNewGroup} disabled={groupSubmitting} style={btnStyle(true, t)}>{groupSubmitting ? "Adding…" : "Add"}</button>
                       <button onClick={() => { setGroupName(""); setGroupError(null); setAddingGroup(false); }} style={btnStyle(false, t)}>Cancel</button>
-                      {groupError && <span style={{ fontSize: 10.5, color: "#EF4444" }}>{groupError}</span>}
+                      {groupError && <span style={{ fontSize: 10.5, color: "var(--bb-danger)" }}>{groupError}</span>}
                     </div>
                   )}
 
                   {boardData && boardData.groups.length === 0 && !boardData.items.length && !addingGroup && (
-                    <div style={{ color: t.ink(.30), fontSize: 12.5, padding: "20px 4px" }}>
+                    <div style={{ color: "var(--bb-text-muted)", fontSize: "var(--bb-type-body-size)", padding: "var(--bb-space-7) var(--bb-space-2)" }}>
                       No groups yet. Add a group, or import a CSV to populate this board.
                     </div>
                   )}
