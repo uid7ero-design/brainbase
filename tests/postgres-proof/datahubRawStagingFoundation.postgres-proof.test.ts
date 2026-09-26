@@ -1,15 +1,12 @@
 // Data Hub 6.2D4A — real disposable-Postgres proof for
 // scripts/create-datahub-raw-staging.sql.
 //
-// This proof must only run against a throwaway postgres:16-alpine container
-// on port 55565. The container must already contain the current main Prisma
-// schema; this file applies the real D4A migration twice itself before
-// exercising the catalog and behavioral invariants.
+// This proof must only run against a throwaway postgres:16-alpine database
+// on port 55565. The harness must bootstrap the current main Prisma schema
+// and apply the real D4A migration twice before invoking this file. The proof
+// then verifies the resulting catalog and behavioral invariants.
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { spawnSync } from "node:child_process";
-import fs from "node:fs";
-import path from "node:path";
 import { Prisma, PrismaClient } from "@prisma/client";
 
 if (!process.env.DATABASE_URL?.includes("55565")) {
@@ -18,32 +15,13 @@ if (!process.env.DATABASE_URL?.includes("55565")) {
   );
 }
 
-const CONTAINER = process.env.DATAHUB_D4A_PROOF_CONTAINER;
-if (!CONTAINER) {
-  throw new Error("DATAHUB_D4A_PROOF_CONTAINER must name the disposable postgres container.");
-}
-
-const ROOT = path.resolve(__dirname, "../..");
-const MIGRATION_SQL = fs.readFileSync(path.join(ROOT, "scripts/create-datahub-raw-staging.sql"), "utf8");
-
-function psql(sql: string): string {
-  const result = spawnSync(
-    "docker",
-    ["exec", "-i", CONTAINER as string, "psql", "-X", "-q", "-U", "postgres", "-d", "testdb", "-v", "ON_ERROR_STOP=1"],
-    { input: sql, encoding: "utf8" }
-  );
-  const combined = `${result.stdout ?? ""}\n${result.stderr ?? ""}`.trim();
-  if (result.status !== 0) throw new Error(combined || `psql exited ${result.status}`);
-  return combined;
-}
-
 const prisma = new PrismaClient();
 
 describe("6.2D4A raw staging foundation — real disposable Postgres proof", () => {
   beforeAll(async () => {
-    // First apply + idempotent second apply of the real migration.
-    psql(MIGRATION_SQL);
-    psql(MIGRATION_SQL);
+    // Harness precondition: the real D4A migration has already been applied
+    // twice to this disposable database. The first test below verifies the
+    // resulting catalog shape before any fixture writes occur.
 
     await prisma.organisation.createMany({
       data: [
