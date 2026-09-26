@@ -48,9 +48,9 @@ describe('BoardActivity — the new section itself', () => {
   })
 
   it('has an explicit loading state, empty state, and error state', () => {
-    expect(block).toMatch(/loading \?[\s\S]{0,60}Loading activity/)
-    expect(block).toMatch(/error \?[\s\S]{0,60}\{error\}/)
-    expect(block).toMatch(/events\.length === 0 \?[\s\S]{0,100}No activity yet/)
+    expect(block).toMatch(/loading \?[\s\S]{0,140}Loading activity/)
+    expect(block).toMatch(/error \?[\s\S]{0,140}\{error\}/)
+    expect(block).toMatch(/events\.length === 0 \?[\s\S]{0,160}No activity yet/)
   })
 
   it('supports bounded "Load more" pagination via next_cursor', () => {

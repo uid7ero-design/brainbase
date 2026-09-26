@@ -642,7 +642,7 @@ function ColumnOptionsEditor({ column, onSave, onClose }: { column: OrganiserCol
           + Add option
         </button>
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-          <button onClick={onClose} style={btnStyle(false, t)}>Cancel</button>
+          <button onClick={onClose} style={viewButtonStyle()}>Cancel</button>
           <button onClick={() => { onSave(opts); onClose(); }} style={btnStyle(true, t)}>Save</button>
         </div>
       </div>
@@ -885,44 +885,43 @@ function KanbanView({
 }: {
   items: OrganiserItem[]; onOpenDrawer: (item: OrganiserItem) => void; onUpdateItem: (id: string, patch: Record<string, unknown>) => void;
 }) {
-  const t = useOpsTheme();
   const topLevel = items.filter(i => !i.parent_item_id);
   const statuses = Array.from(new Set([...STATUS_OPTIONS, ...topLevel.map(i => i.status)]));
 
   return (
-    <div style={{ display: "flex", gap: 14, padding: "4px 20px 20px", overflowX: "auto", height: "100%" }}>
+    <div style={{ display: "flex", gap: "var(--bb-space-5)", padding: "var(--bb-space-2) var(--bb-space-7) var(--bb-space-7)", overflowX: "auto", height: "100%", background: "var(--bb-canvas)" }}>
       {statuses.map(status => {
         const cards = topLevel.filter(i => i.status === status);
         const color = statusColor(status);
         return (
           <div key={status} style={{ width: 260, flexShrink: 0, display: "flex", flexDirection: "column" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 4px", marginBottom: 8 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "var(--bb-space-3)", padding: "var(--bb-space-3) var(--bb-space-2)", marginBottom: "var(--bb-space-4)" }}>
               <span style={{ width: 7, height: 7, borderRadius: "50%", background: color, flexShrink: 0 }} />
-              <span style={{ fontSize: 11.5, fontWeight: 700, color: t.ink(.65) }}>{status}</span>
-              <span style={{ fontSize: 10, color: t.ink(.28) }}>{cards.length}</span>
+              <span style={{ fontSize: 11.5, fontWeight: 700, color: "var(--bb-text-secondary)" }}>{status}</span>
+              <span style={{ fontSize: 10, color: "var(--bb-text-muted)" }}>{cards.length}</span>
             </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 8, overflowY: "auto", flex: 1 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: "var(--bb-space-4)", overflowY: "auto", flex: 1 }}>
               {cards.map(item => (
                 <div
                   key={item.id} onClick={() => onOpenDrawer(item)}
-                  style={{ padding: "10px 12px", borderRadius: 10, background: t.ink(.03), border: `1px solid ${t.ink(.07)}`, cursor: "pointer" }}
+                  style={{ padding: "10px 12px", borderRadius: "var(--bb-radius-lg)", background: "var(--bb-surface-1)", border: "1px solid var(--bb-border-subtle)", cursor: "pointer", boxShadow: "var(--bb-shadow-sm)" }}
                 >
-                  <div style={{ fontSize: 12, fontWeight: 600, color: t.ink(.90), marginBottom: 6, lineHeight: 1.4 }}>{item.name}</div>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: "var(--bb-text-primary)", marginBottom: "var(--bb-space-3)", lineHeight: 1.4 }}>{item.name}</div>
                   <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", marginBottom: 8 }}>
                     {item.priority && <Pill label={item.priority} color={priorityColor(item.priority)} />}
-                    {item.due_date && <span style={{ fontSize: 10, color: t.ink(.35) }}>{item.due_date}</span>}
+                    {item.due_date && <span style={{ fontSize: 10, color: "var(--bb-text-tertiary)" }}>{item.due_date}</span>}
                   </div>
                   <select
                     value={item.status}
                     onClick={e => e.stopPropagation()}
                     onChange={e => onUpdateItem(item.id, { status: e.target.value })}
-                    style={{ fontSize: 10, background: t.ink(.05), border: `1px solid ${t.ink(.1)}`, borderRadius: 6, color: t.ink(.6), padding: "2px 4px", fontFamily: FONT }}
+                    style={{ fontSize: 10, background: "var(--bb-surface-soft)", border: "1px solid var(--bb-border-default)", borderRadius: "var(--bb-radius-sm)", color: "var(--bb-text-secondary)", padding: "2px 4px", fontFamily: FONT }}
                   >
                     {Array.from(new Set([...STATUS_OPTIONS, item.status])).map(s => <option key={s} value={s}>{s}</option>)}
                   </select>
                 </div>
               ))}
-              {cards.length === 0 && <div style={{ fontSize: 10.5, color: t.ink(.20), padding: "8px 4px" }}>No items</div>}
+              {cards.length === 0 && <div style={{ fontSize: 10.5, color: "var(--bb-text-muted)", padding: "var(--bb-space-4) var(--bb-space-2)" }}>No items</div>}
             </div>
           </div>
         );
@@ -933,12 +932,20 @@ function KanbanView({
 
 // ── CALENDAR VIEW ────────────────────────────────────────────────────────────
 
-function navBtnStyle(t: ReturnType<typeof useOpsTheme>): React.CSSProperties {
-  return { width: 26, height: 26, borderRadius: 7, background: t.ink(.05), border: `1px solid ${t.ink(.1)}`, color: t.ink(.55), cursor: "pointer", fontSize: 14, fontFamily: FONT, display: "flex", alignItems: "center", justifyContent: "center" };
+function navBtnStyle(): React.CSSProperties {
+  return { width: 26, height: 26, borderRadius: "var(--bb-radius-md)", background: "var(--bb-surface-soft)", border: "1px solid var(--bb-border-default)", color: "var(--bb-text-secondary)", cursor: "pointer", fontSize: 14, fontFamily: FONT, display: "flex", alignItems: "center", justifyContent: "center" };
+}
+
+
+function viewButtonStyle(): React.CSSProperties {
+  return {
+    padding: "6px 12px", borderRadius: "var(--bb-radius-md)", fontSize: 11.5, fontWeight: 600, fontFamily: FONT,
+    background: "var(--bb-surface-soft)", border: "1px solid var(--bb-border-default)",
+    color: "var(--bb-text-secondary)", cursor: "pointer", whiteSpace: "nowrap",
+  };
 }
 
 function CalendarView({ items, onOpenDrawer }: { items: OrganiserItem[]; onOpenDrawer: (item: OrganiserItem) => void }) {
-  const t = useOpsTheme();
   const [monthDate, setMonthDate] = useState(() => new Date());
   const year = monthDate.getFullYear();
   const month = monthDate.getMonth();
@@ -961,35 +968,35 @@ function CalendarView({ items, onOpenDrawer }: { items: OrganiserItem[]; onOpenD
   const todayStr = fmt(new Date());
 
   return (
-    <div style={{ padding: "4px 20px 20px", height: "100%", display: "flex", flexDirection: "column" }}>
+    <div style={{ padding: "var(--bb-space-2) var(--bb-space-7) var(--bb-space-7)", height: "100%", display: "flex", flexDirection: "column", background: "var(--bb-canvas)" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-        <button onClick={() => setMonthDate(new Date(year, month - 1, 1))} style={navBtnStyle(t)}>‹</button>
-        <span style={{ fontSize: 13, fontWeight: 700, color: t.ink(.90), minWidth: 150, textAlign: "center" }}>
+        <button onClick={() => setMonthDate(new Date(year, month - 1, 1))} style={navBtnStyle()}>‹</button>
+        <span style={{ fontSize: 13, fontWeight: 700, color: "var(--bb-text-primary)", minWidth: 150, textAlign: "center" }}>
           {monthDate.toLocaleDateString(undefined, { month: "long", year: "numeric" })}
         </span>
-        <button onClick={() => setMonthDate(new Date(year, month + 1, 1))} style={navBtnStyle(t)}>›</button>
-        <button onClick={() => setMonthDate(new Date())} style={{ ...btnStyle(false, t), marginLeft: 4 }}>Today</button>
+        <button onClick={() => setMonthDate(new Date(year, month + 1, 1))} style={navBtnStyle()}>›</button>
+        <button onClick={() => setMonthDate(new Date())} style={{ ...viewButtonStyle(), marginLeft: 4 }}>Today</button>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 6, flex: 1, overflowY: "auto" }}>
         {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map(d => (
-          <div key={d} style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: ".08em", color: t.ink(.28), textTransform: "uppercase", padding: "0 4px 4px" }}>{d}</div>
+          <div key={d} style={{ fontSize: "var(--bb-type-micro-size)", fontWeight: 700, letterSpacing: "var(--bb-type-micro-tracking)", color: "var(--bb-text-muted)", textTransform: "uppercase", padding: "0 4px 4px" }}>{d}</div>
         ))}
         {cells.map((d, i) => {
           const key = d ? fmt(d) : `blank-${i}`;
           const dayItems = d ? (itemsByDate.get(fmt(d)) ?? []) : [];
           const isToday = !!d && fmt(d) === todayStr;
           return (
-            <div key={key} style={{ minHeight: 86, borderRadius: 8, padding: 6, background: d ? t.ink(.02) : "transparent", border: d ? `1px solid ${isToday ? "rgba(139,92,246,.4)" : t.ink(.05)}` : "none" }}>
-              {d && <div style={{ fontSize: 10.5, fontWeight: isToday ? 700 : 500, color: isToday ? "#C4B5FD" : t.ink(.35), marginBottom: 4 }}>{d.getDate()}</div>}
+            <div key={key} style={{ minHeight: 86, borderRadius: "var(--bb-radius-md)", padding: 6, background: d ? "var(--bb-surface-soft)" : "transparent", border: d ? `1px solid ${isToday ? "var(--bb-border-focus)" : "var(--bb-border-subtle)"}` : "none" }}>
+              {d && <div style={{ fontSize: 10.5, fontWeight: isToday ? 700 : 500, color: isToday ? "var(--bb-accent-300)" : "var(--bb-text-tertiary)", marginBottom: 4 }}>{d.getDate()}</div>}
               {dayItems.slice(0, 3).map(it => (
                 <div
                   key={it.id} onClick={() => onOpenDrawer(it)} title={it.name}
-                  style={{ fontSize: 9.5, fontWeight: 600, color: t.ink(.90), background: `${statusColor(it.status)}22`, border: `1px solid ${statusColor(it.status)}40`, borderRadius: 5, padding: "2px 5px", marginBottom: 3, cursor: "pointer", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                  style={{ fontSize: 9.5, fontWeight: 600, color: "var(--bb-text-primary)", background: `${statusColor(it.status)}22`, border: `1px solid ${statusColor(it.status)}40`, borderRadius: "var(--bb-radius-sm)", padding: "2px 5px", marginBottom: 3, cursor: "pointer", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
                 >
                   {it.name}
                 </div>
               ))}
-              {dayItems.length > 3 && <div style={{ fontSize: 9, color: t.ink(.25) }}>+{dayItems.length - 3} more</div>}
+              {dayItems.length > 3 && <div style={{ fontSize: 9, color: "var(--bb-text-muted)" }}>+{dayItems.length - 3} more</div>}
             </div>
           );
         })}
@@ -1027,7 +1034,6 @@ function BoardActivity({
   userNamesById: Record<string, string>;
   onOpenItem: (item: OrganiserItem) => void; refreshKey: string;
 }) {
-  const t = useOpsTheme();
   const [events, setEvents] = useState<OrganiserActivityEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -1091,11 +1097,11 @@ function BoardActivity({
   return (
     <div style={{ flex: 1, overflowY: "auto", padding: "var(--bb-space-6) var(--bb-space-7) 60px", background: "var(--bb-canvas)" }}>
       {loading ? (
-        <div style={{ color: t.ink(.35), fontSize: 13 }}>Loading activity…</div>
+        <div style={{ color: "var(--bb-text-tertiary)", fontSize: 13 }}>Loading activity…</div>
       ) : error ? (
-        <div style={{ color: "#EF4444", fontSize: 13 }}>{error}</div>
+        <div style={{ color: "var(--bb-danger)", fontSize: 13 }}>{error}</div>
       ) : events.length === 0 ? (
-        <div style={{ color: t.ink(.30), fontSize: 12.5 }}>No activity yet.</div>
+        <div style={{ color: "var(--bb-text-muted)", fontSize: 12.5 }}>No activity yet.</div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 8, maxWidth: 640 }}>
           {events.map(ev => {
@@ -1105,29 +1111,29 @@ function BoardActivity({
             // click-through for those, per section 19.
             const liveItem = ev.entity_type === "item" ? liveItemsById[ev.entity_id] : undefined;
             return (
-              <div key={ev.id} style={{ padding: "10px 12px", borderRadius: 8, background: t.ink(.025), border: `1px solid ${t.ink(.05)}` }}>
+              <div key={ev.id} style={{ padding: "10px 12px", borderRadius: "var(--bb-radius-md)", background: "var(--bb-surface-1)", border: "1px solid var(--bb-border-subtle)" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3, gap: 8 }}>
                   <span
                     onClick={liveItem ? () => onOpenItem(liveItem) : undefined}
                     style={{
-                      fontSize: 12, fontWeight: 600, color: t.ink(.80),
+                      fontSize: 12, fontWeight: 600, color: "var(--bb-text-primary)",
                       cursor: liveItem ? "pointer" : "default",
                     }}
                   >
                     {desc.summary}
                   </span>
-                  <span style={{ fontSize: 9.5, color: t.ink(.25), flexShrink: 0 }}>{new Date(ev.created_at).toLocaleString()}</span>
+                  <span style={{ fontSize: 9.5, color: "var(--bb-text-muted)", flexShrink: 0 }}>{new Date(ev.created_at).toLocaleString()}</span>
                 </div>
                 {desc.detail && (
-                  <div style={{ fontSize: 11.5, color: t.ink(.55), fontStyle: "italic", marginTop: 2 }}>{`"${desc.detail}"`}</div>
+                  <div style={{ fontSize: 11.5, color: "var(--bb-text-secondary)", fontStyle: "italic", marginTop: 2 }}>{`"${desc.detail}"`}</div>
                 )}
                 {desc.diffs.length > 0 && (
                   <div style={{ display: "flex", flexDirection: "column", gap: 2, marginTop: 4 }}>
                     {desc.diffs.map((d, i) => (
-                      <div key={i} style={{ fontSize: 11, color: t.ink(.6) }}>
-                        <span style={{ color: t.ink(.4) }}>{d.label}: </span>
+                      <div key={i} style={{ fontSize: 11, color: "var(--bb-text-secondary)" }}>
+                        <span style={{ color: "var(--bb-text-tertiary)" }}>{d.label}: </span>
                         {d.before !== null ? (
-                          <>{d.before} <span style={{ color: t.ink(.3) }}>→</span> {d.after}</>
+                          <>{d.before} <span style={{ color: "var(--bb-text-muted)" }}>→</span> {d.after}</>
                         ) : d.after}
                       </div>
                     ))}
@@ -1137,7 +1143,7 @@ function BoardActivity({
             );
           })}
           {nextCursor && (
-            <button onClick={loadMore} disabled={loadingMore} style={btnStyle(false, t)}>
+            <button onClick={loadMore} disabled={loadingMore} style={viewButtonStyle()}>
               {loadingMore ? "Loading…" : "Load more"}
             </button>
           )}
@@ -1174,7 +1180,6 @@ function BoardActivity({
 function ItemActivity({
   itemId, updatedAt, groupNamesById, userNamesById,
 }: { itemId: string; updatedAt: string; groupNamesById: Record<string, string>; userNamesById: Record<string, string> }) {
-  const t = useOpsTheme();
   const [events, setEvents] = useState<OrganiserActivityEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -1222,33 +1227,33 @@ function ItemActivity({
 
   return (
     <div>
-      <div style={{ ...SECTION_LABEL, color: t.ink(.30) }}>Activity</div>
+      <div style={{ ...SECTION_LABEL, color: "var(--bb-text-muted)" }}>Activity</div>
       {loading ? (
-        <div style={{ fontSize: 11, color: t.ink(.25) }}>Loading…</div>
+        <div style={{ fontSize: 11, color: "var(--bb-text-muted)" }}>Loading…</div>
       ) : error ? (
-        <div style={{ fontSize: 11, color: "#EF4444" }}>{error}</div>
+        <div style={{ fontSize: 11, color: "var(--bb-danger)" }}>{error}</div>
       ) : events.length === 0 ? (
-        <div style={{ fontSize: 11, color: t.ink(.25) }}>No activity yet.</div>
+        <div style={{ fontSize: 11, color: "var(--bb-text-muted)" }}>No activity yet.</div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {events.map(ev => {
             const desc = describeActivityEvent(ev, groupNamesById, userNamesById);
             return (
-              <div key={ev.id} style={{ padding: "8px 10px", borderRadius: 8, background: t.ink(.025), border: `1px solid ${t.ink(.05)}` }}>
+              <div key={ev.id} style={{ padding: "8px 10px", borderRadius: "var(--bb-radius-md)", background: "var(--bb-surface-soft)", border: "1px solid var(--bb-border-subtle)" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3, gap: 8 }}>
-                  <span style={{ fontSize: 11, fontWeight: 600, color: t.ink(.75) }}>{desc.summary}</span>
-                  <span style={{ fontSize: 9.5, color: t.ink(.25), flexShrink: 0 }}>{new Date(ev.created_at).toLocaleString()}</span>
+                  <span style={{ fontSize: 11, fontWeight: 600, color: "var(--bb-text-primary)" }}>{desc.summary}</span>
+                  <span style={{ fontSize: 9.5, color: "var(--bb-text-muted)", flexShrink: 0 }}>{new Date(ev.created_at).toLocaleString()}</span>
                 </div>
                 {desc.detail && (
-                  <div style={{ fontSize: 11.5, color: t.ink(.55), fontStyle: "italic", marginTop: 2 }}>{`"${desc.detail}"`}</div>
+                  <div style={{ fontSize: 11.5, color: "var(--bb-text-secondary)", fontStyle: "italic", marginTop: 2 }}>{`"${desc.detail}"`}</div>
                 )}
                 {desc.diffs.length > 0 && (
                   <div style={{ display: "flex", flexDirection: "column", gap: 2, marginTop: 4 }}>
                     {desc.diffs.map((d, i) => (
-                      <div key={i} style={{ fontSize: 11, color: t.ink(.6) }}>
-                        <span style={{ color: t.ink(.4) }}>{d.label}: </span>
+                      <div key={i} style={{ fontSize: 11, color: "var(--bb-text-secondary)" }}>
+                        <span style={{ color: "var(--bb-text-tertiary)" }}>{d.label}: </span>
                         {d.before !== null ? (
-                          <>{d.before} <span style={{ color: t.ink(.3) }}>→</span> {d.after}</>
+                          <>{d.before} <span style={{ color: "var(--bb-text-muted)" }}>→</span> {d.after}</>
                         ) : d.after}
                       </div>
                     ))}
@@ -1258,7 +1263,7 @@ function ItemActivity({
             );
           })}
           {nextCursor && (
-            <button onClick={loadMore} disabled={loadingMore} style={btnStyle(false, t)}>
+            <button onClick={loadMore} disabled={loadingMore} style={viewButtonStyle()}>
               {loadingMore ? "Loading…" : "Load more"}
             </button>
           )}
