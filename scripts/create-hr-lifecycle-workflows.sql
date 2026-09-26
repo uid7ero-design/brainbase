@@ -1,6 +1,8 @@
 -- HR-7A — Employee lifecycle schema foundation.
 -- Schema only: no routes, UI, runtime writers, seed data, or Production execution.
--- Additive-only and safe to re-run. Verified against disposable postgres:16 by
+-- Additive-only and safe to re-run. The preflight verifies the HR people tenant
+-- anchor is exactly UNIQUE (organisation_id, id) and non-deferrable.
+-- Verified against disposable postgres:16 by
 -- scripts/tests/verify-hr-lifecycle-migration.sh.
 --
 -- Tenant integrity follows the established HR pattern:
@@ -22,15 +24,34 @@
 BEGIN;
 
 DO $$
+DECLARE
+  anchor_columns TEXT;
+  anchor_deferrable BOOLEAN;
 BEGIN
-  IF NOT EXISTS (
-    SELECT 1
-    FROM pg_constraint
-    WHERE conrelid = to_regclass('hr_people')
-      AND conname = 'hr_people_organisation_id_id_key'
-      AND contype = 'u'
-  ) THEN
+  SELECT
+    string_agg(a.attname, ',' ORDER BY k.ord),
+    c.condeferrable
+    INTO anchor_columns, anchor_deferrable
+  FROM pg_constraint c
+  CROSS JOIN LATERAL unnest(c.conkey) WITH ORDINALITY AS k(attnum, ord)
+  JOIN pg_attribute a
+    ON a.attrelid = c.conrelid
+   AND a.attnum = k.attnum
+  WHERE c.conrelid = to_regclass('hr_people')
+    AND c.conname = 'hr_people_organisation_id_id_key'
+    AND c.contype = 'u'
+  GROUP BY c.condeferrable;
+
+  IF anchor_columns IS NULL THEN
     RAISE EXCEPTION 'hr_people_organisation_id_id_key is missing: apply the HR people tenant anchor before HR-7A';
+  END IF;
+
+  IF anchor_columns IS DISTINCT FROM 'organisation_id,id' THEN
+    RAISE EXCEPTION 'hr_people_organisation_id_id_key has unexpected columns "%"; expected "organisation_id,id"', anchor_columns;
+  END IF;
+
+  IF anchor_deferrable IS DISTINCT FROM false THEN
+    RAISE EXCEPTION 'hr_people_organisation_id_id_key must be non-deferrable for composite foreign-key use';
   END IF;
 END $$;
 

@@ -254,6 +254,53 @@ PARTIAL="$(echo "SELECT count(*) FROM pg_tables WHERE schemaname='public' AND ta
 check "pre-flight failure creates no lifecycle table" "$PARTIAL" "0"
 
 echo ""
+echo "=== PRE-FLIGHT REJECTS DRIFTED HR PEOPLE ANCHOR ==="
+echo "CREATE DATABASE wronganchor;" | psql_db testdb
+cat <<'SQL' | psql_db wronganchor
+CREATE TABLE organisations (id TEXT PRIMARY KEY);
+CREATE TABLE users (id TEXT PRIMARY KEY, organisation_id TEXT NOT NULL REFERENCES organisations(id));
+CREATE TABLE hr_people (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  organisation_id TEXT NOT NULL REFERENCES organisations(id)
+);
+ALTER TABLE hr_people
+  ADD CONSTRAINT hr_people_organisation_id_id_key UNIQUE (id, organisation_id);
+SQL
+WRONG_OUT="$(cat "$MIGRATION" | docker exec -i "$CONTAINER" psql -X -q -U postgres -d wronganchor -v ON_ERROR_STOP=1 2>&1)"
+WRONG_RC=$?
+if [ "$WRONG_RC" -ne 0 ] && printf '%s' "$WRONG_OUT" | grep -q 'unexpected columns "id,organisation_id"'; then
+  record_pass "wrong-column-order HR tenant anchor is rejected"
+else
+  record_fail "wrong-column-order HR tenant anchor was not rejected as expected"
+fi
+WRONG_PARTIAL="$(echo "SELECT count(*) FROM pg_tables WHERE schemaname='public' AND tablename LIKE 'hr_lifecycle_%';" | psql_db wronganchor -t -A | tr -d '\r')"
+check "wrong-anchor pre-flight creates no lifecycle table" "$WRONG_PARTIAL" "0"
+
+echo ""
+echo "=== PRE-FLIGHT REJECTS DEFERRABLE HR PEOPLE ANCHOR ==="
+echo "CREATE DATABASE deferrableanchor;" | psql_db testdb
+cat <<'SQL' | psql_db deferrableanchor
+CREATE TABLE organisations (id TEXT PRIMARY KEY);
+CREATE TABLE users (id TEXT PRIMARY KEY, organisation_id TEXT NOT NULL REFERENCES organisations(id));
+CREATE TABLE hr_people (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  organisation_id TEXT NOT NULL REFERENCES organisations(id)
+);
+ALTER TABLE hr_people
+  ADD CONSTRAINT hr_people_organisation_id_id_key
+  UNIQUE (organisation_id, id) DEFERRABLE INITIALLY IMMEDIATE;
+SQL
+DEF_OUT="$(cat "$MIGRATION" | docker exec -i "$CONTAINER" psql -X -q -U postgres -d deferrableanchor -v ON_ERROR_STOP=1 2>&1)"
+DEF_RC=$?
+if [ "$DEF_RC" -ne 0 ] && printf '%s' "$DEF_OUT" | grep -q 'must be non-deferrable'; then
+  record_pass "deferrable HR tenant anchor is rejected"
+else
+  record_fail "deferrable HR tenant anchor was not rejected as expected"
+fi
+DEF_PARTIAL="$(echo "SELECT count(*) FROM pg_tables WHERE schemaname='public' AND tablename LIKE 'hr_lifecycle_%';" | psql_db deferrableanchor -t -A | tr -d '\r')"
+check "deferrable-anchor pre-flight creates no lifecycle table" "$DEF_PARTIAL" "0"
+
+echo ""
 echo "=== TRANSACTION ROLLBACK ON LATE FAILURE ==="
 echo "CREATE DATABASE latefail;" | psql_db testdb
 cat <<'SQL' | psql_db latefail
