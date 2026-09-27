@@ -182,6 +182,62 @@ describe("6.2D4C-B1 — Upload normalization completion metadata is a separate, 
   });
 });
 
+describe("6.2D4C-B1 remediation — actor attribution is tenant-bound at the database layer (pre-PR review)", () => {
+  it("the normalization-run INSERT guard checks the new actor against public.users WHERE organisation_id matches, only when created_by is non-null", () => {
+    const fnStart = MIGRATION_CODE.indexOf("CREATE OR REPLACE FUNCTION public.datahub_guard_normalization_run_lifecycle()");
+    const insertBranchEnd = MIGRATION_CODE.indexOf("RETURN NEW;\n  END IF;", fnStart);
+    const body = MIGRATION_CODE.slice(fnStart, insertBranchEnd + 40);
+    expect(body).toMatch(/NEW\.created_by IS NOT NULL AND NOT EXISTS/);
+    expect(body).toMatch(/FROM public\.users WHERE id = NEW\.created_by AND organisation_id = NEW\.organisation_id/);
+    expect(body).toMatch(/RAISE EXCEPTION 'data_hub_normalization_runs: created_by must belong to the same organisation_id/);
+  });
+
+  it("the plain created_by -> users(id) FK (ON DELETE SET NULL) is retained, NOT replaced by a composite FK", () => {
+    expect(MIGRATION_CODE).toContain("data_hub_normalization_runs_created_by_fkey");
+    const idx = MIGRATION_CODE.indexOf("data_hub_normalization_runs_created_by_fkey");
+    const region = MIGRATION_CODE.slice(idx, idx + 400);
+    expect(region).toMatch(/FOREIGN KEY \(created_by\) REFERENCES public\.users\(id\) ON DELETE SET NULL/);
+  });
+
+  it("the Upload normalization-completion guard checks normalized_by against public.users WHERE organisation_id matches, on the initial NULL -> non-NULL transition", () => {
+    const fnStart = MIGRATION_CODE.indexOf("CREATE OR REPLACE FUNCTION public.datahub_guard_upload_normalization_metadata()");
+    const initialBranchEnd = MIGRATION_CODE.indexOf("RETURN NEW;\n  END IF;", fnStart);
+    const body = MIGRATION_CODE.slice(fnStart, initialBranchEnd + 40);
+    expect(body).toMatch(/FROM public\.users WHERE id = NEW\.normalized_by AND organisation_id = NEW\.organisation_id/);
+    expect(body).toMatch(/RAISE EXCEPTION 'uploads: normalized_by must belong to the same organisation_id/);
+  });
+
+  it("datahub_complete_normalization_run() independently re-validates p_completed_by against p_organisation_id before any state change, and never echoes actor details in its error", () => {
+    const fnStart = MIGRATION_CODE.indexOf("CREATE OR REPLACE FUNCTION public.datahub_complete_normalization_run(");
+    const firstUpdateIdx = MIGRATION_CODE.indexOf("UPDATE public.data_hub_normalization_runs", fnStart);
+    const preStateChangeBody = MIGRATION_CODE.slice(fnStart, firstUpdateIdx);
+    expect(preStateChangeBody).toMatch(/FROM public\.users WHERE id = p_completed_by AND organisation_id = p_organisation_id/);
+    const errIdx = preStateChangeBody.indexOf("completing actor does not belong");
+    expect(errIdx).toBeGreaterThan(-1);
+    const errLine = preStateChangeBody.slice(errIdx - 80, errIdx + 120);
+    expect(errLine).not.toMatch(/p_completed_by/);
+  });
+
+  it("mutation proof: removing the normalization-run created_by tenant check is caught", () => {
+    // Asserts the CURRENT correct behavior. Manually deleting the
+    // `NEW.created_by IS NOT NULL AND NOT EXISTS (...)` block from
+    // datahub_guard_normalization_run_lifecycle()'s INSERT branch flips
+    // this to fail — confirmed by hand during development, then reverted.
+    const fnStart = MIGRATION_CODE.indexOf("CREATE OR REPLACE FUNCTION public.datahub_guard_normalization_run_lifecycle()");
+    const insertBranchEnd = MIGRATION_CODE.indexOf("RETURN NEW;\n  END IF;", fnStart);
+    const body = MIGRATION_CODE.slice(fnStart, insertBranchEnd + 40);
+    expect(body).toContain("created_by must belong to the same organisation_id");
+  });
+
+  it("mutation proof: removing the Upload normalized_by / completion-function tenant checks is caught", () => {
+    // Asserts the CURRENT correct behavior for both enforcement points —
+    // confirmed by hand during development that deleting either check
+    // flips its own assertion, then reverted.
+    expect(MIGRATION_CODE).toContain("uploads: normalized_by must belong to the same organisation_id");
+    expect(MIGRATION_CODE).toContain("completing actor does not belong to this organisation");
+  });
+});
+
 describe("6.2D4C-B1 — exact tenant/profile/raw-run lineage FKs are present", () => {
   const REQUIRED_FKS = [
     "data_hub_normalization_runs_organisation_id_fkey",

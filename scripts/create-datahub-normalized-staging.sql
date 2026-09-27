@@ -584,6 +584,19 @@ BEGIN
       RAISE EXCEPTION 'data_hub_normalization_runs: raw_staging_run_id must reference a SUCCEEDED raw staging run (raw_staging_run_id=%, status=%)',
         NEW.raw_staging_run_id, v_raw_status;
     END IF;
+
+    -- REMEDIATION (pre-PR review) — ACTOR TENANT SAFETY: the plain
+    -- created_by -> users(id) FK (kept exactly as-is, ON DELETE SET NULL,
+    -- so the actor-deletion cascade below continues to work unchanged)
+    -- only proves the user EXISTS, never that they belong to this run's
+    -- own organisation_id. Fail closed here rather than trust a future
+    -- route to always pass a same-tenant actor.
+    IF NEW.created_by IS NOT NULL AND NOT EXISTS (
+      SELECT 1 FROM public.users WHERE id = NEW.created_by AND organisation_id = NEW.organisation_id
+    ) THEN
+      RAISE EXCEPTION 'data_hub_normalization_runs: created_by must belong to the same organisation_id as the run (organisation_id=%)', NEW.organisation_id;
+    END IF;
+
     RETURN NEW;
   END IF;
 
@@ -1120,6 +1133,18 @@ BEGIN
     IF NEW.normalization_run_id IS NULL THEN
       RAISE EXCEPTION 'uploads: initial normalization completion requires normalization_run_id (upload=%)', OLD.id;
     END IF;
+
+    -- REMEDIATION (pre-PR review) — ACTOR TENANT SAFETY: the plain
+    -- normalized_by -> users(id) FK (kept exactly as-is, ON DELETE SET
+    -- NULL, so the post-completion actor-deletion path below continues to
+    -- work unchanged) only proves the user EXISTS, never that they belong
+    -- to THIS upload's own organisation_id.
+    IF NOT EXISTS (
+      SELECT 1 FROM public.users WHERE id = NEW.normalized_by AND organisation_id = NEW.organisation_id
+    ) THEN
+      RAISE EXCEPTION 'uploads: normalized_by must belong to the same organisation_id as the upload (upload=%)', OLD.id;
+    END IF;
+
     RETURN NEW;
   END IF;
 
@@ -1200,6 +1225,18 @@ BEGIN
   END IF;
   IF v_run.expected_row_count IS NULL OR v_run.expected_cell_count IS NULL THEN
     RAISE EXCEPTION 'datahub_complete_normalization_run: run has no expected counts (normalization_run_id=%)', p_normalization_run_id;
+  END IF;
+
+  -- REMEDIATION (pre-PR review) — ACTOR TENANT SAFETY, defense in depth:
+  -- the Upload trigger (datahub_guard_upload_normalization_metadata) is the
+  -- authoritative enforcement point, but this function validates
+  -- p_completed_by BEFORE touching any run/upload state, so a direct
+  -- function call fails clearly and no partial state change is ever
+  -- attempted for a cross-tenant actor. Never echoes the actor id/value.
+  IF NOT EXISTS (
+    SELECT 1 FROM public.users WHERE id = p_completed_by AND organisation_id = p_organisation_id
+  ) THEN
+    RAISE EXCEPTION 'datahub_complete_normalization_run: completing actor does not belong to this organisation (normalization_run_id=%)', p_normalization_run_id;
   END IF;
 
   SELECT status INTO v_raw_status FROM public.data_hub_raw_staging_runs WHERE id = v_run.raw_staging_run_id AND organisation_id = p_organisation_id;

@@ -469,7 +469,12 @@ model Upload {
   // raw_staged_by carries. normalization_run_id can never be renulled by
   // any other path: DataHubNormalizationRun rows are DELETE-immutable, so
   // there is no legitimate way back to NULL besides that one actor-deletion
-  // case on normalized_by itself.
+  // case on normalized_by itself. The plain normalized_by -> users(id) FK
+  // only proves the user exists; the migration's own UPDATE trigger guard
+  // (REMEDIATION, pre-PR review) additionally requires normalized_by to
+  // belong to the SAME organisation_id as the upload at the moment of
+  // initial completion, and datahub_complete_normalization_run() re-checks
+  // this itself, defense in depth, before ever changing run/upload state.
   normalized_at               DateTime?
   normalized_by               String?
   normalized_profile_version_id String?
@@ -1200,7 +1205,13 @@ model DataHubNormalizationRun {
   persisted_cell_count                 Int       @default(0)
   // The actor who INITIATED this run — never used as Upload.normalized_by
   // at completion (that is the authenticated actor completing it). May
-  // become NULL via ON DELETE SET NULL regardless of run status.
+  // become NULL via ON DELETE SET NULL regardless of run status. The plain
+  // FK only proves the user exists; the migration's own INSERT trigger
+  // guard (REMEDIATION, pre-PR review) additionally requires this user to
+  // belong to the SAME organisation_id as the run, rather than replacing
+  // this FK with a composite one — a composite (created_by,
+  // organisation_id) FK could not preserve "null only the actor, keep
+  // organisation_id" on actor deletion the way this simple FK does.
   created_by                           String?
   started_at                           DateTime  @default(now()) @db.Timestamptz(6)
   completed_at                         DateTime?

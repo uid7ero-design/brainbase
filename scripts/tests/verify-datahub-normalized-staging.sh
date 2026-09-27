@@ -170,7 +170,8 @@ echo "=== FIXTURE WORLD: org-a tenant, one SUCCEEDED raw staging run with one ro
 expect_success "3. seed organisations/users" \
   "INSERT INTO organisations (id, name, slug, updated_at) VALUES ('org-a','Org A','org-a', now()), ('org-b','Org B','org-b', now());
    INSERT INTO users (id, organisation_id, username, email, name, password_hash, role, updated_at)
-     VALUES ('user-a','org-a','user-a','a@x.com','User A','x','MANAGER', now());"
+     VALUES ('user-a','org-a','user-a','a@x.com','User A','x','MANAGER', now()),
+            ('user-b','org-b','user-b','b@x.com','User B','x','MANAGER', now());"
 
 expect_success "4. seed governed D3A/D3B world + import batch + upload" \
   "INSERT INTO source_systems (id, organisation_id, name, updated_at) VALUES ('ss-1','org-a','SS', now());
@@ -243,10 +244,17 @@ expect_failure "8d. a normalization run cannot be created against a SUCCEEDED ra
   "data_hub_normalization_runs_upload_authoritative_raw_run_fkey"
 
 echo ""
+echo "=== ACTOR TENANT SAFETY — normalization run created_by (remediation) ==="
+expect_failure "8e. a normalization run cannot be created with created_by belonging to a DIFFERENT tenant (user-b is org-b; the run is org-a)" \
+  "INSERT INTO data_hub_normalization_runs (id, organisation_id, import_batch_id, upload_id, raw_staging_run_id, source_schema_version_id, source_schema_worksheet_id, worksheet_mapping_profile_id, worksheet_mapping_profile_version_id, attempt_number, normalizer_version, status, execution_token, lease_expires_at, last_progress_at, expected_row_count, expected_cell_count, created_by)
+   VALUES ('norm-crossactor','org-a','batch-1','up-1','run-1','sv-1','ws-1','wp-1','pv-1',1,'v1','RUNNING','ntok-crossactor', now()+interval '1 hour', now(), 1, 1, 'user-b');" \
+  "created_by must belong to the same organisation_id"
+
+echo ""
 echo "=== NEW-RUN CREATION + ONE RUNNING PER UPLOAD ==="
-expect_success "9. create a normalization run against the SUCCEEDED run-1, pinned to run-1's own pv-1 (never the active pv-2)" \
-  "INSERT INTO data_hub_normalization_runs (id, organisation_id, import_batch_id, upload_id, raw_staging_run_id, source_schema_version_id, source_schema_worksheet_id, worksheet_mapping_profile_id, worksheet_mapping_profile_version_id, attempt_number, normalizer_version, status, execution_token, lease_expires_at, last_progress_at, expected_row_count, expected_cell_count)
-   VALUES ('norm-1','org-a','batch-1','up-1','run-1','sv-1','ws-1','wp-1','pv-1',1,'v1','RUNNING','ntok-1', now()+interval '1 hour', now(), 1, 1);"
+expect_success "9. create a normalization run against the SUCCEEDED run-1, pinned to run-1's own pv-1 (never the active pv-2), created_by a SAME-tenant user (user-a, org-a)" \
+  "INSERT INTO data_hub_normalization_runs (id, organisation_id, import_batch_id, upload_id, raw_staging_run_id, source_schema_version_id, source_schema_worksheet_id, worksheet_mapping_profile_id, worksheet_mapping_profile_version_id, attempt_number, normalizer_version, status, execution_token, lease_expires_at, last_progress_at, expected_row_count, expected_cell_count, created_by)
+   VALUES ('norm-1','org-a','batch-1','up-1','run-1','sv-1','ws-1','wp-1','pv-1',1,'v1','RUNNING','ntok-1', now()+interval '1 hour', now(), 1, 1, 'user-a');"
 expect_failure "10. a second RUNNING normalization run for the same Upload is rejected" \
   "INSERT INTO data_hub_normalization_runs (id, organisation_id, import_batch_id, upload_id, raw_staging_run_id, source_schema_version_id, source_schema_worksheet_id, worksheet_mapping_profile_id, worksheet_mapping_profile_version_id, attempt_number, normalizer_version, status, execution_token, lease_expires_at, last_progress_at, expected_row_count, expected_cell_count)
    VALUES ('norm-2','org-a','batch-1','up-1','run-1','sv-1','ws-1','wp-1','pv-1',2,'v1','RUNNING','ntok-2', now()+interval '1 hour', now(), 1, 1);" \
@@ -265,7 +273,7 @@ expect_success "13a. fail norm-1 (a legitimate RUNNING -> FAILED transition)" \
 expect_failure "13b. once FAILED (terminal), the row is immutable — cannot flip back to RUNNING" \
   "UPDATE data_hub_normalization_runs SET status='RUNNING', failed_at=NULL, failure_code=NULL WHERE id='norm-1';" \
   "run is FAILED \(terminal\) and immutable"
-expect_success "13c. a later NEW attempt (attempt_number=2) coexists with the FAILED attempt 1" \
+expect_success "13c. a later NEW attempt (attempt_number=2) coexists with the FAILED attempt 1 — also proves NULL created_by remains valid (no tenant check runs against a NULL actor)" \
   "INSERT INTO data_hub_normalization_runs (id, organisation_id, import_batch_id, upload_id, raw_staging_run_id, source_schema_version_id, source_schema_worksheet_id, worksheet_mapping_profile_id, worksheet_mapping_profile_version_id, attempt_number, normalizer_version, status, execution_token, lease_expires_at, last_progress_at, expected_row_count, expected_cell_count)
    VALUES ('norm-2','org-a','batch-1','up-1','run-1','sv-1','ws-1','wp-1','pv-1',2,'v1','RUNNING','ntok-2', now()+interval '1 hour', now(), 2, 1);"
 
@@ -356,11 +364,41 @@ expect_success "21c. a brand-new normalization attempt (norm-2 is now SUCCEEDED/
 
 echo ""
 echo "=== ACTOR DELETION SEMANTICS ==="
-expect_success "22. deleting the actor nulls normalized_by, raw_staged_by, and the normalization run's created_by — nothing else changes" \
+expect_success "22. deleting the SAME-TENANT actor (after completion) nulls normalized_by, raw_staged_by, and norm-1's own created_by ('user-a', set at 9.) — organisation_id is unchanged on both rows, nothing else changes" \
   "DELETE FROM users WHERE id='user-a';
-   SELECT 1/CASE WHEN (SELECT normalized_by IS NULL AND raw_staged_by IS NULL AND normalized_row_count=2 FROM uploads WHERE id='up-1')
+   SELECT 1/CASE WHEN (SELECT normalized_by IS NULL AND raw_staged_by IS NULL AND normalized_row_count=2 AND organisation_id='org-a' FROM uploads WHERE id='up-1')
        AND (SELECT created_by IS NULL AND status='SUCCEEDED' FROM data_hub_normalization_runs WHERE id='norm-2')
+       AND (SELECT created_by IS NULL AND organisation_id='org-a' FROM data_hub_normalization_runs WHERE id='norm-1')
      THEN 1 ELSE 0 END;"
+
+echo ""
+echo "=== ACTOR TENANT SAFETY — completion (remediation) ==="
+expect_success "22c setup: a same-tenant replacement actor (user-a was deleted at 22.), a SECOND fully independent upload (up-2) with its own SUCCEEDED raw run, and a fresh RUNNING normalization run, for a clean pre-completion state" \
+  "INSERT INTO users (id, organisation_id, username, email, name, password_hash, role, updated_at)
+     VALUES ('user-a2','org-a','user-a2','a2@x.com','User A2','x','MANAGER', now());
+   INSERT INTO import_batches (id, organisation_id, uploaded_by, original_filename, content_type, size_bytes, storage_provider, storage_key, status, sha256, source_schema_version_id, updated_at)
+     VALUES ('batch-2','org-a','user-a2','g.xlsx','xlsx',1,'vercel-blob','k2','READY', repeat('e',64), 'sv-1', now());
+   INSERT INTO uploads (id, organisation_id, original_name, stored_path, mimetype, size_bytes, import_batch_id, worksheet_index, worksheet_name, lineage_kind, updated_at)
+     VALUES ('up-2','org-a','g.xlsx','p2','x',1,'batch-2',0,'Runs','DATA_HUB', now());
+   INSERT INTO data_hub_raw_staging_runs (id, organisation_id, import_batch_id, upload_id, source_schema_version_id, source_schema_worksheet_id,
+      worksheet_mapping_profile_id, worksheet_mapping_profile_version_id, attempt_number, source_sha256, parser_version, status,
+      execution_token, lease_expires_at, last_progress_at, expected_row_count, expected_cell_count, persisted_row_count, persisted_cell_count, completed_at)
+     VALUES ('run-2fresh','org-a','batch-2','up-2','sv-1','ws-1','wp-1','pv-1',1, repeat('f',64), 'v1', 'SUCCEEDED', 'tok-2fresh', now()+interval '1 hour', now(), 0, 0, 0, 0, now());
+   UPDATE uploads SET raw_staged_at = now(), raw_staged_by='user-a2', raw_profile_version_id='pv-1', raw_row_count=0, raw_cell_count=0, raw_staging_run_id='run-2fresh' WHERE id='up-2';
+   INSERT INTO data_hub_normalization_runs (id, organisation_id, import_batch_id, upload_id, raw_staging_run_id, source_schema_version_id, source_schema_worksheet_id, worksheet_mapping_profile_id, worksheet_mapping_profile_version_id, attempt_number, normalizer_version, status, execution_token, lease_expires_at, last_progress_at, expected_row_count, expected_cell_count)
+     VALUES ('norm-fresh','org-a','batch-2','up-2','run-2fresh','sv-1','ws-1','wp-1','pv-1',1,'v1','RUNNING','ntok-fresh', now()+interval '1 hour', now(), 0, 0);"
+expect_failure "22d. completion with a CROSS-TENANT p_completed_by (user-b, org-b) is rejected by datahub_complete_normalization_run() itself — defense in depth, before any state changes" \
+  "SELECT * FROM datahub_complete_normalization_run('norm-fresh','org-a','user-b','ntok-fresh');" \
+  "completing actor does not belong to this organisation"
+expect_success "22e. the rejected cross-tenant completion left norm-fresh RUNNING, up-2's normalization metadata all NULL, and zero normalized evidence for norm-fresh — untouched" \
+  "SELECT 1/CASE WHEN (SELECT status='RUNNING' FROM data_hub_normalization_runs WHERE id='norm-fresh')
+       AND (SELECT normalized_at IS NULL AND normalized_by IS NULL AND normalized_profile_version_id IS NULL
+            AND normalized_row_count IS NULL AND normalized_cell_count IS NULL AND normalization_run_id IS NULL
+            FROM uploads WHERE id='up-2')
+       AND (SELECT count(*) FROM data_hub_normalized_rows WHERE normalization_run_id='norm-fresh') = 0
+     THEN 1 ELSE 0 END;"
+expect_success "22f. completion with the SAME-TENANT p_completed_by (user-a2, org-a) succeeds" \
+  "SELECT * FROM datahub_complete_normalization_run('norm-fresh','org-a','user-a2','ntok-fresh');"
 
 echo ""
 echo "=== NO SYNTHETIC BACKFILL ==="
