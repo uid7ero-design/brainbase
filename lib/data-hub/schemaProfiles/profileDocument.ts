@@ -48,6 +48,34 @@ export const DATE_POLICIES = ["AU_DD_MM_YYYY", "ISO_8601"] as const;
 export type DatePolicy = (typeof DATE_POLICIES)[number];
 const DATE_POLICY_SET: ReadonlySet<string> = new Set(DATE_POLICIES);
 
+// Declarative only — D4C-A never resolves/converts a zone or executes any
+// Date/string logic. "UTC" and "SOURCE_OFFSET" need no companion field;
+// "IANA" additionally carries the zone identifier itself (e.g.
+// "Australia/Adelaide" is a SYNTHETIC fixture/example only, never a
+// hard-coded universal default); "UNSPECIFIED_LOCAL" is the explicit,
+// governed statement that the value is wall-clock with no known zone —
+// distinct from simply omitting the field, which is not permitted wherever
+// a timezone policy is required.
+export const TIME_ZONE_POLICY_KINDS = ["UTC", "IANA", "SOURCE_OFFSET", "UNSPECIFIED_LOCAL"] as const;
+export type TimeZonePolicyKind = (typeof TIME_ZONE_POLICY_KINDS)[number];
+const TIME_ZONE_POLICY_KIND_SET: ReadonlySet<string> = new Set(TIME_ZONE_POLICY_KINDS);
+
+export type TimeZonePolicy =
+  | { kind: "UTC" }
+  | { kind: "IANA"; zone: string }
+  | { kind: "SOURCE_OFFSET" }
+  | { kind: "UNSPECIFIED_LOCAL" };
+
+// Timezone semantics apply only to a clock-bearing value. DATE alone (a
+// calendar day, already governed by datePolicy) is out of scope. DATETIME
+// always represents an instant/timestamp, so a timezone policy is
+// mandatory — exactly like datePolicy, an unstated timezone on a DATETIME
+// is a governance gap this contract must never silently accept. TIME (a
+// bare wall-clock time with no associated date) may optionally declare one
+// when known, but is not forced to.
+const TIME_ZONE_POLICY_ALLOWED_KINDS: ReadonlySet<ValueKind> = new Set(["DATETIME", "TIME"]);
+const TIME_ZONE_POLICY_REQUIRED_KINDS: ReadonlySet<ValueKind> = new Set(["DATETIME"]);
+
 // Minimum required vocabulary. Never extend implicitly from a column
 // heading — a new unit may only be added here, explicitly, by a future
 // phase.
@@ -96,6 +124,9 @@ export interface ColumnRuleV2 {
   datePolicy?: DatePolicy;
   /** Required (literal true) iff valueKind is IDENTIFIER; forbidden otherwise. Marks the value as never numerically coerced. */
   preserveLeadingZeros?: true;
+  /** Required iff valueKind is DATETIME; optional iff TIME; forbidden otherwise. Declarative only — never resolved/converted in D4C-A. */
+  timeZonePolicy?: TimeZonePolicy;
+  /** Both present or both absent — never exactly one. Same unit family required; INTEGER additionally requires sourceUnit === normalizedUnit. */
   sourceUnit?: Unit;
   normalizedUnit?: Unit;
 }
@@ -135,7 +166,36 @@ function parseV1(doc: Record<string, unknown>): ProfileDocumentParseResult {
   return { ok: true, document: { documentVersion: 1, schemaStatus: doc.schemaStatus, headerRowOneBased: doc.headerRowOneBased } };
 }
 
-const COLUMN_RULE_KEYS = new Set(["sourceSchemaColumnId", "valueKind", "datePolicy", "preserveLeadingZeros", "sourceUnit", "normalizedUnit"]);
+const COLUMN_RULE_KEYS = new Set(["sourceSchemaColumnId", "valueKind", "datePolicy", "preserveLeadingZeros", "timeZonePolicy", "sourceUnit", "normalizedUnit"]);
+
+function parseTimeZonePolicy(raw: unknown, where: string): { ok: true; policy: TimeZonePolicy } | { ok: false; errors: string[] } {
+  if (!isPlainObject(raw)) {
+    return { ok: false, errors: [`${where}.timeZonePolicy must be a plain object`] };
+  }
+  if (typeof raw.kind !== "string" || !TIME_ZONE_POLICY_KIND_SET.has(raw.kind)) {
+    return { ok: false, errors: [`${where}.timeZonePolicy.kind must be one of: ${TIME_ZONE_POLICY_KINDS.join(", ")}`] };
+  }
+  const kind = raw.kind as TimeZonePolicyKind;
+
+  if (kind === "IANA") {
+    const allowedKeys = new Set(["kind", "zone"]);
+    const unknownKeys = Object.keys(raw).filter((k) => !allowedKeys.has(k));
+    if (unknownKeys.length > 0) {
+      return { ok: false, errors: [`${where}.timeZonePolicy has unknown key(s): ${unknownKeys.join(", ")}`] };
+    }
+    if (typeof raw.zone !== "string" || raw.zone.length === 0) {
+      return { ok: false, errors: [`${where}.timeZonePolicy.zone is required and must be a non-empty string when kind is IANA`] };
+    }
+    return { ok: true, policy: { kind: "IANA", zone: raw.zone } };
+  }
+
+  const allowedKeys = new Set(["kind"]);
+  const unknownKeys = Object.keys(raw).filter((k) => !allowedKeys.has(k));
+  if (unknownKeys.length > 0) {
+    return { ok: false, errors: [`${where}.timeZonePolicy has unknown key(s) for kind ${kind}: ${unknownKeys.join(", ")}`] };
+  }
+  return { ok: true, policy: { kind } as TimeZonePolicy };
+}
 
 function parseColumnRule(raw: unknown, index: number): { ok: true; rule: ColumnRuleV2 } | { ok: false; errors: string[] } {
   const where = `v2: columnRules[${index}]`;
@@ -158,6 +218,7 @@ function parseColumnRule(raw: unknown, index: number): { ok: true; rule: ColumnR
 
   const hasDatePolicy = Object.prototype.hasOwnProperty.call(raw, "datePolicy");
   const hasPreserveLeadingZeros = Object.prototype.hasOwnProperty.call(raw, "preserveLeadingZeros");
+  const hasTimeZonePolicy = Object.prototype.hasOwnProperty.call(raw, "timeZonePolicy");
   const hasSourceUnit = Object.prototype.hasOwnProperty.call(raw, "sourceUnit");
   const hasNormalizedUnit = Object.prototype.hasOwnProperty.call(raw, "normalizedUnit");
 
@@ -177,6 +238,21 @@ function parseColumnRule(raw: unknown, index: number): { ok: true; rule: ColumnR
     return { ok: false, errors: [`${where} valueKind ${valueKind} must not declare preserveLeadingZeros`] };
   }
 
+  let timeZonePolicy: TimeZonePolicy | undefined;
+  if (TIME_ZONE_POLICY_ALLOWED_KINDS.has(valueKind)) {
+    if (!hasTimeZonePolicy) {
+      if (TIME_ZONE_POLICY_REQUIRED_KINDS.has(valueKind)) {
+        return { ok: false, errors: [`${where} valueKind ${valueKind} requires timeZonePolicy`] };
+      }
+    } else {
+      const tz = parseTimeZonePolicy(raw.timeZonePolicy, where);
+      if (!tz.ok) return tz;
+      timeZonePolicy = tz.policy;
+    }
+  } else if (hasTimeZonePolicy) {
+    return { ok: false, errors: [`${where} valueKind ${valueKind} must not declare timeZonePolicy`] };
+  }
+
   const allowedFamilies = VALUE_KIND_UNIT_FAMILIES[valueKind];
   let sourceFamily: UnitFamily | undefined;
   let normalizedFamily: UnitFamily | undefined;
@@ -186,6 +262,12 @@ function parseColumnRule(raw: unknown, index: number): { ok: true; rule: ColumnR
       return { ok: false, errors: [`${where} valueKind ${valueKind} must not declare sourceUnit/normalizedUnit`] };
     }
   } else {
+    // Unit-pair coherence: a normalized unit must never be claimed without
+    // an explicitly governed original unit, or vice versa. Exactly one
+    // present is always invalid — both absent, or both present, only.
+    if (hasSourceUnit !== hasNormalizedUnit) {
+      return { ok: false, errors: [`${where} sourceUnit and normalizedUnit must both be declared together, or both omitted`] };
+    }
     if (hasSourceUnit) {
       if (typeof raw.sourceUnit !== "string" || !UNIT_SET.has(raw.sourceUnit)) {
         return { ok: false, errors: [`${where}.sourceUnit must be one of: ${UNITS.join(", ")}`] };
@@ -207,11 +289,23 @@ function parseColumnRule(raw: unknown, index: number): { ok: true; rule: ColumnR
     if (sourceFamily !== undefined && normalizedFamily !== undefined && sourceFamily !== normalizedFamily) {
       return { ok: false, errors: [`${where} sourceUnit and normalizedUnit must belong to the same unit family`] };
     }
+    // INTEGER carries a whole-number value with no fractional representation
+    // available, so a cross-unit conversion within a family (e.g. kg -> t)
+    // could produce a non-integral normalized value. D4C-A permits INTEGER
+    // to declare a unit only when preserved exactly unchanged; a real
+    // unit conversion belongs to DECIMAL, which already allows it.
+    if (valueKind === "INTEGER" && hasSourceUnit && hasNormalizedUnit && raw.sourceUnit !== raw.normalizedUnit) {
+      return {
+        ok: false,
+        errors: [`${where} valueKind INTEGER may only declare sourceUnit === normalizedUnit (no unit conversion); got sourceUnit "${raw.sourceUnit}", normalizedUnit "${raw.normalizedUnit}"`],
+      };
+    }
   }
 
   const rule: ColumnRuleV2 = { sourceSchemaColumnId: raw.sourceSchemaColumnId, valueKind };
   if (hasDatePolicy) rule.datePolicy = raw.datePolicy as DatePolicy;
   if (hasPreserveLeadingZeros) rule.preserveLeadingZeros = true;
+  if (timeZonePolicy) rule.timeZonePolicy = timeZonePolicy;
   if (hasSourceUnit) rule.sourceUnit = raw.sourceUnit as Unit;
   if (hasNormalizedUnit) rule.normalizedUnit = raw.normalizedUnit as Unit;
   return { ok: true, rule };

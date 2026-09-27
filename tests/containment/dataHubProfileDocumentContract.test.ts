@@ -7,6 +7,7 @@ import {
   VALUE_KINDS,
   UNITS,
   DATE_POLICIES,
+  TIME_ZONE_POLICY_KINDS,
   type ColumnRuleV2,
 } from "@/lib/data-hub/schemaProfiles/profileDocument";
 
@@ -338,7 +339,8 @@ describe("6.2D4C-A profile document contract — v2 acceptance and structural in
   it("every value kind in the allowlisted vocabulary is individually constructible with its own minimal companion fields", () => {
     const minimalRuleFor = (kind: (typeof VALUE_KINDS)[number]): ColumnRuleV2 => {
       if (kind === "IDENTIFIER") return { sourceSchemaColumnId: COL(kind), valueKind: kind, preserveLeadingZeros: true };
-      if (kind === "DATE" || kind === "DATETIME") return { sourceSchemaColumnId: COL(kind), valueKind: kind, datePolicy: "ISO_8601" };
+      if (kind === "DATE") return { sourceSchemaColumnId: COL(kind), valueKind: kind, datePolicy: "ISO_8601" };
+      if (kind === "DATETIME") return { sourceSchemaColumnId: COL(kind), valueKind: kind, datePolicy: "ISO_8601", timeZonePolicy: { kind: "UTC" } };
       return { sourceSchemaColumnId: COL(kind), valueKind: kind };
     };
     for (const kind of VALUE_KINDS) {
@@ -376,6 +378,304 @@ describe("6.2D4C-A — D4B integration: shared helper preserves exact prior cont
   });
 
   it("17 (module-scoped): the profile-document contract module has no Prisma/DB access and cannot itself resolve active_profile_version_id", () => {
+    expect(MODULE_CODE).not.toMatch(/prisma|active_profile_version_id/);
+  });
+});
+
+describe("6.2D4C-A remediation — timezone semantics", () => {
+  it("A. accepts a valid DATETIME with an explicit UTC timezone policy", () => {
+    const doc = {
+      documentVersion: 2,
+      schemaStatus: "DRAFT",
+      headerRowOneBased: 3,
+      columnRules: [validRule({ valueKind: "DATETIME", datePolicy: "ISO_8601", timeZonePolicy: { kind: "UTC" } })],
+    };
+    const r = parseProfileDocument(doc);
+    expect(r.ok).toBe(true);
+    if (r.ok && r.document.documentVersion === 2) {
+      expect(r.document.columnRules[0].timeZonePolicy).toEqual({ kind: "UTC" });
+    }
+  });
+
+  it("B. accepts a valid DATETIME with an explicit SYNTHETIC IANA timezone (not a hard-coded universal zone)", () => {
+    // "Australia/Adelaide" here is a synthetic test fixture only, exactly as
+    // the remediation task requires — never asserted as the universal or
+    // real Onkaparinga zone.
+    const doc = {
+      documentVersion: 2,
+      schemaStatus: "DRAFT",
+      headerRowOneBased: 3,
+      columnRules: [validRule({ valueKind: "DATETIME", datePolicy: "ISO_8601", timeZonePolicy: { kind: "IANA", zone: "Australia/Adelaide" } })],
+    };
+    const r = parseProfileDocument(doc);
+    expect(r.ok).toBe(true);
+    if (r.ok && r.document.documentVersion === 2) {
+      expect(r.document.columnRules[0].timeZonePolicy).toEqual({ kind: "IANA", zone: "Australia/Adelaide" });
+    }
+    // A second, unrelated synthetic zone proves nothing is hard-coded to
+    // Australia/Adelaide specifically.
+    const other = {
+      documentVersion: 2,
+      schemaStatus: "DRAFT",
+      headerRowOneBased: 3,
+      columnRules: [validRule({ valueKind: "DATETIME", datePolicy: "ISO_8601", timeZonePolicy: { kind: "IANA", zone: "Pacific/Auckland" } })],
+    };
+    expect(parseProfileDocument(other).ok).toBe(true);
+    expect(MODULE_CODE).not.toContain('"Australia/Adelaide"');
+    expect(MODULE_CODE).not.toContain("'Australia/Adelaide'");
+  });
+
+  it("C. rejects a malformed or unknown timezone policy", () => {
+    const notAnObject = {
+      documentVersion: 2,
+      schemaStatus: "DRAFT",
+      headerRowOneBased: 3,
+      columnRules: [validRule({ valueKind: "DATETIME", datePolicy: "ISO_8601", timeZonePolicy: "UTC" as never })],
+    };
+    expect(parseProfileDocument(notAnObject).ok).toBe(false);
+
+    const unknownKind = {
+      documentVersion: 2,
+      schemaStatus: "DRAFT",
+      headerRowOneBased: 3,
+      columnRules: [validRule({ valueKind: "DATETIME", datePolicy: "ISO_8601", timeZonePolicy: { kind: "LOCAL_GUESS" } as never })],
+    };
+    expect(parseProfileDocument(unknownKind).ok).toBe(false);
+
+    const unknownExtraKey = {
+      documentVersion: 2,
+      schemaStatus: "DRAFT",
+      headerRowOneBased: 3,
+      columnRules: [validRule({ valueKind: "DATETIME", datePolicy: "ISO_8601", timeZonePolicy: { kind: "UTC", offsetMinutes: 600 } as never })],
+    };
+    expect(parseProfileDocument(unknownExtraKey).ok).toBe(false);
+
+    for (const kind of TIME_ZONE_POLICY_KINDS) {
+      // Sanity: every allowlisted kind (with its own required companion
+      // field, where applicable) is itself valid.
+      const tz = kind === "IANA" ? { kind, zone: "Pacific/Auckland" } : { kind };
+      const doc = {
+        documentVersion: 2,
+        schemaStatus: "DRAFT",
+        headerRowOneBased: 3,
+        columnRules: [validRule({ valueKind: "DATETIME", datePolicy: "ISO_8601", timeZonePolicy: tz as never })],
+      };
+      expect(parseProfileDocument(doc).ok, kind).toBe(true);
+    }
+  });
+
+  it("D. rejects a timezone policy declared on a valueKind it is not applicable to", () => {
+    for (const valueKind of ["STRING", "INTEGER", "BOOLEAN", "DATE", "IDENTIFIER", "LATITUDE"] as const) {
+      const rule: Partial<ColumnRuleV2> = { valueKind, timeZonePolicy: { kind: "UTC" } };
+      if (valueKind === "DATE") rule.datePolicy = "ISO_8601";
+      if (valueKind === "IDENTIFIER") rule.preserveLeadingZeros = true;
+      const doc = { documentVersion: 2, schemaStatus: "DRAFT", headerRowOneBased: 3, columnRules: [validRule(rule)] };
+      expect(parseProfileDocument(doc).ok, valueKind).toBe(false);
+    }
+  });
+
+  it("E. IANA timezone policy without a zone is rejected", () => {
+    const missingZone = {
+      documentVersion: 2,
+      schemaStatus: "DRAFT",
+      headerRowOneBased: 3,
+      columnRules: [validRule({ valueKind: "DATETIME", datePolicy: "ISO_8601", timeZonePolicy: { kind: "IANA" } as never })],
+    };
+    expect(parseProfileDocument(missingZone).ok).toBe(false);
+
+    const emptyZone = {
+      documentVersion: 2,
+      schemaStatus: "DRAFT",
+      headerRowOneBased: 3,
+      columnRules: [validRule({ valueKind: "DATETIME", datePolicy: "ISO_8601", timeZonePolicy: { kind: "IANA", zone: "" } })],
+    };
+    expect(parseProfileDocument(emptyZone).ok).toBe(false);
+
+    const nonStringZone = {
+      documentVersion: 2,
+      schemaStatus: "DRAFT",
+      headerRowOneBased: 3,
+      columnRules: [validRule({ valueKind: "DATETIME", datePolicy: "ISO_8601", timeZonePolicy: { kind: "IANA", zone: 123 } as never })],
+    };
+    expect(parseProfileDocument(nonStringZone).ok).toBe(false);
+  });
+
+  it("DATETIME requires timeZonePolicy; TIME may optionally declare one", () => {
+    const missingOnDatetime = {
+      documentVersion: 2,
+      schemaStatus: "DRAFT",
+      headerRowOneBased: 3,
+      columnRules: [validRule({ valueKind: "DATETIME", datePolicy: "ISO_8601" })],
+    };
+    expect(parseProfileDocument(missingOnDatetime).ok).toBe(false);
+
+    const bareTime = { documentVersion: 2, schemaStatus: "DRAFT", headerRowOneBased: 3, columnRules: [validRule({ valueKind: "TIME" })] };
+    expect(parseProfileDocument(bareTime).ok).toBe(true);
+
+    const timeWithPolicy = {
+      documentVersion: 2,
+      schemaStatus: "DRAFT",
+      headerRowOneBased: 3,
+      columnRules: [validRule({ valueKind: "TIME", timeZonePolicy: { kind: "UNSPECIFIED_LOCAL" } })],
+    };
+    expect(parseProfileDocument(timeWithPolicy).ok).toBe(true);
+  });
+
+  it("mutation proof: weakening timezone-kind validation (accepting any string as a kind) is caught", () => {
+    // Simulates the regression this test exists to prevent: if
+    // TIME_ZONE_POLICY_KIND_SET's check were dropped, an arbitrary string
+    // would be accepted as a kind. We assert the CURRENT correct behavior;
+    // the corresponding mutation was applied by hand to profileDocument.ts
+    // during development (TIME_ZONE_POLICY_KIND_SET.has(raw.kind) replaced
+    // with `true`) and confirmed to flip this assertion, then reverted.
+    const doc = {
+      documentVersion: 2,
+      schemaStatus: "DRAFT",
+      headerRowOneBased: 3,
+      columnRules: [validRule({ valueKind: "DATETIME", datePolicy: "ISO_8601", timeZonePolicy: { kind: "MADE_UP_KIND" } as never })],
+    };
+    expect(parseProfileDocument(doc).ok).toBe(false);
+  });
+});
+
+describe("6.2D4C-A remediation — unit-pair coherence (both present or both absent)", () => {
+  it("F. sourceUnit alone (no normalizedUnit) is rejected", () => {
+    const doc = {
+      documentVersion: 2,
+      schemaStatus: "DRAFT",
+      headerRowOneBased: 3,
+      columnRules: [validRule({ valueKind: "DECIMAL", sourceUnit: "kg" })],
+    };
+    expect(parseProfileDocument(doc).ok).toBe(false);
+  });
+
+  it("G. normalizedUnit alone (no sourceUnit) is rejected", () => {
+    const doc = {
+      documentVersion: 2,
+      schemaStatus: "DRAFT",
+      headerRowOneBased: 3,
+      columnRules: [validRule({ valueKind: "DECIMAL", normalizedUnit: "kg" })],
+    };
+    expect(parseProfileDocument(doc).ok).toBe(false);
+  });
+
+  it("H. sourceUnit + normalizedUnit of the same family are accepted together; both absent is also accepted", () => {
+    const bothPresent = {
+      documentVersion: 2,
+      schemaStatus: "DRAFT",
+      headerRowOneBased: 3,
+      columnRules: [validRule({ valueKind: "DECIMAL", sourceUnit: "kg", normalizedUnit: "t" })],
+    };
+    expect(parseProfileDocument(bothPresent).ok).toBe(true);
+
+    const bothAbsent = { documentVersion: 2, schemaStatus: "DRAFT", headerRowOneBased: 3, columnRules: [validRule({ valueKind: "DECIMAL" })] };
+    expect(parseProfileDocument(bothAbsent).ok).toBe(true);
+  });
+
+  it("mutation proof: removing the unit-pair requirement lets an unpaired unit through", () => {
+    // This asserts the CURRENT correct (rejecting) behavior. Manually
+    // deleting the `hasSourceUnit !== hasNormalizedUnit` check in
+    // profileDocument.ts flips this to accepted — confirmed by hand during
+    // development, then reverted.
+    const doc = {
+      documentVersion: 2,
+      schemaStatus: "DRAFT",
+      headerRowOneBased: 3,
+      columnRules: [validRule({ valueKind: "DECIMAL", sourceUnit: "kg" })],
+    };
+    expect(parseProfileDocument(doc).ok).toBe(false);
+  });
+});
+
+describe("6.2D4C-A remediation — INTEGER unit-conversion safety", () => {
+  it("I. DECIMAL kg -> t (cross-unit, same family) is accepted", () => {
+    const doc = {
+      documentVersion: 2,
+      schemaStatus: "DRAFT",
+      headerRowOneBased: 3,
+      columnRules: [validRule({ valueKind: "DECIMAL", sourceUnit: "kg", normalizedUnit: "t" })],
+    };
+    expect(parseProfileDocument(doc).ok).toBe(true);
+  });
+
+  it("J. INTEGER kg -> t (cross-unit conversion) is rejected — could produce a fractional normalized value", () => {
+    const doc = {
+      documentVersion: 2,
+      schemaStatus: "DRAFT",
+      headerRowOneBased: 3,
+      columnRules: [validRule({ valueKind: "INTEGER", sourceUnit: "kg", normalizedUnit: "t" })],
+    };
+    const r = parseProfileDocument(doc);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.errors.join(" ")).toMatch(/INTEGER may only declare sourceUnit === normalizedUnit/);
+  });
+
+  it("K. INTEGER kg -> kg (identical unit, no conversion) is accepted", () => {
+    const doc = {
+      documentVersion: 2,
+      schemaStatus: "DRAFT",
+      headerRowOneBased: 3,
+      columnRules: [validRule({ valueKind: "INTEGER", sourceUnit: "kg", normalizedUnit: "kg" })],
+    };
+    expect(parseProfileDocument(doc).ok).toBe(true);
+  });
+
+  it("DURATION/PERCENTAGE/CURRENCY keep their existing compatible-family conversion rules (unaffected by the INTEGER narrowing)", () => {
+    const duration = {
+      documentVersion: 2,
+      schemaStatus: "DRAFT",
+      headerRowOneBased: 3,
+      columnRules: [validRule({ valueKind: "DURATION", sourceUnit: "min", normalizedUnit: "h" })],
+    };
+    expect(parseProfileDocument(duration).ok).toBe(true);
+
+    const percentage = {
+      documentVersion: 2,
+      schemaStatus: "DRAFT",
+      headerRowOneBased: 3,
+      columnRules: [validRule({ valueKind: "PERCENTAGE", sourceUnit: "%", normalizedUnit: "%" })],
+    };
+    expect(parseProfileDocument(percentage).ok).toBe(true);
+
+    const currency = {
+      documentVersion: 2,
+      schemaStatus: "DRAFT",
+      headerRowOneBased: 3,
+      columnRules: [validRule({ valueKind: "CURRENCY", sourceUnit: "AUD", normalizedUnit: "AUD" })],
+    };
+    expect(parseProfileDocument(currency).ok).toBe(true);
+  });
+
+  it("mutation proof: permitting INTEGER cross-unit conversion is caught", () => {
+    // This asserts the CURRENT correct (rejecting) behavior. Manually
+    // deleting the INTEGER-specific `raw.sourceUnit !== raw.normalizedUnit`
+    // check in profileDocument.ts flips this to accepted — confirmed by
+    // hand during development, then reverted.
+    const doc = {
+      documentVersion: 2,
+      schemaStatus: "DRAFT",
+      headerRowOneBased: 3,
+      columnRules: [validRule({ valueKind: "INTEGER", sourceUnit: "m", normalizedUnit: "km" })],
+    };
+    expect(parseProfileDocument(doc).ok).toBe(false);
+  });
+});
+
+describe("6.2D4C-A remediation — pre-existing invariants re-confirmed unchanged", () => {
+  it("L. no unit or timezone is ever inferred from a header — the module still never references header text", () => {
+    expect(MODULE_CODE).not.toMatch(/source_header|sourceHeader/);
+  });
+
+  it("M. historical v1 remains byte-for-byte behaviorally unchanged", () => {
+    expect(parseProfileDocument({ documentVersion: 1, schemaStatus: "DRAFT", headerRowOneBased: 3 })).toEqual({
+      ok: true,
+      document: { documentVersion: 1, schemaStatus: "DRAFT", headerRowOneBased: 3 },
+    });
+    expect(parseProfileDocument({ documentVersion: 1, schemaStatus: "DRAFT", headerRowOneBased: 3, timeZonePolicy: { kind: "UTC" } }).ok).toBe(false);
+    expect(headerRowOneBasedFromDocument({ documentVersion: 1, schemaStatus: "DRAFT", headerRowOneBased: null })).toBeNull();
+  });
+
+  it("O. the profile-document module still has no Prisma/DB access, so it cannot itself read active_profile_version_id", () => {
     expect(MODULE_CODE).not.toMatch(/prisma|active_profile_version_id/);
   });
 });
