@@ -77,6 +77,9 @@ model Organisation {
   data_hub_raw_rows        DataHubRawRow[]
   data_hub_raw_cells       DataHubRawCell[]
   data_hub_raw_staging_runs DataHubRawStagingRun[]
+  data_hub_normalization_runs DataHubNormalizationRun[]
+  data_hub_normalized_rows    DataHubNormalizedRow[]
+  data_hub_normalized_cells   DataHubNormalizedCell[]
 
   // stripe_account_id also carries a UNIQUE constraint in the live SQL
   // — a partial index (WHERE NOT NULL), same "Prisma mirrors, raw SQL
@@ -177,6 +180,9 @@ model User {
   data_hub_raw_rows_created DataHubRawRow[] @relation("DataHubRawRowCreatedBy")
   data_hub_raw_staging_runs_created DataHubRawStagingRun[] @relation("DataHubRawStagingRunCreatedBy")
   raw_staged_uploads        Upload[] @relation("UploadRawStagedBy")
+  // Data Hub 6.2D4C-B1 — normalized-staging lifecycle actor relations.
+  data_hub_normalization_runs_created DataHubNormalizationRun[] @relation("DataHubNormalizationRunCreatedBy")
+  normalized_uploads                  Upload[] @relation("UploadNormalizedBy")
   organisation      Organisation      @relation(fields: [organisation_id], references: [id], onDelete: Cascade)
 
   @@index([organisation_id])
@@ -308,6 +314,7 @@ model ImportBatch {
   source_record_observations SourceRecordObservation[]
   data_hub_raw_rows DataHubRawRow[]
   data_hub_raw_staging_runs DataHubRawStagingRun[]
+  data_hub_normalization_runs DataHubNormalizationRun[]
   // Composite tenant-scoped FK (MATCH SIMPLE) — a MATCH SIMPLE
   // constraint means a NULL source_system_id (every existing/legacy
   // row) is entirely exempt from this check. For a batch that DOES
@@ -451,6 +458,25 @@ model Upload {
   // lifecycle trigger).
   raw_staging_run_id     String?
 
+  // Data Hub 6.2D4C-B1 — normalized-staging completion metadata. A
+  // completely separate completion group from raw_staged_*/raw_staging_run_id
+  // above: raw staging captures immutable source evidence; normalization is
+  // a derivative layer built from that evidence. All-NULL before a
+  // successful DataHubNormalizationRun; all six fields set together,
+  // atomically, on success (datahub_complete_normalization_run). Frozen
+  // forever afterward except normalized_by, which may become NULL only via
+  // ON DELETE SET NULL on actor deletion — the same one exception
+  // raw_staged_by carries. normalization_run_id can never be renulled by
+  // any other path: DataHubNormalizationRun rows are DELETE-immutable, so
+  // there is no legitimate way back to NULL besides that one actor-deletion
+  // case on normalized_by itself.
+  normalized_at               DateTime?
+  normalized_by               String?
+  normalized_profile_version_id String?
+  normalized_row_count        Int?
+  normalized_cell_count       Int?
+  normalization_run_id        String?
+
   debtor_accounts    DebtorAccount[]
   evidence_records   EvidenceRecord[]
   hlna_insights      HlnaInsight[]
@@ -466,6 +492,7 @@ model Upload {
   // SetNull precedent, not user_id's plain default.
   confirmer          User?              @relation("UploadConfirmedBy", fields: [confirmed_by], references: [id], onDelete: SetNull)
   raw_stager         User?              @relation("UploadRawStagedBy", fields: [raw_staged_by], references: [id], onDelete: SetNull)
+  normalizer         User?              @relation("UploadNormalizedBy", fields: [normalized_by], references: [id], onDelete: SetNull)
   // Composite tenant-scoped FK — a MATCH SIMPLE constraint, so any row
   // with import_batch_id = NULL (every legacy row) is entirely exempt
   // from this check by Postgres's own FK semantics. For a canonical row
@@ -485,6 +512,14 @@ model Upload {
   // invariant, same precedent as DataHubRawRow.staging_run's own comment.
   raw_staging_run DataHubRawStagingRun?  @relation("UploadRawStagingRun", fields: [raw_staging_run_id, organisation_id], references: [id, organisation_id])
   staging_runs    DataHubRawStagingRun[] @relation("UploadStagingRuns")
+  // D4C-B1: authoritative completed-normalization-run pointer, mirroring
+  // raw_staging_run's own shape exactly. The migration also adds a second,
+  // wider composite FK (uploads_normalization_run_upload_fkey, proving the
+  // pointed-to run really belongs to THIS upload's own id) — same
+  // DB-level-only precedent as uploads_raw_staging_run_upload_fkey.
+  normalization_run DataHubNormalizationRun? @relation("UploadNormalizationRun", fields: [normalization_run_id, organisation_id], references: [id, organisation_id])
+  normalization_runs DataHubNormalizationRun[] @relation("UploadNormalizationRuns")
+  normalized_profile_version WorksheetMappingProfileVersion? @relation("UploadNormalizedProfileVersion", fields: [normalized_profile_version_id, organisation_id], references: [id, organisation_id])
   source_record_observations SourceRecordObservation[]
   data_hub_raw_rows DataHubRawRow[]
 
@@ -801,6 +836,7 @@ model SourceSchemaWorksheet {
   mapping_profiles WorksheetMappingProfile[]
   data_hub_raw_rows DataHubRawRow[]
   data_hub_raw_staging_runs DataHubRawStagingRun[]
+  data_hub_normalization_runs DataHubNormalizationRun[]
 
   // Required by SourceSchemaColumn's and WorksheetMappingProfile's
   // composite tenant-scoped FKs.
@@ -841,6 +877,7 @@ model SourceSchemaColumn {
   organisation Organisation          @relation(fields: [organisation_id], references: [id])
   worksheet    SourceSchemaWorksheet @relation(fields: [source_schema_worksheet_id, organisation_id], references: [id, organisation_id])
   data_hub_raw_cells DataHubRawCell[]
+  data_hub_normalized_cells DataHubNormalizedCell[]
 
   @@unique([id, organisation_id])
   // D4A strict cell lineage key: identity + worksheet + position + tenant.
@@ -879,6 +916,7 @@ model WorksheetMappingProfile {
   active_version WorksheetMappingProfileVersion?  @relation("WorksheetMappingProfileActiveVersion", fields: [active_profile_version_id, id, organisation_id], references: [id, worksheet_mapping_profile_id, organisation_id])
   data_hub_raw_rows DataHubRawRow[]
   data_hub_raw_staging_runs DataHubRawStagingRun[]
+  data_hub_normalization_runs DataHubNormalizationRun[]
 
   // Required by WorksheetMappingProfileVersion's composite FK.
   @@unique([id, organisation_id])
@@ -920,6 +958,8 @@ model WorksheetMappingProfileVersion {
   raw_staged_uploads Upload[] @relation("UploadRawProfileVersion")
   data_hub_raw_rows  DataHubRawRow[]
   data_hub_raw_staging_runs DataHubRawStagingRun[]
+  normalized_uploads Upload[] @relation("UploadNormalizedProfileVersion")
+  data_hub_normalization_runs DataHubNormalizationRun[]
 
   @@unique([id, organisation_id])
   // Required by WorksheetMappingProfile.active_version's composite FK.
@@ -971,8 +1011,14 @@ model DataHubRawRow {
   staging_run DataHubRawStagingRun @relation(fields: [staging_run_id, organisation_id], references: [id, organisation_id])
 
   cells DataHubRawCell[]
+  normalized_rows DataHubNormalizedRow[]
 
   @@unique([id, source_schema_worksheet_id, organisation_id], map: "data_hub_raw_rows_id_worksheet_organisation_key")
+  // Data Hub 6.2D4C-B1 — additive (D4A/D4B constraints unchanged). Required
+  // by DataHubNormalizedRow's composite FK proving a raw row it points to
+  // really belongs to the same raw staging run its normalization run is
+  // pinned to.
+  @@unique([id, staging_run_id, organisation_id], map: "data_hub_raw_rows_id_staging_run_organisation_key")
   @@unique([staging_run_id, source_row_number], map: "data_hub_raw_rows_staging_run_source_row_key")
   @@index([organisation_id, import_batch_id])
   @@index([upload_id])
@@ -1035,6 +1081,7 @@ model DataHubRawStagingRun {
 
   raw_rows           DataHubRawRow[]
   raw_staged_uploads Upload[] @relation("UploadRawStagingRun")
+  normalization_runs DataHubNormalizationRun[]
 
   @@unique([id, organisation_id], map: "data_hub_raw_staging_runs_id_organisation_key")
   @@unique([id, upload_id, organisation_id], map: "data_hub_raw_staging_runs_id_upload_organisation_key")
@@ -1066,10 +1113,196 @@ model DataHubRawCell {
   raw_row DataHubRawRow @relation(fields: [raw_row_id, source_schema_worksheet_id, organisation_id], references: [id, source_schema_worksheet_id, organisation_id])
   source_schema_column SourceSchemaColumn @relation(fields: [source_schema_column_id, source_schema_worksheet_id, column_ordinal, source_header, sensitivity_class, organisation_id], references: [id, source_schema_worksheet_id, ordinal, source_header, sensitivity_class, organisation_id])
 
+  normalized_cells DataHubNormalizedCell[]
+
   @@unique([raw_row_id, column_ordinal], map: "data_hub_raw_cells_row_ordinal_key")
+  // Data Hub 6.2D4C-B1 — additive (D4A/D4B constraints unchanged). Each
+  // required by one of DataHubNormalizedCell's composite FKs: proving the
+  // exact raw cell (tenant-scoped), proving that raw cell belongs to the
+  // exact raw row the normalized row derives from, and proving the
+  // normalized cell's declared source_schema_column_id agrees with the
+  // SAME raw cell's own recorded governed column identity.
+  @@unique([id, organisation_id], map: "data_hub_raw_cells_id_organisation_key")
+  @@unique([id, raw_row_id, organisation_id], map: "data_hub_raw_cells_id_raw_row_organisation_key")
+  @@unique([id, source_schema_column_id, organisation_id], map: "data_hub_raw_cells_id_column_organisation_key")
   @@index([organisation_id, raw_row_id])
   @@index([source_schema_column_id])
   @@map("data_hub_raw_cells")
+}
+
+// Data Hub 6.2D4C-B1 — normalized-staging FOUNDATION (persistence/lifecycle
+// only; no transformation executes yet). Raw evidence
+// (DataHubRawRow/DataHubRawCell) remains completely untouched and
+// immutable; this is a strictly DERIVATIVE layer:
+//   successful DataHubRawStagingRun -> DataHubNormalizationRun
+//     -> DataHubNormalizedRow -> DataHubNormalizedCell
+//
+// Deliberately a SEPARATE lifecycle from DataHubRawStagingRun (never
+// reused) — raw staging runs are terminal/immutable after success. See
+// scripts/create-datahub-normalized-staging.sql for the full
+// lifecycle/lease trigger (datahub_guard_normalization_run_lifecycle,
+// mirroring but not reusing datahub_guard_raw_staging_run_lifecycle) and
+// the atomic completion function (datahub_complete_normalization_run).
+//
+// "Exact pinned profile" invariant: this run's own
+// worksheet_mapping_profile_version_id is structurally proven (by a
+// composite FK on raw_staging_run_id in the migration, deliberately not
+// modeled as a second Prisma relation here — a DB-level-only invariant,
+// same precedent as DataHubRawRow's own unmodeled proof FKs) to be the
+// SAME version its pinned raw_staging_run itself carries.
+// WorksheetMappingProfile.active_profile_version_id is never consulted
+// when creating or resuming a normalization run.
+model DataHubNormalizationRun {
+  id                                   String    @id @default(cuid())
+  organisation_id                      String
+  import_batch_id                      String
+  upload_id                            String
+  raw_staging_run_id                   String
+  source_schema_version_id             String
+  source_schema_worksheet_id           String
+  worksheet_mapping_profile_id         String
+  worksheet_mapping_profile_version_id String
+  // Monotonic per upload_id, starting at 1 — a distinct counter from
+  // DataHubRawStagingRun.attempt_number (a different lifecycle entirely).
+  attempt_number                       Int
+  normalizer_version                   String
+  // RUNNING | SUCCEEDED | FAILED | ABANDONED (SQL CHECK). No PENDING state:
+  // a run is created already holding its lease.
+  status                               String
+  execution_token                      String
+  lease_expires_at                     DateTime
+  last_progress_at                     DateTime
+  expected_row_count                   Int?
+  expected_cell_count                  Int?
+  persisted_row_count                  Int       @default(0)
+  persisted_cell_count                 Int       @default(0)
+  // The actor who INITIATED this run — never used as Upload.normalized_by
+  // at completion (that is the authenticated actor completing it). May
+  // become NULL via ON DELETE SET NULL regardless of run status.
+  created_by                           String?
+  started_at                           DateTime  @default(now()) @db.Timestamptz(6)
+  completed_at                         DateTime?
+  failed_at                            DateTime?
+  failure_code                         String?
+  failure_detail                       String?
+  created_at                           DateTime  @default(now()) @db.Timestamptz(6)
+
+  organisation     Organisation                   @relation(fields: [organisation_id], references: [id])
+  import_batch     ImportBatch                    @relation(fields: [import_batch_id, source_schema_version_id, organisation_id], references: [id, source_schema_version_id, organisation_id])
+  upload           Upload                         @relation("UploadNormalizationRuns", fields: [upload_id, import_batch_id, organisation_id], references: [id, import_batch_id, organisation_id])
+  // The exact successful raw staging run this normalization derives from.
+  raw_staging_run  DataHubRawStagingRun           @relation(fields: [raw_staging_run_id, organisation_id], references: [id, organisation_id])
+  schema_worksheet SourceSchemaWorksheet          @relation(fields: [source_schema_worksheet_id, source_schema_version_id, organisation_id], references: [id, source_schema_version_id, organisation_id])
+  mapping_profile  WorksheetMappingProfile        @relation(fields: [worksheet_mapping_profile_id, source_schema_worksheet_id, organisation_id], references: [id, source_schema_worksheet_id, organisation_id])
+  profile_version  WorksheetMappingProfileVersion @relation(fields: [worksheet_mapping_profile_version_id, worksheet_mapping_profile_id, organisation_id], references: [id, worksheet_mapping_profile_id, organisation_id])
+  creator          User?                          @relation("DataHubNormalizationRunCreatedBy", fields: [created_by], references: [id], onDelete: SetNull)
+
+  normalized_rows    DataHubNormalizedRow[]
+  normalized_uploads Upload[] @relation("UploadNormalizationRun")
+
+  @@unique([id, organisation_id], map: "data_hub_normalization_runs_id_organisation_key")
+  @@unique([id, upload_id, organisation_id], map: "data_hub_normalization_runs_id_upload_organisation_key")
+  // Required by the migration's "exact pinned profile" proof FK
+  // (data_hub_normalization_runs_raw_run_pinned_version_fkey), which ties
+  // worksheet_mapping_profile_version_id to the SAME column on the pinned
+  // raw_staging_run.
+  @@unique([id, worksheet_mapping_profile_version_id, organisation_id], map: "data_hub_normalization_runs_id_profile_version_organisation_key")
+  @@unique([id, raw_staging_run_id, organisation_id], map: "data_hub_normalization_runs_id_raw_run_organisation_key")
+  @@unique([upload_id, attempt_number], map: "data_hub_normalization_runs_upload_attempt_key")
+  @@index([organisation_id, import_batch_id])
+  @@index([upload_id])
+  @@index([raw_staging_run_id])
+  @@map("data_hub_normalization_runs")
+}
+
+// One row per raw-staged worksheet data row, produced by exactly one
+// DataHubNormalizationRun. raw_staging_run_id is a denormalized lineage
+// column beyond the task spec's minimal field list — added so this row can
+// structurally prove its own raw_row_id really belongs to the SAME raw
+// staging run its normalization run is pinned to (never a different run's
+// row); see the raw_row relation below.
+model DataHubNormalizedRow {
+  id                   String   @id @default(cuid())
+  organisation_id      String
+  normalization_run_id String
+  raw_staging_run_id   String
+  raw_row_id           String
+  source_row_number    Int
+  created_at           DateTime @default(now()) @db.Timestamptz(6)
+
+  organisation      Organisation            @relation(fields: [organisation_id], references: [id])
+  // The migration also adds a DB-level-only proof FK (not modeled as a
+  // second Prisma relation, same precedent as DataHubRawRow's own):
+  // (normalization_run_id, raw_staging_run_id, organisation_id) ->
+  // DataHubNormalizationRun(id, raw_staging_run_id, organisation_id),
+  // proving this row's own raw_staging_run_id agrees with its run's pin.
+  normalization_run DataHubNormalizationRun @relation(fields: [normalization_run_id, organisation_id], references: [id, organisation_id])
+  // Proves this row's own raw_row_id really belongs to the raw staging run
+  // its normalization run is pinned to.
+  raw_row           DataHubRawRow           @relation(fields: [raw_row_id, raw_staging_run_id, organisation_id], references: [id, staging_run_id, organisation_id])
+
+  cells DataHubNormalizedCell[]
+
+  @@unique([id, organisation_id], map: "data_hub_normalized_rows_id_organisation_key")
+  @@unique([id, raw_row_id, organisation_id], map: "data_hub_normalized_rows_id_raw_row_organisation_key")
+  // Resumability by RUN, not by upload alone (6.2D4B precedent) — a failed
+  // attempt's rows may coexist with a later new attempt's rows.
+  @@unique([normalization_run_id, source_row_number], map: "data_hub_normalized_rows_run_source_row_key")
+  @@index([organisation_id, normalization_run_id])
+  @@index([raw_row_id])
+  @@map("data_hub_normalized_rows")
+}
+
+// One cell per raw evidence cell, produced by normalization. raw_row_id is
+// a denormalized lineage column beyond the task spec's minimal field list,
+// for the same structural-proof reason as
+// DataHubNormalizedRow.raw_staging_run_id above.
+//
+// FOUNDATION ONLY (6.2D4C-B1) — normalized_value/value_kind/source_unit/
+// normalized_unit are the storage CONTRACT only; no parsing/conversion
+// executes in this phase (see the migration's CHECK constraints for the
+// exact encoding: STRING/IDENTIFIER/DATE/TIME/DATETIME -> JSON string;
+// BOOLEAN -> JSON boolean; INTEGER/DECIMAL/DURATION/PERCENTAGE/CURRENCY/
+// LATITUDE/LONGITUDE -> a canonical DECIMAL JSON string, never a JSON
+// number, so normalized staging never introduces a floating-point
+// precision boundary; a NULL source value -> the JSON literal null,
+// distinct from SQL NULL — the column itself is NOT NULL). source_unit/
+// normalized_unit are nullable governed metadata D4C-B2 will eventually
+// copy verbatim from the exact pinned v2 rule; never inferred from
+// source_header.
+model DataHubNormalizedCell {
+  id                      String   @id @default(cuid())
+  organisation_id         String
+  normalized_row_id       String
+  raw_row_id              String
+  raw_cell_id             String
+  source_schema_column_id String
+  value_kind              String
+  normalized_value        Json
+  source_unit             String?
+  normalized_unit         String?
+  created_at              DateTime @default(now()) @db.Timestamptz(6)
+
+  organisation   Organisation         @relation(fields: [organisation_id], references: [id])
+  // Proves this cell's declared raw_row_id agrees with its own normalized
+  // row's raw_row_id (never a different row's evidence).
+  normalized_row DataHubNormalizedRow @relation(fields: [normalized_row_id, raw_row_id, organisation_id], references: [id, raw_row_id, organisation_id])
+  // Exact raw cell, tenant-scoped. The migration also adds two further
+  // DB-level-only proof FKs (not modeled as additional Prisma relations,
+  // same precedent as DataHubRawRow's own): (raw_cell_id, raw_row_id,
+  // organisation_id) -> data_hub_raw_cells(id, raw_row_id, organisation_id)
+  // proving the raw cell belongs to the exact raw row, and (raw_cell_id,
+  // source_schema_column_id, organisation_id) ->
+  // data_hub_raw_cells(id, source_schema_column_id, organisation_id)
+  // proving the declared governed column agrees with that SAME raw cell's
+  // own recorded column identity.
+  raw_cell             DataHubRawCell     @relation(fields: [raw_cell_id, organisation_id], references: [id, organisation_id])
+  source_schema_column SourceSchemaColumn @relation(fields: [source_schema_column_id, organisation_id], references: [id, organisation_id])
+
+  @@unique([normalized_row_id, raw_cell_id], map: "data_hub_normalized_cells_row_cell_key")
+  @@index([organisation_id, normalized_row_id])
+  @@index([source_schema_column_id])
+  @@map("data_hub_normalized_cells")
 }
 
 
