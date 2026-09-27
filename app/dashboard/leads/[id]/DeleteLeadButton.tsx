@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { buttonProps } from "@/components/ui/app";
+import styles from "../Leads.module.css";
 
 export default function DeleteLeadButton({ leadId }: { leadId: string }) {
   const router = useRouter();
@@ -16,12 +18,12 @@ export default function DeleteLeadButton({ leadId }: { leadId: string }) {
 
   if (confirm) {
     return (
-      <div className="flex items-center gap-3">
-        <span className="text-sm text-zinc-400">Delete this lead?</span>
-        <button onClick={handleDelete} disabled={deleting} className="text-sm font-semibold text-red-400 hover:text-red-300 transition-colors disabled:opacity-50">
+      <div className={styles.confirm} role="group" aria-label="Confirm delete">
+        <span>Delete this lead?</span>
+        <button type="button" onClick={handleDelete} disabled={deleting} {...buttonProps("danger", "sm")}>
           {deleting ? "Deleting…" : "Yes, delete"}
         </button>
-        <button onClick={() => setConfirm(false)} className="text-sm text-zinc-600 hover:text-zinc-400 transition-colors">
+        <button type="button" onClick={() => setConfirm(false)} {...buttonProps("ghost", "sm")}>
           Cancel
         </button>
       </div>
@@ -29,7 +31,7 @@ export default function DeleteLeadButton({ leadId }: { leadId: string }) {
   }
 
   return (
-    <button onClick={() => setConfirm(true)} className="text-xs text-zinc-600 hover:text-red-400 transition-colors font-medium">
+    <button type="button" onClick={() => setConfirm(true)} {...buttonProps("ghost", "sm")}>
       Delete lead
     </button>
   );

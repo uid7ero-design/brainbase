@@ -81,13 +81,30 @@ const BASE_KEYFRAMES = `
     0%, 100% { opacity: .55; transform: scale(1);    }
     50%       { opacity: 1;  transform: scale(1.22); }
   }
+  @media (prefers-reduced-motion: reduce) {
+    .hlna-orb-motion { animation: none !important; }
+  }
 `;
 
+// Visual-convergence (authenticated visual-completion pass): HlnaOrb is a
+// functional state visual (MicButton dock, IntelRail, /command, BrainBase
+// fallback) — its five states, state names, props and speechRef contract
+// are unchanged. What changed is the dressing: satellite and glow colours
+// are theme tokens (no legacy violet literals), the drop-shadow halos and
+// blurred glow are much smaller/lower, satellites are flat dots (no white
+// neon cores), and every looping animation is switched off under
+// prefers-reduced-motion (.hlna-orb-motion).
+const ACCENT = 'var(--brand-brainbase-accent)';
+const INFO = 'var(--status-info)';
+const WARN = 'var(--status-warning)';
+const DANGER = 'var(--status-danger)';
+const mix = (color, pct) => `color-mix(in srgb, ${color} ${pct}%, transparent)`;
+
 const SATS = [
-  { baseSpeed: 4.5,  rr: 1.10, ellipseY: 0.30, tiltDeg:  35, initAngle:  20, color: '#38BDF8', glow: '56,189,248',  size: 7, dir:  1 },
-  { baseSpeed: 7.5,  rr: 1.24, ellipseY: 0.25, tiltDeg: -22, initAngle: 145, color: '#A78BFA', glow: '167,139,250', size: 6, dir: -1 },
-  { baseSpeed: 3.2,  rr: 1.02, ellipseY: 0.38, tiltDeg:  60, initAngle: 255, color: '#BFDBFE', glow: '191,219,254', size: 5, dir:  1 },
-  { baseSpeed: 11.0, rr: 1.37, ellipseY: 0.22, tiltDeg: -48, initAngle:  72, color: '#818CF8', glow: '129,140,248', size: 4, dir: -1 },
+  { baseSpeed: 4.5,  rr: 1.10, ellipseY: 0.30, tiltDeg:  35, initAngle:  20, color: INFO,   size: 7, dir:  1 },
+  { baseSpeed: 7.5,  rr: 1.24, ellipseY: 0.25, tiltDeg: -22, initAngle: 145, color: ACCENT, size: 6, dir: -1 },
+  { baseSpeed: 3.2,  rr: 1.02, ellipseY: 0.38, tiltDeg:  60, initAngle: 255, color: INFO,   size: 5, dir:  1 },
+  { baseSpeed: 11.0, rr: 1.37, ellipseY: 0.22, tiltDeg: -48, initAngle:  72, color: ACCENT, size: 4, dir: -1 },
 ];
 
 function buildSatKeyframes(size) {
@@ -113,56 +130,56 @@ function buildSatKeyframes(size) {
 const STATE = {
   idle: {
     coreAnim:    'orbFloat 6s linear infinite',
-    glowColor:   'rgba(79,70,229,.42)',
-    glowColor2:  'rgba(99,102,241,.18)',
+    glowColor:   mix(ACCENT, 22),
+    glowColor2:  mix(ACCENT, 8),
     glowAnim:    'glowSpin 18s linear infinite',
-    glowOpacity: 0.65,
+    glowOpacity: 0.35,
     ripple:      false,
-    dropShadow:  'drop-shadow(0 0 30px rgba(79,70,229,.55)) drop-shadow(0 0 60px rgba(55,48,196,.30))',
+    dropShadow:  `drop-shadow(0 0 6px ${mix(ACCENT, 30)})`,
     satOpacity:  0.15,
     satSpeedMul: 1.0,
   },
   listening: {
     coreAnim:    'orbPulse 1.4s linear infinite',
-    glowColor:   'rgba(6,182,212,.50)',
-    glowColor2:  'rgba(56,189,248,.22)',
+    glowColor:   mix(INFO, 28),
+    glowColor2:  mix(INFO, 10),
     glowAnim:    'glowPulse 1.4s linear infinite',
-    glowOpacity: 0.90,
+    glowOpacity: 0.5,
     ripple:      true,
-    dropShadow:  'drop-shadow(0 0 36px rgba(6,182,212,.70)) drop-shadow(0 0 70px rgba(56,189,248,.40))',
+    dropShadow:  `drop-shadow(0 0 8px ${mix(INFO, 40)})`,
     satOpacity:  0.42,
     satSpeedMul: 1.4,
   },
   thinking: {
     coreAnim:    'orbThink 6s linear infinite',
-    glowColor:   'rgba(99,102,241,.50)',
-    glowColor2:  'rgba(139,92,246,.25)',
+    glowColor:   mix(WARN, 26),
+    glowColor2:  mix(ACCENT, 10),
     glowAnim:    'glowSpin 6s linear infinite',
-    glowOpacity: 0.95,
+    glowOpacity: 0.5,
     ripple:      false,
-    dropShadow:  'drop-shadow(0 0 36px rgba(99,102,241,.70)) drop-shadow(0 0 70px rgba(139,92,246,.40))',
+    dropShadow:  `drop-shadow(0 0 8px ${mix(ACCENT, 40)})`,
     satOpacity:  0.55,
     satSpeedMul: 1.8,
   },
   responding: {
     coreAnim:    'orbSpeak 3s linear infinite',
-    glowColor:   'rgba(139,92,246,.65)',
-    glowColor2:  'rgba(99,102,241,.35)',
+    glowColor:   mix(ACCENT, 32),
+    glowColor2:  mix(ACCENT, 12),
     glowAnim:    'glowPulseFast 1.4s linear infinite',
-    glowOpacity: 1.0,
+    glowOpacity: 0.6,
     ripple:      false,
-    dropShadow:  'drop-shadow(0 0 50px rgba(139,92,246,.90)) drop-shadow(0 0 110px rgba(99,102,241,.55))',
+    dropShadow:  `drop-shadow(0 0 10px ${mix(ACCENT, 45)})`,
     satOpacity:  0.92,
     satSpeedMul: 2.8,
   },
   alert: {
     coreAnim:    'orbAlert 2.2s ease-in-out infinite',
-    glowColor:   'rgba(249,115,22,.48)',
-    glowColor2:  'rgba(239,68,68,.22)',
+    glowColor:   mix(DANGER, 26),
+    glowColor2:  mix(WARN, 10),
     glowAnim:    'glowAlertPulse 2.2s ease-in-out infinite',
-    glowOpacity: 0.85,
+    glowOpacity: 0.5,
     ripple:      false,
-    dropShadow:  'drop-shadow(0 0 36px rgba(249,115,22,.65)) drop-shadow(0 0 70px rgba(239,68,68,.30))',
+    dropShadow:  `drop-shadow(0 0 8px ${mix(DANGER, 40)})`,
     satOpacity:  0.30,
     satSpeedMul: 0.6,
   },
@@ -196,8 +213,8 @@ export function HlnaOrb({ size = 80, state = 'idle', speechRef = null, style = {
   const ring3Ref   = useRef(null);
   const lastBurst  = useRef(0);
   const stateRef   = useRef(state);
-  const glowExt    = Math.round(size * 0.45);
-  const blurPx     = Math.max(12, Math.round(size * 0.32));
+  const glowExt    = Math.round(size * 0.25);
+  const blurPx     = Math.max(6, Math.round(size * 0.16));
   const perspPx    = Math.round(size * 2); // perspective distance — gives convincing sphere foreshortening
   const neutralXfm = `perspective(${perspPx}px) rotateY(0deg) rotateX(0deg)`;
 
@@ -214,7 +231,9 @@ export function HlnaOrb({ size = 80, state = 'idle', speechRef = null, style = {
     let lastGlance = null;
     function scheduleNext() {
       timerId = setTimeout(() => {
-        if (stateRef.current === 'idle' && glanceRef.current) {
+        const reduceMotion = typeof window !== 'undefined'
+          && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+        if (!reduceMotion && stateRef.current === 'idle' && glanceRef.current) {
           const g = randomGlance(lastGlance);
           lastGlance = g;
           // Saccade-fast snap to look direction
@@ -254,9 +273,8 @@ export function HlnaOrb({ size = 80, state = 'idle', speechRef = null, style = {
     speechRef.current = (level) => {
       if (state !== 'responding') return;
       if (imgRef.current) {
-        const a = (0.62 + level * 0.28).toFixed(2);
-        imgRef.current.style.filter =
-          `drop-shadow(0 0 58px rgba(139,92,246,${a})) drop-shadow(0 0 110px rgba(99,102,241,.55))`;
+        const pct = Math.round(35 + level * 25);
+        imgRef.current.style.filter = `drop-shadow(0 0 10px ${mix(ACCENT, pct)})`;
       }
       const now = Date.now();
       if (now - lastBurst.current > 250) {
@@ -289,7 +307,7 @@ export function HlnaOrb({ size = 80, state = 'idle', speechRef = null, style = {
       <div style={{ position: 'relative', width: size, height: size, flexShrink: 0, ...style }}>
 
         {/* ── GLOW LAYER ────────────────────────────────────────────── */}
-        <div style={{
+        <div className="hlna-orb-motion" style={{
           position: 'absolute',
           inset: -glowExt,
           borderRadius: '50%',
@@ -303,9 +321,9 @@ export function HlnaOrb({ size = 80, state = 'idle', speechRef = null, style = {
 
         {/* Listening ripples */}
         {[0, 780].map((delay, i) => (
-          <div key={i} style={{
+          <div key={i} className="hlna-orb-motion" style={{
             position: 'absolute', inset: -(size * 0.04), borderRadius: '50%',
-            boxShadow: '0 0 0 1.5px rgba(56,189,248,.28)',
+            boxShadow: `0 0 0 1.5px ${mix(INFO, 45)}`,
             opacity: s.ripple ? 1 : 0,
             transition: 'opacity 0.5s ease',
             animation: 'orbRipple 2s ease-out infinite',
@@ -319,7 +337,7 @@ export function HlnaOrb({ size = 80, state = 'idle', speechRef = null, style = {
         {SATS.map((sat, i) => {
           const speed = (sat.baseSpeed / s.satSpeedMul).toFixed(2);
           return (
-            <div key={i} style={{
+            <div key={i} className="hlna-orb-motion" style={{
               position: 'absolute',
               top: '50%', left: '50%',
               width: sat.size, height: sat.size,
@@ -332,34 +350,26 @@ export function HlnaOrb({ size = 80, state = 'idle', speechRef = null, style = {
               <div style={{
                 width: '100%', height: '100%',
                 borderRadius: '50%',
-                background: `radial-gradient(circle, white 0%, rgba(${sat.glow},.92) 50%, rgba(${sat.glow},0) 100%)`,
-                boxShadow: `0 0 ${sat.size * 2}px rgba(${sat.glow},1), 0 0 ${sat.size * 5}px rgba(${sat.glow},.42)`,
-              }}>
-                <div style={{
-                  position: 'absolute', inset: '20%',
-                  borderRadius: '50%',
-                  background: 'white',
-                  animation: `satCore ${(sat.baseSpeed * 0.55).toFixed(1)}s ease-in-out infinite`,
-                }} />
-              </div>
+                background: sat.color,
+              }} />
             </div>
           );
         })}
 
         {/* Speech burst rings */}
-        <div ref={ring1Ref} style={{
+        <div ref={ring1Ref} className="hlna-orb-motion" style={{
           position: 'absolute', inset: 0, borderRadius: '50%',
-          boxShadow: '0 0 0 2px rgba(139,92,246,.65)',
+          boxShadow: `0 0 0 2px ${mix(ACCENT, 65)}`,
           opacity: 0, pointerEvents: 'none',
         }} />
-        <div ref={ring2Ref} style={{
+        <div ref={ring2Ref} className="hlna-orb-motion" style={{
           position: 'absolute', inset: 0, borderRadius: '50%',
-          boxShadow: '0 0 0 1.5px rgba(99,102,241,.45)',
+          boxShadow: `0 0 0 1.5px ${mix(ACCENT, 45)}`,
           opacity: 0, pointerEvents: 'none',
         }} />
-        <div ref={ring3Ref} style={{
+        <div ref={ring3Ref} className="hlna-orb-motion" style={{
           position: 'absolute', inset: 0, borderRadius: '50%',
-          boxShadow: '0 0 0 1px rgba(167,139,250,.35)',
+          boxShadow: `0 0 0 1px ${mix(ACCENT, 35)}`,
           opacity: 0, pointerEvents: 'none',
         }} />
 
@@ -380,6 +390,7 @@ export function HlnaOrb({ size = 80, state = 'idle', speechRef = null, style = {
             src={ORB_SRC}
             alt=""
             draggable={false}
+            className="hlna-orb-motion"
             style={{
               width: '100%', height: '100%',
               objectFit: 'contain',

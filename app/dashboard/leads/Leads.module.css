@@ -1,0 +1,353 @@
+/* Tenant leads list + lead detail (authenticated visual-completion pass).
+   Tokens only (app/globals.css): reads in light and dark. Replaces the
+   dark-only Tailwind palette (text-white, text-zinc-*, bg-white/N,
+   border-white/N) that disappeared on the light surface. */
+
+.page {
+  width: 100%;
+  max-width: 1152px;
+  margin: 0 auto;
+  padding: 24px;
+  box-sizing: border-box;
+  font-family: var(--bb-font-sans);
+  color: var(--text-primary);
+}
+
+.narrow {
+  max-width: 768px;
+}
+
+.statusBadge {
+  text-transform: capitalize;
+  white-space: nowrap;
+}
+
+.secondaryLine {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.message {
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-secondary);
+}
+
+.received {
+  white-space: nowrap;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.inlineCode {
+  color: var(--text-primary);
+  font-family: var(--bb-font-mono);
+}
+
+/* ── Detail ────────────────────────────────────────────────────────── */
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.detailList {
+  margin: 0;
+}
+
+.detailRow {
+  display: grid;
+  grid-template-columns: 160px minmax(0, 1fr);
+  gap: 4px 16px;
+  align-items: start;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border-light);
+}
+.detailRow:last-child {
+  border-bottom: 0;
+}
+
+.detailLabel {
+  padding-top: 2px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.detailValue {
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.6;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.actionsRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.actionGroup {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.sectionLabel {
+  margin: 0 0 8px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.hint {
+  margin: 0 0 12px;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.muted {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--text-muted);
+}
+
+.editorStack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Status picker: a toggle group, selection in the product accent. */
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--bg-raised);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.chip:hover {
+  color: var(--text-primary);
+}
+.chip:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+.chip[aria-pressed='true'] {
+  border-color: var(--brand-brainbase-accent);
+  background: var(--brand-brainbase-accent-muted);
+  /* Primary label: accent text on the accent tint over --bg-sunken is 4.35:1 in light. */
+  color: var(--text-primary);
+}
+
+.chipDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.chipDot[data-state='info'] { background: var(--status-info); }
+.chipDot[data-state='warning'] { background: var(--status-warning); }
+.chipDot[data-state='success'] { background: var(--status-success); }
+.chipDot[data-state='error'] { background: var(--status-danger); }
+.chipDot[data-state='inactive'] { background: var(--status-inactive); }
+
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.switchLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  user-select: none;
+}
+
+.switch {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+  width: 36px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--bg-sunken);
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+.switch[aria-checked='true'] {
+  border-color: var(--brand-brainbase-accent);
+  background: var(--brand-brainbase-accent);
+}
+.switchThumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--text-secondary);
+  transition: transform 120ms ease;
+}
+.switch[aria-checked='true'] .switchThumb {
+  transform: translateX(16px);
+  background: var(--brand-brainbase-on-accent);
+}
+
+.notice {
+  margin: 0;
+  padding: 8px 10px;
+  border-left: 2px solid var(--status-warning);
+  background: var(--status-warning-muted);
+  font-size: 0.8125rem;
+  color: var(--text-primary);
+}
+
+.toRow {
+  display: grid;
+  grid-template-columns: 60px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  font-size: 0.875rem;
+}
+.toLabel {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+.toValue {
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.history {
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.messages {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.messageCard {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-sunken);
+}
+
+.messageMeta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.messageSubject {
+  margin: 0 0 4px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.messageBody {
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.confirm {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
+
+.convert {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+/* Already-converted state reads as success, not as a greyed-out control. */
+.convert > button[data-in-squad='true'] {
+  border-color: var(--status-success-border);
+  background: var(--status-success-muted);
+  color: var(--status-success);
+  opacity: 1;
+}
+
+.inlineError {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--status-danger);
+}
+
+@media (max-width: 640px) {
+  .page {
+    padding: 16px;
+  }
+  .detailRow {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .convert {
+    align-items: flex-start;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .switch,
+  .switchThumb {
+    transition: none;
+  }
+}

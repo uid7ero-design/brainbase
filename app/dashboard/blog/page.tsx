@@ -1,6 +1,8 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useId } from 'react';
+import { buttonProps } from '@/components/ui/app/Button';
+import styles from './Blog.module.css';
 
 type Post = {
   id: string; title: string; slug: string; excerpt: string | null;
@@ -10,7 +12,7 @@ type Post = {
 
 type View = 'list' | 'edit';
 
-const FONT = "var(--font-inter),-apple-system,sans-serif";
+const FONT = 'var(--bb-font-sans)';
 
 // ── HLNA writing assistant ──────────────────────────────────────────────────
 function HlnaWriter({ title, onInsert }: { title: string; onInsert: (text: string) => void }) {
@@ -40,25 +42,19 @@ function HlnaWriter({ title, onInsert }: { title: string; onInsert: (text: strin
 
   return (
     <div style={{
-      background: 'rgba(99,102,241,.05)', border: '1px solid rgba(99,102,241,.18)',
-      borderRadius: 12, padding: 16, fontFamily: FONT,
+      background: 'var(--bg-surface)', border: '1px solid var(--border)',
+      borderRadius: 'var(--radius-lg)', padding: 16, fontFamily: FONT,
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-        <span style={{ fontSize: 14, color: '#818cf8' }}>◈</span>
-        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.10em', textTransform: 'uppercase', color: 'rgba(255,255,255,.40)' }}>
+        <span aria-hidden="true" style={{ fontSize: 14, color: 'var(--brand-brainbase-accent)' }}>◈</span>
+        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.10em', textTransform: 'uppercase', color: 'var(--text-muted)' }}>
           HLNA Writing Assistant
         </span>
       </div>
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
         {['introduction', 'full post draft', 'tips section', 'closing paragraph'].map(t => (
-          <button key={t} onClick={() => generate(t)} disabled={loading}
-            style={{
-              fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 20, cursor: 'pointer',
-              background: 'rgba(99,102,241,.12)', border: '1px solid rgba(99,102,241,.25)',
-              color: '#a5b4fc', fontFamily: FONT, transition: 'opacity .15s',
-              opacity: loading ? .5 : 1,
-            }}>
+          <button key={t} type="button" {...buttonProps('secondary', 'sm')} onClick={() => generate(t)} disabled={loading}>
             {t}
           </button>
         ))}
@@ -70,34 +66,24 @@ function HlnaWriter({ title, onInsert }: { title: string; onInsert: (text: strin
           onChange={e => setPrompt(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && generate('custom')}
           placeholder="Or ask HLNA anything…"
+          aria-label="Ask HLNA"
           style={{
-            flex: 1, background: 'rgba(0,0,0,.3)', border: '1px solid rgba(255,255,255,.08)',
-            borderRadius: 8, padding: '7px 12px', fontSize: 12, color: '#F5F7FA',
-            outline: 'none', fontFamily: FONT,
+            flex: 1, minWidth: 0, background: 'var(--bg-raised)', border: '1px solid var(--border-strong)',
+            borderRadius: 'var(--radius-md)', padding: '7px 12px', fontSize: 12, color: 'var(--text-primary)',
+            fontFamily: FONT,
           }}
         />
-        <button onClick={() => generate('custom')} disabled={loading || !prompt.trim()}
-          style={{
-            background: 'rgba(99,102,241,.22)', border: '1px solid rgba(99,102,241,.35)',
-            borderRadius: 8, padding: '7px 14px', fontSize: 12, fontWeight: 600,
-            color: '#a5b4fc', cursor: 'pointer', fontFamily: FONT,
-            opacity: loading || !prompt.trim() ? .5 : 1,
-          }}>
+        <button type="button" {...buttonProps('primary', 'sm')} onClick={() => generate('custom')} disabled={loading || !prompt.trim()}>
           {loading ? '…' : 'Ask'}
         </button>
       </div>
 
       {result && (
-        <div style={{ marginTop: 12, background: 'rgba(0,0,0,.3)', border: '1px solid rgba(255,255,255,.08)', borderRadius: 9, padding: 12 }}>
-          <p style={{ fontSize: 12, color: 'rgba(255,255,255,.75)', lineHeight: 1.7, margin: '0 0 10px', whiteSpace: 'pre-wrap' }}>
+        <div style={{ marginTop: 12, background: 'var(--bg-sunken)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: 12 }}>
+          <p style={{ fontSize: 12, color: 'var(--text-primary)', lineHeight: 1.7, margin: '0 0 10px', whiteSpace: 'pre-wrap' }}>
             {result}
           </p>
-          <button onClick={() => { onInsert(result); setResult(''); }}
-            style={{
-              fontSize: 11, fontWeight: 600, padding: '4px 12px', borderRadius: 6, cursor: 'pointer',
-              background: 'rgba(74,222,128,.12)', border: '1px solid rgba(74,222,128,.25)',
-              color: '#4ade80', fontFamily: FONT,
-            }}>
+          <button type="button" {...buttonProps('secondary', 'sm')} onClick={() => { onInsert(result); setResult(''); }}>
             Insert into post
           </button>
         </div>
@@ -125,6 +111,7 @@ function Editor({ post, onSave, onDelete, onBack }: {
   const [saving, setSaving]     = useState(false);
   const [deleting, setDeleting] = useState(false);
   const contentRef = useRef<HTMLTextAreaElement>(null);
+  const authorId = useId();
 
   async function handleImageFile(file: File) {
     setUploadErr('');
@@ -158,27 +145,28 @@ function Editor({ post, onSave, onDelete, onBack }: {
   }
 
   const inp: React.CSSProperties = {
-    width: '100%', background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.08)',
-    borderRadius: 9, padding: '10px 14px', fontSize: 13, color: '#F5F7FA',
-    outline: 'none', fontFamily: FONT, boxSizing: 'border-box',
+    width: '100%', background: 'var(--bg-raised)', border: '1px solid var(--border-strong)',
+    borderRadius: 'var(--radius-md)', padding: '10px 14px', fontSize: 13, color: 'var(--text-primary)',
+    fontFamily: FONT, boxSizing: 'border-box',
   };
 
   return (
-    <div style={{ maxWidth: 820, margin: '0 auto', padding: '28px 24px 64px', fontFamily: FONT }}>
-      <button onClick={onBack} style={{ fontSize: 12, color: 'rgba(255,255,255,.35)', background: 'none', border: 'none', cursor: 'pointer', marginBottom: 20, padding: 0 }}>
+    <div style={{ maxWidth: 820, margin: '0 auto', padding: '28px 16px 64px', fontFamily: FONT, color: 'var(--text-primary)' }}>
+      <button type="button" onClick={onBack} style={{ fontSize: 12, color: 'var(--text-secondary)', background: 'none', border: 'none', cursor: 'pointer', marginBottom: 20, padding: 0, fontFamily: FONT }}>
         ← All posts
       </button>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 300px', gap: 20 }}>
+      <div className={styles.editorGrid}>
         {/* Main */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Post title…"
-            style={{ ...inp, fontSize: 22, fontWeight: 700, padding: '12px 16px', background: 'transparent', border: 'none', borderBottom: '1px solid rgba(255,255,255,.08)', borderRadius: 0, paddingLeft: 0 }} />
+          <input aria-label="Post title" value={title} onChange={e => setTitle(e.target.value)} placeholder="Post title…"
+            style={{ ...inp, fontSize: 22, fontWeight: 700, padding: '12px 16px', background: 'transparent', border: 'none', borderBottom: '1px solid var(--border-strong)', borderRadius: 0, paddingLeft: 0 }} />
 
-          <input value={excerpt} onChange={e => setExcerpt(e.target.value)} placeholder="Short excerpt / teaser (optional)…" style={inp} />
+          <input aria-label="Excerpt" value={excerpt} onChange={e => setExcerpt(e.target.value)} placeholder="Short excerpt / teaser (optional)…" style={inp} />
 
           <textarea
             ref={contentRef}
+            aria-label="Post content"
             value={content}
             onChange={e => setContent(e.target.value)}
             placeholder="Write your post here… Use blank lines to separate paragraphs."
@@ -191,31 +179,19 @@ function Editor({ post, onSave, onDelete, onBack }: {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
 
           {/* Actions */}
-          <div style={{ background: 'rgba(255,255,255,.03)', border: '1px solid rgba(255,255,255,.08)', borderRadius: 12, padding: 14 }}>
-            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.12em', textTransform: 'uppercase', color: 'rgba(255,255,255,.25)', marginBottom: 12 }}>Publish</div>
+          <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: 14 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 12 }}>Publish</div>
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', marginBottom: 14 }}>
               <input type="checkbox" checked={published} onChange={e => setPublished(e.target.checked)}
-                style={{ width: 14, height: 14, accentColor: '#22c55e' }} />
-              <span style={{ fontSize: 12, color: 'rgba(255,255,255,.60)' }}>Visible to public</span>
+                style={{ width: 14, height: 14, accentColor: 'var(--status-success)' }} />
+              <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Visible to public</span>
             </label>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <button onClick={() => save()} disabled={saving || !title.trim() || !content.trim()}
-                style={{
-                  width: '100%', padding: '9px 0', borderRadius: 8, fontSize: 13, fontWeight: 600,
-                  background: 'rgba(255,255,255,.07)', border: '1px solid rgba(255,255,255,.12)',
-                  color: 'rgba(255,255,255,.70)', cursor: 'pointer', fontFamily: FONT,
-                  opacity: saving || !title.trim() || !content.trim() ? .5 : 1,
-                }}>
+              <button type="button" {...buttonProps('secondary')} style={{ width: '100%' }} onClick={() => save()} disabled={saving || !title.trim() || !content.trim()}>
                 {saving ? 'Saving…' : 'Save draft'}
               </button>
               {!published && (
-                <button onClick={() => save(true)} disabled={saving || !title.trim() || !content.trim()}
-                  style={{
-                    width: '100%', padding: '9px 0', borderRadius: 8, fontSize: 13, fontWeight: 700,
-                    background: 'rgba(34,197,94,.15)', border: '1px solid rgba(34,197,94,.30)',
-                    color: '#4ade80', cursor: 'pointer', fontFamily: FONT,
-                    opacity: saving || !title.trim() || !content.trim() ? .5 : 1,
-                  }}>
+                <button type="button" {...buttonProps('primary')} style={{ width: '100%' }} onClick={() => save(true)} disabled={saving || !title.trim() || !content.trim()}>
                   Publish
                 </button>
               )}
@@ -223,8 +199,8 @@ function Editor({ post, onSave, onDelete, onBack }: {
           </div>
 
           {/* Cover image */}
-          <div style={{ background: 'rgba(255,255,255,.03)', border: '1px solid rgba(255,255,255,.08)', borderRadius: 12, padding: 14 }}>
-            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.12em', textTransform: 'uppercase', color: 'rgba(255,255,255,.25)', marginBottom: 10 }}>Cover Image</div>
+          <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: 14 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 10 }}>Cover Image</div>
             <input
               ref={imageInputRef}
               type="file"
@@ -242,18 +218,20 @@ function Editor({ post, onSave, onDelete, onBack }: {
                   style={{
                     position: 'absolute', bottom: 6, right: 6,
                     fontSize: 10, fontWeight: 600, padding: '3px 10px', borderRadius: 6, cursor: 'pointer',
-                    background: 'rgba(0,0,0,.65)', border: '1px solid rgba(255,255,255,.18)',
-                    color: 'rgba(255,255,255,.75)', fontFamily: FONT,
+                    background: 'var(--bg-overlay)', border: '1px solid var(--border-strong)',
+                    color: 'var(--text-primary)', fontFamily: FONT,
                   }}>
                   {uploading ? 'Uploading…' : 'Change'}
                 </button>
                 <button
+                  type="button"
+                  aria-label="Remove cover image"
                   onClick={() => setImageUrl('')}
                   style={{
                     position: 'absolute', top: 6, right: 6,
                     fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 6, cursor: 'pointer',
-                    background: 'rgba(239,68,68,.20)', border: '1px solid rgba(239,68,68,.35)',
-                    color: '#f87171', fontFamily: FONT,
+                    background: 'var(--bg-overlay)', border: '1px solid var(--status-danger-border)',
+                    color: 'var(--status-danger)', fontFamily: FONT,
                   }}>
                   ✕
                 </button>
@@ -264,22 +242,22 @@ function Editor({ post, onSave, onDelete, onBack }: {
                 disabled={uploading}
                 style={{
                   width: '100%', padding: '24px 0', borderRadius: 8, cursor: uploading ? 'default' : 'pointer',
-                  background: 'rgba(255,255,255,.02)', border: '1px dashed rgba(255,255,255,.14)',
-                  color: 'rgba(255,255,255,.30)', fontSize: 12, fontFamily: FONT,
+                  background: 'var(--bg-surface)', border: '1px dashed var(--border-strong)',
+                  color: 'var(--text-muted)', fontSize: 12, fontFamily: FONT,
                   opacity: uploading ? .6 : 1,
                 }}>
                 {uploading ? 'Uploading…' : '+ Upload image'}
               </button>
             )}
             {uploadErr && (
-              <p style={{ fontSize: 11, color: '#f87171', marginTop: 6, margin: '6px 0 0' }}>{uploadErr}</p>
+              <p style={{ fontSize: 11, color: 'var(--status-danger)', marginTop: 6, margin: '6px 0 0' }}>{uploadErr}</p>
             )}
           </div>
 
           {/* Author */}
-          <div style={{ background: 'rgba(255,255,255,.03)', border: '1px solid rgba(255,255,255,.08)', borderRadius: 12, padding: 14 }}>
-            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.12em', textTransform: 'uppercase', color: 'rgba(255,255,255,.25)', marginBottom: 10 }}>Author</div>
-            <input value={author} onChange={e => setAuthor(e.target.value)} style={{ ...inp, fontSize: 12 }} />
+          <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: 14 }}>
+            <label htmlFor={authorId} style={{ display: 'block', fontSize: 10, fontWeight: 700, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 10 }}>Author</label>
+            <input id={authorId} value={author} onChange={e => setAuthor(e.target.value)} style={{ ...inp, fontSize: 12 }} />
           </div>
 
           {/* HLNA */}
@@ -288,13 +266,11 @@ function Editor({ post, onSave, onDelete, onBack }: {
           {/* Delete */}
           {post?.id && onDelete && (
             <button
+              type="button"
+              {...buttonProps('danger')}
+              style={{ width: '100%' }}
               onClick={async () => { if (!confirm('Delete this post?')) return; setDeleting(true); onDelete(post.id!); }}
-              disabled={deleting}
-              style={{
-                width: '100%', padding: '8px 0', borderRadius: 8, fontSize: 12, fontWeight: 600,
-                background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.20)',
-                color: 'rgba(239,68,68,.70)', cursor: 'pointer', fontFamily: FONT,
-              }}>
+              disabled={deleting}>
               {deleting ? 'Deleting…' : 'Delete post'}
             </button>
           )}
@@ -355,76 +331,67 @@ export default function BlogDashboard() {
   }
 
   return (
-    <div style={{ maxWidth: 820, margin: '0 auto', padding: '28px 24px 64px', fontFamily: FONT }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 28 }}>
+    <div style={{ maxWidth: 820, margin: '0 auto', padding: '28px 16px 64px', fontFamily: FONT, color: 'var(--text-primary)' }}>
+      <div className={styles.header}>
         <div>
-          <h1 style={{ fontSize: 20, fontWeight: 700, color: '#F5F7FA', margin: '0 0 3px' }}>Blog Posts</h1>
-          <span style={{ fontSize: 12, color: 'rgba(255,255,255,.25)' }}>Manage your LD Tennis blog</span>
+          <h1 style={{ fontSize: 20, fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 3px' }}>Blog Posts</h1>
+          <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Manage your LD Tennis blog</span>
         </div>
         <button
-          onClick={() => { setEditing(null); setView('edit'); }}
-          style={{
-            fontSize: 13, fontWeight: 600, padding: '8px 18px', borderRadius: 9, cursor: 'pointer',
-            background: 'rgba(34,197,94,.15)', border: '1px solid rgba(34,197,94,.30)',
-            color: '#4ade80', fontFamily: FONT,
-          }}>
+          type="button"
+          {...buttonProps('primary')}
+          onClick={() => { setEditing(null); setView('edit'); }}>
           + New post
         </button>
       </div>
 
       {loading ? (
-        <div style={{ color: 'rgba(255,255,255,.25)', fontSize: 13 }}>Loading…</div>
+        <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>Loading…</div>
       ) : posts.length === 0 ? (
         <div style={{
-          border: '1px dashed rgba(255,255,255,.10)', borderRadius: 14,
+          border: '1px dashed var(--border-strong)', borderRadius: 'var(--radius-lg)',
           padding: '48px 24px', textAlign: 'center',
-          color: 'rgba(255,255,255,.25)', fontSize: 13,
+          color: 'var(--text-muted)', fontSize: 13,
         }}>
-          No posts yet. Click <strong style={{ color: 'rgba(255,255,255,.45)' }}>+ New post</strong> to write your first.
+          No posts yet. Click <strong style={{ color: 'var(--text-secondary)' }}>+ New post</strong> to write your first.
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {posts.map(post => (
-            <div
+            <button
+              type="button"
               key={post.id}
+              className={styles.postRow}
               onClick={() => { setEditing(post); setView('edit'); }}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 14,
-                background: 'rgba(255,255,255,.03)', border: '1px solid rgba(255,255,255,.07)',
-                borderRadius: 12, padding: '14px 18px', cursor: 'pointer',
-                transition: 'background .15s',
-              }}
-              onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,.06)')}
-              onMouseLeave={e => (e.currentTarget.style.background = 'rgba(255,255,255,.03)')}
             >
               {post.cover_image_url ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={post.cover_image_url} alt="" style={{ width: 52, height: 52, borderRadius: 8, objectFit: 'cover', flexShrink: 0 }} />
               ) : (
-                <div style={{ width: 52, height: 52, borderRadius: 8, background: 'rgba(255,255,255,.05)', flexShrink: 0 }} />
+                <span aria-hidden="true" style={{ display: 'block', width: 52, height: 52, borderRadius: 8, background: 'var(--bg-sunken)', flexShrink: 0 }} />
               )}
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 14, fontWeight: 600, color: '#F5F7FA', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <span style={{ display: 'block', flex: 1, minWidth: 0 }}>
+                <span style={{ display: 'block', fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {post.title}
-                </div>
+                </span>
                 {post.excerpt && (
-                  <div style={{ fontSize: 11, color: 'rgba(255,255,255,.30)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <span style={{ display: 'block', fontSize: 11, color: 'var(--text-muted)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {post.excerpt}
-                  </div>
+                  </span>
                 )}
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+              </span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
                 <span style={{
                   fontSize: 10, fontWeight: 700, padding: '3px 9px', borderRadius: 20, letterSpacing: '.04em',
-                  background: post.published ? 'rgba(34,197,94,.10)' : 'rgba(255,255,255,.06)',
-                  color: post.published ? '#4ade80' : 'rgba(255,255,255,.35)',
-                  border: `1px solid ${post.published ? 'rgba(34,197,94,.22)' : 'rgba(255,255,255,.10)'}`,
+                  background: post.published ? 'var(--status-success-muted)' : 'var(--bg-sunken)',
+                  color: post.published ? 'var(--status-success)' : 'var(--text-muted)',
+                  border: `1px solid ${post.published ? 'var(--status-success-border)' : 'var(--border)'}`,
                 }}>
                   {post.published ? 'Published' : 'Draft'}
                 </span>
-                <span style={{ fontSize: 11, color: 'rgba(255,255,255,.22)' }}>Edit →</span>
-              </div>
-            </div>
+                <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Edit →</span>
+              </span>
+            </button>
           ))}
         </div>
       )}

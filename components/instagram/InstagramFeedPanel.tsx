@@ -1,7 +1,11 @@
 'use client'
 import { useEffect, useState } from 'react'
+import { buttonProps } from '@/components/ui/app'
 
-const FONT = "var(--font-inter), -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+// Visual convergence (authenticated visual-completion pass): theme tokens
+// only (app/globals.css) so the panel reads in light and dark, inherits the
+// app font, and uses the shared button contract for its one action. Data
+// loading, states and links are unchanged.
 
 type Post = {
   id: string
@@ -46,37 +50,34 @@ export default function InstagramFeedPanel() {
   }, [])
 
   return (
-    <div style={{
-      background: 'rgba(255,255,255,.025)',
-      border: '1px solid rgba(255,255,255,.07)',
-      borderRadius: 14, overflow: 'hidden', fontFamily: FONT,
-    }}>
+    <section
+      aria-labelledby="instagram-feed-title"
+      style={{
+        background: 'var(--bg-surface)',
+        border: '1px solid var(--border)',
+        borderRadius: 'var(--radius-lg)', overflow: 'hidden',
+        color: 'var(--text-primary)',
+      }}
+    >
       {/* Header */}
       <div style={{
-        padding: '14px 22px',
-        borderBottom: '1px solid rgba(255,255,255,.07)',
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        padding: '12px 16px',
+        borderBottom: '1px solid var(--border)',
+        display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 8,
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(232,121,249,.7)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false" style={{ color: 'var(--text-muted)', flexShrink: 0 }}>
             <rect x="2" y="2" width="20" height="20" rx="5" ry="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/>
           </svg>
-          <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: '.10em', textTransform: 'uppercase', color: 'rgba(255,255,255,.40)' }}>
+          <h2 id="instagram-feed-title" style={{ margin: 0, fontSize: 11, fontWeight: 600, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--text-muted)' }}>
             Instagram
             {state.status === 'ready' && state.username && (
-              <span style={{ color: 'rgba(232,121,249,.55)', marginLeft: 6, textTransform: 'none', letterSpacing: 0 }}>@{state.username}</span>
+              <span style={{ color: 'var(--text-secondary)', marginLeft: 6, textTransform: 'none', letterSpacing: 0 }}>@{state.username}</span>
             )}
-          </span>
+          </h2>
         </div>
         {state.status === 'disconnected' && (
-          <a
-            href="/api/auth/instagram/connect"
-            style={{
-              fontSize: 11, fontWeight: 600, padding: '5px 12px', borderRadius: 7,
-              background: 'rgba(232,121,249,.12)', color: '#e879f9',
-              border: '1px solid rgba(232,121,249,.25)', textDecoration: 'none',
-            }}
-          >
+          <a href="/api/auth/instagram/connect" {...buttonProps('secondary', 'sm')}>
             Connect Instagram
           </a>
         )}
@@ -84,31 +85,31 @@ export default function InstagramFeedPanel() {
 
       {/* Body */}
       {state.status === 'loading' && (
-        <div style={{ padding: '32px 22px', textAlign: 'center', color: 'rgba(255,255,255,.18)', fontSize: 12 }}>
+        <div style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 12 }}>
           Loading…
         </div>
       )}
 
       {state.status === 'disconnected' && (
-        <div style={{ padding: '32px 22px', textAlign: 'center', color: 'rgba(255,255,255,.22)', fontSize: 12, lineHeight: 1.7 }}>
+        <div style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 12, lineHeight: 1.7 }}>
           Connect your Instagram Business account to see your feed here.
         </div>
       )}
 
       {state.status === 'error' && (
-        <div style={{ padding: '24px 22px', color: 'rgba(239,68,68,.7)', fontSize: 12 }}>
+        <div role="alert" style={{ padding: '24px 16px', color: 'var(--status-danger)', fontSize: 12 }}>
           {state.message}
         </div>
       )}
 
       {state.status === 'ready' && state.posts.length === 0 && (
-        <div style={{ padding: '32px 22px', textAlign: 'center', color: 'rgba(255,255,255,.18)', fontSize: 12 }}>
+        <div style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 12 }}>
           No posts yet.
         </div>
       )}
 
       {state.status === 'ready' && state.posts.length > 0 && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 2, padding: 2 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 2, padding: 2 }}>
           {state.posts.map(post => {
             const img = post.media_type === 'VIDEO' ? post.thumbnail_url : post.media_url
             return (
@@ -123,7 +124,7 @@ export default function InstagramFeedPanel() {
                   position: 'relative',
                   aspectRatio: '1 / 1',
                   overflow: 'hidden',
-                  background: 'rgba(255,255,255,.04)',
+                  background: 'var(--bg-sunken)',
                 }}
               >
                 {img && (
@@ -133,21 +134,23 @@ export default function InstagramFeedPanel() {
                     style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
                   />
                 )}
+                {/* Post age on a small token chip (was a dark photo scrim with
+                    white-alpha text, which only worked in dark mode). */}
                 <div style={{
-                  position: 'absolute', bottom: 0, left: 0, right: 0,
-                  padding: '20px 8px 6px',
-                  background: 'linear-gradient(to top, rgba(0,0,0,.6) 0%, transparent 100%)',
-                  fontSize: 10, color: 'rgba(255,255,255,.55)',
+                  position: 'absolute', bottom: 6, left: 6,
+                  padding: '1px 6px', borderRadius: 'var(--radius-sm)',
+                  background: 'var(--bg-overlay)', border: '1px solid var(--border)',
+                  fontSize: 11, color: 'var(--text-primary)', fontVariantNumeric: 'tabular-nums',
                 }}>
                   {timeAgo(post.timestamp)}
-                  {post.media_type === 'VIDEO' && <span style={{ marginLeft: 4 }}>▶</span>}
-                  {post.media_type === 'CAROUSEL_ALBUM' && <span style={{ marginLeft: 4 }}>⊞</span>}
+                  {post.media_type === 'VIDEO' && <span style={{ marginLeft: 4 }} role="img" aria-label="Video">▶</span>}
+                  {post.media_type === 'CAROUSEL_ALBUM' && <span style={{ marginLeft: 4 }} role="img" aria-label="Carousel">⊞</span>}
                 </div>
               </a>
             )
           })}
         </div>
       )}
-    </div>
+    </section>
   )
 }

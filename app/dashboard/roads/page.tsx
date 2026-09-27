@@ -3,12 +3,20 @@
 import { useState } from "react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, CartesianGrid, Legend, LineChart, Line } from "recharts";
 import DashboardShell, { KPI, MonthlyPoint, CostAccount, SLATarget, Action, IndustryTab, InsightCard } from "@/components/dashboard/DashboardShell";
+import { useDashboardChart, type DashboardChart } from "@/components/dashboard/ui/chartTheme";
 
-const C = { blue:"#3b82f6", green:"#10b981", amber:"#f59e0b", red:"#ef4444", slate:"#94a3b8", purple:"#8b5cf6" };
-const TT = { background:"#0d0f14", border:"1px solid rgba(255,255,255,0.08)", borderRadius:10 };
-const T1 = "#F5F7FA", T2 = "rgba(230,237,243,0.55)", T3 = "rgba(230,237,243,0.35)";
-const DC: React.CSSProperties = { background:"rgba(255,255,255,0.03)", border:"1px solid rgba(255,255,255,0.07)", borderRadius:14, padding:24 };
-const BORDER = "rgba(255,255,255,0.07)", ROW_BDR = "rgba(255,255,255,0.05)", GRID = "rgba(255,255,255,0.05)", TICK = "rgba(255,255,255,0.4)";
+// Authenticated visual-completion pass: HTML colours are theme tokens (status
+// tokens are AA as text in both themes); SVG chart marks resolve the same
+// semantic keys through the theme-aware chart palette (chartColors).
+const C = { blue:"var(--status-info)", green:"var(--status-success)", amber:"var(--status-warning)", red:"var(--status-danger)", slate:"var(--text-muted)", purple:"var(--brand-brainbase-accent)" };
+type ColorKey = keyof typeof C | "severe";
+function chartColors(chart: DashboardChart): Record<ColorKey, string> {
+  const p = chart.palette;
+  return { blue:p.info, green:p.success, amber:p.warning, red:p.danger, slate:p.neutral, purple:p.primary, severe:p.tooltipText };
+}
+const T1 = "var(--text-primary)", T2 = "var(--text-secondary)", T3 = "var(--text-muted)";
+const DC: React.CSSProperties = { background:"var(--bg-surface)", border:"1px solid var(--border)", borderRadius:8, padding:24 };
+const BORDER = "var(--border)", ROW_BDR = "var(--border)", STRIPE = "var(--bg-sunken)", TRACK = "var(--bg-sunken)";
 const fmt = (n:number) => `$${n.toLocaleString("en-AU",{maximumFractionDigits:0})}`;
 
 type Asset = { id:string; name:string; type:string; suburb:string; length:number; condition:number; pci:number; lastWork:string; nextDue:string; renewalCost:number };
@@ -41,9 +49,9 @@ const SAMPLE_CAPEX: CapexProject[] = [
   {id:"CX-004",name:"Central CBD Footpath Upgrade",suburb:"Central",budget:480000,spent:210000,progress:44,status:"In Progress",contractor:"Pavetec"},
 ];
 
-const CONDITION_DIST = [
-  {name:"Excellent (5)",value:18,fill:C.green},{name:"Good (4)",value:32,fill:C.blue},
-  {name:"Fair (3)",value:28,fill:C.amber},{name:"Poor (2)",value:16,fill:C.red},{name:"Failed (1)",value:6,fill:"#7f1d1d"},
+const CONDITION_DIST: {name:string;value:number;fill:ColorKey}[] = [
+  {name:"Excellent (5)",value:18,fill:"green"},{name:"Good (4)",value:32,fill:"blue"},
+  {name:"Fair (3)",value:28,fill:"amber"},{name:"Poor (2)",value:16,fill:"red"},{name:"Failed (1)",value:6,fill:"severe"},
 ];
 
 const ANNUAL_SPEND = [
@@ -127,6 +135,8 @@ function StatCard({label,value,sub,color}:{label:string;value:string;sub:string;
 }
 
 function OverviewContent() {
+  const chart = useDashboardChart();
+  const P = chartColors(chart);
   return (
     <div>
       <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:16,marginBottom:24}}>
@@ -141,9 +151,9 @@ function OverviewContent() {
           <ResponsiveContainer width="100%" height={220}>
             <PieChart>
               <Pie data={CONDITION_DIST} cx="50%" cy="50%" innerRadius={55} outerRadius={85} dataKey="value">
-                {CONDITION_DIST.map((e,i)=><Cell key={i} fill={e.fill}/>)}
+                {CONDITION_DIST.map((e,i)=><Cell key={i} fill={P[e.fill]}/>)}
               </Pie>
-              <Tooltip contentStyle={TT} formatter={(v:any)=>`${v}%`}/><Legend wrapperStyle={{color:T2}}/>
+              <Tooltip {...chart.tooltip} formatter={(v:any)=>`${v}%`}/><Legend wrapperStyle={chart.legend}/>
             </PieChart>
           </ResponsiveContainer>
         </div>
@@ -151,12 +161,12 @@ function OverviewContent() {
           <p style={{fontWeight:700,marginBottom:20,color:T1}}>Annual Maintenance Spend</p>
           <ResponsiveContainer width="100%" height={220}>
             <BarChart data={ANNUAL_SPEND}>
-              <CartesianGrid strokeDasharray="3 3" stroke={GRID}/>
-              <XAxis dataKey="year" tick={{fill:TICK,fontSize:12}}/><YAxis tickFormatter={v=>`$${(v/1000000).toFixed(1)}M`} tick={{fill:TICK,fontSize:12}}/>
-              <Tooltip contentStyle={TT} formatter={(v:any)=>fmt(v)}/><Legend wrapperStyle={{color:T2}}/>
-              <Bar dataKey="reactive" fill={C.red} name="Reactive" stackId="a"/>
-              <Bar dataKey="planned" fill={C.blue} name="Planned" stackId="a"/>
-              <Bar dataKey="capital" fill={C.green} name="Capital" stackId="a" radius={[4,4,0,0]}/>
+              <CartesianGrid strokeDasharray="3 3" stroke={chart.grid}/>
+              <XAxis dataKey="year" tick={chart.tick}/><YAxis tickFormatter={v=>`$${(v/1000000).toFixed(1)}M`} tick={chart.tick}/>
+              <Tooltip {...chart.tooltip} formatter={(v:any)=>fmt(v)}/><Legend wrapperStyle={chart.legend}/>
+              <Bar dataKey="reactive" fill={P.red} name="Reactive" stackId="a"/>
+              <Bar dataKey="planned" fill={P.blue} name="Planned" stackId="a"/>
+              <Bar dataKey="capital" fill={P.green} name="Capital" stackId="a" radius={[4,4,0,0]}/>
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -176,15 +186,15 @@ function AssetRegisterTab() {
         </tr></thead>
         <tbody>
           {SAMPLE_ASSETS.map((a,i)=>(
-            <tr key={a.id} style={{borderBottom:`1px solid ${ROW_BDR}`,background:i%2===0?"transparent":"rgba(255,255,255,0.02)"}}>
-              <td style={{padding:"11px 10px",fontFamily:"monospace",fontWeight:700,color:T2}}>{a.id}</td>
+            <tr key={a.id} style={{borderBottom:`1px solid ${ROW_BDR}`,background:i%2===0?"transparent":STRIPE}}>
+              <td style={{padding:"11px 10px",fontFamily:"var(--bb-font-mono)",fontWeight:700,color:T2}}>{a.id}</td>
               <td style={{padding:"11px 10px",fontWeight:600,color:T1}}>{a.name}</td>
               <td style={{padding:"11px 10px",color:T2}}>{a.type}</td>
               <td style={{padding:"11px 10px",color:T2}}>{a.suburb}</td>
               <td style={{padding:"11px 10px",color:T2}}>{a.length} km</td>
               <td style={{padding:"11px 10px"}}>
                 <div style={{display:"flex",gap:4}}>
-                  {[1,2,3,4,5].map(n=><div key={n} style={{width:10,height:10,borderRadius:2,background:n<=a.condition?(a.condition<=2?C.red:a.condition<=3?C.amber:C.green):"rgba(255,255,255,0.1)"}}/>)}
+                  {[1,2,3,4,5].map(n=><div key={n} style={{width:10,height:10,borderRadius:2,background:n<=a.condition?(a.condition<=2?C.red:a.condition<=3?C.amber:C.green):TRACK}}/>)}
                 </div>
               </td>
               <td style={{padding:"11px 10px",fontWeight:700,color:a.pci>=65?C.green:a.pci>=45?C.amber:C.red}}>{a.pci}</td>
@@ -210,19 +220,19 @@ function WorksProgrammeTab() {
         </tr></thead>
         <tbody>
           {SAMPLE_WORK_ORDERS.map((w,i)=>(
-            <tr key={w.id} style={{borderBottom:`1px solid ${ROW_BDR}`,background:i%2===0?"transparent":"rgba(255,255,255,0.02)"}}>
-              <td style={{padding:"12px",fontFamily:"monospace",fontWeight:700,color:T1}}>{w.id}</td>
+            <tr key={w.id} style={{borderBottom:`1px solid ${ROW_BDR}`,background:i%2===0?"transparent":STRIPE}}>
+              <td style={{padding:"12px",fontFamily:"var(--bb-font-mono)",fontWeight:700,color:T1}}>{w.id}</td>
               <td style={{padding:"12px",color:T2}}>{w.asset}</td>
               <td style={{padding:"12px",color:T1}}>{w.type}</td>
               <td style={{padding:"12px",color:T2,maxWidth:200}}>{w.description}</td>
               <td style={{padding:"12px"}}>
-                <span style={{padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:700,background:w.priority==="Critical"?"rgba(239,68,68,0.15)":w.priority==="High"?"rgba(245,158,11,0.15)":"rgba(100,116,139,0.2)",color:w.priority==="Critical"?C.red:w.priority==="High"?C.amber:C.slate}}>
+                <span style={{padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:700,background:w.priority==="Critical"?"var(--status-danger-muted)":w.priority==="High"?"var(--status-warning-muted)":"var(--status-inactive-muted)",color:w.priority==="Critical"?C.red:w.priority==="High"?C.amber:C.slate}}>
                   {w.priority}
                 </span>
               </td>
               <td style={{padding:"12px",fontWeight:600,color:T1}}>{fmt(w.cost)}</td>
               <td style={{padding:"12px"}}>
-                <span style={{padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:700,background:w.status==="Complete"?"rgba(16,185,129,0.15)":w.status==="In Progress"?"rgba(59,130,246,0.15)":"rgba(100,116,139,0.2)",color:w.status==="Complete"?C.green:w.status==="In Progress"?C.blue:C.slate}}>
+                <span style={{padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:700,background:w.status==="Complete"?"var(--status-success-muted)":w.status==="In Progress"?"var(--status-info-muted)":"var(--status-inactive-muted)",color:w.status==="Complete"?C.green:w.status==="In Progress"?C.blue:C.slate}}>
                   {w.status}
                 </span>
               </td>
@@ -251,20 +261,20 @@ function CapitalWorksTab() {
         </tr></thead>
         <tbody>
           {SAMPLE_CAPEX.map((c,i)=>(
-            <tr key={c.id} style={{borderBottom:`1px solid ${ROW_BDR}`,background:i%2===0?"transparent":"rgba(255,255,255,0.02)"}}>
-              <td style={{padding:"12px",fontFamily:"monospace",fontWeight:700,color:T1}}>{c.id}</td>
+            <tr key={c.id} style={{borderBottom:`1px solid ${ROW_BDR}`,background:i%2===0?"transparent":STRIPE}}>
+              <td style={{padding:"12px",fontFamily:"var(--bb-font-mono)",fontWeight:700,color:T1}}>{c.id}</td>
               <td style={{padding:"12px",fontWeight:600,color:T1}}>{c.name}</td>
               <td style={{padding:"12px",color:T2}}>{c.suburb}</td>
               <td style={{padding:"12px",fontWeight:600,color:T1}}>{fmt(c.budget)}</td>
               <td style={{padding:"12px",color:T2}}>{fmt(c.spent)}</td>
               <td style={{padding:"12px"}}>
                 <div style={{display:"flex",alignItems:"center",gap:8}}>
-                  <div style={{flex:1,height:6,background:"rgba(255,255,255,0.1)",borderRadius:3}}><div style={{height:"100%",width:`${c.progress}%`,background:C.blue,borderRadius:3}}/></div>
+                  <div style={{flex:1,height:6,background:TRACK,borderRadius:3}}><div style={{height:"100%",width:`${c.progress}%`,background:C.blue,borderRadius:3}}/></div>
                   <span style={{fontSize:12,fontWeight:700,color:C.blue}}>{c.progress}%</span>
                 </div>
               </td>
               <td style={{padding:"12px"}}>
-                <span style={{padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:700,background:c.status==="Complete"?"rgba(16,185,129,0.15)":c.status==="In Progress"?"rgba(59,130,246,0.15)":"rgba(245,158,11,0.15)",color:c.status==="Complete"?C.green:c.status==="In Progress"?C.blue:C.amber}}>
+                <span style={{padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:700,background:c.status==="Complete"?"var(--status-success-muted)":c.status==="In Progress"?"var(--status-info-muted)":"var(--status-warning-muted)",color:c.status==="Complete"?C.green:c.status==="In Progress"?C.blue:C.amber}}>
                   {c.status}
                 </span>
               </td>
@@ -278,15 +288,17 @@ function CapitalWorksTab() {
 }
 
 function DefectsTab() {
+  const chart = useDashboardChart();
+  const P = chartColors(chart);
   return (<>
     <div style={{...DC,marginBottom:20}}>
       <p style={{fontWeight:700,marginBottom:20,color:T1}}>Defect Risk Scores</p>
       <ResponsiveContainer width="100%" height={200}>
         <BarChart data={RISK_RATING_DATA}>
-          <CartesianGrid strokeDasharray="3 3" stroke={GRID}/>
-          <XAxis dataKey="name" tick={{fill:TICK,fontSize:12}}/><YAxis domain={[0,100]} tick={{fill:TICK,fontSize:12}}/>
-          <Tooltip contentStyle={TT}/>
-          <Bar dataKey="riskScore" fill={C.red} name="Risk Score" radius={[4,4,0,0]}/>
+          <CartesianGrid strokeDasharray="3 3" stroke={chart.grid}/>
+          <XAxis dataKey="name" tick={chart.tick}/><YAxis domain={[0,100]} tick={chart.tick}/>
+          <Tooltip {...chart.tooltip}/>
+          <Bar dataKey="riskScore" fill={P.red} name="Risk Score" radius={[4,4,0,0]}/>
         </BarChart>
       </ResponsiveContainer>
     </div>
@@ -299,19 +311,19 @@ function DefectsTab() {
         </tr></thead>
         <tbody>
           {SAMPLE_DEFECTS.map((d,i)=>(
-            <tr key={d.id} style={{borderBottom:`1px solid ${ROW_BDR}`,background:i%2===0?"transparent":"rgba(255,255,255,0.02)"}}>
-              <td style={{padding:"12px",fontFamily:"monospace",fontWeight:700,color:T1}}>{d.id}</td>
+            <tr key={d.id} style={{borderBottom:`1px solid ${ROW_BDR}`,background:i%2===0?"transparent":STRIPE}}>
+              <td style={{padding:"12px",fontFamily:"var(--bb-font-mono)",fontWeight:700,color:T1}}>{d.id}</td>
               <td style={{padding:"12px",color:T2}}>{d.asset}</td>
               <td style={{padding:"12px",color:T1}}>{d.type}</td>
               <td style={{padding:"12px"}}>
-                <span style={{padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:700,background:d.severity==="Critical"?"rgba(239,68,68,0.18)":d.severity==="High"?"rgba(245,158,11,0.15)":d.severity==="Medium"?"rgba(234,179,8,0.15)":"rgba(16,185,129,0.15)",color:d.severity==="Critical"?C.red:d.severity==="High"?C.amber:d.severity==="Medium"?"#eab308":C.green}}>
+                <span style={{padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:700,background:d.severity==="Critical"?"var(--status-danger-muted)":d.severity==="High"?"var(--status-warning-muted)":d.severity==="Medium"?"var(--status-info-muted)":"var(--status-success-muted)",color:d.severity==="Critical"?C.red:d.severity==="High"?C.amber:d.severity==="Medium"?C.blue:C.green}}>
                   {d.severity}
                 </span>
               </td>
               <td style={{padding:"12px",color:T2,fontSize:12}}>{d.location}</td>
               <td style={{padding:"12px",color:T2}}>{d.reported}</td>
               <td style={{padding:"12px"}}>
-                <span style={{padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:700,background:d.status==="Complete"?"rgba(16,185,129,0.15)":d.status==="Scheduled"?"rgba(59,130,246,0.15)":"rgba(239,68,68,0.15)",color:d.status==="Complete"?C.green:d.status==="Scheduled"?C.blue:C.red}}>
+                <span style={{padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:700,background:d.status==="Complete"?"var(--status-success-muted)":d.status==="Scheduled"?"var(--status-info-muted)":"var(--status-danger-muted)",color:d.status==="Complete"?C.green:d.status==="Scheduled"?C.blue:C.red}}>
                   {d.status}
                 </span>
               </td>
@@ -344,7 +356,7 @@ function DepreciationTab() {
           {DEPRECIATION.sort((a,b)=>a.renewalYear-b.renewalYear).map((d,i)=>{
             const lifeRemaining = Math.round((d.currentValue/d.originalValue)*100);
             return (
-              <tr key={d.asset} style={{borderBottom:`1px solid ${ROW_BDR}`,background:i%2===0?"transparent":"rgba(255,255,255,0.02)"}}>
+              <tr key={d.asset} style={{borderBottom:`1px solid ${ROW_BDR}`,background:i%2===0?"transparent":STRIPE}}>
                 <td style={{padding:"11px 10px",fontWeight:700,color:T1}}>{d.asset}</td>
                 <td style={{padding:"11px 10px",color:T2}}>{fmt(d.originalValue)}</td>
                 <td style={{padding:"11px 10px",color:T2}}>{fmt(d.currentValue)}</td>
@@ -354,7 +366,7 @@ function DepreciationTab() {
                 <td style={{padding:"11px 10px",fontWeight:600,color:T1}}>{fmt(d.renewalCost)}</td>
                 <td style={{padding:"11px 10px"}}>
                   <div style={{display:"flex",alignItems:"center",gap:8}}>
-                    <div style={{flex:1,height:6,background:"rgba(255,255,255,0.1)",borderRadius:3}}><div style={{height:"100%",width:`${lifeRemaining}%`,background:lifeRemaining>50?C.green:lifeRemaining>25?C.amber:C.red,borderRadius:3}}/></div>
+                    <div style={{flex:1,height:6,background:TRACK,borderRadius:3}}><div style={{height:"100%",width:`${lifeRemaining}%`,background:lifeRemaining>50?C.green:lifeRemaining>25?C.amber:C.red,borderRadius:3}}/></div>
                     <span style={{fontSize:12,fontWeight:700,color:lifeRemaining>50?C.green:lifeRemaining>25?C.amber:C.red}}>{lifeRemaining}%</span>
                   </div>
                 </td>
@@ -378,7 +390,6 @@ const INDUSTRY_TABS: IndustryTab[] = [
 export default function RoadsDashboard() {
   return (
     <DashboardShell
-      theme="dark"
       title="Roads & Infrastructure Intelligence"
       subtitle="Asset condition · Works programme · Capital investment"
       headerColor="#1e293b"

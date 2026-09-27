@@ -10,6 +10,9 @@ import DashboardShell, {
 } from '@/components/dashboard/DashboardShell';
 import type { ZoneRow, MonthlyRow, MonthlyByTypeRow, ContaminationRow, UploadMeta, KpiRule } from './page';
 import { HlnaInsightBanner } from '@/components/hlna/InsightBanner';
+import { useDashboardChart } from '@/components/dashboard/ui/chartTheme';
+import { TONE } from '@/components/dashboard/ui/tokens';
+import type { ChartPalette } from '@/components/ui/app/chartPalette';
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
@@ -28,38 +31,43 @@ export type WasteClientProps = {
 
 // ─── Colours ──────────────────────────────────────────────────────────────────
 
-const SVC_COLORS: Record<string, string> = {
-  'General Waste': '#64748b',
-  'Recycling':     '#3b82f6',
-  'Organics':      '#10b981',
-  'Hard Waste':    '#f59e0b',
-  'Other':         '#8b5cf6',
+// Authenticated visual-completion pass: service streams keep distinct,
+// conventional hues, resolved from the theme-aware chart palette (≥3:1 on the
+// panel in both themes). Unknown streams fall back to the categorical series.
+type PaletteKey = 'neutral' | 'info' | 'success' | 'warning' | 'secondary';
+const SVC_KEYS: Record<string, PaletteKey> = {
+  'General Waste': 'neutral',
+  'Recycling':     'info',
+  'Organics':      'success',
+  'Hard Waste':    'warning',
+  'Other':         'secondary',
 };
-const FALLBACK = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ef4444', '#06b6d4'];
-function svcColor(name: string, i: number) { return SVC_COLORS[name] ?? FALLBACK[i % FALLBACK.length]; }
+function svcColor(pal: ChartPalette, series: string[], name: string, i: number) {
+  const key = SVC_KEYS[name];
+  return key ? pal[key] : series[i % series.length];
+}
 
-// ─── Design tokens ────────────────────────────────────────────────────────────
+// ─── Design tokens (theme-following) ─────────────────────────────────────────
 
 const DC: React.CSSProperties = {
-  background: 'rgba(255,255,255,0.03)',
-  border: '1px solid rgba(255,255,255,0.07)',
-  borderRadius: 12, padding: 20,
+  background: 'var(--bg-surface)',
+  border: '1px solid var(--border)',
+  borderRadius: 'var(--radius-lg)', padding: 20,
 };
-const DTT = { background: '#0d0f14', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8 };
-const T1 = '#F5F7FA';
-const T2 = 'rgba(230,237,243,0.55)';
-const T3 = 'rgba(230,237,243,0.35)';
-const BORDER = 'rgba(255,255,255,0.07)';
-const ROW_BDR = 'rgba(255,255,255,0.05)';
-const ROW_HEAD = 'rgba(255,255,255,0.04)';
-const GRID = 'rgba(255,255,255,0.05)';
-const TICK = 'rgba(255,255,255,0.4)';
+const T1 = 'var(--text-primary)';
+const T2 = 'var(--text-secondary)';
+const T3 = 'var(--text-muted)';
+const BORDER = 'var(--border)';
+const ROW_BDR = 'var(--border-light)';
+const ROW_HEAD = 'var(--bg-sunken)';
+type ToneKey = keyof typeof TONE;
 
 // ─── Pill badge ───────────────────────────────────────────────────────────────
 
-function Pill({ label, bg, text }: { label: string; bg: string; text: string }) {
+function Pill({ label, tone }: { label: string; tone: ToneKey }) {
+  const t = TONE[tone];
   return (
-    <span style={{ background: bg, color: text, borderRadius: 6, padding: '2px 9px', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.07em', flexShrink: 0 }}>
+    <span style={{ background: t.muted, color: t.fg, border: `1px solid ${t.border}`, borderRadius: 'var(--radius-sm)', padding: '2px 9px', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.06em', flexShrink: 0 }}>
       {label}
     </span>
   );
@@ -71,15 +79,15 @@ function DataSourceBanner({ meta }: { meta: UploadMeta }) {
   const date = new Date(meta.uploadedAt).toLocaleString('en-AU', { dateStyle: 'medium', timeStyle: 'short' });
   const svcLabel = meta.serviceType.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
   return (
-    <div style={{ background: 'rgba(16,185,129,0.07)', border: '1px solid rgba(16,185,129,0.2)', borderRadius: 12, padding: '12px 20px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-      <Pill label="Live Data" bg="#10b981" text="#fff" />
+    <div style={{ background: TONE.success.muted, border: `1px solid ${TONE.success.border}`, borderRadius: 'var(--radius-lg)', padding: '12px 20px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+      <Pill label="Live Data" tone="success" />
       <span style={{ fontSize: 13, color: T2 }}>
         <span style={{ color: T1, fontWeight: 600 }}>{meta.fileName}</span>
-        <span style={{ color: T3, margin: '0 8px' }}>·</span>
+        <span aria-hidden="true" style={{ color: T3, margin: '0 8px' }}>·</span>
         <span>{meta.recordCount.toLocaleString()} records imported</span>
-        <span style={{ color: T3, margin: '0 8px' }}>·</span>
+        <span aria-hidden="true" style={{ color: T3, margin: '0 8px' }}>·</span>
         <span>{svcLabel}</span>
-        <span style={{ color: T3, margin: '0 8px' }}>·</span>
+        <span aria-hidden="true" style={{ color: T3, margin: '0 8px' }}>·</span>
         <span>Last updated {date}</span>
       </span>
     </div>
@@ -90,13 +98,13 @@ function DataSourceBanner({ meta }: { meta: UploadMeta }) {
 
 function DemoBanner() {
   return (
-    <div style={{ background: 'rgba(245,158,11,0.07)', border: '1px solid rgba(245,158,11,0.25)', borderRadius: 12, padding: '14px 20px', display: 'flex', alignItems: 'center', gap: 12 }}>
-      <Pill label="Demo" bg="#f59e0b" text="#000" />
+    <div style={{ background: TONE.warning.muted, border: `1px solid ${TONE.warning.border}`, borderRadius: 'var(--radius-lg)', padding: '14px 20px', display: 'flex', alignItems: 'center', gap: 12 }}>
+      <Pill label="Demo" tone="warning" />
       <div style={{ fontSize: 13, color: T2, lineHeight: 1.5 }}>
         Sample data is shown below.{' '}
         <span style={{ color: T1, fontWeight: 600 }}>Upload a spreadsheet to activate this dashboard with your real data.</span>
         <span style={{ display: 'block', marginTop: 2, fontSize: 12, color: T3 }}>
-          Go to <span style={{ color: T2, fontFamily: 'monospace' }}>Data → Upload</span> and select service type <span style={{ color: T2, fontFamily: 'monospace' }}>Waste</span>.
+          Go to <span style={{ color: T2, fontWeight: 600 }}>Data → Upload</span> and select service type <span style={{ color: T2, fontWeight: 600 }}>Waste</span>.
         </span>
       </div>
     </div>
@@ -125,19 +133,18 @@ function evalMetric(metricBase: string, value: number, rules: KpiRule[]): 'criti
 // ─── KPI card ─────────────────────────────────────────────────────────────────
 
 function KpiCard({ label, value, sub, accent, breach }: { label: string; value: string; sub: string; accent: string; breach?: 'warning' | 'critical' | null }) {
-  const BREACH_COLORS = { warning: '#f59e0b', critical: '#ef4444' };
-  const bc = breach ? BREACH_COLORS[breach] : null;
+  const bt = breach ? TONE[breach === 'critical' ? 'danger' : 'warning'] : null;
   return (
-    <div style={{ background: 'rgba(255,255,255,0.03)', border: `1px solid ${bc ? bc + '40' : 'rgba(255,255,255,0.07)'}`, borderRadius: 16, padding: 20, borderLeft: `3px solid ${bc ?? accent}`, position: 'relative' }}>
-      <p style={{ fontSize: 10, color: T3, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.06em', margin: '0 0 8px', display: 'flex', alignItems: 'center', gap: 6 }}>
+    <div style={{ background: 'var(--bg-surface)', border: `1px solid ${bt ? bt.border : 'var(--border)'}`, borderRadius: 'var(--radius-lg)', padding: 20, borderLeft: `3px solid ${bt ? bt.fg : accent}`, position: 'relative' }}>
+      <p style={{ fontSize: 11, color: T3, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.06em', margin: '0 0 8px', display: 'flex', alignItems: 'center', gap: 6 }}>
         {label}
-        {bc && (
-          <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: '.06em', background: bc + '22', color: bc, border: `1px solid ${bc}44`, borderRadius: 4, padding: '1px 5px', textTransform: 'uppercase' }}>
+        {bt && (
+          <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.06em', background: bt.muted, color: bt.fg, border: `1px solid ${bt.border}`, borderRadius: 'var(--radius-sm)', padding: '1px 5px', textTransform: 'uppercase' }}>
             {breach === 'critical' ? 'CRITICAL' : 'WARNING'}
           </span>
         )}
       </p>
-      <p style={{ fontSize: 24, fontWeight: 700, color: bc ?? T1, margin: '0 0 4px', lineHeight: 1 }}>{value}</p>
+      <p style={{ fontSize: 24, fontWeight: 700, color: bt ? bt.fg : T1, margin: '0 0 4px', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{value}</p>
       <p style={{ fontSize: 11, color: T3, margin: 0 }}>{sub}</p>
     </div>
   );
@@ -146,11 +153,11 @@ function KpiCard({ label, value, sub, accent, breach }: { label: string; value: 
 // ─── Insight tile ─────────────────────────────────────────────────────────────
 
 function InsightTile({ icon, color, title, body }: { icon: string; color: 'red' | 'amber' | 'green'; title: string; body: string }) {
-  const c = { red: '#ef4444', amber: '#f59e0b', green: '#4ade80' }[color];
+  const t = TONE[({ red: 'danger', amber: 'warning', green: 'success' } as const)[color]];
   return (
-    <div style={{ background: `${c}0d`, border: `1px solid ${c}28`, borderRadius: 14, padding: 18 }}>
+    <div style={{ background: t.muted, border: `1px solid ${t.border}`, borderLeft: `3px solid ${t.fg}`, borderRadius: 'var(--radius-lg)', padding: 18 }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-        <span style={{ fontSize: 18, lineHeight: 1.4 }}>{icon}</span>
+        <span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1.4 }}>{icon}</span>
         <div>
           <p style={{ fontSize: 13, fontWeight: 600, color: T1, margin: '0 0 4px' }}>{title}</p>
           <p style={{ fontSize: 12, color: T2, lineHeight: 1.55, margin: 0 }}>{body}</p>
@@ -164,7 +171,7 @@ function InsightTile({ icon, color, title, body }: { icon: string; color: 'red' 
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <p style={{ fontSize: 10, fontWeight: 700, color: T3, textTransform: 'uppercase', letterSpacing: '.08em', margin: '0 0 10px' }}>{children}</p>
+    <p style={{ fontSize: 11, fontWeight: 600, color: T3, textTransform: 'uppercase', letterSpacing: '.06em', margin: '0 0 10px' }}>{children}</p>
   );
 }
 
@@ -173,6 +180,11 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 export default function WasteClient({
   isDemo, uploadMeta, zones, monthly, monthlyByType, contamination, composition, serviceTypes, kpiRules = [],
 }: WasteClientProps) {
+
+  // Chart chrome + palette for the active theme.
+  const chart = useDashboardChart();
+  const pal   = chart.palette;
+  const streamColor = (name: string, i: number) => svcColor(pal, chart.series, name, i);
 
   // ─── Aggregates ─────────────────────────────────────────────────────────────
   const totalCost        = zones.reduce((s, z) => s + z.total_cost, 0);
@@ -283,26 +295,26 @@ export default function WasteClient({
             label="Total Tonnes"
             value={`${totalTonnes.toLocaleString()} t`}
             sub={`${totalCollections.toLocaleString()} collections`}
-            accent="#10b981"
+            accent="var(--status-success)"
           />
           <KpiCard
             label="Avg Contamination"
             value={avgContamination != null ? `${avgContamination.toFixed(1)}%` : '—'}
             sub={contamTop ? `${contamTop.suburb} worst (${contamTop.rate.toFixed(1)}%)` : 'No contamination data'}
-            accent={avgContamination != null && avgContamination > 10 ? '#ef4444' : '#f59e0b'}
+            accent={avgContamination != null && avgContamination > 10 ? TONE.danger.fg : TONE.warning.fg}
             breach={contamBreach}
           />
           <KpiCard
             label="Top Cost Suburb"
             value={peakZone.suburb}
             sub={`$${peakZone.total_cost.toLocaleString()} · ${peakPct > 0 ? '+' : ''}${peakPct}% vs avg`}
-            accent="#3b82f6"
+            accent="var(--status-info)"
           />
           <KpiCard
             label="Cost per Tonne"
             value={`$${avgCPT.toFixed(2)}`}
             sub={`${best?.suburb ?? '—'} best · ${worst?.suburb ?? '—'} worst`}
-            accent="#8b5cf6"
+            accent="var(--status-inactive)"
             breach={cptBreach}
           />
         </div>
@@ -343,13 +355,13 @@ export default function WasteClient({
           <p style={{ margin: '0 0 16px', fontSize: 12, color: T3 }}>Cost by service stream per suburb</p>
           <ResponsiveContainer width="100%" height={280}>
             <BarChart data={chartData} barCategoryGap="25%">
-              <CartesianGrid strokeDasharray="3 3" stroke={GRID} vertical={false} />
-              <XAxis dataKey="shortId" tick={{ fill: TICK, fontSize: 10 }} axisLine={false} tickLine={false} />
-              <YAxis tickFormatter={v => `$${(v / 1000).toFixed(0)}k`} tick={{ fill: TICK, fontSize: 11 }} axisLine={false} tickLine={false} />
-              <Tooltip contentStyle={DTT} formatter={(v: unknown) => `$${Number(v).toLocaleString()}`} />
-              <Legend formatter={v => v} wrapperStyle={{ fontSize: 12, color: T2 }} />
+              <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} vertical={false} />
+              <XAxis dataKey="shortId" tick={{ ...chart.tick, fontSize: 10 }} axisLine={false} tickLine={false} />
+              <YAxis tickFormatter={v => `$${(v / 1000).toFixed(0)}k`} tick={chart.tick} axisLine={false} tickLine={false} />
+              <Tooltip {...chart.tooltip} formatter={(v: unknown) => `$${Number(v).toLocaleString()}`} />
+              <Legend formatter={v => v} wrapperStyle={chart.legend} />
               {serviceTypes.map((st, i) => (
-                <Bar key={st} dataKey={st} name={st} fill={svcColor(st, i)} radius={[3, 3, 0, 0]} stackId="a" />
+                <Bar key={st} dataKey={st} name={st} fill={streamColor(st, i)} radius={[3, 3, 0, 0]} stackId="a" />
               ))}
             </BarChart>
           </ResponsiveContainer>
@@ -361,10 +373,10 @@ export default function WasteClient({
           <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <ResponsiveContainer width="100%" height={200}>
               <PieChart>
-                <Pie data={composition} dataKey="value" innerRadius={55} outerRadius={85} paddingAngle={3}>
-                  {composition.map((c, i) => <Cell key={i} fill={svcColor(c.name, i)} />)}
+                <Pie data={composition} dataKey="value" innerRadius={55} outerRadius={85} paddingAngle={3} stroke={pal.tooltipBg}>
+                  {composition.map((c, i) => <Cell key={i} fill={streamColor(c.name, i)} />)}
                 </Pie>
-                <Tooltip formatter={(v: unknown) => `$${Number(v).toLocaleString()}`} contentStyle={DTT} />
+                <Tooltip formatter={(v: unknown) => `$${Number(v).toLocaleString()}`} {...chart.tooltip} />
               </PieChart>
             </ResponsiveContainer>
           </div>
@@ -372,7 +384,7 @@ export default function WasteClient({
             {composition.map((c, i) => (
               <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <div style={{ width: 10, height: 10, borderRadius: '50%', background: svcColor(c.name, i) }} />
+                  <div aria-hidden="true" style={{ width: 10, height: 10, borderRadius: '50%', background: streamColor(c.name, i) }} />
                   <span style={{ color: T2 }}>{c.name}</span>
                 </div>
                 <span style={{ fontWeight: 600, color: T1 }}>{Math.round((c.value / totalCost) * 100)}%</span>
@@ -383,44 +395,44 @@ export default function WasteClient({
       </div>
 
       {/* Suburb table */}
-      <div style={{ background: 'rgba(255,255,255,0.03)', border: `1px solid ${BORDER}`, borderRadius: 16, overflow: 'hidden' }}>
+      <div style={{ background: 'var(--bg-surface)', border: `1px solid ${BORDER}`, borderRadius: 'var(--radius-lg)', overflowX: 'auto' }}>
         <div style={{ padding: '16px 24px', borderBottom: `1px solid ${BORDER}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
             <h2 style={{ margin: '0 0 2px', fontSize: 15, fontWeight: 600, color: T1 }}>Suburb Cost Summary</h2>
             <p style={{ margin: 0, fontSize: 12, color: T3 }}>{zones.length} suburbs · Full breakdown including efficiency metrics</p>
           </div>
-          {isDemo && <Pill label="Demo data" bg="rgba(245,158,11,0.15)" text="#f59e0b" />}
+          {isDemo && <Pill label="Demo data" tone="warning" />}
         </div>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
           <thead>
             <tr style={{ background: ROW_HEAD }}>
               {['Suburb', 'Total Cost', 'Tonnes', 'Collections', 'Contamination %', '$/Tonne'].map(h => (
-                <th key={h} style={{ padding: '10px 14px', fontWeight: 600, fontSize: 10, color: T3, textTransform: 'uppercase', letterSpacing: '.06em', textAlign: h === 'Suburb' ? 'left' : 'right' }}>{h}</th>
+                <th key={h} scope="col" style={{ padding: '10px 14px', fontWeight: 600, fontSize: 11, color: T2, textTransform: 'uppercase', letterSpacing: '.06em', textAlign: h === 'Suburb' ? 'left' : 'right' }}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {zones.map((z, i) => (
-              <tr key={i} style={{ borderTop: `1px solid ${ROW_BDR}`, background: z.suburb === peakZone?.suburb ? 'rgba(239,68,68,0.05)' : z.suburb === best?.suburb ? 'rgba(74,222,128,0.05)' : 'transparent' }}>
+              <tr key={i} style={{ borderTop: `1px solid ${ROW_BDR}`, background: z.suburb === peakZone?.suburb ? TONE.danger.muted : z.suburb === best?.suburb ? TONE.success.muted : 'transparent' }}>
                 <td style={{ padding: '10px 14px', fontWeight: 600, color: T1 }}>
                   {z.suburb}
-                  {z.suburb === peakZone?.suburb && <span style={{ marginLeft: 8, fontSize: 10, color: '#ef4444', fontWeight: 700 }}>▲ Highest</span>}
-                  {z.suburb === best?.suburb      && <span style={{ marginLeft: 8, fontSize: 10, color: '#4ade80', fontWeight: 700 }}>✓ Best</span>}
+                  {z.suburb === peakZone?.suburb && <span style={{ marginLeft: 8, fontSize: 11, color: TONE.danger.fg, fontWeight: 700 }}>▲ Highest</span>}
+                  {z.suburb === best?.suburb      && <span style={{ marginLeft: 8, fontSize: 11, color: TONE.success.fg, fontWeight: 700 }}>✓ Best</span>}
                 </td>
                 <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 600, color: T1 }}>${z.total_cost.toLocaleString()}</td>
                 <td style={{ padding: '10px 14px', textAlign: 'right', color: T2 }}>{z.total_tonnes.toLocaleString()}</td>
                 <td style={{ padding: '10px 14px', textAlign: 'right', color: T2 }}>{z.total_collections.toLocaleString()}</td>
-                <td style={{ padding: '10px 14px', textAlign: 'right', color: z.avg_contamination != null && z.avg_contamination > 10 ? '#ef4444' : z.avg_contamination != null ? '#4ade80' : T3, fontWeight: 600 }}>
+                <td style={{ padding: '10px 14px', textAlign: 'right', color: z.avg_contamination != null && z.avg_contamination > 10 ? TONE.danger.fg : z.avg_contamination != null ? TONE.success.fg : T3, fontWeight: 600 }}>
                   {z.avg_contamination != null ? `${z.avg_contamination.toFixed(1)}%` : '—'}
                 </td>
-                <td style={{ padding: '10px 14px', textAlign: 'right', color: z.cost_per_tonne > avgCPT * 1.1 ? '#ef4444' : z.cost_per_tonne < avgCPT * 0.9 ? '#4ade80' : T2, fontWeight: 600 }}>
+                <td style={{ padding: '10px 14px', textAlign: 'right', color: z.cost_per_tonne > avgCPT * 1.1 ? TONE.danger.fg : z.cost_per_tonne < avgCPT * 0.9 ? TONE.success.fg : T2, fontWeight: 600 }}>
                   ${z.cost_per_tonne.toFixed(2)}
                 </td>
               </tr>
             ))}
           </tbody>
           <tfoot>
-            <tr style={{ borderTop: `2px solid rgba(255,255,255,0.1)`, background: ROW_HEAD, fontWeight: 700 }}>
+            <tr style={{ borderTop: '2px solid var(--border-strong)', background: ROW_HEAD, fontWeight: 700 }}>
               <td style={{ padding: '10px 14px', color: T1 }}>Total / Average</td>
               <td style={{ padding: '10px 14px', textAlign: 'right', color: T1 }}>${totalCost.toLocaleString()}</td>
               <td style={{ padding: '10px 14px', textAlign: 'right', color: T1 }}>{totalTonnes.toLocaleString()}</td>
@@ -440,17 +452,17 @@ export default function WasteClient({
       label: 'Monthly Cost Trend',
       content: (
         <div style={{ ...DC, padding: 24 }}>
-          <h3 style={{ margin: '0 0 4px', fontSize: 15, fontWeight: 600, color: T1 }}>Monthly Operating Cost by Stream</h3>
+          <h2 style={{ margin: '0 0 4px', fontSize: 15, fontWeight: 600, color: T1 }}>Monthly Operating Cost by Stream</h2>
           <p style={{ margin: '0 0 16px', fontSize: 12, color: T3 }}>Actual cost across all suburbs</p>
           <ResponsiveContainer width="100%" height={300}>
             <BarChart data={monthlyByType} barCategoryGap="30%">
-              <CartesianGrid strokeDasharray="3 3" stroke={GRID} vertical={false} />
-              <XAxis dataKey="month" tick={{ fill: TICK, fontSize: 11 }} axisLine={false} tickLine={false} />
-              <YAxis tickFormatter={v => `$${(v / 1000).toFixed(0)}k`} tick={{ fill: TICK, fontSize: 11 }} axisLine={false} tickLine={false} />
-              <Tooltip contentStyle={DTT} formatter={(v: unknown) => `$${Number(v).toLocaleString()}`} />
-              <Legend wrapperStyle={{ fontSize: 12, color: T2 }} />
+              <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} vertical={false} />
+              <XAxis dataKey="month" tick={chart.tick} axisLine={false} tickLine={false} />
+              <YAxis tickFormatter={v => `$${(v / 1000).toFixed(0)}k`} tick={chart.tick} axisLine={false} tickLine={false} />
+              <Tooltip {...chart.tooltip} formatter={(v: unknown) => `$${Number(v).toLocaleString()}`} />
+              <Legend wrapperStyle={chart.legend} />
               {serviceTypes.map((st, i) => (
-                <Bar key={st} dataKey={st} name={st} fill={svcColor(st, i)} radius={[3, 3, 0, 0]} stackId="m" />
+                <Bar key={st} dataKey={st} name={st} fill={streamColor(st, i)} radius={[3, 3, 0, 0]} stackId="m" />
               ))}
             </BarChart>
           </ResponsiveContainer>
@@ -460,27 +472,27 @@ export default function WasteClient({
     {
       label: 'Suburb Benchmarking',
       content: (
-        <div style={{ background: 'rgba(255,255,255,0.03)', border: `1px solid ${BORDER}`, borderRadius: 12, overflow: 'hidden' }}>
+        <div style={{ background: 'var(--bg-surface)', border: `1px solid ${BORDER}`, borderRadius: 'var(--radius-lg)', overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
               <tr style={{ background: ROW_HEAD }}>
                 {['Suburb', 'Total Cost', '$/Tonne', 'Tonnes', 'Collections', 'Contamination %', 'Rank'].map(h => (
-                  <th key={h} style={{ padding: '12px 16px', textAlign: 'left', fontSize: 11, color: T3, fontWeight: 600 }}>{h}</th>
+                  <th key={h} scope="col" style={{ padding: '12px 16px', textAlign: 'left', fontSize: 11, color: T3, fontWeight: 600 }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {sorted.map((z, i) => (
-                <tr key={z.suburb} style={{ borderBottom: `1px solid ${ROW_BDR}`, background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.02)' }}>
+                <tr key={z.suburb} style={{ borderBottom: `1px solid ${ROW_BDR}` }}>
                   <td style={{ padding: '12px 16px', fontWeight: 600, color: T1 }}>{z.suburb}</td>
                   <td style={{ padding: '12px 16px', color: T2 }}>${z.total_cost.toLocaleString()}</td>
-                  <td style={{ padding: '12px 16px', color: z.cost_per_tonne > avgCPT * 1.1 ? '#ef4444' : z.cost_per_tonne < avgCPT * 0.9 ? '#4ade80' : T1, fontWeight: 600 }}>${z.cost_per_tonne.toFixed(2)}</td>
+                  <td style={{ padding: '12px 16px', color: z.cost_per_tonne > avgCPT * 1.1 ? TONE.danger.fg : z.cost_per_tonne < avgCPT * 0.9 ? TONE.success.fg : T1, fontWeight: 600 }}>${z.cost_per_tonne.toFixed(2)}</td>
                   <td style={{ padding: '12px 16px', color: T2 }}>{z.total_tonnes.toLocaleString()}</td>
                   <td style={{ padding: '12px 16px', color: T2 }}>{z.total_collections.toLocaleString()}</td>
-                  <td style={{ padding: '12px 16px', color: z.avg_contamination != null && z.avg_contamination > 10 ? '#ef4444' : '#4ade80', fontWeight: 600 }}>
+                  <td style={{ padding: '12px 16px', color: z.avg_contamination != null && z.avg_contamination > 10 ? TONE.danger.fg : TONE.success.fg, fontWeight: 600 }}>
                     {z.avg_contamination != null ? `${z.avg_contamination.toFixed(1)}%` : '—'}
                   </td>
-                  <td style={{ padding: '12px 16px', fontWeight: 700, color: i === 0 ? '#4ade80' : i >= sorted.length - 2 ? '#ef4444' : T1 }}>#{i + 1}</td>
+                  <td style={{ padding: '12px 16px', fontWeight: 700, color: i === 0 ? TONE.success.fg : i >= sorted.length - 2 ? TONE.danger.fg : T1 }}>#{i + 1}</td>
                 </tr>
               ))}
             </tbody>
@@ -495,31 +507,31 @@ export default function WasteClient({
         : (
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
             <div style={DC}>
-              <h3 style={{ margin: '0 0 16px', fontSize: 15, fontWeight: 600, color: T1 }}>Contamination Rate by Suburb</h3>
+              <h2 style={{ margin: '0 0 16px', fontSize: 15, fontWeight: 600, color: T1 }}>Contamination Rate by Suburb</h2>
               <ResponsiveContainer width="100%" height={Math.max(200, contamination.length * 38)}>
                 <BarChart data={contamination} layout="vertical">
-                  <CartesianGrid strokeDasharray="3 3" stroke={GRID} horizontal={false} />
-                  <XAxis type="number" tickFormatter={v => `${v}%`} tick={{ fill: TICK, fontSize: 11 }} axisLine={false} tickLine={false} />
-                  <YAxis type="category" dataKey="suburb" tick={{ fill: TICK, fontSize: 10 }} width={120} />
-                  <Tooltip formatter={(v: unknown) => `${Number(v).toFixed(1)}%`} contentStyle={DTT} />
+                  <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} horizontal={false} />
+                  <XAxis type="number" tickFormatter={v => `${v}%`} tick={chart.tick} axisLine={false} tickLine={false} />
+                  <YAxis type="category" dataKey="suburb" tick={{ ...chart.tick, fontSize: 10 }} width={120} />
+                  <Tooltip formatter={(v: unknown) => `${Number(v).toFixed(1)}%`} {...chart.tooltip} />
                   <Bar dataKey="rate" radius={[0, 4, 4, 0]}>
                     {contamination.map((d, i) => (
-                      <Cell key={i} fill={d.rate > 15 ? '#ef4444' : d.rate > 10 ? '#f59e0b' : '#4ade80'} />
+                      <Cell key={i} fill={d.rate > 15 ? pal.danger : d.rate > 10 ? pal.warning : pal.success} />
                     ))}
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
             </div>
             <div style={DC}>
-              <h3 style={{ margin: '0 0 16px', fontSize: 15, fontWeight: 600, color: T1 }}>Contamination Detail</h3>
+              <h2 style={{ margin: '0 0 16px', fontSize: 15, fontWeight: 600, color: T1 }}>Contamination Detail</h2>
               {contamination.slice(0, 12).map(z => (
                 <div key={z.suburb} style={{ padding: '10px 0', borderBottom: `1px solid ${ROW_BDR}` }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, fontSize: 13 }}>
                     <span style={{ fontWeight: 600, color: T1 }}>{z.suburb}</span>
-                    <span style={{ color: z.rate > 10 ? '#ef4444' : '#4ade80', fontWeight: 700 }}>{z.rate.toFixed(1)}%</span>
+                    <span style={{ color: z.rate > 10 ? TONE.danger.fg : TONE.success.fg, fontWeight: 700 }}>{z.rate.toFixed(1)}%</span>
                   </div>
-                  <div style={{ height: 4, background: 'rgba(255,255,255,0.08)', borderRadius: 2 }}>
-                    <div style={{ width: `${Math.min(z.rate * 4, 100)}%`, height: '100%', background: z.rate > 15 ? '#ef4444' : z.rate > 10 ? '#f59e0b' : '#4ade80', borderRadius: 2 }} />
+                  <div aria-hidden="true" style={{ height: 4, background: 'var(--bg-sunken)', borderRadius: 2 }}>
+                    <div style={{ width: `${Math.min(z.rate * 4, 100)}%`, height: '100%', background: z.rate > 15 ? TONE.danger.fg : z.rate > 10 ? TONE.warning.fg : TONE.success.fg, borderRadius: 2 }} />
                   </div>
                 </div>
               ))}
@@ -538,7 +550,6 @@ export default function WasteClient({
 
   return (
     <DashboardShell
-      theme="dark"
       title="Waste & Recycling"
       subtitle={isDemo
         ? 'Demo data — upload a spreadsheet to activate'

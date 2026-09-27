@@ -6,10 +6,10 @@ import ClientWorkspace, {
   type Contact, type Lead, type Opportunity, type PlatformModule, type Implementation, type Person,
 } from '@/components/clients/ClientWorkspace'
 import { APP_HEADER_OFFSET_VAR } from '@/lib/layout/headerOffset'
+import { Badge, buttonProps, type SemanticState } from '@/components/ui/app'
+import styles from '../Clients.module.css'
 
 export const dynamic = 'force-dynamic'
-
-const FONT = "var(--font-inter), -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
 
 export default async function ClientSpacePage({ params }: { params: Promise<{ id: string }> }) {
   try { await requireRole('super_admin') } catch { redirect('/dashboard') }
@@ -147,16 +147,16 @@ export default async function ClientSpacePage({ params }: { params: Promise<{ id
   )
 }
 
-const STATUS_LABEL: Record<string, { label: string; color: string }> = {
-  ACTIVE:    { label: 'Active',    color: '#4ade80' },
-  SUSPENDED: { label: 'Suspended', color: '#fbbf24' },
-  CHURNED:   { label: 'Churned',   color: '#f87171' },
+const STATUS_LABEL: Record<string, { label: string; state: SemanticState }> = {
+  ACTIVE:    { label: 'Active',    state: 'success' },
+  SUSPENDED: { label: 'Suspended', state: 'warning' },
+  CHURNED:   { label: 'Churned',   state: 'error' },
 }
 // Neutral fallback for any status value outside the three canonical
 // OrgStatus enum values above — deliberately not styled as Active
-// (green) or any real status, so an unrecognised/future value never
-// silently reads as healthy.
-const UNKNOWN_STATUS = { label: 'Unknown', color: '#a1a1aa' }
+// (green/success) or any real status, so an unrecognised/future value
+// never silently reads as healthy.
+const UNKNOWN_STATUS: { label: string; state: SemanticState } = { label: 'Unknown', state: 'inactive' }
 const PLAN_LABEL: Record<string, string> = {
   TRIAL: 'Trial', STARTER: 'Starter', PROFESSIONAL: 'Professional', ENTERPRISE: 'Enterprise',
 }
@@ -164,38 +164,17 @@ const PLAN_LABEL: Record<string, string> = {
 function ClientBanner({ orgName, status, plan }: { orgName: string; status: string; plan: string }) {
   const st = STATUS_LABEL[status] ?? UNKNOWN_STATUS
   return (
-    <div style={{
-      position: 'sticky', top: APP_HEADER_OFFSET_VAR, zIndex: 90,
-      background: 'rgba(99,102,241,.10)',
-      borderBottom: '1px solid rgba(99,102,241,.20)',
-      backdropFilter: 'blur(12px)',
-      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-      padding: '8px 24px', fontFamily: FONT,
-    }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <div style={{
-          width: 6, height: 6, borderRadius: '50%',
-          background: '#818cf8', boxShadow: '0 0 8px rgba(129,140,248,.70)',
-        }} />
-        <span style={{ fontSize: 12, color: 'rgba(255,255,255,.55)', letterSpacing: '.01em' }}>Viewing</span>
-        <span style={{ fontSize: 12, fontWeight: 600, color: '#c4b5fd' }}>{orgName}</span>
-        <span style={{
-          fontSize: 10, fontWeight: 600, padding: '1px 8px', borderRadius: 20,
-          background: `${st.color}1A`, color: st.color, border: `1px solid ${st.color}38`,
-          letterSpacing: '.02em',
-        }}>
-          {st.label}
-        </span>
-        <span style={{ fontSize: 10, color: 'rgba(255,255,255,.30)', letterSpacing: '.02em' }}>
+    <div className={styles.banner} style={{ position: 'sticky', top: APP_HEADER_OFFSET_VAR }}>
+      <div className={styles.bannerIdentity}>
+        <span className={styles.bannerMarker} aria-hidden="true" />
+        <span className={styles.viewing}>Viewing</span>
+        <h1 className={styles.orgName}>{orgName}</h1>
+        <Badge state={st.state}>{st.label}</Badge>
+        <span className={styles.plan}>
           {PLAN_LABEL[plan] ?? plan}
         </span>
       </div>
-      <Link href="/clients" style={{
-        fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,.38)',
-        textDecoration: 'none', letterSpacing: '.04em',
-        padding: '3px 10px', borderRadius: 6,
-        border: '1px solid rgba(255,255,255,.10)',
-      }}>
+      <Link href="/clients" {...buttonProps('secondary', 'sm')}>
         ← Exit to clients
       </Link>
     </div>

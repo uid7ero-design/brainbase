@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useRef } from "react";
+import { buttonProps, fieldControlClassName } from "@/components/ui/app";
+import styles from "../Contacts.module.css";
 
 type Entry = { id: string; note: string; created_at: string };
 
@@ -48,22 +50,24 @@ export default function JournalClient({ contactId, initial }: { contactId: strin
   return (
     <div>
       {/* Add entry */}
-      <form onSubmit={handleSubmit} className="mb-8">
+      <form onSubmit={handleSubmit} className={styles.journalForm}>
         <textarea
+          aria-label="Session note"
+          aria-describedby="journal-hint"
           ref={textareaRef}
           value={note}
           onChange={autoResize}
           onKeyDown={handleKeyDown}
           placeholder="Add a session note…"
           rows={3}
-          className="w-full bg-white/4 border border-white/8 rounded-xl px-4 py-3 text-white placeholder:text-zinc-600 text-sm focus:outline-none focus:border-white/16 focus:bg-white/6 transition-all duration-200 resize-none"
+          className={`${fieldControlClassName} ${styles.journalTextarea}`}
         />
-        <div className="flex items-center justify-between mt-2">
-          <span className="text-zinc-600 text-xs">⌘ + Enter to save</span>
+        <div className={styles.journalFooter}>
+          <span id="journal-hint" className={styles.hint}>⌘ + Enter to save</span>
           <button
             type="submit"
             disabled={saving || !note.trim()}
-            className="text-sm font-semibold bg-green-500 text-black px-5 py-2 rounded-full hover:bg-green-400 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            {...buttonProps('primary')}
           >
             {saving ? "Saving…" : "Add Entry"}
           </button>
@@ -72,16 +76,16 @@ export default function JournalClient({ contactId, initial }: { contactId: strin
 
       {/* Entries */}
       {entries.length === 0 ? (
-        <p className="text-zinc-600 text-sm">No session notes yet. Add your first note above.</p>
+        <p className={styles.empty}>No session notes yet. Add your first note above.</p>
       ) : (
-        <div className="flex flex-col gap-4">
+        <ul className={styles.entries}>
           {entries.map(entry => (
-            <div key={entry.id} className="border-l-2 border-white/8 pl-5 py-1">
-              <p className="text-xs text-zinc-600 mb-2 font-medium">{formatEntry(entry.created_at)}</p>
-              <p className="text-sm text-zinc-300 leading-relaxed whitespace-pre-wrap">{entry.note}</p>
-            </div>
+            <li key={entry.id} className={styles.entry}>
+              <p className={styles.entryDate}>{formatEntry(entry.created_at)}</p>
+              <p className={styles.entryNote}>{entry.note}</p>
+            </li>
           ))}
-        </div>
+        </ul>
       )}
     </div>
   );

@@ -2,6 +2,8 @@
 
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import DashboardShell, { KPI, MonthlyPoint, CostAccount, SLATarget, Action, IndustryTab, InsightCard } from '@/components/dashboard/DashboardShell';
+import { useDashboardChart } from '@/components/dashboard/ui/chartTheme';
+import { TONE } from '@/components/dashboard/ui/tokens';
 
 const SAMPLE_SUPPLIERS = [
   { id:'SUP-001', name:'Pacific Steel Co',      category:'Materials',   spend:184000, orders:24, onTime:92, quality:96 },
@@ -34,8 +36,6 @@ const MONTHLY_SPEND = [
   { month:'Jan', spend:88000 },{ month:'Feb', spend:112000 },
   { month:'Mar', spend:135000 },{ month:'Apr', spend:143000 },
 ];
-
-const PIE_COLORS = ['#f59e0b','#fbbf24','#fcd34d','#92400e','#78350f','#d97706'];
 
 const totalSpend = SAMPLE_SUPPLIERS.reduce((s,r)=>s+r.spend,0);
 const belowReorder = SAMPLE_INVENTORY.filter(i=>i.qty<i.reorder).length;
@@ -86,11 +86,21 @@ const KPI_DATA: KPI[] = [
   {label:"Avg Quality Score",value:`${Math.round(SAMPLE_SUPPLIERS.reduce((s,r)=>s+r.quality,0)/SAMPLE_SUPPLIERS.length)}%`,sub:"Supplier quality",icon:"⭐",status:"normal"},
 ];
 
-const darkCard = {background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:12,padding:20};
+// Authenticated visual-completion pass: token surfaces (follow the app theme).
+const card: React.CSSProperties = {background:"var(--bg-surface)",border:"1px solid var(--border)",borderRadius:"var(--radius-lg)",padding:20};
+const tableFrame: React.CSSProperties = {...card,padding:0,overflowX:"auto"};
+const tableStyle: React.CSSProperties = {width:"100%",borderCollapse:"collapse",fontSize:14,color:"var(--text-primary)"};
+const thStyle: React.CSSProperties = {padding:"12px 16px",textAlign:"left",fontSize:12,color:"var(--text-secondary)",fontWeight:600,background:"var(--bg-sunken)",borderBottom:"1px solid var(--border)"};
+const rowStyle: React.CSSProperties = {borderBottom:"1px solid var(--border-light)"};
+const cellMuted: React.CSSProperties = {padding:"12px 16px",color:"var(--text-muted)"};
+const idCell: React.CSSProperties = {...cellMuted,fontFamily:"var(--bb-font-mono)",fontSize:13};
+type Tone = keyof typeof TONE;
+const chip = (tone: Tone): React.CSSProperties => ({padding:"3px 10px",borderRadius:"var(--radius-sm)",fontSize:12,fontWeight:600,background:TONE[tone].muted,border:`1px solid ${TONE[tone].border}`,color:TONE[tone].fg});
 
 function OverviewContent() {
+  const chart = useDashboardChart();
   return (
-    <div style={{background:"#0f0f0f",borderRadius:12,padding:16}}>
+    <div>
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:16,marginBottom:24}}>
         {[
           {label:"Total Spend YTD",value:`$${(totalSpend/1000).toFixed(0)}k`,sub:"All categories"},
@@ -100,34 +110,34 @@ function OverviewContent() {
           {label:"Below Reorder",value:belowReorder,sub:"SKUs needing restock"},
           {label:"Avg Quality Score",value:`${Math.round(SAMPLE_SUPPLIERS.reduce((s,r)=>s+r.quality,0)/SAMPLE_SUPPLIERS.length)}%`,sub:"Supplier quality"},
         ].map(k=>(
-          <div key={k.label} style={{...darkCard,padding:16}}>
-            <div style={{fontSize:11,color:"rgba(255,255,255,0.4)",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:8}}>{k.label}</div>
-            <div style={{fontSize:26,fontWeight:700,color:"#fbbf24"}}>{k.value}</div>
-            <div style={{fontSize:12,color:"rgba(255,255,255,0.4)",marginTop:4}}>{k.sub}</div>
+          <div key={k.label} style={{...card,padding:16}}>
+            <div style={{fontSize:11,color:"var(--text-muted)",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:8}}>{k.label}</div>
+            <div style={{fontSize:26,fontWeight:700,color:"var(--text-primary)",fontVariantNumeric:"tabular-nums"}}>{k.value}</div>
+            <div style={{fontSize:12,color:"var(--text-muted)",marginTop:4}}>{k.sub}</div>
           </div>
         ))}
       </div>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:20}}>
-        <div style={darkCard}>
-          <h3 style={{margin:"0 0 16px",fontSize:14,color:"#e5e7eb"}}>Monthly Spend</h3>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(min(100%,360px),1fr))",gap:20}}>
+        <div style={card}>
+          <h2 style={{margin:"0 0 16px",fontSize:14,color:"var(--text-primary)"}}>Monthly Spend</h2>
           <ResponsiveContainer width="100%" height={220}>
             <BarChart data={MONTHLY_SPEND}>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)"/>
-              <XAxis dataKey="month" tick={{fill:"rgba(255,255,255,0.4)",fontSize:11}}/>
-              <YAxis tickFormatter={v=>`$${v/1000}k`} tick={{fill:"rgba(255,255,255,0.4)",fontSize:11}}/>
-              <Tooltip formatter={(v)=>[`$${Number(v).toLocaleString()}`,"Spend"]} contentStyle={{background:"#1a1a2e",border:"none",borderRadius:8}}/>
-              <Bar dataKey="spend" fill="#f59e0b" radius={[4,4,0,0]}/>
+              <CartesianGrid strokeDasharray="3 3" stroke={chart.grid}/>
+              <XAxis dataKey="month" tick={chart.tick}/>
+              <YAxis tickFormatter={v=>`$${v/1000}k`} tick={chart.tick}/>
+              <Tooltip formatter={(v)=>[`$${Number(v).toLocaleString()}`,"Spend"]} {...chart.tooltip}/>
+              <Bar dataKey="spend" fill={chart.palette.primary} radius={[4,4,0,0]}/>
             </BarChart>
           </ResponsiveContainer>
         </div>
-        <div style={darkCard}>
-          <h3 style={{margin:"0 0 16px",fontSize:14,color:"#e5e7eb"}}>Spend by Category</h3>
+        <div style={card}>
+          <h2 style={{margin:"0 0 16px",fontSize:14,color:"var(--text-primary)"}}>Spend by Category</h2>
           <ResponsiveContainer width="100%" height={220}>
             <PieChart>
-              <Pie data={categorySpendData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label={({name})=>name}>
-                {categorySpendData.map((_,i)=><Cell key={i} fill={PIE_COLORS[i%PIE_COLORS.length]}/>)}
+              <Pie data={categorySpendData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} stroke={chart.palette.tooltipBg} label={({name})=>name}>
+                {categorySpendData.map((_,i)=><Cell key={i} fill={chart.series[i%chart.series.length]}/>)}
               </Pie>
-              <Tooltip formatter={(v)=>`$${Number(v).toLocaleString()}`} contentStyle={{background:"#1a1a2e",border:"none",borderRadius:8}}/>
+              <Tooltip formatter={(v)=>`$${Number(v).toLocaleString()}`} {...chart.tooltip}/>
             </PieChart>
           </ResponsiveContainer>
         </div>
@@ -138,21 +148,21 @@ function OverviewContent() {
 
 function SuppliersTab() {
   return (
-    <div style={{...darkCard,background:"#0f0f0f",padding:0,overflow:"hidden"}}>
-      <table style={{width:"100%",borderCollapse:"collapse",fontSize:14,color:"#e5e7eb"}}>
-        <thead><tr style={{background:"rgba(255,255,255,0.06)"}}>
+    <div style={tableFrame}>
+      <table style={tableStyle}>
+        <thead><tr>
           {["ID","Name","Category","YTD Spend","Orders","On-Time %","Quality %"].map(h=>(
-            <th key={h} style={{padding:"12px 16px",textAlign:"left",fontSize:12,color:"rgba(255,255,255,0.5)",fontWeight:600}}>{h}</th>
+            <th key={h} scope="col" style={thStyle}>{h}</th>
           ))}
         </tr></thead>
-        <tbody>{SAMPLE_SUPPLIERS.map((s,i)=>(
-          <tr key={s.id} style={{borderBottom:"1px solid rgba(255,255,255,0.05)",background:i%2===0?"transparent":"rgba(255,255,255,0.02)"}}>
-            <td style={{padding:"12px 16px",color:"rgba(255,255,255,0.5)"}}>{s.id}</td>
+        <tbody>{SAMPLE_SUPPLIERS.map((s)=>(
+          <tr key={s.id} style={rowStyle}>
+            <td style={idCell}>{s.id}</td>
             <td style={{padding:"12px 16px",fontWeight:600}}>{s.name}</td>
             <td style={{padding:"12px 16px"}}>{s.category}</td>
             <td style={{padding:"12px 16px"}}>${s.spend.toLocaleString()}</td>
             <td style={{padding:"12px 16px"}}>{s.orders}</td>
-            <td style={{padding:"12px 16px"}}><span style={{color:s.onTime>=95?"#4ade80":s.onTime>=85?"#fbbf24":"#f87171"}}>{s.onTime}%</span></td>
+            <td style={{padding:"12px 16px"}}><span style={{fontWeight:600,color:s.onTime>=95?TONE.success.fg:s.onTime>=85?TONE.warning.fg:TONE.danger.fg}}>{s.onTime}%</span></td>
             <td style={{padding:"12px 16px"}}>{s.quality}%</td>
           </tr>
         ))}</tbody>
@@ -163,25 +173,25 @@ function SuppliersTab() {
 
 function OrdersTab() {
   return (
-    <div style={{...darkCard,background:"#0f0f0f",padding:0,overflow:"hidden"}}>
-      <table style={{width:"100%",borderCollapse:"collapse",fontSize:14,color:"#e5e7eb"}}>
-        <thead><tr style={{background:"rgba(255,255,255,0.06)"}}>
+    <div style={tableFrame}>
+      <table style={tableStyle}>
+        <thead><tr>
           {["PO #","Supplier","Item","Qty","Unit","Value","Raised","ETA","Status"].map(h=>(
-            <th key={h} style={{padding:"12px 16px",textAlign:"left",fontSize:12,color:"rgba(255,255,255,0.5)",fontWeight:600}}>{h}</th>
+            <th key={h} scope="col" style={thStyle}>{h}</th>
           ))}
         </tr></thead>
-        <tbody>{SAMPLE_ORDERS.map((o,i)=>(
-          <tr key={o.id} style={{borderBottom:"1px solid rgba(255,255,255,0.05)",background:i%2===0?"transparent":"rgba(255,255,255,0.02)"}}>
-            <td style={{padding:"12px 16px",color:"rgba(255,255,255,0.5)"}}>{o.id}</td>
+        <tbody>{SAMPLE_ORDERS.map((o)=>(
+          <tr key={o.id} style={rowStyle}>
+            <td style={idCell}>{o.id}</td>
             <td style={{padding:"12px 16px"}}>{o.supplier}</td>
             <td style={{padding:"12px 16px"}}>{o.item}</td>
             <td style={{padding:"12px 16px"}}>{o.qty}</td>
-            <td style={{padding:"12px 16px",color:"rgba(255,255,255,0.5)"}}>{o.unit}</td>
+            <td style={cellMuted}>{o.unit}</td>
             <td style={{padding:"12px 16px"}}>${o.value.toLocaleString()}</td>
-            <td style={{padding:"12px 16px",color:"rgba(255,255,255,0.5)"}}>{o.raised}</td>
-            <td style={{padding:"12px 16px",color:"rgba(255,255,255,0.5)"}}>{o.eta}</td>
+            <td style={cellMuted}>{o.raised}</td>
+            <td style={cellMuted}>{o.eta}</td>
             <td style={{padding:"12px 16px"}}>
-              <span style={{padding:"3px 10px",borderRadius:20,fontSize:12,fontWeight:600,background:o.status==="Delivered"?"rgba(74,222,128,0.15)":o.status==="Active"?"rgba(251,191,36,0.15)":"rgba(255,255,255,0.08)",color:o.status==="Delivered"?"#4ade80":o.status==="Active"?"#fbbf24":"rgba(255,255,255,0.5)"}}>{o.status}</span>
+              <span style={chip(o.status==="Delivered"?"success":o.status==="Active"?"warning":"inactive")}>{o.status}</span>
             </td>
           </tr>
         ))}</tbody>
@@ -192,26 +202,26 @@ function OrdersTab() {
 
 function InventoryTab() {
   return (
-    <div style={{...darkCard,background:"#0f0f0f",padding:0,overflow:"hidden"}}>
-      <table style={{width:"100%",borderCollapse:"collapse",fontSize:14,color:"#e5e7eb"}}>
-        <thead><tr style={{background:"rgba(255,255,255,0.06)"}}>
+    <div style={tableFrame}>
+      <table style={tableStyle}>
+        <thead><tr>
           {["SKU","Description","Category","Qty on Hand","Reorder Point","Stock Value","Location","Status"].map(h=>(
-            <th key={h} style={{padding:"12px 16px",textAlign:"left",fontSize:12,color:"rgba(255,255,255,0.5)",fontWeight:600}}>{h}</th>
+            <th key={h} scope="col" style={thStyle}>{h}</th>
           ))}
         </tr></thead>
-        <tbody>{SAMPLE_INVENTORY.map((item,i)=>{
+        <tbody>{SAMPLE_INVENTORY.map((item)=>{
           const low = item.qty<item.reorder;
           return (
-            <tr key={item.sku} style={{borderBottom:"1px solid rgba(255,255,255,0.05)",background:low?"rgba(248,113,113,0.05)":i%2===0?"transparent":"rgba(255,255,255,0.02)"}}>
-              <td style={{padding:"12px 16px",color:"rgba(255,255,255,0.5)"}}>{item.sku}</td>
+            <tr key={item.sku} style={{...rowStyle,background:low?TONE.danger.muted:"transparent"}}>
+              <td style={idCell}>{item.sku}</td>
               <td style={{padding:"12px 16px",fontWeight:600}}>{item.description}</td>
               <td style={{padding:"12px 16px"}}>{item.category}</td>
-              <td style={{padding:"12px 16px",color:low?"#f87171":"#e5e7eb"}}>{item.qty}</td>
-              <td style={{padding:"12px 16px",color:"rgba(255,255,255,0.5)"}}>{item.reorder}</td>
+              <td style={{padding:"12px 16px",color:low?TONE.danger.fg:"var(--text-primary)",fontWeight:low?600:400}}>{item.qty}</td>
+              <td style={cellMuted}>{item.reorder}</td>
               <td style={{padding:"12px 16px"}}>${item.value.toLocaleString()}</td>
-              <td style={{padding:"12px 16px",color:"rgba(255,255,255,0.5)"}}>{item.location}</td>
+              <td style={cellMuted}>{item.location}</td>
               <td style={{padding:"12px 16px"}}>
-                <span style={{padding:"3px 10px",borderRadius:20,fontSize:12,fontWeight:600,background:low?"rgba(248,113,113,0.15)":"rgba(74,222,128,0.15)",color:low?"#f87171":"#4ade80"}}>{low?"Reorder":"OK"}</span>
+                <span style={chip(low?"danger":"success")}>{low?"Reorder":"OK"}</span>
               </td>
             </tr>
           );
@@ -230,7 +240,6 @@ const INDUSTRY_TABS: IndustryTab[] = [
 export default function SupplyPage() {
   return (
     <DashboardShell
-      theme="dark"
       title="Supply Chain Intelligence"
       subtitle="Suppliers · Procurement · Inventory management"
       headerColor="#78350f"

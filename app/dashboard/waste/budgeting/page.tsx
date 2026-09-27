@@ -4,7 +4,8 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend,
   CartesianGrid, LineChart, Line, ReferenceLine,
 } from "recharts";
-import { KpiCard, Insight, SectionHeader, T1, T2, T3, BORDER, ROW_BDR, ROW_HEAD, GRID, TICK, DTT, DC, PAGE } from "../_dark";
+import { KpiCard, Insight, SectionHeader, T1, T2, T3, BORDER, ROW_BDR, ROW_HEAD, DC, PAGE, TRACK, legendText, useWasteChart } from "../_dark";
+import styles from "../WasteModule.module.css";
 
 const ANNUAL_BUDGET = 3_535_000;
 const YTD_MONTHS = 6;
@@ -56,6 +57,7 @@ const FORECAST_MONTHS = [
 const FULL_YEAR = [...MONTHLY_SPEND, ...FORECAST_MONTHS];
 
 export default function BudgetingPage() {
+  const chart = useWasteChart();
   const ytdActual    = CATEGORY_DATA.reduce((s, r) => s + r.ytdActual, 0);
   const ytdVariance  = ytdActual - YTD_BUDGET;
   const pctUsed      = +((ytdActual / ANNUAL_BUDGET) * 100).toFixed(1);
@@ -73,14 +75,14 @@ export default function BudgetingPage() {
 
       <p style={{ fontSize: 13, color: T3, margin: 0 }}>Financial Year 2025–26 &nbsp;·&nbsp; YTD: Oct 2025 – Mar 2026 &nbsp;·&nbsp; As at {today}</p>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 20 }}>
-        <KpiCard label="Annual Budget"       value={`$${ANNUAL_BUDGET.toLocaleString()}`}               sub="FY 2025–26 approved budget"              accent="#3b82f6" />
-        <KpiCard label="YTD Actual"          value={`$${ytdActual.toLocaleString()}`}                   sub={`${YTD_MONTHS} months (Oct 25 – Mar 26)`} accent="#8b5cf6" />
-        <KpiCard label="YTD Variance"        value={fmt(ytdVariance)}                                   sub={ytdVariance > 0 ? "Over YTD budget" : "Under YTD budget"} accent={ytdVariance > 0 ? "#ef4444" : "#10b981"} />
-        <KpiCard label="Full-Year Forecast"  value={`$${Math.round(annualForecast).toLocaleString()}`}  sub={`${fmt(Math.round(forecastVar))} vs budget`} accent={forecastVar > 0 ? "#ef4444" : "#10b981"} />
+      <div className={styles.kpiGrid}>
+        <KpiCard label="Annual Budget"       value={`$${ANNUAL_BUDGET.toLocaleString()}`}               sub="FY 2025–26 approved budget"              accent={chart.series("#3b82f6")} />
+        <KpiCard label="YTD Actual"          value={`$${ytdActual.toLocaleString()}`}                   sub={`${YTD_MONTHS} months (Oct 25 – Mar 26)`} accent="var(--border-strong)" />
+        <KpiCard label="YTD Variance"        value={fmt(ytdVariance)}                                   sub={ytdVariance > 0 ? "Over YTD budget" : "Under YTD budget"} accent={chart.series(ytdVariance > 0 ? "#ef4444" : "#10b981")} />
+        <KpiCard label="Full-Year Forecast"  value={`$${Math.round(annualForecast).toLocaleString()}`}  sub={`${fmt(Math.round(forecastVar))} vs budget`} accent={chart.series(forecastVar > 0 ? "#ef4444" : "#10b981")} />
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 20 }}>
+      <div className={styles.grid3}>
         <Insight icon="📈" color={ytdVariance > 0 ? "red" : "green"}
           title={`YTD spend ${ytdVariance > 0 ? "over" : "under"} by $${Math.abs(ytdVariance).toLocaleString()}`}
           body={`${pctUsed}% of annual budget consumed in ${YTD_MONTHS} months (${(100/12*YTD_MONTHS).toFixed(0)}% of year elapsed). Summer peaks in Jan–Feb drove the overspend.`}
@@ -95,19 +97,19 @@ export default function BudgetingPage() {
         />
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
+      <div className={styles.grid2}>
         <div style={DC}>
           <SectionHeader title="Monthly Spend vs Budget" sub="Actual Oct 25 – Mar 26 + forecast to Sep 26 (lighter bars)" />
           <ResponsiveContainer width="100%" height={280}>
             <BarChart data={FULL_YEAR} barCategoryGap="25%">
-              <CartesianGrid strokeDasharray="3 3" stroke={GRID} vertical={false} />
-              <XAxis dataKey="month" tick={{ fill: TICK, fontSize: 10 }} axisLine={false} tickLine={false} />
-              <YAxis tickFormatter={v => `$${(v/1000).toFixed(0)}k`} tick={{ fill: TICK, fontSize: 11 }} axisLine={false} tickLine={false} />
-              <Tooltip formatter={v => `$${Number(v).toLocaleString()}`} contentStyle={DTT} />
-              <Legend wrapperStyle={{ fontSize: 12, color: T2 }} />
-              <Bar dataKey="actual"   name="Actual"   fill="#3b82f6" fillOpacity={1}   radius={[3,3,0,0]} />
-              <Bar dataKey="forecast" name="Forecast" fill="#3b82f6" fillOpacity={0.35} radius={[3,3,0,0]} />
-              <Bar dataKey="budget"   name="Budget"   fill="#f59e0b" fillOpacity={0.5}  radius={[3,3,0,0]} />
+              <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} vertical={false} />
+              <XAxis dataKey="month" tick={{ fill: chart.tick.fill, fontSize: 10 }} axisLine={false} tickLine={false} />
+              <YAxis tickFormatter={v => `$${(v/1000).toFixed(0)}k`} tick={{ fill: chart.tick.fill, fontSize: 11 }} axisLine={false} tickLine={false} />
+              <Tooltip formatter={v => `$${Number(v).toLocaleString()}`} {...chart.tooltip} />
+              <Legend wrapperStyle={{ fontSize: 12 }} formatter={legendText} />
+              <Bar dataKey="actual"   name="Actual"   fill={chart.series("#3b82f6")} fillOpacity={1}   radius={[3,3,0,0]} />
+              <Bar dataKey="forecast" name="Forecast" fill={chart.series("#3b82f6")} fillOpacity={0.35} radius={[3,3,0,0]} />
+              <Bar dataKey="budget"   name="Budget"   fill={chart.series("#f59e0b")} fillOpacity={0.5}  radius={[3,3,0,0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -116,13 +118,13 @@ export default function BudgetingPage() {
           <SectionHeader title="YTD Budget vs Actual by Category" sub="Oct 2025 – Mar 2026" />
           <ResponsiveContainer width="100%" height={280}>
             <BarChart data={CATEGORY_DATA} barCategoryGap="25%">
-              <CartesianGrid strokeDasharray="3 3" stroke={GRID} vertical={false} />
-              <XAxis dataKey="category" tick={{ fill: TICK, fontSize: 12 }} axisLine={false} tickLine={false} />
-              <YAxis tickFormatter={v => `$${(v/1000).toFixed(0)}k`} tick={{ fill: TICK, fontSize: 11 }} axisLine={false} tickLine={false} />
-              <Tooltip formatter={v => `$${Number(v).toLocaleString()}`} contentStyle={DTT} />
-              <Legend wrapperStyle={{ fontSize: 12, color: T2 }} />
-              <Bar dataKey="ytdBudget" name="YTD Budget" fill="rgba(255,255,255,0.2)" radius={[3,3,0,0]} />
-              <Bar dataKey="ytdActual" name="YTD Actual" fill="#3b82f6" radius={[3,3,0,0]} />
+              <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} vertical={false} />
+              <XAxis dataKey="category" tick={{ fill: chart.tick.fill, fontSize: 12 }} axisLine={false} tickLine={false} />
+              <YAxis tickFormatter={v => `$${(v/1000).toFixed(0)}k`} tick={{ fill: chart.tick.fill, fontSize: 11 }} axisLine={false} tickLine={false} />
+              <Tooltip formatter={v => `$${Number(v).toLocaleString()}`} {...chart.tooltip} />
+              <Legend wrapperStyle={{ fontSize: 12 }} formatter={legendText} />
+              <Bar dataKey="ytdBudget" name="YTD Budget" fill={chart.palette.comparison} radius={[3,3,0,0]} />
+              <Bar dataKey="ytdActual" name="YTD Actual" fill={chart.series("#3b82f6")} radius={[3,3,0,0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -132,22 +134,22 @@ export default function BudgetingPage() {
         <SectionHeader title="Budget vs Actual by Zone (This Period)" sub="Red = over budget · Green = under budget" />
         <ResponsiveContainer width="100%" height={270}>
           <BarChart data={ZONE_BUDGET_DATA} barCategoryGap="20%">
-            <CartesianGrid strokeDasharray="3 3" stroke={GRID} vertical={false} />
-            <XAxis dataKey="shortId" tick={{ fill: TICK, fontSize: 11 }} axisLine={false} tickLine={false} />
-            <YAxis tickFormatter={v => `$${(v/1000).toFixed(0)}k`} tick={{ fill: TICK, fontSize: 11 }} axisLine={false} tickLine={false} />
-            <Tooltip formatter={v => `$${Number(v).toLocaleString()}`} contentStyle={DTT} />
-            <Legend wrapperStyle={{ fontSize: 12, color: T2 }} />
-            <Bar dataKey="budget" name="Budget" fill="rgba(255,255,255,0.2)" radius={[3,3,0,0]} />
+            <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} vertical={false} />
+            <XAxis dataKey="shortId" tick={{ fill: chart.tick.fill, fontSize: 11 }} axisLine={false} tickLine={false} />
+            <YAxis tickFormatter={v => `$${(v/1000).toFixed(0)}k`} tick={{ fill: chart.tick.fill, fontSize: 11 }} axisLine={false} tickLine={false} />
+            <Tooltip formatter={v => `$${Number(v).toLocaleString()}`} {...chart.tooltip} />
+            <Legend wrapperStyle={{ fontSize: 12 }} formatter={legendText} />
+            <Bar dataKey="budget" name="Budget" fill={chart.palette.comparison} radius={[3,3,0,0]} />
             <Bar dataKey="actual" name="Actual" radius={[3,3,0,0]}>
               {ZONE_BUDGET_DATA.map((r, i) => (
-                <rect key={i} fill={r.variance > 0 ? "#ef4444" : "#10b981"} />
+                <rect key={i} fill={chart.series(r.variance > 0 ? "#ef4444" : "#10b981")} />
               ))}
             </Bar>
           </BarChart>
         </ResponsiveContainer>
       </div>
 
-      <div style={{ ...DC, padding: 0, overflow: "hidden" }}>
+      <div style={{ ...DC, padding: 0, overflowX: "auto" }}>
         <div style={{ padding: "16px 20px", borderBottom: `1px solid ${BORDER}` }}>
           <SectionHeader title="Category Budget Summary" sub="FY 2025–26 annual budget and YTD performance" />
         </div>
@@ -155,7 +157,7 @@ export default function BudgetingPage() {
           <thead>
             <tr style={{ background: ROW_HEAD }}>
               {["Category","Annual Budget","YTD Budget","YTD Actual","Variance","% Used","Remaining"].map((h, i) => (
-                <th key={h} style={{ padding: "10px 14px", fontWeight: 600, fontSize: 10, color: T3, textTransform: "uppercase", letterSpacing: ".06em", textAlign: i === 0 ? "left" : "right" }}>{h}</th>
+                <th key={h} scope="col" style={{ padding: "10px 14px", fontWeight: 600, fontSize: 11, color: T3, textTransform: "uppercase", letterSpacing: ".06em", textAlign: i === 0 ? "left" : "right" }}>{h}</th>
               ))}
             </tr>
           </thead>
@@ -167,14 +169,14 @@ export default function BudgetingPage() {
                 <td style={{ padding: "10px 14px", textAlign: "right", color: T2 }}>${row.ytdBudget.toLocaleString()}</td>
                 <td style={{ padding: "10px 14px", textAlign: "right", color: T1, fontWeight: 600 }}>${row.ytdActual.toLocaleString()}</td>
                 <td style={{ padding: "10px 14px", textAlign: "right" }}>
-                  <span style={{ fontWeight: 600, color: row.variance > 0 ? "#f87171" : "#4ade80" }}>{fmt(row.variance)}</span>
+                  <span style={{ fontWeight: 600, color: row.variance > 0 ? "var(--status-danger)" : "var(--status-success)" }}>{fmt(row.variance)}</span>
                 </td>
                 <td style={{ padding: "10px 14px", textAlign: "right" }}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8 }}>
-                    <div style={{ width: 64, height: 6, background: "rgba(255,255,255,0.08)", borderRadius: 999, overflow: "hidden" }}>
-                      <div style={{ height: "100%", borderRadius: 999, width: `${Math.min(row.pctUsed, 100)}%`, background: row.pctUsed > 55 ? "#ef4444" : "#10b981" }} />
+                    <div style={{ width: 64, height: 6, background: TRACK, borderRadius: 999, overflow: "hidden" }}>
+                      <div style={{ height: "100%", borderRadius: 999, width: `${Math.min(row.pctUsed, 100)}%`, background: chart.series(row.pctUsed > 55 ? "#ef4444" : "#10b981") }} />
                     </div>
-                    <span style={{ fontWeight: 500, color: row.pctUsed > 55 ? "#f87171" : "#4ade80" }}>{row.pctUsed}%</span>
+                    <span style={{ fontWeight: 500, color: row.pctUsed > 55 ? "var(--status-danger)" : "var(--status-success)" }}>{row.pctUsed}%</span>
                   </div>
                 </td>
                 <td style={{ padding: "10px 14px", textAlign: "right", color: T2 }}>${row.remaining.toLocaleString()}</td>
@@ -182,20 +184,20 @@ export default function BudgetingPage() {
             ))}
           </tbody>
           <tfoot>
-            <tr style={{ background: ROW_HEAD, borderTop: `2px solid rgba(255,255,255,0.1)` }}>
+            <tr style={{ background: ROW_HEAD, borderTop: `2px solid var(--border-strong)` }}>
               <td style={{ padding: "10px 14px", color: T1, fontWeight: 600 }}>Total</td>
               <td style={{ padding: "10px 14px", textAlign: "right", color: T1, fontWeight: 600 }}>${ANNUAL_BUDGET.toLocaleString()}</td>
               <td style={{ padding: "10px 14px", textAlign: "right", color: T1, fontWeight: 600 }}>${YTD_BUDGET.toLocaleString()}</td>
               <td style={{ padding: "10px 14px", textAlign: "right", color: T1, fontWeight: 600 }}>${ytdActual.toLocaleString()}</td>
-              <td style={{ padding: "10px 14px", textAlign: "right" }}><span style={{ fontWeight: 600, color: ytdVariance > 0 ? "#f87171" : "#4ade80" }}>{fmt(ytdVariance)}</span></td>
-              <td style={{ padding: "10px 14px", textAlign: "right" }}><span style={{ color: pctUsed > 55 ? "#f87171" : "#4ade80" }}>{pctUsed}%</span></td>
+              <td style={{ padding: "10px 14px", textAlign: "right" }}><span style={{ fontWeight: 600, color: ytdVariance > 0 ? "var(--status-danger)" : "var(--status-success)" }}>{fmt(ytdVariance)}</span></td>
+              <td style={{ padding: "10px 14px", textAlign: "right" }}><span style={{ color: pctUsed > 55 ? "var(--status-danger)" : "var(--status-success)" }}>{pctUsed}%</span></td>
               <td style={{ padding: "10px 14px", textAlign: "right", color: T1, fontWeight: 600 }}>${(ANNUAL_BUDGET - ytdActual).toLocaleString()}</td>
             </tr>
           </tfoot>
         </table>
       </div>
 
-      <div style={{ ...DC, padding: 0, overflow: "hidden" }}>
+      <div style={{ ...DC, padding: 0, overflowX: "auto" }}>
         <div style={{ padding: "16px 20px", borderBottom: `1px solid ${BORDER}` }}>
           <SectionHeader title="Zone Budget vs Actual (This Period)" />
         </div>
@@ -203,19 +205,19 @@ export default function BudgetingPage() {
           <thead>
             <tr style={{ background: ROW_HEAD }}>
               {["Zone","Budget","Actual","Variance","Status"].map((h, i) => (
-                <th key={h} style={{ padding: "10px 14px", fontWeight: 600, fontSize: 10, color: T3, textTransform: "uppercase", letterSpacing: ".06em", textAlign: i === 0 ? "left" : "right" }}>{h}</th>
+                <th key={h} scope="col" style={{ padding: "10px 14px", fontWeight: 600, fontSize: 11, color: T3, textTransform: "uppercase", letterSpacing: ".06em", textAlign: i === 0 ? "left" : "right" }}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {ZONE_BUDGET_DATA.map((row, i) => (
-              <tr key={i} style={{ borderTop: `1px solid ${ROW_BDR}`, background: row.variance > 0 ? "rgba(239,68,68,0.06)" : "transparent" }}>
+              <tr key={i} style={{ borderTop: `1px solid ${ROW_BDR}`, background: row.variance > 0 ? "var(--status-danger-muted)" : "transparent" }}>
                 <td style={{ padding: "10px 14px", color: T1, fontWeight: 500 }}>{row.zone}</td>
                 <td style={{ padding: "10px 14px", textAlign: "right", color: T2 }}>${row.budget.toLocaleString()}</td>
                 <td style={{ padding: "10px 14px", textAlign: "right", color: T1, fontWeight: 600 }}>${row.actual.toLocaleString()}</td>
-                <td style={{ padding: "10px 14px", textAlign: "right" }}><span style={{ fontWeight: 600, color: row.variance > 0 ? "#f87171" : "#4ade80" }}>{fmt(row.variance)}</span></td>
+                <td style={{ padding: "10px 14px", textAlign: "right" }}><span style={{ fontWeight: 600, color: row.variance > 0 ? "var(--status-danger)" : "var(--status-success)" }}>{fmt(row.variance)}</span></td>
                 <td style={{ padding: "10px 14px", textAlign: "right" }}>
-                  <span style={{ fontSize: 11, fontWeight: 600, padding: "3px 10px", borderRadius: 999, background: row.variance > 0 ? "rgba(239,68,68,0.12)" : "rgba(74,222,128,0.12)", color: row.variance > 0 ? "#f87171" : "#4ade80", border: `1px solid ${row.variance > 0 ? "rgba(239,68,68,0.25)" : "rgba(74,222,128,0.25)"}` }}>
+                  <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: "var(--radius-sm)", background: row.variance > 0 ? "var(--status-danger-muted)" : "var(--status-success-muted)", color: row.variance > 0 ? "var(--status-danger)" : "var(--status-success)", border: `1px solid ${row.variance > 0 ? "var(--status-danger-border)" : "var(--status-success-border)"}` }}>
                     {row.variance > 0 ? "Over Budget" : "On Budget"}
                   </span>
                 </td>

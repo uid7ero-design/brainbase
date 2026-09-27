@@ -2,12 +2,20 @@
 
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from "recharts";
 import DashboardShell, { KPI, MonthlyPoint, CostAccount, SLATarget, Action, IndustryTab, InsightCard } from "@/components/dashboard/DashboardShell";
+import { useDashboardChart, type DashboardChart } from "@/components/dashboard/ui/chartTheme";
 
-const C = { green:"#22c55e", blue:"#3b82f6", amber:"#f59e0b", red:"#ef4444", slate:"#94a3b8", teal:"#14b8a6" };
-const TT = { background:"#0d0f14", border:"1px solid rgba(255,255,255,0.08)", borderRadius:10 };
-const T1 = "#F5F7FA", T2 = "rgba(230,237,243,0.55)", T3 = "rgba(230,237,243,0.35)";
-const DC: React.CSSProperties = { background:"rgba(255,255,255,0.03)", border:"1px solid rgba(255,255,255,0.07)", borderRadius:14, padding:24 };
-const BORDER = "rgba(255,255,255,0.07)", ROW_BDR = "rgba(255,255,255,0.05)", GRID = "rgba(255,255,255,0.05)", TICK = "rgba(255,255,255,0.4)";
+// Authenticated visual-completion pass: HTML colours are theme tokens (status
+// tokens are AA as text in both themes); SVG chart marks resolve the same
+// keys through the theme-aware chart palette (chartColors).
+const C = { green:"var(--status-success)", blue:"var(--status-info)", amber:"var(--status-warning)", red:"var(--status-danger)", slate:"var(--text-muted)", teal:"var(--status-info)" };
+type ColorKey = keyof typeof C;
+function chartColors(chart: DashboardChart): Record<ColorKey, string> {
+  const p = chart.palette;
+  return { green:p.success, blue:p.info, amber:p.warning, red:p.danger, slate:p.neutral, teal:p.info };
+}
+const T1 = "var(--text-primary)", T2 = "var(--text-secondary)", T3 = "var(--text-muted)";
+const DC: React.CSSProperties = { background:"var(--bg-surface)", border:"1px solid var(--border)", borderRadius:8, padding:24 };
+const BORDER = "var(--border)", ROW_BDR = "var(--border)", STRIPE = "var(--bg-sunken)", TRACK = "var(--bg-sunken)";
 const fmt = (n:number) => `$${n.toLocaleString("en-AU",{maximumFractionDigits:0})}`;
 
 type Reserve = { id:string; name:string; suburb:string; area:number; type:string; contractor:string; mowFreq:string; lastMow:string; condition:number; irrigated:boolean; annualCost:number };
@@ -56,9 +64,9 @@ const MONTHLY_COST = [
   {month:"Mar",mowing:82000,irrigation:32000,maintenance:40000},
 ];
 
-const CONDITION_DIST = [
-  {name:"Excellent",value:22,fill:C.green},{name:"Good",value:44,fill:C.blue},
-  {name:"Fair",value:26,fill:C.amber},{name:"Poor",value:8,fill:C.red},
+const CONDITION_DIST: {name:string;value:number;fill:ColorKey}[] = [
+  {name:"Excellent",value:22,fill:"green"},{name:"Good",value:44,fill:"blue"},
+  {name:"Fair",value:26,fill:"amber"},{name:"Poor",value:8,fill:"red"},
 ];
 
 const MOWING_SCHEDULE = [
@@ -148,6 +156,8 @@ function StatCard({label,value,sub,color}:{label:string;value:string;sub:string;
 }
 
 function OverviewContent() {
+  const chart = useDashboardChart();
+  const P = chartColors(chart);
   const totalArea = SAMPLE_RESERVES.reduce((s,r)=>s+r.area,0).toFixed(1);
   const totalCost = SAMPLE_RESERVES.reduce((s,r)=>s+r.annualCost,0);
   const avgCondition = (SAMPLE_RESERVES.reduce((s,r)=>s+r.condition,0)/SAMPLE_RESERVES.length).toFixed(1);
@@ -164,12 +174,12 @@ function OverviewContent() {
           <p style={{fontWeight:700,marginBottom:20,color:T1}}>Monthly Maintenance Cost by Category</p>
           <ResponsiveContainer width="100%" height={220}>
             <BarChart data={MONTHLY_COST}>
-              <CartesianGrid strokeDasharray="3 3" stroke={GRID}/>
-              <XAxis dataKey="month" tick={{fill:TICK,fontSize:12}}/><YAxis tickFormatter={v=>`$${(v/1000).toFixed(0)}k`} tick={{fill:TICK,fontSize:12}}/>
-              <Tooltip contentStyle={TT} formatter={(v)=>typeof v==="number"?fmt(v):v}/><Legend wrapperStyle={{color:T2}}/>
-              <Bar dataKey="mowing" fill={C.green} name="Mowing" stackId="a"/>
-              <Bar dataKey="irrigation" fill={C.blue} name="Irrigation" stackId="a"/>
-              <Bar dataKey="maintenance" fill={C.amber} name="Maintenance" stackId="a" radius={[4,4,0,0]}/>
+              <CartesianGrid strokeDasharray="3 3" stroke={chart.grid}/>
+              <XAxis dataKey="month" tick={chart.tick}/><YAxis tickFormatter={v=>`$${(v/1000).toFixed(0)}k`} tick={chart.tick}/>
+              <Tooltip {...chart.tooltip} formatter={(v)=>typeof v==="number"?fmt(v):v}/><Legend wrapperStyle={chart.legend}/>
+              <Bar dataKey="mowing" fill={P.green} name="Mowing" stackId="a"/>
+              <Bar dataKey="irrigation" fill={P.blue} name="Irrigation" stackId="a"/>
+              <Bar dataKey="maintenance" fill={P.amber} name="Maintenance" stackId="a" radius={[4,4,0,0]}/>
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -178,9 +188,9 @@ function OverviewContent() {
           <ResponsiveContainer width="100%" height={220}>
             <PieChart>
               <Pie data={CONDITION_DIST} cx="50%" cy="50%" innerRadius={55} outerRadius={85} dataKey="value">
-                {CONDITION_DIST.map((e,i)=><Cell key={i} fill={e.fill}/>)}
+                {CONDITION_DIST.map((e,i)=><Cell key={i} fill={P[e.fill]}/>)}
               </Pie>
-              <Tooltip contentStyle={TT} formatter={(v)=>typeof v==="number"?`${v}%`:v}/><Legend wrapperStyle={{color:T2}}/>
+              <Tooltip {...chart.tooltip} formatter={(v)=>typeof v==="number"?`${v}%`:v}/><Legend wrapperStyle={chart.legend}/>
             </PieChart>
           </ResponsiveContainer>
         </div>
@@ -189,7 +199,7 @@ function OverviewContent() {
   );
 }
 
-function tableRow(i:number) { return {borderBottom:`1px solid ${ROW_BDR}`,background:i%2===0?"transparent":"rgba(255,255,255,0.02)"} as React.CSSProperties; }
+function tableRow(i:number) { return {borderBottom:`1px solid ${ROW_BDR}`,background:i%2===0?"transparent":STRIPE} as React.CSSProperties; }
 function tableHead(cols:string[]) {
   return (
     <thead><tr style={{borderBottom:`2px solid ${BORDER}`}}>
@@ -206,7 +216,7 @@ function ReservesTab() {
         <tbody>
           {SAMPLE_RESERVES.map((r,i)=>(
             <tr key={r.id} style={tableRow(i)}>
-              <td style={{padding:"11px 9px",fontFamily:"monospace",fontWeight:700,color:T2}}>{r.id}</td>
+              <td style={{padding:"11px 9px",fontFamily:"var(--bb-font-mono)",fontWeight:700,color:T2}}>{r.id}</td>
               <td style={{padding:"11px 9px",fontWeight:600,color:T1}}>{r.name}</td>
               <td style={{padding:"11px 9px",color:T2}}>{r.suburb}</td>
               <td style={{padding:"11px 9px",color:T2}}>{r.area}</td>
@@ -215,7 +225,7 @@ function ReservesTab() {
               <td style={{padding:"11px 9px",color:T2}}>{r.mowFreq}</td>
               <td style={{padding:"11px 9px",color:T2}}>{r.lastMow}</td>
               <td style={{padding:"11px 9px"}}>
-                <div style={{display:"flex",gap:3}}>{[1,2,3,4,5].map(n=><div key={n} style={{width:8,height:8,borderRadius:2,background:n<=r.condition?C.green:"rgba(255,255,255,0.1)"}}/>)}</div>
+                <div style={{display:"flex",gap:3}}>{[1,2,3,4,5].map(n=><div key={n} style={{width:8,height:8,borderRadius:2,background:n<=r.condition?C.green:TRACK}}/>)}</div>
               </td>
               <td style={{padding:"11px 9px"}}><span style={{color:r.irrigated?C.blue:T3}}>{r.irrigated?"Yes":"No"}</span></td>
               <td style={{padding:"11px 9px",fontWeight:600,color:T1}}>{fmt(r.annualCost)}</td>
@@ -228,15 +238,17 @@ function ReservesTab() {
 }
 
 function ContractorsTab() {
+  const chart = useDashboardChart();
+  const P = chartColors(chart);
   return (<>
     <div style={{...DC,marginBottom:20}}>
       <p style={{fontWeight:700,marginBottom:20,color:T1}}>Contractor On-Time Performance</p>
       <ResponsiveContainer width="100%" height={180}>
         <BarChart data={SAMPLE_CONTRACTORS} layout="vertical">
-          <XAxis type="number" domain={[0,100]} tick={{fill:TICK,fontSize:12}} tickFormatter={v=>`${v}%`}/>
-          <YAxis dataKey="name" type="category" tick={{fill:TICK,fontSize:12}} width={100}/>
-          <Tooltip contentStyle={TT} formatter={(v)=>typeof v==="number"?`${v}%`:v}/>
-          <Bar dataKey="onTimePct" fill={C.green} name="On-Time %" radius={[0,4,4,0]}/>
+          <XAxis type="number" domain={[0,100]} tick={chart.tick} tickFormatter={v=>`${v}%`}/>
+          <YAxis dataKey="name" type="category" tick={chart.tick} width={100}/>
+          <Tooltip {...chart.tooltip} formatter={(v)=>typeof v==="number"?`${v}%`:v}/>
+          <Bar dataKey="onTimePct" fill={P.green} name="On-Time %" radius={[0,4,4,0]}/>
         </BarChart>
       </ResponsiveContainer>
     </div>
@@ -269,16 +281,16 @@ function WorkOrdersTab() {
         <tbody>
           {SAMPLE_WORK_ORDERS.map((w,i)=>(
             <tr key={w.id} style={tableRow(i)}>
-              <td style={{padding:"12px",fontFamily:"monospace",fontWeight:700,color:T1}}>{w.id}</td>
+              <td style={{padding:"12px",fontFamily:"var(--bb-font-mono)",fontWeight:700,color:T1}}>{w.id}</td>
               <td style={{padding:"12px",color:T2}}>{w.reserve}</td>
               <td style={{padding:"12px",fontWeight:600,color:T1}}>{w.type}</td>
               <td style={{padding:"12px",color:T2,fontSize:12}}>{w.description}</td>
               <td style={{padding:"12px"}}>
-                <span style={{padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:700,background:w.priority==="Critical"?"rgba(239,68,68,0.15)":w.priority==="High"?"rgba(245,158,11,0.15)":"rgba(100,116,139,0.2)",color:w.priority==="Critical"?C.red:w.priority==="High"?C.amber:C.slate}}>{w.priority}</span>
+                <span style={{padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:700,background:w.priority==="Critical"?"var(--status-danger-muted)":w.priority==="High"?"var(--status-warning-muted)":"var(--status-inactive-muted)",color:w.priority==="Critical"?C.red:w.priority==="High"?C.amber:C.slate}}>{w.priority}</span>
               </td>
               <td style={{padding:"12px",fontWeight:600,color:T1}}>{fmt(w.cost)}</td>
               <td style={{padding:"12px"}}>
-                <span style={{padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:700,background:w.status==="Complete"?"rgba(16,185,129,0.15)":w.status==="In Progress"?"rgba(59,130,246,0.15)":"rgba(100,116,139,0.2)",color:w.status==="Complete"?C.green:w.status==="In Progress"?C.blue:C.slate}}>{w.status}</span>
+                <span style={{padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:700,background:w.status==="Complete"?"var(--status-success-muted)":w.status==="In Progress"?"var(--status-info-muted)":"var(--status-inactive-muted)",color:w.status==="Complete"?C.green:w.status==="In Progress"?C.blue:C.slate}}>{w.status}</span>
               </td>
               <td style={{padding:"12px",color:T2}}>{w.scheduled}</td>
             </tr>
@@ -304,7 +316,7 @@ function IrrigationTab() {
               <td style={{padding:"12px",color:T2,fontSize:12}}>{ir.schedule}</td>
               <td style={{padding:"12px",color:T2}}>{ir.lastRun}</td>
               <td style={{padding:"12px"}}>
-                <span style={{padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:700,background:ir.status==="OK"?"rgba(16,185,129,0.15)":ir.status==="Fault"?"rgba(239,68,68,0.15)":"rgba(245,158,11,0.15)",color:ir.status==="OK"?C.green:ir.status==="Fault"?C.red:C.amber}}>{ir.status}</span>
+                <span style={{padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:700,background:ir.status==="OK"?"var(--status-success-muted)":ir.status==="Fault"?"var(--status-danger-muted)":"var(--status-warning-muted)",color:ir.status==="OK"?C.green:ir.status==="Fault"?C.red:C.amber}}>{ir.status}</span>
               </td>
             </tr>
           ))}
@@ -358,15 +370,15 @@ function CustomerRequestsTab() {
         <tbody>
           {CUSTOMER_REQUESTS.map((r,i)=>(
             <tr key={r.id} style={tableRow(i)}>
-              <td style={{padding:"12px",fontFamily:"monospace",fontWeight:700,color:T1}}>{r.id}</td>
+              <td style={{padding:"12px",fontFamily:"var(--bb-font-mono)",fontWeight:700,color:T1}}>{r.id}</td>
               <td style={{padding:"12px",color:T2}}>{r.reserve}</td>
               <td style={{padding:"12px",color:T1}}>{r.type}</td>
               <td style={{padding:"12px",color:T2,fontSize:12}}>{r.description}</td>
               <td style={{padding:"12px"}}>
-                <span style={{padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:700,background:r.priority==="High"?"rgba(239,68,68,0.15)":r.priority==="Medium"?"rgba(245,158,11,0.15)":"rgba(16,185,129,0.15)",color:r.priority==="High"?C.red:r.priority==="Medium"?C.amber:C.green}}>{r.priority}</span>
+                <span style={{padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:700,background:r.priority==="High"?"var(--status-danger-muted)":r.priority==="Medium"?"var(--status-warning-muted)":"var(--status-success-muted)",color:r.priority==="High"?C.red:r.priority==="Medium"?C.amber:C.green}}>{r.priority}</span>
               </td>
               <td style={{padding:"12px"}}>
-                <span style={{padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:700,background:r.status==="Complete"||r.status==="Approved"?"rgba(16,185,129,0.15)":r.status==="In Progress"||r.status==="Scheduled"?"rgba(59,130,246,0.15)":"rgba(100,116,139,0.2)",color:r.status==="Complete"||r.status==="Approved"?C.green:r.status==="In Progress"||r.status==="Scheduled"?C.blue:C.slate}}>{r.status}</span>
+                <span style={{padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:700,background:r.status==="Complete"||r.status==="Approved"?"var(--status-success-muted)":r.status==="In Progress"||r.status==="Scheduled"?"var(--status-info-muted)":"var(--status-inactive-muted)",color:r.status==="Complete"||r.status==="Approved"?C.green:r.status==="In Progress"||r.status==="Scheduled"?C.blue:C.slate}}>{r.status}</span>
               </td>
               <td style={{padding:"12px",color:T2}}>{r.raised}</td>
             </tr>
@@ -378,17 +390,19 @@ function CustomerRequestsTab() {
 }
 
 function ReactiveVsPlannedTab() {
+  const chart = useDashboardChart();
+  const P = chartColors(chart);
   return (<>
     <div style={{...DC,marginBottom:20}}>
       <p style={{fontWeight:700,marginBottom:8,color:T1}}>Reactive vs Planned Maintenance Spend</p>
       <p style={{fontSize:12,color:T3,marginBottom:20}}>Target: reactive maintenance &lt; 30% of total spend.</p>
       <ResponsiveContainer width="100%" height={240}>
         <BarChart data={REACTIVE_VS_PLANNED}>
-          <CartesianGrid strokeDasharray="3 3" stroke={GRID}/>
-          <XAxis dataKey="month" tick={{fill:TICK,fontSize:12}}/><YAxis tickFormatter={v=>`$${(v/1000).toFixed(0)}k`} tick={{fill:TICK,fontSize:12}}/>
-          <Tooltip contentStyle={TT} formatter={(v)=>typeof v==="number"?fmt(v):v}/><Legend wrapperStyle={{color:T2}}/>
-          <Bar dataKey="planned" fill={C.green} name="Planned" stackId="a"/>
-          <Bar dataKey="reactive" fill={C.red} name="Reactive" stackId="a" radius={[4,4,0,0]}/>
+          <CartesianGrid strokeDasharray="3 3" stroke={chart.grid}/>
+          <XAxis dataKey="month" tick={chart.tick}/><YAxis tickFormatter={v=>`$${(v/1000).toFixed(0)}k`} tick={chart.tick}/>
+          <Tooltip {...chart.tooltip} formatter={(v)=>typeof v==="number"?fmt(v):v}/><Legend wrapperStyle={chart.legend}/>
+          <Bar dataKey="planned" fill={P.green} name="Planned" stackId="a"/>
+          <Bar dataKey="reactive" fill={P.red} name="Reactive" stackId="a" radius={[4,4,0,0]}/>
         </BarChart>
       </ResponsiveContainer>
     </div>
@@ -401,15 +415,17 @@ function ReactiveVsPlannedTab() {
 }
 
 function CostPerReserveTab() {
+  const chart = useDashboardChart();
+  const P = chartColors(chart);
   return (<>
     <div style={{...DC,marginBottom:20}}>
       <p style={{fontWeight:700,marginBottom:20,color:T1}}>Cost per Hectare by Reserve</p>
       <ResponsiveContainer width="100%" height={220}>
         <BarChart data={COST_PER_RESERVE} layout="vertical">
-          <XAxis type="number" tickFormatter={v=>`$${(v/1000).toFixed(0)}k`} tick={{fill:TICK,fontSize:12}}/>
-          <YAxis dataKey="name" type="category" tick={{fill:TICK,fontSize:11}} width={110}/>
-          <Tooltip contentStyle={TT} formatter={(v)=>typeof v==="number"?fmt(v):v}/>
-          <Bar dataKey="costPerHa" fill={C.teal} name="Cost / ha" radius={[0,4,4,0]}/>
+          <XAxis type="number" tickFormatter={v=>`$${(v/1000).toFixed(0)}k`} tick={chart.tick}/>
+          <YAxis dataKey="name" type="category" tick={{...chart.tick,fontSize:11}} width={110}/>
+          <Tooltip {...chart.tooltip} formatter={(v)=>typeof v==="number"?fmt(v):v}/>
+          <Bar dataKey="costPerHa" fill={P.teal} name="Cost / ha" radius={[0,4,4,0]}/>
         </BarChart>
       </ResponsiveContainer>
     </div>
@@ -449,7 +465,6 @@ const INDUSTRY_TABS: IndustryTab[] = [
 export default function ParksDashboard() {
   return (
     <DashboardShell
-      theme="dark"
       title="Parks & Open Spaces Intelligence"
       subtitle="Reserve management · Contractor performance · Irrigation · Work orders"
       headerColor="#14532d"

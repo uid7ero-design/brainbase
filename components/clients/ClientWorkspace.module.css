@@ -1,0 +1,506 @@
+/* Clients workspace (authenticated visual-completion pass). Tokens only
+   (app/globals.css) so it reads in light and dark: no white-alpha text,
+   no dark slabs, no blur, no violet literals. Status meaning comes from the
+   shared semantic Badge / StatusDot. Responsive: usable at 390px. */
+
+.workspace {
+  width: 100%;
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 24px 24px 64px;
+  box-sizing: border-box;
+  font-family: var(--bb-font-sans);
+  color: var(--text-primary);
+  min-width: 0;
+}
+
+/* ── Account overview ──────────────────────────────────────────────── */
+
+.overview {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+}
+
+.cardHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+
+.cardTitle {
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.cardLink {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  text-decoration: none;
+}
+.cardLink:hover {
+  color: var(--text-primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.empty {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-sunken);
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  background: var(--bg-sunken);
+  color: var(--text-primary);
+  text-decoration: none;
+}
+a.item:hover {
+  border-color: var(--border);
+  background: var(--bg-raised);
+}
+
+.itemName {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.itemMeta {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.itemHealth {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.more {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+/* ── Tabs ───────────────────────────────────────────────────────────── */
+
+.tabStrip {
+  /* Horizontal scroll strip on narrow screens; never widens the page. */
+  max-width: 100%;
+  overflow-x: auto;
+  margin-bottom: 16px;
+  scrollbar-width: thin;
+}
+
+.tabList {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-sunken);
+}
+
+.tab {
+  flex-shrink: 0;
+  padding: 6px 14px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.tab:hover {
+  color: var(--text-primary);
+}
+.tab[aria-selected='true'] {
+  background: var(--brand-brainbase-accent-muted);
+  /* Label in primary text: accent-on-accent-tint over the sunken strip
+     measured 4.35:1 in light. The purple tint + ring carry "selected". */
+  color: var(--text-primary);
+  box-shadow: inset 0 0 0 1px var(--brand-brainbase-accent-border);
+}
+
+/* ── Lists (contacts / leads) ──────────────────────────────────────── */
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.filters > .search {
+  flex: 1 1 220px;
+  min-width: 0;
+  width: auto;
+}
+.filters > .filterSelect {
+  flex: 0 1 auto;
+  width: auto;
+  min-width: 0;
+}
+
+.emptyState {
+  margin: 0;
+  padding: 40px 0;
+  text-align: center;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* A whole-row button (contact) or row header button (lead). */
+.row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+.row:hover {
+  background: var(--bg-raised);
+  border-color: var(--border-strong);
+}
+.row[aria-expanded='true'],
+.row[data-selected='true'] {
+  border-color: var(--brand-brainbase-accent-border);
+  background: var(--brand-brainbase-accent-muted);
+}
+
+.rowMain {
+  display: block;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.rowName,
+.rowMeta {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rowName {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.rowMeta {
+  margin-top: 2px;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.rowSide {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.nextAction {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.75rem;
+  color: var(--status-warning);
+}
+
+.when {
+  min-width: 56px;
+  text-align: right;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.statusBadge {
+  text-transform: capitalize;
+  white-space: nowrap;
+}
+
+/* Lead card: header button + expandable detail. */
+.leadCard {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+}
+.leadCard > .row {
+  border: 0;
+  border-radius: 0;
+}
+
+.leadDetail {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  border-top: 1px solid var(--border);
+}
+
+.message {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.phone {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.moveLabel {
+  margin: 0 0 6px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.moveActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* ── Opportunities ─────────────────────────────────────────────────── */
+
+.oppList {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.oppCard {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--status-warning-border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+}
+
+.oppHeader {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.oppTitle {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.oppDescription {
+  margin: 2px 0 0;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.oppCount {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-size: 1.25rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--status-warning);
+}
+
+.oppItem {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  padding: 10px 16px;
+  font-size: 0.8125rem;
+  border-bottom: 1px solid var(--border-light);
+}
+.oppItem:last-child {
+  border-bottom: 0;
+}
+
+.oppItemName {
+  flex: 1 1 160px;
+  min-width: 0;
+  font-weight: 500;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.oppItemDetail {
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.typeTag {
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-sunken);
+  color: var(--text-secondary);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* ── Contact editor (inside the shared SlidePanel dialog) ──────────── */
+
+.editor {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.row2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+/* ── Responsive ────────────────────────────────────────────────────── */
+
+@media (max-width: 900px) {
+  .overview {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  .workspace {
+    padding: 16px 16px 48px;
+  }
+  /* Rows stack: nothing truncates away on a phone. */
+  .row {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+  .rowMain {
+    flex-basis: 100%;
+  }
+  .rowName,
+  .rowMeta {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .rowSide {
+    flex-wrap: wrap;
+    flex-shrink: 1;
+    min-width: 0;
+  }
+  .nextAction {
+    max-width: 100%;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .when {
+    min-width: 0;
+    text-align: left;
+  }
+  .oppHeader {
+    padding: 12px;
+  }
+  .oppItem {
+    padding: 10px 12px;
+  }
+}
+
+@media (max-width: 420px) {
+  .row2 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .row {
+    transition: none;
+  }
+}

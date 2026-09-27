@@ -2,12 +2,18 @@
 
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line, Cell, CartesianGrid, Legend } from "recharts";
 import DashboardShell, { KPI, MonthlyPoint, CostAccount, SLATarget, Action, IndustryTab, InsightCard } from "@/components/dashboard/DashboardShell";
+import { useDashboardChart } from "@/components/dashboard/ui/chartTheme";
+import { TONE } from "@/components/dashboard/ui/tokens";
 
-const C = { blue:"#06b6d4", green:"#10b981", amber:"#f59e0b", red:"#ef4444", slate:"#94a3b8", indigo:"#6366f1" };
-const TT = { background:"#0d0f14", border:"1px solid rgba(255,255,255,0.08)", borderRadius:10 };
-const T1 = "#F5F7FA", T2 = "rgba(230,237,243,0.55)", T3 = "rgba(230,237,243,0.35)";
-const DC: React.CSSProperties = { background:"rgba(255,255,255,0.03)", border:"1px solid rgba(255,255,255,0.07)", borderRadius:14, padding:24 };
-const BORDER = "rgba(255,255,255,0.07)", ROW_BDR = "rgba(255,255,255,0.05)", ROW_HEAD = "rgba(255,255,255,0.04)", GRID = "rgba(255,255,255,0.05)", TICK = "rgba(255,255,255,0.4)";
+// Authenticated visual-completion pass: HTML colours are theme tokens (text
+// meets 4.5:1 in both themes); chart marks read the theme-aware palette via
+// useDashboardChart() inside each chart component.
+const C = { blue:"var(--status-info)", green:TONE.success.fg, amber:TONE.warning.fg, red:TONE.danger.fg, slate:"var(--text-muted)" };
+const T1 = "var(--text-primary)", T2 = "var(--text-secondary)", T3 = "var(--text-muted)";
+const DC: React.CSSProperties = { background:"var(--bg-surface)", border:"1px solid var(--border)", borderRadius:"var(--radius-lg)", padding:24 };
+const BORDER = "var(--border)", ROW_BDR = "var(--border-light)";
+type ToneKey = keyof typeof TONE;
+const chip = (tone: ToneKey): React.CSSProperties => ({ padding:"3px 10px", borderRadius:"var(--radius-sm)", fontSize:11, fontWeight:700, background:TONE[tone].muted, border:`1px solid ${TONE[tone].border}`, color:TONE[tone].fg });
 const fmt = (n:number) => `$${n.toLocaleString("en-AU",{maximumFractionDigits:0})}`;
 
 type Zone = { id:string; name:string; type:string; consumption:number; budget:number; leakage:number; pressure:number; customers:number; complaints:number };
@@ -117,7 +123,7 @@ function StatCard({label,value,sub,color}:{label:string;value:string;sub:string;
   return (
     <div style={DC}>
       <p style={{fontSize:11,color:T3,fontWeight:600,letterSpacing:".06em",marginBottom:8}}>{label.toUpperCase()}</p>
-      <p style={{fontSize:26,fontWeight:800,color:color||T1,letterSpacing:"-0.03em",marginBottom:4}}>{value}</p>
+      <p style={{fontSize:26,fontWeight:700,color:color||T1,letterSpacing:"-0.01em",marginBottom:4,fontVariantNumeric:"tabular-nums"}}>{value}</p>
       <p style={{fontSize:12,color:T3}}>{sub}</p>
     </div>
   );
@@ -128,6 +134,8 @@ function OverviewContent() {
   const avgLeakage = (SAMPLE_ZONES.reduce((s,z)=>s+z.leakage,0)/SAMPLE_ZONES.length).toFixed(1);
   const passRate = Math.round(SAMPLE_COMPLIANCE.filter(c=>c.status==="Pass").length/SAMPLE_COMPLIANCE.length*100);
   const activeAlerts = SAMPLE_PUMPS.reduce((s,p)=>s+p.alerts,0);
+  const chart = useDashboardChart();
+  const pal = chart.palette;
   return (
     <div>
       <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:16,marginBottom:24}}>
@@ -140,11 +148,11 @@ function OverviewContent() {
         <p style={{fontWeight:700,marginBottom:20,color:T1}}>Monthly Consumption vs Target (kL)</p>
         <ResponsiveContainer width="100%" height={220}>
           <AreaChart data={MONTHLY_CONSUMPTION}>
-            <CartesianGrid strokeDasharray="3 3" stroke={GRID}/>
-            <XAxis dataKey="month" tick={{fill:TICK,fontSize:12}}/><YAxis tickFormatter={v=>`${(v/1000).toFixed(0)}k`} tick={{fill:TICK,fontSize:12}}/>
-            <Tooltip contentStyle={TT} formatter={(v:any)=>`${(Number(v)/1000).toFixed(0)} kL`}/><Legend wrapperStyle={{color:T2}}/>
-            <Area type="monotone" dataKey="target" stroke={T3} fill="rgba(255,255,255,0.04)" name="Target" strokeDasharray="5 5"/>
-            <Area type="monotone" dataKey="kL" stroke={C.blue} fill={`${C.blue}20`} name="Actual (kL)"/>
+            <CartesianGrid strokeDasharray="3 3" stroke={chart.grid}/>
+            <XAxis dataKey="month" tick={{...chart.tick,fontSize:12}}/><YAxis tickFormatter={v=>`${(v/1000).toFixed(0)}k`} tick={{...chart.tick,fontSize:12}}/>
+            <Tooltip {...chart.tooltip} formatter={(v:any)=>`${(Number(v)/1000).toFixed(0)} kL`}/><Legend wrapperStyle={chart.legend}/>
+            <Area type="monotone" dataKey="target" stroke={pal.comparison} fill={pal.comparison} fillOpacity={0.05} name="Target" strokeDasharray="5 5"/>
+            <Area type="monotone" dataKey="kL" stroke={pal.info} fill={pal.info} fillOpacity={0.14} name="Actual (kL)"/>
           </AreaChart>
         </ResponsiveContainer>
       </div>
@@ -156,15 +164,15 @@ function ZonesTab() {
   return (
     <div style={DC}>
       <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
-        <thead><tr style={{borderBottom:`2px solid ${BORDER}`}}>
+        <thead><tr style={{borderBottom:`1px solid ${BORDER}`,background:"var(--bg-sunken)"}}>
           {["Zone","Name","Type","Consumption (kL)","Budget (kL)","Leakage %","Pressure (kPa)","Customers","Complaints"].map(h=>(
-            <th key={h} style={{padding:"10px 10px",textAlign:"left",color:T3,fontWeight:600,fontSize:11}}>{h.toUpperCase()}</th>
+            <th key={h} scope="col" style={{padding:"10px 10px",textAlign:"left",color:T3,fontWeight:600,fontSize:11}}>{h.toUpperCase()}</th>
           ))}
         </tr></thead>
         <tbody>
-          {SAMPLE_ZONES.map((z,i)=>(
-            <tr key={z.id} style={{borderBottom:`1px solid ${ROW_BDR}`,background:i%2===0?"transparent":"rgba(255,255,255,0.02)"}}>
-              <td style={{padding:"11px 10px",fontWeight:700,fontFamily:"monospace",color:T1}}>{z.id}</td>
+          {SAMPLE_ZONES.map((z)=>(
+            <tr key={z.id} style={{borderBottom:`1px solid ${ROW_BDR}`}}>
+              <td style={{padding:"11px 10px",fontWeight:700,fontFamily:"var(--bb-font-mono)",color:T1}}>{z.id}</td>
               <td style={{padding:"11px 10px",fontWeight:600,color:T1}}>{z.name}</td>
               <td style={{padding:"11px 10px",color:T2}}>{z.type}</td>
               <td style={{padding:"11px 10px",fontWeight:600,color:T1}}>{z.consumption.toLocaleString()}</td>
@@ -185,19 +193,19 @@ function PumpStationsTab() {
   return (
     <div style={DC}>
       <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
-        <thead><tr style={{borderBottom:`2px solid ${BORDER}`}}>
+        <thead><tr style={{borderBottom:`1px solid ${BORDER}`,background:"var(--bg-sunken)"}}>
           {["ID","Name","Location","Status","Efficiency","Runtime (hrs)","Last Service","Next Service","Alerts"].map(h=>(
-            <th key={h} style={{padding:"10px 10px",textAlign:"left",color:T3,fontWeight:600,fontSize:11}}>{h.toUpperCase()}</th>
+            <th key={h} scope="col" style={{padding:"10px 10px",textAlign:"left",color:T3,fontWeight:600,fontSize:11}}>{h.toUpperCase()}</th>
           ))}
         </tr></thead>
         <tbody>
-          {SAMPLE_PUMPS.map((p,i)=>(
-            <tr key={p.id} style={{borderBottom:`1px solid ${ROW_BDR}`,background:i%2===0?"transparent":"rgba(255,255,255,0.02)"}}>
-              <td style={{padding:"11px 10px",fontFamily:"monospace",fontWeight:700,color:T1}}>{p.id}</td>
+          {SAMPLE_PUMPS.map((p)=>(
+            <tr key={p.id} style={{borderBottom:`1px solid ${ROW_BDR}`}}>
+              <td style={{padding:"11px 10px",fontFamily:"var(--bb-font-mono)",fontWeight:700,color:T1}}>{p.id}</td>
               <td style={{padding:"11px 10px",fontWeight:600,color:T1}}>{p.name}</td>
               <td style={{padding:"11px 10px",color:T2}}>{p.location}</td>
               <td style={{padding:"11px 10px"}}>
-                <span style={{padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:700,background:p.status==="Running"?"rgba(16,185,129,0.15)":"rgba(239,68,68,0.15)",color:p.status==="Running"?C.green:C.red}}>{p.status}</span>
+                <span style={chip(p.status==="Running"?"success":"danger")}>{p.status}</span>
               </td>
               <td style={{padding:"11px 10px",fontWeight:700,color:p.efficiency>=85?C.green:p.efficiency>=70?C.amber:C.red}}>{p.efficiency>0?`${p.efficiency}%`:"—"}</td>
               <td style={{padding:"11px 10px",color:T2}}>{p.runtime.toLocaleString()}</td>
@@ -222,18 +230,18 @@ function ComplianceTab() {
     </div>
     <div style={DC}>
       <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
-        <thead><tr style={{borderBottom:`2px solid ${BORDER}`}}>
+        <thead><tr style={{borderBottom:`1px solid ${BORDER}`,background:"var(--bg-sunken)"}}>
           {["Parameter","Result","Guideline Limit","Status","Sample Date","Laboratory"].map(h=>(
-            <th key={h} style={{padding:"10px 12px",textAlign:"left",color:T3,fontWeight:600,fontSize:11}}>{h.toUpperCase()}</th>
+            <th key={h} scope="col" style={{padding:"10px 12px",textAlign:"left",color:T3,fontWeight:600,fontSize:11}}>{h.toUpperCase()}</th>
           ))}
         </tr></thead>
         <tbody>
-          {SAMPLE_COMPLIANCE.map((c,i)=>(
-            <tr key={c.parameter} style={{borderBottom:`1px solid ${ROW_BDR}`,background:i%2===0?"transparent":"rgba(255,255,255,0.02)"}}>
+          {SAMPLE_COMPLIANCE.map((c)=>(
+            <tr key={c.parameter} style={{borderBottom:`1px solid ${ROW_BDR}`}}>
               <td style={{padding:"12px",fontWeight:600,color:T1}}>{c.parameter}</td>
               <td style={{padding:"12px",fontWeight:700,color:C.blue}}>{c.result}</td>
               <td style={{padding:"12px",color:T2}}>{c.limit}</td>
-              <td style={{padding:"12px"}}><span style={{padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:700,background:"rgba(16,185,129,0.15)",color:C.green}}>✓ {c.status}</span></td>
+              <td style={{padding:"12px"}}><span style={chip("success")}>✓ {c.status}</span></td>
               <td style={{padding:"12px",color:T2}}>{c.sampleDate}</td>
               <td style={{padding:"12px",color:T2}}>{c.lab}</td>
             </tr>
@@ -248,24 +256,24 @@ function IncidentsTab() {
   return (
     <div style={DC}>
       <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
-        <thead><tr style={{borderBottom:`2px solid ${BORDER}`}}>
+        <thead><tr style={{borderBottom:`1px solid ${BORDER}`,background:"var(--bg-sunken)"}}>
           {["ID","Type","Location","Severity","Duration (hrs)","Customers Affected","Resolved","Date"].map(h=>(
-            <th key={h} style={{padding:"10px 10px",textAlign:"left",color:T3,fontWeight:600,fontSize:11}}>{h.toUpperCase()}</th>
+            <th key={h} scope="col" style={{padding:"10px 10px",textAlign:"left",color:T3,fontWeight:600,fontSize:11}}>{h.toUpperCase()}</th>
           ))}
         </tr></thead>
         <tbody>
-          {SAMPLE_INCIDENTS.map((inc,i)=>(
-            <tr key={inc.id} style={{borderBottom:`1px solid ${ROW_BDR}`,background:i%2===0?"transparent":"rgba(255,255,255,0.02)"}}>
-              <td style={{padding:"11px 10px",fontFamily:"monospace",fontWeight:700,color:T1}}>{inc.id}</td>
+          {SAMPLE_INCIDENTS.map((inc)=>(
+            <tr key={inc.id} style={{borderBottom:`1px solid ${ROW_BDR}`}}>
+              <td style={{padding:"11px 10px",fontFamily:"var(--bb-font-mono)",fontWeight:700,color:T1}}>{inc.id}</td>
               <td style={{padding:"11px 10px",fontWeight:600,color:T1}}>{inc.type}</td>
               <td style={{padding:"11px 10px",color:T2}}>{inc.location}</td>
               <td style={{padding:"11px 10px"}}>
-                <span style={{padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:700,background:inc.severity==="High"?"rgba(239,68,68,0.15)":inc.severity==="Medium"?"rgba(245,158,11,0.15)":"rgba(100,116,139,0.2)",color:inc.severity==="High"?C.red:inc.severity==="Medium"?C.amber:C.slate}}>{inc.severity}</span>
+                <span style={chip(inc.severity==="High"?"danger":inc.severity==="Medium"?"warning":"inactive")}>{inc.severity}</span>
               </td>
               <td style={{padding:"11px 10px",color:T2}}>{inc.duration}</td>
               <td style={{padding:"11px 10px",color:T2}}>{inc.affected.toLocaleString()}</td>
               <td style={{padding:"11px 10px"}}>
-                <span style={{padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:700,background:inc.resolved?"rgba(16,185,129,0.15)":"rgba(239,68,68,0.15)",color:inc.resolved?C.green:C.red}}>{inc.resolved?"Resolved":"Open"}</span>
+                <span style={chip(inc.resolved?"success":"danger")}>{inc.resolved?"Resolved":"Open"}</span>
               </td>
               <td style={{padding:"11px 10px",color:T2}}>{inc.date}</td>
             </tr>
@@ -277,20 +285,24 @@ function IncidentsTab() {
 }
 
 function LeakageTab() {
+  const chart = useDashboardChart();
+  const pal = chart.palette;
+  // Leakage thresholds are semantic (≤4% target, ≤7% watch, else over).
+  const leakFill = (v:number) => v<=4?pal.success:v<=7?pal.warning:pal.danger;
   return (<>
     <div style={{...DC,marginBottom:20}}>
       <p style={{fontWeight:700,marginBottom:8,color:T1}}>Zone Leakage Trend (%)</p>
       <p style={{fontSize:12,color:T3,marginBottom:20}}>Target: &lt; 4% per zone. Z2 CBD above target for 6 consecutive months.</p>
       <ResponsiveContainer width="100%" height={240}>
         <LineChart data={LEAKAGE_TREND}>
-          <CartesianGrid strokeDasharray="3 3" stroke={GRID}/>
-          <XAxis dataKey="month" tick={{fill:TICK,fontSize:12}}/><YAxis domain={[0,10]} tickFormatter={v=>`${v}%`} tick={{fill:TICK,fontSize:12}}/>
-          <Tooltip contentStyle={TT} formatter={(v:any)=>`${v}%`}/><Legend wrapperStyle={{color:T2}}/>
-          <Line type="monotone" dataKey="Z1" stroke={C.green} strokeWidth={2} dot={{r:3}} name="Z1 Northern"/>
-          <Line type="monotone" dataKey="Z2" stroke={C.red} strokeWidth={2.5} dot={{r:4}} name="Z2 CBD"/>
-          <Line type="monotone" dataKey="Z3" stroke={C.blue} strokeWidth={2} dot={{r:3}} name="Z3 Industrial"/>
-          <Line type="monotone" dataKey="Z4" stroke={C.amber} strokeWidth={2} dot={{r:3}} name="Z4 Southern"/>
-          <Line type="monotone" dataKey="Z5" stroke={C.indigo} strokeWidth={2} dot={{r:3}} name="Z5 Eastern"/>
+          <CartesianGrid strokeDasharray="3 3" stroke={chart.grid}/>
+          <XAxis dataKey="month" tick={{...chart.tick,fontSize:12}}/><YAxis domain={[0,10]} tickFormatter={v=>`${v}%`} tick={{...chart.tick,fontSize:12}}/>
+          <Tooltip {...chart.tooltip} formatter={(v:any)=>`${v}%`}/><Legend wrapperStyle={chart.legend}/>
+          <Line type="monotone" dataKey="Z1" stroke={pal.success} strokeWidth={2} dot={{r:3}} name="Z1 Northern"/>
+          <Line type="monotone" dataKey="Z2" stroke={pal.danger} strokeWidth={2.5} dot={{r:4}} name="Z2 CBD"/>
+          <Line type="monotone" dataKey="Z3" stroke={pal.info} strokeWidth={2} dot={{r:3}} name="Z3 Industrial"/>
+          <Line type="monotone" dataKey="Z4" stroke={pal.warning} strokeWidth={2} dot={{r:3}} name="Z4 Southern"/>
+          <Line type="monotone" dataKey="Z5" stroke={pal.secondary} strokeWidth={2} dot={{r:3}} name="Z5 Eastern"/>
         </LineChart>
       </ResponsiveContainer>
     </div>
@@ -298,11 +310,11 @@ function LeakageTab() {
       <p style={{fontWeight:700,marginBottom:20,color:T1}}>Current Leakage by Zone</p>
       <ResponsiveContainer width="100%" height={180}>
         <BarChart data={SAMPLE_ZONES}>
-          <CartesianGrid strokeDasharray="3 3" stroke={GRID}/>
-          <XAxis dataKey="name" tick={{fill:TICK,fontSize:11}}/><YAxis tickFormatter={v=>`${v}%`} tick={{fill:TICK,fontSize:12}} domain={[0,10]}/>
-          <Tooltip contentStyle={TT} formatter={(v:any)=>`${v}%`}/>
+          <CartesianGrid strokeDasharray="3 3" stroke={chart.grid}/>
+          <XAxis dataKey="name" tick={chart.tick}/><YAxis tickFormatter={v=>`${v}%`} tick={{...chart.tick,fontSize:12}} domain={[0,10]}/>
+          <Tooltip {...chart.tooltip} formatter={(v:any)=>`${v}%`}/>
           <Bar dataKey="leakage" name="Leakage %" radius={[4,4,0,0]}>
-            {SAMPLE_ZONES.map((z,i)=><Cell key={i} fill={z.leakage<=4?C.green:z.leakage<=7?C.amber:C.red}/>)}
+            {SAMPLE_ZONES.map((z,i)=><Cell key={i} fill={leakFill(z.leakage)}/>)}
           </Bar>
         </BarChart>
       </ResponsiveContainer>
@@ -311,32 +323,34 @@ function LeakageTab() {
 }
 
 function PressureTab() {
+  const chart = useDashboardChart();
+  const pal = chart.palette;
   return (<>
     <div style={{...DC,marginBottom:20}}>
       <p style={{fontWeight:700,marginBottom:20,color:T1}}>Pressure Zone Summary</p>
       <ResponsiveContainer width="100%" height={200}>
         <BarChart data={PRESSURE_ZONES}>
-          <CartesianGrid strokeDasharray="3 3" stroke={GRID}/>
-          <XAxis dataKey="zone" tick={{fill:TICK,fontSize:11}}/><YAxis domain={[50,85]} tick={{fill:TICK,fontSize:12}} label={{value:"kPa",angle:-90,position:"insideLeft",fontSize:12,fill:T3}}/>
-          <Tooltip contentStyle={TT} formatter={(v:any)=>`${v} kPa`}/><Legend wrapperStyle={{color:T2}}/>
-          <Bar dataKey="minPressure" fill={C.indigo} name="Min"/>
-          <Bar dataKey="avgPressure" fill={C.blue} name="Avg"/>
-          <Bar dataKey="maxPressure" fill={C.amber} name="Max" radius={[4,4,0,0]}/>
+          <CartesianGrid strokeDasharray="3 3" stroke={chart.grid}/>
+          <XAxis dataKey="zone" tick={chart.tick}/><YAxis domain={[50,85]} tick={{...chart.tick,fontSize:12}} label={{value:"kPa",angle:-90,position:"insideLeft",fontSize:12,fill:pal.axis}}/>
+          <Tooltip {...chart.tooltip} formatter={(v:any)=>`${v} kPa`}/><Legend wrapperStyle={chart.legend}/>
+          <Bar dataKey="minPressure" fill={pal.comparison} name="Min"/>
+          <Bar dataKey="avgPressure" fill={pal.info} name="Avg"/>
+          <Bar dataKey="maxPressure" fill={pal.warning} name="Max" radius={[4,4,0,0]}/>
         </BarChart>
       </ResponsiveContainer>
     </div>
     <div style={DC}>
       <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
-        <thead><tr style={{borderBottom:`2px solid ${BORDER}`}}>
+        <thead><tr style={{borderBottom:`1px solid ${BORDER}`,background:"var(--bg-sunken)"}}>
           {["Zone","Min (kPa)","Max (kPa)","Avg (kPa)","Target","Complaints","Status"].map(h=>(
-            <th key={h} style={{padding:"10px 12px",textAlign:"left",color:T3,fontWeight:600,fontSize:11}}>{h.toUpperCase()}</th>
+            <th key={h} scope="col" style={{padding:"10px 12px",textAlign:"left",color:T3,fontWeight:600,fontSize:11}}>{h.toUpperCase()}</th>
           ))}
         </tr></thead>
         <tbody>
-          {PRESSURE_ZONES.map((p,i)=>{
+          {PRESSURE_ZONES.map((p)=>{
             const ok = p.avgPressure>=40&&p.avgPressure<=80;
             return (
-              <tr key={p.zone} style={{borderBottom:`1px solid ${ROW_BDR}`,background:i%2===0?"transparent":"rgba(255,255,255,0.02)"}}>
+              <tr key={p.zone} style={{borderBottom:`1px solid ${ROW_BDR}`}}>
                 <td style={{padding:"12px",fontWeight:700,color:T1}}>{p.zone}</td>
                 <td style={{padding:"12px",color:T2}}>{p.minPressure}</td>
                 <td style={{padding:"12px",color:T2}}>{p.maxPressure}</td>
@@ -344,7 +358,7 @@ function PressureTab() {
                 <td style={{padding:"12px",color:T2}}>{p.target}</td>
                 <td style={{padding:"12px",color:p.complaints>20?C.red:T2}}>{p.complaints}</td>
                 <td style={{padding:"12px"}}>
-                  <span style={{padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:700,background:ok?"rgba(16,185,129,0.15)":"rgba(239,68,68,0.15)",color:ok?C.green:C.red}}>{ok?"Within Range":"Out of Range"}</span>
+                  <span style={chip(ok?"success":"danger")}>{ok?"Within Range":"Out of Range"}</span>
                 </td>
               </tr>
             );
@@ -367,11 +381,10 @@ const INDUSTRY_TABS: IndustryTab[] = [
 export default function WaterDashboard() {
   return (
     <DashboardShell
-      theme="dark"
       title="Water & Utilities Intelligence"
       subtitle="Network performance · Compliance · Pump stations · Incidents"
       headerColor="#0c4a6e"
-      accentColor="#06b6d4"
+      accentColor="#0891b2"
       breadcrumbLabel="Water & Utilities"
       kpis={KPI_DATA}
       recommendedActions={[

@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { getTheme, statusColor, TYPOGRAPHY } from './tokens';
+import { DASHBOARD_TOKENS as th, TONE, TYPOGRAPHY } from './tokens';
 
 export interface KpiCardProps {
   label:       string;
@@ -13,73 +13,66 @@ export interface KpiCardProps {
   status?:     'risk' | 'watch' | 'normal';
   alert?:      boolean;
   accentColor: string;
+  /**
+   * Accepted for API compatibility only. The card follows the app theme
+   * (<html data-theme>) through tokens; this prop no longer forces a palette.
+   */
   theme?:      'light' | 'dark';
   loading?:    boolean;
   minWidth?:   number;
 }
 
+// Flat metric card (authenticated visual-completion pass): token surface,
+// hairline border, the module accent kept only as a thin top rule (identity,
+// never text). A risk/watch status colours the value with the semantic
+// status token (AA as text in both themes) and is also written out for
+// assistive tech, so meaning never depends on colour alone.
 export default function KpiCard({
   label, value, icon, sub, trend, trendLabel,
   status, alert, accentColor,
-  theme = 'dark', loading = false,
+  loading = false,
   minWidth = 138,
 }: KpiCardProps) {
-  const th = getTheme(theme);
-  const L  = theme === 'light';
-  const sc = statusColor(status, alert, accentColor);
+  const tone = alert || status === 'risk' ? TONE.danger : status === 'watch' ? TONE.warning : null;
+  const stateLabel = alert || status === 'risk' ? 'At risk' : status === 'watch' ? 'Watch' : null;
 
   const trendArrow = trend === 'up' ? '↑' : trend === 'down' ? '↓' : '→';
-  const trendColor = trend === 'up' ? '#10b981' : trend === 'down' ? '#ef4444' : th.t3;
+  const trendColor = trend === 'up' ? TONE.success.fg : trend === 'down' ? TONE.danger.fg : th.t3;
+  const trendWord  = trend === 'up' ? 'Up' : trend === 'down' ? 'Down' : 'Flat';
 
-  const shadow   = L
-    ? `0 1px 2px rgba(0,0,0,0.04), 0 4px 14px rgba(0,0,0,0.07), 0 0 0 1px rgba(0,0,0,0.04)`
-    : `0 2px 8px rgba(0,0,0,0.35), 0 1px 2px rgba(0,0,0,0.2)`;
-  const shadowHov = L
-    ? `0 2px 4px rgba(0,0,0,0.06), 0 8px 24px rgba(0,0,0,0.10), 0 0 0 1px rgba(0,0,0,0.05)`
-    : `0 4px 16px rgba(0,0,0,0.5), 0 1px 4px rgba(0,0,0,0.3)`;
+  const frame: React.CSSProperties = {
+    minWidth,
+    background: 'var(--bg-surface)',
+    border: '1px solid var(--border)',
+    borderTop: `2px solid ${tone ? tone.fg : accentColor}`,
+    borderRadius: 'var(--radius-lg)',
+    padding: '10px 14px',
+    flexShrink: 0,
+  };
 
   if (loading) {
     return (
-      <div style={{ minWidth, background: L ? '#fff' : th.sub, border: `1.5px solid ${th.bdr}`, borderRadius: 10, padding: '10px 14px', flexShrink: 0, boxShadow: shadow }}>
-        <div style={{ width: 60, height: 7, background: th.bdr, borderRadius: 4, marginBottom: 8 }} />
-        <div style={{ width: 80, height: 18, background: th.bdr, borderRadius: 4, marginBottom: 4 }} />
-        <div style={{ width: 50, height: 7, background: th.bdr, borderRadius: 4 }} />
+      <div style={frame} aria-busy="true">
+        <div style={{ ...TYPOGRAPHY.label, color: th.t3, marginBottom: 6 }}>{label}</div>
+        <div aria-hidden="true" style={{ width: 80, height: 18, background: 'var(--bg-sunken)', borderRadius: 'var(--radius-sm)', marginBottom: 4 }} />
+        <div aria-hidden="true" style={{ width: 50, height: 7, background: 'var(--bg-sunken)', borderRadius: 'var(--radius-sm)' }} />
       </div>
     );
   }
 
   return (
-    <div
-      style={{
-        minWidth,
-        background: L ? '#ffffff' : `linear-gradient(145deg, rgba(255,255,255,0.07) 0%, rgba(255,255,255,0.03) 100%)`,
-        border: `1.5px solid ${L ? '#d1d5db' : 'rgba(255,255,255,0.12)'}`,
-        borderTop: `2.5px solid ${sc}`,
-        borderRadius: 10,
-        padding: '10px 14px',
-        flexShrink: 0,
-        position: 'relative',
-        boxShadow: shadow,
-        transition: 'transform 0.15s ease, box-shadow 0.15s ease',
-        cursor: 'default',
-      }}
-      onMouseEnter={e => {
-        (e.currentTarget as HTMLDivElement).style.transform = 'translateY(-2px)';
-        (e.currentTarget as HTMLDivElement).style.boxShadow = shadowHov;
-      }}
-      onMouseLeave={e => {
-        (e.currentTarget as HTMLDivElement).style.transform = 'none';
-        (e.currentTarget as HTMLDivElement).style.boxShadow = shadow;
-      }}
-    >
+    <div style={frame}>
       {/* label row */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 5 }}>
-        {icon && <span style={{ fontSize: 12, lineHeight: 1, opacity: 0.8 }}>{icon}</span>}
+        {icon && <span aria-hidden="true" style={{ fontSize: 12, lineHeight: 1 }}>{icon}</span>}
         <span style={{ ...TYPOGRAPHY.label, color: th.t3 }}>{label}</span>
       </div>
 
       {/* value */}
-      <div style={{ ...TYPOGRAPHY.kpiVal, color: sc }}>{value}</div>
+      <div style={{ ...TYPOGRAPHY.kpiVal, color: tone ? tone.fg : th.t1 }}>
+        {value}
+        {stateLabel && <span className="sr-only"> ({stateLabel})</span>}
+      </div>
 
       {/* sub */}
       {sub && <div style={{ fontSize: 11, color: th.t2, marginTop: 4, lineHeight: 1.3 }}>{sub}</div>}
@@ -87,8 +80,9 @@ export default function KpiCard({
       {/* trend */}
       {trend && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginTop: 5, paddingTop: 5, borderTop: `1px solid ${th.bdr}` }}>
-          <span style={{ fontSize: 10, color: trendColor, fontWeight: 700 }}>{trendArrow}</span>
-          {trendLabel && <span style={{ fontSize: 10, color: th.t3 }}>{trendLabel}</span>}
+          <span aria-hidden="true" style={{ fontSize: 11, color: trendColor, fontWeight: 700 }}>{trendArrow}</span>
+          <span className="sr-only">{trendWord}</span>
+          {trendLabel && <span style={{ fontSize: 11, color: th.t3 }}>{trendLabel}</span>}
         </div>
       )}
     </div>

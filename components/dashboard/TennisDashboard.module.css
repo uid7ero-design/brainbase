@@ -1,0 +1,565 @@
+/* Tennis client dashboard (authenticated visual-completion pass). Tokens
+   only (app/globals.css) so the page follows light and dark: no fixed dark
+   page slab, no white-alpha text, no ambient glows, no blur, no violet
+   chrome. Scoped module classes replace the old injected global <style>
+   block, whose .bb-eyebrow / .bb-hlna-title rules collided with the global
+   public utility and with HlnaInsightCard's own rules. */
+
+.page {
+  min-height: 100vh;
+  overflow-x: clip;
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-family: var(--bb-font-sans);
+}
+
+.shell {
+  width: 100%;
+  max-width: 1152px;
+  margin: 0 auto;
+  padding: 28px 24px 64px;
+  box-sizing: border-box;
+  min-width: 0;
+}
+
+/* ── Greeting ──────────────────────────────────────────────────────── */
+
+.greeting {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 12px 24px;
+  margin-bottom: 20px;
+}
+
+.eyebrow {
+  margin-bottom: 6px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.greetingTitle {
+  margin: 0 0 4px;
+  font-size: 1.5rem;
+  line-height: 1.2;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.date {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+}
+
+.systemStatus {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+}
+
+.systemDot {
+  width: 7px;
+  height: 7px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--bb-success-dot);
+  animation: statusPulse 2.4s ease-in-out infinite;
+}
+
+@keyframes statusPulse {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+
+.systemStatusTitle {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.systemStatusCopy {
+  margin-top: 2px;
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+
+/* ── HLNΛ header ───────────────────────────────────────────────────── */
+
+.hlnaHeader {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px 20px;
+  padding: 18px 20px;
+  margin-bottom: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+}
+
+.hlnaMark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 52px;
+  height: 52px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-sunken);
+}
+
+.hlnaCopy {
+  flex: 1 1 260px;
+  min-width: 0;
+}
+
+.hlnaLabel {
+  margin-bottom: 6px;
+  font-size: 0.6875rem;
+  line-height: 1.2;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  color: var(--text-muted);
+}
+
+.hlnaTitle {
+  margin: 0 0 4px;
+  font-size: 1.25rem;
+  line-height: 1.25;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+}
+
+.hlnaDescription {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.hlnaAction {
+  flex-shrink: 0;
+}
+
+/* ── KPIs ──────────────────────────────────────────────────────────── */
+
+.kpiGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.statCard {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+}
+
+.statTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+/* KPI tone colours only the icon (a graphic), never the number. */
+.statIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-sunken);
+}
+.statIcon[data-tone='accent'] { color: var(--brand-brainbase-accent); }
+.statIcon[data-tone='success'] { color: var(--status-success); }
+.statIcon[data-tone='warning'] { color: var(--status-warning); }
+.statIcon[data-tone='info'] { color: var(--status-info); }
+
+.statIndicator {
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  color: var(--text-muted);
+}
+
+.statValue {
+  margin-bottom: 6px;
+  font-size: 2rem;
+  line-height: 1;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
+.statLabel {
+  margin-bottom: 4px;
+  font-size: 0.6875rem;
+  line-height: 1.3;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.statSub {
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+
+/* ── Panels ────────────────────────────────────────────────────────── */
+
+.twoColumnGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.fullPanel {
+  margin-bottom: 14px;
+  min-width: 0;
+}
+
+.panel {
+  overflow: hidden;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+}
+
+.panelHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  min-height: 54px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.panelEyebrow {
+  margin-bottom: 3px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.panelTitle {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-primary);
+}
+
+.panelLink {
+  flex-shrink: 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--brand-brainbase-accent);
+  text-decoration: none;
+}
+.panelLink:hover {
+  color: var(--brand-brainbase-accent-hover);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.emptyState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 177px;
+  padding: 28px 22px;
+  text-align: center;
+}
+
+.emptyIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  margin-bottom: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-sunken);
+  color: var(--text-secondary);
+}
+.emptyIcon[data-positive='true'] {
+  border-color: var(--status-success-border);
+  background: var(--status-success-muted);
+  color: var(--status-success);
+}
+
+.emptyTitle {
+  margin-bottom: 5px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.emptyCopy {
+  max-width: 300px;
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  color: var(--text-secondary);
+}
+
+/* ── Needs attention ───────────────────────────────────────────────── */
+
+.contactList {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.contactRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  min-height: 64px;
+  padding: 11px 20px;
+  border-bottom: 1px solid var(--border-light);
+}
+.contactRow:last-child {
+  border-bottom: 0;
+}
+.contactRow:hover {
+  background: var(--bg-raised);
+}
+
+.contactAvatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-sunken);
+  color: var(--text-secondary);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+.contactCopy {
+  flex: 1 1 140px;
+  min-width: 0;
+}
+
+.contactName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.contactMeta {
+  margin-top: 3px;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.statusBadge {
+  flex-shrink: 0;
+  text-transform: capitalize;
+  white-space: nowrap;
+}
+
+.contactActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* ── Recent activity ───────────────────────────────────────────────── */
+
+.tableScroll {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.activityTable {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.activityTable tr {
+  border-bottom: 1px solid var(--border-light);
+}
+.activityTable tr:last-child {
+  border-bottom: 0;
+}
+.activityTable tr:hover {
+  background: var(--bg-raised);
+}
+
+.activityPrimary {
+  padding: 12px 20px;
+  min-width: 0;
+}
+
+.leadName {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+.leadName:hover {
+  color: var(--brand-brainbase-accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.leadEmail {
+  margin-top: 3px;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.activitySession {
+  padding: 12px 14px;
+  vertical-align: middle;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.activityStatus {
+  padding: 12px 14px;
+  vertical-align: middle;
+}
+
+.activityDate {
+  padding: 12px 20px;
+  text-align: right;
+  vertical-align: middle;
+  white-space: nowrap;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+/* ── Responsive ────────────────────────────────────────────────────── */
+
+@media (max-width: 900px) {
+  .kpiGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .twoColumnGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 680px) {
+  .shell {
+    padding: 22px 16px 56px;
+  }
+  .greeting {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .hlnaAction {
+    width: 100%;
+  }
+}
+
+/* Recent activity rows restack instead of scrolling sideways on a phone:
+   every cell stays visible. */
+@media (max-width: 560px) {
+  .activityTable,
+  .activityTable tbody {
+    display: block;
+  }
+  .activityTable tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    padding: 10px 16px;
+    gap: 4px 10px;
+  }
+  .activityTable td {
+    display: block;
+    padding: 0;
+  }
+  .activityPrimary {
+    grid-column: 1 / -1;
+  }
+  .activityDate {
+    text-align: right;
+  }
+  .contactRow {
+    padding: 12px 16px;
+  }
+  .contactActions {
+    width: 100%;
+    padding-left: 42px;
+  }
+  .panelHeader {
+    padding: 12px 16px;
+  }
+}
+
+@media (max-width: 480px) {
+  .kpiGrid {
+    gap: 8px;
+  }
+  .statCard {
+    padding: 14px;
+  }
+  .statValue {
+    font-size: 1.75rem;
+  }
+  .twoColumnGrid {
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  .fullPanel {
+    margin-bottom: 8px;
+  }
+  .hlnaHeader {
+    padding: 16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .systemDot {
+    animation: none;
+  }
+}

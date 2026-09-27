@@ -2,23 +2,23 @@
 
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from "recharts";
 import DashboardShell, { KPI, MonthlyPoint, CostAccount, SLATarget, Action, IndustryTab, InsightCard } from "@/components/dashboard/DashboardShell";
+import { useDashboardChart } from "@/components/dashboard/ui/chartTheme";
 
-const C = { purple:"#8b5cf6", blue:"#38bdf8", green:"#4ade80", amber:"#fbbf24", red:"#f87171", slate:"rgba(255,255,255,0.4)" };
-const TT = { background:"#0d0f14", border:"1px solid rgba(255,255,255,0.08)", borderRadius:10 };
+// Status colours for HTML text/chips (theme tokens, AA as text in both themes).
+// Charts read the theme-aware chart palette via useDashboardChart().
+const C = { blue:"var(--status-info)", green:"var(--status-success)", amber:"var(--status-warning)", red:"var(--status-danger)" };
 const fmt = (n:number) => `$${n.toLocaleString("en-AU",{maximumFractionDigits:0})}`;
 
-const T1 = "#F5F7FA";
-const T2 = "rgba(230,237,243,0.55)";
-const T3 = "rgba(230,237,243,0.35)";
-const DC: React.CSSProperties = { background:"rgba(255,255,255,0.03)", border:"1px solid rgba(255,255,255,0.07)", borderRadius:12, padding:20 };
+const T1 = "var(--text-primary)";
+const T2 = "var(--text-secondary)";
+const T3 = "var(--text-muted)";
+const DC: React.CSSProperties = { background:"var(--bg-surface)", border:"1px solid var(--border)", borderRadius:8, padding:20 };
 const tbl: React.CSSProperties = { width:"100%", borderCollapse:"collapse", fontSize:13 };
 const th: React.CSSProperties = { padding:"12px 10px", textAlign:"left", color:T3, fontWeight:600, fontSize:11, letterSpacing:".05em" };
 const td: React.CSSProperties = { padding:"12px 10px", color:T2 };
-const GRID = "rgba(255,255,255,0.05)";
-const TICK = { fill:T3, fontSize:11 };
 
 function badge(label:string, bg:string, color:string) {
-  return <span style={{ padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:700, background:bg, color }}>{label}</span>;
+  return <span style={{ padding:"3px 10px", borderRadius:4, fontSize:11, fontWeight:700, background:bg, color }}>{label}</span>;
 }
 
 type Building = { id:string; name:string; type:string; suburb:string; sqm:number; tenants:number; reactive:number; planned:number; energy:number; energyBudget:number; condition:number };
@@ -60,9 +60,11 @@ const ENERGY_DATA: Energy[] = [
   {month:"Mar",electricity:88800,gas:13600,water:8600,total:111000},
 ];
 
+// Work-order categories: distinct categorical series, resolved from the
+// theme-aware chart palette inside the chart (see OverviewContent).
 const CATEGORY_DIST = [
-  {name:"HVAC",value:32,fill:C.blue},{name:"Electrical",value:24,fill:C.amber},
-  {name:"Plumbing",value:18,fill:C.purple},{name:"Structural",value:14,fill:C.slate},{name:"Other",value:12,fill:C.green},
+  {name:"HVAC",value:32},{name:"Electrical",value:24},
+  {name:"Plumbing",value:18},{name:"Structural",value:14},{name:"Other",value:12},
 ];
 
 const CLEANING_CONTRACTS = [
@@ -147,6 +149,9 @@ function OverviewContent() {
   const totalPlanned = SAMPLE_BUILDINGS.reduce((s,b)=>s+b.planned,0);
   const reactivePct = Math.round(totalReactive/(totalReactive+totalPlanned)*100);
   const openWO = SAMPLE_WORK_ORDERS.filter(w=>w.status!=="Closed").length;
+  const chart = useDashboardChart();
+  const pal = chart.palette;
+  const categoryFill = [pal.info, pal.warning, pal.primary, pal.neutral, pal.success];
   return (
     <div style={{ color:T1 }}>
       <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:16, marginBottom:24 }}>
@@ -160,12 +165,12 @@ function OverviewContent() {
           <p style={{ fontWeight:700, marginBottom:20, color:T1 }}>Monthly Energy Spend ($)</p>
           <ResponsiveContainer width="100%" height={220}>
             <BarChart data={ENERGY_DATA}>
-              <CartesianGrid strokeDasharray="3 3" stroke={GRID} />
-              <XAxis dataKey="month" tick={TICK} /><YAxis tickFormatter={v=>`$${(v/1000).toFixed(0)}k`} tick={TICK} />
-              <Tooltip contentStyle={TT} formatter={(v)=>typeof v==="number"?fmt(v):v}/><Legend wrapperStyle={{ color:T2, fontSize:12 }} />
-              <Bar dataKey="electricity" fill={C.amber} name="Electricity" stackId="a"/>
-              <Bar dataKey="gas" fill={C.blue} name="Gas" stackId="a"/>
-              <Bar dataKey="water" fill={C.purple} name="Water" stackId="a" radius={[4,4,0,0]}/>
+              <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} />
+              <XAxis dataKey="month" tick={chart.tick} /><YAxis tickFormatter={v=>`$${(v/1000).toFixed(0)}k`} tick={chart.tick} />
+              <Tooltip {...chart.tooltip} formatter={(v)=>typeof v==="number"?fmt(v):v}/><Legend wrapperStyle={chart.legend} />
+              <Bar dataKey="electricity" fill={pal.warning} name="Electricity" stackId="a"/>
+              <Bar dataKey="gas" fill={pal.primary} name="Gas" stackId="a"/>
+              <Bar dataKey="water" fill={pal.info} name="Water" stackId="a" radius={[4,4,0,0]}/>
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -173,10 +178,10 @@ function OverviewContent() {
           <p style={{ fontWeight:700, marginBottom:20, color:T1 }}>Work Order Categories</p>
           <ResponsiveContainer width="100%" height={220}>
             <PieChart>
-              <Pie data={CATEGORY_DIST} cx="50%" cy="50%" innerRadius={55} outerRadius={85} dataKey="value">
-                {CATEGORY_DIST.map((e,i)=><Cell key={i} fill={e.fill}/>)}
+              <Pie data={CATEGORY_DIST} cx="50%" cy="50%" innerRadius={55} outerRadius={85} dataKey="value" stroke={pal.tooltipBg}>
+                {CATEGORY_DIST.map((e,i)=><Cell key={i} fill={categoryFill[i % categoryFill.length]}/>)}
               </Pie>
-              <Tooltip contentStyle={TT} formatter={(v)=>typeof v==="number"?`${v}%`:v}/><Legend wrapperStyle={{ color:T2, fontSize:12 }} />
+              <Tooltip {...chart.tooltip} formatter={(v)=>typeof v==="number"?`${v}%`:v}/><Legend wrapperStyle={chart.legend} />
             </PieChart>
           </ResponsiveContainer>
         </div>
@@ -189,15 +194,15 @@ function BuildingsTab() {
   return (
     <div style={{ ...DC, padding:0, overflow:"hidden" }}>
       <table style={tbl}>
-        <thead><tr style={{ background:"rgba(255,255,255,0.06)" }}>
+        <thead><tr style={{ background:"var(--bg-sunken)" }}>
           {["ID","Name","Type","Suburb","sqm","Tenants","Reactive","Planned","Energy","Condition"].map(h=>(
-            <th key={h} style={th}>{h.toUpperCase()}</th>
+            <th key={h} scope="col" style={th}>{h.toUpperCase()}</th>
           ))}
         </tr></thead>
         <tbody>
           {SAMPLE_BUILDINGS.map((b,i)=>(
-            <tr key={b.id} style={{ borderBottom:"1px solid rgba(255,255,255,0.05)", background:i%2===0?"transparent":"rgba(255,255,255,0.02)" }}>
-              <td style={{ ...td, fontFamily:"monospace", fontWeight:700, color:T3 }}>{b.id}</td>
+            <tr key={b.id} style={{ borderBottom:"1px solid var(--border)", background:i%2===0?"transparent":"var(--bg-sunken)" }}>
+              <td style={{ ...td, fontFamily:"var(--bb-font-mono)", fontWeight:700, color:T3 }}>{b.id}</td>
               <td style={{ ...td, fontWeight:600, color:T1 }}>{b.name}</td>
               <td style={td}>{b.type}</td>
               <td style={td}>{b.suburb}</td>
@@ -207,7 +212,7 @@ function BuildingsTab() {
               <td style={{ ...td, fontWeight:600, color:C.blue }}>{fmt(b.planned)}</td>
               <td style={{ ...td, fontWeight:600, color:b.energy>b.energyBudget?C.amber:C.green }}>{fmt(b.energy)}</td>
               <td style={td}>
-                <div style={{ display:"flex", gap:3 }}>{[1,2,3,4,5].map(n=><div key={n} style={{ width:8, height:8, borderRadius:2, background:n<=b.condition?C.purple:"rgba(255,255,255,0.1)" }}/>)}</div>
+                <div style={{ display:"flex", gap:3 }}>{[1,2,3,4,5].map(n=><div key={n} style={{ width:8, height:8, borderRadius:2, background:n<=b.condition?C.blue:"var(--border-strong)" }}/>)}</div>
               </td>
             </tr>
           ))}
@@ -221,23 +226,23 @@ function WorkOrdersTab() {
   return (
     <div style={{ ...DC, padding:0, overflow:"hidden" }}>
       <table style={tbl}>
-        <thead><tr style={{ background:"rgba(255,255,255,0.06)" }}>
+        <thead><tr style={{ background:"var(--bg-sunken)" }}>
           {["ID","Building","Category","Description","Priority","Cost","Raised","Closed","Status","Days Open"].map(h=>(
-            <th key={h} style={th}>{h.toUpperCase()}</th>
+            <th key={h} scope="col" style={th}>{h.toUpperCase()}</th>
           ))}
         </tr></thead>
         <tbody>
           {SAMPLE_WORK_ORDERS.map((w,i)=>(
-            <tr key={w.id} style={{ borderBottom:"1px solid rgba(255,255,255,0.05)", background:i%2===0?"transparent":"rgba(255,255,255,0.02)" }}>
-              <td style={{ ...td, fontFamily:"monospace", fontWeight:700, color:T1 }}>{w.id}</td>
+            <tr key={w.id} style={{ borderBottom:"1px solid var(--border)", background:i%2===0?"transparent":"var(--bg-sunken)" }}>
+              <td style={{ ...td, fontFamily:"var(--bb-font-mono)", fontWeight:700, color:T1 }}>{w.id}</td>
               <td style={{ ...td, fontSize:12 }}>{w.building}</td>
               <td style={{ ...td, fontWeight:600, color:T1 }}>{w.category}</td>
               <td style={{ ...td, fontSize:12, maxWidth:180 }}>{w.description}</td>
-              <td style={td}>{badge(w.priority, w.priority==="Critical"?"rgba(248,113,113,0.15)":w.priority==="High"?"rgba(251,191,36,0.15)":"rgba(255,255,255,0.08)", w.priority==="Critical"?C.red:w.priority==="High"?C.amber:T3)}</td>
+              <td style={td}>{badge(w.priority, w.priority==="Critical"?"color-mix(in srgb, var(--status-danger) 15%, transparent)":w.priority==="High"?"color-mix(in srgb, var(--status-warning) 15%, transparent)":"var(--bg-sunken)", w.priority==="Critical"?C.red:w.priority==="High"?C.amber:T3)}</td>
               <td style={{ ...td, fontWeight:600, color:T1 }}>{fmt(w.cost)}</td>
               <td style={td}>{w.raisedDate}</td>
               <td style={td}>{w.closedDate||"—"}</td>
-              <td style={td}>{badge(w.status, w.status==="Closed"?"rgba(74,222,128,0.15)":w.status==="Open"?"rgba(248,113,113,0.15)":"rgba(56,189,248,0.15)", w.status==="Closed"?C.green:w.status==="Open"?C.red:C.blue)}</td>
+              <td style={td}>{badge(w.status, w.status==="Closed"?"color-mix(in srgb, var(--status-success) 15%, transparent)":w.status==="Open"?"color-mix(in srgb, var(--status-danger) 15%, transparent)":"color-mix(in srgb, var(--status-info) 15%, transparent)", w.status==="Closed"?C.green:w.status==="Open"?C.red:C.blue)}</td>
               <td style={{ ...td, fontWeight:700, color:w.daysOpen>7?C.red:w.daysOpen>3?C.amber:C.green }}>{w.daysOpen}d</td>
             </tr>
           ))}
@@ -251,14 +256,14 @@ function TenantsTab() {
   return (
     <div style={{ ...DC, padding:0, overflow:"hidden" }}>
       <table style={tbl}>
-        <thead><tr style={{ background:"rgba(255,255,255,0.06)" }}>
+        <thead><tr style={{ background:"var(--bg-sunken)" }}>
           {["Tenant","Building","Floor","sqm","Requests","Avg Response (days)","Satisfaction","Lease Expiry"].map(h=>(
-            <th key={h} style={th}>{h.toUpperCase()}</th>
+            <th key={h} scope="col" style={th}>{h.toUpperCase()}</th>
           ))}
         </tr></thead>
         <tbody>
           {SAMPLE_TENANTS.map((t,i)=>(
-            <tr key={t.name} style={{ borderBottom:"1px solid rgba(255,255,255,0.05)", background:i%2===0?"transparent":"rgba(255,255,255,0.02)" }}>
+            <tr key={t.name} style={{ borderBottom:"1px solid var(--border)", background:i%2===0?"transparent":"var(--bg-sunken)" }}>
               <td style={{ ...td, fontWeight:700, color:T1 }}>{t.name}</td>
               <td style={td}>{t.building}</td>
               <td style={td}>{t.floor}</td>
@@ -276,6 +281,8 @@ function TenantsTab() {
 }
 
 function EnergyTab() {
+  const chart = useDashboardChart();
+  const pal = chart.palette;
   return (<>
     <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:16, marginBottom:24 }}>
       <StatCard label="YTD Electricity" value={fmt(ENERGY_DATA.reduce((s,e)=>s+e.electricity,0))} sub="Target: $540k" />
@@ -286,12 +293,12 @@ function EnergyTab() {
       <p style={{ fontWeight:700, marginBottom:20, color:T1 }}>Energy Cost Trend</p>
       <ResponsiveContainer width="100%" height={240}>
         <LineChart data={ENERGY_DATA}>
-          <CartesianGrid strokeDasharray="3 3" stroke={GRID} />
-          <XAxis dataKey="month" tick={TICK} /><YAxis tickFormatter={v=>`$${(v/1000).toFixed(0)}k`} tick={TICK} />
-          <Tooltip contentStyle={TT} formatter={(v)=>typeof v==="number"?fmt(v):v}/><Legend wrapperStyle={{ color:T2, fontSize:12 }} />
-          <Line type="monotone" dataKey="electricity" stroke={C.amber} strokeWidth={2.5} name="Electricity" dot={{ r:4 }}/>
-          <Line type="monotone" dataKey="gas"         stroke={C.blue}  strokeWidth={2.5} name="Gas"         dot={{ r:4 }}/>
-          <Line type="monotone" dataKey="total"       stroke={C.purple} strokeWidth={2.5} strokeDasharray="5 5" name="Total" dot={{ r:4 }}/>
+          <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} />
+          <XAxis dataKey="month" tick={chart.tick} /><YAxis tickFormatter={v=>`$${(v/1000).toFixed(0)}k`} tick={chart.tick} />
+          <Tooltip {...chart.tooltip} formatter={(v)=>typeof v==="number"?fmt(v):v}/><Legend wrapperStyle={chart.legend} />
+          <Line type="monotone" dataKey="electricity" stroke={pal.warning} strokeWidth={2.5} name="Electricity" dot={{ r:4 }}/>
+          <Line type="monotone" dataKey="gas"         stroke={pal.primary} strokeWidth={2.5} name="Gas"         dot={{ r:4 }}/>
+          <Line type="monotone" dataKey="total"       stroke={pal.comparison} strokeWidth={2.5} strokeDasharray="5 5" name="Total" dot={{ r:4 }}/>
         </LineChart>
       </ResponsiveContainer>
     </div>
@@ -307,14 +314,14 @@ function CleaningSecurityTab() {
     </div>
     <div style={{ ...DC, padding:0, overflow:"hidden" }}>
       <table style={tbl}>
-        <thead><tr style={{ background:"rgba(255,255,255,0.06)" }}>
+        <thead><tr style={{ background:"var(--bg-sunken)" }}>
           {["Contractor","Service","Buildings","sqm","Frequency","Contract","Quality Score","Complaints","Next Audit"].map(h=>(
-            <th key={h} style={th}>{h.toUpperCase()}</th>
+            <th key={h} scope="col" style={th}>{h.toUpperCase()}</th>
           ))}
         </tr></thead>
         <tbody>
           {CLEANING_CONTRACTS.map((c,i)=>(
-            <tr key={c.contractor} style={{ borderBottom:"1px solid rgba(255,255,255,0.05)", background:i%2===0?"transparent":"rgba(255,255,255,0.02)" }}>
+            <tr key={c.contractor} style={{ borderBottom:"1px solid var(--border)", background:i%2===0?"transparent":"var(--bg-sunken)" }}>
               <td style={{ ...td, fontWeight:700, color:T1 }}>{c.contractor}</td>
               <td style={td}>{c.service||"Cleaning"}</td>
               <td style={td}>{c.buildings}</td>
@@ -342,20 +349,20 @@ function ComplianceTab() {
     </div>
     <div style={{ ...DC, padding:0, overflow:"hidden" }}>
       <table style={tbl}>
-        <thead><tr style={{ background:"rgba(255,255,255,0.06)" }}>
+        <thead><tr style={{ background:"var(--bg-sunken)" }}>
           {["Ref","Building","Type","Last Inspection","Next Due","Status","Result"].map(h=>(
-            <th key={h} style={th}>{h.toUpperCase()}</th>
+            <th key={h} scope="col" style={th}>{h.toUpperCase()}</th>
           ))}
         </tr></thead>
         <tbody>
           {COMPLIANCE_CHECKS.map((c,i)=>(
-            <tr key={c.id} style={{ borderBottom:"1px solid rgba(255,255,255,0.05)", background:c.status==="Overdue"?"rgba(248,113,113,0.05)":i%2===0?"transparent":"rgba(255,255,255,0.02)" }}>
-              <td style={{ ...td, fontFamily:"monospace", fontWeight:700, color:T1 }}>{c.id}</td>
+            <tr key={c.id} style={{ borderBottom:"1px solid var(--border)", background:c.status==="Overdue"?"color-mix(in srgb, var(--status-danger) 5%, transparent)":i%2===0?"transparent":"var(--bg-sunken)" }}>
+              <td style={{ ...td, fontFamily:"var(--bb-font-mono)", fontWeight:700, color:T1 }}>{c.id}</td>
               <td style={{ ...td, fontSize:12 }}>{c.building}</td>
               <td style={{ ...td, fontWeight:600, color:T1 }}>{c.type}</td>
               <td style={td}>{c.lastInspection}</td>
               <td style={{ ...td, color:c.status==="Overdue"?C.red:T2, fontWeight:c.status==="Overdue"?700:400 }}>{c.nextDue}</td>
-              <td style={td}>{badge(c.status, c.status==="Current"?"rgba(74,222,128,0.15)":"rgba(248,113,113,0.15)", c.status==="Current"?C.green:C.red)}</td>
+              <td style={td}>{badge(c.status, c.status==="Current"?"color-mix(in srgb, var(--status-success) 15%, transparent)":"color-mix(in srgb, var(--status-danger) 15%, transparent)", c.status==="Current"?C.green:C.red)}</td>
               <td style={{ ...td, fontSize:12 }}>{c.result}</td>
             </tr>
           ))}
@@ -376,14 +383,14 @@ function LifecycleTab() {
     </div>
     <div style={{ ...DC, padding:0, overflow:"hidden" }}>
       <table style={tbl}>
-        <thead><tr style={{ background:"rgba(255,255,255,0.06)" }}>
+        <thead><tr style={{ background:"var(--bg-sunken)" }}>
           {["Component","Building","Installed","Lifespan","Renewal Year","Renewal Cost","Condition","Priority"].map(h=>(
-            <th key={h} style={th}>{h.toUpperCase()}</th>
+            <th key={h} scope="col" style={th}>{h.toUpperCase()}</th>
           ))}
         </tr></thead>
         <tbody>
           {LIFECYCLE_FORECAST.sort((a,b)=>a.renewalYear-b.renewalYear).map((l,i)=>(
-            <tr key={l.component} style={{ borderBottom:"1px solid rgba(255,255,255,0.05)", background:i%2===0?"transparent":"rgba(255,255,255,0.02)" }}>
+            <tr key={l.component} style={{ borderBottom:"1px solid var(--border)", background:i%2===0?"transparent":"var(--bg-sunken)" }}>
               <td style={{ ...td, fontWeight:700, fontSize:12, color:T1 }}>{l.component}</td>
               <td style={{ ...td, fontSize:12 }}>{l.building}</td>
               <td style={td}>{l.installed}</td>
@@ -391,9 +398,9 @@ function LifecycleTab() {
               <td style={{ ...td, fontWeight:700, color:l.renewalYear<=2026?C.red:l.renewalYear<=2028?C.amber:T3 }}>{l.renewalYear}</td>
               <td style={{ ...td, fontWeight:600, color:T1 }}>{fmt(l.renewalCost)}</td>
               <td style={td}>
-                <div style={{ display:"flex", gap:3 }}>{[1,2,3,4,5].map(n=><div key={n} style={{ width:8, height:8, borderRadius:2, background:n<=l.condition?C.purple:"rgba(255,255,255,0.1)" }}/>)}</div>
+                <div style={{ display:"flex", gap:3 }}>{[1,2,3,4,5].map(n=><div key={n} style={{ width:8, height:8, borderRadius:2, background:n<=l.condition?C.blue:"var(--border-strong)" }}/>)}</div>
               </td>
-              <td style={td}>{badge(l.priority, l.priority==="Critical"?"rgba(248,113,113,0.15)":l.priority==="High"?"rgba(251,191,36,0.15)":l.priority==="Medium"?"rgba(56,189,248,0.15)":"rgba(74,222,128,0.15)", l.priority==="Critical"?C.red:l.priority==="High"?C.amber:l.priority==="Medium"?C.blue:C.green)}</td>
+              <td style={td}>{badge(l.priority, l.priority==="Critical"?"color-mix(in srgb, var(--status-danger) 15%, transparent)":l.priority==="High"?"color-mix(in srgb, var(--status-warning) 15%, transparent)":l.priority==="Medium"?"color-mix(in srgb, var(--status-info) 15%, transparent)":"color-mix(in srgb, var(--status-success) 15%, transparent)", l.priority==="Critical"?C.red:l.priority==="High"?C.amber:l.priority==="Medium"?C.blue:C.green)}</td>
             </tr>
           ))}
         </tbody>
@@ -415,11 +422,10 @@ const INDUSTRY_TABS: IndustryTab[] = [
 export default function FacilitiesDashboard() {
   return (
     <DashboardShell
-      theme="dark"
       title="Facilities Management Intelligence"
       subtitle="Work orders · Tenant management · Energy · Lifecycle costs"
-      headerColor="#4c1d95"
-      accentColor="#8b5cf6"
+      headerColor="#0c4a6e"
+      accentColor="#0ea5e9"
       breadcrumbLabel="Facilities Management"
       kpis={KPI_DATA}
       recommendedActions={[

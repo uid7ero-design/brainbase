@@ -2183,3 +2183,254 @@ Nothing is classified SHOULD FIX BEFORE PRESERVATION after E.
 ### Preservation recommendation
 
 READY TO PRESERVE. No BLOCKER is open. Every E correction is colour, semantic or keyboard only. All phase guards pass unmodified, and the new E guard is mutation-checked. The full suite and the build are green. The remaining items are documented as MINOR or ACCEPTABLE DEFERRED.
+
+## Authenticated visual-completion pass (base main e20d0fd)
+
+Gap-closing pass against deployed main e20d0fd, not a redesign. Scope: Founder OS, Helena, the shared client workspace, the LD Tennis tenant surfaces, School Test Organisation (workspace, Events, Ticketing) and future tenants. Visual and accessibility-semantics changes only. Routes, APIs, SQL, auth, tenant boundaries, capability gating, calculations, handlers, assistant prompts/tools and Events/Ticketing behaviour are unchanged. Nothing is committed, pushed or deployed.
+
+### Verification sources (read this first)
+
+| Source | Used | Notes |
+| --- | --- | --- |
+| Real authenticated production observation | **No** | brainbase.com.au has no DNS; brainbase.app returned Cloudflare 522; the Vercel deployment URL passed SSO but the app was not signed in, and signing in on the user's behalf is prohibited. |
+| Preview authenticated rendering | **No** | By instruction, no push and no Preview in this pass. |
+| Local authenticated rendering | **Harness only** | Server pages (`/clients`, `/clients/[id]`, `/dashboard/leads`, `/dashboard/leads/[id]`, `/dashboard/contacts/[id]`) rendered by their real code in scratch worktrees with a fixture `sql` tag and a synthetic super_admin session (scratch-only shim; never in the repository). |
+| Harness-only rendering | **Yes** | Client surfaces rendered by their real components with a stubbed `fetch`. "Before" = unchanged main e20d0fd; "after" = e20d0fd plus this pass. Same harness, same fixtures, both builds. |
+
+Harness artefacts (not product defects): the harness routes have no session, so the logged-out public top nav appears (its labels are excluded from the counts). Founder OS keeps HEAD's `margin: -40px`, which cancels the admin layout's padding; the harness renders it without that layout, so it overflows by exactly 40px there.
+
+### What changed
+
+- **P1 DashboardShell family:**
+  - `DashboardShell` is token-driven. The `theme` / `headerColor` props remain on the API but no longer pick a palette; `accentColor` is an identity swatch. It adds a real tablist (arrows, Home/End) and `MetricStrip`.
+  - `components/dashboard/ui/*` (KpiCard, InsightCard, OpportunityCard, ExecutivePanel, ExecutiveSummary, Section, tokens) and a new `chartTheme.ts`.
+  - All 13 consumers are converted: 12 shell pages plus the bin-maintenance insights KpiCards.
+  - Narrow screens (this pass's harness finding): consumer pages lay out KPI rows with inline `repeat(N, 1fr)` grids, which overflowed at 390px before and after. One scoped rule in `DashboardShell.module.css` lets those tracks shrink and reflow (2 columns ≤720px, 1 column ≤480px).
+  - Recharts legend labels now read `--text-secondary` inside the shell. The swatch keeps the data hue; several hues were below 4.5:1 as label text in light.
+  - `OverviewClient` is converted (decision B). Its byte-for-byte freeze is replaced by six behavioural pins.
+- **P1 Waste sub-module:**
+  - Layout frame, `NavTabs` (now a labelled nav with `aria-current`) and `_dark.tsx` are converted. Every export name is kept; neutrals map to tokens and three helpers are added.
+  - Ten sub-pages converted: chart chrome from `useWasteChart()`, status text on tokens, `scope="col"` headers.
+  - Chart series hues are kept as data.
+- **P2 Founder OS:**
+  - Token map with `STAGE_FG` kept as data, and MetricStrip.
+  - Modals become `Dialog` and the drawer becomes `SlidePanel`.
+  - Nav uses buttons/links with `aria-current`; tabs use `aria-pressed`.
+  - Stretched-link pipeline rows; the Follow-up action is layered above the row and has the same effect.
+  - Narrow-screen safety below 900px.
+  - The no-op Btn wrappers are documented, not given behaviour.
+- **P3 Helena:**
+  - Tokens for HelenaWorkspace, HelenaMic, ChatPanel, MicButton, HlnaWordmark, LeftSidebar and the BrainBase chrome.
+  - `visualState.js` changes colours only; labels, state names and transitions are unchanged.
+  - `/hlna` keeps HelenaOrbital. The idle HlnaOrb logo in CommandCentreHero and TennisDashboard is replaced by BrokenOrbitMark.
+  - Two gaps found during integration are closed here:
+    - `FloatingCard`, Helena's action-feedback toast on every `/dashboard/**` and `/organiser` page, drops glass, the gradient and the infinite float, and gets a named Dismiss button.
+    - `HlnaInsightBanner`, inside the Fleet, Waste and Service Requests shells, drops old violet and white alpha, and gets a named refresh button.
+    - Timers, request, prompt and store calls are identical. HEAD's versions pass the same behavioural tests.
+- **P4 shared Clients (the P0 fix):**
+  - `ClientWorkspace`, the `/clients` list and the `/clients/[id]` banner are converted. Every fixed near-white or white-alpha foreground moved to tokens (54 text literals measured below 3:1 in light at HEAD, 33 of them at 1.02–1.06:1).
+  - Status uses Badge/StatusDot, the contact editor is a `SlidePanel`, tabs are a real tablist, and rows are buttons.
+  - Mobile-usable at 390px.
+  - SQL and opportunity calculations are byte-identical.
+- **P5 LD Tennis:**
+  - The TennisDashboard dark island (injected `#08090c` style block) is gone.
+  - Tennis children, sessions, blog, pipeline, leads/** and contacts/** use tokens and primitives, with `colorScheme: 'dark'` removed.
+  - The tenant's primary action is now product purple (the brief's rule) instead of tennis green. Flagged for confirmation.
+- **Selected-segment contrast (harness finding):** accent text on the accent tint measures 4.35:1 in light where the strip is `--bg-sunken` (5.14 on the surface, all dark cases >5).
+  - Corrected in ClientWorkspace tabs, Founder tabs and segments, Contacts filters, Leads chips and the Sessions view toggle.
+  - Borders are used rather than outline or box-shadow, so the global `:focus-visible` ring still wins.
+- **P7 Events (one line):** the QuestionsPanel action row overflowed by 62px at 390, before and after. It now wraps (`flexWrap`). No behaviour change.
+
+### School Test Organisation, Events and Ticketing
+
+- Not seeded locally; verified with synthetic fixtures ("Riverside School Test Organisation"), generic tenant behaviour and structural checks. No production observation (see above).
+- Import-graph check: of this pass's changed files, none (other than the one-line QuestionsPanel wrap) is reachable from `app/events/**`, `/e`, `/t/[token]`, `/b/[bookingToken]/tickets`, `TicketCard`, the branding preview, the root layout or middleware. `app/globals.css` and `styles/brainbase-tokens.css` are unchanged.
+- Harness: the events list and event detail (paid and free ticket types, sold out, inactive; orders PAID, NOT_REQUIRED, PENDING, expired-pending, REFUNDED and FAILED) show 0 contrast fails in both themes at 1440, 1024 and 390. After the wrap fix, 390 shows 0 overflow.
+- The public ticketing exceptions are unchanged, and the public-exception pattern counts are identical before and after.
+
+### Future tenants
+
+- `tests/containment/futureTenantVisualNeutrality.test.ts`: shared presentation (client workspace, clients pages, shell and kit, app primitives, theme) carries no tenant name, slug, or org-id/name literal comparison. `/clients/[id]` renders one `ClientWorkspace` for every org, and tenant dashboards are chosen only by routing. 7/7 mutations caught, 1 control passes.
+- `tests/components/app/FutureTenantParity.test.tsx`: coaching, school and synthetic future tenants with identically shaped data render an identical structure/class/inline-style signature in light and dark, with no literal inline colours and axe clean. 3/3 mutations caught, 1 control passes.
+
+### Harness measurements (text contrast vs rendered background; horizontal overflow)
+
+Per page: failing text nodes / text nodes checked. Light and dark are identical across 1440 and 1024 unless shown.
+
+| Surface | Before fails (light · dark) | Before 390 overflow | After fails (light · dark) | After 390 overflow |
+| --- | --- | --- | --- | --- |
+| Client workspace, coaching tenant (`/clients/[id]` component) | 56/63 · 30/63 | 244px | 0/67 · 0/67 | 0 |
+| Client workspace, synthetic future tenant | 35/42 · 19/42 | 227px | 0/44 · 0/44 | 0 |
+| `/clients` list (server page) | 56/72 · 23/72 | 0 | 0/69 · 0/69 | 0 |
+| `/clients/org_demo_tennis` (server page + banner) | 61/77 · 32/77 | 244px | 0/81 · 0/81 | 0 |
+| `/clients/org_northwind` (server page + banner) | 40/56 · 21/56 | 227px | 0/58 · 0/58 | 0 |
+| `/dashboard/leads` | 11/27 · 3/27 | 112px (16px at 1024) | 0/78 · 0/78 | 0 |
+| `/dashboard/leads/[id]` | 4/22 · 5/22 | 0 | 0/63 · 0/63 | 0 |
+| `/dashboard/contacts/[id]` | 4/21 · 4/21 | 0 | 0/48 · 0/48 | 0 |
+| Tennis dashboard | 100/214 · 99/214 | 0 | 0/207 · 0/207 | 0 |
+| Tennis contacts | 49/62 · 23/62 | 0 | 0/56 · 0/56 | 0 |
+| Tennis sessions | 55/62 · 14/62 | 6px | 0/62 · 0/62 | 0 |
+| Tennis pipeline | 31/38 · 15/38 | 0 | 0/38 · 0/38 | 0 |
+| Tennis blog | 14/21 · 7/21 | 0 | 0/21 · 0/21 | 0 |
+| Founder OS | 118/230 · 118/230 | 40px† | 0/229 · 0/229 | 40px† |
+| Helena `/hlna` | 7/16 · 7/16 | 0 | 0/16 · 0/16 | 0 |
+| Overview | 63/74 · 27/74 | 188px | 0/71 · 0/71 | 0 |
+| Roads (shell) | 48/132 · 48/132 | 213px | 0/127 · 0/127 | 0 |
+| Water (shell) | 49/125 · 49/125 | 197px | 0/121 · 0/121 | 0 |
+| Fleet (shell + Helena banner) | 115/456 · 115/456 | 195px | 0/446 · 0/446 | 0 |
+| Waste overview (shell) | 56/188 · 56/188 | 200px | 0/185 · 0/185 | 0 |
+| Bin-maintenance insights | 16/99 · 16/99 | 477px | 0/99 · 0/99 | 0 |
+| Events list (synthetic school tenant) | 0/49 · 0/49 | 0 | 0/49 · 0/49 | 0 |
+| Event detail + ticket types + orders | 0/244 · 0/244 | 62px | 0/244 · 0/244 | 0 |
+| `/dashboard/waste/*` sub-pages (10 real routes: bin-lifts, budgeting, commodities, community, complaints, compliance, cost-per-household, diversion, fleet, green-waste) | 23–63 per page, light · dark similar | 147–412px | 0 · 0 on every page | 0 |
+
+- Thresholds: 4.5:1 for normal text, 3:1 for large. Text is composited over the actual rendered background chain; aria-hidden, disabled and form-field text is skipped. The logged-out harness nav is excluded.
+- † The harness artefact described above (HEAD's `margin: -40px` without the admin layout).
+- Before = unchanged main e20d0fd, after = this pass, same harness and fixtures.
+- Rendered via real Chrome in exact-width iframes: 25 routes × light and dark × 1440, 1024 and 390, measured on both builds.
+- The Waste sub-pages were first unmeasured: the shim granted a session only to the clients, leads and contacts routes. For the final run, `/dashboard/waste` was added to that list in both scratch worktrees (never the repository), so all 10 sub-pages are measured before and after.
+- That final run found two small gaps in this branch's own Compliance conversion, now corrected and re-measured at 0 / 0:
+  - Dates in `--text-muted` on the amber-tinted rows measured 4.41:1 in dark; they now use `--text-secondary`.
+  - The training rows' fixed 256px label overflowed by 25px at 390; the row now wraps, with desktop unchanged.
+- Headings, counted as visible h1s in the live DOM: the Waste Overview had 2 before and has 1 after. Every sub-page has 1.
+  - A raw `querySelectorAll('h1')` reports 2, because the dashboard `loading.tsx` streaming boundary leaves a copy of the layout in a `<div hidden id="S:0">` placeholder. That copy is not rendered or exposed to assistive tech, and HEAD has it too.
+- Final after-run: 33 routes × light and dark × 1440, 1024 and 390, giving 198 renders and 23,834 text nodes checked. After the Compliance fix, 0 contrast failures. The only overflow is Founder OS's harness-only 40px (unchanged, by decision).
+- Screenshots inspected (harness, not authenticated routes):
+  - 1440 light: client workspace, Founder OS, Fleet shell, `/hlna` (Helena orbital legible in light), tennis dashboard.
+  - 1440 dark: the synthetic-tenant client workspace.
+  - 390 light, before and after side by side: client workspace, tennis contacts, event detail, Roads shell.
+
+### Accessibility corrections
+
+- **Dialogs:** Founder modals (Dialog), the Founder drawer, the ClientWorkspace contact editor and the Contacts drawer (SlidePanel) have role, aria-modal, labelled title, Escape, focus trap, initial focus and focus return. Two Sessions modals gained dialog semantics.
+- **Controls:**
+  - Clickable divs became buttons or links (client rows, Founder pipeline rows, Sessions calendar entries, blog rows, pipeline headers).
+  - Real tablists: DashboardShell and ClientWorkspace.
+  - `aria-pressed` / `aria-current` / `aria-expanded` where state was colour-only.
+  - Named icon buttons: FloatingCard Dismiss, InsightBanner refresh, the SlidePanel close.
+- **Labels:**
+  - Every input in the converted forms is labelled without changing names or values.
+  - LeadMessaging gained visible Subject and Message labels.
+  - Implementation health shows its label next to the dot.
+  - Waste tables use `scope="col"`.
+- **Focus:** no outline suppression in any touched file. Authenticated-scope suppressions went from 62 to 37, and the remaining 37 are all in untouched files.
+- **Motion:** every kept animation respects `prefers-reduced-motion`.
+
+### Legacy-pattern counts (authenticated app scope, comments stripped; `app/api/**`, orphans and `*_legacy*` excluded)
+
+| Pattern | e20d0fd | After |
+| --- | ---: | ---: |
+| White-alpha `rgba(255,255,255,…)` | 2319 | 991 |
+| Near-black hex slabs | 173 | 116 |
+| `text-white` Tailwind | 85 | 67 |
+| Backdrop blur | 42 | 29 |
+| Old violet chrome | 906 | 421 |
+| `colorScheme: dark` | 9 | 3 |
+| Legacy font stacks | 116 | 86 |
+| Focus suppression | 62 | 37 |
+
+Public ticketing and marketing exceptions are identical before and after. Changed files still containing an old-violet hex (4) use it only as data: the Founder stage map, the Waste material and complaint categories, and the BrainBase module colour map.
+
+### Tests, pins and mutation checks
+
+- Pins updated (visual literals only, each commented "Visual-convergence update …" and replaced by equal or stronger assertions):
+  - `founderImplementationIntelligence`
+  - `hlnaWorkspace` (BrainBase mapper now pinned by exact body)
+  - `organisationDashboardSeparation` (Overview freeze → queries, computed fields, thresholds, prompts and quick-nav routes)
+  - `organiserActionConfirmationUi`
+  - `tennisCalendarLayoutStaticCheck`
+  - `tennisSessionManagementUiStaticCheck`
+- New guards (all mutation-checked; restores hash-verified):
+  - `founderOsVisualConvergence` 14/14, plus the semantic-severity assertion (decision 2)
+  - `helenaVisualConvergence` 19/19, plus the restrained ambient-glow and Λ-identity assertions (decisions 3–4)
+  - `dashboardShellVisual` 18/18, plus the legend rule (drop-`!important` mutation caught) and the Fleet/Water swatch uniqueness + 3:1 assertions (decision 5)
+  - `clientWorkspaceVisual` 13/13 with 2 controls
+  - `tennisTenantVisual` 14/14 with 2 controls
+  - `wasteModuleVisual` 30/30 cases as expected (26 mutations caught, 4 controls pass), including the accessible series-shade map (decision 6) and the route-aware module title (decision 7)
+  - `floatingCardVisual` 9/9 with 1 control
+  - `helenaInsightBannerVisual` 9/9 with 1 control
+  - `futureTenantVisualNeutrality` 7/7 with 1 control, plus tenant-neutral placeholder examples (decision 8; restoring the coaching placeholder is caught)
+  - `WasteHeadings` (new render test): one page-level h1 on the Overview and sub-pages in light and dark; always-h1 and never-h1 mutations both caught
+- New render tests in light and dark with axe: ClientWorkspace, FutureTenantParity, FounderOs, Helena, DashboardShell, TennisDashboard, TennisTenant, WasteModule, WasteHeadings, FloatingCard, HlnaInsightBanner.
+- Full suite (final, after the decisions below): 544 files passed, 4 skipped; 12,339 tests passed, 46 skipped, 0 failed.
+  - Earlier full runs that overlapped a harness build had load-only failures: the real-Postgres proofs lost their connection, and the Command axe test hit its 5s timeout.
+  - One further full run had a single failure: the Organiser rail keyboard test, whose `waitFor` timed out under load. It passed 3/3 in isolation, 2/2 in the full components project and in the final full run. Its rail files are unchanged by this pass. The 3 CI exclusions and `sharedFoundationsA01bSchema` are excluded. An earlier run had 3 real-Postgres files fail while the disposable database was shutting down; they pass in isolation. Its one flaky new assertion (the banner's relative timestamp) is now awaited.
+- `npx tsc --noEmit`: clean (outside the excluded foreign folders).
+- ESLint on the 88 changed or new source files: 77 errors at HEAD, 70 after; no file increased.
+- `npm run build` in a clean worktree (final tree, no harness): 287/287. The in-repo build fails only on the untracked foreign `Projects/Essio`.
+- `git diff --check`: clean.
+- The CI-excluded pins show the same 19 failures as at HEAD.
+
+### Documented functional issues (not fixed)
+
+- **Helena:**
+  - BrainBase's private `mapHelenaPhaseToVisualState` never emits thinking or speaking.
+  - MicButton's alert branch is unreachable.
+  - IntelRail uses a fake timer.
+  - "Send to manager" only flips a label.
+  - InsightBanner's `CONF_CLASS` lookup is undefined for an unknown confidence.
+- **Founder OS:**
+  - The ProposalModal preselect is always null.
+  - AddLead ignores `res.ok`.
+  - Upload Dataset and View Lead are toast-only.
+  - `mapRawClient` empties email and notes.
+  - BookDemo calls setLoading after unmount.
+- **Clients:** unknown implementation health reads "On Track", and an unknown lead status reads "New".
+- **Sessions:**
+  - `InstanceRoster` calls hooks after an early return.
+  - Escape in Manage Types also closes the Edit modal underneath.
+- **DashboardShell family:**
+  - Roads and Facilities sort shared arrays during render.
+  - Water KPI mismatch.
+  - WasteClient crashes on empty zones.
+  - Fleet overtime shows NaN, and its replacement KPIs are hard-coded.
+  - The Patterns tab's 17:00 highlight is hard-coded.
+  - The "Open" KPI tone is inconsistent.
+- **Waste:** the budgeting "Actual" bars use `<rect>` children instead of `<Cell>`, so the variance colour is ignored.
+- **Header offset:** the `/clients/[id]` sticky banner shows a gap below the nav after the super_admin org bar scrolls away. The same offset variable is used as at HEAD; the offset logic is out of scope.
+
+### Backlog for the next visual-completion pass (not touched in this branch)
+
+Recorded by decision 9 as the next dedicated pass. It must begin with a fresh inventory, because some of these have distinct functional or branding constraints.
+
+
+- `/admin/web-services` (+ LeadMessages), `/admin/deployments`, `/admin/agent-runs`, `/admin/orgs`: Founder-adjacent admin pages linked from the admin aside.
+- `/dashboard/wste/**`, `/dashboard/social`, `/dashboard/service-requests` client (its Helena banner is converted), `/dashboard/integrations`, `/dashboards`, `/briefings`, `/portal`, `/connect`, `/data`, `/reports/[id]`, `/onboarding/**`.
+- The BrainBase no-session fallback panels (`components/panels/*`, MorningBriefing, CommandSuggestions, RecommendedActions) and BrainGraphPanel (three.js demo).
+- LockScreen (global session lock overlay).
+- Public and pre-auth surfaces (tennis public site, trial, auth pages, CommandDemo) are outside the authenticated scope.
+
+### Reconciliation with main (2026-09-27)
+
+- The branch was fast-forwarded from e20d0fd to `origin/main` 9590c31 (HR-7E1–7E3, PRs #286–#288). No rebase; the pass's changes were carried unchanged.
+- Main's 8 HR files had no overlap with this pass, so there were no conflicts. All 135 pass files are byte-identical to the pre-reconciliation backup.
+- Re-validated at 9590c31:
+  - tsc clean.
+  - Full suite: 546 files passed, 4 skipped; 12,355 tests passed, 0 failed (includes main's new HR tests).
+  - Clean-worktree build: 287/287.
+  - `git diff --check` clean.
+  - CI-excluded pins unchanged (19).
+- Harness re-run (harness verification only): 27 routes × light and dark × 1440, 1024 and 390, giving 162 renders and 19,976 text nodes checked.
+  - Routes: `/clients`, `/clients/[id]` ×2, tennis dashboard, leads, lead detail, contacts, contact detail, sessions, Founder OS, `/hlna`, Roads shell, Waste overview (shell and real route), all 10 Waste sub-pages, Events list/detail, synthetic client workspace.
+  - 0 contrast failures and one visible h1 on every Waste route.
+  - The only overflow is Founder OS's harness-only 40px.
+  - Identical to the pre-reconciliation result.
+
+### Decisions applied (user, 2026-09-27)
+
+1. **LD Tennis primary actions stay Brainbase purple.** Verified: the 15 primary actions on tennis surfaces use the shared purple primary. Green remains only for sport/session/status data and the semantic Activate toggle.
+2. **Founder severity is semantic.** High, critical and overdue use `--status-danger`, medium uses `--status-warning`, and low is neutral. Purple is never a severity. The severity text still distinguishes critical from high. Data meanings are unchanged.
+3. **HLNΛ wordmark Λ is Brainbase purple inside authenticated UI.** `--brand-hlna-accent` (HLNA Labs orange) is unchanged for its own contexts. BrokenOrbitMark's `hlna` context still uses the HLNA accent; it is outside the Λ decision and flagged for the backlog review.
+4. **Helena ambient glow is kept, very faint.** No code change was needed. It is a state-token tint of at most 30% at opacity ≤0.6, extends 25% of the orbital size, is blurred, and its pulses are disabled under reduced motion. State is always also written as text (the aria-live label). These limits are now pinned.
+5. **Fleet and Water have distinct identity swatches.** Fleet is `#c2410c` (5.18:1 light / 3.64:1 dark) and Water is `#0891b2` (3.68 / 5.12). They are identity swatches only; chrome, navigation, actions and selection are unchanged.
+6. **Waste chart series use accessible theme-aware shades.** `useWasteChart().series(hex)` keeps each hue family. Amber and red use the chart palette's warning and danger colours, and every shade is ≥3:1 in both themes. Series identity, order, data, labels and legends are unchanged.
+7. **One page-level h1 per Waste route.** `WasteModuleTitle` is the h1 on sub-pages and a non-heading label on the Overview, where DashboardShell renders the page h1.
+8. **Shared editor placeholders are generic:** "e.g. Service or programme name" and "e.g. Tuesday 6:00 pm". There is no tenant branching.
+9. **The remaining islands above are deferred** to the next pass, which will start with a fresh inventory.
+
+Also accepted as in scope: the FloatingCard, HlnaInsightBanner and Waste frame convergence, and the Events QuestionsPanel wrap.
+
+Left unchanged by decision:
+- Founder OS's harness-only 40px overflow. Verify it on Preview with the real admin layout; do not patch it from harness evidence.
+- The pre-existing sticky ClientBanner gap. It stays documented.
+- The documented functional issues. They remain out of scope.

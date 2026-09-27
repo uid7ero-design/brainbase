@@ -2,8 +2,10 @@
 
 import { useState, useMemo, useEffect } from "react";
 import Link from "next/link";
-
-const FONT = "var(--font-inter), -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
+import {
+  Badge, Field, FormError, SlidePanel, StateMessage, buttonProps, fieldControlClassName, type SemanticState,
+} from "@/components/ui/app";
+import styles from "./Contacts.module.css";
 
 type Contact = {
   id: string;
@@ -41,11 +43,12 @@ const EMPTY_FORM: FormState = {
 
 const DAY = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
-const STATUS_STYLES: Record<string, { bg: string; color: string; border: string; label: string }> = {
-  lead:      { bg: 'rgba(34,197,94,.10)',   color: '#4ade80', border: 'rgba(34,197,94,.22)',   label: 'Lead' },
-  contacted: { bg: 'rgba(251,191,36,.10)',  color: '#fbbf24', border: 'rgba(251,191,36,.22)',  label: 'Contacted' },
-  active:    { bg: 'rgba(59,130,246,.10)',  color: '#60a5fa', border: 'rgba(59,130,246,.22)',  label: 'Active' },
-  inactive:  { bg: 'rgba(113,113,122,.10)', color: '#71717a', border: 'rgba(113,113,122,.22)', label: 'Inactive' },
+// Contact status → shared semantic state (token colours, AA in both themes).
+const STATUS_STATE: Record<string, SemanticState> = {
+  lead:      'info',
+  contacted: 'warning',
+  active:    'success',
+  inactive:  'inactive',
 };
 
 const AVATAR_HUES = [210, 160, 280, 30, 340, 50, 190, 120];
@@ -81,7 +84,10 @@ function contactToForm(c: Contact): FormState {
   };
 }
 
-// ── Contact Form Modal ────────────────────────────────────────────────────────
+/// ── Contact Form Modal ────────────────────────────────────────────────────────
+//
+// The shared SlidePanel: role="dialog", aria-modal, labelled by its title,
+// Escape / × / scrim close, focus trapped and returned to the opener.
 
 function ContactModal({ mode, initial, onClose, onSave }: {
   mode: 'create' | 'edit';
@@ -130,129 +136,99 @@ function ContactModal({ mode, initial, onClose, onSave }: {
   }
 
   return (
-    <>
-      <style>{`@keyframes _cf{from{opacity:0}to{opacity:1}}@keyframes _cs{from{opacity:0;transform:translateX(32px)}to{opacity:1;transform:translateX(0)}}`}</style>
-      <div style={{ position: 'fixed', inset: 0, zIndex: 300, display: 'flex', animation: '_cf .15s ease' }}
-        onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-        <div onClick={onClose} style={{ flex: 1, background: 'rgba(0,0,0,.65)', backdropFilter: 'blur(3px)' }} />
-        <div style={{
-          width: 460, background: '#0e1014', borderLeft: '1px solid rgba(255,255,255,.09)',
-          display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden',
-          fontFamily: FONT, animation: '_cs .18s ease',
-        }}>
-          {/* Header */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '22px 28px', borderBottom: '1px solid rgba(255,255,255,.07)', flexShrink: 0 }}>
-            <div style={{ fontSize: 15, fontWeight: 700, color: '#F5F7FA' }}>{mode === 'create' ? 'New Contact' : 'Edit Contact'}</div>
-            <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,.35)', fontSize: 22, cursor: 'pointer', lineHeight: 1 }}>×</button>
-          </div>
+    <SlidePanel open onClose={onClose} title={mode === 'create' ? 'New Contact' : 'Edit Contact'}>
+      {/* Scrollable form */}
+      <form onSubmit={submit} className={styles.form}>
 
-          {/* Scrollable form */}
-          <form onSubmit={submit} style={{ flex: 1, overflowY: 'auto', padding: '24px 28px', display: 'flex', flexDirection: 'column', gap: 16 }}>
-
-            {/* Basic details */}
-            <F label="Name *">
-              <input style={inp} value={form.name} onChange={set('name')} placeholder="Full name" required />
-            </F>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              <F label="Email">
-                <input style={inp} type="email" value={form.email} onChange={set('email')} placeholder="name@email.com" />
-              </F>
-              <F label="Phone">
-                <input style={inp} type="tel" value={form.phone} onChange={set('phone')} placeholder="04xx xxx xxx" />
-              </F>
-            </div>
-            <F label="Status">
-              <select style={inp} value={form.status} onChange={set('status')}>
-                <option value="lead">Lead</option>
-                <option value="contacted">Contacted</option>
-                <option value="active">Active</option>
-                <option value="inactive">Inactive</option>
-              </select>
-            </F>
-            <F label="Address">
-              <input style={inp} value={form.address} onChange={set('address')} placeholder="Street, suburb…" />
-            </F>
-
-            {/* Age — triggers guardian section */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              <F label="Age">
-                <input style={inp} type="number" min={1} max={120} value={form.age} onChange={set('age')} placeholder="—" />
-              </F>
-              <F label="Program">
-                <input style={inp} value={form.program} onChange={set('program')} placeholder="Hot Shots, Squad…" />
-              </F>
-            </div>
-
-            {/* Guardian section — visible only when under 18 */}
-            {isMinor && (
-              <div style={{ background: 'rgba(251,191,36,.05)', border: '1px solid rgba(251,191,36,.20)', borderRadius: 10, padding: '16px 16px 14px' }}>
-                <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', color: '#fbbf24', marginBottom: 12 }}>
-                  Guardian Details — required (under 18)
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                  <F label="Guardian Name">
-                    <input style={inp} value={form.guardian_name} onChange={set('guardian_name')} placeholder="Full name" />
-                  </F>
-                  <F label="Guardian Phone">
-                    <input style={inp} type="tel" value={form.guardian_phone} onChange={set('guardian_phone')} placeholder="04xx xxx xxx" />
-                  </F>
-                </div>
-              </div>
-            )}
-
-            {/* Session dropdown */}
-            <F label="Session">
-              <select style={inp} value={form.session_id} onChange={set('session_id')}>
-                <option value="">— Not enrolled in a session —</option>
-                {sessions.map(s => (
-                  <option key={s.id} value={s.id}>
-                    {s.name} ({DAY[s.day_of_week]} {s.start_time} · {s.session_type})
-                  </option>
-                ))}
-              </select>
-            </F>
-
-            <F label="Session Times">
-              <input style={inp} value={form.session_times} onChange={set('session_times')} placeholder="Mon 4pm, Wed 5pm…" />
-            </F>
-            <F label="Next Action">
-              <textarea style={{ ...inp, resize: 'vertical', lineHeight: 1.5 }} rows={2} value={form.next_action} onChange={set('next_action')} placeholder="Follow up call, send invoice…" />
-            </F>
-
-            {error && <p style={{ color: '#f87171', fontSize: 12, margin: 0 }}>{error}</p>}
-
-            {/* Footer */}
-            <div style={{ display: 'flex', gap: 8, paddingTop: 4 }}>
-              <button type="button" onClick={onClose} style={{ flex: 1, fontSize: 13, fontWeight: 600, padding: '9px 0', borderRadius: 8, cursor: 'pointer', background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.09)', color: 'rgba(255,255,255,.40)', fontFamily: FONT }}>
-                Cancel
-              </button>
-              <button type="submit" disabled={saving} style={{ flex: 2, fontSize: 13, fontWeight: 600, padding: '9px 0', borderRadius: 8, cursor: saving ? 'default' : 'pointer', background: 'rgba(99,102,241,.22)', border: '1px solid rgba(99,102,241,.40)', color: '#a5b4fc', fontFamily: FONT, opacity: saving ? .5 : 1 }}>
-                {saving ? 'Saving…' : mode === 'create' ? 'Create Contact' : 'Save Changes'}
-              </button>
-            </div>
-          </form>
+        {/* Basic details */}
+        <Field label="Name *">
+          {c => <input {...c} className={fieldControlClassName} value={form.name} onChange={set('name')} placeholder="Full name" required />}
+        </Field>
+        <div className={styles.row2}>
+          <Field label="Email">
+            {c => <input {...c} className={fieldControlClassName} type="email" value={form.email} onChange={set('email')} placeholder="name@email.com" />}
+          </Field>
+          <Field label="Phone">
+            {c => <input {...c} className={fieldControlClassName} type="tel" value={form.phone} onChange={set('phone')} placeholder="04xx xxx xxx" />}
+          </Field>
         </div>
-      </div>
-    </>
+        <Field label="Status">
+          {c => (
+            <select {...c} className={fieldControlClassName} value={form.status} onChange={set('status')}>
+              <option value="lead">Lead</option>
+              <option value="contacted">Contacted</option>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+            </select>
+          )}
+        </Field>
+        <Field label="Address">
+          {c => <input {...c} className={fieldControlClassName} value={form.address} onChange={set('address')} placeholder="Street, suburb…" />}
+        </Field>
+
+        {/* Age — triggers guardian section */}
+        <div className={styles.row2}>
+          <Field label="Age">
+            {c => <input {...c} className={fieldControlClassName} type="number" min={1} max={120} value={form.age} onChange={set('age')} placeholder="—" />}
+          </Field>
+          <Field label="Program">
+            {c => <input {...c} className={fieldControlClassName} value={form.program} onChange={set('program')} placeholder="Hot Shots, Squad…" />}
+          </Field>
+        </div>
+
+        {/* Guardian section — visible only when under 18 */}
+        {isMinor && (
+          <fieldset className={styles.guardian}>
+            <legend className={styles.guardianLegend}>
+              Guardian Details — required (under 18)
+            </legend>
+            <div className={styles.row2}>
+              <Field label="Guardian Name">
+                {c => <input {...c} className={fieldControlClassName} value={form.guardian_name} onChange={set('guardian_name')} placeholder="Full name" />}
+              </Field>
+              <Field label="Guardian Phone">
+                {c => <input {...c} className={fieldControlClassName} type="tel" value={form.guardian_phone} onChange={set('guardian_phone')} placeholder="04xx xxx xxx" />}
+              </Field>
+            </div>
+          </fieldset>
+        )}
+
+        {/* Session dropdown */}
+        <Field label="Session">
+          {c => (
+            <select {...c} className={fieldControlClassName} value={form.session_id} onChange={set('session_id')}>
+              <option value="">— Not enrolled in a session —</option>
+              {sessions.map(s => (
+                <option key={s.id} value={s.id}>
+                  {s.name} ({DAY[s.day_of_week]} {s.start_time} · {s.session_type})
+                </option>
+              ))}
+            </select>
+          )}
+        </Field>
+
+        <Field label="Session Times">
+          {c => <input {...c} className={fieldControlClassName} value={form.session_times} onChange={set('session_times')} placeholder="Mon 4pm, Wed 5pm…" />}
+        </Field>
+        <Field label="Next Action">
+          {c => <textarea {...c} className={fieldControlClassName} rows={2} value={form.next_action} onChange={set('next_action')} placeholder="Follow up call, send invoice…" />}
+        </Field>
+
+        {error && <FormError>{error}</FormError>}
+
+        {/* Footer */}
+        <div className={styles.formFooter}>
+          <button type="button" onClick={onClose} {...buttonProps('secondary')}>
+            Cancel
+          </button>
+          <button type="submit" disabled={saving} {...buttonProps('primary')}>
+            {saving ? 'Saving…' : mode === 'create' ? 'Create Contact' : 'Save Changes'}
+          </button>
+        </div>
+      </form>
+    </SlidePanel>
   );
 }
-
-function F({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <label style={{ display: 'block', fontSize: 10, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', color: 'rgba(255,255,255,.30)', marginBottom: 5, fontFamily: FONT }}>
-        {label}
-      </label>
-      {children}
-    </div>
-  );
-}
-
-const inp: React.CSSProperties = {
-  width: '100%', background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.09)',
-  borderRadius: 8, padding: '8px 11px', fontSize: 13, color: '#F5F7FA',
-  outline: 'none', fontFamily: FONT, boxSizing: 'border-box',
-};
 
 // ── Contact Tile ──────────────────────────────────────────────────────────────
 
@@ -264,7 +240,7 @@ function ContactTile({ contact, onEdit, onStatusChange }: {
   const [status, setStatus] = useState(contact.status);
   const [saving, setSaving] = useState(false);
   const attention = needsAttention({ ...contact, status });
-  const badge = STATUS_STYLES[status] ?? STATUS_STYLES.lead;
+  const badgeState = STATUS_STATE[status] ?? STATUS_STATE.lead;
   const hue = avatarHue(contact.name);
 
   async function handleStatusChange(e: React.ChangeEvent<HTMLSelectElement>) {
@@ -281,84 +257,76 @@ function ContactTile({ contact, onEdit, onStatusChange }: {
   }
 
   return (
-    <div style={{
-      background: 'rgba(255,255,255,.03)',
-      border: `1px solid ${attention ? 'rgba(251,191,36,.25)' : 'rgba(255,255,255,.07)'}`,
-      borderRadius: 16, padding: '20px', display: 'flex', flexDirection: 'column', gap: 14,
-      transition: 'border-color .15s, background .15s', fontFamily: FONT,
-    }}>
+    <article className={styles.tile} data-attention={attention ? 'true' : undefined} aria-label={contact.name}>
 
       {/* Avatar + name + edit */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-        <div style={{
-          width: 44, height: 44, borderRadius: '50%', flexShrink: 0,
-          background: `hsl(${hue},55%,22%)`, border: `1.5px solid hsl(${hue},55%,35%)`,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: 14, fontWeight: 700, color: `hsl(${hue},80%,72%)`, letterSpacing: '.02em',
+      <div className={styles.tileHeader}>
+        {/* Avatar hue is a per-person identity encoding: a theme-mixed tint
+            behind primary text, so it reads in light and dark. */}
+        <div className={styles.avatar} aria-hidden="true" style={{
+          background: `color-mix(in srgb, hsl(${hue} 60% 50%) 18%, var(--bg-surface))`,
+          borderColor: `color-mix(in srgb, hsl(${hue} 60% 50%) 45%, var(--bg-surface))`,
         }}>
           {initials(contact.name)}
         </div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <Link href={`/dashboard/contacts/${contact.id}`}
-            style={{ fontSize: 14, fontWeight: 600, color: '#F5F7FA', textDecoration: 'none', display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+        <div className={styles.tileIdentity}>
+          <Link href={`/dashboard/contacts/${contact.id}`} className={styles.tileName} title={contact.name}>
             {contact.name}
           </Link>
-          <div style={{ fontSize: 11, color: 'rgba(255,255,255,.28)', marginTop: 2 }}>Last: {lastContactedLabel(contact.last_contacted_at)}</div>
+          <div className={styles.tileMeta}>Last: {lastContactedLabel(contact.last_contacted_at)}</div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+        <div className={styles.tileTools}>
           {attention && (
-            <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 7px', borderRadius: 20, background: 'rgba(251,191,36,.12)', color: '#fbbf24', border: '1px solid rgba(251,191,36,.28)', letterSpacing: '.06em', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
+            <Badge state="warning" dot={false}>
               Attn
-            </span>
+            </Badge>
           )}
-          <button onClick={onEdit} style={{
-            fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 7, cursor: 'pointer',
-            background: 'rgba(255,255,255,.05)', border: '1px solid rgba(255,255,255,.11)',
-            color: 'rgba(255,255,255,.45)', fontFamily: FONT,
-          }}>
+          <button type="button" onClick={onEdit} {...buttonProps('ghost', 'sm')} aria-label={`Edit ${contact.name}`}>
             Edit
           </button>
         </div>
       </div>
 
       {/* Contact info */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-        <a href={`mailto:${contact.email}`} style={{ fontSize: 12, color: 'rgba(255,255,255,.40)', textDecoration: 'none', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+      <div className={styles.tileContact}>
+        <a href={`mailto:${contact.email}`} className={styles.tileEmail} title={contact.email}>
           {contact.email}
         </a>
         {contact.phone && (
-          <a href={`tel:${contact.phone}`} style={{ fontSize: 12, color: 'rgba(255,255,255,.30)', textDecoration: 'none' }}>{contact.phone}</a>
+          <a href={`tel:${contact.phone}`} className={styles.tilePhone}>{contact.phone}</a>
         )}
       </div>
 
       {/* Status + actions */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 'auto' }}>
-        <select value={status} onChange={handleStatusChange} disabled={saving} style={{
-          fontSize: 10, fontWeight: 600, padding: '3px 8px', borderRadius: 20,
-          background: badge.bg, color: badge.color, border: `1px solid ${badge.border}`,
-          letterSpacing: '.04em', textTransform: 'capitalize', cursor: 'pointer',
-          outline: 'none', flex: 1,
-        }}>
+      <div className={styles.tileFooter}>
+        <select
+          value={status}
+          onChange={handleStatusChange}
+          disabled={saving}
+          aria-label={`Status for ${contact.name}`}
+          className={styles.statusSelect}
+          data-state={badgeState}
+        >
           <option value="lead">Lead</option>
           <option value="contacted">Contacted</option>
           <option value="active">Active</option>
           <option value="inactive">Inactive</option>
         </select>
-        <div style={{ display: 'flex', gap: 5 }}>
+        <div className={styles.tileActions}>
           {contact.phone && (
-            <a href={`tel:${contact.phone}`} style={{ fontSize: 11, fontWeight: 600, padding: '4px 9px', borderRadius: 7, background: 'rgba(34,197,94,.10)', color: '#4ade80', border: '1px solid rgba(34,197,94,.18)', textDecoration: 'none' }}>
+            <a href={`tel:${contact.phone}`} {...buttonProps('secondary', 'sm')} aria-label={`Call ${contact.name}`}>
               Call
             </a>
           )}
-          <a href={`mailto:${contact.email}`} style={{ fontSize: 11, fontWeight: 600, padding: '4px 9px', borderRadius: 7, background: 'rgba(59,130,246,.10)', color: '#60a5fa', border: '1px solid rgba(59,130,246,.18)', textDecoration: 'none' }}>
+          <a href={`mailto:${contact.email}`} {...buttonProps('secondary', 'sm')} aria-label={`Email ${contact.name}`}>
             Email
           </a>
-          <Link href={`/dashboard/contacts/${contact.id}`} style={{ fontSize: 11, fontWeight: 600, padding: '4px 9px', borderRadius: 7, background: 'rgba(255,255,255,.06)', color: 'rgba(255,255,255,.55)', border: '1px solid rgba(255,255,255,.10)', textDecoration: 'none' }}>
+          <Link href={`/dashboard/contacts/${contact.id}`} {...buttonProps('ghost', 'sm')} aria-label={`View ${contact.name}`}>
             View
           </Link>
         </div>
       </div>
-    </div>
+    </article>
   );
 }
 
@@ -394,54 +362,49 @@ export default function ContactsClient({ contacts: initial }: { contacts: Contac
     setContacts(prev => prev.map(c => c.id === id ? { ...c, status } : c));
   }
 
-  function tabStyle(t: Filter): React.CSSProperties {
-    const active = filter === t;
-    return {
-      padding: '6px 14px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer',
-      border: active ? '1px solid rgba(255,255,255,.12)' : '1px solid transparent',
-      background: active ? 'rgba(255,255,255,.08)' : 'transparent',
-      color: active ? '#F5F7FA' : 'rgba(255,255,255,.35)',
-      transition: 'all .15s', fontFamily: FONT,
-    };
+  function tabStyle(t: Filter) {
+    return { className: styles.filterButton, 'aria-pressed': filter === t } as const;
   }
 
   return (
-    <div style={{ fontFamily: FONT }}>
+    <div className={styles.client}>
       {/* Filter bar + New Contact */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 20 }}>
-        <div style={{ display: 'flex', gap: 6 }}>
-          <button onClick={() => setFilter("all")} style={tabStyle("all")}>All ({contacts.length})</button>
-          <button onClick={() => setFilter("active")} style={tabStyle("active")}>Active</button>
-          <button onClick={() => setFilter("attention")} style={tabStyle("attention")}>
+      <div className={styles.toolbar}>
+        <div className={styles.filters} role="group" aria-label="Filter contacts">
+          <button type="button" onClick={() => setFilter("all")} {...tabStyle("all")}>All ({contacts.length})</button>
+          <button type="button" onClick={() => setFilter("active")} {...tabStyle("active")}>Active</button>
+          <button type="button" onClick={() => setFilter("attention")} {...tabStyle("attention")}>
             Needs Attention{attentionCount > 0 && (
-              <span style={{ marginLeft: 6, background: 'rgba(251,191,36,.18)', color: '#fbbf24', padding: '1px 6px', borderRadius: 10, fontSize: 10 }}>
+              <span className={styles.count}>
                 {attentionCount}
               </span>
             )}
           </button>
         </div>
 
-        <button onClick={() => setShowCreate(true)} style={{
-          fontSize: 13, fontWeight: 600, padding: '7px 16px', borderRadius: 20, cursor: 'pointer',
-          background: 'rgba(99,102,241,.20)', border: '1px solid rgba(99,102,241,.40)',
-          color: '#a5b4fc', fontFamily: FONT, whiteSpace: 'nowrap',
-        }}>
+        <button type="button" onClick={() => setShowCreate(true)} {...buttonProps('primary')}>
           + New Contact
         </button>
       </div>
 
       {filtered.length === 0 ? (
-        <div style={{ borderRadius: 16, border: '1px solid rgba(255,255,255,.07)', background: 'rgba(255,255,255,.025)', padding: '48px 24px', textAlign: 'center', color: 'rgba(255,255,255,.25)', fontSize: 13 }}>
-          {filter === "attention" ? "No contacts need attention right now." :
-           filter === "active"    ? "No active contacts yet." :
-           "No contacts yet. Click \"+ New Contact\" to add one."}
-        </div>
+        <StateMessage
+          kind="empty"
+          size="page"
+          title={
+            filter === "attention" ? "No contacts need attention right now." :
+            filter === "active"    ? "No active contacts yet." :
+            "No contacts yet. Click \"+ New Contact\" to add one."
+          }
+        />
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 12 }}>
+        <ul className={styles.grid}>
           {filtered.map(c => (
-            <ContactTile key={c.id} contact={c} onEdit={() => setEditingContact(c)} onStatusChange={handleStatusChange} />
+            <li key={c.id}>
+              <ContactTile contact={c} onEdit={() => setEditingContact(c)} onStatusChange={handleStatusChange} />
+            </li>
           ))}
-        </div>
+        </ul>
       )}
 
       {showCreate && (

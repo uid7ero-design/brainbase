@@ -2,10 +2,10 @@ import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { requireRole } from '@/lib/org'
 import sql from '@/lib/db'
+import { Badge, PageHeader, StateMessage, StatusDot, buttonProps, type SemanticState } from '@/components/ui/app'
+import styles from './Clients.module.css'
 
 export const dynamic = 'force-dynamic'
-
-const FONT = "var(--font-inter), -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
 
 type PortfolioModule = { key: string; name: string }
 type PrimaryImplementation = {
@@ -114,54 +114,49 @@ export default async function ClientsPage() {
   }))
 
   return (
-    <div style={{ width: '100%', maxWidth: 960, margin: '0 auto', padding: '40px 24px 80px', fontFamily: FONT }}>
-      <div style={{ marginBottom: 36 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 700, color: '#F5F7FA', letterSpacing: '-.02em', margin: '0 0 4px' }}>
-          Clients
-        </h1>
-        <p style={{ fontSize: 13, color: 'rgba(255,255,255,.32)', margin: 0 }}>
-          Enter a client&apos;s workspace to manage their dashboard and data.
-        </p>
-      </div>
+    <div className={styles.page}>
+      <PageHeader
+        title="Clients"
+        description={<>Enter a client&apos;s workspace to manage their dashboard and data.</>}
+      />
 
       {portfolio.length === 0 ? (
-        <div style={{
-          background: 'rgba(255,255,255,.03)',
-          border: '1px solid rgba(255,255,255,.07)',
-          borderRadius: 14, padding: '48px 24px', textAlign: 'center',
-        }}>
-          <p style={{ fontSize: 13, color: 'rgba(255,255,255,.25)', margin: 0 }}>
-            No client organisations yet.
-          </p>
-        </div>
+        <StateMessage kind="empty" size="page" title="No client organisations yet." />
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 14 }}>
+        <ul className={styles.grid}>
           {portfolio.map(org => (
-            <ClientCard key={org.id} org={org} />
+            <li key={org.id}>
+              <ClientCard org={org} />
+            </li>
           ))}
-        </div>
+        </ul>
       )}
     </div>
   )
 }
 
-const HEALTH_COLOR: Record<string, string> = {
-  on_track: '#4ade80', at_risk: '#fbbf24', blocked: '#f87171',
+// Implementation health, labelled with the same vocabulary as
+// app/admin/implementations (never colour alone). An unrecognised health
+// value stays neutral rather than reading as on track.
+const HEALTH_META: Record<string, { label: string; state: SemanticState }> = {
+  on_track: { label: 'On Track', state: 'success' },
+  at_risk:  { label: 'At Risk',  state: 'warning' },
+  blocked:  { label: 'Blocked',  state: 'error' },
 }
 
 // Human-readable presentation of the canonical Organisation status/plan
 // enums (prisma/schema.prisma OrgStatus/Plan). No derived/invented state —
 // these are the only three status values and four plan values that exist.
-const STATUS_LABEL: Record<string, { label: string; color: string }> = {
-  ACTIVE:   { label: 'Active',    color: '#4ade80' },
-  SUSPENDED: { label: 'Suspended', color: '#fbbf24' },
-  CHURNED:  { label: 'Churned',   color: '#f87171' },
+const STATUS_LABEL: Record<string, { label: string; state: SemanticState }> = {
+  ACTIVE:   { label: 'Active',    state: 'success' },
+  SUSPENDED: { label: 'Suspended', state: 'warning' },
+  CHURNED:  { label: 'Churned',   state: 'error' },
 }
 // Neutral fallback for any status value outside the three canonical
 // OrgStatus enum values above — deliberately not styled as Active
-// (green) or any real status, so an unrecognised/future value never
-// silently reads as healthy.
-const UNKNOWN_STATUS = { label: 'Unknown', color: '#a1a1aa' }
+// (green/success) or any real status, so an unrecognised/future value
+// never silently reads as healthy.
+const UNKNOWN_STATUS: { label: string; state: SemanticState } = { label: 'Unknown', state: 'inactive' }
 const PLAN_LABEL: Record<string, string> = {
   TRIAL: 'Trial', STARTER: 'Starter', PROFESSIONAL: 'Professional', ENTERPRISE: 'Enterprise',
 }
@@ -171,96 +166,73 @@ function ClientCard({ org }: { org: ClientOrg }) {
   const age = Math.floor((Date.now() - new Date(org.created_at).getTime()) / 86400000)
   const ageLabel = age === 0 ? 'Today' : age === 1 ? '1 day ago' : `${age}d ago`
   const impl = org.primaryImplementation
-  const healthColor = impl ? (HEALTH_COLOR[impl.health] ?? '#a1a1aa') : '#a1a1aa'
+  const health = impl ? (HEALTH_META[impl.health] ?? { label: impl.health, state: 'inactive' as const }) : null
 
   return (
-    <div style={{
-      background: 'rgba(255,255,255,.03)',
-      border: '1px solid rgba(255,255,255,.08)',
-      borderRadius: 14, padding: '22px 22px 18px',
-      display: 'flex', flexDirection: 'column', gap: 18,
-      transition: 'border-color .15s',
-    }}>
+    <article className={styles.card} aria-label={org.name}>
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-        <div style={{
-          width: 40, height: 40, borderRadius: 10, flexShrink: 0,
-          background: 'linear-gradient(135deg, #4f46e5, #7c3aed)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: 13, fontWeight: 700, color: '#fff', letterSpacing: '.04em',
-        }}>
+      <div className={styles.cardHeader}>
+        <div className={styles.initials} aria-hidden="true">
           {initials}
         </div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 15, fontWeight: 600, color: '#F5F7FA', letterSpacing: '-.01em' }}>
+        <div className={styles.identity}>
+          <h2 className={styles.name}>
             {org.name}
-          </div>
-          <div style={{ fontSize: 11, color: 'rgba(255,255,255,.28)', marginTop: 2 }}>
+          </h2>
+          <div className={styles.added}>
             Added {ageLabel}
           </div>
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
+        <div className={styles.statusCol}>
           {(() => {
             const st = STATUS_LABEL[org.status] ?? UNKNOWN_STATUS
             return (
-              <span style={{
-                fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 20,
-                background: `${st.color}1A`, color: st.color, border: `1px solid ${st.color}38`,
-                letterSpacing: '.02em', whiteSpace: 'nowrap',
-              }}>
-                {st.label}
-              </span>
+              <Badge state={st.state}>{st.label}</Badge>
             )
           })()}
-          <span style={{ fontSize: 10, color: 'rgba(255,255,255,.28)', letterSpacing: '.02em' }}>
+          <span className={styles.plan}>
             {PLAN_LABEL[org.plan] ?? org.plan}
           </span>
         </div>
       </div>
 
       {/* Stats */}
-      <div style={{ display: 'flex', gap: 20 }}>
-        <div>
-          <div style={{ fontSize: 20, fontWeight: 700, color: '#60a5fa', lineHeight: 1 }}>{org.userCount}</div>
-          <div style={{ fontSize: 10, color: 'rgba(255,255,255,.28)', marginTop: 3, textTransform: 'uppercase', letterSpacing: '.08em' }}>Users</div>
+      <dl className={styles.stats}>
+        <div className={styles.stat}>
+          <dd className={styles.statValue}>{org.userCount}</dd>
+          <dt className={styles.statLabel}>Users</dt>
         </div>
-        <div>
-          <div style={{ fontSize: 20, fontWeight: 700, color: '#4ade80', lineHeight: 1 }}>{org.leadCount}</div>
-          <div style={{ fontSize: 10, color: 'rgba(255,255,255,.28)', marginTop: 3, textTransform: 'uppercase', letterSpacing: '.08em' }}>Leads</div>
+        <div className={styles.stat}>
+          <dd className={styles.statValue}>{org.leadCount}</dd>
+          <dt className={styles.statLabel}>Leads</dt>
         </div>
-      </div>
+      </dl>
 
       {/* Platform modules + implementation summary — omitted entirely when
           empty to keep the compact card restrained; the full truthful
           empty state lives in the workspace account overview instead. */}
       {(org.modules.length > 0 || impl) && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div className={styles.portfolio}>
           {org.modules.length > 0 && (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            <ul className={styles.tags} aria-label="Platform modules">
               {org.modules.map(m => (
-                <span key={m.key} style={{
-                  fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 20,
-                  background: 'rgba(99,102,241,.10)', color: '#a5b4fc',
-                  border: '1px solid rgba(99,102,241,.22)', letterSpacing: '.02em',
-                }}>
+                <li key={m.key} className={styles.tag}>
                   {m.name}
-                </span>
+                </li>
               ))}
-            </div>
+            </ul>
           )}
-          {impl && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11 }}>
-              <span style={{ width: 6, height: 6, borderRadius: '50%', background: healthColor, flexShrink: 0 }} />
-              <span style={{ color: 'rgba(255,255,255,.45)', textTransform: 'capitalize' }}>
+          {impl && health && (
+            <div className={styles.impl}>
+              <StatusDot state={health.state} label={health.label} />
+              <span className={styles.stage}>
                 {impl.stage.replace('_', ' ')}
               </span>
               {org.implementationCount > 1 && (
-                <span style={{ color: 'rgba(255,255,255,.22)' }}>+{org.implementationCount - 1} more</span>
+                <span className={styles.muted}>+{org.implementationCount - 1} more</span>
               )}
               {impl.next_action && (
-                <span style={{
-                  color: 'rgba(251,191,36,.70)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                }}>
+                <span className={styles.nextAction}>
                   → {impl.next_action}
                 </span>
               )}
@@ -272,18 +244,12 @@ function ClientCard({ org }: { org: ClientOrg }) {
       {/* CTA */}
       <Link
         href={`/clients/${org.id}`}
-        style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-          padding: '9px 16px', borderRadius: 8, textDecoration: 'none',
-          background: 'rgba(99,102,241,.14)',
-          border: '1px solid rgba(99,102,241,.28)',
-          fontSize: 13, fontWeight: 600, color: '#a5b4fc',
-          letterSpacing: '.01em', transition: 'background .15s, border-color .15s',
-        }}
+        {...buttonProps('secondary')}
+        className={`${buttonProps('secondary').className} ${styles.cta}`}
       >
         Enter workspace
-        <span style={{ fontSize: 12, opacity: 0.6 }}>→</span>
+        <span aria-hidden="true">→</span>
       </Link>
-    </div>
+    </article>
   )
 }

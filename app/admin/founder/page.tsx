@@ -5,7 +5,21 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import InstagramFeedPanel from '@/components/instagram/InstagramFeedPanel';
 import { formatEventTime } from '@/lib/founder/formatEventTime';
-import { APP_HEADER_OFFSET_VAR, APP_HEADER_OFFSET_VH_CALC } from '@/lib/layout/headerOffset';
+import { APP_HEADER_OFFSET_VH_CALC } from '@/lib/layout/headerOffset';
+import {
+  Button,
+  Dialog,
+  Field,
+  FormActions,
+  FormError,
+  Metric,
+  MetricStrip,
+  SlidePanel,
+  fieldControlClassName,
+  moduleNavItemProps,
+  type ButtonVariant,
+} from '@/components/ui/app';
+import styles from '@/components/founder/FounderOs.module.css';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -112,13 +126,13 @@ type SessionEvent = { ts: string; event: string; type: FeedType; client: string 
 // Failed analyses each need only a label/accent — SnapshotHero decides
 // real-vs-unavailable per tile from real `metrics` data (MRR only; the
 // other five have no authoritative source anywhere in the schema).
-const SNAPSHOT_TILE_META: Array<{ label: string; accent: string; real: boolean }> = [
-  { label: 'MRR',             accent: '#8B5CF6', real: true  },
-  { label: 'Active clients',  accent: '#52525B', real: false },
-  { label: 'Active trials',   accent: '#52525B', real: false },
-  { label: 'Demos this week', accent: '#52525B', real: false },
-  { label: 'Follow-ups due',  accent: '#52525B', real: false },
-  { label: 'Failed analyses', accent: '#52525B', real: false },
+const SNAPSHOT_TILE_META: Array<{ label: string; real: boolean }> = [
+  { label: 'MRR',             real: true  },
+  { label: 'Active clients',  real: false },
+  { label: 'Active trials',   real: false },
+  { label: 'Demos this week', real: false },
+  { label: 'Follow-ups due',  real: false },
+  { label: 'Failed analyses', real: false },
 ];
 
 type Client = {
@@ -145,47 +159,79 @@ type Client = {
 // real, authoritative Organiser board — see lib/founder/tasksBoard.ts.
 
 // ─── Tokens ───────────────────────────────────────────────────────────────────
+// Visual convergence (authenticated visual-completion pass): T used to be a
+// private, dark-only palette. Every entry now resolves to an app theme
+// token (app/globals.css), so Founder OS follows light and dark like the
+// rest of the authenticated app. Structural styling lives in
+// components/founder/FounderOs.module.css; T is kept for the small inline
+// bits (state-dependent colours) so call sites stay readable.
 
 const T = {
-  bg:      '#07080B',
-  s1:      '#0B0C12',
-  s2:      '#0F1018',
-  border:  'rgba(255,255,255,0.065)',
-  borderB: 'rgba(255,255,255,0.04)',
-  purple:  '#8B5CF6',
-  purpleA: 'rgba(139,92,246,0.12)',
-  purpleB: 'rgba(139,92,246,0.22)',
-  text:    '#EEEEF0',
-  sub:     '#9CA3AF',
-  dim:     'rgba(255,255,255,0.30)',
-  green:   '#22C55E',
-  greenA:  'rgba(34,197,94,0.10)',
-  yellow:  '#F59E0B',
-  yellowA: 'rgba(245,158,11,0.10)',
-  red:     '#EF4444',
-  redA:    'rgba(239,68,68,0.10)',
-  cyan:    '#22D3EE',
-  mono:    '"GeistMono","Geist Mono","SF Mono","Fira Code",monospace',
+  bg:       'var(--bg-base)',
+  s1:       'var(--bg-surface)',
+  s2:       'var(--bg-sunken)',
+  border:   'var(--border)',
+  borderB:  'var(--border-light)',
+  purple:   'var(--brand-brainbase-accent)',
+  purpleA:  'var(--brand-brainbase-accent-muted)',
+  purpleB:  'var(--brand-brainbase-accent-border)',
+  text:     'var(--text-primary)',
+  sub:      'var(--text-secondary)',
+  dim:      'var(--text-muted)',
+  green:    'var(--status-success)',
+  greenA:   'var(--status-success-muted)',
+  yellow:   'var(--status-warning)',
+  yellowA:  'var(--status-warning-muted)',
+  red:      'var(--status-danger)',
+  redA:     'var(--status-danger-muted)',
+  cyan:     'var(--status-info)',
+  cyanA:    'var(--status-info-muted)',
+  inactive: 'var(--status-inactive)',
+  mono:     'var(--bb-font-mono)',
 } as const;
 
-const SEV_COLOR: Record<Severity, string> = { critical: T.red, high: '#F97316', medium: T.yellow, low: T.dim };
-const SEV_BG:    Record<Severity, string> = { critical: T.redA, high: 'rgba(249,115,22,0.10)', medium: T.yellowA, low: 'rgba(255,255,255,0.05)' };
-const FEED_C:    Record<FeedType, string> = { sales: T.green, product: T.purple, system: T.yellow, client: T.cyan };
+// "High" (and overdue / urgent) is semantic danger red, like critical;
+// medium is amber, low is neutral. Purple is never a severity. Critical and
+// high stay distinguishable because the severity is always written as text.
+const HIGH = 'var(--status-danger)';
+
+/** Theme-safe translucent tint of a token or data hue. */
+function tint(color: string, pct: number): string {
+  return `color-mix(in srgb, ${color} ${pct}%, transparent)`;
+}
+
+const SEV_COLOR: Record<Severity, string> = { critical: T.red, high: HIGH, medium: T.yellow, low: T.inactive };
+const FEED_C:    Record<FeedType, string> = { sales: T.green, product: T.sub, system: T.yellow, client: T.cyan };
+// CRM pipeline stage hues — a genuine data encoding (mirrored in
+// app/admin/orgs/AdminClient.tsx), not chrome. Used on the stage dot, the
+// funnel bars and a light tint only; stage label text stays in
+// --text-primary so it reads in both themes.
 const STAGE_FG:  Record<Stage, string>   = { lead: '#94A3B8', contacted: '#60A5FA', demo: '#A78BFA', trial: '#FCD34D', proposal: '#FDE68A', paid: '#4ADE80', lost: '#F87171' };
-const STAGE_BG:  Record<Stage, string>   = { lead: 'rgba(148,163,184,.09)', contacted: 'rgba(59,130,246,.10)', demo: 'rgba(139,92,246,.10)', trial: 'rgba(245,158,11,.10)', proposal: 'rgba(253,224,71,.09)', paid: 'rgba(34,197,94,.10)', lost: 'rgba(239,68,68,.07)' };
 // PRIO_C (task-priority color map) removed with FounderTasks' fake TASKS —
 // no longer referenced anywhere.
 
 // ─── Atoms ────────────────────────────────────────────────────────────────────
 
-function Lbl({ s, c }: { s: string; c?: string }) {
-  return <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.10em', textTransform: 'uppercase', color: c ?? T.dim, marginBottom: 7 }}>{s}</div>;
+/** Panel / section heading. Typography, not colour. */
+function Lbl({ s, strong, as: Tag = 'h2', spaced }: { s: string; strong?: boolean; as?: 'h2' | 'h3' | 'div'; spaced?: boolean }) {
+  const cls = [styles.label, strong ? styles.labelStrong : '', spaced ? styles.labelSpaced : ''].join(' ').trim();
+  return <Tag className={cls}>{s}</Tag>;
 }
 
-function Card({ children, style, accent }: { children: React.ReactNode; style?: React.CSSProperties; accent?: string }) {
+function Card({ children, compact }: { children: React.ReactNode; compact?: boolean }) {
   return (
-    <div style={{ background: T.s1, border: `1px solid ${T.border}`, borderRadius: 8, borderTop: accent ? `1px solid ${accent}` : undefined, ...style }}>
+    <div className={compact ? `${styles.card} ${styles.cardCompact}` : styles.card}>
       {children}
+    </div>
+  );
+}
+
+/** Honest empty / not-connected state. */
+function Empty({ title, text }: { title: string; text?: string }) {
+  return (
+    <div className={styles.empty}>
+      <div className={styles.emptyTitle}>{title}</div>
+      {text && <div className={styles.emptyText}>{text}</div>}
     </div>
   );
 }
@@ -194,28 +240,38 @@ function Card({ children, style, accent }: { children: React.ReactNode; style?: 
 // SERVICES list — no longer referenced anywhere.
 
 function StagePill({ s }: { s: Stage }) {
-  return <span style={{ padding: '1px 6px', borderRadius: 3, fontSize: 9, fontWeight: 700, letterSpacing: '0.05em', background: STAGE_BG[s], color: STAGE_FG[s] }}>{s.toUpperCase()}</span>;
-}
-
-function Mono({ children, size, color }: { children: React.ReactNode; size?: number; color?: string }) {
-  return <span style={{ fontFamily: T.mono, fontSize: size ?? 11, color: color ?? T.sub }}>{children}</span>;
-}
-
-function Btn({ label, onClick, color, small }: { label: string; onClick: () => void; color?: string; small?: boolean }) {
+  const hue = STAGE_FG[s];
   return (
-    <button onClick={onClick} style={{
-      padding: small ? '3px 8px' : '4px 10px',
-      borderRadius: 5,
-      fontSize: small ? 10 : 11,
-      fontWeight: 600,
-      color: color ?? T.purple,
-      background: color ? `${color}18` : T.purpleA,
-      border: `1px solid ${color ? `${color}30` : T.purpleB}`,
-      cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0,
-      fontFamily: 'inherit',
-    }}>
+    <span className={styles.stagePill} style={{ background: tint(hue, 14), borderColor: tint(hue, 45) }}>
+      <span className={styles.dot} style={{ background: hue }} aria-hidden="true" />
+      {s.toUpperCase()}
+    </span>
+  );
+}
+
+/** Secondary metadata (times, counts, money): app sans, tabular figures. */
+function Meta({ children, size, color }: { children: React.ReactNode; size?: number; color?: string }) {
+  return <span className={styles.num} style={{ fontSize: size ?? 11, color: color ?? T.sub }}>{children}</span>;
+}
+
+/** Machine values only — commit hashes, slugs, identifiers. */
+function Code({ children, size, color }: { children: React.ReactNode; size?: number; color?: string }) {
+  return <span className={styles.code} style={{ fontSize: size ?? 11, color: color ?? T.sub }}>{children}</span>;
+}
+
+function Chip({ children, color, title }: { children: React.ReactNode; color: string; title?: string }) {
+  return (
+    <span className={styles.chip} title={title} style={{ color, background: tint(color, 12), borderColor: tint(color, 30) }}>
+      {children}
+    </span>
+  );
+}
+
+function Btn({ label, onClick, variant = 'secondary', small, ariaLabel }: { label: string; onClick: () => void; variant?: ButtonVariant; small?: boolean; ariaLabel?: string }) {
+  return (
+    <Button variant={variant} size={small ? 'sm' : 'md'} onClick={onClick} aria-label={ariaLabel} style={{ flexShrink: 0 }}>
       {label}
-    </button>
+    </Button>
   );
 }
 
@@ -235,14 +291,15 @@ function StageFunnel({ clients }: { clients: Client[] }) {
   clients.forEach(c => { counts[c.stage] = (counts[c.stage] ?? 0) + 1; });
   const stages: Stage[] = ['lead', 'contacted', 'demo', 'trial', 'proposal', 'paid'];
   const mx = Math.max(...stages.map(s => counts[s] ?? 0), 1);
+  const summary = stages.map(s => `${s} ${counts[s] ?? 0}`).join(', ');
   return (
-    <div style={{ display: 'flex', gap: 4, alignItems: 'flex-end', height: 22 }}>
+    <div className={styles.funnel} role="img" aria-label={`Accounts by stage: ${summary}`}>
       {stages.map(s => {
         const n = counts[s] ?? 0;
         return (
-          <div key={s} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
-            <div style={{ width: '100%', height: Math.max(n === 0 ? 2 : (n/mx)*20, 2), background: n === 0 ? T.borderB : STAGE_BG[s], border: `1px solid ${n === 0 ? 'transparent' : STAGE_FG[s]}22`, borderRadius: 2 }} />
-            <span style={{ fontSize: 7, color: T.dim, letterSpacing: '0.04em' }}>{s.slice(0,3).toUpperCase()}</span>
+          <div key={s} className={styles.funnelStep}>
+            <div className={styles.funnelBar} style={{ height: Math.max(n === 0 ? 2 : (n/mx)*20, 2), background: n === 0 ? T.borderB : tint(STAGE_FG[s], 35), borderColor: n === 0 ? 'transparent' : STAGE_FG[s] }} />
+            <span className={styles.funnelLabel}>{s.slice(0,3).toUpperCase()}</span>
           </div>
         );
       })}
@@ -263,19 +320,14 @@ const SECTION_TABS: Array<{ id: Section; label: string }> = [
 
 function SectionTabs({ section, setSection }: { section: Section; setSection: (s: Section) => void }) {
   return (
-    <div style={{ display: 'flex', gap: 2, marginBottom: 8 }}>
+    <div className={styles.tabs} role="group" aria-label="Founder OS view">
       {SECTION_TABS.map(t => (
         <button
           key={t.id}
+          type="button"
+          className={styles.tab}
+          aria-pressed={section === t.id}
           onClick={() => setSection(t.id)}
-          style={{
-            padding: '4px 11px', borderRadius: 5, fontSize: 11,
-            fontWeight: section === t.id ? 700 : 400,
-            background: section === t.id ? T.purpleA : 'transparent',
-            color: section === t.id ? T.purple : T.dim,
-            border: `1px solid ${section === t.id ? T.purpleB : 'transparent'}`,
-            cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.12s',
-          }}
         >{t.label}</button>
       ))}
     </div>
@@ -295,10 +347,10 @@ function AttentionQueue({ items, onAction, onFollowUp, onMarkReviewed }: {
 
   const visible = items.filter(q => !dismissed.has(q.id));
   if (visible.length === 0) return (
-    <Card style={{ padding: '12px 14px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+    <Card>
+      <div className={styles.cardHeaderGroup}>
         <Lbl s="Attention queue" />
-        <span style={{ fontSize: 10, color: T.green, marginBottom: 7 }}>✓ All clear</span>
+        <span style={{ fontSize: 11, color: T.green }}>✓ All clear</span>
       </div>
     </Card>
   );
@@ -306,40 +358,32 @@ function AttentionQueue({ items, onAction, onFollowUp, onMarkReviewed }: {
   const critical = visible.filter(q => q.severity === 'critical').length;
 
   return (
-    <Card accent={critical > 0 ? T.red : T.yellow} style={{ padding: '12px 14px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-        <span style={{ width: 6, height: 6, borderRadius: '50%', background: T.red, boxShadow: `0 0 7px ${T.red}`, display: 'inline-block' }} />
-        <Lbl s="Attention queue" c={T.text} />
-        <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: T.red, background: T.redA, padding: '2px 6px', borderRadius: 3, marginBottom: 7 }}>
-          {visible.length} item{visible.length !== 1 ? 's' : ''} need action
-        </span>
+    <Card>
+      <div className={styles.cardHeader}>
+        <div className={styles.cardHeaderGroup}>
+          <span className={styles.dot} style={{ background: critical > 0 ? T.red : T.yellow }} aria-hidden="true" />
+          <Lbl s="Attention queue" strong />
+          <Chip color={T.red}>
+            {visible.length} item{visible.length !== 1 ? 's' : ''} need action
+          </Chip>
+        </div>
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <div className={styles.stack}>
         {visible.map(q => {
           const done = actioned.has(q.id);
           const sc   = SEV_COLOR[q.severity];
           return (
-            <div key={q.id} style={{
-              borderRadius: 6, overflow: 'hidden',
-              border: `1px solid rgba(255,255,255,0.05)`,
-              borderLeft: `3px solid ${sc}`,
-              background: done ? 'rgba(34,197,94,0.04)' : SEV_BG[q.severity],
-              opacity: done ? 0.55 : 1,
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px 4px' }}>
-                <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: sc, background: `${sc}18`, padding: '1px 5px', borderRadius: 3, flexShrink: 0 }}>
-                  {q.severity}
-                </span>
-                <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: FEED_C[q.type], background: `${FEED_C[q.type]}18`, padding: '1px 5px', borderRadius: 3, flexShrink: 0 }}>
-                  {q.type}
-                </span>
-                <span style={{ fontSize: 12, fontWeight: 500, color: done ? T.sub : T.text, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{q.title}</span>
-                {q.due && <Mono size={9} color={T.dim}>{q.due}</Mono>}
+            <div key={q.id} className={styles.queueItem} style={{ borderLeftColor: sc, background: done ? T.greenA : undefined }}>
+              <div className={styles.queueHead}>
+                <Chip color={sc}>{q.severity}</Chip>
+                <Chip color={FEED_C[q.type]}>{q.type}</Chip>
+                <span className={styles.queueTitle} style={{ color: done ? T.sub : T.text }}>{q.title}</span>
+                {q.due && <Meta size={11} color={T.dim}>{q.due}</Meta>}
                 {done ? (
-                  <span style={{ fontSize: 10, color: T.green, fontWeight: 600 }}>✓ Done</span>
+                  <span style={{ fontSize: 11, color: T.green, fontWeight: 600 }}>✓ Done</span>
                 ) : (
-                  <Btn small label={`→ ${q.cta}`} color={sc} onClick={() => {
+                  <Btn small label={`→ ${q.cta}`} variant={q.severity === 'critical' ? 'danger' : 'secondary'} onClick={() => {
                     setActioned(p => new Set([...p, q.id]));
                     if (q.analysis_id !== undefined && onMarkReviewed) {
                       onMarkReviewed(q.analysis_id, q.title, typeof q.client_id === 'number' ? q.client_id : undefined);
@@ -350,12 +394,12 @@ function AttentionQueue({ items, onAction, onFollowUp, onMarkReviewed }: {
                     }
                   }} />
                 )}
-                <button onClick={() => setDismissed(p => new Set([...p, q.id]))} style={{ background: 'none', border: 'none', color: T.dim, cursor: 'pointer', fontSize: 13, padding: '0 2px', lineHeight: 1 }}>×</button>
+                <button type="button" className={styles.iconButton} aria-label={`Dismiss ${q.title}`} onClick={() => setDismissed(p => new Set([...p, q.id]))}>
+                  <span aria-hidden="true">×</span>
+                </button>
               </div>
               {q.why && (
-                <div style={{ padding: '0 10px 7px 10px' }}>
-                  <span style={{ fontSize: 11, color: T.sub, lineHeight: 1.45 }}>{q.why}</span>
-                </div>
+                <div className={styles.queueWhy}>{q.why}</div>
               )}
             </div>
           );
@@ -415,12 +459,12 @@ const ATTN_TYPE_COLOR: Record<AttnItemType, string> = {
   alert:              T.red,
   client_request:     T.cyan,
   web_lead:           T.green,
-  upcoming_launch:    '#60A5FA',
-  overdue_deployment: '#F97316',
+  upcoming_launch:    T.cyan,
+  overdue_deployment: HIGH,
   implementation_blocked:         T.red,
-  implementation_at_risk:         '#F59E0B',
-  implementation_overdue_launch:  '#F97316',
-  implementation_upcoming_launch: '#60A5FA',
+  implementation_at_risk:         T.yellow,
+  implementation_overdue_launch:  HIGH,
+  implementation_upcoming_launch: T.cyan,
 };
 
 function timeAgo(iso: string | null): string {
@@ -429,15 +473,6 @@ function timeAgo(iso: string | null): string {
   if (days <= 0) return 'Today';
   if (days === 1) return '1d ago';
   return `${days}d ago`;
-}
-
-function SnapshotTile({ label, value }: { label: string; value: string }) {
-  return (
-    <div style={{ padding: '8px 10px', borderRadius: 6, background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)' }}>
-      <div style={{ fontSize: 9, color: T.dim, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>{label}</div>
-      <div style={{ fontSize: 16, fontWeight: 700, color: T.text, fontFamily: T.mono }}>{value}</div>
-    </div>
-  );
 }
 
 function RealFounderOperations() {
@@ -461,51 +496,39 @@ function RealFounderOperations() {
 
   return (
     <>
-      <Card accent={critical ? T.red : T.purpleB} style={{ padding: '12px 14px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-          <span style={{ width: 6, height: 6, borderRadius: '50%', background: T.green, boxShadow: `0 0 7px ${T.green}`, display: 'inline-block' }} />
-          <Lbl s="Attention queue" c={T.text} />
-          {!loading && !loadError && (
-            <span style={{
-              fontSize: 9, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
-              color: items.length ? T.red : T.green, background: items.length ? T.redA : T.greenA,
-              padding: '2px 6px', borderRadius: 3, marginBottom: 7,
-            }}>
-              {items.length ? `${items.length} item${items.length !== 1 ? 's' : ''} need action` : '✓ All clear'}
-            </span>
-          )}
+      <Card>
+        <div className={styles.cardHeader}>
+          <div className={styles.cardHeaderGroup}>
+            <span className={styles.dot} style={{ background: critical ? T.red : T.green }} aria-hidden="true" />
+            <Lbl s="Attention queue" strong />
+            {!loading && !loadError && (
+              <Chip color={items.length ? T.red : T.green}>
+                {items.length ? `${items.length} item${items.length !== 1 ? 's' : ''} need action` : '✓ All clear'}
+              </Chip>
+            )}
+          </div>
         </div>
 
-        {loading && <div style={{ fontSize: 11, color: T.dim, padding: '4px 2px 2px' }}>Loading…</div>}
+        {loading && <div className={styles.stateText}>Loading…</div>}
         {!loading && loadError && (
-          <div style={{ fontSize: 11, color: T.red, padding: '4px 2px 2px' }}>Couldn&apos;t load the attention queue.</div>
+          <div className={styles.errorText}>Couldn&apos;t load the attention queue.</div>
         )}
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <div className={styles.stack}>
           {items.map(item => {
             const sc = SEV_COLOR[item.severity];
             const tc = ATTN_TYPE_COLOR[item.type];
             return (
-              <a key={item.id} href={item.href} style={{
-                display: 'block', textDecoration: 'none', borderRadius: 6, overflow: 'hidden',
-                border: '1px solid rgba(255,255,255,0.05)', borderLeft: `3px solid ${sc}`,
-                background: SEV_BG[item.severity],
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px 4px' }}>
-                  <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: sc, background: `${sc}18`, padding: '1px 5px', borderRadius: 3, flexShrink: 0 }}>
-                    {item.severity}
-                  </span>
-                  <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: tc, background: `${tc}18`, padding: '1px 5px', borderRadius: 3, flexShrink: 0 }}>
-                    {ATTN_TYPE_LABEL[item.type]}
-                  </span>
-                  {item.organisationName && <Mono size={9} color={T.dim}>{item.organisationName}</Mono>}
-                  <span style={{ fontSize: 12, fontWeight: 500, color: T.text, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.title}</span>
-                  {item.createdAt && <Mono size={9} color={T.dim}>{timeAgo(item.createdAt)}</Mono>}
+              <a key={item.id} href={item.href} className={styles.queueItem} style={{ borderLeftColor: sc }}>
+                <div className={styles.queueHead}>
+                  <Chip color={sc}>{item.severity}</Chip>
+                  <Chip color={tc}>{ATTN_TYPE_LABEL[item.type]}</Chip>
+                  {item.organisationName && <Meta size={11} color={T.dim}>{item.organisationName}</Meta>}
+                  <span className={styles.queueTitle}>{item.title}</span>
+                  {item.createdAt && <Meta size={11} color={T.dim}>{timeAgo(item.createdAt)}</Meta>}
                 </div>
                 {item.description && (
-                  <div style={{ padding: '0 10px 7px 10px' }}>
-                    <span style={{ fontSize: 11, color: T.sub, lineHeight: 1.45 }}>{item.description}</span>
-                  </div>
+                  <div className={styles.queueWhy}>{item.description}</div>
                 )}
               </a>
             );
@@ -513,19 +536,19 @@ function RealFounderOperations() {
         </div>
       </Card>
 
-      <Card style={{ padding: '12px 14px' }}>
-        <Lbl s="Real operational snapshot" />
+      <Card>
+        <Lbl s="Real operational snapshot" spaced />
         {(loading || !metrics) ? (
-          <div style={{ fontSize: 11, color: T.dim }}>{loadError ? 'Unavailable.' : 'Loading…'}</div>
+          <div className={styles.stateText}>{loadError ? 'Unavailable.' : 'Loading…'}</div>
         ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 10 }}>
-            <SnapshotTile label="Active MRR"               value={`$${Math.round(metrics.activeMrr).toLocaleString()}`} />
-            <SnapshotTile label="Active managed services"  value={String(metrics.activeManagedServices)} />
-            <SnapshotTile label="In implementation"        value={String(metrics.onboardingInProgress)} />
-            <SnapshotTile label="Open requests"             value={String(metrics.openRequests)} />
-            <SnapshotTile label="Open alerts"               value={String(metrics.openAlerts)} />
-            <SnapshotTile label="New Web Systems leads"     value={String(metrics.leadsByStage['new'] ?? 0)} />
-          </div>
+          <MetricStrip>
+            <Metric label="Active MRR"               value={`$${Math.round(metrics.activeMrr).toLocaleString()}`} />
+            <Metric label="Active managed services"  value={String(metrics.activeManagedServices)} />
+            <Metric label="In implementation"        value={String(metrics.onboardingInProgress)} />
+            <Metric label="Open requests"            value={String(metrics.openRequests)} />
+            <Metric label="Open alerts"              value={String(metrics.openAlerts)} />
+            <Metric label="New Web Systems leads"    value={String(metrics.leadsByStage['new'] ?? 0)} />
+          </MetricStrip>
         )}
       </Card>
     </>
@@ -544,15 +567,12 @@ function RealFounderOperations() {
 // Phase B round — see git history for that diff.)
 function HlnaBriefing() {
   return (
-    <Card style={{ padding: '13px 15px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-        <span style={{ width: 6, height: 6, borderRadius: '50%', background: T.dim, display: 'inline-block' }} />
-        <Lbl s="HLNΛ Chief of Staff" c={T.text} />
+    <Card>
+      <div className={styles.cardHeaderGroup} style={{ marginBottom: 10 }}>
+        <span className={styles.dot} style={{ background: T.inactive }} aria-hidden="true" />
+        <Lbl s="HLNΛ Chief of Staff" strong />
       </div>
-      <div style={{ padding: '14px', textAlign: 'center', borderRadius: 6, border: `1px dashed ${T.border}` }}>
-        <div style={{ fontSize: 11, color: T.dim }}>Intelligence briefing not connected</div>
-        <div style={{ fontSize: 10, color: T.dim, marginTop: 3 }}>No authoritative briefing source is wired up yet.</div>
-      </div>
+      <Empty title="Intelligence briefing not connected" text="No authoritative briefing source is wired up yet." />
     </Card>
   );
 }
@@ -564,6 +584,15 @@ function HlnaBriefing() {
 // rows), but silently falling back to the mock is gone: an empty/
 // unreachable result now shows an honest "Not connected" state instead of
 // fabricated accounts.
+//
+// Visual convergence: each row's organisation name is now a real <button>
+// (onSelect, same handler the clickable row <div> had) whose ::after
+// stretches over the row, so a pointer click anywhere on the row still
+// opens the client and the keyboard can reach it. The row's "Follow up"
+// action used to be a Btn with a no-op onClick nested in a <div> whose own
+// onClick did the work (plus a stopPropagation wrapper) — the button now
+// calls onFollowUp directly, which is the same effect for pointer and
+// keyboard users (the click used to bubble to that wrapper).
 
 function ClientPipeline({ onSelect, onFollowUp, overrides, clients, loading }: {
   onSelect: (c: Client) => void;
@@ -573,82 +602,72 @@ function ClientPipeline({ onSelect, onFollowUp, overrides, clients, loading }: {
   loading: boolean;
 }) {
   const pipelineVal = clients.filter(c => c.stage !== 'lost').reduce((a, c) => a + c.value, 0);
-  const colTpl = '2fr 1fr 0.6fr 0.8fr 2fr 0.65fr 72px';
+  const colTpl = 'minmax(0, 2fr) minmax(0, 1fr) 0.6fr 0.8fr minmax(0, 2fr) 0.65fr 92px';
 
   if (!loading && clients.length === 0) return (
-    <Card style={{ padding: '13px 15px' }}>
-      <Lbl s="Client pipeline" />
-      <div style={{ padding: '14px', textAlign: 'center', borderRadius: 6, border: `1px dashed ${T.border}` }}>
-        <div style={{ fontSize: 11, color: T.dim }}>Not connected</div>
-        <div style={{ fontSize: 10, color: T.dim, marginTop: 3 }}>No authoritative sales-pipeline source is wired up yet.</div>
-      </div>
+    <Card>
+      <Lbl s="Client pipeline" spaced />
+      <Empty title="Not connected" text="No authoritative sales-pipeline source is wired up yet." />
     </Card>
   );
 
   return (
-    <Card style={{ padding: '13px 15px' }}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 10, gap: 12 }}>
-        <div style={{ flex: 1 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 7 }}>
-            <Lbl s="Client pipeline" />
-            <Mono size={10} color={T.dim}>{clients.length} accounts · ${pipelineVal.toLocaleString()} open</Mono>
-          </div>
-          <StageFunnel clients={clients} />
+    <Card>
+      <div style={{ marginBottom: 10 }}>
+        <div className={styles.cardHeaderGroup} style={{ marginBottom: 8 }}>
+          <Lbl s="Client pipeline" />
+          <Meta size={11} color={T.dim}>{clients.length} accounts · ${pipelineVal.toLocaleString()} open</Meta>
         </div>
+        <StageFunnel clients={clients} />
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: colTpl, gap: 6, padding: '3px 5px', marginBottom: 2 }}>
-        {['Organisation', 'Contact', 'Value', 'Stage', 'Next action', 'Activity', ''].map(h => (
-          <span key={h} style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: T.dim }}>{h}</span>
-        ))}
-      </div>
+      <div className={styles.scrollX}>
+        <div className={`${styles.pipelineGrid} ${styles.pipelineHead}`} style={{ gridTemplateColumns: colTpl }}>
+          {['Organisation', 'Contact', 'Value', 'Stage', 'Next action', 'Activity', ''].map(h => (
+            <span key={h} className={styles.pipelineHeadCell}>{h}</span>
+          ))}
+        </div>
 
-      {clients.map((base, i) => {
-        const ov       = overrides[base.id] ?? {};
-        const effDays  = ov.daysAgo  ?? base.daysAgo;
-        const effStage = ov.stage    ?? base.stage;
-        const effAct   = ov.action   ?? base.action;
-        const stale    = !ov.followedUp && effDays >= 4;
-        const bgBase   = ov.highlighted
-          ? 'rgba(34,197,94,0.09)'
-          : i % 2 === 0 ? 'rgba(255,255,255,0.010)' : 'transparent';
-        const merged: Client = { ...base, daysAgo: effDays, stage: effStage, action: effAct };
-        return (
-          <div key={base.id}
-            onClick={() => onSelect(merged)}
-            style={{
-              display: 'grid', gridTemplateColumns: colTpl, gap: 6,
-              padding: '5px 5px', borderRadius: 5, cursor: 'pointer',
-              background: bgBase,
-              borderLeft: stale ? `2px solid ${T.red}` : ov.highlighted ? `2px solid ${T.green}` : '2px solid transparent',
-              alignItems: 'center', transition: 'background 0.6s, border-left 0.6s',
-            }}
-            onMouseEnter={e => (e.currentTarget.style.background = 'rgba(139,92,246,0.06)')}
-            onMouseLeave={e => (e.currentTarget.style.background = bgBase)}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 5, overflow: 'hidden' }}>
-              <span style={{ fontSize: 12, fontWeight: 500, color: T.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{base.org}</span>
-              {base.linked_organisation && (
-                <span title={`Linked: ${base.linked_organisation.name}`} style={{ fontSize: 8, padding: '1px 4px', borderRadius: 3, background: 'rgba(34,211,238,0.12)', color: T.cyan, border: '1px solid rgba(34,211,238,0.22)', flexShrink: 0, letterSpacing: '0.04em', fontWeight: 700 }}>LINKED</span>
-              )}
+        {clients.map(base => {
+          const ov       = overrides[base.id] ?? {};
+          const effDays  = ov.daysAgo  ?? base.daysAgo;
+          const effStage = ov.stage    ?? base.stage;
+          const effAct   = ov.action   ?? base.action;
+          const stale    = !ov.followedUp && effDays >= 4;
+          const merged: Client = { ...base, daysAgo: effDays, stage: effStage, action: effAct };
+          return (
+            <div key={base.id}
+              className={`${styles.pipelineGrid} ${styles.pipelineRow}`}
+              data-highlighted={ov.highlighted ? 'true' : undefined}
+              style={{
+                gridTemplateColumns: colTpl,
+                borderLeftColor: stale ? T.red : ov.highlighted ? T.green : 'transparent',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
+                <button type="button" className={styles.pipelineOpen} onClick={() => onSelect(merged)}>{base.org}</button>
+                {base.linked_organisation && (
+                  <span style={{ position: 'relative', zIndex: 1, display: 'inline-flex' }}>
+                    <Chip color={T.cyan} title={`Linked: ${base.linked_organisation.name}`}>LINKED</Chip>
+                  </span>
+                )}
+              </div>
+              <span className={styles.ellipsis} style={{ fontSize: 12, color: T.sub }}>{base.contact}</span>
+              <Meta size={12} color={T.text}>${(base.value/1000).toFixed(1)}k</Meta>
+              <StagePill s={effStage} />
+              <span className={styles.ellipsis} style={{ fontSize: 12, color: ov.followedUp ? T.green : T.sub }}>{effAct}</span>
+              <Meta size={11} color={ov.followedUp ? T.green : ageColor(effDays)}>{ov.followedUp ? 'just now' : ageLabel(effDays)}</Meta>
+              <div className={styles.pipelineAction}>
+                {ov.followedUp ? (
+                  <span style={{ fontSize: 11, color: T.green, fontWeight: 600 }}>✓ Sent</span>
+                ) : (
+                  <Btn small label="Follow up" ariaLabel={`Follow up ${base.org}`} variant={stale ? 'danger' : 'secondary'} onClick={() => onFollowUp(base.id, base.org)} />
+                )}
+              </div>
             </div>
-            <span style={{ fontSize: 11, color: T.sub, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{base.contact}</span>
-            <Mono size={11} color={T.text}>${(base.value/1000).toFixed(1)}k</Mono>
-            <StagePill s={effStage} />
-            <span style={{ fontSize: 11, color: ov.followedUp ? T.green : T.sub, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{effAct}</span>
-            <Mono size={10} color={ov.followedUp ? T.green : ageColor(effDays)}>{ov.followedUp ? 'just now' : ageLabel(effDays)}</Mono>
-            <div onClick={e => e.stopPropagation()}>
-              {ov.followedUp ? (
-                <span style={{ fontSize: 10, color: T.green, fontWeight: 600, fontFamily: T.mono }}>✓ Sent</span>
-              ) : (
-                <div onClick={() => onFollowUp(base.id, base.org)}>
-                  <Btn small label="Follow up" color={stale ? T.red : undefined} onClick={() => {}} />
-                </div>
-              )}
-            </div>
-          </div>
-        );
-      })}
+          );
+        })}
+      </div>
     </Card>
   );
 }
@@ -672,31 +691,28 @@ function RevenueIntel({ metrics, loading }: { metrics: AttnMetrics | null; loadi
   const arrDisplay = loading ? '…' : arr != null ? `$${Math.round(arr).toLocaleString()}` : '—';
 
   return (
-    <Card style={{ padding: '13px 15px' }}>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 172px', gap: 16 }}>
-        <div>
-          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 6 }}>
+    <Card>
+      <div className={styles.revenueGrid}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
             <Lbl s="Active MRR" />
-            <Mono size={20} color={mrr != null ? T.text : T.dim}>{mrrDisplay}</Mono>
+            <Meta size={20} color={mrr != null ? T.text : T.dim}>{mrrDisplay}</Meta>
           </div>
-          <div style={{ padding: '14px 11px', borderRadius: 7, border: `1px dashed ${T.border}`, textAlign: 'center' }}>
-            <div style={{ fontSize: 10.5, color: T.dim }}>Historical MRR trend not available</div>
-            <div style={{ fontSize: 9, color: T.dim, marginTop: 2 }}>No revenue history is tracked yet — this shows current active recurring revenue only.</div>
-          </div>
-          <div style={{ marginTop: 8, padding: '6px 9px', borderRadius: 6, background: T.purpleA, border: `1px solid ${T.purpleB}` }}>
-            <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: T.purple }}>Source </span>
-            <span style={{ fontSize: 11, color: T.sub }}>managed_services · active subscriptions</span>
+          <Empty title="Historical MRR trend not available" text="No revenue history is tracked yet — this shows current active recurring revenue only." />
+          <div className={styles.sourceNote}>
+            <span style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: T.dim }}>Source </span>
+            <Code size={11} color={T.sub}>managed_services · active subscriptions</Code>
           </div>
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-          <div style={{ padding: '5px 9px', borderRadius: 5, background: 'rgba(255,255,255,0.018)', border: `1px solid ${T.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: 10.5, color: T.sub }}>ARR run rate</span>
-            <Mono size={12} color={arr != null ? T.purple : T.dim}>{arrDisplay}</Mono>
+        <div className={styles.stackTight}>
+          <div className={styles.statRow}>
+            <span style={{ fontSize: 12, color: T.sub }}>ARR run rate</span>
+            <span style={{ fontWeight: 600 }}><Meta size={12} color={arr != null ? T.text : T.dim}>{arrDisplay}</Meta></span>
           </div>
           {REVENUE_UNAVAILABLE_STATS.map(l => (
-            <div key={l} style={{ padding: '5px 9px', borderRadius: 5, background: 'rgba(255,255,255,0.018)', border: `1px solid ${T.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: 10.5, color: T.dim }}>{l}</span>
-              <Mono size={11} color={T.dim}>Not connected</Mono>
+            <div key={l} className={styles.statRow}>
+              <span style={{ fontSize: 12, color: T.dim }}>{l}</span>
+              <Meta size={11} color={T.dim}>Not connected</Meta>
             </div>
           ))}
         </div>
@@ -722,37 +738,32 @@ function ImplementationSummary({ metrics, loading, nextActions }: {
   metrics: AttnMetrics | null; loading: boolean; nextActions: ImplementationNextAction[];
 }) {
   return (
-    <Card style={{ padding: '13px 15px' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+    <Card>
+      <div className={styles.cardHeader}>
         <Lbl s="Client implementations" />
-        <Link href="/admin/implementations" style={{ fontSize: 10, color: T.purple, textDecoration: 'none' }}>View all →</Link>
+        <Link href="/admin/implementations" style={{ fontSize: 11, color: T.purple, textDecoration: 'none' }}>View all →</Link>
       </div>
 
       {loading ? (
-        <div style={{ fontSize: 11, color: T.dim }}>Loading…</div>
+        <div className={styles.stateText}>Loading…</div>
       ) : !metrics || metrics.implementationsTotal === undefined ? (
-        <div style={{ padding: '14px', textAlign: 'center', borderRadius: 6, border: `1px dashed ${T.border}` }}>
-          <div style={{ fontSize: 11, color: T.dim }}>Not connected</div>
-        </div>
+        <Empty title="Not connected" />
       ) : metrics.implementationsTotal === 0 ? (
-        <div style={{ padding: '14px', textAlign: 'center', borderRadius: 6, border: `1px dashed ${T.border}` }}>
-          <div style={{ fontSize: 11, color: T.dim }}>No implementations yet</div>
-          <div style={{ fontSize: 10, color: T.dim, marginTop: 3 }}>Create one from the Client Implementations workspace.</div>
-        </div>
+        <Empty title="No implementations yet" text="Create one from the Client Implementations workspace." />
       ) : (
         <>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: 10, marginBottom: 12 }}>
-            <SnapshotTile label="Total (active)"       value={String(metrics.implementationsTotal)} />
-            <SnapshotTile label="At risk"               value={String(metrics.implementationsAtRisk ?? 0)} />
-            <SnapshotTile label="Blocked"                value={String(metrics.implementationsBlocked ?? 0)} />
-            <SnapshotTile label="Approaching launch"     value={String(metrics.implementationsApproachingLaunch ?? 0)} />
-          </div>
+          <MetricStrip style={{ marginBottom: 12 }}>
+            <Metric label="Total (active)"      value={String(metrics.implementationsTotal)} />
+            <Metric label="At risk"             value={String(metrics.implementationsAtRisk ?? 0)} />
+            <Metric label="Blocked"             value={String(metrics.implementationsBlocked ?? 0)} />
+            <Metric label="Approaching launch"  value={String(metrics.implementationsApproachingLaunch ?? 0)} />
+          </MetricStrip>
 
           {metrics.implementationsByStage && Object.keys(metrics.implementationsByStage).length > 0 && (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: nextActions.length > 0 ? 12 : 0 }}>
               {Object.entries(metrics.implementationsByStage).map(([stage, count]) => (
-                <span key={stage} style={{ fontSize: 10, color: T.sub, background: 'rgba(255,255,255,0.03)', border: `1px solid ${T.border}`, borderRadius: 4, padding: '3px 8px' }}>
-                  {IMPL_STAGE_LABEL[stage] ?? stage}: <Mono size={10} color={T.text}>{count}</Mono>
+                <span key={stage} className={styles.row} style={{ fontSize: 11, color: T.sub, padding: '3px 8px' }}>
+                  {IMPL_STAGE_LABEL[stage] ?? stage}: <Meta size={11} color={T.text}>{count}</Meta>
                 </span>
               ))}
             </div>
@@ -760,14 +771,14 @@ function ImplementationSummary({ metrics, loading, nextActions }: {
 
           {nextActions.length > 0 && (
             <div>
-              <Lbl s="Next actions" />
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <Lbl s="Next actions" as="h3" spaced />
+              <div className={styles.stackTight}>
                 {nextActions.map(n => (
-                  <a key={n.id} href={n.href} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, textDecoration: 'none', padding: '5px 8px', borderRadius: 5, background: 'rgba(255,255,255,0.018)', border: `1px solid ${T.border}` }}>
-                    <span style={{ fontSize: 11, color: T.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <a key={n.id} href={n.href} className={styles.row} style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                    <span className={styles.ellipsis} style={{ fontSize: 12, color: T.text }}>
                       {n.organisationName ? `${n.organisationName} — ` : ''}{n.name}
                     </span>
-                    <span style={{ fontSize: 10.5, color: T.sub, flexShrink: 0 }}>{n.nextAction}</span>
+                    <span style={{ fontSize: 11, color: T.sub, flexShrink: 0 }}>{n.nextAction}</span>
                   </a>
                 ))}
               </div>
@@ -813,36 +824,33 @@ function ImplementationsByClient() {
   }
 
   return (
-    <Card style={{ padding: '13px 15px' }}>
-      <Lbl s="Client implementations" />
+    <Card>
+      <Lbl s="Client implementations" spaced />
       {loading ? (
-        <div style={{ fontSize: 11, color: T.dim }}>Loading…</div>
+        <div className={styles.stateText}>Loading…</div>
       ) : loadError ? (
-        <div style={{ fontSize: 11, color: T.red }}>Couldn&apos;t load implementations.</div>
+        <div className={styles.errorText}>Couldn&apos;t load implementations.</div>
       ) : groups.size === 0 ? (
-        <div style={{ padding: '14px', textAlign: 'center', borderRadius: 6, border: `1px dashed ${T.border}` }}>
-          <div style={{ fontSize: 11, color: T.dim }}>No implementations yet</div>
-        </div>
+        <Empty title="No implementations yet" />
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {[...groups.entries()].map(([orgId, group]) => (
             <div key={orgId}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: T.text, marginBottom: 5 }}>{group.name}</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <h3 style={{ margin: '0 0 5px', fontSize: 12, fontWeight: 600, color: T.text }}>{group.name}</h3>
+              <div className={`${styles.stackTight} ${styles.scrollX}`}>
                 {group.items.map(impl => {
                   const health = HEALTH_META[impl.health] ?? HEALTH_META.on_track;
                   return (
-                    <a key={impl.id} href={`/admin/implementations/${impl.id}`} style={{
-                      display: 'grid', gridTemplateColumns: '1.5fr 1fr 1fr auto 1fr 1.5fr', gap: 8, alignItems: 'center',
-                      textDecoration: 'none', padding: '6px 8px', borderRadius: 5,
-                      background: 'rgba(255,255,255,0.018)', border: `1px solid ${T.border}`,
+                    <a key={impl.id} href={`/admin/implementations/${impl.id}`} className={styles.row} style={{
+                      display: 'grid', gridTemplateColumns: 'minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 1fr) auto minmax(0, 1fr) minmax(0, 1.5fr)', gap: 8, alignItems: 'center',
+                      minWidth: 600,
                     }}>
-                      <span style={{ fontSize: 12, color: T.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{impl.name}</span>
-                      <span style={{ fontSize: 10.5, color: T.sub }}>{impl.service_type ?? '—'}</span>
-                      <span style={{ fontSize: 10.5, color: T.sub }}>{IMPL_STAGE_LABEL[impl.stage] ?? impl.stage}</span>
-                      <span style={{ fontSize: 10, fontWeight: 700, color: health.color, background: `${health.color}18`, padding: '2px 6px', borderRadius: 4, whiteSpace: 'nowrap' }}>{health.label}</span>
-                      <span style={{ fontSize: 10.5, color: T.sub }}>{impl.owner_name ?? 'Unassigned'}</span>
-                      <span style={{ fontSize: 10.5, color: T.dim, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <span className={styles.ellipsis} style={{ fontSize: 12, color: T.text }}>{impl.name}</span>
+                      <span style={{ fontSize: 11, color: T.sub }}>{impl.service_type ?? '—'}</span>
+                      <span style={{ fontSize: 11, color: T.sub }}>{IMPL_STAGE_LABEL[impl.stage] ?? impl.stage}</span>
+                      <Chip color={health.color}>{health.label}</Chip>
+                      <span style={{ fontSize: 11, color: T.sub }}>{impl.owner_name ?? 'Unassigned'}</span>
+                      <span className={styles.ellipsis} style={{ fontSize: 11, color: T.dim }}>
                         {impl.target_launch_date ? new Date(impl.target_launch_date).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' }) : '—'}
                         {impl.next_action ? ` · ${impl.next_action}` : ''}
                       </span>
@@ -859,9 +867,9 @@ function ImplementationsByClient() {
 }
 
 const HEALTH_META: Record<string, { label: string; color: string }> = {
-  on_track: { label: 'On Track', color: '#34d399' },
-  at_risk:  { label: 'At Risk',  color: '#f59e0b' },
-  blocked:  { label: 'Blocked',  color: '#f87171' },
+  on_track: { label: 'On Track', color: T.green },
+  at_risk:  { label: 'At Risk',  color: T.yellow },
+  blocked:  { label: 'Blocked',  color: T.red },
 };
 
 // ─── Founder tasks ────────────────────────────────────────────────────────────
@@ -891,7 +899,7 @@ type FounderTaskGroups = {
 const TASK_STATUS_OPTIONS = ['Not Started', 'Working on it', 'Stuck', 'Done'];
 const TASK_PRIORITY_OPTIONS = ['', 'Low', 'Medium', 'High', 'Critical'];
 const TASK_PRIORITY_COLOR: Record<string, string> = {
-  Critical: '#f87171', High: '#fb923c', Medium: '#fbbf24', Low: T.dim,
+  Critical: T.red, High: HIGH, Medium: T.yellow, Low: T.dim,
 };
 const EMPTY_TASK_GROUPS: FounderTaskGroups = { overdue: [], today: [], upcoming: [], noDueDate: [], completed: [] };
 
@@ -953,25 +961,19 @@ function FounderTaskSummary() {
   const { board, groups, loading, loadError } = useFounderTasks();
 
   return (
-    <Card style={{ padding: '13px 15px' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-        <Lbl s="Founder tasks" />
-      </div>
+    <Card>
+      <Lbl s="Founder tasks" spaced />
       {loading ? (
-        <div style={{ fontSize: 11, color: T.dim }}>Loading…</div>
+        <div className={styles.stateText}>Loading…</div>
       ) : loadError ? (
-        <div style={{ padding: '14px', textAlign: 'center', borderRadius: 6, border: `1px dashed ${T.border}` }}>
-          <div style={{ fontSize: 11, color: T.dim }}>Not connected</div>
-        </div>
+        <Empty title="Not connected" />
       ) : !board ? (
-        <div style={{ padding: '14px', textAlign: 'center', borderRadius: 6, border: `1px dashed ${T.border}` }}>
-          <div style={{ fontSize: 11, color: T.dim }}>No task board yet</div>
-        </div>
+        <Empty title="No task board yet" />
       ) : (
-        <div style={{ display: 'flex', gap: 10 }}>
-          <SnapshotTile label="Overdue" value={String(groups.overdue.length)} />
-          <SnapshotTile label="Due today" value={String(groups.today.length)} />
-        </div>
+        <MetricStrip>
+          <Metric label="Overdue" value={String(groups.overdue.length)} />
+          <Metric label="Due today" value={String(groups.today.length)} />
+        </MetricStrip>
       )}
     </Card>
   );
@@ -980,26 +982,22 @@ function FounderTaskSummary() {
 function TaskRow({ task, onUpdate }: { task: FounderTaskItem; onUpdate: (id: string, patch: Record<string, unknown>) => void }) {
   const done = task.status === 'Done';
   return (
-    <div style={{
-      display: 'grid', gridTemplateColumns: '20px 2fr 110px 100px 1fr 90px', gap: 8, alignItems: 'center',
-      padding: '6px 8px', borderRadius: 5, background: 'rgba(255,255,255,0.018)', border: `1px solid ${T.border}`,
-      opacity: done ? 0.55 : 1,
-    }}>
+    <div className={`${styles.row} ${styles.taskGrid}`}>
       <button
+        type="button"
+        className={styles.taskCheck}
+        data-done={done ? 'true' : undefined}
         onClick={() => onUpdate(task.id, { status: done ? 'Not Started' : 'Done' })}
         title={done ? 'Reopen' : 'Mark complete'}
-        style={{
-          width: 16, height: 16, borderRadius: 4, cursor: 'pointer',
-          border: `1.5px solid ${done ? T.green : 'rgba(255,255,255,0.25)'}`,
-          background: done ? T.green : 'transparent', color: '#fff', fontSize: 10,
-          display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-        }}
-      >{done ? '✓' : ''}</button>
-      <span style={{ fontSize: 12, color: done ? T.sub : T.text, textDecoration: done ? 'line-through' : 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{task.title}</span>
+        aria-label={done ? `Reopen ${task.title}` : `Mark ${task.title} complete`}
+      ><span aria-hidden="true">{done ? '✓' : ''}</span></button>
+      <span className={styles.ellipsis} style={{ fontSize: 12, color: done ? T.sub : T.text, textDecoration: done ? 'line-through' : 'none' }}>{task.title}</span>
       <select
         value={task.priority ?? ''}
         onChange={e => onUpdate(task.id, { priority: e.target.value || null })}
-        style={{ fontSize: 10, background: 'transparent', color: task.priority ? (TASK_PRIORITY_COLOR[task.priority] ?? T.sub) : T.dim, border: `1px solid ${T.border}`, borderRadius: 4, padding: '2px 4px' }}
+        aria-label={`Priority for ${task.title}`}
+        className={styles.taskControl}
+        style={{ color: task.priority ? (TASK_PRIORITY_COLOR[task.priority] ?? T.sub) : T.dim }}
       >
         {TASK_PRIORITY_OPTIONS.map(p => <option key={p} value={p}>{p || 'No priority'}</option>)}
       </select>
@@ -1007,19 +1005,22 @@ function TaskRow({ task, onUpdate }: { task: FounderTaskItem; onUpdate: (id: str
         type="date"
         value={task.dueDate ?? ''}
         onChange={e => onUpdate(task.id, { due_date: e.target.value || null })}
-        style={{ fontSize: 10, background: 'transparent', color: T.sub, border: `1px solid ${T.border}`, borderRadius: 4, padding: '2px 4px', colorScheme: 'dark' }}
+        aria-label={`Due date for ${task.title}`}
+        className={styles.taskControl}
       />
       <input
         type="text"
         defaultValue={task.owner ?? ''}
         placeholder="Owner"
         onBlur={e => { if (e.target.value.trim() !== (task.owner ?? '')) onUpdate(task.id, { owner: e.target.value.trim() || null }); }}
-        style={{ fontSize: 10, background: 'transparent', color: T.sub, border: `1px solid ${T.border}`, borderRadius: 4, padding: '2px 4px' }}
+        aria-label={`Owner for ${task.title}`}
+        className={styles.taskControl}
       />
       <select
         value={task.status}
         onChange={e => onUpdate(task.id, { status: e.target.value })}
-        style={{ fontSize: 10, background: 'transparent', color: T.sub, border: `1px solid ${T.border}`, borderRadius: 4, padding: '2px 4px' }}
+        aria-label={`Status for ${task.title}`}
+        className={styles.taskControl}
       >
         {TASK_STATUS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
       </select>
@@ -1034,13 +1035,13 @@ function TaskGroupSection({ label, tasks, onUpdate, defaultOpen = true }: {
   if (tasks.length === 0) return null;
   return (
     <div style={{ marginBottom: 10 }}>
-      <button onClick={() => setOpen(p => !p)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-        <span style={{ fontSize: 10, color: T.dim }}>{open ? '▾' : '▸'}</span>
-        <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: T.dim }}>{label}</span>
-        <span style={{ fontSize: 10, color: T.dim }}>({tasks.length})</span>
+      <button type="button" className={styles.disclosure} aria-expanded={open} onClick={() => setOpen(p => !p)}>
+        <span aria-hidden="true">{open ? '▾' : '▸'}</span>
+        <span>{label}</span>
+        <span className={styles.num}>({tasks.length})</span>
       </button>
       {open && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <div className={`${styles.stackTight} ${styles.scrollX}`}>
           {tasks.map(t => <TaskRow key={t.id} task={t} onUpdate={onUpdate} />)}
         </div>
       )}
@@ -1108,13 +1109,13 @@ function FounderTasksPanel() {
   };
 
   return (
-    <Card style={{ padding: '13px 15px' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+    <Card>
+      <div className={styles.cardHeader}>
+        <div className={styles.cardHeaderGroup}>
           <Lbl s="Founder tasks" />
-          {board && <Mono size={9} color={T.dim}>{board.name}</Mono>}
+          {board && <Meta size={11} color={T.dim}>{board.name}</Meta>}
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div className={styles.cardHeaderGroup}>
           {/* Deep-links straight to the resolved Founder Tasks board
               (?board=<id>) once one exists — never WORK/Tafe, never
               whichever board Organiser would otherwise default to (see
@@ -1127,7 +1128,7 @@ function FounderTasksPanel() {
               but this link goes straight to the canonical route. */}
           <Link
             href={board ? `/organiser?board=${encodeURIComponent(board.id)}` : '/organiser'}
-            style={{ fontSize: 10, color: T.purple, textDecoration: 'none' }}
+            style={{ fontSize: 11, color: T.purple, textDecoration: 'none' }}
           >
             Open in Organiser →
           </Link>
@@ -1136,38 +1137,48 @@ function FounderTasksPanel() {
       </div>
 
       {loading ? (
-        <div style={{ fontSize: 11, color: T.dim }}>Loading…</div>
+        <div className={styles.stateText}>Loading…</div>
       ) : loadError ? (
-        <div style={{ padding: '14px', textAlign: 'center', borderRadius: 6, border: `1px dashed ${T.border}` }}>
-          <div style={{ fontSize: 11, color: T.dim }}>Not connected</div>
-        </div>
+        <Empty title="Not connected" />
       ) : !board ? (
-        <div style={{ padding: '14px', textAlign: 'center', borderRadius: 6, border: `1px dashed ${T.border}` }}>
-          <div style={{ fontSize: 11, color: T.dim, marginBottom: 8 }}>No task board yet</div>
+        <div className={styles.empty}>
+          <div className={styles.emptyTitle} style={{ marginBottom: 8 }}>No task board yet</div>
           <Btn small label={creatingBoard ? 'Creating…' : 'Create Founder Tasks board'} onClick={createBoard} />
         </div>
       ) : (
         <>
           {showCreate && (
-            <div style={{ marginBottom: 12, padding: 10, borderRadius: 6, border: `1px solid ${T.border}`, background: 'rgba(255,255,255,0.014)' }}>
-              {createError && <div style={{ fontSize: 10, color: T.red, marginBottom: 6 }}>{createError}</div>}
-              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: 8, marginBottom: 8 }}>
-                <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Task title" style={INPUT_S} />
-                <select value={priority} onChange={e => setPriority(e.target.value)} style={INPUT_S}>
-                  {TASK_PRIORITY_OPTIONS.map(p => <option key={p} value={p}>{p || 'No priority'}</option>)}
-                </select>
-                <input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} style={{ ...INPUT_S, colorScheme: 'dark' }} />
-                <input value={owner} onChange={e => setOwner(e.target.value)} placeholder="Owner" style={INPUT_S} />
+            <div className={styles.createForm}>
+              {createError && <FormError>{createError}</FormError>}
+              <div className={styles.formGrid}>
+                <Field label="Task title">
+                  {control => <input {...control} className={fieldControlClassName} value={title} onChange={e => setTitle(e.target.value)} placeholder="Task title" />}
+                </Field>
+                <Field label="Priority">
+                  {control => (
+                    <select {...control} className={fieldControlClassName} value={priority} onChange={e => setPriority(e.target.value)}>
+                      {TASK_PRIORITY_OPTIONS.map(p => <option key={p} value={p}>{p || 'No priority'}</option>)}
+                    </select>
+                  )}
+                </Field>
+                <Field label="Due date">
+                  {control => <input {...control} className={fieldControlClassName} type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} />}
+                </Field>
+                <Field label="Owner">
+                  {control => <input {...control} className={fieldControlClassName} value={owner} onChange={e => setOwner(e.target.value)} placeholder="Owner" />}
+                </Field>
               </div>
-              <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Notes (optional)" rows={2} style={{ ...INPUT_S, resize: 'vertical', marginBottom: 8 }} />
-              <Btn small label={creating ? 'Creating…' : 'Create Task'} onClick={submitCreate} />
+              <Field label="Notes (optional)">
+                {control => <textarea {...control} className={fieldControlClassName} value={notes} onChange={e => setNotes(e.target.value)} placeholder="Notes (optional)" rows={2} />}
+              </Field>
+              <div>
+                <Btn small variant="primary" label={creating ? 'Creating…' : 'Create Task'} onClick={submitCreate} />
+              </div>
             </div>
           )}
 
           {taskCount(groups) === 0 && groups.completed.length === 0 ? (
-            <div style={{ padding: '14px', textAlign: 'center', borderRadius: 6, border: `1px dashed ${T.border}` }}>
-              <div style={{ fontSize: 11, color: T.dim }}>No tasks yet</div>
-            </div>
+            <Empty title="No tasks yet" />
           ) : (
             <>
               <TaskGroupSection label="Overdue" tasks={groups.overdue} onUpdate={updateTask} />
@@ -1193,12 +1204,9 @@ function FounderTasksPanel() {
 
 function AiRecommendations() {
   return (
-    <Card style={{ padding: '11px 12px' }}>
-      <Lbl s="HLNΛ recommendations" />
-      <div style={{ padding: '14px', textAlign: 'center', borderRadius: 6, border: `1px dashed ${T.border}` }}>
-        <div style={{ fontSize: 11, color: T.dim }}>Recommendations not connected</div>
-        <div style={{ fontSize: 10, color: T.dim, marginTop: 3 }}>No authoritative recommendation source is wired up yet.</div>
-      </div>
+    <Card compact>
+      <Lbl s="HLNΛ recommendations" spaced />
+      <Empty title="Recommendations not connected" text="No authoritative recommendation source is wired up yet." />
     </Card>
   );
 }
@@ -1214,37 +1222,30 @@ function AiRecommendations() {
 
 function ActivityFeed({ sessionEvents }: { sessionEvents: SessionEvent[] }) {
   if (sessionEvents.length === 0) return (
-    <Card style={{ padding: '11px 12px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-        <Lbl s="Live activity" />
-      </div>
-      <div style={{ padding: '14px', textAlign: 'center', borderRadius: 6, border: `1px dashed ${T.border}` }}>
-        <div style={{ fontSize: 11, color: T.dim }}>No activity yet this session</div>
-        <div style={{ fontSize: 10, color: T.dim, marginTop: 3 }}>Actions you take will appear here as they happen.</div>
-      </div>
+    <Card compact>
+      <Lbl s="Live activity" spaced />
+      <Empty title="No activity yet this session" text="Actions you take will appear here as they happen." />
     </Card>
   );
 
   return (
-    <Card style={{ padding: '11px 12px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-        <span style={{ width: 5, height: 5, borderRadius: '50%', background: T.green, boxShadow: `0 0 5px ${T.green}`, display: 'inline-block' }} />
+    <Card compact>
+      <div className={styles.cardHeaderGroup} style={{ marginBottom: 8 }}>
+        <span className={styles.dot} style={{ background: T.green }} aria-hidden="true" />
         <Lbl s="Live activity" />
-        <span style={{ fontSize: 9, fontWeight: 700, color: T.green, background: T.greenA, padding: '1px 5px', borderRadius: 3, marginBottom: 7, letterSpacing: '0.05em' }}>
-          {sessionEvents.length} this session
-        </span>
+        <Chip color={T.green}>{sessionEvents.length} this session</Chip>
       </div>
       {sessionEvents.map((a, i) => (
         <div key={i} style={{
-          display: 'flex', gap: 8, padding: '4px 0',
+          display: 'flex', gap: 8, padding: '5px 0',
           borderBottom: i < sessionEvents.length - 1 ? `1px solid ${T.borderB}` : 'none',
         }}>
-          <Mono size={9} color={T.green}>{a.ts}</Mono>
+          <Code size={11} color={T.dim}>{a.ts}</Code>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 10.5, color: T.text, lineHeight: 1.4 }}>{a.event}</div>
-            {a.client && <Mono size={9} color={FEED_C[a.type]}>{a.client}</Mono>}
+            <div style={{ fontSize: 12, color: T.text, lineHeight: 1.4 }}>{a.event}</div>
+            {a.client && <Meta size={11} color={T.sub}>{a.client}</Meta>}
           </div>
-          <span style={{ width: 5, height: 5, borderRadius: '50%', background: FEED_C[a.type], flexShrink: 0, marginTop: 4 }} />
+          <span className={styles.dot} style={{ background: FEED_C[a.type], marginTop: 5 }} aria-hidden="true" />
         </div>
       ))}
     </Card>
@@ -1280,7 +1281,7 @@ const SERVICE_STATE_LABEL: Record<FounderConnectionState, string> = {
   connected_issue: 'Connection issue', unknown: 'Unknown',
 };
 const SERVICE_STATE_COLOR: Record<FounderConnectionState, string> = {
-  connected: T.green, not_connected: T.dim, connected_issue: T.yellow, unknown: T.dim,
+  connected: T.green, not_connected: T.inactive, connected_issue: T.yellow, unknown: T.inactive,
 };
 
 function SystemHealth() {
@@ -1298,21 +1299,18 @@ function SystemHealth() {
 
   if (loading) {
     return (
-      <Card style={{ padding: '11px 12px' }}>
-        <Lbl s="System status" />
-        <div style={{ fontSize: 11, color: T.dim, marginTop: 8 }}>Loading…</div>
+      <Card compact>
+        <Lbl s="System status" spaced />
+        <div className={styles.stateText}>Loading…</div>
       </Card>
     );
   }
 
   if (loadError || !data) {
     return (
-      <Card style={{ padding: '11px 12px' }}>
-        <Lbl s="System status" />
-        <div style={{ padding: '14px', textAlign: 'center', borderRadius: 6, border: `1px dashed ${T.border}`, marginTop: 8 }}>
-          <div style={{ fontSize: 11, color: T.dim }}>Not connected</div>
-          <div style={{ fontSize: 10, color: T.dim, marginTop: 3 }}>Could not load system status.</div>
-        </div>
+      <Card compact>
+        <Lbl s="System status" spaced />
+        <Empty title="Not connected" text="Could not load system status." />
       </Card>
     );
   }
@@ -1322,8 +1320,8 @@ function SystemHealth() {
   const dbColor = database.ok ? T.green : T.red;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      <Card style={{ padding: '11px 12px' }}>
+    <div className={styles.stack} style={{ gap: 10 }}>
+      <Card compact>
         <Lbl s="System status" />
         {/* minWidth: 0 on both grid items is the actual fix here — CSS grid
             items default to min-width: auto, so without it a long,
@@ -1338,50 +1336,53 @@ function SystemHealth() {
             so it tolerates an arbitrarily long message, including one with
             no spaces at all, without ever escaping this tile. */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 8, minWidth: 0 }}>
-          <div style={{ padding: '8px 10px', borderRadius: 6, background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)', minWidth: 0, overflow: 'hidden' }}>
-            <div style={{ fontSize: 9, color: T.dim, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Application</div>
+          <div className={styles.tile} style={{ minWidth: 0, overflow: 'hidden' }}>
+            <div className={styles.tileLabel}>Application</div>
             <div style={{ fontSize: 12, color: T.text, fontWeight: 600 }}>{application.environment}</div>
             {application.commitShaShort ? (
               <>
-                <Mono size={10} color={T.sub}>{application.commitShaShort}</Mono>
+                <Code size={11} color={T.sub}>{application.commitShaShort}</Code>
                 {application.commitMessage && (
                   <div style={{
-                    fontSize: 10, color: T.dim, marginTop: 3,
+                    fontSize: 11, color: T.dim, marginTop: 3,
                     overflowWrap: 'anywhere', wordBreak: 'break-word',
                     display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
                   }}>{application.commitMessage}</div>
                 )}
               </>
             ) : (
-              <div style={{ fontSize: 10, color: T.dim, marginTop: 3 }}>Commit: Unknown</div>
+              <div style={{ fontSize: 11, color: T.dim, marginTop: 3 }}>Commit: Unknown</div>
             )}
           </div>
-          <div style={{ padding: '8px 10px', borderRadius: 6, background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)', minWidth: 0, overflow: 'hidden' }}>
-            <div style={{ fontSize: 9, color: T.dim, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Database</div>
+          <div className={styles.tile} style={{ minWidth: 0, overflow: 'hidden' }}>
+            <div className={styles.tileLabel}>Database</div>
             <div style={{ fontSize: 12, color: dbColor, fontWeight: 600 }}>{dbLabel}</div>
-            <div style={{ fontSize: 10, color: T.dim, marginTop: 3 }}>
+            <div className={styles.num} style={{ fontSize: 11, color: T.dim, marginTop: 3 }}>
               {database.ok && database.latencyMs != null ? `${database.latencyMs} ms this request · live check` : 'Live check'}
             </div>
           </div>
         </div>
       </Card>
 
-      <Card style={{ padding: '11px 12px' }}>
+      <Card compact>
         <Lbl s="Service connections" />
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 }}>
+        <div className={styles.stack} style={{ marginTop: 8 }}>
           {([
             ['Gmail', services.gmail.state],
             ['Google Calendar', services.googleCalendar.state],
             ['Instagram', services.instagram.state],
             ['Microsoft 365', services.microsoft365.state],
           ] as const).map(([label, state]) => (
-            <div key={label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 8px', borderRadius: 5, background: 'rgba(255,255,255,0.018)', border: `1px solid ${T.border}` }}>
-              <span style={{ fontSize: 11, color: T.sub }}>{label}</span>
-              <span style={{ fontSize: 10, fontWeight: 600, color: SERVICE_STATE_COLOR[state] }}>{SERVICE_STATE_LABEL[state]}</span>
+            <div key={label} className={styles.row} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 12, color: T.sub }}>{label}</span>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 600, color: SERVICE_STATE_COLOR[state] }}>
+                <span className={styles.dot} style={{ background: SERVICE_STATE_COLOR[state] }} aria-hidden="true" />
+                {SERVICE_STATE_LABEL[state]}
+              </span>
             </div>
           ))}
         </div>
-        <div style={{ fontSize: 9, color: T.dim, marginTop: 8 }}>
+        <div style={{ fontSize: 11, color: T.dim, marginTop: 8 }}>
           Gmail/Google Calendar/Microsoft 365 show whether an OAuth connection is stored, not a live API check.
         </div>
       </Card>
@@ -1429,39 +1430,36 @@ function ProductUsage() {
 
   if (loading) {
     return (
-      <Card style={{ padding: '11px 12px' }}>
-        <Lbl s="Product usage" />
-        <div style={{ fontSize: 11, color: T.dim, marginTop: 8 }}>Loading…</div>
+      <Card compact>
+        <Lbl s="Product usage" spaced />
+        <div className={styles.stateText}>Loading…</div>
       </Card>
     );
   }
 
   if (loadError || !data) {
     return (
-      <Card style={{ padding: '11px 12px' }}>
-        <Lbl s="Product usage" />
-        <div style={{ padding: '14px', textAlign: 'center', borderRadius: 6, border: `1px dashed ${T.border}`, marginTop: 8 }}>
-          <div style={{ fontSize: 11, color: T.dim }}>Not connected</div>
-          <div style={{ fontSize: 10, color: T.dim, marginTop: 3 }}>Could not load product usage.</div>
-        </div>
+      <Card compact>
+        <Lbl s="Product usage" spaced />
+        <Empty title="Not connected" text="Could not load product usage." />
       </Card>
     );
   }
 
   return (
-    <Card style={{ padding: '11px 12px' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8, minWidth: 0 }}>
+    <Card compact>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, marginBottom: 8, minWidth: 0 }}>
         <Lbl s="Product usage" />
-        <span style={{ fontSize: 9, color: T.dim, flexShrink: 0 }}>Last {data.windowDays} days</span>
+        <span style={{ fontSize: 11, color: T.dim, flexShrink: 0 }}>Last {data.windowDays} days</span>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, minWidth: 0 }}>
         {([
           ['Uploads', data.uploads],
           ['Organiser updates', data.organiserUpdates],
         ] as const).map(([label, value]) => (
-          <div key={label} style={{ padding: '8px 10px', borderRadius: 6, background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)', minWidth: 0, overflow: 'hidden' }}>
-            <div style={{ fontSize: 9, color: T.dim, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{label}</div>
-            <div style={{ fontSize: 16, fontWeight: 700, color: T.text, fontFamily: T.mono }}>{value}</div>
+          <div key={label} className={styles.tile} style={{ minWidth: 0, overflow: 'hidden' }}>
+            <div className={styles.tileLabel} style={{ overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{label}</div>
+            <div className={styles.tileValue}>{value}</div>
           </div>
         ))}
       </div>
@@ -1507,9 +1505,9 @@ function MicrosoftTodayCard() {
 
   if (loading) {
     return (
-      <Card style={{ padding: '9px 11px' }}>
-        <Lbl s="Today's calendar" />
-        <div style={{ fontSize: 11, color: T.dim, marginTop: 4 }}>Loading…</div>
+      <Card compact>
+        <Lbl s="Today's calendar" spaced />
+        <div className={styles.stateText}>Loading…</div>
       </Card>
     );
   }
@@ -1520,40 +1518,36 @@ function MicrosoftTodayCard() {
   // load failure" convention immediately above.
   if (loadError || !data) {
     return (
-      <Card style={{ padding: '9px 11px' }}>
-        <Lbl s="Today's calendar" />
-        <div style={{ padding: '10px', textAlign: 'center', borderRadius: 6, border: `1px dashed ${T.border}` }}>
-          <div style={{ fontSize: 10, color: T.dim }}>Not connected</div>
-        </div>
+      <Card compact>
+        <Lbl s="Today's calendar" spaced />
+        <Empty title="Not connected" />
       </Card>
     );
   }
 
   if (data.events.length === 0) {
     return (
-      <Card style={{ padding: '9px 11px' }}>
-        <Lbl s="Today's calendar" />
-        <div style={{ padding: '10px', textAlign: 'center', borderRadius: 6, border: `1px dashed ${T.border}` }}>
-          <div style={{ fontSize: 10, color: T.dim }}>No events today</div>
-        </div>
+      <Card compact>
+        <Lbl s="Today's calendar" spaced />
+        <Empty title="No events today" />
       </Card>
     );
   }
 
   return (
-    <Card style={{ padding: '9px 11px' }}>
-      <Lbl s="Today's calendar" />
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+    <Card compact>
+      <Lbl s="Today's calendar" spaced />
+      <div className={styles.stack}>
         {data.events.map(event => (
-          <div key={event.id} style={{ padding: '6px 8px', borderRadius: 5, background: 'rgba(255,255,255,0.018)', border: `1px solid ${T.border}` }}>
-            <div style={{ fontSize: 10, color: T.dim }}>
+          <div key={event.id} className={styles.row}>
+            <div className={styles.num} style={{ fontSize: 11, color: T.dim }}>
               {event.allDay ? 'All day' : [formatEventTime(event.start), formatEventTime(event.end)].filter(Boolean).join(' – ')}
             </div>
-            <div style={{ fontSize: 11, color: T.text, fontWeight: 600, marginTop: 1, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
+            <div style={{ fontSize: 12, color: T.text, fontWeight: 600, marginTop: 1, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
               {event.title}
             </div>
             {event.location && (
-              <div style={{ fontSize: 10, color: T.sub, marginTop: 1, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
+              <div style={{ fontSize: 11, color: T.sub, marginTop: 1, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
                 {event.location}
               </div>
             )}
@@ -1571,24 +1565,23 @@ function MicrosoftTodayCard() {
 
 function LiveContext() {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      <Card style={{ padding: '9px 11px' }}>
-        <Lbl s="Upcoming demos" />
-        <div style={{ padding: '10px', textAlign: 'center', borderRadius: 6, border: `1px dashed ${T.border}` }}>
-          <div style={{ fontSize: 10, color: T.dim }}>Not connected</div>
-        </div>
+    <div className={styles.stack} style={{ gap: 10 }}>
+      <Card compact>
+        <Lbl s="Upcoming demos" spaced />
+        <Empty title="Not connected" />
       </Card>
-      <Card style={{ padding: '9px 11px' }}>
-        <Lbl s="Signals" />
-        <div style={{ padding: '10px', textAlign: 'center', borderRadius: 6, border: `1px dashed ${T.border}` }}>
-          <div style={{ fontSize: 10, color: T.dim }}>Not connected</div>
-        </div>
+      <Card compact>
+        <Lbl s="Signals" spaced />
+        <Empty title="Not connected" />
       </Card>
     </div>
   );
 }
 
 // ─── Client drawer ────────────────────────────────────────────────────────────
+// Visual convergence: the hand-rolled fixed drawer + click-away overlay is
+// now the shared SlidePanel (dialog semantics, Escape, focus trap, focus
+// return, named close button). Same props, same actions, same content.
 
 function ClientDrawer({ client, onClose, onAction, onModal, onAdvanceStage, drawerActivity }: {
   client: Client; onClose: () => void; onAction: (msg: string) => void;
@@ -1598,174 +1591,165 @@ function ClientDrawer({ client, onClose, onAction, onModal, onAdvanceStage, draw
 }) {
   const router = useRouter();
   return (
-    <>
-      <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 190, background: 'rgba(0,0,0,0.4)' }} />
-      <div style={{
-        position: 'fixed', top: APP_HEADER_OFFSET_VAR, right: 0, width: 360,
-        height: APP_HEADER_OFFSET_VH_CALC, zIndex: 200,
-        background: T.s2, borderLeft: `1px solid ${T.border}`,
-        overflowY: 'auto', display: 'flex', flexDirection: 'column',
-        fontFamily: 'var(--font-inter), Inter, sans-serif',
-      }}>
-        <div style={{ padding: '14px 16px 12px', borderBottom: `1px solid ${T.border}`, position: 'sticky', top: 0, background: T.s2, zIndex: 1 }}>
-          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
-            <div>
-              <div style={{ fontSize: 14, fontWeight: 700, color: T.text, marginBottom: 3 }}>{client.org}</div>
-              <div style={{ fontSize: 12, color: T.sub }}>{client.contact}</div>
-              <Mono size={10} color={T.dim}>{client.email}</Mono>
-            </div>
-            <button onClick={onClose} style={{ background: 'none', border: 'none', color: T.dim, fontSize: 18, cursor: 'pointer', lineHeight: 1, padding: '2px 4px' }}>×</button>
-          </div>
-          <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
-            <StagePill s={client.stage} />
-            <span style={{ fontSize: 11, fontWeight: 600, color: T.text, fontFamily: T.mono }}>${client.value.toLocaleString()}/mo</span>
-            <span style={{ fontSize: 10, color: ageColor(client.daysAgo) }}>Last active: {ageLabel(client.daysAgo)}</span>
-          </div>
+    <SlidePanel open onClose={onClose} title={client.org}>
+      <div className={styles.drawerSummary}>
+        <div>
+          <div style={{ fontSize: 13, color: T.sub }}>{client.contact}</div>
+          <Meta size={11} color={T.dim}>{client.email}</Meta>
         </div>
-
-        <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 12, flex: 1 }}>
-          <div style={{ padding: '9px 11px', borderRadius: 7, background: T.purpleA, border: `1px solid ${T.purpleB}` }}>
-            <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: T.purple, marginBottom: 4 }}>Next action</div>
-            <div style={{ fontSize: 12, color: T.text, marginBottom: 8 }}>{client.action}</div>
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              <Btn small label="← Back"             onClick={onClose} />
-              <Btn small label="Generate Briefing" onClick={() => { onClose(); router.push('/command'); }} />
-              <Btn small label="Create Proposal"   onClick={() => { onClose(); onModal('proposal'); }} />
-              {client.stage !== 'paid' && client.stage !== 'lost' && (
-                <Btn small label="Advance →" color={T.green} onClick={() => onAdvanceStage(client.id, client.org, client.stage)} />
-              )}
-            </div>
-          </div>
-
-          {drawerActivity.length > 0 && (
-            <div>
-              <Lbl s="Session activity" c={T.green} />
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                {drawerActivity.map((ev, i) => (
-                  <div key={i} style={{
-                    padding: '5px 8px 5px 10px', borderRadius: 5,
-                    background: 'rgba(34,197,94,0.05)', border: `1px solid rgba(34,197,94,0.15)`,
-                    borderLeft: `2px solid ${T.green}`,
-                    display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8,
-                  }}>
-                    <span style={{ fontSize: 11, color: T.sub, flex: 1 }}>{ev.event}</span>
-                    <Mono size={9} color={T.green}>now</Mono>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* ── Linked Tenant panel ── */}
-          {client.linked_organisation ? (
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-                <Lbl s="Linked tenant" c={T.cyan} />
-                <span style={{ fontSize: 8, padding: '1px 5px', borderRadius: 3, background: 'rgba(34,211,238,0.12)', color: T.cyan, border: '1px solid rgba(34,211,238,0.22)', fontWeight: 700, letterSpacing: '0.04em', marginBottom: 6 }}>LINKED</span>
-              </div>
-              <div style={{ padding: '9px 11px', background: 'rgba(34,211,238,0.05)', border: '1px solid rgba(34,211,238,0.15)', borderRadius: 7 }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 2 }}>{client.linked_organisation.name}</div>
-                <Mono size={10} color={T.dim}>{client.linked_organisation.slug}</Mono>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, marginTop: 7 }}>
-                  {client.linked_organisation.status && (
-                    <div style={{ padding: '4px 7px', borderRadius: 4, background: 'rgba(255,255,255,0.03)', border: `1px solid ${T.border}` }}>
-                      <div style={{ fontSize: 8, color: T.dim, marginBottom: 1 }}>Status</div>
-                      <div style={{ fontSize: 11, color: T.sub }}>{client.linked_organisation.status}</div>
-                    </div>
-                  )}
-                  {client.linked_organisation.created_at && (
-                    <div style={{ padding: '4px 7px', borderRadius: 4, background: 'rgba(255,255,255,0.03)', border: `1px solid ${T.border}` }}>
-                      <div style={{ fontSize: 8, color: T.dim, marginBottom: 1 }}>Created</div>
-                      <div style={{ fontSize: 11, color: T.sub }}>{new Date(client.linked_organisation.created_at).toLocaleDateString()}</div>
-                    </div>
-                  )}
-                </div>
-                {client.linked_primary_user && (
-                  <div style={{ marginTop: 7, paddingTop: 7, borderTop: `1px solid rgba(255,255,255,0.05)` }}>
-                    <div style={{ fontSize: 9, color: T.dim, marginBottom: 3, textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700 }}>Primary contact</div>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: T.text }}>{client.linked_primary_user.name}</div>
-                    {client.linked_primary_user.email && <Mono size={10} color={T.dim}>{client.linked_primary_user.email}</Mono>}
-                  </div>
-                )}
-                <div style={{ marginTop: 8 }}>
-                  <Btn small label="Open Organisation Admin" color={T.cyan} onClick={() => router.push('/admin/orgs')} />
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div>
-              <Lbl s="Tenant link" />
-              <div style={{ padding: '10px 11px', borderRadius: 7, border: `1px dashed ${T.border}`, textAlign: 'center' }}>
-                <div style={{ fontSize: 10, color: T.dim, marginBottom: 6 }}>Not linked to a tenant organisation</div>
-                <Btn small label="Link to existing org" color={T.cyan} onClick={() => router.push('/admin/orgs')} />
-              </div>
-            </div>
-          )}
-
-          <div>
-            <Lbl s="Notes" />
-            <div style={{ fontSize: 11.5, color: T.sub, lineHeight: 1.6, background: 'rgba(255,255,255,0.02)', border: `1px solid ${T.border}`, borderRadius: 6, padding: '8px 10px' }}>
-              {client.notes || <span style={{ color: T.dim, fontStyle: 'italic' }}>No notes</span>}
-            </div>
-          </div>
-
-          <div>
-            <Lbl s="Usage summary" />
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 5 }}>
-              {[
-                { l: 'Uploads',      v: client.usage.uploads   },
-                { l: 'Analyses run', v: client.usage.analyses  },
-                { l: 'Last active',  v: client.usage.lastActive },
-                { l: 'Top module',   v: client.usage.topModule  },
-              ].map(r => (
-                <div key={r.l} style={{ padding: '6px 8px', borderRadius: 5, background: 'rgba(255,255,255,0.018)', border: `1px solid ${T.border}` }}>
-                  <div style={{ fontSize: 9, color: T.dim, marginBottom: 2 }}>{r.l}</div>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: T.text }}>{r.v}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {client.uploads.length > 0 && (
-            <div>
-              <Lbl s="Recent uploads" />
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                {client.uploads.map((u, i) => (
-                  <div key={i} style={{ padding: '4px 8px', borderRadius: 4, background: 'rgba(255,255,255,0.018)', border: `1px solid ${T.border}` }}>
-                    <Mono size={10} color={u.includes('FAILED') ? T.red : T.sub}>{u}</Mono>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {client.insights.length > 0 && (
-            <div>
-              <Lbl s="Recent HLNΛ insights" />
-              {client.insights.map((ins, i) => (
-                <div key={i} style={{ padding: '5px 0 5px 8px', borderLeft: `2px solid ${T.purple}`, marginBottom: 5, fontSize: 11, color: T.sub, lineHeight: 1.45 }}>
-                  {ins}
-                </div>
-              ))}
-            </div>
-          )}
-
-          {client.insights.length === 0 && (
-            <div style={{ padding: '16px', textAlign: 'center', borderRadius: 7, border: `1px dashed ${T.border}` }}>
-              <div style={{ fontSize: 11, color: T.dim }}>No HLNΛ insights yet</div>
-              <div style={{ fontSize: 10, color: T.dim, marginTop: 2 }}>Upload data to generate analysis</div>
-              <div style={{ marginTop: 8 }}>
-                <Btn small label="Upload Dataset" onClick={() => onAction(`Upload: ${client.org}`)} />
-              </div>
-            </div>
-          )}
+        <div className={styles.cardHeaderGroup}>
+          <StagePill s={client.stage} />
+          <Meta size={12} color={T.text}>${client.value.toLocaleString()}/mo</Meta>
+          <span style={{ fontSize: 11, color: ageColor(client.daysAgo) }}>Last active: {ageLabel(client.daysAgo)}</span>
         </div>
       </div>
-    </>
+
+      <div className={styles.drawerSections}>
+        <div className={styles.focusBox}>
+          <Lbl s="Next action" as="h3" spaced />
+          <div style={{ fontSize: 13, color: T.text, marginBottom: 10 }}>{client.action}</div>
+          <div className={styles.buttonRow}>
+            <Btn small label="← Back"             onClick={onClose} />
+            <Btn small label="Generate Briefing" onClick={() => { onClose(); router.push('/command'); }} />
+            <Btn small label="Create Proposal"   onClick={() => { onClose(); onModal('proposal'); }} />
+            {client.stage !== 'paid' && client.stage !== 'lost' && (
+              <Btn small variant="primary" label="Advance →" onClick={() => onAdvanceStage(client.id, client.org, client.stage)} />
+            )}
+          </div>
+        </div>
+
+        {drawerActivity.length > 0 && (
+          <div className={styles.drawerSection}>
+            <Lbl s="Session activity" as="h3" />
+            <div className={styles.stackTight}>
+              {drawerActivity.map((ev, i) => (
+                <div key={i} className={styles.row} style={{
+                  borderLeft: `2px solid ${T.green}`,
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8,
+                }}>
+                  <span style={{ fontSize: 12, color: T.sub, flex: 1 }}>{ev.event}</span>
+                  <Meta size={11} color={T.green}>now</Meta>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ── Linked Tenant panel ── */}
+        {client.linked_organisation ? (
+          <div className={styles.drawerSection}>
+            <div className={styles.cardHeaderGroup}>
+              <Lbl s="Linked tenant" as="h3" />
+              <Chip color={T.cyan}>LINKED</Chip>
+            </div>
+            <div className={styles.row} style={{ padding: '9px 11px', borderColor: 'var(--status-info-border)' }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: T.text, marginBottom: 2 }}>{client.linked_organisation.name}</div>
+              <Code size={11} color={T.dim}>{client.linked_organisation.slug}</Code>
+              <div className={styles.twoCol} style={{ marginTop: 8 }}>
+                {client.linked_organisation.status && (
+                  <div className={styles.tile} style={{ background: T.s1 }}>
+                    <div className={styles.tileLabel}>Status</div>
+                    <div style={{ fontSize: 12, color: T.sub }}>{client.linked_organisation.status}</div>
+                  </div>
+                )}
+                {client.linked_organisation.created_at && (
+                  <div className={styles.tile} style={{ background: T.s1 }}>
+                    <div className={styles.tileLabel}>Created</div>
+                    <div style={{ fontSize: 12, color: T.sub }}>{new Date(client.linked_organisation.created_at).toLocaleDateString()}</div>
+                  </div>
+                )}
+              </div>
+              {client.linked_primary_user && (
+                <div style={{ marginTop: 8, paddingTop: 8, borderTop: `1px solid ${T.border}` }}>
+                  <div className={styles.tileLabel}>Primary contact</div>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: T.text }}>{client.linked_primary_user.name}</div>
+                  {client.linked_primary_user.email && <Meta size={11} color={T.dim}>{client.linked_primary_user.email}</Meta>}
+                </div>
+              )}
+              <div style={{ marginTop: 10 }}>
+                <Btn small label="Open Organisation Admin" onClick={() => router.push('/admin/orgs')} />
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className={styles.drawerSection}>
+            <Lbl s="Tenant link" as="h3" />
+            <div className={styles.empty}>
+              <div className={styles.emptyTitle} style={{ marginBottom: 8 }}>Not linked to a tenant organisation</div>
+              <Btn small label="Link to existing org" onClick={() => router.push('/admin/orgs')} />
+            </div>
+          </div>
+        )}
+
+        <div className={styles.drawerSection}>
+          <Lbl s="Notes" as="h3" />
+          <div className={styles.row} style={{ fontSize: 12, color: T.sub, lineHeight: 1.6, padding: '8px 10px' }}>
+            {client.notes || <span style={{ color: T.dim, fontStyle: 'italic' }}>No notes</span>}
+          </div>
+        </div>
+
+        <div className={styles.drawerSection}>
+          <Lbl s="Usage summary" as="h3" />
+          <div className={styles.twoCol}>
+            {[
+              { l: 'Uploads',      v: client.usage.uploads   },
+              { l: 'Analyses run', v: client.usage.analyses  },
+              { l: 'Last active',  v: client.usage.lastActive },
+              { l: 'Top module',   v: client.usage.topModule  },
+            ].map(r => (
+              <div key={r.l} className={styles.tile}>
+                <div className={styles.tileLabel}>{r.l}</div>
+                <div className={styles.num} style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{r.v}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {client.uploads.length > 0 && (
+          <div className={styles.drawerSection}>
+            <Lbl s="Recent uploads" as="h3" />
+            <div className={styles.stackTight}>
+              {client.uploads.map((u, i) => (
+                <div key={i} className={styles.row} style={{ padding: '4px 8px' }}>
+                  <Code size={11} color={u.includes('FAILED') ? T.red : T.sub}>{u}</Code>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {client.insights.length > 0 && (
+          <div className={styles.drawerSection}>
+            <Lbl s="Recent HLNΛ insights" as="h3" />
+            {client.insights.map((ins, i) => (
+              <div key={i} className={styles.insight}>
+                {ins}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {client.insights.length === 0 && (
+          <div className={styles.empty}>
+            <div className={styles.emptyTitle}>No HLNΛ insights yet</div>
+            <div className={styles.emptyText}>Upload data to generate analysis</div>
+            <div style={{ marginTop: 8 }}>
+              <Btn small label="Upload Dataset" onClick={() => onAction(`Upload: ${client.org}`)} />
+            </div>
+          </div>
+        )}
+      </div>
+    </SlidePanel>
   );
 }
 
 // ─── Left sidebar ─────────────────────────────────────────────────────────────
+// Visual convergence: nav entries are real controls on the shared module-nav
+// contract (moduleNavItemProps — aria-current on the current section, same
+// active language as the rest of the app). In-app sections are <button>s
+// calling setSection (as the clickable <div>s did); destinations with an
+// href are <Link>s to the same href router.push used to navigate to. Below
+// 900px the sidebar becomes a strip above the content (FounderOs.module.css).
 
 type NavItem = { label: string; section?: Section; href?: string; dim?: boolean };
 
@@ -1804,53 +1788,58 @@ function LeftSidebar({ onModal, section, setSection }: {
   ];
 
   return (
-    <div style={{ width: 148, flexShrink: 0, borderRight: `1px solid ${T.border}`, background: T.s1, display: 'flex', flexDirection: 'column', padding: '13px 0', overflowY: 'auto' }}>
-      <div style={{ padding: '0 10px', marginBottom: 16 }}>
-        <Lbl s="Navigate" />
-        {NAV.map(n => {
-          const active = n.section ? n.section === section : false;
-          return (
-            <div
-              key={n.label}
-              onClick={() => n.section ? setSection(n.section) : n.href && router.push(n.href)}
-              style={{
-                padding: '5px 8px', borderRadius: 5, fontSize: 12, marginBottom: 1,
-                cursor: 'pointer',
-                fontWeight: active ? 600 : 400,
-                color: active ? T.purple : n.dim ? T.dim : T.sub,
-                background: active ? T.purpleA : 'transparent',
-                borderLeft: active ? `2px solid ${T.purple}` : '2px solid transparent',
-              }}
-            >
-              {n.label}
-            </div>
-          );
-        })}
+    <div className={styles.sidebar}>
+      <nav className={styles.sidebarGroup} aria-label="Founder OS">
+        <h2 className={styles.sidebarHeading}>Navigate</h2>
+        <ul className={styles.navList}>
+          {NAV.map(n => {
+            const active = n.section ? n.section === section : false;
+            const item = moduleNavItemProps(active);
+            const itemStyle: React.CSSProperties = {
+              color: active ? T.purple : n.dim ? T.dim : T.sub,
+            };
+            return (
+              <li key={n.label}>
+                {n.section ? (
+                  <button
+                    type="button"
+                    className={`${item.className} ${styles.navButton}`}
+                    aria-current={item['aria-current']}
+                    onClick={() => setSection(n.section!)}
+                    style={itemStyle}
+                  >
+                    {n.label}
+                  </button>
+                ) : (
+                  <Link href={n.href ?? '/'} className={item.className} style={itemStyle}>
+                    {n.label}
+                  </Link>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      </nav>
+
+      <div className={styles.sidebarGroup}>
+        <h2 className={styles.sidebarHeading}>Actions</h2>
+        <div className={styles.actionList}>
+          {ACTS.map(a => (
+            <button key={a.l} type="button" onClick={a.fn} className={styles.actionButton}>
+              <span className={styles.actionIcon} aria-hidden="true">{a.icon}</span>
+              {a.l}
+            </button>
+          ))}
+        </div>
       </div>
 
-      <div style={{ width: '100%', height: 1, background: T.border, marginBottom: 14 }} />
-
-      <div style={{ padding: '0 10px', marginBottom: 16 }}>
-        <Lbl s="Actions" />
-        {ACTS.map(a => (
-          <button key={a.l} onClick={a.fn} style={{ width: '100%', textAlign: 'left', padding: '4px 8px', borderRadius: 5, fontSize: 11, color: T.sub, background: 'transparent', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 7, marginBottom: 1, fontFamily: 'inherit' }}>
-            <span style={{ color: T.purple, fontSize: 11, width: 12, flexShrink: 0, textAlign: 'center' }}>{a.icon}</span>
-            {a.l}
-          </button>
-        ))}
-      </div>
-
-      <div style={{ width: '100%', height: 1, background: T.border, marginBottom: 14 }} />
-
-      <div style={{ padding: '0 10px', marginTop: 'auto' }}>
-        <Lbl s="Context" />
+      <div className={styles.sidebarContext}>
+        <h2 className={styles.sidebarHeading} style={{ padding: 0 }}>Context</h2>
         {/* Phase B: "Open pipeline $19,600" / "Overdue actions 3" were
             fabricated with no backing source (and duplicated the same
             ambiguity as the removed ClientPipeline mock) — removed rather
             than wired to a misleading proxy. */}
-        <div style={{ fontSize: 10, lineHeight: 1.7 }}>
-          <div style={{ color: T.dim }}>{new Date().toLocaleDateString('en-AU', { month: 'short', year: 'numeric' })}</div>
-        </div>
+        <div>{new Date().toLocaleDateString('en-AU', { month: 'short', year: 'numeric' })}</div>
       </div>
     </div>
   );
@@ -1859,31 +1848,24 @@ function LeftSidebar({ onModal, section, setSection }: {
 // ─── Toast ────────────────────────────────────────────────────────────────────
 
 function Toast({ msg, isError }: { msg: string; isError?: boolean }) {
-  const bc = isError ? 'rgba(239,68,68,0.22)' : T.purpleB;
   return (
-    <div style={{
-      position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)',
-      background: T.s2, border: `1px solid ${bc}`, borderRadius: 8,
-      padding: '9px 16px', zIndex: 300, fontSize: 12, color: isError ? T.sub : T.text,
-      boxShadow: `0 4px 24px rgba(0,0,0,0.5), 0 0 0 1px ${bc}`,
-      display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap',
-    }}>
-      <span style={{ color: isError ? T.red : T.green }}>{isError ? '⚠' : '✓'}</span>
+    <div
+      className={styles.toast}
+      role={isError ? 'alert' : 'status'}
+      style={{ borderColor: isError ? 'var(--status-danger-border)' : T.border }}
+    >
+      <span style={{ color: isError ? T.red : T.green }} aria-hidden="true">{isError ? '⚠' : '✓'}</span>
       {msg}
     </div>
   );
 }
 
-// ─── Shared modal input style ─────────────────────────────────────────────────
-
-const INPUT_S: React.CSSProperties = {
-  width: '100%', padding: '7px 9px', background: '#0B0C12',
-  border: '1px solid rgba(255,255,255,0.065)', borderRadius: 5,
-  color: '#EEEEF0', fontSize: 12, fontFamily: 'var(--font-inter), Inter, sans-serif',
-  boxSizing: 'border-box',
-};
-
 // ─── Add Lead modal ───────────────────────────────────────────────────────────
+// Visual convergence (all three modals): the hand-rolled fixed overlay +
+// box is now the shared Dialog (role="dialog", aria-modal, Escape, focus
+// trap, initial focus, focus return, named close). Every field keeps its
+// state binding, and every submit handler and request payload is unchanged;
+// fields gained real <label> associations via Field.
 
 const STAGE_OPTIONS: Stage[] = ['lead', 'contacted', 'demo', 'trial', 'proposal'];
 
@@ -1997,54 +1979,48 @@ function AddLeadModal({ onClose, onAdded, clients }: {
 
   const modeBtn = (m: 'existing' | 'new', label: string) => (
     <button
+      type="button"
+      className={styles.segment}
+      aria-pressed={mode === m}
       onClick={() => switchMode(m)}
-      style={{
-        flex: 1, padding: '5px 0', fontSize: 11, fontWeight: 600, borderRadius: 4,
-        border: 'none', cursor: 'pointer', fontFamily: 'inherit',
-        background: mode === m ? T.purple : 'transparent',
-        color:      mode === m ? '#fff'    : T.dim,
-      }}
     >{label}</button>
   );
 
   return (
-    <>
-      <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 290, background: 'rgba(0,0,0,0.55)' }} />
-      <div style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', width: 420, maxHeight: '88vh', overflowY: 'auto', zIndex: 300, background: T.s2, border: `1px solid ${T.border}`, borderRadius: 10, padding: '20px 22px', fontFamily: 'var(--font-inter), Inter, sans-serif' }}>
-
-        {/* Header */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
-          <div>
-            <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>Add Lead</div>
-            <div style={{ fontSize: 11, color: T.dim, marginTop: 2 }}>Add a prospect to the pipeline</div>
-          </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: T.dim, fontSize: 18, cursor: 'pointer', lineHeight: 1 }}>×</button>
-        </div>
+    <Dialog open onClose={onClose} title="Add Lead" width={460}>
+      <div className={styles.dialogBody}>
+        <p className={styles.dialogIntro}>Add a prospect to the pipeline</p>
 
         {/* Mode toggle */}
-        <div style={{ display: 'flex', gap: 2, padding: 3, background: 'rgba(255,255,255,0.04)', border: `1px solid ${T.border}`, borderRadius: 6, marginBottom: 14 }}>
+        <div className={styles.segmented} role="group" aria-label="Organisation">
           {modeBtn('existing', 'Existing organisation')}
           {modeBtn('new',      'New organisation')}
         </div>
 
         {/* ── Existing org flow ── */}
         {mode === 'existing' && (
-          <div style={{ marginBottom: 12 }}>
-            <Lbl s="Search organisations" />
-            <input
-              value={orgFilter}
-              onChange={e => { setOrgFilter(e.target.value); setSelId(null); setOrg(''); }}
-              placeholder="Type to filter…"
-              style={{ ...INPUT_S, marginBottom: 5 }}
-            />
+          <div style={{ display: 'grid', gap: 6 }}>
+            <Field label="Search organisations">
+              {control => (
+                <input
+                  {...control}
+                  className={fieldControlClassName}
+                  value={orgFilter}
+                  onChange={e => { setOrgFilter(e.target.value); setSelId(null); setOrg(''); }}
+                  placeholder="Type to filter…"
+                />
+              )}
+            </Field>
             {filtered.length === 0 ? (
-              <div style={{ fontSize: 11, color: T.dim, padding: '6px 8px' }}>No matches — switch to &ldquo;New organisation&rdquo;</div>
+              <div className={styles.stateText} style={{ padding: '6px 8px' }}>No matches — switch to &ldquo;New organisation&rdquo;</div>
             ) : (
               <select
                 size={Math.min(filtered.length, 5)}
                 value={selId ?? ''}
                 onChange={e => selectExisting(Number(e.target.value))}
-                style={{ ...INPUT_S, height: 'auto', padding: 0 }}
+                aria-label="Matching organisations"
+                className={fieldControlClassName}
+                style={{ height: 'auto', padding: 0 }}
               >
                 {filtered.map(c => (
                   <option key={c.id} value={c.id} style={{ padding: '5px 8px' }}>
@@ -2054,7 +2030,7 @@ function AddLeadModal({ onClose, onAdded, clients }: {
               </select>
             )}
             {selId !== null && (
-              <div style={{ marginTop: 6, padding: '5px 8px', borderRadius: 5, background: T.purpleA, border: `1px solid ${T.purpleB}`, fontSize: 10, color: T.purple }}>
+              <div className={styles.notice}>
                 Lead will be added for <strong>{org}</strong>
               </div>
             )}
@@ -2063,98 +2039,106 @@ function AddLeadModal({ onClose, onAdded, clients }: {
 
         {/* ── Org name (new mode only) ── */}
         {mode === 'new' && (
-          <div style={{ marginBottom: 10 }}>
-            <Lbl s="Organisation name" />
-            <input
-              value={org}
-              onChange={e => setOrg(e.target.value)}
-              placeholder="e.g. City of Adelaide"
-              style={INPUT_S}
-            />
-          </div>
+          <Field label="Organisation name">
+            {control => (
+              <input
+                {...control}
+                className={fieldControlClassName}
+                value={org}
+                onChange={e => setOrg(e.target.value)}
+                placeholder="e.g. City of Adelaide"
+              />
+            )}
+          </Field>
         )}
 
         {/* Contact + Email */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10 }}>
-          <div>
-            <Lbl s="Contact name" />
-            <input value={contact} onChange={e => setContact(e.target.value)} placeholder="Full name" style={INPUT_S} />
-          </div>
-          <div>
-            <Lbl s="Email (optional)" />
-            <input value={email} onChange={e => setEmail(e.target.value)} placeholder="email@council.sa.gov.au" style={INPUT_S} />
-          </div>
+        <div className={styles.formGrid2}>
+          <Field label="Contact name">
+            {control => <input {...control} className={fieldControlClassName} value={contact} onChange={e => setContact(e.target.value)} placeholder="Full name" />}
+          </Field>
+          <Field label="Email (optional)">
+            {control => <input {...control} className={fieldControlClassName} value={email} onChange={e => setEmail(e.target.value)} placeholder="email@council.sa.gov.au" />}
+          </Field>
         </div>
 
         {/* Stage + Value */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10 }}>
-          <div>
-            <Lbl s="Stage" />
-            <select value={stage} onChange={e => setStage(e.target.value as Stage)} style={INPUT_S}>
-              {STAGE_OPTIONS.map(s => <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>)}
-            </select>
-          </div>
-          <div>
-            <Lbl s="Est. value $/mo (optional)" />
-            <input type="number" value={valStr} onChange={e => setValStr(e.target.value)} placeholder="e.g. 2400" style={INPUT_S} />
-          </div>
+        <div className={styles.formGrid2}>
+          <Field label="Stage">
+            {control => (
+              <select {...control} className={fieldControlClassName} value={stage} onChange={e => setStage(e.target.value as Stage)}>
+                {STAGE_OPTIONS.map(s => <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>)}
+              </select>
+            )}
+          </Field>
+          <Field label="Est. value $/mo (optional)">
+            {control => <input {...control} className={fieldControlClassName} type="number" value={valStr} onChange={e => setValStr(e.target.value)} placeholder="e.g. 2400" />}
+          </Field>
         </div>
 
         {/* Next action */}
-        <div style={{ marginBottom: 10 }}>
-          <Lbl s="Next action (optional)" />
-          <input value={nextAction} onChange={e => setNextAction(e.target.value)} placeholder="e.g. Send intro email" style={INPUT_S} />
-        </div>
+        <Field label="Next action (optional)">
+          {control => <input {...control} className={fieldControlClassName} value={nextAction} onChange={e => setNextAction(e.target.value)} placeholder="e.g. Send intro email" />}
+        </Field>
 
         {/* Note */}
-        <div style={{ marginBottom: 12 }}>
-          <Lbl s="Note (optional)" />
-          <textarea
-            value={note}
-            onChange={e => setNote(e.target.value)}
-            placeholder="Context, source, key contacts…"
-            rows={2}
-            style={{ ...INPUT_S, resize: 'vertical' }}
-          />
-        </div>
+        <Field label="Note (optional)">
+          {control => (
+            <textarea
+              {...control}
+              className={fieldControlClassName}
+              value={note}
+              onChange={e => setNote(e.target.value)}
+              placeholder="Context, source, key contacts…"
+              rows={2}
+            />
+          )}
+        </Field>
 
         {/* ── Link existing tenant ── */}
-        <div style={{ marginBottom: 16, borderRadius: 7, border: `1px solid ${tenantOrgId ? 'rgba(34,211,238,0.25)' : T.border}`, overflow: 'hidden' }}>
+        <div className={styles.tenantBox} data-linked={tenantOrgId ? 'true' : undefined}>
           <button
+            type="button"
+            className={styles.tenantToggle}
+            aria-expanded={tenantOpen}
             onClick={() => tenantOpen ? setTenantOpen(false) : openTenantSection()}
-            style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 11px', background: tenantOrgId ? 'rgba(34,211,238,0.06)' : 'rgba(255,255,255,0.03)', border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-              <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: tenantOrgId ? T.cyan : T.dim }}>Link existing tenant</span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 7, color: tenantOrgId ? T.cyan : undefined }}>
+              Link existing tenant
               {linkedTenantOrg && (
-                <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 3, background: 'rgba(34,211,238,0.12)', color: T.cyan, border: '1px solid rgba(34,211,238,0.22)', fontWeight: 700 }}>
+                <span className={styles.chip} style={{ color: T.cyan, background: T.cyanA, borderColor: 'var(--status-info-border)', textTransform: 'none', letterSpacing: 0 }}>
                   {linkedTenantOrg.name}
                 </span>
               )}
-            </div>
-            <span style={{ fontSize: 10, color: T.dim }}>{tenantOpen ? '▲' : '▼'}</span>
+            </span>
+            <span aria-hidden="true">{tenantOpen ? '▲' : '▼'}</span>
           </button>
 
           {tenantOpen && (
-            <div style={{ padding: '10px 11px', borderTop: `1px solid ${T.border}` }}>
+            <div className={styles.tenantBody}>
               {tenantLoading ? (
-                <div style={{ fontSize: 11, color: T.dim, padding: '4px 0' }}>Loading organisations…</div>
+                <div className={styles.stateText}>Loading organisations…</div>
               ) : tenantOrgs.length === 0 ? (
-                <div style={{ fontSize: 11, color: T.dim, padding: '4px 0' }}>No tenant organisations found.</div>
+                <div className={styles.stateText}>No tenant organisations found.</div>
               ) : (
                 <>
-                  <div style={{ marginBottom: 8 }}>
-                    <Lbl s="Find tenant organisation" />
-                    <input
-                      value={tenantFilter}
-                      onChange={e => setTenantFilter(e.target.value)}
-                      placeholder="Type to filter…"
-                      style={{ ...INPUT_S, marginBottom: 5 }}
-                    />
+                  <div style={{ display: 'grid', gap: 5 }}>
+                    <Field label="Find tenant organisation">
+                      {control => (
+                        <input
+                          {...control}
+                          className={fieldControlClassName}
+                          value={tenantFilter}
+                          onChange={e => setTenantFilter(e.target.value)}
+                          placeholder="Type to filter…"
+                        />
+                      )}
+                    </Field>
                     <select
                       value={tenantOrgId}
                       onChange={e => selectTenantOrg(e.target.value)}
-                      style={INPUT_S}
+                      aria-label="Tenant organisation"
+                      className={fieldControlClassName}
                     >
                       <option value="">— No link —</option>
                       {filteredTenantOrgs.map(o => (
@@ -2164,23 +2148,28 @@ function AddLeadModal({ onClose, onAdded, clients }: {
                   </div>
 
                   {tenantOrgId && (
-                    <div style={{ marginBottom: 0 }}>
-                      <Lbl s="Primary contact (optional)" />
-                      {orgUsers.length === 0 ? (
-                        <div style={{ fontSize: 10, color: T.dim, padding: '3px 0' }}>No users in this organisation.</div>
-                      ) : (
-                        <select
-                          value={tenantContactId}
-                          onChange={e => setTenantContactId(e.target.value)}
-                          style={INPUT_S}
-                        >
-                          <option value="">— Select contact —</option>
-                          {orgUsers.map(u => (
-                            <option key={u.id} value={u.id}>{u.name}{u.email ? ` (${u.email})` : ''}</option>
-                          ))}
-                        </select>
-                      )}
-                    </div>
+                    orgUsers.length === 0 ? (
+                      <div>
+                        <div className={styles.label} style={{ marginBottom: 4 }}>Primary contact (optional)</div>
+                        <div className={styles.stateText}>No users in this organisation.</div>
+                      </div>
+                    ) : (
+                      <Field label="Primary contact (optional)">
+                        {control => (
+                          <select
+                            {...control}
+                            className={fieldControlClassName}
+                            value={tenantContactId}
+                            onChange={e => setTenantContactId(e.target.value)}
+                          >
+                            <option value="">— Select contact —</option>
+                            {orgUsers.map(u => (
+                              <option key={u.id} value={u.id}>{u.name}{u.email ? ` (${u.email})` : ''}</option>
+                            ))}
+                          </select>
+                        )}
+                      </Field>
+                    )
                   )}
                 </>
               )}
@@ -2188,20 +2177,16 @@ function AddLeadModal({ onClose, onAdded, clients }: {
           )}
         </div>
 
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button
-            onClick={submit}
-            disabled={!ready || loading}
-            style={{ flex: 1, padding: '8px', borderRadius: 6, background: ready && !loading ? T.purple : 'rgba(139,92,246,0.3)', border: 'none', color: '#fff', fontSize: 12, fontWeight: 600, cursor: ready && !loading ? 'pointer' : 'not-allowed', fontFamily: 'inherit' }}
-          >
-            {loading ? 'Adding…' : 'Add Lead'}
-          </button>
-          <button onClick={onClose} style={{ padding: '8px 14px', borderRadius: 6, background: 'transparent', border: `1px solid ${T.border}`, color: T.sub, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }}>
+        <FormActions>
+          <Button variant="secondary" onClick={onClose}>
             Cancel
-          </button>
-        </div>
+          </Button>
+          <Button variant="primary" onClick={submit} disabled={!ready || loading}>
+            {loading ? 'Adding…' : 'Add Lead'}
+          </Button>
+        </FormActions>
       </div>
-    </>
+    </Dialog>
   );
 }
 
@@ -2219,54 +2204,47 @@ function BookDemoModal({ onClose, onBook, clients }: {
   const ready = !!org && !!date;
 
   return (
-    <>
-      <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 290, background: 'rgba(0,0,0,0.55)' }} />
-      <div style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', width: 380, zIndex: 300, background: T.s2, border: `1px solid ${T.border}`, borderRadius: 10, padding: '20px 22px', fontFamily: 'var(--font-inter), Inter, sans-serif' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
-          <div>
-            <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>Book Demo</div>
-            <div style={{ fontSize: 11, color: T.dim, marginTop: 2 }}>Schedule a product walkthrough with a prospect</div>
-          </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: T.dim, fontSize: 18, cursor: 'pointer', lineHeight: 1 }}>×</button>
+    <Dialog open onClose={onClose} title="Book Demo" width={420}>
+      <div className={styles.dialogBody}>
+        <p className={styles.dialogIntro}>Schedule a product walkthrough with a prospect</p>
+
+        <Field label="Client">
+          {control => (
+            <select {...control} className={fieldControlClassName} value={org} onChange={e => setOrg(e.target.value)} style={{ color: org ? T.text : T.sub }}>
+              <option value="">Select a client or prospect…</option>
+              {clients.map(c => <option key={c.id} value={c.org}>{c.org} — {c.contact}</option>)}
+            </select>
+          )}
+        </Field>
+
+        <div className={styles.formGrid2}>
+          <Field label="Date">
+            {control => <input {...control} className={fieldControlClassName} type="date" value={date} onChange={e => setDate(e.target.value)} />}
+          </Field>
+          <Field label="Time (optional)">
+            {control => <input {...control} className={fieldControlClassName} type="time" value={time} onChange={e => setTime(e.target.value)} />}
+          </Field>
         </div>
 
-        <div style={{ marginBottom: 10 }}>
-          <Lbl s="Client" />
-          <select value={org} onChange={e => setOrg(e.target.value)} style={{ ...INPUT_S, color: org ? T.text : T.sub }}>
-            <option value="">Select a client or prospect…</option>
-            {clients.map(c => <option key={c.id} value={c.org}>{c.org} — {c.contact}</option>)}
-          </select>
-        </div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 16 }}>
-          <div>
-            <Lbl s="Date" />
-            <input type="date" value={date} onChange={e => setDate(e.target.value)} style={INPUT_S} />
-          </div>
-          <div>
-            <Lbl s="Time (optional)" />
-            <input type="time" value={time} onChange={e => setTime(e.target.value)} style={INPUT_S} />
-          </div>
-        </div>
-
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button
+        <FormActions>
+          <Button variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            disabled={!ready || loading}
             onClick={async () => {
               if (!ready || loading) return;
               setLoading(true);
               await onBook(org, date, time || undefined);
               setLoading(false);
             }}
-            style={{ flex: 1, padding: '8px', borderRadius: 6, background: ready && !loading ? T.purple : 'rgba(139,92,246,0.3)', border: 'none', color: '#fff', fontSize: 12, fontWeight: 600, cursor: ready && !loading ? 'pointer' : 'not-allowed', fontFamily: 'inherit' }}
           >
             {loading ? 'Logging…' : 'Confirm Demo'}
-          </button>
-          <button onClick={onClose} style={{ padding: '8px 14px', borderRadius: 6, background: 'transparent', border: `1px solid ${T.border}`, color: T.sub, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }}>
-            Cancel
-          </button>
-        </div>
+          </Button>
+        </FormActions>
       </div>
-    </>
+    </Dialog>
   );
 }
 
@@ -2280,55 +2258,50 @@ function ProposalModal({ preselect, onClose, onConfirm, clients }: { preselect?:
   const ready = !!org;
 
   return (
-    <>
-      <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 290, background: 'rgba(0,0,0,0.55)' }} />
-      <div style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', width: 380, zIndex: 300, background: T.s2, border: `1px solid ${T.border}`, borderRadius: 10, padding: '20px 22px', fontFamily: 'var(--font-inter), Inter, sans-serif' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
-          <div>
-            <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>Generate Proposal</div>
-            <div style={{ fontSize: 11, color: T.dim, marginTop: 2 }}>Draft a pricing proposal for a client or prospect</div>
-          </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: T.dim, fontSize: 18, cursor: 'pointer', lineHeight: 1 }}>×</button>
-        </div>
+    <Dialog open onClose={onClose} title="Generate Proposal" width={420}>
+      <div className={styles.dialogBody}>
+        <p className={styles.dialogIntro}>Draft a pricing proposal for a client or prospect</p>
 
-        <div style={{ marginBottom: 10 }}>
-          <Lbl s="Client" />
-          <select value={org} onChange={e => setOrg(e.target.value)} style={{ ...INPUT_S, color: org ? T.text : T.sub }}>
-            <option value="">Select a client…</option>
-            {clients.map(c => <option key={c.id} value={c.org}>{c.org} — {c.contact}</option>)}
-          </select>
-        </div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10 }}>
-          <div>
-            <Lbl s="Monthly value ($)" />
-            <input type="number" value={price} onChange={e => setPrice(e.target.value)} placeholder="e.g. 2400" style={INPUT_S} />
-          </div>
-          <div>
-            <Lbl s="Primary module" />
-            <select value={mod} onChange={e => setMod(e.target.value)} style={INPUT_S}>
-              {MODS.map(m => <option key={m} value={m}>{m}</option>)}
+        <Field label="Client">
+          {control => (
+            <select {...control} className={fieldControlClassName} value={org} onChange={e => setOrg(e.target.value)} style={{ color: org ? T.text : T.sub }}>
+              <option value="">Select a client…</option>
+              {clients.map(c => <option key={c.id} value={c.org}>{c.org} — {c.contact}</option>)}
             </select>
-          </div>
+          )}
+        </Field>
+
+        <div className={styles.formGrid2}>
+          <Field label="Monthly value ($)">
+            {control => <input {...control} className={fieldControlClassName} type="number" value={price} onChange={e => setPrice(e.target.value)} placeholder="e.g. 2400" />}
+          </Field>
+          <Field label="Primary module">
+            {control => (
+              <select {...control} className={fieldControlClassName} value={mod} onChange={e => setMod(e.target.value)}>
+                {MODS.map(m => <option key={m} value={m}>{m}</option>)}
+              </select>
+            )}
+          </Field>
         </div>
 
-        <div style={{ marginBottom: 16, padding: '7px 10px', borderRadius: 5, background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.14)' }}>
-          <span style={{ fontSize: 10, color: 'rgba(245,158,11,0.8)' }}>Full proposal generation will be wired to the reporting module in the next sprint.</span>
+        <div className={styles.hint}>
+          Full proposal generation will be wired to the reporting module in the next sprint.
         </div>
 
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button
+        <FormActions>
+          <Button variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            disabled={!ready}
             onClick={() => ready && onConfirm(`Proposal drafted for ${org}${price ? ' · $' + price + '/mo' : ''}`)}
-            style={{ flex: 1, padding: '8px', borderRadius: 6, background: ready ? T.purple : 'rgba(139,92,246,0.3)', border: 'none', color: '#fff', fontSize: 12, fontWeight: 600, cursor: ready ? 'pointer' : 'not-allowed', fontFamily: 'inherit' }}
           >
             Create Proposal
-          </button>
-          <button onClick={onClose} style={{ padding: '8px 14px', borderRadius: 6, background: 'transparent', border: `1px solid ${T.border}`, color: T.sub, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }}>
-            Cancel
-          </button>
-        </div>
+          </Button>
+        </FormActions>
       </div>
-    </>
+    </Dialog>
   );
 }
 
@@ -2343,7 +2316,7 @@ function ProposalModal({ preselect, onClose, onConfirm, clients }: { preselect?:
 // comparison text ("+18% vs April" etc.) is shown anywhere in this row.
 function SnapshotHero({ metrics, loading }: { metrics: AttnMetrics | null; loading: boolean }) {
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6,1fr)', gap: 6 }}>
+    <MetricStrip>
       {SNAPSHOT_TILE_META.map(t => {
         const isReal = t.real && !loading && !!metrics;
         const value = t.real
@@ -2353,14 +2326,15 @@ function SnapshotHero({ metrics, loading }: { metrics: AttnMetrics | null; loadi
           ? (loading ? 'loading' : metrics ? 'active managed services' : 'not connected')
           : 'not connected';
         return (
-          <div key={t.label} style={{ background: T.s1, border: `1px solid ${T.border}`, borderTop: `2px solid ${isReal ? t.accent : T.borderB}`, borderRadius: 7, padding: '10px 12px' }}>
-            <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase', color: T.dim, marginBottom: 5 }}>{t.label}</div>
-            <div style={{ fontFamily: T.mono, fontSize: 21, fontWeight: 700, letterSpacing: '-0.03em', color: isReal ? T.text : T.dim, marginBottom: 3 }}>{value}</div>
-            <div style={{ fontSize: 9, color: T.dim }}>{sub}</div>
-          </div>
+          <Metric
+            key={t.label}
+            label={t.label}
+            value={<span style={{ color: isReal ? T.text : T.dim }}>{value}</span>}
+            sub={sub}
+          />
         );
       })}
-    </div>
+    </MetricStrip>
   );
 }
 
@@ -2592,35 +2566,37 @@ export default function FounderPage() {
   };
 
   return (
-    <div style={{ margin: '-40px', height: APP_HEADER_OFFSET_VH_CALC, display: 'flex', flexDirection: 'column', background: T.bg, color: T.text, fontFamily: 'var(--font-inter), Inter, -apple-system, sans-serif', fontSize: 12, overflow: 'hidden' }}>
+    <div className={styles.root} style={{ margin: '-40px', height: APP_HEADER_OFFSET_VH_CALC }}>
 
       {/* Status bar — Phase B: the fake "Demo status" dot (always green,
           backed by no real check) and the hardcoded "MRR $12,480 (demo)"
           figure are gone. The date is now real (was a hardcoded, long-stale
           "Thu 8 May 2026"). MRR here is the same real, already-fetched
           value used by SnapshotHero/RevenueIntel — no duplicate request. */}
-      <div style={{ height: 36, flexShrink: 0, borderBottom: `1px solid ${T.border}`, background: T.s1, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 16px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.04em', color: T.text }}>BRAINBASE</span>
-          <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.10em', textTransform: 'uppercase', color: T.purple, background: T.purpleA, border: `1px solid ${T.purpleB}`, padding: '2px 7px', borderRadius: 3 }}>FOUNDER OS</span>
-          <span style={{ fontSize: 10, color: T.dim }}>{new Date().toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}</span>
+      <div className={styles.statusBar}>
+        <div className={styles.brandRow}>
+          <h1 className={styles.brand}>
+            <span>BRAINBASE</span>{' '}
+            <span className={styles.brandTag}>FOUNDER OS</span>
+          </h1>
+          <span className={styles.num} style={{ fontSize: 11, color: T.dim }}>{new Date().toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}</span>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14, fontSize: 10 }}>
-          <Mono size={10} color={T.sub}>
+        <div className={styles.statusMeta}>
+          <Meta size={11} color={T.sub}>
             MRR {snapshotMetricsLoading ? '…' : snapshotMetrics ? `$${Math.round(snapshotMetrics.activeMrr).toLocaleString()}` : 'not connected'}
-          </Mono>
-          <span style={{ color: T.dim }}>|</span>
-          <a href="/admin" style={{ color: T.dim, textDecoration: 'none', fontSize: 10 }}>← Admin</a>
+          </Meta>
+          <span aria-hidden="true">|</span>
+          <a href="/admin" className={styles.statusLink}>← Admin</a>
         </div>
       </div>
 
       {/* Body */}
-      <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+      <div className={styles.body}>
 
         <LeftSidebar onModal={setModal} section={section} setSection={setSection} />
 
         {/* Center column */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: '11px 11px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div className={styles.main}>
 
           {/* Phase B hardening: the conditional "demo backend unreachable"
               banner is gone — it only ever existed to explain HlnaBriefing's
@@ -2678,8 +2654,9 @@ export default function FounderPage() {
           )}
         </div>
 
-        {/* Right column — persistent context panel */}
-        <div style={{ width: 252, flexShrink: 0, borderLeft: `1px solid ${T.border}`, background: T.s1, overflowY: 'auto', padding: '11px 10px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {/* Right column — persistent context panel (stacks below the
+            content on narrow screens — see FounderOs.module.css) */}
+        <aside className={styles.rail} aria-label="Founder context">
           <AiRecommendations />
           <ActivityFeed sessionEvents={sessionEvents} />
           {section !== 'system' && <>
@@ -2688,7 +2665,7 @@ export default function FounderPage() {
             <MicrosoftTodayCard />
             <LiveContext />
           </>}
-        </div>
+        </aside>
       </div>
 
       {/* Client drawer */}

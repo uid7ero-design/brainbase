@@ -9,18 +9,32 @@ import {
 } from 'recharts';
 import { Upload, Truck, DollarSign, BarChart2, AlertCircle, Gauge, Activity, Shield, Clock, Users, MapPin, Wrench } from 'lucide-react';
 import DashboardShell, { KPI, MonthlyPoint, CostAccount, SLATarget, Action, InsightCard } from '@/components/dashboard/DashboardShell';
+import { useDashboardChart, type DashboardChart } from '@/components/dashboard/ui/chartTheme';
+import { TONE, tint, type Tone } from '@/components/dashboard/ui/tokens';
+import { buttonProps } from '@/components/ui/app';
 import type { FleetUploadMeta } from './page';
 import { HlnaInsightBanner } from '@/components/hlna/InsightBanner';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
+//
+// Authenticated visual-completion pass: every colour is a theme token (HTML)
+// or a key into the theme-aware chart palette (SVG, via useDashboardChart), so
+// the fleet dashboard reads in light AND dark. The category encodings below
+// are kept (each category keeps its own distinct series colour); semantic
+// states (OK / due soon / overdue, over/under threshold) use the status
+// tones, and text on tinted chips uses text/status tokens, never a raw hue.
 
-const C = { wages:'#10b981',fuel:'#3b82f6',maintenance:'#f59e0b',rego:'#8b5cf6',repairs:'#ef4444',insurance:'#06b6d4',depreciation:'#64748b' };
-const DEPT_C: Record<string,string> = { 'Waste Collection':'#3b82f6','Parks & Gardens':'#10b981','Roads & Drainage':'#f59e0b','Customer Service':'#8b5cf6','Facilities':'#ef4444' };
-const STATUS_C: Record<string,string> = { OK:'#10b981','Due Soon':'#f59e0b',Overdue:'#ef4444' };
-const CAT_C: Record<string,string> = { Breakdown:'#ef4444',Scheduled:'#f59e0b',Accident:'#8b5cf6',External:'#94a3b8' };
-const ACCENT: Record<string,string> = { blue:'bg-blue-500/10 text-blue-400',emerald:'bg-emerald-500/10 text-emerald-400',violet:'bg-violet-500/10 text-violet-400',amber:'bg-amber-500/10 text-amber-400',red:'bg-red-500/10 text-red-400',slate:'bg-white/5 text-white/50' };
-const STOP_C: Record<string,string> = { 'Collection':'#3b82f6','Transfer Station':'#8b5cf6','Fuel Stop':'#f59e0b','Rest Break':'#94a3b8','Depot Check-in':'#10b981','Site Inspection':'#06b6d4','Maintenance Work':'#ef4444','Road Works':'#f97316','Customer Site':'#10b981','Lunch Break':'#a78bfa','Maintenance Stop':'#ef4444' };
-const TT = { borderRadius:10, border:'none', boxShadow:'0 4px 20px rgba(0,0,0,0.1)' };
+type PalKey = 'primary' | 'secondary' | 'comparison' | 'success' | 'warning' | 'danger' | 'info' | 'neutral';
+const C: Record<string, PalKey> = { wages:'primary', fuel:'info', maintenance:'warning', rego:'comparison', repairs:'danger', insurance:'success', depreciation:'neutral' };
+const DEPT_C: Record<string, PalKey> = { 'Waste Collection':'info','Parks & Gardens':'success','Roads & Drainage':'warning','Customer Service':'primary','Facilities':'danger' };
+const STATUS_C: Record<string, Tone> = { OK:'success','Due Soon':'warning',Overdue:'danger' };
+const CAT_C: Record<string, PalKey> = { Breakdown:'danger',Scheduled:'warning',Accident:'secondary',External:'neutral' };
+const CAT_TONE: Record<string, Tone> = { Breakdown:'danger',Scheduled:'warning',Accident:'info',External:'inactive' };
+const ACCENT: Record<string, Tone | 'accent'> = { blue:'info',emerald:'success',violet:'accent',amber:'warning',red:'danger',slate:'inactive' };
+const STOP_C: Record<string, PalKey> = { 'Collection':'primary','Transfer Station':'secondary','Fuel Stop':'warning','Rest Break':'neutral','Depot Check-in':'success','Site Inspection':'info','Maintenance Work':'danger','Road Works':'warning','Customer Site':'success','Lunch Break':'comparison','Maintenance Stop':'danger' };
+const COST_KEYS = ['wages','fuel','maintenance','repairs','insurance','rego'] as const;
+
+const pc = (chart: DashboardChart, key: PalKey | undefined) => chart.palette[key ?? 'neutral'];
 
 const fmt  = (n:number) => `$${Number(n).toLocaleString('en-AU',{maximumFractionDigits:0})}`;
 const fmtH = (n:number) => `${Number(n).toLocaleString('en-AU')} hrs`;
@@ -49,34 +63,41 @@ const parseColoc = (rows:Record<string,unknown>[]): ColocRecord[] => rows.map(r=
 
 // ─── Shared sub-components ────────────────────────────────────────────────────
 
-const DARK_CARD = { background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.08)', borderRadius:12, padding:20 } as React.CSSProperties;
+const DARK_CARD = { background:'var(--bg-surface)', border:'1px solid var(--border)', borderRadius:'var(--radius-lg)', padding:20 } as React.CSSProperties;
+const T1 = 'var(--text-primary)', T2 = 'var(--text-secondary)', T3 = 'var(--text-muted)';
 function KPI2({icon,label,value,sub,accent}:{icon:React.ReactNode;label:string;value:string;sub?:string;accent:string}) {
+  const a = ACCENT[accent] ?? 'inactive';
+  const fg = a === 'accent' ? 'var(--brand-brainbase-accent)' : TONE[a].fg;
+  const bg = a === 'accent' ? 'var(--brand-brainbase-accent-muted)' : TONE[a].muted;
   return (
     <div style={DARK_CARD}>
-      <div style={{marginBottom:12}}><span className={`inline-flex p-2 rounded-lg ${ACCENT[accent]}`}>{icon}</span></div>
-      <p style={{fontSize:10,color:'rgba(255,255,255,0.40)',textTransform:'uppercase',letterSpacing:'0.08em',marginBottom:2}}>{label}</p>
-      <p style={{fontSize:20,fontWeight:700,color:'#F5F7FA',lineHeight:1.2}}>{value}</p>
-      {sub&&<p style={{fontSize:11,color:'rgba(255,255,255,0.35)',marginTop:2}}>{sub}</p>}
+      <div style={{marginBottom:12}}><span aria-hidden="true" className="inline-flex p-2 rounded-lg" style={{background:bg,color:fg}}>{icon}</span></div>
+      <p style={{fontSize:11,fontWeight:600,color:T3,textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:2}}>{label}</p>
+      <p style={{fontSize:20,fontWeight:700,color:T1,lineHeight:1.2,fontVariantNumeric:'tabular-nums'}}>{value}</p>
+      {sub&&<p style={{fontSize:11,color:T3,marginTop:2}}>{sub}</p>}
     </div>
   );
 }
-function SecTitle({children}:{children:React.ReactNode}){return<p style={{fontSize:10,fontWeight:600,color:'rgba(255,255,255,0.35)',textTransform:'uppercase',letterSpacing:'0.10em',marginBottom:14}}>{children}</p>;}
-function THead({cols}:{cols:string[]}){return<thead><tr style={{background:'rgba(255,255,255,0.04)',borderBottom:'1px solid rgba(255,255,255,0.06)'}}>{cols.map(h=><th key={h} style={{padding:'10px 16px',textAlign:'left',fontSize:10,fontWeight:600,color:'rgba(255,255,255,0.35)',textTransform:'uppercase',letterSpacing:'0.08em',whiteSpace:'nowrap'}}>{h}</th>)}</tr></thead>;}
-function TR({children,i}:{children:React.ReactNode;i:number}){return<tr style={{borderBottom:'1px solid rgba(255,255,255,0.04)',background:i%2===1?'rgba(255,255,255,0.015)':'transparent'}}>{children}</tr>;}
-function TD({children,bold}:{children:React.ReactNode;bold?:boolean}){return<td style={{padding:'10px 16px',fontWeight:bold?700:400,color:bold?'#F5F7FA':'rgba(255,255,255,0.55)',fontSize:13}}>{children}</td>;}
-function Badge({label,color}:{label:string;color:string}){return<span style={{padding:'2px 8px',borderRadius:20,fontSize:11,fontWeight:600,background:color+'20',color,border:`1px solid ${color}40`}}>{label}</span>;}
-function Empty(){return(<div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',padding:'120px 20px',textAlign:'center'}}><div style={{background:'rgba(255,255,255,0.06)',padding:20,borderRadius:16,marginBottom:16}}><Truck size={36} color="rgba(255,255,255,0.30)"/></div><h2 style={{fontSize:18,fontWeight:600,color:'rgba(255,255,255,0.70)',marginBottom:8}}>No Fleet Data Loaded</h2><p style={{color:'rgba(255,255,255,0.35)',fontSize:13,marginBottom:16}}>Upload the multi-sheet Excel file to get started.</p><a href="/fleet-dummy-data.xlsx" download style={{background:'rgba(255,255,255,0.08)',border:'1px solid rgba(255,255,255,0.12)',color:'#F5F7FA',padding:'10px 20px',borderRadius:8,fontSize:13,fontWeight:500,textDecoration:'none'}}>Download Sample Data</a></div>);}
+function SecTitle({children}:{children:React.ReactNode}){return<p style={{fontSize:11,fontWeight:600,color:T2,textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:14}}>{children}</p>;}
+function THead({cols}:{cols:string[]}){return<thead><tr style={{background:'var(--bg-sunken)',borderBottom:'1px solid var(--border)'}}>{cols.map(h=><th key={h} scope="col" style={{padding:'10px 16px',textAlign:'left',fontSize:11,fontWeight:600,color:T2,textTransform:'uppercase',letterSpacing:'0.06em',whiteSpace:'nowrap'}}>{h}</th>)}</tr></thead>;}
+function TR({children}:{children:React.ReactNode;i:number}){return<tr style={{borderBottom:'1px solid var(--border)'}}>{children}</tr>;}
+function TD({children,bold}:{children:React.ReactNode;bold?:boolean}){return<td style={{padding:'10px 16px',fontWeight:bold?700:400,color:bold?T1:T2,fontSize:13}}>{children}</td>;}
+/** Semantic status chip: written label on a status tint, text in the status token (AA). */
+function Badge({label,tone}:{label:string;tone:Tone}){const t=TONE[tone];return<span style={{padding:'2px 8px',borderRadius:'var(--radius-sm)',fontSize:11,fontWeight:600,background:t.muted,color:t.fg,border:`1px solid ${t.border}`,whiteSpace:'nowrap'}}>{label}</span>;}
+/** Category chip: the category hue as a dot, the label in a text token. */
+function DotChip({label,color}:{label:string;color:string}){return<span style={{display:'inline-flex',alignItems:'center',gap:6,padding:'2px 8px',borderRadius:'var(--radius-sm)',fontSize:11,fontWeight:500,background:tint(color,12),border:'1px solid var(--border)',color:T1,whiteSpace:'nowrap'}}><span aria-hidden="true" style={{width:7,height:7,borderRadius:'50%',background:color,flexShrink:0}}/>{label}</span>;}
+function Empty(){return(<div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',padding:'120px 20px',textAlign:'center'}}><div aria-hidden="true" style={{background:'var(--bg-sunken)',border:'1px solid var(--border)',padding:20,borderRadius:'var(--radius-lg)',marginBottom:16,color:T3}}><Truck size={36}/></div><h2 style={{fontSize:18,fontWeight:600,color:T1,marginBottom:8}}>No Fleet Data Loaded</h2><p style={{color:T2,fontSize:13,marginBottom:16}}>Upload the multi-sheet Excel file to get started.</p><a href="/fleet-dummy-data.xlsx" download {...buttonProps('secondary')}>Download Sample Data</a></div>);}
 
 function FleetDataBanner({ meta }: { meta: FleetUploadMeta }) {
   const date = new Date(meta.uploadedAt).toLocaleString('en-AU', { dateStyle: 'medium', timeStyle: 'short' });
   return (
-    <div style={{ background: 'rgba(16,185,129,0.07)', border: '1px solid rgba(16,185,129,0.2)', borderRadius: 12, padding: '12px 20px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
-      <span style={{ background: '#10b981', color: '#fff', borderRadius: 6, padding: '2px 9px', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.07em', flexShrink: 0 }}>Live Data</span>
-      <span style={{ fontSize: 13, color: 'rgba(230,237,243,0.55)' }}>
-        <span style={{ color: '#F5F7FA', fontWeight: 600 }}>{meta.fileName}</span>
-        <span style={{ color: 'rgba(230,237,243,0.35)', margin: '0 8px' }}>·</span>
+    <div style={{ background: TONE.success.muted, border: `1px solid ${TONE.success.border}`, borderRadius: 'var(--radius-lg)', padding: '12px 20px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
+      <span style={{ background: 'var(--bg-surface)', color: TONE.success.fg, border: `1px solid ${TONE.success.border}`, borderRadius: 'var(--radius-sm)', padding: '2px 9px', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.06em', flexShrink: 0 }}>Live Data</span>
+      <span style={{ fontSize: 13, color: T2 }}>
+        <span style={{ color: T1, fontWeight: 600 }}>{meta.fileName}</span>
+        <span aria-hidden="true" style={{ color: T3, margin: '0 8px' }}>·</span>
         <span>{meta.recordCount.toLocaleString()} records imported</span>
-        <span style={{ color: 'rgba(230,237,243,0.35)', margin: '0 8px' }}>·</span>
+        <span aria-hidden="true" style={{ color: T3, margin: '0 8px' }}>·</span>
         <span>Last updated {date}</span>
       </span>
     </div>
@@ -85,13 +106,13 @@ function FleetDataBanner({ meta }: { meta: FleetUploadMeta }) {
 
 function FleetDemoBanner() {
   return (
-    <div style={{ background: 'rgba(245,158,11,0.07)', border: '1px solid rgba(245,158,11,0.25)', borderRadius: 12, padding: '14px 20px', display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-      <span style={{ background: '#f59e0b', color: '#000', borderRadius: 6, padding: '2px 9px', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.07em', flexShrink: 0 }}>Demo</span>
-      <div style={{ fontSize: 13, color: 'rgba(230,237,243,0.55)', lineHeight: 1.5 }}>
+    <div style={{ background: TONE.warning.muted, border: `1px solid ${TONE.warning.border}`, borderRadius: 'var(--radius-lg)', padding: '14px 20px', display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+      <span style={{ background: 'var(--bg-surface)', color: TONE.warning.fg, border: `1px solid ${TONE.warning.border}`, borderRadius: 'var(--radius-sm)', padding: '2px 9px', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.06em', flexShrink: 0 }}>Demo</span>
+      <div style={{ fontSize: 13, color: T2, lineHeight: 1.5 }}>
         Sample data is shown below.{' '}
-        <span style={{ color: '#F5F7FA', fontWeight: 600 }}>Upload an Excel file to activate this dashboard with your real fleet data.</span>
-        <span style={{ display: 'block', marginTop: 2, fontSize: 12, color: 'rgba(230,237,243,0.35)' }}>
-          Go to <span style={{ fontFamily: 'monospace', color: 'rgba(230,237,243,0.55)' }}>Data → Upload</span> and select service type <span style={{ fontFamily: 'monospace', color: 'rgba(230,237,243,0.55)' }}>Fleet</span>.
+        <span style={{ color: T1, fontWeight: 600 }}>Upload an Excel file to activate this dashboard with your real fleet data.</span>
+        <span style={{ display: 'block', marginTop: 2, fontSize: 12, color: T2 }}>
+          Go to <span style={{ fontFamily:'var(--bb-font-mono)', color: T1 }}>Data → Upload</span> and select service type <span style={{ fontFamily:'var(--bb-font-mono)', color: T1 }}>Fleet</span>.
         </span>
       </div>
     </div>
@@ -99,6 +120,7 @@ function FleetDemoBanner() {
 }
 
 function ServicingTab({data}:{data:SvcRecord[]}) {
+  const chart = useDashboardChart();
   if (!data.length) return <Empty/>;
   const totalCost=data.reduce((s,r)=>s+r.cost,0);
   const overdue=data.filter(r=>r.status==='Overdue').length;
@@ -106,6 +128,7 @@ function ServicingTab({data}:{data:SvcRecord[]}) {
   const next=[...data].sort((a,b)=>new Date(a.nextDue).getTime()-new Date(b.nextDue).getTime())[0];
   const costChart=data.map(r=>({id:r.asset,cost:r.cost}));
   const byType=Object.entries(data.reduce<Record<string,number>>((a,r)=>({...a,[r.serviceType]:(a[r.serviceType]||0)+r.cost}),{})).map(([name,value])=>({name,value}));
+  const typeColors=[chart.palette.primary,chart.palette.warning,chart.palette.success];
   return(
     <><div className="grid grid-cols-4 gap-4 mb-8">
       <KPI2 icon={<DollarSign size={16}/>} label="Total Service Cost" value={fmt(totalCost)} accent="blue"/>
@@ -114,16 +137,17 @@ function ServicingTab({data}:{data:SvcRecord[]}) {
       <KPI2 icon={<Wrench size={16}/>} label="Next Service" value={next?.asset??'—'} sub={next?.nextDue} accent="violet"/>
     </div>
     <div className="grid grid-cols-3 gap-5 mb-5">
-      <div className="col-span-2" style={DARK_CARD}><SecTitle>Service Cost by Asset</SecTitle><ResponsiveContainer width="100%" height={220}><BarChart data={costChart} barSize={28}><XAxis dataKey="id" tick={{fontSize:10,fill:'#94a3b8'}} axisLine={false} tickLine={false}/><YAxis tick={{fontSize:10,fill:'#94a3b8'}} axisLine={false} tickLine={false} tickFormatter={v=>`$${v}`}/><Tooltip formatter={(v:unknown)=>fmt(Number(v))} contentStyle={TT}/><Bar dataKey="cost" name="Service Cost" radius={[4,4,0,0]} fill="#3b82f6"/></BarChart></ResponsiveContainer></div>
-      <div style={DARK_CARD}><SecTitle>By Service Type</SecTitle><ResponsiveContainer width="100%" height={180}><PieChart><Pie data={byType} cx="50%" cy="50%" innerRadius={48} outerRadius={76} dataKey="value" paddingAngle={2}>{byType.map((_,i)=><Cell key={i} fill={['#3b82f6','#f59e0b','#10b981'][i%3]}/>)}</Pie><Tooltip formatter={(v:unknown)=>fmt(Number(v))} contentStyle={TT}/></PieChart></ResponsiveContainer><div className="space-y-2 mt-2">{byType.map((d,i)=>(<div key={d.name} className="flex justify-between text-xs"><span style={{display:'flex',alignItems:'center',gap:8,color:'rgba(230,237,243,0.55)'}}><span className="w-2 h-2 rounded-full" style={{background:['#3b82f6','#f59e0b','#10b981'][i%3]}}/>{d.name}</span><span className="font-semibold">{fmt(d.value)}</span></div>))}</div></div>
+      <div className="col-span-2" style={DARK_CARD}><SecTitle>Service Cost by Asset</SecTitle><ResponsiveContainer width="100%" height={220}><BarChart data={costChart} barSize={28}><XAxis dataKey="id" tick={{...chart.tick,fontSize:10}} axisLine={false} tickLine={false}/><YAxis tick={{...chart.tick,fontSize:10}} axisLine={false} tickLine={false} tickFormatter={v=>`$${v}`}/><Tooltip formatter={(v:unknown)=>fmt(Number(v))} {...chart.tooltip}/><Bar dataKey="cost" name="Service Cost" radius={[4,4,0,0]} fill={chart.palette.primary}/></BarChart></ResponsiveContainer></div>
+      <div style={DARK_CARD}><SecTitle>By Service Type</SecTitle><ResponsiveContainer width="100%" height={180}><PieChart><Pie data={byType} cx="50%" cy="50%" innerRadius={48} outerRadius={76} dataKey="value" paddingAngle={2} stroke={chart.palette.tooltipBg}>{byType.map((_,i)=><Cell key={i} fill={typeColors[i%3]}/>)}</Pie><Tooltip formatter={(v:unknown)=>fmt(Number(v))} {...chart.tooltip}/></PieChart></ResponsiveContainer><div className="space-y-2 mt-2">{byType.map((d,i)=>(<div key={d.name} className="flex justify-between text-xs"><span style={{display:'flex',alignItems:'center',gap:8,color:T2}}><span aria-hidden="true" className="w-2 h-2 rounded-full" style={{background:typeColors[i%3]}}/>{d.name}</span><span className="font-semibold" style={{color:T1}}>{fmt(d.value)}</span></div>))}</div></div>
     </div>
-    <div style={{...DARK_CARD,padding:0,overflow:'hidden'}}><div style={{padding:'16px 20px',borderBottom:'1px solid rgba(255,255,255,0.07)'}}><SecTitle>Service Register</SecTitle></div>
-      <table className="w-full text-sm"><THead cols={['Asset','Make','Service Type','Last Service','Next Due','Odometer','Cost','Notes','Status']}/><tbody>{data.map((r,i)=>(<TR key={i} i={i}><td style={{padding:'10px 16px',fontWeight:600,color:'#F5F7FA'}}>{r.asset}</td><TD>{r.make}</TD><TD>{r.serviceType}</TD><TD>{r.lastService}</TD><TD>{r.nextDue}</TD><TD>{r.odometer.toLocaleString()} km</TD><TD>{fmt(r.cost)}</TD><td style={{padding:'10px 16px',color:'rgba(230,237,243,0.35)',fontSize:12}} className="max-w-xs truncate">{r.notes||'—'}</td><td className="px-5 py-3"><Badge label={r.status} color={STATUS_C[r.status]||'#94a3b8'}/></td></TR>))}</tbody></table>
+    <div style={{...DARK_CARD,padding:0,overflow:'hidden'}}><div style={{padding:'16px 20px',borderBottom:'1px solid var(--border)'}}><SecTitle>Service Register</SecTitle></div>
+      <table className="w-full text-sm"><THead cols={['Asset','Make','Service Type','Last Service','Next Due','Odometer','Cost','Notes','Status']}/><tbody>{data.map((r,i)=>(<TR key={i} i={i}><td style={{padding:'10px 16px',fontWeight:600,color:T1,fontFamily:'var(--bb-font-mono)'}}>{r.asset}</td><TD>{r.make}</TD><TD>{r.serviceType}</TD><TD>{r.lastService}</TD><TD>{r.nextDue}</TD><TD>{r.odometer.toLocaleString()} km</TD><TD>{fmt(r.cost)}</TD><td style={{padding:'10px 16px',color:T3,fontSize:12}} className="max-w-xs truncate">{r.notes||'—'}</td><td className="px-5 py-3"><Badge label={r.status} tone={STATUS_C[r.status]||'inactive'}/></td></TR>))}</tbody></table>
     </div></>
   );
 }
 
 function HRTab({data}:{data:HRRecord[]}) {
+  const chart = useDashboardChart();
   if (!data.length) return <Empty/>;
   const totalLabour=data.reduce((s,r)=>s+r.totalLabour,0);
   const totalWorked=data.reduce((s,r)=>s+r.workedHours,0);
@@ -139,21 +163,23 @@ function HRTab({data}:{data:HRRecord[]}) {
       <KPI2 icon={<Activity size={16}/>} label="Absent Days" value={String(totalAbsent)} accent="red"/>
     </div>
     <div className="grid grid-cols-3 gap-5 mb-5">
-      <div className="col-span-2" style={DARK_CARD}><SecTitle>Scheduled vs Worked vs Overtime</SecTitle><ResponsiveContainer width="100%" height={220}><BarChart data={hoursChart} barSize={18}><XAxis dataKey="driver" tick={{fontSize:10,fill:'#94a3b8'}} axisLine={false} tickLine={false}/><YAxis tick={{fontSize:10,fill:'#94a3b8'}} axisLine={false} tickLine={false}/><Tooltip contentStyle={TT}/><Legend wrapperStyle={{fontSize:11}}/><Bar dataKey="scheduled" name="Scheduled" fill="#475569" radius={[2,2,0,0]}/><Bar dataKey="worked" name="Worked" fill="#3b82f6" radius={[2,2,0,0]}/><Bar dataKey="overtime" name="Overtime" fill="#f59e0b" radius={[2,2,0,0]}/></BarChart></ResponsiveContainer></div>
-      <div style={DARK_CARD}><SecTitle>Hours Split</SecTitle><ResponsiveContainer width="100%" height={180}><PieChart><Pie data={pie} cx="50%" cy="50%" innerRadius={48} outerRadius={76} dataKey="value" paddingAngle={2}>{pie.map((_,i)=><Cell key={i} fill={['#3b82f6','#f59e0b'][i]}/>)}</Pie><Tooltip formatter={(v:unknown)=>fmtH(Number(v))} contentStyle={TT}/></PieChart></ResponsiveContainer></div>
+      <div className="col-span-2" style={DARK_CARD}><SecTitle>Scheduled vs Worked vs Overtime</SecTitle><ResponsiveContainer width="100%" height={220}><BarChart data={hoursChart} barSize={18}><XAxis dataKey="driver" tick={{...chart.tick,fontSize:10}} axisLine={false} tickLine={false}/><YAxis tick={{...chart.tick,fontSize:10}} axisLine={false} tickLine={false}/><Tooltip {...chart.tooltip}/><Legend wrapperStyle={chart.legend}/><Bar dataKey="scheduled" name="Scheduled" fill={chart.palette.comparison} radius={[2,2,0,0]}/><Bar dataKey="worked" name="Worked" fill={chart.palette.primary} radius={[2,2,0,0]}/><Bar dataKey="overtime" name="Overtime" fill={chart.palette.warning} radius={[2,2,0,0]}/></BarChart></ResponsiveContainer></div>
+      <div style={DARK_CARD}><SecTitle>Hours Split</SecTitle><ResponsiveContainer width="100%" height={180}><PieChart><Pie data={pie} cx="50%" cy="50%" innerRadius={48} outerRadius={76} dataKey="value" paddingAngle={2} stroke={chart.palette.tooltipBg}>{pie.map((_,i)=><Cell key={i} fill={[chart.palette.primary,chart.palette.warning][i]}/>)}</Pie><Tooltip formatter={(v:unknown)=>fmtH(Number(v))} {...chart.tooltip}/></PieChart></ResponsiveContainer></div>
     </div>
-    <div style={{...DARK_CARD,padding:0,overflow:'hidden'}}><div style={{padding:'16px 20px',borderBottom:'1px solid rgba(255,255,255,0.07)'}}><SecTitle>HR Register</SecTitle></div>
-      <table className="w-full text-sm"><THead cols={['Asset','Driver','Department','Sched. Hrs','Worked Hrs','Overtime','Absent Days','Hourly Rate','Total Labour']}/><tbody>{data.map((r,i)=>(<TR key={i} i={i}><td style={{padding:'10px 16px',fontWeight:600,color:'#F5F7FA'}}>{r.asset}</td><TD>{r.driver}</TD><TD>{r.department}</TD><TD>{r.scheduledHours}</TD><TD>{r.workedHours}</TD><td style={{padding:'10px 16px',color:r.overtime>0?'#f59e0b':'rgba(255,255,255,0.55)',fontWeight:r.overtime>0?700:400,fontSize:13}}>{r.overtime}</td><td style={{padding:'10px 16px',color:r.absentDays>3?'#f87171':'rgba(255,255,255,0.55)',fontSize:13}}>{r.absentDays}</td><TD>{fmt(r.hourlyRate)}/hr</TD><TD bold>{fmt(r.totalLabour)}</TD></TR>))}</tbody></table>
+    <div style={{...DARK_CARD,padding:0,overflow:'hidden'}}><div style={{padding:'16px 20px',borderBottom:'1px solid var(--border)'}}><SecTitle>HR Register</SecTitle></div>
+      <table className="w-full text-sm"><THead cols={['Asset','Driver','Department','Sched. Hrs','Worked Hrs','Overtime','Absent Days','Hourly Rate','Total Labour']}/><tbody>{data.map((r,i)=>(<TR key={i} i={i}><td style={{padding:'10px 16px',fontWeight:600,color:T1,fontFamily:'var(--bb-font-mono)'}}>{r.asset}</td><TD>{r.driver}</TD><TD>{r.department}</TD><TD>{r.scheduledHours}</TD><TD>{r.workedHours}</TD><td style={{padding:'10px 16px',color:r.overtime>0?TONE.warning.fg:T2,fontWeight:r.overtime>0?700:400,fontSize:13}}>{r.overtime}</td><td style={{padding:'10px 16px',color:r.absentDays>3?TONE.danger.fg:T2,fontWeight:r.absentDays>3?700:400,fontSize:13}}>{r.absentDays}</td><TD>{fmt(r.hourlyRate)}/hr</TD><TD bold>{fmt(r.totalLabour)}</TD></TR>))}</tbody></table>
     </div></>
   );
 }
 
 function DowntimeTab({data}:{data:DtRecord[]}) {
+  const chart = useDashboardChart();
   if (!data.length) return <Empty/>;
   const totalHours=data.reduce((s,r)=>s+r.hours,0);
   const totalCost=data.reduce((s,r)=>s+r.cost,0);
   const open=data.filter(r=>!r.resolved).length;
   const byCat=Object.entries(data.reduce<Record<string,number>>((a,r)=>({...a,[r.category]:(a[r.category]||0)+r.hours}),{})).map(([name,value])=>({name,value}));
+  const catColor=(name:string,i:number)=>CAT_C[name]?pc(chart,CAT_C[name]):chart.series[i%chart.series.length];
   return(
     <><div className="grid grid-cols-4 gap-4 mb-8">
       <KPI2 icon={<Clock size={16}/>} label="Total Downtime Hours" value={fmtH(totalHours)} accent="amber"/>
@@ -162,16 +188,17 @@ function DowntimeTab({data}:{data:DtRecord[]}) {
       <KPI2 icon={<Shield size={16}/>} label="Resolved" value={String(data.length-open)} accent="emerald"/>
     </div>
     <div className="grid grid-cols-3 gap-5 mb-5">
-      <div className="col-span-2" style={DARK_CARD}><SecTitle>Downtime Hours by Category</SecTitle><ResponsiveContainer width="100%" height={220}><BarChart data={byCat} barSize={40}><XAxis dataKey="name" tick={{fontSize:10,fill:'#94a3b8'}} axisLine={false} tickLine={false}/><YAxis tick={{fontSize:10,fill:'#94a3b8'}} axisLine={false} tickLine={false}/><Tooltip contentStyle={TT}/><Bar dataKey="value" name="Hours" radius={[4,4,0,0]}>{byCat.map((_,i)=><Cell key={i} fill={Object.values(CAT_C)[i%4]}/>)}</Bar></BarChart></ResponsiveContainer></div>
-      <div style={DARK_CARD}><SecTitle>Category Split</SecTitle><ResponsiveContainer width="100%" height={180}><PieChart><Pie data={byCat} cx="50%" cy="50%" innerRadius={48} outerRadius={76} dataKey="value" paddingAngle={2}>{byCat.map((_,i)=><Cell key={i} fill={Object.values(CAT_C)[i%4]}/>)}</Pie><Tooltip formatter={(v:unknown)=>fmtH(Number(v))} contentStyle={TT}/></PieChart></ResponsiveContainer></div>
+      <div className="col-span-2" style={DARK_CARD}><SecTitle>Downtime Hours by Category</SecTitle><ResponsiveContainer width="100%" height={220}><BarChart data={byCat} barSize={40}><XAxis dataKey="name" tick={{...chart.tick,fontSize:10}} axisLine={false} tickLine={false}/><YAxis tick={{...chart.tick,fontSize:10}} axisLine={false} tickLine={false}/><Tooltip {...chart.tooltip}/><Bar dataKey="value" name="Hours" radius={[4,4,0,0]}>{byCat.map((d,i)=><Cell key={i} fill={catColor(d.name,i)}/>)}</Bar></BarChart></ResponsiveContainer></div>
+      <div style={DARK_CARD}><SecTitle>Category Split</SecTitle><ResponsiveContainer width="100%" height={180}><PieChart><Pie data={byCat} cx="50%" cy="50%" innerRadius={48} outerRadius={76} dataKey="value" paddingAngle={2} stroke={chart.palette.tooltipBg}>{byCat.map((d,i)=><Cell key={i} fill={catColor(d.name,i)}/>)}</Pie><Tooltip formatter={(v:unknown)=>fmtH(Number(v))} {...chart.tooltip}/></PieChart></ResponsiveContainer></div>
     </div>
-    <div style={{...DARK_CARD,padding:0,overflow:'hidden'}}><div style={{padding:'16px 20px',borderBottom:'1px solid rgba(255,255,255,0.07)'}}><SecTitle>Downtime Log</SecTitle></div>
-      <table className="w-full text-sm"><THead cols={['Asset','Date','Category','Reason','Hours','Cost','Status']}/><tbody>{data.map((r,i)=>(<TR key={i} i={i}><td style={{padding:'10px 16px',fontWeight:600,color:'#F5F7FA'}}>{r.asset}</td><TD>{r.date}</TD><td className="px-5 py-3"><Badge label={r.category} color={CAT_C[r.category]||'#94a3b8'}/></td><td style={{padding:'10px 16px',color:'rgba(230,237,243,0.55)',fontSize:13,maxWidth:240}} className="truncate">{r.reason}</td><TD>{r.hours} hrs</TD><TD>{fmt(r.cost)}</TD><td className="px-5 py-3"><Badge label={r.resolved?'Resolved':'Open'} color={r.resolved?'#10b981':'#ef4444'}/></td></TR>))}</tbody></table>
+    <div style={{...DARK_CARD,padding:0,overflow:'hidden'}}><div style={{padding:'16px 20px',borderBottom:'1px solid var(--border)'}}><SecTitle>Downtime Log</SecTitle></div>
+      <table className="w-full text-sm"><THead cols={['Asset','Date','Category','Reason','Hours','Cost','Status']}/><tbody>{data.map((r,i)=>(<TR key={i} i={i}><td style={{padding:'10px 16px',fontWeight:600,color:T1,fontFamily:'var(--bb-font-mono)'}}>{r.asset}</td><TD>{r.date}</TD><td className="px-5 py-3"><Badge label={r.category} tone={CAT_TONE[r.category]||'inactive'}/></td><td style={{padding:'10px 16px',color:T2,fontSize:13,maxWidth:240}} className="truncate">{r.reason}</td><TD>{r.hours} hrs</TD><TD>{fmt(r.cost)}</TD><td className="px-5 py-3"><Badge label={r.resolved?'Resolved':'Open'} tone={r.resolved?'success':'danger'}/></td></TR>))}</tbody></table>
     </div></>
   );
 }
 
 function UtilisationTab({data}:{data:UtilRecord[]}) {
+  const chart = useDashboardChart();
   if (!data.length) return <Empty/>;
   const avgUtil=(data.reduce((s,r)=>s+r.utilisationPct,0)/data.length).toFixed(1);
   const totalIdle=data.reduce((s,r)=>s+r.idleCost,0);
@@ -183,14 +210,15 @@ function UtilisationTab({data}:{data:UtilRecord[]}) {
       <KPI2 icon={<Activity size={16}/>} label="Assets Tracked" value={String(data.length)} accent="emerald"/>
       <KPI2 icon={<AlertCircle size={16}/>} label="Below 70%" value={String(data.filter(r=>r.utilisationPct<70).length)} sub="Underutilised" accent="red"/>
     </div>
-    <div style={DARK_CARD}><SecTitle>Utilisation vs Idle by Asset</SecTitle><ResponsiveContainer width="100%" height={260}><BarChart data={chartData} barSize={28}><XAxis dataKey="asset" tick={{fontSize:10,fill:'#94a3b8'}} axisLine={false} tickLine={false}/><YAxis tick={{fontSize:10,fill:'#94a3b8'}} axisLine={false} tickLine={false} domain={[0,100]} tickFormatter={v=>`${v}%`}/><Tooltip formatter={(v:unknown)=>`${Number(v).toFixed(1)}%`} contentStyle={TT}/><Legend wrapperStyle={{fontSize:11}}/><Bar dataKey="utilisation" name="Utilised %" stackId="a" fill="#10b981" radius={[0,0,0,0]}/><Bar dataKey="idle" name="Idle %" stackId="a" fill="#374151" radius={[4,4,0,0]}/></BarChart></ResponsiveContainer></div>
-    <div style={{...DARK_CARD,padding:0,overflow:'hidden',marginTop:16}}><div style={{padding:'16px 20px',borderBottom:'1px solid rgba(255,255,255,0.07)'}}><SecTitle>Utilisation Register</SecTitle></div>
-      <table className="w-full text-sm"><THead cols={['Asset','Type','Scheduled Hrs','Operating Hrs','Idle Hrs','Utilisation %','Idle Cost']}/><tbody>{data.map((r,i)=>(<TR key={i} i={i}><td style={{padding:'10px 16px',fontWeight:600,color:'#F5F7FA'}}>{r.asset}</td><TD>{r.type}</TD><TD>{r.scheduledHours}</TD><TD>{r.operatingHours}</TD><TD>{r.idleHours}</TD><td style={{padding:'10px 16px',fontWeight:700,color:r.utilisationPct<70?'#f87171':r.utilisationPct<80?'#fbbf24':'#4ade80',fontSize:13}}>{r.utilisationPct}%</td><TD>{fmt(r.idleCost)}</TD></TR>))}</tbody></table>
+    <div style={DARK_CARD}><SecTitle>Utilisation vs Idle by Asset</SecTitle><ResponsiveContainer width="100%" height={260}><BarChart data={chartData} barSize={28}><XAxis dataKey="asset" tick={{...chart.tick,fontSize:10}} axisLine={false} tickLine={false}/><YAxis tick={{...chart.tick,fontSize:10}} axisLine={false} tickLine={false} domain={[0,100]} tickFormatter={v=>`${v}%`}/><Tooltip formatter={(v:unknown)=>`${Number(v).toFixed(1)}%`} {...chart.tooltip}/><Legend wrapperStyle={chart.legend}/><Bar dataKey="utilisation" name="Utilised %" stackId="a" fill={chart.palette.success} radius={[0,0,0,0]}/><Bar dataKey="idle" name="Idle %" stackId="a" fill={chart.palette.neutral} radius={[4,4,0,0]}/></BarChart></ResponsiveContainer></div>
+    <div style={{...DARK_CARD,padding:0,overflow:'hidden',marginTop:16}}><div style={{padding:'16px 20px',borderBottom:'1px solid var(--border)'}}><SecTitle>Utilisation Register</SecTitle></div>
+      <table className="w-full text-sm"><THead cols={['Asset','Type','Scheduled Hrs','Operating Hrs','Idle Hrs','Utilisation %','Idle Cost']}/><tbody>{data.map((r,i)=>(<TR key={i} i={i}><td style={{padding:'10px 16px',fontWeight:600,color:T1,fontFamily:'var(--bb-font-mono)'}}>{r.asset}</td><TD>{r.type}</TD><TD>{r.scheduledHours}</TD><TD>{r.operatingHours}</TD><TD>{r.idleHours}</TD><td style={{padding:'10px 16px',fontWeight:700,color:r.utilisationPct<70?TONE.danger.fg:r.utilisationPct<80?TONE.warning.fg:TONE.success.fg,fontSize:13}}>{r.utilisationPct}%</td><TD>{fmt(r.idleCost)}</TD></TR>))}</tbody></table>
     </div></>
   );
 }
 
 function GeofenceTab({trips,stops,coloc}:{trips:TripRecord[];stops:StopRecord[];coloc:ColocRecord[]}) {
+  const chart = useDashboardChart();
   const [assetFilter,setAssetFilter]=useState('All');
   const assets=['All',...Array.from(new Set([...trips.map(t=>t.asset),...stops.map(s=>s.asset)])).sort()];
   const filteredTrips=assetFilter==='All'?trips:trips.filter(t=>t.asset===assetFilter);
@@ -208,15 +236,15 @@ function GeofenceTab({trips,stops,coloc}:{trips:TripRecord[];stops:StopRecord[];
       <KPI2 icon={<Clock size={16}/>} label="Total Hours Out" value={fmtH(totalHours)} accent="emerald"/>
       <KPI2 icon={<Activity size={16}/>} label="Co-location Events" value={String(colocEvents)} accent="amber"/>
     </div>
-    <div style={{display:'flex',gap:8,marginBottom:16,flexWrap:'wrap'}}>
-      {assets.map(a=>(<button key={a} onClick={()=>setAssetFilter(a)} style={{padding:'5px 14px',borderRadius:999,fontSize:11,fontWeight:600,cursor:'pointer',border:assetFilter===a?'1px solid rgba(129,140,248,0.4)':'1px solid rgba(255,255,255,0.08)',background:assetFilter===a?'rgba(129,140,248,0.2)':'rgba(255,255,255,0.03)',color:assetFilter===a?'#F5F7FA':'rgba(230,237,243,0.55)'}}>{a}</button>))}
+    <div role="group" aria-label="Filter by asset" style={{display:'flex',gap:8,marginBottom:16,flexWrap:'wrap'}}>
+      {assets.map(a=>(<button key={a} type="button" aria-pressed={assetFilter===a} onClick={()=>setAssetFilter(a)} style={{padding:'4px 12px',borderRadius:'var(--radius-md)',fontSize:12,fontWeight:600,cursor:'pointer',border:assetFilter===a?'1px solid var(--brand-brainbase-accent-border)':'1px solid var(--border-strong)',background:assetFilter===a?'var(--brand-brainbase-accent-muted)':'var(--bg-surface)',color:assetFilter===a?T1:T2}}>{a}</button>))}
     </div>
     <div className="grid grid-cols-3 gap-5 mb-5">
-      <div className="col-span-2" style={DARK_CARD}><SecTitle>Stops by Type</SecTitle><ResponsiveContainer width="100%" height={220}><BarChart data={stopByType} layout="vertical" barSize={14} margin={{left:120}}><XAxis type="number" tick={{fontSize:10,fill:'#94a3b8'}} axisLine={false} tickLine={false}/><YAxis type="category" dataKey="name" tick={{fontSize:10,fill:'#94a3b8'}} axisLine={false} tickLine={false} width={120}/><Tooltip contentStyle={TT}/><Bar dataKey="value" name="Stops" radius={[0,6,6,0]}>{stopByType.map((_,i)=><Cell key={i} fill={STOP_C[_.name]||'#94a3b8'}/>)}</Bar></BarChart></ResponsiveContainer></div>
-      {coloc.length>0&&(<div style={DARK_CARD}><SecTitle>Co-location Events</SecTitle><div className="space-y-3">{coloc.slice(0,5).map((c,i)=>(<div key={i} style={{borderBottom:'1px solid rgba(255,255,255,0.05)',paddingBottom:10}}><div style={{fontSize:12,fontWeight:600,color:'#F5F7FA',marginBottom:2}}>{c.area}</div><div style={{fontSize:11,color:'rgba(230,237,243,0.45)'}}>{c.vehicles}</div><div style={{fontSize:10,color:'rgba(230,237,243,0.30)',marginTop:2}}>{c.date} · {c.durationMins} min</div></div>))}</div></div>)}
+      <div className="col-span-2" style={DARK_CARD}><SecTitle>Stops by Type</SecTitle><ResponsiveContainer width="100%" height={220}><BarChart data={stopByType} layout="vertical" barSize={14} margin={{left:120}}><XAxis type="number" tick={{...chart.tick,fontSize:10}} axisLine={false} tickLine={false}/><YAxis type="category" dataKey="name" tick={{...chart.tick,fontSize:10}} axisLine={false} tickLine={false} width={120}/><Tooltip {...chart.tooltip}/><Bar dataKey="value" name="Stops" radius={[0,6,6,0]}>{stopByType.map((_,i)=><Cell key={i} fill={pc(chart,STOP_C[_.name])}/>)}</Bar></BarChart></ResponsiveContainer></div>
+      {coloc.length>0&&(<div style={DARK_CARD}><SecTitle>Co-location Events</SecTitle><div className="space-y-3">{coloc.slice(0,5).map((c,i)=>(<div key={i} style={{borderBottom:'1px solid var(--border)',paddingBottom:10}}><div style={{fontSize:12,fontWeight:600,color:T1,marginBottom:2}}>{c.area}</div><div style={{fontSize:11,color:T2}}>{c.vehicles}</div><div style={{fontSize:11,color:T3,marginTop:2}}>{c.date} · {c.durationMins} min</div></div>))}</div></div>)}
     </div>
-    <div style={{...DARK_CARD,padding:0,overflow:'hidden',marginBottom:20}}><div style={{padding:'16px 20px',borderBottom:'1px solid rgba(255,255,255,0.07)'}}><SecTitle>Daily Trip Log</SecTitle></div><div className="overflow-x-auto"><table className="w-full text-sm whitespace-nowrap"><THead cols={['Asset','Driver','Date','Yard Dep.','Yard Ret.','Hours Out','Stops','Areas Visited']}/><tbody>{filteredTrips.map((r,i)=>(<TR key={i} i={i}><td style={{padding:'10px 16px',fontWeight:600,color:'#F5F7FA'}}>{r.asset}</td><td style={{padding:'10px 16px',color:'rgba(230,237,243,0.55)'}}>{r.driver}</td><TD>{r.date}</TD><td style={{padding:'10px 16px',fontWeight:500,color:'#34d399'}}>{r.yardDep}</td><td style={{padding:'10px 16px',fontWeight:500,color:'#60a5fa'}}>{r.yardRet}</td><TD>{r.hoursOut} hrs</TD><td style={{padding:'10px 16px',textAlign:'center',color:'rgba(230,237,243,0.55)'}}>{r.stopsMade}</td><td style={{padding:'10px 16px',fontSize:12,color:'rgba(230,237,243,0.35)'}}>{r.areasVisited}</td></TR>))}</tbody></table></div></div>
-    <div style={{...DARK_CARD,padding:0,overflow:'hidden'}}><div style={{padding:'16px 20px',borderBottom:'1px solid rgba(255,255,255,0.07)'}}><SecTitle>Stop Event Log</SecTitle></div><div className="overflow-x-auto max-h-96 overflow-y-auto"><table className="w-full text-sm whitespace-nowrap"><THead cols={['Asset','Driver','Date','Area / Location','Arrival','Departure','Duration','Stop Type']}/><tbody>{filteredStops.map((r,i)=>(<TR key={i} i={i}><td style={{padding:'8px 16px',fontWeight:600,color:'#F5F7FA'}}>{r.asset}</td><td style={{padding:'8px 16px',color:'rgba(230,237,243,0.55)'}}>{r.driver}</td><TD>{r.date}</TD><TD>{r.area}</TD><td style={{padding:'8px 16px',color:'rgba(230,237,243,0.45)'}}>{r.arrival}</td><td style={{padding:'8px 16px',color:'rgba(230,237,243,0.45)'}}>{r.departure}</td><td style={{padding:'8px 16px',fontWeight:500,color:'rgba(230,237,243,0.55)'}}>{r.durationMins} min</td><td className="px-5 py-2.5"><span className="px-2 py-0.5 rounded-full text-xs font-medium" style={{background:(STOP_C[r.stopType]||'#94a3b8')+'20',color:STOP_C[r.stopType]||'#64748b'}}>{r.stopType}</span></td></TR>))}</tbody></table></div></div></>
+    <div style={{...DARK_CARD,padding:0,overflow:'hidden',marginBottom:20}}><div style={{padding:'16px 20px',borderBottom:'1px solid var(--border)'}}><SecTitle>Daily Trip Log</SecTitle></div><div className="overflow-x-auto"><table className="w-full text-sm whitespace-nowrap"><THead cols={['Asset','Driver','Date','Yard Dep.','Yard Ret.','Hours Out','Stops','Areas Visited']}/><tbody>{filteredTrips.map((r,i)=>(<TR key={i} i={i}><td style={{padding:'10px 16px',fontWeight:600,color:T1,fontFamily:'var(--bb-font-mono)'}}>{r.asset}</td><td style={{padding:'10px 16px',color:T2}}>{r.driver}</td><TD>{r.date}</TD><td style={{padding:'10px 16px',fontWeight:500,color:TONE.success.fg}}>{r.yardDep}</td><td style={{padding:'10px 16px',fontWeight:500,color:TONE.info.fg}}>{r.yardRet}</td><TD>{r.hoursOut} hrs</TD><td style={{padding:'10px 16px',textAlign:'center',color:T2}}>{r.stopsMade}</td><td style={{padding:'10px 16px',fontSize:12,color:T3}}>{r.areasVisited}</td></TR>))}</tbody></table></div></div>
+    <div style={{...DARK_CARD,padding:0,overflow:'hidden'}}><div style={{padding:'16px 20px',borderBottom:'1px solid var(--border)'}}><SecTitle>Stop Event Log</SecTitle></div><div className="overflow-x-auto max-h-96 overflow-y-auto"><table className="w-full text-sm whitespace-nowrap"><THead cols={['Asset','Driver','Date','Area / Location','Arrival','Departure','Duration','Stop Type']}/><tbody>{filteredStops.map((r,i)=>(<TR key={i} i={i}><td style={{padding:'8px 16px',fontWeight:600,color:T1,fontFamily:'var(--bb-font-mono)'}}>{r.asset}</td><td style={{padding:'8px 16px',color:T2}}>{r.driver}</td><TD>{r.date}</TD><TD>{r.area}</TD><td style={{padding:'8px 16px',color:T2}}>{r.arrival}</td><td style={{padding:'8px 16px',color:T2}}>{r.departure}</td><td style={{padding:'8px 16px',fontWeight:500,color:T2}}>{r.durationMins} min</td><td className="px-5 py-2.5"><DotChip label={r.stopType} color={pc(chart,STOP_C[r.stopType])}/></td></TR>))}</tbody></table></div></div></>
   );
 }
 
@@ -267,6 +295,8 @@ const DEFAULT_ACTIONS: Action[] = [
 
 export default function FleetClient({ dbAssets = [], uploadMeta = null, isDemo = false }: { dbAssets?: Asset[]; uploadMeta?: FleetUploadMeta | null; isDemo?: boolean }) {
   const router = useRouter();
+  const chart = useDashboardChart();
+  const uploadRef = useRef<HTMLInputElement>(null);
   const [assets,  setAssets]  = useState<Asset[]>([]);
   const [svc,     setSvc]     = useState<SvcRecord[]>([]);
   const [hr,      setHr]      = useState<HRRecord[]>([]);
@@ -352,34 +382,37 @@ export default function FleetClient({ dbAssets = [], uploadMeta = null, isDemo =
     { label: 'Total Depreciation', value: fmt(totalDepr),           sub: 'This period',              icon: '📉', status: 'normal' },
   ] : [];
 
-  const P = { bg:'#07080B', card:'rgba(255,255,255,0.04)', indigo:'#818cf8', purple:'#a78bfa', cyan:'#22D3EE' };
-  const NEW_C = ['#818cf8','#22D3EE','#F59E0B','#EF4444','#10B981','rgba(255,255,255,0.2)'];
-  const TT2 = { borderRadius:14, border:'1px solid rgba(255,255,255,0.08)', boxShadow:'0 8px 30px rgba(0,0,0,0.5)', fontSize:12, background:'#0d0f14' };
-  const card: React.CSSProperties = { background:'rgba(255,255,255,0.04)', borderRadius:16, border:'1px solid rgba(255,255,255,0.07)', padding:24 };
+  const card: React.CSSProperties = { background:'var(--bg-surface)', borderRadius:'var(--radius-lg)', border:'1px solid var(--border)', padding:24 };
+  const cardTitle: React.CSSProperties = { fontSize:11, fontWeight:600, color:T2, textTransform:'uppercase', letterSpacing:'0.06em', margin:0 };
+  const cardSub: React.CSSProperties = { fontSize:11, color:T3, margin:'3px 0 0' };
+  const costColor = (key: string) => pc(chart, C[key]);
+  const cpkTone = (cpk: number): Tone | null => cpk>avgCpk*1.1 ? 'danger' : cpk>avgCpk ? 'warning' : 'success';
+  const tdc: React.CSSProperties = { padding:'10px 14px', color:T2 };
+  const tfc: React.CSSProperties = { padding:'10px 14px', color:T1, fontSize:11, fontVariantNumeric:'tabular-nums' };
 
   const overviewContent = assets.length === 0 ? (
     <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:'80px 0', textAlign:'center' }}>
-      <div style={{ background:'rgba(255,255,255,0.06)', padding:20, borderRadius:20, marginBottom:16 }}><Truck size={32} color="rgba(255,255,255,0.3)"/></div>
-      <h2 style={{ fontSize:18, fontWeight:700, color:'#F5F7FA', marginBottom:8 }}>No Fleet Data Loaded</h2>
-      <p style={{ fontSize:13, color:'rgba(230,237,243,0.45)', marginBottom:20 }}>Upload your multi-sheet Excel file to activate live analytics.</p>
-      <label style={{ background:'rgba(129,140,248,0.15)', border:'1px solid rgba(129,140,248,0.3)', color:'#F5F7FA', padding:'10px 20px', borderRadius:10, fontSize:13, fontWeight:600, cursor:'pointer', display:'flex', alignItems:'center', gap:8 }}>
-        <Upload size={14}/> Upload Fleet Data <input type="file" hidden accept=".xlsx,.xls" onChange={handleUpload}/>
-      </label>
+      <div aria-hidden="true" style={{ background:'var(--bg-sunken)', border:'1px solid var(--border)', padding:20, borderRadius:'var(--radius-lg)', marginBottom:16, color:T3 }}><Truck size={32}/></div>
+      <h2 style={{ fontSize:18, fontWeight:700, color:T1, marginBottom:8 }}>No Fleet Data Loaded</h2>
+      <p style={{ fontSize:13, color:T2, marginBottom:20 }}>Upload your multi-sheet Excel file to activate live analytics.</p>
+      <button type="button" onClick={() => uploadRef.current?.click()} {...buttonProps('primary')}>
+        <Upload size={14} aria-hidden="true"/> Upload Fleet Data
+      </button>
+      <input ref={uploadRef} type="file" hidden accept=".xlsx,.xls" onChange={handleUpload} aria-label="Upload fleet data file"/>
     </div>
   ) : (
     <>
       {!isDemo && uploadMeta && <FleetDataBanner meta={uploadMeta} />}
       {isDemo && <FleetDemoBanner />}
       {!isDemo && <HlnaInsightBanner dashboardType="fleet" />}
-      <div style={{ display:'flex', gap:6, marginBottom:20, flexWrap:'wrap' }}>
+      <div role="group" aria-label="Filter by department" style={{ display:'flex', gap:6, marginBottom:20, flexWrap:'wrap' }}>
         {depts.map(d => (
-          <button key={d} onClick={() => setDept(d)} style={{
-            padding:'6px 16px', borderRadius:999, fontSize:12, fontWeight:600, cursor:'pointer',
-            border: dept===d ? '1px solid rgba(129,140,248,0.4)' : '1px solid rgba(255,255,255,0.08)',
-            background: dept===d ? 'rgba(129,140,248,0.2)' : 'rgba(255,255,255,0.03)',
-            color: dept===d ? '#F5F7FA' : 'rgba(230,237,243,0.55)',
-            boxShadow: dept===d ? '0 4px 12px rgba(129,140,248,0.2)' : 'none',
-            transition:'all 0.15s ease',
+          <button key={d} type="button" aria-pressed={dept===d} onClick={() => setDept(d)} style={{
+            padding:'5px 14px', borderRadius:'var(--radius-md)', fontSize:12, fontWeight:600, cursor:'pointer',
+            border: dept===d ? '1px solid var(--brand-brainbase-accent-border)' : '1px solid var(--border-strong)',
+            background: dept===d ? 'var(--brand-brainbase-accent-muted)' : 'var(--bg-surface)',
+            color: dept===d ? T1 : T2,
+            transition:'background-color 0.12s ease, border-color 0.12s ease',
           }}>{d}</button>
         ))}
       </div>
@@ -388,53 +421,53 @@ export default function FleetClient({ dbAssets = [], uploadMeta = null, isDemo =
         <div style={card}>
           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:16 }}>
             <div>
-              <p style={{ fontSize:11, fontWeight:700, color:'rgba(230,237,243,0.4)', textTransform:'uppercase', letterSpacing:'0.08em', margin:0 }}>Operational Cost by Asset</p>
-              <p style={{ fontSize:11, color:'rgba(230,237,243,0.3)', margin:'3px 0 0' }}>{dept==='All'?'All departments':dept} · stacked by category</p>
+              <p style={cardTitle}>Operational Cost by Asset</p>
+              <p style={cardSub}>{dept==='All'?'All departments':dept} · stacked by category</p>
             </div>
-            <span style={{ fontSize:13, fontWeight:800, color:P.purple }}>{fmt(total)}</span>
+            <span style={{ fontSize:13, fontWeight:700, color:T1, fontVariantNumeric:'tabular-nums' }}>{fmt(total)}</span>
           </div>
           <ResponsiveContainer width="100%" height={300}>
             <BarChart data={view} barSize={26} margin={{left:10,right:10}}>
-              <XAxis dataKey="id" tick={{fontSize:11,fill:'#94a3b8'}} axisLine={false} tickLine={false}/>
-              <YAxis tick={{fontSize:10,fill:'#94a3b8'}} axisLine={false} tickLine={false} tickFormatter={v=>`$${(v/1000).toFixed(0)}k`}/>
-              <Tooltip formatter={(v:unknown)=>fmt(Number(v))} contentStyle={TT2}/>
-              <Legend wrapperStyle={{fontSize:11,paddingTop:14}}/>
-              <Bar dataKey="wages"       stackId="a" fill={NEW_C[0]} name="Wages"/>
-              <Bar dataKey="fuel"        stackId="a" fill={NEW_C[1]} name="Fuel"/>
-              <Bar dataKey="maintenance" stackId="a" fill={NEW_C[2]} name="Maintenance"/>
-              <Bar dataKey="repairs"     stackId="a" fill={NEW_C[3]} name="Repairs"/>
-              <Bar dataKey="insurance"   stackId="a" fill={NEW_C[4]} name="Insurance"/>
-              <Bar dataKey="rego"        stackId="a" fill={NEW_C[5]} name="Rego" radius={[5,5,0,0]}/>
+              <XAxis dataKey="id" tick={chart.tick} axisLine={false} tickLine={false}/>
+              <YAxis tick={{...chart.tick,fontSize:10}} axisLine={false} tickLine={false} tickFormatter={v=>`$${(v/1000).toFixed(0)}k`}/>
+              <Tooltip formatter={(v:unknown)=>fmt(Number(v))} {...chart.tooltip}/>
+              <Legend wrapperStyle={{...chart.legend,paddingTop:14}}/>
+              <Bar dataKey="wages"       stackId="a" fill={costColor('wages')} name="Wages"/>
+              <Bar dataKey="fuel"        stackId="a" fill={costColor('fuel')} name="Fuel"/>
+              <Bar dataKey="maintenance" stackId="a" fill={costColor('maintenance')} name="Maintenance"/>
+              <Bar dataKey="repairs"     stackId="a" fill={costColor('repairs')} name="Repairs"/>
+              <Bar dataKey="insurance"   stackId="a" fill={costColor('insurance')} name="Insurance"/>
+              <Bar dataKey="rego"        stackId="a" fill={costColor('rego')} name="Rego" radius={[5,5,0,0]}/>
             </BarChart>
           </ResponsiveContainer>
         </div>
 
         <div style={{...card, display:'flex', flexDirection:'column'}}>
-          <p style={{ fontSize:11, fontWeight:700, color:'rgba(230,237,243,0.4)', textTransform:'uppercase', letterSpacing:'0.08em', margin:'0 0 4px' }}>Cost Category Split</p>
+          <p style={{ ...cardTitle, margin:'0 0 4px' }}>Cost Category Split</p>
           <div style={{ position:'relative' }}>
             <ResponsiveContainer width="100%" height={190}>
               <PieChart>
-                <Pie data={pieData} cx="50%" cy="50%" innerRadius={56} outerRadius={84} dataKey="value" paddingAngle={3}>
-                  {pieData.map((_,i)=><Cell key={i} fill={NEW_C[i%6]}/>)}
+                <Pie data={pieData} cx="50%" cy="50%" innerRadius={56} outerRadius={84} dataKey="value" paddingAngle={3} stroke={chart.palette.tooltipBg}>
+                  {pieData.map(d=><Cell key={d.key} fill={costColor(d.key)}/>)}
                 </Pie>
-                <Tooltip formatter={(v:unknown)=>fmt(Number(v))} contentStyle={TT2}/>
+                <Tooltip formatter={(v:unknown)=>fmt(Number(v))} {...chart.tooltip}/>
               </PieChart>
             </ResponsiveContainer>
             <div style={{ position:'absolute', top:'50%', left:'50%', transform:'translate(-50%,-50%)', textAlign:'center', pointerEvents:'none' }}>
-              <div style={{ fontSize:13, fontWeight:800, color:'#F5F7FA', lineHeight:1.1 }}>{fmt(total)}</div>
-              <div style={{ fontSize:9, color:'rgba(230,237,243,0.4)', fontWeight:700, letterSpacing:'0.06em' }}>TOTAL</div>
+              <div style={{ fontSize:13, fontWeight:700, color:T1, lineHeight:1.1 }}>{fmt(total)}</div>
+              <div style={{ fontSize:10, color:T3, fontWeight:600, letterSpacing:'0.06em' }}>TOTAL</div>
             </div>
           </div>
           <div style={{ display:'flex', flexDirection:'column', gap:7, marginTop:'auto' }}>
-            {[...pieData].sort((a,b)=>b.value-a.value).map((d,i)=>(
+            {[...pieData].sort((a,b)=>b.value-a.value).map(d=>(
               <div key={d.name} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', fontSize:11 }}>
-                <span style={{ display:'flex', alignItems:'center', gap:7, color:'rgba(230,237,243,0.55)' }}>
-                  <span style={{ width:8, height:8, borderRadius:'50%', background:NEW_C[i%6], flexShrink:0 }}/>
+                <span style={{ display:'flex', alignItems:'center', gap:7, color:T2 }}>
+                  <span aria-hidden="true" style={{ width:8, height:8, borderRadius:'50%', background:costColor(d.key), flexShrink:0 }}/>
                   {d.name}
                 </span>
                 <div style={{ textAlign:'right' }}>
-                  <span style={{ fontWeight:700, color:'#F5F7FA' }}>{((d.value/total)*100).toFixed(1)}%</span>
-                  <span style={{ fontSize:10, color:'rgba(230,237,243,0.35)', marginLeft:6 }}>{fmt(d.value)}</span>
+                  <span style={{ fontWeight:700, color:T1 }}>{((d.value/total)*100).toFixed(1)}%</span>
+                  <span style={{ fontSize:11, color:T3, marginLeft:6 }}>{fmt(d.value)}</span>
                 </div>
               </div>
             ))}
@@ -444,14 +477,14 @@ export default function FleetClient({ dbAssets = [], uploadMeta = null, isDemo =
 
       <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:16, marginBottom:16 }}>
         <div style={card}>
-          <p style={{ fontSize:11, fontWeight:700, color:'rgba(230,237,243,0.4)', textTransform:'uppercase', letterSpacing:'0.08em', margin:'0 0 14px' }}>Cost by Department</p>
+          <p style={{ ...cardTitle, margin:'0 0 14px' }}>Cost by Department</p>
           <ResponsiveContainer width="100%" height={200}>
             <BarChart data={deptData} layout="vertical" barSize={14} margin={{left:100,right:20}}>
-              <XAxis type="number" tick={{fontSize:10,fill:'#94a3b8'}} axisLine={false} tickLine={false} tickFormatter={v=>`$${(v/1000).toFixed(0)}k`}/>
-              <YAxis type="category" dataKey="name" tick={{fontSize:10,fill:'#475569'}} axisLine={false} tickLine={false} width={100}/>
-              <Tooltip formatter={(v:unknown)=>fmt(Number(v))} contentStyle={TT2}/>
+              <XAxis type="number" tick={{...chart.tick,fontSize:10}} axisLine={false} tickLine={false} tickFormatter={v=>`$${(v/1000).toFixed(0)}k`}/>
+              <YAxis type="category" dataKey="name" tick={{...chart.tick,fontSize:10}} axisLine={false} tickLine={false} width={100}/>
+              <Tooltip formatter={(v:unknown)=>fmt(Number(v))} {...chart.tooltip}/>
               <Bar dataKey="cost" name="Cost" radius={[0,6,6,0]}>
-                {deptData.map((d,i)=><Cell key={i} fill={DEPT_C[d.name]||'#94a3b8'}/>)}
+                {deptData.map((d,i)=><Cell key={i} fill={pc(chart,DEPT_C[d.name])}/>)}
               </Bar>
             </BarChart>
           </ResponsiveContainer>
@@ -459,81 +492,81 @@ export default function FleetClient({ dbAssets = [], uploadMeta = null, isDemo =
 
         <div style={card}>
           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:14 }}>
-            <p style={{ fontSize:11, fontWeight:700, color:'rgba(230,237,243,0.4)', textTransform:'uppercase', letterSpacing:'0.08em', margin:0 }}>Assets to Watch</p>
-            <span style={{ fontSize:10, padding:'2px 10px', borderRadius:20, background:'rgba(239,68,68,0.12)', color:'#f87171', fontWeight:700, border:'1px solid rgba(239,68,68,0.2)' }}>
-              {effData.filter(d=>d.cpk>avgCpk*1.1).length} over threshold
-            </span>
+            <p style={cardTitle}>Assets to Watch</p>
+            <Badge label={`${effData.filter(d=>d.cpk>avgCpk*1.1).length} over threshold`} tone="danger"/>
           </div>
-          {[...view].sort((a,b)=>b.costPerKm-a.costPerKm).slice(0,5).map((a,i)=>(
-            <div key={a.id} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'9px 0', borderBottom: i<4?'1px solid rgba(255,255,255,0.05)':'none' }}>
+          {[...view].sort((a,b)=>b.costPerKm-a.costPerKm).slice(0,5).map((a,i)=>{
+            const tone = cpkTone(a.costPerKm) ?? 'success';
+            return (
+            <div key={a.id} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'9px 0', borderBottom: i<4?'1px solid var(--border)':'none' }}>
               <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-                <div style={{ width:34, height:34, borderRadius:10, background:a.costPerKm>avgCpk*1.1?'rgba(239,68,68,0.1)':a.costPerKm>avgCpk?'rgba(245,158,11,0.08)':'rgba(16,185,129,0.08)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:16, flexShrink:0 }}>
+                <div aria-hidden="true" style={{ width:34, height:34, borderRadius:'var(--radius-md)', background:TONE[tone].muted, display:'flex', alignItems:'center', justifyContent:'center', fontSize:16, flexShrink:0 }}>
                   {a.costPerKm>avgCpk*1.1?'⚠️':a.costPerKm>avgCpk?'⏱':'✅'}
                 </div>
                 <div>
-                  <div style={{ fontSize:12, fontWeight:700, color:'#F5F7FA' }}>{a.id} <span style={{ fontSize:10, color:'rgba(230,237,243,0.4)', fontWeight:400 }}>{a.make}</span></div>
-                  <div style={{ fontSize:10, color:'rgba(230,237,243,0.4)' }}>{a.department} · {a.year}</div>
+                  <div style={{ fontSize:12, fontWeight:700, color:T1 }}><span style={{ fontFamily:'var(--bb-font-mono)' }}>{a.id}</span> <span style={{ fontSize:11, color:T3, fontWeight:400 }}>{a.make}</span></div>
+                  <div style={{ fontSize:11, color:T3 }}>{a.department} · {a.year}</div>
                 </div>
               </div>
               <div style={{ textAlign:'right' }}>
-                <div style={{ fontSize:13, fontWeight:800, color:a.costPerKm>avgCpk*1.1?'#f87171':a.costPerKm>avgCpk?'#fbbf24':'#4ade80' }}>${a.costPerKm.toFixed(2)}/km</div>
-                <div style={{ fontSize:9, color:'rgba(230,237,243,0.35)' }}>fleet avg ${avgCpk.toFixed(2)}</div>
+                <div style={{ fontSize:13, fontWeight:700, color:TONE[tone].fg, fontVariantNumeric:'tabular-nums' }}>${a.costPerKm.toFixed(2)}/km</div>
+                <div style={{ fontSize:11, color:T3 }}>fleet avg ${avgCpk.toFixed(2)}</div>
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 
       <div style={{...card, marginBottom:16}}>
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
           <div>
-            <p style={{ fontSize:11, fontWeight:700, color:'rgba(230,237,243,0.4)', textTransform:'uppercase', letterSpacing:'0.08em', margin:0 }}>Cost per KM by Asset</p>
-            <p style={{ fontSize:11, color:'rgba(230,237,243,0.3)', margin:'3px 0 0' }}>Dashed line = fleet average ${avgCpk.toFixed(2)}/km</p>
+            <p style={cardTitle}>Cost per KM by Asset</p>
+            <p style={cardSub}>Dashed line = fleet average ${avgCpk.toFixed(2)}/km</p>
           </div>
-          <span style={{ fontSize:11, padding:'3px 10px', borderRadius:20, background:`${P.purple}12`, color:P.purple, fontWeight:700, border:`1px solid ${P.purple}30` }}>
-            {effData.filter(d=>d.cpk>avgCpk*1.1).length} assets above threshold
-          </span>
+          <Badge label={`${effData.filter(d=>d.cpk>avgCpk*1.1).length} assets above threshold`} tone="warning"/>
         </div>
         <ResponsiveContainer width="100%" height={200}>
           <BarChart data={effData} barSize={28} margin={{left:10,right:10}}>
-            <XAxis dataKey="id" tick={{fontSize:11,fill:'#94a3b8'}} axisLine={false} tickLine={false}/>
-            <YAxis tick={{fontSize:10,fill:'#94a3b8'}} axisLine={false} tickLine={false} tickFormatter={v=>`$${v}`}/>
-            <Tooltip formatter={(v:unknown)=>[`$${Number(v).toFixed(2)}/km`,'Cost per KM']} contentStyle={TT2}/>
-            <ReferenceLine y={+avgCpk.toFixed(2)} stroke="#94a3b8" strokeDasharray="5 4" label={{ value:'avg', fill:'#94a3b8', fontSize:10 }}/>
+            <XAxis dataKey="id" tick={chart.tick} axisLine={false} tickLine={false}/>
+            <YAxis tick={{...chart.tick,fontSize:10}} axisLine={false} tickLine={false} tickFormatter={v=>`$${v}`}/>
+            <Tooltip formatter={(v:unknown)=>[`$${Number(v).toFixed(2)}/km`,'Cost per KM']} {...chart.tooltip}/>
+            <ReferenceLine y={+avgCpk.toFixed(2)} stroke={chart.palette.axis} strokeDasharray="5 4" label={{ value:'avg', fill:chart.palette.axis, fontSize:10 }}/>
             <Bar dataKey="cpk" name="$/km" radius={[6,6,0,0]}>
-              {effData.map((d,i)=><Cell key={i} fill={d.cpk>avgCpk*1.1?'#EF4444':d.cpk<avgCpk*0.9?'#10B981':P.purple}/>)}
+              {effData.map((d,i)=><Cell key={i} fill={d.cpk>avgCpk*1.1?chart.palette.danger:d.cpk<avgCpk*0.9?chart.palette.success:chart.palette.primary}/>)}
             </Bar>
           </BarChart>
         </ResponsiveContainer>
       </div>
 
-      <div style={{ background:'linear-gradient(135deg, #1e1b4b 0%, #312E81 100%)', color:'#fff', borderRadius:16, padding:'20px 28px', marginBottom:16, display:'flex', alignItems:'center', justifyContent:'space-between', gap:24 }}>
+      <div style={{ background:'var(--bg-sunken)', border:'1px solid var(--border)', borderRadius:'var(--radius-lg)', padding:'20px 28px', marginBottom:16, display:'flex', alignItems:'center', justifyContent:'space-between', gap:24, flexWrap:'wrap' }}>
         <div>
-          <p style={{ fontSize:10, color:'rgba(255,255,255,0.45)', textTransform:'uppercase', letterSpacing:'0.1em', fontWeight:700, margin:'0 0 6px' }}>Fleet Summary · FY2025-26</p>
-          <p style={{ fontSize:13, color:'rgba(255,255,255,0.88)', lineHeight:1.6, margin:0, maxWidth:800 }}>
-            <strong style={{color:'#fff'}}>{view.length} assets</strong> · total cost <strong style={{color:P.cyan}}>{fmt(total)}</strong> across <strong style={{color:'#fff'}}>{fmtK(totalKm)}</strong> at <strong style={{color:avgCpk>2.5?'#FCA5A5':P.cyan}}>${avgCpk.toFixed(2)}/km</strong>.
-            {highest && <> Highest cost: <strong style={{color:'#FCA5A5'}}>{highest.id}</strong> at {fmt(highest.total)}.</>}
-            {topCat && <> <strong style={{color:P.cyan}}>{topCat.name}</strong> drives {((topCat.value/total)*100).toFixed(1)}% of spend.</>}
+          <p style={{ fontSize:11, color:T3, textTransform:'uppercase', letterSpacing:'0.06em', fontWeight:600, margin:'0 0 6px' }}>Fleet Summary · FY2025-26</p>
+          <p style={{ fontSize:13, color:T2, lineHeight:1.6, margin:0, maxWidth:800 }}>
+            <strong style={{color:T1}}>{view.length} assets</strong> · total cost <strong style={{color:T1}}>{fmt(total)}</strong> across <strong style={{color:T1}}>{fmtK(totalKm)}</strong> at <strong style={{color:avgCpk>2.5?TONE.danger.fg:T1}}>${avgCpk.toFixed(2)}/km</strong>.
+            {highest && <> Highest cost: <strong style={{color:TONE.danger.fg}}>{highest.id}</strong> at {fmt(highest.total)}.</>}
+            {topCat && <> <strong style={{color:T1}}>{topCat.name}</strong> drives {((topCat.value/total)*100).toFixed(1)}% of spend.</>}
           </p>
         </div>
         <div style={{ display:'flex', gap:20, flexShrink:0 }}>
           {[{label:'Defects',value:String(totalDefects),alert:totalDefects>2},{label:'Over Budget',value:effData.filter(d=>d.cpk>avgCpk*1.1).length+' assets',alert:true}].map(m=>(
             <div key={m.label} style={{ textAlign:'center' }}>
-              <div style={{ fontSize:22, fontWeight:800, color:m.alert?'#FCA5A5':'#fff' }}>{m.value}</div>
-              <div style={{ fontSize:9, color:'rgba(255,255,255,0.4)', textTransform:'uppercase', letterSpacing:'0.07em' }}>{m.label}</div>
+              <div style={{ fontSize:22, fontWeight:700, color:m.alert?TONE.danger.fg:T1, fontVariantNumeric:'tabular-nums' }}>{m.value}</div>
+              <div style={{ fontSize:11, color:T3, textTransform:'uppercase', letterSpacing:'0.06em' }}>{m.label}</div>
             </div>
           ))}
         </div>
       </div>
 
       <div style={{...card, padding:0, overflow:'hidden'}}>
-        <div style={{ padding:'16px 24px', borderBottom:'1px solid rgba(255,255,255,0.07)', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+        <div style={{ padding:'16px 24px', borderBottom:'1px solid var(--border)', display:'flex', justifyContent:'space-between', alignItems:'center', gap:12, flexWrap:'wrap' }}>
           <div>
-            <p style={{ fontSize:11, fontWeight:700, color:'rgba(230,237,243,0.4)', textTransform:'uppercase', letterSpacing:'0.08em', margin:0 }}>Asset Register</p>
-            <p style={{ fontSize:11, color:'rgba(230,237,243,0.3)', margin:'2px 0 0' }}>{view.length} assets · {dept==='All'?'all departments':dept}</p>
+            <p style={cardTitle}>Asset Register</p>
+            <p style={{ ...cardSub, margin:'2px 0 0' }}>{view.length} assets · {dept==='All'?'all departments':dept}</p>
           </div>
           <input
-            style={{ fontSize:12, border:'1px solid rgba(255,255,255,0.1)', borderRadius:9, padding:'7px 13px', outline:'none', color:'#F5F7FA', background:'rgba(255,255,255,0.05)', width:220 }}
+            aria-label="Search asset or driver"
+            style={{ fontSize:12, border:'1px solid var(--border-strong)', borderRadius:'var(--radius-md)', padding:'7px 12px', color:T1, background:'var(--bg-raised)', width:220 }}
             placeholder="Search asset or driver…"
             value={search}
             onChange={e=>setSearch(e.target.value)}
@@ -542,46 +575,46 @@ export default function FleetClient({ dbAssets = [], uploadMeta = null, isDemo =
         <div style={{ overflowX:'auto' }}>
           <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12, whiteSpace:'nowrap' }}>
             <thead>
-              <tr style={{ background:'rgba(255,255,255,0.04)', borderBottom:'1px solid rgba(255,255,255,0.06)' }}>
+              <tr style={{ background:'var(--bg-sunken)', borderBottom:'1px solid var(--border)' }}>
                 {['Asset','Type','Make','Yr','Department','Driver','KM','Wages','Fuel','Maint.','Repairs','Insur.','Rego','Svcs','Defects','$/km','Total'].map(h=>(
-                  <th key={h} style={{ padding:'10px 14px', textAlign:'left', fontSize:10, color:'rgba(255,255,255,0.35)', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.06em' }}>{h}</th>
+                  <th key={h} scope="col" style={{ padding:'10px 14px', textAlign:'left', fontSize:11, color:T2, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.06em' }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {view.map((a,i)=>(
-                <tr key={a.id} style={{ borderBottom:'1px solid rgba(255,255,255,0.04)', background:i%2===1?'rgba(255,255,255,0.015)':'transparent', transition:'background 0.1s' }}>
-                  <td style={{ padding:'10px 14px', fontWeight:700, color:'#818cf8' }}>{a.id}</td>
-                  <td style={{ padding:'10px 14px', color:'rgba(230,237,243,0.55)' }}>{a.type}</td>
-                  <td style={{ padding:'10px 14px', color:'rgba(230,237,243,0.55)' }}>{a.make}</td>
-                  <td style={{ padding:'10px 14px', color:'rgba(230,237,243,0.55)' }}>{a.year}</td>
-                  <td style={{ padding:'10px 14px' }}><span style={{ padding:'2px 8px', borderRadius:20, fontSize:10, fontWeight:600, background:(DEPT_C[a.department]||'#94a3b8')+'20', color:DEPT_C[a.department]||'rgba(230,237,243,0.55)' }}>{a.department}</span></td>
-                  <td style={{ padding:'10px 14px', color:'rgba(230,237,243,0.7)' }}>{a.driver}</td>
-                  <td style={{ padding:'10px 14px', color:'rgba(230,237,243,0.55)' }}>{a.km.toLocaleString()}</td>
-                  <td style={{ padding:'10px 14px', color:'rgba(230,237,243,0.55)' }}>{fmt(a.wages)}</td>
-                  <td style={{ padding:'10px 14px', color:'rgba(230,237,243,0.55)' }}>{fmt(a.fuel)}</td>
-                  <td style={{ padding:'10px 14px', color:'rgba(230,237,243,0.55)' }}>{fmt(a.maintenance)}</td>
-                  <td style={{ padding:'10px 14px', color:'rgba(230,237,243,0.55)' }}>{fmt(a.repairs)}</td>
-                  <td style={{ padding:'10px 14px', color:'rgba(230,237,243,0.55)' }}>{fmt(a.insurance)}</td>
-                  <td style={{ padding:'10px 14px', color:'rgba(230,237,243,0.55)' }}>{fmt(a.rego)}</td>
-                  <td style={{ padding:'10px 14px', textAlign:'center', color:'rgba(230,237,243,0.55)' }}>{a.services}</td>
-                  <td style={{ padding:'10px 14px', textAlign:'center', fontWeight:700, color:a.defects>2?'#f87171':a.defects>0?'#fbbf24':'#4ade80' }}>{a.defects}</td>
-                  <td style={{ padding:'10px 14px', fontWeight:700, color:a.costPerKm>avgCpk*1.1?'#f87171':a.costPerKm<avgCpk*0.9?'#4ade80':'rgba(230,237,243,0.55)' }}>${a.costPerKm.toFixed(2)}</td>
-                  <td style={{ padding:'10px 14px', fontWeight:800, color:'#F5F7FA' }}>{fmt(a.total)}</td>
+              {view.map(a=>(
+                <tr key={a.id} style={{ borderBottom:'1px solid var(--border)' }}>
+                  <td style={{ padding:'10px 14px', fontWeight:700, color:T1, fontFamily:'var(--bb-font-mono)' }}>{a.id}</td>
+                  <td style={tdc}>{a.type}</td>
+                  <td style={tdc}>{a.make}</td>
+                  <td style={tdc}>{a.year}</td>
+                  <td style={{ padding:'10px 14px' }}><DotChip label={a.department} color={pc(chart,DEPT_C[a.department])}/></td>
+                  <td style={{ padding:'10px 14px', color:T1 }}>{a.driver}</td>
+                  <td style={tdc}>{a.km.toLocaleString()}</td>
+                  <td style={tdc}>{fmt(a.wages)}</td>
+                  <td style={tdc}>{fmt(a.fuel)}</td>
+                  <td style={tdc}>{fmt(a.maintenance)}</td>
+                  <td style={tdc}>{fmt(a.repairs)}</td>
+                  <td style={tdc}>{fmt(a.insurance)}</td>
+                  <td style={tdc}>{fmt(a.rego)}</td>
+                  <td style={{ ...tdc, textAlign:'center' }}>{a.services}</td>
+                  <td style={{ padding:'10px 14px', textAlign:'center', fontWeight:700, color:a.defects>2?TONE.danger.fg:a.defects>0?TONE.warning.fg:TONE.success.fg }}>{a.defects}</td>
+                  <td style={{ padding:'10px 14px', fontWeight:700, color:a.costPerKm>avgCpk*1.1?TONE.danger.fg:a.costPerKm<avgCpk*0.9?TONE.success.fg:T2 }}>${a.costPerKm.toFixed(2)}</td>
+                  <td style={{ padding:'10px 14px', fontWeight:700, color:T1 }}>{fmt(a.total)}</td>
                 </tr>
               ))}
             </tbody>
             <tfoot>
-              <tr style={{ background:'rgba(255,255,255,0.06)', borderTop:'2px solid rgba(255,255,255,0.08)' }}>
-                <td style={{ padding:'10px 14px', fontWeight:700, fontSize:10, textTransform:'uppercase', color:'rgba(255,255,255,0.5)', letterSpacing:'0.06em' }} colSpan={6}>Total</td>
-                <td style={{ padding:'10px 14px', color:'rgba(255,255,255,0.7)', fontSize:11 }}>{totalKm.toLocaleString()} km</td>
-                {(['wages','fuel','maintenance','repairs','insurance','rego'] as const).map(k=>(
-                  <td key={k} style={{ padding:'10px 14px', color:'rgba(255,255,255,0.7)', fontSize:11 }}>{fmt(view.reduce((s,a)=>s+a[k],0))}</td>
+              <tr style={{ background:'var(--bg-sunken)', borderTop:'2px solid var(--border-strong)' }}>
+                <td style={{ padding:'10px 14px', fontWeight:700, fontSize:11, textTransform:'uppercase', color:T2, letterSpacing:'0.06em' }} colSpan={6}>Total</td>
+                <td style={tfc}>{totalKm.toLocaleString()} km</td>
+                {COST_KEYS.map(k=>(
+                  <td key={k} style={tfc}>{fmt(view.reduce((s,a)=>s+a[k],0))}</td>
                 ))}
-                <td style={{ padding:'10px 14px', color:'rgba(255,255,255,0.7)', fontSize:11 }}>{view.reduce((s,a)=>s+a.services,0)}</td>
-                <td style={{ padding:'10px 14px', color:'rgba(255,255,255,0.7)', fontSize:11 }}>{totalDefects}</td>
-                <td style={{ padding:'10px 14px', color:'rgba(255,255,255,0.7)', fontSize:11 }}>${avgCpk.toFixed(2)}</td>
-                <td style={{ padding:'10px 14px', fontWeight:800, color:'#fff', fontSize:12 }}>{fmt(total)}</td>
+                <td style={tfc}>{view.reduce((s,a)=>s+a.services,0)}</td>
+                <td style={tfc}>{totalDefects}</td>
+                <td style={tfc}>${avgCpk.toFixed(2)}</td>
+                <td style={{ ...tfc, fontWeight:700, fontSize:12 }}>{fmt(total)}</td>
               </tr>
             </tfoot>
           </table>
@@ -589,6 +622,11 @@ export default function FleetClient({ dbAssets = [], uploadMeta = null, isDemo =
       </div>
     </>
   );
+
+  const lcTh: React.CSSProperties = { padding: '11px 14px', textAlign: 'left', fontSize: 11, color: T2, fontWeight: 600 };
+  const lcTd: React.CSSProperties = { padding: '11px 14px', color: T1 };
+  const cpkColor = (v: number) => v > 2.5 ? TONE.danger.fg : v > 0 ? TONE.success.fg : T3;
+  const tcoColors = [chart.palette.secondary, chart.palette.primary, chart.palette.warning, chart.palette.success, chart.palette.neutral];
 
   const industryTabs = [
     { label: 'Servicing', content: <ServicingTab data={svc}/> },
@@ -600,48 +638,48 @@ export default function FleetClient({ dbAssets = [], uploadMeta = null, isDemo =
       label: 'Lifecycle Cost',
       content: (
         <div>
-          <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, overflow: 'hidden', marginBottom: 20 }}>
+          <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', overflow: 'auto', marginBottom: 20 }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-              <thead><tr style={{ background: 'rgba(255,255,255,0.06)' }}>{['Asset','Type','Year','Purchase Cost','Fuel (YTD)','Maintenance','Insurance','Rego','Depreciation','Total TCO','$/km','Replacement'].map(h=><th key={h} style={{ padding: '11px 14px', textAlign: 'left', fontSize: 11, color: 'rgba(255,255,255,0.5)', fontWeight: 600 }}>{h}</th>)}</tr></thead>
-              <tbody>{LIFECYCLE_SAMPLE.map((a,i)=>(
-                <tr key={a.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', background: i%2===0?'transparent':'rgba(255,255,255,0.02)' }}>
-                  <td style={{ padding: '11px 14px', fontWeight: 700 }}>{a.id}</td>
-                  <td style={{ padding: '11px 14px', color: 'rgba(255,255,255,0.6)' }}>{a.type}</td>
-                  <td style={{ padding: '11px 14px' }}>{a.year}</td>
-                  <td style={{ padding: '11px 14px' }}>${a.purchaseCost.toLocaleString()}</td>
-                  <td style={{ padding: '11px 14px' }}>${a.fuel.toLocaleString()}</td>
-                  <td style={{ padding: '11px 14px' }}>${a.maintenance.toLocaleString()}</td>
-                  <td style={{ padding: '11px 14px' }}>${a.insurance.toLocaleString()}</td>
-                  <td style={{ padding: '11px 14px' }}>{a.rego?`$${a.rego.toLocaleString()}`:'—'}</td>
-                  <td style={{ padding: '11px 14px', color: '#fbbf24' }}>${a.depreciation.toLocaleString()}</td>
-                  <td style={{ padding: '11px 14px', fontWeight: 700, color: '#3b82f6' }}>${a.totalOwnership.toLocaleString()}</td>
-                  <td style={{ padding: '11px 14px', color: a.costPerKm > 2.5 ? '#f87171' : a.costPerKm > 0 ? '#4ade80' : 'rgba(255,255,255,0.4)' }}>{a.costPerKm > 0 ? `$${a.costPerKm}` : '—'}</td>
-                  <td style={{ padding: '11px 14px', color: a.replacementYear <= 2027 ? '#f87171' : '#e5e7eb' }}>{a.replacementYear}</td>
+              <thead><tr style={{ background: 'var(--bg-sunken)' }}>{['Asset','Type','Year','Purchase Cost','Fuel (YTD)','Maintenance','Insurance','Rego','Depreciation','Total TCO','$/km','Replacement'].map(h=><th key={h} scope="col" style={lcTh}>{h}</th>)}</tr></thead>
+              <tbody>{LIFECYCLE_SAMPLE.map(a=>(
+                <tr key={a.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                  <td style={{ ...lcTd, fontWeight: 700, fontFamily:'var(--bb-font-mono)' }}>{a.id}</td>
+                  <td style={{ ...lcTd, color: T2 }}>{a.type}</td>
+                  <td style={lcTd}>{a.year}</td>
+                  <td style={lcTd}>${a.purchaseCost.toLocaleString()}</td>
+                  <td style={lcTd}>${a.fuel.toLocaleString()}</td>
+                  <td style={lcTd}>${a.maintenance.toLocaleString()}</td>
+                  <td style={lcTd}>${a.insurance.toLocaleString()}</td>
+                  <td style={lcTd}>{a.rego?`$${a.rego.toLocaleString()}`:'—'}</td>
+                  <td style={{ ...lcTd, color: TONE.warning.fg }}>${a.depreciation.toLocaleString()}</td>
+                  <td style={{ ...lcTd, fontWeight: 700 }}>${a.totalOwnership.toLocaleString()}</td>
+                  <td style={{ ...lcTd, color: cpkColor(a.costPerKm) }}>{a.costPerKm > 0 ? `$${a.costPerKm}` : '—'}</td>
+                  <td style={{ ...lcTd, color: a.replacementYear <= 2027 ? TONE.danger.fg : T1, fontWeight: a.replacementYear <= 2027 ? 700 : 400 }}>{a.replacementYear}</td>
                 </tr>
               ))}</tbody>
             </table>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
-            <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, padding: 20 }}>
-              <h3 style={{ margin: '0 0 16px', fontSize: 14, fontWeight: 600 }}>TCO by Asset</h3>
+            <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: 20 }}>
+              <h2 style={{ margin: '0 0 16px', fontSize: 14, fontWeight: 600, color: T1 }}>TCO by Asset</h2>
               <ResponsiveContainer width="100%" height={220}>
                 <BarChart data={LIFECYCLE_SAMPLE}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                  <XAxis dataKey="id" tick={{ fill: 'rgba(255,255,255,0.4)', fontSize: 11 }} />
-                  <YAxis tickFormatter={v=>`$${(v/1000).toFixed(0)}k`} tick={{ fill: 'rgba(255,255,255,0.4)', fontSize: 11 }} />
-                  <Tooltip formatter={(v:unknown)=>`$${Number(v).toLocaleString()}`} contentStyle={{ background: '#1a1a2e', border: 'none', borderRadius: 8 }} />
-                  <Bar dataKey="totalOwnership" fill="#3b82f6" name="Total TCO" radius={[4, 4, 0, 0]} />
+                  <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} />
+                  <XAxis dataKey="id" tick={chart.tick} />
+                  <YAxis tickFormatter={v=>`$${(v/1000).toFixed(0)}k`} tick={chart.tick} />
+                  <Tooltip formatter={(v:unknown)=>`$${Number(v).toLocaleString()}`} {...chart.tooltip} />
+                  <Bar dataKey="totalOwnership" fill={chart.palette.primary} name="Total TCO" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
-            <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, padding: 20 }}>
-              <h3 style={{ margin: '0 0 16px', fontSize: 14, fontWeight: 600 }}>Cost Composition (TCO Split)</h3>
+            <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: 20 }}>
+              <h2 style={{ margin: '0 0 16px', fontSize: 14, fontWeight: 600, color: T1 }}>Cost Composition (TCO Split)</h2>
               <ResponsiveContainer width="100%" height={220}>
                 <PieChart>
-                  <Pie data={[{ name: 'Purchase', value: LIFECYCLE_SAMPLE.reduce((s,a)=>s+a.purchaseCost,0) }, { name: 'Fuel', value: LIFECYCLE_SAMPLE.reduce((s,a)=>s+a.fuel,0) }, { name: 'Maintenance', value: LIFECYCLE_SAMPLE.reduce((s,a)=>s+a.maintenance,0) }, { name: 'Insurance', value: LIFECYCLE_SAMPLE.reduce((s,a)=>s+a.insurance,0) }, { name: 'Depreciation', value: LIFECYCLE_SAMPLE.reduce((s,a)=>s+a.depreciation,0) }]} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label={({ name }) => name}>
-                    {[...Array(5)].map((_, i) => <Cell key={i} fill={['#6366f1','#3b82f6','#f59e0b','#10b981','#64748b'][i]} />)}
+                  <Pie data={[{ name: 'Purchase', value: LIFECYCLE_SAMPLE.reduce((s,a)=>s+a.purchaseCost,0) }, { name: 'Fuel', value: LIFECYCLE_SAMPLE.reduce((s,a)=>s+a.fuel,0) }, { name: 'Maintenance', value: LIFECYCLE_SAMPLE.reduce((s,a)=>s+a.maintenance,0) }, { name: 'Insurance', value: LIFECYCLE_SAMPLE.reduce((s,a)=>s+a.insurance,0) }, { name: 'Depreciation', value: LIFECYCLE_SAMPLE.reduce((s,a)=>s+a.depreciation,0) }]} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label={({ name }) => name} stroke={chart.palette.tooltipBg}>
+                    {[...Array(5)].map((_, i) => <Cell key={i} fill={tcoColors[i]} />)}
                   </Pie>
-                  <Tooltip formatter={(v:unknown)=>`$${Number(v).toLocaleString()}`} contentStyle={{ background: '#1a1a2e', border: 'none', borderRadius: 8 }} />
+                  <Tooltip formatter={(v:unknown)=>`$${Number(v).toLocaleString()}`} {...chart.tooltip} />
                 </PieChart>
               </ResponsiveContainer>
             </div>
@@ -654,33 +692,33 @@ export default function FleetClient({ dbAssets = [], uploadMeta = null, isDemo =
       content: (
         <div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(160px,1fr))', gap: 14, marginBottom: 20 }}>
-            {[['Due for Replacement', '2', 'Within 2 years', '#f87171'], ['High-Cost Assets', '2', 'Above $2.50/km', '#fbbf24'], ['Assets > 8 years', '1', 'TRK-002 (2016)', '#fbbf24'], ['EOFY Budget Required', '$523k', 'For 2 replacements', '#3b82f6']].map(([l, v, s, c]) => (
-              <div key={l as string} style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, padding: 16 }}>
-                <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', marginBottom: 6 }}>{l}</div>
-                <div style={{ fontSize: 24, fontWeight: 700, color: c as string }}>{v}</div>
-                <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: 3 }}>{s}</div>
+            {([['Due for Replacement', '2', 'Within 2 years', 'danger'], ['High-Cost Assets', '2', 'Above $2.50/km', 'warning'], ['Assets > 8 years', '1', 'TRK-002 (2016)', 'warning'], ['EOFY Budget Required', '$523k', 'For 2 replacements', 'info']] as [string, string, string, Tone][]).map(([l, v, s, c]) => (
+              <div key={l} style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderTop: `2px solid ${TONE[c].fg}`, borderRadius: 'var(--radius-lg)', padding: 16 }}>
+                <div style={{ fontSize: 11, color: T3, marginBottom: 6 }}>{l}</div>
+                <div style={{ fontSize: 24, fontWeight: 700, color: TONE[c].fg, fontVariantNumeric: 'tabular-nums' }}>{v}</div>
+                <div style={{ fontSize: 11, color: T3, marginTop: 3 }}>{s}</div>
               </div>
             ))}
           </div>
-          <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, overflow: 'hidden' }}>
+          <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', overflow: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-              <thead><tr style={{ background: 'rgba(255,255,255,0.06)' }}>{['Asset','Type','Year','Age (yrs)','TCO','$/km','Maint Cost','Replacement Year','Priority','Recommendation'].map(h=><th key={h} style={{ padding: '11px 14px', textAlign: 'left', fontSize: 11, color: 'rgba(255,255,255,0.5)', fontWeight: 600 }}>{h}</th>)}</tr></thead>
-              <tbody>{LIFECYCLE_SAMPLE.map((a,i) => {
+              <thead><tr style={{ background: 'var(--bg-sunken)' }}>{['Asset','Type','Year','Age (yrs)','TCO','$/km','Maint Cost','Replacement Year','Priority','Recommendation'].map(h=><th key={h} scope="col" style={lcTh}>{h}</th>)}</tr></thead>
+              <tbody>{LIFECYCLE_SAMPLE.map(a => {
                 const age = 2026 - a.year;
                 const priority = a.replacementYear <= 2027 ? 'Urgent' : a.replacementYear <= 2029 ? 'Planned' : 'Monitor';
                 const rec = a.costPerKm > 3 ? 'Replace — high $/km' : age > 7 ? 'Replace — age + maintenance risk' : age > 5 ? 'Monitor — approaching end of life' : 'Keep — within useful life';
                 return (
-                  <tr key={a.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', background: i%2===0?'transparent':'rgba(255,255,255,0.02)' }}>
-                    <td style={{ padding: '11px 14px', fontWeight: 700 }}>{a.id}</td>
-                    <td style={{ padding: '11px 14px', color: 'rgba(255,255,255,0.6)' }}>{a.type}</td>
-                    <td style={{ padding: '11px 14px' }}>{a.year}</td>
-                    <td style={{ padding: '11px 14px', color: age > 7 ? '#f87171' : '#e5e7eb' }}>{age}</td>
-                    <td style={{ padding: '11px 14px', fontWeight: 600 }}>${a.totalOwnership.toLocaleString()}</td>
-                    <td style={{ padding: '11px 14px', color: a.costPerKm > 2.5 ? '#f87171' : a.costPerKm > 0 ? '#4ade80' : 'rgba(255,255,255,0.4)' }}>{a.costPerKm > 0 ? `$${a.costPerKm}` : '—'}</td>
-                    <td style={{ padding: '11px 14px' }}>${a.maintenance.toLocaleString()}</td>
-                    <td style={{ padding: '11px 14px' }}>{a.replacementYear}</td>
-                    <td style={{ padding: '11px 14px' }}><span style={{ padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600, background: priority === 'Urgent' ? 'rgba(248,113,113,0.15)' : priority === 'Planned' ? 'rgba(251,191,36,0.15)' : 'rgba(74,222,128,0.15)', color: priority === 'Urgent' ? '#f87171' : priority === 'Planned' ? '#fbbf24' : '#4ade80' }}>{priority}</span></td>
-                    <td style={{ padding: '11px 14px', fontSize: 12, color: rec.includes('Replace') ? '#f87171' : 'rgba(255,255,255,0.6)' }}>{rec}</td>
+                  <tr key={a.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                    <td style={{ ...lcTd, fontWeight: 700, fontFamily:'var(--bb-font-mono)' }}>{a.id}</td>
+                    <td style={{ ...lcTd, color: T2 }}>{a.type}</td>
+                    <td style={lcTd}>{a.year}</td>
+                    <td style={{ ...lcTd, color: age > 7 ? TONE.danger.fg : T1, fontWeight: age > 7 ? 700 : 400 }}>{age}</td>
+                    <td style={{ ...lcTd, fontWeight: 600 }}>${a.totalOwnership.toLocaleString()}</td>
+                    <td style={{ ...lcTd, color: cpkColor(a.costPerKm) }}>{a.costPerKm > 0 ? `$${a.costPerKm}` : '—'}</td>
+                    <td style={lcTd}>${a.maintenance.toLocaleString()}</td>
+                    <td style={lcTd}>{a.replacementYear}</td>
+                    <td style={lcTd}><Badge label={priority} tone={priority === 'Urgent' ? 'danger' : priority === 'Planned' ? 'warning' : 'success'}/></td>
+                    <td style={{ ...lcTd, fontSize: 12, color: rec.includes('Replace') ? TONE.danger.fg : T2 }}>{rec}</td>
                   </tr>
                 );
               })}</tbody>
@@ -693,11 +731,10 @@ export default function FleetClient({ dbAssets = [], uploadMeta = null, isDemo =
 
   return (
     <DashboardShell
-      theme="dark"
       title="Fleet Management"
       subtitle="Asset lifecycle costing · Fuel & utilisation · Maintenance · HR & labour · Geofence"
-      headerColor="#1E1B4B"
-      accentColor="#7C3AED"
+      headerColor="#0c4a6e"
+      accentColor="#c2410c"
       breadcrumbLabel="Fleet Management"
       kpis={kpis}
       recommendedActions={[

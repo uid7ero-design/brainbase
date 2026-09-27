@@ -4,7 +4,8 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend,
   CartesianGrid, LineChart, Line, Cell,
 } from "recharts";
-import { KpiCard, Insight, SectionHeader, T1, T2, T3, BORDER, ROW_BDR, ROW_HEAD, GRID, TICK, DTT, DC, PAGE } from "../_dark";
+import { KpiCard, Insight, SectionHeader, T1, T2, T3, BORDER, ROW_BDR, ROW_HEAD, DC, PAGE, legendText, useWasteChart } from "../_dark";
+import styles from "../WasteModule.module.css";
 
 const CATEGORIES = [
   { category: "Missed Collection",     count: 156, resolved: 148, avgDays: 1.2, color: "#ef4444" },
@@ -39,6 +40,7 @@ const MONTHLY = [
 ];
 
 export default function ComplaintsPage() {
+  const chart = useWasteChart();
   const totalRequests  = CATEGORIES.reduce((s, r) => s + r.count, 0);
   const totalResolved  = CATEGORIES.reduce((s, r) => s + r.resolved, 0);
   const totalOpen      = totalRequests - totalResolved;
@@ -53,14 +55,14 @@ export default function ComplaintsPage() {
     <div style={PAGE}>
       <p style={{ fontSize: 13, color: T3, margin: 0 }}>Period: {today}</p>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 20 }}>
-        <KpiCard label="Total Service Requests" value={totalRequests.toLocaleString()}    sub="All types this period"                    accent="#3b82f6" />
-        <KpiCard label="Requests per 1,000 HH"  value={per1000hh}                         sub="Target ≤ 10 per 1,000 HH"                 accent={per1000hh <= 10 ? "#10b981" : "#ef4444"} />
-        <KpiCard label="Open / Unresolved"       value={totalOpen}                         sub={`${totalResolved} resolved (${Math.round(totalResolved/totalRequests*100)}%)`} accent={totalOpen > 20 ? "#ef4444" : "#10b981"} />
-        <KpiCard label="Avg Resolution Time"     value={`${avgResolution} days`}           sub="Target ≤ 3 days"                          accent={avgResolution <= 3 ? "#10b981" : "#f59e0b"} />
+      <div className={styles.kpiGrid}>
+        <KpiCard label="Total Service Requests" value={totalRequests.toLocaleString()}    sub="All types this period"                    accent={chart.series("#3b82f6")} />
+        <KpiCard label="Requests per 1,000 HH"  value={per1000hh}                         sub="Target ≤ 10 per 1,000 HH"                 accent={chart.series(per1000hh <= 10 ? "#10b981" : "#ef4444")} />
+        <KpiCard label="Open / Unresolved"       value={totalOpen}                         sub={`${totalResolved} resolved (${Math.round(totalResolved/totalRequests*100)}%)`} accent={chart.series(totalOpen > 20 ? "#ef4444" : "#10b981")} />
+        <KpiCard label="Avg Resolution Time"     value={`${avgResolution} days`}           sub="Target ≤ 3 days"                          accent={chart.series(avgResolution <= 3 ? "#10b981" : "#f59e0b")} />
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 20 }}>
+      <div className={styles.grid3}>
         <Insight icon="📋" color="red"
           title={`Missed collections = ${Math.round(156/totalRequests*100)}% of all requests`}
           body={`156 missed collection reports this period. The majority (${ZONE_COMPLAINTS.filter(z => z.missed > 15).map(z => z.zone).join(", ")}) are concentrated in high-density zones — review route capacity.`}
@@ -75,18 +77,18 @@ export default function ComplaintsPage() {
         />
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
+      <div className={styles.grid2}>
         <div style={DC}>
           <SectionHeader title="Requests by Type" sub="Volume and resolution rate this period" />
           <ResponsiveContainer width="100%" height={280}>
             <BarChart data={CATEGORIES} layout="vertical" margin={{ left: 12 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke={GRID} horizontal={false} />
-              <XAxis type="number" tick={{ fill: TICK, fontSize: 11 }} axisLine={false} tickLine={false} />
-              <YAxis type="category" dataKey="category" width={145} tick={{ fill: TICK, fontSize: 11 }} axisLine={false} tickLine={false} />
-              <Tooltip contentStyle={DTT} />
-              <Legend wrapperStyle={{ fontSize: 12, color: T2 }} />
-              <Bar dataKey="resolved" name="Resolved" stackId="a" fill="#10b981" radius={[0,0,0,0]} />
-              <Bar dataKey="open"     name="Open"     stackId="a" fill="#ef4444" radius={[0,4,4,0]} />
+              <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} horizontal={false} />
+              <XAxis type="number" tick={{ fill: chart.tick.fill, fontSize: 11 }} axisLine={false} tickLine={false} />
+              <YAxis type="category" dataKey="category" width={145} tick={{ fill: chart.tick.fill, fontSize: 11 }} axisLine={false} tickLine={false} />
+              <Tooltip {...chart.tooltip} />
+              <Legend wrapperStyle={{ fontSize: 12 }} formatter={legendText} />
+              <Bar dataKey="resolved" name="Resolved" stackId="a" fill={chart.series("#10b981")} radius={[0,0,0,0]} />
+              <Bar dataKey="open"     name="Open"     stackId="a" fill={chart.series("#ef4444")} radius={[0,4,4,0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -95,13 +97,13 @@ export default function ComplaintsPage() {
           <SectionHeader title="Monthly Request Volume" sub="Total received vs resolved Oct 2025 – Mar 2026" />
           <ResponsiveContainer width="100%" height={280}>
             <LineChart data={MONTHLY}>
-              <CartesianGrid strokeDasharray="3 3" stroke={GRID} />
-              <XAxis dataKey="month" tick={{ fill: TICK, fontSize: 11 }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fill: TICK, fontSize: 11 }} axisLine={false} tickLine={false} />
-              <Tooltip contentStyle={DTT} />
-              <Legend wrapperStyle={{ fontSize: 12, color: T2 }} />
-              <Line type="monotone" dataKey="requests" name="Received" stroke="#ef4444" strokeWidth={2} dot={{ r: 4 }} />
-              <Line type="monotone" dataKey="resolved" name="Resolved" stroke="#10b981" strokeWidth={2} dot={{ r: 4 }} />
+              <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} />
+              <XAxis dataKey="month" tick={{ fill: chart.tick.fill, fontSize: 11 }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fill: chart.tick.fill, fontSize: 11 }} axisLine={false} tickLine={false} />
+              <Tooltip {...chart.tooltip} />
+              <Legend wrapperStyle={{ fontSize: 12 }} formatter={legendText} />
+              <Line type="monotone" dataKey="requests" name="Received" stroke={chart.series("#ef4444")} strokeWidth={2} dot={{ r: 4 }} />
+              <Line type="monotone" dataKey="resolved" name="Resolved" stroke={chart.series("#10b981")} strokeWidth={2} dot={{ r: 4 }} />
             </LineChart>
           </ResponsiveContainer>
         </div>
@@ -111,19 +113,19 @@ export default function ComplaintsPage() {
         <SectionHeader title="Complaints by Zone" sub="Missed collections, bin damage and other — per 1,000 households" />
         <ResponsiveContainer width="100%" height={260}>
           <BarChart data={ZONE_COMPLAINTS} barCategoryGap="20%">
-            <CartesianGrid strokeDasharray="3 3" stroke={GRID} vertical={false} />
-            <XAxis dataKey="zone" tick={{ fill: TICK, fontSize: 11 }} axisLine={false} tickLine={false} />
-            <YAxis tick={{ fill: TICK, fontSize: 11 }} axisLine={false} tickLine={false} />
-            <Tooltip contentStyle={DTT} />
-            <Legend wrapperStyle={{ fontSize: 12, color: T2 }} />
-            <Bar dataKey="missed" name="Missed Collection" stackId="a" fill="#ef4444" />
-            <Bar dataKey="damage" name="Bin Damage"        stackId="a" fill="#f59e0b" />
-            <Bar dataKey="other"  name="Other"             stackId="a" fill="rgba(255,255,255,0.25)" radius={[3,3,0,0]} />
+            <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} vertical={false} />
+            <XAxis dataKey="zone" tick={{ fill: chart.tick.fill, fontSize: 11 }} axisLine={false} tickLine={false} />
+            <YAxis tick={{ fill: chart.tick.fill, fontSize: 11 }} axisLine={false} tickLine={false} />
+            <Tooltip {...chart.tooltip} />
+            <Legend wrapperStyle={{ fontSize: 12 }} formatter={legendText} />
+            <Bar dataKey="missed" name="Missed Collection" stackId="a" fill={chart.series("#ef4444")} />
+            <Bar dataKey="damage" name="Bin Damage"        stackId="a" fill={chart.series("#f59e0b")} />
+            <Bar dataKey="other"  name="Other"             stackId="a" fill={chart.palette.neutral} radius={[3,3,0,0]} />
           </BarChart>
         </ResponsiveContainer>
       </div>
 
-      <div style={{ ...DC, padding: 0, overflow: "hidden" }}>
+      <div style={{ ...DC, padding: 0, overflowX: "auto" }}>
         <div style={{ padding: "16px 20px", borderBottom: `1px solid ${BORDER}` }}>
           <SectionHeader title="Request Category Summary" />
         </div>
@@ -131,7 +133,7 @@ export default function ComplaintsPage() {
           <thead>
             <tr style={{ background: ROW_HEAD }}>
               {["Category","Received","Resolved","Open","Resolution Rate","Avg Days to Resolve"].map((h, i) => (
-                <th key={h} style={{ padding: "10px 14px", fontWeight: 600, fontSize: 10, color: T3, textTransform: "uppercase", letterSpacing: ".06em", textAlign: i === 0 ? "left" : "right" }}>{h}</th>
+                <th key={h} scope="col" style={{ padding: "10px 14px", fontWeight: 600, fontSize: 11, color: T3, textTransform: "uppercase", letterSpacing: ".06em", textAlign: i === 0 ? "left" : "right" }}>{h}</th>
               ))}
             </tr>
           </thead>
@@ -140,24 +142,24 @@ export default function ComplaintsPage() {
               <tr key={i} style={{ borderTop: `1px solid ${ROW_BDR}` }}>
                 <td style={{ padding: "10px 14px", color: T1, fontWeight: 500 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <div style={{ width: 8, height: 8, borderRadius: "50%", background: r.color, flexShrink: 0 }} />
+                    <div style={{ width: 8, height: 8, borderRadius: "50%", background: chart.series(r.color), flexShrink: 0 }} />
                     {r.category}
                   </div>
                 </td>
                 <td style={{ padding: "10px 14px", textAlign: "right", color: T2 }}>{r.count}</td>
-                <td style={{ padding: "10px 14px", textAlign: "right", color: "#4ade80" }}>{r.resolved}</td>
-                <td style={{ padding: "10px 14px", textAlign: "right" }}><span style={{ color: r.open > 5 ? "#f87171" : T2, fontWeight: r.open > 5 ? 600 : 400 }}>{r.open}</span></td>
-                <td style={{ padding: "10px 14px", textAlign: "right" }}><span style={{ fontWeight: 600, color: r.resolutionRate >= 90 ? "#4ade80" : "#f59e0b" }}>{r.resolutionRate}%</span></td>
-                <td style={{ padding: "10px 14px", textAlign: "right" }}><span style={{ color: r.avgDays <= 3 ? "#4ade80" : "#f59e0b" }}>{r.avgDays} days</span></td>
+                <td style={{ padding: "10px 14px", textAlign: "right", color: "var(--status-success)" }}>{r.resolved}</td>
+                <td style={{ padding: "10px 14px", textAlign: "right" }}><span style={{ color: r.open > 5 ? "var(--status-danger)" : T2, fontWeight: r.open > 5 ? 600 : 400 }}>{r.open}</span></td>
+                <td style={{ padding: "10px 14px", textAlign: "right" }}><span style={{ fontWeight: 600, color: r.resolutionRate >= 90 ? "var(--status-success)" : "var(--status-warning)" }}>{r.resolutionRate}%</span></td>
+                <td style={{ padding: "10px 14px", textAlign: "right" }}><span style={{ color: r.avgDays <= 3 ? "var(--status-success)" : "var(--status-warning)" }}>{r.avgDays} days</span></td>
               </tr>
             ))}
           </tbody>
           <tfoot>
-            <tr style={{ background: ROW_HEAD, borderTop: `2px solid rgba(255,255,255,0.1)` }}>
+            <tr style={{ background: ROW_HEAD, borderTop: `2px solid var(--border-strong)` }}>
               <td style={{ padding: "10px 14px", color: T1, fontWeight: 600 }}>Total</td>
               <td style={{ padding: "10px 14px", textAlign: "right", color: T1, fontWeight: 600 }}>{totalRequests}</td>
-              <td style={{ padding: "10px 14px", textAlign: "right", color: "#4ade80", fontWeight: 600 }}>{totalResolved}</td>
-              <td style={{ padding: "10px 14px", textAlign: "right", color: "#f87171", fontWeight: 600 }}>{totalOpen}</td>
+              <td style={{ padding: "10px 14px", textAlign: "right", color: "var(--status-success)", fontWeight: 600 }}>{totalResolved}</td>
+              <td style={{ padding: "10px 14px", textAlign: "right", color: "var(--status-danger)", fontWeight: 600 }}>{totalOpen}</td>
               <td style={{ padding: "10px 14px", textAlign: "right", color: T1, fontWeight: 600 }}>{Math.round(totalResolved/totalRequests*100)}%</td>
               <td style={{ padding: "10px 14px", textAlign: "right", color: T2 }}>{avgResolution} days</td>
             </tr>

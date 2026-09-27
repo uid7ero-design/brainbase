@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import styles from "./WasteModule.module.css";
 
 const TABS = [
   { label: "Overview",         href: "/dashboard/waste" },
@@ -20,25 +21,23 @@ const TABS = [
 export default function NavTabs() {
   const pathname = usePathname();
   return (
-    <div className="overflow-x-auto mt-5 border-b border-white/10">
-      <div className="flex gap-0.5 min-w-max">
+    <nav className={styles.tabsNav} aria-label="Waste & Recycling sections">
+      <ul className={styles.tabList}>
         {TABS.map(tab => {
           const active = pathname === tab.href;
           return (
-            <Link
-              key={tab.href}
-              href={tab.href}
-              className={`px-4 py-2 text-xs font-medium rounded-t-lg whitespace-nowrap transition-colors ${
-                active
-                  ? "bg-slate-50 text-slate-900"
-                  : "text-slate-400 hover:text-white hover:bg-white/10"
-              }`}
-            >
-              {tab.label}
-            </Link>
+            <li key={tab.href}>
+              <Link
+                href={tab.href}
+                className={styles.tab}
+                aria-current={active ? "page" : undefined}
+              >
+                {tab.label}
+              </Link>
+            </li>
           );
         })}
-      </div>
-    </div>
+      </ul>
+    </nav>
   );
 }
