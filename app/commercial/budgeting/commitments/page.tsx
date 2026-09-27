@@ -202,9 +202,24 @@ export default function BudgetCommitmentsPage() {
     });
   }
 
-  if (loading) return <div style={{ color: MUTED }}>Loading Budget vs Actual…</div>;
-  if (error) return <div style={{ color: '#f87171' }}>{error}</div>;
-  if (!report) return <div style={{ color: MUTED }}>No Budget consumption report is available.</div>;
+  if (loading) return (
+    <>
+      <div style={{ color: MUTED }}>Loading Budget vs Actual…</div>
+      <BudgetExportControls legacyAvailable={false} financeAvailable={false} disabledReason="Report is still loading." />
+    </>
+  );
+  if (error) return (
+    <>
+      <div style={{ color: '#f87171' }}>{error}</div>
+      <BudgetExportControls legacyAvailable={false} financeAvailable={false} disabledReason="Exports are unavailable because the report could not be loaded." />
+    </>
+  );
+  if (!report) return (
+    <>
+      <div style={{ color: MUTED }}>No Budget consumption report is available.</div>
+      <BudgetExportControls legacyAvailable={false} financeAvailable={false} disabledReason="No report data is available to export." />
+    </>
+  );
 
   return (
     <div style={{ maxWidth: 1450 }}>
@@ -218,6 +233,11 @@ export default function BudgetCommitmentsPage() {
           This is a Budget-management view, not statutory ledger or cash accounting.
         </p>
       </div>
+
+      <BudgetExportControls
+        legacyAvailable={rows.length > 0}
+        financeAvailable={financeRows.length > 0}
+      />
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(180px, 1fr))', gap: 10, marginBottom: 18 }}>
         <StateCard label="Resolved Actual lines" value={report.resolvedActualCount} tone="#60a5fa" />
@@ -360,6 +380,79 @@ export default function BudgetCommitmentsPage() {
         )}
       </section>
     </div>
+  );
+}
+
+export function BudgetExportControls({
+  legacyAvailable,
+  financeAvailable,
+  disabledReason = null,
+}: {
+  legacyAvailable: boolean;
+  financeAvailable: boolean;
+  disabledReason?: string | null;
+}) {
+  const controls = [
+    {
+      key: 'legacy',
+      label: 'Download legacy CSV',
+      available: legacyAvailable,
+      href: '/api/commercial/budgeting/consumption/export?view=legacy',
+      filename: 'brainbase-budget-consumption.csv',
+    },
+    {
+      key: 'finance',
+      label: 'Download finance CSV',
+      available: financeAvailable,
+      href: '/api/commercial/budgeting/consumption/export?view=finance',
+      filename: 'brainbase-budget-finance.csv',
+    },
+  ];
+
+  return (
+    <section
+      aria-label="Budget exports"
+      style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 18 }}
+    >
+      {controls.map(control => control.available ? (
+        <a
+          key={control.key}
+          href={control.href}
+          download={control.filename}
+          data-export-view={control.key}
+          style={{
+            border: `1px solid ${BORDER}`,
+            borderRadius: 7,
+            padding: '7px 10px',
+            color: '#d1d5db',
+            textDecoration: 'none',
+            fontSize: 12,
+          }}
+        >
+          {control.label}
+        </a>
+      ) : (
+        <span
+          key={control.key}
+          aria-disabled="true"
+          data-export-view={control.key}
+          data-export-filename={control.filename}
+          style={{
+            border: `1px solid ${BORDER}`,
+            borderRadius: 7,
+            padding: '7px 10px',
+            color: '#6b7280',
+            fontSize: 12,
+            cursor: 'not-allowed',
+          }}
+        >
+          {control.label}
+        </span>
+      ))}
+      {disabledReason ? (
+        <span role="status" style={{ fontSize: 11, color: '#fbbf24' }}>{disabledReason}</span>
+      ) : null}
+    </section>
   );
 }
 
