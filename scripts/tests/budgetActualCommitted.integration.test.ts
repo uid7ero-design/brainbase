@@ -49,6 +49,7 @@ const sqlMock = Object.assign(
 vi.doMock('@/lib/db', () => ({ default: sqlMock }));
 
 const { getBudgetActualCommittedReport } = await import('@/lib/commercial/budgetActualCommitted');
+const { buildBudgetConsumptionCsvExports } = await import('@/lib/commercial/budgetConsumptionExport');
 const { FinanceAdjustedTable } = await import('@/app/commercial/budgeting/commitments/page');
 
 const ORG = 'org-c78c';
@@ -391,6 +392,13 @@ describe('C7.8C — real PostgreSQL snapshot-safe combined consumption', () => {
     }));
     expect((nullGlHtml.match(/—/g) ?? []).length).toBeGreaterThanOrEqual(3);
 
+    const nullGlExport = buildBudgetConsumptionCsvExports(wrongSource);
+    expect(nullGlExport.legacyRowsCsv).toContain('OPEX');
+    expect(nullGlExport.legacyRowsCsv).toContain(',2750,8250,11000,');
+    expect(nullGlExport.financeRowsCsv).toContain(
+      'OPEX,Operating,FY26,September,AUD,20000,2750,250,3000,8250,11250,,,,other-ledger',
+    );
+
     await prisma.$executeRawUnsafe(
       `UPDATE commercial_finance_reconciliations
        SET status='STALE'
@@ -407,5 +415,10 @@ describe('C7.8C — real PostgreSQL snapshot-safe combined consumption', () => {
     expect(staleHtml).toContain('>STALE<');
     expect(staleHtml).toContain('$30.50');
     expect(staleHtml).toContain('-$0.50');
+
+    const staleExport = buildBudgetConsumptionCsvExports(staleReport);
+    expect(staleExport.legacyRowsCsv).toBe(nullGlExport.legacyRowsCsv);
+    expect(staleExport.financeRowsCsv).toContain(',3050,');
+    expect(staleExport.financeRowsCsv).toContain("'-50,STALE,xero");
   });
 });
